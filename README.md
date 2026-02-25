@@ -65,13 +65,33 @@ nano-multiagent/
 │     │     ├─ base.py
 │     │     ├─ sqlite_store.py
 │     │     └─ jsonl_store.py
+│     ├─ cluster/
+│     │  ├─ registry.py
+│     │  ├─ client.py
+│     │  └─ auth.py
+│     ├─ server/
+│     │  ├─ app.py
+│     │  ├─ deps.py
+│     │  ├─ auth.py
+│     │  ├─ sse.py
+│     │  └─ routes/
+│     │     ├─ global.py
+│     │     ├─ session.py
+│     │     ├─ run.py
+│     │     ├─ tool.py
+│     │     └─ cluster.py
 │     ├─ observability/
 │     │  ├─ logger.py
 │     │  └─ tracing.py
+│     ├─ sdk/
+│     │  └─ client.py
 │     └─ cli/
 │        ├─ main.py
-│        └─ commands.py
+│        ├─ commands.py
+│        └─ http_client.py
 └─ tests/
+   ├─ server/
+   ├─ cluster/
    ├─ agent/
    ├─ llm/
    ├─ tools/
@@ -162,24 +182,41 @@ nano-multiagent/
 ### 3.8 `cli/`
 
 - 薄入口层
-- 用户输入 -> 调用 `agent.runtime`
+- 用户输入 -> 调用 `sdk.client` -> HTTP 请求 `server`
 - 渲染流式事件与最终响应
-- 不嵌入运行时核心逻辑。
+- 不嵌入运行时核心逻辑，不允许直接 import `agent.runtime`
+
+### 3.9 `server/`（HTTP 接口层，必须有）
+
+- 对外暴露统一 API（OpenAPI + SSE）
+- 参数校验、鉴权、限流、幂等控制、错误映射
+- 将 HTTP 请求转换为对 `agent.runtime`、`session.manager`、`tools.registry` 的调用
+- 对 CLI、Web/Gateway、其他机器上的 Agent 提供一致接口
+- 规则：`server` 不承载业务决策，不实现 Agent Loop，仅做协议适配与编排入口
+
+### 3.10 `cluster/`（跨机器协同层）
+
+- `registry.py`：维护同团队 Agent 节点发现信息（静态配置或注册中心）
+- `client.py`：提供跨机任务调用能力，供上层编排工具或服务调用
+- `auth.py`：节点间鉴权（token/mTLS/签名）
+- 规则：跨机调用必须通过 `cluster.client`，禁止在业务代码中散落 HTTP 请求
 
 ## 4. 依赖方向（必须保持）
 
-1. `cli -> agent -> (llm.interfaces, tools.registry, session.manager, core)`
-2. `agent.compaction -> (llm.interfaces, session.manager, core)`
-3. `llm.protocols -> llm.interfaces + core`
-4. `tools.* -> core`
-5. `session.* -> core`
-6. `core` 不依赖任何上层模块
+1. `cli -> sdk.client -> server`
+2. `server -> (agent, llm.interfaces, tools.registry, session.manager, cluster, core)`
+3. `agent.compaction -> (llm.interfaces, session.manager, core)`
+4. `cluster.client -> remote server`
+5. `llm.protocols -> llm.interfaces + core`
+6. `tools.* -> core`
+7. `session.* -> core`
+8. `core` 不依赖任何上层模块
 
 若破坏该方向，provider 细节和存储细节会反向污染运行时，扩展性会快速退化。
 
-## 5. 对上层统一的 Runtime API
+## 5. 内核 Runtime API（内部）
 
-上层应用只应感知一个接口：
+HTTP 层以下保持统一 Runtime 接口，供 `server` 调用：
 
 ```python
 class AgentRuntime:
@@ -195,15 +232,111 @@ provider: openai_compat   # 或 anthropic
 model: gpt-4.1-mini
 ```
 
-切换 provider 时，上层业务代码不改。
+切换 provider 时，不需要改 `server/cli/web` 代码。
 
-## 6. 时序图（一轮完整交互，含压缩与可选工具调用）
+## 6. 对外 HTTP API 设计（v1）
+
+### 6.0 统一约定（所有接口）
+
+- 鉴权：`Authorization: Bearer <token>`
+- 多租户：`X-Team-Id: <team_id>`
+- 请求追踪：`X-Request-Id`，响应回传 `trace_id`
+- 幂等：创建类 `POST` 支持 `Idempotency-Key`
+- 错误格式统一：
+  - `{ "error": { "code": "...", "message": "...", "retryable": false, "trace_id": "..." } }`
+
+### 6.1 全局
+
+- `GET /v1/health`
+  - 用途：健康检查
+  - 返回：`{ healthy: true, version: string, node_id: string }`
+- `GET /v1/capabilities`
+  - 用途：查询当前节点支持的模型与工具
+- `GET /v1/openapi.json`
+  - 用途：供 CLI/Web 自动生成客户端
+
+### 6.2 会话与消息（主入口）
+
+- 说明：用户/前端只应调用本节接口；跨 Agent 协同不作为用户直接入口。
+
+- `POST /v1/sessions`
+  - 用途：创建会话
+  - body：`{ team_id, agent_id?, title?, metadata? }`
+- `GET /v1/sessions`
+  - 用途：查询会话列表
+- `GET /v1/sessions/{session_id}`
+  - 用途：读取会话详情
+- `PATCH /v1/sessions/{session_id}`
+  - 用途：更新会话标题、归档状态等
+- `POST /v1/sessions/{session_id}/messages`
+  - 用途：发送消息并同步等待最终答复
+  - body：`{ message_id?, parts, model?, agent?, stream? }`
+- `POST /v1/sessions/{session_id}/messages:async`
+  - 用途：异步提交消息
+  - 返回：`202 { run_id }`
+- `GET /v1/sessions/{session_id}/messages`
+  - 用途：分页读取消息
+- `POST /v1/sessions/{session_id}/abort`
+  - 用途：中断当前运行
+- `POST /v1/sessions/{session_id}/compact`
+  - 用途：手动触发压缩
+
+### 6.3 运行与事件流（SSE）
+
+- `GET /v1/events`
+  - 用途：全局事件流
+- `GET /v1/sessions/{session_id}/events`
+  - 用途：会话级事件流（`text_delta/tool_start/tool_end/turn_end/...`）
+- `GET /v1/runs/{run_id}`
+  - 用途：查询异步运行状态
+- `POST /v1/runs/{run_id}/cancel`
+  - 用途：取消异步运行
+
+### 6.4 工具与扩展
+
+- `GET /v1/tools`
+  - 用途：查询可用工具与 schema（内置四个：`read/write/edit/bash`）
+- `POST /v1/tools/register`
+  - 用途：注册工具（本地插件或 MCP 映射）
+- `DELETE /v1/tools/{tool_name}`
+  - 用途：卸载工具
+
+### 6.5 跨机器 Agent 调用（内核间接口，非用户主入口）
+
+- 说明：本节接口供 `task` 工具与 `cluster.client` 在内核内部调用。
+- 说明：用户请求仍通过 `6.2` 的 `sessions/messages` 进入，由 Agent 在 loop 中决定是否调用 `task`。
+
+- `GET /v1/teams/{team_id}/agents`
+  - 用途：同团队 agent 发现
+- `POST /v1/agent-tasks`
+  - 用途：由内核拉起目标 Agent 执行任务（同机或远程）
+  - body：
+    - `team_id`
+    - `target_agent_id`
+    - `mode`：`blocking | non_blocking`
+    - `prompt`
+    - `context_ref?`
+    - `timeout_sec?`
+    - `idempotency_key?`
+- `GET /v1/agent-tasks/{task_id}`
+  - 用途：查询任务状态与结果
+- `POST /v1/agent-tasks/{task_id}/cancel`
+  - 用途：取消任务
+- `GET /v1/agent-tasks/{task_id}/events`
+  - 用途：订阅任务事件流
+
+## 7. 时序图（前后端分离）
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User
-    participant App as "CLI/Service App"
+    actor User as "User"
+    box "Frontend"
+    participant FE as "CLI/Web/Gateway"
+    participant SDK as "sdk.client"
+    end
+    box "Backend"
+    participant API as "HTTP Server"
     participant Sess as "SessionManager"
     participant RT as "AgentRuntime"
     participant CMP as "CompactionManager"
@@ -213,12 +346,15 @@ sequenceDiagram
     participant Reg as "ToolRegistry"
     participant Tool as "read/write/edit/bash"
     participant Store as "SessionStore"
+    end
 
-    User->>App: prompt("fix this file")
-    App->>Sess: load_or_create_session()
+    User->>FE: input(prompt)
+    FE->>SDK: send_message(session_id, prompt)
+    SDK->>API: POST /v1/sessions/{id}/messages
+    API->>Sess: load_or_create_session()
     Sess->>Store: read session state
     Store-->>Sess: state snapshot
-    App->>RT: run(session_id, user_text, stream=True)
+    API->>RT: run(session_id, user_text, stream=True)
     RT->>Store: append user message event
     RT->>CMP: preflight_check(state)
     alt 接近上下文上限（threshold）
@@ -249,7 +385,7 @@ sequenceDiagram
             LLM-->>RT: assistant final text
             RT->>Store: append assistant message
         end
-        RT-->>App: final response
+        RT-->>API: final response
     else 模型触发工具调用
         RT->>Reg: execute(tool_name, args)
         Reg->>Tool: run(args, ctx)
@@ -260,11 +396,95 @@ sequenceDiagram
         LLM-->>RT: assistant final text
         RT->>Store: append assistant message
         RT->>CMP: post_turn_check(usage)
-        RT-->>App: final response
+        RT-->>API: final response
     end
+    API-->>SDK: response(JSON)
+    SDK-->>FE: parsed result
+    FE-->>User: render response
 ```
 
-## 7. 类图（核心对象与扩展点）
+### 7.1 流式事件（SSE）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as "User"
+    box "Frontend"
+    participant FE as "CLI/Web/Gateway"
+    participant SDK as "sdk.client"
+    end
+    box "Backend"
+    participant API as "HTTP Server"
+    participant RT as "AgentRuntime"
+    end
+
+    User->>FE: send prompt
+    FE->>SDK: open_stream(session_id)
+    SDK->>API: GET /v1/sessions/{id}/events (SSE)
+    FE->>SDK: submit message
+    SDK->>API: POST /v1/sessions/{id}/messages:async
+    API->>RT: enqueue run
+    RT-->>API: text_delta/tool_start/tool_end/turn_end
+    API-->>SDK: SSE events
+    SDK-->>FE: normalized events
+    FE-->>User: incremental render
+```
+
+### 7.2 `task` 作为普通工具（同机 C / 远程 B）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as "User"
+    box "Frontend"
+    participant FE as "CLI/Web/Gateway"
+    participant SDK as "sdk.client"
+    end
+    box "Backend (Agent A Node)"
+    participant API as "Agent A HTTP Server"
+    participant RT as "Agent A Runtime"
+    participant REG as "ToolRegistry"
+    participant TASK as "task tool"
+    participant DIR as "AgentDirectory"
+    participant CL as "cluster.client"
+    participant LRT as "Local Agent C Runtime"
+    end
+    box "Backend (Agent B Node)"
+    participant BAPI as "Agent B HTTP Server"
+    participant BRT as "Agent B Runtime"
+    end
+
+    User->>FE: prompt("请把子任务交给某个agent")
+    FE->>SDK: send_message(session_id, prompt)
+    SDK->>API: POST /v1/sessions/{id}/messages
+    API->>RT: run(session_id, prompt)
+    RT->>REG: execute("task", args)
+    REG->>TASK: run(args, ctx)
+    TASK->>DIR: resolve(target_agent_id)
+    DIR-->>TASK: location(local|remote), route info
+
+    alt target on same machine (Agent C)
+        TASK->>LRT: run/enqueue(task)
+        LRT-->>TASK: output or task_id
+    else target on remote machine (Agent B)
+        TASK->>CL: invoke_remote_task(...)
+        CL->>BAPI: POST /v1/agent-tasks
+        BAPI->>BRT: run/enqueue(task)
+        BRT-->>BAPI: output or task_id
+        BAPI-->>CL: response
+        CL-->>TASK: normalized remote result
+    end
+
+    TASK-->>REG: ToolResult
+    REG-->>RT: ToolResult
+    RT->>RT: continue loop with tool result
+    RT-->>API: assistant final response
+    API-->>SDK: response(JSON)
+    SDK-->>FE: parsed task response
+    FE-->>User: render final answer
+```
+
+## 8. 类图（核心对象与扩展点）
 
 ```mermaid
 classDiagram
@@ -380,30 +600,37 @@ classDiagram
     SQLiteSessionStore ..|> SessionStore
 ```
 
-## 8. 内核硬约束（不可破坏）
+## 9. 内核硬约束（不可破坏）
 
 1. `agent.runtime` 不得 import 具体 provider 实现类。
-2. 所有工具执行必须经 `ToolRegistry`。
-3. 每次状态变更都要产生事件并通过 `SessionStore` 持久化。
-4. 内置工具默认启用工作区安全约束。
-5. 新 provider 必须通过同一套 `LLMClient` 契约测试。
-6. 压缩必须落盘为 `CompactionEntry`，并保留 `first_kept_event_id` 以保证可重建与可审计。
+2. CLI/Web/Gateway 必须统一走 HTTP API，禁止直接调用 `agent.runtime`。
+3. 所有工具执行必须经 `ToolRegistry`。
+4. 每次状态变更都要产生事件并通过 `SessionStore` 持久化。
+5. 内置四工具 `read/write/edit/bash` 默认启用工作区安全约束。
+6. 新 provider 必须通过同一套 `LLMClient` 契约测试。
+7. 压缩必须落盘为 `CompactionEntry`，并保留 `first_kept_event_id` 以保证可重建与可审计。
+8. 跨机任务调用必须带鉴权、超时与幂等键，禁止裸请求。
 
-## 9. 落地顺序（低风险）
+## 10. 落地顺序（低风险）
 
 1. 先定义 `core` 契约与事件类型。
-2. 实现 `llm.interfaces` + 一个 provider（`openai_compat`）。
-3. 实现 `tools` 与安全护栏。
-4. 实现 `session.sqlite_store` 与事件回放。
-5. 实现 `agent.compaction`（threshold + overflow + manual compact）。
-6. 实现 `agent.loop` 与 `agent.runtime`（接入 compaction pre/post check）。
-7. 再加第二个 provider（`anthropic`），仅改 `llm/protocols/*` + `llm/factory.py`。
+2. 先落 `server` 骨架（鉴权、错误码、幂等、中间件、OpenAPI）。
+3. 实现 `llm.interfaces` + 一个 provider（`openai_compat`）。
+4. 实现 `tools` 与安全护栏（`read/write/edit/bash`）。
+5. 实现 `session.sqlite_store` 与事件回放。
+6. 实现 `agent.compaction`（threshold + overflow + manual compact）。
+7. 实现 `agent.loop` 与 `agent.runtime`（接入 compaction pre/post check）。
+8. 实现 `cluster.registry/client` 与 `/v1/agent-tasks`。
+9. 实现薄 CLI（仅 `sdk.client` 调 HTTP）。
+10. 再加第二个 provider（`anthropic`），仅改 `llm/protocols/*` + `llm/factory.py`。
 
-## 10. 最小验收标准
+## 11. 最小验收标准
 
 1. 相同 prompt + 相同 session snapshot 可以稳定重放。
 2. 切换 provider 只改配置，不改 runtime/tool/session 代码。
-3. `read/write/edit/bash` 能通过模型 tool-call 正常触发。
-4. 进程重启后可恢复会话。
-5. 能从日志/事件完整追踪一轮执行链路。
-6. 在长会话下可自动压缩且不中断主流程（overflow 后可恢复重试）。
+3. CLI 对内核所有调用均经过 HTTP（代码层无 `agent.runtime` 直连 import）。
+4. `read/write/edit/bash` 能通过模型 tool-call 正常触发。
+5. 进程重启后可恢复会话。
+6. 能从日志/事件完整追踪一轮执行链路。
+7. 在长会话下可自动压缩且不中断主流程（overflow 后可恢复重试）。
+8. Agent A 可跨机器调用 Agent B：`blocking` 与 `non_blocking` 均可工作。
