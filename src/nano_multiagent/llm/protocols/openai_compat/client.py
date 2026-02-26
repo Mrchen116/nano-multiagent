@@ -76,3 +76,9 @@ class OpenAICompatClient(LLMClient):
 
     def close(self) -> None:
         self._http_client.close()
+
+    def __enter__(self) -> "OpenAICompatClient":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self.close()
