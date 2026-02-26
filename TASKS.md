@@ -16,7 +16,7 @@
   - C1/C2/C3 三次提交完整
   - 四文档写入 R0.1 的 hash 与证据
 
-## [NEXT] R0.2 新建会话接口与最小 e2e 闭环
+## [DONE] R0.2 新建会话接口与最小 e2e 闭环
 - Steps:
   - 先写 create session 相关测试并制造失败（Red）
   - 实现 session service/store 与 `POST /v1/sessions`
@@ -31,3 +31,6 @@
   - `pytest -q` 全绿
   - C1/C2/C3 三次提交完整
   - 四文档写入 R0.2 的 hash 与证据
+
+## Milestone M0 状态
+- `R0.1` 与 `R0.2` 均已完成，达到 M0 Exit Criteria。

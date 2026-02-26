@@ -20,3 +20,15 @@
   - `a004a39` | `2f3d783` | `PENDING-C3-R0.1`
 - Next:
   - R0.2 Red：先写 create session 的 unit/contract/integration/e2e 失败测试
+
+## 2026-02-27 01:38:59 +0800
+- Done:
+  - 完成 R0.2：新增 session service 与 `POST /v1/sessions`，打通 health + create session 最小 e2e
+  - M0 Exit Criteria 达成
+- Evidence:
+  - `pytest -q` -> `8 passed in 0.33s`
+  - 最小 e2e -> `tests/e2e/test_minimal_flow.py::test_health_then_create_session` 通过
+- Commits: C1 | C2 | C3
+  - `123cbae` | `db3c09f` | `PENDING-C3-R0.2`
+- Next:
+  - M0 完成；等待后续 Milestone 指令

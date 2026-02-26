@@ -32,3 +32,24 @@
   - 可回退到 `a004a39`（仅测试）重新实现 R0.1。
 - Commits:
   - C1=`a004a39`, C2=`2f3d783`, C3=`PENDING-C3-R0.1`
+
+## 2026-02-27 01:38:59 +0800 - R0.2 完成记录
+- Context:
+  - R0.2 增加 session 领域模型、服务与 HTTP 入口，协议面发生新增（`POST /v1/sessions`）。
+- Decision:
+  - 会话创建先采用内存存储并返回最小字段，严格限定 M0 范围，不实现读取/分页/持久化。
+- Rationale:
+  - 优先满足“最小可运行 e2e 闭环”，为后续 M1+ 扩展留出清晰边界。
+- Changed Files Summary:
+  - `tests/unit/test_session_service.py`
+  - `tests/contract/test_sessions_contract.py`
+  - `tests/integration/test_session_flow_integration.py`
+  - `tests/e2e/test_minimal_flow.py`
+  - `src/nano_multiagent/session/*`
+  - `src/nano_multiagent/server/app.py`
+- Pitfall/Risk:
+  - 内存存储进程重启后会丢失 session；该风险已接受，计划在后续 Milestone 处理。
+- Rollback:
+  - 可回退到 `123cbae`（仅测试）重做实现。
+- Commits:
+  - C1=`123cbae`, C2=`db3c09f`, C3=`PENDING-C3-R0.2`

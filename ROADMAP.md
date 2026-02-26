@@ -36,7 +36,7 @@ Exit Criteria:
 - Commits:
   - C1: a004a39
   - C2: 2f3d783
-  - C3: PENDING-C3-R0.1
+  - C3: e407f14
 - Evidence:
   - `pytest -q`: `4 passed in 0.32s`
   - 入口验证: `GET /v1/health -> 200`, body 包含 `healthy=true, version=0.1.0, node_id=local-dev`
@@ -60,12 +60,12 @@ Exit Criteria:
   - C2: `feat(R0.2): ...（全绿）`
   - C3: `docs(R0.2): ...（记录hash/证据/下一步）`
 - Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
+  - C1: 123cbae
+  - C2: db3c09f
+  - C3: PENDING-C3-R0.2
 - Evidence:
-  - `pytest -q`: TBD
-  - 入口验证: TBD
+  - `pytest -q`: `8 passed in 0.33s`
+  - 入口验证: `tests/e2e/test_minimal_flow.py::test_health_then_create_session` 通过（health=200, create-session=201）
 
 ## Milestone M1: Runtime Loop 与消息处理（仅占位）
 Goal:
