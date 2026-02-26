@@ -107,7 +107,7 @@
 - Evidence:
   - `pytest -q tests/unit/test_agent_state.py tests/unit/test_agent_policies.py tests/unit/test_agent_prompting.py tests/unit/test_agent_loop.py tests/contract/test_agent_state_contract.py` -> `10 passed in 0.13s`
 - Commits: C1 | C2 | C3
-  - `2fc990e` | `aa455be` | `PENDING-C3-R4.1`
+  - `2fc990e` | `aa455be` | `132604e`
 - Next:
   - R4.2 Green：完成 runtime + session turn 事件落盘接线并跑 integration/e2e
 
@@ -121,3 +121,17 @@
   - `6912f2f` | `f60f488` | `PENDING-C3-R4.2`
 - Next:
   - 回填 R4.1/R4.2 的 C3 占位并执行 `pytest -q` 全量验收
+
+## 2026-02-27 02:28:11 +0800
+- Done:
+  - 完成 R4.2：实现 `agent/runtime.py`，打通 text/image(parts 占位) -> context -> llm -> assistant 文本闭环
+  - 通过 `SessionManager` 将 user/assistant turn 写入 `session.turn.appended` 事件并支持历史重建
+  - M4 Exit Criteria 达成
+- Evidence:
+  - `pytest -q tests/unit/test_agent_runtime.py tests/contract/test_agent_runtime_contract.py tests/integration/test_agent_runtime_integration.py tests/e2e/test_agent_runtime_e2e.py` -> `7 passed in 3.16s`
+  - `pytest -q` -> `54 passed in 3.33s`
+  - 事件落盘 -> `tests/integration/test_agent_runtime_integration.py` 断言第二轮前已持久化 `Q1/ack` turn 事件，并在第二轮请求体中重建上下文 roles=`system,user,assistant,user`
+- Commits: C1 | C2 | C3
+  - `6912f2f` | `f60f488` | `PENDING-C3-R4.2`
+- Next:
+  - 回填 R4.2 的 C3 占位为真实 hash并结束 M4

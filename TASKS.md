@@ -18,7 +18,7 @@
   - C1/C2/C3 三次提交完整
   - 四文档写入 R4.1 hash 与证据
 
-## [IN PROGRESS] R4.2 runtime 接线与事件落盘闭环验证
+## [DONE] R4.2 runtime 接线与事件落盘闭环验证
 - Steps:
   - 新增 runtime 闭环的 unit/contract/integration/e2e 失败测试（Red）
   - 实现 `agent/runtime.py`，打通 text parts -> context -> LLM -> assistant 文本
@@ -38,4 +38,4 @@
   - 回填 `PENDING-C3-R4.1` 与 `PENDING-C3-R4.2`
 
 ## Milestone M4 状态
-- R4.1 已完成；R4.2 已完成 C1/C2，待 C3 文档与全量验收。
+- R4.1 与 R4.2 已完成，M4 Exit Criteria 达成。

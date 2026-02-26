@@ -243,7 +243,7 @@ Exit Criteria:
   - `pytest -q`: `37 passed in 1.76s`
   - `X-Session-Id` 验证: `tests/integration/test_openai_compat_generation_integration.py` 断言请求头 `x-session-id=sess_integration`
 
-## Milestone M4（进行中）: agent 最小闭环（无工具）
+## Milestone M4（已完成）: agent 最小闭环（无工具）
 Goal:
 - 实现 `agent/runtime.py`、`agent/loop.py`、`agent/state.py`、`agent/policies.py`、`agent/prompting.py` 最小可用版
 - 先支持 `text` 输入，并对 `image` 输入保留占位契约，完成“构建上下文 -> 调用 LLM -> 返回 assistant 文本”闭环
@@ -278,7 +278,7 @@ Exit Criteria:
 - Commits:
   - C1: 2fc990e
   - C2: aa455be
-  - C3: PENDING-C3-R4.1
+  - C3: 132604e
 - Evidence:
   - `pytest -q tests/unit/test_agent_state.py tests/unit/test_agent_policies.py tests/unit/test_agent_prompting.py tests/unit/test_agent_loop.py tests/contract/test_agent_state_contract.py`: `10 passed in 0.13s`
 
@@ -308,3 +308,5 @@ Exit Criteria:
   - C3: PENDING-C3-R4.2
 - Evidence:
   - `pytest -q tests/unit/test_agent_runtime.py tests/contract/test_agent_runtime_contract.py tests/integration/test_agent_runtime_integration.py tests/e2e/test_agent_runtime_e2e.py`: `7 passed in 3.16s`
+  - 事件落盘验证: `tests/integration/test_agent_runtime_integration.py` 断言 sqlite 中存在 4 条 `session.turn.appended` 事件，且第二轮请求上下文 roles 为 `system,user,assistant,user`
+  - `pytest -q`: `54 passed in 3.33s`

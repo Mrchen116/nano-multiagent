@@ -212,7 +212,7 @@
 - Rollback:
   - 可回退到 `2fc990e`（R4.1 红测提交）重放实现。
 - Commits:
-  - C1=`2fc990e`, C2=`aa455be`, C3=`PENDING-C3-R4.1`
+  - C1=`2fc990e`, C2=`aa455be`, C3=`132604e`
 
 ## 2026-02-27 02:26:36 +0800 - R4.2 进行中记录（runtime 接线）
 - Context:
@@ -231,5 +231,28 @@
   - C3 文档回填与全量 `pytest -q` 尚未执行。
 - Rollback:
   - 可回退到 `6912f2f`（R4.2 红测提交）重放实现。
+- Commits:
+  - C1=`6912f2f`, C2=`f60f488`, C3=`PENDING-C3-R4.2`
+
+## 2026-02-27 02:28:11 +0800 - R4.2 完成记录（runtime + 事件落盘）
+- Context:
+  - 需在 M4 边界内完成 `AgentRuntime` 最小闭环，且禁止引入 tools/hooks/skills。
+  - 关键验收点是“运行结果落 session 事件 + 下一轮可重建上下文”。
+- Decision:
+  - `AgentRuntime.run` 先校验 session 与输入 parts，再构造 `AgentState` 交给 `AgentLoop` 调用 LLM。
+  - `SessionManager.append_turn_message/list_turn_messages` 作为 runtime 唯一事件读写入口，避免直接操作 store。
+  - image 输入仅保留占位文本 `[image:placeholder]`，维持契约但不触发工具链。
+- Rationale:
+  - 保持 agent 与 session 的职责边界，便于后续 M6+ 引入 tools/hooks 时不破坏现有链路。
+  - 用 integration 测试锁定“事件落盘 + 历史重建 + 第二轮上下文”行为，降低回归风险。
+- Changed Files Summary:
+  - `src/nano_multiagent/agent/runtime.py`
+  - `src/nano_multiagent/agent/__init__.py`
+  - `src/nano_multiagent/session/{entries.py,manager.py}`
+  - `tests/{unit,contract,integration,e2e}` 中 runtime 相关新增测试
+- Pitfall/Risk:
+  - `continue_turn` 当前为最小占位实现（默认文本 `continue`），后续工具链与多轮控制策略扩展时需重构。
+- Rollback:
+  - 可回退到 `6912f2f`（R4.2 红测提交）重放 Green。
 - Commits:
   - C1=`6912f2f`, C2=`f60f488`, C3=`PENDING-C3-R4.2`
