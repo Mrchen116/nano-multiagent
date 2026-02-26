@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -10,22 +11,31 @@ from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.core.ids import make_event_id
 from nano_multiagent.session.service import SessionService
 from nano_multiagent.session.stores.base import SessionStore
+from nano_multiagent.tools.loader import build_tool_registry
+from nano_multiagent.tools.registry import ToolRegistry
 
 from .deps import APIError, get_trace_id
 from .routes.global_routes import router as global_router
 from .routes.session import router as session_router
+from .routes.tool import router as tool_router
 
 
 def create_app(
     *,
     session_store: SessionStore | None = None,
     runtime: AgentRuntime | None = None,
+    tool_registry: ToolRegistry | None = None,
+    repo_root: Path | None = None,
     auth_token: str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="nano-multiagent", version=__version__)
     session_service = SessionService(store=session_store)
     app.state.session_service = session_service
     app.state.agent_runtime = runtime or AgentRuntime(session_manager=session_service.manager)
+    resolved_repo_root = (
+        repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
+    ).expanduser().resolve()
+    app.state.tool_registry = tool_registry or build_tool_registry(repo_root=resolved_repo_root)
     app.state.auth_token = auth_token if auth_token is not None else os.getenv("NANO_MULTIAGENT_API_TOKEN")
 
     @app.middleware("http")
@@ -84,6 +94,7 @@ def create_app(
 
     app.include_router(global_router)
     app.include_router(session_router)
+    app.include_router(tool_router)
     return app
 
 
