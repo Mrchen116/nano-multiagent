@@ -32,3 +32,16 @@
   - `123cbae` | `db3c09f` | `b8f1446`
 - Next:
   - M0 完成；等待后续 Milestone 指令
+
+## 2026-02-27 01:46:01 +0800
+- Done:
+  - 完成 R1.1：新增 `core/types/events/errors/ids` 稳定契约并最小接入 `SessionService`
+  - 完成四类测试覆盖（unit/contract/integration/e2e）并冻结关键契约
+  - M1 纠偏：核对并确认 M0 的 C3 已为真实 hash（R0.1=`e407f14`, R0.2=`b8f1446`）
+- Evidence:
+  - `pytest -q` -> `19 passed in 0.51s`
+  - 入口级契约验证 -> `tests/e2e/test_core_contract_entry_e2e.py::test_create_session_entry_respects_core_id_contract` 通过
+- Commits: C1 | C2 | C3
+  - `87b119e` | `0efbd91` | `PENDING-C3-R1.1`
+- Next:
+  - M1 完成；等待 M2（session sqlite 与扩展能力）指令

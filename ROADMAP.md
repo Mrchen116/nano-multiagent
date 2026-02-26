@@ -4,12 +4,12 @@
 - 入口类型: HTTP API (`FastAPI`), app factory 为 `nano_multiagent.server.app:create_app`
 - 测试命令: `pytest -q`
 - tests 映射:
-  - `tests/unit`: 纯逻辑与边界
-  - `tests/contract`: HTTP 返回结构与字段契约
-  - `tests/integration`: 组件串联（应用装配/存储交互）
-  - `tests/e2e`: 从真实入口验证最小主流程
+  - `tests/unit`: 纯逻辑与边界（ID、异常、核心数据类型）
+  - `tests/contract`: 稳定契约冻结（类型字段/事件枚举/HTTP 结构）
+  - `tests/integration`: 组件串联（app -> service -> core）
+  - `tests/e2e`: 从真实入口验证主流程契约
 
-## Milestone M0（当前）: 工程骨架 + 最小可用 HTTP
+## Milestone M0（已完成）: 工程骨架 + 最小可用 HTTP
 Exit Criteria:
 - Python 项目骨架与依赖配置可运行
 - `pytest -q` 全绿
@@ -67,11 +67,44 @@ Exit Criteria:
   - `pytest -q`: `8 passed in 0.34s`
   - 入口验证: `tests/e2e/test_minimal_flow.py::test_health_then_create_session` 通过（health=200, create-session=201）
 
-## Milestone M1: Runtime Loop 与消息处理（仅占位）
+## Milestone M1（当前）: core 契约层实现与冻结
 Goal:
-- 完成基础会话消息写入与运行时调度骨架
+- 新增并冻结 `core/types/events/errors/ids` 稳定契约
+- 完成最小 `server/session -> core.ids` 接入，不扩展业务能力
 Exit Criteria:
-- `sessions/{id}/messages` 最小闭环可测
+- `src/nano_multiagent/core/` 契约可导入且通过四类测试验证
+- `pytest -q` 全绿
+- R1.1 完成 C1/C2/C3 并记录证据
+
+### Roadpoint R1.1: core 稳定契约实现与入口级校验
+- Public Surface:
+  - `nano_multiagent.core.types`: `Message/ToolSpec/ToolCall/ToolResult/TurnResult`
+  - `nano_multiagent.core.events`: `RuntimeEventType/RuntimeEvent/new_runtime_event`
+  - `nano_multiagent.core.errors`: `NanoMultiAgentError/ModelError/ToolError/PolicyViolation`
+  - `nano_multiagent.core.ids`: `IdGenerator` 与 `make_*_id` 工厂
+  - `nano_multiagent.session.service:SessionService.create_session`（最小接入 `core.ids`）
+- Acceptance:
+  - core 契约文件齐备：`types.py/events.py/errors.py/ids.py/__init__.py`
+  - contract 测试锁定核心类型字段与事件枚举，防止后续无意破坏
+  - integration 测试证明 app/session 链路使用 `core.ids` 生成 session id
+  - 至少一个 e2e 入口级契约验证通过
+  - `pytest -q` 全绿
+- Tests Plan:
+  - unit: `tests/unit/test_core_ids.py`, `tests/unit/test_core_errors.py`
+  - contract: `tests/contract/test_core_types_contract.py`, `tests/contract/test_core_events_contract.py`
+  - integration: `tests/integration/test_core_id_wiring_integration.py`
+  - e2e: `tests/e2e/test_core_contract_entry_e2e.py`
+- Commit Plan:
+  - C1: `test(R1.1): ...（先红）`
+  - C2: `feat(R1.1): ...（全绿）`
+  - C3: `docs(R1.1): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: 87b119e
+  - C2: 0efbd91
+  - C3: PENDING-C3-R1.1（本次 docs 提交后回填为真实 hash）
+- Evidence:
+  - `pytest -q`: `19 passed in 0.51s`
+  - 入口级契约验证: `tests/e2e/test_core_contract_entry_e2e.py::test_create_session_entry_respects_core_id_contract` 通过
 
 ## Milestone M2: 工具/技能/Hook 扩展（仅占位）
 Goal:

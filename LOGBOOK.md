@@ -53,3 +53,42 @@
   - 可回退到 `123cbae`（仅测试）重做实现。
 - Commits:
   - C1=`123cbae`, C2=`db3c09f`, C3=`b8f1446`
+
+## 2026-02-27 01:46:01 +0800 - R1.1 完成记录（core 契约冻结）
+- Context:
+  - M1 目标限定为 core 契约层（`types/events/errors/ids`）实现与冻结；禁止进入 M2 sqlite 与 M3+。
+  - 本次 Roadpoint 改动文件数超过 5，且发生跨模块契约新增，需记录决策。
+- Decision:
+  - 使用单 Roadpoint（R1.1）完成 core 契约交付，覆盖 unit/contract/integration/e2e 四类测试。
+  - `SessionService` 仅做最小接线到 `core.ids.make_session_id`，不扩展额外运行时能力。
+- Rationale:
+  - 先冻结底层类型和事件枚举，后续 Runtime/Tool/Hook 才能在稳定边界上迭代。
+  - 通过入口级 e2e（HTTP `POST /v1/sessions`）验证 core 契约接入真实生效。
+- Changed Files Summary:
+  - `src/nano_multiagent/core/{types.py,events.py,errors.py,ids.py,__init__.py}`
+  - `src/nano_multiagent/session/service.py`
+  - `tests/{unit,contract,integration,e2e}` 中新增 6 个 core 相关测试文件
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - R1.1 的 C3 hash 在本提交前不可得，按流程先写 `PENDING-C3-R1.1`，由本次提交后实际 hash 替换为证据链输出值。
+  - 目前仅完成 core 契约冻结，未触及 session 持久化（sqlite）与 Hook/Tool 扩展，属于后续 Milestone 范围。
+- Rollback:
+  - 若需重做实现，可回退到 `87b119e`（仅测试）再按 Red->Green 重放。
+- Commits:
+  - C1=`87b119e`, C2=`0efbd91`, C3=`PENDING-C3-R1.1`
+
+## 2026-02-27 01:46:01 +0800 - M0 C3 占位回填核对
+- Context:
+  - 本次 M1 文档提交包含纠偏要求：核对并补齐 M0 文档中的 `PENDING-C3-*` 占位。
+- Decision:
+  - 对 `ROADMAP/PROGRESS/LOGBOOK` 进行扫描后，确认 M0 Roadpoint 已记录真实 C3 hash，无剩余 `PENDING-C3-*`。
+- Rationale:
+  - R0.1 与 R0.2 当前均为真实值，分别是 `e407f14`、`b8f1446`，无需新增替换动作，仅补充核对证据。
+- Changed Files Summary:
+  - `PROGRESS.md`, `LOGBOOK.md`（追加核对记录）
+- Pitfall/Risk:
+  - 无；M0 证据链完整。
+- Rollback:
+  - 不涉及代码行为，无需回滚。
+- Commits:
+  - 归属 R1.1 C3 文档提交
