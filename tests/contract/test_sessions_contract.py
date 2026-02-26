@@ -3,14 +3,66 @@ from fastapi.testclient import TestClient
 from nano_multiagent.server.app import create_app
 
 
+def _auth_headers(request_id: str | None = None) -> dict[str, str]:
+    headers = {"Authorization": "Bearer test-token"}
+    if request_id is not None:
+        headers["X-Request-Id"] = request_id
+    return headers
+
+
 def test_create_session_contract() -> None:
     client = TestClient(create_app())
 
-    response = client.post('/v1/sessions', json={})
+    response = client.post('/v1/sessions', json={}, headers=_auth_headers("req-create-contract"))
 
     assert response.status_code == 201
+    assert response.headers["x-request-id"] == "req-create-contract"
     payload = response.json()
     assert set(payload.keys()) == {'session_id', 'status', 'created_at'}
     assert payload['session_id'].startswith('sess_')
     assert payload['status'] == 'active'
     assert isinstance(payload['created_at'], str)
+
+
+def test_sessions_require_bearer_auth_and_use_unified_error_shape() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/v1/sessions", headers={"X-Request-Id": "req-auth-missing"})
+
+    assert response.status_code == 401
+    payload = response.json()
+    assert set(payload.keys()) == {"error"}
+    assert set(payload["error"].keys()) == {"code", "message", "retryable", "trace_id"}
+    assert payload["error"]["code"] == "unauthorized"
+    assert payload["error"]["retryable"] is False
+    assert payload["error"]["trace_id"] == "req-auth-missing"
+    assert response.headers["x-request-id"] == "req-auth-missing"
+
+
+def test_get_and_list_sessions_contract_with_minimal_pagination() -> None:
+    client = TestClient(create_app())
+    headers = _auth_headers("req-list-contract")
+
+    first = client.post("/v1/sessions", json={}, headers=headers)
+    second = client.post("/v1/sessions", json={}, headers=headers)
+    assert first.status_code == 201
+    assert second.status_code == 201
+    first_id = first.json()["session_id"]
+
+    get_response = client.get(f"/v1/sessions/{first_id}", headers=headers)
+    assert get_response.status_code == 200
+    session_payload = get_response.json()
+    assert set(session_payload.keys()) == {"session_id", "status", "created_at"}
+    assert session_payload["session_id"] == first_id
+    assert session_payload["status"] == "active"
+
+    list_response = client.get("/v1/sessions?limit=1&offset=0", headers=headers)
+    assert list_response.status_code == 200
+    list_payload = list_response.json()
+    assert set(list_payload.keys()) == {"items", "limit", "offset", "has_more"}
+    assert list_payload["limit"] == 1
+    assert list_payload["offset"] == 0
+    assert isinstance(list_payload["has_more"], bool)
+    assert isinstance(list_payload["items"], list)
+    assert len(list_payload["items"]) == 1
+    assert set(list_payload["items"][0].keys()) == {"session_id", "status", "created_at"}
