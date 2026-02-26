@@ -16,7 +16,7 @@
   - C1/C2/C3 三次提交完整
   - 四文档写入 R3.1 hash 与证据
 
-## [IN PROGRESS] R3.2 本地 LLM_PROXY e2e 与文档纠偏
+## [DONE] R3.2 本地 LLM_PROXY e2e 与文档纠偏
 - Steps:
   - 新增 e2e 失败测试，走 `create_llm_client` + 真实本地代理
   - 验证默认配置可直连 `http://127.0.0.1:4000` 与模型 `codexOAuth:gpt-5.2-codex`
@@ -33,4 +33,4 @@
   - 回填 `PENDING-C3-R2.2` 与 `PENDING-C3-R3.1`
 
 ## Milestone M3 状态
-- `R3.1` 已完成，`R3.2` 进行中。
+- `R3.1` 与 `R3.2` 均已完成，达到 M3 Exit Criteria。

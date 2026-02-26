@@ -143,7 +143,7 @@
 - Rollback:
   - 若需重做实现，可回退到 `b1ac468`（R2.2 测试红态）重放 Green。
 - Commits:
-  - C1=`b1ac468`, C2=`75087c6`, C3=`PENDING-C3-R2.2`
+  - C1=`b1ac468`, C2=`75087c6`, C3=`164ef59`
 
 ## 2026-02-27 02:05:46 +0800 - R3.1 完成记录（LLM 抽象 + openai_compat）
 - Context:
@@ -169,4 +169,27 @@
 - Rollback:
   - 可回退到 `3937147`（R3.1 测试红态）重放实现。
 - Commits:
-  - C1=`3937147`, C2=`92344bc`, C3=`PENDING-C3-R3.1`
+  - C1=`3937147`, C2=`92344bc`, C3=`ece29e6`
+
+## 2026-02-27 02:10:09 +0800 - R3.2 完成记录（LLM_PROXY e2e + 文档纠偏）
+- Context:
+  - R3.2 需要补齐真实代理 e2e，并完成 M2/R3.1 的 `PENDING-C3-*` 回填。
+  - 本地代理在 `http://127.0.0.1:4000` 可用，默认模型为 `codexOAuth:gpt-5.2-codex`。
+- Decision:
+  - 新增 `tests/e2e/test_openai_compat_generate_e2e.py`，通过 `create_llm_client()` 直接执行一次真实非流式生成。
+  - 为 `OpenAICompatClient` 增加上下文管理协议，保障资源关闭与 e2e 用例调用方式统一。
+  - 在 `pyproject.toml` 注册 `pytest.mark.e2e`，消除告警并固化测试分类。
+- Rationale:
+  - 用真实代理验证“配置切换 + 协议映射 + 客户端请求”端到端可用，避免仅 mock 通过。
+  - `X-Session-Id` 头部约束继续由 integration mock transport 断言，证据稳定可重放。
+- Changed Files Summary:
+  - `tests/e2e/test_openai_compat_generate_e2e.py`
+  - `src/nano_multiagent/llm/protocols/openai_compat/client.py`
+  - `pyproject.toml`
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - e2e 依赖本地代理存活；代理不可达时用例会 `skip`，但默认环境应可运行。
+- Rollback:
+  - 可回退到 `58e5048`（R3.2 测试红态）重放 Green。
+- Commits:
+  - C1=`58e5048`, C2=`fd859fe`, C3=`PENDING-C3-R3.2`

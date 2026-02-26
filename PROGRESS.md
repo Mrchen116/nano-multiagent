@@ -68,7 +68,7 @@
   - `pytest -q tests/unit/test_session_manager.py tests/integration/test_session_manager_wiring_integration.py tests/e2e/test_session_rebuild_e2e.py` -> `4 passed`
   - `pytest -q` -> `29 passed in 0.33s`
 - Commits: C1 | C2 | C3
-  - `b1ac468` | `75087c6` | `PENDING-C3-R2.2`
+  - `b1ac468` | `75087c6` | `164ef59`
 - Next:
   - M2 完成；等待后续 Milestone 指令
 
@@ -81,6 +81,21 @@
   - `pytest -q tests/unit/test_llm_model_registry.py tests/contract/test_llm_interfaces_contract.py tests/integration/test_openai_compat_generation_integration.py` -> `7 passed in 0.14s`
   - 断言证据 -> `path=/v1/chat/completions` 且 `x-session-id=sess_integration`
 - Commits: C1 | C2 | C3
-  - `3937147` | `92344bc` | `PENDING-C3-R3.1`
+  - `3937147` | `92344bc` | `ece29e6`
 - Next:
   - R3.2 Red：补真实 LLM_PROXY e2e 失败测试并完成文档占位回填
+
+## 2026-02-27 02:10:09 +0800
+- Done:
+  - 完成 R3.2：新增本地 LLM_PROXY e2e，并通过 `create_llm_client` 完成真实非流式生成
+  - `OpenAICompatClient` 支持上下文管理，`pytest` 注册 `e2e` marker
+  - 回填 M2/R3.1 文档占位：`R2.2 C3=164ef59`, `R3.1 C3=ece29e6`
+  - M3 Exit Criteria 达成
+- Evidence:
+  - `pytest -q tests/e2e/test_openai_compat_generate_e2e.py` -> `1 passed`
+  - `pytest -q` -> `37 passed in 1.76s`
+  - `X-Session-Id` -> `tests/integration/test_openai_compat_generation_integration.py` 断言 `x-session-id=sess_integration`
+- Commits: C1 | C2 | C3
+  - `58e5048` | `fd859fe` | `PENDING-C3-R3.2`
+- Next:
+  - M3 完成；等待后续 Milestone 指令

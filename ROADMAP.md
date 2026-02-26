@@ -169,12 +169,12 @@ Exit Criteria:
 - Commits:
   - C1: b1ac468
   - C2: 75087c6
-  - C3: PENDING-C3-R2.2（本次 docs 提交后回填为真实 hash）
+  - C3: 164ef59
 - Evidence:
   - `pytest -q tests/unit/test_session_manager.py tests/integration/test_session_manager_wiring_integration.py tests/e2e/test_session_rebuild_e2e.py`: `4 passed`
   - `pytest -q`: `29 passed in 0.33s`
 
-## Milestone M3（进行中）: LLM 抽象层 + openai_compat provider
+## Milestone M3（已完成）: LLM 抽象层 + openai_compat provider
 Goal:
 - 落地运行时唯一 LLM 抽象接口与 provider 工厂切换能力
 - 实现 `openai_compat` 协议适配，并完成一次非流式文本生成最小接线
@@ -210,7 +210,7 @@ Exit Criteria:
 - Commits:
   - C1: 3937147
   - C2: 92344bc
-  - C3: PENDING-C3-R3.1（本次 docs 提交后在 R3.2 回填）
+  - C3: ece29e6
 - Evidence:
   - `pytest -q tests/unit/test_llm_model_registry.py tests/contract/test_llm_interfaces_contract.py tests/integration/test_openai_compat_generation_integration.py`: `7 passed in 0.14s`
   - 集成断言: 请求路径为 `/v1/chat/completions`，并包含 `x-session-id=sess_integration`
@@ -235,8 +235,10 @@ Exit Criteria:
   - C2: `feat(R3.2): ...（全绿）`
   - C3: `docs(R3.2): ...（记录hash/证据/下一步）`
 - Commits:
-  - C1: PENDING-C1-R3.2
-  - C2: PENDING-C2-R3.2
-  - C3: PENDING-C3-R3.2
+  - C1: 58e5048
+  - C2: fd859fe
+  - C3: PENDING-C3-R3.2（本次 docs 提交后回填）
 - Evidence:
-  - 待 R3.2 完成后补充
+  - `pytest -q tests/e2e/test_openai_compat_generate_e2e.py`: `1 passed in 2.58s`
+  - `pytest -q`: `37 passed in 1.76s`
+  - `X-Session-Id` 验证: `tests/integration/test_openai_compat_generation_integration.py` 断言请求头 `x-session-id=sess_integration`
