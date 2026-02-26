@@ -3,11 +3,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 
+from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.session.models import Session
 from nano_multiagent.session.service import SessionService
 
 from ..auth import require_bearer_auth
-from ..deps import APIError, get_session_service
+from ..deps import APIError, get_agent_runtime, get_session_service
 
 router = APIRouter(
     prefix="/v1/sessions",
@@ -32,6 +33,27 @@ class SessionListResponse(BaseModel):
     limit: int
     offset: int
     has_more: bool
+
+
+class SendMessageRequest(BaseModel):
+    message_id: str | None = None
+    parts: list[dict[str, Any]] = Field(min_length=1)
+    model: str | None = None
+    stream: bool = False
+
+
+class MessageResponse(BaseModel):
+    message_id: str
+    role: str
+    content: str
+
+
+class SendMessageResponse(BaseModel):
+    session_id: str
+    turn_id: str
+    message: MessageResponse
+    completed: bool
+    stop_reason: str
 
 
 @router.post("", status_code=201, response_model=SessionResponse)
@@ -74,14 +96,39 @@ def get_session(
     return _to_session_response(session)
 
 
-@router.post("/{session_id}/messages")
-def send_message_placeholder() -> None:
-    raise APIError(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        code="not_implemented",
-        message="sync messages endpoint is not implemented yet",
-        retryable=False,
-    )
+@router.post("/{session_id}/messages", response_model=SendMessageResponse)
+def send_message(
+    session_id: str,
+    payload: SendMessageRequest,
+    runtime=Depends(get_agent_runtime),
+) -> SendMessageResponse:
+    if payload.stream:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message="sync endpoint does not support stream=true",
+            retryable=False,
+        )
+
+    try:
+        result = runtime.run(session_id, payload.parts, stream=False)
+    except ValueError as exc:
+        message = str(exc)
+        if message.startswith("session does not exist:"):
+            raise APIError(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="session_not_found",
+                message=message,
+                retryable=False,
+            ) from exc
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=message,
+            retryable=False,
+        ) from exc
+
+    return SendMessageResponse(**_to_message_response(result))
 
 
 def _to_session_response(session: Session) -> SessionResponse:
@@ -89,4 +136,31 @@ def _to_session_response(session: Session) -> SessionResponse:
         session_id=session.session_id,
         status=session.status,
         created_at=session.created_at,
+    )
+
+
+def _to_message_response(result: TurnResult) -> dict[str, Any]:
+    message = _select_assistant_message(result.messages)
+    return {
+        "session_id": result.session_id,
+        "turn_id": result.turn_id,
+        "message": {
+            "message_id": message.message_id,
+            "role": message.role,
+            "content": message.content,
+        },
+        "completed": result.completed,
+        "stop_reason": result.stop_reason,
+    }
+
+
+def _select_assistant_message(messages: tuple[Message, ...]) -> Message:
+    for message in reversed(messages):
+        if message.role == "assistant":
+            return message
+    raise APIError(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        code="invalid_runtime_response",
+        message="runtime did not return assistant message",
+        retryable=False,
     )
