@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Any, Mapping
 
 from .manager import SessionManager
 from .models import Session
@@ -12,11 +13,18 @@ class SessionService:
         active_store = store or SQLiteSessionStore(db_path=_default_sqlite_store_path())
         self._manager = manager or SessionManager(store=active_store)
 
-    def create_session(self) -> Session:
-        return self._manager.create_session()
+    @property
+    def manager(self) -> SessionManager:
+        return self._manager
+
+    def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
+        return self._manager.create_session(title=title, metadata=metadata)
 
     def get_session(self, session_id: str) -> Session | None:
         return self._manager.get_session(session_id)
+
+    def list_sessions(self, *, limit: int, offset: int) -> tuple[tuple[Session, ...], bool]:
+        return self._manager.list_sessions(limit=limit, offset=offset)
 
 
 def _default_sqlite_store_path() -> Path:

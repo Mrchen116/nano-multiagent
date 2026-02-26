@@ -20,13 +20,19 @@ class SessionManager:
     def __init__(self, *, store: SessionStore) -> None:
         self._store = store
 
-    def create_session(self) -> Session:
+    def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
         session_id = ids.make_session_id()
         created_at = datetime.now(UTC).isoformat()
+        extra_data: dict[str, Any] = {}
+        if title is not None:
+            extra_data["title"] = title
+        if metadata:
+            extra_data["metadata"] = dict(metadata)
         event = new_session_created_entry(
             session_id=session_id,
             created_at=created_at,
             status="active",
+            data=extra_data,
         )
         self._store.append_event(session_id, event)
         session = Session(session_id=session_id, status="active", created_at=created_at)
@@ -83,6 +89,25 @@ class SessionManager:
             if message is not None:
                 messages.append(message)
         return tuple(messages)
+
+    def list_sessions(self, *, limit: int, offset: int) -> tuple[tuple[Session, ...], bool]:
+        if limit <= 0:
+            raise ValueError("limit must be greater than 0")
+        if offset < 0:
+            raise ValueError("offset must be greater than or equal to 0")
+
+        list_ids = getattr(self._store, "list_session_ids", None)
+        if not callable(list_ids):
+            return (), False
+
+        session_ids = tuple(list_ids(limit=limit + 1, offset=offset))
+        has_more = len(session_ids) > limit
+        sessions: list[Session] = []
+        for session_id in session_ids[:limit]:
+            session = self.get_session(session_id)
+            if session is not None:
+                sessions.append(session)
+        return tuple(sessions), has_more
 
     def _from_snapshot(self, snapshot: Mapping[str, Any] | None) -> Session | None:
         if snapshot is None:

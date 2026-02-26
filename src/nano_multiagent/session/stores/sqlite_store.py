@@ -79,6 +79,20 @@ class SQLiteSessionStore(SessionStore):
                 (session_id, payload, updated_at),
             )
 
+    def list_session_ids(self, *, limit: int, offset: int) -> tuple[str, ...]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT session_id
+                FROM session_events
+                GROUP BY session_id
+                ORDER BY MIN(seq) DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+        return tuple(str(row["session_id"]) for row in rows)
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._db_path)
         connection.row_factory = sqlite3.Row

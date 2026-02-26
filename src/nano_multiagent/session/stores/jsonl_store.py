@@ -52,6 +52,15 @@ class JsonlSessionStore(SessionStore):
         with self._snapshot_path(session_id).open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, separators=(",", ":"))
 
+    def list_session_ids(self, *, limit: int, offset: int) -> tuple[str, ...]:
+        event_paths = sorted(
+            self._base_dir.glob("*.events.jsonl"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        session_ids = [path.name.removesuffix(".events.jsonl") for path in event_paths]
+        return tuple(session_ids[offset: offset + limit])
+
     def _events_path(self, session_id: str) -> Path:
         return self._base_dir / f"{session_id}.events.jsonl"
 
