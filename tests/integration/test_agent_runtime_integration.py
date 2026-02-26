@@ -1,0 +1,62 @@
+import json
+from pathlib import Path
+
+import httpx
+
+from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
+from nano_multiagent.session.entries import SessionEntryKind
+from nano_multiagent.session.manager import SessionManager
+from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
+
+
+def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -> None:
+    observed_bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_bodies.append(json.loads(request.read().decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl_runtime",
+                "object": "chat.completion",
+                "model": "codexOAuth:gpt-5.2-codex",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "ack"},
+                    }
+                ],
+            },
+        )
+
+    db_path = tmp_path / "runtime.sqlite3"
+    store = SQLiteSessionStore(db_path=db_path)
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+
+    client = create_llm_client(
+        config=LLMFactoryConfig(
+            provider="openai_compat",
+            model="codexOAuth:gpt-5.2-codex",
+            base_url="http://127.0.0.1:4000",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="codexOAuth:gpt-5.2-codex")
+
+    runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
+    runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
+
+    loaded = store.load_session(session.session_id)
+    assert loaded is not None
+    turn_events = [event for event in loaded.events if event.kind is SessionEntryKind.TURN_APPENDED]
+    assert len(turn_events) == 4
+    assert turn_events[0].data["content"] == "Q1"
+    assert turn_events[1].data["content"] == "ack"
+
+    second_payload = observed_bodies[-1]
+    messages = second_payload["messages"]
+    assert [message["role"] for message in messages] == ["system", "user", "assistant", "user"]
+    assert messages[-1]["content"] == "Q2"
