@@ -135,3 +135,16 @@
   - `6912f2f` | `f60f488` | `ce43210`
 - Next:
   - M4 完成；等待后续 Milestone 指令
+
+## 2026-02-27 07:58:10 +0800
+- Done:
+  - 完成 R5.1：`server` 分层重构（`app/deps/auth/routes`）并补齐会话接口 `POST/GET/list`
+  - 引入最小鉴权（Bearer）、请求追踪（`X-Request-Id`）与统一错误格式
+  - 为同步消息主入口保留 `POST /v1/sessions/{session_id}/messages` 占位路由
+- Evidence:
+  - `pytest -q tests/unit/test_server_auth.py tests/contract/test_sessions_contract.py tests/integration/test_app_bootstrap.py tests/e2e/test_minimal_flow.py tests/e2e/test_core_contract_entry_e2e.py tests/e2e/test_session_rebuild_e2e.py` -> `9 passed in 0.48s`
+  - 错误/追踪契约 -> `tests/contract/test_sessions_contract.py::test_sessions_require_bearer_auth_and_use_unified_error_shape` 通过
+- Commits: C1 | C2 | C3
+  - `807e366` | `dfc66b0` | `PENDING-C3-R5.1`
+- Next:
+  - R5.2 Red：为同步 `messages` 主入口补失败测试并完成 runtime 接线

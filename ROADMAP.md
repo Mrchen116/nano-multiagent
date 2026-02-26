@@ -310,3 +310,64 @@ Exit Criteria:
   - `pytest -q tests/unit/test_agent_runtime.py tests/contract/test_agent_runtime_contract.py tests/integration/test_agent_runtime_integration.py tests/e2e/test_agent_runtime_e2e.py`: `7 passed in 3.16s`
   - 事件落盘验证: `tests/integration/test_agent_runtime_integration.py` 断言 sqlite 中存在 4 条 `session.turn.appended` 事件，且第二轮请求上下文 roles 为 `system,user,assistant,user`
   - `pytest -q`: `54 passed in 3.33s`
+
+## Milestone M5（进行中）: server 主入口（同步优先）
+Goal:
+- 完成 `server` 分层（`app.py`、`deps.py`、`auth.py`、`routes/*`）最小可用骨架
+- 提供同步会话入口前置能力：鉴权、请求追踪、统一错误映射、会话 create/get/list
+- 为 `POST /v1/sessions/{session_id}/messages` 同步主入口准备依赖装配（不进入 async/runs/SSE）
+Exit Criteria:
+- 会话接口最小可用：`POST /v1/sessions`、`GET /v1/sessions/{id}`、`GET /v1/sessions`（最小分页）
+- 支持 `Authorization: Bearer` 与 `X-Request-Id`，响应回传 trace header
+- 错误统一格式：`{error:{code,message,retryable,trace_id}}`
+- 同步 `messages` 主入口完成（R5.2），并通过 `pytest -q` 全绿
+
+### Roadpoint R5.1: server 分层骨架 + 会话接口最小完善
+- Public Surface:
+  - `nano_multiagent.server.app:create_app`
+  - `nano_multiagent.server.deps`
+  - `nano_multiagent.server.auth`
+  - `nano_multiagent.server.routes.{global_routes,session}`
+  - `POST /v1/sessions`、`GET /v1/sessions/{session_id}`、`GET /v1/sessions`
+- Acceptance:
+  - `server/` 按分层文件拆分，`app` 仅做装配与中间件/异常映射
+  - 会话接口支持最小分页参数 `limit/offset`
+  - 受保护接口要求 `Authorization: Bearer <token>`
+  - 支持 `X-Request-Id` 透传并在错误体中回显 `trace_id`
+  - 目标测试全绿
+- Tests Plan:
+  - unit: `tests/unit/test_server_auth.py`
+  - contract: `tests/contract/test_sessions_contract.py`
+  - integration: `tests/integration/test_app_bootstrap.py`
+  - e2e: `tests/e2e/test_minimal_flow.py`, `tests/e2e/test_session_rebuild_e2e.py`, `tests/e2e/test_core_contract_entry_e2e.py`
+- Commit Plan:
+  - C1: `test(R5.1): ...（先红）`
+  - C2: `feat(R5.1): ...（全绿）`
+  - C3: `docs(R5.1): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: 807e366
+  - C2: dfc66b0
+  - C3: PENDING-C3-R5.1
+- Evidence:
+  - `pytest -q tests/unit/test_server_auth.py tests/contract/test_sessions_contract.py tests/integration/test_app_bootstrap.py tests/e2e/test_minimal_flow.py tests/e2e/test_core_contract_entry_e2e.py tests/e2e/test_session_rebuild_e2e.py`: `9 passed in 0.48s`
+  - 追踪回传验证: `tests/contract/test_sessions_contract.py::test_sessions_require_bearer_auth_and_use_unified_error_shape` 断言 `error.trace_id=req-auth-missing` 且响应头 `x-request-id=req-auth-missing`
+
+### Roadpoint R5.2: 同步消息主入口接线（route -> runtime -> session）
+- Public Surface:
+  - `POST /v1/sessions/{session_id}/messages`
+  - `nano_multiagent.server.routes.session`（同步消息处理）
+  - `nano_multiagent.server.deps.get_agent_runtime`
+- Acceptance:
+  - 同步入口调用 `AgentRuntime.run(session_id, parts, stream=False)` 返回最终答复
+  - 失败场景统一映射到标准 error 格式并携带 `trace_id`
+  - 明确不实现 `messages:async` 与 `runs/*`
+  - `pytest -q` 全绿
+- Tests Plan:
+  - unit: `tests/unit/test_server_message_route.py`（待新增）
+  - contract: `tests/contract/test_message_sync_contract.py`（待新增）
+  - integration: `tests/integration/test_message_sync_runtime_wiring.py`（待新增）
+  - e2e: `tests/e2e/test_message_sync_e2e.py`（待新增）
+- Commit Plan:
+  - C1: `test(R5.2): ...（先红）`
+  - C2: `feat(R5.2): ...（全绿）`
+  - C3: `docs(R5.2): ...（记录hash/证据/下一步）`

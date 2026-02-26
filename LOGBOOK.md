@@ -256,3 +256,29 @@
   - 可回退到 `6912f2f`（R4.2 红测提交）重放 Green。
 - Commits:
   - C1=`6912f2f`, C2=`f60f488`, C3=`ce43210`
+
+## 2026-02-27 07:58:10 +0800 - R5.1 完成记录（server 分层 + 会话最小接口）
+- Context:
+  - M5 目标限定 server 主入口同步能力前置，不进入 async runs/SSE/tools。
+  - 本次改动涉及 server/session 多模块与多层测试，文件数超过 5。
+- Decision:
+  - 将单文件 `server/app.py` 拆分为 `app/deps/auth/routes`，由 `app` 统一装配中间件、异常映射和依赖注入。
+  - 会话接口补齐 `POST /v1/sessions`、`GET /v1/sessions/{id}`、`GET /v1/sessions`（limit/offset 最小分页）。
+  - 在 `routes/session.py` 先挂载 `messages` 占位路由，留待 R5.2 完成 runtime 接线。
+- Rationale:
+  - 先稳定协议层（鉴权/追踪/错误），再接入同步消息主入口，可降低 R5.2 回归面。
+  - 分层后 `server` 只做编排，保持与蓝图一致的边界方向。
+- Changed Files Summary:
+  - `src/nano_multiagent/server/{app.py,deps.py,auth.py}`
+  - `src/nano_multiagent/server/routes/{global_routes.py,session.py,__init__.py}`
+  - `src/nano_multiagent/session/{manager.py,service.py}`
+  - `src/nano_multiagent/session/stores/{sqlite_store.py,jsonl_store.py}`
+  - `tests/{unit,contract,integration,e2e}` 中 server 相关测试更新
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - `POST /v1/sessions/{session_id}/messages` 目前为 `501 not_implemented` 占位，需在 R5.2 完成同步调用链。
+  - 文档中的 `R5.1 C3` 先占位，需在 R5.2 文档提交回填真实 hash。
+- Rollback:
+  - 可回退到 `807e366`（R5.1 红测提交）重放 Green。
+- Commits:
+  - C1=`807e366`, C2=`dfc66b0`, C3=`PENDING-C3-R5.1`
