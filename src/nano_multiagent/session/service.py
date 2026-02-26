@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
-from secrets import token_hex
+
+from nano_multiagent.core import ids
 
 from .models import Session
 
@@ -9,7 +10,7 @@ class SessionService:
         self._sessions: dict[str, Session] = {}
 
     def create_session(self) -> Session:
-        session_id = f'sess_{token_hex(8)}'
+        session_id = ids.make_session_id()
         session = Session(
             session_id=session_id,
             status='active',
