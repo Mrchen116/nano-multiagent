@@ -99,3 +99,25 @@
   - `58e5048` | `fd859fe` | `dd714a8`
 - Next:
   - M3 完成；等待后续 Milestone 指令
+
+## 2026-02-27 02:26:36 +0800
+- Done:
+  - 完成 R4.1：新增 `agent/state`、`agent/policies`、`agent/prompting`、`agent/loop` 最小闭环核心模块
+  - 完成 text/image(parts) 解析、image 占位文本渲染、context 构建与非流式 LLM 调用
+- Evidence:
+  - `pytest -q tests/unit/test_agent_state.py tests/unit/test_agent_policies.py tests/unit/test_agent_prompting.py tests/unit/test_agent_loop.py tests/contract/test_agent_state_contract.py` -> `10 passed in 0.13s`
+- Commits: C1 | C2 | C3
+  - `2fc990e` | `aa455be` | `PENDING-C3-R4.1`
+- Next:
+  - R4.2 Green：完成 runtime + session turn 事件落盘接线并跑 integration/e2e
+
+## 2026-02-27 02:26:36 +0800
+- Done:
+  - R4.2 已完成 C1/C2：runtime 最小闭环实现与 turn 事件接线落地
+  - runtime 可基于历史 turn 事件构建下一轮上下文，integration/e2e 目标测试通过
+- Evidence:
+  - `pytest -q tests/unit/test_agent_runtime.py tests/contract/test_agent_runtime_contract.py tests/integration/test_agent_runtime_integration.py tests/e2e/test_agent_runtime_e2e.py` -> `7 passed in 3.16s`
+- Commits: C1 | C2 | C3
+  - `6912f2f` | `f60f488` | `PENDING-C3-R4.2`
+- Next:
+  - 回填 R4.1/R4.2 的 C3 占位并执行 `pytest -q` 全量验收

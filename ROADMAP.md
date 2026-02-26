@@ -242,3 +242,69 @@ Exit Criteria:
   - `pytest -q tests/e2e/test_openai_compat_generate_e2e.py`: `1 passed in 2.58s`
   - `pytest -q`: `37 passed in 1.76s`
   - `X-Session-Id` 验证: `tests/integration/test_openai_compat_generation_integration.py` 断言请求头 `x-session-id=sess_integration`
+
+## Milestone M4（进行中）: agent 最小闭环（无工具）
+Goal:
+- 实现 `agent/runtime.py`、`agent/loop.py`、`agent/state.py`、`agent/policies.py`、`agent/prompting.py` 最小可用版
+- 先支持 `text` 输入，并对 `image` 输入保留占位契约，完成“构建上下文 -> 调用 LLM -> 返回 assistant 文本”闭环
+- 运行结果通过现有 `session manager/store` 落为 session 事件
+Exit Criteria:
+- `AgentRuntime.run(session_id, parts)` 可在无 tools/hooks/skills 的前提下完成一轮文本问答
+- `TURN_APPENDED` 事件可落盘并在重建时用于恢复历史上下文
+- 覆盖 unit/contract/integration/e2e 并通过 `pytest -q` 全绿
+- 不进入 M5 server 主入口扩展与 M6+ 能力
+
+### Roadpoint R4.1: agent 核心状态机模块最小实现
+- Public Surface:
+  - `nano_multiagent.agent.state`
+  - `nano_multiagent.agent.policies`
+  - `nano_multiagent.agent.prompting`
+  - `nano_multiagent.agent.loop`
+- Acceptance:
+  - 输入 parts 可解析 `text/image`，并把 image 转为占位文本参与上下文
+  - policy 支持最大轮次与上下文消息裁剪
+  - prompt 构建包含 system + history + user
+  - loop 能调用 `LLMClient.generate` 并返回 `TurnResult` assistant 文本
+  - 目标测试全绿
+- Tests Plan:
+  - unit: `tests/unit/test_agent_state.py`, `tests/unit/test_agent_policies.py`, `tests/unit/test_agent_prompting.py`, `tests/unit/test_agent_loop.py`
+  - contract: `tests/contract/test_agent_state_contract.py`
+  - integration: 在 R4.2 执行
+  - e2e: 在 R4.2 执行
+- Commit Plan:
+  - C1: `test(R4.1): ...（先红）`
+  - C2: `feat(R4.1): ...（全绿）`
+  - C3: `docs(R4.1): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: 2fc990e
+  - C2: aa455be
+  - C3: PENDING-C3-R4.1
+- Evidence:
+  - `pytest -q tests/unit/test_agent_state.py tests/unit/test_agent_policies.py tests/unit/test_agent_prompting.py tests/unit/test_agent_loop.py tests/contract/test_agent_state_contract.py`: `10 passed in 0.13s`
+
+### Roadpoint R4.2: runtime 接线与事件落盘闭环验证
+- Public Surface:
+  - `nano_multiagent.agent.runtime`
+  - `nano_multiagent.session.entries`（TURN_APPENDED 事件构造）
+  - `nano_multiagent.session.manager`（turn 事件追加与历史重建接口）
+- Acceptance:
+  - `AgentRuntime.run` 支持 text 输入最小闭环（context -> llm -> assistant text）
+  - image 输入保留占位契约且不触发工具链
+  - user/assistant 结果写入 session 事件并可重建为历史消息
+  - 提供 integration/e2e 证据验证“事件落盘 + 重开可读 + runtime 可调用”
+  - `pytest -q` 全绿
+- Tests Plan:
+  - unit: `tests/unit/test_agent_runtime.py`, `tests/unit/test_session_manager.py`（增补 turn 事件场景）
+  - contract: `tests/contract/test_agent_runtime_contract.py`
+  - integration: `tests/integration/test_agent_runtime_integration.py`
+  - e2e: `tests/e2e/test_agent_runtime_e2e.py`
+- Commit Plan:
+  - C1: `test(R4.2): ...（先红）`
+  - C2: `feat(R4.2): ...（全绿）`
+  - C3: `docs(R4.2): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: 6912f2f
+  - C2: f60f488
+  - C3: PENDING-C3-R4.2
+- Evidence:
+  - `pytest -q tests/unit/test_agent_runtime.py tests/contract/test_agent_runtime_contract.py tests/integration/test_agent_runtime_integration.py tests/e2e/test_agent_runtime_e2e.py`: `7 passed in 3.16s`

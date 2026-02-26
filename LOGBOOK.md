@@ -193,3 +193,43 @@
   - 可回退到 `58e5048`（R3.2 测试红态）重放 Green。
 - Commits:
   - C1=`58e5048`, C2=`fd859fe`, C3=`dd714a8`
+
+## 2026-02-27 02:26:36 +0800 - R4.1 完成记录（agent 核心模块）
+- Context:
+  - M4 首个 Roadpoint 目标为无工具最小闭环的核心状态机模块，限定在 `state/policies/prompting/loop`。
+  - 涉及新增 agent 子包与多维测试，改动文件数超过 5。
+- Decision:
+  - 先冻结 `InputPart/AgentState` 与策略契约，再以 `AgentLoop` 串联 prompt 构建与 LLM 抽象调用。
+  - image 输入暂不做推理能力，统一转为 `"[image:placeholder]"` 参与上下文。
+- Rationale:
+  - 保持 M4 范围最小，先保证“文本闭环 + 输入契约”稳定，再扩展 runtime 事件落盘。
+- Changed Files Summary:
+  - `src/nano_multiagent/agent/{__init__.py,state.py,policies.py,prompting.py,loop.py}`
+  - `tests/unit/{test_agent_state.py,test_agent_policies.py,test_agent_prompting.py,test_agent_loop.py}`
+  - `tests/contract/test_agent_state_contract.py`
+- Pitfall/Risk:
+  - 尚未写入 session turn 事件，runtime 闭环与持久化证据留在 R4.2 完成。
+- Rollback:
+  - 可回退到 `2fc990e`（R4.1 红测提交）重放实现。
+- Commits:
+  - C1=`2fc990e`, C2=`aa455be`, C3=`PENDING-C3-R4.1`
+
+## 2026-02-27 02:26:36 +0800 - R4.2 进行中记录（runtime 接线）
+- Context:
+  - 需在不引入 tools/hooks/skills 前提下完成 runtime 闭环，并将 turn 结果落盘到现有 session store。
+- Decision:
+  - 新增 `AgentRuntime`，统一封装 `parts -> AgentState -> AgentLoop -> TurnResult`。
+  - 在 `session.entries` 增加 `new_turn_appended_entry`，并在 `SessionManager` 增加 turn 事件追加与历史重建接口。
+- Rationale:
+  - 通过 manager/store 边界落盘，避免 runtime 直接操作底层存储实现。
+  - 让第二轮提问可直接复用事件流重建的历史消息。
+- Changed Files Summary:
+  - `src/nano_multiagent/agent/runtime.py`
+  - `src/nano_multiagent/session/{entries.py,manager.py}`
+  - `tests/{unit,contract,integration,e2e}` 中新增 runtime 闭环测试
+- Pitfall/Risk:
+  - C3 文档回填与全量 `pytest -q` 尚未执行。
+- Rollback:
+  - 可回退到 `6912f2f`（R4.2 红测提交）重放实现。
+- Commits:
+  - C1=`6912f2f`, C2=`f60f488`, C3=`PENDING-C3-R4.2`
