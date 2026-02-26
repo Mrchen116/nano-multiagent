@@ -67,7 +67,7 @@ Exit Criteria:
   - `pytest -q`: `8 passed in 0.34s`
   - 入口验证: `tests/e2e/test_minimal_flow.py::test_health_then_create_session` 通过（health=200, create-session=201）
 
-## Milestone M1（当前）: core 契约层实现与冻结
+## Milestone M1（已完成）: core 契约层实现与冻结
 Goal:
 - 新增并冻结 `core/types/events/errors/ids` 稳定契约
 - 完成最小 `server/session -> core.ids` 接入，不扩展业务能力
@@ -101,13 +101,68 @@ Exit Criteria:
 - Commits:
   - C1: 87b119e
   - C2: 0efbd91
-  - C3: PENDING-C3-R1.1（本次 docs 提交后回填为真实 hash）
+  - C3: 0236df1
 - Evidence:
   - `pytest -q`: `19 passed in 0.51s`
   - 入口级契约验证: `tests/e2e/test_core_contract_entry_e2e.py::test_create_session_entry_respects_core_id_contract` 通过
 
-## Milestone M2: 工具/技能/Hook 扩展（仅占位）
+## Milestone M2（当前）: session 事件源与 sqlite 存储
 Goal:
-- 接入工具注册、技能选择与 Hook 机制
+- 完成 session 事件定义、版本化序列化与可持久化存储（sqlite 默认 + jsonl 调试）
+- 将 `session.manager` 与当前 server/service 最小接线，保证状态变更落事件并可重建
 Exit Criteria:
-- 关键扩展点可加载并在最小场景可验证
+- `session/entries.py`、`session/stores/{base,sqlite_store,jsonl_store}.py`、`session/serializers.py` 可用
+- `session/manager.py` 与 server 接线完成，创建会话会写入事件存储
+- 覆盖 unit/contract/integration/e2e，至少验证“创建会话后重启/重建可读”
+- `pytest -q` 全绿
+
+### Roadpoint R2.1: session 事件模型与双存储实现
+- Public Surface:
+  - `nano_multiagent.session.entries`
+  - `nano_multiagent.session.serializers`
+  - `nano_multiagent.session.stores.base`
+  - `nano_multiagent.session.stores.sqlite_store`
+  - `nano_multiagent.session.stores.jsonl_store`
+- Acceptance:
+  - 定义基础 session 事件类型，并预留 `CompactionEntry`
+  - 提供最小版本化序列化/反序列化（entry + snapshot）
+  - sqlite/jsonl store 支持 `append_event/load_session/save_snapshot`
+  - 集成测试验证 sqlite/jsonl 在重新打开存储后可读取事件与快照
+  - `pytest -q` 全绿
+- Tests Plan:
+  - unit: `tests/unit/test_session_entries.py`
+  - contract: `tests/contract/test_session_serializers_contract.py`
+  - integration: `tests/integration/test_session_store_persistence_integration.py`
+  - e2e: 在 R2.2 统一验证入口级重建能力
+- Commit Plan:
+  - C1: `test(R2.1): ...（先红）`
+  - C2: `feat(R2.1): ...（全绿）`
+  - C3: `docs(R2.1): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: c76fb5b
+  - C2: fc4dbdc
+  - C3: PENDING-C3-R2.1（本次 docs 提交后回填为真实 hash）
+- Evidence:
+  - `pytest -q tests/unit/test_session_entries.py tests/contract/test_session_serializers_contract.py tests/integration/test_session_store_persistence_integration.py`: `6 passed`
+  - `pytest -q`: `25 passed in 0.93s`
+
+### Roadpoint R2.2: manager/服务接线与可重建验证
+- Public Surface:
+  - `nano_multiagent.session.manager: SessionManager`
+  - `nano_multiagent.session.service: SessionService`（接线 manager/store）
+  - `nano_multiagent.server.app:create_app`（最小依赖注入）
+- Acceptance:
+  - `create_session` 状态变更通过 `SessionStore.append_event` 落盘
+  - `SessionManager.load_session/get_session` 可基于事件流重建会话
+  - 服务重建（新 manager + 同一 store）后可读取已创建会话
+  - 至少 1 个 e2e 验证 HTTP 入口触发后重建仍可读
+  - `pytest -q` 全绿
+- Tests Plan:
+  - unit: `tests/unit/test_session_manager.py`
+  - contract: `tests/contract/test_sessions_contract.py`（持续冻结创建响应）
+  - integration: `tests/integration/test_session_manager_wiring_integration.py`
+  - e2e: `tests/e2e/test_session_rebuild_e2e.py`
+- Commit Plan:
+  - C1: `test(R2.2): ...（先红）`
+  - C2: `feat(R2.2): ...（全绿）`
+  - C3: `docs(R2.2): ...（记录hash/证据/下一步）`

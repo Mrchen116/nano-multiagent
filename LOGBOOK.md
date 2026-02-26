@@ -70,12 +70,12 @@
   - `tests/{unit,contract,integration,e2e}` 中新增 6 个 core 相关测试文件
   - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
 - Pitfall/Risk:
-  - R1.1 的 C3 hash 在本提交前不可得，按流程先写 `PENDING-C3-R1.1`，由本次提交后实际 hash 替换为证据链输出值。
+  - R1.1 已在后续文档提交中回填 C3=`0236df1`，证据链闭环完成。
   - 目前仅完成 core 契约冻结，未触及 session 持久化（sqlite）与 Hook/Tool 扩展，属于后续 Milestone 范围。
 - Rollback:
   - 若需重做实现，可回退到 `87b119e`（仅测试）再按 Red->Green 重放。
 - Commits:
-  - C1=`87b119e`, C2=`0efbd91`, C3=`PENDING-C3-R1.1`
+  - C1=`87b119e`, C2=`0efbd91`, C3=`0236df1`
 
 ## 2026-02-27 01:46:01 +0800 - M0 C3 占位回填核对
 - Context:
@@ -92,3 +92,28 @@
   - 不涉及代码行为，无需回滚。
 - Commits:
   - 归属 R1.1 C3 文档提交
+
+## 2026-02-27 02:08:11 +0800 - R2.1 完成记录（session 事件源与存储）
+- Context:
+  - M2 目标限定 session 事件源与持久化层，当前 Roadpoint 涉及新增模块与测试，改动文件数超过 5。
+  - 需要提供生产默认 sqlite 与调试回放 jsonl，且预留 `CompactionEntry`。
+- Decision:
+  - 定义 `SessionEntry/CompactionEntry` 与 `SessionEntryKind`，将状态变更统一抽象为事件。
+  - 引入版本化 `serializers`，统一 entry/snapshot 的编码与解码。
+  - 实现 `SessionStore` 抽象与 `SQLiteSessionStore/JsonlSessionStore` 两个实现。
+- Rationale:
+  - 用同一抽象屏蔽存储细节，保证后续 `session.manager` 不直接依赖 SQL/文件格式。
+  - 先锁定序列化契约，避免后续演进时回放/迁移失真。
+- Changed Files Summary:
+  - `src/nano_multiagent/session/{entries.py,serializers.py}`
+  - `src/nano_multiagent/session/stores/{base.py,sqlite_store.py,jsonl_store.py,__init__.py}`
+  - `tests/unit/test_session_entries.py`
+  - `tests/contract/test_session_serializers_contract.py`
+  - `tests/integration/test_session_store_persistence_integration.py`
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前仅实现存储层与契约，尚未完成 manager/service/server 的事件接线；归属 R2.2。
+- Rollback:
+  - 若需重做实现，可回退到 `c76fb5b`（R2.1 测试红态）重放 Green。
+- Commits:
+  - C1=`c76fb5b`, C2=`fc4dbdc`, C3=`PENDING-C3-R2.1`

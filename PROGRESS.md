@@ -42,6 +42,19 @@
   - `pytest -q` -> `19 passed in 0.51s`
   - 入口级契约验证 -> `tests/e2e/test_core_contract_entry_e2e.py::test_create_session_entry_respects_core_id_contract` 通过
 - Commits: C1 | C2 | C3
-  - `87b119e` | `0efbd91` | `PENDING-C3-R1.1`
+  - `87b119e` | `0efbd91` | `0236df1`
 - Next:
   - M1 完成；等待 M2（session sqlite 与扩展能力）指令
+
+## 2026-02-27 02:08:11 +0800
+- Done:
+  - 完成 R2.1：新增 session 事件模型、版本化序列化与 `sqlite/jsonl` 双存储实现
+  - 集成验证存储可在“重开 store”后读取事件与快照
+  - 回填 R1.1 的 C3 占位为真实 hash `0236df1`
+- Evidence:
+  - `pytest -q tests/unit/test_session_entries.py tests/contract/test_session_serializers_contract.py tests/integration/test_session_store_persistence_integration.py` -> `6 passed`
+  - `pytest -q` -> `25 passed in 0.93s`
+- Commits: C1 | C2 | C3
+  - `c76fb5b` | `fc4dbdc` | `PENDING-C3-R2.1`
+- Next:
+  - R2.2 Red：先写 manager/service/server 重建可读链路失败测试
