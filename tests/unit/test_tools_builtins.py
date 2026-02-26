@@ -1,0 +1,123 @@
+from pathlib import Path
+
+import pytest
+
+from nano_multiagent.core.errors import ToolError
+from nano_multiagent.tools.base import ToolContext
+from nano_multiagent.tools.builtins.bash import BashTool
+from nano_multiagent.tools.builtins.edit import EditTool
+from nano_multiagent.tools.builtins.read import ReadTool
+from nano_multiagent.tools.builtins.write import WriteTool
+from nano_multiagent.tools.safety import ToolSafetyConfig
+
+
+def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolContext:
+    return ToolContext.create(repo_root=tmp_path, safety_config=config)
+
+
+def test_read_supports_segmented_reads(tmp_path: Path) -> None:
+    content = "\n".join(f"line-{idx}" for idx in range(1, 7)) + "\n"
+    (tmp_path / "note.txt").write_text(content, encoding="utf-8")
+    ctx = _context(tmp_path)
+
+    result = ReadTool().run({"path": "note.txt", "offset": 3, "limit": 2}, ctx)
+
+    assert result["content"] == "line-3\nline-4"
+    assert result["truncated"] is False
+    assert result["next_offset"] == 5
+
+
+def test_read_truncates_output_and_reports_next_offset(tmp_path: Path) -> None:
+    content = "\n".join(f"line-{idx}" for idx in range(1, 7)) + "\n"
+    (tmp_path / "note.txt").write_text(content, encoding="utf-8")
+    ctx = _context(
+        tmp_path,
+        config=ToolSafetyConfig(read_max_lines=2, read_max_bytes=1024),
+    )
+
+    result = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 5}, ctx)
+
+    assert result["content"] == "line-1\nline-2"
+    assert result["truncated"] is True
+    assert result["next_offset"] == 3
+
+
+def test_read_rejects_path_outside_repo(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "outside.txt"
+    outside.write_text("blocked", encoding="utf-8")
+    ctx = _context(tmp_path)
+
+    with pytest.raises(ToolError, match="outside repo"):
+        ReadTool().run({"path": "../outside.txt"}, ctx)
+
+
+def test_write_overwrites_existing_file(tmp_path: Path) -> None:
+    target = tmp_path / "notes" / "todo.txt"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("before", encoding="utf-8")
+    ctx = _context(tmp_path)
+
+    result = WriteTool().run({"path": "notes/todo.txt", "content": "after"}, ctx)
+
+    assert target.read_text(encoding="utf-8") == "after"
+    assert result["bytes_written"] == len("after".encode("utf-8"))
+
+
+def test_edit_replaces_exact_text_once(tmp_path: Path) -> None:
+    target = tmp_path / "config.txt"
+    target.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+    ctx = _context(tmp_path)
+
+    result = EditTool().run(
+        {"path": "config.txt", "oldText": "beta", "newText": "BETA"},
+        ctx,
+    )
+
+    assert target.read_text(encoding="utf-8") == "alpha\nBETA\ngamma\n"
+    assert result["first_changed_line"] == 2
+
+
+def test_edit_fails_on_multiple_matches(tmp_path: Path) -> None:
+    target = tmp_path / "dup.txt"
+    target.write_text("x\nx\n", encoding="utf-8")
+    ctx = _context(tmp_path)
+
+    with pytest.raises(ToolError, match="multiple matches"):
+        EditTool().run({"path": "dup.txt", "oldText": "x", "newText": "y"}, ctx)
+
+
+def test_bash_reports_non_zero_exit(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+
+    with pytest.raises(ToolError) as exc_info:
+        BashTool().run({"command": "python -c \"import sys;sys.exit(7)\""}, ctx)
+
+    assert exc_info.value.details["exit_code"] == 7
+
+
+def test_bash_handles_timeout(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+
+    with pytest.raises(ToolError, match="timed out"):
+        BashTool().run({"command": "python -c \"import time;time.sleep(0.3)\"", "timeout": 0.05}, ctx)
+
+
+def test_bash_rejects_disallowed_command(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+
+    with pytest.raises(ToolError, match="not allowed"):
+        BashTool().run({"command": "rm -rf /tmp/forbidden"}, ctx)
+
+
+def test_bash_truncates_large_output(tmp_path: Path) -> None:
+    ctx = _context(
+        tmp_path,
+        config=ToolSafetyConfig(bash_max_output_lines=3, bash_max_output_bytes=200),
+    )
+
+    result = BashTool().run(
+        {"command": "python -c \"[print(f'line-{i}') for i in range(10)]\""},
+        ctx,
+    )
+
+    assert result["truncated"] is True
