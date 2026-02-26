@@ -118,7 +118,7 @@
 - Evidence:
   - `pytest -q tests/unit/test_agent_runtime.py tests/contract/test_agent_runtime_contract.py tests/integration/test_agent_runtime_integration.py tests/e2e/test_agent_runtime_e2e.py` -> `7 passed in 3.16s`
 - Commits: C1 | C2 | C3
-  - `6912f2f` | `f60f488` | `PENDING-C3-R4.2`
+  - `6912f2f` | `f60f488` | `ce43210`
 - Next:
   - 回填 R4.1/R4.2 的 C3 占位并执行 `pytest -q` 全量验收
 
@@ -132,6 +132,6 @@
   - `pytest -q` -> `54 passed in 3.33s`
   - 事件落盘 -> `tests/integration/test_agent_runtime_integration.py` 断言第二轮前已持久化 `Q1/ack` turn 事件，并在第二轮请求体中重建上下文 roles=`system,user,assistant,user`
 - Commits: C1 | C2 | C3
-  - `6912f2f` | `f60f488` | `PENDING-C3-R4.2`
+  - `6912f2f` | `f60f488` | `ce43210`
 - Next:
-  - 回填 R4.2 的 C3 占位为真实 hash并结束 M4
+  - M4 完成；等待后续 Milestone 指令

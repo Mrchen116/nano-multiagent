@@ -305,7 +305,7 @@ Exit Criteria:
 - Commits:
   - C1: 6912f2f
   - C2: f60f488
-  - C3: PENDING-C3-R4.2
+  - C3: ce43210
 - Evidence:
   - `pytest -q tests/unit/test_agent_runtime.py tests/contract/test_agent_runtime_contract.py tests/integration/test_agent_runtime_integration.py tests/e2e/test_agent_runtime_e2e.py`: `7 passed in 3.16s`
   - 事件落盘验证: `tests/integration/test_agent_runtime_integration.py` 断言 sqlite 中存在 4 条 `session.turn.appended` 事件，且第二轮请求上下文 roles 为 `system,user,assistant,user`

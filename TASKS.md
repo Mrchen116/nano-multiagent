@@ -35,7 +35,7 @@
   - `pytest -q` 全绿
   - C1/C2/C3 三次提交完整
   - 四文档写入 R4.2 hash 与事件落盘证据
-  - 回填 `PENDING-C3-R4.1` 与 `PENDING-C3-R4.2`
+  - R4.1/R4.2 文档 hash 回填完成，无占位残留
 
 ## Milestone M4 状态
 - R4.1 与 R4.2 已完成，M4 Exit Criteria 达成。
