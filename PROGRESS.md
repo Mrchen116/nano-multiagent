@@ -96,6 +96,6 @@
   - `pytest -q` -> `37 passed in 1.76s`
   - `X-Session-Id` -> `tests/integration/test_openai_compat_generation_integration.py` 断言 `x-session-id=sess_integration`
 - Commits: C1 | C2 | C3
-  - `58e5048` | `fd859fe` | `PENDING-C3-R3.2`
+  - `58e5048` | `fd859fe` | `dd714a8`
 - Next:
   - M3 完成；等待后续 Milestone 指令

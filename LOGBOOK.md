@@ -192,4 +192,4 @@
 - Rollback:
   - 可回退到 `58e5048`（R3.2 测试红态）重放 Green。
 - Commits:
-  - C1=`58e5048`, C2=`fd859fe`, C3=`PENDING-C3-R3.2`
+  - C1=`58e5048`, C2=`fd859fe`, C3=`dd714a8`

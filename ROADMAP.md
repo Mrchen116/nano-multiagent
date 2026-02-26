@@ -237,7 +237,7 @@ Exit Criteria:
 - Commits:
   - C1: 58e5048
   - C2: fd859fe
-  - C3: PENDING-C3-R3.2（本次 docs 提交后回填）
+  - C3: dd714a8
 - Evidence:
   - `pytest -q tests/e2e/test_openai_compat_generate_e2e.py`: `1 passed in 2.58s`
   - `pytest -q`: `37 passed in 1.76s`
