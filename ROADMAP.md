@@ -173,3 +173,70 @@ Exit Criteria:
 - Evidence:
   - `pytest -q tests/unit/test_session_manager.py tests/integration/test_session_manager_wiring_integration.py tests/e2e/test_session_rebuild_e2e.py`: `4 passed`
   - `pytest -q`: `29 passed in 0.33s`
+
+## Milestone M3（进行中）: LLM 抽象层 + openai_compat provider
+Goal:
+- 落地运行时唯一 LLM 抽象接口与 provider 工厂切换能力
+- 实现 `openai_compat` 协议适配，并完成一次非流式文本生成最小接线
+- 保证所有发往 LLM provider 的请求携带 `X-Session-Id`
+Exit Criteria:
+- `llm/interfaces.py`、`factory.py`、`model_registry.py`、`translator.py` 与 `protocols/openai_compat/*` 可用
+- provider/model 可通过配置切换，默认 `codexOAuth:gpt-5.2-codex @ http://127.0.0.1:4000`
+- 覆盖 unit/contract/integration/e2e 四类测试并通过 `pytest -q`
+- 回填 M2 文档中的 `PENDING-C3-R2.2` 占位为真实 hash
+
+### Roadpoint R3.1: LLM 抽象接口与 openai_compat 非流式链路
+- Public Surface:
+  - `nano_multiagent.llm.interfaces`
+  - `nano_multiagent.llm.model_registry`
+  - `nano_multiagent.llm.factory`
+  - `nano_multiagent.llm.translator`
+  - `nano_multiagent.llm.protocols.openai_compat.{mapper,client}`
+- Acceptance:
+  - 运行时依赖统一 `LLMClient` 抽象，不直接依赖 provider 细节
+  - factory 支持 provider/model/base_url 默认配置与显式配置
+  - openai_compat 支持非流式文本生成并返回统一响应结构
+  - translator 统一映射请求/响应并注入 `X-Session-Id`
+  - 目标测试全绿
+- Tests Plan:
+  - unit: `tests/unit/test_llm_model_registry.py`
+  - contract: `tests/contract/test_llm_interfaces_contract.py`
+  - integration: `tests/integration/test_openai_compat_generation_integration.py`
+  - e2e: 在 R3.2 验证真实代理调用
+- Commit Plan:
+  - C1: `test(R3.1): ...（先红）`
+  - C2: `feat(R3.1): ...（全绿）`
+  - C3: `docs(R3.1): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: 3937147
+  - C2: 92344bc
+  - C3: PENDING-C3-R3.1（本次 docs 提交后在 R3.2 回填）
+- Evidence:
+  - `pytest -q tests/unit/test_llm_model_registry.py tests/contract/test_llm_interfaces_contract.py tests/integration/test_openai_compat_generation_integration.py`: `7 passed in 0.14s`
+  - 集成断言: 请求路径为 `/v1/chat/completions`，并包含 `x-session-id=sess_integration`
+
+### Roadpoint R3.2: 本地 LLM_PROXY e2e 与文档纠偏
+- Public Surface:
+  - `tests/e2e/test_openai_compat_generate_e2e.py`
+  - M3 文档证据链（含 M2 占位回填）
+- Acceptance:
+  - 通过 `create_llm_client` + `LLMGenerateRequest` 触发真实非流式文本生成
+  - 默认模型与 base_url 可直接命中本地代理（`codexOAuth:gpt-5.2-codex`, `http://127.0.0.1:4000`）
+  - e2e 中验证请求头包含 `X-Session-Id`（可通过代理日志或 mock 证据）
+  - 回填 `PENDING-C3-R2.2` 与 `PENDING-C3-R3.1`
+  - `pytest -q` 全绿
+- Tests Plan:
+  - unit: 复用 R3.1
+  - contract: 复用 R3.1
+  - integration: 复用 R3.1
+  - e2e: `tests/e2e/test_openai_compat_generate_e2e.py`
+- Commit Plan:
+  - C1: `test(R3.2): ...（先红）`
+  - C2: `feat(R3.2): ...（全绿）`
+  - C3: `docs(R3.2): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: PENDING-C1-R3.2
+  - C2: PENDING-C2-R3.2
+  - C3: PENDING-C3-R3.2
+- Evidence:
+  - 待 R3.2 完成后补充

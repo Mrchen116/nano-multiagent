@@ -144,3 +144,29 @@
   - 若需重做实现，可回退到 `b1ac468`（R2.2 测试红态）重放 Green。
 - Commits:
   - C1=`b1ac468`, C2=`75087c6`, C3=`PENDING-C3-R2.2`
+
+## 2026-02-27 02:05:46 +0800 - R3.1 完成记录（LLM 抽象 + openai_compat）
+- Context:
+  - M3 目标限定 LLM 抽象层与 `openai_compat` provider，不进入 M4 agent runtime。
+  - 需要同时覆盖 unit/contract/integration，验证 `X-Session-Id` 强约束。
+- Decision:
+  - 新增 `llm/interfaces.py` 作为运行时唯一抽象，并通过 `LLMFactoryConfig/create_llm_client` 做 provider 构造。
+  - 使用 `translator + mapper + openai_compat client` 分层：统一格式映射与协议实现解耦。
+  - 在 integration 中用 `httpx.MockTransport` 断言 `x-session-id` 与请求路径。
+- Rationale:
+  - 保持依赖方向：运行时只依赖 `llm.interfaces`，provider 细节收敛在 `llm/protocols/*`。
+  - header 约束放在 translator 统一入口，避免遗漏。
+- Changed Files Summary:
+  - `src/nano_multiagent/llm/{interfaces.py,model_registry.py,factory.py,translator.py,__init__.py}`
+  - `src/nano_multiagent/llm/protocols/{__init__.py,openai_compat/*}`
+  - `tests/unit/test_llm_model_registry.py`
+  - `tests/contract/test_llm_interfaces_contract.py`
+  - `tests/integration/test_openai_compat_generation_integration.py`
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前仅支持非流式文本；tool-call/streaming 留待后续 Milestone。
+  - R3.1 的 C3 hash 需在 R3.2 文档提交中回填为真实值。
+- Rollback:
+  - 可回退到 `3937147`（R3.1 测试红态）重放实现。
+- Commits:
+  - C1=`3937147`, C2=`92344bc`, C3=`PENDING-C3-R3.1`

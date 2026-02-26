@@ -71,3 +71,16 @@
   - `b1ac468` | `75087c6` | `PENDING-C3-R2.2`
 - Next:
   - M2 完成；等待后续 Milestone 指令
+
+## 2026-02-27 02:05:46 +0800
+- Done:
+  - 完成 R3.1：新增 LLM 抽象层与 `openai_compat` provider 最小非流式文本链路
+  - 实现 `llm/interfaces`、`factory`、`model_registry`、`translator` 及 `openai_compat/{mapper,client}`
+  - 集成测试验证 provider 请求携带 `X-Session-Id`
+- Evidence:
+  - `pytest -q tests/unit/test_llm_model_registry.py tests/contract/test_llm_interfaces_contract.py tests/integration/test_openai_compat_generation_integration.py` -> `7 passed in 0.14s`
+  - 断言证据 -> `path=/v1/chat/completions` 且 `x-session-id=sess_integration`
+- Commits: C1 | C2 | C3
+  - `3937147` | `92344bc` | `PENDING-C3-R3.1`
+- Next:
+  - R3.2 Red：补真实 LLM_PROXY e2e 失败测试并完成文档占位回填
