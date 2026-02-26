@@ -1,0 +1,24 @@
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from nano_multiagent.server.app import create_app
+from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
+
+
+def test_create_session_survives_app_rebuild(tmp_path: Path) -> None:
+    db_path = tmp_path / "session-e2e.sqlite3"
+    first_app = create_app(session_store=SQLiteSessionStore(db_path=db_path))
+    first_client = TestClient(first_app)
+
+    response = first_client.post("/v1/sessions", json={})
+
+    assert response.status_code == 201
+    session_id = response.json()["session_id"]
+
+    second_app = create_app(session_store=SQLiteSessionStore(db_path=db_path))
+    restored = second_app.state.session_service.get_session(session_id)
+
+    assert restored is not None
+    assert restored.session_id == session_id
+    assert restored.status == "active"
