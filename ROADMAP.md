@@ -62,9 +62,9 @@ Exit Criteria:
 - Commits:
   - C1: 123cbae
   - C2: db3c09f
-  - C3: PENDING-C3-R0.2
+  - C3: b8f1446
 - Evidence:
-  - `pytest -q`: `8 passed in 0.33s`
+  - `pytest -q`: `8 passed in 0.34s`
   - 入口验证: `tests/e2e/test_minimal_flow.py::test_health_then_create_session` 通过（health=200, create-session=201）
 
 ## Milestone M1: Runtime Loop 与消息处理（仅占位）

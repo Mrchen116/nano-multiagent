@@ -31,7 +31,7 @@
 - Rollback:
   - 可回退到 `a004a39`（仅测试）重新实现 R0.1。
 - Commits:
-  - C1=`a004a39`, C2=`2f3d783`, C3=`PENDING-C3-R0.1`
+  - C1=`a004a39`, C2=`2f3d783`, C3=`e407f14`
 
 ## 2026-02-27 01:38:59 +0800 - R0.2 完成记录
 - Context:
@@ -52,4 +52,4 @@
 - Rollback:
   - 可回退到 `123cbae`（仅测试）重做实现。
 - Commits:
-  - C1=`123cbae`, C2=`db3c09f`, C3=`PENDING-C3-R0.2`
+  - C1=`123cbae`, C2=`db3c09f`, C3=`b8f1446`
