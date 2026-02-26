@@ -145,6 +145,21 @@
   - `pytest -q tests/unit/test_server_auth.py tests/contract/test_sessions_contract.py tests/integration/test_app_bootstrap.py tests/e2e/test_minimal_flow.py tests/e2e/test_core_contract_entry_e2e.py tests/e2e/test_session_rebuild_e2e.py` -> `9 passed in 0.48s`
   - 错误/追踪契约 -> `tests/contract/test_sessions_contract.py::test_sessions_require_bearer_auth_and_use_unified_error_shape` 通过
 - Commits: C1 | C2 | C3
-  - `807e366` | `dfc66b0` | `PENDING-C3-R5.1`
+  - `807e366` | `dfc66b0` | `bf653a4`
 - Next:
   - R5.2 Red：为同步 `messages` 主入口补失败测试并完成 runtime 接线
+
+## 2026-02-27 08:05:30 +0800
+- Done:
+  - 完成 R5.2：`POST /v1/sessions/{session_id}/messages` 从 501 占位改为同步主入口，调用 `agent.runtime.run(..., stream=False)`
+  - 新增 unit/contract/integration/e2e 四类测试，验证 route -> runtime -> session store 调用链
+  - 回填 `R5.1 C3=bf653a4`，清理文档占位
+  - M5 Exit Criteria 达成
+- Evidence:
+  - `pytest -q tests/unit/test_server_message_route.py tests/contract/test_message_sync_contract.py tests/integration/test_message_sync_runtime_wiring.py tests/e2e/test_message_sync_e2e.py` -> `6 passed in 0.35s`
+  - `pytest -q` -> `64 passed in 4.14s`
+  - 错误追踪验证 -> `tests/contract/test_message_sync_contract.py::test_sync_message_not_found_uses_unified_error_with_trace_id` 断言 `error.trace_id` 与 `x-request-id` 一致
+- Commits: C1 | C2 | C3
+  - `6b7dfe6` | `aa42097` | `本次文档提交`
+- Next:
+  - M5 完成；等待后续 Milestone 指令

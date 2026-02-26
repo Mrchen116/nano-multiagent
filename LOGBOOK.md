@@ -276,9 +276,35 @@
   - `tests/{unit,contract,integration,e2e}` 中 server 相关测试更新
   - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
 - Pitfall/Risk:
-  - `POST /v1/sessions/{session_id}/messages` 目前为 `501 not_implemented` 占位，需在 R5.2 完成同步调用链。
-  - 文档中的 `R5.1 C3` 先占位，需在 R5.2 文档提交回填真实 hash。
+  - `POST /v1/sessions/{session_id}/messages` 在 R5.2 前为占位，当前已转为同步主入口。
+  - `R5.1 C3` 已回填为真实 hash `bf653a4`。
 - Rollback:
   - 可回退到 `807e366`（R5.1 红测提交）重放 Green。
 - Commits:
-  - C1=`807e366`, C2=`dfc66b0`, C3=`PENDING-C3-R5.1`
+  - C1=`807e366`, C2=`dfc66b0`, C3=`bf653a4`
+
+## 2026-02-27 08:05:30 +0800 - R5.2 完成记录（同步 messages 主入口）
+- Context:
+  - R5.2 目标是将 `POST /v1/sessions/{session_id}/messages` 从占位切换为同步 runtime 主入口，不进入 async/runs/SSE。
+  - 需要提供 route->runtime->session store 的可验证证据，并锁定统一错误格式与 trace_id。
+- Decision:
+  - 在 `routes/session.py` 增加 `SendMessageRequest/SendMessageResponse`，同步调用 `runtime.run(session_id, parts, stream=False)`。
+  - 对 runtime `ValueError` 做 API 映射：会话不存在映射 `404 session_not_found`，其余输入错误映射 `400 invalid_request`。
+  - 增加 `_to_message_response` 与 assistant 消息选择逻辑，确保响应稳定输出单条最终答复。
+- Rationale:
+  - 同步入口最小实现优先保证主链路闭环，为后续 M12 async/SSE 保留边界。
+  - 错误统一在 server 层做协议化映射，避免 runtime 泄漏 HTTP 语义。
+- Changed Files Summary:
+  - `src/nano_multiagent/server/routes/session.py`
+  - `tests/unit/test_server_message_route.py`
+  - `tests/contract/test_message_sync_contract.py`
+  - `tests/integration/test_message_sync_runtime_wiring.py`
+  - `tests/e2e/test_message_sync_e2e.py`
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - `model` 与 `message_id` 字段当前仅保留请求兼容，不改变 runtime 行为；后续模型切换策略需在后续里程碑扩展。
+  - 本里程碑明确未实现 `messages:async` 与 `runs/*`，避免范围膨胀。
+- Rollback:
+  - 可回退到 `6b7dfe6`（R5.2 红测提交）重放 Green。
+- Commits:
+  - C1=`6b7dfe6`, C2=`aa42097`, C3=`本次文档提交`

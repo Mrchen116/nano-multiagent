@@ -19,7 +19,7 @@
   - C1/C2/C3 三次提交完整
   - 四文档写入 R5.1 hash 与证据
 
-## [TODO] R5.2 同步消息主入口接线（route -> runtime -> session）
+## [DONE] R5.2 同步消息主入口接线（route -> runtime -> session）
 - Steps:
   - 先补 `POST /v1/sessions/{session_id}/messages` 的失败测试（Red）
   - 在 `routes/session.py` 实现同步消息入口并调用 `agent.runtime`
@@ -27,10 +27,10 @@
   - 校验调用链：route -> runtime -> session store
   - 跑全量 `pytest -q`，更新四文档并回填 `PENDING-C3-R5.1`
 - Expected Tests:
-  - `tests/unit/test_server_message_route.py`（待新增）
-  - `tests/contract/test_message_sync_contract.py`（待新增）
-  - `tests/integration/test_message_sync_runtime_wiring.py`（待新增）
-  - `tests/e2e/test_message_sync_e2e.py`（待新增）
+  - `tests/unit/test_server_message_route.py`
+  - `tests/contract/test_message_sync_contract.py`
+  - `tests/integration/test_message_sync_runtime_wiring.py`
+  - `tests/e2e/test_message_sync_e2e.py`
   - `pytest -q`
 - DoD:
   - `pytest -q` 全绿
@@ -39,4 +39,4 @@
   - 回填任何 `PENDING-C3-*` 占位
 
 ## Milestone M5 状态
-- R5.1 已完成，R5.2 待执行。
+- R5.1 与 R5.2 已完成，M5 Exit Criteria 达成。

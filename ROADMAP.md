@@ -311,7 +311,7 @@ Exit Criteria:
   - 事件落盘验证: `tests/integration/test_agent_runtime_integration.py` 断言 sqlite 中存在 4 条 `session.turn.appended` 事件，且第二轮请求上下文 roles 为 `system,user,assistant,user`
   - `pytest -q`: `54 passed in 3.33s`
 
-## Milestone M5（进行中）: server 主入口（同步优先）
+## Milestone M5（已完成）: server 主入口（同步优先）
 Goal:
 - 完成 `server` 分层（`app.py`、`deps.py`、`auth.py`、`routes/*`）最小可用骨架
 - 提供同步会话入口前置能力：鉴权、请求追踪、统一错误映射、会话 create/get/list
@@ -347,7 +347,7 @@ Exit Criteria:
 - Commits:
   - C1: 807e366
   - C2: dfc66b0
-  - C3: PENDING-C3-R5.1
+  - C3: bf653a4
 - Evidence:
   - `pytest -q tests/unit/test_server_auth.py tests/contract/test_sessions_contract.py tests/integration/test_app_bootstrap.py tests/e2e/test_minimal_flow.py tests/e2e/test_core_contract_entry_e2e.py tests/e2e/test_session_rebuild_e2e.py`: `9 passed in 0.48s`
   - 追踪回传验证: `tests/contract/test_sessions_contract.py::test_sessions_require_bearer_auth_and_use_unified_error_shape` 断言 `error.trace_id=req-auth-missing` 且响应头 `x-request-id=req-auth-missing`
@@ -363,11 +363,20 @@ Exit Criteria:
   - 明确不实现 `messages:async` 与 `runs/*`
   - `pytest -q` 全绿
 - Tests Plan:
-  - unit: `tests/unit/test_server_message_route.py`（待新增）
-  - contract: `tests/contract/test_message_sync_contract.py`（待新增）
-  - integration: `tests/integration/test_message_sync_runtime_wiring.py`（待新增）
-  - e2e: `tests/e2e/test_message_sync_e2e.py`（待新增）
+  - unit: `tests/unit/test_server_message_route.py`
+  - contract: `tests/contract/test_message_sync_contract.py`
+  - integration: `tests/integration/test_message_sync_runtime_wiring.py`
+  - e2e: `tests/e2e/test_message_sync_e2e.py`
 - Commit Plan:
   - C1: `test(R5.2): ...（先红）`
   - C2: `feat(R5.2): ...（全绿）`
   - C3: `docs(R5.2): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: 6b7dfe6
+  - C2: aa42097
+  - C3: 本次文档提交
+- Evidence:
+  - `pytest -q tests/unit/test_server_message_route.py tests/contract/test_message_sync_contract.py tests/integration/test_message_sync_runtime_wiring.py tests/e2e/test_message_sync_e2e.py`: `6 passed in 0.35s`
+  - `pytest -q`: `64 passed in 4.14s`
+  - 调用链验证: `tests/integration/test_message_sync_runtime_wiring.py` 断言 `POST /messages` 后 sqlite 出现 user/assistant 两条 `session.turn.appended`
+  - 错误与 trace 验证: `tests/contract/test_message_sync_contract.py::test_sync_message_not_found_uses_unified_error_with_trace_id` 断言 `error.trace_id=req-message-missing` 且响应头 `x-request-id=req-message-missing`
