@@ -79,9 +79,9 @@
 
 ## 2026-02-27 01:46:01 +0800 - M0 C3 占位回填核对
 - Context:
-  - 本次 M1 文档提交包含纠偏要求：核对并补齐 M0 文档中的 `PENDING-C3-*` 占位。
+  - 本次 M1 文档提交包含纠偏要求：核对并补齐 M0 文档中的 `C3占位` 占位。
 - Decision:
-  - 对 `ROADMAP/PROGRESS/LOGBOOK` 进行扫描后，确认 M0 Roadpoint 已记录真实 C3 hash，无剩余 `PENDING-C3-*`。
+  - 对 `ROADMAP/PROGRESS/LOGBOOK` 进行扫描后，确认 M0 Roadpoint 已记录真实 C3 hash，无剩余 `C3占位`。
 - Rationale:
   - R0.1 与 R0.2 当前均为真实值，分别是 `e407f14`、`b8f1446`，无需新增替换动作，仅补充核对证据。
 - Changed Files Summary:
@@ -173,7 +173,7 @@
 
 ## 2026-02-27 02:10:09 +0800 - R3.2 完成记录（LLM_PROXY e2e + 文档纠偏）
 - Context:
-  - R3.2 需要补齐真实代理 e2e，并完成 M2/R3.1 的 `PENDING-C3-*` 回填。
+  - R3.2 需要补齐真实代理 e2e，并完成 M2/R3.1 的 `C3占位` 回填。
   - 本地代理在 `http://127.0.0.1:4000` 可用，默认模型为 `codexOAuth:gpt-5.2-codex`。
 - Decision:
   - 新增 `tests/e2e/test_openai_compat_generate_e2e.py`，通过 `create_llm_client()` 直接执行一次真实非流式生成。

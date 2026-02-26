@@ -183,7 +183,7 @@ Exit Criteria:
 - `llm/interfaces.py`、`factory.py`、`model_registry.py`、`translator.py` 与 `protocols/openai_compat/*` 可用
 - provider/model 可通过配置切换，默认 `codexOAuth:gpt-5.2-codex @ http://127.0.0.1:4000`
 - 覆盖 unit/contract/integration/e2e 四类测试并通过 `pytest -q`
-- 回填 M2 文档中的 `PENDING-C3-R2.2` 占位为真实 hash
+- 回填 M2 文档中的 `R2.2 C3` 占位为真实 hash
 
 ### Roadpoint R3.1: LLM 抽象接口与 openai_compat 非流式链路
 - Public Surface:
@@ -223,7 +223,7 @@ Exit Criteria:
   - 通过 `create_llm_client` + `LLMGenerateRequest` 触发真实非流式文本生成
   - 默认模型与 base_url 可直接命中本地代理（`codexOAuth:gpt-5.2-codex`, `http://127.0.0.1:4000`）
   - e2e 中验证请求头包含 `X-Session-Id`（可通过代理日志或 mock 证据）
-  - 回填 `PENDING-C3-R2.2` 与 `PENDING-C3-R3.1`
+  - 回填 `R2.2 C3` 与 `R3.1 C3`
   - `pytest -q` 全绿
 - Tests Plan:
   - unit: 复用 R3.1

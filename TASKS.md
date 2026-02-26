@@ -24,7 +24,7 @@
   - 实现 `agent/runtime.py`，打通 text parts -> context -> LLM -> assistant 文本
   - 在 `session.entries/manager` 增补 turn 事件构造与历史重建接口
   - 验证运行结果落 `TURN_APPENDED` 事件，并支持下一轮基于历史上下文推理
-  - 跑全量 `pytest -q`，更新四文档并回填 `PENDING-C3-*`
+  - 跑全量 `pytest -q`，更新四文档并回填 `C3占位`
 - Expected Tests:
   - `tests/unit/test_agent_runtime.py`
   - `tests/contract/test_agent_runtime_contract.py`
