@@ -116,4 +116,31 @@
 - Rollback:
   - 若需重做实现，可回退到 `c76fb5b`（R2.1 测试红态）重放 Green。
 - Commits:
-  - C1=`c76fb5b`, C2=`fc4dbdc`, C3=`PENDING-C3-R2.1`
+  - C1=`c76fb5b`, C2=`fc4dbdc`, C3=`5dfaced`
+
+## 2026-02-27 02:21:42 +0800 - R2.2 完成记录（manager 接线与重建）
+- Context:
+  - R2.2 需把 session 事件存储接入现有服务入口，并验证“创建后重建可读”。
+  - 现有 HTTP 仅有 `POST /v1/sessions`，无读取 API，需要通过 app state 服务对象验证重建结果。
+- Decision:
+  - 新增 `SessionManager` 作为状态变更与重建入口，所有创建动作先写事件再落快照。
+  - `SessionService` 改为委托 `SessionManager`，并提供默认 sqlite store。
+  - `create_app` 增加可选 `session_store` 注入，便于 integration/e2e 用同一 db 重建验证。
+- Rationale:
+  - 统一 manager 边界可避免 server/runtime 直接触达存储细节，符合蓝图依赖方向。
+  - 保持 API 面最小变更，仅做必要接线，不扩展 M3+ 能力。
+- Changed Files Summary:
+  - `src/nano_multiagent/session/manager.py`
+  - `src/nano_multiagent/session/service.py`
+  - `src/nano_multiagent/session/__init__.py`
+  - `src/nano_multiagent/server/app.py`
+  - `tests/unit/test_session_manager.py`
+  - `tests/integration/test_session_manager_wiring_integration.py`
+  - `tests/e2e/test_session_rebuild_e2e.py`
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前只验证了创建会话场景的事件重建；更复杂事件（如归档/turn/compaction 回放）待后续 Milestone 扩展。
+- Rollback:
+  - 若需重做实现，可回退到 `b1ac468`（R2.2 测试红态）重放 Green。
+- Commits:
+  - C1=`b1ac468`, C2=`75087c6`, C3=`PENDING-C3-R2.2`

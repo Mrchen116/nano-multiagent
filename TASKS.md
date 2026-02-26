@@ -15,9 +15,9 @@
   - `pytest -q` 全绿
   - C1/C2/C3 三次提交完整
   - 四文档写入 R2.1 hash 与证据
-  - 回填 R1.1 的 `PENDING-C3-R1.1`
+  - 回填 R1.1 的 `PENDING-C3-R1.1`（已完成）
 
-## [TODO] R2.2 manager/服务接线与可重建验证
+## [DONE] R2.2 manager/服务接线与可重建验证
 - Steps:
   - 先新增 manager/service/server 接线相关 unit/integration/e2e 失败测试（Red）
   - 实现 `session/manager.py`，通过事件流构建/重建 session 状态
@@ -34,3 +34,6 @@
   - C1/C2/C3 三次提交完整
   - 四文档写入 R2.2 hash 与证据
   - 输出 sqlite/jsonl 能力验证摘要
+
+## Milestone M2 状态
+- `R2.1` 与 `R2.2` 均已完成，达到 M2 Exit Criteria。

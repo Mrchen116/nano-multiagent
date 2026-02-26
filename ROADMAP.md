@@ -106,7 +106,7 @@ Exit Criteria:
   - `pytest -q`: `19 passed in 0.51s`
   - 入口级契约验证: `tests/e2e/test_core_contract_entry_e2e.py::test_create_session_entry_respects_core_id_contract` 通过
 
-## Milestone M2（当前）: session 事件源与 sqlite 存储
+## Milestone M2（已完成）: session 事件源与 sqlite 存储
 Goal:
 - 完成 session 事件定义、版本化序列化与可持久化存储（sqlite 默认 + jsonl 调试）
 - 将 `session.manager` 与当前 server/service 最小接线，保证状态变更落事件并可重建
@@ -141,7 +141,7 @@ Exit Criteria:
 - Commits:
   - C1: c76fb5b
   - C2: fc4dbdc
-  - C3: PENDING-C3-R2.1（本次 docs 提交后回填为真实 hash）
+  - C3: 5dfaced
 - Evidence:
   - `pytest -q tests/unit/test_session_entries.py tests/contract/test_session_serializers_contract.py tests/integration/test_session_store_persistence_integration.py`: `6 passed`
   - `pytest -q`: `25 passed in 0.93s`
@@ -166,3 +166,10 @@ Exit Criteria:
   - C1: `test(R2.2): ...（先红）`
   - C2: `feat(R2.2): ...（全绿）`
   - C3: `docs(R2.2): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: b1ac468
+  - C2: 75087c6
+  - C3: PENDING-C3-R2.2（本次 docs 提交后回填为真实 hash）
+- Evidence:
+  - `pytest -q tests/unit/test_session_manager.py tests/integration/test_session_manager_wiring_integration.py tests/e2e/test_session_rebuild_e2e.py`: `4 passed`
+  - `pytest -q`: `29 passed in 0.33s`

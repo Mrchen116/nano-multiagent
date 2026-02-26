@@ -55,6 +55,19 @@
   - `pytest -q tests/unit/test_session_entries.py tests/contract/test_session_serializers_contract.py tests/integration/test_session_store_persistence_integration.py` -> `6 passed`
   - `pytest -q` -> `25 passed in 0.93s`
 - Commits: C1 | C2 | C3
-  - `c76fb5b` | `fc4dbdc` | `PENDING-C3-R2.1`
+  - `c76fb5b` | `fc4dbdc` | `5dfaced`
 - Next:
   - R2.2 Red：先写 manager/service/server 重建可读链路失败测试
+
+## 2026-02-27 02:21:42 +0800
+- Done:
+  - 完成 R2.2：实现 `session.manager`，并改造 service/server 接线到 `SessionStore`
+  - 验证创建会话会落盘事件，且服务重建后可读
+  - 回填 R2.1 的 C3 占位为真实 hash `5dfaced`
+- Evidence:
+  - `pytest -q tests/unit/test_session_manager.py tests/integration/test_session_manager_wiring_integration.py tests/e2e/test_session_rebuild_e2e.py` -> `4 passed`
+  - `pytest -q` -> `29 passed in 0.33s`
+- Commits: C1 | C2 | C3
+  - `b1ac468` | `75087c6` | `PENDING-C3-R2.2`
+- Next:
+  - M2 完成；等待后续 Milestone 指令
