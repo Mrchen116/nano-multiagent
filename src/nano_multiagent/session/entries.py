@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from nano_multiagent.core.ids import make_event_id
 
@@ -76,4 +76,33 @@ def new_compaction_entry(
         first_kept_event_id=first_kept_event_id,
         summary=summary,
         data=data or {},
+    )
+
+
+def new_turn_appended_entry(
+    *,
+    session_id: str,
+    turn_id: str,
+    role: str,
+    content: str,
+    message_id: str | None = None,
+    parts: Sequence[Mapping[str, Any]] | None = None,
+    metadata: Mapping[str, Any] | None = None,
+    created_at: str | None = None,
+    entry_id: str | None = None,
+) -> SessionEntry:
+    payload: dict[str, Any] = {
+        "turn_id": turn_id,
+        "message_id": message_id,
+        "role": role,
+        "content": content,
+        "parts": [dict(part) for part in parts or ()],
+        "metadata": dict(metadata or {}),
+    }
+    return SessionEntry(
+        entry_id=entry_id or make_event_id(),
+        session_id=session_id,
+        created_at=created_at or _utc_now_iso(),
+        kind=SessionEntryKind.TURN_APPENDED,
+        data=payload,
     )

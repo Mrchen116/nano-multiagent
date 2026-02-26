@@ -1,10 +1,17 @@
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from nano_multiagent.core import ids
+from nano_multiagent.core.types import Message
 
-from .entries import CompactionEntry, SessionEntry, SessionEntryKind, new_session_created_entry
+from .entries import (
+    CompactionEntry,
+    SessionEntry,
+    SessionEntryKind,
+    new_session_created_entry,
+    new_turn_appended_entry,
+)
 from .models import Session
 from .stores.base import SessionStore
 
@@ -35,6 +42,47 @@ class SessionManager:
         for entry in loaded.events:
             session = self._apply_event(session, entry)
         return session
+
+    def append_turn_message(
+        self,
+        session_id: str,
+        *,
+        turn_id: str,
+        role: str,
+        content: str,
+        message_id: str,
+        parts: Sequence[Mapping[str, Any]] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> SessionEntry:
+        if self.get_session(session_id) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        entry = new_turn_appended_entry(
+            session_id=session_id,
+            turn_id=turn_id,
+            role=role,
+            content=content,
+            message_id=message_id,
+            parts=parts,
+            metadata=metadata,
+        )
+        self._store.append_event(session_id, entry)
+        return entry
+
+    def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
+        loaded = self._store.load_session(session_id)
+        if loaded is None:
+            return ()
+
+        messages: list[Message] = []
+        for entry in loaded.events:
+            if isinstance(entry, CompactionEntry):
+                continue
+            if entry.kind is not SessionEntryKind.TURN_APPENDED:
+                continue
+            message = self._message_from_turn_event(entry)
+            if message is not None:
+                messages.append(message)
+        return tuple(messages)
 
     def _from_snapshot(self, snapshot: Mapping[str, Any] | None) -> Session | None:
         if snapshot is None:
@@ -69,3 +117,19 @@ class SessionManager:
             "status": session.status,
             "created_at": session.created_at,
         }
+
+    def _message_from_turn_event(self, entry: SessionEntry) -> Message | None:
+        message_id = entry.data.get("message_id")
+        role = entry.data.get("role")
+        content = entry.data.get("content")
+        if not isinstance(message_id, str) or not isinstance(role, str) or not isinstance(content, str):
+            return None
+        metadata = entry.data.get("metadata")
+        if not isinstance(metadata, Mapping):
+            metadata = {}
+        return Message(
+            message_id=message_id,
+            role=role,
+            content=content,
+            metadata=dict(metadata),
+        )
