@@ -160,6 +160,21 @@
   - `pytest -q` -> `64 passed in 4.14s`
   - 错误追踪验证 -> `tests/contract/test_message_sync_contract.py::test_sync_message_not_found_uses_unified_error_with_trace_id` 断言 `error.trace_id` 与 `x-request-id` 一致
 - Commits: C1 | C2 | C3
-  - `6b7dfe6` | `aa42097` | `本次文档提交`
+  - `6b7dfe6` | `aa42097` | `46c86e1`
 - Next:
   - M5 完成；等待后续 Milestone 指令
+
+## 2026-02-27 08:35:00 +0800
+- Done:
+  - 完成 R6.1：实现 tools 基础层（base/registry/loader/safety）与内置工具（read/write/edit/bash）
+  - 新增目录工具启动扫描 `<repo_root>/.nano/tools`，并在 server 暴露 `GET /v1/tools`
+  - 完成最小安全护栏：路径沙箱、命令限制、超时、输出截断
+  - 回填历史文档占位：`R5.2 C3=46c86e1`
+- Evidence:
+  - `pytest -q tests/unit/test_tools_builtins.py tests/integration/test_tools_registry_loader_integration.py tests/contract/test_tools_contract.py tests/e2e/test_tools_list_e2e.py` -> `14 passed in 1.31s`
+  - `pytest -q` -> `78 passed in 5.01s`
+  - `/v1/tools` 入口验证 -> `tests/e2e/test_tools_list_e2e.py` 断言返回内置 `read/write/edit/bash` + 目录工具 `reverse`
+- Commits: C1 | C2 | C3
+  - `aeab958` | `303d616` | `本次文档提交`
+- Next:
+  - 按用户当前要求，先回报 R6.1 C1/C2/C3 与证据，不进入后续 Roadpoint

@@ -307,4 +307,30 @@
 - Rollback:
   - 可回退到 `6b7dfe6`（R5.2 红测提交）重放 Green。
 - Commits:
-  - C1=`6b7dfe6`, C2=`aa42097`, C3=`本次文档提交`
+  - C1=`6b7dfe6`, C2=`aa42097`, C3=`46c86e1`
+
+## 2026-02-27 08:35:00 +0800 - R6.1 完成记录（tools 基础层 + 安全护栏 + /v1/tools）
+- Context:
+  - M6 范围限定在 tools 子系统与安全护栏，不进入 M7 hooks 与 `task` 工具。
+  - 本次改动覆盖 `tools/*` 与 `server` 接线，涉及新增/修改文件数超过 5。
+- Decision:
+  - 使用单 Roadpoint（R6.1）完成 tools 基础层、四个内置工具和 `/v1/tools` 最小闭环。
+  - 将启动扫描路径固定为 `<repo_root>/.nano/tools`，按模块导出 `TOOL/TOOLS/get_tool` 方式加载目录工具。
+  - 安全护栏最小落地：路径沙箱、命令允许列表+禁止片段、bash 超时、read/bash 输出截断。
+- Rationale:
+  - 先固定最小可测能力边界，再为后续 M11 `task` 和 M7 hooks 留出扩展空间，避免一次性引入过多不稳定面。
+  - 将 `/v1/tools` 接在 server 层，提供可观测的工具发现接口，便于后续 runtime 集成。
+- Changed Files Summary:
+  - `src/nano_multiagent/tools/{__init__.py,base.py,registry.py,loader.py,safety.py}`
+  - `src/nano_multiagent/tools/builtins/{__init__.py,read.py,write.py,edit.py,bash.py}`
+  - `src/nano_multiagent/server/{app.py,deps.py}`
+  - `src/nano_multiagent/server/routes/tool.py`
+  - `tests/{unit,integration,contract,e2e}` 中新增 4 个 tools 测试文件
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - `bash` 命令策略当前为最小 allowlist/deny-fragment 实现，复杂命令策略（更细粒度白名单、审计分级）需后续增强。
+  - loader 当前默认 fail-fast（无有效导出会报错）；后续若要容错加载需补充策略和测试。
+- Rollback:
+  - 可回退到 `aeab958`（R6.1 红测提交）重放 Green。
+- Commits:
+  - C1=`aeab958`, C2=`303d616`, C3=`本次文档提交`

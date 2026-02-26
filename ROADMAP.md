@@ -374,9 +374,50 @@ Exit Criteria:
 - Commits:
   - C1: 6b7dfe6
   - C2: aa42097
-  - C3: 本次文档提交
+  - C3: 46c86e1
 - Evidence:
   - `pytest -q tests/unit/test_server_message_route.py tests/contract/test_message_sync_contract.py tests/integration/test_message_sync_runtime_wiring.py tests/e2e/test_message_sync_e2e.py`: `6 passed in 0.35s`
   - `pytest -q`: `64 passed in 4.14s`
   - 调用链验证: `tests/integration/test_message_sync_runtime_wiring.py` 断言 `POST /messages` 后 sqlite 出现 user/assistant 两条 `session.turn.appended`
   - 错误与 trace 验证: `tests/contract/test_message_sync_contract.py::test_sync_message_not_found_uses_unified_error_with_trace_id` 断言 `error.trace_id=req-message-missing` 且响应头 `x-request-id=req-message-missing`
+
+## Milestone M6（进行中）: tools 子系统与安全护栏（不含 task）
+Goal:
+- 实现 tools 基础层：`tools/base.py`、`tools/registry.py`、`tools/loader.py`、`tools/safety.py`
+- 实现内置工具：`read/write/edit/bash`，并支持 `<repo_root>/.nano/tools` 启动扫描加载
+- 完成最小安全护栏：路径沙箱、命令限制、超时、输出截断
+- server 最小扩展 `GET /v1/tools`，返回可用工具与 schema
+Exit Criteria:
+- `task` 工具不实现（明确留在 M11）
+- tools 四层 + 四内置工具可运行，目录工具可发现并注册
+- `GET /v1/tools` 返回内置工具与目录工具列表
+- unit/contract/integration/e2e 覆盖 M6 关键行为，并通过 `pytest -q` 全绿
+
+### Roadpoint R6.1: tools 基础层、内置工具、安全护栏与 `/v1/tools` 最小闭环
+- Public Surface:
+  - `nano_multiagent.tools.{base,registry,loader,safety}`
+  - `nano_multiagent.tools.builtins.{read,write,edit,bash}`
+  - `GET /v1/tools`
+- Acceptance:
+  - `ToolContext` + `ToolRegistry` 完成注册/调度/参数校验
+  - 启动时扫描 `<repo_root>/.nano/tools/*.py` 并加载工具对象
+  - `read` 支持 offset/limit 分段与截断；`write` 覆盖写；`edit` 精确替换且多匹配失败；`bash` 支持超时/非 0 退出错误
+  - 路径沙箱阻断越界访问；bash 命令允许列表 + 禁止片段最小生效；输出截断可观测
+  - `/v1/tools` 返回内置 + 目录工具及其 `input_schema`
+- Tests Plan:
+  - unit: `tests/unit/test_tools_builtins.py`
+  - contract: `tests/contract/test_tools_contract.py`
+  - integration: `tests/integration/test_tools_registry_loader_integration.py`
+  - e2e: `tests/e2e/test_tools_list_e2e.py`
+- Commit Plan:
+  - C1: `test(R6.1): ...（先红）`
+  - C2: `feat(R6.1): ...（全绿）`
+  - C3: `docs(R6.1): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: aeab958
+  - C2: 303d616
+  - C3: 本次文档提交
+- Evidence:
+  - `pytest -q tests/unit/test_tools_builtins.py tests/integration/test_tools_registry_loader_integration.py tests/contract/test_tools_contract.py tests/e2e/test_tools_list_e2e.py`: `14 passed in 1.31s`
+  - `pytest -q`: `78 passed in 5.01s`
+  - 目录加载验证: `tests/e2e/test_tools_list_e2e.py` 断言 `/v1/tools` 返回 `read/write/edit/bash/reverse`
