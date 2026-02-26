@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 from nano_multiagent import __version__
 from nano_multiagent.session.service import SessionService
+from nano_multiagent.session.stores.base import SessionStore
 
 
 class CreateSessionResponse(BaseModel):
@@ -11,9 +12,9 @@ class CreateSessionResponse(BaseModel):
     created_at: str
 
 
-def create_app() -> FastAPI:
+def create_app(*, session_store: SessionStore | None = None) -> FastAPI:
     app = FastAPI(title="nano-multiagent", version=__version__)
-    app.state.session_service = SessionService()
+    app.state.session_service = SessionService(store=session_store)
 
     @app.get('/v1/health')
     def health() -> dict[str, bool | str]:
