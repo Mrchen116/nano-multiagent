@@ -175,7 +175,7 @@
   - 红测（C1）: `pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/e2e/test_task_tool_blocking_e2e.py` -> `4 failed`
   - 转绿（C2）: 同命令 -> `4 passed in 0.39s`
   - 入口约束: `test_task_tool_contract_is_exposed_by_tools_endpoint` 与 `test_tools_listing_contains_task_without_task_http_endpoint` 断言 `task` 仅经 ToolRegistry 暴露，无 `/v1/tasks` HTTP 入口
-  - C3 收口: 四文档已同步到 R11.2 Red 起点；R11.2 C3 时回填 R11.1 C3 真实 hash
+  - C3 收口: 四文档已记录真实 `R11.1 C3=9559922`，证据链闭环
 
 ### Roadpoint R11.2: blocking 模式最小闭环
 - Public Surface:

@@ -523,7 +523,33 @@
 - Rollback:
   - 可回退到 `f7d3f71`（R11.1 红测提交）重放 Green。
 - Commits:
-  - C1=`f7d3f71`, C2=`d0e4160`, C3=`(this docs commit)`
+  - C1=`f7d3f71`, C2=`d0e4160`, C3=`9559922`
+
+## 2026-02-27 09:21:13 +0800 - R11.2 完成记录（blocking 模式最小闭环）
+- Context:
+  - R11.2 需要从 `task` 占位实现推进到可执行 blocking 子任务链路，并固定失败/超时错误结构。
+  - 本次改动跨 `tools/base/registry/loader/builtins` 与 `server/app`，涉及文件数超过 5。
+- Decision:
+  - `TaskTool` 增加 runtime 注入、blocking 执行与最小超时控制（`ThreadPoolExecutor + timeout_seconds`）。
+  - `task(mode=blocking)` 统一返回结构化负载：`status/output/duration_ms`，失败为 `task_execution_failed`，超时为 `task_timeout`。
+  - `ToolContext` 扩展 `session_id`，`ToolRegistry.execute` 透传当前 hook 会话 ID 到工具执行上下文。
+  - `create_app/build_tool_registry/register_builtin_tools` 改造为同 runtime 接线，确保 task 在工具层可调用 runtime。
+- Rationale:
+  - 保持“仅 ToolRegistry 执行 task”边界不变，同时使 blocking 在进程内可用并可测试。
+- Changed Files Summary:
+  - `src/nano_multiagent/server/app.py`
+  - `src/nano_multiagent/tools/{base.py,registry.py,loader.py}`
+  - `src/nano_multiagent/tools/builtins/{__init__.py,task.py}`
+  - `tests/unit/test_task_tool_blocking.py`
+  - `tests/integration/test_task_blocking_integration.py`
+  - `tests/e2e/test_task_tool_blocking_e2e.py`
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前 `non_blocking` 仍是占位回执；幂等与 continuation 语义留在 R11.3 收口。
+- Rollback:
+  - 可回退到 `5a55783`（R11.2 红测提交）重放 Green。
+- Commits:
+  - C1=`5a55783`, C2=`868fcfb`, C3=`(this docs commit)`
 
 ## 2026-02-27 09:20:26 +0800 - R11.1 C3 文档收口与占位修复
 - Context:
@@ -540,8 +566,8 @@
   - `PROGRESS.md`
   - `LOGBOOK.md`
 - Pitfall/Risk:
-  - `R11.1 C3` 在本提交内仍以“this docs commit”占位标注；将于 `R11.2 C3` 一并回填真实 hash。
+  - 已在后续文档提交中回填 `R11.1 C3=9559922`，本条记录保留为执行轨迹。
 - Rollback:
   - 文档变更可回退到本提交前状态，不影响运行时代码行为。
 - Commits:
-  - C1=`f7d3f71`, C2=`d0e4160`, C3=`(this docs commit)`
+  - C1=`f7d3f71`, C2=`d0e4160`, C3=`9559922`

@@ -287,9 +287,22 @@
   - `pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/e2e/test_task_tool_blocking_e2e.py` 红测 -> `4 failed`
   - 同命令转绿 -> `4 passed in 0.39s`
 - Commits: C1 | C2 | C3
-  - `f7d3f71` | `d0e4160` | `(this docs commit)`
+  - `f7d3f71` | `d0e4160` | `9559922`
 - Next:
   - R11.2 Red：补 `task(mode=blocking)` 失败用例（结果结构、错误结构、超时路径）。
+
+## 2026-02-27 09:21:13 +0800
+- Done:
+  - 完成 R11.2：实现 `task(mode=blocking)` 本地进程内执行，支持最小 subagent 会话创建与等待完成。
+  - `task` blocking 返回结构化结果（`status/output/duration_ms`）并覆盖失败/超时错误结构。
+  - app 创建时将 runtime 透传给 ToolRegistry 内置 `task`，保持仅经工具执行，不新增 HTTP 入口。
+- Evidence:
+  - `pytest -q tests/unit/test_task_tool_blocking.py tests/integration/test_task_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py` 红测 -> `5 failed`
+  - `pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/unit/test_task_tool_blocking.py tests/integration/test_task_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py` 绿测 -> `8 passed in 0.47s`
+- Commits: C1 | C2 | C3
+  - `5a55783` | `868fcfb` | `(this docs commit)`
+- Next:
+  - R11.3 Red：补 non_blocking/continuation/category-subagent_type 互斥/幂等/X-Session-Id 透传失败用例。
 
 ## 2026-02-27 09:20:26 +0800
 - Done:
@@ -299,6 +312,6 @@
   - 文档核对：`ROADMAP/TASKS/PROGRESS/LOGBOOK` 中 R11.1 已标记完成态，且未改动 M12+ 规划展开状态。
   - R11.1 目标测试复核：`pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/e2e/test_task_tool_blocking_e2e.py` -> `4 passed in 0.34s`
 - Commits: C1 | C2 | C3
-  - `f7d3f71` | `d0e4160` | `(this docs commit)`
+  - `f7d3f71` | `d0e4160` | `9559922`
 - Next:
   - R11.2 Red：先补 blocking/non_blocking 分支边界红测，再进入实现。
