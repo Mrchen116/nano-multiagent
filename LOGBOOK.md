@@ -795,3 +795,14 @@
   - 生命周期全事件补齐与代理链路波动属于独立风险面，拆分后更易定位和验收。
 - Commits:
   - C1=`e4fa2c7`, C2=`b9283ae`, C3=`3197cbb`
+
+## 2026-02-27 16:31:28 +0800 - R13R.4 范围收敛记录
+- Context:
+  - R13R.4 已在 C2 完成生命周期事件枚举补齐，当前任务仅要求提交 C3 文档并保持 R13R.5 未启动。
+- Decision:
+  - 本次提交只更新 `ROADMAP/TASKS/PROGRESS/LOGBOOK` 四文档，不引入任何 `src/` 与 `tests/` 变更。
+  - 将 R13R.4 状态固定为 DONE，R13R.5 维持 TODO，并把 Next 明确为 `R13R.5 Red`。
+- Rationale:
+  - C3 与实现解耦可确保证据链可审计、可回滚，避免跨 Roadpoint 混改导致边界漂移。
+- Commits:
+  - C1=`e379086`, C2=`397f83d`, C3=`<本次hash>`

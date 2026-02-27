@@ -450,3 +450,13 @@
   - `e4fa2c7` | `b9283ae` | `3197cbb`
 - Next:
   - R13R.4 Red：补 `session_start/session_compact/session_shutdown/run_error/run_timeout` 生命周期事件红测。
+
+## 2026-02-27 16:31:28 +0800
+- Done:
+  - 完成 R13R.4 C3 文档收口：四文档写入生命周期事件枚举证据链，并锁定下一步为 R13R.5 Red。
+- Evidence:
+  - `pytest -q tests/unit/test_hook_event_coverage.py tests/unit/test_hook_lifecycle_event_coverage.py -> 3 passed in 0.02s`
+- Commits: C1 | C2 | C3
+  - `e379086` | `397f83d` | `<本次hash>`
+- Next:
+  - R13R.5 Red

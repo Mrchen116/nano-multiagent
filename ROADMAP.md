@@ -484,10 +484,35 @@
 
 ### Roadpoint R13R.4: Hook 生命周期全事件与内置示例补齐
 - Public Surface:
+  - `core/events.py`
+  - `hooks/types.py`
+- Status: Completed
+- Acceptance (3-5):
+  - `RuntimeEventType` 覆盖 `session_start/session_compact/session_shutdown/run_error/run_timeout`。
+  - 生命周期事件枚举与 Hook 事件集合契约一致。
+- Tests Plan:
+  - unit: `tests/unit/test_hook_event_coverage.py`
+  - unit: `tests/unit/test_hook_lifecycle_event_coverage.py`
+- Commit Plan:
+  - C1: `test(R13R.4): hook生命周期全事件红测（先红）`
+  - C2: `feat(R13R.4): 补齐hook生命周期事件枚举契约（全绿）`
+  - C3: `docs(R13R.4): 记录hook生命周期枚举证据（记录hash/证据/下一步）`
+- Commits:
+  - C1: `e379086`
+  - C2: `397f83d`
+  - C3: `<本次hash>`
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_hook_lifecycle_event_coverage.py` -> `1 failed`
+  - 转绿（C2）: `pytest -q tests/unit/test_hook_event_coverage.py tests/unit/test_hook_lifecycle_event_coverage.py` -> `3 passed in 0.02s`
+
+### Roadpoint R13R.5: Hook 触发链路与内置示例补齐
+- Public Surface:
+  - `agent/runtime.py`
   - `agent/compaction/*`
   - `runs/registry.py`
   - `hooks/builtins/*`
   - `hooks/runner.py`
+- Status: TODO
 - Acceptance (3-5):
   - `session_start/session_compact/session_shutdown/run_error/run_timeout` 在主链路可触发。
   - 补齐至少一个内置 hook 示例模块（`base_guard/default_status` 等）。
@@ -498,9 +523,9 @@
   - integration: `tests/integration/test_hook_critical_events_integration.py`
   - e2e: `tests/e2e/test_hook_error_timeout_abort_e2e.py`
 - Commit Plan:
-  - C1: `test(R13R.4): hook生命周期全事件红测（先红）`
-  - C2: `feat(R13R.4): 补齐hook生命周期事件与内置示例（全绿）`
-  - C3: `docs(R13R.4): 记录hook全事件修复证据并收口M13R（记录hash/证据/下一步）`
+  - C1: `test(R13R.5): hook触发链路与示例红测（先红）`
+  - C2: `feat(R13R.5): 补齐hook触发链路与内置示例（全绿）`
+  - C3: `docs(R13R.5): 记录hook全链路修复证据并收口M13R（记录hash/证据/下一步）`
 - Commits:
   - C1: TBD
   - C2: TBD
