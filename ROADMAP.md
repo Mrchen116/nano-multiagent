@@ -530,13 +530,36 @@
 
 ### Roadpoint R13R.6: Hook 剩余生命周期触发与内置示例补齐
 - Public Surface:
+  - `runs/registry.py`
+- Status: Completed
+- Acceptance (3-5):
+  - `run_error` 在 run 失败主链路可触发 observe hook。
+  - `run_error` 触发链路具备单测证据并保持 fail-open。
+- Tests Plan:
+  - unit: `tests/unit/test_runs_registry.py -k run_error`
+  - unit: `tests/unit/test_runs_registry.py`
+- Commit Plan:
+  - C1: `test(R13R.6): hook剩余生命周期触发红测（先红）`
+  - C2: `feat(R13R.6): 补齐hook剩余生命周期触发与内置示例（全绿）`
+  - C3: `docs(R13R.6): 记录run_error触发链路证据（记录hash/证据/下一步）`
+- Commits:
+  - C1: `7792119`
+  - C2: `3c626de`
+  - C3: `<本次hash>`
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_runs_registry.py -k run_error` -> 失败（`RunsRegistry.__init__` 不支持 `hook_runner`）
+  - 转绿（C2）: `pytest -q tests/unit/test_runs_registry.py -k run_error` -> `1 passed, 2 deselected`
+  - 转绿（C2）: `pytest -q tests/unit/test_runs_registry.py` -> `3 passed`
+
+### Roadpoint R13R.7: Hook 剩余生命周期触发与内置示例补齐
+- Public Surface:
   - `agent/compaction/*`
   - `runs/registry.py`
   - `hooks/builtins/*`
   - `hooks/runner.py`
 - Status: TODO
 - Acceptance (3-5):
-  - `session_compact/session_shutdown/run_error/run_timeout` 在主链路可触发。
+  - `session_compact/session_shutdown/run_timeout` 在主链路可触发。
   - 补齐至少一个内置 hook 示例模块（`base_guard/default_status` 等）。
   - `pytest -q` 全绿并满足 M13R Exit Criteria。
 - Tests Plan:
@@ -545,9 +568,9 @@
   - integration: `tests/integration/test_hook_critical_events_integration.py`
   - e2e: `tests/e2e/test_hook_error_timeout_abort_e2e.py`
 - Commit Plan:
-  - C1: `test(R13R.6): hook剩余生命周期触发红测（先红）`
-  - C2: `feat(R13R.6): 补齐hook剩余生命周期触发与内置示例（全绿）`
-  - C3: `docs(R13R.6): 记录hook全链路修复证据并收口M13R（记录hash/证据/下一步）`
+  - C1: `test(R13R.7): hook剩余生命周期触发红测（先红）`
+  - C2: `feat(R13R.7): 补齐hook剩余生命周期触发与内置示例（全绿）`
+  - C3: `docs(R13R.7): 记录hook全链路修复证据并收口M13R（记录hash/证据/下一步）`
 - Commits:
   - C1: TBD
   - C2: TBD

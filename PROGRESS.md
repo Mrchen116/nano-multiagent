@@ -471,3 +471,14 @@
   - `aaef67b` | `4836718` | `2ece503`
 - Next:
   - R13R.6 Red
+
+## 2026-02-27 17:09:02 +0800
+- Done:
+  - 完成 R13R.6 C3 文档收口：仅收口 `run_error` 触发链路证据，并保持 R13R.7 为 TODO。
+- Evidence:
+  - `pytest -q tests/unit/test_runs_registry.py -k run_error -> 1 passed, 2 deselected`
+  - `pytest -q tests/unit/test_runs_registry.py -> 3 passed`
+- Commits: C1 | C2 | C3
+  - `7792119` | `3c626de` | `<本次hash>`
+- Next:
+  - R13R.7 Red

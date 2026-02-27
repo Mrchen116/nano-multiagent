@@ -816,3 +816,13 @@
   - 将 `session_start` 与其余 `session_compact/session_shutdown/run_error/run_timeout` 拆分，可避免跨 Roadpoint 混改并简化回归定位。
 - Commits:
   - C1=`aaef67b`, C2=`4836718`, C3=`2ece503`
+
+## 2026-02-27 17:09:02 +0800 - R13R.6 C3 收口记录
+- Context:
+  - R13R.6 本轮仅收口 `run_error` 触发链路，剩余生命周期（`session_compact/session_shutdown/run_timeout`）留给 R13R.7。
+- Decision:
+  - 仅更新四文档，确认 R13R.6 置为 DONE，R13R.7 保持 TODO 并承接下一步 Red。
+- Rationale:
+  - 先闭环单一事件证据链可降低跨 Roadpoint 混改风险，便于后续按生命周期剩余项逐一验收。
+- Commits:
+  - C1=`7792119`, C2=`3c626de`, C3=`<本次hash>`
