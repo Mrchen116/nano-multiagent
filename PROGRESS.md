@@ -364,6 +364,21 @@
   - 转绿（C2）: 同命令 -> `6 passed in 0.40s`
   - 持久化验证 -> `test_cancelled_run_status_is_persisted_to_store` 断言最后状态为 `cancelled`
 - Commits: C1 | C2 | C3
-  - `145011a` | `00c1ed5` | `TBD（docs commit 后回填）`
+  - `145011a` | `00c1ed5` | `6150798`
 - Next:
   - R12.3 Red：新增 `GET /v1/events` 与 `GET /v1/sessions/{session_id}/events` 的 SSE 红测。
+
+## 2026-02-27 09:49:40 +0800
+- Done:
+  - 完成 R12.3：新增 `EventStreamHub`、SSE 编码与 `GET /v1/events`、`GET /v1/sessions/{session_id}/events` 双事件流入口。
+  - run 生命周期与异步 turn 输出已映射为 `run_status/text_delta/tool_start/tool_end/turn_end` 事件。
+  - M12 Exit Criteria 达成，里程碑状态更新为 `Completed`。
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_sse_encoder.py tests/contract/test_sse_event_contract.py tests/integration/test_sse_session_stream_integration.py tests/e2e/test_async_run_sse_e2e.py` -> `1 error`（`ModuleNotFoundError: nano_multiagent.server.sse`）
+  - 转绿（C2）: 同命令 -> `5 passed in 1.07s`
+  - async + cancel + SSE 专项回归 -> `pytest -q tests/unit/test_runs_registry.py tests/contract/test_runs_async_contract.py tests/integration/test_runs_store_integration.py tests/e2e/test_messages_async_submission_e2e.py tests/unit/test_run_cancel.py tests/contract/test_run_cancel_contract.py tests/integration/test_run_cancel_integration.py tests/e2e/test_run_cancel_e2e.py tests/unit/test_sse_encoder.py tests/contract/test_sse_event_contract.py tests/integration/test_sse_session_stream_integration.py tests/e2e/test_async_run_sse_e2e.py` -> `17 passed in 1.19s`
+  - 全量回归 -> `pytest -q` -> `148 passed in 7.61s`
+- Commits: C1 | C2 | C3
+  - `4fa2b61` | `c99c593` | `TBD（docs commit 后回填）`
+- Next:
+  - M12 已完成；按用户边界不进入 M13+。

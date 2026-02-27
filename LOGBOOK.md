@@ -656,4 +656,28 @@
 - Rollback:
   - 如需重做，可回退至 `145011a`（R12.2 红测提交）后按 Green 重放。
 - Commits:
-  - C1=`145011a`, C2=`00c1ed5`, C3=`TBD（docs commit 后回填）`
+  - C1=`145011a`, C2=`00c1ed5`, C3=`6150798`
+
+## 2026-02-27 09:49:40 +0800 - R12.3 完成记录（全局/会话 SSE 事件流）
+- Context:
+  - R12.3 目标是交付 SSE 事件流双入口，并将 async run 链路映射为可消费的增量事件。
+  - 本次改动覆盖 `runs/server/routes/deps` 多模块与四类测试，文件数超过 5。
+- Decision:
+  - 新增 `server/sse.py`，实现 `EventStreamHub`（历史缓冲 + 订阅分发）与 `encode_sse_event` 编码器。
+  - 新增 `GET /v1/events` 全局流与 `GET /v1/sessions/{session_id}/events` 会话流，支持 `max_events/timeout_seconds` 有界消费。
+  - 在 `RunsRegistry` 中将 run 生命周期和 turn 完成态映射为 `run_status/text_delta/tool_start/tool_end/turn_end` 事件并推送到 hub。
+- Rationale:
+  - 复用 run registry 作为事件汇聚点可最小化 runtime 改造，先打通异步主链路的可观测性闭环。
+  - 有界 SSE 消费可避免测试与客户端阻塞，满足“断连重连无崩溃/无阻塞”的最小安全行为。
+- Changed Files Summary:
+  - `src/nano_multiagent/server/{sse.py,deps.py,app.py}`
+  - `src/nano_multiagent/server/routes/{event.py,session.py}`
+  - `src/nano_multiagent/runs/registry.py`
+  - `tests/{unit,contract,integration,e2e}` 中 R12.3 四类测试
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前 SSE 为内存事件总线，进程重启后仅保留 session 持久化事件，不提供跨进程历史重放。
+- Rollback:
+  - 如需重做，可回退至 `4fa2b61`（R12.3 红测提交）后按 Green 重放。
+- Commits:
+  - C1=`4fa2b61`, C2=`c99c593`, C3=`TBD（docs commit 后回填）`

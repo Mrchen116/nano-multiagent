@@ -32,9 +32,9 @@
   - R12.2 目标测试红转绿
   - C1/C2/C3 三次提交完整
   - 四文档写入 R12.2 hash 与证据
-  - 已完成：`145011a` | `00c1ed5` | `TBD（docs commit 后回填）`
+  - 已完成：`145011a` | `00c1ed5` | `6150798`
 
-## [TODO] R12.3 SSE 全局/会话事件流
+## [DONE] R12.3 SSE 全局/会话事件流
 - Steps:
   - 新增 `GET /v1/events` 与 `GET /v1/sessions/{id}/events` 红测，固定事件格式。
   - 实现 SSE 编码与最小事件集（`text_delta/tool_start/tool_end/turn_end/run_status`）。
@@ -50,3 +50,4 @@
   - `pytest -q` 全绿
   - C1/C2/C3 三次提交完整
   - 四文档写入 R12.3 hash 与证据
+  - 已完成：`4fa2b61` | `c99c593` | `TBD（docs commit 后回填）`

@@ -240,7 +240,7 @@
   - `GET /v1/runs/{run_id}` 与 `POST /v1/runs/{run_id}/cancel` 可用。
   - `GET /v1/events` 与 `GET /v1/sessions/{session_id}/events` 可输出 `text_delta/tool_start/tool_end/turn_end` 等事件。
   - 异步取消与中断行为一致，`pytest -q` 全绿。
-- Status: Expanded (Active)
+- Status: Completed
 
 ### Roadpoint R12.1: async 提交与 run_id 生命周期基线
 - Public Surface:
@@ -291,7 +291,7 @@
 - Commits:
   - C1: `145011a`
   - C2: `00c1ed5`
-  - C3: TBD（docs commit 后回填）
+  - C3: `6150798`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_run_cancel.py tests/contract/test_run_cancel_contract.py tests/integration/test_run_cancel_integration.py tests/e2e/test_run_cancel_e2e.py` -> `6 failed`
   - 转绿（C2）: 同命令 -> `6 passed in 0.40s`
@@ -316,11 +316,14 @@
   - C2: `feat(R12.3): 实现全局与会话SSE事件流（全绿）`
   - C3: `docs(R12.3): 记录SSE证据并收口M12（记录hash/证据/下一步）`
 - Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
+  - C1: `4fa2b61`
+  - C2: `c99c593`
+  - C3: TBD（docs commit 后回填）
 - Evidence:
-  - Pending
+  - 红测（C1）: `pytest -q tests/unit/test_sse_encoder.py tests/contract/test_sse_event_contract.py tests/integration/test_sse_session_stream_integration.py tests/e2e/test_async_run_sse_e2e.py` -> `1 error`（`ModuleNotFoundError: nano_multiagent.server.sse`）
+  - 转绿（C2）: 同命令 -> `5 passed in 1.07s`
+  - 异步+SSE 串联: `pytest -q tests/unit/test_runs_registry.py tests/contract/test_runs_async_contract.py tests/integration/test_runs_store_integration.py tests/e2e/test_messages_async_submission_e2e.py tests/unit/test_run_cancel.py tests/contract/test_run_cancel_contract.py tests/integration/test_run_cancel_integration.py tests/e2e/test_run_cancel_e2e.py tests/unit/test_sse_encoder.py tests/contract/test_sse_event_contract.py tests/integration/test_sse_session_stream_integration.py tests/e2e/test_async_run_sse_e2e.py` -> `17 passed in 1.19s`
+  - M12 全量收口: `pytest -q` -> `148 passed in 7.61s`
 
 ## Milestone M13
 - Title: Hook 查询 API 与可观测性收口
