@@ -735,3 +735,28 @@
   - 如需重做，可回退到 `65348a0`（R13.2 红测提交）后按 Green 重放。
 - Commits:
   - C1=`65348a0`, C2=`7ebde86`, C3=`d72863c`
+
+## 2026-02-27 14:33:04 +0800 - R13R.1 完成记录（system prompt 模板对齐）
+- Context:
+  - R13R.1 目标是把默认 system prompt 与 `内核设计细化/系统提示词.md` 对齐，并把运行时占位符填充链路落到代码。
+  - 改动覆盖 `agent/prompting.py`、`agent/loop.py`、`agent/runtime.py` 与 4 类测试文件，涉及文件数超过 5。
+- Decision:
+  - 将细化文档模板落为 `DEFAULT_SYSTEM_PROMPT`，实现 `AVAILABLE_TOOLS/SKILLS_SECTION/CURRENT_DATETIME/CURRENT_WORKING_DIRECTORY` 统一替换。
+  - 增加默认工具渲染（内置 `read/write/edit/bash/task` schema 摘要）并保留 skills 段拼接兼容路径。
+  - `AgentLoop` 新增 `current_working_directory` 透传参数，由 `AgentRuntime(repo_root)` 接线保证运行时 cwd 可观测。
+- Rationale:
+  - 先通过 contract/integration/e2e 固定模板契约，再做最小实现，可避免后续 R13R.2/R13R.3 修改导致提示词回退。
+  - 使用统一占位符替换函数，避免模板和运行时填充分散在多处产生漂移。
+- Changed Files Summary:
+  - `src/nano_multiagent/agent/{prompting.py,loop.py,runtime.py}`
+  - `tests/unit/test_agent_prompting.py`
+  - `tests/contract/test_system_prompt_contract.py`
+  - `tests/integration/test_prompt_runtime_fill_integration.py`
+  - `tests/e2e/test_system_prompt_render_e2e.py`
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前工具段基于内置工具注册面渲染；后续若引入动态工具热加载，需要在 runtime 层补充可用工具快照透传。
+- Rollback:
+  - 如需重做，可回退至 `3fd75c2`（R13R.1 红测提交）后按 Green 重放。
+- Commits:
+  - C1=`3fd75c2`, C2=`3e465c3`, C3=`TBD (this commit)`

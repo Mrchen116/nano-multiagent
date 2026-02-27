@@ -418,11 +418,12 @@
   - C2: `feat(R13R.1): 落地系统提示词模板与运行时填充（全绿）`
   - C3: `docs(R13R.1): 记录系统提示词对齐证据（记录hash/证据/下一步）`
 - Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
+  - C1: `3fd75c2`
+  - C2: `3e465c3`
+  - C3: `TBD (this commit)`
 - Evidence:
-  - Pending
+  - 红测（C1）: `pytest -q tests/unit/test_agent_prompting.py tests/contract/test_system_prompt_contract.py tests/integration/test_prompt_runtime_fill_integration.py tests/e2e/test_system_prompt_render_e2e.py` -> `5 failed, 1 passed`
+  - 转绿（C2）: 同命令 -> `6 passed in 0.38s`
 
 ### Roadpoint R13R.2: tools/task 契约修复
 - Public Surface:

@@ -1,6 +1,6 @@
 # TASKS (Current Milestone: M13R)
 
-## [TODO] R13R.1 system prompt 模板对齐
+## [DONE] R13R.1 system prompt 模板对齐
 - Steps:
   - 新增 system prompt 模板红测，固定 `Available tools/Guidelines/datetime/cwd` 缺口（Red）。
   - 将 `内核设计细化/系统提示词.md` 作为模板源，完成运行时占位填充。

@@ -409,3 +409,16 @@
   - `65348a0` | `7ebde86` | `d72863c`
 - Next:
   - M13 已完成；按边界不进入 M14+。
+
+## 2026-02-27 14:33:04 +0800
+- Done:
+  - 完成 R13R.1：默认 system prompt 对齐 `内核设计细化/系统提示词.md`，补齐 `AVAILABLE_TOOLS/SKILLS_SECTION/CURRENT_DATETIME/CURRENT_WORKING_DIRECTORY` 运行时填充。
+  - `AgentRuntime -> AgentLoop -> build_prompt_messages` 已接入 `current_working_directory` 透传，保持 skills 注入不退化。
+  - 新增 contract/integration/e2e 用例，固定模板段落与占位符替换契约。
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_agent_prompting.py tests/contract/test_system_prompt_contract.py tests/integration/test_prompt_runtime_fill_integration.py tests/e2e/test_system_prompt_render_e2e.py` -> `5 failed, 1 passed`
+  - 转绿（C2）: 同命令 -> `6 passed in 0.38s`
+- Commits: C1 | C2 | C3
+  - `3fd75c2` | `3e465c3` | `TBD (this commit)`
+- Next:
+  - R13R.2 Red：先补 task/load_skills 契约与 read-sandbox/skills 可见性冲突红测。
