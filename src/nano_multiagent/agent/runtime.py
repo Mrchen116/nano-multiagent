@@ -381,11 +381,24 @@ class AgentRuntime:
             reason=reason,
             dropped_messages=dropped_messages,
         )
-        return self._compaction_applier.apply(
+        result = self._compaction_applier.apply(
             session_id=session_id,
             plan=plan,
             summary=summary,
         )
+        self._dispatch_observe(
+            "session_compact",
+            {
+                "session_id": session_id,
+                "reason": reason.value,
+                "entry_id": result.entry_id,
+                "first_kept_event_id": result.first_kept_event_id,
+                "dropped_event_ids": result.dropped_event_ids,
+                "kept_event_ids": result.kept_event_ids,
+            },
+            HookContext(session_id=session_id, repo_root=self._repo_root),
+        )
+        return result
 
     def _history_without_message(
         self,
