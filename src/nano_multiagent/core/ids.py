@@ -34,6 +34,9 @@ class IdGenerator:
     def make_event_id(self) -> str:
         return self._make_id("evt")
 
+    def make_run_id(self) -> str:
+        return self._make_id("run")
+
 
 DEFAULT_ID_GENERATOR = IdGenerator()
 
@@ -56,3 +59,7 @@ def make_tool_call_id() -> str:
 
 def make_event_id() -> str:
     return DEFAULT_ID_GENERATOR.make_event_id()
+
+
+def make_run_id() -> str:
+    return DEFAULT_ID_GENERATOR.make_run_id()

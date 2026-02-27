@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 
 from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.runs.registry import RunsRegistry
 from nano_multiagent.session.models import Session
 from nano_multiagent.session.service import SessionService
 
 from ..auth import require_bearer_auth
-from ..deps import APIError, get_agent_runtime, get_session_service
+from ..deps import APIError, get_agent_runtime, get_runs_registry, get_session_service
 
 router = APIRouter(
     prefix="/v1/sessions",
@@ -54,6 +55,18 @@ class SendMessageResponse(BaseModel):
     message: MessageResponse
     completed: bool
     stop_reason: str
+
+
+class SendMessageAsyncRequest(BaseModel):
+    message_id: str | None = None
+    parts: list[dict[str, Any]] = Field(min_length=1)
+    model: str | None = None
+
+
+class SendMessageAsyncResponse(BaseModel):
+    run_id: str
+    session_id: str
+    status: str
 
 
 @router.post("", status_code=201, response_model=SessionResponse)
@@ -129,6 +142,38 @@ def send_message(
         ) from exc
 
     return SendMessageResponse(**_to_message_response(result))
+
+
+@router.post("/{session_id}/messages:async", status_code=202, response_model=SendMessageAsyncResponse)
+def send_message_async(
+    session_id: str,
+    payload: SendMessageAsyncRequest,
+    runs: RunsRegistry = Depends(get_runs_registry),
+) -> SendMessageAsyncResponse:
+    del payload.message_id
+    del payload.model
+    try:
+        record = runs.submit(session_id=session_id, parts=payload.parts)
+    except ValueError as exc:
+        message = str(exc)
+        if message.startswith("session does not exist:"):
+            raise APIError(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="session_not_found",
+                message=message,
+                retryable=False,
+            ) from exc
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=message,
+            retryable=False,
+        ) from exc
+    return SendMessageAsyncResponse(
+        run_id=record.run_id,
+        session_id=record.session_id,
+        status=record.status.value,
+    )
 
 
 def _to_session_response(session: Session) -> SessionResponse:

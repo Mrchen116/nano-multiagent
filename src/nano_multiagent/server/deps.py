@@ -1,6 +1,7 @@
 from fastapi import Request
 
 from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.runs.registry import RunsRegistry
 from nano_multiagent.session.service import SessionService
 from nano_multiagent.tools.registry import ToolRegistry
 
@@ -31,6 +32,10 @@ def get_agent_runtime(request: Request) -> AgentRuntime:
 
 def get_tool_registry(request: Request) -> ToolRegistry:
     return request.app.state.tool_registry  # type: ignore[no-any-return]
+
+
+def get_runs_registry(request: Request) -> RunsRegistry:
+    return request.app.state.runs_registry  # type: ignore[no-any-return]
 
 
 def get_trace_id(request: Request) -> str:

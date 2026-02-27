@@ -11,6 +11,7 @@ class SessionEntryKind(StrEnum):
     TURN_APPENDED = "session.turn.appended"
     SESSION_ARCHIVED = "session.archived"
     COMPACTION = "session.compaction"
+    RUN_STATUS = "session.run.status"
 
 
 def _utc_now_iso() -> str:
@@ -104,5 +105,38 @@ def new_turn_appended_entry(
         session_id=session_id,
         created_at=created_at or _utc_now_iso(),
         kind=SessionEntryKind.TURN_APPENDED,
+        data=payload,
+    )
+
+
+def new_run_status_entry(
+    *,
+    session_id: str,
+    run_id: str,
+    status: str,
+    turn_id: str | None = None,
+    stop_reason: str | None = None,
+    error: Mapping[str, Any] | None = None,
+    created_at: str | None = None,
+    entry_id: str | None = None,
+    data: Mapping[str, Any] | None = None,
+) -> SessionEntry:
+    payload: dict[str, Any] = {
+        "run_id": run_id,
+        "status": status,
+    }
+    if turn_id is not None:
+        payload["turn_id"] = turn_id
+    if stop_reason is not None:
+        payload["stop_reason"] = stop_reason
+    if error is not None:
+        payload["error"] = dict(error)
+    if data:
+        payload.update(data)
+    return SessionEntry(
+        entry_id=entry_id or make_event_id(),
+        session_id=session_id,
+        created_at=created_at or _utc_now_iso(),
+        kind=SessionEntryKind.RUN_STATUS,
         data=payload,
     )

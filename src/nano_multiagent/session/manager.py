@@ -10,6 +10,7 @@ from .entries import (
     SessionEntry,
     SessionEntryKind,
     new_compaction_entry,
+    new_run_status_entry,
     new_session_created_entry,
     new_turn_appended_entry,
 )
@@ -89,6 +90,31 @@ class SessionManager:
             session_id=session_id,
             first_kept_event_id=first_kept_event_id,
             summary=summary,
+            data=data,
+        )
+        self._store.append_event(session_id, entry)
+        return entry
+
+    def append_run_status(
+        self,
+        session_id: str,
+        *,
+        run_id: str,
+        status: str,
+        turn_id: str | None = None,
+        stop_reason: str | None = None,
+        error: Mapping[str, Any] | None = None,
+        data: Mapping[str, Any] | None = None,
+    ) -> SessionEntry:
+        if self.get_session(session_id) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        entry = new_run_status_entry(
+            session_id=session_id,
+            run_id=run_id,
+            status=status,
+            turn_id=turn_id,
+            stop_reason=stop_reason,
+            error=error,
             data=data,
         )
         self._store.append_event(session_id, entry)
