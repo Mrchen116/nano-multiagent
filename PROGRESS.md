@@ -447,6 +447,6 @@
   - 转绿（C2）: `pytest -q tests/unit/test_agent_runtime_hooks.py` -> `5 passed in 0.12s`
   - 全量门禁（C3）: `pytest -q` -> `3 failed, 167 passed in 63.26s`
 - Commits: C1 | C2 | C3
-  - `e4fa2c7` | `b9283ae` | `82a7595`
+  - `e4fa2c7` | `b9283ae` | `3197cbb`
 - Next:
   - R13R.4 Red：补 `session_start/session_compact/session_shutdown/run_error/run_timeout` 生命周期事件红测。

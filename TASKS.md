@@ -52,7 +52,7 @@
   - C1/C2/C3 三次提交完整
   - 四文档写入 R13R.3 hash 与证据
 - Commits:
-  - `e4fa2c7` | `b9283ae` | `82a7595`
+  - `e4fa2c7` | `b9283ae` | `3197cbb`
 
 ## [TODO] R13R.4 Hook 生命周期全事件与示例补齐
 - Steps:

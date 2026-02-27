@@ -475,7 +475,7 @@
 - Commits:
   - C1: `e4fa2c7`
   - C2: `b9283ae`
-  - C3: `82a7595`
+  - C3: `3197cbb`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_hook_event_coverage.py` -> `1 failed`
   - 转绿（C2）: `pytest -q tests/unit/test_hook_event_coverage.py` -> `1 passed in 0.01s`
