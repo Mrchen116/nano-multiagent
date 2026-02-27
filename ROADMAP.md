@@ -397,7 +397,58 @@
   - `llm/protocols/anthropic/*` 落地并通过与 `openai_compat` 同一契约测试集。
   - provider 切换仅改配置（不改 runtime/tool/session 代码）。
   - OpenAI/Anthropic 双链路集成测试通过，`pytest -q` 全绿。
-- Status: Planned (Not Expanded)
+- Status: Expanded (Active)
+
+### Roadpoint R14.1: anthropic 协议适配实现
+- Public Surface:
+  - `llm/protocols/anthropic/client.py`
+  - `llm/protocols/anthropic/mapper.py`
+  - `llm/translator.py`（anthropic 映射分支）
+- Acceptance (3-5):
+  - anthropic client 支持非流式文本生成最小链路。
+  - 统一请求/响应映射到内部 `LLMGenerateRequest/LLMGenerateResponse`。
+  - 请求保留 `X-Session-Id` 透传约束。
+  - 与现有 openai_compat 契约测试框架兼容。
+- Tests Plan:
+  - unit: `tests/unit/test_anthropic_mapper.py`
+  - contract: `tests/contract/test_llm_anthropic_contract.py`
+  - integration: `tests/integration/test_anthropic_generation_integration.py`
+  - e2e: `tests/e2e/test_anthropic_generation_e2e.py`
+- Commit Plan:
+  - C1: `test(R14.1): anthropic协议红测（先红）`
+  - C2: `feat(R14.1): 实现anthropic协议适配（全绿）`
+  - C3: `docs(R14.1): 记录anthropic证据并推进下一步（记录hash/证据/下一步）`
+- Commits:
+  - C1: TBD
+  - C2: TBD
+  - C3: TBD
+- Evidence:
+  - Pending（下一步执行 R14.1 Red）
+
+### Roadpoint R14.2: provider 切换验收
+- Public Surface:
+  - `llm/factory.py`
+  - `llm/model_registry.py`
+  - 运行配置（provider/model/base_url）
+- Acceptance (3-5):
+  - `openai_compat` 与 `anthropic` 切换仅改配置，不改 runtime/tool/session 代码。
+  - 同一套核心契约测试在双 provider 下通过。
+  - 关键错误语义与 trace 字段保持一致。
+- Tests Plan:
+  - unit: `tests/unit/test_llm_factory_provider_switch.py`
+  - contract: `tests/contract/test_provider_switch_contract.py`
+  - integration: `tests/integration/test_provider_switch_integration.py`
+  - e2e: `tests/e2e/test_provider_switch_e2e.py`
+- Commit Plan:
+  - C1: `test(R14.2): provider切换验收红测（先红）`
+  - C2: `feat(R14.2): 完成provider配置切换与回归（全绿）`
+  - C3: `docs(R14.2): 记录切换证据并收口M14（记录hash/证据/下一步）`
+- Commits:
+  - C1: TBD
+  - C2: TBD
+  - C3: TBD
+- Evidence:
+  - Pending
 
 ## Milestone M15
 - Title: 发布前硬化与回放审计验收

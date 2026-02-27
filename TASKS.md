@@ -1,34 +1,34 @@
-# TASKS (Current Milestone: M13)
+# TASKS (Current Milestone: M14)
 
-## [DONE] R13.1 Hook 查询 API（events + registry）
+## [TODO] R14.1 anthropic 协议适配实现
 - Steps:
-  - 新增 `GET /v1/hooks/events` 与 `GET /v1/hooks` 的红测，固定返回结构与错误契约（Red）。
-  - 实现 hooks 查询路由与依赖注入，连接现有 Hook registry/loader 数据。
-  - 保证仅只读接口，不引入注册/更新/卸载写操作。
-  - 验证 source/priority/timeout_ms 等字段完整返回。
+  - 新增 anthropic 协议红测，固定 mapper/client/translator 的契约缺口（Red）。
+  - 实现 `llm/protocols/anthropic/{client,mapper}.py` 与 translator 分支。
+  - 保证 `X-Session-Id` 在 anthropic 链路透传。
+  - 跑目标测试并记录证据。
 - Expected Tests:
-  - `tests/unit/test_hook_query_models.py`
-  - `tests/contract/test_hooks_query_contract.py`
-  - `tests/integration/test_hooks_registry_query_integration.py`
-  - `tests/e2e/test_hooks_query_e2e.py`
+  - `tests/unit/test_anthropic_mapper.py`
+  - `tests/contract/test_llm_anthropic_contract.py`
+  - `tests/integration/test_anthropic_generation_integration.py`
+  - `tests/e2e/test_anthropic_generation_e2e.py`
 - DoD:
-  - R13.1 目标测试红转绿
+  - R14.1 目标测试红转绿
   - C1/C2/C3 三次提交完整
-  - 四文档写入 R13.1 hash 与证据
+  - 四文档写入 R14.1 hash 与证据
 
-## [DONE] R13.2 可观测性字段收口（日志/trace 关联）
+## [TODO] R14.2 provider 切换验收
 - Steps:
-  - 新增日志/trace 字段红测，固定 `session_id/turn_id/tool_call_id/trace_id` 关联要求（Red）。
-  - 在 run/tool/hook/error 关键路径补齐结构化日志字段。
-  - 处理上下文缺失场景，确保日志输出稳定不崩溃。
-  - 执行全量回归并收口 M13。
+  - 新增 provider 切换红测，固定“仅配置切换”的约束（Red）。
+  - 在 factory/model_registry 完成 anthropic 与 openai_compat 切换接线。
+  - 完成双 provider 回归与错误语义一致性校验。
+  - 执行全量回归并收口 M14。
 - Expected Tests:
-  - `tests/unit/test_observability_fields.py`
-  - `tests/contract/test_observability_contract.py`
-  - `tests/integration/test_trace_log_correlation_integration.py`
-  - `tests/e2e/test_observability_chain_e2e.py`
+  - `tests/unit/test_llm_factory_provider_switch.py`
+  - `tests/contract/test_provider_switch_contract.py`
+  - `tests/integration/test_provider_switch_integration.py`
+  - `tests/e2e/test_provider_switch_e2e.py`
 - DoD:
-  - R13.2 目标测试红转绿
+  - R14.2 目标测试红转绿
   - `pytest -q` 全绿
   - C1/C2/C3 三次提交完整
-  - 四文档写入 R13.2 hash 与证据
+  - 四文档写入 R14.2 hash 与证据
