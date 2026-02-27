@@ -482,3 +482,24 @@
   - 可回退到 `41fd8bf`（R10.2 红测提交）重放 Green。
 - Commits:
   - C1=`41fd8bf`, C2=`e223a5b`, C3=`(this docs commit)`
+
+## 2026-02-27 09:08:28 +0800 - Preflight 规则升级后的流程修复记录
+- Context:
+  - 新版 TDD Preflight 要求 `ROADMAP` 必须一次性包含全量 Milestone 基线，并且仅当前 Milestone 可展开 Roadpoint。
+  - 现状文档停在 M10，且 `TASKS.md` 仍指向 M10，未满足新门禁，继续进入 Red 会违规。
+- Decision:
+  - 重构 `ROADMAP.md` 为 M0..M15 全量基线，统一 `Status` 枚举到 `Completed / Expanded (Active) / Planned (Not Expanded)`。
+  - 将 M11 设为 `Expanded (Active)` 并展开 R11.1~R11.3；M12..M15 保持 Milestone 级不展开。
+  - 将 `TASKS.md` 收敛为仅 M11 任务；在 `PROGRESS.md` 追加同名修复记录。
+  - 修复历史证据链占位：`R10.2 C3` 更新为真实 hash `0da8768`。
+- Rationale:
+  - 先满足 Preflight 门禁再进入 R11.1 Red，可避免流程性返工并保证 TDD 证据链完整。
+- Changed Files Summary:
+  - `ROADMAP.md`
+  - `TASKS.md`
+  - `PROGRESS.md`
+  - `LOGBOOK.md`
+- Pitfall/Risk:
+  - M11 Roadpoint 目前仅为计划态；若直接进入 Green/实现将违反“先 Red”约束。
+- Next:
+  - 进入 `M11 R11.1 Red`（仅新增失败测试，不做实现）。

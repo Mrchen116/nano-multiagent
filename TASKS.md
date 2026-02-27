@@ -1,44 +1,46 @@
-# TASKS (Current Milestone: M10)
+# TASKS (Current Milestone: M11)
 
-## [DONE] R10.1 policy + planner + CompactionEntry 基线
+## [TODO] R11.1 task 契约冻结与 Red 基线
 - Steps:
-  - 新增 compaction 红测（unit/contract/integration/e2e）固定 M10 关键行为缺口（Red）
-  - 实现 `agent/compaction` 基础模块：`types/policy/planner/applier/summarizer`（最小骨架）
-  - 在 `SessionManager` 增加 `append_compaction/list_entries`，并按 `first_kept_event_id` 重建上下文回放
-  - 校验切点规划不拆 `tool_call/tool_result`
-  - 跑 R10.1 目标测试集并记录证据
-  - 回填历史占位：`R9.1 C3=fc30c3e`
+  - 新增 `task` 工具四类失败测试，先固定 schema 与错误契约缺口（Red）。
+  - 明确 `X-Session-Id` 透传约束与 `task.session_id` 语义边界的 contract 断言。
+  - 在不实现功能的前提下验证红测失败点与预期一致并记录证据。
 - Expected Tests:
-  - `tests/unit/test_compaction_planner.py`
-  - `tests/contract/test_compaction_contract.py`
-  - `tests/integration/test_compaction_runtime_integration.py`
-  - `tests/unit/test_session_entries.py`
-  - `tests/contract/test_session_serializers_contract.py`
+  - `tests/unit/test_task_tool_schema.py`
+  - `tests/contract/test_task_tool_contract.py`
+  - `tests/integration/test_task_runtime_wiring_integration.py`
+  - `tests/e2e/test_task_tool_blocking_e2e.py`
 - DoD:
-  - R10.1 目标测试全绿
-  - C1/C2/C3 三次提交完整
-  - 四文档写入 R10.1 hash 与证据
+  - 红测失败与预期缺口一致，失败原因可复现
+  - C1/C2/C3 三次提交链规划完备并可执行
+  - 四文档同步记录下一步 `R11.1 Green`
 
-## [DONE] R10.2 runtime compaction 接线（threshold/overflow/manual）
+## [TODO] R11.2 task blocking 模式最小闭环
 - Steps:
-  - 增补 runtime compaction 红测：threshold preflight、overflow 补救重试、manual compact、e2e 恢复链路（Red）
-  - 在 `AgentRuntime` 接入 preflight compaction 与 overflow post_turn_check 重试
-  - 接入 `CompactionSummarizer` 与 `CompactionApplier`，落盘 `CompactionEntry(first_kept_event_id)`
-  - 约束上下文重建为 `system + compaction_summary + kept_recent_messages`
-  - 支持 `summary_model` 与主模型解耦（最小实现）
-  - 跑 `pytest -q` 全量验收并回填 R10.1 C3
+  - 实现 `task(mode=blocking)` 的最小执行路径，支持主流程等待子任务返回。
+  - 补齐错误路径（超时/子任务失败）并保持统一错误结构。
+  - 跑 R11.2 目标测试并验证主链路不被异常 Hook/工具结果破坏。
 - Expected Tests:
-  - `tests/contract/test_compaction_contract.py`
-  - `tests/integration/test_compaction_runtime_integration.py`
-  - `tests/e2e/test_compaction_overflow_recovery_e2e.py`
-  - `pytest -q`
+  - `tests/unit/test_task_tool_blocking.py`
+  - `tests/contract/test_task_tool_contract.py`
+  - `tests/integration/test_task_blocking_integration.py`
+  - `tests/e2e/test_task_tool_blocking_e2e.py`
 - DoD:
+  - R11.2 目标测试全绿
   - `pytest -q` 全绿
-  - C1/C2/C3 三次提交完整
-  - 四文档写入 R10.2 hash 与证据
-  - 不进入 M11/M12
+  - C1/C2/C3 三次提交完整且四文档写入真实 hash
 
-## Milestone M10 状态
-- R10.1 已完成：`d7950f0` -> `5ac5758` -> `ec6a086`。
-- R10.2 已完成：`41fd8bf` -> `e223a5b` -> `(this docs commit)`。
-- M10 验收测试已通过：`pytest -q` => `116 passed in 5.26s`。
+## [TODO] R11.3 task non_blocking 模式与可追踪回执
+- Steps:
+  - 实现 `task(mode=non_blocking)` 返回任务回执并异步执行。
+  - 将任务状态追踪接入现有 session/event 机制，保证可观察性。
+  - 跑 R11.3 目标测试与全量验收，收口 M11。
+- Expected Tests:
+  - `tests/unit/test_task_tool_non_blocking.py`
+  - `tests/contract/test_task_tool_contract.py`
+  - `tests/integration/test_task_non_blocking_integration.py`
+  - `tests/e2e/test_task_tool_non_blocking_e2e.py`
+- DoD:
+  - R11.3 目标测试全绿
+  - `pytest -q` 全绿
+  - C1/C2/C3 三次提交完整且四文档写入真实 hash

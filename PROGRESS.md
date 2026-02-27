@@ -266,3 +266,15 @@
   - `41fd8bf` | `e223a5b` | `(this docs commit)`
 - Next:
   - M10 已完成；等待下一 Milestone 指令
+
+## 2026-02-27 09:08:28 +0800
+- Done:
+  - 追加“Preflight 规则升级后的流程修复记录”，修复新版门禁与现有四文档不一致问题。
+  - `ROADMAP.md` 重建为全量 Milestone 基线（M0..M15），并将 M11 切换为 `Expanded (Active)` 且展开 Roadpoint。
+  - `TASKS.md` 清理为仅保留当前 Milestone（M11）任务。
+  - 修复历史占位：`R10.2 C3` 由占位更新为真实 hash `0da8768`。
+- Evidence:
+  - Preflight 门禁项对齐：全量里程碑基线 + 当前里程碑展开 + TASKS 仅当前里程碑。
+  - 本次仅文档变更，未触发任何 `src/` 或 `tests/` 代码修改。
+- Next:
+  - M11 R11.1 Red：先写 `task` 工具契约与失败测试。
