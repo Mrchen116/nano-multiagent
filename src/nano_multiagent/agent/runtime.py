@@ -10,9 +10,12 @@ from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
 from nano_multiagent.llm.interfaces import LLMClient
 from nano_multiagent.session.manager import SessionManager
 from nano_multiagent.session.models import Session
+from nano_multiagent.skills.registry import SkillMetadata
+from nano_multiagent.skills.workspace import resolve_available_skills
 
 from .loop import AgentLoop
 from .policies import AgentPolicies
+from .skill_commands import rewrite_skill_command
 from .state import AgentState, InputPart, parse_input_parts, render_user_text
 
 
@@ -26,16 +29,23 @@ class AgentRuntime:
         policies: AgentPolicies | None = None,
         hook_runner: HookRunner | None = None,
         repo_root: Path | None = None,
+        available_skills: Sequence[SkillMetadata] | None = None,
     ) -> None:
         active_llm_client = llm_client or create_llm_client()
         self._hook_runner = hook_runner
         self._repo_root = (repo_root or Path.cwd()).expanduser().resolve()
+        resolved_skills = (
+            tuple(available_skills)
+            if available_skills is not None
+            else resolve_available_skills(workspace_root=self._repo_root)
+        )
         self._session_manager = session_manager
         self._loop = AgentLoop(
             llm_client=active_llm_client,
             model=model or LLMFactoryConfig.from_env().model,
             policies=policies,
             hook_runner=hook_runner,
+            available_skills=resolved_skills,
         )
 
     def run(self, session_id: str, parts: Sequence[Mapping[str, Any]], *, stream: bool = True) -> TurnResult:
@@ -73,6 +83,7 @@ class AgentRuntime:
             user_text = transformed_text
         if not user_text:
             raise ValueError("empty input parts are not allowed")
+        user_text = rewrite_skill_command(user_text)
 
         before_payload, _ = self._dispatch_intercept(
             "before_agent_start",

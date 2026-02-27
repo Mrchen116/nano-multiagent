@@ -6,6 +6,7 @@ from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest
+from nano_multiagent.skills.registry import SkillMetadata
 
 from .policies import AgentPolicies
 from .prompting import DEFAULT_SYSTEM_PROMPT, build_prompt_messages
@@ -21,12 +22,14 @@ class AgentLoop:
         policies: AgentPolicies | None = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         hook_runner: HookRunner | None = None,
+        available_skills: tuple[SkillMetadata, ...] = (),
     ) -> None:
         self._llm_client = llm_client
         self._model = model
         self._policies = policies or AgentPolicies()
         self._system_prompt = system_prompt
         self._hook_runner = hook_runner
+        self._available_skills = available_skills
 
     def run(
         self,
@@ -50,6 +53,7 @@ class AgentLoop:
             history_messages=history,
             user_text=state.user_text,
             system_prompt=system_prompt_override or self._system_prompt,
+            available_skills=self._available_skills,
         )
 
         try:
