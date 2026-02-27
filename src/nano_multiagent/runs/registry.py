@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -9,6 +10,8 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from nano_multiagent.core.ids import make_run_id
 from nano_multiagent.core.types import TurnResult
+from nano_multiagent.hooks.context import HookContext
+from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.observability.logger import log_error, log_info
 from nano_multiagent.observability.tracing import bind_correlation, current_trace_id
 from nano_multiagent.server.sse import EventStreamHub
@@ -48,11 +51,13 @@ class RunsRegistry:
         runtime: RuntimeRunner,
         session_manager: SessionManager,
         event_hub: EventStreamHub | None = None,
+        hook_runner: HookRunner | None = None,
         max_workers: int = 4,
     ) -> None:
         self._runtime = runtime
         self._session_manager = session_manager
         self._event_hub = event_hub
+        self._hook_runner = hook_runner
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="nano-runs")
         self._lock = Lock()
         self._runs: dict[str, RunRecord] = {}
@@ -202,7 +207,64 @@ class RunsRegistry:
                 trace_id=updated.trace_id,
                 error=message,
             )
+            hook_ctx_metadata: dict[str, Any] = {}
+            if updated.trace_id:
+                hook_ctx_metadata["trace_id"] = updated.trace_id
+            hook_ctx = HookContext(
+                session_id=updated.session_id,
+                turn_id=updated.turn_id,
+                metadata=hook_ctx_metadata,
+            )
+            self._dispatch_observe(
+                "run_error",
+                {
+                    "session_id": updated.session_id,
+                    "run_id": updated.run_id,
+                    "error": updated.error,
+                },
+                hook_ctx,
+            )
         return updated
+
+    def _dispatch_observe(
+        self,
+        event: str,
+        payload: Mapping[str, Any],
+        hook_ctx: HookContext,
+    ) -> None:
+        if self._hook_runner is None:
+            return
+        try:
+            diagnostics = asyncio.run(
+                self._hook_runner.dispatch_observe(
+                    event,
+                    payload,
+                    hook_ctx,
+                )
+            )
+        except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
+            hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))
+            return
+        self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
+
+    @staticmethod
+    def _log_hook_diagnostics(
+        hook_ctx: HookContext,
+        *,
+        event: str,
+        diagnostics: tuple[HookExecution, ...],
+    ) -> None:
+        for item in diagnostics:
+            if item.status == "ok":
+                continue
+            hook_ctx.logger.warn(
+                "hook execution isolated",
+                event=event,
+                hook_id=item.hook_id,
+                status=item.status,
+                duration_ms=item.duration_ms,
+                error=item.error,
+            )
 
     def _append_run_status_event(self, record: RunRecord) -> None:
         self._session_manager.append_run_status(
