@@ -221,3 +221,28 @@ def test_hook_exceptions_are_isolated_and_fail_open() -> None:
 
     assert result.messages[0].content == "ack:ping"
     assert llm.requests[-1].messages[-1].content == "ping"
+
+
+def test_runtime_create_session_emits_session_start_observe_hook() -> None:
+    observed_session_ids: list[str] = []
+    registry = HookRegistry()
+
+    async def on_session_start(event, ctx):
+        del ctx
+        observed_session_ids.append(event["session_id"])
+
+    registry.on("session_start", on_session_start)
+
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=EchoLLMClient(),
+        model="mock-model",
+        hook_runner=HookRunner(registry=registry),
+        repo_root=Path.cwd(),
+    )
+
+    session = runtime.create_session()
+
+    assert observed_session_ids == [session.session_id]
