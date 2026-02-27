@@ -633,4 +633,27 @@
 - Rollback:
   - 如需重做，可回退至 `91cd896`（R12.1 红测提交）后按 Green 重放。
 - Commits:
-  - C1=`91cd896`, C2=`264eab5`, C3=`TBD（docs commit 后回填）`
+  - C1=`91cd896`, C2=`264eab5`, C3=`388d263`
+
+## 2026-02-27 09:44:07 +0800 - R12.2 完成记录（run cancel 语义）
+- Context:
+  - R12.2 目标是补齐 `POST /v1/runs/{run_id}/cancel`，并固定 queued/running/terminal 幂等语义。
+  - 需要避免运行线程完成后覆盖 `cancelled` 状态，保证审计链一致。
+- Decision:
+  - 在 `RunsRegistry` 新增 `cancel(run_id)`，对 `queued/running` 置 `cancelled`，对 terminal 直接幂等返回。
+  - 为状态迁移增加 `only_if` 约束：`completed/failed` 仅允许从 `running` 转入。
+  - 在 `server/routes/run.py` 增加取消路由，沿用 `run_not_found` 与统一错误响应格式。
+- Rationale:
+  - 通过状态机约束把“取消优先级”收敛在 registry，避免路由层与 worker 线程竞争更新状态。
+  - 保持 API 行为稳定：不存在 run 返回 404，已终态 run 重复 cancel 不抛错。
+- Changed Files Summary:
+  - `src/nano_multiagent/runs/registry.py`
+  - `src/nano_multiagent/server/routes/run.py`
+  - `tests/{unit,contract,integration,e2e}` 中 R12.2 四类测试
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - `running` 状态的底层执行线程当前不会被强制中断；取消语义表现为“状态取消+结果抑制”，后续若需硬中断需引入可中止执行器。
+- Rollback:
+  - 如需重做，可回退至 `145011a`（R12.2 红测提交）后按 Green 重放。
+- Commits:
+  - C1=`145011a`, C2=`00c1ed5`, C3=`TBD（docs commit 后回填）`

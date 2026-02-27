@@ -351,6 +351,19 @@
   - 转绿（C2）: 同命令 -> `6 passed in 0.46s`
   - 持久化验证 -> `test_async_run_status_entries_persist_in_sqlite_store` 断言 `queued/running/completed` 事件已落盘
 - Commits: C1 | C2 | C3
-  - `91cd896` | `264eab5` | `TBD（docs commit 后回填）`
+  - `91cd896` | `264eab5` | `388d263`
 - Next:
   - R12.2 Red：新增 `POST /v1/runs/{run_id}/cancel` queued/running/terminal 语义红测。
+
+## 2026-02-27 09:44:07 +0800
+- Done:
+  - 完成 R12.2：新增 `POST /v1/runs/{run_id}/cancel`，实现 queued/running 取消与 terminal 幂等返回。
+  - `RunsRegistry` 状态流转增加约束（仅 `running` 可转 `completed/failed`），避免取消后被运行结果覆盖。
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_run_cancel.py tests/contract/test_run_cancel_contract.py tests/integration/test_run_cancel_integration.py tests/e2e/test_run_cancel_e2e.py` -> `6 failed`
+  - 转绿（C2）: 同命令 -> `6 passed in 0.40s`
+  - 持久化验证 -> `test_cancelled_run_status_is_persisted_to_store` 断言最后状态为 `cancelled`
+- Commits: C1 | C2 | C3
+  - `145011a` | `00c1ed5` | `TBD（docs commit 后回填）`
+- Next:
+  - R12.3 Red：新增 `GET /v1/events` 与 `GET /v1/sessions/{session_id}/events` 的 SSE 红测。

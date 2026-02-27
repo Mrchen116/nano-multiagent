@@ -15,9 +15,9 @@
   - R12.1 目标测试红转绿
   - C1/C2/C3 三次提交完整
   - 四文档写入 R12.1 hash 与证据
-  - 已完成：`91cd896` | `264eab5` | `TBD（docs commit 后回填）`
+  - 已完成：`91cd896` | `264eab5` | `388d263`
 
-## [TODO] R12.2 run cancel 语义与中断一致性
+## [DONE] R12.2 run cancel 语义与中断一致性
 - Steps:
   - 为 `POST /v1/runs/{id}/cancel` 新增红测，固定 queued/running/terminal 行为。
   - 实现取消状态流转与幂等处理。
@@ -32,6 +32,7 @@
   - R12.2 目标测试红转绿
   - C1/C2/C3 三次提交完整
   - 四文档写入 R12.2 hash 与证据
+  - 已完成：`145011a` | `00c1ed5` | `TBD（docs commit 后回填）`
 
 ## [TODO] R12.3 SSE 全局/会话事件流
 - Steps:
