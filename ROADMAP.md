@@ -588,7 +588,7 @@ Exit Criteria:
   - `pytest -q tests/unit/test_agent_prompting.py tests/contract/test_skill_commands_contract.py tests/integration/test_agent_runtime_skill_command_integration.py tests/e2e/test_skill_command_message_sync_e2e.py`: `7 passed in 0.34s`
   - `pytest -q`: `105 passed in 5.13s`
 
-## Milestone M10（进行中）: compaction 子系统
+## Milestone M10（已完成）: compaction 子系统
 Goal:
 - 实现 `agent/compaction/{types,policy,planner,summarizer,applier}.py`
 - 支持 `threshold/overflow/manual` 三种压缩触发路径
@@ -627,7 +627,7 @@ Exit Criteria:
 - Commits:
   - C1: d7950f0
   - C2: 5ac5758
-  - C3: (this docs commit)
+  - C3: ec6a086
 - Evidence:
   - `pytest -q tests/unit/test_compaction_planner.py tests/contract/test_compaction_contract.py tests/integration/test_compaction_runtime_integration.py tests/unit/test_session_entries.py tests/contract/test_session_serializers_contract.py`: `10 passed in 0.12s`
   - 审计回放验证: `tests/integration/test_compaction_runtime_integration.py` 断言重建结果为 `system(summary) + kept_recent_messages`
@@ -642,3 +642,22 @@ Exit Criteria:
   - 提供 manual compact 路径
   - 摘要模型可配置为与主模型不同
   - `pytest -q` 全绿
+- Tests Plan:
+  - unit: `tests/unit/test_agent_runtime.py`（回归）
+  - contract: `tests/contract/test_compaction_contract.py`
+  - integration: `tests/integration/test_compaction_runtime_integration.py`
+  - e2e: `tests/e2e/test_compaction_overflow_recovery_e2e.py`
+- Commit Plan:
+  - C1: `test(R10.2): ...（先红）`
+  - C2: `feat(R10.2): ...（全绿）`
+  - C3: `docs(R10.2): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: 41fd8bf
+  - C2: e223a5b
+  - C3: (this docs commit)
+- Evidence:
+  - `pytest -q tests/contract/test_compaction_contract.py tests/integration/test_compaction_runtime_integration.py tests/e2e/test_compaction_overflow_recovery_e2e.py`: `9 passed in 0.42s`
+  - `pytest -q`: `116 passed in 5.26s`
+  - threshold 证据: `test_threshold_preflight_compacts_and_rebuilds_context` 断言 `reason=threshold` 且上下文含 `compaction summary`
+  - overflow 证据: `test_overflow_post_turn_check_compacts_then_retries` 与 e2e 断言 `reason=overflow` 并重试成功
+  - manual 证据: `test_manual_compaction_writes_auditable_entry_and_replays_from_anchor` 断言 manual compact 可审计回放

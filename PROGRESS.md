@@ -248,6 +248,21 @@
   - `pytest -q tests/unit/test_compaction_planner.py tests/contract/test_compaction_contract.py tests/integration/test_compaction_runtime_integration.py tests/unit/test_session_entries.py tests/contract/test_session_serializers_contract.py` -> `10 passed in 0.12s`
   - 审计锚点验证 -> `tests/integration/test_compaction_runtime_integration.py` 断言 `CompactionEntry.first_kept_event_id` 可用于回放重建
 - Commits: C1 | C2 | C3
-  - `d7950f0` | `5ac5758` | `(this docs commit)`
+  - `d7950f0` | `5ac5758` | `ec6a086`
 - Next:
   - R10.2 Red：补 runtime threshold/overflow/manual 路径红测并接线 compaction 重试链路
+
+## 2026-02-27 10:52:30 +0800
+- Done:
+  - 完成 R10.2：`AgentRuntime` 接入 compaction preflight、overflow 补救压缩重试与 `compact(session_id)` manual 路径
+  - preflight 触发时机调整为“当前 user 事件落盘后、LLM 调用前”，并在构建 prompt 前移除当前 user 避免重复
+  - 支持摘要模型与主模型解耦（`CompactionSettings.summary_model`）
+  - 覆盖并通过 threshold/overflow/manual 三条路径测试，补齐 M10 闭环
+- Evidence:
+  - `pytest -q tests/contract/test_compaction_contract.py tests/integration/test_compaction_runtime_integration.py tests/e2e/test_compaction_overflow_recovery_e2e.py` -> `9 passed`
+  - `pytest -q` -> `116 passed in 5.26s`
+  - first_kept_event_id 证据 -> manual/integration 用例断言 `CompactionEntry.first_kept_event_id` 与回放锚点一致
+- Commits: C1 | C2 | C3
+  - `41fd8bf` | `e223a5b` | `(this docs commit)`
+- Next:
+  - M10 已完成；等待下一 Milestone 指令

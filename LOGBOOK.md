@@ -455,4 +455,30 @@
 - Rollback:
   - 可回退到 `d7950f0`（R10.1 红测提交）重放 Green。
 - Commits:
-  - C1=`d7950f0`, C2=`5ac5758`, C3=`(this docs commit)`
+  - C1=`d7950f0`, C2=`5ac5758`, C3=`ec6a086`
+
+## 2026-02-27 10:52:30 +0800 - R10.2 完成记录（runtime preflight + overflow 重试 + manual）
+- Context:
+  - R10.2 目标是 runtime 接线 compaction 三路径，不进入 M11 task / M12 SSE。
+  - 红测暴露 threshold 场景未触发压缩，根因是 preflight 时机过早（当前 user 未入事件流）。
+- Decision:
+  - 在 `AgentRuntime.run` 中将 preflight 调整为：user 事件落盘后、LLM 调用前执行。
+  - preflight 后通过 `_history_without_message` 去掉当前 user，保证 prompt 结构为 `system + compaction_summary + kept_recent_messages + current_user`。
+  - 新增 overflow 检测与 post-turn 补救压缩：模型返回 context overflow 时先 compact，再自动重试一次。
+  - 暴露 `AgentRuntime.compact(session_id)` manual 路径，复用 planner/summarizer/applier。
+- Rationale:
+  - preflight 看见真实“当前轮输入”才能稳定触发 threshold，且可保留 `first_kept_event_id` 审计锚点。
+  - overflow 恢复逻辑收敛在 runtime，避免 server/route 层感知模型错误细节。
+- Changed Files Summary:
+  - `src/nano_multiagent/agent/runtime.py`
+  - `src/nano_multiagent/agent/compaction/planner.py`
+  - `tests/contract/test_compaction_contract.py`
+  - `tests/integration/test_compaction_runtime_integration.py`
+  - `tests/e2e/test_compaction_overflow_recovery_e2e.py`
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - token 估算目前为最小启发式（字符近似），后续若接 provider tokenizer 可进一步提升 threshold 触发精度。
+- Rollback:
+  - 可回退到 `41fd8bf`（R10.2 红测提交）重放 Green。
+- Commits:
+  - C1=`41fd8bf`, C2=`e223a5b`, C3=`(this docs commit)`
