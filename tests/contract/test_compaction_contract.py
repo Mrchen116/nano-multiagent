@@ -5,6 +5,7 @@ from nano_multiagent.agent.compaction.types import (
     CompactionResult,
     CompactionSettings,
 )
+from nano_multiagent.agent.runtime import AgentRuntime
 
 
 def test_compaction_reason_values_contract() -> None:
@@ -30,3 +31,7 @@ def test_compaction_result_fields_contract() -> None:
         "dropped_event_ids",
         "kept_event_ids",
     ]
+
+
+def test_runtime_exposes_manual_compact_api_contract() -> None:
+    assert callable(getattr(AgentRuntime, "compact", None))
