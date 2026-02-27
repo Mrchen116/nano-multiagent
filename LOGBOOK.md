@@ -333,4 +333,28 @@
 - Rollback:
   - 可回退到 `aeab958`（R6.1 红测提交）重放 Green。
 - Commits:
-  - C1=`aeab958`, C2=`303d616`, C3=`本次文档提交`
+  - C1=`aeab958`, C2=`303d616`, C3=`98cd165`
+
+## 2026-02-27 08:01:53 +0800 - R7.1 完成记录（hooks observe/intercept + 双源加载）
+- Context:
+  - M7 范围限定在 hooks 子系统核心模块，不进入 M8 runtime/tools 深度接线与 M13 Hook 查询接口。
+  - 本次改动覆盖新增 `hooks/*` 与四类测试，涉及文件数超过 5。
+- Decision:
+  - 使用单 Roadpoint（R7.1）完成 `types/context/registry/loader/runner` 最小闭环，保持与 `tools` 子系统一致的加载与注册风格。
+  - `HookRunner` 按事件类型分 observe/intercept：observe 执行全部 handler；intercept 支持输入变换、工具阻断与结果改写。
+  - loader 固定加载顺序为 `builtins -> workspace`，并在同优先级下保持注册顺序，从而确保 workspace 可后置覆盖。
+- Rationale:
+  - 先冻结 M7 的调度语义与契约，再在 M8 把 hook 点接入 runtime/tools，可显著降低回归面。
+  - fail-open（异常/超时隔离）是稳定性底线，先由 runner 统一保证，避免上层重复兜底。
+- Changed Files Summary:
+  - `src/nano_multiagent/hooks/{__init__.py,types.py,context.py,registry.py,loader.py,runner.py}`
+  - `src/nano_multiagent/hooks/builtins/__init__.py`
+  - `tests/{unit,contract,integration,e2e}` 中新增 4 个 hooks 测试文件
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前仅实现 Hook 子系统本体，尚未在 `agent.runtime`、`agent.loop`、`tools.registry` 落实际触发点（明确属于 M8）。
+  - loader 为启动期加载；运行期新增/修改/删除 Hook 仍需重启生效。
+- Rollback:
+  - 可回退到 `6d84dc9`（R7.1 红测提交）重放 Green。
+- Commits:
+  - C1=`6d84dc9`, C2=`2da3a90`, C3=`本次文档提交`

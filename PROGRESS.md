@@ -175,6 +175,22 @@
   - `pytest -q` -> `78 passed in 5.01s`
   - `/v1/tools` 入口验证 -> `tests/e2e/test_tools_list_e2e.py` 断言返回内置 `read/write/edit/bash` + 目录工具 `reverse`
 - Commits: C1 | C2 | C3
-  - `aeab958` | `303d616` | `本次文档提交`
+  - `aeab958` | `303d616` | `98cd165`
 - Next:
   - 按用户当前要求，先回报 R6.1 C1/C2/C3 与证据，不进入后续 Roadpoint
+
+## 2026-02-27 08:01:53 +0800
+- Done:
+  - 完成 R7.1：实现 `hooks/types/context/registry/loader/runner` 与 `hooks/builtins` 包
+  - 支持 observe/intercept 调度语义、优先级排序、同优先级注册顺序、超时与异常隔离 fail-open
+  - 支持双源目录加载（内置 + 工作目录）与模块约定 `setup(hooks)` / `hooks.on(...)`
+  - 实现最小拦截契约：`input transform/handled`、`tool_call block`、`tool_result rewrite`
+  - 回填历史占位：`R6.1 C3=98cd165`
+- Evidence:
+  - `pytest -q tests/unit/test_hooks_runner.py tests/contract/test_hooks_contract.py tests/integration/test_hooks_loader_integration.py tests/e2e/test_hooks_pipeline_e2e.py` -> `7 passed in 0.04s`
+  - `pytest -q` -> `85 passed in 5.55s`
+  - 双源顺序验证 -> `tests/integration/test_hooks_loader_integration.py` 断言执行顺序 `builtin-a -> builtin-b -> workspace`
+- Commits: C1 | C2 | C3
+  - `6d84dc9` | `2da3a90` | `本次文档提交`
+- Next:
+  - M7 完成；等待 M8（runtime/tools Hook 接线）指令

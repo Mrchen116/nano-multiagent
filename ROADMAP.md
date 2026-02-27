@@ -381,7 +381,7 @@ Exit Criteria:
   - 调用链验证: `tests/integration/test_message_sync_runtime_wiring.py` 断言 `POST /messages` 后 sqlite 出现 user/assistant 两条 `session.turn.appended`
   - 错误与 trace 验证: `tests/contract/test_message_sync_contract.py::test_sync_message_not_found_uses_unified_error_with_trace_id` 断言 `error.trace_id=req-message-missing` 且响应头 `x-request-id=req-message-missing`
 
-## Milestone M6（进行中）: tools 子系统与安全护栏（不含 task）
+## Milestone M6（已完成）: tools 子系统与安全护栏（不含 task）
 Goal:
 - 实现 tools 基础层：`tools/base.py`、`tools/registry.py`、`tools/loader.py`、`tools/safety.py`
 - 实现内置工具：`read/write/edit/bash`，并支持 `<repo_root>/.nano/tools` 启动扫描加载
@@ -416,8 +416,50 @@ Exit Criteria:
 - Commits:
   - C1: aeab958
   - C2: 303d616
-  - C3: 本次文档提交
+  - C3: 98cd165
 - Evidence:
   - `pytest -q tests/unit/test_tools_builtins.py tests/integration/test_tools_registry_loader_integration.py tests/contract/test_tools_contract.py tests/e2e/test_tools_list_e2e.py`: `14 passed in 1.31s`
   - `pytest -q`: `78 passed in 5.01s`
   - 目录加载验证: `tests/e2e/test_tools_list_e2e.py` 断言 `/v1/tools` 返回 `read/write/edit/bash/reverse`
+
+## Milestone M7（已完成）: hooks 子系统（observe + intercept）
+Goal:
+- 实现 hooks 核心模块：`hooks/types.py`、`hooks/context.py`、`hooks/registry.py`、`hooks/loader.py`、`hooks/runner.py`
+- 落地 observe/intercept 两类执行语义：优先级、同优先级顺序、超时、异常隔离（fail-open）
+- 支持双源目录加载：`src/nano_multiagent/hooks/builtins/` + `<repo_root>/.nano/hooks/`
+- 支持模块约定 `setup(hooks)` 与 `hooks.on(...)`
+- 实现最小拦截契约：`input transform/handled`、`tool_call block`、`tool_result rewrite`
+Exit Criteria:
+- 四类测试（unit/contract/integration/e2e）覆盖 M7 关键行为并通过
+- `pytest -q` 全绿
+- 不进入 M8 runtime/tools 深度接线，不实现 M13 Hook HTTP 查询接口
+
+### Roadpoint R7.1: hooks 基础层、双源加载与拦截契约最小闭环
+- Public Surface:
+  - `nano_multiagent.hooks.{types,context,registry,loader,runner}`
+  - `nano_multiagent.hooks.builtins`
+- Acceptance:
+  - `HookRegistry` 支持 `hooks.on(...)`，按 `priority` 升序 + 注册顺序执行
+  - `HookRunner` 支持 observe/intercept 分发，失败与超时均异常隔离（fail-open）
+  - `input` 支持 transform/handled，`tool_call` 支持 block，`tool_result` 支持 rewrite 合并
+  - loader 启动时按 “builtins -> workspace” 双源扫描并调用模块 `setup(hooks)`
+  - 同优先级下工作目录 hooks 后执行，可覆盖内置行为
+  - 闭包共享状态可在单模块跨事件保持，并按 `session_id` 做隔离
+- Tests Plan:
+  - unit: `tests/unit/test_hooks_runner.py`
+  - contract: `tests/contract/test_hooks_contract.py`
+  - integration: `tests/integration/test_hooks_loader_integration.py`
+  - e2e: `tests/e2e/test_hooks_pipeline_e2e.py`
+- Commit Plan:
+  - C1: `test(R7.1): ...（先红）`
+  - C2: `feat(R7.1): ...（全绿）`
+  - C3: `docs(R7.1): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: 6d84dc9
+  - C2: 2da3a90
+  - C3: 本次文档提交
+- Evidence:
+  - `pytest -q tests/unit/test_hooks_runner.py tests/contract/test_hooks_contract.py tests/integration/test_hooks_loader_integration.py tests/e2e/test_hooks_pipeline_e2e.py`: `7 passed in 0.04s`
+  - `pytest -q`: `85 passed in 5.55s`
+  - 双源加载顺序验证: `tests/integration/test_hooks_loader_integration.py` 断言同优先级执行顺序为 `builtin-a -> builtin-b -> workspace`
+  - 会话隔离闭包验证: `tests/e2e/test_hooks_pipeline_e2e.py` 断言 `s1` 计数递增、`s2` 从 1 独立起算
