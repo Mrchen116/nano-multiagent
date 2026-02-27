@@ -1,15 +1,25 @@
 from typing import Any
 
+from collections.abc import Iterator
+
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.runs.registry import RunsRegistry
+from nano_multiagent.server.sse import EventStreamHub, StreamEvent, encode_sse_event
 from nano_multiagent.session.models import Session
 from nano_multiagent.session.service import SessionService
 
 from ..auth import require_bearer_auth
-from ..deps import APIError, get_agent_runtime, get_runs_registry, get_session_service
+from ..deps import (
+    APIError,
+    get_agent_runtime,
+    get_event_stream_hub,
+    get_runs_registry,
+    get_session_service,
+)
 
 router = APIRouter(
     prefix="/v1/sessions",
@@ -176,6 +186,33 @@ def send_message_async(
     )
 
 
+@router.get("/{session_id}/events")
+def stream_session_events(
+    session_id: str,
+    max_events: int = Query(default=20, ge=1, le=200),
+    timeout_seconds: float = Query(default=0.25, ge=0.0, le=5.0),
+    session_service: SessionService = Depends(get_session_service),
+    event_hub: EventStreamHub = Depends(get_event_stream_hub),
+) -> StreamingResponse:
+    if session_service.get_session(session_id) is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message=f"session does not exist: {session_id}",
+            retryable=False,
+        )
+    return StreamingResponse(
+        _iter_sse(
+            event_hub.stream(
+                session_id=session_id,
+                max_events=max_events,
+                timeout_seconds=timeout_seconds,
+            )
+        ),
+        media_type="text/event-stream",
+    )
+
+
 def _to_session_response(session: Session) -> SessionResponse:
     return SessionResponse(
         session_id=session.session_id,
@@ -209,3 +246,8 @@ def _select_assistant_message(messages: tuple[Message, ...]) -> Message:
         message="runtime did not return assistant message",
         retryable=False,
     )
+
+
+def _iter_sse(events: Iterator[StreamEvent]) -> Iterator[str]:
+    for item in events:
+        yield encode_sse_event(event_id=item.event_id, event=item.event, data=item.data)

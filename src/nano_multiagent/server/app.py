@@ -10,12 +10,14 @@ from nano_multiagent import __version__
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.core.ids import make_event_id
 from nano_multiagent.runs.registry import RunsRegistry
+from nano_multiagent.server.sse import EventStreamHub
 from nano_multiagent.session.service import SessionService
 from nano_multiagent.session.stores.base import SessionStore
 from nano_multiagent.tools.loader import build_tool_registry
 from nano_multiagent.tools.registry import ToolRegistry
 
 from .deps import APIError, get_trace_id
+from .routes.event import router as event_router
 from .routes.global_routes import router as global_router
 from .routes.run import router as run_router
 from .routes.session import router as session_router
@@ -35,9 +37,11 @@ def create_app(
     app.state.session_service = session_service
     active_runtime = runtime or AgentRuntime(session_manager=session_service.manager)
     app.state.agent_runtime = active_runtime
+    app.state.event_stream_hub = EventStreamHub()
     app.state.runs_registry = RunsRegistry(
         runtime=active_runtime,
         session_manager=session_service.manager,
+        event_hub=app.state.event_stream_hub,
     )
     resolved_repo_root = (
         repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
@@ -103,6 +107,7 @@ def create_app(
         )
 
     app.include_router(global_router)
+    app.include_router(event_router)
     app.include_router(session_router)
     app.include_router(run_router)
     app.include_router(tool_router)

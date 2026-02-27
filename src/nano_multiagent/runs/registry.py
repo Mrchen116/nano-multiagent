@@ -9,6 +9,7 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from nano_multiagent.core.ids import make_run_id
 from nano_multiagent.core.types import TurnResult
+from nano_multiagent.server.sse import EventStreamHub
 from nano_multiagent.session.manager import SessionManager
 
 
@@ -43,10 +44,12 @@ class RunsRegistry:
         *,
         runtime: RuntimeRunner,
         session_manager: SessionManager,
+        event_hub: EventStreamHub | None = None,
         max_workers: int = 4,
     ) -> None:
         self._runtime = runtime
         self._session_manager = session_manager
+        self._event_hub = event_hub
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="nano-runs")
         self._lock = Lock()
         self._runs: dict[str, RunRecord] = {}
@@ -106,7 +109,11 @@ class RunsRegistry:
         session_id: str,
         parts: Sequence[Mapping[str, Any]],
     ) -> None:
-        started = self._transition(run_id, status=RunStatus.RUNNING)
+        started = self._set_status(
+            run_id,
+            status=RunStatus.RUNNING,
+            only_if={RunStatus.QUEUED},
+        )
         if started is None or started.status is not RunStatus.RUNNING:
             return
 
@@ -116,23 +123,6 @@ class RunsRegistry:
             self._mark_failed(run_id, message=str(exc))
             return
         self._mark_completed(run_id, turn_result=result)
-
-    def _transition(
-        self,
-        run_id: str,
-        *,
-        status: RunStatus,
-        turn_id: str | None = None,
-        stop_reason: str | None = None,
-        error: Mapping[str, Any] | None = None,
-    ) -> RunRecord | None:
-        return self._set_status(
-            run_id,
-            status=status,
-            turn_id=turn_id,
-            stop_reason=stop_reason,
-            error=error,
-        )
 
     def _set_status(
         self,
@@ -163,7 +153,7 @@ class RunsRegistry:
         return updated
 
     def _mark_completed(self, run_id: str, *, turn_result: TurnResult) -> RunRecord | None:
-        return self._set_status(
+        updated = self._set_status(
             run_id,
             status=RunStatus.COMPLETED,
             turn_id=turn_result.turn_id,
@@ -171,6 +161,9 @@ class RunsRegistry:
             error=None,
             only_if={RunStatus.RUNNING},
         )
+        if updated is not None and updated.status is RunStatus.COMPLETED:
+            self._emit_turn_events(record=updated, turn_result=turn_result)
+        return updated
 
     def _mark_failed(self, run_id: str, *, message: str) -> RunRecord | None:
         return self._set_status(
@@ -188,6 +181,82 @@ class RunsRegistry:
             turn_id=record.turn_id,
             stop_reason=record.stop_reason,
             error=record.error,
+        )
+        if self._event_hub is None:
+            return
+        payload: dict[str, Any] = {
+            "event": "run_status",
+            "run_id": record.run_id,
+            "status": record.status.value,
+            "created_at": record.updated_at,
+        }
+        if record.turn_id is not None:
+            payload["turn_id"] = record.turn_id
+        if record.stop_reason is not None:
+            payload["stop_reason"] = record.stop_reason
+        if record.error is not None:
+            payload["error"] = dict(record.error)
+        self._event_hub.publish(
+            event="run_status",
+            session_id=record.session_id,
+            data=payload,
+        )
+
+    def _emit_turn_events(self, *, record: RunRecord, turn_result: TurnResult) -> None:
+        if self._event_hub is None:
+            return
+
+        for tool_call in turn_result.tool_calls:
+            self._event_hub.publish(
+                event="tool_start",
+                session_id=record.session_id,
+                data={
+                    "event": "tool_start",
+                    "run_id": record.run_id,
+                    "turn_id": turn_result.turn_id,
+                    "call_id": tool_call.call_id,
+                    "name": tool_call.name,
+                    "arguments": dict(tool_call.arguments),
+                },
+            )
+        for tool_result in turn_result.tool_results:
+            self._event_hub.publish(
+                event="tool_end",
+                session_id=record.session_id,
+                data={
+                    "event": "tool_end",
+                    "run_id": record.run_id,
+                    "turn_id": turn_result.turn_id,
+                    "call_id": tool_result.call_id,
+                    "name": tool_result.name,
+                    "output": tool_result.output,
+                    "error": tool_result.error,
+                },
+            )
+        for message in turn_result.messages:
+            if message.role != "assistant":
+                continue
+            self._event_hub.publish(
+                event="text_delta",
+                session_id=record.session_id,
+                data={
+                    "event": "text_delta",
+                    "run_id": record.run_id,
+                    "turn_id": turn_result.turn_id,
+                    "message_id": message.message_id,
+                    "delta": message.content,
+                },
+            )
+        self._event_hub.publish(
+            event="turn_end",
+            session_id=record.session_id,
+            data={
+                "event": "turn_end",
+                "run_id": record.run_id,
+                "turn_id": turn_result.turn_id,
+                "completed": turn_result.completed,
+                "stop_reason": turn_result.stop_reason,
+            },
         )
 
 

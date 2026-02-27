@@ -2,6 +2,7 @@ from fastapi import Request
 
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.runs.registry import RunsRegistry
+from nano_multiagent.server.sse import EventStreamHub
 from nano_multiagent.session.service import SessionService
 from nano_multiagent.tools.registry import ToolRegistry
 
@@ -36,6 +37,10 @@ def get_tool_registry(request: Request) -> ToolRegistry:
 
 def get_runs_registry(request: Request) -> RunsRegistry:
     return request.app.state.runs_registry  # type: ignore[no-any-return]
+
+
+def get_event_stream_hub(request: Request) -> EventStreamHub:
+    return request.app.state.event_stream_hub  # type: ignore[no-any-return]
 
 
 def get_trace_id(request: Request) -> str:
