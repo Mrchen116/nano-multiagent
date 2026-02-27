@@ -9,6 +9,7 @@ from .entries import (
     CompactionEntry,
     SessionEntry,
     SessionEntryKind,
+    new_compaction_entry,
     new_session_created_entry,
     new_turn_appended_entry,
 )
@@ -74,20 +75,71 @@ class SessionManager:
         self._store.append_event(session_id, entry)
         return entry
 
+    def append_compaction(
+        self,
+        session_id: str,
+        *,
+        first_kept_event_id: str,
+        summary: str,
+        data: Mapping[str, Any] | None = None,
+    ) -> CompactionEntry:
+        if self.get_session(session_id) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        entry = new_compaction_entry(
+            session_id=session_id,
+            first_kept_event_id=first_kept_event_id,
+            summary=summary,
+            data=data,
+        )
+        self._store.append_event(session_id, entry)
+        return entry
+
+    def list_entries(self, session_id: str) -> tuple[SessionEntry | CompactionEntry, ...]:
+        loaded = self._store.load_session(session_id)
+        if loaded is None:
+            return ()
+        return tuple(loaded.events)
+
     def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
         loaded = self._store.load_session(session_id)
         if loaded is None:
             return ()
 
+        latest_compaction: CompactionEntry | None = None
+        for entry in loaded.events:
+            if isinstance(entry, CompactionEntry):
+                latest_compaction = entry
+
         messages: list[Message] = []
+        collecting_kept_messages = latest_compaction is None
         for entry in loaded.events:
             if isinstance(entry, CompactionEntry):
                 continue
             if entry.kind is not SessionEntryKind.TURN_APPENDED:
                 continue
+            if (
+                latest_compaction is not None
+                and not collecting_kept_messages
+                and entry.entry_id == latest_compaction.first_kept_event_id
+            ):
+                collecting_kept_messages = True
+            if not collecting_kept_messages:
+                continue
             message = self._message_from_turn_event(entry)
             if message is not None:
                 messages.append(message)
+
+        if latest_compaction is not None:
+            summary_message = Message(
+                message_id=f"{latest_compaction.entry_id}:summary",
+                role="system",
+                content=latest_compaction.summary,
+                metadata={
+                    "compaction_entry_id": latest_compaction.entry_id,
+                    "first_kept_event_id": latest_compaction.first_kept_event_id,
+                },
+            )
+            messages.insert(0, summary_message)
         return tuple(messages)
 
     def list_sessions(self, *, limit: int, offset: int) -> tuple[tuple[Session, ...], bool]:
