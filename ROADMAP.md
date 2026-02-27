@@ -168,11 +168,13 @@
   - C2: `feat(R11.1): 接入task工具最小链路（全绿）`
   - C3: `docs(R11.1): 记录task契约证据与下一步（记录hash/证据/下一步）`
 - Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
+  - C1: `f7d3f71`
+  - C2: `d0e4160`
+  - C3: `(this docs commit)`
 - Evidence:
-  - Pending（下一步即执行 R11.1 Red）
+  - 红测（C1）: `pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/e2e/test_task_tool_blocking_e2e.py` -> `4 failed`
+  - 转绿（C2）: 同命令 -> `4 passed in 0.39s`
+  - 入口约束: `test_task_tool_contract_is_exposed_by_tools_endpoint` 与 `test_tools_listing_contains_task_without_task_http_endpoint` 断言 `task` 仅经 ToolRegistry 暴露，无 `/v1/tasks` HTTP 入口
 
 ### Roadpoint R11.2: blocking 模式最小闭环
 - Public Surface:

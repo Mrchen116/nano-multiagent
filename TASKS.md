@@ -1,6 +1,6 @@
 # TASKS (Current Milestone: M11)
 
-## [TODO] R11.1 task 契约冻结与 Red 基线
+## [DONE] R11.1 task 契约冻结与 Red 基线
 - Steps:
   - 新增 `task` 工具四类失败测试，先固定 schema 与错误契约缺口（Red）。
   - 明确 `X-Session-Id` 透传约束与 `task.session_id` 语义边界的 contract 断言。
@@ -11,9 +11,9 @@
   - `tests/integration/test_task_runtime_wiring_integration.py`
   - `tests/e2e/test_task_tool_blocking_e2e.py`
 - DoD:
-  - 红测失败与预期缺口一致，失败原因可复现
-  - C1/C2/C3 三次提交链规划完备并可执行
-  - 四文档同步记录下一步 `R11.1 Green`
+  - 红测失败与预期缺口一致，失败原因可复现（`4 failed`）
+  - C1/C2/C3 三次提交链完成：`f7d3f71` / `d0e4160` / `(this docs commit)`
+  - 四文档已写入 R11.1 hash 与证据；下一步 `R11.2 Red`
 
 ## [TODO] R11.2 task blocking 模式最小闭环
 - Steps:

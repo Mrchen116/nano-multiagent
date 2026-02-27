@@ -278,3 +278,15 @@
   - 本次仅文档变更，未触发任何 `src/` 或 `tests/` 代码修改。
 - Next:
   - M11 R11.1 Red：先写 `task` 工具契约与失败测试。
+
+## 2026-02-27 09:16:51 +0800
+- Done:
+  - 完成 R11.1：新增 `task` 内置工具与 schema，接入 `/v1/tools` 可见性（仅 ToolRegistry 暴露，无新 HTTP 入口）。
+  - 固化 R11.1 四类测试基线（unit/contract/integration/e2e）并完成红转绿闭环。
+- Evidence:
+  - `pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/e2e/test_task_tool_blocking_e2e.py` 红测 -> `4 failed`
+  - 同命令转绿 -> `4 passed in 0.39s`
+- Commits: C1 | C2 | C3
+  - `f7d3f71` | `d0e4160` | `(this docs commit)`
+- Next:
+  - R11.2 Red：补 `task(mode=blocking)` 失败用例（结果结构、错误结构、超时路径）。

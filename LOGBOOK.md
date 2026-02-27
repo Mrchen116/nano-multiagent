@@ -503,3 +503,24 @@
   - M11 Roadpoint 目前仅为计划态；若直接进入 Green/实现将违反“先 Red”约束。
 - Next:
   - 进入 `M11 R11.1 Red`（仅新增失败测试，不做实现）。
+
+## 2026-02-27 09:16:51 +0800 - R11.1 完成记录（task 契约冻结与最小接线）
+- Context:
+  - R11.1 目标限定在 `task` 契约冻结与最小接线，不提前实现 blocking/non_blocking 行为细节。
+  - 本次引入新的工具公开面（`task`），需要在 contract/e2e 固定“仅 ToolRegistry 暴露”边界。
+- Decision:
+  - 新增 `src/nano_multiagent/tools/builtins/task.py`，冻结 `mode/prompt/session_id/category/subagent_type/idempotency_key/timeout_seconds` schema。
+  - 在 `tools/builtins/__init__.py` 注册 `TaskTool`，让 `/v1/tools` 自动可见 `task`。
+  - 保持 `task` 行为为占位返回，blocking/non_blocking 执行语义放入 R11.2/R11.3。
+- Rationale:
+  - 先固定契约面与暴露边界，再增量落执行语义，能减少后续测试与实现联动风险。
+- Changed Files Summary:
+  - `src/nano_multiagent/tools/builtins/{task.py,__init__.py}`
+  - `tests/{unit,contract,integration,e2e}` 新增 4 个 R11.1 测试文件
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前 `task` 仅占位返回，尚不具备 subagent 调度能力；R11.2 将实现 blocking 最小闭环。
+- Rollback:
+  - 可回退到 `f7d3f71`（R11.1 红测提交）重放 Green。
+- Commits:
+  - C1=`f7d3f71`, C2=`d0e4160`, C3=`(this docs commit)`
