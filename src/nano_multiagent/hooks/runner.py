@@ -29,6 +29,10 @@ class HookRunner:
     def __init__(self, *, registry: HookRegistry) -> None:
         self._registry = registry
 
+    @property
+    def registry(self) -> HookRegistry:
+        return self._registry
+
     async def dispatch_observe(
         self,
         event: str,

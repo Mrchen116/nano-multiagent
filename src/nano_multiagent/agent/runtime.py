@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.ids import make_message_id, make_turn_id
@@ -24,6 +24,9 @@ from .loop import AgentLoop
 from .policies import AgentPolicies
 from .skill_commands import rewrite_skill_command
 from .state import AgentState, InputPart, parse_input_parts, render_user_text
+
+if TYPE_CHECKING:
+    from nano_multiagent.hooks.registry import HookRegistry
 
 
 class AgentRuntime:
@@ -220,6 +223,16 @@ class AgentRuntime:
 
     def get_session(self, session_id: str) -> Session | None:
         return self._session_manager.get_session(session_id)
+
+    @property
+    def hook_runner(self) -> HookRunner | None:
+        return self._hook_runner
+
+    @property
+    def hook_registry(self) -> "HookRegistry | None":
+        if self._hook_runner is None:
+            return None
+        return self._hook_runner.registry
 
     def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
         return self._session_manager.create_session(title=title, metadata=metadata)

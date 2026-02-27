@@ -56,8 +56,8 @@ def _build_client(tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
-def test_hook_events_contract_shape() -> None:
-    client = _build_client(Path.cwd())
+def test_hook_events_contract_shape(tmp_path: Path) -> None:
+    client = _build_client(tmp_path)
 
     response = client.get("/v1/hooks/events", headers=_auth_headers("req-hooks-events-contract"))
 
@@ -72,8 +72,8 @@ def test_hook_events_contract_shape() -> None:
     assert set(first.keys()) == {"event", "mode", "return_contract"}
 
 
-def test_hooks_registry_contract_shape() -> None:
-    client = _build_client(Path.cwd())
+def test_hooks_registry_contract_shape(tmp_path: Path) -> None:
+    client = _build_client(tmp_path)
 
     response = client.get("/v1/hooks", headers=_auth_headers("req-hooks-list-contract"))
 

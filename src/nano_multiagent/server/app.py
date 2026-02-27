@@ -9,6 +9,9 @@ from fastapi.responses import JSONResponse
 from nano_multiagent import __version__
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.core.ids import make_event_id
+from nano_multiagent.hooks.loader import build_hook_registry
+from nano_multiagent.hooks.registry import HookRegistry
+from nano_multiagent.hooks.runner import HookRunner
 from nano_multiagent.runs.registry import RunsRegistry
 from nano_multiagent.server.sse import EventStreamHub
 from nano_multiagent.session.service import SessionService
@@ -19,6 +22,7 @@ from nano_multiagent.tools.registry import ToolRegistry
 from .deps import APIError, get_trace_id
 from .routes.event import router as event_router
 from .routes.global_routes import router as global_router
+from .routes.hook import router as hook_router
 from .routes.run import router as run_router
 from .routes.session import router as session_router
 from .routes.tool import router as tool_router
@@ -29,25 +33,45 @@ def create_app(
     session_store: SessionStore | None = None,
     runtime: AgentRuntime | None = None,
     tool_registry: ToolRegistry | None = None,
+    hook_registry: HookRegistry | None = None,
     repo_root: Path | None = None,
     auth_token: str | None = None,
 ) -> FastAPI:
     app = FastAPI(title="nano-multiagent", version=__version__)
+    resolved_repo_root = (
+        repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
+    ).expanduser().resolve()
     session_service = SessionService(store=session_store)
     app.state.session_service = session_service
-    active_runtime = runtime or AgentRuntime(session_manager=session_service.manager)
+    if runtime is None:
+        active_hook_registry = hook_registry or build_hook_registry(repo_root=resolved_repo_root)
+        active_hook_runner = HookRunner(registry=active_hook_registry)
+        active_runtime = AgentRuntime(
+            session_manager=session_service.manager,
+            hook_runner=active_hook_runner,
+            repo_root=resolved_repo_root,
+        )
+    else:
+        active_runtime = runtime
+        runtime_hook_registry = getattr(active_runtime, "hook_registry", None)
+        runtime_hook_runner = getattr(active_runtime, "hook_runner", None)
+        active_hook_registry = hook_registry or runtime_hook_registry or build_hook_registry(
+            repo_root=resolved_repo_root
+        )
+        active_hook_runner = runtime_hook_runner or HookRunner(registry=active_hook_registry)
+
     app.state.agent_runtime = active_runtime
+    app.state.hook_registry = active_hook_registry
+    app.state.hook_runner = active_hook_runner
     app.state.event_stream_hub = EventStreamHub()
     app.state.runs_registry = RunsRegistry(
         runtime=active_runtime,
         session_manager=session_service.manager,
         event_hub=app.state.event_stream_hub,
     )
-    resolved_repo_root = (
-        repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
-    ).expanduser().resolve()
     app.state.tool_registry = tool_registry or build_tool_registry(
         repo_root=resolved_repo_root,
+        hook_runner=active_hook_runner,
         runtime=active_runtime,
     )
     app.state.auth_token = auth_token if auth_token is not None else os.getenv("NANO_MULTIAGENT_API_TOKEN")
@@ -108,6 +132,7 @@ def create_app(
 
     app.include_router(global_router)
     app.include_router(event_router)
+    app.include_router(hook_router)
     app.include_router(session_router)
     app.include_router(run_router)
     app.include_router(tool_router)
