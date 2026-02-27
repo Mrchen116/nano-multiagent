@@ -64,6 +64,7 @@ class ToolRegistry:
             repo_root=self._context.repo_root,
             metadata={"cwd": str(self._context.cwd)},
         )
+        execution_context = self._context.with_session(active_hook_context.session_id)
 
         tool_call_payload, _ = self._dispatch_intercept(
             "tool_call",
@@ -90,7 +91,7 @@ class ToolRegistry:
         execution_error: ToolError | None = None
         raw_result: Mapping[str, Any] | Any | None = None
         try:
-            raw_result = tool.run(normalized_args, self._context)
+            raw_result = tool.run(normalized_args, execution_context)
         except ToolError as exc:
             execution_error = exc
         except Exception as exc:

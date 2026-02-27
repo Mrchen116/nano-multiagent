@@ -31,11 +31,15 @@ def create_app(
     app = FastAPI(title="nano-multiagent", version=__version__)
     session_service = SessionService(store=session_store)
     app.state.session_service = session_service
-    app.state.agent_runtime = runtime or AgentRuntime(session_manager=session_service.manager)
+    active_runtime = runtime or AgentRuntime(session_manager=session_service.manager)
+    app.state.agent_runtime = active_runtime
     resolved_repo_root = (
         repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
     ).expanduser().resolve()
-    app.state.tool_registry = tool_registry or build_tool_registry(repo_root=resolved_repo_root)
+    app.state.tool_registry = tool_registry or build_tool_registry(
+        repo_root=resolved_repo_root,
+        runtime=active_runtime,
+    )
     app.state.auth_token = auth_token if auth_token is not None else os.getenv("NANO_MULTIAGENT_API_TOKEN")
 
     @app.middleware("http")

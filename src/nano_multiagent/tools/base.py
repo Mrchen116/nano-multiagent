@@ -20,6 +20,7 @@ class ToolContext:
     repo_root: Path
     cwd: Path
     safety: ToolSafety
+    session_id: str | None = None
 
     @classmethod
     def create(
@@ -33,3 +34,11 @@ class ToolContext:
         resolved_cwd = (cwd or resolved_root).expanduser().resolve()
         safety = ToolSafety(repo_root=resolved_root, config=safety_config or ToolSafetyConfig())
         return cls(repo_root=resolved_root, cwd=resolved_cwd, safety=safety)
+
+    def with_session(self, session_id: str | None) -> "ToolContext":
+        return ToolContext(
+            repo_root=self.repo_root,
+            cwd=self.cwd,
+            safety=self.safety,
+            session_id=session_id,
+        )
