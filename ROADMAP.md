@@ -569,7 +569,7 @@
 - Commits:
   - C1: `8971be5`
   - C2: `d43937c`
-  - C3: `<本次hash>`
+  - C3: `e4dd19f`
 - Evidence:
   - 红测（C1）: `pytest -q tests/integration/test_compaction_runtime_integration.py -k session_compact` -> `1 failed, 4 deselected`
   - 转绿（C2）: `pytest -q tests/integration/test_compaction_runtime_integration.py -k session_compact` -> `1 passed, 4 deselected`

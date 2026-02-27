@@ -835,4 +835,4 @@
 - Rationale:
   - 按单事件逐步收口可保持证据链清晰，减少跨 Roadpoint 混改风险。
 - Commits:
-  - C1=`8971be5`, C2=`d43937c`, C3=`<本次hash>`
+  - C1=`8971be5`, C2=`d43937c`, C3=`e4dd19f`
