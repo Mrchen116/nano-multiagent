@@ -2,6 +2,8 @@ import time
 from pathlib import Path
 
 from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.hooks.registry import HookRegistry
+from nano_multiagent.hooks.runner import HookRunner
 from nano_multiagent.runs.registry import RunStatus, RunsRegistry
 from nano_multiagent.session.manager import SessionManager
 from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
@@ -83,3 +85,44 @@ def test_runs_registry_marks_failed_when_runtime_raises(tmp_path: Path) -> None:
     assert failed is not None
     assert failed.error is not None
     assert failed.error["message"] == "runtime boom"
+
+
+def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp_path: Path) -> None:
+    observed_events: list[dict[str, object]] = []
+    hooks = HookRegistry()
+
+    async def on_run_error(event, ctx):
+        del ctx
+        observed_events.append(dict(event))
+
+    hooks.on("run_error", on_run_error)
+
+    store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-run-error-hook.sqlite3")
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+    registry = RunsRegistry(
+        runtime=_RuntimeStub(fail=True),
+        session_manager=manager,
+        hook_runner=HookRunner(registry=hooks),
+    )
+
+    submitted = registry.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": "hello"}],
+    )
+    _wait_for(
+        lambda: registry.get(submitted.run_id) is not None
+        and registry.get(submitted.run_id).status is RunStatus.FAILED
+    )
+
+    failed = registry.get(submitted.run_id)
+    assert failed is not None
+    assert failed.error is not None
+    _wait_for(lambda: len(observed_events) == 1)
+    assert observed_events == [
+        {
+            "session_id": session.session_id,
+            "run_id": submitted.run_id,
+            "error": failed.error,
+        }
+    ]
