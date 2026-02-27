@@ -9,6 +9,8 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from nano_multiagent.core.ids import make_run_id
 from nano_multiagent.core.types import TurnResult
+from nano_multiagent.observability.logger import log_error, log_info
+from nano_multiagent.observability.tracing import bind_correlation, current_trace_id
 from nano_multiagent.server.sse import EventStreamHub
 from nano_multiagent.session.manager import SessionManager
 
@@ -28,6 +30,7 @@ class RunRecord:
     status: RunStatus
     created_at: str
     updated_at: str
+    trace_id: str | None = None
     turn_id: str | None = None
     stop_reason: str | None = None
     error: Mapping[str, Any] | None = None
@@ -59,6 +62,7 @@ class RunsRegistry:
         *,
         session_id: str,
         parts: Sequence[Mapping[str, Any]],
+        trace_id: str | None = None,
     ) -> RunRecord:
         if self._session_manager.get_session(session_id) is None:
             raise ValueError(f"session does not exist: {session_id}")
@@ -67,19 +71,27 @@ class RunsRegistry:
 
         run_id = make_run_id()
         now = _utc_now_iso()
+        resolved_trace_id = trace_id or current_trace_id()
         record = RunRecord(
             run_id=run_id,
             session_id=session_id,
             status=RunStatus.QUEUED,
             created_at=now,
             updated_at=now,
+            trace_id=resolved_trace_id,
         )
         with self._lock:
             self._runs[run_id] = record
         self._append_run_status_event(record)
+        log_info(
+            "run_submitted",
+            run_id=run_id,
+            session_id=session_id,
+            trace_id=resolved_trace_id,
+        )
 
         normalized_parts = [dict(part) for part in parts]
-        self._executor.submit(self._run_worker, run_id, session_id, normalized_parts)
+        self._executor.submit(self._run_worker, run_id, session_id, normalized_parts, resolved_trace_id)
         return record
 
     def get(self, run_id: str) -> RunRecord | None:
@@ -108,21 +120,24 @@ class RunsRegistry:
         run_id: str,
         session_id: str,
         parts: Sequence[Mapping[str, Any]],
+        trace_id: str | None,
     ) -> None:
-        started = self._set_status(
-            run_id,
-            status=RunStatus.RUNNING,
-            only_if={RunStatus.QUEUED},
-        )
-        if started is None or started.status is not RunStatus.RUNNING:
-            return
+        with bind_correlation(session_id=session_id, trace_id=trace_id):
+            started = self._set_status(
+                run_id,
+                status=RunStatus.RUNNING,
+                only_if={RunStatus.QUEUED},
+            )
+            if started is None or started.status is not RunStatus.RUNNING:
+                return
+            log_info("run_started", run_id=run_id)
 
-        try:
-            result = self._runtime.run(session_id, parts, stream=False)
-        except Exception as exc:  # noqa: BLE001
-            self._mark_failed(run_id, message=str(exc))
-            return
-        self._mark_completed(run_id, turn_result=result)
+            try:
+                result = self._runtime.run(session_id, parts, stream=False)
+            except Exception as exc:  # noqa: BLE001
+                self._mark_failed(run_id, message=str(exc))
+                return
+            self._mark_completed(run_id, turn_result=result)
 
     def _set_status(
         self,
@@ -162,16 +177,32 @@ class RunsRegistry:
             only_if={RunStatus.RUNNING},
         )
         if updated is not None and updated.status is RunStatus.COMPLETED:
+            log_info(
+                "run_completed",
+                run_id=run_id,
+                session_id=updated.session_id,
+                turn_id=turn_result.turn_id,
+                trace_id=updated.trace_id,
+            )
             self._emit_turn_events(record=updated, turn_result=turn_result)
         return updated
 
     def _mark_failed(self, run_id: str, *, message: str) -> RunRecord | None:
-        return self._set_status(
+        updated = self._set_status(
             run_id,
             status=RunStatus.FAILED,
             error={"code": "run_execution_failed", "message": message},
             only_if={RunStatus.RUNNING},
         )
+        if updated is not None and updated.status is RunStatus.FAILED:
+            log_error(
+                "run_failed",
+                run_id=run_id,
+                session_id=updated.session_id,
+                trace_id=updated.trace_id,
+                error=message,
+            )
+        return updated
 
     def _append_run_status_event(self, record: RunRecord) -> None:
         self._session_manager.append_run_status(

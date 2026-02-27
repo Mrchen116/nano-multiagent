@@ -12,6 +12,8 @@ from nano_multiagent.core.ids import make_event_id
 from nano_multiagent.hooks.loader import build_hook_registry
 from nano_multiagent.hooks.registry import HookRegistry
 from nano_multiagent.hooks.runner import HookRunner
+from nano_multiagent.observability.logger import log_error
+from nano_multiagent.observability.tracing import bind_correlation
 from nano_multiagent.runs.registry import RunsRegistry
 from nano_multiagent.server.sse import EventStreamHub
 from nano_multiagent.session.service import SessionService
@@ -80,54 +82,84 @@ def create_app(
     async def trace_middleware(request: Request, call_next: Any):  # type: ignore[valid-type]
         incoming_trace_id = request.headers.get("X-Request-Id", "").strip()
         request.state.trace_id = incoming_trace_id or make_event_id()
-        response = await call_next(request)
+        with bind_correlation(trace_id=request.state.trace_id):
+            response = await call_next(request)
         response.headers["X-Request-Id"] = request.state.trace_id
         return response
 
     @app.exception_handler(APIError)
     async def handle_api_error(request: Request, exc: APIError) -> JSONResponse:
+        trace_id = get_trace_id(request)
+        log_error(
+            "api_error",
+            code=exc.code,
+            status_code=exc.status_code,
+            trace_id=trace_id,
+        )
         return _error_response(
             code=exc.code,
             message=exc.message,
             retryable=exc.retryable,
             status_code=exc.status_code,
-            trace_id=get_trace_id(request),
+            trace_id=trace_id,
         )
 
     @app.exception_handler(HTTPException)
     async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:
+        trace_id = get_trace_id(request)
         code = "http_error"
         if exc.status_code == 401:
             code = "unauthorized"
         elif exc.status_code == 404:
             code = "not_found"
         detail = exc.detail if isinstance(exc.detail, str) else "request failed"
+        log_error(
+            "http_error",
+            code=code,
+            status_code=exc.status_code,
+            trace_id=trace_id,
+        )
         return _error_response(
             code=code,
             message=detail,
             retryable=False,
             status_code=exc.status_code,
-            trace_id=get_trace_id(request),
+            trace_id=trace_id,
         )
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        trace_id = get_trace_id(request)
+        log_error(
+            "request_validation_error",
+            code="invalid_request",
+            status_code=422,
+            trace_id=trace_id,
+        )
         return _error_response(
             code="invalid_request",
             message=str(exc).replace("\n", "; "),
             retryable=False,
             status_code=422,
-            trace_id=get_trace_id(request),
+            trace_id=trace_id,
         )
 
     @app.exception_handler(Exception)
-    async def handle_unexpected_error(request: Request, _: Exception) -> JSONResponse:
+    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        trace_id = get_trace_id(request)
+        log_error(
+            "unexpected_error",
+            code="internal_error",
+            status_code=500,
+            trace_id=trace_id,
+            error=f"{type(exc).__name__}: {exc}",
+        )
         return _error_response(
             code="internal_error",
             message="internal server error",
             retryable=False,
             status_code=500,
-            trace_id=get_trace_id(request),
+            trace_id=trace_id,
         )
 
     app.include_router(global_router)

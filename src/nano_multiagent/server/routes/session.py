@@ -2,7 +2,7 @@ from typing import Any
 
 from collections.abc import Iterator
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,7 @@ from ..deps import (
     get_event_stream_hub,
     get_runs_registry,
     get_session_service,
+    get_trace_id,
 )
 
 router = APIRouter(
@@ -158,12 +159,17 @@ def send_message(
 def send_message_async(
     session_id: str,
     payload: SendMessageAsyncRequest,
+    request: Request,
     runs: RunsRegistry = Depends(get_runs_registry),
 ) -> SendMessageAsyncResponse:
     del payload.message_id
     del payload.model
     try:
-        record = runs.submit(session_id=session_id, parts=payload.parts)
+        record = runs.submit(
+            session_id=session_id,
+            parts=payload.parts,
+            trace_id=get_trace_id(request),
+        )
     except ValueError as exc:
         message = str(exc)
         if message.startswith("session does not exist:"):

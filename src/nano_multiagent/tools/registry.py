@@ -5,6 +5,8 @@ from nano_multiagent.core.errors import ToolError
 from nano_multiagent.core.types import ToolSpec
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
+from nano_multiagent.observability.logger import log_error, log_info
+from nano_multiagent.observability.tracing import bind_correlation
 
 from .base import Tool, ToolContext
 
@@ -65,114 +67,124 @@ class ToolRegistry:
             metadata={"cwd": str(self._context.cwd)},
         )
         execution_context = self._context.with_session(active_hook_context.session_id)
+        tool_call_id = _extract_tool_call_id(args=args, hook_context=active_hook_context)
 
-        tool_call_payload, _ = self._dispatch_intercept(
-            "tool_call",
-            {"name": name, "args": dict(args), "block": False, "reason": None},
-            active_hook_context,
-        )
-        if bool(tool_call_payload.get("block")):
-            raise ToolError(
-                "tool blocked by hook",
-                tool_name=name,
-                details={
-                    "blocked_by_hook": True,
-                    "reason": tool_call_payload.get("reason"),
-                },
-            )
-
-        normalized_args = _validate_args(name=name, args=args, schema=tool.input_schema)
-        self._dispatch_observe(
-            "tool_execution_start",
-            {"name": name, "args": normalized_args},
-            active_hook_context,
-        )
-
-        execution_error: ToolError | None = None
-        raw_result: Mapping[str, Any] | Any | None = None
-        try:
-            raw_result = tool.run(normalized_args, execution_context)
-        except ToolError as exc:
-            execution_error = exc
-        except Exception as exc:
-            execution_error = ToolError(
-                f"tool execution failed: {exc}",
-                tool_name=name,
-                details={"exception_type": type(exc).__name__},
-            )
-
-        if execution_error is None:
-            self._dispatch_observe(
-                "tool_execution_update",
-                {"name": name, "args": normalized_args, "output": raw_result},
+        with bind_correlation(
+            session_id=active_hook_context.session_id,
+            turn_id=active_hook_context.turn_id,
+            tool_call_id=tool_call_id,
+        ):
+            tool_call_payload, _ = self._dispatch_intercept(
+                "tool_call",
+                {"name": name, "args": dict(args), "block": False, "reason": None},
                 active_hook_context,
             )
+            if bool(tool_call_payload.get("block")):
+                log_error("tool_execution_error", tool_name=name, blocked_by_hook=True)
+                raise ToolError(
+                    "tool blocked by hook",
+                    tool_name=name,
+                    details={
+                        "blocked_by_hook": True,
+                        "reason": tool_call_payload.get("reason"),
+                    },
+                )
+
+            normalized_args = _validate_args(name=name, args=args, schema=tool.input_schema)
+            log_info("tool_execution_start", tool_name=name)
             self._dispatch_observe(
-                "tool_execution_end",
-                {"name": name, "args": normalized_args, "is_error": False},
-                active_hook_context,
-            )
-        else:
-            self._dispatch_observe(
-                "tool_execution_end",
-                {
-                    "name": name,
-                    "args": normalized_args,
-                    "is_error": True,
-                    "error": str(execution_error),
-                    "details": execution_error.details,
-                },
+                "tool_execution_start",
+                {"name": name, "args": normalized_args},
                 active_hook_context,
             )
 
-        if self._hook_runner is None:
+            execution_error: ToolError | None = None
+            raw_result: Mapping[str, Any] | Any | None = None
+            try:
+                raw_result = tool.run(normalized_args, execution_context)
+            except ToolError as exc:
+                execution_error = exc
+            except Exception as exc:
+                execution_error = ToolError(
+                    f"tool execution failed: {exc}",
+                    tool_name=name,
+                    details={"exception_type": type(exc).__name__},
+                )
+
+            if execution_error is None:
+                self._dispatch_observe(
+                    "tool_execution_update",
+                    {"name": name, "args": normalized_args, "output": raw_result},
+                    active_hook_context,
+                )
+                self._dispatch_observe(
+                    "tool_execution_end",
+                    {"name": name, "args": normalized_args, "is_error": False},
+                    active_hook_context,
+                )
+                log_info("tool_execution_end", tool_name=name, is_error=False)
+            else:
+                self._dispatch_observe(
+                    "tool_execution_end",
+                    {
+                        "name": name,
+                        "args": normalized_args,
+                        "is_error": True,
+                        "error": str(execution_error),
+                        "details": execution_error.details,
+                    },
+                    active_hook_context,
+                )
+                log_error("tool_execution_error", tool_name=name, error=str(execution_error))
+
+            if self._hook_runner is None:
+                if execution_error is not None:
+                    raise execution_error
+                if isinstance(raw_result, Mapping):
+                    return dict(raw_result)
+                return {"result": raw_result}
+
+            tool_result_payload: dict[str, Any] = {
+                "name": name,
+                "args": normalized_args,
+                "output": raw_result,
+                "is_error": execution_error is not None,
+            }
             if execution_error is not None:
-                raise execution_error
-            if isinstance(raw_result, Mapping):
-                return dict(raw_result)
-            return {"result": raw_result}
+                tool_result_payload["error"] = str(execution_error)
+                tool_result_payload["details"] = execution_error.details
 
-        tool_result_payload: dict[str, Any] = {
-            "name": name,
-            "args": normalized_args,
-            "output": raw_result,
-            "is_error": execution_error is not None,
-        }
-        if execution_error is not None:
-            tool_result_payload["error"] = str(execution_error)
-            tool_result_payload["details"] = execution_error.details
-
-        rewritten_payload, _ = self._dispatch_intercept(
-            "tool_result",
-            tool_result_payload,
-            active_hook_context,
-        )
-        rewritten_output: Any = rewritten_payload.get("output", raw_result)
-
-        if bool(rewritten_payload.get("is_error")):
-            error_message = rewritten_payload.get("error")
-            if not isinstance(error_message, str) or not error_message:
-                error_message = "tool result marked as error by hook"
-            details = rewritten_payload.get("details")
-            if not isinstance(details, Mapping):
-                details = execution_error.details if execution_error is not None else {}
-            raise ToolError(
-                error_message,
-                tool_name=name,
-                details=dict(details),
+            rewritten_payload, _ = self._dispatch_intercept(
+                "tool_result",
+                tool_result_payload,
+                active_hook_context,
             )
+            rewritten_output: Any = rewritten_payload.get("output", raw_result)
 
-        if "content" in rewritten_payload:
-            content = rewritten_payload["content"]
-            if isinstance(content, Mapping):
-                return dict(content)
-            return {"result": content}
+            if bool(rewritten_payload.get("is_error")):
+                error_message = rewritten_payload.get("error")
+                if not isinstance(error_message, str) or not error_message:
+                    error_message = "tool result marked as error by hook"
+                details = rewritten_payload.get("details")
+                if not isinstance(details, Mapping):
+                    details = execution_error.details if execution_error is not None else {}
+                raise ToolError(
+                    error_message,
+                    tool_name=name,
+                    details=dict(details),
+                )
 
-        if execution_error is not None and "output" not in rewritten_payload:
-            raise execution_error
-        if isinstance(rewritten_output, Mapping):
-            return dict(rewritten_output)
-        return {"result": rewritten_output}
+            if "content" in rewritten_payload:
+                content = rewritten_payload["content"]
+                if isinstance(content, Mapping):
+                    return dict(content)
+                return {"result": content}
+
+            if execution_error is not None and "output" not in rewritten_payload:
+                raise execution_error
+            if isinstance(rewritten_output, Mapping):
+                return dict(rewritten_output)
+            return {"result": rewritten_output}
 
     def _dispatch_intercept(
         self,
@@ -288,6 +300,17 @@ def _validate_args(*, name: str, args: Mapping[str, Any], schema: Mapping[str, A
             )
 
     return normalized
+
+
+def _extract_tool_call_id(*, args: Mapping[str, Any], hook_context: HookContext) -> str | None:
+    for key in ("tool_call_id", "call_id"):
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    metadata_value = hook_context.metadata.get("tool_call_id")
+    if isinstance(metadata_value, str) and metadata_value.strip():
+        return metadata_value
+    return None
 
 
 def _matches_json_type(value: Any, expected: str) -> bool:
