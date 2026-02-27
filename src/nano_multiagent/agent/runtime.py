@@ -117,9 +117,14 @@ class AgentRuntime:
 
         before_payload, _ = self._dispatch_intercept(
             "before_agent_start",
-            {"message": None, "system_prompt": None},
+            {"message": user_text, "system_prompt": None},
             hook_ctx,
         )
+        message_override = before_payload.get("message")
+        if isinstance(message_override, str):
+            user_text = message_override
+        if not user_text:
+            raise ValueError("empty input parts are not allowed")
         system_prompt_override = before_payload.get("system_prompt")
         if not isinstance(system_prompt_override, str):
             system_prompt_override = None

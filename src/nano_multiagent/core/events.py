@@ -14,6 +14,7 @@ class RuntimeEventType(StrEnum):
     TOOL_RESULT = "tool_result"
     RUN_ERROR = "run_error"
     RUN_TIMEOUT = "run_timeout"
+    RUN_ABORT = "run_abort"
 
 
 @dataclass(frozen=True, slots=True)

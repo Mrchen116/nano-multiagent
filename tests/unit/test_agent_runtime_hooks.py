@@ -46,6 +46,7 @@ class EchoLLMClient:
 
 def test_runtime_and_loop_emit_hook_events_in_expected_order() -> None:
     events: list[str] = []
+    before_messages: list[str] = []
     registry = HookRegistry()
 
     async def on_input(event, ctx):
@@ -54,8 +55,9 @@ def test_runtime_and_loop_emit_hook_events_in_expected_order() -> None:
         return {"action": "continue"}
 
     async def on_before_agent_start(event, ctx):
-        del event, ctx
+        del ctx
         events.append("before_agent_start")
+        before_messages.append(event["message"])
         return {}
 
     def _observe(name: str):
@@ -99,6 +101,7 @@ def test_runtime_and_loop_emit_hook_events_in_expected_order() -> None:
         "turn_end",
         "agent_end",
     ]
+    assert before_messages == ["ping"]
 
 
 def test_input_transform_chain_affects_runtime_main_flow() -> None:
@@ -133,6 +136,35 @@ def test_input_transform_chain_affects_runtime_main_flow() -> None:
     assert result.messages[0].content == "ack:prefix:ping:suffix"
     user_event = [entry for _, entry in store.events][1]
     assert user_event.data["content"] == "prefix:ping:suffix"
+
+
+def test_before_agent_start_message_override_affects_runtime_main_flow() -> None:
+    registry = HookRegistry()
+
+    async def rewrite_before_start(event, ctx):
+        del ctx
+        return {"message": f"before:{event['message']}"}
+
+    registry.on("before_agent_start", rewrite_before_start)
+
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+    llm = EchoLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm,
+        model="mock-model",
+        hook_runner=HookRunner(registry=registry),
+        repo_root=Path.cwd(),
+    )
+
+    result = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+
+    assert llm.requests[-1].messages[-1].content == "before:ping"
+    assert result.messages[0].content == "ack:before:ping"
+    user_event = [entry for _, entry in store.events][1]
+    assert user_event.data["content"] == "before:ping"
 
 
 def test_input_handled_short_circuits_runtime_flow() -> None:
@@ -189,4 +221,3 @@ def test_hook_exceptions_are_isolated_and_fail_open() -> None:
 
     assert result.messages[0].content == "ack:ping"
     assert llm.requests[-1].messages[-1].content == "ping"
-
