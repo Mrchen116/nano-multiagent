@@ -1,3 +1,4 @@
+import os
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -54,19 +55,51 @@ class ToolSafety:
         self.config = config
 
     def resolve_path(self, path: str, *, cwd: Path, tool_name: str) -> Path:
+        return self._resolve_path(
+            path,
+            cwd=cwd,
+            tool_name=tool_name,
+            allowed_roots=(self.repo_root,),
+        )
+
+    def resolve_read_path(self, path: str, *, cwd: Path, tool_name: str) -> Path:
+        return self._resolve_path(
+            path,
+            cwd=cwd,
+            tool_name=tool_name,
+            allowed_roots=self._read_allowed_roots(),
+        )
+
+    def _resolve_path(
+        self,
+        path: str,
+        *,
+        cwd: Path,
+        tool_name: str,
+        allowed_roots: tuple[Path, ...],
+    ) -> Path:
         candidate = Path(path).expanduser()
         if not candidate.is_absolute():
             candidate = cwd / candidate
         resolved = candidate.resolve()
-        try:
-            resolved.relative_to(self.repo_root)
-        except ValueError as exc:
-            raise ToolError(
-                "path is outside repo sandbox",
-                tool_name=tool_name,
-                details={"path": path, "repo_root": str(self.repo_root)},
-            ) from exc
-        return resolved
+        for root in allowed_roots:
+            try:
+                resolved.relative_to(root)
+                return resolved
+            except ValueError:
+                continue
+        raise ToolError(
+            "path is outside repo sandbox",
+            tool_name=tool_name,
+            details={"path": path, "repo_root": str(self.repo_root)},
+        )
+
+    def _read_allowed_roots(self) -> tuple[Path, ...]:
+        codex_home = Path(os.getenv("CODEX_HOME", "~/.codex")).expanduser().resolve()
+        return (
+            self.repo_root,
+            codex_home / "skills",
+        )
 
     def truncate_text(self, text: str, *, max_lines: int, max_bytes: int, tail: bool = False) -> tuple[str, bool]:
         max_lines = max(1, max_lines)

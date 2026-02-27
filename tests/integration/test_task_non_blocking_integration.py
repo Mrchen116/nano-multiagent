@@ -91,7 +91,7 @@ def test_task_blocking_passes_parent_session_id_to_subagent_llm(tmp_path: Path) 
         "task",
         {
             "run_in_background": False,
-            "load_skills": ["playwright"],
+            "load_skills": [],
             "description": "delegate task",
             "prompt": "delegate this",
             "category": "research",

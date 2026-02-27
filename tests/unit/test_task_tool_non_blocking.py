@@ -93,7 +93,7 @@ def test_task_non_blocking_returns_receipt_and_executes_in_background(tmp_path: 
     result = tool.run(
         {
             "run_in_background": True,
-            "load_skills": ["playwright"],
+            "load_skills": [],
             "description": "delegate task",
             "prompt": "run later",
             "category": "research",
@@ -169,7 +169,7 @@ def test_task_continuation_uses_existing_session_id(tmp_path: Path) -> None:
     result = tool.run(
         {
             "run_in_background": False,
-            "load_skills": ["playwright"],
+            "load_skills": [],
             "description": "continue task",
             "prompt": "fix failing assertion",
             "session_id": "sess_existing",

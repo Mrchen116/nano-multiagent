@@ -53,7 +53,7 @@ def test_task_blocking_runs_through_tool_registry_with_runtime_wiring(tmp_path: 
         "task",
         {
             "run_in_background": False,
-            "load_skills": ["playwright"],
+            "load_skills": [],
             "description": "run integration",
             "prompt": "run integration task",
             "subagent_type": "oracle",

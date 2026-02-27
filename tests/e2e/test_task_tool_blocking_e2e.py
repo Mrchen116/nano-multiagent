@@ -46,7 +46,7 @@ def test_tools_listing_contains_task_without_task_http_endpoint(tmp_path) -> Non
         "task",
         {
             "run_in_background": False,
-            "load_skills": ["playwright"],
+            "load_skills": [],
             "description": "run e2e",
             "prompt": "run e2e",
             "subagent_type": "oracle",

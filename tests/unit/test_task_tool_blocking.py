@@ -71,7 +71,7 @@ def test_task_blocking_returns_structured_success_payload(tmp_path: Path) -> Non
     result = tool.run(
         {
             "run_in_background": False,
-            "load_skills": ["playwright"],
+            "load_skills": [],
             "description": "run task",
             "prompt": "hello",
             "subagent_type": "oracle",

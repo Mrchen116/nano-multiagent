@@ -7,6 +7,7 @@ from typing import Any, Mapping, Protocol
 from nano_multiagent.core.errors import ToolError
 from nano_multiagent.core.ids import make_tool_call_id
 from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.skills.workspace import resolve_available_skills
 
 from ..base import ToolContext
 
@@ -41,18 +42,18 @@ class TaskTool:
     input_schema = {
         "type": "object",
         "properties": {
-            "mode": {
-                "type": "string",
-                "enum": ["blocking", "non_blocking"],
-            },
+            "load_skills": {"type": "array", "items": {"type": "string"}},
+            "description": {"type": "string"},
             "prompt": {"type": "string"},
+            "run_in_background": {"type": "boolean"},
             "session_id": {"type": "string"},
             "category": {"type": "string"},
             "subagent_type": {"type": "string"},
+            "command": {"type": "string"},
             "idempotency_key": {"type": "string"},
             "timeout_seconds": {"type": "number"},
         },
-        "required": ["mode"],
+        "required": ["load_skills", "description", "prompt", "run_in_background"],
         "additionalProperties": False,
     }
 
@@ -64,15 +65,10 @@ class TaskTool:
         self._lock = Lock()
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
-        mode = str(args["mode"]).strip()
-        if mode not in {"blocking", "non_blocking"}:
-            raise ToolError(
-                "invalid mode for task tool",
-                tool_name=self.name,
-                details={"mode": mode, "allowed": ("blocking", "non_blocking")},
-            )
+        run_in_background = bool(args["run_in_background"])
+        mode = "non_blocking" if run_in_background else "blocking"
 
-        self._validate_task_arguments(args)
+        self._validate_task_arguments(args, ctx=ctx)
         idempotency_key = _normalize_optional_text(args.get("idempotency_key"))
         cached = self._get_cached_result(idempotency_key)
         if cached is not None:
@@ -80,14 +76,20 @@ class TaskTool:
             return cached
 
         if mode == "blocking":
-            result = self._run_blocking(args, ctx)
+            result = self._run_blocking(args, ctx, run_in_background=run_in_background)
         else:
-            result = self._run_non_blocking(args, ctx)
+            result = self._run_non_blocking(args, ctx, run_in_background=run_in_background)
 
         self._cache_result(idempotency_key, result)
         return result
 
-    def _run_blocking(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+    def _run_blocking(
+        self,
+        args: Mapping[str, Any],
+        ctx: ToolContext,
+        *,
+        run_in_background: bool,
+    ) -> Mapping[str, Any]:
         runtime = self._require_runtime()
         task_id = make_tool_call_id()
         timeout_seconds = _resolve_timeout_seconds(args)
@@ -108,6 +110,7 @@ class TaskTool:
             return _timed_out_payload(
                 task_id=task_id,
                 mode="blocking",
+                run_in_background=run_in_background,
                 session_id=task_session_id,
                 continuation=continuation,
                 timeout_seconds=timeout_seconds,
@@ -117,6 +120,7 @@ class TaskTool:
             return _failed_payload(
                 task_id=task_id,
                 mode="blocking",
+                run_in_background=run_in_background,
                 session_id=task_session_id,
                 continuation=continuation,
                 duration_ms=_elapsed_ms(start),
@@ -126,13 +130,20 @@ class TaskTool:
         return _completed_payload(
             task_id=task_id,
             mode="blocking",
+            run_in_background=run_in_background,
             session_id=task_session_id,
             continuation=continuation,
             duration_ms=_elapsed_ms(start),
             turn=turn,
         )
 
-    def _run_non_blocking(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+    def _run_non_blocking(
+        self,
+        args: Mapping[str, Any],
+        ctx: ToolContext,
+        *,
+        run_in_background: bool,
+    ) -> Mapping[str, Any]:
         runtime = self._require_runtime()
         timeout_seconds = _resolve_timeout_seconds(args)
         task_id = make_tool_call_id()
@@ -140,6 +151,7 @@ class TaskTool:
         receipt = {
             "task_id": task_id,
             "mode": "non_blocking",
+            "run_in_background": run_in_background,
             "status": "queued",
             "session_id": task_session_id,
             "continuation": continuation,
@@ -187,6 +199,7 @@ class TaskTool:
             payload = _failed_payload(
                 task_id=task_id,
                 mode="non_blocking",
+                run_in_background=True,
                 session_id=task_session_id,
                 continuation=continuation,
                 duration_ms=_elapsed_ms(start),
@@ -201,6 +214,7 @@ class TaskTool:
             payload = _timed_out_payload(
                 task_id=task_id,
                 mode="non_blocking",
+                run_in_background=True,
                 session_id=task_session_id,
                 continuation=continuation,
                 timeout_seconds=timeout_seconds,
@@ -210,6 +224,7 @@ class TaskTool:
             payload = _completed_payload(
                 task_id=task_id,
                 mode="non_blocking",
+                run_in_background=True,
                 session_id=task_session_id,
                 continuation=continuation,
                 duration_ms=duration_ms,
@@ -262,12 +277,45 @@ class TaskTool:
         created = runtime.create_session()
         return str(created.session_id), prompt, False
 
-    def _validate_task_arguments(self, args: Mapping[str, Any]) -> None:
+    def _validate_task_arguments(self, args: Mapping[str, Any], *, ctx: ToolContext) -> None:
+        if _normalize_optional_text(args.get("description")) is None:
+            raise ToolError(
+                "description must be a non-empty string",
+                tool_name=self.name,
+            )
+        if _normalize_optional_text(args.get("prompt")) is None:
+            raise ToolError(
+                "prompt must be a non-empty string",
+                tool_name=self.name,
+            )
+
+        load_skills = _normalize_skill_names(args.get("load_skills"), tool_name=self.name)
+        available = resolve_available_skills(
+            workspace_root=ctx.repo_root,
+            include_names=load_skills,
+        )
+        available_names = {skill.name for skill in available}
+        missing_skills = [name for name in load_skills if name not in available_names]
+        if missing_skills:
+            raise ToolError(
+                "unknown skills requested",
+                tool_name=self.name,
+                details={"missing_skills": missing_skills},
+            )
+
         category = _normalize_optional_text(args.get("category"))
         subagent_type = _normalize_optional_text(args.get("subagent_type"))
+        continuation = _normalize_optional_text(args.get("session_id")) is not None
+        if continuation:
+            return
         if category and subagent_type:
             raise ToolError(
                 "category and subagent_type are mutually exclusive",
+                tool_name=self.name,
+            )
+        if not category and not subagent_type:
+            raise ToolError(
+                "either category or subagent_type is required for new task",
                 tool_name=self.name,
             )
 
@@ -317,10 +365,35 @@ def _normalize_optional_text(value: Any) -> str | None:
     return text
 
 
+def _normalize_skill_names(value: Any, *, tool_name: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise ToolError(
+            "load_skills must be an array of strings",
+            tool_name=tool_name,
+        )
+
+    normalized: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise ToolError(
+                "load_skills must be an array of strings",
+                tool_name=tool_name,
+            )
+        skill_name = item.strip()
+        if not skill_name:
+            raise ToolError(
+                "load_skills contains an empty skill name",
+                tool_name=tool_name,
+            )
+        normalized.append(skill_name)
+    return tuple(normalized)
+
+
 def _completed_payload(
     *,
     task_id: str,
     mode: str,
+    run_in_background: bool,
     session_id: str,
     continuation: bool,
     duration_ms: int,
@@ -330,6 +403,7 @@ def _completed_payload(
     return {
         "task_id": task_id,
         "mode": mode,
+        "run_in_background": run_in_background,
         "status": "completed",
         "session_id": session_id,
         "continuation": continuation,
@@ -352,6 +426,7 @@ def _failed_payload(
     *,
     task_id: str,
     mode: str,
+    run_in_background: bool,
     session_id: str,
     continuation: bool,
     duration_ms: int,
@@ -360,6 +435,7 @@ def _failed_payload(
     return {
         "task_id": task_id,
         "mode": mode,
+        "run_in_background": run_in_background,
         "status": "failed",
         "session_id": session_id,
         "continuation": continuation,
@@ -376,6 +452,7 @@ def _timed_out_payload(
     *,
     task_id: str,
     mode: str,
+    run_in_background: bool,
     session_id: str,
     continuation: bool,
     timeout_seconds: float,
@@ -384,6 +461,7 @@ def _timed_out_payload(
     return {
         "task_id": task_id,
         "mode": mode,
+        "run_in_background": run_in_background,
         "status": "timed_out",
         "session_id": session_id,
         "continuation": continuation,

@@ -22,7 +22,7 @@ class ReadTool:
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         raw_path = str(args["path"])
-        file_path = ctx.safety.resolve_path(raw_path, cwd=ctx.cwd, tool_name=self.name)
+        file_path = ctx.safety.resolve_read_path(raw_path, cwd=ctx.cwd, tool_name=self.name)
 
         if not file_path.exists() or not file_path.is_file():
             raise ToolError(
