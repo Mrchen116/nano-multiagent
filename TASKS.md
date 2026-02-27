@@ -21,6 +21,24 @@
   - 四文档写入 R8.1 hash 与证据
   - 不进入 M9 skills 与 M13 hooks 查询 API
 
+## [DONE] R8.2 agent-tool-hook 深度集成补强（专项回归 + output 改写接线）
+- Steps:
+  - 增加专项集成红测 `tests/integration/test_m8_agent_tool_hook_r81_integration.py`（Red）
+  - 修正 `tool_result` 拦截后的 `output` 改写接线（Green）
+  - 验证 `tool_call block` 发生在工具执行与参数校验前
+  - 验证 runtime `input transform/handled` 与 fail-open 语义保持正确
+  - 执行 `pytest -q tests/integration/test_m8_agent_tool_hook_r81_integration.py` 与 `pytest -q`
+  - 四文档写入 R8.1 基线链与 R8.2 补强链双映射并补齐 C3
+- Expected Tests:
+  - `tests/integration/test_m8_agent_tool_hook_r81_integration.py`
+  - `pytest -q`
+- DoD:
+  - `pytest -q` 全绿
+  - C1/C2/C3 三次提交完整
+  - 四文档写入 R8.2 hash 与证据
+  - 不进入 M9 skills 与 M13 hooks 查询 API
+
 ## Milestone M8 状态
-- R8.1 已完成并完成 C1/C2/C3 闭环。
+- R8.1 基线链已闭环：`296e21b` -> `fb77fe1` -> `2aa5fae`。
+- R8.2 补强链已闭环：`7e7fd18` -> `532f34a` -> `(this docs commit)`。
 - 范围严格限定在 runtime/loop/tools Hook 深度接线。

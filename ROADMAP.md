@@ -502,7 +502,7 @@ Exit Criteria:
 - Commits:
   - C1: 296e21b
   - C2: fb77fe1
-  - C3: (this docs commit)
+  - C3: 2aa5fae
 - Evidence:
   - `pytest -q tests/unit/test_agent_runtime_hooks.py tests/contract/test_hook_integration_contract.py tests/integration/test_hooks_runtime_tools_integration.py tests/e2e/test_hooks_runtime_http_e2e.py`: `10 passed in 0.31s`
   - `pytest -q`: `95 passed in 4.40s`
@@ -512,3 +512,33 @@ Exit Criteria:
     - `tool_call block` 生效：`tests/contract/test_hook_integration_contract.py::test_tool_call_block_error_contract`
     - `tool_result rewrite` 生效：`tests/integration/test_hooks_runtime_tools_integration.py::test_tool_registry_uses_loaded_hooks_for_block_and_rewrite`
     - Hook 异常隔离：`tests/unit/test_agent_runtime_hooks.py::test_hook_exceptions_are_isolated_and_fail_open`
+
+### Roadpoint R8.2: agent-tool-hook 深度集成补强（专项集成回归 + output 改写接线）
+- Public Surface:
+  - `nano_multiagent.tools.registry.ToolRegistry`
+  - `nano_multiagent.hooks.runner.HookRunner`
+  - `tests/integration/test_m8_agent_tool_hook_r81_integration.py`
+- Acceptance:
+  - 新增专项集成回归覆盖 runtime 与 tools 的关键拦截语义
+  - `tool_call block` 必须在工具执行与参数校验前生效
+  - `tool_result rewrite` 对 `output` 字段改写必须在返回前生效
+  - Hook 异常隔离保持 fail-open，不影响主链路
+- Tests Plan:
+  - integration: `tests/integration/test_m8_agent_tool_hook_r81_integration.py`
+  - e2e: `pytest -q`
+- Commit Plan:
+  - C1: `test(R8.1): 增加 agent-tool-hook 深度集成红测（先红）`
+  - C2: `feat(R8.1): 完成 tool_result output 改写接线（全绿）`
+  - C3: `docs(R8.2): 补齐深度集成补强证据链（记录hash/证据/下一步）`
+- Commits:
+  - C1: 7e7fd18
+  - C2: 532f34a
+  - C3: (this docs commit)
+- Evidence:
+  - `pytest -q tests/integration/test_m8_agent_tool_hook_r81_integration.py`: `4 passed in 0.07s`
+  - `pytest -q`: `99 passed in 11.73s`
+  - 关键断言:
+    - `input transform/handled` 在 runtime 生效：`tests/integration/test_m8_agent_tool_hook_r81_integration.py::test_runtime_input_transform_and_handled_are_effective`
+    - `tool_call block` 在执行与参数校验前生效：`tests/integration/test_m8_agent_tool_hook_r81_integration.py::test_tool_call_block_is_applied_before_tool_execution_and_arg_validation`
+    - `tool_result rewrite` 在返回前生效（`output` 改写）：`tests/integration/test_m8_agent_tool_hook_r81_integration.py::test_tool_result_rewrite_output_is_applied_before_return`
+    - Hook 异常隔离 fail-open：`tests/integration/test_m8_agent_tool_hook_r81_integration.py::test_hook_exceptions_are_isolated_and_fail_open_for_runtime_and_tools`

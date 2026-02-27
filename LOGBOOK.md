@@ -383,4 +383,27 @@
 - Rollback:
   - 可回退到 `296e21b`（R8.1 红测提交）重放 Green。
 - Commits:
-  - C1=`296e21b`, C2=`fb77fe1`, C3=`(this docs commit)`
+  - C1=`296e21b`, C2=`fb77fe1`, C3=`2aa5fae`
+
+## 2026-02-27 08:35:54 +0800 - R8.2 收尾记录（补齐 agent-tool-hook 补强链 C3）
+- Context:
+  - 主分支已存在两组 M8 相关提交链：已闭环基线链 `296e21b/fb77fe1/2aa5fae` 与未闭环补强链 `7e7fd18/532f34a`。
+  - 本次任务限定为文档收口，不新增业务代码，并要求清理 `ROADMAP.md` 脏改。
+- Decision:
+  - 将 M8 在四文档中明确拆分为 R8.1（基线链）与 R8.2（补强链）双映射，避免两组提交链互相覆盖。
+  - 为补强链补齐 C3 文档提交，并统一更新 ROADMAP/TASKS/PROGRESS/LOGBOOK 的 hash 与证据。
+  - 以当前运行结果回填验收：`pytest -q` 为 `99 passed in 11.73s`。
+- Rationale:
+  - 双链并存可保留历史演进上下文，同时满足 TDD 三提交闭环要求。
+  - 先完成文档映射再提交，可一次性清理 `ROADMAP.md` 既有脏改，避免残留 tracked dirty state。
+- Changed Files Summary:
+  - `ROADMAP.md`（R8.1/R8.2 双链映射与证据）
+  - `TASKS.md`（新增 R8.2 任务闭环记录）
+  - `PROGRESS.md`（补强链完成记录与验收结果）
+  - `LOGBOOK.md`（本条收尾记录）
+- Pitfall/Risk:
+  - 补强链的 C1/C2 commit message 仍使用 `R8.1` 标签，已在四文档通过 R8.2 映射做显式消歧。
+- Rollback:
+  - 可回退到 `7e7fd18`（R8.2 红测提交）重新串行执行 C2/C3。
+- Commits:
+  - C1=`7e7fd18`, C2=`532f34a`, C3=`(this docs commit)`

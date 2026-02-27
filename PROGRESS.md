@@ -207,6 +207,19 @@
   - `pytest -q` -> `95 passed in 4.40s`
   - 关键断言 -> `test_input_handled_short_circuits_runtime_flow` 短路后 `llm.requests == []`
 - Commits: C1 | C2 | C3
-  - `296e21b` | `fb77fe1` | `(this docs commit)`
+  - `296e21b` | `fb77fe1` | `2aa5fae`
 - Next:
-  - M8 完成；等待后续 Milestone 指令
+  - R8.1 基线链闭环完成；继续补齐 R8.2 补强链 C3 文档收口
+
+## 2026-02-27 08:35:54 +0800
+- Done:
+  - 完成 R8.2 文档收口：补齐 `7e7fd18`（C1）与 `532f34a`（C2）的 C3 证据链
+  - 将 M8 映射明确为两组链：R8.1 基线链（`296e21b`/`fb77fe1`/`2aa5fae`）与 R8.2 补强链（`7e7fd18`/`532f34a`/C3）
+  - 吸收并清理 `ROADMAP.md` 未提交改动，四文档同步对齐
+- Evidence:
+  - `pytest -q` -> `99 passed in 11.73s`
+  - `pytest -q tests/integration/test_m8_agent_tool_hook_r81_integration.py` -> `4 passed in 0.07s`（沿用 C1/C2 链路验收记录）
+- Commits: C1 | C2 | C3
+  - `7e7fd18` | `532f34a` | `(this docs commit)`
+- Next:
+  - M8 两组提交链均已闭环；等待后续 Milestone 指令
