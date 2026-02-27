@@ -481,6 +481,16 @@
   - Pending
 
 ## Milestone M14
+- Title: 工具执行语义细化对齐（read/bash）
+- Goal: 将 `read` 与 `bash` 的执行/返回语义补齐到《内核设计细化/工具设计细化.md》要求，消除图片读取、输出截断与 fullOutputPath 等高风险偏差。
+- Exit Criteria:
+  - `read` 支持图片输入并返回 `text+image` 结构；文本截断与 offset 提示语义通过 contract/integration 验证。
+  - `tool_result` 对 list content 透传语义稳定，不再破坏 `read` 图片 parts。
+  - `bash` 对齐“无默认超时”与“截断落盘 + fullOutputPath”契约，并覆盖超大输出/超时/中断测试。
+  - `pytest -q` 全绿，且工具相关 e2e/contract 回归通过。
+- Status: Planned (Not Expanded)
+
+## Milestone M15
 - Title: 第二 Provider（anthropic）与切换验收
 - Goal: 在不改 runtime/tool/session 核心代码前提下新增 `anthropic` 协议实现与工厂接线。
 - Exit Criteria:
@@ -489,7 +499,7 @@
   - OpenAI/Anthropic 双链路集成测试通过，`pytest -q` 全绿。
 - Status: Planned (Not Expanded)
 
-## Milestone M15
+## Milestone M16
 - Title: 发布前硬化与回放审计验收
 - Goal: 完成全局能力收口（capabilities/openapi/薄CLI）与稳定性硬化，达成蓝图最小验收。
 - Exit Criteria:
