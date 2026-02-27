@@ -1,53 +1,34 @@
-# TASKS (Current Milestone: M12)
+# TASKS (Current Milestone: M13)
 
-## [DONE] R12.1 async 提交与 run_id 生命周期基线
+## [TODO] R13.1 Hook 查询 API（events + registry）
 - Steps:
-  - 新增 `messages:async` 与 `runs/{id}` 红测，先固定状态机与返回契约（Red）。
-  - 最小实现 run registry/store，支持 `queued/running/completed/failed/cancelled`。
-  - 打通 `POST /v1/sessions/{id}/messages:async` 与 `GET /v1/runs/{id}`。
-  - 验证错误结构与 `trace_id` 一致性。
+  - 新增 `GET /v1/hooks/events` 与 `GET /v1/hooks` 的红测，固定返回结构与错误契约（Red）。
+  - 实现 hooks 查询路由与依赖注入，连接现有 Hook registry/loader 数据。
+  - 保证仅只读接口，不引入注册/更新/卸载写操作。
+  - 验证 source/priority/timeout_ms 等字段完整返回。
 - Expected Tests:
-  - `tests/unit/test_runs_registry.py`
-  - `tests/contract/test_runs_async_contract.py`
-  - `tests/integration/test_runs_store_integration.py`
-  - `tests/e2e/test_messages_async_submission_e2e.py`
+  - `tests/unit/test_hook_query_models.py`
+  - `tests/contract/test_hooks_query_contract.py`
+  - `tests/integration/test_hooks_registry_query_integration.py`
+  - `tests/e2e/test_hooks_query_e2e.py`
 - DoD:
-  - R12.1 目标测试红转绿
+  - R13.1 目标测试红转绿
   - C1/C2/C3 三次提交完整
-  - 四文档写入 R12.1 hash 与证据
-  - 已完成：`91cd896` | `264eab5` | `388d263`
+  - 四文档写入 R13.1 hash 与证据
 
-## [DONE] R12.2 run cancel 语义与中断一致性
+## [TODO] R13.2 可观测性字段收口（日志/trace 关联）
 - Steps:
-  - 为 `POST /v1/runs/{id}/cancel` 新增红测，固定 queued/running/terminal 行为。
-  - 实现取消状态流转与幂等处理。
-  - 对齐 cancel 与现有 abort 语义（错误码/返回结构）。
-  - 验证取消后事件链可审计且不破坏会话状态。
+  - 新增日志/trace 字段红测，固定 `session_id/turn_id/tool_call_id/trace_id` 关联要求（Red）。
+  - 在 run/tool/hook/error 关键路径补齐结构化日志字段。
+  - 处理上下文缺失场景，确保日志输出稳定不崩溃。
+  - 执行全量回归并收口 M13。
 - Expected Tests:
-  - `tests/unit/test_run_cancel.py`
-  - `tests/contract/test_run_cancel_contract.py`
-  - `tests/integration/test_run_cancel_integration.py`
-  - `tests/e2e/test_run_cancel_e2e.py`
+  - `tests/unit/test_observability_fields.py`
+  - `tests/contract/test_observability_contract.py`
+  - `tests/integration/test_trace_log_correlation_integration.py`
+  - `tests/e2e/test_observability_chain_e2e.py`
 - DoD:
-  - R12.2 目标测试红转绿
-  - C1/C2/C3 三次提交完整
-  - 四文档写入 R12.2 hash 与证据
-  - 已完成：`145011a` | `00c1ed5` | `6150798`
-
-## [DONE] R12.3 SSE 全局/会话事件流
-- Steps:
-  - 新增 `GET /v1/events` 与 `GET /v1/sessions/{id}/events` 红测，固定事件格式。
-  - 实现 SSE 编码与最小事件集（`text_delta/tool_start/tool_end/turn_end/run_status`）。
-  - 串联 async 提交与 SSE 消费链路，验证增量输出与断连行为。
-  - 执行全量回归并收口 M12。
-- Expected Tests:
-  - `tests/unit/test_sse_encoder.py`
-  - `tests/contract/test_sse_event_contract.py`
-  - `tests/integration/test_sse_session_stream_integration.py`
-  - `tests/e2e/test_async_run_sse_e2e.py`
-- DoD:
-  - R12.3 目标测试红转绿
+  - R13.2 目标测试红转绿
   - `pytest -q` 全绿
   - C1/C2/C3 三次提交完整
-  - 四文档写入 R12.3 hash 与证据
-  - 已完成：`4fa2b61` | `c99c593` | `029a991`
+  - 四文档写入 R13.2 hash 与证据

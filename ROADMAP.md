@@ -332,7 +332,58 @@
   - `GET /v1/hooks/events` 返回事件清单、类型（observe/intercept）与返回契约摘要。
   - `GET /v1/hooks` 返回已加载 Hook 列表（含 source、订阅事件、priority、timeout_ms）。
   - 运行日志可关联 `session_id/turn_id/tool_call_id/trace_id`，`pytest -q` 全绿。
-- Status: Planned (Not Expanded)
+- Status: Expanded (Active)
+
+### Roadpoint R13.1: Hook 查询 API（events + registry）
+- Public Surface:
+  - `GET /v1/hooks/events`
+  - `GET /v1/hooks`
+  - `server/routes/hook.py`
+- Acceptance (3-5):
+  - `hooks/events` 返回事件名、类型（observe/intercept）、返回契约摘要。
+  - `hooks` 返回模块名、路径、source、订阅事件、priority、timeout_ms。
+  - 仅只读查询，无注册/更新/卸载写接口。
+  - 响应结构与错误格式遵循现有 server 契约。
+- Tests Plan:
+  - unit: `tests/unit/test_hook_query_models.py`
+  - contract: `tests/contract/test_hooks_query_contract.py`
+  - integration: `tests/integration/test_hooks_registry_query_integration.py`
+  - e2e: `tests/e2e/test_hooks_query_e2e.py`
+- Commit Plan:
+  - C1: `test(R13.1): hook查询接口红测（先红）`
+  - C2: `feat(R13.1): 实现hooks只读查询接口（全绿）`
+  - C3: `docs(R13.1): 记录hook查询证据并推进下一步（记录hash/证据/下一步）`
+- Commits:
+  - C1: TBD
+  - C2: TBD
+  - C3: TBD
+- Evidence:
+  - Pending（下一步执行 R13.1 Red）
+
+### Roadpoint R13.2: 可观测性字段收口（日志/trace 关联）
+- Public Surface:
+  - `observability/logger.py`
+  - `observability/tracing.py`
+  - server/runtime/tools 关键日志输出点
+- Acceptance (3-5):
+  - 结构化日志统一包含 `session_id/turn_id/tool_call_id/trace_id` 关联字段。
+  - 关键路径（run、tool、hook、error）至少各有一条可验证日志记录。
+  - 日志字段在无上下文时行为稳定（空值或缺省，不抛异常）。
+- Tests Plan:
+  - unit: `tests/unit/test_observability_fields.py`
+  - contract: `tests/contract/test_observability_contract.py`
+  - integration: `tests/integration/test_trace_log_correlation_integration.py`
+  - e2e: `tests/e2e/test_observability_chain_e2e.py`
+- Commit Plan:
+  - C1: `test(R13.2): 可观测性字段红测（先红）`
+  - C2: `feat(R13.2): 完成日志与trace关联字段收口（全绿）`
+  - C3: `docs(R13.2): 记录可观测性证据并收口M13（记录hash/证据/下一步）`
+- Commits:
+  - C1: TBD
+  - C2: TBD
+  - C3: TBD
+- Evidence:
+  - Pending
 
 ## Milestone M14
 - Title: 第二 Provider（anthropic）与切换验收
