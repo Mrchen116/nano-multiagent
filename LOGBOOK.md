@@ -759,4 +759,4 @@
 - Rollback:
   - 如需重做，可回退至 `3fd75c2`（R13R.1 红测提交）后按 Green 重放。
 - Commits:
-  - C1=`3fd75c2`, C2=`3e465c3`, C3=`TBD (this commit)`
+  - C1=`3fd75c2`, C2=`3e465c3`, C3=`30d325b`

@@ -419,6 +419,6 @@
   - 红测（C1）: `pytest -q tests/unit/test_agent_prompting.py tests/contract/test_system_prompt_contract.py tests/integration/test_prompt_runtime_fill_integration.py tests/e2e/test_system_prompt_render_e2e.py` -> `5 failed, 1 passed`
   - 转绿（C2）: 同命令 -> `6 passed in 0.38s`
 - Commits: C1 | C2 | C3
-  - `3fd75c2` | `3e465c3` | `TBD (this commit)`
+  - `3fd75c2` | `3e465c3` | `30d325b`
 - Next:
   - R13R.2 Red：先补 task/load_skills 契约与 read-sandbox/skills 可见性冲突红测。

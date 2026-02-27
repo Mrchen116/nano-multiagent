@@ -15,6 +15,8 @@
   - R13R.1 目标测试红转绿
   - C1/C2/C3 三次提交完整
   - 四文档写入 R13R.1 hash 与证据
+- Commits:
+  - `3fd75c2` | `3e465c3` | `30d325b`
 
 ## [TODO] R13R.2 tools/task 契约修复
 - Steps:

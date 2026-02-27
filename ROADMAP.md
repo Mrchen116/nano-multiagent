@@ -420,7 +420,7 @@
 - Commits:
   - C1: `3fd75c2`
   - C2: `3e465c3`
-  - C3: `TBD (this commit)`
+  - C3: `30d325b`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_agent_prompting.py tests/contract/test_system_prompt_contract.py tests/integration/test_prompt_runtime_fill_integration.py tests/e2e/test_system_prompt_render_e2e.py` -> `5 failed, 1 passed`
   - 转绿（C2）: 同命令 -> `6 passed in 0.38s`
