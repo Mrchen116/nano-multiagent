@@ -13,7 +13,12 @@ def test_build_prompt_messages_includes_system_history_and_user() -> None:
     prompts = build_prompt_messages(history_messages=history, user_text="new question")
 
     assert [item.role for item in prompts] == ["system", "assistant", "user"]
-    assert prompts[0].content.startswith("You are nano-multiagent")
+    assert prompts[0].content.startswith("You are an expert coding assistant")
+    assert "Available tools:" in prompts[0].content
+    assert "Guidelines:" in prompts[0].content
+    assert "Current date and time:" in prompts[0].content
+    assert "Current working directory:" in prompts[0].content
+    assert "<RUNTIME_FILL:" not in prompts[0].content
     assert prompts[-1].content == "new question"
 
 
@@ -43,3 +48,4 @@ def test_build_prompt_messages_injects_available_skills_section_with_absolute_lo
 def test_build_prompt_messages_skips_available_skills_section_when_empty() -> None:
     prompts = build_prompt_messages(history_messages=(), user_text="run this", available_skills=())
     assert "<available_skills>" not in prompts[0].content
+    assert "Available tools:" in prompts[0].content
