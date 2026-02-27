@@ -3,6 +3,8 @@ from pathlib import Path
 from nano_multiagent.agent.compaction.types import CompactionReason, CompactionSettings
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.core.errors import ModelError
+from nano_multiagent.hooks.registry import HookRegistry
+from nano_multiagent.hooks.runner import HookRunner
 from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from nano_multiagent.session.entries import CompactionEntry
 from nano_multiagent.session.manager import SessionManager
@@ -185,6 +187,45 @@ def test_manual_compaction_writes_auditable_entry_and_replays_from_anchor(tmp_pa
     assert replayed[0].role == "system"
     assert replayed[0].content == entry.summary
     assert [message.content for message in replayed[1:]] == kept_contents
+
+
+def test_session_compact_observe_hook_receives_manual_reason_event(tmp_path: Path) -> None:
+    store = SQLiteSessionStore(db_path=tmp_path / "compaction-manual-hook.sqlite3")
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+    llm_client = ThresholdAwareLLMClient()
+    observed_events: list[dict[str, object]] = []
+    hooks = HookRegistry()
+
+    async def on_session_compact(event, ctx):
+        del ctx
+        observed_events.append(dict(event))
+
+    hooks.on("session_compact", on_session_compact)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="main-model",
+        hook_runner=HookRunner(registry=hooks),
+        compaction_settings=CompactionSettings(
+            enabled=True,
+            context_window=200,
+            reserve_tokens=40,
+            min_kept_messages=2,
+            summary_model="summary-model",
+        ),
+    )
+
+    runtime.run(session.session_id, [{"type": "text", "text": "first user"}], stream=False)
+    runtime.run(session.session_id, [{"type": "text", "text": "second user"}], stream=False)
+    runtime.compact(session.session_id)
+
+    assert observed_events
+    assert any(
+        event.get("session_id") == session.session_id
+        and event.get("reason") == CompactionReason.MANUAL.value
+        for event in observed_events
+    )
 
 
 def test_overflow_post_turn_check_compacts_then_retries(tmp_path: Path) -> None:
