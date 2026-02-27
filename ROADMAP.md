@@ -463,3 +463,52 @@ Exit Criteria:
   - `pytest -q`: `85 passed in 5.55s`
   - 双源加载顺序验证: `tests/integration/test_hooks_loader_integration.py` 断言同优先级执行顺序为 `builtin-a -> builtin-b -> workspace`
   - 会话隔离闭包验证: `tests/e2e/test_hooks_pipeline_e2e.py` 断言 `s1` 计数递增、`s2` 从 1 独立起算
+
+## Milestone M8（已完成）: agent-tool-hook 深度集成
+Goal:
+- 在 `agent.runtime.run()`、`agent.loop`、`tools.registry.execute()` 打通 Hook 触发点
+- 让拦截结果真正影响主流程：`input transform/handled`、`tool_call block`、`tool_result rewrite`
+- 保持 fail-open：Hook 异常/超时不影响主链路
+Exit Criteria:
+- runtime 触发顺序：`input -> before_agent_start -> agent_start`
+- loop 触发顺序：`turn_start -> message_* -> turn_end -> agent_end`
+- tools 触发顺序：`tool_call -> tool_execution_* -> tool_result`
+- 四类测试（unit/contract/integration/e2e）覆盖关键拦截行为并通过
+- `pytest -q` 全绿
+- 不进入 M9 skills 与 M13 hooks 查询 API
+
+### Roadpoint R8.1: runtime/loop/tools Hook 接线与拦截生效
+- Public Surface:
+  - `nano_multiagent.agent.runtime.AgentRuntime`
+  - `nano_multiagent.agent.loop.AgentLoop`
+  - `nano_multiagent.tools.registry.ToolRegistry`
+  - `nano_multiagent.tools.loader.build_tool_registry`
+- Acceptance:
+  - `AgentRuntime.run` 触发 `input -> before_agent_start -> agent_start`，且 `input transform/handled` 改变主流程
+  - `AgentLoop.run` 触发 `turn_start -> message_start/update/end -> turn_end`
+  - `AgentRuntime.run` 在 loop 结束后触发 `agent_end`
+  - `ToolRegistry.execute` 触发 `tool_call -> tool_execution_start/update/end -> tool_result`
+  - `tool_call block` 可阻断工具执行，`tool_result rewrite` 可改写返回结果
+  - Hook 异常或超时默认隔离，主流程 fail-open
+- Tests Plan:
+  - unit: `tests/unit/test_agent_runtime_hooks.py`
+  - contract: `tests/contract/test_hook_integration_contract.py`
+  - integration: `tests/integration/test_hooks_runtime_tools_integration.py`
+  - e2e: `tests/e2e/test_hooks_runtime_http_e2e.py`
+- Commit Plan:
+  - C1: `test(R8.1): ...（先红）`
+  - C2: `feat(R8.1): ...（全绿）`
+  - C3: `docs(R8.1): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: 296e21b
+  - C2: fb77fe1
+  - C3: (this docs commit)
+- Evidence:
+  - `pytest -q tests/unit/test_agent_runtime_hooks.py tests/contract/test_hook_integration_contract.py tests/integration/test_hooks_runtime_tools_integration.py tests/e2e/test_hooks_runtime_http_e2e.py`: `10 passed in 0.31s`
+  - `pytest -q`: `95 passed in 4.40s`
+  - 关键断言:
+    - `input transform` 链式生效并进入 LLM 请求：`tests/unit/test_agent_runtime_hooks.py::test_input_transform_chain_affects_runtime_main_flow`
+    - `input handled` 短路不触发 LLM：`tests/unit/test_agent_runtime_hooks.py::test_input_handled_short_circuits_runtime_flow`
+    - `tool_call block` 生效：`tests/contract/test_hook_integration_contract.py::test_tool_call_block_error_contract`
+    - `tool_result rewrite` 生效：`tests/integration/test_hooks_runtime_tools_integration.py::test_tool_registry_uses_loaded_hooks_for_block_and_rewrite`
+    - Hook 异常隔离：`tests/unit/test_agent_runtime_hooks.py::test_hook_exceptions_are_isolated_and_fail_open`

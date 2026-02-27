@@ -358,3 +358,29 @@
   - 可回退到 `6d84dc9`（R7.1 红测提交）重放 Green。
 - Commits:
   - C1=`6d84dc9`, C2=`2da3a90`, C3=`0ba7e76`
+
+## 2026-02-27 08:16:04 +0800 - R8.1 完成记录（runtime/loop/tools Hook 深度接线）
+- Context:
+  - M8 范围限定在 Hook 集成点落地：`agent.runtime.run`、`agent.loop`、`tools.registry.execute`。
+  - 明确不进入 M9 skills 与 M13 hooks 查询 API。
+  - 本次改动跨 runtime/loop/tools 与四类测试，涉及文件数超过 5。
+- Decision:
+  - `AgentRuntime` 接入拦截链 `input -> before_agent_start` 与观察事件 `agent_start/agent_end`。
+  - `AgentLoop` 接入每轮事件：`turn_start -> message_start/update/end -> turn_end`。
+  - `ToolRegistry.execute` 接入 `tool_call -> tool_execution_start/update/end -> tool_result`，并实现 block/rewrite 对主流程的真实影响。
+  - 各接入点统一采用 fail-open：hook dispatch 异常仅告警，不中断主链路。
+- Rationale:
+  - 先把 Hook 触点落到运行主链路，再扩展更高阶能力（skills/查询 API），可显著降低回归风险。
+  - 将拦截语义收敛到 runtime/tools 两个入口，避免业务层分散处理。
+- Changed Files Summary:
+  - `src/nano_multiagent/agent/{runtime.py,loop.py}`
+  - `src/nano_multiagent/tools/{registry.py,loader.py}`
+  - `tests/{unit,contract,integration,e2e}` 中新增 R8.1 集成测试 4 个文件
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前 `before_agent_start.message` 仅透传不驱动消息写入，后续若启用该语义需补契约测试。
+  - `tool_result rewrite` 当前以 `content` 覆盖返回值为主，复杂结构合并策略后续可再细化。
+- Rollback:
+  - 可回退到 `296e21b`（R8.1 红测提交）重放 Green。
+- Commits:
+  - C1=`296e21b`, C2=`fb77fe1`, C3=`(this docs commit)`

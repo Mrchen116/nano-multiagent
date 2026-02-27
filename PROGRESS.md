@@ -194,3 +194,19 @@
   - `6d84dc9` | `2da3a90` | `0ba7e76`
 - Next:
   - M7 完成；等待 M8（runtime/tools Hook 接线）指令
+
+## 2026-02-27 08:16:04 +0800
+- Done:
+  - 完成 R8.1：在 `agent.runtime.run` / `agent.loop` / `tools.registry.execute` 打通 Hook 深度接线
+  - runtime 事件链：`input -> before_agent_start -> agent_start`；loop 事件链：`turn_start -> message_start/update/end -> turn_end`；runtime 收尾触发 `agent_end`
+  - tools 事件链：`tool_call -> tool_execution_start/update/end -> tool_result`
+  - 拦截结果生效：`input transform/handled`、`tool_call block`、`tool_result rewrite`
+  - fail-open 生效：Hook 异常隔离不影响主流程
+- Evidence:
+  - `pytest -q tests/unit/test_agent_runtime_hooks.py tests/contract/test_hook_integration_contract.py tests/integration/test_hooks_runtime_tools_integration.py tests/e2e/test_hooks_runtime_http_e2e.py` -> `10 passed in 0.31s`
+  - `pytest -q` -> `95 passed in 4.40s`
+  - 关键断言 -> `test_input_handled_short_circuits_runtime_flow` 短路后 `llm.requests == []`
+- Commits: C1 | C2 | C3
+  - `296e21b` | `fb77fe1` | `(this docs commit)`
+- Next:
+  - M8 完成；等待后续 Milestone 指令
