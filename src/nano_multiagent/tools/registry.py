@@ -146,6 +146,7 @@ class ToolRegistry:
             tool_result_payload,
             active_hook_context,
         )
+        rewritten_output: Any = rewritten_payload.get("output", raw_result)
 
         if bool(rewritten_payload.get("is_error")):
             error_message = rewritten_payload.get("error")
@@ -166,11 +167,11 @@ class ToolRegistry:
                 return dict(content)
             return {"result": content}
 
-        if execution_error is not None:
+        if execution_error is not None and "output" not in rewritten_payload:
             raise execution_error
-        if isinstance(raw_result, Mapping):
-            return dict(raw_result)
-        return {"result": raw_result}
+        if isinstance(rewritten_output, Mapping):
+            return dict(rewritten_output)
+        return {"result": rewritten_output}
 
     def _dispatch_intercept(
         self,

@@ -99,7 +99,7 @@ class HookRunner:
                 continue
 
             if normalized_event == "tool_result":
-                for field in ("content", "details", "is_error"):
+                for field in ("output", "content", "details", "is_error", "error"):
                     if field in result:
                         mutable_payload[field] = result[field]
                 continue
@@ -166,4 +166,3 @@ class HookRunner:
         if inspect.isawaitable(result):
             return await result
         return result
-
