@@ -1,6 +1,6 @@
 # TASKS (Current Milestone: M13)
 
-## [TODO] R13.1 Hook 查询 API（events + registry）
+## [DONE] R13.1 Hook 查询 API（events + registry）
 - Steps:
   - 新增 `GET /v1/hooks/events` 与 `GET /v1/hooks` 的红测，固定返回结构与错误契约（Red）。
   - 实现 hooks 查询路由与依赖注入，连接现有 Hook registry/loader 数据。

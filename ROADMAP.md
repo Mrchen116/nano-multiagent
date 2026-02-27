@@ -354,11 +354,13 @@
   - C2: `feat(R13.1): 实现hooks只读查询接口（全绿）`
   - C3: `docs(R13.1): 记录hook查询证据并推进下一步（记录hash/证据/下一步）`
 - Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
+  - C1: `3578aad`
+  - C2: `e1ccd61`
+  - C3: `TO_FILL_AFTER_COMMIT`
 - Evidence:
-  - Pending（下一步执行 R13.1 Red）
+  - 红测（C1）: `pytest -q tests/unit/test_hook_query_models.py tests/contract/test_hooks_query_contract.py tests/integration/test_hooks_registry_query_integration.py tests/e2e/test_hooks_query_e2e.py` -> `1 error`（`ModuleNotFoundError: nano_multiagent.server.routes.hook`）
+  - 转绿（C2）: 同命令 -> `6 passed in 0.39s`
+  - 接口契约验证: `test_hooks_registry_contract_shape` 与 `test_hook_query_integration_orders_and_reports_registered_hooks` 断言 `source/module_name/file_path/priority/timeout_ms` 与排序稳定
 
 ### Roadpoint R13.2: 可观测性字段收口（日志/trace 关联）
 - Public Surface:

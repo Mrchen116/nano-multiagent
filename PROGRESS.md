@@ -382,3 +382,16 @@
   - `4fa2b61` | `c99c593` | `029a991`
 - Next:
   - M12 已完成；按用户边界不进入 M13+。
+
+## 2026-02-27 10:01:39 +0800
+- Done:
+  - 完成 R13.1：新增 `GET /v1/hooks/events` 与 `GET /v1/hooks`，交付 hooks 只读查询接口。
+  - App 启动链路接入 hook registry 加载与依赖注入，`/v1/hooks*` 返回事件契约与已加载 Hook 元数据。
+  - `TASKS.md` 已将 R13.1 标记为 DONE，当前仅保留 R13.2 为 TODO。
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_hook_query_models.py tests/contract/test_hooks_query_contract.py tests/integration/test_hooks_registry_query_integration.py tests/e2e/test_hooks_query_e2e.py` -> `1 error`（`ModuleNotFoundError: nano_multiagent.server.routes.hook`）
+  - 转绿（C2）: 同命令 -> `6 passed in 0.39s`
+- Commits: C1 | C2 | C3
+  - `3578aad` | `e1ccd61` | `TO_FILL_AFTER_COMMIT`
+- Next:
+  - R13.2 Red：新增 observability 关联字段红测，锁定 `session_id/turn_id/tool_call_id/trace_id`。

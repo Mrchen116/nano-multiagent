@@ -681,3 +681,29 @@
   - 如需重做，可回退至 `4fa2b61`（R12.3 红测提交）后按 Green 重放。
 - Commits:
   - C1=`4fa2b61`, C2=`c99c593`, C3=`029a991`
+
+## 2026-02-27 10:01:39 +0800 - R13.1 完成记录（Hook 查询 API）
+- Context:
+  - R13.1 目标是交付 hooks 只读查询接口（`/v1/hooks/events` + `/v1/hooks`），并保持现有错误契约与认证机制。
+  - 改动横跨 `server/app/deps/routes` 与 `agent/hooks`，涉及文件数超过 5。
+- Decision:
+  - 新增 `server/routes/hook.py`，提供事件契约枚举与注册 hooks 列表查询。
+  - `create_app` 接线 `hook_registry/hook_runner`，默认加载 builtins/workspace hooks，并将 registry 注入 app state。
+  - 为 `AgentRuntime/HookRunner` 增加只读访问器，支持在注入 runtime 的场景下复用其 registry。
+- Rationale:
+  - 通过 app state 统一暴露 hook registry，避免在路由层窥探私有状态，保持 hooks 查询接口只读且可测试。
+- Changed Files Summary:
+  - `src/nano_multiagent/server/routes/hook.py`
+  - `src/nano_multiagent/server/{app.py,deps.py}`
+  - `src/nano_multiagent/{agent/runtime.py,hooks/runner.py}`
+  - `tests/unit/test_hook_query_models.py`
+  - `tests/contract/test_hooks_query_contract.py`
+  - `tests/integration/test_hooks_registry_query_integration.py`
+  - `tests/e2e/test_hooks_query_e2e.py`
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前 hooks 查询为进程内视图；若未来引入跨进程部署，需要额外聚合层（不在 M13 范围）。
+- Rollback:
+  - 如需重做，可回退至 `3578aad`（R13.1 红测提交）后重新 Green。
+- Commits:
+  - C1=`3578aad`, C2=`e1ccd61`, C3=`TO_FILL_AFTER_COMMIT`
