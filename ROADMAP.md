@@ -332,7 +332,7 @@
   - `GET /v1/hooks/events` 返回事件清单、类型（observe/intercept）与返回契约摘要。
   - `GET /v1/hooks` 返回已加载 Hook 列表（含 source、订阅事件、priority、timeout_ms）。
   - 运行日志可关联 `session_id/turn_id/tool_call_id/trace_id`，`pytest -q` 全绿。
-- Status: Expanded (Active)
+- Status: Completed
 
 ### Roadpoint R13.1: Hook 查询 API（events + registry）
 - Public Surface:
@@ -356,7 +356,7 @@
 - Commits:
   - C1: `3578aad`
   - C2: `e1ccd61`
-  - C3: `TO_FILL_AFTER_COMMIT`
+  - C3: `b653447`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_hook_query_models.py tests/contract/test_hooks_query_contract.py tests/integration/test_hooks_registry_query_integration.py tests/e2e/test_hooks_query_e2e.py` -> `1 error`（`ModuleNotFoundError: nano_multiagent.server.routes.hook`）
   - 转绿（C2）: 同命令 -> `6 passed in 0.39s`
@@ -381,11 +381,14 @@
   - C2: `feat(R13.2): 完成日志与trace关联字段收口（全绿）`
   - C3: `docs(R13.2): 记录可观测性证据并收口M13（记录hash/证据/下一步）`
 - Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
+  - C1: `65348a0`
+  - C2: `7ebde86`
+  - C3: `TO_FILL_AFTER_COMMIT`
 - Evidence:
-  - Pending
+  - 红测（C1）: `pytest -q tests/unit/test_observability_fields.py tests/contract/test_observability_contract.py tests/integration/test_trace_log_correlation_integration.py tests/e2e/test_observability_chain_e2e.py` -> `4 errors`（`ModuleNotFoundError: nano_multiagent.observability`）
+  - 转绿（C2）: 同命令 -> `5 passed in 0.44s`
+  - 关联字段验证: `test_run_tool_hook_logs_share_correlation_fields` 断言 run/tool/hook 日志共享 `session_id/turn_id/tool_call_id/trace_id`
+  - M13 全量收口: `pytest -q` -> `159 passed in 11.58s`
 
 ## Milestone M14
 - Title: 第二 Provider（anthropic）与切换验收

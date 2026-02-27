@@ -16,7 +16,7 @@
   - C1/C2/C3 三次提交完整
   - 四文档写入 R13.1 hash 与证据
 
-## [TODO] R13.2 可观测性字段收口（日志/trace 关联）
+## [DONE] R13.2 可观测性字段收口（日志/trace 关联）
 - Steps:
   - 新增日志/trace 字段红测，固定 `session_id/turn_id/tool_call_id/trace_id` 关联要求（Red）。
   - 在 run/tool/hook/error 关键路径补齐结构化日志字段。

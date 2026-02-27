@@ -707,3 +707,31 @@
   - 如需重做，可回退至 `3578aad`（R13.1 红测提交）后重新 Green。
 - Commits:
   - C1=`3578aad`, C2=`e1ccd61`, C3=`TO_FILL_AFTER_COMMIT`
+
+## 2026-02-27 10:08:24 +0800 - R13.2 完成记录（可观测性字段收口）
+- Context:
+  - R13.2 目标是将日志与 trace 关联字段统一收口到 `session_id/turn_id/tool_call_id/trace_id`，并覆盖 run/tool/hook/error 四条关键路径。
+  - 本次改动跨 `observability/hooks/runs/tools/server/routes`，涉及文件数超过 5。
+- Decision:
+  - 新增 `observability/tracing.py`（上下文绑定）与 `observability/logger.py`（结构化日志与测试捕获）。
+  - `HookContext` 与 `HookLogger` 统一补齐关联字段；`ToolRegistry` 增加执行起止与错误日志；`RunsRegistry` 增加 submit/start/completed/failed 日志。
+  - server middleware 与异常处理器接入 trace 绑定和 error 级日志，确保 HTTP 错误同样可关联 `trace_id`。
+- Rationale:
+  - 通过单一 observability 层收口字段，避免各模块自行拼装导致字段缺失或命名漂移。
+- Changed Files Summary:
+  - `src/nano_multiagent/observability/{__init__.py,tracing.py,logger.py}`
+  - `src/nano_multiagent/hooks/context.py`
+  - `src/nano_multiagent/tools/registry.py`
+  - `src/nano_multiagent/runs/registry.py`
+  - `src/nano_multiagent/server/{app.py,routes/session.py}`
+  - `tests/unit/test_observability_fields.py`
+  - `tests/contract/test_observability_contract.py`
+  - `tests/integration/test_trace_log_correlation_integration.py`
+  - `tests/e2e/test_observability_chain_e2e.py`
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前日志 sink 为进程内捕获；跨进程聚合与持久化需后续接入外部日志后端（不在 M13 范围）。
+- Rollback:
+  - 如需重做，可回退到 `65348a0`（R13.2 红测提交）后按 Green 重放。
+- Commits:
+  - C1=`65348a0`, C2=`7ebde86`, C3=`TO_FILL_AFTER_COMMIT`

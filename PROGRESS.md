@@ -395,3 +395,17 @@
   - `3578aad` | `e1ccd61` | `TO_FILL_AFTER_COMMIT`
 - Next:
   - R13.2 Red：新增 observability 关联字段红测，锁定 `session_id/turn_id/tool_call_id/trace_id`。
+
+## 2026-02-27 10:08:24 +0800
+- Done:
+  - 完成 R13.2：新增 `observability/logger.py` 与 `observability/tracing.py`，统一日志关联字段 `session_id/turn_id/tool_call_id/trace_id`。
+  - run/tool/hook/error 路径已接入结构化日志：`RunsRegistry`、`ToolRegistry`、`HookLogger`、server 异常处理器。
+  - M13 Exit Criteria 达成，`ROADMAP.md` 中 M13 状态更新为 `Completed`。
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_observability_fields.py tests/contract/test_observability_contract.py tests/integration/test_trace_log_correlation_integration.py tests/e2e/test_observability_chain_e2e.py` -> `4 errors`（`ModuleNotFoundError: nano_multiagent.observability`）
+  - 转绿（C2）: 同命令 -> `5 passed in 0.44s`
+  - 全量回归: `pytest -q` -> `159 passed in 11.58s`
+- Commits: C1 | C2 | C3
+  - `65348a0` | `7ebde86` | `TO_FILL_AFTER_COMMIT`
+- Next:
+  - M13 已完成；按边界不进入 M14+。
