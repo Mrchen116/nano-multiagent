@@ -1,7 +1,11 @@
+import asyncio
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from nano_multiagent.core.ids import make_message_id, make_turn_id
 from nano_multiagent.core.types import TurnResult
+from nano_multiagent.hooks.context import HookContext
+from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
 from nano_multiagent.llm.interfaces import LLMClient
 from nano_multiagent.session.manager import SessionManager
@@ -20,13 +24,18 @@ class AgentRuntime:
         llm_client: LLMClient | None = None,
         model: str | None = None,
         policies: AgentPolicies | None = None,
+        hook_runner: HookRunner | None = None,
+        repo_root: Path | None = None,
     ) -> None:
         active_llm_client = llm_client or create_llm_client()
+        self._hook_runner = hook_runner
+        self._repo_root = (repo_root or Path.cwd()).expanduser().resolve()
         self._session_manager = session_manager
         self._loop = AgentLoop(
             llm_client=active_llm_client,
             model=model or LLMFactoryConfig.from_env().model,
             policies=policies,
+            hook_runner=hook_runner,
         )
 
     def run(self, session_id: str, parts: Sequence[Mapping[str, Any]], *, stream: bool = True) -> TurnResult:
@@ -41,6 +50,45 @@ class AgentRuntime:
             raise ValueError("empty input parts are not allowed")
 
         turn_id = make_turn_id()
+        hook_ctx = HookContext(session_id=session_id, turn_id=turn_id, repo_root=self._repo_root)
+
+        input_payload, handled = self._dispatch_intercept(
+            "input",
+            {
+                "text": user_text,
+                "images": _extract_input_images(input_parts),
+            },
+            hook_ctx,
+        )
+        if handled:
+            return TurnResult(
+                session_id=session_id,
+                turn_id=turn_id,
+                messages=(),
+                completed=True,
+                stop_reason="handled_by_hook",
+            )
+        transformed_text = input_payload.get("text", user_text)
+        if isinstance(transformed_text, str):
+            user_text = transformed_text
+        if not user_text:
+            raise ValueError("empty input parts are not allowed")
+
+        before_payload, _ = self._dispatch_intercept(
+            "before_agent_start",
+            {"message": None, "system_prompt": None},
+            hook_ctx,
+        )
+        system_prompt_override = before_payload.get("system_prompt")
+        if not isinstance(system_prompt_override, str):
+            system_prompt_override = None
+
+        self._dispatch_observe(
+            "agent_start",
+            {"session_id": session_id, "turn_id": turn_id},
+            hook_ctx,
+        )
+
         history = self._session_manager.list_turn_messages(session_id)
         turn_count = sum(1 for message in history if message.role == "user")
         user_message_id = make_message_id()
@@ -62,7 +110,9 @@ class AgentRuntime:
                 history_messages=history,
                 input_parts=input_parts,
                 user_text=user_text,
-            )
+            ),
+            hook_ctx=hook_ctx,
+            system_prompt_override=system_prompt_override,
         )
 
         for assistant_message in turn_result.messages:
@@ -73,6 +123,16 @@ class AgentRuntime:
                 content=assistant_message.content,
                 message_id=assistant_message.message_id,
             )
+        self._dispatch_observe(
+            "agent_end",
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "completed": turn_result.completed,
+                "stop_reason": turn_result.stop_reason,
+            },
+            hook_ctx,
+        )
         return turn_result
 
     def continue_turn(self, session_id: str, *, stream: bool = True) -> TurnResult:
@@ -84,6 +144,68 @@ class AgentRuntime:
 
     def get_session(self, session_id: str) -> Session | None:
         return self._session_manager.get_session(session_id)
+
+    def _dispatch_intercept(
+        self,
+        event: str,
+        payload: Mapping[str, Any],
+        hook_ctx: HookContext,
+    ) -> tuple[dict[str, Any], bool]:
+        if self._hook_runner is None:
+            return dict(payload), False
+        try:
+            dispatch_result = asyncio.run(
+                self._hook_runner.dispatch_intercept(
+                    event,
+                    payload,
+                    hook_ctx,
+                )
+            )
+        except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
+            hook_ctx.logger.warn("hook intercept dispatch failed", event=event, error=str(exc))
+            return dict(payload), False
+        self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=dispatch_result.diagnostics)
+        return dispatch_result.payload, dispatch_result.stopped
+
+    def _dispatch_observe(
+        self,
+        event: str,
+        payload: Mapping[str, Any],
+        hook_ctx: HookContext,
+    ) -> None:
+        if self._hook_runner is None:
+            return
+        try:
+            diagnostics = asyncio.run(
+                self._hook_runner.dispatch_observe(
+                    event,
+                    payload,
+                    hook_ctx,
+                )
+            )
+        except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
+            hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))
+            return
+        self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
+
+    @staticmethod
+    def _log_hook_diagnostics(
+        hook_ctx: HookContext,
+        *,
+        event: str,
+        diagnostics: tuple[HookExecution, ...],
+    ) -> None:
+        for item in diagnostics:
+            if item.status == "ok":
+                continue
+            hook_ctx.logger.warn(
+                "hook execution isolated",
+                event=event,
+                hook_id=item.hook_id,
+                status=item.status,
+                duration_ms=item.duration_ms,
+                error=item.error,
+            )
 
 
 def _serialize_input_parts(parts: Sequence[InputPart]) -> tuple[dict[str, Any], ...]:
@@ -99,3 +221,18 @@ def _serialize_input_parts(parts: Sequence[InputPart]) -> tuple[dict[str, Any], 
         payload.update(part.metadata)
         serialized.append(payload)
     return tuple(serialized)
+
+
+def _extract_input_images(parts: Sequence[InputPart]) -> list[dict[str, Any]]:
+    images: list[dict[str, Any]] = []
+    for part in parts:
+        if part.type != "image":
+            continue
+        payload: dict[str, Any] = {}
+        if part.image_url is not None:
+            payload["image_url"] = part.image_url
+        if part.mime_type is not None:
+            payload["mime_type"] = part.mime_type
+        payload.update(part.metadata)
+        images.append(payload)
+    return images

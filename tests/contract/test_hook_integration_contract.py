@@ -110,8 +110,11 @@ def test_tool_call_block_error_contract() -> None:
             hook_context=HookContext(session_id="sess_contract", repo_root=Path.cwd()),
         )
 
-    assert exc_info.value.tool_name == "echo"
-    assert exc_info.value.details == {"blocked_by_hook": True, "reason": "policy"}
+    assert exc_info.value.details == {
+        "blocked_by_hook": True,
+        "reason": "policy",
+        "tool_name": "echo",
+    }
 
 
 def test_tool_result_rewrite_contract() -> None:
@@ -136,4 +139,3 @@ def test_tool_result_rewrite_contract() -> None:
     )
 
     assert result == {"text": "rewritten-by-hook"}
-

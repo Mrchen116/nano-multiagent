@@ -4,16 +4,18 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from nano_multiagent.hooks.runner import HookRunner
+
 from .base import Tool
 from .builtins import register_builtin_tools
 from .registry import ToolRegistry
 
 
-def build_tool_registry(*, repo_root: Path) -> ToolRegistry:
+def build_tool_registry(*, repo_root: Path, hook_runner: HookRunner | None = None) -> ToolRegistry:
     from .base import ToolContext
 
     context = ToolContext.create(repo_root=repo_root)
-    registry = ToolRegistry(context=context)
+    registry = ToolRegistry(context=context, hook_runner=hook_runner)
     register_builtin_tools(registry)
     load_tools_from_directory(repo_root=repo_root, registry=registry)
     return registry
