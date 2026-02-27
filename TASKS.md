@@ -1,6 +1,6 @@
 # TASKS (Current Milestone: M12)
 
-## [TODO] R12.1 async 提交与 run_id 生命周期基线
+## [DONE] R12.1 async 提交与 run_id 生命周期基线
 - Steps:
   - 新增 `messages:async` 与 `runs/{id}` 红测，先固定状态机与返回契约（Red）。
   - 最小实现 run registry/store，支持 `queued/running/completed/failed/cancelled`。
@@ -15,6 +15,7 @@
   - R12.1 目标测试红转绿
   - C1/C2/C3 三次提交完整
   - 四文档写入 R12.1 hash 与证据
+  - 已完成：`91cd896` | `264eab5` | `TBD（docs commit 后回填）`
 
 ## [TODO] R12.2 run cancel 语义与中断一致性
 - Steps:

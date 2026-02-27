@@ -608,3 +608,29 @@
   - 如需回滚 M11，可回退到 `0bcea2f` 重放 R11.3 Green，再按文档链重建。
 - Commits:
   - 归属 R11.3 C3 文档提交
+
+## 2026-02-27 09:41:06 +0800 - R12.1 完成记录（async 提交 + run 生命周期）
+- Context:
+  - M12 第一阶段需交付 `messages:async` 提交与 `runs/{id}` 查询，并保证 run 生命周期事件可持久化。
+  - 本次改动跨 `server/routes`、`session`、`core/ids` 与新增 `runs` 子模块，文件数超过 5。
+- Decision:
+  - 新增 `RunsRegistry`（线程池后台执行）维护 `queued/running/completed/failed/cancelled` 状态机。
+  - 在 `SessionEntryKind` 扩展 `RUN_STATUS`，通过 `SessionManager.append_run_status` 落盘 run 生命周期事件。
+  - 新增 `POST /v1/sessions/{session_id}/messages:async` 与 `GET /v1/runs/{run_id}`，统一沿用现有错误结构与 `trace_id`。
+- Rationale:
+  - 先冻结 async 提交和 run 查询契约，再在 R12.2 增量补 cancel，可降低并发语义改动风险。
+  - run 状态落 session 事件流能复用现有 sqlite 重建链路，不引入额外存储系统。
+- Changed Files Summary:
+  - `src/nano_multiagent/runs/{__init__.py,registry.py}`
+  - `src/nano_multiagent/server/{app.py,deps.py}`
+  - `src/nano_multiagent/server/routes/{session.py,run.py}`
+  - `src/nano_multiagent/session/{entries.py,manager.py}`
+  - `src/nano_multiagent/core/ids.py`
+  - `tests/{unit,contract,integration,e2e}` 中 R12.1 四类测试
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 当前取消语义尚未接线（R12.2 处理）；运行中任务尚不支持强制中止，仅完成最小生命周期基线。
+- Rollback:
+  - 如需重做，可回退至 `91cd896`（R12.1 红测提交）后按 Green 重放。
+- Commits:
+  - C1=`91cd896`, C2=`264eab5`, C3=`TBD（docs commit 后回填）`

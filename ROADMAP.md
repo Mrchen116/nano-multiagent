@@ -262,11 +262,13 @@
   - C2: `feat(R12.1): 实现async提交与run状态最小闭环（全绿）`
   - C3: `docs(R12.1): 记录async提交证据并推进下一步（记录hash/证据/下一步）`
 - Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
+  - C1: `91cd896`
+  - C2: `264eab5`
+  - C3: TBD（docs commit 后回填）
 - Evidence:
-  - Pending（下一步执行 R12.1 Red）
+  - 红测（C1）: `pytest -q tests/unit/test_runs_registry.py tests/contract/test_runs_async_contract.py tests/integration/test_runs_store_integration.py tests/e2e/test_messages_async_submission_e2e.py` -> `1 error`（`ModuleNotFoundError: nano_multiagent.runs`）
+  - 转绿（C2）: 同命令 -> `6 passed in 0.46s`
+  - 持久化证据: `test_async_run_status_entries_persist_in_sqlite_store` 断言 `session.run.status` 事件序列为 `queued -> running -> completed`
 
 ### Roadpoint R12.2: run cancel 语义与中断一致性
 - Public Surface:

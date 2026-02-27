@@ -341,3 +341,16 @@
   - `0bcea2f` | `7570d8f` | `ac5ed40`
 - Next:
   - M11 已完成；等待后续 Milestone 指令。
+
+## 2026-02-27 09:41:06 +0800
+- Done:
+  - 完成 R12.1：新增 `messages:async` 与 `GET /v1/runs/{run_id}`，交付 `RunsRegistry` 异步提交与 run 生命周期查询。
+  - 扩展 `session.run.status` 事件并在 sqlite store 持久化，支持会话重建后读取 run 状态轨迹。
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_runs_registry.py tests/contract/test_runs_async_contract.py tests/integration/test_runs_store_integration.py tests/e2e/test_messages_async_submission_e2e.py` -> `1 error`（`ModuleNotFoundError: nano_multiagent.runs`）
+  - 转绿（C2）: 同命令 -> `6 passed in 0.46s`
+  - 持久化验证 -> `test_async_run_status_entries_persist_in_sqlite_store` 断言 `queued/running/completed` 事件已落盘
+- Commits: C1 | C2 | C3
+  - `91cd896` | `264eab5` | `TBD（docs commit 后回填）`
+- Next:
+  - R12.2 Red：新增 `POST /v1/runs/{run_id}/cancel` queued/running/terminal 语义红测。
