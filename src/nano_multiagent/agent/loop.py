@@ -1,6 +1,8 @@
 import asyncio
+from pathlib import Path
 from typing import Any, Mapping
 
+from nano_multiagent.core.types import ToolSpec
 from nano_multiagent.core.ids import make_message_id
 from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.hooks.context import HookContext
@@ -23,6 +25,8 @@ class AgentLoop:
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         hook_runner: HookRunner | None = None,
         available_skills: tuple[SkillMetadata, ...] = (),
+        available_tools: tuple[ToolSpec, ...] | None = None,
+        current_working_directory: Path | None = None,
     ) -> None:
         self._llm_client = llm_client
         self._model = model
@@ -30,6 +34,8 @@ class AgentLoop:
         self._system_prompt = system_prompt
         self._hook_runner = hook_runner
         self._available_skills = available_skills
+        self._available_tools = available_tools
+        self._current_working_directory = current_working_directory
 
     def run(
         self,
@@ -55,6 +61,8 @@ class AgentLoop:
             user_text=state.user_text,
             system_prompt=system_prompt_override or self._system_prompt,
             available_skills=self._available_skills,
+            available_tools=self._available_tools,
+            current_working_directory=self._current_working_directory,
         )
 
         try:

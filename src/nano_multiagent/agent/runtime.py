@@ -59,6 +59,7 @@ class AgentRuntime:
             policies=policies,
             hook_runner=hook_runner,
             available_skills=resolved_skills,
+            current_working_directory=self._repo_root,
         )
         summary_model = self._compaction_settings.summary_model or self._model
         self._compaction_planner = CompactionPlanner(
