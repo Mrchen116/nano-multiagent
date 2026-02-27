@@ -482,3 +482,14 @@
   - `7792119` | `3c626de` | `5941f3c`
 - Next:
   - R13R.7 Red
+
+## 2026-02-27 17:20:59 +0800
+- Done:
+  - 完成 R13R.7 C3 文档收口：仅收口 `session_compact` 触发链路证据，并保持 R13R.8 为 TODO。
+- Evidence:
+  - `pytest -q tests/integration/test_compaction_runtime_integration.py -k session_compact -> 1 passed, 4 deselected`
+  - `pytest -q tests/integration/test_compaction_runtime_integration.py -> 5 passed`
+- Commits: C1 | C2 | C3
+  - `8971be5` | `d43937c` | `<本次hash>`
+- Next:
+  - R13R.8 Red

@@ -99,10 +99,25 @@
 - Commits:
   - `7792119` | `3c626de` | `5941f3c`
 
-## [TODO] R13R.7 Hook 剩余生命周期触发与示例补齐
+## [DONE] R13R.7 Hook 剩余生命周期触发与示例补齐
 - Steps:
-  - 新增 `session_compact/session_shutdown/run_timeout` 触发链路红测（Red）。
-  - 在 runtime/compaction/runs 链路补齐剩余事件触发。
+  - 新增 `session_compact` 触发链路红测（Red）。
+  - 在 `runtime.compact` 成功路径补齐 `session_compact` 触发。
+  - 执行 compaction 集成测试回归并记录证据。
+- Expected Tests:
+  - `tests/integration/test_compaction_runtime_integration.py -k session_compact`
+  - `tests/integration/test_compaction_runtime_integration.py`
+- DoD:
+  - R13R.7 目标测试红转绿
+  - C1/C2/C3 三次提交完整
+  - 四文档写入 R13R.7 hash 与证据
+- Commits:
+  - `8971be5` | `d43937c` | `<本次hash>`
+
+## [TODO] R13R.8 Hook 剩余生命周期触发与示例收口
+- Steps:
+  - 新增 `session_shutdown/run_timeout` 触发链路红测（Red）。
+  - 在 runs/hook 链路补齐剩余事件触发。
   - 增加至少一个内置 hook 示例模块并验证加载链路。
   - 执行全量回归并收口 M13R。
 - Expected Tests:
@@ -111,7 +126,7 @@
   - `tests/integration/test_hook_critical_events_integration.py`
   - `tests/e2e/test_hook_error_timeout_abort_e2e.py`
 - DoD:
-  - R13R.7 目标测试红转绿
+  - R13R.8 目标测试红转绿
   - `pytest -q` 全绿
   - C1/C2/C3 三次提交完整
-  - 四文档写入 R13R.7 hash 与证据
+  - 四文档写入 R13R.8 hash 与证据
