@@ -460,3 +460,14 @@
   - `e379086` | `397f83d` | `d2d8abf`
 - Next:
   - R13R.5 Red
+
+## 2026-02-27 16:56:20 +0800
+- Done:
+  - 完成 R13R.5 C3 文档收口：仅收口 `session_start` 触发链路证据并保持 R13R.6 为 TODO。
+- Evidence:
+  - `pytest -q tests/unit/test_agent_runtime_hooks.py -k session_start -> 1 passed, 5 deselected`
+  - `pytest -q tests/unit/test_agent_runtime_hooks.py -> 6 passed`
+- Commits: C1 | C2 | C3
+  - `aaef67b` | `4836718` | `<本次hash>`
+- Next:
+  - R13R.6 Red

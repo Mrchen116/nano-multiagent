@@ -69,9 +69,24 @@
 - Commits:
   - `e379086` | `397f83d` | `d2d8abf`
 
-## [TODO] R13R.5 Hook 触发链路与示例补齐
+## [DONE] R13R.5 Hook 触发链路与示例补齐
 - Steps:
-  - 新增 `session_*`/`run_error|run_timeout` 触发链路红测（Red）。
+  - 新增 `session_start` 触发链路红测（Red）。
+  - 在 `create_session` 主链路补齐 `session_start` observe hook 触发。
+  - 执行 `test_agent_runtime_hooks` 回归并记录证据。
+- Expected Tests:
+  - `tests/unit/test_agent_runtime_hooks.py -k session_start`
+  - `tests/unit/test_agent_runtime_hooks.py`
+- DoD:
+  - R13R.5 目标测试红转绿
+  - C1/C2/C3 三次提交完整
+  - 四文档写入 R13R.5 hash 与证据
+- Commits:
+  - `aaef67b` | `4836718` | `<本次hash>`
+
+## [TODO] R13R.6 Hook 剩余生命周期触发与示例补齐
+- Steps:
+  - 新增 `session_compact/session_shutdown/run_error/run_timeout` 触发链路红测（Red）。
   - 在 runtime/compaction/runs 链路补齐事件触发。
   - 增加至少一个内置 hook 示例模块并验证加载链路。
   - 执行全量回归并收口 M13R。
@@ -81,7 +96,7 @@
   - `tests/integration/test_hook_critical_events_integration.py`
   - `tests/e2e/test_hook_error_timeout_abort_e2e.py`
 - DoD:
-  - R13R.5 目标测试红转绿
+  - R13R.6 目标测试红转绿
   - `pytest -q` 全绿
   - C1/C2/C3 三次提交完整
-  - 四文档写入 R13R.5 hash 与证据
+  - 四文档写入 R13R.6 hash 与证据

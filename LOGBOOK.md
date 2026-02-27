@@ -806,3 +806,13 @@
   - C3 与实现解耦可确保证据链可审计、可回滚，避免跨 Roadpoint 混改导致边界漂移。
 - Commits:
   - C1=`e379086`, C2=`397f83d`, C3=`d2d8abf`
+
+## 2026-02-27 16:56:20 +0800 - R13R.5 C3 收口记录
+- Context:
+  - R13R.5 本轮仅收口 `session_start` 触发链路，剩余生命周期触发点不并入本提交。
+- Decision:
+  - 仅更新四文档，确认 R13R.5 置为 DONE，并保持 R13R.6 为 TODO 承接后续实现。
+- Rationale:
+  - 将 `session_start` 与其余 `session_compact/session_shutdown/run_error/run_timeout` 拆分，可避免跨 Roadpoint 混改并简化回归定位。
+- Commits:
+  - C1=`aaef67b`, C2=`4836718`, C3=`<本次hash>`
