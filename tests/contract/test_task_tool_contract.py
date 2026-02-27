@@ -20,4 +20,8 @@ def test_task_tool_contract_is_exposed_by_tools_endpoint() -> None:
     task_descriptor = next(item for item in response.json()["tools"] if item["name"] == "task")
     assert task_descriptor["input_schema"]["required"] == ["mode"]
     assert task_descriptor["input_schema"]["properties"]["mode"]["enum"] == ["blocking", "non_blocking"]
+    assert "idempotency_key" in task_descriptor["input_schema"]["properties"]
+    assert "timeout_seconds" in task_descriptor["input_schema"]["properties"]
+    assert "category" in task_descriptor["input_schema"]["properties"]
+    assert "subagent_type" in task_descriptor["input_schema"]["properties"]
     assert "/v1/tasks" not in {route.path for route in app.routes}

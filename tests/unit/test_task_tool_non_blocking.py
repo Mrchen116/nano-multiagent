@@ -1,6 +1,6 @@
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from time import sleep
 
 import pytest
 
@@ -19,10 +19,11 @@ class _RuntimeStub:
     def __init__(self) -> None:
         self.created = 0
         self.run_calls: list[dict[str, object]] = []
+        self.continue_calls: list[dict[str, object]] = []
 
     def create_session(self) -> _Session:
         self.created += 1
-        return _Session(session_id=f"sess_task_nb_{self.created}")
+        return _Session(session_id=f"sess_task_non_blocking_{self.created}")
 
     def run(
         self,
@@ -40,11 +41,11 @@ class _RuntimeStub:
                 "llm_session_id": llm_session_id,
             }
         )
-        sleep(0.05)
+        time.sleep(0.05)
         return TurnResult(
             session_id=session_id,
-            turn_id="turn_nb",
-            messages=(Message(message_id="msg_nb", role="assistant", content="nb-ok"),),
+            turn_id="turn_non_blocking",
+            messages=(Message(message_id="msg_non_blocking", role="assistant", content="done"),),
             completed=True,
             stop_reason="completed",
         )
@@ -56,11 +57,19 @@ class _RuntimeStub:
         stream: bool = True,
         llm_session_id: str | None = None,
     ) -> TurnResult:
-        return self.run(
-            session_id,
-            [{"type": "text", "text": "continue"}],
-            stream=stream,
-            llm_session_id=llm_session_id,
+        self.continue_calls.append(
+            {
+                "session_id": session_id,
+                "stream": stream,
+                "llm_session_id": llm_session_id,
+            }
+        )
+        return TurnResult(
+            session_id=session_id,
+            turn_id="turn_continue",
+            messages=(Message(message_id="msg_continue", role="assistant", content="continued"),),
+            completed=True,
+            stop_reason="completed",
         )
 
 
@@ -68,69 +77,64 @@ def _context(tmp_path: Path) -> ToolContext:
     return ToolContext.create(repo_root=tmp_path).with_session("sess_main_unit")
 
 
-def test_task_non_blocking_returns_receipt_and_reuses_idempotency_key(tmp_path: Path) -> None:
-    runtime = _RuntimeStub()
-    tool = TaskTool(runtime=runtime)
-    ctx = _context(tmp_path)
-
-    first = tool.run(
-        {
-            "mode": "non_blocking",
-            "prompt": "run",
-            "subagent_type": "oracle",
-            "idempotency_key": "idem-1",
-        },
-        ctx,
-    )
-    second = tool.run(
-        {
-            "mode": "non_blocking",
-            "prompt": "run",
-            "subagent_type": "oracle",
-            "idempotency_key": "idem-1",
-        },
-        ctx,
-    )
-
-    assert first["status"] == "running"
-    assert first["mode"] == "non_blocking"
-    assert first["task_id"]
-    assert first["session_id"].startswith("sess_task_nb_")
-    assert second["task_id"] == first["task_id"]
-    assert second["idempotency_reused"] is True
+def _wait_for(predicate, *, timeout_seconds: float = 0.5) -> None:  # noqa: ANN001
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("condition not met before timeout")
 
 
-def test_task_continuation_rejects_category_or_subagent_type_mix(tmp_path: Path) -> None:
+def test_task_non_blocking_returns_receipt_and_executes_in_background(tmp_path: Path) -> None:
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
 
-    with pytest.raises(ToolError, match="session_id cannot be combined"):
+    result = tool.run({"mode": "non_blocking", "prompt": "run later"}, _context(tmp_path))
+
+    assert result["mode"] == "non_blocking"
+    assert result["status"] == "queued"
+    assert result["task_id"].startswith("call_")
+    assert result["session_id"] == "sess_task_non_blocking_1"
+    _wait_for(lambda: len(runtime.run_calls) == 1)
+
+
+def test_task_idempotency_key_returns_same_receipt(tmp_path: Path) -> None:
+    runtime = _RuntimeStub()
+    tool = TaskTool(runtime=runtime)
+    args = {"mode": "non_blocking", "prompt": "same task", "idempotency_key": "idem-1"}
+
+    first = tool.run(args, _context(tmp_path))
+    second = tool.run(args, _context(tmp_path))
+
+    assert first["task_id"] == second["task_id"]
+    assert second["idempotent_replay"] is True
+
+
+def test_task_rejects_new_task_when_category_and_subagent_type_both_present(tmp_path: Path) -> None:
+    runtime = _RuntimeStub()
+    tool = TaskTool(runtime=runtime)
+
+    with pytest.raises(ToolError, match="category and subagent_type are mutually exclusive"):
         tool.run(
             {
                 "mode": "blocking",
-                "session_id": "sess_existing",
-                "prompt": "continue",
-                "category": "analysis",
+                "prompt": "do work",
+                "category": "ops",
+                "subagent_type": "planner",
             },
             _context(tmp_path),
         )
 
 
-def test_task_new_task_requires_exactly_one_category_or_subagent_type(tmp_path: Path) -> None:
+def test_task_continuation_uses_existing_session_id(tmp_path: Path) -> None:
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
-    ctx = _context(tmp_path)
 
-    with pytest.raises(ToolError, match="exactly one of 'category' or 'subagent_type'"):
-        tool.run({"mode": "blocking", "prompt": "missing selector"}, ctx)
+    result = tool.run({"mode": "blocking", "session_id": "sess_existing"}, _context(tmp_path))
 
-    with pytest.raises(ToolError, match="exactly one of 'category' or 'subagent_type'"):
-        tool.run(
-            {
-                "mode": "blocking",
-                "prompt": "conflict selector",
-                "category": "analysis",
-                "subagent_type": "oracle",
-            },
-            ctx,
-        )
+    assert result["status"] == "completed"
+    assert result["continuation"] is True
+    assert result["session_id"] == "sess_existing"
+    assert runtime.continue_calls[0]["session_id"] == "sess_existing"
+    assert runtime.created == 0

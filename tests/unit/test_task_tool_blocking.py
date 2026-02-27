@@ -68,7 +68,10 @@ def test_task_blocking_returns_structured_success_payload(tmp_path: Path) -> Non
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
 
-    result = tool.run({"mode": "blocking", "prompt": "hello"}, _context(tmp_path))
+    result = tool.run(
+        {"mode": "blocking", "prompt": "hello", "subagent_type": "oracle"},
+        _context(tmp_path),
+    )
 
     assert result["mode"] == "blocking"
     assert result["status"] == "completed"
@@ -82,7 +85,10 @@ def test_task_blocking_wraps_subagent_errors_without_raising(tmp_path: Path) -> 
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
 
-    result = tool.run({"mode": "blocking", "prompt": "boom"}, _context(tmp_path))
+    result = tool.run(
+        {"mode": "blocking", "prompt": "boom", "subagent_type": "oracle"},
+        _context(tmp_path),
+    )
 
     assert result["mode"] == "blocking"
     assert result["status"] == "failed"
@@ -94,7 +100,15 @@ def test_task_blocking_respects_timeout_seconds(tmp_path: Path) -> None:
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
 
-    result = tool.run({"mode": "blocking", "prompt": "sleep", "timeout_seconds": 0.05}, _context(tmp_path))
+    result = tool.run(
+        {
+            "mode": "blocking",
+            "prompt": "sleep",
+            "subagent_type": "oracle",
+            "timeout_seconds": 0.05,
+        },
+        _context(tmp_path),
+    )
 
     assert result["mode"] == "blocking"
     assert result["status"] == "timed_out"

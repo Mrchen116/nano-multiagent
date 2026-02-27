@@ -44,7 +44,7 @@ def test_tools_listing_contains_task_without_task_http_endpoint(tmp_path) -> Non
 
     result = app.state.tool_registry.execute(
         "task",
-        {"mode": "blocking", "prompt": "run e2e"},
+        {"mode": "blocking", "prompt": "run e2e", "subagent_type": "oracle"},
         hook_context=HookContext(session_id="sess_main_e2e", repo_root=tmp_path),
     )
     assert result["status"] == "completed"

@@ -1,44 +1,53 @@
-from time import monotonic, sleep
+import time
+from dataclasses import dataclass
 
 from fastapi.testclient import TestClient
 
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from nano_multiagent.server.app import create_app
-from nano_multiagent.session.manager import SessionManager
-from nano_multiagent.session.stores.base import LoadedSession, SessionStore
 
 
-class InMemorySessionStore(SessionStore):
+@dataclass(frozen=True, slots=True)
+class _Session:
+    session_id: str
+
+
+class _RuntimeStub:
     def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-        self.snapshots: dict[str, dict[str, object]] = {}
+        self.created = 0
+        self.run_calls: list[dict[str, object]] = []
 
-    def append_event(self, session_id: str, entry: object) -> None:
-        self.events.append((session_id, entry))
+    def create_session(self) -> _Session:
+        self.created += 1
+        return _Session(session_id=f"sess_non_blocking_e2e_{self.created}")
 
-    def load_session(self, session_id: str) -> LoadedSession | None:
-        session_events = tuple(entry for sid, entry in self.events if sid == session_id)
-        if not session_events and session_id not in self.snapshots:
-            return None
-        return LoadedSession(
+    def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        llm_session_id: str | None = None,
+    ) -> TurnResult:
+        self.run_calls.append(
+            {
+                "session_id": session_id,
+                "parts": parts,
+                "stream": stream,
+                "llm_session_id": llm_session_id,
+            }
+        )
+        return TurnResult(
             session_id=session_id,
-            events=session_events,
-            snapshot=self.snapshots.get(session_id),
+            turn_id="turn_non_blocking_e2e",
+            messages=(Message(message_id="msg_non_blocking_e2e", role="assistant", content="done"),),
+            completed=True,
+            stop_reason="completed",
         )
 
-    def save_snapshot(self, session_id: str, snapshot: dict[str, object]) -> None:
-        self.snapshots[session_id] = snapshot
-
-
-class EchoLLMClient:
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
-        return LLMGenerateResponse(
-            model=request.model,
-            message=LLMMessage(role="assistant", content=f"ack:{request.messages[-1].content}"),
-            finish_reason="stop",
-        )
+    def continue_turn(self, session_id: str, *, stream: bool = True, llm_session_id: str | None = None) -> TurnResult:
+        return self.run(session_id, [{"type": "text", "text": "continue"}], stream=stream, llm_session_id=llm_session_id)
 
 
 def _auth_headers(request_id: str) -> dict[str, str]:
@@ -48,43 +57,32 @@ def _auth_headers(request_id: str) -> dict[str, str]:
     }
 
 
-def test_task_non_blocking_returns_immediately_and_does_not_block_parent_flow(tmp_path) -> None:  # noqa: ANN001
-    store = InMemorySessionStore()
-    manager = SessionManager(store=store)
-    runtime = AgentRuntime(session_manager=manager, llm_client=EchoLLMClient(), model="mock-model")
-    app = create_app(runtime=runtime, repo_root=tmp_path, auth_token="test-token")
+def _wait_for(predicate, *, timeout_seconds: float = 0.5) -> None:  # noqa: ANN001
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("condition not met before timeout")
+
+
+def test_non_blocking_task_receipt_is_returned_without_new_http_endpoint(tmp_path) -> None:  # noqa: ANN001
+    runtime = _RuntimeStub()
+    app = create_app(auth_token="test-token", runtime=runtime, repo_root=tmp_path)
     client = TestClient(app)
 
-    created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-task-nb-create"))
-    assert created.status_code == 201
-    parent_session_id = created.json()["session_id"]
+    tools_resp = client.get("/v1/tools", headers=_auth_headers("req-task-non-blocking-e2e"))
+    assert tools_resp.status_code == 200
+    assert "/v1/tasks" not in {route.path for route in app.routes}
 
     receipt = app.state.tool_registry.execute(
         "task",
-        {
-            "mode": "non_blocking",
-            "prompt": "background e2e",
-            "subagent_type": "oracle",
-            "idempotency_key": "idem-e2e-1",
-        },
-        hook_context=HookContext(session_id=parent_session_id, repo_root=tmp_path),
+        {"mode": "non_blocking", "prompt": "delegate"},
+        hook_context=HookContext(session_id="sess_main_non_blocking_e2e", repo_root=tmp_path),
     )
-    assert receipt["status"] == "running"
-    task_session_id = receipt["session_id"]
 
-    parent_response = client.post(
-        f"/v1/sessions/{parent_session_id}/messages",
-        json={"parts": [{"type": "text", "text": "parent still runs"}], "stream": False},
-        headers=_auth_headers("req-task-nb-parent"),
-    )
-    assert parent_response.status_code == 200
-    assert parent_response.json()["message"]["content"] == "ack:parent still runs"
-
-    deadline = monotonic() + 2.0
-    while monotonic() < deadline:
-        task_messages = manager.list_turn_messages(task_session_id)
-        if any(message.role == "assistant" for message in task_messages):
-            break
-        sleep(0.02)
-    else:
-        raise AssertionError("non_blocking task did not finish before timeout")
+    assert receipt["mode"] == "non_blocking"
+    assert receipt["status"] == "queued"
+    assert receipt["task_id"].startswith("call_")
+    assert receipt["session_id"] == "sess_non_blocking_e2e_1"
+    _wait_for(lambda: len(runtime.run_calls) == 1)

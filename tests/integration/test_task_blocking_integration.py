@@ -51,7 +51,7 @@ def test_task_blocking_runs_through_tool_registry_with_runtime_wiring(tmp_path: 
 
     result = app.state.tool_registry.execute(
         "task",
-        {"mode": "blocking", "prompt": "run integration task"},
+        {"mode": "blocking", "prompt": "run integration task", "subagent_type": "oracle"},
         hook_context=HookContext(session_id="sess_main_integration", repo_root=tmp_path),
     )
 

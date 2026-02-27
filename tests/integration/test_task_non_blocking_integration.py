@@ -1,37 +1,17 @@
+import time
+from dataclasses import dataclass
 from pathlib import Path
-from time import monotonic, sleep
 
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from nano_multiagent.server.app import create_app
+from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.session.manager import SessionManager
-from nano_multiagent.session.stores.base import LoadedSession, SessionStore
+from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
 
 
-class InMemorySessionStore(SessionStore):
-    def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-        self.snapshots: dict[str, dict[str, object]] = {}
-
-    def append_event(self, session_id: str, entry: object) -> None:
-        self.events.append((session_id, entry))
-
-    def load_session(self, session_id: str) -> LoadedSession | None:
-        session_events = tuple(entry for sid, entry in self.events if sid == session_id)
-        if not session_events and session_id not in self.snapshots:
-            return None
-        return LoadedSession(
-            session_id=session_id,
-            events=session_events,
-            snapshot=self.snapshots.get(session_id),
-        )
-
-    def save_snapshot(self, session_id: str, snapshot: dict[str, object]) -> None:
-        self.snapshots[session_id] = snapshot
-
-
-class RecordingLLMClient:
+class _RecordingLLMClient:
     def __init__(self) -> None:
         self.requests: list[LLMGenerateRequest] = []
 
@@ -39,61 +19,96 @@ class RecordingLLMClient:
         self.requests.append(request)
         return LLMGenerateResponse(
             model=request.model,
-            message=LLMMessage(role="assistant", content=f"subagent:{request.messages[-1].content}"),
+            message=LLMMessage(role="assistant", content="subagent-ok"),
             finish_reason="stop",
         )
 
 
-def test_task_blocking_uses_parent_session_as_llm_session_id(tmp_path: Path) -> None:
-    store = InMemorySessionStore()
-    manager = SessionManager(store=store)
-    parent = manager.create_session()
-    llm = RecordingLLMClient()
-    runtime = AgentRuntime(session_manager=manager, llm_client=llm, model="mock-model")
+@dataclass(frozen=True, slots=True)
+class _Session:
+    session_id: str
+
+
+class _RuntimeStub:
+    def __init__(self) -> None:
+        self.created = 0
+        self.run_calls: list[dict[str, object]] = []
+
+    def create_session(self) -> _Session:
+        self.created += 1
+        return _Session(session_id=f"sess_non_blocking_integration_{self.created}")
+
+    def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        llm_session_id: str | None = None,
+    ) -> TurnResult:
+        self.run_calls.append(
+            {
+                "session_id": session_id,
+                "parts": parts,
+                "stream": stream,
+                "llm_session_id": llm_session_id,
+            }
+        )
+        time.sleep(0.05)
+        return TurnResult(
+            session_id=session_id,
+            turn_id="turn_non_blocking_integration",
+            messages=(Message(message_id="msg_non_blocking_integration", role="assistant", content="done"),),
+            completed=True,
+            stop_reason="completed",
+        )
+
+    def continue_turn(self, session_id: str, *, stream: bool = True, llm_session_id: str | None = None):  # noqa: ANN201
+        del stream, llm_session_id
+        return self.run(session_id, [{"type": "text", "text": "continue"}], stream=False)
+
+
+def _wait_for(predicate, *, timeout_seconds: float = 0.6) -> None:  # noqa: ANN001
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("condition not met before timeout")
+
+
+def test_task_blocking_passes_parent_session_id_to_subagent_llm(tmp_path: Path) -> None:
+    store = SQLiteSessionStore(db_path=tmp_path / "task-pass-through.sqlite3")
+    llm_client = _RecordingLLMClient()
+    runtime = AgentRuntime(
+        session_manager=SessionManager(store=store),
+        llm_client=llm_client,
+        model="mock-model",
+    )
+    app = create_app(runtime=runtime, session_store=store, repo_root=tmp_path)
+
+    result = app.state.tool_registry.execute(
+        "task",
+        {"mode": "blocking", "prompt": "delegate this"},
+        hook_context=HookContext(session_id="sess_main_header", repo_root=tmp_path),
+    )
+
+    assert result["status"] == "completed"
+    assert result["session_id"] != "sess_main_header"
+    assert llm_client.requests[0].session_id == "sess_main_header"
+
+
+def test_task_non_blocking_executes_on_same_node_and_returns_receipt(tmp_path: Path) -> None:
+    runtime = _RuntimeStub()
     app = create_app(runtime=runtime, repo_root=tmp_path)
 
     result = app.state.tool_registry.execute(
         "task",
-        {"mode": "blocking", "prompt": "hello", "subagent_type": "oracle"},
-        hook_context=HookContext(session_id=parent.session_id, repo_root=tmp_path),
+        {"mode": "non_blocking", "prompt": "run async"},
+        hook_context=HookContext(session_id="sess_main_non_blocking", repo_root=tmp_path),
     )
 
-    assert result["status"] == "completed"
-    assert result["session_id"] != parent.session_id
-    assert llm.requests[-1].session_id == parent.session_id
-
-
-def test_task_non_blocking_receipt_is_traceable_via_session_events(tmp_path: Path) -> None:
-    store = InMemorySessionStore()
-    manager = SessionManager(store=store)
-    parent = manager.create_session()
-    llm = RecordingLLMClient()
-    runtime = AgentRuntime(session_manager=manager, llm_client=llm, model="mock-model")
-    app = create_app(runtime=runtime, repo_root=tmp_path)
-
-    receipt = app.state.tool_registry.execute(
-        "task",
-        {
-            "mode": "non_blocking",
-            "prompt": "background job",
-            "subagent_type": "oracle",
-            "idempotency_key": "idem-int-1",
-        },
-        hook_context=HookContext(session_id=parent.session_id, repo_root=tmp_path),
-    )
-
-    assert receipt["mode"] == "non_blocking"
-    assert receipt["status"] == "running"
-    task_session_id = receipt["session_id"]
-    assert task_session_id != parent.session_id
-
-    deadline = monotonic() + 2.0
-    while monotonic() < deadline:
-        messages = manager.list_turn_messages(task_session_id)
-        if any(message.role == "assistant" for message in messages):
-            break
-        sleep(0.02)
-    else:
-        raise AssertionError("background task did not append assistant turn before timeout")
-
-    assert llm.requests[-1].session_id == parent.session_id
+    assert result["mode"] == "non_blocking"
+    assert result["status"] == "queued"
+    assert result["session_id"] == "sess_non_blocking_integration_1"
+    _wait_for(lambda: len(runtime.run_calls) == 1)

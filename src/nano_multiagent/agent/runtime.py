@@ -67,7 +67,14 @@ class AgentRuntime:
         )
         self._compaction_applier = CompactionApplier(session_manager=session_manager)
 
-    def run(self, session_id: str, parts: Sequence[Mapping[str, Any]], *, stream: bool = True) -> TurnResult:
+    def run(
+        self,
+        session_id: str,
+        parts: Sequence[Mapping[str, Any]],
+        *,
+        stream: bool = True,
+        llm_session_id: str | None = None,
+    ) -> TurnResult:
         del stream  # M4 minimal runtime only supports non-stream flow.
 
         if self._session_manager.get_session(session_id) is None:
@@ -151,6 +158,7 @@ class AgentRuntime:
                 user_text=user_text,
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
+                llm_session_id=llm_session_id,
             )
         except ModelError as exc:
             if not self._post_turn_check_overflow(session_id=session_id, error=exc):
@@ -168,6 +176,7 @@ class AgentRuntime:
                 user_text=user_text,
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
+                llm_session_id=llm_session_id,
             )
 
         for assistant_message in turn_result.messages:
@@ -195,15 +204,25 @@ class AgentRuntime:
             raise ValueError(f"session does not exist: {session_id}")
         return self._compact_session(session_id=session_id, reason=CompactionReason.MANUAL)
 
-    def continue_turn(self, session_id: str, *, stream: bool = True) -> TurnResult:
+    def continue_turn(
+        self,
+        session_id: str,
+        *,
+        stream: bool = True,
+        llm_session_id: str | None = None,
+    ) -> TurnResult:
         return self.run(
             session_id,
             [{"type": "text", "text": "continue"}],
             stream=stream,
+            llm_session_id=llm_session_id,
         )
 
     def get_session(self, session_id: str) -> Session | None:
         return self._session_manager.get_session(session_id)
+
+    def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
+        return self._session_manager.create_session(title=title, metadata=metadata)
 
     def _dispatch_intercept(
         self,
@@ -278,6 +297,7 @@ class AgentRuntime:
         user_text: str,
         hook_ctx: HookContext,
         system_prompt_override: str | None,
+        llm_session_id: str | None,
     ) -> TurnResult:
         return self._loop.run(
             AgentState(
@@ -290,6 +310,7 @@ class AgentRuntime:
             ),
             hook_ctx=hook_ctx,
             system_prompt_override=system_prompt_override,
+            llm_session_id=llm_session_id,
         )
 
     def _preflight_compaction(

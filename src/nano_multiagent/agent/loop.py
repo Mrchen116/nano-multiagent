@@ -37,6 +37,7 @@ class AgentLoop:
         *,
         hook_ctx: HookContext | None = None,
         system_prompt_override: str | None = None,
+        llm_session_id: str | None = None,
     ) -> TurnResult:
         active_hook_ctx = hook_ctx or HookContext(session_id=state.session_id, turn_id=state.turn_id)
         self._dispatch_observe(
@@ -59,7 +60,7 @@ class AgentLoop:
         try:
             response = self._llm_client.generate(
                 LLMGenerateRequest(
-                    session_id=state.session_id,
+                    session_id=llm_session_id or state.session_id,
                     model=self._model,
                     messages=prompt_messages,
                     stream=False,
