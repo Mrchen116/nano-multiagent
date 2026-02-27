@@ -815,4 +815,4 @@
 - Rationale:
   - 将 `session_start` 与其余 `session_compact/session_shutdown/run_error/run_timeout` 拆分，可避免跨 Roadpoint 混改并简化回归定位。
 - Commits:
-  - C1=`aaef67b`, C2=`4836718`, C3=`<本次hash>`
+  - C1=`aaef67b`, C2=`4836718`, C3=`2ece503`

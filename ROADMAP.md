@@ -522,7 +522,7 @@
 - Commits:
   - C1: `aaef67b`
   - C2: `4836718`
-  - C3: `<本次hash>`
+  - C3: `2ece503`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_agent_runtime_hooks.py -k session_start` -> 失败（未触发 `session_start`）
   - 转绿（C2）: `pytest -q tests/unit/test_agent_runtime_hooks.py -k session_start` -> `1 passed, 5 deselected`
