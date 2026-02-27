@@ -224,25 +224,39 @@
   - Pending
 
 ## Milestone M12
-- Title: async runs + SSE 事件流
-- Goal: 交付 `messages:async`、`runs/*` 与会话/全局 SSE 事件流主链路。
-- Exit Criteria: 异步提交、运行状态查询、取消与 SSE 增量事件可用，`pytest -q` 全绿。
+- Title: 运行与事件流（SSE + runs 异步链路）
+- Goal: 交付 `messages:async`、`runs/*` 与会话/全局 SSE 增量事件流，打通异步运行主链路。
+- Exit Criteria:
+  - `POST /v1/sessions/{session_id}/messages:async` 可提交异步运行并返回 `run_id`。
+  - `GET /v1/runs/{run_id}` 与 `POST /v1/runs/{run_id}/cancel` 可用。
+  - `GET /v1/events` 与 `GET /v1/sessions/{session_id}/events` 可输出 `text_delta/tool_start/tool_end/turn_end` 等事件。
+  - 异步取消与中断行为一致，`pytest -q` 全绿。
 - Status: Planned (Not Expanded)
 
 ## Milestone M13
-- Title: Hook 查询 API（只读）
-- Goal: 交付 `GET /v1/hooks/events` 与 `GET /v1/hooks`，暴露 Hook 契约与加载状态。
-- Exit Criteria: 返回事件契约、hook 来源（builtin/workspace）、订阅与超时配置；`pytest -q` 全绿。
+- Title: Hook 查询 API 与可观测性收口
+- Goal: 交付 Hook 只读查询接口，并完成结构化日志/trace 关联字段收口。
+- Exit Criteria:
+  - `GET /v1/hooks/events` 返回事件清单、类型（observe/intercept）与返回契约摘要。
+  - `GET /v1/hooks` 返回已加载 Hook 列表（含 source、订阅事件、priority、timeout_ms）。
+  - 运行日志可关联 `session_id/turn_id/tool_call_id/trace_id`，`pytest -q` 全绿。
 - Status: Planned (Not Expanded)
 
 ## Milestone M14
-- Title: capabilities 与薄 CLI（HTTP-only）
-- Goal: 交付 `GET /v1/capabilities` 与最小 CLI（仅经 `sdk.client` 调 HTTP）。
-- Exit Criteria: CLI 不直连 runtime；能力查询可反映模型/工具清单；`pytest -q` 全绿。
+- Title: 第二 Provider（anthropic）与切换验收
+- Goal: 在不改 runtime/tool/session 核心代码前提下新增 `anthropic` 协议实现与工厂接线。
+- Exit Criteria:
+  - `llm/protocols/anthropic/*` 落地并通过与 `openai_compat` 同一契约测试集。
+  - provider 切换仅改配置（不改 runtime/tool/session 代码）。
+  - OpenAI/Anthropic 双链路集成测试通过，`pytest -q` 全绿。
 - Status: Planned (Not Expanded)
 
 ## Milestone M15
-- Title: 第二 provider（anthropic）与切换验收
-- Goal: 在不改 runtime/tool/session 代码前提下新增 `anthropic` provider 并通过切换验收。
-- Exit Criteria: provider 切换仅改配置，OpenAI/Anthropic 双链路测试通过，`pytest -q` 全绿。
+- Title: 发布前硬化与回放审计验收
+- Goal: 完成全局能力收口（capabilities/openapi/薄CLI）与稳定性硬化，达成蓝图最小验收。
+- Exit Criteria:
+  - `GET /v1/capabilities` 与 `GET /v1/openapi.json` 可用且反映当前模型/工具能力。
+  - CLI 保持 HTTP-only（不直连 runtime）并可完成主流程调用。
+  - 回放一致性、故障注入与恢复性检查通过，关键长会话压缩/重试链路稳定。
+  - 满足《内核设计蓝图.md》第 11 节最小验收项，`pytest -q` 全绿。
 - Status: Planned (Not Expanded)
