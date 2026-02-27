@@ -89,7 +89,13 @@ def test_task_blocking_passes_parent_session_id_to_subagent_llm(tmp_path: Path) 
 
     result = app.state.tool_registry.execute(
         "task",
-        {"mode": "blocking", "prompt": "delegate this"},
+        {
+            "run_in_background": False,
+            "load_skills": ["playwright"],
+            "description": "delegate task",
+            "prompt": "delegate this",
+            "category": "research",
+        },
         hook_context=HookContext(session_id="sess_main_header", repo_root=tmp_path),
     )
 
@@ -104,11 +110,18 @@ def test_task_non_blocking_executes_on_same_node_and_returns_receipt(tmp_path: P
 
     result = app.state.tool_registry.execute(
         "task",
-        {"mode": "non_blocking", "prompt": "run async"},
+        {
+            "run_in_background": True,
+            "load_skills": [],
+            "description": "delegate task",
+            "prompt": "run async",
+            "subagent_type": "oracle",
+        },
         hook_context=HookContext(session_id="sess_main_non_blocking", repo_root=tmp_path),
     )
 
     assert result["mode"] == "non_blocking"
+    assert result["run_in_background"] is True
     assert result["status"] == "queued"
     assert result["session_id"] == "sess_non_blocking_integration_1"
     _wait_for(lambda: len(runtime.run_calls) == 1)

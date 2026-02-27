@@ -51,11 +51,18 @@ def test_task_blocking_runs_through_tool_registry_with_runtime_wiring(tmp_path: 
 
     result = app.state.tool_registry.execute(
         "task",
-        {"mode": "blocking", "prompt": "run integration task", "subagent_type": "oracle"},
+        {
+            "run_in_background": False,
+            "load_skills": ["playwright"],
+            "description": "run integration",
+            "prompt": "run integration task",
+            "subagent_type": "oracle",
+        },
         hook_context=HookContext(session_id="sess_main_integration", repo_root=tmp_path),
     )
 
     assert result["mode"] == "blocking"
+    assert result["run_in_background"] is False
     assert result["status"] == "completed"
     assert result["session_id"] == "sess_task_blocking_1"
     assert result["output"]["message"]["content"] == "task-ok"

@@ -90,9 +90,19 @@ def test_task_non_blocking_returns_receipt_and_executes_in_background(tmp_path: 
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
 
-    result = tool.run({"mode": "non_blocking", "prompt": "run later"}, _context(tmp_path))
+    result = tool.run(
+        {
+            "run_in_background": True,
+            "load_skills": ["playwright"],
+            "description": "delegate task",
+            "prompt": "run later",
+            "category": "research",
+        },
+        _context(tmp_path),
+    )
 
     assert result["mode"] == "non_blocking"
+    assert result["run_in_background"] is True
     assert result["status"] == "queued"
     assert result["task_id"].startswith("call_")
     assert result["session_id"] == "sess_task_non_blocking_1"
@@ -102,7 +112,14 @@ def test_task_non_blocking_returns_receipt_and_executes_in_background(tmp_path: 
 def test_task_idempotency_key_returns_same_receipt(tmp_path: Path) -> None:
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
-    args = {"mode": "non_blocking", "prompt": "same task", "idempotency_key": "idem-1"}
+    args = {
+        "run_in_background": True,
+        "load_skills": [],
+        "description": "delegate task",
+        "prompt": "same task",
+        "category": "research",
+        "idempotency_key": "idem-1",
+    }
 
     first = tool.run(args, _context(tmp_path))
     second = tool.run(args, _context(tmp_path))
@@ -118,10 +135,28 @@ def test_task_rejects_new_task_when_category_and_subagent_type_both_present(tmp_
     with pytest.raises(ToolError, match="category and subagent_type are mutually exclusive"):
         tool.run(
             {
-                "mode": "blocking",
+                "run_in_background": False,
+                "load_skills": [],
+                "description": "delegate task",
                 "prompt": "do work",
                 "category": "ops",
                 "subagent_type": "planner",
+            },
+            _context(tmp_path),
+        )
+
+
+def test_task_rejects_new_task_when_category_and_subagent_type_both_missing(tmp_path: Path) -> None:
+    runtime = _RuntimeStub()
+    tool = TaskTool(runtime=runtime)
+
+    with pytest.raises(ToolError, match="either category or subagent_type is required"):
+        tool.run(
+            {
+                "run_in_background": False,
+                "load_skills": [],
+                "description": "delegate task",
+                "prompt": "do work",
             },
             _context(tmp_path),
         )
@@ -131,10 +166,19 @@ def test_task_continuation_uses_existing_session_id(tmp_path: Path) -> None:
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
 
-    result = tool.run({"mode": "blocking", "session_id": "sess_existing"}, _context(tmp_path))
+    result = tool.run(
+        {
+            "run_in_background": False,
+            "load_skills": ["playwright"],
+            "description": "continue task",
+            "prompt": "fix failing assertion",
+            "session_id": "sess_existing",
+        },
+        _context(tmp_path),
+    )
 
     assert result["status"] == "completed"
     assert result["continuation"] is True
     assert result["session_id"] == "sess_existing"
-    assert runtime.continue_calls[0]["session_id"] == "sess_existing"
+    assert runtime.run_calls[0]["session_id"] == "sess_existing"
     assert runtime.created == 0

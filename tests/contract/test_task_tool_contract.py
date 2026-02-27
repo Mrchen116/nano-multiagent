@@ -18,8 +18,16 @@ def test_task_tool_contract_is_exposed_by_tools_endpoint() -> None:
 
     assert response.status_code == 200
     task_descriptor = next(item for item in response.json()["tools"] if item["name"] == "task")
-    assert task_descriptor["input_schema"]["required"] == ["mode"]
-    assert task_descriptor["input_schema"]["properties"]["mode"]["enum"] == ["blocking", "non_blocking"]
+    assert task_descriptor["input_schema"]["required"] == [
+        "load_skills",
+        "description",
+        "prompt",
+        "run_in_background",
+    ]
+    assert task_descriptor["input_schema"]["properties"]["load_skills"]["type"] == "array"
+    assert task_descriptor["input_schema"]["properties"]["load_skills"]["items"]["type"] == "string"
+    assert task_descriptor["input_schema"]["properties"]["run_in_background"]["type"] == "boolean"
+    assert "mode" not in task_descriptor["input_schema"]["properties"]
     assert "idempotency_key" in task_descriptor["input_schema"]["properties"]
     assert "timeout_seconds" in task_descriptor["input_schema"]["properties"]
     assert "category" in task_descriptor["input_schema"]["properties"]

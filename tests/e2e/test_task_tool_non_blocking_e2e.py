@@ -77,11 +77,18 @@ def test_non_blocking_task_receipt_is_returned_without_new_http_endpoint(tmp_pat
 
     receipt = app.state.tool_registry.execute(
         "task",
-        {"mode": "non_blocking", "prompt": "delegate"},
+        {
+            "run_in_background": True,
+            "load_skills": [],
+            "description": "delegate task",
+            "prompt": "delegate",
+            "category": "research",
+        },
         hook_context=HookContext(session_id="sess_main_non_blocking_e2e", repo_root=tmp_path),
     )
 
     assert receipt["mode"] == "non_blocking"
+    assert receipt["run_in_background"] is True
     assert receipt["status"] == "queued"
     assert receipt["task_id"].startswith("call_")
     assert receipt["session_id"] == "sess_non_blocking_e2e_1"

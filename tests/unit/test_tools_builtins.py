@@ -51,6 +51,20 @@ def test_read_rejects_path_outside_repo(tmp_path: Path) -> None:
         ReadTool().run({"path": "../outside.txt"}, ctx)
 
 
+def test_read_allows_codex_home_skills_outside_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    codex_home = tmp_path.parent / "codex-home"
+    skill_file = codex_home / "skills" / "demo-skill" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True, exist_ok=True)
+    skill_file.write_text("# Demo\nuse this skill\n", encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    ctx = _context(tmp_path)
+
+    result = ReadTool().run({"path": str(skill_file)}, ctx)
+
+    assert result["content"].startswith("# Demo")
+    assert result["path"] == str(skill_file)
+
+
 def test_write_overwrites_existing_file(tmp_path: Path) -> None:
     target = tmp_path / "notes" / "todo.txt"
     target.parent.mkdir(parents=True, exist_ok=True)

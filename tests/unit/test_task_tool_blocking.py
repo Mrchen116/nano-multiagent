@@ -69,11 +69,18 @@ def test_task_blocking_returns_structured_success_payload(tmp_path: Path) -> Non
     tool = TaskTool(runtime=runtime)
 
     result = tool.run(
-        {"mode": "blocking", "prompt": "hello", "subagent_type": "oracle"},
+        {
+            "run_in_background": False,
+            "load_skills": ["playwright"],
+            "description": "run task",
+            "prompt": "hello",
+            "subagent_type": "oracle",
+        },
         _context(tmp_path),
     )
 
     assert result["mode"] == "blocking"
+    assert result["run_in_background"] is False
     assert result["status"] == "completed"
     assert result["session_id"] == "sess_task_1"
     assert result["output"]["message"]["content"] == "task:hello"
@@ -86,7 +93,13 @@ def test_task_blocking_wraps_subagent_errors_without_raising(tmp_path: Path) -> 
     tool = TaskTool(runtime=runtime)
 
     result = tool.run(
-        {"mode": "blocking", "prompt": "boom", "subagent_type": "oracle"},
+        {
+            "run_in_background": False,
+            "load_skills": [],
+            "description": "run task",
+            "prompt": "boom",
+            "subagent_type": "oracle",
+        },
         _context(tmp_path),
     )
 
@@ -102,7 +115,9 @@ def test_task_blocking_respects_timeout_seconds(tmp_path: Path) -> None:
 
     result = tool.run(
         {
-            "mode": "blocking",
+            "run_in_background": False,
+            "load_skills": [],
+            "description": "run task",
             "prompt": "sleep",
             "subagent_type": "oracle",
             "timeout_seconds": 0.05,
