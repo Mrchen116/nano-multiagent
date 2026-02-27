@@ -318,7 +318,7 @@
 - Commits:
   - C1: `4fa2b61`
   - C2: `c99c593`
-  - C3: TBD（docs commit 后回填）
+  - C3: `029a991`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_sse_encoder.py tests/contract/test_sse_event_contract.py tests/integration/test_sse_session_stream_integration.py tests/e2e/test_async_run_sse_e2e.py` -> `1 error`（`ModuleNotFoundError: nano_multiagent.server.sse`）
   - 转绿（C2）: 同命令 -> `5 passed in 1.07s`

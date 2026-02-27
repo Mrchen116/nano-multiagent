@@ -680,4 +680,4 @@
 - Rollback:
   - 如需重做，可回退至 `4fa2b61`（R12.3 红测提交）后按 Green 重放。
 - Commits:
-  - C1=`4fa2b61`, C2=`c99c593`, C3=`TBD（docs commit 后回填）`
+  - C1=`4fa2b61`, C2=`c99c593`, C3=`029a991`

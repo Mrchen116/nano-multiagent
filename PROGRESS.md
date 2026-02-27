@@ -379,6 +379,6 @@
   - async + cancel + SSE 专项回归 -> `pytest -q tests/unit/test_runs_registry.py tests/contract/test_runs_async_contract.py tests/integration/test_runs_store_integration.py tests/e2e/test_messages_async_submission_e2e.py tests/unit/test_run_cancel.py tests/contract/test_run_cancel_contract.py tests/integration/test_run_cancel_integration.py tests/e2e/test_run_cancel_e2e.py tests/unit/test_sse_encoder.py tests/contract/test_sse_event_contract.py tests/integration/test_sse_session_stream_integration.py tests/e2e/test_async_run_sse_e2e.py` -> `17 passed in 1.19s`
   - 全量回归 -> `pytest -q` -> `148 passed in 7.61s`
 - Commits: C1 | C2 | C3
-  - `4fa2b61` | `c99c593` | `TBD（docs commit 后回填）`
+  - `4fa2b61` | `c99c593` | `029a991`
 - Next:
   - M12 已完成；按用户边界不进入 M13+。
