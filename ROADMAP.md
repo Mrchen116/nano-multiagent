@@ -545,7 +545,7 @@
 - Commits:
   - C1: `7792119`
   - C2: `3c626de`
-  - C3: `<本次hash>`
+  - C3: `5941f3c`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_runs_registry.py -k run_error` -> 失败（`RunsRegistry.__init__` 不支持 `hook_runner`）
   - 转绿（C2）: `pytest -q tests/unit/test_runs_registry.py -k run_error` -> `1 passed, 2 deselected`
