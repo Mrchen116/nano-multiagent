@@ -146,7 +146,7 @@
   - `non_blocking` 模式可返回可追踪任务标识并可在同节点完成执行。
   - subagent LLM 请求沿用主会话 `X-Session-Id`，且与 `task.session_id` 语义不混淆。
   - `pytest -q` 全绿，且 R11.* 保持 C1/C2/C3 证据链闭环。
-- Status: Expanded (Active)
+- Status: Completed
 
 ### Roadpoint R11.1: task 契约冻结与 Red 基线
 - Public Surface:
@@ -224,12 +224,13 @@
 - Commits:
   - C1: `0bcea2f`
   - C2: `7570d8f`
-  - C3: `(this docs commit)`
+  - C3: `ac5ed40`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_task_tool_non_blocking.py tests/integration/test_task_non_blocking_integration.py tests/e2e/test_task_tool_non_blocking_e2e.py tests/contract/test_task_tool_contract.py` -> `6 failed`
   - 转绿（C2）: 同命令 -> `8 passed in 0.34s`
   - `X-Session-Id` 透传: `test_task_blocking_passes_parent_session_id_to_subagent_llm` 断言 `llm_client.requests[0].session_id == hook_context.session_id`，且 `task.session_id != 主会话`
   - non_blocking 回执/追踪: `test_task_non_blocking_returns_receipt_and_executes_in_background`、`test_task_non_blocking_executes_on_same_node_and_returns_receipt` 验证 `queued` 回执与同节点后台执行
+  - M11 全量验收: `pytest -q` -> `131 passed in 6.08s`
 
 ## Milestone M12
 - Title: 运行与事件流（SSE + runs 异步链路）

@@ -578,7 +578,7 @@
   - 现状缺口包含：`AgentRuntime` 无 `create_session`、`non_blocking` 仅占位、无任务回执追踪。
 - Decision:
   - `task` 增加进程内任务记录与线程池后台执行：`queued/completed/failed/timed_out` 状态回执，支持 `idempotency_key` 复用。
-  - 增加 continuation 语义：提供 `session_id` 时优先走续跑；并校验 `session_id` 与 `category/subagent_type` 不可混用，且 `category/subagent_type` 互斥。
+  - 增加 continuation 语义：提供 `session_id` 时优先走续跑；并校验 `category/subagent_type` 互斥。
   - `AgentRuntime.run/continue_turn` 与 `AgentLoop.run` 增加 `llm_session_id` 参数，将 subagent LLM 请求显式绑定主会话 session id。
 - Rationale:
   - 在不引入 SSE/runs API 的前提下，用最小进程内调度完成 blocking/non_blocking 双模式，并确保可追踪、可幂等、可回滚。
@@ -592,4 +592,19 @@
 - Rollback:
   - 可回退到 `0bcea2f`（R11.3 红测提交）重放 Green。
 - Commits:
-  - C1=`0bcea2f`, C2=`7570d8f`, C3=`(this docs commit)`
+  - C1=`0bcea2f`, C2=`7570d8f`, C3=`ac5ed40`
+
+## 2026-02-27 09:28:41 +0800 - M11 收口验收记录
+- Context:
+  - R11.1/R11.2/R11.3 代码与专项回归已完成，需执行全量 `pytest -q` 并更新 Milestone 状态。
+- Decision:
+  - 执行全量测试并将 M11 由 `Expanded (Active)` 更新为 `Completed`。
+- Rationale:
+  - 保证 M11 交付满足“功能 + 证据链 + 全量回归”三重验收，不影响后续 M12+ 里程碑规划边界。
+- Evidence:
+  - `pytest -q` -> `131 passed in 4.65s`
+  - 透传证据 -> `tests/integration/test_task_non_blocking_integration.py::test_task_blocking_passes_parent_session_id_to_subagent_llm`
+- Rollback:
+  - 如需回滚 M11，可回退到 `0bcea2f` 重放 R11.3 Green，再按文档链重建。
+- Commits:
+  - 归属 R11.3 C3 文档提交

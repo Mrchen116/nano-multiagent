@@ -326,6 +326,18 @@
   - 转绿（C2）: 同命令 -> `8 passed in 0.34s`
   - 透传证据 -> `tests/integration/test_task_non_blocking_integration.py::test_task_blocking_passes_parent_session_id_to_subagent_llm`
 - Commits: C1 | C2 | C3
-  - `0bcea2f` | `7570d8f` | `(this docs commit)`
+  - `0bcea2f` | `7570d8f` | `ac5ed40`
 - Next:
   - 运行 `pytest -q` 全量验收，完成 M11 收口并回填 R11.3 C3 真实 hash。
+
+## 2026-02-27 09:28:41 +0800
+- Done:
+  - 完成 M11 全量验收：`task` blocking/non_blocking、continuation、互斥校验、幂等键、超时与 `X-Session-Id` 透传能力收口。
+  - M11 状态更新为 `Completed`，M12+ 保持 `Planned (Not Expanded)`。
+- Evidence:
+  - `pytest -q` -> `131 passed in 6.08s`
+  - `X-Session-Id` 透传 -> `tests/integration/test_task_non_blocking_integration.py::test_task_blocking_passes_parent_session_id_to_subagent_llm` 通过
+- Commits: C1 | C2 | C3
+  - `0bcea2f` | `7570d8f` | `ac5ed40`
+- Next:
+  - M11 已完成；等待后续 Milestone 指令。

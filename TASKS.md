@@ -42,5 +42,5 @@
   - `tests/e2e/test_task_tool_non_blocking_e2e.py`
 - DoD:
   - R11.3 目标测试红转绿：`6 failed` -> `8 passed in 0.34s`
-  - C1/C2/C3 三次提交完整：`0bcea2f` / `7570d8f` / `(this docs commit)`
-  - 已验证 `X-Session-Id` 透传与 non_blocking 回执追踪；下一步执行 `pytest -q` 全量验收并收口 M11
+  - `pytest -q` 全绿：`131 passed in 4.65s`
+  - C1/C2/C3 三次提交完整：`0bcea2f` / `7570d8f` / `ac5ed40`
