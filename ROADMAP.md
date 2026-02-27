@@ -240,7 +240,83 @@
   - `GET /v1/runs/{run_id}` 与 `POST /v1/runs/{run_id}/cancel` 可用。
   - `GET /v1/events` 与 `GET /v1/sessions/{session_id}/events` 可输出 `text_delta/tool_start/tool_end/turn_end` 等事件。
   - 异步取消与中断行为一致，`pytest -q` 全绿。
-- Status: Planned (Not Expanded)
+- Status: Expanded (Active)
+
+### Roadpoint R12.1: async 提交与 run_id 生命周期基线
+- Public Surface:
+  - `POST /v1/sessions/{session_id}/messages:async`
+  - `GET /v1/runs/{run_id}`
+  - `server/routes/run.py`、`session/entries.py`（run 事件最小扩展）
+- Acceptance (3-5):
+  - 异步提交返回 `202` 与稳定 `run_id`。
+  - `run_id` 状态最小集合可查询（queued/running/completed/failed/cancelled）。
+  - run 事件可持久化并支持会话重建时读取。
+  - 错误结构与 trace_id 兼容现有 server 统一错误格式。
+- Tests Plan:
+  - unit: `tests/unit/test_runs_registry.py`
+  - contract: `tests/contract/test_runs_async_contract.py`
+  - integration: `tests/integration/test_runs_store_integration.py`
+  - e2e: `tests/e2e/test_messages_async_submission_e2e.py`
+- Commit Plan:
+  - C1: `test(R12.1): async提交与run状态契约红测（先红）`
+  - C2: `feat(R12.1): 实现async提交与run状态最小闭环（全绿）`
+  - C3: `docs(R12.1): 记录async提交证据并推进下一步（记录hash/证据/下一步）`
+- Commits:
+  - C1: TBD
+  - C2: TBD
+  - C3: TBD
+- Evidence:
+  - Pending（下一步执行 R12.1 Red）
+
+### Roadpoint R12.2: run cancel 语义与中断一致性
+- Public Surface:
+  - `POST /v1/runs/{run_id}/cancel`
+  - `agent/runtime.py`（异步运行取消钩子）
+  - `server/routes/run.py`
+- Acceptance (3-5):
+  - `cancel` 对 queued/running 有效，对 terminal 状态幂等返回。
+  - 取消后状态转移可审计，且不破坏会话事件链。
+  - 取消语义与现有 `abort` 行为对齐（错误码/回执结构一致）。
+- Tests Plan:
+  - unit: `tests/unit/test_run_cancel.py`
+  - contract: `tests/contract/test_run_cancel_contract.py`
+  - integration: `tests/integration/test_run_cancel_integration.py`
+  - e2e: `tests/e2e/test_run_cancel_e2e.py`
+- Commit Plan:
+  - C1: `test(R12.2): run cancel语义红测（先红）`
+  - C2: `feat(R12.2): 实现run取消与状态流转（全绿）`
+  - C3: `docs(R12.2): 记录cancel证据并推进下一步（记录hash/证据/下一步）`
+- Commits:
+  - C1: TBD
+  - C2: TBD
+  - C3: TBD
+- Evidence:
+  - Pending
+
+### Roadpoint R12.3: SSE 全局/会话事件流
+- Public Surface:
+  - `GET /v1/events`
+  - `GET /v1/sessions/{session_id}/events`
+  - `server/sse.py`
+- Acceptance (3-5):
+  - SSE 输出最小事件集：`text_delta/tool_start/tool_end/turn_end/run_status`。
+  - 会话级与全局级订阅都可工作，断连重连具备最小安全行为（无崩溃/无阻塞）。
+  - 异步提交与 SSE 消费链路可串联验证。
+- Tests Plan:
+  - unit: `tests/unit/test_sse_encoder.py`
+  - contract: `tests/contract/test_sse_event_contract.py`
+  - integration: `tests/integration/test_sse_session_stream_integration.py`
+  - e2e: `tests/e2e/test_async_run_sse_e2e.py`
+- Commit Plan:
+  - C1: `test(R12.3): SSE事件流红测（先红）`
+  - C2: `feat(R12.3): 实现全局与会话SSE事件流（全绿）`
+  - C3: `docs(R12.3): 记录SSE证据并收口M12（记录hash/证据/下一步）`
+- Commits:
+  - C1: TBD
+  - C2: TBD
+  - C3: TBD
+- Evidence:
+  - Pending
 
 ## Milestone M13
 - Title: Hook 查询 API 与可观测性收口

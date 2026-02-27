@@ -1,46 +1,50 @@
-# TASKS (Current Milestone: M11)
+# TASKS (Current Milestone: M12)
 
-## [DONE] R11.1 task 契约冻结与 Red 基线
+## [TODO] R12.1 async 提交与 run_id 生命周期基线
 - Steps:
-  - 新增 `task` 工具四类失败测试，先固定 schema 与错误契约缺口（Red）。
-  - 明确 `X-Session-Id` 透传约束与 `task.session_id` 语义边界的 contract 断言。
-  - 在不实现功能的前提下验证红测失败点与预期一致并记录证据。
+  - 新增 `messages:async` 与 `runs/{id}` 红测，先固定状态机与返回契约（Red）。
+  - 最小实现 run registry/store，支持 `queued/running/completed/failed/cancelled`。
+  - 打通 `POST /v1/sessions/{id}/messages:async` 与 `GET /v1/runs/{id}`。
+  - 验证错误结构与 `trace_id` 一致性。
 - Expected Tests:
-  - `tests/unit/test_task_tool_schema.py`
-  - `tests/contract/test_task_tool_contract.py`
-  - `tests/integration/test_task_runtime_wiring_integration.py`
-  - `tests/e2e/test_task_tool_blocking_e2e.py`
+  - `tests/unit/test_runs_registry.py`
+  - `tests/contract/test_runs_async_contract.py`
+  - `tests/integration/test_runs_store_integration.py`
+  - `tests/e2e/test_messages_async_submission_e2e.py`
 - DoD:
-  - 红测失败与预期缺口一致，失败原因可复现（`4 failed`）
-  - C1/C2/C3 三次提交链完成：`f7d3f71` / `d0e4160` / `9559922`
-  - 四文档已写入 R11.1 hash 与证据（R11.2 C3 回填 R11.1 C3 真实 hash）；下一步 `R11.2 Red`
+  - R12.1 目标测试红转绿
+  - C1/C2/C3 三次提交完整
+  - 四文档写入 R12.1 hash 与证据
 
-## [DONE] R11.2 task blocking 模式最小闭环
+## [TODO] R12.2 run cancel 语义与中断一致性
 - Steps:
-  - 实现 `task(mode=blocking)` 的最小执行路径，支持主流程等待子任务返回。
-  - 补齐错误路径（超时/子任务失败）并保持统一错误结构。
-  - 跑 R11.2 目标测试并验证主链路不被异常 Hook/工具结果破坏。
+  - 为 `POST /v1/runs/{id}/cancel` 新增红测，固定 queued/running/terminal 行为。
+  - 实现取消状态流转与幂等处理。
+  - 对齐 cancel 与现有 abort 语义（错误码/返回结构）。
+  - 验证取消后事件链可审计且不破坏会话状态。
 - Expected Tests:
-  - `tests/unit/test_task_tool_blocking.py`
-  - `tests/contract/test_task_tool_contract.py`
-  - `tests/integration/test_task_blocking_integration.py`
-  - `tests/e2e/test_task_tool_blocking_e2e.py`
+  - `tests/unit/test_run_cancel.py`
+  - `tests/contract/test_run_cancel_contract.py`
+  - `tests/integration/test_run_cancel_integration.py`
+  - `tests/e2e/test_run_cancel_e2e.py`
 - DoD:
-  - R11.2 目标测试红转绿：`5 failed` -> `8 passed in 0.47s`
-  - C1/C2/C3 三次提交完整：`5a55783` / `868fcfb` / `c77293c`
-  - 四文档已记录 blocking 证据与下一步 `R11.3 Red`
+  - R12.2 目标测试红转绿
+  - C1/C2/C3 三次提交完整
+  - 四文档写入 R12.2 hash 与证据
 
-## [DONE] R11.3 task non_blocking 模式与可追踪回执
+## [TODO] R12.3 SSE 全局/会话事件流
 - Steps:
-  - 实现 `task(mode=non_blocking)` 返回任务回执并异步执行。
-  - 将任务状态追踪接入现有 session/event 机制，保证可观察性。
-  - 跑 R11.3 目标测试与全量验收，收口 M11。
+  - 新增 `GET /v1/events` 与 `GET /v1/sessions/{id}/events` 红测，固定事件格式。
+  - 实现 SSE 编码与最小事件集（`text_delta/tool_start/tool_end/turn_end/run_status`）。
+  - 串联 async 提交与 SSE 消费链路，验证增量输出与断连行为。
+  - 执行全量回归并收口 M12。
 - Expected Tests:
-  - `tests/unit/test_task_tool_non_blocking.py`
-  - `tests/contract/test_task_tool_contract.py`
-  - `tests/integration/test_task_non_blocking_integration.py`
-  - `tests/e2e/test_task_tool_non_blocking_e2e.py`
+  - `tests/unit/test_sse_encoder.py`
+  - `tests/contract/test_sse_event_contract.py`
+  - `tests/integration/test_sse_session_stream_integration.py`
+  - `tests/e2e/test_async_run_sse_e2e.py`
 - DoD:
-  - R11.3 目标测试红转绿：`6 failed` -> `8 passed in 0.34s`
-  - `pytest -q` 全绿：`131 passed in 4.65s`
-  - C1/C2/C3 三次提交完整：`0bcea2f` / `7570d8f` / `ac5ed40`
+  - R12.3 目标测试红转绿
+  - `pytest -q` 全绿
+  - C1/C2/C3 三次提交完整
+  - 四文档写入 R12.3 hash 与证据
