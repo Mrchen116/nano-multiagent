@@ -500,7 +500,7 @@
 - Commits:
   - C1: `e379086`
   - C2: `397f83d`
-  - C3: `<本次hash>`
+  - C3: `d2d8abf`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_hook_lifecycle_event_coverage.py` -> `1 failed`
   - 转绿（C2）: `pytest -q tests/unit/test_hook_event_coverage.py tests/unit/test_hook_lifecycle_event_coverage.py` -> `3 passed in 0.02s`
