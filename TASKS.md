@@ -12,10 +12,10 @@
   - `tests/e2e/test_task_tool_blocking_e2e.py`
 - DoD:
   - 红测失败与预期缺口一致，失败原因可复现（`4 failed`）
-  - C1/C2/C3 三次提交链完成：`f7d3f71` / `d0e4160` / `(this docs commit)`
-  - 四文档已写入 R11.1 hash 与证据；下一步 `R11.2 Red`
+  - C1/C2/C3 三次提交链完成：`f7d3f71` / `d0e4160` / `9559922`
+  - 四文档已写入 R11.1 hash 与证据（R11.2 C3 回填 R11.1 C3 真实 hash）；下一步 `R11.2 Red`
 
-## [TODO] R11.2 task blocking 模式最小闭环
+## [DONE] R11.2 task blocking 模式最小闭环
 - Steps:
   - 实现 `task(mode=blocking)` 的最小执行路径，支持主流程等待子任务返回。
   - 补齐错误路径（超时/子任务失败）并保持统一错误结构。
@@ -26,9 +26,9 @@
   - `tests/integration/test_task_blocking_integration.py`
   - `tests/e2e/test_task_tool_blocking_e2e.py`
 - DoD:
-  - R11.2 目标测试全绿
-  - `pytest -q` 全绿
-  - C1/C2/C3 三次提交完整且四文档写入真实 hash
+  - R11.2 目标测试红转绿：`5 failed` -> `8 passed in 0.47s`
+  - C1/C2/C3 三次提交完整：`5a55783` / `868fcfb` / `(this docs commit)`
+  - 四文档已记录 blocking 证据与下一步 `R11.3 Red`
 
 ## [TODO] R11.3 task non_blocking 模式与可追踪回执
 - Steps:

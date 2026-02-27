@@ -481,7 +481,7 @@
 - Rollback:
   - 可回退到 `41fd8bf`（R10.2 红测提交）重放 Green。
 - Commits:
-  - C1=`41fd8bf`, C2=`e223a5b`, C3=`(this docs commit)`
+  - C1=`41fd8bf`, C2=`e223a5b`, C3=`0da8768`
 
 ## 2026-02-27 09:08:28 +0800 - Preflight 规则升级后的流程修复记录
 - Context:
@@ -522,5 +522,26 @@
   - 当前 `task` 仅占位返回，尚不具备 subagent 调度能力；R11.2 将实现 blocking 最小闭环。
 - Rollback:
   - 可回退到 `f7d3f71`（R11.1 红测提交）重放 Green。
+- Commits:
+  - C1=`f7d3f71`, C2=`d0e4160`, C3=`(this docs commit)`
+
+## 2026-02-27 09:20:26 +0800 - R11.1 C3 文档收口与占位修复
+- Context:
+  - R11.1 已有 C1/C2（`f7d3f71`/`d0e4160`），需先补 C3 才能进入 R11.2。
+  - 历史文档中仍残留 `R10.2 C3` 占位，需同步回填为真实 hash。
+- Decision:
+  - 以本次提交完成 R11.1 文档闭环：同步更新 `ROADMAP/TASKS/PROGRESS/LOGBOOK` 并明确下一步为 `R11.2 Red`。
+  - 同步回填 `R10.2 C3=0da8768`，消除旧占位。
+- Rationale:
+  - 保持每个 Roadpoint 在进入下一步前完成 C1/C2/C3 证据链闭环，避免跨 Roadpoint 累积文档债务。
+- Changed Files Summary:
+  - `ROADMAP.md`
+  - `TASKS.md`
+  - `PROGRESS.md`
+  - `LOGBOOK.md`
+- Pitfall/Risk:
+  - `R11.1 C3` 在本提交内仍以“this docs commit”占位标注；将于 `R11.2 C3` 一并回填真实 hash。
+- Rollback:
+  - 文档变更可回退到本提交前状态，不影响运行时代码行为。
 - Commits:
   - C1=`f7d3f71`, C2=`d0e4160`, C3=`(this docs commit)`

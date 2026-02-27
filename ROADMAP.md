@@ -170,11 +170,12 @@
 - Commits:
   - C1: `f7d3f71`
   - C2: `d0e4160`
-  - C3: `(this docs commit)`
+  - C3: `9559922`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/e2e/test_task_tool_blocking_e2e.py` -> `4 failed`
   - 转绿（C2）: 同命令 -> `4 passed in 0.39s`
   - 入口约束: `test_task_tool_contract_is_exposed_by_tools_endpoint` 与 `test_tools_listing_contains_task_without_task_http_endpoint` 断言 `task` 仅经 ToolRegistry 暴露，无 `/v1/tasks` HTTP 入口
+  - C3 收口: 四文档已同步到 R11.2 Red 起点；R11.2 C3 时回填 R11.1 C3 真实 hash
 
 ### Roadpoint R11.2: blocking 模式最小闭环
 - Public Surface:
@@ -194,11 +195,13 @@
   - C2: `feat(R11.2): 实现task blocking最小闭环（全绿）`
   - C3: `docs(R11.2): 记录blocking证据并更新下一步（记录hash/证据/下一步）`
 - Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
+  - C1: `5a55783`
+  - C2: `868fcfb`
+  - C3: `(this docs commit)`
 - Evidence:
-  - Pending
+  - 红测（C1）: `pytest -q tests/unit/test_task_tool_blocking.py tests/integration/test_task_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py` -> `5 failed`
+  - 转绿（C2）: `pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/unit/test_task_tool_blocking.py tests/integration/test_task_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py` -> `8 passed in 0.47s`
+  - blocking 错误契约: `test_task_blocking_wraps_subagent_errors_without_raising` 与 `test_task_blocking_respects_timeout_seconds` 断言 `task_execution_failed/task_timeout` 结构化错误
 
 ### Roadpoint R11.3: non_blocking 模式与可追踪回执
 - Public Surface:

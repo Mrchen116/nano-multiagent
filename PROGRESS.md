@@ -263,7 +263,7 @@
   - `pytest -q` -> `116 passed in 5.26s`
   - first_kept_event_id 证据 -> manual/integration 用例断言 `CompactionEntry.first_kept_event_id` 与回放锚点一致
 - Commits: C1 | C2 | C3
-  - `41fd8bf` | `e223a5b` | `(this docs commit)`
+  - `41fd8bf` | `e223a5b` | `0da8768`
 - Next:
   - M10 已完成；等待下一 Milestone 指令
 
@@ -290,3 +290,15 @@
   - `f7d3f71` | `d0e4160` | `(this docs commit)`
 - Next:
   - R11.2 Red：补 `task(mode=blocking)` 失败用例（结果结构、错误结构、超时路径）。
+
+## 2026-02-27 09:20:26 +0800
+- Done:
+  - 完成 R11.1 C3 文档收口：四文档同步记录 R11.1 证据链，并锁定下一步为 `R11.2 Red`。
+  - 修复历史文档占位：`R10.2 C3` 由占位更新为真实 hash `0da8768`。
+- Evidence:
+  - 文档核对：`ROADMAP/TASKS/PROGRESS/LOGBOOK` 中 R11.1 已标记完成态，且未改动 M12+ 规划展开状态。
+  - R11.1 目标测试复核：`pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/e2e/test_task_tool_blocking_e2e.py` -> `4 passed in 0.34s`
+- Commits: C1 | C2 | C3
+  - `f7d3f71` | `d0e4160` | `(this docs commit)`
+- Next:
+  - R11.2 Red：先补 blocking/non_blocking 分支边界红测，再进入实现。
