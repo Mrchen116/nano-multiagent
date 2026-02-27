@@ -241,7 +241,14 @@ class AgentRuntime:
         return self._hook_runner.registry
 
     def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
-        return self._session_manager.create_session(title=title, metadata=metadata)
+        session = self._session_manager.create_session(title=title, metadata=metadata)
+        hook_ctx = HookContext(session_id=session.session_id, repo_root=self._repo_root)
+        self._dispatch_observe(
+            "session_start",
+            {"session_id": session.session_id},
+            hook_ctx,
+        )
+        return session
 
     def _dispatch_intercept(
         self,
