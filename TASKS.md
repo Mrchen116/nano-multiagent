@@ -27,10 +27,10 @@
   - `tests/e2e/test_task_tool_blocking_e2e.py`
 - DoD:
   - R11.2 目标测试红转绿：`5 failed` -> `8 passed in 0.47s`
-  - C1/C2/C3 三次提交完整：`5a55783` / `868fcfb` / `(this docs commit)`
+  - C1/C2/C3 三次提交完整：`5a55783` / `868fcfb` / `c77293c`
   - 四文档已记录 blocking 证据与下一步 `R11.3 Red`
 
-## [TODO] R11.3 task non_blocking 模式与可追踪回执
+## [DONE] R11.3 task non_blocking 模式与可追踪回执
 - Steps:
   - 实现 `task(mode=non_blocking)` 返回任务回执并异步执行。
   - 将任务状态追踪接入现有 session/event 机制，保证可观察性。
@@ -41,6 +41,6 @@
   - `tests/integration/test_task_non_blocking_integration.py`
   - `tests/e2e/test_task_tool_non_blocking_e2e.py`
 - DoD:
-  - R11.3 目标测试全绿
-  - `pytest -q` 全绿
-  - C1/C2/C3 三次提交完整且四文档写入真实 hash
+  - R11.3 目标测试红转绿：`6 failed` -> `8 passed in 0.34s`
+  - C1/C2/C3 三次提交完整：`0bcea2f` / `7570d8f` / `(this docs commit)`
+  - 已验证 `X-Session-Id` 透传与 non_blocking 回执追踪；下一步执行 `pytest -q` 全量验收并收口 M11

@@ -549,7 +549,7 @@
 - Rollback:
   - 可回退到 `5a55783`（R11.2 红测提交）重放 Green。
 - Commits:
-  - C1=`5a55783`, C2=`868fcfb`, C3=`(this docs commit)`
+  - C1=`5a55783`, C2=`868fcfb`, C3=`c77293c`
 
 ## 2026-02-27 09:20:26 +0800 - R11.1 C3 文档收口与占位修复
 - Context:
@@ -571,3 +571,25 @@
   - 文档变更可回退到本提交前状态，不影响运行时代码行为。
 - Commits:
   - C1=`f7d3f71`, C2=`d0e4160`, C3=`9559922`
+
+## 2026-02-27 09:28:19 +0800 - R11.3 完成记录（non_blocking + 幂等 + 透传）
+- Context:
+  - R11.3 目标是补齐 `task(non_blocking)`、幂等键与 continuation 互斥校验，并完成 `X-Session-Id` 主链路透传。
+  - 现状缺口包含：`AgentRuntime` 无 `create_session`、`non_blocking` 仅占位、无任务回执追踪。
+- Decision:
+  - `task` 增加进程内任务记录与线程池后台执行：`queued/completed/failed/timed_out` 状态回执，支持 `idempotency_key` 复用。
+  - 增加 continuation 语义：提供 `session_id` 时优先走续跑；并校验 `session_id` 与 `category/subagent_type` 不可混用，且 `category/subagent_type` 互斥。
+  - `AgentRuntime.run/continue_turn` 与 `AgentLoop.run` 增加 `llm_session_id` 参数，将 subagent LLM 请求显式绑定主会话 session id。
+- Rationale:
+  - 在不引入 SSE/runs API 的前提下，用最小进程内调度完成 blocking/non_blocking 双模式，并确保可追踪、可幂等、可回滚。
+- Changed Files Summary:
+  - `src/nano_multiagent/tools/builtins/task.py`
+  - `src/nano_multiagent/agent/{runtime.py,loop.py}`
+  - `tests/{unit,contract,integration,e2e}` 中 task 相关用例
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - non_blocking 当前为进程内内存态任务表，重启后不保留运行中状态；后续如需跨进程恢复需落持久化（不在 M11 范围）。
+- Rollback:
+  - 可回退到 `0bcea2f`（R11.3 红测提交）重放 Green。
+- Commits:
+  - C1=`0bcea2f`, C2=`7570d8f`, C3=`(this docs commit)`

@@ -197,7 +197,7 @@
 - Commits:
   - C1: `5a55783`
   - C2: `868fcfb`
-  - C3: `(this docs commit)`
+  - C3: `c77293c`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_task_tool_blocking.py tests/integration/test_task_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py` -> `5 failed`
   - 转绿（C2）: `pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/unit/test_task_tool_blocking.py tests/integration/test_task_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py` -> `8 passed in 0.47s`
@@ -222,11 +222,14 @@
   - C2: `feat(R11.3): 实现task non_blocking与回执（全绿）`
   - C3: `docs(R11.3): 记录non_blocking证据并收口M11（记录hash/证据/下一步）`
 - Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
+  - C1: `0bcea2f`
+  - C2: `7570d8f`
+  - C3: `(this docs commit)`
 - Evidence:
-  - Pending
+  - 红测（C1）: `pytest -q tests/unit/test_task_tool_non_blocking.py tests/integration/test_task_non_blocking_integration.py tests/e2e/test_task_tool_non_blocking_e2e.py tests/contract/test_task_tool_contract.py` -> `6 failed`
+  - 转绿（C2）: 同命令 -> `8 passed in 0.34s`
+  - `X-Session-Id` 透传: `test_task_blocking_passes_parent_session_id_to_subagent_llm` 断言 `llm_client.requests[0].session_id == hook_context.session_id`，且 `task.session_id != 主会话`
+  - non_blocking 回执/追踪: `test_task_non_blocking_returns_receipt_and_executes_in_background`、`test_task_non_blocking_executes_on_same_node_and_returns_receipt` 验证 `queued` 回执与同节点后台执行
 
 ## Milestone M12
 - Title: 运行与事件流（SSE + runs 异步链路）

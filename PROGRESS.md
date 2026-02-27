@@ -300,7 +300,7 @@
   - `pytest -q tests/unit/test_task_tool_blocking.py tests/integration/test_task_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py` 红测 -> `5 failed`
   - `pytest -q tests/unit/test_task_tool_schema.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/unit/test_task_tool_blocking.py tests/integration/test_task_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py` 绿测 -> `8 passed in 0.47s`
 - Commits: C1 | C2 | C3
-  - `5a55783` | `868fcfb` | `(this docs commit)`
+  - `5a55783` | `868fcfb` | `c77293c`
 - Next:
   - R11.3 Red：补 non_blocking/continuation/category-subagent_type 互斥/幂等/X-Session-Id 透传失败用例。
 
@@ -315,3 +315,17 @@
   - `f7d3f71` | `d0e4160` | `9559922`
 - Next:
   - R11.2 Red：先补 blocking/non_blocking 分支边界红测，再进入实现。
+
+## 2026-02-27 09:28:19 +0800
+- Done:
+  - 完成 R11.3：实现 `task(mode=non_blocking)` 回执与后台执行，并补齐 continuation/参数互斥与幂等最小实现。
+  - `AgentRuntime/AgentLoop` 接入 `llm_session_id` 透传，`task` 子任务调用与主链路 `X-Session-Id` 一致。
+  - 回填 `R11.2 C3=c77293c`，四文档同步到 R11.3 C3 收口态。
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_task_tool_non_blocking.py tests/integration/test_task_non_blocking_integration.py tests/e2e/test_task_tool_non_blocking_e2e.py tests/contract/test_task_tool_contract.py` -> `6 failed`
+  - 转绿（C2）: 同命令 -> `8 passed in 0.34s`
+  - 透传证据 -> `tests/integration/test_task_non_blocking_integration.py::test_task_blocking_passes_parent_session_id_to_subagent_llm`
+- Commits: C1 | C2 | C3
+  - `0bcea2f` | `7570d8f` | `(this docs commit)`
+- Next:
+  - 运行 `pytest -q` 全量验收，完成 M11 收口并回填 R11.3 C3 真实 hash。
