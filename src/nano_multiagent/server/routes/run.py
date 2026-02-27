@@ -42,6 +42,22 @@ def get_run(
     return _to_run_response(record)
 
 
+@router.post("/{run_id}/cancel", response_model=RunResponse)
+def cancel_run(
+    run_id: str,
+    runs: RunsRegistry = Depends(get_runs_registry),
+) -> RunResponse:
+    record = runs.cancel(run_id)
+    if record is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="run_not_found",
+            message=f"run does not exist: {run_id}",
+            retryable=False,
+        )
+    return _to_run_response(record)
+
+
 def _to_run_response(record: RunRecord) -> RunResponse:
     return RunResponse(
         run_id=record.run_id,

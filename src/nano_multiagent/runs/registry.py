@@ -86,6 +86,20 @@ class RunsRegistry:
                 return None
             return replace(record)
 
+    def cancel(self, run_id: str) -> RunRecord | None:
+        with self._lock:
+            current = self._runs.get(run_id)
+        if current is None:
+            return None
+        if current.status in _TERMINAL_STATUSES:
+            return replace(current)
+        return self._set_status(
+            run_id,
+            status=RunStatus.CANCELLED,
+            stop_reason="cancelled",
+            only_if={RunStatus.QUEUED, RunStatus.RUNNING},
+        )
+
     def _run_worker(
         self,
         run_id: str,
@@ -93,7 +107,7 @@ class RunsRegistry:
         parts: Sequence[Mapping[str, Any]],
     ) -> None:
         started = self._transition(run_id, status=RunStatus.RUNNING)
-        if started is None:
+        if started is None or started.status is not RunStatus.RUNNING:
             return
 
         try:
@@ -112,10 +126,30 @@ class RunsRegistry:
         stop_reason: str | None = None,
         error: Mapping[str, Any] | None = None,
     ) -> RunRecord | None:
+        return self._set_status(
+            run_id,
+            status=status,
+            turn_id=turn_id,
+            stop_reason=stop_reason,
+            error=error,
+        )
+
+    def _set_status(
+        self,
+        run_id: str,
+        *,
+        status: RunStatus,
+        turn_id: str | None = None,
+        stop_reason: str | None = None,
+        error: Mapping[str, Any] | None = None,
+        only_if: set[RunStatus] | None = None,
+    ) -> RunRecord | None:
         with self._lock:
             current = self._runs.get(run_id)
             if current is None:
                 return None
+            if only_if is not None and current.status not in only_if:
+                return replace(current)
             updated = replace(
                 current,
                 status=status,
@@ -129,19 +163,21 @@ class RunsRegistry:
         return updated
 
     def _mark_completed(self, run_id: str, *, turn_result: TurnResult) -> RunRecord | None:
-        return self._transition(
+        return self._set_status(
             run_id,
             status=RunStatus.COMPLETED,
             turn_id=turn_result.turn_id,
             stop_reason=turn_result.stop_reason,
             error=None,
+            only_if={RunStatus.RUNNING},
         )
 
     def _mark_failed(self, run_id: str, *, message: str) -> RunRecord | None:
-        return self._transition(
+        return self._set_status(
             run_id,
             status=RunStatus.FAILED,
             error={"code": "run_execution_failed", "message": message},
+            only_if={RunStatus.RUNNING},
         )
 
     def _append_run_status_event(self, record: RunRecord) -> None:
@@ -157,3 +193,6 @@ class RunsRegistry:
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+_TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
