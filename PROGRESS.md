@@ -436,3 +436,17 @@
   - `c764024` | `5bacaf1` | `TBD (this commit)`
 - Next:
   - R13R.3 Red：先补 Hook 关键事件触发与拦截契约的失败测试基线。
+
+## 2026-02-27 16:03:57 +0800
+- Done:
+  - 完成 R13R.3 C3 文档收口：四文档补齐 hook 关键事件与拦截契约证据链。
+  - `TASKS.md` 维持 `R13R.3=DONE` 与 `R13R.4=TODO`，下一步保持进入 `R13R.4 Red`。
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_hook_event_coverage.py` -> `1 failed`
+  - 转绿（C2）: `pytest -q tests/unit/test_hook_event_coverage.py` -> `1 passed in 0.01s`
+  - 转绿（C2）: `pytest -q tests/unit/test_agent_runtime_hooks.py` -> `5 passed in 0.12s`
+  - 全量门禁（C3）: `pytest -q` -> `3 failed, 167 passed in 63.26s`
+- Commits: C1 | C2 | C3
+  - `e4fa2c7` | `b9283ae` | `82a7595`
+- Next:
+  - R13R.4 Red：补 `session_start/session_compact/session_shutdown/run_error/run_timeout` 生命周期事件红测。

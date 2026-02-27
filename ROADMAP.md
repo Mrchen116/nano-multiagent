@@ -447,7 +447,7 @@
 - Commits:
   - C1: `c764024`
   - C2: `5bacaf1`
-  - C3: `TBD (this commit)`
+  - C3: `ee6c304`
 - Evidence:
   - 设计对照: 已按 `内核设计蓝图.md + 内核设计细化/工具设计细化.md` 执行；`内核设计细化/任务编排设计细化.md` 文件在仓库中不存在，按蓝图第 6.6/7.2 节补齐 task 编排约束。
   - 红测（C1）: `pytest -q tests/unit/test_task_tool_schema.py tests/unit/test_task_tool_blocking.py tests/unit/test_task_tool_non_blocking.py tests/unit/test_tools_builtins.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/integration/test_task_blocking_integration.py tests/integration/test_task_non_blocking_integration.py tests/integration/test_task_skills_integration.py tests/e2e/test_task_tool_blocking_e2e.py tests/e2e/test_task_tool_non_blocking_e2e.py tests/e2e/test_task_load_skills_e2e.py` -> `21 failed, 10 passed`
@@ -457,22 +457,50 @@
 ### Roadpoint R13R.3: Hook 关键事件与拦截契约补齐
 - Public Surface:
   - `agent/runtime.py`
-  - `agent/compaction/*`
-  - `hooks/runner.py`
-  - `hooks/builtins/*`
+  - `core/events.py`
+  - `runs/registry.py`
+  - `tools/registry.py`
 - Acceptance (3-5):
-  - `session_start/session_compact/session_shutdown/run_error/run_timeout/run_abort` 在主链路可触发。
+  - `run_abort` 事件在运行时事件枚举中可见，并具备取消链路接线测试基线。
   - `before_agent_start.message` 返回值接入主流程。
+  - `tool_result` 字段语义对齐（`content/details/is_error`）具备可验证测试基线。
+- Tests Plan:
+  - unit: `tests/unit/test_hook_event_coverage.py`
+  - contract: `tests/contract/test_hook_integration_contract.py`
+  - integration: `tests/integration/test_m8_agent_tool_hook_r81_integration.py`
+- Commit Plan:
+  - C1: `test(R13R.3): hook关键事件覆盖红测（先红）`
+  - C2: `feat(R13R.3): 补齐hook关键事件与拦截契约（全绿）`
+  - C3: `docs(R13R.3): 记录hook关键事件补齐证据（记录hash/证据/下一步）`
+- Commits:
+  - C1: `e4fa2c7`
+  - C2: `b9283ae`
+  - C3: `82a7595`
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_hook_event_coverage.py` -> `1 failed`
+  - 转绿（C2）: `pytest -q tests/unit/test_hook_event_coverage.py` -> `1 passed in 0.01s`
+  - 转绿（C2）: `pytest -q tests/unit/test_agent_runtime_hooks.py` -> `5 passed in 0.12s`
+  - 全量门禁（C3）: `pytest -q` -> `3 failed, 167 passed in 63.37s`
+
+### Roadpoint R13R.4: Hook 生命周期全事件与内置示例补齐
+- Public Surface:
+  - `agent/compaction/*`
+  - `runs/registry.py`
+  - `hooks/builtins/*`
+  - `hooks/runner.py`
+- Acceptance (3-5):
+  - `session_start/session_compact/session_shutdown/run_error/run_timeout` 在主链路可触发。
   - 补齐至少一个内置 hook 示例模块（`base_guard/default_status` 等）。
+  - `pytest -q` 全绿并满足 M13R Exit Criteria。
 - Tests Plan:
   - unit: `tests/unit/test_hook_event_coverage.py`
   - contract: `tests/contract/test_hook_intercept_contract.py`
   - integration: `tests/integration/test_hook_critical_events_integration.py`
   - e2e: `tests/e2e/test_hook_error_timeout_abort_e2e.py`
 - Commit Plan:
-  - C1: `test(R13R.3): hook关键事件覆盖红测（先红）`
-  - C2: `feat(R13R.3): 补齐hook关键事件与拦截契约（全绿）`
-  - C3: `docs(R13R.3): 记录hook一致性修复证据并收口M13R（记录hash/证据/下一步）`
+  - C1: `test(R13R.4): hook生命周期全事件红测（先红）`
+  - C2: `feat(R13R.4): 补齐hook生命周期事件与内置示例（全绿）`
+  - C3: `docs(R13R.4): 记录hook全事件修复证据并收口M13R（记录hash/证据/下一步）`
 - Commits:
   - C1: TBD
   - C2: TBD

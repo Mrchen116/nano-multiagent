@@ -782,3 +782,16 @@
   - 如需重做，可回退至 `c764024`（R13R.2 红测提交）后按 Green 重放。
 - Commits:
   - C1=`c764024`, C2=`5bacaf1`, C3=`TBD (this commit)`
+
+## 2026-02-27 16:03:57 +0800 - R13R.3/R13R.4 拆分决策记录
+- Context:
+  - R13R.3 已完成 C1/C2，实现了 `run_abort` 可见性、`before_agent_start.message` 接线与 `tool_result` 关键语义补齐。
+  - `pytest -q` 当前仍有 3 个失败，且剩余缺口集中在生命周期全事件与真实代理 e2e 稳定性。
+- Decision:
+  - 将本次提交限定为 R13R.3 的 C3 文档收口，不提前并入 R13R.4 实现改动。
+  - R13R.4 继续保持 TODO，并作为下一步 Red 单独推进。
+- Rationale:
+  - 先闭环 R13R.3 证据链可避免跨 Roadpoint 混合提交，降低回滚和审计成本。
+  - 生命周期全事件补齐与代理链路波动属于独立风险面，拆分后更易定位和验收。
+- Commits:
+  - C1=`e4fa2c7`, C2=`b9283ae`, C3=`82a7595`
