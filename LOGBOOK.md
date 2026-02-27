@@ -760,3 +760,25 @@
   - 如需重做，可回退至 `3fd75c2`（R13R.1 红测提交）后按 Green 重放。
 - Commits:
   - C1=`3fd75c2`, C2=`3e465c3`, C3=`30d325b`
+
+## 2026-02-27 14:56:04 +0800 - R13R.2 完成记录（task 契约 + skills/read 冲突修复）
+- Context:
+  - 背景审计要求修复四项：task 入参主契约、必填与互斥规则、blocking/non_blocking 回执语义、`read` 与 `CODEX_HOME/skills` 可见性冲突。
+  - 指定对照文档中 `内核设计细化/任务编排设计细化.md` 在仓库不存在，本次按 `内核设计蓝图.md` 第 6.6/7.2 节与 `内核设计细化/工具设计细化.md` 执行。
+- Decision:
+  - `task` schema 移除 `mode` 入参，改为 `run_in_background + load_skills + description + prompt` 必填。
+  - 新任务分支强制 `category/subagent_type` 二选一；continuation（有 `session_id`）放宽该约束。
+  - `load_skills` 增加存在性校验（未知 skill 直接报错）；`read` 新增 `resolve_read_path`，仅为读取放开 `CODEX_HOME/skills`。
+  - 兼容策略：不保留旧 `mode` 入参兼容，按细化契约做显式收敛，避免双轨契约长期并存。
+- Rationale:
+  - 优先恢复与细化设计一致的外部契约，避免后续 R13R.3 在不稳定输入面上继续叠加复杂度。
+- Changed Files Summary:
+  - `src/nano_multiagent/tools/{builtins/task.py,builtins/read.py,safety.py}`
+  - `tests/{unit,contract,integration,e2e}` 下 task/read 相关 12 个用例文件
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - 由于 `mode` 入参被移除，依赖旧入参的外部调用需同步迁移到 `run_in_background`。
+- Rollback:
+  - 如需重做，可回退至 `c764024`（R13R.2 红测提交）后按 Green 重放。
+- Commits:
+  - C1=`c764024`, C2=`5bacaf1`, C3=`TBD (this commit)`

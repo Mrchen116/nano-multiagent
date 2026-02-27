@@ -422,3 +422,17 @@
   - `3fd75c2` | `3e465c3` | `30d325b`
 - Next:
   - R13R.2 Red：先补 task/load_skills 契约与 read-sandbox/skills 可见性冲突红测。
+
+## 2026-02-27 14:56:04 +0800
+- Done:
+  - 完成 R13R.2：`task` 入参契约切换为 `run_in_background + load_skills + description + prompt`，并补齐新任务 `category/subagent_type` 二选一规则。
+  - 修复 `read` 沙箱与 `CODEX_HOME/skills` 可见性冲突，允许只读访问技能目录。
+  - 对齐回执语义：`run_in_background=false -> blocking`，`true -> non_blocking`，并在回执中输出 `run_in_background`。
+- Evidence:
+  - 红测（C1）: `pytest -q tests/unit/test_task_tool_schema.py tests/unit/test_task_tool_blocking.py tests/unit/test_task_tool_non_blocking.py tests/unit/test_tools_builtins.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/integration/test_task_blocking_integration.py tests/integration/test_task_non_blocking_integration.py tests/integration/test_task_skills_integration.py tests/e2e/test_task_tool_blocking_e2e.py tests/e2e/test_task_tool_non_blocking_e2e.py tests/e2e/test_task_load_skills_e2e.py` -> `21 failed, 10 passed`
+  - 转绿（C2）: 同命令 -> `31 passed in 1.58s`
+  - C3 前全量门禁: `pytest -q` -> `168 passed in 10.54s`
+- Commits: C1 | C2 | C3
+  - `c764024` | `5bacaf1` | `TBD (this commit)`
+- Next:
+  - R13R.3 Red：先补 Hook 关键事件触发与拦截契约的失败测试基线。

@@ -18,7 +18,7 @@
 - Commits:
   - `3fd75c2` | `3e465c3` | `30d325b`
 
-## [TODO] R13R.2 tools/task 契约修复
+## [DONE] R13R.2 tools/task 契约修复
 - Steps:
   - 新增 task 参数契约与 load_skills 红测，固定 `run_in_background`/互斥规则缺口（Red）。
   - 修复 `task` 参数面与执行分流，补齐技能注入路径。
@@ -33,6 +33,8 @@
   - R13R.2 目标测试红转绿
   - C1/C2/C3 三次提交完整
   - 四文档写入 R13R.2 hash 与证据
+- Commits:
+  - `c764024` | `5bacaf1` | `TBD (this commit)`
 
 ## [TODO] R13R.3 Hook 关键事件与拦截契约补齐
 - Steps:

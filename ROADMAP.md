@@ -430,26 +430,29 @@
   - `tools/builtins/task.py`
   - `tools/builtins/read.py`
   - `tools/safety.py`
-  - `skills/workspace.py`
 - Acceptance (3-5):
-  - `task` 参数契约与细化文档一致（含 `load_skills`、`run_in_background`、新任务分支互斥规则）。
-  - `task` 子任务技能注入与 continuation 语义可验证。
-  - 修复 skills 可见性与 `read` 沙箱可读范围冲突。
+  - `task` 入参主契约切换为 `run_in_background + load_skills + description + prompt`。
+  - `run_in_background/load_skills` 为必填；新任务时 `category/subagent_type` 二选一。
+  - blocking/non_blocking 回执语义由 `run_in_background` 映射并稳定输出。
+  - `read` 在保持 repo 沙箱前提下，允许读取 `CODEX_HOME/skills` 解决 skills 可见性冲突。
 - Tests Plan:
-  - unit: `tests/unit/test_task_tool_schema.py`
+  - unit: `tests/unit/test_task_tool_schema.py` + `tests/unit/test_task_tool_{blocking,non_blocking}.py` + `tests/unit/test_tools_builtins.py`
   - contract: `tests/contract/test_task_tool_contract.py`
-  - integration: `tests/integration/test_task_skills_integration.py`
-  - e2e: `tests/e2e/test_task_load_skills_e2e.py`
+  - integration: `tests/integration/test_task_{runtime_wiring,blocking,non_blocking,skills}_integration.py`
+  - e2e: `tests/e2e/test_task_tool_{blocking,non_blocking}_e2e.py` + `tests/e2e/test_task_load_skills_e2e.py`
 - Commit Plan:
-  - C1: `test(R13R.2): tools/task契约修复红测（先红）`
-  - C2: `feat(R13R.2): 修复task与skills-read关键契约（全绿）`
-  - C3: `docs(R13R.2): 记录tools契约修复证据（记录hash/证据/下一步）`
+  - C1: `test(R13R.2): tools/task 契约修复红测（先红）`
+  - C2: `feat(R13R.2): tools/task 契约修复并转绿（全绿）`
+  - C3: `docs(R13R.2): 记录tools/task契约修复证据（记录hash/证据/下一步）`
 - Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
+  - C1: `c764024`
+  - C2: `5bacaf1`
+  - C3: `TBD (this commit)`
 - Evidence:
-  - Pending
+  - 设计对照: 已按 `内核设计蓝图.md + 内核设计细化/工具设计细化.md` 执行；`内核设计细化/任务编排设计细化.md` 文件在仓库中不存在，按蓝图第 6.6/7.2 节补齐 task 编排约束。
+  - 红测（C1）: `pytest -q tests/unit/test_task_tool_schema.py tests/unit/test_task_tool_blocking.py tests/unit/test_task_tool_non_blocking.py tests/unit/test_tools_builtins.py tests/contract/test_task_tool_contract.py tests/integration/test_task_runtime_wiring_integration.py tests/integration/test_task_blocking_integration.py tests/integration/test_task_non_blocking_integration.py tests/integration/test_task_skills_integration.py tests/e2e/test_task_tool_blocking_e2e.py tests/e2e/test_task_tool_non_blocking_e2e.py tests/e2e/test_task_load_skills_e2e.py` -> `21 failed, 10 passed`
+  - 转绿（C2）: 同命令 -> `31 passed in 1.58s`
+  - C3 前门禁: `pytest -q` -> `168 passed in 10.54s`
 
 ### Roadpoint R13R.3: Hook 关键事件与拦截契约补齐
 - Public Surface:
