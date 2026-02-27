@@ -1,34 +1,50 @@
-# TASKS (Current Milestone: M14)
+# TASKS (Current Milestone: M13R)
 
-## [TODO] R14.1 anthropic 协议适配实现
+## [TODO] R13R.1 system prompt 模板对齐
 - Steps:
-  - 新增 anthropic 协议红测，固定 mapper/client/translator 的契约缺口（Red）。
-  - 实现 `llm/protocols/anthropic/{client,mapper}.py` 与 translator 分支。
-  - 保证 `X-Session-Id` 在 anthropic 链路透传。
+  - 新增 system prompt 模板红测，固定 `Available tools/Guidelines/datetime/cwd` 缺口（Red）。
+  - 将 `内核设计细化/系统提示词.md` 作为模板源，完成运行时占位填充。
+  - 保持 skills 注入机制并验证输出结构。
+  - 运行目标测试并记录证据。
+- Expected Tests:
+  - `tests/unit/test_agent_prompting.py`
+  - `tests/contract/test_system_prompt_contract.py`
+  - `tests/integration/test_prompt_runtime_fill_integration.py`
+  - `tests/e2e/test_system_prompt_render_e2e.py`
+- DoD:
+  - R13R.1 目标测试红转绿
+  - C1/C2/C3 三次提交完整
+  - 四文档写入 R13R.1 hash 与证据
+
+## [TODO] R13R.2 tools/task 契约修复
+- Steps:
+  - 新增 task 参数契约与 load_skills 红测，固定 `run_in_background`/互斥规则缺口（Red）。
+  - 修复 `task` 参数面与执行分流，补齐技能注入路径。
+  - 修复 skills 可见性与 `read` 沙箱可读范围冲突。
   - 跑目标测试并记录证据。
 - Expected Tests:
-  - `tests/unit/test_anthropic_mapper.py`
-  - `tests/contract/test_llm_anthropic_contract.py`
-  - `tests/integration/test_anthropic_generation_integration.py`
-  - `tests/e2e/test_anthropic_generation_e2e.py`
+  - `tests/unit/test_task_tool_schema.py`
+  - `tests/contract/test_task_tool_contract.py`
+  - `tests/integration/test_task_skills_integration.py`
+  - `tests/e2e/test_task_load_skills_e2e.py`
 - DoD:
-  - R14.1 目标测试红转绿
+  - R13R.2 目标测试红转绿
   - C1/C2/C3 三次提交完整
-  - 四文档写入 R14.1 hash 与证据
+  - 四文档写入 R13R.2 hash 与证据
 
-## [TODO] R14.2 provider 切换验收
+## [TODO] R13R.3 Hook 关键事件与拦截契约补齐
 - Steps:
-  - 新增 provider 切换红测，固定“仅配置切换”的约束（Red）。
-  - 在 factory/model_registry 完成 anthropic 与 openai_compat 切换接线。
-  - 完成双 provider 回归与错误语义一致性校验。
-  - 执行全量回归并收口 M14。
+  - 新增关键 hook 事件触发红测（session_*/run_* 与 before_agent_start.message）（Red）。
+  - 在 runtime/compaction 主链路补齐事件触发与 message 接线。
+  - 增加内置 hook 示例模块并验证加载。
+  - 执行全量回归并收口 M13R。
 - Expected Tests:
-  - `tests/unit/test_llm_factory_provider_switch.py`
-  - `tests/contract/test_provider_switch_contract.py`
-  - `tests/integration/test_provider_switch_integration.py`
-  - `tests/e2e/test_provider_switch_e2e.py`
+  - `tests/unit/test_hook_event_coverage.py`
+  - `tests/contract/test_hook_intercept_contract.py`
+  - `tests/integration/test_hook_critical_events_integration.py`
+  - `tests/e2e/test_hook_error_timeout_abort_e2e.py`
 - DoD:
-  - R14.2 目标测试红转绿
+  - R13R.3 目标测试红转绿
   - `pytest -q` 全绿
   - C1/C2/C3 三次提交完整
-  - 四文档写入 R14.2 hash 与证据
+  - 四文档写入 R13R.3 hash 与证据

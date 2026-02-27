@@ -390,6 +390,92 @@
   - 关联字段验证: `test_run_tool_hook_logs_share_correlation_fields` 断言 run/tool/hook 日志共享 `session_id/turn_id/tool_call_id/trace_id`
   - M13 全量收口: `pytest -q` -> `159 passed in 11.58s`
 
+## Milestone M13R
+- Title: 细化一致性优先修复（系统提示词 + 工具契约 + Hook/Skill关键差距）
+- Goal: 对齐 `内核设计细化/` 与现状实现的高优先级偏差，恢复设计一致性基线。
+- Exit Criteria:
+  - system prompt 模板按 `内核设计细化/系统提示词.md` 落地（含工具段、guidelines、datetime、cwd 占位填充）。
+  - `tools` 关键契约差距修复（至少覆盖 task 参数契约、load_skills、read 沙箱与 skills 可见性冲突）。
+  - Hook 关键事件触发与 `before_agent_start.message` 契约补齐，`pytest -q` 全绿。
+- Status: Expanded (Active)
+
+### Roadpoint R13R.1: system prompt 模板对齐
+- Public Surface:
+  - `agent/prompting.py`
+  - `内核设计细化/系统提示词.md`（作为模板源）
+  - `tests/unit/test_agent_prompting.py`
+- Acceptance (3-5):
+  - 默认提示词采用细化文档模板语义，包含 `Available tools` 与 `Guidelines` 段。
+  - 支持运行时填充 `AVAILABLE_TOOLS/SKILLS_SECTION/CURRENT_DATETIME/CURRENT_WORKING_DIRECTORY`。
+  - 保持 skills 注入机制不退化。
+- Tests Plan:
+  - unit: `tests/unit/test_agent_prompting.py`
+  - contract: `tests/contract/test_system_prompt_contract.py`
+  - integration: `tests/integration/test_prompt_runtime_fill_integration.py`
+  - e2e: `tests/e2e/test_system_prompt_render_e2e.py`
+- Commit Plan:
+  - C1: `test(R13R.1): system prompt模板对齐红测（先红）`
+  - C2: `feat(R13R.1): 落地系统提示词模板与运行时填充（全绿）`
+  - C3: `docs(R13R.1): 记录系统提示词对齐证据（记录hash/证据/下一步）`
+- Commits:
+  - C1: TBD
+  - C2: TBD
+  - C3: TBD
+- Evidence:
+  - Pending
+
+### Roadpoint R13R.2: tools/task 契约修复
+- Public Surface:
+  - `tools/builtins/task.py`
+  - `tools/builtins/read.py`
+  - `tools/safety.py`
+  - `skills/workspace.py`
+- Acceptance (3-5):
+  - `task` 参数契约与细化文档一致（含 `load_skills`、`run_in_background`、新任务分支互斥规则）。
+  - `task` 子任务技能注入与 continuation 语义可验证。
+  - 修复 skills 可见性与 `read` 沙箱可读范围冲突。
+- Tests Plan:
+  - unit: `tests/unit/test_task_tool_schema.py`
+  - contract: `tests/contract/test_task_tool_contract.py`
+  - integration: `tests/integration/test_task_skills_integration.py`
+  - e2e: `tests/e2e/test_task_load_skills_e2e.py`
+- Commit Plan:
+  - C1: `test(R13R.2): tools/task契约修复红测（先红）`
+  - C2: `feat(R13R.2): 修复task与skills-read关键契约（全绿）`
+  - C3: `docs(R13R.2): 记录tools契约修复证据（记录hash/证据/下一步）`
+- Commits:
+  - C1: TBD
+  - C2: TBD
+  - C3: TBD
+- Evidence:
+  - Pending
+
+### Roadpoint R13R.3: Hook 关键事件与拦截契约补齐
+- Public Surface:
+  - `agent/runtime.py`
+  - `agent/compaction/*`
+  - `hooks/runner.py`
+  - `hooks/builtins/*`
+- Acceptance (3-5):
+  - `session_start/session_compact/session_shutdown/run_error/run_timeout/run_abort` 在主链路可触发。
+  - `before_agent_start.message` 返回值接入主流程。
+  - 补齐至少一个内置 hook 示例模块（`base_guard/default_status` 等）。
+- Tests Plan:
+  - unit: `tests/unit/test_hook_event_coverage.py`
+  - contract: `tests/contract/test_hook_intercept_contract.py`
+  - integration: `tests/integration/test_hook_critical_events_integration.py`
+  - e2e: `tests/e2e/test_hook_error_timeout_abort_e2e.py`
+- Commit Plan:
+  - C1: `test(R13R.3): hook关键事件覆盖红测（先红）`
+  - C2: `feat(R13R.3): 补齐hook关键事件与拦截契约（全绿）`
+  - C3: `docs(R13R.3): 记录hook一致性修复证据并收口M13R（记录hash/证据/下一步）`
+- Commits:
+  - C1: TBD
+  - C2: TBD
+  - C3: TBD
+- Evidence:
+  - Pending
+
 ## Milestone M14
 - Title: 第二 Provider（anthropic）与切换验收
 - Goal: 在不改 runtime/tool/session 核心代码前提下新增 `anthropic` 协议实现与工厂接线。
@@ -397,58 +483,7 @@
   - `llm/protocols/anthropic/*` 落地并通过与 `openai_compat` 同一契约测试集。
   - provider 切换仅改配置（不改 runtime/tool/session 代码）。
   - OpenAI/Anthropic 双链路集成测试通过，`pytest -q` 全绿。
-- Status: Expanded (Active)
-
-### Roadpoint R14.1: anthropic 协议适配实现
-- Public Surface:
-  - `llm/protocols/anthropic/client.py`
-  - `llm/protocols/anthropic/mapper.py`
-  - `llm/translator.py`（anthropic 映射分支）
-- Acceptance (3-5):
-  - anthropic client 支持非流式文本生成最小链路。
-  - 统一请求/响应映射到内部 `LLMGenerateRequest/LLMGenerateResponse`。
-  - 请求保留 `X-Session-Id` 透传约束。
-  - 与现有 openai_compat 契约测试框架兼容。
-- Tests Plan:
-  - unit: `tests/unit/test_anthropic_mapper.py`
-  - contract: `tests/contract/test_llm_anthropic_contract.py`
-  - integration: `tests/integration/test_anthropic_generation_integration.py`
-  - e2e: `tests/e2e/test_anthropic_generation_e2e.py`
-- Commit Plan:
-  - C1: `test(R14.1): anthropic协议红测（先红）`
-  - C2: `feat(R14.1): 实现anthropic协议适配（全绿）`
-  - C3: `docs(R14.1): 记录anthropic证据并推进下一步（记录hash/证据/下一步）`
-- Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
-- Evidence:
-  - Pending（下一步执行 R14.1 Red）
-
-### Roadpoint R14.2: provider 切换验收
-- Public Surface:
-  - `llm/factory.py`
-  - `llm/model_registry.py`
-  - 运行配置（provider/model/base_url）
-- Acceptance (3-5):
-  - `openai_compat` 与 `anthropic` 切换仅改配置，不改 runtime/tool/session 代码。
-  - 同一套核心契约测试在双 provider 下通过。
-  - 关键错误语义与 trace 字段保持一致。
-- Tests Plan:
-  - unit: `tests/unit/test_llm_factory_provider_switch.py`
-  - contract: `tests/contract/test_provider_switch_contract.py`
-  - integration: `tests/integration/test_provider_switch_integration.py`
-  - e2e: `tests/e2e/test_provider_switch_e2e.py`
-- Commit Plan:
-  - C1: `test(R14.2): provider切换验收红测（先红）`
-  - C2: `feat(R14.2): 完成provider配置切换与回归（全绿）`
-  - C3: `docs(R14.2): 记录切换证据并收口M14（记录hash/证据/下一步）`
-- Commits:
-  - C1: TBD
-  - C2: TBD
-  - C3: TBD
-- Evidence:
-  - Pending
+- Status: Planned (Not Expanded)
 
 ## Milestone M15
 - Title: 发布前硬化与回放审计验收
