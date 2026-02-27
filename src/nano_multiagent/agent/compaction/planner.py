@@ -1,6 +1,6 @@
 from typing import Mapping, Sequence
 
-from nano_multiagent.session.entries import SessionEntry, SessionEntryKind
+from nano_multiagent.session.entries import CompactionEntry, SessionEntry, SessionEntryKind
 
 from .types import CompactionPlan, CompactionReason
 
@@ -12,10 +12,13 @@ class CompactionPlanner:
     def plan(
         self,
         *,
-        events: Sequence[SessionEntry],
+        events: Sequence[SessionEntry | CompactionEntry],
         reason: CompactionReason,
     ) -> CompactionPlan | None:
-        turn_events = tuple(event for event in events if event.kind is SessionEntryKind.TURN_APPENDED)
+        turn_events = tuple(
+            event for event in events
+            if isinstance(event, SessionEntry) and event.kind is SessionEntryKind.TURN_APPENDED
+        )
         if len(turn_events) <= self._min_kept_messages:
             return None
 
