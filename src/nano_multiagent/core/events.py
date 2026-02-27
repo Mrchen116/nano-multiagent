@@ -7,6 +7,9 @@ from .ids import make_event_id
 
 class RuntimeEventType(StrEnum):
     INPUT = "input"
+    SESSION_START = "session_start"
+    SESSION_COMPACT = "session_compact"
+    SESSION_SHUTDOWN = "session_shutdown"
     BEFORE_AGENT_START = "before_agent_start"
     TURN_START = "turn_start"
     MESSAGE_UPDATE = "message_update"
