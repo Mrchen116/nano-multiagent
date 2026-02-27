@@ -357,4 +357,4 @@
 - Rollback:
   - 可回退到 `6d84dc9`（R7.1 红测提交）重放 Green。
 - Commits:
-  - C1=`6d84dc9`, C2=`2da3a90`, C3=`本次文档提交`
+  - C1=`6d84dc9`, C2=`2da3a90`, C3=`0ba7e76`

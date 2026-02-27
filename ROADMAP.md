@@ -457,7 +457,7 @@ Exit Criteria:
 - Commits:
   - C1: 6d84dc9
   - C2: 2da3a90
-  - C3: 本次文档提交
+  - C3: 0ba7e76
 - Evidence:
   - `pytest -q tests/unit/test_hooks_runner.py tests/contract/test_hooks_contract.py tests/integration/test_hooks_loader_integration.py tests/e2e/test_hooks_pipeline_e2e.py`: `7 passed in 0.04s`
   - `pytest -q`: `85 passed in 5.55s`

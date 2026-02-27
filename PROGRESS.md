@@ -191,6 +191,6 @@
   - `pytest -q` -> `85 passed in 5.55s`
   - 双源顺序验证 -> `tests/integration/test_hooks_loader_integration.py` 断言执行顺序 `builtin-a -> builtin-b -> workspace`
 - Commits: C1 | C2 | C3
-  - `6d84dc9` | `2da3a90` | `本次文档提交`
+  - `6d84dc9` | `2da3a90` | `0ba7e76`
 - Next:
   - M7 完成；等待 M8（runtime/tools Hook 接线）指令
