@@ -533,7 +533,7 @@ Exit Criteria:
 - Commits:
   - C1: 7e7fd18
   - C2: 532f34a
-  - C3: (this docs commit)
+  - C3: 4fac5ba
 - Evidence:
   - `pytest -q tests/integration/test_m8_agent_tool_hook_r81_integration.py`: `4 passed in 0.07s`
   - `pytest -q`: `99 passed in 11.73s`
@@ -542,3 +542,48 @@ Exit Criteria:
     - `tool_call block` 在执行与参数校验前生效：`tests/integration/test_m8_agent_tool_hook_r81_integration.py::test_tool_call_block_is_applied_before_tool_execution_and_arg_validation`
     - `tool_result rewrite` 在返回前生效（`output` 改写）：`tests/integration/test_m8_agent_tool_hook_r81_integration.py::test_tool_result_rewrite_output_is_applied_before_return`
     - Hook 异常隔离 fail-open：`tests/integration/test_m8_agent_tool_hook_r81_integration.py::test_hook_exceptions_are_isolated_and_fail_open_for_runtime_and_tools`
+
+## Milestone M9（已完成）: skills 自动发现与 /skill 改写
+Goal:
+- 实现 `skills/registry.py`、`skills/workspace.py`、`skills/formatter.py`，支持可见技能发现与 prompt 片段生成
+- 在 `agent/prompting.py` 注入 `<available_skills>`（仅 skills 非空时）
+- 实现 `agent/skill_commands.py`，将 `/skill:name [args...]` 改写为标准提示后走常规 runtime
+- 明确“自动技能=模型自主 + read 按需读取 SKILL.md”，不把 SKILL.md 原文注入 system prompt
+Exit Criteria:
+- 覆盖 unit/contract/integration/e2e 四类测试并通过 `pytest -q`
+- 验证 skills 非空时 system prompt 含 `<available_skills>` 且 `<location>` 为绝对路径
+- 验证 skills 为空时 system prompt 不注入 `<available_skills>`
+- 验证 `/skill:name` 与 `/skill:name args` 改写契约
+- 验证改写后仍走常规 runtime（LLM 请求与 turn 事件落盘）
+
+### Roadpoint R9.1: skills 发现、prompt 注入与 /skill 改写闭环
+- Public Surface:
+  - `nano_multiagent.skills.registry`
+  - `nano_multiagent.skills.workspace`
+  - `nano_multiagent.skills.formatter`
+  - `nano_multiagent.agent.prompting`
+  - `nano_multiagent.agent.skill_commands`
+  - `nano_multiagent.agent.runtime`
+- Acceptance:
+  - skills 非空时，system prompt 追加 `<available_skills>`，并提供 read 读取与相对路径解析指导
+  - `<available_skills>` 中每个 `<location>` 必须为绝对路径
+  - skills 为空时，不注入 `<available_skills>`
+  - `/skill:name` 改写为 `Use the "<name>" skill for this request.`
+  - `/skill:name args...` 改写后追加 `User input:` 段
+  - 改写后仍沿用常规 runtime 流程（LLM 调用与 session.turn.appended 落盘）
+- Tests Plan:
+  - unit: `tests/unit/test_agent_prompting.py`
+  - contract: `tests/contract/test_skill_commands_contract.py`
+  - integration: `tests/integration/test_agent_runtime_skill_command_integration.py`
+  - e2e: `tests/e2e/test_skill_command_message_sync_e2e.py`
+- Commit Plan:
+  - C1: `test(R9.1): 新增skills注入与/skill改写四类红测（先红）`
+  - C2: `feat(R9.1): 实现skills自动发现与/skill改写接线（全绿）`
+  - C3: `docs(R9.1): 记录M9证据与hash回填（记录hash/证据/下一步）`
+- Commits:
+  - C1: c71191c
+  - C2: ae706e2
+  - C3: (this docs commit)
+- Evidence:
+  - `pytest -q tests/unit/test_agent_prompting.py tests/contract/test_skill_commands_contract.py tests/integration/test_agent_runtime_skill_command_integration.py tests/e2e/test_skill_command_message_sync_e2e.py`: `7 passed in 0.34s`
+  - `pytest -q`: `105 passed in 5.13s`

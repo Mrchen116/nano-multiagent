@@ -406,4 +406,29 @@
 - Rollback:
   - 可回退到 `7e7fd18`（R8.2 红测提交）重新串行执行 C2/C3。
 - Commits:
-  - C1=`7e7fd18`, C2=`532f34a`, C3=`(this docs commit)`
+  - C1=`7e7fd18`, C2=`532f34a`, C3=`4fac5ba`
+
+## 2026-02-27 08:45:24 +0800 - R9.1 完成记录（skills 自动发现 + /skill 改写）
+- Context:
+  - M9 范围限定为 skills 自动发现、system prompt 注入与 `/skill` 输入改写，禁止进入 M10+（compaction/task/SSE）。
+  - 本次改动跨 `skills/*`、`agent/*` 与四类测试，涉及文件数超过 5。
+- Decision:
+  - 新增 `skills/registry.py`、`skills/workspace.py`、`skills/formatter.py`，按工作区与 `CODEX_HOME` 发现可见技能并生成 `<available_skills>` 片段。
+  - 在 `agent/prompting.py` 增加 skills 段注入逻辑，仅在 skills 非空时追加，并明确 read 工具的相对路径解析规则。
+  - 新增 `agent/skill_commands.py` 并在 `AgentRuntime.run` 接线，将 `/skill:name [args...]` 统一改写后继续走常规 runtime。
+  - 回填历史占位：`R8.2 C3=4fac5ba`。
+- Rationale:
+  - 通过“元数据注入 + 模型按需 read SKILL.md”保持自动技能机制，不把 SKILL.md 原文注入 system prompt。
+  - 将 `/skill` 改写放在 runtime 主链路可保证 hooks/session/LLM 调用语义一致，降低行为分叉风险。
+- Changed Files Summary:
+  - `src/nano_multiagent/skills/{__init__.py,registry.py,workspace.py,formatter.py}`
+  - `src/nano_multiagent/agent/{prompting.py,loop.py,runtime.py,skill_commands.py}`
+  - `tests/{unit,contract,integration,e2e}` 中新增/更新 M9 覆盖
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - skills 发现默认依赖 `CODEX_HOME` 与工作区目录，若部署环境未挂载对应路径则会退化为“无 skills 注入”。
+  - `SkillRegistry` 当前按 skill `name` 去重，重名 skill 的覆盖策略为“先发现优先”。
+- Rollback:
+  - 可回退到 `c71191c`（R9.1 红测提交）重放 Green。
+- Commits:
+  - C1=`c71191c`, C2=`ae706e2`, C3=`(this docs commit)`

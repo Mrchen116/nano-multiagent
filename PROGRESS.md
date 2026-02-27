@@ -220,6 +220,20 @@
   - `pytest -q` -> `99 passed in 11.73s`
   - `pytest -q tests/integration/test_m8_agent_tool_hook_r81_integration.py` -> `4 passed in 0.07s`（沿用 C1/C2 链路验收记录）
 - Commits: C1 | C2 | C3
-  - `7e7fd18` | `532f34a` | `(this docs commit)`
+  - `7e7fd18` | `532f34a` | `4fac5ba`
 - Next:
   - M8 两组提交链均已闭环；等待后续 Milestone 指令
+
+## 2026-02-27 08:45:24 +0800
+- Done:
+  - 完成 R9.1：实现 `skills/registry.py`、`skills/workspace.py`、`skills/formatter.py`
+  - 在 `agent/prompting.py` 完成 `<available_skills>` 注入（skills 非空才注入），并写入 read 相对路径解析指导语
+  - 实现 `agent/skill_commands.py`，并在 `AgentRuntime.run` 接线 `/skill:name [args...]` 改写后进入常规推理流程
+  - 新增四类测试覆盖 M9 验收点，并回填历史占位 `R8.2 C3=4fac5ba`
+- Evidence:
+  - `pytest -q tests/unit/test_agent_prompting.py tests/contract/test_skill_commands_contract.py tests/integration/test_agent_runtime_skill_command_integration.py tests/e2e/test_skill_command_message_sync_e2e.py` -> `7 passed in 0.34s`
+  - `pytest -q` -> `105 passed in 5.13s`
+- Commits: C1 | C2 | C3
+  - `c71191c` | `ae706e2` | `(this docs commit)`
+- Next:
+  - M9 已完成；等待后续 Milestone 指令
