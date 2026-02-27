@@ -431,4 +431,28 @@
 - Rollback:
   - 可回退到 `c71191c`（R9.1 红测提交）重放 Green。
 - Commits:
-  - C1=`c71191c`, C2=`ae706e2`, C3=`(this docs commit)`
+  - C1=`c71191c`, C2=`ae706e2`, C3=`fc30c3e`
+
+## 2026-02-27 10:26:00 +0800 - R10.1 完成记录（policy/planner/CompactionEntry 基线）
+- Context:
+  - 用户要求先完成 R10.1（`policy + planner + CompactionEntry`）再进入 R10.2 runtime 接线。
+  - 本次改动新增 `agent/compaction` 子包并改造 `session.manager`，涉及文件数超过 5。
+- Decision:
+  - 在 `agent/compaction` 中先实现 `types/policy/planner/applier/summarizer` 最小可测骨架。
+  - `SessionManager` 增加 `append_compaction/list_entries`，并在 `list_turn_messages` 中按最新 `CompactionEntry.first_kept_event_id` 重建上下文。
+  - planner 使用 `metadata.tool_phase/tool_call_id` 做切点保护，避免拆分 `tool_call/tool_result` 对。
+- Rationale:
+  - 先冻结 compaction 契约与审计锚点，再接 runtime preflight/overflow，可明显降低变更风险。
+  - 将回放逻辑放在 manager 侧可保持 runtime 只消费“已重建上下文”，边界更稳定。
+- Changed Files Summary:
+  - `src/nano_multiagent/agent/compaction/{__init__.py,types.py,policy.py,planner.py,summarizer.py,applier.py}`
+  - `src/nano_multiagent/session/manager.py`
+  - `tests/{unit,contract,integration}` 中 R10.1 基线测试
+  - `ROADMAP.md`, `TASKS.md`, `PROGRESS.md`, `LOGBOOK.md`
+- Pitfall/Risk:
+  - runtime 尚未接入 preflight 与 overflow 自动补救，属于 R10.2 范围。
+  - e2e overflow 恢复链路仍待在 R10.2 兑现。
+- Rollback:
+  - 可回退到 `d7950f0`（R10.1 红测提交）重放 Green。
+- Commits:
+  - C1=`d7950f0`, C2=`5ac5758`, C3=`(this docs commit)`

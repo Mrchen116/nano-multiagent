@@ -583,7 +583,62 @@ Exit Criteria:
 - Commits:
   - C1: c71191c
   - C2: ae706e2
-  - C3: (this docs commit)
+  - C3: fc30c3e
 - Evidence:
   - `pytest -q tests/unit/test_agent_prompting.py tests/contract/test_skill_commands_contract.py tests/integration/test_agent_runtime_skill_command_integration.py tests/e2e/test_skill_command_message_sync_e2e.py`: `7 passed in 0.34s`
   - `pytest -q`: `105 passed in 5.13s`
+
+## Milestone M10（进行中）: compaction 子系统
+Goal:
+- 实现 `agent/compaction/{types,policy,planner,summarizer,applier}.py`
+- 支持 `threshold/overflow/manual` 三种压缩触发路径
+- 每次压缩落盘 `CompactionEntry`，且包含 `first_kept_event_id` 审计锚点
+- runtime 支持 LLM 调用前 preflight 与 overflow 后补救重试
+- 上下文重建固定为 `system + compaction_summary + kept_recent_messages`
+Exit Criteria:
+- `policy/planner/CompactionEntry` 基线完成（R10.1）
+- `runtime` 接入 preflight + overflow 恢复 + manual compact（R10.2）
+- 摘要模型支持独立于主模型配置（最小实现）
+- 覆盖 unit/contract/integration/e2e，并通过 `pytest -q` 全绿
+- 不进入 M11 task / M12 SSE
+
+### Roadpoint R10.1: policy + planner + CompactionEntry 基线
+- Public Surface:
+  - `nano_multiagent.agent.compaction.types`
+  - `nano_multiagent.agent.compaction.policy`
+  - `nano_multiagent.agent.compaction.planner`
+  - `nano_multiagent.agent.compaction.applier`
+  - `nano_multiagent.session.manager`（`append_compaction/list_entries/list_turn_messages`）
+- Acceptance:
+  - `should_compact(context_tokens, context_window, reserve_tokens)` 可区分 `threshold/overflow`
+  - planner 切点不拆 `tool_call` 与 `tool_result` 配对事件
+  - `CompactionEntry` 通过 manager 落盘并保存 `first_kept_event_id`
+  - 会话重建上下文可从审计锚点回放：`compaction_summary + kept_recent_messages`
+  - 目标测试全绿
+- Tests Plan:
+  - unit: `tests/unit/test_compaction_planner.py`
+  - contract: `tests/contract/test_compaction_contract.py`
+  - integration: `tests/integration/test_compaction_runtime_integration.py`
+  - e2e: 延后到 R10.2（runtime 溢出恢复链路）
+- Commit Plan:
+  - C1: `test(R10.1): ...（先红）`
+  - C2: `feat(R10.1): ...（全绿）`
+  - C3: `docs(R10.1): ...（记录hash/证据/下一步）`
+- Commits:
+  - C1: d7950f0
+  - C2: 5ac5758
+  - C3: (this docs commit)
+- Evidence:
+  - `pytest -q tests/unit/test_compaction_planner.py tests/contract/test_compaction_contract.py tests/integration/test_compaction_runtime_integration.py tests/unit/test_session_entries.py tests/contract/test_session_serializers_contract.py`: `10 passed in 0.12s`
+  - 审计回放验证: `tests/integration/test_compaction_runtime_integration.py` 断言重建结果为 `system(summary) + kept_recent_messages`
+
+### Roadpoint R10.2: runtime 接线（preflight + overflow 重试 + manual）
+- Public Surface:
+  - `nano_multiagent.agent.runtime.AgentRuntime`
+  - `nano_multiagent.agent.compaction.summarizer`
+- Acceptance:
+  - 每次 LLM 调用前执行 compaction preflight
+  - overflow 时执行 post_turn_check 补救压缩并自动重试一次
+  - 提供 manual compact 路径
+  - 摘要模型可配置为与主模型不同
+  - `pytest -q` 全绿

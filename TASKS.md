@@ -1,28 +1,42 @@
-# TASKS (Current Milestone: M9)
+# TASKS (Current Milestone: M10)
 
-## [DONE] R9.1 skills 自动发现 + system prompt 注入 + /skill 改写
+## [DONE] R10.1 policy + planner + CompactionEntry 基线
 - Steps:
-  - 新增四类红测覆盖：`<available_skills>` 注入、空 skills 不注入、`/skill` 改写与 runtime 主链路（Red）
-  - 实现 `skills/registry.py`：扫描并解析 `SKILL.md` 元数据（`name/description/location/base_dir`）
-  - 实现 `skills/workspace.py`：按 `CODEX_HOME` 与工作区目录解析可见 skills
-  - 实现 `skills/formatter.py`：生成含 read/路径解析指导的 `<available_skills>` 片段
-  - 在 `agent/prompting.py` 注入 skills 段（仅 skills 非空时）
-  - 实现 `agent/skill_commands.py` 并在 `AgentRuntime.run` 接线改写 `/skill:name [args...]`
-  - 跑目标测试与 `pytest -q` 全量验收
-  - 回填历史占位：`R8.2 C3=4fac5ba`
+  - 新增 compaction 红测（unit/contract/integration/e2e）固定 M10 关键行为缺口（Red）
+  - 实现 `agent/compaction` 基础模块：`types/policy/planner/applier/summarizer`（最小骨架）
+  - 在 `SessionManager` 增加 `append_compaction/list_entries`，并按 `first_kept_event_id` 重建上下文回放
+  - 校验切点规划不拆 `tool_call/tool_result`
+  - 跑 R10.1 目标测试集并记录证据
+  - 回填历史占位：`R9.1 C3=fc30c3e`
 - Expected Tests:
-  - `tests/unit/test_agent_prompting.py`
-  - `tests/contract/test_skill_commands_contract.py`
-  - `tests/integration/test_agent_runtime_skill_command_integration.py`
-  - `tests/e2e/test_skill_command_message_sync_e2e.py`
+  - `tests/unit/test_compaction_planner.py`
+  - `tests/contract/test_compaction_contract.py`
+  - `tests/integration/test_compaction_runtime_integration.py`
+  - `tests/unit/test_session_entries.py`
+  - `tests/contract/test_session_serializers_contract.py`
+- DoD:
+  - R10.1 目标测试全绿
+  - C1/C2/C3 三次提交完整
+  - 四文档写入 R10.1 hash 与证据
+
+## [TODO] R10.2 runtime compaction 接线（threshold/overflow/manual）
+- Steps:
+  - 增补 runtime compaction 红测：threshold preflight、overflow 补救重试、manual compact、e2e 恢复链路（Red）
+  - 在 `AgentRuntime` 接入 preflight compaction 与 overflow post_turn_check 重试
+  - 接入 `CompactionSummarizer` 与 `CompactionApplier`，落盘 `CompactionEntry(first_kept_event_id)`
+  - 约束上下文重建为 `system + compaction_summary + kept_recent_messages`
+  - 支持 `summary_model` 与主模型解耦（最小实现）
+  - 跑 `pytest -q` 全量验收并回填 R10.1 C3
+- Expected Tests:
+  - `tests/integration/test_compaction_runtime_integration.py`
+  - `tests/e2e/test_compaction_overflow_recovery_e2e.py`
   - `pytest -q`
 - DoD:
   - `pytest -q` 全绿
   - C1/C2/C3 三次提交完整
-  - 四文档写入 R9.1 hash 与证据
-  - 不进入 M10+（compaction/task/SSE）
+  - 四文档写入 R10.2 hash 与证据
+  - 不进入 M11/M12
 
-## Milestone M9 状态
-- R9.1 提交链已闭环：`c71191c` -> `ae706e2` -> `(this docs commit)`。
-- `skills` 自动发现与 `/skill` 改写能力已接入 runtime 主链路。
-- 范围严格限定在 M9，未进入 M10+。
+## Milestone M10 状态
+- R10.1 已完成：`d7950f0` -> `5ac5758` -> `(this docs commit)`。
+- R10.2 待执行：runtime preflight/overflow/manual 接线与全量验收。

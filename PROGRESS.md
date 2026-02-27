@@ -234,6 +234,20 @@
   - `pytest -q tests/unit/test_agent_prompting.py tests/contract/test_skill_commands_contract.py tests/integration/test_agent_runtime_skill_command_integration.py tests/e2e/test_skill_command_message_sync_e2e.py` -> `7 passed in 0.34s`
   - `pytest -q` -> `105 passed in 5.13s`
 - Commits: C1 | C2 | C3
-  - `c71191c` | `ae706e2` | `(this docs commit)`
+  - `c71191c` | `ae706e2` | `fc30c3e`
 - Next:
   - M9 已完成；等待后续 Milestone 指令
+
+## 2026-02-27 10:26:00 +0800
+- Done:
+  - 完成 R10.1：交付 `agent/compaction` 基线模块（`types/policy/planner/applier/summarizer`）
+  - `SessionManager` 新增 `append_compaction/list_entries`，并支持按 `first_kept_event_id` 回放 `compaction_summary + kept_recent_messages`
+  - planner 切点规则落地：不拆 `tool_call/tool_result` 配对边界
+  - 回填 M9 文档占位：`R9.1 C3=fc30c3e`
+- Evidence:
+  - `pytest -q tests/unit/test_compaction_planner.py tests/contract/test_compaction_contract.py tests/integration/test_compaction_runtime_integration.py tests/unit/test_session_entries.py tests/contract/test_session_serializers_contract.py` -> `10 passed in 0.12s`
+  - 审计锚点验证 -> `tests/integration/test_compaction_runtime_integration.py` 断言 `CompactionEntry.first_kept_event_id` 可用于回放重建
+- Commits: C1 | C2 | C3
+  - `d7950f0` | `5ac5758` | `(this docs commit)`
+- Next:
+  - R10.2 Red：补 runtime threshold/overflow/manual 路径红测并接线 compaction 重试链路
