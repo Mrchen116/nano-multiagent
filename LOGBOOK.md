@@ -706,7 +706,7 @@
 - Rollback:
   - 如需重做，可回退至 `3578aad`（R13.1 红测提交）后重新 Green。
 - Commits:
-  - C1=`3578aad`, C2=`e1ccd61`, C3=`TO_FILL_AFTER_COMMIT`
+  - C1=`3578aad`, C2=`e1ccd61`, C3=`b653447`
 
 ## 2026-02-27 10:08:24 +0800 - R13.2 完成记录（可观测性字段收口）
 - Context:
@@ -734,4 +734,4 @@
 - Rollback:
   - 如需重做，可回退到 `65348a0`（R13.2 红测提交）后按 Green 重放。
 - Commits:
-  - C1=`65348a0`, C2=`7ebde86`, C3=`TO_FILL_AFTER_COMMIT`
+  - C1=`65348a0`, C2=`7ebde86`, C3=`d72863c`

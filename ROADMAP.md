@@ -383,7 +383,7 @@
 - Commits:
   - C1: `65348a0`
   - C2: `7ebde86`
-  - C3: `TO_FILL_AFTER_COMMIT`
+  - C3: `d72863c`
 - Evidence:
   - 红测（C1）: `pytest -q tests/unit/test_observability_fields.py tests/contract/test_observability_contract.py tests/integration/test_trace_log_correlation_integration.py tests/e2e/test_observability_chain_e2e.py` -> `4 errors`（`ModuleNotFoundError: nano_multiagent.observability`）
   - 转绿（C2）: 同命令 -> `5 passed in 0.44s`

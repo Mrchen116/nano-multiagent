@@ -392,7 +392,7 @@
   - 红测（C1）: `pytest -q tests/unit/test_hook_query_models.py tests/contract/test_hooks_query_contract.py tests/integration/test_hooks_registry_query_integration.py tests/e2e/test_hooks_query_e2e.py` -> `1 error`（`ModuleNotFoundError: nano_multiagent.server.routes.hook`）
   - 转绿（C2）: 同命令 -> `6 passed in 0.39s`
 - Commits: C1 | C2 | C3
-  - `3578aad` | `e1ccd61` | `TO_FILL_AFTER_COMMIT`
+  - `3578aad` | `e1ccd61` | `b653447`
 - Next:
   - R13.2 Red：新增 observability 关联字段红测，锁定 `session_id/turn_id/tool_call_id/trace_id`。
 
@@ -406,6 +406,6 @@
   - 转绿（C2）: 同命令 -> `5 passed in 0.44s`
   - 全量回归: `pytest -q` -> `159 passed in 11.58s`
 - Commits: C1 | C2 | C3
-  - `65348a0` | `7ebde86` | `TO_FILL_AFTER_COMMIT`
+  - `65348a0` | `7ebde86` | `d72863c`
 - Next:
   - M13 已完成；按边界不进入 M14+。
