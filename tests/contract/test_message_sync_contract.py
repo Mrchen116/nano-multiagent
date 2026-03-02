@@ -30,7 +30,7 @@ class ModelTimeoutRuntime:
         del session_id
         del parts
         del stream
-        raise ModelError("openai_compat transport error", retryable=True)
+        raise ModelError("timed out waiting for upstream; root_cause=connect ETIMEDOUT", retryable=True)
 
 
 def _auth_headers(request_id: str) -> dict[str, str]:
@@ -99,6 +99,6 @@ def test_sync_message_model_timeout_maps_to_gateway_error() -> None:
     assert response.status_code == 502
     payload = response.json()["error"]
     assert payload["code"] == "model_error"
-    assert payload["message"] == "openai_compat transport error"
+    assert payload["message"] == "timed out waiting for upstream; root_cause=connect ETIMEDOUT"
     assert payload["retryable"] is True
     assert payload["trace_id"] == "req-message-model-timeout"

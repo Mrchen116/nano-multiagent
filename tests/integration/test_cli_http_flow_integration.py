@@ -1,13 +1,21 @@
 import io
 import json
+from pathlib import Path
 
 import httpx
 import pytest
 
+from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
 from nano_multiagent.cli.main import run_cli
+from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 from nano_multiagent.server.app import create_app
+from nano_multiagent.session.manager import SessionManager
+from nano_multiagent.session.stores.base import LoadedSession, SessionStore
+from nano_multiagent.tools.base import ToolContext
+from nano_multiagent.tools.registry import ToolRegistry
 
 
 class _RuntimeStub:
@@ -41,6 +49,98 @@ class _RuntimeStub:
             dropped_event_ids=("evt_cli_drop",),
             kept_event_ids=("evt_cli_kept",),
         )
+
+
+class _InMemorySessionStore(SessionStore):
+    def __init__(self) -> None:
+        self.events: list[tuple[str, object]] = []
+        self.snapshots: dict[str, dict[str, object]] = {}
+
+    def append_event(self, session_id: str, entry: object) -> None:
+        self.events.append((session_id, entry))
+
+    def load_session(self, session_id: str) -> LoadedSession | None:
+        session_events = tuple(entry for sid, entry in self.events if sid == session_id)
+        if not session_events and session_id not in self.snapshots:
+            return None
+        return LoadedSession(
+            session_id=session_id,
+            events=session_events,
+            snapshot=self.snapshots.get(session_id),
+        )
+
+    def save_snapshot(self, session_id: str, snapshot: dict[str, object]) -> None:
+        self.snapshots[session_id] = snapshot
+
+
+class _ToolCallingLLMClient:
+    def __init__(self) -> None:
+        self.requests: list[LLMGenerateRequest] = []
+
+    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            return LLMGenerateResponse(
+                model=request.model,
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="call_cli_echo_1",
+                            name="echo",
+                            arguments={"text": request.messages[-1].content},
+                        ),
+                    ),
+                ),
+                finish_reason="tool_calls",
+            )
+
+        tool_text = ""
+        if request.messages:
+            tail = request.messages[-1]
+            if tail.role == "tool":
+                payload = json.loads(tail.content)
+                if isinstance(payload, dict):
+                    output = payload.get("output")
+                    if isinstance(output, dict):
+                        raw_text = output.get("text")
+                        if isinstance(raw_text, str):
+                            tool_text = raw_text
+
+        return LLMGenerateResponse(
+            model=request.model,
+            message=LLMMessage(role="assistant", content=f"final:{tool_text}"),
+            finish_reason="stop",
+        )
+
+
+class _EchoTool:
+    name = "echo"
+    description = "Echo user text"
+    input_schema = {
+        "type": "object",
+        "properties": {"text": {"type": "string"}},
+        "required": ["text"],
+        "additionalProperties": False,
+    }
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+
+    def run(self, args, ctx):  # noqa: ANN001
+        del ctx
+        text = str(args["text"])
+        self.calls.append({"text": text})
+        return {"text": f"echo:{text}"}
+
+
+class _ModelTimeoutRuntime:
+    def run(self, session_id: str, parts, *, stream: bool = False) -> TurnResult:  # noqa: ANN001
+        del session_id
+        del parts
+        del stream
+        raise ModelError("timed out waiting for upstream; root_cause=connect ETIMEDOUT", retryable=True)
 
 
 def test_cli_runs_http_flow_against_asgi_app() -> None:
@@ -92,6 +192,106 @@ def test_cli_runs_http_flow_against_asgi_app() -> None:
     payload = json.loads(send_out.getvalue())
     assert payload["session_id"] == session_id
     assert payload["message"]["content"] == "cli:ping"
+
+
+def test_cli_http_flow_executes_tool_call_loop_before_returning_final_answer() -> None:
+    store = _InMemorySessionStore()
+    llm = _ToolCallingLLMClient()
+    runtime = AgentRuntime(
+        session_manager=SessionManager(store=store),
+        llm_client=llm,
+        model="mock-model",
+        repo_root=Path.cwd(),
+    )
+    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    echo_tool = _EchoTool()
+    tool_registry.register(echo_tool)
+
+    app = create_app(
+        session_store=store,
+        runtime=runtime,
+        tool_registry=tool_registry,
+        auth_token="test-token",
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    create_out = io.StringIO()
+    create_code = run_cli(
+        [
+            "--base-url",
+            "http://testserver",
+            "--token",
+            "test-token",
+            "create-session",
+        ],
+        stdout=create_out,
+        client_factory=client_factory,
+    )
+    assert create_code == 0
+    session_id = json.loads(create_out.getvalue())["session_id"]
+
+    send_out = io.StringIO()
+    send_code = run_cli(
+        [
+            "--base-url",
+            "http://testserver",
+            "--token",
+            "test-token",
+            "send-message",
+            "--session-id",
+            session_id,
+            "--text",
+            "ping",
+        ],
+        stdout=send_out,
+        client_factory=client_factory,
+    )
+
+    assert send_code == 0
+    payload = json.loads(send_out.getvalue())
+    assert payload["stop_reason"] != "tool_registry_unavailable"
+    assert payload["message"]["content"] == "final:echo:ping"
+    assert len(llm.requests) == 2
+    assert [spec.name for spec in llm.requests[0].tools] == ["echo"]
+    assert echo_tool.calls == [{"text": "ping"}]
+
+
+def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
+    app = create_app(runtime=_ModelTimeoutRuntime(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["hi", "/exit"])
+    exit_code = run_cli(
+        [
+            "--base-url",
+            "http://testserver",
+            "--token",
+            "test-token",
+            "--request-id",
+            "req-cli-timeout-root-cause",
+        ],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Error: send failed: request failed (502): {'error': {'code': 'model_error'" in text
+    assert "root_cause=connect ETIMEDOUT" in text
+    assert "'trace_id': 'req-cli-timeout-root-cause'" in text
+    assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
 
 def test_cli_repl_flow_supports_tools_and_compact_commands() -> None:
