@@ -392,3 +392,18 @@ def test_run_cli_managed_mode_start_failure_surfaces_actionable_suggestion() -> 
     payload = json.loads(output.getvalue())
     assert "port 8000 already in use" in payload["error"]
     assert "remote" in payload["suggestion"].lower()
+
+
+def test_run_cli_remote_mode_requires_base_url_with_actionable_error() -> None:
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        ["--mode", "remote", "--token", "test-token", "health"],
+        stdout=output,
+        client_factory=lambda _: (_ for _ in ()).throw(AssertionError("should not build client")),
+    )
+
+    assert exit_code == 1
+    payload = json.loads(output.getvalue())
+    assert "remote mode requires --base-url" in payload["error"]
+    assert "--base-url" in payload["suggestion"]
