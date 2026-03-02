@@ -11,6 +11,7 @@ from nano_multiagent.runs.registry import RunsRegistry
 from nano_multiagent.server.sse import EventStreamHub, StreamEvent, encode_sse_event
 from nano_multiagent.session.models import Session
 from nano_multiagent.session.service import SessionService
+from nano_multiagent.tools.registry import ToolRegistry
 
 from ..auth import require_bearer_auth
 from ..deps import (
@@ -19,6 +20,7 @@ from ..deps import (
     get_event_stream_hub,
     get_runs_registry,
     get_session_service,
+    get_tool_registry,
     get_trace_id,
 )
 
@@ -80,6 +82,32 @@ class SendMessageAsyncResponse(BaseModel):
     status: str
 
 
+class ToolDescriptor(BaseModel):
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+
+class SessionToolsResponse(BaseModel):
+    session_id: str
+    tools: list[ToolDescriptor]
+
+
+class CompactResultResponse(BaseModel):
+    reason: str
+    entry_id: str
+    first_kept_event_id: str
+    summary: str
+    dropped_event_ids: list[str]
+    kept_event_ids: list[str]
+
+
+class CompactSessionResponse(BaseModel):
+    session_id: str
+    compacted: bool
+    result: CompactResultResponse | None
+
+
 @router.post("", status_code=201, response_model=SessionResponse)
 def create_session(
     payload: CreateSessionRequest,
@@ -118,6 +146,76 @@ def get_session(
             retryable=False,
         )
     return _to_session_response(session)
+
+
+@router.get("/{session_id}/tools", response_model=SessionToolsResponse)
+def list_session_tools(
+    session_id: str,
+    session_service: SessionService = Depends(get_session_service),
+    registry: ToolRegistry = Depends(get_tool_registry),
+) -> SessionToolsResponse:
+    if session_service.get_session(session_id) is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message=f"session does not exist: {session_id}",
+            retryable=False,
+        )
+
+    return SessionToolsResponse(
+        session_id=session_id,
+        tools=[
+            ToolDescriptor(
+                name=spec.name,
+                description=spec.description,
+                input_schema=dict(spec.input_schema),
+            )
+            for spec in registry.list_specs()
+        ],
+    )
+
+
+@router.post("/{session_id}:compact", response_model=CompactSessionResponse)
+def compact_session(
+    session_id: str,
+    payload: dict[str, Any],
+    session_service: SessionService = Depends(get_session_service),
+    runtime=Depends(get_agent_runtime),
+) -> CompactSessionResponse:
+    del payload
+    if session_service.get_session(session_id) is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message=f"session does not exist: {session_id}",
+            retryable=False,
+        )
+
+    try:
+        result = runtime.compact(session_id)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+
+    if result is None:
+        return CompactSessionResponse(session_id=session_id, compacted=False, result=None)
+
+    return CompactSessionResponse(
+        session_id=session_id,
+        compacted=True,
+        result=CompactResultResponse(
+            reason=result.reason.value,
+            entry_id=result.entry_id,
+            first_kept_event_id=result.first_kept_event_id,
+            summary=result.summary,
+            dropped_event_ids=list(result.dropped_event_ids),
+            kept_event_ids=list(result.kept_event_ids),
+        ),
+    )
 
 
 @router.post("/{session_id}/messages", response_model=SendMessageResponse)

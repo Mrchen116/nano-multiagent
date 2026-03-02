@@ -24,6 +24,21 @@ class _RuntimeWithCompact:
         )
 
 
+class _EchoTool:
+    name = "echo"
+    description = "Echo text"
+    input_schema = {
+        "type": "object",
+        "properties": {"text": {"type": "string"}},
+        "required": ["text"],
+        "additionalProperties": False,
+    }
+
+    def run(self, args, ctx):  # noqa: ANN001
+        del ctx
+        return {"echo": args["text"]}
+
+
 def test_app_wires_session_service() -> None:
     app = create_app()
 
@@ -36,6 +51,7 @@ def test_app_wires_session_service() -> None:
 def test_session_routes_wire_tools_registry_and_manual_compact() -> None:
     runtime = _RuntimeWithCompact()
     registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    registry.register(_EchoTool())
     app = create_app(runtime=runtime, tool_registry=registry, auth_token="test-token")
     client = TestClient(app)
     headers = {"Authorization": "Bearer test-token", "X-Request-Id": "req-session-flow-compact-tools"}
@@ -49,7 +65,7 @@ def test_session_routes_wire_tools_registry_and_manual_compact() -> None:
     tools_payload = tools_response.json()
     assert tools_payload["session_id"] == session_id
     tool_names = {item["name"] for item in tools_payload["tools"]}
-    assert {"read", "write", "edit", "bash"}.issubset(tool_names)
+    assert "echo" in tool_names
 
     compact_response = client.post(f"/v1/sessions/{session_id}:compact", json={}, headers=headers)
     assert compact_response.status_code == 200
