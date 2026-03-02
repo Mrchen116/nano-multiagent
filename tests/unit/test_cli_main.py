@@ -64,6 +64,12 @@ class _ConnectionRefusedOnSendStubClient(_StubClient):
         raise ConnectionRefusedError(61, "Connection refused")
 
 
+class _ConnectionRefusedOnHealthStubClient(_StubClient):
+    def health(self) -> dict[str, object]:
+        self.calls.append(("health", None))
+        raise ConnectionRefusedError(61, "Connection refused")
+
+
 def test_run_cli_health_outputs_json_payload() -> None:
     stub = _StubClient()
     output = io.StringIO()
@@ -407,3 +413,27 @@ def test_run_cli_remote_mode_requires_base_url_with_actionable_error() -> None:
     payload = json.loads(output.getvalue())
     assert "remote mode requires --base-url" in payload["error"]
     assert "--base-url" in payload["suggestion"]
+
+
+def test_run_cli_remote_mode_connection_failure_suggestion_mentions_remote_api() -> None:
+    stub = _ConnectionRefusedOnHealthStubClient()
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        [
+            "--mode",
+            "remote",
+            "--base-url",
+            "http://127.0.0.1:8222",
+            "--token",
+            "test-token",
+            "health",
+        ],
+        stdout=output,
+        client_factory=lambda _: stub,
+    )
+
+    assert exit_code == 1
+    payload = json.loads(output.getvalue())
+    assert "connection refused" in payload["error"].lower()
+    assert "remote api" in payload["suggestion"].lower()
