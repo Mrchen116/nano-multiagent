@@ -34,14 +34,26 @@
 
 ### R25.1 抽离异步事件消费与预览输出到 `cli/repl_events.py`
 - Context:
+  - `commands.py` 内仍包含 async 事件轮询、事件去重/过滤、预览渲染与文本增量合并细节，REPL 主循环负担过重。
+  - 需保持 LOGBOOK 约束：`event_id` 去重、`run_id` 过滤、terminal `run_status` 延后输出、尾部 drain 行为不变。
 - Decision:
+  - 新建 `src/nano_multiagent/cli/repl_events.py`，集中承载 async 事件消费与预览输出能力。
+  - `commands.py` 仅保留 `_send_message_from_repl` 编排，改为引用 `repl_events` 导出的函数别名。
+  - 在边界测试中固定 `commands.py` 与 `repl_events` 的职责委派关系。
 - Rationale:
+  - 通过模块边界收敛异步事件逻辑，可降低主入口复杂度并避免后续预算/错误模块拆分时互相干扰。
 - Evidence:
   - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py`（ImportError: `repl_events` 不存在）。
+    - Green: `pytest -q tests/unit/test_cli_refactor_boundaries.py tests/unit/test_cli_main.py`（`41 passed`）。
+    - Gate: `pytest -q`（`328 passed, 4 skipped`）。
   - Entry:
+    - REPL 异步事件相关用例保持通过（run 过滤、去重、terminal 延后、tail drain）。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `6b0f041`（仅边界测试，先红基线）。
+- Commits: C1=`6b0f041`, C2=`d6e3338`, C3=`<pending>`
 - Next:
+  - R25.2 Red：先加预算模块边界测试并验证失败点。
 
 ### R25.2 抽离预算快照与阈值提示到 `cli/context_budget.py`
 - Context:

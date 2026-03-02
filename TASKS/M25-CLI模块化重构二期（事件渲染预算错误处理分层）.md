@@ -14,7 +14,7 @@
   - `tests/**`
   - `TASKS/**`、`PROGRESS/**`
 
-## [TODO] R25.1 抽离异步事件消费与预览输出到 `cli/repl_events.py`
+## [DONE] R25.1 抽离异步事件消费与预览输出到 `cli/repl_events.py`
 - Acceptance:
   - 将异步事件消费、事件归一化、预览输出、文本增量合并逻辑从 `commands.py` 迁移到独立模块。
   - `commands.py` 仅保留 REPL 编排与模块调用，不再承载事件细节分支。
@@ -34,10 +34,10 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `6b0f041`
+  - C2: `d6e3338`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R25.2 抽离预算快照与阈值提示到 `cli/context_budget.py`
 - Acceptance:
