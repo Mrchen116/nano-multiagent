@@ -1,14 +1,13 @@
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import context_budget
 from nano_multiagent.cli import error_presenter
-from nano_multiagent.cli import repl_input
 from nano_multiagent.cli import repl_commands
 from nano_multiagent.cli import repl_events
 
 
-def test_commands_delegates_repl_input_engine_to_module() -> None:
-    assert cli_commands._build_repl_input_reader is repl_input.build_repl_input_reader
-    assert cli_commands._read_interactive_line is repl_input.read_interactive_line
+def test_commands_does_not_expose_repl_input_bridge_symbols() -> None:
+    assert not hasattr(cli_commands, "_build_repl_input_reader")
+    assert not hasattr(cli_commands, "_read_interactive_line")
 
 
 def test_commands_delegates_repl_command_routing_to_module() -> None:
