@@ -111,7 +111,9 @@ def test_run_cli_send_message_uses_session_id_from_env(monkeypatch) -> None:
     )
 
     assert exit_code == 0
-    payload = json.loads(output.getvalue())
+    raw = output.getvalue().strip()
+    assert "\n" not in raw
+    payload = json.loads(raw)
     assert payload["session_id"] == "sess_env"
     assert payload["message"]["content"] == "echo:ping"
 
