@@ -9,9 +9,10 @@ from fastapi.responses import JSONResponse
 from nano_multiagent import __version__
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.core.ids import make_event_id
+from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.loader import build_hook_registry
 from nano_multiagent.hooks.registry import HookRegistry
-from nano_multiagent.hooks.runner import HookRunner
+from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.observability.logger import log_error
 from nano_multiagent.observability.tracing import bind_correlation
 from nano_multiagent.runs.registry import RunsRegistry
@@ -70,6 +71,7 @@ def create_app(
         runtime=active_runtime,
         session_manager=session_service.manager,
         event_hub=app.state.event_stream_hub,
+        hook_runner=active_hook_runner,
     )
     app.state.tool_registry = tool_registry or build_tool_registry(
         repo_root=resolved_repo_root,
@@ -86,6 +88,14 @@ def create_app(
             response = await call_next(request)
         response.headers["X-Request-Id"] = request.state.trace_id
         return response
+
+    @app.on_event("shutdown")
+    async def emit_session_shutdown_hooks() -> None:
+        await _dispatch_session_shutdown(
+            session_service=session_service,
+            hook_runner=active_hook_runner,
+            repo_root=resolved_repo_root,
+        )
 
     @app.exception_handler(APIError)
     async def handle_api_error(request: Request, exc: APIError) -> JSONResponse:
@@ -193,3 +203,53 @@ def _error_response(
 
 
 app = create_app()
+
+
+async def _dispatch_session_shutdown(
+    *,
+    session_service: SessionService,
+    hook_runner: HookRunner | None,
+    repo_root: Path,
+) -> None:
+    if hook_runner is None:
+        return
+
+    offset = 0
+    limit = 100
+    while True:
+        sessions, has_more = session_service.list_sessions(limit=limit, offset=offset)
+        for session in sessions:
+            hook_ctx = HookContext(session_id=session.session_id, repo_root=repo_root)
+            try:
+                diagnostics = await hook_runner.dispatch_observe(
+                    "session_shutdown",
+                    {"session_id": session.session_id},
+                    hook_ctx,
+                )
+            except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
+                hook_ctx.logger.warn("hook observe dispatch failed", event="session_shutdown", error=str(exc))
+                continue
+            _log_hook_diagnostics(hook_ctx=hook_ctx, event="session_shutdown", diagnostics=diagnostics)
+
+        if not has_more:
+            break
+        offset += len(sessions)
+
+
+def _log_hook_diagnostics(
+    *,
+    hook_ctx: HookContext,
+    event: str,
+    diagnostics: tuple[HookExecution, ...],
+) -> None:
+    for item in diagnostics:
+        if item.status == "ok":
+            continue
+        hook_ctx.logger.warn(
+            "hook execution isolated",
+            event=event,
+            hook_id=item.hook_id,
+            status=item.status,
+            duration_ms=item.duration_ms,
+            error=item.error,
+        )

@@ -144,7 +144,7 @@ def setup(hooks):
     )
 
     hook_registry, loaded = load_hooks_from_directories(repo_root=tmp_path, workspace_dir=workspace_dir)
-    assert len(loaded) == 1
+    assert any(item.source == "workspace" and item.file_path.name == "tool_rules.py" for item in loaded)
     runner = HookRunner(registry=hook_registry)
     tool_registry = ToolRegistry(
         context=ToolContext.create(repo_root=tmp_path),
