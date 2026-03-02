@@ -20,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--token", default=None)
     parser.add_argument("--request-id", default=None)
+    parser.add_argument("--api-timeout-seconds", type=float, default=None)
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -52,11 +53,12 @@ def run_cli(
         mode = _resolve_mode(args.mode)
         env_config = ServerClientConfig.from_env()
         base_url = _resolve_base_url(mode=mode, arg_base_url=args.base_url, env_config=env_config)
+        timeout_seconds = _resolve_timeout_seconds(mode=mode, arg_timeout_seconds=args.api_timeout_seconds, env_config=env_config)
         config = ServerClientConfig(
             base_url=base_url,
             token=args.token if args.token is not None else env_config.token,
             request_id=args.request_id if args.request_id is not None else env_config.request_id,
-            timeout_seconds=env_config.timeout_seconds,
+            timeout_seconds=timeout_seconds,
         )
 
         factory = client_factory or (lambda cfg: ServerClient(config=cfg))
@@ -327,6 +329,12 @@ def _suggestion_for_exception(exc: Exception, *, default: str, mode: str | None 
         return "pass --base-url <url> (or set NANO_MULTIAGENT_API_BASE_URL)."
     if "managed mode requires" in text:
         return "use a local http:// base URL for managed mode, or switch to --mode remote."
+    if "timed out" in text or "timeout" in text:
+        if mode == "remote":
+            return "request timed out; check remote API latency or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
+        if mode == "managed":
+            return "request timed out; local API/LLM may be slow, retry or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
+        return "request timed out; retry or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
     if "connection refused" in text or "connecterror" in text or "nodename nor servname" in text:
         if mode == "remote":
             return "check --base-url and ensure the remote API server is reachable."
@@ -355,6 +363,19 @@ def _resolve_base_url(*, mode: str, arg_base_url: str | None, env_config: Server
         return value.strip()
     value = arg_base_url or env_base_url or env_config.base_url
     return value.strip()
+
+
+def _resolve_timeout_seconds(*, mode: str, arg_timeout_seconds: float | None, env_config: ServerClientConfig) -> float:
+    if arg_timeout_seconds is not None:
+        if arg_timeout_seconds <= 0:
+            raise ValueError("--api-timeout-seconds must be > 0")
+        return arg_timeout_seconds
+    timeout_from_env = os.getenv("NANO_MULTIAGENT_API_TIMEOUT_SECONDS")
+    if timeout_from_env is not None:
+        return env_config.timeout_seconds
+    if mode == "managed":
+        return 120.0
+    return env_config.timeout_seconds
 
 
 def _build_server_lifecycle(

@@ -32,6 +32,8 @@ python3 -m nano_multiagent.cli.main \
   --token test-token
 ```
 
+`managed` mode uses a higher default API timeout (`120s`) to reduce false timeouts during real agent turns. Override with `--api-timeout-seconds`.
+
 Remote mode (connect existing API, never starts local process):
 
 ```bash
@@ -74,6 +76,7 @@ python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:80
 - `NANO_MULTIAGENT_REQUEST_ID` (optional)
 - `NANO_MULTIAGENT_SESSION_ID` (optional default session for `send-message` and REPL startup)
 - `NANO_MULTIAGENT_API_TIMEOUT_SECONDS` (default `30`)
+- `--api-timeout-seconds <float>` (CLI override for current run)
 
 ### Troubleshooting
 

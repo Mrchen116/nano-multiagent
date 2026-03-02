@@ -64,6 +64,12 @@ class _ConnectionRefusedOnSendStubClient(_StubClient):
         raise ConnectionRefusedError(61, "Connection refused")
 
 
+class _TimeoutOnSendStubClient(_StubClient):
+    def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message", {"session_id": session_id, "text": text}))
+        raise TimeoutError("timed out")
+
+
 class _ConnectionRefusedOnHealthStubClient(_StubClient):
     def health(self) -> dict[str, object]:
         self.calls.append(("health", None))
@@ -306,6 +312,26 @@ def test_run_cli_repl_connection_refused_shows_base_url_suggestion() -> None:
     assert "Suggestion: check --base-url and ensure API server is running." in text
 
 
+def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
+    stub = _TimeoutOnSendStubClient()
+    output = io.StringIO()
+    inputs = iter(["hi", "/exit"])
+    manager = _ManagedServerSpy()
+
+    exit_code = run_cli(
+        ["--mode", "managed", "--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+        managed_server_factory=lambda config: manager.bind(config.base_url),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue().lower()
+    assert "send failed: timed out" in text
+    assert "nano_multiagent_api_timeout_seconds" in text
+
+
 class _ManagedServerSpy:
     def __init__(self, *, fail_on_start: Exception | None = None) -> None:
         self.fail_on_start = fail_on_start
@@ -437,3 +463,53 @@ def test_run_cli_remote_mode_connection_failure_suggestion_mentions_remote_api()
     payload = json.loads(output.getvalue())
     assert "connection refused" in payload["error"].lower()
     assert "remote api" in payload["suggestion"].lower()
+
+
+def test_run_cli_managed_mode_uses_higher_default_timeout_when_not_configured() -> None:
+    observed: dict[str, float] = {}
+
+    class _TimeoutCaptureClient(_StubClient):
+        def __init__(self, timeout_seconds: float) -> None:
+            super().__init__()
+            observed["timeout_seconds"] = timeout_seconds
+
+    output = io.StringIO()
+    exit_code = run_cli(
+        ["--mode", "managed", "--base-url", "http://127.0.0.1:8113", "--token", "test-token", "health"],
+        stdout=output,
+        client_factory=lambda config: _TimeoutCaptureClient(config.timeout_seconds),
+        managed_server_factory=lambda _: _ManagedServerSpy(),
+    )
+
+    assert exit_code == 0
+    assert observed["timeout_seconds"] == 120.0
+
+
+def test_run_cli_respects_explicit_api_timeout_seconds() -> None:
+    observed: dict[str, float] = {}
+
+    class _TimeoutCaptureClient(_StubClient):
+        def __init__(self, timeout_seconds: float) -> None:
+            super().__init__()
+            observed["timeout_seconds"] = timeout_seconds
+
+    output = io.StringIO()
+    exit_code = run_cli(
+        [
+            "--mode",
+            "managed",
+            "--base-url",
+            "http://127.0.0.1:8114",
+            "--token",
+            "test-token",
+            "--api-timeout-seconds",
+            "45",
+            "health",
+        ],
+        stdout=output,
+        client_factory=lambda config: _TimeoutCaptureClient(config.timeout_seconds),
+        managed_server_factory=lambda _: _ManagedServerSpy(),
+    )
+
+    assert exit_code == 0
+    assert observed["timeout_seconds"] == 45.0
