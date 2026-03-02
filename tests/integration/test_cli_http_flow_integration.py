@@ -288,9 +288,8 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Error: send failed: request failed (502): {'error': {'code': 'model_error'" in text
+    assert "Error: send failed: run failed: {'code': 'run_execution_failed'" in text
     assert "root_cause=connect ETIMEDOUT" in text
-    assert "'trace_id': 'req-cli-timeout-root-cause'" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
 

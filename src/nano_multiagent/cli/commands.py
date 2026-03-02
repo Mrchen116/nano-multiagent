@@ -12,6 +12,11 @@ _DEFAULT_HISTORY_LIMIT = 20
 _REPL_COMMANDS = ("/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit")
 _HELP_LINE = "Commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit"
 _DEFAULT_CLI_MODE = "remote"
+_TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
+_EVENT_PREVIEW_MAX_LEN = 120
+_EVENT_POLL_MAX_EVENTS = 40
+_EVENT_POLL_TIMEOUT_SECONDS = 0.25
+_MAX_RUN_POLL_LOOPS = 240
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -283,7 +288,12 @@ def _run_repl(
                 active_session_id = _extract_session_id(session_payload)
                 print(json.dumps(session_payload, ensure_ascii=False), file=out)
 
-            payload = client.send_message(session_id=active_session_id, text=line)
+            payload = _send_message_from_repl(
+                out=out,
+                client=client,
+                session_id=active_session_id,
+                text=line,
+            )
             _append_history_entry(history_by_session, active_session_id, role="user", content=line)
             response_content = _extract_message_content(payload)
             if response_content is not None:
@@ -304,6 +314,166 @@ def _run_repl(
                 message=f"send failed: {exc}",
                 suggestion=suggestion,
             )
+
+
+def _send_message_from_repl(
+    *,
+    out: TextIO,
+    client: ServerClient,
+    session_id: str,
+    text: str,
+) -> dict[str, object]:
+    if not _supports_async_repl_events(client):
+        return client.send_message(session_id=session_id, text=text)
+    return _send_message_with_async_events(out=out, client=client, session_id=session_id, text=text)
+
+
+def _send_message_with_async_events(
+    *,
+    out: TextIO,
+    client: ServerClient,
+    session_id: str,
+    text: str,
+) -> dict[str, object]:
+    submitted = client.send_message_async(session_id=session_id, text=text)
+    run_id = _extract_run_id(submitted)
+    seen_event_ids: set[str] = set()
+    assistant_text = ""
+    terminal_run: dict[str, object] | None = None
+
+    for _ in range(_MAX_RUN_POLL_LOOPS):
+        events = client.stream_session_events(
+            session_id=session_id,
+            max_events=_EVENT_POLL_MAX_EVENTS,
+            timeout_seconds=_EVENT_POLL_TIMEOUT_SECONDS,
+        )
+        for event in events:
+            event_id, event_name, data = _normalize_session_event(event)
+            if event_id and event_id in seen_event_ids:
+                continue
+            if event_id:
+                seen_event_ids.add(event_id)
+            if data.get("run_id") != run_id:
+                continue
+            _print_event_preview(out=out, event_name=event_name, data=data)
+            if event_name == "text_delta":
+                delta = data.get("delta")
+                if isinstance(delta, str):
+                    assistant_text = _merge_text_delta(assistant_text, delta)
+
+        run_payload = client.get_run(run_id=run_id)
+        status_text = str(run_payload.get("status", "")).strip().lower()
+        if status_text in _TERMINAL_RUN_STATUSES:
+            terminal_run = run_payload
+            break
+    else:
+        raise TimeoutError("timed out waiting for async run completion")
+
+    if terminal_run is None:
+        raise RuntimeError("missing terminal async run result")
+
+    if str(terminal_run.get("status", "")).strip().lower() != "completed":
+        error_payload = terminal_run.get("error")
+        raise RuntimeError(f"run failed: {error_payload}")
+
+    return {
+        "session_id": session_id,
+        "run_id": run_id,
+        "turn_id": terminal_run.get("turn_id"),
+        "message": {
+            "role": "assistant",
+            "content": assistant_text,
+        },
+        "completed": True,
+        "stop_reason": terminal_run.get("stop_reason") or "stop",
+    }
+
+
+def _supports_async_repl_events(client: ServerClient) -> bool:
+    required_methods = ("send_message_async", "stream_session_events", "get_run")
+    for name in required_methods:
+        method = getattr(client, name, None)
+        if not callable(method):
+            return False
+    return True
+
+
+def _extract_run_id(payload: dict[str, object]) -> str:
+    run_id = payload.get("run_id")
+    if not isinstance(run_id, str) or not run_id.strip():
+        raise RuntimeError("missing run_id in async response")
+    return run_id
+
+
+def _normalize_session_event(event: object) -> tuple[str, str, dict[str, object]]:
+    if not isinstance(event, dict):
+        return "", "message", {}
+    event_id = event.get("event_id")
+    event_name = event.get("event")
+    data = event.get("data")
+    resolved_id = event_id.strip() if isinstance(event_id, str) else ""
+    resolved_name = event_name.strip() if isinstance(event_name, str) and event_name.strip() else "message"
+    resolved_data = data if isinstance(data, dict) else {}
+    return resolved_id, resolved_name, resolved_data
+
+
+def _print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]) -> None:
+    if event_name == "run_status":
+        run_id = data.get("run_id")
+        status = data.get("status")
+        resolved_run_id = str(run_id) if isinstance(run_id, str) and run_id.strip() else "<unknown>"
+        resolved_status = str(status) if isinstance(status, str) and status.strip() else "<unknown>"
+        print(f"[run {resolved_run_id}] status={resolved_status}", file=out)
+        return
+
+    if event_name == "tool_start":
+        name = data.get("name")
+        arguments = data.get("arguments")
+        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        print(
+            f"[tool {resolved_name}] start args={_preview_event_value(arguments)}",
+            file=out,
+        )
+        return
+
+    if event_name == "tool_end":
+        name = data.get("name")
+        error = data.get("error")
+        output = data.get("output")
+        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        if error not in (None, "", {}):
+            print(f"[tool {resolved_name}] error={_preview_event_value(error)}", file=out)
+            return
+        print(f"[tool {resolved_name}] output={_preview_event_value(output)}", file=out)
+        return
+
+    if event_name == "text_delta":
+        delta = data.get("delta")
+        if isinstance(delta, str) and delta.strip():
+            print(f"[text] {_preview_event_value(delta)}", file=out)
+        return
+
+
+def _preview_event_value(value: object) -> str:
+    if isinstance(value, dict):
+        candidate = value.get("text")
+        if isinstance(candidate, str):
+            value = candidate
+    if isinstance(value, str):
+        text = value
+    else:
+        text = json.dumps(value, ensure_ascii=False)
+    if len(text) <= _EVENT_PREVIEW_MAX_LEN:
+        return text
+    return f"{text[:_EVENT_PREVIEW_MAX_LEN]}..."
+
+
+def _merge_text_delta(current: str, delta: str) -> str:
+    if not current:
+        return delta
+    if delta.startswith(current):
+        return delta
+    return f"{current}{delta}"
 
 
 def _parse_history_limit(argument: str | None) -> tuple[int, str | None]:

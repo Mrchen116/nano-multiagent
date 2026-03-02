@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import uuid
 from dataclasses import dataclass
@@ -82,6 +83,26 @@ class ServerClient:
             require_auth=True,
         )
 
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, Any]:
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        if not text.strip():
+            raise ValueError("text is required")
+        payload = {
+            "parts": [{"type": "text", "text": text}],
+        }
+        return self._request(
+            "POST",
+            f"/v1/sessions/{session_id}/messages:async",
+            json=payload,
+            require_auth=True,
+        )
+
+    def get_run(self, *, run_id: str) -> dict[str, Any]:
+        if not run_id.strip():
+            raise ValueError("run_id is required")
+        return self._request("GET", f"/v1/runs/{run_id}", require_auth=True)
+
     def list_session_tools(self, *, session_id: str) -> dict[str, Any]:
         if not session_id.strip():
             raise ValueError("session_id is required")
@@ -111,6 +132,40 @@ class ServerClient:
             json=payload,
             require_auth=True,
         )
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, Any]]:
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        if max_events <= 0:
+            raise ValueError("max_events must be > 0")
+        if timeout_seconds < 0:
+            raise ValueError("timeout_seconds must be >= 0")
+
+        headers = self._build_headers(require_auth=True)
+        response = self._client.request(
+            method="GET",
+            url=f"/v1/sessions/{session_id}/events",
+            params={
+                "max_events": max_events,
+                "timeout_seconds": timeout_seconds,
+            },
+            headers=headers,
+        )
+
+        if response.status_code >= 400:
+            try:
+                payload: Any = response.json()
+            except ValueError:
+                payload = {"raw": response.text}
+            raise RuntimeError(f"request failed ({response.status_code}): {payload}")
+
+        return _parse_sse_events(response.text)
 
     def _request(
         self,
@@ -158,6 +213,44 @@ def _should_trust_env(base_url: str) -> bool:
     host = (urlparse(base_url).hostname or "").strip().lower()
     local_hosts = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
     return host not in local_hosts
+
+
+def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for block in raw.split("\n\n"):
+        segment = block.strip()
+        if not segment:
+            continue
+        event_id: str | None = None
+        event = "message"
+        data_lines: list[str] = []
+        for line in segment.splitlines():
+            if line.startswith("id:"):
+                event_id = line[3:].strip()
+                continue
+            if line.startswith("event:"):
+                event = line[6:].strip() or "message"
+                continue
+            if line.startswith("data:"):
+                data_lines.append(line[5:].strip())
+                continue
+        if not data_lines:
+            continue
+        data_text = "\n".join(data_lines)
+        try:
+            parsed = json.loads(data_text)
+        except ValueError:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        events.append(
+            {
+                "event_id": event_id or "",
+                "event": event,
+                "data": parsed,
+            }
+        )
+    return events
 
 
 class _AsyncTransportBridge(httpx.BaseTransport):
