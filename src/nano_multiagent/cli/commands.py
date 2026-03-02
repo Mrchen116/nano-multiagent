@@ -110,69 +110,109 @@ def _run_repl(
                 continue
             if command == "/exit":
                 return 0
-            if command == "/new":
-                payload = client.create_session()
-                active_session_id = _extract_session_id(payload)
-                print(json.dumps(payload, ensure_ascii=False), file=out)
-                continue
-            if command == "/use":
-                if not argument:
-                    print(json.dumps({"error": "usage: /use <session_id>"}, ensure_ascii=False), file=out)
+            try:
+                if command == "/new":
+                    payload = client.create_session()
+                    active_session_id = _extract_session_id(payload)
+                    print(json.dumps(payload, ensure_ascii=False), file=out)
                     continue
-                active_session_id = argument
-                print(json.dumps({"session_id": active_session_id}, ensure_ascii=False), file=out)
-                continue
-            if command == "/session":
-                print(json.dumps({"session_id": active_session_id}, ensure_ascii=False), file=out)
-                continue
-            if command == "/tools":
-                if not active_session_id:
-                    print(json.dumps({"error": "no active session, use /new or /use <session_id>"}, ensure_ascii=False), file=out)
+                if command == "/use":
+                    if not argument:
+                        _print_actionable_error(
+                            out=out,
+                            message="missing session_id for /use.",
+                            suggestion="try /use <session_id>.",
+                        )
+                        continue
+                    active_session_id = argument
+                    print(json.dumps({"session_id": active_session_id}, ensure_ascii=False), file=out)
                     continue
-                payload = client.list_session_tools(session_id=active_session_id)
-                print(json.dumps(payload, ensure_ascii=False), file=out)
-                continue
-            if command == "/compact":
-                if not active_session_id:
-                    print(json.dumps({"error": "no active session, use /new or /use <session_id>"}, ensure_ascii=False), file=out)
+                if command == "/session":
+                    print(json.dumps({"session_id": active_session_id}, ensure_ascii=False), file=out)
                     continue
-                payload = client.compact_session(session_id=active_session_id)
-                print(json.dumps(payload, ensure_ascii=False), file=out)
-                continue
-            if command == "/history":
-                if not active_session_id:
-                    print(json.dumps({"error": "no active session, use /new or /use <session_id>"}, ensure_ascii=False), file=out)
+                if command == "/tools":
+                    if not active_session_id:
+                        _print_actionable_error(
+                            out=out,
+                            message="no active session.",
+                            suggestion="run /new or /use <session_id>.",
+                        )
+                        continue
+                    payload = client.list_session_tools(session_id=active_session_id)
+                    _print_tools_summary(out=out, payload=payload)
                     continue
-                history_limit, error = _parse_history_limit(argument)
-                if error is not None:
-                    print(json.dumps({"error": error}, ensure_ascii=False), file=out)
+                if command == "/compact":
+                    if not active_session_id:
+                        _print_actionable_error(
+                            out=out,
+                            message="no active session.",
+                            suggestion="run /new or /use <session_id>.",
+                        )
+                        continue
+                    payload = client.compact_session(session_id=active_session_id)
+                    _print_compact_summary(out=out, payload=payload)
                     continue
-                _print_history(
+                if command == "/history":
+                    if not active_session_id:
+                        _print_actionable_error(
+                            out=out,
+                            message="no active session.",
+                            suggestion="run /new or /use <session_id>.",
+                        )
+                        continue
+                    history_limit, error = _parse_history_limit(argument)
+                    if error is not None:
+                        _print_actionable_error(
+                            out=out,
+                            message=error,
+                            suggestion="try /history 10.",
+                        )
+                        continue
+                    _print_history(
+                        out=out,
+                        session_id=active_session_id,
+                        history=history_by_session.get(active_session_id, ()),
+                        limit=history_limit,
+                    )
+                    continue
+            except Exception as exc:
+                _print_actionable_error(
                     out=out,
-                    session_id=active_session_id,
-                    history=history_by_session.get(active_session_id, ()),
-                    limit=history_limit,
+                    message=f"request failed: {exc}",
+                    suggestion="check token/base-url/server status and retry.",
                 )
                 continue
-            print(json.dumps({"error": f"unknown command: {command}"}, ensure_ascii=False), file=out)
+
+            _print_actionable_error(
+                out=out,
+                message=f"unknown command '{command}'.",
+                suggestion="run /help to see available commands.",
+            )
             continue
 
-        if not active_session_id:
-            session_payload = client.create_session()
-            active_session_id = _extract_session_id(session_payload)
-            print(json.dumps(session_payload, ensure_ascii=False), file=out)
+        try:
+            if not active_session_id:
+                session_payload = client.create_session()
+                active_session_id = _extract_session_id(session_payload)
+                print(json.dumps(session_payload, ensure_ascii=False), file=out)
 
-        payload = client.send_message(session_id=active_session_id, text=line)
-        _append_history_entry(history_by_session, active_session_id, role="user", content=line)
-        response_content = _extract_message_content(payload)
-        if response_content is not None:
-            _append_history_entry(
-                history_by_session,
-                active_session_id,
-                role="assistant",
-                content=response_content,
+            payload = client.send_message(session_id=active_session_id, text=line)
+            _append_history_entry(history_by_session, active_session_id, role="user", content=line)
+            response_content = _extract_message_content(payload)
+            if response_content is not None:
+                _append_history_entry(
+                    history_by_session,
+                    active_session_id,
+                    role="assistant",
+                    content=response_content,
+                )
+            print(json.dumps(payload, ensure_ascii=False), file=out)
+        except Exception as exc:
+            _print_actionable_error(
+                out=out,
+                message=f"send failed: {exc}",
+                suggestion="run /new to start a session, then retry.",
             )
-        print(json.dumps(payload, ensure_ascii=False), file=out)
 
 
 def _parse_history_limit(argument: str | None) -> tuple[int, str | None]:
@@ -181,9 +221,9 @@ def _parse_history_limit(argument: str | None) -> tuple[int, str | None]:
     try:
         value = int(argument)
     except ValueError:
-        return 0, "usage: /history [n], n must be a positive integer"
+        return 0, "invalid n for /history."
     if value <= 0:
-        return 0, "usage: /history [n], n must be a positive integer"
+        return 0, "invalid n for /history."
     return value, None
 
 
@@ -223,6 +263,55 @@ def _extract_message_content(payload: dict[str, object]) -> str | None:
     if not isinstance(content, str):
         return None
     return content
+
+
+def _print_actionable_error(*, out: TextIO, message: str, suggestion: str) -> None:
+    print(f"Error: {message}", file=out)
+    print(f"Suggestion: {suggestion}", file=out)
+
+
+def _print_tools_summary(*, out: TextIO, payload: dict[str, object]) -> None:
+    session_id = payload.get("session_id")
+    tools = payload.get("tools")
+    resolved_session_id = session_id if isinstance(session_id, str) and session_id.strip() else "<unknown>"
+    items = tools if isinstance(tools, list) else []
+    print(f"Tools for session {resolved_session_id} ({len(items)}):", file=out)
+    if not items:
+        print("- (no tools)", file=out)
+        return
+    for tool in items:
+        if not isinstance(tool, dict):
+            continue
+        name = tool.get("name")
+        description = tool.get("description")
+        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        resolved_description = (
+            str(description) if isinstance(description, str) and description.strip() else "(no description)"
+        )
+        print(f"- {resolved_name}: {resolved_description}", file=out)
+
+
+def _print_compact_summary(*, out: TextIO, payload: dict[str, object]) -> None:
+    session_id = payload.get("session_id")
+    compacted = payload.get("compacted")
+    result = payload.get("result")
+    resolved_session_id = session_id if isinstance(session_id, str) and session_id.strip() else "<unknown>"
+    if compacted is not True or not isinstance(result, dict):
+        print(f"Compaction for session {resolved_session_id}: no changes.", file=out)
+        return
+    print(f"Compaction for session {resolved_session_id}: compacted.", file=out)
+    reason = result.get("reason")
+    summary = result.get("summary")
+    dropped_event_ids = result.get("dropped_event_ids")
+    kept_event_ids = result.get("kept_event_ids")
+    if isinstance(reason, str) and reason.strip():
+        print(f"- reason: {reason}", file=out)
+    if isinstance(summary, str) and summary.strip():
+        print(f"- summary: {summary}", file=out)
+    if isinstance(kept_event_ids, list):
+        print(f"- kept events: {len(kept_event_ids)}", file=out)
+    if isinstance(dropped_event_ids, list):
+        print(f"- dropped events: {len(dropped_event_ids)}", file=out)
 
 
 def _resolve_initial_session_id() -> str | None:
