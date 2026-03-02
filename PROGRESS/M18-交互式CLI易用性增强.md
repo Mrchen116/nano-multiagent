@@ -75,6 +75,36 @@
     - `/unknown`、`/use` 缺参、无 active session 均输出 `Suggestion` 行。
 - Rollback:
   - `a5f39c2`（R18.2 C1）
-- Commits: C1=`a5f39c2`, C2=`af90901`, C3=`<pending>`
+- Commits: C1=`a5f39c2`, C2=`af90901`, C3=`0785333`
 - Next:
   - R18.3 Red
+
+### R18.3 交互鲁棒性收口（空输入、Ctrl-D、参数错误）
+- Context:
+  - 需要补齐“空输入忽略、EOF 退出、参数错误提示一致性”的关键交互测试覆盖。
+  - R18.2 已有建议式错误输出，但参数边界（无参/多参/非法 n）仍有缺口。
+- Decision:
+  - 为 REPL 命令引入参数 token 校验：
+    - `/new /session /tools /compact /help /exit` 禁止参数；
+    - `/use` 必须且仅允许一个 `session_id`；
+    - `/history` 仅允许可选一个正整数参数，先校验参数再校验 active session。
+  - 保持空输入 `continue` 忽略，EOF 输出 `bye` 并退出。
+  - 统一 `Suggestion` 风格并细化命令级失败提示（如 `/tools` 失败建议）。
+  - `/compact` 摘要补充关键字段行：`Summary/Kept events/Dropped events`。
+- Rationale:
+  - 参数校验前置可防止错误命令触发不期望的网络副作用，提升可预测性。
+  - 对用户可执行的下一步建议统一化，降低交互恢复成本。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py` -> 4 failed（参数校验缺口、文案缺口）
+    - Green: 同命令 -> `14 passed`
+    - Gate: `pytest -q` -> `244 passed, 3 skipped`
+  - Entry:
+    - 空输入不触发调用，Ctrl-D 返回 `bye`；
+    - `/new extra`、`/tools now`、`/use a b`、`/history 0` 均有参数错误与建议；
+    - `/tools` 失败提示包含“重试该命令”的建议。
+- Rollback:
+  - `1d9305d`（R18.3 C1）
+- Commits: C1=`1d9305d`, C2=`2baa35b`, C3=`<pending>`
+- Next:
+  - Milestone 集成收口

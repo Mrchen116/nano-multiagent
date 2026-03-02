@@ -49,10 +49,10 @@
 - Commits:
   - C1: `a5f39c2`
   - C2: `af90901`
-  - C3: `<pending>`
+  - C3: `0785333`
 - Status: DONE
 
-## [TODO] R18.3 交互鲁棒性收口（空输入、Ctrl-D、参数错误）
+## [DONE] R18.3 交互鲁棒性收口（空输入、Ctrl-D、参数错误）
 - Acceptance:
   - 空输入（空串或空白）被忽略，不触发网络调用。
   - Ctrl-D（EOF）可稳定退出并输出一致退出提示。
@@ -71,7 +71,7 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M18-*.md` 写明证据、回滚点、提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `1d9305d`
+  - C2: `2baa35b`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
