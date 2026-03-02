@@ -4,7 +4,7 @@ from typing import Any, Mapping
 
 from nano_multiagent.core.errors import ModelError
 
-from ...interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from ...interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 
 _DEFAULT_MAX_TOKENS = 1024
 
@@ -39,6 +39,15 @@ class AnthropicMapper:
             payload["temperature"] = request.temperature
         if system_parts:
             payload["system"] = "\n\n".join(system_parts)
+        if request.tools:
+            payload["tools"] = [
+                {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "input_schema": dict(spec.input_schema),
+                }
+                for spec in request.tools
+            ]
         return payload
 
     def map_generate_response(self, payload: Mapping[str, Any]) -> LLMGenerateResponse:
@@ -51,9 +60,10 @@ class AnthropicMapper:
             )
 
         normalized_content = _normalize_content(content_blocks)
-        if not normalized_content:
+        tool_calls = _normalize_tool_calls(content_blocks)
+        if not normalized_content and not tool_calls:
             raise ModelError(
-                "anthropic response has no text content",
+                "anthropic response has no text content or tool calls",
                 retryable=False,
             )
 
@@ -62,12 +72,39 @@ class AnthropicMapper:
 
         return LLMGenerateResponse(
             model=str(payload.get("model", "")),
-            message=LLMMessage(role=role, content=normalized_content),
+            message=LLMMessage(role=role, content=normalized_content, tool_calls=tool_calls),
             finish_reason=str(finish_reason) if finish_reason is not None else None,
             raw=dict(payload),
         )
 
     def _map_message(self, message: LLMMessage) -> Mapping[str, Any]:
+        if message.role == "assistant":
+            content: list[dict[str, Any]] = []
+            if message.content:
+                content.append({"type": "text", "text": message.content})
+            for tool_call in message.tool_calls:
+                content.append(
+                    {
+                        "type": "tool_use",
+                        "id": tool_call.call_id,
+                        "name": tool_call.name,
+                        "input": dict(tool_call.arguments),
+                    }
+                )
+            return {"role": "assistant", "content": content}
+        if message.role == "tool":
+            if message.tool_call_id is None:
+                raise ModelError("tool message requires tool_call_id", retryable=False)
+            return {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": message.tool_call_id,
+                        "content": [{"type": "text", "text": message.content}],
+                    }
+                ],
+            }
         role = message.role if message.role in {"user", "assistant"} else "user"
         return {
             "role": role,
@@ -83,3 +120,35 @@ def _normalize_content(content_blocks: list[Any]) -> str:
             if text_value is not None:
                 chunks.append(str(text_value))
     return "".join(chunks)
+
+
+def _normalize_tool_calls(content_blocks: list[Any]) -> tuple[LLMToolCall, ...]:
+    tool_calls: list[LLMToolCall] = []
+    for index, block in enumerate(content_blocks):
+        if not isinstance(block, Mapping) or block.get("type") != "tool_use":
+            continue
+        call_id = block.get("id")
+        name = block.get("name")
+        arguments = block.get("input", {})
+        if not isinstance(call_id, str) or not call_id:
+            call_id = f"tool_use_{index}"
+        if not isinstance(name, str) or not name:
+            raise ModelError(
+                "anthropic response tool_use block missing name",
+                retryable=False,
+                details={"index": index},
+            )
+        if not isinstance(arguments, Mapping):
+            raise ModelError(
+                "anthropic response tool_use input must be object",
+                retryable=False,
+                details={"index": index, "input_type": type(arguments).__name__},
+            )
+        tool_calls.append(
+            LLMToolCall(
+                call_id=call_id,
+                name=name,
+                arguments=dict(arguments),
+            )
+        )
+    return tuple(tool_calls)

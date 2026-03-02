@@ -7,8 +7,9 @@ from typing import Any, Callable
 import httpx
 import pytest
 
+from nano_multiagent.core.types import ToolSpec
 from nano_multiagent.core.errors import ModelError
-from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 from nano_multiagent.llm.protocols.anthropic import AnthropicClient, AnthropicMapper
 from nano_multiagent.llm.protocols.openai_compat import OpenAICompatClient, OpenAICompatMapper
 from nano_multiagent.llm.protocols.anthropic.client import _should_trust_env as anthropic_should_trust_env
@@ -88,6 +89,37 @@ def _build_request(*, stream: bool = False) -> LLMGenerateRequest:
     )
 
 
+def _build_tool_request() -> LLMGenerateRequest:
+    return LLMGenerateRequest(
+        session_id="sess_provider_contract",
+        model="codexOAuth:gpt-5.2-codex",
+        messages=(
+            LLMMessage(role="system", content="You are concise."),
+            LLMMessage(role="user", content="read README"),
+            LLMMessage(
+                role="assistant",
+                content="",
+                tool_calls=(LLMToolCall(call_id="call_1", name="read", arguments={"path": "README.md"}),),
+            ),
+            LLMMessage(role="tool", content="file content", tool_call_id="call_1"),
+        ),
+        stream=False,
+        temperature=0.2,
+        max_tokens=64,
+        tools=(
+            ToolSpec(
+                name="read",
+                description="Read a file",
+                input_schema={
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                },
+            ),
+        ),
+    )
+
+
 def test_provider_mapper_request_contract(provider_case: ProviderContractCase) -> None:
     payload = provider_case.mapper.map_generate_request(_build_request())
 
@@ -99,6 +131,131 @@ def test_provider_mapper_response_contract(provider_case: ProviderContractCase) 
     response = provider_case.mapper.map_generate_response(provider_case.sample_response)
 
     provider_case.response_assertion(response)
+
+
+def test_provider_mapper_tool_request_contract(provider_case: ProviderContractCase) -> None:
+    payload = provider_case.mapper.map_generate_request(_build_tool_request())
+
+    assert isinstance(payload, dict)
+    if provider_case.provider == "openai_compat":
+        assert payload["tools"] == [
+            {
+                "type": "function",
+                "function": {
+                    "name": "read",
+                    "description": "Read a file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                        "required": ["path"],
+                    },
+                },
+            }
+        ]
+        assert payload["tool_choice"] == "auto"
+        assert payload["messages"][2] == {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"README.md\"}",
+                    },
+                }
+            ],
+        }
+        assert payload["messages"][3] == {
+            "role": "tool",
+            "content": "file content",
+            "tool_call_id": "call_1",
+        }
+    else:
+        assert payload["tools"] == [
+            {
+                "name": "read",
+                "description": "Read a file",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                },
+            }
+        ]
+        assert payload["messages"][1] == {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "read",
+                    "input": {"path": "README.md"},
+                }
+            ],
+        }
+        assert payload["messages"][2] == {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call_1",
+                    "content": [{"type": "text", "text": "file content"}],
+                }
+            ],
+        }
+
+
+def test_provider_mapper_tool_response_contract(provider_case: ProviderContractCase) -> None:
+    if provider_case.provider == "openai_compat":
+        payload = {
+            "model": "codexOAuth:gpt-5.2-codex",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "read",
+                                    "arguments": "{\"path\":\"README.md\"}",
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        }
+    else:
+        payload = {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-5-sonnet-20241022",
+            "stop_reason": "tool_use",
+            "content": [
+                {"type": "text", "text": "checking"},
+                {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "README.md"}},
+            ],
+        }
+
+    response = provider_case.mapper.map_generate_response(payload)
+
+    assert response.message.role == "assistant"
+    assert response.message.tool_calls == (
+        LLMToolCall(call_id="call_1", name="read", arguments={"path": "README.md"}),
+    )
+    if provider_case.provider == "openai_compat":
+        assert response.message.content == ""
+        assert response.finish_reason == "tool_calls"
+    else:
+        assert response.message.content == "checking"
+        assert response.finish_reason == "tool_use"
 
 
 def test_provider_client_contract_non_stream_and_headers(provider_case: ProviderContractCase) -> None:

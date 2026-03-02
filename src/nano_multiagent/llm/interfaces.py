@@ -1,12 +1,23 @@
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 
+from nano_multiagent.core.types import ToolSpec
+
+
+@dataclass(frozen=True, slots=True)
+class LLMToolCall:
+    call_id: str
+    name: str
+    arguments: Mapping[str, Any] = field(default_factory=dict)
+
 
 @dataclass(frozen=True, slots=True)
 class LLMMessage:
     role: str
     content: str
     name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: tuple[LLMToolCall, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +28,7 @@ class LLMGenerateRequest:
     stream: bool = False
     temperature: float | None = None
     max_tokens: int | None = None
+    tools: tuple[ToolSpec, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
