@@ -26,9 +26,9 @@
 - Commits:
   - C1: `272946c`
   - C2: `6edbac4`
-  - C3: TBD
+  - C3: `b7265b8`
 
-## [TODO] R15.2 新增 anthropic 协议实现（llm/protocols/anthropic）
+## [DONE] R15.2 新增 anthropic 协议实现（llm/protocols/anthropic）
 - Acceptance:
   - `src/nano_multiagent/llm/protocols/anthropic/{mapper.py,client.py,__init__.py}` 落地。
   - anthropic 请求使用 `POST /v1/messages`，与 `LLMTranslator` 对齐并携带 `X-Session-Id`。
@@ -47,8 +47,8 @@
   - `PROGRESS` 记录关键结构与回滚点
   - `pytest -q` 在仓库基线允许范围内不新增失败
 - Commits:
-  - C1: TBD
-  - C2: TBD
+  - C1: `0034698`
+  - C2: `7be80d3`
   - C3: TBD
 
 ## [TODO] R15.3 工厂接线与 provider 切换验收（配置驱动）
