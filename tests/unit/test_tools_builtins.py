@@ -38,7 +38,8 @@ def test_read_truncates_output_and_reports_next_offset(tmp_path: Path) -> None:
 
     result = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 5}, ctx)
 
-    assert result["content"] == "line-1\nline-2"
+    assert "line-1\nline-2" in result["content"]
+    assert "offset=3" in result["content"]
     assert result["truncated"] is True
     assert result["next_offset"] == 3
 
