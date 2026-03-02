@@ -4,6 +4,9 @@ from nano_multiagent.core.events import RuntimeEventType
 def test_runtime_event_types_are_stable() -> None:
     assert [event.value for event in RuntimeEventType] == [
         "input",
+        "session_start",
+        "session_compact",
+        "session_shutdown",
         "before_agent_start",
         "turn_start",
         "message_update",
@@ -11,4 +14,5 @@ def test_runtime_event_types_are_stable() -> None:
         "tool_result",
         "run_error",
         "run_timeout",
+        "run_abort",
     ]

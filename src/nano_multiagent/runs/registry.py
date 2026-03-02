@@ -139,6 +139,9 @@ class RunsRegistry:
 
             try:
                 result = self._runtime.run(session_id, parts, stream=False)
+            except TimeoutError as exc:
+                self._mark_timed_out(run_id, message=str(exc))
+                return
             except Exception as exc:  # noqa: BLE001
                 self._mark_failed(run_id, message=str(exc))
                 return
@@ -217,6 +220,41 @@ class RunsRegistry:
             )
             self._dispatch_observe(
                 "run_error",
+                {
+                    "session_id": updated.session_id,
+                    "run_id": updated.run_id,
+                    "error": updated.error,
+                },
+                hook_ctx,
+            )
+        return updated
+
+    def _mark_timed_out(self, run_id: str, *, message: str) -> RunRecord | None:
+        updated = self._set_status(
+            run_id,
+            status=RunStatus.FAILED,
+            stop_reason="timeout",
+            error={"code": "run_timeout", "message": message},
+            only_if={RunStatus.RUNNING},
+        )
+        if updated is not None and updated.status is RunStatus.FAILED:
+            log_error(
+                "run_timeout",
+                run_id=run_id,
+                session_id=updated.session_id,
+                trace_id=updated.trace_id,
+                error=message,
+            )
+            hook_ctx_metadata: dict[str, Any] = {}
+            if updated.trace_id:
+                hook_ctx_metadata["trace_id"] = updated.trace_id
+            hook_ctx = HookContext(
+                session_id=updated.session_id,
+                turn_id=updated.turn_id,
+                metadata=hook_ctx_metadata,
+            )
+            self._dispatch_observe(
+                "run_timeout",
                 {
                     "session_id": updated.session_id,
                     "run_id": updated.run_id,

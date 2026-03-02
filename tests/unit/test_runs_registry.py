@@ -10,12 +10,15 @@ from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
 
 
 class _RuntimeStub:
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, timeout: bool = False) -> None:
         self._fail = fail
+        self._timeout = timeout
 
     def run(self, session_id: str, parts, *, stream: bool = True):  # noqa: ANN001, ANN201
         del parts
         del stream
+        if self._timeout:
+            raise TimeoutError("runtime timed out")
         if self._fail:
             raise RuntimeError("runtime boom")
         return TurnResult(
@@ -118,6 +121,49 @@ def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp
     failed = registry.get(submitted.run_id)
     assert failed is not None
     assert failed.error is not None
+    _wait_for(lambda: len(observed_events) == 1)
+    assert observed_events == [
+        {
+            "session_id": session.session_id,
+            "run_id": submitted.run_id,
+            "error": failed.error,
+        }
+    ]
+
+
+def test_runs_registry_dispatches_run_timeout_observe_hook_when_runtime_times_out(tmp_path: Path) -> None:
+    observed_events: list[dict[str, object]] = []
+    hooks = HookRegistry()
+
+    async def on_run_timeout(event, ctx):
+        del ctx
+        observed_events.append(dict(event))
+
+    hooks.on("run_timeout", on_run_timeout)
+
+    store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-run-timeout-hook.sqlite3")
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+    registry = RunsRegistry(
+        runtime=_RuntimeStub(timeout=True),
+        session_manager=manager,
+        hook_runner=HookRunner(registry=hooks),
+    )
+
+    submitted = registry.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": "hello"}],
+    )
+    _wait_for(
+        lambda: registry.get(submitted.run_id) is not None
+        and registry.get(submitted.run_id).status is RunStatus.FAILED
+    )
+
+    failed = registry.get(submitted.run_id)
+    assert failed is not None
+    assert failed.error is not None
+    assert failed.error["code"] == "run_timeout"
+    assert failed.stop_reason == "timeout"
     _wait_for(lambda: len(observed_events) == 1)
     assert observed_events == [
         {
