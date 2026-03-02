@@ -1,5 +1,6 @@
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import context_budget
+from nano_multiagent.cli import error_presenter
 from nano_multiagent.cli import repl_input
 from nano_multiagent.cli import repl_commands
 from nano_multiagent.cli import repl_events
@@ -28,3 +29,8 @@ def test_commands_delegates_context_budget_snapshot_to_module() -> None:
     assert cli_commands._context_budget_prefix is context_budget.context_budget_prefix
     assert cli_commands._extract_context_budget_metrics is context_budget.extract_context_budget_metrics
     assert cli_commands._context_budget_hint_for_ratio is context_budget.context_budget_hint_for_ratio
+
+
+def test_commands_delegates_error_layer_and_suggestion_mapping_to_module() -> None:
+    assert cli_commands._error_layer_for_exception is error_presenter.error_layer_for_exception
+    assert cli_commands._suggestion_for_exception is error_presenter.suggestion_for_exception
