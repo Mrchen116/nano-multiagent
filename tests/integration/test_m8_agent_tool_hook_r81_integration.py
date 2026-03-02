@@ -167,6 +167,35 @@ def test_tool_result_rewrite_output_is_applied_before_return() -> None:
     assert result == {"text": "rewritten:ping"}
 
 
+def test_tool_result_rewrite_list_content_is_passthrough() -> None:
+    registry = HookRegistry()
+
+    async def rewrite_result(event, ctx):
+        del event, ctx
+        return {
+            "content": [
+                {"type": "text", "text": "part-a"},
+                {"type": "image", "image_url": "data:image/png;base64,xxx"},
+            ]
+        }
+
+    registry.on("tool_result", rewrite_result, priority=10)
+    tool_registry, _ = _tool_registry_with_hooks(registry)
+
+    result = tool_registry.execute(
+        "echo",
+        {"text": "ping"},
+        hook_context=HookContext(session_id="sess-r81-list-content", repo_root=Path.cwd()),
+    )
+
+    assert result == {
+        "content": [
+            {"type": "text", "text": "part-a"},
+            {"type": "image", "image_url": "data:image/png;base64,xxx"},
+        ]
+    }
+
+
 def test_hook_exceptions_are_isolated_and_fail_open_for_runtime_and_tools() -> None:
     runtime_registry = HookRegistry()
 
