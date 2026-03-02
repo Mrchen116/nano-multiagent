@@ -1,6 +1,7 @@
 import os
 import shlex
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -47,6 +48,7 @@ class CommandExecution:
     stdout: str
     stderr: str
     truncated: bool
+    full_output_path: str | None = None
 
 
 class ToolSafety:
@@ -155,21 +157,21 @@ class ToolSafety:
         tool_name: str,
     ) -> CommandExecution:
         self.enforce_command_policy(command, tool_name=tool_name)
-        effective_timeout = timeout if timeout is not None else self.config.bash_default_timeout
         try:
             completed = subprocess.run(
                 ["bash", "-lc", command],
                 cwd=str(cwd),
                 capture_output=True,
                 text=True,
-                timeout=effective_timeout,
+                timeout=timeout,
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
+            timeout_details = timeout if timeout is not None else 0.0
             raise ToolError(
-                f"command timed out after {effective_timeout}s",
+                f"command timed out after {timeout_details}s",
                 tool_name=tool_name,
-                details={"timeout": effective_timeout, "timed_out": True},
+                details={"timeout": timeout_details, "timed_out": True},
             ) from exc
 
         stdout, stdout_truncated = self.truncate_text(
@@ -184,9 +186,26 @@ class ToolSafety:
             max_bytes=self.config.bash_max_output_bytes,
             tail=True,
         )
+        truncated = stdout_truncated or stderr_truncated
+        full_output_path = None
+        if truncated:
+            full_output_path = self._persist_full_output(stdout=completed.stdout, stderr=completed.stderr)
         return CommandExecution(
             exit_code=completed.returncode,
             stdout=stdout,
             stderr=stderr,
-            truncated=stdout_truncated or stderr_truncated,
+            truncated=truncated,
+            full_output_path=full_output_path,
         )
+
+    def _persist_full_output(self, *, stdout: str, stderr: str) -> str:
+        output_dir = self.repo_root / ".nano_multiagent" / "tmp"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix="bash-output-", suffix=".log", dir=output_dir)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(stdout)
+            if stderr:
+                if stdout and not stdout.endswith("\n"):
+                    handle.write("\n")
+                handle.write(stderr)
+        return str(Path(tmp_path))
