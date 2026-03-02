@@ -60,15 +60,25 @@ def test_send_message_posts_http_payload_with_auth_and_request_id() -> None:
 
 
 def test_session_tools_and_compact_call_session_scoped_endpoints() -> None:
-    seen: dict[str, object] = {}
+    requests: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen["method"] = request.method
-        seen["path"] = request.url.path
+        requests.append((request.method, request.url.path))
         if request.url.path.endswith("/tools"):
             return httpx.Response(
                 status_code=200,
                 json={"session_id": "sess_2", "tools": [{"name": "read", "description": "Read", "input_schema": {}}]},
+            )
+        if request.url.path.endswith("/context-budget"):
+            return httpx.Response(
+                status_code=200,
+                json={
+                    "session_id": "sess_2",
+                    "used_tokens": 120,
+                    "max_tokens": 200,
+                    "remaining_tokens": 80,
+                    "usage_ratio": 0.6,
+                },
             )
         return httpx.Response(
             status_code=200,
@@ -83,9 +93,15 @@ def test_session_tools_and_compact_call_session_scoped_endpoints() -> None:
         compact_payload = client.compact_session(session_id="sess_2")
         assert compact_payload["session_id"] == "sess_2"
         assert compact_payload["compacted"] is False
+        budget_payload = client.get_context_budget(session_id="sess_2")
+        assert budget_payload["session_id"] == "sess_2"
+        assert budget_payload["usage_ratio"] == 0.6
 
-    assert seen["method"] == "POST"
-    assert seen["path"] == "/v1/sessions/sess_2:compact"
+    assert requests == [
+        ("GET", "/v1/sessions/sess_2/tools"),
+        ("POST", "/v1/sessions/sess_2:compact"),
+        ("GET", "/v1/sessions/sess_2/context-budget"),
+    ]
 
 
 def test_llm_config_get_and_set_use_config_endpoint_contract() -> None:
