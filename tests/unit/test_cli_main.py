@@ -298,3 +298,97 @@ def test_run_cli_repl_connection_refused_shows_base_url_suggestion() -> None:
     text = output.getvalue()
     assert "Error: send failed: [Errno 61] Connection refused" in text
     assert "Suggestion: check --base-url and ensure API server is running." in text
+
+
+class _ManagedServerSpy:
+    def __init__(self, *, fail_on_start: Exception | None = None) -> None:
+        self.fail_on_start = fail_on_start
+        self.events: list[str] = []
+        self.config_base_url: str | None = None
+
+    def bind(self, base_url: str) -> "_ManagedServerSpy":
+        self.config_base_url = base_url
+        return self
+
+    def start(self) -> None:
+        self.events.append("start")
+        if self.fail_on_start is not None:
+            raise self.fail_on_start
+
+    def stop(self) -> None:
+        self.events.append("stop")
+
+
+def test_run_cli_managed_mode_starts_and_stops_local_server() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    manager = _ManagedServerSpy()
+
+    exit_code = run_cli(
+        [
+            "--mode",
+            "managed",
+            "--base-url",
+            "http://127.0.0.1:8111",
+            "--token",
+            "test-token",
+            "health",
+        ],
+        stdout=output,
+        client_factory=lambda _: stub,
+        managed_server_factory=lambda config: manager.bind(config.base_url),
+    )
+
+    assert exit_code == 0
+    assert json.loads(output.getvalue()) == {"healthy": True}
+    assert manager.config_base_url == "http://127.0.0.1:8111"
+    assert manager.events == ["start", "stop"]
+
+
+def test_run_cli_remote_mode_does_not_start_local_server() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        [
+            "--mode",
+            "remote",
+            "--base-url",
+            "http://127.0.0.1:8112",
+            "--token",
+            "test-token",
+            "health",
+        ],
+        stdout=output,
+        client_factory=lambda _: stub,
+        managed_server_factory=lambda _: (_ for _ in ()).throw(AssertionError("should not start")),
+    )
+
+    assert exit_code == 0
+    assert json.loads(output.getvalue()) == {"healthy": True}
+
+
+def test_run_cli_managed_mode_start_failure_surfaces_actionable_suggestion() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    manager = _ManagedServerSpy(fail_on_start=RuntimeError("port 8000 already in use"))
+
+    exit_code = run_cli(
+        [
+            "--mode",
+            "managed",
+            "--base-url",
+            "http://127.0.0.1:8000",
+            "--token",
+            "test-token",
+            "health",
+        ],
+        stdout=output,
+        client_factory=lambda _: stub,
+        managed_server_factory=lambda config: manager.bind(config.base_url),
+    )
+
+    assert exit_code == 1
+    payload = json.loads(output.getvalue())
+    assert "port 8000 already in use" in payload["error"]
+    assert "remote" in payload["suggestion"].lower()
