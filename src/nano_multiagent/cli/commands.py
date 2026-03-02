@@ -433,6 +433,7 @@ def _send_message_with_async_events(
             max_events=_EVENT_POLL_MAX_EVENTS,
             timeout_seconds=_EVENT_POLL_TIMEOUT_SECONDS,
         )
+        delayed_terminal_run_status: dict[str, object] | None = None
         for event in events:
             event_id, event_name, data = _normalize_session_event(event)
             if event_id and event_id in seen_event_ids:
@@ -441,11 +442,20 @@ def _send_message_with_async_events(
                 seen_event_ids.add(event_id)
             if data.get("run_id") != run_id:
                 continue
+            if event_name == "run_status":
+                status = data.get("status")
+                if isinstance(status, str) and status.strip().lower() in _TERMINAL_RUN_STATUSES:
+                    # Runtime currently emits terminal run_status before tool/text tail events.
+                    # Delay terminal line to keep CLI output closer to human reading order.
+                    delayed_terminal_run_status = data
+                    continue
             _print_event_preview(out=out, event_name=event_name, data=data)
             if event_name == "text_delta":
                 delta = data.get("delta")
                 if isinstance(delta, str):
                     assistant_text = _merge_text_delta(assistant_text, delta)
+        if delayed_terminal_run_status is not None:
+            _print_event_preview(out=out, event_name="run_status", data=delayed_terminal_run_status)
 
         run_payload = client.get_run(run_id=run_id)
         status_text = str(run_payload.get("status", "")).strip().lower()
@@ -509,7 +519,7 @@ def _print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object
         status = data.get("status")
         resolved_run_id = str(run_id) if isinstance(run_id, str) and run_id.strip() else "<unknown>"
         resolved_status = str(status) if isinstance(status, str) and status.strip() else "<unknown>"
-        print(f"[run {resolved_run_id}] status={resolved_status}", file=out)
+        print(f"[run {resolved_run_id}] status={resolved_status}", file=out, flush=True)
         return
 
     if event_name == "tool_start":
@@ -519,6 +529,7 @@ def _print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object
         print(
             f"[tool {resolved_name}] start args={_preview_event_value(arguments)}",
             file=out,
+            flush=True,
         )
         return
 
@@ -528,15 +539,15 @@ def _print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object
         output = data.get("output")
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
         if error not in (None, "", {}):
-            print(f"[tool {resolved_name}] error={_preview_event_value(error)}", file=out)
+            print(f"[tool {resolved_name}] error={_preview_event_value(error)}", file=out, flush=True)
             return
-        print(f"[tool {resolved_name}] output={_preview_event_value(output)}", file=out)
+        print(f"[tool {resolved_name}] output={_preview_event_value(output)}", file=out, flush=True)
         return
 
     if event_name == "text_delta":
         delta = data.get("delta")
         if isinstance(delta, str) and delta.strip():
-            print(f"[text] {_preview_event_value(delta)}", file=out)
+            print(f"[text] {_preview_event_value(delta)}", file=out, flush=True)
         return
 
 
