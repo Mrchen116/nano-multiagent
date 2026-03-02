@@ -519,9 +519,11 @@ def _read_interactive_line(
     key_reader: Callable[[], str | None],
     out: TextIO,
 ) -> str:
-    del history
     chars: list[str] = []
     cursor = 0
+    history_items = [item for item in history if isinstance(item, str)]
+    history_index: int | None = None
+    draft_before_history: list[str] = []
     _render_interactive_line(out=out, prompt=prompt, chars=chars, cursor=cursor)
     while True:
         key = key_reader()
@@ -539,6 +541,8 @@ def _read_interactive_line(
             raise EOFError()
         if key in _KEY_BACKSPACE:
             if cursor > 0:
+                if history_index is not None:
+                    history_index = None
                 del chars[cursor - 1]
                 cursor -= 1
                 _render_interactive_line(out=out, prompt=prompt, chars=chars, cursor=cursor)
@@ -553,9 +557,33 @@ def _read_interactive_line(
                 cursor += 1
                 _render_interactive_line(out=out, prompt=prompt, chars=chars, cursor=cursor)
             continue
-        if key in {_KEY_ARROW_UP, _KEY_ARROW_DOWN}:
+        if key == _KEY_ARROW_UP:
+            if not history_items:
+                continue
+            if history_index is None:
+                draft_before_history = chars.copy()
+                history_index = len(history_items) - 1
+            elif history_index > 0:
+                history_index -= 1
+            chars = list(history_items[history_index])
+            cursor = len(chars)
+            _render_interactive_line(out=out, prompt=prompt, chars=chars, cursor=cursor)
+            continue
+        if key == _KEY_ARROW_DOWN:
+            if history_index is None:
+                continue
+            if history_index < len(history_items) - 1:
+                history_index += 1
+                chars = list(history_items[history_index])
+            else:
+                history_index = None
+                chars = draft_before_history.copy()
+            cursor = len(chars)
+            _render_interactive_line(out=out, prompt=prompt, chars=chars, cursor=cursor)
             continue
         if len(key) == 1 and key.isprintable():
+            if history_index is not None:
+                history_index = None
             chars.insert(cursor, key)
             cursor += 1
             _render_interactive_line(out=out, prompt=prompt, chars=chars, cursor=cursor)
