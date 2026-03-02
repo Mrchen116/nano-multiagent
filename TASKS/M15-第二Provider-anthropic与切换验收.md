@@ -49,9 +49,9 @@
 - Commits:
   - C1: `0034698`
   - C2: `7be80d3`
-  - C3: TBD
+  - C3: `c78a3d9`
 
-## [TODO] R15.3 工厂接线与 provider 切换验收（配置驱动）
+## [DONE] R15.3 工厂接线与 provider 切换验收（配置驱动）
 - Acceptance:
   - `model_registry` 与 `factory` 支持 `provider=anthropic` 并保持 `openai_compat` 兼容。
   - provider 切换只通过 `LLMFactoryConfig` 或环境变量配置，不改 runtime/tool/session 代码。
@@ -73,6 +73,6 @@
   - C1/C2/C3 三次提交完整
   - 文档记录含 gate 结果、哈希与下一步
 - Commits:
-  - C1: TBD
-  - C2: TBD
+  - C1: `b9b57dc`
+  - C2: `fa24134`
   - C3: TBD
