@@ -374,7 +374,7 @@ def _send_message_with_async_events(
 
     if str(terminal_run.get("status", "")).strip().lower() != "completed":
         error_payload = terminal_run.get("error")
-        raise RuntimeError(f"run failed: {error_payload}")
+        raise RuntimeError(f"run_id={run_id} run failed: {error_payload}")
 
     return {
         "session_id": session_id,

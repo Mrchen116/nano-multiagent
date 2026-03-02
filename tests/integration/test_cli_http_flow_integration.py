@@ -289,7 +289,7 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "run_id=" in text
-    assert "Error: send failed: run failed: {'code': 'run_execution_failed'" in text
+    assert "run failed: {'code': 'run_execution_failed'" in text
     assert "root_cause=connect ETIMEDOUT" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
