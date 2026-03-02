@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import repl_input
+from nano_multiagent.cli.http_client import ServerClient
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
 from nano_multiagent.cli.main import run_cli
@@ -169,6 +170,26 @@ class _ModelTimeoutRuntime:
         raise ModelError("timed out waiting for upstream; root_cause=connect ETIMEDOUT", retryable=True)
 
 
+class _AsyncMethodsMustNotBeCalledServerClient(ServerClient):
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        del session_id, text
+        raise AssertionError("send-message command must not call send_message_async")
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del session_id, max_events, timeout_seconds
+        raise AssertionError("send-message command must not stream repl events")
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        del run_id
+        raise AssertionError("send-message command must not fetch async run state")
+
+
 def test_cli_runs_http_flow_against_asgi_app() -> None:
     app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
     transport = httpx.ASGITransport(app=app)
@@ -216,6 +237,52 @@ def test_cli_runs_http_flow_against_asgi_app() -> None:
 
     assert send_code == 0
     payload = json.loads(send_out.getvalue())
+    assert payload["session_id"] == session_id
+    assert payload["message"]["content"] == "cli:ping"
+
+
+def test_cli_send_message_command_keeps_single_json_stdout_contract_with_async_capable_client() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        return _AsyncMethodsMustNotBeCalledServerClient(config=config, transport=transport)
+
+    create_out = io.StringIO()
+    create_code = run_cli(
+        [
+            "--base-url",
+            "http://testserver",
+            "--token",
+            "test-token",
+            "create-session",
+        ],
+        stdout=create_out,
+        client_factory=client_factory,
+    )
+    assert create_code == 0
+    session_id = json.loads(create_out.getvalue())["session_id"]
+
+    send_out = io.StringIO()
+    send_code = run_cli(
+        [
+            "--base-url",
+            "http://testserver",
+            "--token",
+            "test-token",
+            "send-message",
+            "--session-id",
+            session_id,
+            "--text",
+            "ping",
+        ],
+        stdout=send_out,
+        client_factory=client_factory,
+    )
+    assert send_code == 0
+    raw = send_out.getvalue().strip()
+    assert "\n" not in raw
+    payload = json.loads(raw)
     assert payload["session_id"] == session_id
     assert payload["message"]["content"] == "cli:ping"
 

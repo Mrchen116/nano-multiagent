@@ -10,9 +10,14 @@ def test_commands_does_not_expose_repl_input_bridge_symbols() -> None:
     assert not hasattr(cli_commands, "_read_interactive_line")
 
 
-def test_commands_delegates_repl_command_routing_to_module() -> None:
-    assert cli_commands._handle_repl_command is repl_commands.handle_repl_command
-    assert cli_commands.supported_repl_commands() == repl_commands.REPL_COMMANDS
+<<<<<<< HEAD
+def test_commands_does_not_expose_repl_command_bridge_symbols() -> None:
+    assert not hasattr(cli_commands, "_handle_repl_command")
+    assert not hasattr(cli_commands, "supported_repl_commands")
+
+
+def test_repl_command_catalog_remains_stable() -> None:
+    assert repl_commands.REPL_COMMANDS == ("/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit")
 
 
 def test_commands_delegates_async_event_consumption_to_module() -> None:

@@ -4,6 +4,7 @@ from pathlib import Path
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import http_client as cli_http_client
 from nano_multiagent.cli import main as cli_main
+from nano_multiagent.cli import repl_commands as cli_repl_commands
 from nano_multiagent.sdk import client as sdk_client
 
 
@@ -43,8 +44,9 @@ def test_cli_exposes_mode_contract() -> None:
 
 
 def test_cli_exposes_required_repl_commands_contract() -> None:
-    names = set(cli_commands.supported_repl_commands())
+    names = set(cli_repl_commands.REPL_COMMANDS)
     assert {"/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit"}.issubset(names)
+    assert not hasattr(cli_commands, "supported_repl_commands")
 
 
 def test_cli_client_exposes_llm_config_contract() -> None:
