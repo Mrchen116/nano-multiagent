@@ -28,6 +28,8 @@ _CLI_HELP_EPILOG = (
     "REPL quick commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit\n"
     "Inline editing: ←/→ move cursor, Backspace deletes at cursor.\n"
     "History recall: ↑/↓ navigates per-session input history and restores draft.\n"
+    "HTTP-only boundary: CLI orchestrates via ServerClient, never direct runtime calls.\n"
+    "JSON contract: non-interactive commands print a single final JSON object on stdout.\n"
     "Context budget: shown after each assistant reply and after /compact.\n"
     "Error layers: input / network / runtime."
 )
