@@ -60,10 +60,10 @@
 - Commits:
   - C1: `773846d`
   - C2: `3ec0818`
-  - C3: `<pending>`
+  - C3: `e64fcf8`
 - Status: DONE
 
-## [TODO] R26.3 增补 contract + integration 门禁，固化 HTTP-only 与关键交互链路
+## [DONE] R26.3 增补 contract + integration 门禁，固化 HTTP-only 与关键交互链路
 - Acceptance:
   - contract 明确断言 CLI 编排层依赖方向与单命令 JSON 契约稳定性。
   - integration 覆盖关键链路：REPL 事件预览不污染单命令 JSON 输出、核心命令链无回归。
@@ -82,7 +82,7 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录契约证据与回滚点。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `1b3f6b7`
+  - C2: `b84d3ac`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE

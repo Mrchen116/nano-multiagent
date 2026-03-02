@@ -71,17 +71,29 @@
     - README 已声明 CLI 模块职责与收口约定。
 - Rollback:
   - `773846d`（R26.2 C1）
-- Commits: C1=`773846d`, C2=`3ec0818`, C3=`<pending>`
+- Commits: C1=`773846d`, C2=`3ec0818`, C3=`e64fcf8`
 - Next:
   - R26.3 Red：补 contract/integration 门禁，清理剩余命令桥接符号。
 
 ### R26.3 contract + integration 门禁固化
 - Context:
+  - `commands.py` 仍暴露 `_handle_repl_command/supported_repl_commands`，属于命令层空桥接残留。
+  - 缺少“单命令在 async-capable 客户端下仍保持纯 JSON 输出”的集成门禁。
 - Decision:
+  - 移除命令桥接暴露，`commands.py` 直接依赖 `repl_commands.handle_repl_command`。
+  - contract 改为以 `repl_commands.REPL_COMMANDS` 作为命令清单真源，并显式断言 `commands.py` 不再导出桥接函数。
+  - integration 新增 `send-message` 机读契约回归：即使客户端具备 async 事件能力，单命令路径仍只走同步发送并输出单行 JSON。
 - Rationale:
+  - 让命令清单和路由职责单点归属，可避免编排层“再导出”导致的边界漂移。
 - Evidence:
   - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py tests/contract/test_cli_http_only_contract.py::test_cli_exposes_required_repl_commands_contract tests/integration/test_cli_http_flow_integration.py::test_cli_send_message_command_keeps_single_json_stdout_contract_with_async_capable_client`（桥接符号仍存在导致失败）
+    - Gate: `pytest -q`（`330 passed, 4 skipped`）
   - Entry:
+    - `commands.py` 不再暴露 `_handle_repl_command/supported_repl_commands`。
+    - 新增集成测试验证 `send-message` stdout 单行 JSON 契约与 async 事件路径隔离。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `1b3f6b7`（R26.3 C1）
+- Commits: C1=`1b3f6b7`, C2=`b84d3ac`, C3=`<pending>`
 - Next:
+  - Milestone 收口：rebase `origin/main`、全量回归、合并 `main`、更新 `dev-tasks.json`。
