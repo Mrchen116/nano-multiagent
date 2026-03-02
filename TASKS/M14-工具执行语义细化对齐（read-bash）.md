@@ -3,7 +3,7 @@
 - Test command: `pytest -q`
 - Branch: `milestone/M14`
 
-## [TODO] R14.1 read 语义补齐（图片输入 + 文本截断/offset 提示）
+## [DONE] R14.1 read 语义补齐（图片输入 + 文本截断/offset 提示）
 - Acceptance:
   - `read` 支持图片文件输入（`jpg/png/gif/webp`），返回 `content` 为 `text + image` 两段结构。
   - `read` 文本输出在触发截断时追加“下一次 offset 提示”语义，且 `next_offset` 与提示一致。
@@ -22,9 +22,9 @@
   - 目标测试红转绿，且 `pytest -q` 全绿。
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M14-*.md` 记录决策/证据/回退点/哈希。
-- Status: DOING
+- Status: DONE
 
-## [TODO] R14.2 tool_result list content 保真透传
+## [DOING] R14.2 tool_result list content 保真透传
 - Acceptance:
   - `tool_result` 拦截链在返回 `content` 为 list 时保持原样透传，不将 list 折叠为字符串或包装破坏结构。
   - `tool_result` 在 `content` 为 mapping/list 时行为一致且向后兼容现有 mapping 重写场景。
@@ -43,7 +43,7 @@
   - 目标测试红转绿，且 `pytest -q` 全绿。
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M14-*.md` 记录决策/证据/回退点/哈希。
-- Status: TODO
+- Status: DOING
 
 ## [TODO] R14.3 bash 语义对齐（无默认超时 + 截断落盘 fullOutputPath）
 - Acceptance:

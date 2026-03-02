@@ -53,14 +53,28 @@
 
 ### R14.1 read 语义补齐（图片输入 + 文本截断/offset 提示）
 - Context:
+  - 现状仅支持 UTF-8 文本读取；读取图片直接触发 `UnicodeDecodeError`，且文本截断后无 next offset 提示。
+  - 目标是让 `read` 对图片返回 `text+image` parts，并让文本截断结果可直接指导下一次分段读取。
 - Decision:
+  - 在 `ReadTool` 中加入图片后缀识别（jpg/jpeg/png/gif/webp），图片分支返回 `content=[text_part, image_part]`。
+  - 文本分支在触发截断且可继续读取时追加 `[output truncated; continue with offset=<next>]` 提示。
+  - 对非 UTF-8 且非支持图片类型文件返回明确 `ToolError`，避免底层解码异常上浮。
 - Rationale:
+  - 图片结构直接对齐细化设计并可被 hook/tool_result 链路消费。
+  - 提示文案与 `next_offset` 对齐，减少模型二次推断偏差，提升分段续读稳定性。
 - Evidence:
   - Tests:
+    - Red: `pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_read_contract.py tests/integration/test_tools_read_integration.py`（6 failed，验证缺口）
+    - Green: `pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_read_contract.py tests/integration/test_tools_read_integration.py`（17 passed）
+    - Gate: `pytest -q`（183 passed, 2 skipped）
   - Entry:
+    - `ToolRegistry.execute("read", {"path":"pixel.png"})` 返回 `text+image` 两段结构；
+    - 截断文本输出包含 `offset=<next_offset>` 提示且 `next_offset` 同步更新。
 - Rollback:
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
+  - `1010408`（R14.1 测试红测提交）
+- Commits: C1=1010408, C2=9a99b2c, C3=<pending>
 - Next:
+  - R14.2 Red：补 `tool_result` list content 透传红测。
 
 ### R14.2 tool_result list content 保真透传
 - Context:
