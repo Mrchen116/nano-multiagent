@@ -36,7 +36,7 @@
 - Commits:
   - C1: `6b0f041`
   - C2: `d6e3338`
-  - C3: `<pending>`
+  - C3: `49c54c0`
 - Status: DONE
 
 ## [DONE] R25.2 抽离预算快照与阈值提示到 `cli/context_budget.py`
@@ -61,10 +61,10 @@
 - Commits:
   - C1: `e21e67e`
   - C2: `4dfcc60`
-  - C3: `<pending>`
+  - C3: `aa94c79`
 - Status: DONE
 
-## [TODO] R25.3 抽离错误分层与建议映射到 `cli/error_presenter.py`
+## [DONE] R25.3 抽离错误分层与建议映射到 `cli/error_presenter.py`
 - Acceptance:
   - 将 `exception -> layer/suggestion` 映射规则迁移至独立模块，`commands.py` 保持薄编排调用。
   - 保持 REPL 错误文案与单命令 JSON 错误契约兼容（至少保留 `error/suggestion/layer`）。
@@ -85,7 +85,7 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `6200e23`
+  - C2: `2677e19`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE

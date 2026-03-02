@@ -51,7 +51,7 @@
     - REPL 异步事件相关用例保持通过（run 过滤、去重、terminal 延后、tail drain）。
 - Rollback:
   - `6b0f041`（仅边界测试，先红基线）。
-- Commits: C1=`6b0f041`, C2=`d6e3338`, C3=`<pending>`
+- Commits: C1=`6b0f041`, C2=`d6e3338`, C3=`49c54c0`
 - Next:
   - R25.2 Red：先加预算模块边界测试并验证失败点。
 
@@ -74,17 +74,29 @@
     - 预算相关 REPL 回归用例继续通过（正常展示、阈值提示、获取失败 fail-open）。
 - Rollback:
   - `e21e67e`（仅边界测试，先红基线）。
-- Commits: C1=`e21e67e`, C2=`4dfcc60`, C3=`<pending>`
+- Commits: C1=`e21e67e`, C2=`4dfcc60`, C3=`aa94c79`
 - Next:
   - R25.3 Red：先加错误分层模块边界测试并验证失败点。
 
 ### R25.3 抽离错误分层与建议映射到 `cli/error_presenter.py`
 - Context:
+  - `commands.py` 仍内联异常分层（input/network/runtime）与建议文本映射，导致单命令与 REPL 错误呈现逻辑耦合。
+  - 需保持单命令失败 JSON 契约兼容：`error/suggestion/layer` 字段稳定，不改 HTTP API 行为。
 - Decision:
+  - 新建 `src/nano_multiagent/cli/error_presenter.py`，承载 `error_layer_for_exception` 与 `suggestion_for_exception` 规则。
+  - `commands.py` 改为引用错误模块函数别名，维持原有输出路径与字段组装逻辑。
+  - 用边界测试固定错误映射职责迁移，防止回流到 `commands.py`。
 - Rationale:
+  - 把错误层级与建议规则独立后，可单点维护错误口径，同时确保 REPL 文案与单命令 JSON 合约一致。
 - Evidence:
   - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py`（ImportError: `error_presenter` 不存在）。
+    - Green: `pytest -q tests/unit/test_cli_refactor_boundaries.py tests/unit/test_cli_main.py tests/contract/test_cli_error_contract.py`（`45 passed`）。
+    - Gate: `pytest -q`（`330 passed, 4 skipped`）。
   - Entry:
+    - 单命令错误契约测试持续通过，字段 `error/suggestion/layer` 保持稳定。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `6200e23`（仅边界测试，先红基线）。
+- Commits: C1=`6200e23`, C2=`2677e19`, C3=`<pending>`
 - Next:
+  - 全部 Roadpoint 已完成，进入 rebase + 全量验证 + 主干合并。
