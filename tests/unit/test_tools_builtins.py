@@ -9,6 +9,7 @@ from nano_multiagent.tools.builtins.bash import BashTool
 from nano_multiagent.tools.builtins.edit import EditTool
 from nano_multiagent.tools.builtins.read import ReadTool
 from nano_multiagent.tools.builtins.write import WriteTool
+from nano_multiagent.tools.safety import ToolSafety
 from nano_multiagent.tools.safety import ToolSafetyConfig
 
 
@@ -137,6 +138,54 @@ def test_bash_truncates_large_output(tmp_path: Path) -> None:
     )
 
     assert result["truncated"] is True
+
+
+def test_bash_truncation_returns_full_output_path(tmp_path: Path) -> None:
+    ctx = _context(
+        tmp_path,
+        config=ToolSafetyConfig(bash_max_output_lines=2, bash_max_output_bytes=200),
+    )
+
+    result = BashTool().run(
+        {"command": "python -c \"[print(f'line-{i}') for i in range(6)]\""},
+        ctx,
+    )
+
+    assert result["truncated"] is True
+    full_output_path = result["full_output_path"]
+    assert isinstance(full_output_path, str)
+    content = Path(full_output_path).read_text(encoding="utf-8")
+    assert "line-0" in content
+    assert "line-5" in content
+
+
+def test_bash_without_timeout_does_not_inject_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(*args, **kwargs):  # noqa: ANN002, ANN003
+        del args
+        captured["timeout"] = kwargs.get("timeout")
+
+        class _Completed:
+            returncode = 0
+            stdout = "ok"
+            stderr = ""
+
+        return _Completed()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    safety = ToolSafety(repo_root=tmp_path, config=ToolSafetyConfig())
+
+    execution = safety.run_command(
+        command="python -c \"print('ok')\"",
+        cwd=tmp_path,
+        timeout=None,
+        tool_name="bash",
+    )
+
+    assert captured["timeout"] is None
+    assert execution.stdout == "ok"
+    assert execution.exit_code == 0
 
 
 def test_read_returns_text_and_image_parts_for_png(tmp_path: Path) -> None:
