@@ -122,6 +122,15 @@ class ServerClient:
             require_auth=True,
         )
 
+    def get_context_budget(self, *, session_id: str) -> dict[str, Any]:
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        return self._request(
+            "GET",
+            f"/v1/sessions/{session_id}/context-budget",
+            require_auth=True,
+        )
+
     def get_llm_config(self) -> dict[str, Any]:
         return self._request("GET", "/v1/llm-config", require_auth=True)
 
