@@ -37,10 +37,10 @@
 - Commits:
   - C1: `8f22cee`
   - C2: `99fb4dc`
-  - C3: `<pending>`
+  - C3: `e23a8d9`
 - Status: DONE
 
-## [TODO] R26.2 README 与 CLI 帮助文案补齐模块边界与开发约定
+## [DONE] R26.2 README 与 CLI 帮助文案补齐模块边界与开发约定
 - Acceptance:
   - README 明确 CLI 模块边界（入口编排/输入引擎/命令路由/HTTP 客户端）与“禁止跨边界直连”约定。
   - CLI 帮助文案覆盖 HTTP-only 约束与单命令 JSON 契约说明。
@@ -58,10 +58,10 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录边界文本与证据。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `773846d`
+  - C2: `3ec0818`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R26.3 增补 contract + integration 门禁，固化 HTTP-only 与关键交互链路
 - Acceptance:

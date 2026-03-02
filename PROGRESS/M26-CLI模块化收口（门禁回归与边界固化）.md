@@ -48,20 +48,32 @@
     - `tests/unit/test_cli_main.py` 与 `tests/integration/test_cli_http_flow_integration.py` 已切换到 `repl_input` 直接调用。
 - Rollback:
   - `8f22cee`（R26.1 C1）
-- Commits: C1=`8f22cee`, C2=`99fb4dc`, C3=`<pending>`
+- Commits: C1=`8f22cee`, C2=`99fb4dc`, C3=`e23a8d9`
 - Next:
   - R26.2 Red：先补 CLI 帮助与 README 边界说明门禁断言。
 
 ### R26.2 README 与 CLI 帮助补齐边界约定
 - Context:
+  - M24 后 CLI 模块分层已成形，但 README 与 `--help` 未明确“模块职责 + HTTP-only + 单命令 JSON 契约”。
+  - 缺少文案门禁会导致后续重构时边界约定被弱化。
 - Decision:
+  - 在 CLI help epilog 增加两条硬约束提示：`HTTP-only boundary` 与 `single final JSON object on stdout`。
+  - 在 README 新增 `CLI module boundary` 小节，明确 `main.py/commands.py/repl_input.py/repl_commands.py/http_client.py` 的职责。
+  - 补充开发约定：HTTP-only、避免空转发层、保持单命令 JSON 机读稳定。
 - Rationale:
+  - 文档与帮助文字是边界治理的第一入口，缺少显式声明会使后续协作中边界松动。
 - Evidence:
   - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py::test_cli_help_mentions_repl_editing_budget_and_error_layers tests/contract/test_cli_http_only_contract.py::test_readme_documents_cli_module_boundaries_and_json_contract`（新增文案断言失败）
+    - Gate: `pytest -q`（`328 passed, 4 skipped`）
   - Entry:
+    - `build_parser().format_help()` 已包含 `HTTP-only boundary` 与 `single final JSON object on stdout`。
+    - README 已声明 CLI 模块职责与收口约定。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `773846d`（R26.2 C1）
+- Commits: C1=`773846d`, C2=`3ec0818`, C3=`<pending>`
 - Next:
+  - R26.3 Red：补 contract/integration 门禁，清理剩余命令桥接符号。
 
 ### R26.3 contract + integration 门禁固化
 - Context:
