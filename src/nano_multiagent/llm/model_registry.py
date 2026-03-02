@@ -51,6 +51,16 @@ def get_default_model(provider: str) -> str:
     return _PROVIDER_DEFAULT_MODEL[provider]
 
 
+def list_supported_providers() -> tuple[str, ...]:
+    return tuple(sorted(_PROVIDER_MODELS.keys()))
+
+
+def list_provider_models(provider: str) -> tuple[ModelMetadata, ...]:
+    _ensure_provider(provider)
+    provider_models = _PROVIDER_MODELS[provider]
+    return tuple(provider_models[model] for model in sorted(provider_models.keys()))
+
+
 def get_default_base_url(provider: str) -> str:
     metadata = resolve_model_metadata(provider, None)
     return metadata.default_base_url
