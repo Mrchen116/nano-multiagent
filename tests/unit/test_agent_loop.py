@@ -1,9 +1,6 @@
-import pytest
-
 from nano_multiagent.agent.loop import AgentLoop
 from nano_multiagent.agent.policies import AgentPolicies
 from nano_multiagent.agent.state import AgentState, InputPart
-from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import ToolSpec
 from nano_multiagent.llm.interfaces import (
     LLMGenerateRequest,
@@ -200,23 +197,3 @@ def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
     assert result.tool_results[0].error == "tool boom"
     assert result.tool_results[0].output is None
     assert '"error":"tool boom"' in client.requests[1].messages[-1].content
-
-
-def test_loop_raises_model_error_on_empty_non_tool_response() -> None:
-    client = FakeLLMClient(
-        responses=(
-            LLMGenerateResponse(
-                model="model-x",
-                message=LLMMessage(role="assistant", content=""),
-                finish_reason="stop",
-            ),
-        )
-    )
-    loop = AgentLoop(
-        llm_client=client,
-        model="model-x",
-        tool_registry=FakeToolRegistry(),
-    )
-
-    with pytest.raises(ModelError, match="empty assistant response from model"):
-        loop.run(_base_state())

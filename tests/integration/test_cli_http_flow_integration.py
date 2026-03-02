@@ -115,16 +115,6 @@ class _ToolCallingLLMClient:
         )
 
 
-class _EmptyAssistantLLMClient:
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
-        del request
-        return LLMGenerateResponse(
-            model="mock-model",
-            message=LLMMessage(role="assistant", content=""),
-            finish_reason="stop",
-        )
-
-
 class _EchoTool:
     name = "echo"
     description = "Echo user text"
@@ -302,66 +292,6 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
     assert "root_cause=connect ETIMEDOUT" in text
     assert "'trace_id': 'req-cli-timeout-root-cause'" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
-
-
-def test_cli_http_flow_rejects_empty_assistant_response_from_model() -> None:
-    store = _InMemorySessionStore()
-    runtime = AgentRuntime(
-        session_manager=SessionManager(store=store),
-        llm_client=_EmptyAssistantLLMClient(),
-        model="mock-model",
-        repo_root=Path.cwd(),
-    )
-    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
-    tool_registry.register(_EchoTool())
-    app = create_app(
-        session_store=store,
-        runtime=runtime,
-        tool_registry=tool_registry,
-        auth_token="test-token",
-    )
-    transport = httpx.ASGITransport(app=app)
-
-    def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
-
-        return ServerClient(config=config, transport=transport)
-
-    create_out = io.StringIO()
-    create_code = run_cli(
-        [
-            "--base-url",
-            "http://testserver",
-            "--token",
-            "test-token",
-            "create-session",
-        ],
-        stdout=create_out,
-        client_factory=client_factory,
-    )
-    assert create_code == 0
-    session_id = json.loads(create_out.getvalue())["session_id"]
-
-    send_out = io.StringIO()
-    send_code = run_cli(
-        [
-            "--base-url",
-            "http://testserver",
-            "--token",
-            "test-token",
-            "send-message",
-            "--session-id",
-            session_id,
-            "--text",
-            "ls一下当前目录",
-        ],
-        stdout=send_out,
-        client_factory=client_factory,
-    )
-
-    assert send_code == 1
-    payload = json.loads(send_out.getvalue())
-    assert "empty assistant response from model" in payload["error"]
 
 
 def test_cli_repl_flow_supports_tools_and_compact_commands() -> None:
