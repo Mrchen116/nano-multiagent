@@ -1,0 +1,91 @@
+# TASKS (Milestone: M25)
+
+- Test command: `pytest -q`
+- Branch: `milestone/M25`
+- Milestone status: `RUNNING`
+- 不可改变行为边界（Refactor Guardrails）:
+  - CLI 必须继续 HTTP-only（仅经 `ServerClient` 调用 API，不引入本地 runtime 直连路径）。
+  - 单命令失败 JSON 结构必须保持兼容：`error` 与 `suggestion` 字段保留，`layer` 继续输出（可新增字段，不可删旧字段）。
+  - REPL 异步事件输出行为不变：`event_id` 去重、`run_id` 过滤、terminal `run_status` 延后输出、尾部事件 drain 仍生效。
+  - Context budget 输出文案与阈值提示规则不变（70/85/95 三档提示）。
+  - 不改 `agent/runtime/tool/session/llm` 核心逻辑与 HTTP API 契约行为。
+- Allowed refactor scope:
+  - `src/nano_multiagent/cli/**`
+  - `tests/**`
+  - `TASKS/**`、`PROGRESS/**`
+
+## [DONE] R25.1 抽离异步事件消费与预览输出到 `cli/repl_events.py`
+- Acceptance:
+  - 将异步事件消费、事件归一化、预览输出、文本增量合并逻辑从 `commands.py` 迁移到独立模块。
+  - `commands.py` 仅保留 REPL 编排与模块调用，不再承载事件细节分支。
+  - 保持异步链路行为一致：去重/过滤/terminal 延后/尾部 drain 与输出文本格式不变。
+  - 新增边界测试，固定 `commands.py` 到 `repl_events.py` 的职责委派。
+- Tests Plan:
+  - `unit`: 选。覆盖模块边界 + REPL 异步事件行为回归（已有 `test_cli_main.py`）。
+  - `contract`: 不选。本 Roadpoint 不改外部 JSON 字段契约。
+  - `integration`: 选。复用 CLI HTTP 流程用例，确保入口行为不漂移。
+  - `e2e`: 不选。此重构不依赖外部部署差异，integration 已覆盖入口。
+- Expected Tests:
+  - `tests/unit/test_cli_main.py`
+  - `tests/unit/test_cli_refactor_boundaries.py`
+  - `tests/integration/test_cli_http_flow_integration.py`
+- DoD:
+  - `pytest -q` 全绿。
+  - C1/C2/C3 提交齐全。
+  - PROGRESS 记录决策/证据/回滚点/提交哈希。
+- Commits:
+  - C1: `6b0f041`
+  - C2: `d6e3338`
+  - C3: `49c54c0`
+- Status: DONE
+
+## [DONE] R25.2 抽离预算快照与阈值提示到 `cli/context_budget.py`
+- Acceptance:
+  - 将 context budget 拉取、指标解析、阈值提示与容错输出迁移到独立模块。
+  - `commands.py` 只调用 budget 模块入口，不再内联预算解析实现细节。
+  - 保持预算输出兼容：正常值、无效 payload、拉取失败 fail-open 文案保持稳定。
+  - 新增边界测试固定模块职责，避免预算逻辑回流。
+- Tests Plan:
+  - `unit`: 选。覆盖边界委派 + 预算阈值/失败场景回归（已有单测复用）。
+  - `contract`: 不选。不新增 API 字段，仅内部模块重排。
+  - `integration`: 选。确保 CLI 命令链路的 budget 展示仍稳定。
+  - `e2e`: 不选。入口行为已由 integration + unit 组合覆盖。
+- Expected Tests:
+  - `tests/unit/test_cli_main.py`
+  - `tests/unit/test_cli_refactor_boundaries.py`
+  - `tests/integration/test_cli_http_flow_integration.py`
+- DoD:
+  - `pytest -q` 全绿。
+  - C1/C2/C3 提交齐全。
+  - PROGRESS 记录决策/证据/回滚点/提交哈希。
+- Commits:
+  - C1: `e21e67e`
+  - C2: `4dfcc60`
+  - C3: `aa94c79`
+- Status: DONE
+
+## [DONE] R25.3 抽离错误分层与建议映射到 `cli/error_presenter.py`
+- Acceptance:
+  - 将 `exception -> layer/suggestion` 映射规则迁移至独立模块，`commands.py` 保持薄编排调用。
+  - 保持 REPL 错误文案与单命令 JSON 错误契约兼容（至少保留 `error/suggestion/layer`）。
+  - 仅做行为保持式拆分，不改 HTTP API 语义与 CLI 成功路径。
+  - 新增边界测试固定错误呈现职责归属。
+- Tests Plan:
+  - `unit`: 选。覆盖错误映射与 REPL/单命令错误输出回归。
+  - `contract`: 选。执行 CLI 错误契约测试确保 JSON 字段稳定。
+  - `integration`: 选。执行 CLI HTTP 集成测试确认入口行为不变。
+  - `e2e`: 不选。本 Roadpoint 不引入跨进程协议新行为。
+- Expected Tests:
+  - `tests/unit/test_cli_main.py`
+  - `tests/unit/test_cli_refactor_boundaries.py`
+  - `tests/contract/test_cli_error_contract.py`
+  - `tests/integration/test_cli_http_flow_integration.py`
+- DoD:
+  - `pytest -q` 全绿。
+  - C1/C2/C3 提交齐全。
+  - PROGRESS 记录决策/证据/回滚点/提交哈希。
+- Commits:
+  - C1: `6200e23`
+  - C2: `2677e19`
+  - C3: `<pending>`
+- Status: DONE
