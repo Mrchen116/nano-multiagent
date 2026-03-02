@@ -1,0 +1,163 @@
+import asyncio
+import os
+import uuid
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+import httpx
+
+DEFAULT_BASE_URL = "http://127.0.0.1:8000"
+DEFAULT_TIMEOUT_SECONDS = 30.0
+
+
+@dataclass(frozen=True, slots=True)
+class ServerClientConfig:
+    base_url: str = DEFAULT_BASE_URL
+    token: str | None = None
+    request_id: str | None = None
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+
+    @classmethod
+    def from_env(cls) -> "ServerClientConfig":
+        timeout_text = os.getenv("NANO_MULTIAGENT_API_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS))
+        return cls(
+            base_url=os.getenv("NANO_MULTIAGENT_API_BASE_URL", DEFAULT_BASE_URL),
+            token=os.getenv("NANO_MULTIAGENT_API_TOKEN"),
+            request_id=os.getenv("NANO_MULTIAGENT_REQUEST_ID"),
+            timeout_seconds=float(timeout_text),
+        )
+
+
+class ServerClient:
+    def __init__(
+        self,
+        *,
+        config: ServerClientConfig | None = None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._config = config or ServerClientConfig.from_env()
+        resolved_transport = _wrap_transport(transport)
+        self._transport = resolved_transport
+        self._client = httpx.Client(
+            base_url=self._config.base_url,
+            timeout=self._config.timeout_seconds,
+            transport=resolved_transport,
+        )
+
+    def __enter__(self) -> "ServerClient":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        del exc_type, exc, tb
+        self.close()
+
+    def close(self) -> None:
+        self._client.close()
+
+    def health(self) -> dict[str, Any]:
+        return self._request("GET", "/v1/health", require_auth=False)
+
+    def create_session(self, *, title: str | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if title is not None:
+            payload["title"] = title
+        return self._request("POST", "/v1/sessions", json=payload, require_auth=True)
+
+    def send_message(self, *, session_id: str, text: str) -> dict[str, Any]:
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        if not text.strip():
+            raise ValueError("text is required")
+        payload = {
+            "parts": [{"type": "text", "text": text}],
+            "stream": False,
+        }
+        return self._request(
+            "POST",
+            f"/v1/sessions/{session_id}/messages",
+            json=payload,
+            require_auth=True,
+        )
+
+    def list_session_tools(self, *, session_id: str) -> dict[str, Any]:
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        return self._request(
+            "GET",
+            f"/v1/sessions/{session_id}/tools",
+            require_auth=True,
+        )
+
+    def compact_session(self, *, session_id: str) -> dict[str, Any]:
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        return self._request(
+            "POST",
+            f"/v1/sessions/{session_id}:compact",
+            json={},
+            require_auth=True,
+        )
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Mapping[str, Any] | None = None,
+        require_auth: bool,
+    ) -> dict[str, Any]:
+        headers = self._build_headers(require_auth=require_auth)
+        response = self._client.request(method=method, url=path, json=json, headers=headers)
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {"raw": response.text}
+
+        if response.status_code >= 400:
+            raise RuntimeError(f"request failed ({response.status_code}): {payload}")
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"unexpected response payload: {type(payload).__name__}")
+        return payload
+
+    def _build_headers(self, *, require_auth: bool) -> dict[str, str]:
+        request_id = self._config.request_id or f"req-cli-{uuid.uuid4().hex[:8]}"
+        headers = {"X-Request-Id": request_id}
+        if self._config.token:
+            headers["Authorization"] = f"Bearer {self._config.token}"
+        elif require_auth:
+            raise ValueError("missing API token: set --token or NANO_MULTIAGENT_API_TOKEN")
+        return headers
+
+
+def _wrap_transport(transport: httpx.BaseTransport | None) -> httpx.BaseTransport | None:
+    if transport is None:
+        return None
+    if hasattr(transport, "handle_request"):
+        return transport
+    if hasattr(transport, "handle_async_request"):
+        return _AsyncTransportBridge(transport)  # type: ignore[arg-type]
+    return transport
+
+
+class _AsyncTransportBridge(httpx.BaseTransport):
+    def __init__(self, transport: httpx.AsyncBaseTransport) -> None:
+        self._transport = transport
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        return asyncio.run(self._handle_request(request))
+
+    async def _handle_request(self, request: httpx.Request) -> httpx.Response:
+        response = await self._transport.handle_async_request(request)
+        body = await response.aread()
+        return httpx.Response(
+            status_code=response.status_code,
+            headers=response.headers,
+            content=body,
+            request=request,
+            extensions=response.extensions,
+        )
+
+    def close(self) -> None:
+        if hasattr(self._transport, "aclose"):
+            asyncio.run(self._transport.aclose())

@@ -1,0 +1,105 @@
+# PROGRESS (Milestone: M17)
+
+- Title: 交互式极简 Coding Agent CLI（含 /compact 与 /tools）
+- Goal: 提供可持续对话 REPL CLI，并支持会话级 `/compact` 与 `/tools`，目录对齐 `cli/main.py + cli/commands.py + cli/http_client.py`。
+- Exit Criteria:
+  - CLI 启动进入持续交互提示符，支持普通文本多轮对话。
+  - 支持 `/help /new /use <session_id> /session /tools /compact /exit`。
+  - 新增 HTTP API：`POST /v1/sessions/{session_id}:compact` 与 `GET /v1/sessions/{session_id}/tools`。
+  - CLI 仅通过 HTTP API（无 `agent.runtime` 直连 import）。
+  - `pytest -q` 全绿。
+- Test command: `pytest -q`
+- Branch: `milestone/M17`
+
+### Baseline
+- Context:
+  - 启动动作已完成：读取 `LOGBOOK.md`，核对 `data/dev-tasks.json` 中 M17 为 READY。
+  - `execution_mode=serial`，`use_worktree=false`，当前分支 `milestone/M17`。
+  - 允许范围：`src/nano_multiagent/cli/**`、`src/nano_multiagent/server/routes/session.py`、`src/nano_multiagent/sdk/**(必要最小)`、对应 tests 与任务文档。
+  - 禁止范围：与 M17 无关的 provider/tool 语义重构；优先交互 CLI，不做复杂 TUI。
+- Decision:
+  - 先拆 3 个 Roadpoint：R17.1 API 契约、R17.2 CLI 目录重构、R17.3 REPL 交互命令。
+- Rationale:
+  - 先稳住后端契约，再做 CLI 分层与交互，可减少返工并让 REPL 测试只关注行为。
+- Evidence:
+  - Tests: `pytest -q` -> `226 passed, 3 skipped`
+  - Entry: 基线全绿，可进入 Red 测试驱动。
+- Rollback:
+  - Plan commit
+- Commits: C1=<pending>, C2=<pending>, C3=<pending>
+- Next:
+  - R17.1 Red
+
+### R17.1 会话级 `/compact` 与 `/tools` HTTP API
+- Context:
+  - M17 需要新增会话级能力端点；现状仅有全局 `/v1/tools`，且 session routes 没有手动压缩入口。
+  - 要求保持统一错误形状与 `session_not_found` 语义，同时不引入无关工具语义改造。
+- Decision:
+  - 在 `session` 路由新增 `GET /v1/sessions/{session_id}/tools` 与 `POST /v1/sessions/{session_id}:compact`。
+  - `/tools` 复用 `ToolRegistry.list_specs()`，`/compact` 复用 `runtime.compact()` 并映射为稳定响应模型。
+  - 端点先通过 `SessionService` 校验会话存在性，不存在时统一返回 `session_not_found`。
+- Rationale:
+  - 会话存在性前置校验可让 `/tools` 与 `/compact` 保持同一 404 语义，避免出现框架默认 404/500 的不一致。
+  - 将响应模型固定在 `session.py` 内，便于后续 CLI `/tools` 与 `/compact` 直接消费。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/contract/test_sessions_contract.py tests/integration/test_session_flow_integration.py tests/e2e/test_message_sync_e2e.py` -> `4 failed`（新端点 404，缺口与目标一致）
+    - Green: 同命令 -> `9 passed`
+    - Gate: `pytest -q` -> `230 passed, 3 skipped`
+  - Entry:
+    - `GET /v1/sessions/{id}/tools` 返回 `{session_id, tools}`；
+    - `POST /v1/sessions/{id}:compact` 返回 `{session_id, compacted, result}`，并支持 `result=null`。
+- Rollback:
+  - `684ed01`（R17.1 C1）
+- Commits: C1=`684ed01`, C2=`848b229`, C3=`cf07425`
+- Next:
+  - R17.2 Red
+
+### R17.2 CLI HTTP 客户端分层重构（`cli/main.py + cli/commands.py + cli/http_client.py`）
+- Context:
+  - 现状 `cli/main.py` 承担参数解析+HTTP 调用，且 HTTP client 放在 `sdk/client.py`，与 M17 目录目标不一致。
+  - 需要保留 M16 既有 CLI HTTP 流程，避免改动扩散到 runtime 或其他不在 scope 的模块。
+- Decision:
+  - 新增 `cli/http_client.py` 承载 `ServerClient/ServerClientConfig` 与传输桥接逻辑。
+  - 新增 `cli/commands.py` 承载 `build_parser/run_cli` 命令执行流程；`cli/main.py` 仅作入口转发。
+  - `sdk/client.py` 改为兼容别名导出，保持旧 import 不破坏。
+- Rationale:
+  - 先完成模块边界重构，再在下一 Roadpoint 叠加 REPL 行为，能降低一次性变更风险。
+  - `sdk` 兼容层保留下游导入稳定性，符合“必要最小”改动约束。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_sdk_client.py tests/contract/test_cli_http_only_contract.py tests/integration/test_cli_http_flow_integration.py` -> `2 errors`（缺少 `cli.http_client/cli.commands`）
+    - Green: `pytest -q tests/unit/test_sdk_client.py tests/unit/test_cli_main.py tests/contract/test_cli_http_only_contract.py tests/integration/test_cli_http_flow_integration.py` -> `8 passed`
+    - Gate: `pytest -q` -> `231 passed, 3 skipped`
+  - Entry:
+    - `nano_multiagent.cli.main` 仅作入口；命令调度与 HTTP 请求分别落在 `commands.py`、`http_client.py`。
+- Rollback:
+  - `3d35230`（R17.2 C1）
+- Commits: C1=`3d35230`, C2=`69baa66`, C3=`7f881be`
+- Next:
+  - R17.3 Red
+
+### R17.3 交互式 REPL 与会话命令（`/help /new /use /session /tools /compact /exit`）
+- Context:
+  - M17 目标要求 CLI 默认进入持续会话式交互，并且命令级支持会话切换、工具查看和手动压缩。
+  - R17.2 仅完成结构分层，尚不支持 REPL、`/tools`、`/compact`，HTTP client 也缺少对应方法。
+- Decision:
+  - 在 `cli/commands.py` 增加 REPL 主循环：无子命令时进入提示符，并支持 `/help /new /use /session /tools /compact /exit`。
+  - 普通文本输入自动走 `send_message`，若当前无会话则自动先创建会话并继续多轮。
+  - 在 `cli/http_client.py` 新增 `list_session_tools` 与 `compact_session`，分别对接新增会话级 API。
+- Rationale:
+  - 复用同一 `run_cli` 入口可同时兼容“一次性命令模式”和“持续 REPL 模式”，避免分叉入口。
+  - 通过 `input_fn` 注入把交互循环变成可测试单元，能稳定验证命令序列与调用顺序。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py tests/unit/test_sdk_client.py tests/contract/test_cli_http_only_contract.py tests/integration/test_cli_http_flow_integration.py` -> `5 failed`（缺少 REPL/input_fn/会话级 client API）
+    - Green: 同命令 -> `13 passed`
+    - Gate: `pytest -q` -> `236 passed, 3 skipped`
+  - Entry:
+    - `run_cli` 无子命令进入持续提示符并支持多轮对话；
+    - `/tools` 和 `/compact` 均通过 HTTP API 调用会话级端点。
+- Rollback:
+  - `3cc1780`（R17.3 C1）
+- Commits: C1=`3cc1780`, C2=`0f48d4c`, C3=<pending>
+- Next:
+  - Milestone 收口与集成

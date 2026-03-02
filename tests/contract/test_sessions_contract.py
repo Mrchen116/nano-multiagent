@@ -66,3 +66,46 @@ def test_get_and_list_sessions_contract_with_minimal_pagination() -> None:
     assert isinstance(list_payload["items"], list)
     assert len(list_payload["items"]) == 1
     assert set(list_payload["items"][0].keys()) == {"session_id", "status", "created_at"}
+
+
+def test_session_compact_and_tools_contract() -> None:
+    client = TestClient(create_app())
+    headers = _auth_headers("req-session-compact-tools-contract")
+
+    created = client.post("/v1/sessions", json={}, headers=headers)
+    assert created.status_code == 201
+    session_id = created.json()["session_id"]
+
+    tools_response = client.get(f"/v1/sessions/{session_id}/tools", headers=headers)
+    assert tools_response.status_code == 200
+    tools_payload = tools_response.json()
+    assert set(tools_payload.keys()) == {"session_id", "tools"}
+    assert tools_payload["session_id"] == session_id
+    assert isinstance(tools_payload["tools"], list)
+    assert tools_payload["tools"]
+    assert set(tools_payload["tools"][0].keys()) == {"name", "description", "input_schema"}
+
+    compact_response = client.post(f"/v1/sessions/{session_id}:compact", json={}, headers=headers)
+    assert compact_response.status_code == 200
+    compact_payload = compact_response.json()
+    assert set(compact_payload.keys()) == {"session_id", "compacted", "result"}
+    assert compact_payload["session_id"] == session_id
+    assert isinstance(compact_payload["compacted"], bool)
+    if compact_payload["compacted"] is False:
+        assert compact_payload["result"] is None
+
+
+def test_session_compact_and_tools_return_404_for_unknown_session() -> None:
+    client = TestClient(create_app())
+    headers = _auth_headers("req-session-compact-tools-404-contract")
+    missing_session_id = "sess_missing_contract"
+
+    tools_response = client.get(f"/v1/sessions/{missing_session_id}/tools", headers=headers)
+    assert tools_response.status_code == 404
+    tools_error = tools_response.json()["error"]
+    assert tools_error["code"] == "session_not_found"
+
+    compact_response = client.post(f"/v1/sessions/{missing_session_id}:compact", json={}, headers=headers)
+    assert compact_response.status_code == 404
+    compact_error = compact_response.json()["error"]
+    assert compact_error["code"] == "session_not_found"
