@@ -141,3 +141,29 @@ def test_cli_repl_flow_supports_history_listing() -> None:
     assert "History for session" in text
     assert "user: ping" in text
     assert "assistant: cli:ping" in text
+
+
+def test_cli_repl_rejects_invalid_command_arguments() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new extra", "/tools now", "/exit"])
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Error: command /new does not accept arguments." in text
+    assert "Suggestion: try /new." in text
+    assert "Error: command /tools does not accept arguments." in text
+    assert "Suggestion: try /tools." in text
