@@ -1,6 +1,7 @@
 import io
 import json
 
+from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli.main import run_cli
 
 
@@ -379,6 +380,40 @@ class _CompletedThenTailEventsStubClient(_StubClient):
             "stop_reason": "stop",
             "error": None,
         }
+
+
+def _iter_keys(keys: list[str]):
+    iterator = iter(keys)
+
+    def _reader() -> str | None:
+        try:
+            return next(iterator)
+        except StopIteration:
+            return None
+
+    return _reader
+
+
+def test_repl_input_engine_supports_inline_insert_at_cursor() -> None:
+    typed = cli_commands._read_interactive_line(
+        prompt="nano> ",
+        history=(),
+        key_reader=_iter_keys(["h", "e", "l", "l", "o", "\x1b[D", "\x1b[D", "X", "\n"]),
+        out=io.StringIO(),
+    )
+
+    assert typed == "helXlo"
+
+
+def test_repl_input_engine_supports_left_right_with_backspace_editing() -> None:
+    typed = cli_commands._read_interactive_line(
+        prompt="nano> ",
+        history=(),
+        key_reader=_iter_keys(["a", "b", "c", "\x1b[D", "\x7f", "\x1b[C", "!", "\n"]),
+        out=io.StringIO(),
+    )
+
+    assert typed == "ac!"
 
 
 def test_run_cli_health_outputs_json_payload() -> None:
