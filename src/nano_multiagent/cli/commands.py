@@ -79,6 +79,7 @@ def run_cli(
                 if mode == "managed"
                 else "check --base-url/--token and ensure remote API server is reachable."
             ),
+            mode=mode,
         )
         print(json.dumps({"error": str(exc), "suggestion": suggestion}, ensure_ascii=False), file=out)
         return 1
@@ -315,7 +316,7 @@ def _parse_history_limit(argument: str | None) -> tuple[int, str | None]:
     return value, None
 
 
-def _suggestion_for_exception(exc: Exception, *, default: str) -> str:
+def _suggestion_for_exception(exc: Exception, *, default: str, mode: str | None = None) -> str:
     explicit_suggestion = getattr(exc, "suggestion", None)
     if isinstance(explicit_suggestion, str) and explicit_suggestion.strip():
         return explicit_suggestion
@@ -327,6 +328,10 @@ def _suggestion_for_exception(exc: Exception, *, default: str) -> str:
     if "managed mode requires" in text:
         return "use a local http:// base URL for managed mode, or switch to --mode remote."
     if "connection refused" in text or "connecterror" in text or "nodename nor servname" in text:
+        if mode == "remote":
+            return "check --base-url and ensure the remote API server is reachable."
+        if mode == "managed":
+            return "managed mode could not reach the local API; check startup logs/port, then retry or switch to --mode remote."
         return "check --base-url and ensure API server is running."
     if "missing api token" in text or "unauthorized" in text or "401" in text:
         return "check --token or NANO_MULTIAGENT_API_TOKEN and retry."

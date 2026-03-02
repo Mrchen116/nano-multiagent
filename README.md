@@ -23,8 +23,20 @@ PYTHONPATH=src uvicorn nano_multiagent.server.app:app --reload
 
 ### Start CLI (interactive REPL)
 
+Managed mode (CLI starts/stops local API automatically):
+
 ```bash
 python3 -m nano_multiagent.cli.main \
+  --mode managed \
+  --base-url http://127.0.0.1:8000 \
+  --token test-token
+```
+
+Remote mode (connect existing API, never starts local process):
+
+```bash
+python3 -m nano_multiagent.cli.main \
+  --mode remote \
   --base-url http://127.0.0.1:8000 \
   --token test-token
 ```
@@ -32,7 +44,7 @@ python3 -m nano_multiagent.cli.main \
 If you are not using editable install, run with `PYTHONPATH=src`:
 
 ```bash
-PYTHONPATH=src python3 -m nano_multiagent.cli.main --base-url http://127.0.0.1:8000 --token test-token
+PYTHONPATH=src python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token
 ```
 
 ### REPL commands
@@ -49,13 +61,14 @@ PYTHONPATH=src python3 -m nano_multiagent.cli.main --base-url http://127.0.0.1:8
 ### Non-interactive commands
 
 ```bash
-python3 -m nano_multiagent.cli.main --base-url http://127.0.0.1:8000 --token test-token health
-python3 -m nano_multiagent.cli.main --base-url http://127.0.0.1:8000 --token test-token create-session --title "demo"
-python3 -m nano_multiagent.cli.main --base-url http://127.0.0.1:8000 --token test-token send-message --session-id <session_id> --text "hello"
+python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token health
+python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token create-session --title "demo"
+python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token send-message --session-id <session_id> --text "hello"
 ```
 
 ### Environment variables
 
+- `NANO_MULTIAGENT_CLI_MODE` (`managed` or `remote`, default `remote`)
 - `NANO_MULTIAGENT_API_BASE_URL` (default `http://127.0.0.1:8000`)
 - `NANO_MULTIAGENT_API_TOKEN` (required for protected endpoints)
 - `NANO_MULTIAGENT_REQUEST_ID` (optional)
@@ -71,3 +84,12 @@ If needed, also set:
 ```bash
 export NO_PROXY=127.0.0.1,localhost
 ```
+
+Common mode-specific diagnostics:
+
+- `managed` + `port ... already in use`:
+  - Free the port, use another local `--base-url` port, or switch to `--mode remote`.
+- `managed` + startup timeout / startup failed:
+  - Check local uvicorn/python environment and startup logs, then retry.
+- `remote` + `connection refused`:
+  - Verify `--base-url` points to a running remote API and that the endpoint is reachable from your machine.

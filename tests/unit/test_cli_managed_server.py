@@ -1,3 +1,5 @@
+import io
+
 import pytest
 
 from nano_multiagent.cli.managed_server import ManagedServerConfig, ManagedServerError, ManagedServerProcess
@@ -25,6 +27,12 @@ class _FakeProcess:
     def kill(self) -> None:
         self.killed = True
         self.return_code = -9
+
+
+class _ExitedProcess(_FakeProcess):
+    def __init__(self) -> None:
+        super().__init__(return_code=1)
+        self.stderr = io.StringIO("startup failed")
 
 
 def test_managed_server_rejects_non_local_base_url() -> None:
@@ -70,3 +78,44 @@ def test_managed_server_start_and_stop_lifecycle(monkeypatch: pytest.MonkeyPatch
     manager.stop()
 
     assert process.terminated is True
+
+
+def test_managed_server_reports_startup_timeout_with_suggestion(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("nano_multiagent.cli.managed_server._is_port_in_use", lambda host, port: False)
+    process = _FakeProcess()
+    times = iter([0.0, 0.05, 0.2])
+
+    manager = ManagedServerProcess(
+        config=ManagedServerConfig(
+            base_url="http://127.0.0.1:8124",
+            token="test-token",
+            startup_timeout_seconds=0.1,
+            poll_interval_seconds=0.01,
+        ),
+        popen_factory=lambda *args, **kwargs: process,
+        health_probe=lambda _: False,
+        time_fn=lambda: next(times),
+        sleep_fn=lambda _: None,
+    )
+
+    with pytest.raises(ManagedServerError, match="startup timed out") as exc_info:
+        manager.start()
+    assert exc_info.value.suggestion is not None
+    assert "switch to --mode remote" in exc_info.value.suggestion
+    assert process.terminated is True
+
+
+def test_managed_server_reports_startup_exit_with_suggestion(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("nano_multiagent.cli.managed_server._is_port_in_use", lambda host, port: False)
+    process = _ExitedProcess()
+
+    manager = ManagedServerProcess(
+        config=ManagedServerConfig(base_url="http://127.0.0.1:8125", token="test-token"),
+        popen_factory=lambda *args, **kwargs: process,
+        health_probe=lambda _: False,
+    )
+
+    with pytest.raises(ManagedServerError, match="exited before becoming healthy") as exc_info:
+        manager.start()
+    assert exc_info.value.suggestion is not None
+    assert "check local api logs" in exc_info.value.suggestion.lower()
