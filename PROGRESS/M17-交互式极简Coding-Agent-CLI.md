@@ -51,7 +51,7 @@
     - `POST /v1/sessions/{id}:compact` 返回 `{session_id, compacted, result}`，并支持 `result=null`。
 - Rollback:
   - `684ed01`（R17.1 C1）
-- Commits: C1=`684ed01`, C2=`848b229`, C3=<pending>
+- Commits: C1=`684ed01`, C2=`848b229`, C3=`cf07425`
 - Next:
   - R17.2 Red
 
@@ -75,6 +75,31 @@
     - `nano_multiagent.cli.main` 仅作入口；命令调度与 HTTP 请求分别落在 `commands.py`、`http_client.py`。
 - Rollback:
   - `3d35230`（R17.2 C1）
-- Commits: C1=`3d35230`, C2=`69baa66`, C3=<pending>
+- Commits: C1=`3d35230`, C2=`69baa66`, C3=`7f881be`
 - Next:
   - R17.3 Red
+
+### R17.3 交互式 REPL 与会话命令（`/help /new /use /session /tools /compact /exit`）
+- Context:
+  - M17 目标要求 CLI 默认进入持续会话式交互，并且命令级支持会话切换、工具查看和手动压缩。
+  - R17.2 仅完成结构分层，尚不支持 REPL、`/tools`、`/compact`，HTTP client 也缺少对应方法。
+- Decision:
+  - 在 `cli/commands.py` 增加 REPL 主循环：无子命令时进入提示符，并支持 `/help /new /use /session /tools /compact /exit`。
+  - 普通文本输入自动走 `send_message`，若当前无会话则自动先创建会话并继续多轮。
+  - 在 `cli/http_client.py` 新增 `list_session_tools` 与 `compact_session`，分别对接新增会话级 API。
+- Rationale:
+  - 复用同一 `run_cli` 入口可同时兼容“一次性命令模式”和“持续 REPL 模式”，避免分叉入口。
+  - 通过 `input_fn` 注入把交互循环变成可测试单元，能稳定验证命令序列与调用顺序。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py tests/unit/test_sdk_client.py tests/contract/test_cli_http_only_contract.py tests/integration/test_cli_http_flow_integration.py` -> `5 failed`（缺少 REPL/input_fn/会话级 client API）
+    - Green: 同命令 -> `13 passed`
+    - Gate: `pytest -q` -> `236 passed, 3 skipped`
+  - Entry:
+    - `run_cli` 无子命令进入持续提示符并支持多轮对话；
+    - `/tools` 和 `/compact` 均通过 HTTP API 调用会话级端点。
+- Rollback:
+  - `3cc1780`（R17.3 C1）
+- Commits: C1=`3cc1780`, C2=`0f48d4c`, C3=<pending>
+- Next:
+  - Milestone 收口与集成

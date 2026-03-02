@@ -52,7 +52,7 @@
   - C2: `69baa66`
 - Status: DONE
 
-## [TODO] R17.3 交互式 REPL 与会话命令（`/help /new /use /session /tools /compact /exit`）
+## [DONE] R17.3 交互式 REPL 与会话命令（`/help /new /use /session /tools /compact /exit`）
 - Acceptance:
   - CLI 默认启动进入持续提示符，支持普通文本多轮对话。
   - 支持命令：`/help /new /use <session_id> /session /tools /compact /exit`。
@@ -73,6 +73,6 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M17-*.md` 记录决策/证据/回滚点/哈希。
 - Commits:
-  - C1: <pending>
-  - C2: <pending>
-- Status: TODO
+  - C1: `3cc1780`
+  - C2: `0f48d4c`
+- Status: DONE
