@@ -26,7 +26,6 @@ class _ScriptedReplInputReader:
         self.render = io.StringIO()
 
     def read_line(self, prompt: str, history: tuple[str, ...] | list[str]) -> str:
-        del history
         keys = next(self._line_iterator)
         key_iterator = iter(keys)
 
@@ -38,7 +37,7 @@ class _ScriptedReplInputReader:
 
         return cli_commands._read_interactive_line(
             prompt=prompt,
-            history=(),
+            history=tuple(history),
             key_reader=_read_key,
             out=self.render,
         )
@@ -372,6 +371,37 @@ def test_cli_repl_inline_editing_keys_submit_edited_text() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "cli:helXlo" in text
+
+
+def test_cli_repl_history_recall_allows_second_submit_after_editing() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    scripted_reader = _ScriptedReplInputReader(
+        scripted_lines=[
+            ["/", "n", "e", "w", "\n"],
+            ["p", "i", "n", "g", "\n"],
+            ["\x1b[A", "\x1b[D", "\x1b[D", "X", "\n"],
+            ["/", "e", "x", "i", "t", "\n"],
+        ]
+    )
+    output = io.StringIO()
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "cli:ping" in text
+    assert "cli:piXng" in text
 
 
 def test_cli_repl_streams_async_run_tool_and_text_events() -> None:

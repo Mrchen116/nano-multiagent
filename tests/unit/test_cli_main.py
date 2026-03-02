@@ -416,6 +416,28 @@ def test_repl_input_engine_supports_left_right_with_backspace_editing() -> None:
     assert typed == "ac!"
 
 
+def test_repl_input_engine_arrow_up_recalls_and_allows_editing() -> None:
+    typed = cli_commands._read_interactive_line(
+        prompt="nano> ",
+        history=("first", "second"),
+        key_reader=_iter_keys(["\x1b[A", "\x1b[D", "\x1b[D", "X", "\n"]),
+        out=io.StringIO(),
+    )
+
+    assert typed == "secoXnd"
+
+
+def test_repl_input_engine_history_navigation_moves_up_and_down() -> None:
+    typed = cli_commands._read_interactive_line(
+        prompt="nano> ",
+        history=("first", "second"),
+        key_reader=_iter_keys(["\x1b[A", "\x1b[A", "\x1b[B", "\n"]),
+        out=io.StringIO(),
+    )
+
+    assert typed == "second"
+
+
 def test_run_cli_health_outputs_json_payload() -> None:
     stub = _StubClient()
     output = io.StringIO()
