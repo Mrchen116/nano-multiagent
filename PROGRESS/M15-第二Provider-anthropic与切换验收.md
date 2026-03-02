@@ -39,21 +39,32 @@
     - `anthropic` 契约入口可完成 `/v1/messages` 请求映射、`X-Session-Id` 透传、错误归一化与响应解码。
 - Rollback:
   - 若需重做，回退到 `272946c`（R15.1 C1 红测基线）。
-- Commits: C1=`272946c`, C2=`6edbac4`, C3=
+- Commits: C1=`272946c`, C2=`6edbac4`, C3=`b7265b8`
 - Next:
   - R15.2 增补 anthropic mapper 的边界单测（system 抽取、max_tokens 默认值、异常响应分支）。
 
 ### R15.2 新增 anthropic 协议实现（llm/protocols/anthropic）
-- Status: TODO
+- Status: DONE
 - Context:
+  - R15.1 最小实现已通过共享契约，但 mapper 仍缺少边界防护（仅 system 消息输入、非字符串 text chunk）。
+  - 需在不改 runtime/tool/session 的前提下完善 anthropic 适配层健壮性。
 - Decision:
+  - 新增 `tests/unit/test_llm_anthropic_mapper.py`，覆盖 system 聚合、默认 max_tokens、无有效消息与响应归一化边界。
+  - 在 `AnthropicMapper` 增加“至少一条非 system 消息”校验，并将 text chunk 做 `str()` 归一化。
 - Rationale:
+  - 让错误尽量在 provider mapper 层前置暴露，避免把无效 payload 下沉到远端接口才失败。
 - Evidence:
   - Tests:
+    - `pytest -q tests/unit/test_llm_anthropic_mapper.py` -> `4 passed`
+    - `pytest -q tests/contract/test_llm_provider_contract.py` -> `8 passed`
+    - `pytest -q` -> `1 failed, 183 passed, 2 skipped`（仅既有 runtime 基线失败）
   - Entry:
+    - `AnthropicMapper` 可稳定处理 system-only 输入拦截和非字符串 text chunk，保持输出 `LLMGenerateResponse` 契约稳定。
 - Rollback:
-- Commits: C1=, C2=, C3=
+  - 若需重做，回退到 `0034698`（R15.2 C1 红测基线）。
+- Commits: C1=`0034698`, C2=`7be80d3`, C3=
 - Next:
+  - R15.3 进行 model_registry/factory 接线与 provider 配置切换集成验收。
 
 ### R15.3 工厂接线与 provider 切换验收（配置驱动）
 - Status: TODO
