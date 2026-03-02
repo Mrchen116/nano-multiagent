@@ -4,6 +4,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import FastAPI
 
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
@@ -412,5 +413,98 @@ def test_cli_repl_flow_supports_key_commands_in_both_modes(mode: str) -> None:
     assert "History for session" in text
     if mode == "managed":
         assert managed_server.events == ["start", "stop"]
+    else:
+        assert managed_server.events == []
+
+
+@pytest.mark.parametrize("mode", ["managed", "remote"])
+def test_cli_llm_config_get_set_flow_supports_remote_and_managed_modes(mode: str) -> None:
+    app = FastAPI()
+    state: dict[str, object] = {
+        "provider": "openai_compat",
+        "model": "codexOAuth:gpt-5.2-codex",
+        "base_url": "http://127.0.0.1:4000",
+        "timeout_seconds": 30.0,
+        "api_key": None,
+    }
+
+    @app.get("/v1/llm-config")
+    def get_llm_config() -> dict[str, object]:
+        return {
+            "provider": state["provider"],
+            "model": state["model"],
+            "base_url": state["base_url"],
+            "timeout_seconds": state["timeout_seconds"],
+            "api_key_configured": bool(state["api_key"]),
+        }
+
+    @app.patch("/v1/llm-config")
+    def patch_llm_config(payload: dict[str, object]) -> dict[str, object]:
+        for key in ("provider", "model", "base_url", "timeout_seconds", "api_key"):
+            if key in payload:
+                state[key] = payload[key]
+        return {
+            "provider": state["provider"],
+            "model": state["model"],
+            "base_url": state["base_url"],
+            "timeout_seconds": state["timeout_seconds"],
+            "api_key_configured": bool(state["api_key"]),
+        }
+
+    transport = httpx.ASGITransport(app=app)
+    managed_server = _ManagedServerRecorder()
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    set_out = io.StringIO()
+    set_exit = run_cli(
+        [
+            "--mode",
+            mode,
+            "--base-url",
+            "http://testserver",
+            "--token",
+            "test-token",
+            "llm-config",
+            "set",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-3-5-sonnet-20241022",
+            "--base-url",
+            "http://127.0.0.1:4100",
+            "--timeout-seconds",
+            "66",
+        ],
+        stdout=set_out,
+        client_factory=client_factory,
+        managed_server_factory=lambda _: managed_server,
+    )
+    assert set_exit == 0
+    set_payload = json.loads(set_out.getvalue())
+    assert set_payload["provider"] == "anthropic"
+    assert set_payload["model"] == "claude-3-5-sonnet-20241022"
+    assert set_payload["base_url"] == "http://127.0.0.1:4100"
+    assert set_payload["timeout_seconds"] == 66.0
+
+    get_out = io.StringIO()
+    get_exit = run_cli(
+        ["--mode", mode, "--base-url", "http://testserver", "--token", "test-token", "llm-config", "get"],
+        stdout=get_out,
+        client_factory=client_factory,
+        managed_server_factory=lambda _: managed_server,
+    )
+    assert get_exit == 0
+    get_payload = json.loads(get_out.getvalue())
+    assert get_payload["provider"] == "anthropic"
+    assert get_payload["model"] == "claude-3-5-sonnet-20241022"
+    assert get_payload["base_url"] == "http://127.0.0.1:4100"
+    assert get_payload["timeout_seconds"] == 66.0
+
+    if mode == "managed":
+        assert managed_server.events == ["start", "stop", "start", "stop"]
     else:
         assert managed_server.events == []

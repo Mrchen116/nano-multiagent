@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import Callable, Sequence, TextIO
 
 from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig
@@ -14,6 +15,24 @@ _HELP_LINE = "Commands: /help /new /use <session_id> /session /tools /compact /h
 _DEFAULT_CLI_MODE = "remote"
 
 
+@dataclass(frozen=True, slots=True)
+class _ManagedLLMOverrides:
+    provider: str | None = None
+    model: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    timeout_seconds: float | None = None
+
+    def is_empty(self) -> bool:
+        return (
+            self.provider is None
+            and self.model is None
+            and self.base_url is None
+            and self.api_key is None
+            and self.timeout_seconds is None
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nano-multiagent-cli")
     parser.add_argument("--mode", choices=("managed", "remote"), default=None)
@@ -21,6 +40,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--token", default=None)
     parser.add_argument("--request-id", default=None)
     parser.add_argument("--api-timeout-seconds", type=float, default=None)
+    parser.add_argument("--llm-provider", default=None, help="Managed mode only: set local API LLM provider.")
+    parser.add_argument("--llm-model", default=None, help="Managed mode only: set local API LLM model.")
+    parser.add_argument("--llm-base-url", default=None, help="Managed mode only: set local API LLM base URL.")
+    parser.add_argument("--llm-api-key", default=None, help="Managed mode only: set local API LLM API key.")
+    parser.add_argument(
+        "--llm-timeout-seconds",
+        type=float,
+        default=None,
+        help="Managed mode only: set local API LLM timeout in seconds.",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -32,6 +61,17 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser = subparsers.add_parser("send-message")
     send_parser.add_argument("--session-id", default=None)
     send_parser.add_argument("--text", required=True)
+
+    llm_parser = subparsers.add_parser("llm-config")
+    llm_subparsers = llm_parser.add_subparsers(dest="llm_config_command", required=True)
+    llm_subparsers.add_parser("get")
+    llm_set_parser = llm_subparsers.add_parser("set")
+    llm_set_parser.add_argument("--provider", dest="llm_config_provider", default=None)
+    llm_set_parser.add_argument("--model", dest="llm_config_model", default=None)
+    llm_set_parser.add_argument("--base-url", dest="llm_config_base_url", default=None)
+    llm_set_parser.add_argument("--api-key", dest="llm_config_api_key", default=None)
+    llm_set_parser.add_argument("--clear-api-key", dest="llm_config_clear_api_key", action="store_true")
+    llm_set_parser.add_argument("--timeout-seconds", dest="llm_config_timeout_seconds", type=float, default=None)
 
     return parser
 
@@ -51,6 +91,7 @@ def run_cli(
 
     try:
         mode = _resolve_mode(args.mode)
+        managed_llm_overrides = _resolve_managed_llm_overrides(args=args, mode=mode)
         env_config = ServerClientConfig.from_env()
         base_url = _resolve_base_url(mode=mode, arg_base_url=args.base_url, env_config=env_config)
         timeout_seconds = _resolve_timeout_seconds(mode=mode, arg_timeout_seconds=args.api_timeout_seconds, env_config=env_config)
@@ -63,7 +104,12 @@ def run_cli(
 
         factory = client_factory or (lambda cfg: ServerClient(config=cfg))
         managed_factory = managed_server_factory or (lambda cfg: ManagedServerProcess(config=cfg))
-        lifecycle = _build_server_lifecycle(mode=mode, config=config, managed_server_factory=managed_factory)
+        lifecycle = _build_server_lifecycle(
+            mode=mode,
+            config=config,
+            managed_llm_overrides=managed_llm_overrides,
+            managed_server_factory=managed_factory,
+        )
         with lifecycle:
             with factory(config) as client:
                 if args.command is None:
@@ -99,10 +145,50 @@ def _run_single_command(*, args: argparse.Namespace, client: ServerClient) -> di
         return client.health()
     if args.command == "create-session":
         return client.create_session(title=args.title)
+    if args.command == "llm-config":
+        return _run_llm_config_command(args=args, client=client)
     session_id = args.session_id or os.getenv("NANO_MULTIAGENT_SESSION_ID")
     if not isinstance(session_id, str) or not session_id.strip():
         raise ValueError("session id is required: use --session-id or NANO_MULTIAGENT_SESSION_ID")
     return client.send_message(session_id=session_id, text=args.text)
+
+
+def _run_llm_config_command(*, args: argparse.Namespace, client: ServerClient) -> dict[str, object]:
+    if args.llm_config_command == "get":
+        return client.get_llm_config()
+
+    provider = args.llm_config_provider
+    model = args.llm_config_model
+    base_url = args.llm_config_base_url
+    api_key = args.llm_config_api_key
+    clear_api_key = bool(args.llm_config_clear_api_key)
+    timeout_seconds = args.llm_config_timeout_seconds
+
+    if api_key is not None and clear_api_key:
+        raise ValueError("--api-key and --clear-api-key cannot be used together")
+    if timeout_seconds is not None and timeout_seconds <= 0:
+        raise ValueError("--timeout-seconds must be > 0")
+    if (
+        provider is None
+        and model is None
+        and base_url is None
+        and api_key is None
+        and timeout_seconds is None
+        and not clear_api_key
+    ):
+        raise ValueError(
+            "llm-config set requires at least one field: "
+            "--provider/--model/--base-url/--api-key/--clear-api-key/--timeout-seconds"
+        )
+
+    return client.set_llm_config(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        timeout_seconds=timeout_seconds,
+        clear_api_key=clear_api_key,
+    )
 
 
 def _run_repl(
@@ -329,6 +415,16 @@ def _suggestion_for_exception(exc: Exception, *, default: str, mode: str | None 
         return "pass --base-url <url> (or set NANO_MULTIAGENT_API_BASE_URL)."
     if "managed mode requires" in text:
         return "use a local http:// base URL for managed mode, or switch to --mode remote."
+    if "managed startup llm options require --mode managed" in text:
+        return "use --mode managed when passing --llm-provider/--llm-model/--llm-base-url/--llm-api-key/--llm-timeout-seconds."
+    if "llm-config set requires at least one field" in text:
+        return "try: llm-config set --provider anthropic (or provide another field)."
+    if "--api-key and --clear-api-key cannot be used together" in text:
+        return "choose either --api-key <value> or --clear-api-key."
+    if "--timeout-seconds must be > 0" in text:
+        return "set --timeout-seconds to a positive value, for example --timeout-seconds 30."
+    if "--llm-timeout-seconds must be > 0" in text:
+        return "set --llm-timeout-seconds to a positive value, for example --llm-timeout-seconds 30."
     if "timed out" in text or "timeout" in text:
         if mode == "remote":
             return "request timed out; check remote API latency or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
@@ -378,10 +474,26 @@ def _resolve_timeout_seconds(*, mode: str, arg_timeout_seconds: float | None, en
     return env_config.timeout_seconds
 
 
+def _resolve_managed_llm_overrides(*, args: argparse.Namespace, mode: str) -> _ManagedLLMOverrides:
+    overrides = _ManagedLLMOverrides(
+        provider=args.llm_provider,
+        model=args.llm_model,
+        base_url=args.llm_base_url,
+        api_key=args.llm_api_key,
+        timeout_seconds=args.llm_timeout_seconds,
+    )
+    if mode != "managed" and not overrides.is_empty():
+        raise ValueError("managed startup LLM options require --mode managed")
+    if overrides.timeout_seconds is not None and overrides.timeout_seconds <= 0:
+        raise ValueError("--llm-timeout-seconds must be > 0")
+    return overrides
+
+
 def _build_server_lifecycle(
     *,
     mode: str,
     config: ServerClientConfig,
+    managed_llm_overrides: _ManagedLLMOverrides,
     managed_server_factory: Callable[[ManagedServerConfig], ManagedServerProcess],
 ):
     if mode == "remote":
@@ -390,6 +502,11 @@ def _build_server_lifecycle(
         ManagedServerConfig(
             base_url=config.base_url,
             token=config.token,
+            llm_provider=managed_llm_overrides.provider,
+            llm_model=managed_llm_overrides.model,
+            llm_base_url=managed_llm_overrides.base_url,
+            llm_api_key=managed_llm_overrides.api_key,
+            llm_timeout_seconds=managed_llm_overrides.timeout_seconds,
         )
     )
 

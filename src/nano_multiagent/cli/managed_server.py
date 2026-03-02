@@ -23,6 +23,11 @@ class ManagedServerError(RuntimeError):
 class ManagedServerConfig:
     base_url: str
     token: str | None
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_timeout_seconds: float | None = None
     startup_timeout_seconds: float = 10.0
     poll_interval_seconds: float = 0.1
 
@@ -71,6 +76,16 @@ class ManagedServerProcess:
         env = os.environ.copy()
         if self._config.token:
             env["NANO_MULTIAGENT_API_TOKEN"] = self._config.token
+        if self._config.llm_provider:
+            env["NANO_MULTIAGENT_LLM_PROVIDER"] = self._config.llm_provider
+        if self._config.llm_model:
+            env["NANO_MULTIAGENT_LLM_MODEL"] = self._config.llm_model
+        if self._config.llm_base_url:
+            env["NANO_MULTIAGENT_LLM_BASE_URL"] = self._config.llm_base_url
+        if self._config.llm_api_key:
+            env["NANO_MULTIAGENT_LLM_API_KEY"] = self._config.llm_api_key
+        if self._config.llm_timeout_seconds is not None:
+            env["NANO_MULTIAGENT_LLM_TIMEOUT_SECONDS"] = str(self._config.llm_timeout_seconds)
 
         try:
             self._process = self._popen_factory(command, env=env)

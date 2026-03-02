@@ -119,3 +119,40 @@ def test_managed_server_reports_startup_exit_with_suggestion(monkeypatch: pytest
         manager.start()
     assert exc_info.value.suggestion is not None
     assert "check local api logs" in exc_info.value.suggestion.lower()
+
+
+def test_managed_server_injects_llm_env_into_managed_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("nano_multiagent.cli.managed_server._is_port_in_use", lambda host, port: False)
+    process = _FakeProcess()
+    captured_env: dict[str, str] = {}
+
+    def _popen(*args, **kwargs):  # noqa: ANN002, ANN003
+        del args
+        env = kwargs.get("env")
+        if isinstance(env, dict):
+            captured_env.update(env)
+        return process
+
+    manager = ManagedServerProcess(
+        config=ManagedServerConfig(
+            base_url="http://127.0.0.1:8126",
+            token="test-token",
+            llm_provider="anthropic",
+            llm_model="claude-3-5-sonnet-20241022",
+            llm_base_url="http://127.0.0.1:4100",
+            llm_api_key="sk-managed",
+            llm_timeout_seconds=55.0,
+        ),
+        popen_factory=_popen,
+        health_probe=lambda _: True,
+    )
+
+    manager.start()
+    manager.stop()
+
+    assert captured_env["NANO_MULTIAGENT_API_TOKEN"] == "test-token"
+    assert captured_env["NANO_MULTIAGENT_LLM_PROVIDER"] == "anthropic"
+    assert captured_env["NANO_MULTIAGENT_LLM_MODEL"] == "claude-3-5-sonnet-20241022"
+    assert captured_env["NANO_MULTIAGENT_LLM_BASE_URL"] == "http://127.0.0.1:4100"
+    assert captured_env["NANO_MULTIAGENT_LLM_API_KEY"] == "sk-managed"
+    assert captured_env["NANO_MULTIAGENT_LLM_TIMEOUT_SECONDS"] == "55.0"

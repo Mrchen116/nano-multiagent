@@ -6,7 +6,7 @@ from nano_multiagent.cli.main import run_cli
 
 class _StubClient:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, str] | None]] = []
+        self.calls: list[tuple[str, dict[str, object] | None]] = []
 
     def __enter__(self) -> "_StubClient":
         return self
@@ -36,6 +36,48 @@ class _StubClient:
     def compact_session(self, *, session_id: str) -> dict[str, object]:
         self.calls.append(("compact_session", {"session_id": session_id}))
         return {"session_id": session_id, "compacted": False, "result": None}
+
+    def get_llm_config(self) -> dict[str, object]:
+        self.calls.append(("get_llm_config", None))
+        return {
+            "provider": "openai_compat",
+            "model": "codexOAuth:gpt-5.2-codex",
+            "base_url": "http://127.0.0.1:4000",
+            "api_key_configured": False,
+            "timeout_seconds": 30.0,
+        }
+
+    def set_llm_config(
+        self,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        timeout_seconds: float | None = None,
+        clear_api_key: bool = False,
+    ) -> dict[str, object]:
+        self.calls.append(
+            (
+                "set_llm_config",
+                {
+                    "provider": provider,
+                    "model": model,
+                    "base_url": base_url,
+                    "api_key": api_key,
+                    "timeout_seconds": timeout_seconds,
+                    "clear_api_key": clear_api_key,
+                },
+            )
+        )
+        resolved_api_key = None if clear_api_key else api_key
+        return {
+            "provider": provider or "openai_compat",
+            "model": model or "codexOAuth:gpt-5.2-codex",
+            "base_url": base_url or "http://127.0.0.1:4000",
+            "api_key_configured": bool(resolved_api_key),
+            "timeout_seconds": timeout_seconds or 30.0,
+        }
 
 
 class _CompactedStubClient(_StubClient):
@@ -323,7 +365,7 @@ def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
-        managed_server_factory=lambda config: manager.bind(config.base_url),
+        managed_server_factory=lambda config: manager.bind(config),
     )
 
     assert exit_code == 0
@@ -337,9 +379,21 @@ class _ManagedServerSpy:
         self.fail_on_start = fail_on_start
         self.events: list[str] = []
         self.config_base_url: str | None = None
+        self.config_token: str | None = None
+        self.llm_provider: str | None = None
+        self.llm_model: str | None = None
+        self.llm_base_url: str | None = None
+        self.llm_api_key: str | None = None
+        self.llm_timeout_seconds: float | None = None
 
-    def bind(self, base_url: str) -> "_ManagedServerSpy":
-        self.config_base_url = base_url
+    def bind(self, config: object) -> "_ManagedServerSpy":
+        self.config_base_url = getattr(config, "base_url", None)
+        self.config_token = getattr(config, "token", None)
+        self.llm_provider = getattr(config, "llm_provider", None)
+        self.llm_model = getattr(config, "llm_model", None)
+        self.llm_base_url = getattr(config, "llm_base_url", None)
+        self.llm_api_key = getattr(config, "llm_api_key", None)
+        self.llm_timeout_seconds = getattr(config, "llm_timeout_seconds", None)
         return self
 
     def start(self) -> None:
@@ -368,7 +422,7 @@ def test_run_cli_managed_mode_starts_and_stops_local_server() -> None:
         ],
         stdout=output,
         client_factory=lambda _: stub,
-        managed_server_factory=lambda config: manager.bind(config.base_url),
+        managed_server_factory=lambda config: manager.bind(config),
     )
 
     assert exit_code == 0
@@ -417,7 +471,7 @@ def test_run_cli_managed_mode_start_failure_surfaces_actionable_suggestion() -> 
         ],
         stdout=output,
         client_factory=lambda _: stub,
-        managed_server_factory=lambda config: manager.bind(config.base_url),
+        managed_server_factory=lambda config: manager.bind(config),
     )
 
     assert exit_code == 1
@@ -513,3 +567,150 @@ def test_run_cli_respects_explicit_api_timeout_seconds() -> None:
 
     assert exit_code == 0
     assert observed["timeout_seconds"] == 45.0
+
+
+def test_run_cli_llm_config_get_outputs_payload() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        ["--mode", "remote", "--base-url", "http://127.0.0.1:8000", "--token", "test-token", "llm-config", "get"],
+        stdout=output,
+        client_factory=lambda _: stub,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(output.getvalue())
+    assert payload["provider"] == "openai_compat"
+    assert stub.calls == [("get_llm_config", None)]
+
+
+def test_run_cli_llm_config_set_applies_requested_fields() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        [
+            "--mode",
+            "remote",
+            "--base-url",
+            "http://127.0.0.1:8000",
+            "--token",
+            "test-token",
+            "llm-config",
+            "set",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-3-5-sonnet-20241022",
+            "--base-url",
+            "http://127.0.0.1:4100",
+            "--api-key",
+            "sk-cli",
+            "--timeout-seconds",
+            "55",
+        ],
+        stdout=output,
+        client_factory=lambda _: stub,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(output.getvalue())
+    assert payload["provider"] == "anthropic"
+    assert stub.calls == [
+        (
+            "set_llm_config",
+            {
+                "provider": "anthropic",
+                "model": "claude-3-5-sonnet-20241022",
+                "base_url": "http://127.0.0.1:4100",
+                "api_key": "sk-cli",
+                "timeout_seconds": 55.0,
+                "clear_api_key": False,
+            },
+        )
+    ]
+
+
+def test_run_cli_llm_config_set_requires_at_least_one_field() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        ["--mode", "remote", "--base-url", "http://127.0.0.1:8000", "--token", "test-token", "llm-config", "set"],
+        stdout=output,
+        client_factory=lambda _: stub,
+    )
+
+    assert exit_code == 1
+    payload = json.loads(output.getvalue())
+    assert "at least one" in payload["error"].lower()
+    assert "llm-config set" in payload["suggestion"]
+
+
+def test_run_cli_llm_config_set_rejects_conflicting_api_key_flags() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        [
+            "--mode",
+            "remote",
+            "--base-url",
+            "http://127.0.0.1:8000",
+            "--token",
+            "test-token",
+            "llm-config",
+            "set",
+            "--api-key",
+            "sk-cli",
+            "--clear-api-key",
+        ],
+        stdout=output,
+        client_factory=lambda _: stub,
+    )
+
+    assert exit_code == 1
+    payload = json.loads(output.getvalue())
+    assert "cannot be used together" in payload["error"].lower()
+    assert "choose either" in payload["suggestion"].lower()
+
+
+def test_run_cli_managed_mode_forwards_llm_startup_options_to_managed_server() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    manager = _ManagedServerSpy()
+
+    exit_code = run_cli(
+        [
+            "--mode",
+            "managed",
+            "--base-url",
+            "http://127.0.0.1:8115",
+            "--token",
+            "test-token",
+            "--llm-provider",
+            "anthropic",
+            "--llm-model",
+            "claude-3-5-sonnet-20241022",
+            "--llm-base-url",
+            "http://127.0.0.1:4100",
+            "--llm-api-key",
+            "sk-managed",
+            "--llm-timeout-seconds",
+            "75",
+            "health",
+        ],
+        stdout=output,
+        client_factory=lambda _: stub,
+        managed_server_factory=lambda config: manager.bind(config),
+    )
+
+    assert exit_code == 0
+    assert manager.config_base_url == "http://127.0.0.1:8115"
+    assert manager.config_token == "test-token"
+    assert manager.llm_provider == "anthropic"
+    assert manager.llm_model == "claude-3-5-sonnet-20241022"
+    assert manager.llm_base_url == "http://127.0.0.1:4100"
+    assert manager.llm_api_key == "sk-managed"
+    assert manager.llm_timeout_seconds == 75.0

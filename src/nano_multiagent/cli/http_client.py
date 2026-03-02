@@ -101,6 +101,47 @@ class ServerClient:
             require_auth=True,
         )
 
+    def get_llm_config(self) -> dict[str, Any]:
+        return self._request("GET", "/v1/llm-config", require_auth=True)
+
+    def set_llm_config(
+        self,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        timeout_seconds: float | None = None,
+        clear_api_key: bool = False,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if provider is not None:
+            resolved_provider = provider.strip()
+            if not resolved_provider:
+                raise ValueError("provider must be a non-empty string")
+            payload["provider"] = resolved_provider
+        if model is not None:
+            resolved_model = model.strip()
+            if not resolved_model:
+                raise ValueError("model must be a non-empty string")
+            payload["model"] = resolved_model
+        if base_url is not None:
+            resolved_base_url = base_url.strip()
+            if not resolved_base_url:
+                raise ValueError("base_url must be a non-empty string")
+            payload["base_url"] = resolved_base_url
+        if timeout_seconds is not None:
+            if timeout_seconds <= 0:
+                raise ValueError("timeout_seconds must be > 0")
+            payload["timeout_seconds"] = timeout_seconds
+        if api_key is not None:
+            payload["api_key"] = api_key
+        if clear_api_key:
+            payload["api_key"] = None
+        if not payload:
+            raise ValueError("llm config update requires at least one field")
+        return self._request("PATCH", "/v1/llm-config", json=payload, require_auth=True)
+
     def _request(
         self,
         method: str,

@@ -32,6 +32,20 @@ python3 -m nano_multiagent.cli.main \
   --token test-token
 ```
 
+Managed mode can inject LLM runtime config into the managed API process:
+
+```bash
+python3 -m nano_multiagent.cli.main \
+  --mode managed \
+  --base-url http://127.0.0.1:8000 \
+  --token test-token \
+  --llm-provider anthropic \
+  --llm-model claude-3-5-sonnet-20241022 \
+  --llm-base-url http://127.0.0.1:4100 \
+  --llm-api-key <key> \
+  --llm-timeout-seconds 60
+```
+
 `managed` mode uses a higher default API timeout (`120s`) to reduce false timeouts during real agent turns. Override with `--api-timeout-seconds`.
 
 Remote mode (connect existing API, never starts local process):
@@ -66,6 +80,8 @@ PYTHONPATH=src python3 -m nano_multiagent.cli.main --mode remote --base-url http
 python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token health
 python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token create-session --title "demo"
 python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token send-message --session-id <session_id> --text "hello"
+python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token llm-config get
+python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token llm-config set --provider anthropic --model claude-3-5-sonnet-20241022 --base-url http://127.0.0.1:4100 --timeout-seconds 60
 ```
 
 ### Environment variables
@@ -77,6 +93,7 @@ python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:80
 - `NANO_MULTIAGENT_SESSION_ID` (optional default session for `send-message` and REPL startup)
 - `NANO_MULTIAGENT_API_TIMEOUT_SECONDS` (default `30`)
 - `--api-timeout-seconds <float>` (CLI override for current run)
+- managed startup LLM overrides: `--llm-provider`, `--llm-model`, `--llm-base-url`, `--llm-api-key`, `--llm-timeout-seconds`
 
 ### Troubleshooting
 

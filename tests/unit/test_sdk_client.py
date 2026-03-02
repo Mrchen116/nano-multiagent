@@ -88,6 +88,76 @@ def test_session_tools_and_compact_call_session_scoped_endpoints() -> None:
     assert seen["path"] == "/v1/sessions/sess_2:compact"
 
 
+def test_llm_config_get_and_set_use_config_endpoint_contract() -> None:
+    requests: list[tuple[str, str, object | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload: object | None = None
+        if request.content:
+            payload = json.loads(request.content.decode("utf-8"))
+        requests.append((request.method, request.url.path, payload))
+        if request.method == "GET":
+            return httpx.Response(
+                status_code=200,
+                json={
+                    "provider": "openai_compat",
+                    "model": "codexOAuth:gpt-5.2-codex",
+                    "base_url": "http://127.0.0.1:4000",
+                    "api_key_configured": False,
+                    "timeout_seconds": 30.0,
+                },
+            )
+        return httpx.Response(
+            status_code=200,
+            json={
+                "provider": "anthropic",
+                "model": "claude-3-5-sonnet-20241022",
+                "base_url": "http://127.0.0.1:4100",
+                "api_key_configured": True,
+                "timeout_seconds": 55.0,
+            },
+        )
+
+    config = ServerClientConfig(base_url="http://test.local", token="secret", request_id="req-fixed")
+    with ServerClient(config=config, transport=httpx.MockTransport(handler)) as client:
+        got = client.get_llm_config()
+        updated = client.set_llm_config(
+            provider="anthropic",
+            model="claude-3-5-sonnet-20241022",
+            base_url="http://127.0.0.1:4100",
+            api_key="sk-cli",
+            timeout_seconds=55.0,
+        )
+
+    assert got["provider"] == "openai_compat"
+    assert updated["provider"] == "anthropic"
+    assert requests == [
+        ("GET", "/v1/llm-config", None),
+        (
+            "PATCH",
+            "/v1/llm-config",
+            {
+                "provider": "anthropic",
+                "model": "claude-3-5-sonnet-20241022",
+                "base_url": "http://127.0.0.1:4100",
+                "api_key": "sk-cli",
+                "timeout_seconds": 55.0,
+            },
+        ),
+    ]
+
+
+def test_set_llm_config_requires_at_least_one_field() -> None:
+    config = ServerClientConfig(base_url="http://test.local", token="secret", request_id="req-fixed")
+    with ServerClient(config=config, transport=httpx.MockTransport(lambda request: httpx.Response(status_code=200, json={}))) as client:
+        try:
+            client.set_llm_config()
+        except ValueError as exc:
+            assert "at least one field" in str(exc).lower()
+        else:  # pragma: no cover - explicit failure branch
+            raise AssertionError("expected ValueError")
+
+
 def test_server_client_bypasses_env_proxy_for_local_base_url() -> None:
     assert _should_trust_env("http://127.0.0.1:8000") is False
     assert _should_trust_env("http://localhost:8000") is False
