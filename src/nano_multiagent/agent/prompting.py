@@ -1,11 +1,11 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from nano_multiagent.core.types import ToolSpec
 from nano_multiagent.core.types import Message
-from nano_multiagent.llm.interfaces import LLMMessage
+from nano_multiagent.llm.interfaces import LLMMessage, LLMToolCall
 from nano_multiagent.skills.formatter import format_available_skills_section
 from nano_multiagent.skills.registry import SkillMetadata
 from nano_multiagent.tools.builtins import builtin_tools
@@ -51,7 +51,16 @@ def build_prompt_messages(
     )
     messages: list[LLMMessage] = [LLMMessage(role="system", content=active_system_prompt)]
     for message in history_messages:
-        messages.append(LLMMessage(role=message.role, content=message.content, name=message.name))
+        metadata = dict(message.metadata)
+        messages.append(
+            LLMMessage(
+                role=message.role,
+                content=message.content,
+                name=message.name,
+                tool_call_id=_extract_tool_call_id(metadata),
+                tool_calls=_extract_tool_calls(metadata),
+            )
+        )
     messages.append(LLMMessage(role="user", content=user_text))
     return tuple(messages)
 
@@ -123,3 +132,37 @@ def _format_available_tools(tools: Sequence[ToolSpec]) -> str:
         lines.append(f"- {tool.name}: {tool.description}")
         lines.append(f"  input_schema: {schema}")
     return "\n".join(lines)
+
+
+def _extract_tool_call_id(metadata: Mapping[str, Any]) -> str | None:
+    raw_value = metadata.get("tool_call_id")
+    if isinstance(raw_value, str) and raw_value:
+        return raw_value
+    return None
+
+
+def _extract_tool_calls(metadata: Mapping[str, Any]) -> tuple[LLMToolCall, ...]:
+    raw_calls = metadata.get("tool_calls")
+    if not isinstance(raw_calls, list):
+        return ()
+    parsed: list[LLMToolCall] = []
+    for item in raw_calls:
+        if not isinstance(item, Mapping):
+            continue
+        call_id = item.get("call_id")
+        name = item.get("name")
+        arguments = item.get("arguments")
+        if not isinstance(call_id, str) or not call_id:
+            continue
+        if not isinstance(name, str) or not name:
+            continue
+        if not isinstance(arguments, Mapping):
+            arguments = {}
+        parsed.append(
+            LLMToolCall(
+                call_id=call_id,
+                name=name,
+                arguments=dict(arguments),
+            )
+        )
+    return tuple(parsed)
