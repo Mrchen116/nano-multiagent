@@ -112,6 +112,7 @@ def _run_repl(
                         out=out,
                         message="command /help does not accept arguments.",
                         suggestion="try /help.",
+                        usage="/help",
                     )
                     continue
                 print(_HELP_LINE, file=out)
@@ -122,6 +123,7 @@ def _run_repl(
                         out=out,
                         message="command /exit does not accept arguments.",
                         suggestion="try /exit.",
+                        usage="/exit",
                     )
                     continue
                 return 0
@@ -132,6 +134,7 @@ def _run_repl(
                             out=out,
                             message="command /new does not accept arguments.",
                             suggestion="try /new.",
+                            usage="/new",
                         )
                         continue
                     payload = client.create_session()
@@ -151,6 +154,7 @@ def _run_repl(
                             out=out,
                             message="/use expects exactly one session_id.",
                             suggestion="try /use <session_id>.",
+                            usage="/use <session_id>",
                         )
                         continue
                     active_session_id = argument_tokens[0]
@@ -162,6 +166,7 @@ def _run_repl(
                             out=out,
                             message="command /session does not accept arguments.",
                             suggestion="try /session.",
+                            usage="/session",
                         )
                         continue
                     print(json.dumps({"session_id": active_session_id}, ensure_ascii=False), file=out)
@@ -172,6 +177,7 @@ def _run_repl(
                             out=out,
                             message="command /tools does not accept arguments.",
                             suggestion="try /tools.",
+                            usage="/tools",
                         )
                         continue
                     if not active_session_id:
@@ -190,6 +196,7 @@ def _run_repl(
                             out=out,
                             message="command /compact does not accept arguments.",
                             suggestion="try /compact.",
+                            usage="/compact",
                         )
                         continue
                     if not active_session_id:
@@ -208,6 +215,7 @@ def _run_repl(
                             out=out,
                             message="invalid n for /history.",
                             suggestion="try /history 10.",
+                            usage="/history [n]",
                         )
                         continue
                     history_limit, error = _parse_history_limit(argument_tokens[0] if argument_tokens else None)
@@ -216,6 +224,7 @@ def _run_repl(
                             out=out,
                             message=error,
                             suggestion="try /history 10.",
+                            usage="/history [n]",
                         )
                         continue
                     if not active_session_id:
@@ -326,9 +335,17 @@ def _extract_message_content(payload: dict[str, object]) -> str | None:
     return content
 
 
-def _print_actionable_error(*, out: TextIO, message: str, suggestion: str) -> None:
+def _print_actionable_error(
+    *,
+    out: TextIO,
+    message: str,
+    suggestion: str,
+    usage: str | None = None,
+) -> None:
     print(f"Error: {message}", file=out)
     print(f"Suggestion: {suggestion}", file=out)
+    if usage is not None:
+        print(f"Usage: {usage}", file=out)
 
 
 def _print_tools_summary(*, out: TextIO, payload: dict[str, object]) -> None:
