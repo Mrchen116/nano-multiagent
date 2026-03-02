@@ -3,7 +3,7 @@
 - Test command: `pytest -q`
 - Branch: `milestone/M14`
 
-## [TODO] R14.1 read 语义补齐（图片输入 + 文本截断/offset 提示）
+## [DONE] R14.1 read 语义补齐（图片输入 + 文本截断/offset 提示）
 - Acceptance:
   - `read` 支持图片文件输入（`jpg/png/gif/webp`），返回 `content` 为 `text + image` 两段结构。
   - `read` 文本输出在触发截断时追加“下一次 offset 提示”语义，且 `next_offset` 与提示一致。
@@ -22,9 +22,9 @@
   - 目标测试红转绿，且 `pytest -q` 全绿。
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M14-*.md` 记录决策/证据/回退点/哈希。
-- Status: TODO
+- Status: DONE
 
-## [TODO] R14.2 tool_result list content 保真透传
+## [DONE] R14.2 tool_result list content 保真透传
 - Acceptance:
   - `tool_result` 拦截链在返回 `content` 为 list 时保持原样透传，不将 list 折叠为字符串或包装破坏结构。
   - `tool_result` 在 `content` 为 mapping/list 时行为一致且向后兼容现有 mapping 重写场景。
@@ -43,9 +43,9 @@
   - 目标测试红转绿，且 `pytest -q` 全绿。
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M14-*.md` 记录决策/证据/回退点/哈希。
-- Status: TODO
+- Status: DONE
 
-## [TODO] R14.3 bash 语义对齐（无默认超时 + 截断落盘 fullOutputPath）
+## [DONE] R14.3 bash 语义对齐（无默认超时 + 截断落盘 fullOutputPath）
 - Acceptance:
   - `bash` 在未显式传 `timeout` 时不注入默认超时。
   - 输出过大触发截断时，返回中包含 `full_output_path`，且对应文件可读取完整输出。
@@ -65,4 +65,12 @@
   - 目标测试红转绿，且 `pytest -q` 全绿。
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M14-*.md` 记录决策/证据/回退点/哈希。
-- Status: TODO
+- Status: DONE
+
+## 续跑计划（2026-03-02）
+- 当前接手分支：`milestone/M14`（`use_worktree=false`，串行执行）。
+- 启动门禁：`pytest -q` 基线通过（`177 passed, 2 skipped`）。
+- 执行顺序：
+  - `R14.1` 先补 read 红测（图片 part + 截断/offset 提示）再实现。
+  - `R14.2` 衔接 hook/tool_result 透传语义，确保 list content 不破坏。
+  - `R14.3` 最后对齐 bash（无默认超时 + 截断落盘 fullOutputPath + 超时/中断）。
