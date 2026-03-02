@@ -2,6 +2,7 @@
 
 - Test command: `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_sdk_client.py tests/unit/test_cli_managed_server.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py`
 - Branch: `milestone/M20`
+- Milestone status: `DONE`（待合并到 `main`）
 
 ## [DONE] R20.1 单命令输出契约与 llm-config 路径先收口
 - Acceptance:

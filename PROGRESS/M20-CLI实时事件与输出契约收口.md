@@ -109,3 +109,20 @@
 - Commits: C1=`eacb4a6`, C2=`8b54d56`, C3=`d60c658`
 - Next:
   - Milestone 集成：rebase/merge main + dev-tasks DONE 更新
+
+### Milestone Closeout
+- Context:
+  - M20 目标是“REPL 实时事件可视化”和“单命令 JSON 契约稳定”同时成立，避免交互体验改造破坏脚本入口。
+- Decision:
+  - 保持单命令路径继续走同步 `send_message`，仅 REPL 路径启用 async events 轮询与展示。
+  - 失败 run 输出补充 `run_id`，并保留上游错误 payload，确保可追踪定位。
+- Rationale:
+  - 将“人读体验”与“机读契约”分层，避免同一输出通道承载两类语义而互相污染。
+- Evidence:
+  - Tests: `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_sdk_client.py tests/unit/test_cli_managed_server.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py` -> `48 passed`
+  - Entry: REPL 输出可见 run/tool/text 中间事件；`send-message` 保持纯 JSON 单对象输出。
+- Rollback:
+  - `eacb4a6`（R20.3 C1）
+- Commits: C1=`eacb4a6`, C2=`8b54d56`, C3=`d60c658`
+- Next:
+  - 更新 `data/dev-tasks.json` 为 DONE，并合并 `milestone/M20` 到 `main` 后做回归验证。
