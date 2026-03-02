@@ -6,6 +6,10 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Callable, Sequence, TextIO
 
+from nano_multiagent.cli.context_budget import context_budget_hint_for_ratio as _context_budget_hint_for_ratio
+from nano_multiagent.cli.context_budget import context_budget_prefix as _context_budget_prefix
+from nano_multiagent.cli.context_budget import extract_context_budget_metrics as _extract_context_budget_metrics
+from nano_multiagent.cli.context_budget import print_context_budget_snapshot as _print_context_budget_snapshot
 from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig
 from nano_multiagent.cli.managed_server import ManagedServerConfig, ManagedServerProcess
 from nano_multiagent.cli.repl_input import ReplInputReader as _ReplInputReader
@@ -29,12 +33,6 @@ _CLI_HELP_EPILOG = (
 )
 _DEFAULT_CLI_MODE = "remote"
 _ERROR_LAYERS = {"input", "network", "runtime"}
-_EVENT_PREVIEW_MAX_LEN = 120
-_CONTEXT_BUDGET_HINTS = (
-    (0.95, "Budget hint: usage >= 95%, run /compact now."),
-    (0.85, "Budget hint: usage >= 85%, consider /compact soon."),
-    (0.70, "Budget hint: usage >= 70%, monitor context and consider /compact."),
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -552,79 +550,6 @@ def _print_compact_summary(*, out: TextIO, payload: dict[str, object]) -> None:
         print(f"Kept events: {len(kept_event_ids)}", file=out)
     if isinstance(dropped_event_ids, list):
         print(f"Dropped events: {len(dropped_event_ids)}", file=out)
-
-
-def _print_context_budget_snapshot(
-    *,
-    out: TextIO,
-    client: ServerClient,
-    session_id: str,
-    context_label: str | None = None,
-) -> None:
-    getter = getattr(client, "get_context_budget", None)
-    if not callable(getter):
-        return
-    prefix = _context_budget_prefix(context_label)
-    try:
-        payload = getter(session_id=session_id)
-    except Exception as exc:
-        print(f"{prefix}: unavailable ({_short_error_text(exc)}).", file=out)
-        return
-
-    metrics = _extract_context_budget_metrics(payload)
-    if metrics is None:
-        print(f"{prefix}: unavailable (invalid payload).", file=out)
-        return
-    used_tokens, max_tokens, usage_ratio = metrics
-    print(f"{prefix}: {used_tokens}/{max_tokens} ({usage_ratio * 100:.1f}%)", file=out)
-    hint = _context_budget_hint_for_ratio(usage_ratio)
-    if hint is not None:
-        print(hint, file=out)
-
-
-def _context_budget_prefix(context_label: str | None) -> str:
-    if isinstance(context_label, str) and context_label.strip():
-        return f"Context budget ({context_label.strip()})"
-    return "Context budget"
-
-
-def _extract_context_budget_metrics(payload: object) -> tuple[int, int, float] | None:
-    if not isinstance(payload, dict):
-        return None
-    used_tokens = payload.get("used_tokens")
-    max_tokens = payload.get("max_tokens")
-    usage_ratio = payload.get("usage_ratio")
-    if isinstance(used_tokens, bool) or not isinstance(used_tokens, int):
-        return None
-    if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
-        return None
-
-    resolved_ratio: float
-    if isinstance(usage_ratio, bool):
-        return None
-    if isinstance(usage_ratio, (int, float)):
-        resolved_ratio = float(usage_ratio)
-    else:
-        resolved_ratio = float(used_tokens) / float(max_tokens)
-    if resolved_ratio < 0:
-        resolved_ratio = 0.0
-    return used_tokens, max_tokens, resolved_ratio
-
-
-def _context_budget_hint_for_ratio(usage_ratio: float) -> str | None:
-    for threshold, hint in _CONTEXT_BUDGET_HINTS:
-        if usage_ratio >= threshold:
-            return hint
-    return None
-
-
-def _short_error_text(exc: Exception) -> str:
-    text = str(exc).strip()
-    if not text:
-        return "unknown error"
-    if len(text) <= _EVENT_PREVIEW_MAX_LEN:
-        return text
-    return f"{text[:_EVENT_PREVIEW_MAX_LEN]}..."
 
 
 def _resolve_initial_session_id() -> str | None:
