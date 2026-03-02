@@ -314,6 +314,7 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "run_id=" in text
+    assert "Layer: runtime" in text
     assert "run failed: {'code': 'run_execution_failed'" in text
     assert "root_cause=connect ETIMEDOUT" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
@@ -584,6 +585,7 @@ def test_cli_repl_rejects_invalid_command_arguments() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: command /new does not accept arguments." in text
+    assert "Layer: input" in text
     assert "Suggestion: try /new." in text
     assert "Usage: /new" in text
     assert "Error: command /tools does not accept arguments." in text

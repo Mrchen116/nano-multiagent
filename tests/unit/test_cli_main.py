@@ -644,6 +644,7 @@ def test_run_cli_repl_command_errors_include_actionable_suggestions() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: no active session." in text
+    assert "Layer: input" in text
     assert "Suggestion: run /new or /use <session_id>." in text
     assert "Error: missing session_id for /use." in text
     assert "Suggestion: try /use <session_id>." in text
@@ -689,6 +690,7 @@ def test_run_cli_repl_rejects_invalid_command_arguments() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: command /new does not accept arguments." in text
+    assert "Layer: input" in text
     assert "Suggestion: try /new." in text
     assert "Usage: /new" in text
     assert "Error: command /session does not accept arguments." in text
@@ -825,6 +827,7 @@ def test_run_cli_repl_request_failures_include_suggestions() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: failed to run /tools." in text
+    assert "Layer: network" in text
     assert "Suggestion: check server status/token and retry /tools." in text
 
 
@@ -843,6 +846,7 @@ def test_run_cli_repl_connection_refused_shows_base_url_suggestion() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: send failed: [Errno 61] Connection refused" in text
+    assert "Layer: network" in text
     assert "Suggestion: check --base-url and ensure API server is running." in text
 
 
@@ -863,6 +867,7 @@ def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
     assert exit_code == 0
     text = output.getvalue().lower()
     assert "send failed: timed out" in text
+    assert "layer: network" in text
     assert "nano_multiagent_api_timeout_seconds" in text
 
 
@@ -903,6 +908,7 @@ def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: send failed: run_id=run_failed" in text
+    assert "Layer: runtime" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
 
@@ -1064,6 +1070,7 @@ def test_run_cli_remote_mode_requires_base_url_with_actionable_error() -> None:
     assert exit_code == 1
     payload = json.loads(output.getvalue())
     assert "remote mode requires --base-url" in payload["error"]
+    assert payload["layer"] == "input"
     assert "--base-url" in payload["suggestion"]
 
 
@@ -1088,6 +1095,7 @@ def test_run_cli_remote_mode_connection_failure_suggestion_mentions_remote_api()
     assert exit_code == 1
     payload = json.loads(output.getvalue())
     assert "connection refused" in payload["error"].lower()
+    assert payload["layer"] == "network"
     assert "remote api" in payload["suggestion"].lower()
 
 
@@ -1217,6 +1225,7 @@ def test_run_cli_llm_config_set_requires_at_least_one_field() -> None:
     assert exit_code == 1
     payload = json.loads(output.getvalue())
     assert "at least one" in payload["error"].lower()
+    assert payload["layer"] == "input"
     assert "llm-config set" in payload["suggestion"]
 
 
