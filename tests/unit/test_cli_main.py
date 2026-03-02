@@ -225,12 +225,16 @@ def test_run_cli_repl_rejects_invalid_command_arguments() -> None:
     text = output.getvalue()
     assert "Error: command /new does not accept arguments." in text
     assert "Suggestion: try /new." in text
+    assert "Usage: /new" in text
     assert "Error: command /session does not accept arguments." in text
     assert "Suggestion: try /session." in text
+    assert "Usage: /session" in text
     assert "Error: /use expects exactly one session_id." in text
     assert "Suggestion: try /use <session_id>." in text
+    assert "Usage: /use <session_id>" in text
     assert "Error: invalid n for /history." in text
     assert "Suggestion: try /history 10." in text
+    assert "Usage: /history [n]" in text
     assert ("create_session", {"title": ""}) not in stub.calls
 
 

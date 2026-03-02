@@ -165,5 +165,7 @@ def test_cli_repl_rejects_invalid_command_arguments() -> None:
     text = output.getvalue()
     assert "Error: command /new does not accept arguments." in text
     assert "Suggestion: try /new." in text
+    assert "Usage: /new" in text
     assert "Error: command /tools does not accept arguments." in text
     assert "Suggestion: try /tools." in text
+    assert "Usage: /tools" in text
