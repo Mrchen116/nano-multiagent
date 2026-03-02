@@ -2,7 +2,9 @@ import json
 
 import httpx
 
-from nano_multiagent.sdk.client import ServerClient, ServerClientConfig
+from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig
+from nano_multiagent.sdk.client import ServerClient as SDKServerClient
+from nano_multiagent.sdk.client import ServerClientConfig as SDKServerClientConfig
 
 
 def test_server_client_config_from_env_overrides(monkeypatch) -> None:
@@ -15,6 +17,11 @@ def test_server_client_config_from_env_overrides(monkeypatch) -> None:
     assert config.base_url == "http://127.0.0.1:9123"
     assert config.token == "token-from-env"
     assert config.request_id == "req-env"
+
+
+def test_sdk_client_module_keeps_backward_compatible_aliases() -> None:
+    assert SDKServerClient is ServerClient
+    assert SDKServerClientConfig is ServerClientConfig
 
 
 def test_send_message_posts_http_payload_with_auth_and_request_id() -> None:

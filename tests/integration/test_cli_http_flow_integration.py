@@ -36,7 +36,7 @@ def test_cli_runs_http_flow_against_asgi_app() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.sdk.client import ServerClient
+        from nano_multiagent.cli.http_client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
