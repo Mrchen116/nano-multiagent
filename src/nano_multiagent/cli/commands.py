@@ -105,32 +105,75 @@ def _run_repl(
 
         if line.startswith("/"):
             command, argument = _parse_command(line)
+            argument_tokens = _split_argument_tokens(argument)
             if command == "/help":
+                if argument_tokens:
+                    _print_actionable_error(
+                        out=out,
+                        message="command /help does not accept arguments.",
+                        suggestion="try /help.",
+                    )
+                    continue
                 print(_HELP_LINE, file=out)
                 continue
             if command == "/exit":
+                if argument_tokens:
+                    _print_actionable_error(
+                        out=out,
+                        message="command /exit does not accept arguments.",
+                        suggestion="try /exit.",
+                    )
+                    continue
                 return 0
             try:
                 if command == "/new":
+                    if argument_tokens:
+                        _print_actionable_error(
+                            out=out,
+                            message="command /new does not accept arguments.",
+                            suggestion="try /new.",
+                        )
+                        continue
                     payload = client.create_session()
                     active_session_id = _extract_session_id(payload)
                     print(json.dumps(payload, ensure_ascii=False), file=out)
                     continue
                 if command == "/use":
-                    if not argument:
+                    if not argument_tokens:
                         _print_actionable_error(
                             out=out,
                             message="missing session_id for /use.",
                             suggestion="try /use <session_id>.",
                         )
                         continue
-                    active_session_id = argument
+                    if len(argument_tokens) != 1:
+                        _print_actionable_error(
+                            out=out,
+                            message="/use expects exactly one session_id.",
+                            suggestion="try /use <session_id>.",
+                        )
+                        continue
+                    active_session_id = argument_tokens[0]
                     print(json.dumps({"session_id": active_session_id}, ensure_ascii=False), file=out)
                     continue
                 if command == "/session":
+                    if argument_tokens:
+                        _print_actionable_error(
+                            out=out,
+                            message="command /session does not accept arguments.",
+                            suggestion="try /session.",
+                        )
+                        continue
                     print(json.dumps({"session_id": active_session_id}, ensure_ascii=False), file=out)
                     continue
                 if command == "/tools":
+                    if argument_tokens:
+                        _print_actionable_error(
+                            out=out,
+                            message="command /tools does not accept arguments.",
+                            suggestion="try /tools.",
+                        )
+                        continue
                     if not active_session_id:
                         _print_actionable_error(
                             out=out,
@@ -142,6 +185,13 @@ def _run_repl(
                     _print_tools_summary(out=out, payload=payload)
                     continue
                 if command == "/compact":
+                    if argument_tokens:
+                        _print_actionable_error(
+                            out=out,
+                            message="command /compact does not accept arguments.",
+                            suggestion="try /compact.",
+                        )
+                        continue
                     if not active_session_id:
                         _print_actionable_error(
                             out=out,
@@ -153,19 +203,26 @@ def _run_repl(
                     _print_compact_summary(out=out, payload=payload)
                     continue
                 if command == "/history":
-                    if not active_session_id:
+                    if len(argument_tokens) > 1:
                         _print_actionable_error(
                             out=out,
-                            message="no active session.",
-                            suggestion="run /new or /use <session_id>.",
+                            message="invalid n for /history.",
+                            suggestion="try /history 10.",
                         )
                         continue
-                    history_limit, error = _parse_history_limit(argument)
+                    history_limit, error = _parse_history_limit(argument_tokens[0] if argument_tokens else None)
                     if error is not None:
                         _print_actionable_error(
                             out=out,
                             message=error,
                             suggestion="try /history 10.",
+                        )
+                        continue
+                    if not active_session_id:
+                        _print_actionable_error(
+                            out=out,
+                            message="no active session.",
+                            suggestion="run /new or /use <session_id>.",
                         )
                         continue
                     _print_history(
@@ -176,11 +233,8 @@ def _run_repl(
                     )
                     continue
             except Exception as exc:
-                _print_actionable_error(
-                    out=out,
-                    message=f"request failed: {exc}",
-                    suggestion="check token/base-url/server status and retry.",
-                )
+                del exc
+                _print_actionable_error(out=out, message=f"failed to run {command}.", suggestion=f"check server status/token and retry {command}.")
                 continue
 
             _print_actionable_error(
@@ -225,6 +279,13 @@ def _parse_history_limit(argument: str | None) -> tuple[int, str | None]:
     if value <= 0:
         return 0, "invalid n for /history."
     return value, None
+
+
+def _split_argument_tokens(argument: str | None) -> list[str]:
+    if argument is None:
+        return []
+    tokens = [token for token in argument.split() if token]
+    return tokens
 
 
 def _print_history(
@@ -305,13 +366,13 @@ def _print_compact_summary(*, out: TextIO, payload: dict[str, object]) -> None:
     dropped_event_ids = result.get("dropped_event_ids")
     kept_event_ids = result.get("kept_event_ids")
     if isinstance(reason, str) and reason.strip():
-        print(f"- reason: {reason}", file=out)
+        print(f"Reason: {reason}", file=out)
     if isinstance(summary, str) and summary.strip():
-        print(f"- summary: {summary}", file=out)
+        print(f"Summary: {summary}", file=out)
     if isinstance(kept_event_ids, list):
-        print(f"- kept events: {len(kept_event_ids)}", file=out)
+        print(f"Kept events: {len(kept_event_ids)}", file=out)
     if isinstance(dropped_event_ids, list):
-        print(f"- dropped events: {len(dropped_event_ids)}", file=out)
+        print(f"Dropped events: {len(dropped_event_ids)}", file=out)
 
 
 def _resolve_initial_session_id() -> str | None:
