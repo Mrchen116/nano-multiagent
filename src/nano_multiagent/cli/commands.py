@@ -243,6 +243,8 @@ def _run_repl(
             continue
 
         if line.startswith("/"):
+            if active_session_id:
+                _append_input_history_entry(input_history_by_session, active_session_id, line)
             command, argument = _parse_command(line)
             argument_tokens = _split_argument_tokens(argument)
             if command == "/help":
