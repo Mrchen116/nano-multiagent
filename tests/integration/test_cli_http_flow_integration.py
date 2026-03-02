@@ -80,3 +80,28 @@ def test_cli_runs_http_flow_against_asgi_app() -> None:
     payload = json.loads(send_out.getvalue())
     assert payload["session_id"] == session_id
     assert payload["message"]["content"] == "cli:ping"
+
+
+def test_cli_repl_flow_supports_tools_and_compact_commands() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/tools", "/compact", "/exit"])
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "cli:ping" in text
+    assert "\"tools\"" in text
+    assert "\"compacted\"" in text

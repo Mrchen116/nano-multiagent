@@ -57,3 +57,32 @@ def test_send_message_posts_http_payload_with_auth_and_request_id() -> None:
         "stream": False,
     }
     assert payload["message"]["content"] == "ok"
+
+
+def test_session_tools_and_compact_call_session_scoped_endpoints() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        if request.url.path.endswith("/tools"):
+            return httpx.Response(
+                status_code=200,
+                json={"session_id": "sess_2", "tools": [{"name": "read", "description": "Read", "input_schema": {}}]},
+            )
+        return httpx.Response(
+            status_code=200,
+            json={"session_id": "sess_2", "compacted": False, "result": None},
+        )
+
+    config = ServerClientConfig(base_url="http://test.local", token="secret", request_id="req-fixed")
+    with ServerClient(config=config, transport=httpx.MockTransport(handler)) as client:
+        tools_payload = client.list_session_tools(session_id="sess_2")
+        assert tools_payload["session_id"] == "sess_2"
+        assert tools_payload["tools"][0]["name"] == "read"
+        compact_payload = client.compact_session(session_id="sess_2")
+        assert compact_payload["session_id"] == "sess_2"
+        assert compact_payload["compacted"] is False
+
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/v1/sessions/sess_2:compact"

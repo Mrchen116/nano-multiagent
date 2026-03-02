@@ -26,6 +26,17 @@ class _StubClient:
         self.calls.append(("send_message", {"session_id": session_id, "text": text}))
         return {"session_id": session_id, "message": {"content": f"echo:{text}"}}
 
+    def list_session_tools(self, *, session_id: str) -> dict[str, object]:
+        self.calls.append(("list_session_tools", {"session_id": session_id}))
+        return {
+            "session_id": session_id,
+            "tools": [{"name": "read", "description": "Read", "input_schema": {}}],
+        }
+
+    def compact_session(self, *, session_id: str) -> dict[str, object]:
+        self.calls.append(("compact_session", {"session_id": session_id}))
+        return {"session_id": session_id, "compacted": False, "result": None}
+
 
 def test_run_cli_health_outputs_json_payload() -> None:
     stub = _StubClient()
@@ -65,3 +76,44 @@ def test_run_cli_send_message_uses_session_id_from_env(monkeypatch) -> None:
     payload = json.loads(output.getvalue())
     assert payload["session_id"] == "sess_env"
     assert payload["message"]["content"] == "echo:ping"
+
+
+def test_run_cli_repl_supports_required_commands() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    inputs = iter(["/help", "/new", "hello repl", "/session", "/tools", "/compact", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    lines = output.getvalue()
+    assert "/help /new /use <session_id> /session /tools /compact /exit" in lines
+    assert "session_id" in lines
+    assert "hello repl" in lines
+    assert [call[0] for call in stub.calls] == [
+        "create_session",
+        "send_message",
+        "list_session_tools",
+        "compact_session",
+    ]
+
+
+def test_run_cli_repl_use_switches_active_session() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    inputs = iter(["/use sess_manual", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    assert ("send_message", {"session_id": "sess_manual", "text": "ping"}) in stub.calls
