@@ -97,6 +97,9 @@ def test_run_cli_repl_supports_required_commands() -> None:
     assert "/exit" in lines
     assert "session_id" in lines
     assert "hello repl" in lines
+    assert "Tools for session sess_cli (1):" in lines
+    assert "- read: Read" in lines
+    assert "Compaction for session sess_cli: no changes." in lines
     assert [call[0] for call in stub.calls] == [
         "create_session",
         "send_message",
@@ -139,3 +142,25 @@ def test_run_cli_repl_history_shows_recent_messages() -> None:
     assert "user: second" in text
     assert "assistant: echo:second" in text
     assert "assistant: echo:first" not in text
+
+
+def test_run_cli_repl_command_errors_include_actionable_suggestions() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    inputs = iter(["/tools", "/use", "/unknown", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Error: no active session." in text
+    assert "Suggestion: run /new or /use <session_id>." in text
+    assert "Error: missing session_id for /use." in text
+    assert "Suggestion: try /use <session_id>." in text
+    assert "Error: unknown command '/unknown'." in text
+    assert "Suggestion: run /help to see available commands." in text

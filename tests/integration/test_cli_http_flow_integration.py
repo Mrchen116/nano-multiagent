@@ -114,8 +114,8 @@ def test_cli_repl_flow_supports_tools_and_compact_commands() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "cli:ping" in text
-    assert "\"tools\"" in text
-    assert "\"compacted\"" in text
+    assert "Tools for session" in text
+    assert "Compaction for session" in text
 
 
 def test_cli_repl_flow_supports_history_listing() -> None:
