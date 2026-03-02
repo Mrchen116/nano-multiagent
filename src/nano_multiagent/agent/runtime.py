@@ -45,10 +45,17 @@ class AgentRuntime:
         compaction_settings: CompactionSettings | None = None,
         tool_registry: "ToolRegistry | None" = None,
     ) -> None:
-        active_llm_client = llm_client or create_llm_client()
+        env_llm_config = LLMFactoryConfig.from_env()
+        self._llm_config = LLMFactoryConfig(
+            provider=env_llm_config.provider,
+            model=model or env_llm_config.model,
+            base_url=env_llm_config.base_url,
+            api_key=env_llm_config.api_key,
+            timeout_seconds=env_llm_config.timeout_seconds,
+        )
+        active_llm_client = llm_client or create_llm_client(config=self._llm_config)
         self._hook_runner = hook_runner
         self._repo_root = (repo_root or Path.cwd()).expanduser().resolve()
-        self._model = model or LLMFactoryConfig.from_env().model
         self._compaction_settings = compaction_settings or CompactionSettings()
         resolved_skills = (
             tuple(available_skills)
@@ -58,14 +65,14 @@ class AgentRuntime:
         self._session_manager = session_manager
         self._loop = AgentLoop(
             llm_client=active_llm_client,
-            model=self._model,
+            model=self._llm_config.model,
             policies=policies,
             hook_runner=hook_runner,
             available_skills=resolved_skills,
             tool_registry=tool_registry,
             current_working_directory=self._repo_root,
         )
-        summary_model = self._compaction_settings.summary_model or self._model
+        summary_model = self._compaction_settings.summary_model or self._llm_config.model
         self._compaction_planner = CompactionPlanner(
             min_kept_messages=self._compaction_settings.min_kept_messages
         )
@@ -226,6 +233,48 @@ class AgentRuntime:
 
     def get_session(self, session_id: str) -> Session | None:
         return self._session_manager.get_session(session_id)
+
+    def get_llm_config(self) -> LLMFactoryConfig:
+        return self._llm_config
+
+    def reconfigure_llm(
+        self,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        timeout_seconds: float | None = None,
+        api_key: str | None = None,
+        update_api_key: bool = False,
+    ) -> LLMFactoryConfig:
+        if (
+            provider is None
+            and model is None
+            and base_url is None
+            and timeout_seconds is None
+            and not update_api_key
+        ):
+            raise ValueError("at least one llm config field is required")
+
+        next_config = LLMFactoryConfig(
+            provider=provider if provider is not None else self._llm_config.provider,
+            model=model if model is not None else self._llm_config.model,
+            base_url=base_url if base_url is not None else self._llm_config.base_url,
+            api_key=api_key if update_api_key else self._llm_config.api_key,
+            timeout_seconds=timeout_seconds if timeout_seconds is not None else self._llm_config.timeout_seconds,
+        )
+
+        active_llm_client = create_llm_client(config=next_config)
+        self._llm_config = next_config
+        self._loop.bind_llm_client(
+            llm_client=active_llm_client,
+            model=next_config.model,
+        )
+        self._compaction_summarizer = CompactionSummarizer(
+            llm_client=active_llm_client,
+            model=self._compaction_settings.summary_model or next_config.model,
+        )
+        return self._llm_config
 
     def bind_tool_registry(self, tool_registry: "ToolRegistry | None") -> None:
         self._loop.bind_tool_registry(tool_registry)

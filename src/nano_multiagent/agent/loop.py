@@ -43,6 +43,10 @@ class AgentLoop:
     def bind_tool_registry(self, tool_registry: ToolRegistry | None) -> None:
         self._tool_registry = tool_registry
 
+    def bind_llm_client(self, *, llm_client: LLMClient, model: str) -> None:
+        self._llm_client = llm_client
+        self._model = model
+
     def run(
         self,
         state: AgentState,

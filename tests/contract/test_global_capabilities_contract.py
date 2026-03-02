@@ -64,4 +64,5 @@ def test_openapi_contract_is_available_under_v1() -> None:
     assert isinstance(payload.get("info"), dict)
     assert isinstance(payload.get("paths"), dict)
     assert "/v1/capabilities" in payload["paths"]
+    assert "/v1/llm-config" in payload["paths"]
     assert "/v1/openapi.json" in payload["paths"]

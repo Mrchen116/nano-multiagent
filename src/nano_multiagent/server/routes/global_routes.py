@@ -1,9 +1,11 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from nano_multiagent import __version__
+from nano_multiagent.core.errors import ModelError
 from nano_multiagent.llm.factory import LLMFactoryConfig
 from nano_multiagent.llm.model_registry import (
     get_default_model,
@@ -13,7 +15,7 @@ from nano_multiagent.llm.model_registry import (
 from nano_multiagent.tools.registry import ToolRegistry
 
 from ..auth import require_bearer_auth
-from ..deps import get_tool_registry
+from ..deps import APIError, get_agent_runtime, get_tool_registry
 
 router = APIRouter()
 
@@ -31,11 +33,91 @@ def health() -> dict[str, bool | str]:
     "/v1/capabilities",
     dependencies=[Depends(require_bearer_auth)],
 )
-def capabilities(registry: ToolRegistry = Depends(get_tool_registry)) -> dict[str, Any]:
+def capabilities(
+    registry: ToolRegistry = Depends(get_tool_registry),
+    runtime=Depends(get_agent_runtime),
+) -> dict[str, Any]:
     return build_capabilities_payload(
         tool_registry=registry,
-        llm_config=LLMFactoryConfig.from_env(),
+        llm_config=runtime.get_llm_config(),
     )
+
+
+class LLMConfigResponse(BaseModel):
+    provider: str
+    model: str
+    base_url: str
+    api_key: str | None = None
+    timeout_seconds: float
+
+
+class PatchLLMConfigRequest(BaseModel):
+    provider: str | None = None
+    model: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    timeout_seconds: float | None = Field(default=None, gt=0)
+    clear_api_key: bool | None = None
+
+
+@router.get(
+    "/v1/llm-config",
+    response_model=LLMConfigResponse,
+    dependencies=[Depends(require_bearer_auth)],
+)
+def get_llm_config(runtime=Depends(get_agent_runtime)) -> LLMConfigResponse:
+    return _to_llm_config_response(runtime.get_llm_config())
+
+
+@router.patch(
+    "/v1/llm-config",
+    response_model=LLMConfigResponse,
+    dependencies=[Depends(require_bearer_auth)],
+)
+def patch_llm_config(
+    payload: PatchLLMConfigRequest,
+    runtime=Depends(get_agent_runtime),
+) -> LLMConfigResponse:
+    fields_set = payload.model_fields_set
+    _ensure_patch_request_is_valid(payload=payload, fields_set=fields_set)
+
+    update_api_key = "api_key" in fields_set or payload.clear_api_key is True
+    provider = _require_non_null_if_provided("provider", payload.provider, fields_set)
+    model = _require_non_null_if_provided("model", payload.model, fields_set)
+    base_url = _require_non_null_if_provided("base_url", payload.base_url, fields_set)
+    timeout_seconds = _require_non_null_if_provided(
+        "timeout_seconds",
+        payload.timeout_seconds,
+        fields_set,
+    )
+    api_key = payload.api_key
+    if payload.clear_api_key:
+        api_key = None
+
+    try:
+        config = runtime.reconfigure_llm(
+            provider=provider,
+            model=model,
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            api_key=api_key,
+            update_api_key=update_api_key,
+        )
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    except ModelError as exc:
+        raise APIError(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            code=exc.code,
+            message=exc.message,
+            retryable=exc.retryable,
+        ) from exc
+    return _to_llm_config_response(config)
 
 
 @router.get(
@@ -89,3 +171,65 @@ def build_capabilities_payload(
         },
         "tools": tools,
     }
+
+
+def _to_llm_config_response(config: LLMFactoryConfig) -> LLMConfigResponse:
+    return LLMConfigResponse(
+        provider=config.provider,
+        model=config.model,
+        base_url=config.base_url,
+        api_key=config.api_key,
+        timeout_seconds=config.timeout_seconds,
+    )
+
+
+def _require_non_null_if_provided(
+    field_name: str,
+    value: Any,
+    fields_set: set[str],
+) -> Any:
+    if field_name not in fields_set:
+        return None
+    if value is None:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=f"'{field_name}' cannot be null",
+            retryable=False,
+        )
+    return value
+
+
+def _ensure_patch_request_is_valid(
+    *,
+    payload: PatchLLMConfigRequest,
+    fields_set: set[str],
+) -> None:
+    if not fields_set:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message="at least one llm config field is required",
+            retryable=False,
+        )
+    if payload.clear_api_key is False and fields_set == {"clear_api_key"}:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message="at least one llm config field is required",
+            retryable=False,
+        )
+    if "clear_api_key" in fields_set and payload.clear_api_key is None:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message="'clear_api_key' cannot be null",
+            retryable=False,
+        )
+    if payload.clear_api_key and "api_key" in fields_set and payload.api_key is not None:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message="'api_key' cannot be set when 'clear_api_key' is true",
+            retryable=False,
+        )
