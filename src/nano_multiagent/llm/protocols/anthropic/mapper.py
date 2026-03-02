@@ -23,6 +23,12 @@ class AnthropicMapper:
                 continue
             messages.append(self._map_message(message))
 
+        if not messages:
+            raise ModelError(
+                "anthropic request requires at least one non-system message",
+                retryable=False,
+            )
+
         payload: dict[str, Any] = {
             "model": request.model,
             "messages": messages,
@@ -74,6 +80,6 @@ def _normalize_content(content_blocks: list[Any]) -> str:
     for block in content_blocks:
         if isinstance(block, Mapping) and block.get("type") == "text":
             text_value = block.get("text")
-            if isinstance(text_value, str):
-                chunks.append(text_value)
+            if text_value is not None:
+                chunks.append(str(text_value))
     return "".join(chunks)
