@@ -3,7 +3,7 @@
 - Test command: `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_sdk_client.py tests/unit/test_cli_managed_server.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py`
 - Branch: `milestone/M20`
 
-## [TODO] R20.1 单命令输出契约与 llm-config 路径先收口
+## [DONE] R20.1 单命令输出契约与 llm-config 路径先收口
 - Acceptance:
   - `send-message` 单命令模式输出保持“仅单个 JSON”，stdout 不混入事件行。
   - CLI HTTP client 对 `/v1/llm-config` 使用与 server 一致的路径契约。
@@ -22,7 +22,10 @@
   - Red->Green，且 test command 全绿。
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录证据、回滚点、提交哈希。
-- Status: TODO
+- Commits:
+  - C1: `75057c0`
+  - C2: `2015e69`
+- Status: DONE
 
 ## [TODO] R20.2 REPL 默认 async events 实时展示（含去重与 run_id 过滤）
 - Acceptance:
