@@ -19,6 +19,13 @@ from nano_multiagent.cli.managed_server import ManagedServerConfig, ManagedServe
 _DEFAULT_HISTORY_LIMIT = 20
 _REPL_COMMANDS = ("/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit")
 _HELP_LINE = "Commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit"
+_CLI_HELP_EPILOG = (
+    "REPL quick commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit\n"
+    "Inline editing: ←/→ move cursor, Backspace deletes at cursor.\n"
+    "History recall: ↑/↓ navigates per-session input history and restores draft.\n"
+    "Context budget: shown after each assistant reply and after /compact.\n"
+    "Error layers: input / network / runtime."
+)
 _DEFAULT_CLI_MODE = "remote"
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 _ERROR_LAYERS = {"input", "network", "runtime"}
@@ -63,7 +70,12 @@ class _ManagedLLMOverrides:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="nano-multiagent-cli")
+    parser = argparse.ArgumentParser(
+        prog="nano-multiagent-cli",
+        description="Interactive Coding Agent CLI over HTTP API.",
+        epilog=_CLI_HELP_EPILOG,
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
     parser.add_argument("--mode", choices=("managed", "remote"), default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--token", default=None)
