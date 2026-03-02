@@ -3,6 +3,7 @@ import json
 
 import httpx
 
+from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
 from nano_multiagent.cli.main import run_cli
 from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.server.app import create_app
@@ -28,6 +29,16 @@ class _RuntimeStub:
             ),
             completed=True,
             stop_reason="stop",
+        )
+
+    def compact(self, session_id: str) -> CompactionResult:
+        return CompactionResult(
+            reason=CompactionReason.MANUAL,
+            entry_id="entry_cli_compact",
+            first_kept_event_id="evt_cli_kept",
+            summary="cli compacted",
+            dropped_event_ids=("evt_cli_drop",),
+            kept_event_ids=("evt_cli_kept",),
         )
 
 

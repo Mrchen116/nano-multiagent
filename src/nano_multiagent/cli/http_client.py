@@ -79,6 +79,25 @@ class ServerClient:
             require_auth=True,
         )
 
+    def list_session_tools(self, *, session_id: str) -> dict[str, Any]:
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        return self._request(
+            "GET",
+            f"/v1/sessions/{session_id}/tools",
+            require_auth=True,
+        )
+
+    def compact_session(self, *, session_id: str) -> dict[str, Any]:
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        return self._request(
+            "POST",
+            f"/v1/sessions/{session_id}:compact",
+            json={},
+            require_auth=True,
+        )
+
     def _request(
         self,
         method: str,
