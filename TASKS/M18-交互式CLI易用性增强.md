@@ -24,10 +24,10 @@
 - Commits:
   - C1: `b6ac8ae`
   - C2: `a82a5c9`
-  - C3: `<pending>`
+  - C3: `821d4a1`
 - Status: DONE
 
-## [TODO] R18.2 `/tools` 与 `/compact` 可读摘要 + 可操作错误提示
+## [DONE] R18.2 `/tools` 与 `/compact` 可读摘要 + 可操作错误提示
 - Acceptance:
   - `/tools` 输出人类可读摘要（会话、工具数、工具条目）。
   - `/compact` 输出人类可读摘要（是否压缩、摘要/保留/丢弃关键信息）。
@@ -47,10 +47,10 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M18-*.md` 写明证据、回滚点、提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `a5f39c2`
+  - C2: `af90901`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R18.3 交互鲁棒性收口（空输入、Ctrl-D、参数错误）
 - Acceptance:

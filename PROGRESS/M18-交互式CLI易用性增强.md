@@ -49,6 +49,32 @@
     - `/history` 与 `/history 2` 可输出 `History for session ...` 及 `role: content` 行。
 - Rollback:
   - `b6ac8ae`（R18.1 C1）
-- Commits: C1=`b6ac8ae`, C2=`a82a5c9`, C3=`<pending>`
+- Commits: C1=`b6ac8ae`, C2=`a82a5c9`, C3=`821d4a1`
 - Next:
   - R18.2 Red
+
+### R18.2 `/tools` 与 `/compact` 可读摘要 + 可操作错误提示
+- Context:
+  - 当前 `/tools` 与 `/compact` 直接打印 JSON，交互性弱；命令错误仅有原始报错，缺少下一步建议。
+  - 需保持 HTTP API 调用语义不变，仅增强 CLI 交互输出层。
+- Decision:
+  - 增加统一错误输出函数：`Error: ...` + `Suggestion: ...`，覆盖无会话、缺参、未知命令、请求失败。
+  - 将 `/tools` 改为文本摘要（会话 + 数量 + 工具列表）。
+  - 将 `/compact` 改为文本摘要（无变化或 compacted 结果摘要）。
+  - REPL 命令集合契约更新为包含 `/history`。
+- Rationale:
+  - 输出层增强可显著降低日常使用成本，同时避免改动后端契约带来的集成风险。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py tests/contract/test_cli_http_only_contract.py tests/integration/test_cli_http_flow_integration.py` -> 3 failed（摘要与建议未实现）
+    - Green: 同命令 -> `12 passed`
+    - Gate: `pytest -q` -> `239 passed, 3 skipped`
+  - Entry:
+    - `/tools` 输出 `Tools for session ...` 和 `- <tool>: <description>`。
+    - `/compact` 输出 `Compaction for session ...`。
+    - `/unknown`、`/use` 缺参、无 active session 均输出 `Suggestion` 行。
+- Rollback:
+  - `a5f39c2`（R18.2 C1）
+- Commits: C1=`a5f39c2`, C2=`af90901`, C3=`<pending>`
+- Next:
+  - R18.3 Red
