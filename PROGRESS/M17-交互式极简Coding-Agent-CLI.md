@@ -54,3 +54,27 @@
 - Commits: C1=`684ed01`, C2=`848b229`, C3=<pending>
 - Next:
   - R17.2 Red
+
+### R17.2 CLI HTTP 客户端分层重构（`cli/main.py + cli/commands.py + cli/http_client.py`）
+- Context:
+  - 现状 `cli/main.py` 承担参数解析+HTTP 调用，且 HTTP client 放在 `sdk/client.py`，与 M17 目录目标不一致。
+  - 需要保留 M16 既有 CLI HTTP 流程，避免改动扩散到 runtime 或其他不在 scope 的模块。
+- Decision:
+  - 新增 `cli/http_client.py` 承载 `ServerClient/ServerClientConfig` 与传输桥接逻辑。
+  - 新增 `cli/commands.py` 承载 `build_parser/run_cli` 命令执行流程；`cli/main.py` 仅作入口转发。
+  - `sdk/client.py` 改为兼容别名导出，保持旧 import 不破坏。
+- Rationale:
+  - 先完成模块边界重构，再在下一 Roadpoint 叠加 REPL 行为，能降低一次性变更风险。
+  - `sdk` 兼容层保留下游导入稳定性，符合“必要最小”改动约束。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_sdk_client.py tests/contract/test_cli_http_only_contract.py tests/integration/test_cli_http_flow_integration.py` -> `2 errors`（缺少 `cli.http_client/cli.commands`）
+    - Green: `pytest -q tests/unit/test_sdk_client.py tests/unit/test_cli_main.py tests/contract/test_cli_http_only_contract.py tests/integration/test_cli_http_flow_integration.py` -> `8 passed`
+    - Gate: `pytest -q` -> `231 passed, 3 skipped`
+  - Entry:
+    - `nano_multiagent.cli.main` 仅作入口；命令调度与 HTTP 请求分别落在 `commands.py`、`http_client.py`。
+- Rollback:
+  - `3d35230`（R17.2 C1）
+- Commits: C1=`3d35230`, C2=`69baa66`, C3=<pending>
+- Next:
+  - R17.3 Red

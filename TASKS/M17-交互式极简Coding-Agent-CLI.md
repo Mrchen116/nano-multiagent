@@ -27,7 +27,7 @@
   - C2: `848b229`
 - Status: DONE
 
-## [TODO] R17.2 CLI HTTP 客户端分层重构（`cli/main.py + cli/commands.py + cli/http_client.py`）
+## [DONE] R17.2 CLI HTTP 客户端分层重构（`cli/main.py + cli/commands.py + cli/http_client.py`）
 - Acceptance:
   - CLI 目录按目标形态落地：`main.py` 仅负责入口，`commands.py` 负责命令调度，`http_client.py` 负责 HTTP 调用。
   - CLI 代码不出现 `agent.runtime` 直连 import，所有动作通过 HTTP API。
@@ -48,9 +48,9 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M17-*.md` 记录决策/证据/回滚点/哈希。
 - Commits:
-  - C1: <pending>
-  - C2: <pending>
-- Status: TODO
+  - C1: `3d35230`
+  - C2: `69baa66`
+- Status: DONE
 
 ## [TODO] R17.3 交互式 REPL 与会话命令（`/help /new /use /session /tools /compact /exit`）
 - Acceptance:
