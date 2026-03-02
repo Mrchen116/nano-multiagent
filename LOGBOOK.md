@@ -18,3 +18,4 @@
 - REPL 异步事件消费防串线规则（2026-03-02）：通过 `/sessions/{id}/events` 轮询时必须同时做 `event_id` 去重与 `run_id` 过滤，否则历史回放会导致重复打印或把其它 run 的事件混入当前交互输出。
 - 单命令 JSON 契约隔离规则（2026-03-02）：`send-message` 这类脚本入口的 stdout 只能输出最终 JSON，实时事件必须限定在 REPL 路径或 stderr/独立通道，避免机读解析被中间事件污染。
 - CLI 错误分层规则（2026-03-02）：交互错误必须显式输出 `Layer: input|network|runtime` 并附可执行建议；单命令失败 JSON 需至少保留 `error/suggestion`，可新增 `layer`，但不得移除旧字段。
+- CLI 模块边界防回流规则（2026-03-03）：`commands.py` 只做入口编排，不要重新导出 `repl_input/repl_commands` 内部函数；边界测试应直接依赖所属模块，并保持 `send-message` 单行 JSON 契约与异步事件路径隔离。
