@@ -2,6 +2,7 @@ import io
 import json
 
 import httpx
+import pytest
 
 from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
 from nano_multiagent.cli.main import run_cli
@@ -169,3 +170,47 @@ def test_cli_repl_rejects_invalid_command_arguments() -> None:
     assert "Error: command /tools does not accept arguments." in text
     assert "Suggestion: try /tools." in text
     assert "Usage: /tools" in text
+
+
+class _ManagedServerRecorder:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def start(self) -> None:
+        self.events.append("start")
+
+    def stop(self) -> None:
+        self.events.append("stop")
+
+
+@pytest.mark.parametrize("mode", ["managed", "remote"])
+def test_cli_repl_flow_supports_key_commands_in_both_modes(mode: str) -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+    managed_server = _ManagedServerRecorder()
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/tools", "/compact", "/history", "/exit"])
+    exit_code = run_cli(
+        ["--mode", mode, "--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        managed_server_factory=lambda _: managed_server,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "cli:ping" in text
+    assert "Tools for session" in text
+    assert "Compaction for session" in text
+    assert "History for session" in text
+    if mode == "managed":
+        assert managed_server.events == ["start", "stop"]
+    else:
+        assert managed_server.events == []

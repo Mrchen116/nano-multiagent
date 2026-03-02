@@ -46,22 +46,22 @@ def run_cli(
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     out = stdout or sys.stdout
-
-    mode = _resolve_mode(args.mode)
-    env_config = ServerClientConfig.from_env()
-    base_url = _resolve_base_url(mode=mode, arg_base_url=args.base_url, env_config=env_config)
-    config = ServerClientConfig(
-        base_url=base_url,
-        token=args.token if args.token is not None else env_config.token,
-        request_id=args.request_id if args.request_id is not None else env_config.request_id,
-        timeout_seconds=env_config.timeout_seconds,
-    )
-
-    factory = client_factory or (lambda cfg: ServerClient(config=cfg))
-    managed_factory = managed_server_factory or (lambda cfg: ManagedServerProcess(config=cfg))
-    lifecycle = _build_server_lifecycle(mode=mode, config=config, managed_server_factory=managed_factory)
+    mode = _DEFAULT_CLI_MODE
 
     try:
+        mode = _resolve_mode(args.mode)
+        env_config = ServerClientConfig.from_env()
+        base_url = _resolve_base_url(mode=mode, arg_base_url=args.base_url, env_config=env_config)
+        config = ServerClientConfig(
+            base_url=base_url,
+            token=args.token if args.token is not None else env_config.token,
+            request_id=args.request_id if args.request_id is not None else env_config.request_id,
+            timeout_seconds=env_config.timeout_seconds,
+        )
+
+        factory = client_factory or (lambda cfg: ServerClient(config=cfg))
+        managed_factory = managed_server_factory or (lambda cfg: ManagedServerProcess(config=cfg))
+        lifecycle = _build_server_lifecycle(mode=mode, config=config, managed_server_factory=managed_factory)
         with lifecycle:
             with factory(config) as client:
                 if args.command is None:
