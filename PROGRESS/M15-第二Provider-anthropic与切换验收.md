@@ -62,18 +62,28 @@
     - `AnthropicMapper` 可稳定处理 system-only 输入拦截和非字符串 text chunk，保持输出 `LLMGenerateResponse` 契约稳定。
 - Rollback:
   - 若需重做，回退到 `0034698`（R15.2 C1 红测基线）。
-- Commits: C1=`0034698`, C2=`7be80d3`, C3=
+- Commits: C1=`0034698`, C2=`7be80d3`, C3=`c78a3d9`
 - Next:
   - R15.3 进行 model_registry/factory 接线与 provider 配置切换集成验收。
 
 ### R15.3 工厂接线与 provider 切换验收（配置驱动）
-- Status: TODO
+- Status: DONE
 - Context:
+  - 通过 C1 红测暴露 `model_registry` 与 `factory` 仍只支持 `openai_compat`，导致 anthropic 双链路（integration/runtime/e2e）无法由配置切换打通。
 - Decision:
+  - 在 `model_registry` 增加 `anthropic` provider 元数据和默认模型。
+  - 在 `factory.create_llm_client` 增加 `provider=anthropic` 分支，复用统一 `LLMFactoryConfig`。
+  - 增补 anthropic integration/e2e/runtime 验证，确认无需修改 runtime/tool/session 代码即可切换。
 - Rationale:
+  - 将 provider 差异收敛在 `llm` 目录内，保持 runtime 与 session 层稳定，满足“仅改配置切换 provider”约束。
 - Evidence:
   - Tests:
+    - `pytest -q tests/unit/test_llm_model_registry.py tests/integration/test_anthropic_generation_integration.py tests/integration/test_agent_runtime_integration.py tests/e2e/test_anthropic_generate_e2e.py` -> `7 passed, 1 skipped`
+    - `pytest -q` -> `1 failed, 187 passed, 3 skipped`（仅既有 runtime 基线失败）
   - Entry:
+    - `LLMFactoryConfig(provider=\"anthropic\")` 可经工厂创建 anthropic client 并完成 runtime 端到端链路（MockTransport 集成）。
 - Rollback:
-- Commits: C1=, C2=, C3=
+  - 若需重做，回退到 `b9b57dc`（R15.3 C1 红测基线）。
+- Commits: C1=`b9b57dc`, C2=`fa24134`, C3=
 - Next:
+  - 进行 Milestone 级 rebase/main 合并与 `dev-tasks.json` DONE 回写。
