@@ -26,11 +26,23 @@ _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
             supports_tools=False,
             supports_streaming=False,
         ),
+    },
+    "anthropic": {
+        "claude-3-5-sonnet-20241022": ModelMetadata(
+            provider="anthropic",
+            model="claude-3-5-sonnet-20241022",
+            default_base_url="http://127.0.0.1:4000",
+            supports_text=True,
+            supports_image=False,
+            supports_tools=False,
+            supports_streaming=False,
+        ),
     }
 }
 
 _PROVIDER_DEFAULT_MODEL: dict[str, str] = {
     "openai_compat": "codexOAuth:gpt-5.2-codex",
+    "anthropic": "claude-3-5-sonnet-20241022",
 }
 
 

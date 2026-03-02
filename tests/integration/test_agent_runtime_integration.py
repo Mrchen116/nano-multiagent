@@ -60,3 +60,53 @@ def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -> None
     messages = second_payload["messages"]
     assert [message["role"] for message in messages] == ["system", "user", "assistant", "user"]
     assert messages[-1]["content"] == "Q2"
+
+
+def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path) -> None:
+    observed_bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed_bodies.append(json.loads(request.read().decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={
+                "id": "msg_runtime",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-3-5-sonnet-20241022",
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "ack"}],
+            },
+        )
+
+    db_path = tmp_path / "runtime_anthropic.sqlite3"
+    store = SQLiteSessionStore(db_path=db_path)
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+
+    client = create_llm_client(
+        config=LLMFactoryConfig(
+            provider="anthropic",
+            model="claude-3-5-sonnet-20241022",
+            base_url="http://127.0.0.1:4000",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="claude-3-5-sonnet-20241022")
+
+    runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
+    runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
+
+    loaded = store.load_session(session.session_id)
+    assert loaded is not None
+    turn_events = [event for event in loaded.events if event.kind is SessionEntryKind.TURN_APPENDED]
+    assert len(turn_events) == 4
+    assert turn_events[0].data["content"] == "Q1"
+    assert turn_events[1].data["content"] == "ack"
+
+    second_payload = observed_bodies[-1]
+    assert isinstance(second_payload.get("system"), str)
+    assert second_payload["system"].strip()
+    messages = second_payload["messages"]
+    assert [message["role"] for message in messages] == ["user", "assistant", "user"]
+    assert messages[-1]["content"] == [{"type": "text", "text": "Q2"}]
