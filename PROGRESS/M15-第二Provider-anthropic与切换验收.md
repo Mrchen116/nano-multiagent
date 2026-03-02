@@ -22,16 +22,26 @@
   - 记录为既有基线失败，M15 期间保证“不新增失败”；Milestone 收口时再基于 rebase 后主线状态做全量 gate 复核。
 
 ### R15.1 Provider 契约测试集统一（OpenAI + Anthropic）
-- Status: TODO
+- Status: DONE
 - Context:
+  - 需要将 provider 适配层收敛到统一契约，避免 openai_compat 与 anthropic 分叉出两套行为语义。
+  - Red 阶段先以 `tests/contract/test_llm_provider_contract.py` 覆盖 mapper 请求/响应、client header 与 streaming 错误语义；当时 `anthropic` 模块不存在，按预期红灯。
 - Decision:
+  - 新增共享契约测试入口，统一参数化 `openai_compat` 与 `anthropic`。
+  - 落地 `AnthropicMapper` + `AnthropicClient` 最小实现，接口形态与 `openai_compat` 对齐（`LLMTranslator`、`ModelError`、上下文管理器）。
 - Rationale:
+  - 先统一契约再补 provider，能确保第二 provider 从第一天就遵循已有接口边界，而不是后续再补兼容层。
 - Evidence:
   - Tests:
+    - `pytest -q tests/contract/test_llm_provider_contract.py` -> `8 passed`
+    - `pytest -q` -> `1 failed, 179 passed, 2 skipped`（仅保留既有基线失败：`test_core_events_contract`）
   - Entry:
+    - `anthropic` 契约入口可完成 `/v1/messages` 请求映射、`X-Session-Id` 透传、错误归一化与响应解码。
 - Rollback:
-- Commits: C1=, C2=, C3=
+  - 若需重做，回退到 `272946c`（R15.1 C1 红测基线）。
+- Commits: C1=`272946c`, C2=`6edbac4`, C3=
 - Next:
+  - R15.2 增补 anthropic mapper 的边界单测（system 抽取、max_tokens 默认值、异常响应分支）。
 
 ### R15.2 新增 anthropic 协议实现（llm/protocols/anthropic）
 - Status: TODO
