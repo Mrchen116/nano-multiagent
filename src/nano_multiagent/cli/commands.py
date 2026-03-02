@@ -15,9 +15,9 @@ _HELP_LINE = "Commands: /help /new /use <session_id> /session /tools /compact /h
 _DEFAULT_CLI_MODE = "remote"
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 _EVENT_PREVIEW_MAX_LEN = 120
-_EVENT_POLL_MAX_EVENTS = 40
+_EVENT_POLL_MAX_EVENTS = 200
 _EVENT_POLL_TIMEOUT_SECONDS = 0.25
-_MAX_RUN_POLL_LOOPS = 240
+_EVENT_DRAIN_MAX_ATTEMPTS = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -427,43 +427,42 @@ def _send_message_with_async_events(
     assistant_text = ""
     terminal_run: dict[str, object] | None = None
 
-    for _ in range(_MAX_RUN_POLL_LOOPS):
+    while True:
         events = client.stream_session_events(
             session_id=session_id,
             max_events=_EVENT_POLL_MAX_EVENTS,
             timeout_seconds=_EVENT_POLL_TIMEOUT_SECONDS,
         )
-        delayed_terminal_run_status: dict[str, object] | None = None
-        for event in events:
-            event_id, event_name, data = _normalize_session_event(event)
-            if event_id and event_id in seen_event_ids:
-                continue
-            if event_id:
-                seen_event_ids.add(event_id)
-            if data.get("run_id") != run_id:
-                continue
-            if event_name == "run_status":
-                status = data.get("status")
-                if isinstance(status, str) and status.strip().lower() in _TERMINAL_RUN_STATUSES:
-                    # Runtime currently emits terminal run_status before tool/text tail events.
-                    # Delay terminal line to keep CLI output closer to human reading order.
-                    delayed_terminal_run_status = data
-                    continue
-            _print_event_preview(out=out, event_name=event_name, data=data)
-            if event_name == "text_delta":
-                delta = data.get("delta")
-                if isinstance(delta, str):
-                    assistant_text = _merge_text_delta(assistant_text, delta)
-        if delayed_terminal_run_status is not None:
-            _print_event_preview(out=out, event_name="run_status", data=delayed_terminal_run_status)
+        assistant_text, _ = _consume_async_run_events(
+            out=out,
+            events=events,
+            run_id=run_id,
+            seen_event_ids=seen_event_ids,
+            assistant_text=assistant_text,
+        )
 
         run_payload = client.get_run(run_id=run_id)
         status_text = str(run_payload.get("status", "")).strip().lower()
         if status_text in _TERMINAL_RUN_STATUSES:
             terminal_run = run_payload
             break
-    else:
-        raise TimeoutError("timed out waiting for async run completion")
+
+    # Drain any late-arriving events after terminal status is observed.
+    for _ in range(_EVENT_DRAIN_MAX_ATTEMPTS):
+        tail_events = client.stream_session_events(
+            session_id=session_id,
+            max_events=_EVENT_POLL_MAX_EVENTS,
+            timeout_seconds=0.0,
+        )
+        assistant_text, consumed = _consume_async_run_events(
+            out=out,
+            events=tail_events,
+            run_id=run_id,
+            seen_event_ids=seen_event_ids,
+            assistant_text=assistant_text,
+        )
+        if consumed == 0:
+            break
 
     if terminal_run is None:
         raise RuntimeError("missing terminal async run result")
@@ -511,6 +510,43 @@ def _normalize_session_event(event: object) -> tuple[str, str, dict[str, object]
     resolved_name = event_name.strip() if isinstance(event_name, str) and event_name.strip() else "message"
     resolved_data = data if isinstance(data, dict) else {}
     return resolved_id, resolved_name, resolved_data
+
+
+def _consume_async_run_events(
+    *,
+    out: TextIO,
+    events: list[dict[str, object]],
+    run_id: str,
+    seen_event_ids: set[str],
+    assistant_text: str,
+) -> tuple[str, int]:
+    delayed_terminal_run_status: dict[str, object] | None = None
+    consumed = 0
+    updated_text = assistant_text
+    for event in events:
+        event_id, event_name, data = _normalize_session_event(event)
+        if event_id and event_id in seen_event_ids:
+            continue
+        if event_id:
+            seen_event_ids.add(event_id)
+        if data.get("run_id") != run_id:
+            continue
+        consumed += 1
+        if event_name == "run_status":
+            status = data.get("status")
+            if isinstance(status, str) and status.strip().lower() in _TERMINAL_RUN_STATUSES:
+                # Runtime currently emits terminal run_status before tool/text tail events.
+                # Delay terminal line to keep CLI output closer to human reading order.
+                delayed_terminal_run_status = data
+                continue
+        _print_event_preview(out=out, event_name=event_name, data=data)
+        if event_name == "text_delta":
+            delta = data.get("delta")
+            if isinstance(delta, str):
+                updated_text = _merge_text_delta(updated_text, delta)
+    if delayed_terminal_run_status is not None:
+        _print_event_preview(out=out, event_name="run_status", data=delayed_terminal_run_status)
+    return updated_text, consumed
 
 
 def _print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]) -> None:
