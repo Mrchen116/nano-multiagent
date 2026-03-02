@@ -52,7 +52,7 @@
   - C3: `<pending>`
 - Status: DONE
 
-## [TODO] R19.3 连接诊断与可操作错误提示收口
+## [DONE] R19.3 连接诊断与可操作错误提示收口
 - Acceptance:
   - 端口占用、托管启动失败、连接失败三类场景均输出可操作建议。
   - managed/remote 失败提示能区分“本地服务问题”与“远端不可达问题”。
@@ -72,7 +72,7 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M19-*.md` 补齐证据、回滚点、提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `d71a7e3`
+  - C2: `ba661ca`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE

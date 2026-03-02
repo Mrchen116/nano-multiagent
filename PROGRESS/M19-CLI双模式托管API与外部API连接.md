@@ -90,11 +90,31 @@
 
 ### R19.3 连接诊断与可操作错误提示收口
 - Context:
+  - 仍需补齐“启动失败/连接失败”的可操作提示细节，并确保 remote/managed 诊断文案可区分。
+  - README 需补上双模式用法与常见故障排查。
 - Decision:
+  - 新增 Red 测试：remote 连接失败时 suggestion 必须显式指向 remote API 可达性。
+  - `_suggestion_for_exception` 增加 `mode` 入参：
+    - `remote` 连接失败 -> `ensure the remote API server is reachable`；
+    - `managed` 连接失败 -> 指向本地托管服务启动/端口检查。
+  - 补充 `ManagedServerProcess` 单测覆盖：
+    - 启动超时（含 suggestion）；
+    - 子进程提前退出（含 suggestion）。
+  - 更新 README：managed/remote 启动方式、环境变量、常见诊断建议。
 - Rationale:
+  - 失败提示“可执行”比“仅报错”更关键，模式感知可减少误判（本地问题 vs 远端问题）。
+  - 针对超时与早退补测，避免后续改动破坏关键错误路径。
 - Evidence:
-  - Tests: `<pending>`
-  - Entry: `<pending>`
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py -k "remote_mode_connection_failure_suggestion_mentions_remote_api"` -> 1 failed（文案未区分模式）
+    - Green: `pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_managed_server.py` -> `21 passed`
+    - Gate: `pytest -q` -> `262 passed, 3 skipped`
+  - Entry:
+    - remote 连接失败返回含 `remote API server is reachable` 的 suggestion；
+    - managed 端口冲突/启动超时/启动早退均返回可操作建议；
+    - README 包含双模式使用与故障定位示例。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `d71a7e3`（R19.3 C1）
+- Commits: C1=`d71a7e3`, C2=`ba661ca`, C3=`<pending>`
 - Next:
+  - Milestone 集成：rebase main -> gate -> merge main -> push -> dev-tasks DONE
