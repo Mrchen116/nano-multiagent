@@ -78,14 +78,26 @@
 
 ### R14.2 tool_result list content 保真透传
 - Context:
+  - `tool_result` 拦截结果中 `content` 为 list 时，`ToolRegistry.execute` 当前会包装成 `{"result": [...]}`，导致调用方失去 `content` 语义。
+  - R14.1 的 `read` 图片返回依赖 `content` parts，经过 hook 重写链路后需要保持结构不变。
 - Decision:
+  - 在 `ToolRegistry.execute` 中对 `content` 分支新增 list 特判：返回 `{"content": content}`。
+  - 保持原有 mapping 分支行为（mapping 仍直接展开返回），避免破坏既有 `{"content": {"text": ...}}` 契约。
 - Rationale:
+  - 该改动是最小链路修复，只触及 `tool_result` 返回归一化逻辑，风险低且覆盖面可控。
 - Evidence:
   - Tests:
+    - Red: `pytest -q tests/contract/test_hook_integration_contract.py tests/integration/test_m8_agent_tool_hook_r81_integration.py tests/integration/test_tools_read_integration.py`（3 failed，全部为 list content 被包成 `result`）
+    - Green: 同命令（12 passed）
+    - Gate: `pytest -q`（186 passed, 2 skipped）
   - Entry:
+    - `tool_result` hook 返回 list content 时，`ToolRegistry.execute` 产物为 `{"content": [...]}`；
+    - `read` 图片 parts 经 `tool_result` 重写后结构保持 `text+image`。
 - Rollback:
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
+  - `9f7238c`（R14.2 红测提交）
+- Commits: C1=9f7238c, C2=d7812ae, C3=<pending>
 - Next:
+  - R14.3 Red：覆盖 bash 无默认超时、截断落盘与 fullOutputPath、超时/中断语义。
 
 ### R14.3 bash 语义对齐（无默认超时 + 截断落盘 fullOutputPath）
 - Context:
