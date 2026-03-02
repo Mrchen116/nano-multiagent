@@ -721,7 +721,7 @@ def test_run_cli_repl_compact_summary_displays_key_fields() -> None:
     assert "Summary: context compacted" in text
     assert "Kept events: 2" in text
     assert "Dropped events: 1" in text
-    assert "Context budget: 64/200 (32.0%)" in text
+    assert "Context budget (after /compact): 64/200 (32.0%)" in text
 
 
 def test_run_cli_repl_compact_prints_post_compact_budget_state_line() -> None:

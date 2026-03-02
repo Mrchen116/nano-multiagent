@@ -354,7 +354,12 @@ def _run_repl(
                         continue
                     payload = client.compact_session(session_id=active_session_id)
                     _print_compact_summary(out=out, payload=payload)
-                    _print_context_budget_snapshot(out=out, client=client, session_id=active_session_id)
+                    _print_context_budget_snapshot(
+                        out=out,
+                        client=client,
+                        session_id=active_session_id,
+                        context_label="after /compact",
+                    )
                     continue
                 if command == "/history":
                     if len(argument_tokens) > 1:
@@ -1063,25 +1068,38 @@ def _print_compact_summary(*, out: TextIO, payload: dict[str, object]) -> None:
         print(f"Dropped events: {len(dropped_event_ids)}", file=out)
 
 
-def _print_context_budget_snapshot(*, out: TextIO, client: ServerClient, session_id: str) -> None:
+def _print_context_budget_snapshot(
+    *,
+    out: TextIO,
+    client: ServerClient,
+    session_id: str,
+    context_label: str | None = None,
+) -> None:
     getter = getattr(client, "get_context_budget", None)
     if not callable(getter):
         return
+    prefix = _context_budget_prefix(context_label)
     try:
         payload = getter(session_id=session_id)
     except Exception as exc:
-        print(f"Context budget: unavailable ({_short_error_text(exc)}).", file=out)
+        print(f"{prefix}: unavailable ({_short_error_text(exc)}).", file=out)
         return
 
     metrics = _extract_context_budget_metrics(payload)
     if metrics is None:
-        print("Context budget: unavailable (invalid payload).", file=out)
+        print(f"{prefix}: unavailable (invalid payload).", file=out)
         return
     used_tokens, max_tokens, usage_ratio = metrics
-    print(f"Context budget: {used_tokens}/{max_tokens} ({usage_ratio * 100:.1f}%)", file=out)
+    print(f"{prefix}: {used_tokens}/{max_tokens} ({usage_ratio * 100:.1f}%)", file=out)
     hint = _context_budget_hint_for_ratio(usage_ratio)
     if hint is not None:
         print(hint, file=out)
+
+
+def _context_budget_prefix(context_label: str | None) -> str:
+    if isinstance(context_label, str) and context_label.strip():
+        return f"Context budget ({context_label.strip()})"
+    return "Context budget"
 
 
 def _extract_context_budget_metrics(payload: object) -> tuple[int, int, float] | None:

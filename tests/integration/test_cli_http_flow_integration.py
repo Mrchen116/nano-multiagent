@@ -364,7 +364,8 @@ def test_cli_repl_compact_refreshes_context_budget_snapshot() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert text.count("Context budget: ") >= 2
+    assert "Context budget: " in text
+    assert "Context budget (after /compact): " in text
 
 
 def test_cli_repl_inline_editing_keys_submit_edited_text() -> None:
