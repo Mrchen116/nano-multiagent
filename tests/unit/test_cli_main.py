@@ -38,6 +38,16 @@ class _StubClient:
         self.calls.append(("compact_session", {"session_id": session_id}))
         return {"session_id": session_id, "compacted": False, "result": None}
 
+    def get_context_budget(self, *, session_id: str) -> dict[str, object]:
+        self.calls.append(("get_context_budget", {"session_id": session_id}))
+        return {
+            "session_id": session_id,
+            "used_tokens": 64,
+            "max_tokens": 200,
+            "remaining_tokens": 136,
+            "usage_ratio": 0.32,
+        }
+
     def get_llm_config(self) -> dict[str, object]:
         self.calls.append(("get_llm_config", None))
         return {
@@ -93,6 +103,30 @@ class _CompactedStubClient(_StubClient):
                 "dropped_event_ids": ["evt_drop_1"],
             },
         }
+
+
+class _ThresholdBudgetStubClient(_StubClient):
+    def __init__(self, *, used_tokens: int, max_tokens: int) -> None:
+        super().__init__()
+        self._used_tokens = used_tokens
+        self._max_tokens = max_tokens
+
+    def get_context_budget(self, *, session_id: str) -> dict[str, object]:
+        self.calls.append(("get_context_budget", {"session_id": session_id}))
+        usage_ratio = float(self._used_tokens) / float(self._max_tokens)
+        return {
+            "session_id": session_id,
+            "used_tokens": self._used_tokens,
+            "max_tokens": self._max_tokens,
+            "remaining_tokens": max(self._max_tokens - self._used_tokens, 0),
+            "usage_ratio": usage_ratio,
+        }
+
+
+class _FailingBudgetStubClient(_StubClient):
+    def get_context_budget(self, *, session_id: str) -> dict[str, object]:
+        self.calls.append(("get_context_budget", {"session_id": session_id}))
+        raise RuntimeError("request failed (503): {'error': 'budget unavailable'}")
 
 
 class _FailingToolsStubClient(_StubClient):
@@ -548,11 +582,14 @@ def test_run_cli_repl_supports_required_commands() -> None:
     assert "Tools for session sess_cli (1):" in lines
     assert "- read: Read" in lines
     assert "Compaction for session sess_cli: no changes." in lines
+    assert "Context budget: 64/200 (32.0%)" in lines
     assert [call[0] for call in stub.calls] == [
         "create_session",
         "send_message",
+        "get_context_budget",
         "list_session_tools",
         "compact_session",
+        "get_context_budget",
     ]
 
 
@@ -684,6 +721,44 @@ def test_run_cli_repl_compact_summary_displays_key_fields() -> None:
     assert "Summary: context compacted" in text
     assert "Kept events: 2" in text
     assert "Dropped events: 1" in text
+    assert "Context budget: 64/200 (32.0%)" in text
+
+
+def test_run_cli_repl_context_budget_shows_threshold_hint() -> None:
+    stub = _ThresholdBudgetStubClient(used_tokens=174, max_tokens=200)
+    output = io.StringIO()
+    inputs = iter(["/new", "hello", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "echo:hello" in text
+    assert "Context budget: 174/200 (87.0%)" in text
+    assert "Budget hint: usage >= 85%, consider /compact soon." in text
+
+
+def test_run_cli_repl_context_budget_fetch_failure_is_fail_open() -> None:
+    stub = _FailingBudgetStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "hello", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "echo:hello" in text
+    assert "Context budget: unavailable" in text
 
 
 def test_run_cli_repl_request_failures_include_suggestions() -> None:

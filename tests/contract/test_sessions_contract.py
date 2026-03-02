@@ -68,7 +68,7 @@ def test_get_and_list_sessions_contract_with_minimal_pagination() -> None:
     assert set(list_payload["items"][0].keys()) == {"session_id", "status", "created_at"}
 
 
-def test_session_compact_and_tools_contract() -> None:
+def test_session_compact_tools_and_context_budget_contract() -> None:
     client = TestClient(create_app())
     headers = _auth_headers("req-session-compact-tools-contract")
 
@@ -94,8 +94,18 @@ def test_session_compact_and_tools_contract() -> None:
     if compact_payload["compacted"] is False:
         assert compact_payload["result"] is None
 
+    budget_response = client.get(f"/v1/sessions/{session_id}/context-budget", headers=headers)
+    assert budget_response.status_code == 200
+    budget_payload = budget_response.json()
+    assert set(budget_payload.keys()) == {"session_id", "used_tokens", "max_tokens", "remaining_tokens", "usage_ratio"}
+    assert budget_payload["session_id"] == session_id
+    assert isinstance(budget_payload["used_tokens"], int)
+    assert isinstance(budget_payload["max_tokens"], int)
+    assert isinstance(budget_payload["remaining_tokens"], int)
+    assert isinstance(budget_payload["usage_ratio"], float)
 
-def test_session_compact_and_tools_return_404_for_unknown_session() -> None:
+
+def test_session_compact_tools_and_context_budget_return_404_for_unknown_session() -> None:
     client = TestClient(create_app())
     headers = _auth_headers("req-session-compact-tools-404-contract")
     missing_session_id = "sess_missing_contract"
@@ -109,3 +119,8 @@ def test_session_compact_and_tools_return_404_for_unknown_session() -> None:
     assert compact_response.status_code == 404
     compact_error = compact_response.json()["error"]
     assert compact_error["code"] == "session_not_found"
+
+    budget_response = client.get(f"/v1/sessions/{missing_session_id}/context-budget", headers=headers)
+    assert budget_response.status_code == 404
+    budget_error = budget_response.json()["error"]
+    assert budget_error["code"] == "session_not_found"

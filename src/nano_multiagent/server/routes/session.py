@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from nano_multiagent.agent.compaction.types import CompactionSettings
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.runs.registry import RunsRegistry
@@ -107,6 +108,14 @@ class CompactSessionResponse(BaseModel):
     session_id: str
     compacted: bool
     result: CompactResultResponse | None
+
+
+class ContextBudgetResponse(BaseModel):
+    session_id: str
+    used_tokens: int
+    max_tokens: int
+    remaining_tokens: int
+    usage_ratio: float
 
 
 @router.post("", status_code=201, response_model=SessionResponse)
@@ -216,6 +225,34 @@ def compact_session(
             dropped_event_ids=list(result.dropped_event_ids),
             kept_event_ids=list(result.kept_event_ids),
         ),
+    )
+
+
+@router.get("/{session_id}/context-budget", response_model=ContextBudgetResponse)
+def get_context_budget(
+    session_id: str,
+    session_service: SessionService = Depends(get_session_service),
+    runtime=Depends(get_agent_runtime),
+) -> ContextBudgetResponse:
+    if session_service.get_session(session_id) is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message=f"session does not exist: {session_id}",
+            retryable=False,
+        )
+
+    messages = session_service.manager.list_turn_messages(session_id)
+    used_tokens = _estimate_context_tokens(messages)
+    max_tokens = _resolve_context_window(runtime)
+    remaining_tokens = max(max_tokens - used_tokens, 0)
+    usage_ratio = float(used_tokens) / float(max_tokens)
+    return ContextBudgetResponse(
+        session_id=session_id,
+        used_tokens=used_tokens,
+        max_tokens=max_tokens,
+        remaining_tokens=remaining_tokens,
+        usage_ratio=usage_ratio,
     )
 
 
@@ -363,3 +400,29 @@ def _select_assistant_message(messages: tuple[Message, ...]) -> Message:
 def _iter_sse(events: Iterator[StreamEvent]) -> Iterator[str]:
     for item in events:
         yield encode_sse_event(event_id=item.event_id, event=item.event, data=item.data)
+
+
+def _resolve_context_window(runtime: object) -> int:
+    default_context_window = CompactionSettings().context_window
+    settings = getattr(runtime, "_compaction_settings", None)
+    context_window = getattr(settings, "context_window", None)
+    if isinstance(context_window, bool):
+        return default_context_window
+    if isinstance(context_window, int) and context_window > 0:
+        return context_window
+    return default_context_window
+
+
+def _estimate_context_tokens(history: tuple[Message, ...]) -> int:
+    total = 0
+    for message in history:
+        total += _estimate_text_tokens(message.content)
+    total += 4 + len(history) * 2
+    return total
+
+
+def _estimate_text_tokens(text: str) -> int:
+    normalized = " ".join(text.split())
+    if not normalized:
+        return 1
+    return max(1, (len(normalized) + 7) // 8)

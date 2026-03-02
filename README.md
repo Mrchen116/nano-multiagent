@@ -74,6 +74,12 @@ PYTHONPATH=src python3 -m nano_multiagent.cli.main --mode remote --base-url http
 - `/history [n]`
 - `/exit`
 
+REPL will also print session context budget after each message turn and after `/compact`:
+
+- `Context budget: <used>/<max> (<ratio>%)`
+- threshold hints at `>=70%`, `>=85%`, `>=95%` to suggest compaction timing
+- budget fetch failures are fail-open (`Context budget: unavailable ...`) and do not interrupt chat flow
+
 ### Non-interactive commands
 
 ```bash
