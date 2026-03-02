@@ -79,7 +79,7 @@
     - 单命令 `send-message` 输出契约保持纯 JSON。
 - Rollback:
   - `0e9efbd`（R20.2 C1）
-- Commits: C1=`0e9efbd`, C2=`cff3b49`, C3=`<pending>`
+- Commits: C1=`0e9efbd`, C2=`cff3b49`, C3=`d60c658`
 - Next:
   - R20.3 Red（失败 run 诊断与容错加固）
 
@@ -106,6 +106,6 @@
     - timeout 场景建议仍指向 `NANO_MULTIAGENT_API_TIMEOUT_SECONDS`。
 - Rollback:
   - `eacb4a6`（R20.3 C1）
-- Commits: C1=`eacb4a6`, C2=`8b54d56`, C3=`<pending>`
+- Commits: C1=`eacb4a6`, C2=`8b54d56`, C3=`d60c658`
 - Next:
   - Milestone 集成：rebase/merge main + dev-tasks DONE 更新

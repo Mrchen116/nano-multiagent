@@ -48,6 +48,7 @@
 - Commits:
   - C1: `0e9efbd`
   - C2: `cff3b49`
+  - C3: `d60c658`
 - Status: DONE
 
 ## [DONE] R20.3 CLI 事件消费容错与回归加固
@@ -71,4 +72,5 @@
 - Commits:
   - C1: `eacb4a6`
   - C2: `8b54d56`
+  - C3: `d60c658`
 - Status: DONE
