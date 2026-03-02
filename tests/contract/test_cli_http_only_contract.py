@@ -1,4 +1,5 @@
 import inspect
+from pathlib import Path
 
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import http_client as cli_http_client
@@ -49,3 +50,13 @@ def test_cli_exposes_required_repl_commands_contract() -> None:
 def test_cli_client_exposes_llm_config_contract() -> None:
     assert hasattr(cli_http_client.ServerClient, "get_llm_config")
     assert hasattr(cli_http_client.ServerClient, "patch_llm_config")
+
+
+def test_readme_documents_cli_module_boundaries_and_json_contract() -> None:
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert "CLI module boundary" in readme
+    assert "`commands.py`" in readme
+    assert "`repl_input.py`" in readme
+    assert "`repl_commands.py`" in readme
+    assert "single final JSON object on stdout" in readme

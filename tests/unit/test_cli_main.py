@@ -526,6 +526,8 @@ def test_cli_help_mentions_repl_editing_budget_and_error_layers() -> None:
     assert "/compact /history [n] /exit" in help_text
     assert "Inline editing" in help_text
     assert "History recall" in help_text
+    assert "HTTP-only boundary" in help_text
+    assert "single final JSON object on stdout" in help_text
     assert "Error layers: input / network / runtime" in help_text
 
 
