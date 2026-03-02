@@ -1,3 +1,4 @@
+import signal
 from typing import Any, Mapping
 
 from nano_multiagent.core.errors import ToolError
@@ -36,21 +37,40 @@ class BashTool:
         )
 
         if execution.exit_code != 0:
+            details: dict[str, Any] = {
+                "exit_code": execution.exit_code,
+                "stdout": execution.stdout,
+                "stderr": execution.stderr,
+                "truncated": execution.truncated,
+            }
+            if execution.full_output_path is not None:
+                details["full_output_path"] = execution.full_output_path
+            if execution.exit_code < 0:
+                signal_number = -execution.exit_code
+                try:
+                    signal_name = signal.Signals(signal_number).name
+                except ValueError:
+                    signal_name = f"SIG{signal_number}"
+                details["signal"] = signal_name
+                details["signal_number"] = signal_number
+                raise ToolError(
+                    f"command terminated by signal {signal_name} ({signal_number})",
+                    tool_name=self.name,
+                    details=details,
+                )
             raise ToolError(
                 f"command exited with non-zero status: {execution.exit_code}",
                 tool_name=self.name,
-                details={
-                    "exit_code": execution.exit_code,
-                    "stdout": execution.stdout,
-                    "stderr": execution.stderr,
-                    "truncated": execution.truncated,
-                },
+                details=details,
             )
 
-        return {
+        result: dict[str, Any] = {
             "command": command,
             "exit_code": execution.exit_code,
             "stdout": execution.stdout,
             "stderr": execution.stderr,
             "truncated": execution.truncated,
         }
+        if execution.full_output_path is not None:
+            result["full_output_path"] = execution.full_output_path
+        return result
