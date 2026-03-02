@@ -459,16 +459,21 @@ def _estimate_text_tokens(text: str) -> int:
 
 def _is_context_overflow_error(error: ModelError) -> bool:
     status_code = error.details.get("status_code")
+    if isinstance(status_code, str) and status_code.isdigit():
+        status_code = int(status_code)
+    if status_code not in (None, 400, 413):
+        return False
     response_text = str(error.details.get("response", "")).lower()
     message_text = error.message.lower()
     markers = (
         "maximum context length",
         "context length exceeded",
         "context overflow",
+        "payload too large",
         "too many tokens",
         "token limit",
     )
-    return status_code == 400 and any(marker in response_text or marker in message_text for marker in markers)
+    return any(marker in response_text or marker in message_text for marker in markers)
 
 
 def _message_from_turn_entry(entry: SessionEntry) -> Message:

@@ -108,6 +108,24 @@ class OverflowOnceLLMClient:
         )
 
 
+class SummaryFailingLLMClient:
+    def __init__(self) -> None:
+        self.requests: list[LLMGenerateRequest] = []
+
+    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+        self.requests.append(request)
+        if request.model == "summary-model":
+            raise ModelError(
+                "summary backend unavailable",
+                details={"status_code": 503, "response": "summary service unavailable"},
+            )
+        return LLMGenerateResponse(
+            model=request.model,
+            message=LLMMessage(role="assistant", content="ack-after-fallback"),
+            finish_reason="stop",
+        )
+
+
 def test_threshold_preflight_compacts_and_rebuilds_context(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "compaction-threshold.sqlite3")
     manager = SessionManager(store=store)
@@ -258,3 +276,33 @@ def test_overflow_post_turn_check_compacts_then_retries(tmp_path: Path) -> None:
 
     main_calls = [request for request in llm_client.requests if request.model == "main-model"]
     assert len(main_calls) == 3
+
+
+def test_threshold_compaction_falls_back_when_summary_model_fails(tmp_path: Path) -> None:
+    store = SQLiteSessionStore(db_path=tmp_path / "compaction-summary-failure.sqlite3")
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+    llm_client = SummaryFailingLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="main-model",
+        compaction_settings=CompactionSettings(
+            enabled=True,
+            context_window=60,
+            reserve_tokens=10,
+            min_kept_messages=2,
+            summary_model="summary-model",
+        ),
+    )
+
+    runtime.run(session.session_id, [{"type": "text", "text": "hello " * 20}], stream=False)
+    result = runtime.run(session.session_id, [{"type": "text", "text": "follow-up " * 20}], stream=False)
+
+    assert result.messages[0].content == "ack-after-fallback"
+    loaded = store.load_session(session.session_id)
+    assert loaded is not None
+    compactions = [event for event in loaded.events if isinstance(event, CompactionEntry)]
+    assert compactions
+    assert compactions[-1].data["reason"] == CompactionReason.THRESHOLD.value
+    assert "触发原因为 threshold" in compactions[-1].summary

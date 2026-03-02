@@ -35,19 +35,22 @@ class CompactionSummarizer:
             "Conversation slice:\n"
             f"{chr(10).join(transcript_lines)}"
         )
-        response = self._llm_client.generate(
-            LLMGenerateRequest(
-                session_id=session_id,
-                model=self._model,
-                messages=(
-                    LLMMessage(role="system", content=SUMMARY_SYSTEM_PROMPT),
-                    LLMMessage(role="user", content=prompt),
-                ),
-                stream=False,
+        try:
+            response = self._llm_client.generate(
+                LLMGenerateRequest(
+                    session_id=session_id,
+                    model=self._model,
+                    messages=(
+                        LLMMessage(role="system", content=SUMMARY_SYSTEM_PROMPT),
+                        LLMMessage(role="user", content=prompt),
+                    ),
+                    stream=False,
+                )
             )
-        )
-        summary = response.message.content.strip()
-        return summary or _fallback_summary(reason=reason)
+            summary = response.message.content.strip()
+            return summary or _fallback_summary(reason=reason)
+        except Exception:
+            return _fallback_summary(reason=reason)
 
 
 def _fallback_summary(*, reason: CompactionReason) -> str:
