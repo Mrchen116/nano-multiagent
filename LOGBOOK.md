@@ -13,3 +13,5 @@
   - 门禁 1：必须有一条集成测试使用 mock LLM（首轮 `tool_call`、次轮最终文本），并断言“工具实际执行 + LLM 至少两轮 + 最终 assistant 文本来自工具结果”；
   - 门禁 2：必须有一条 CLI/HTTP 集成测试断言超时失败输出同时包含 `model_error`、`trace_id`、根因 message（如 `root_cause=...`），不能只验“timed out”字样；
   - 验收口径：主链路验证必须经过真实入口（CLI -> HTTP API），不接受仅 unit mock 的“看起来支持 tool-calling”结论。
+- 新坑（2026-03-02）：即使 `/v1/chat/completions` 文本通道正常，也可能在“带 tools 请求”时返回 `assistant.content=""` 且无 `tool_calls`。内核必须把该响应判定为模型异常（返回 `model_error`），禁止把空字符串当成功结果回给 CLI。
+- 追加门禁：新增“空 assistant 响应”回归用例（unit + CLI/HTTP integration），确保出现该类响应时直接失败并暴露错误信息，不再 silent success。

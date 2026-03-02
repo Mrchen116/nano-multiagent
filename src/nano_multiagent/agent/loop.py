@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from nano_multiagent.core.ids import make_message_id, make_tool_call_id
+from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, ToolCall, ToolResult, ToolSpec, TurnResult
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
@@ -90,6 +91,14 @@ class AgentLoop:
                     )
                 )
                 normalized_calls = tuple(_normalize_tool_call(item) for item in response.message.tool_calls)
+                if not normalized_calls and not response.message.content.strip():
+                    raise ModelError(
+                        "empty assistant response from model",
+                        details={
+                            "finish_reason": response.finish_reason,
+                            "has_tools": bool(active_tools),
+                        },
+                    )
                 normalized_response_message = LLMMessage(
                     role=response.message.role,
                     content=response.message.content,
