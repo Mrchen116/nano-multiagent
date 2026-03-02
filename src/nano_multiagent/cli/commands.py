@@ -19,8 +19,16 @@ from nano_multiagent.cli.managed_server import ManagedServerConfig, ManagedServe
 _DEFAULT_HISTORY_LIMIT = 20
 _REPL_COMMANDS = ("/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit")
 _HELP_LINE = "Commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit"
+_CLI_HELP_EPILOG = (
+    "REPL quick commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit\n"
+    "Inline editing: ←/→ move cursor, Backspace deletes at cursor.\n"
+    "History recall: ↑/↓ navigates per-session input history and restores draft.\n"
+    "Context budget: shown after each assistant reply and after /compact.\n"
+    "Error layers: input / network / runtime."
+)
 _DEFAULT_CLI_MODE = "remote"
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
+_ERROR_LAYERS = {"input", "network", "runtime"}
 _EVENT_PREVIEW_MAX_LEN = 120
 _EVENT_POLL_MAX_EVENTS = 200
 _EVENT_POLL_TIMEOUT_SECONDS = 0.25
@@ -62,7 +70,12 @@ class _ManagedLLMOverrides:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="nano-multiagent-cli")
+    parser = argparse.ArgumentParser(
+        prog="nano-multiagent-cli",
+        description="Interactive Coding Agent CLI over HTTP API.",
+        epilog=_CLI_HELP_EPILOG,
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
     parser.add_argument("--mode", choices=("managed", "remote"), default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--token", default=None)
@@ -150,6 +163,7 @@ def run_cli(
                     )
                 payload = _run_single_command(args=args, client=client)
     except Exception as exc:
+        layer = _error_layer_for_exception(exc)
         suggestion = _suggestion_for_exception(
             exc,
             default=(
@@ -159,7 +173,13 @@ def run_cli(
             ),
             mode=mode,
         )
-        print(json.dumps({"error": str(exc), "suggestion": suggestion}, ensure_ascii=False), file=out)
+        print(
+            json.dumps(
+                {"error": str(exc), "layer": layer, "suggestion": suggestion},
+                ensure_ascii=False,
+            ),
+            file=out,
+        )
         return 1
 
     print(json.dumps(payload, ensure_ascii=False), file=out)
@@ -354,7 +374,12 @@ def _run_repl(
                         continue
                     payload = client.compact_session(session_id=active_session_id)
                     _print_compact_summary(out=out, payload=payload)
-                    _print_context_budget_snapshot(out=out, client=client, session_id=active_session_id)
+                    _print_context_budget_snapshot(
+                        out=out,
+                        client=client,
+                        session_id=active_session_id,
+                        context_label="after /compact",
+                    )
                     continue
                 if command == "/history":
                     if len(argument_tokens) > 1:
@@ -389,11 +414,17 @@ def _run_repl(
                     )
                     continue
             except Exception as exc:
+                layer = _error_layer_for_exception(exc, default="network")
                 suggestion = _suggestion_for_exception(
                     exc,
                     default=f"check server status/token and retry {command}.",
                 )
-                _print_actionable_error(out=out, message=f"failed to run {command}.", suggestion=suggestion)
+                _print_actionable_error(
+                    out=out,
+                    message=f"failed to run {command}.",
+                    suggestion=suggestion,
+                    layer=layer,
+                )
                 continue
 
             _print_actionable_error(
@@ -428,6 +459,7 @@ def _run_repl(
             print(json.dumps(payload, ensure_ascii=False), file=out)
             _print_context_budget_snapshot(out=out, client=client, session_id=active_session_id)
         except Exception as exc:
+            layer = _error_layer_for_exception(exc)
             suggestion = _suggestion_for_exception(
                 exc,
                 default="run /new to start a session, then retry.",
@@ -436,6 +468,7 @@ def _run_repl(
                 out=out,
                 message=f"send failed: {exc}",
                 suggestion=suggestion,
+                layer=layer,
             )
 
 
@@ -872,6 +905,41 @@ def _suggestion_for_exception(exc: Exception, *, default: str, mode: str | None 
     return default
 
 
+def _error_layer_for_exception(exc: Exception, *, default: str = "runtime") -> str:
+    explicit_layer = getattr(exc, "layer", None)
+    if isinstance(explicit_layer, str):
+        normalized_layer = explicit_layer.strip().lower()
+        if normalized_layer in _ERROR_LAYERS:
+            return normalized_layer
+
+    text = str(exc).lower()
+    if (
+        "run failed" in text
+        or "run_id=" in text
+        or "run_execution_failed" in text
+        or "stop_reason" in text
+        or "root_cause=" in text
+    ):
+        return "runtime"
+    if isinstance(exc, ValueError):
+        return "input"
+    if (
+        "request failed (" in text
+        or "timed out" in text
+        or "timeout" in text
+        or "connection refused" in text
+        or "connecterror" in text
+        or "nodename nor servname" in text
+        or "name or service not known" in text
+        or "unauthorized" in text
+        or "missing api token" in text
+    ):
+        return "network"
+    if default in _ERROR_LAYERS:
+        return default
+    return "runtime"
+
+
 def _resolve_mode(raw_mode: str | None) -> str:
     value = raw_mode or os.getenv("NANO_MULTIAGENT_CLI_MODE") or _DEFAULT_CLI_MODE
     lowered = value.strip().lower()
@@ -1011,9 +1079,11 @@ def _print_actionable_error(
     out: TextIO,
     message: str,
     suggestion: str,
+    layer: str = "input",
     usage: str | None = None,
 ) -> None:
     print(f"Error: {message}", file=out)
+    print(f"Layer: {layer}", file=out)
     print(f"Suggestion: {suggestion}", file=out)
     if usage is not None:
         print(f"Usage: {usage}", file=out)
@@ -1063,25 +1133,38 @@ def _print_compact_summary(*, out: TextIO, payload: dict[str, object]) -> None:
         print(f"Dropped events: {len(dropped_event_ids)}", file=out)
 
 
-def _print_context_budget_snapshot(*, out: TextIO, client: ServerClient, session_id: str) -> None:
+def _print_context_budget_snapshot(
+    *,
+    out: TextIO,
+    client: ServerClient,
+    session_id: str,
+    context_label: str | None = None,
+) -> None:
     getter = getattr(client, "get_context_budget", None)
     if not callable(getter):
         return
+    prefix = _context_budget_prefix(context_label)
     try:
         payload = getter(session_id=session_id)
     except Exception as exc:
-        print(f"Context budget: unavailable ({_short_error_text(exc)}).", file=out)
+        print(f"{prefix}: unavailable ({_short_error_text(exc)}).", file=out)
         return
 
     metrics = _extract_context_budget_metrics(payload)
     if metrics is None:
-        print("Context budget: unavailable (invalid payload).", file=out)
+        print(f"{prefix}: unavailable (invalid payload).", file=out)
         return
     used_tokens, max_tokens, usage_ratio = metrics
-    print(f"Context budget: {used_tokens}/{max_tokens} ({usage_ratio * 100:.1f}%)", file=out)
+    print(f"{prefix}: {used_tokens}/{max_tokens} ({usage_ratio * 100:.1f}%)", file=out)
     hint = _context_budget_hint_for_ratio(usage_ratio)
     if hint is not None:
         print(hint, file=out)
+
+
+def _context_budget_prefix(context_label: str | None) -> str:
+    if isinstance(context_label, str) and context_label.strip():
+        return f"Context budget ({context_label.strip()})"
+    return "Context budget"
 
 
 def _extract_context_budget_metrics(payload: object) -> tuple[int, int, float] | None:

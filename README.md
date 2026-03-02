@@ -74,11 +74,22 @@ PYTHONPATH=src python3 -m nano_multiagent.cli.main --mode remote --base-url http
 - `/history [n]`
 - `/exit`
 
+Interactive input ergonomics:
+
+- inline editing with `←/→` + Backspace
+- history recall with `↑/↓` (session-scoped), and draft restore when navigating back down
+
 REPL will also print session context budget after each message turn and after `/compact`:
 
 - `Context budget: <used>/<max> (<ratio>%)`
+- `Context budget (after /compact): <used>/<max> (<ratio>%)`
 - threshold hints at `>=70%`, `>=85%`, `>=95%` to suggest compaction timing
 - budget fetch failures are fail-open (`Context budget: unavailable ...`) and do not interrupt chat flow
+
+Error output is layered and actionable:
+
+- REPL errors include `Layer: input|network|runtime` plus `Suggestion`
+- non-interactive command failures keep JSON shape and include `layer`, e.g. `{"error":"...","layer":"network","suggestion":"..."}`.
 
 ### Non-interactive commands
 

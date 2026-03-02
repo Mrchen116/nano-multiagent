@@ -314,6 +314,7 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "run_id=" in text
+    assert "Layer: runtime" in text
     assert "run failed: {'code': 'run_execution_failed'" in text
     assert "root_cause=connect ETIMEDOUT" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
@@ -364,7 +365,8 @@ def test_cli_repl_compact_refreshes_context_budget_snapshot() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert text.count("Context budget: ") >= 2
+    assert "Context budget: " in text
+    assert "Context budget (after /compact): " in text
 
 
 def test_cli_repl_inline_editing_keys_submit_edited_text() -> None:
@@ -425,6 +427,43 @@ def test_cli_repl_history_recall_allows_second_submit_after_editing() -> None:
     text = output.getvalue()
     assert "cli:ping" in text
     assert "cli:piXng" in text
+
+
+def test_cli_repl_full_chain_edit_history_and_compact_budget_state() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    scripted_reader = _ScriptedReplInputReader(
+        scripted_lines=[
+            ["/", "n", "e", "w", "\n"],
+            ["h", "e", "l", "l", "o", "\x1b[D", "\x1b[D", "X", "\n"],
+            ["\x1b[A", "\x1b[C", "!", "\n"],
+            ["/", "c", "o", "m", "p", "a", "c", "t", "\n"],
+            ["/", "h", "i", "s", "t", "o", "r", "y", " ", "4", "\n"],
+            ["/", "e", "x", "i", "t", "\n"],
+        ]
+    )
+    output = io.StringIO()
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "cli:helXlo" in text
+    assert "cli:helXlo!" in text
+    assert "History for session" in text
+    assert "user: helXlo!" in text
+    assert "Compaction for session" in text
+    assert "Context budget (after /compact):" in text
 
 
 def test_cli_repl_up_recalls_previous_command_line() -> None:
@@ -546,6 +585,7 @@ def test_cli_repl_rejects_invalid_command_arguments() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: command /new does not accept arguments." in text
+    assert "Layer: input" in text
     assert "Suggestion: try /new." in text
     assert "Usage: /new" in text
     assert "Error: command /tools does not accept arguments." in text

@@ -518,6 +518,16 @@ def test_run_cli_repl_up_recalls_previous_command_line() -> None:
     assert output.getvalue().count("Commands: /help /new /use <session_id>") == 2
 
 
+def test_cli_help_mentions_repl_editing_budget_and_error_layers() -> None:
+    help_text = cli_commands.build_parser().format_help()
+
+    assert "REPL quick commands" in help_text
+    assert "/compact /history [n] /exit" in help_text
+    assert "Inline editing" in help_text
+    assert "History recall" in help_text
+    assert "Error layers: input / network / runtime" in help_text
+
+
 def test_run_cli_health_outputs_json_payload() -> None:
     stub = _StubClient()
     output = io.StringIO()
@@ -644,6 +654,7 @@ def test_run_cli_repl_command_errors_include_actionable_suggestions() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: no active session." in text
+    assert "Layer: input" in text
     assert "Suggestion: run /new or /use <session_id>." in text
     assert "Error: missing session_id for /use." in text
     assert "Suggestion: try /use <session_id>." in text
@@ -689,6 +700,7 @@ def test_run_cli_repl_rejects_invalid_command_arguments() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: command /new does not accept arguments." in text
+    assert "Layer: input" in text
     assert "Suggestion: try /new." in text
     assert "Usage: /new" in text
     assert "Error: command /session does not accept arguments." in text
@@ -721,7 +733,56 @@ def test_run_cli_repl_compact_summary_displays_key_fields() -> None:
     assert "Summary: context compacted" in text
     assert "Kept events: 2" in text
     assert "Dropped events: 1" in text
-    assert "Context budget: 64/200 (32.0%)" in text
+    assert "Context budget (after /compact): 64/200 (32.0%)" in text
+
+
+def test_run_cli_repl_compact_prints_post_compact_budget_state_line() -> None:
+    stub = _CompactedStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "/compact", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Compaction for session sess_cli: compacted." in text
+    assert "Context budget (after /compact): 64/200 (32.0%)" in text
+
+
+def test_run_cli_repl_edit_history_budget_compact_chain_regression() -> None:
+    stub = _CompactedStubClient()
+    output = io.StringIO()
+    scripted_reader = _ScriptedReplInputReader(
+        scripted_lines=[
+            ["/", "n", "e", "w", "\n"],
+            ["h", "e", "l", "l", "o", "\x1b[D", "\x1b[D", "X", "\n"],
+            ["\x1b[A", "\x1b[C", "!", "\n"],
+            ["/", "c", "o", "m", "p", "a", "c", "t", "\n"],
+            ["/", "h", "i", "s", "t", "o", "r", "y", " ", "4", "\n"],
+            ["/", "e", "x", "i", "t", "\n"],
+        ]
+    )
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "echo:helXlo" in text
+    assert "echo:helXlo!" in text
+    assert "History for session sess_cli" in text
+    assert "user: helXlo!" in text
+    assert "Compaction for session sess_cli: compacted." in text
+    assert "Context budget (after /compact): 64/200 (32.0%)" in text
 
 
 def test_run_cli_repl_context_budget_shows_threshold_hint() -> None:
@@ -776,6 +837,7 @@ def test_run_cli_repl_request_failures_include_suggestions() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: failed to run /tools." in text
+    assert "Layer: network" in text
     assert "Suggestion: check server status/token and retry /tools." in text
 
 
@@ -794,6 +856,7 @@ def test_run_cli_repl_connection_refused_shows_base_url_suggestion() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: send failed: [Errno 61] Connection refused" in text
+    assert "Layer: network" in text
     assert "Suggestion: check --base-url and ensure API server is running." in text
 
 
@@ -814,6 +877,7 @@ def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
     assert exit_code == 0
     text = output.getvalue().lower()
     assert "send failed: timed out" in text
+    assert "layer: network" in text
     assert "nano_multiagent_api_timeout_seconds" in text
 
 
@@ -854,6 +918,7 @@ def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: send failed: run_id=run_failed" in text
+    assert "Layer: runtime" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
 
@@ -1015,6 +1080,7 @@ def test_run_cli_remote_mode_requires_base_url_with_actionable_error() -> None:
     assert exit_code == 1
     payload = json.loads(output.getvalue())
     assert "remote mode requires --base-url" in payload["error"]
+    assert payload["layer"] == "input"
     assert "--base-url" in payload["suggestion"]
 
 
@@ -1039,6 +1105,7 @@ def test_run_cli_remote_mode_connection_failure_suggestion_mentions_remote_api()
     assert exit_code == 1
     payload = json.loads(output.getvalue())
     assert "connection refused" in payload["error"].lower()
+    assert payload["layer"] == "network"
     assert "remote api" in payload["suggestion"].lower()
 
 
@@ -1168,6 +1235,7 @@ def test_run_cli_llm_config_set_requires_at_least_one_field() -> None:
     assert exit_code == 1
     payload = json.loads(output.getvalue())
     assert "at least one" in payload["error"].lower()
+    assert payload["layer"] == "input"
     assert "llm-config set" in payload["suggestion"]
 
 
