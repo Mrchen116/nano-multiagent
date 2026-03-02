@@ -1,4 +1,8 @@
-# PROGRESS
+# PROGRESS (LEGACY TIMELINE)
+
+> 新模式（tdd-control-tower + tdd-execution-worker）：每个 Milestone 的方案/证据请写到 `PROGRESS/<milestone_id>-<简述>.md`。  
+> 当前 Milestone 文件：`PROGRESS/M13R-细化一致性优先修复.md`。  
+> 迁移归档：历史 `LOGBOOK.md` 的工作记录已复制到 `PROGRESS/legacy-logbook-work-notes.md`。
 
 ## 2026-02-27 01:35:28 +0800
 - Done:
