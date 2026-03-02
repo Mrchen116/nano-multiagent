@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -5,10 +6,18 @@ from nano_multiagent.core.errors import ToolError
 
 from ..base import ToolContext
 
+_IMAGE_MIME_BY_SUFFIX = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
 
 class ReadTool:
     name = "read"
-    description = "Read text files with offset/limit and output truncation."
+    description = "Read text files and images with offset/limit and output truncation."
     input_schema = {
         "type": "object",
         "properties": {
@@ -31,6 +40,30 @@ class ReadTool:
                 details={"path": raw_path},
             )
 
+        mime_type = _image_mime_type(file_path)
+        if mime_type is not None:
+            image_bytes = file_path.read_bytes()
+            encoded = base64.b64encode(image_bytes).decode("ascii")
+            display_path = _display_path(file_path, ctx.repo_root)
+            return {
+                "path": display_path,
+                "offset": 1,
+                "next_offset": None,
+                "total_lines": 0,
+                "truncated": False,
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Image: {display_path} ({mime_type}, {len(image_bytes)} bytes)",
+                    },
+                    {
+                        "type": "image",
+                        "mime_type": mime_type,
+                        "image_url": f"data:{mime_type};base64,{encoded}",
+                    },
+                ],
+            }
+
         offset = int(args.get("offset", 1))
         if offset < 1:
             raise ToolError("offset must be >= 1", tool_name=self.name)
@@ -41,7 +74,14 @@ class ReadTool:
             if limit < 1:
                 raise ToolError("limit must be >= 1", tool_name=self.name)
 
-        content = file_path.read_text(encoding="utf-8")
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise ToolError(
+                "file is not UTF-8 text; read supports text and jpg/png/gif/webp images",
+                tool_name=self.name,
+                details={"path": raw_path},
+            ) from exc
         lines = content.splitlines()
         total_lines = len(lines)
 
@@ -67,10 +107,20 @@ class ReadTool:
         returned_lines = len(rendered.splitlines()) if rendered else 0
         next_offset: int | None
         if returned_lines == 0:
-            next_offset = None
+            if truncated and selected:
+                rendered = (
+                    "Output omitted because at least one line exceeds the byte limit. "
+                    "Use `bash`/`sed` with explicit ranges to inspect this file."
+                )
+                next_offset = offset
+            else:
+                next_offset = None
         else:
             candidate_offset = offset + returned_lines
             next_offset = candidate_offset if total_lines == 0 or candidate_offset <= total_lines else None
+        if truncated and next_offset is not None:
+            hint = f"[output truncated; continue with offset={next_offset}]"
+            rendered = f"{rendered}\n\n{hint}" if rendered else hint
 
         return {
             "path": _display_path(file_path, ctx.repo_root),
@@ -87,3 +137,7 @@ def _display_path(path: Path, repo_root: Path) -> str:
         return str(path.relative_to(repo_root))
     except ValueError:
         return str(path)
+
+
+def _image_mime_type(path: Path) -> str | None:
+    return _IMAGE_MIME_BY_SUFFIX.get(path.suffix.lower())
