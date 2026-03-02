@@ -178,6 +178,8 @@ class ToolRegistry:
                 content = rewritten_payload["content"]
                 if isinstance(content, Mapping):
                     return dict(content)
+                if isinstance(content, list):
+                    return {"content": content}
                 return {"result": content}
 
             if execution_error is not None and "output" not in rewritten_payload:
