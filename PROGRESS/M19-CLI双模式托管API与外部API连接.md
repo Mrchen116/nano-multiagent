@@ -57,7 +57,7 @@
     - 端口占用等场景返回可操作 suggestion。
 - Rollback:
   - `cb71da7`（R19.1 C1）
-- Commits: C1=`cb71da7`, C2=`c58db82`, C3=`<pending>`
+- Commits: C1=`cb71da7`, C2=`c58db82`, C3=`7ef1b9f`
 - Next:
   - R19.2 Red（双模式与现有 REPL 命令链路对齐）
 
@@ -84,7 +84,7 @@
     - managed/remote 两模式下 REPL 关键命令均可走通，且 remote 不触发 managed start。
 - Rollback:
   - `1de9b4c`（R19.2 C1）
-- Commits: C1=`1de9b4c`, C2=`d875363`, C3=`<pending>`
+- Commits: C1=`1de9b4c`, C2=`d875363`, C3=`9ce1fcb`
 - Next:
   - R19.3 Red（诊断文案与 README 收口）
 
@@ -115,6 +115,6 @@
     - README 包含双模式使用与故障定位示例。
 - Rollback:
   - `d71a7e3`（R19.3 C1）
-- Commits: C1=`d71a7e3`, C2=`ba661ca`, C3=`<pending>`
+- Commits: C1=`d71a7e3`, C2=`ba661ca`, C3=`eba6f1c`
 - Next:
   - Milestone 集成：rebase main -> gate -> merge main -> push -> dev-tasks DONE

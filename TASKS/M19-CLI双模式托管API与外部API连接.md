@@ -24,7 +24,7 @@
 - Commits:
   - C1: `cb71da7`
   - C2: `c58db82`
-  - C3: `<pending>`
+  - C3: `7ef1b9f`
 - Status: DONE
 
 ## [DONE] R19.2 remote 模式直连语义与 REPL 命令兼容
@@ -49,7 +49,7 @@
 - Commits:
   - C1: `1de9b4c`
   - C2: `d875363`
-  - C3: `<pending>`
+  - C3: `9ce1fcb`
 - Status: DONE
 
 ## [DONE] R19.3 连接诊断与可操作错误提示收口
@@ -74,5 +74,5 @@
 - Commits:
   - C1: `d71a7e3`
   - C2: `ba661ca`
-  - C3: `<pending>`
+  - C3: `eba6f1c`
 - Status: DONE
