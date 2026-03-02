@@ -72,7 +72,7 @@
     - 截断文本输出包含 `offset=<next_offset>` 提示且 `next_offset` 同步更新。
 - Rollback:
   - `1010408`（R14.1 测试红测提交）
-- Commits: C1=1010408, C2=9a99b2c, C3=<pending>
+- Commits: C1=1010408, C2=9a99b2c, C3=94f2407
 - Next:
   - R14.2 Red：补 `tool_result` list content 透传红测。
 
@@ -95,17 +95,32 @@
     - `read` 图片 parts 经 `tool_result` 重写后结构保持 `text+image`。
 - Rollback:
   - `9f7238c`（R14.2 红测提交）
-- Commits: C1=9f7238c, C2=d7812ae, C3=<pending>
+- Commits: C1=9f7238c, C2=d7812ae, C3=5ca3211
 - Next:
   - R14.3 Red：覆盖 bash 无默认超时、截断落盘与 fullOutputPath、超时/中断语义。
 
 ### R14.3 bash 语义对齐（无默认超时 + 截断落盘 fullOutputPath）
 - Context:
+  - `ToolSafety.run_command` 会在未传 `timeout` 时注入默认 30s，违背“bash 无默认超时”目标语义。
+  - 截断路径仅返回截断后的 `stdout/stderr`，未暴露全量日志文件路径，无法追溯完整输出。
+  - 进程被 signal 终止时统一报“non-zero status”，缺失 `signal/signal_number` 细节。
 - Decision:
+  - 将 bash 执行超时语义改为“仅当调用方显式传入 `timeout` 才启用 subprocess timeout”。
+  - 截断发生时持久化完整输出到 `<repo_root>/.nano_multiagent/tmp/bash-output-*.log`，并在结果/错误细节里返回 `full_output_path`。
+  - 对 `exit_code < 0` 场景输出稳定错误文案 `terminated by signal`，并补齐 `signal` 与 `signal_number` details。
 - Rationale:
+  - 最小改动即可对齐设计细化约束，同时保持 `exit_code/stdout/stderr/truncated` 原字段兼容。
+  - 把 full output 落盘放在 `ToolSafety` 层可复用同一截断判定，降低工具层重复逻辑。
 - Evidence:
   - Tests:
+    - Red: `pytest -q`（6 failed，全部聚焦 bash 的 `full_output_path` / no-default-timeout / signal 语义）
+    - Green: `pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_bash_contract.py tests/integration/test_tools_bash_integration.py`（20 passed）
+    - Gate: `pytest -q`（193 passed, 2 skipped）
   - Entry:
+    - `BashTool` 截断输出返回 `full_output_path`，文件可读取完整日志；
+    - signal 终止时错误消息包含 `terminated by signal`，details 含 `signal/signal_number`。
 - Rollback:
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
+  - `c5e746a`（R14.3 红测提交）
+- Commits: C1=c5e746a, C2=277f9c9, C3=<pending>
 - Next:
+  - Milestone 收口：rebase `origin/main`、全量门禁、merge main、更新 `data/dev-tasks.json` 为 DONE。

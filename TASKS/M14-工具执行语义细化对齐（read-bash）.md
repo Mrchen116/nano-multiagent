@@ -45,7 +45,7 @@
   - `PROGRESS/M14-*.md` 记录决策/证据/回退点/哈希。
 - Status: DONE
 
-## [DOING] R14.3 bash 语义对齐（无默认超时 + 截断落盘 fullOutputPath）
+## [DONE] R14.3 bash 语义对齐（无默认超时 + 截断落盘 fullOutputPath）
 - Acceptance:
   - `bash` 在未显式传 `timeout` 时不注入默认超时。
   - 输出过大触发截断时，返回中包含 `full_output_path`，且对应文件可读取完整输出。
@@ -65,7 +65,7 @@
   - 目标测试红转绿，且 `pytest -q` 全绿。
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M14-*.md` 记录决策/证据/回退点/哈希。
-- Status: DOING
+- Status: DONE
 
 ## 续跑计划（2026-03-02）
 - 当前接手分支：`milestone/M14`（`use_worktree=false`，串行执行）。
