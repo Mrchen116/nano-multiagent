@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.runs.registry import RunsRegistry
 from nano_multiagent.server.sse import EventStreamHub, StreamEvent, encode_sse_event
@@ -248,6 +249,13 @@ def send_message(
             code="invalid_request",
             message=message,
             retryable=False,
+        ) from exc
+    except ModelError as exc:
+        raise APIError(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            code=exc.code,
+            message=exc.message,
+            retryable=exc.retryable,
         ) from exc
 
     return SendMessageResponse(**_to_message_response(result))

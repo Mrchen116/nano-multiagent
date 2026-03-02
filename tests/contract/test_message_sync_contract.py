@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.server.app import create_app
 
@@ -22,6 +23,14 @@ class MissingSessionRuntime:
         del parts
         del stream
         raise ValueError(f"session does not exist: {session_id}")
+
+
+class ModelTimeoutRuntime:
+    def run(self, session_id: str, parts, *, stream: bool = True) -> TurnResult:  # noqa: ANN001
+        del session_id
+        del parts
+        del stream
+        raise ModelError("openai_compat transport error", retryable=True)
 
 
 def _auth_headers(request_id: str) -> dict[str, str]:
@@ -73,3 +82,23 @@ def test_sync_message_not_found_uses_unified_error_with_trace_id() -> None:
     assert payload["error"]["retryable"] is False
     assert payload["error"]["trace_id"] == "req-message-missing"
     assert response.headers["x-request-id"] == "req-message-missing"
+
+
+def test_sync_message_model_timeout_maps_to_gateway_error() -> None:
+    client = TestClient(create_app(runtime=ModelTimeoutRuntime()))
+    created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-message-create-2"))
+    assert created.status_code == 201
+    session_id = created.json()["session_id"]
+
+    response = client.post(
+        f"/v1/sessions/{session_id}/messages",
+        json={"parts": [{"type": "text", "text": "ping"}], "stream": False},
+        headers=_auth_headers("req-message-model-timeout"),
+    )
+
+    assert response.status_code == 502
+    payload = response.json()["error"]
+    assert payload["code"] == "model_error"
+    assert payload["message"] == "openai_compat transport error"
+    assert payload["retryable"] is True
+    assert payload["trace_id"] == "req-message-model-timeout"
