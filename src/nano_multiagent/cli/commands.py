@@ -21,6 +21,7 @@ _REPL_COMMANDS = ("/help", "/new", "/use", "/session", "/tools", "/compact", "/h
 _HELP_LINE = "Commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit"
 _DEFAULT_CLI_MODE = "remote"
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
+_ERROR_LAYERS = {"input", "network", "runtime"}
 _EVENT_PREVIEW_MAX_LEN = 120
 _EVENT_POLL_MAX_EVENTS = 200
 _EVENT_POLL_TIMEOUT_SECONDS = 0.25
@@ -150,6 +151,7 @@ def run_cli(
                     )
                 payload = _run_single_command(args=args, client=client)
     except Exception as exc:
+        layer = _error_layer_for_exception(exc)
         suggestion = _suggestion_for_exception(
             exc,
             default=(
@@ -159,7 +161,13 @@ def run_cli(
             ),
             mode=mode,
         )
-        print(json.dumps({"error": str(exc), "suggestion": suggestion}, ensure_ascii=False), file=out)
+        print(
+            json.dumps(
+                {"error": str(exc), "layer": layer, "suggestion": suggestion},
+                ensure_ascii=False,
+            ),
+            file=out,
+        )
         return 1
 
     print(json.dumps(payload, ensure_ascii=False), file=out)
@@ -394,11 +402,17 @@ def _run_repl(
                     )
                     continue
             except Exception as exc:
+                layer = _error_layer_for_exception(exc, default="network")
                 suggestion = _suggestion_for_exception(
                     exc,
                     default=f"check server status/token and retry {command}.",
                 )
-                _print_actionable_error(out=out, message=f"failed to run {command}.", suggestion=suggestion)
+                _print_actionable_error(
+                    out=out,
+                    message=f"failed to run {command}.",
+                    suggestion=suggestion,
+                    layer=layer,
+                )
                 continue
 
             _print_actionable_error(
@@ -433,6 +447,7 @@ def _run_repl(
             print(json.dumps(payload, ensure_ascii=False), file=out)
             _print_context_budget_snapshot(out=out, client=client, session_id=active_session_id)
         except Exception as exc:
+            layer = _error_layer_for_exception(exc)
             suggestion = _suggestion_for_exception(
                 exc,
                 default="run /new to start a session, then retry.",
@@ -441,6 +456,7 @@ def _run_repl(
                 out=out,
                 message=f"send failed: {exc}",
                 suggestion=suggestion,
+                layer=layer,
             )
 
 
@@ -877,6 +893,41 @@ def _suggestion_for_exception(exc: Exception, *, default: str, mode: str | None 
     return default
 
 
+def _error_layer_for_exception(exc: Exception, *, default: str = "runtime") -> str:
+    explicit_layer = getattr(exc, "layer", None)
+    if isinstance(explicit_layer, str):
+        normalized_layer = explicit_layer.strip().lower()
+        if normalized_layer in _ERROR_LAYERS:
+            return normalized_layer
+
+    text = str(exc).lower()
+    if (
+        "run failed" in text
+        or "run_id=" in text
+        or "run_execution_failed" in text
+        or "stop_reason" in text
+        or "root_cause=" in text
+    ):
+        return "runtime"
+    if isinstance(exc, ValueError):
+        return "input"
+    if (
+        "request failed (" in text
+        or "timed out" in text
+        or "timeout" in text
+        or "connection refused" in text
+        or "connecterror" in text
+        or "nodename nor servname" in text
+        or "name or service not known" in text
+        or "unauthorized" in text
+        or "missing api token" in text
+    ):
+        return "network"
+    if default in _ERROR_LAYERS:
+        return default
+    return "runtime"
+
+
 def _resolve_mode(raw_mode: str | None) -> str:
     value = raw_mode or os.getenv("NANO_MULTIAGENT_CLI_MODE") or _DEFAULT_CLI_MODE
     lowered = value.strip().lower()
@@ -1016,9 +1067,11 @@ def _print_actionable_error(
     out: TextIO,
     message: str,
     suggestion: str,
+    layer: str = "input",
     usage: str | None = None,
 ) -> None:
     print(f"Error: {message}", file=out)
+    print(f"Layer: {layer}", file=out)
     print(f"Suggestion: {suggestion}", file=out)
     if usage is not None:
         print(f"Usage: {usage}", file=out)
