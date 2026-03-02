@@ -3,7 +3,7 @@
 - Test command: `pytest -q`
 - Branch: `milestone/M19`
 
-## [TODO] R19.1 CLI 运行模式与托管进程生命周期
+## [DONE] R19.1 CLI 运行模式与托管进程生命周期
 - Acceptance:
   - CLI 新增 `--mode`，支持 `managed` 与 `remote` 两种模式（默认 `managed`）。
   - `managed` 模式下 CLI 启动时可自动拉起本地 API（uvicorn）并等待就绪后再执行命令/REPL。
@@ -22,10 +22,10 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M19-*.md` 补齐证据、回滚点、提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `cb71da7`
+  - C2: `c58db82`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R19.2 remote 模式直连语义与 REPL 命令兼容
 - Acceptance:

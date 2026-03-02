@@ -32,14 +32,34 @@
 
 ### R19.1 CLI 运行模式与托管进程生命周期
 - Context:
+  - 现有 CLI 仅有“直接连 HTTP API”路径，缺少“CLI 拉起并托管本地 API”能力。
+  - 需保证 managed 生命周期清晰（启动成功判定、退出回收、异常清理）且 remote 不受影响。
 - Decision:
+  - 新增 `ManagedServerProcess`（`src/nano_multiagent/cli/managed_server.py`）负责：
+    - 校验 managed 仅允许本地 `http://` base_url；
+    - 启动 uvicorn 子进程并轮询 `/v1/health` 判定就绪；
+    - 启动失败/端口占用/超时时抛出带 `suggestion` 的错误；
+    - CLI 退出或异常时统一 `stop()` 回收子进程。
+  - `run_cli` 新增 `--mode managed|remote`（默认 `remote` 以保持历史兼容）；
+    - `managed` 进入托管生命周期；
+    - `remote` 走 `nullcontext`，明确不拉起本地服务。
 - Rationale:
+  - 将进程管理与命令交互解耦，便于 unit/integration 注入 fake manager 做稳定测试。
+  - 通过异常携带建议文案，避免上层到处拼接错误提示逻辑。
 - Evidence:
-  - Tests: `<pending>`
-  - Entry: `<pending>`
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_managed_server.py` -> `ModuleNotFoundError`（符合“先红”）
+    - Green: 同命令 -> `17 passed`
+    - Gate: `pytest -q` -> `255 passed, 3 skipped`
+  - Entry:
+    - managed 模式可注入 manager 并触发 `start/stop`；
+    - remote 模式不会触发 managed factory；
+    - 端口占用等场景返回可操作 suggestion。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `cb71da7`（R19.1 C1）
+- Commits: C1=`cb71da7`, C2=`c58db82`, C3=`<pending>`
 - Next:
+  - R19.2 Red（双模式与现有 REPL 命令链路对齐）
 
 ### R19.2 remote 模式直连语义与 REPL 命令兼容
 - Context:
