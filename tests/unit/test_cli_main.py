@@ -117,3 +117,23 @@ def test_run_cli_repl_use_switches_active_session() -> None:
 
     assert exit_code == 0
     assert ("send_message", {"session_id": "sess_manual", "text": "ping"}) in stub.calls
+
+
+def test_run_cli_repl_history_shows_recent_messages() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "first", "second", "/history 2", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "History for session sess_cli (last 2/4):" in text
+    assert "user: second" in text
+    assert "assistant: echo:second" in text
+    assert "assistant: echo:first" not in text
