@@ -21,6 +21,18 @@
 - Next:
   - R14.1
 
+### Handoff
+- Context:
+  - 用户中止当前执行并要求控制塔切换新执行者续跑 M14。
+  - 当前仅完成 Plan 阶段，尚未进入任一 Roadpoint 的 C1 Red。
+- Evidence:
+  - Stable commit: `33eee54`（包含 TASKS/PROGRESS 计划骨架）
+  - `data/dev-tasks.json`: `M14` 已从 `RUNNING` 释放为 `READY`（`claimed_by=null`）。
+- Rollback:
+  - 新执行者从 `33eee54` 继续即可；无需额外回退。
+- Next:
+  - 新执行者从 R14.1 开始执行 C1（先写红测）。
+
 ### R14.1 read 语义补齐（图片输入 + 文本截断/offset 提示）
 - Context:
 - Decision:
