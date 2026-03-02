@@ -32,6 +32,15 @@ def test_cli_exposes_minimal_http_commands() -> None:
     assert {"health", "create-session", "send-message"}.issubset(names)
 
 
+def test_cli_exposes_mode_contract() -> None:
+    parser = cli_commands.build_parser()
+    mode_actions = [action for action in parser._actions if action.dest == "mode"]
+    assert mode_actions
+    mode_action = mode_actions[0]
+    assert set(mode_action.choices) == {"managed", "remote"}
+    assert mode_action.default is None
+
+
 def test_cli_exposes_required_repl_commands_contract() -> None:
     names = set(cli_commands.supported_repl_commands())
     assert {"/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit"}.issubset(names)

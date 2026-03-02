@@ -1,0 +1,120 @@
+# PROGRESS (Milestone: M19)
+
+- Title: CLI 双模式：托管API与外部API连接
+- Goal: 为 CLI 提供 managed（自动拉起并管理本地 API）与 remote（连接已有 API）两种运行模式。
+- Exit Criteria:
+  - 新增 managed 模式：CLI 启动时自动启动本地 uvicorn API，并在退出时回收子进程。
+  - 新增 remote 模式：CLI 仅连接已有 `--base-url`，不管理服务进程。
+  - 两模式都支持现有 REPL 命令：`/new /tools /compact /history`。
+  - 明确日志/错误提示（端口占用、启动失败、连接失败）并给出可操作建议。
+  - unit + integration 覆盖关键流程，`pytest -q` 全绿。
+- Test command: `pytest -q`
+- Branch: `milestone/M19`
+
+### Baseline
+- Context:
+  - 已先读取 `LOGBOOK.md`，当前可复用规则主要是“只记录经验，不记录过程实现”；M19 无额外冲突规则。
+  - 执行模式：`serial`；`use_worktree=true`；worktree：`/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M19`。
+  - 已在 worktree 建立共享 `data/dev-tasks.json`、`data/locks` symlink，避免状态分叉。
+  - 当前 CLI 仅有 remote 直连模式，尚无本地托管 API 生命周期管理。
+- Decision:
+  - 一次性拆 3 个 Roadpoints：R19.1 生命周期骨架、R19.2 双模式行为对齐、R19.3 诊断与文档收口。
+- Rationale:
+  - 先固化“模式 + 生命周期”基础设施，再补齐命令兼容与错误体验，减少返工。
+- Evidence:
+  - Tests: `pytest -q` -> `249 passed, 3 skipped`
+  - Entry: 基线全绿，可进入 Red 阶段。
+- Rollback:
+  - plan commit
+- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+- Next:
+  - R19.1 Red（先写失败测试）
+
+### R19.1 CLI 运行模式与托管进程生命周期
+- Context:
+  - 现有 CLI 仅有“直接连 HTTP API”路径，缺少“CLI 拉起并托管本地 API”能力。
+  - 需保证 managed 生命周期清晰（启动成功判定、退出回收、异常清理）且 remote 不受影响。
+- Decision:
+  - 新增 `ManagedServerProcess`（`src/nano_multiagent/cli/managed_server.py`）负责：
+    - 校验 managed 仅允许本地 `http://` base_url；
+    - 启动 uvicorn 子进程并轮询 `/v1/health` 判定就绪；
+    - 启动失败/端口占用/超时时抛出带 `suggestion` 的错误；
+    - CLI 退出或异常时统一 `stop()` 回收子进程。
+  - `run_cli` 新增 `--mode managed|remote`（默认 `remote` 以保持历史兼容）；
+    - `managed` 进入托管生命周期；
+    - `remote` 走 `nullcontext`，明确不拉起本地服务。
+- Rationale:
+  - 将进程管理与命令交互解耦，便于 unit/integration 注入 fake manager 做稳定测试。
+  - 通过异常携带建议文案，避免上层到处拼接错误提示逻辑。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_managed_server.py` -> `ModuleNotFoundError`（符合“先红”）
+    - Green: 同命令 -> `17 passed`
+    - Gate: `pytest -q` -> `255 passed, 3 skipped`
+  - Entry:
+    - managed 模式可注入 manager 并触发 `start/stop`；
+    - remote 模式不会触发 managed factory；
+    - 端口占用等场景返回可操作 suggestion。
+- Rollback:
+  - `cb71da7`（R19.1 C1）
+- Commits: C1=`cb71da7`, C2=`c58db82`, C3=`7ef1b9f`
+- Next:
+  - R19.2 Red（双模式与现有 REPL 命令链路对齐）
+
+### R19.2 remote 模式直连语义与 REPL 命令兼容
+- Context:
+  - R19.1 后已具备 managed 生命周期基础，但发现 remote 缺参校验在 `try` 外，导致 CLI 会直接抛异常退出。
+  - 需要补齐两模式下 REPL 关键命令链路的 integration 证据。
+- Decision:
+  - 新增 Red 测试：`--mode remote` 且无 `--base-url` 时，CLI 必须返回 exit code=1 和结构化错误+建议。
+  - 将 `mode/base_url/config` 解析收拢到 `run_cli` 的统一异常边界，避免裸异常泄漏到调用端。
+  - 新增 contract + integration：
+    - contract 固化 `--mode` 选项（`managed|remote`）；
+    - integration 参数化覆盖两模式下 `/new /tools /compact /history` 链路。
+- Rationale:
+  - 将输入校验纳入统一错误路径，可稳定输出可执行建议，避免“堆栈即输出”的 CLI 体验。
+  - 用 integration 参数化验证双模式命令兼容，减少后续改动回归风险。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py -k "remote_mode_requires_base_url"` -> 1 failed（ValueError 直接抛出）
+    - Green: `pytest -q tests/unit/test_cli_main.py tests/contract/test_cli_http_only_contract.py tests/integration/test_cli_http_flow_integration.py` -> `25 passed`
+    - Gate: `pytest -q` -> `259 passed, 3 skipped`
+  - Entry:
+    - remote 缺少 `--base-url` 返回 JSON 错误并附建议；
+    - managed/remote 两模式下 REPL 关键命令均可走通，且 remote 不触发 managed start。
+- Rollback:
+  - `1de9b4c`（R19.2 C1）
+- Commits: C1=`1de9b4c`, C2=`d875363`, C3=`9ce1fcb`
+- Next:
+  - R19.3 Red（诊断文案与 README 收口）
+
+### R19.3 连接诊断与可操作错误提示收口
+- Context:
+  - 仍需补齐“启动失败/连接失败”的可操作提示细节，并确保 remote/managed 诊断文案可区分。
+  - README 需补上双模式用法与常见故障排查。
+- Decision:
+  - 新增 Red 测试：remote 连接失败时 suggestion 必须显式指向 remote API 可达性。
+  - `_suggestion_for_exception` 增加 `mode` 入参：
+    - `remote` 连接失败 -> `ensure the remote API server is reachable`；
+    - `managed` 连接失败 -> 指向本地托管服务启动/端口检查。
+  - 补充 `ManagedServerProcess` 单测覆盖：
+    - 启动超时（含 suggestion）；
+    - 子进程提前退出（含 suggestion）。
+  - 更新 README：managed/remote 启动方式、环境变量、常见诊断建议。
+- Rationale:
+  - 失败提示“可执行”比“仅报错”更关键，模式感知可减少误判（本地问题 vs 远端问题）。
+  - 针对超时与早退补测，避免后续改动破坏关键错误路径。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py -k "remote_mode_connection_failure_suggestion_mentions_remote_api"` -> 1 failed（文案未区分模式）
+    - Green: `pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_managed_server.py` -> `21 passed`
+    - Gate: `pytest -q` -> `262 passed, 3 skipped`
+  - Entry:
+    - remote 连接失败返回含 `remote API server is reachable` 的 suggestion；
+    - managed 端口冲突/启动超时/启动早退均返回可操作建议；
+    - README 包含双模式使用与故障定位示例。
+- Rollback:
+  - `d71a7e3`（R19.3 C1）
+- Commits: C1=`d71a7e3`, C2=`ba661ca`, C3=`eba6f1c`
+- Next:
+  - Milestone 集成：rebase main -> gate -> merge main -> push -> dev-tasks DONE
