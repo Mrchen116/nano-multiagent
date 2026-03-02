@@ -427,6 +427,43 @@ def test_cli_repl_history_recall_allows_second_submit_after_editing() -> None:
     assert "cli:piXng" in text
 
 
+def test_cli_repl_full_chain_edit_history_and_compact_budget_state() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    scripted_reader = _ScriptedReplInputReader(
+        scripted_lines=[
+            ["/", "n", "e", "w", "\n"],
+            ["h", "e", "l", "l", "o", "\x1b[D", "\x1b[D", "X", "\n"],
+            ["\x1b[A", "\x1b[C", "!", "\n"],
+            ["/", "c", "o", "m", "p", "a", "c", "t", "\n"],
+            ["/", "h", "i", "s", "t", "o", "r", "y", " ", "4", "\n"],
+            ["/", "e", "x", "i", "t", "\n"],
+        ]
+    )
+    output = io.StringIO()
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "cli:helXlo" in text
+    assert "cli:helXlo!" in text
+    assert "History for session" in text
+    assert "user: helXlo!" in text
+    assert "Compaction for session" in text
+    assert "Context budget (after /compact):" in text
+
+
 def test_cli_repl_up_recalls_previous_command_line() -> None:
     app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
     transport = httpx.ASGITransport(app=app)

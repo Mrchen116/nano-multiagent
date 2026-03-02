@@ -724,6 +724,55 @@ def test_run_cli_repl_compact_summary_displays_key_fields() -> None:
     assert "Context budget: 64/200 (32.0%)" in text
 
 
+def test_run_cli_repl_compact_prints_post_compact_budget_state_line() -> None:
+    stub = _CompactedStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "/compact", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Compaction for session sess_cli: compacted." in text
+    assert "Context budget (after /compact): 64/200 (32.0%)" in text
+
+
+def test_run_cli_repl_edit_history_budget_compact_chain_regression() -> None:
+    stub = _CompactedStubClient()
+    output = io.StringIO()
+    scripted_reader = _ScriptedReplInputReader(
+        scripted_lines=[
+            ["/", "n", "e", "w", "\n"],
+            ["h", "e", "l", "l", "o", "\x1b[D", "\x1b[D", "X", "\n"],
+            ["\x1b[A", "\x1b[C", "!", "\n"],
+            ["/", "c", "o", "m", "p", "a", "c", "t", "\n"],
+            ["/", "h", "i", "s", "t", "o", "r", "y", " ", "4", "\n"],
+            ["/", "e", "x", "i", "t", "\n"],
+        ]
+    )
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "echo:helXlo" in text
+    assert "echo:helXlo!" in text
+    assert "History for session sess_cli" in text
+    assert "user: helXlo!" in text
+    assert "Compaction for session sess_cli: compacted." in text
+    assert "Context budget (after /compact): 64/200 (32.0%)" in text
+
+
 def test_run_cli_repl_context_budget_shows_threshold_hint() -> None:
     stub = _ThresholdBudgetStubClient(used_tokens=174, max_tokens=200)
     output = io.StringIO()
