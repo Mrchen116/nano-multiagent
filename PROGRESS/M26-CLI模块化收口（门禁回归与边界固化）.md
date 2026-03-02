@@ -32,14 +32,25 @@
 
 ### R26.1 清理 `commands.py` 冗余桥接与死代码
 - Context:
+  - `commands.py` 仍暴露 `_build_repl_input_reader/_read_interactive_line` 等输入桥接符号，属于空转发耦合点。
+  - unit/integration 中部分脚本化输入测试仍穿透 `cli_commands` 访问输入引擎实现，导致边界回流风险。
 - Decision:
+  - 移除 `commands.py` 对输入引擎函数的桥接暴露，改为在编排层内部直接使用 `repl_input.build_repl_input_reader`。
+  - 测试改为直接依赖 `repl_input.read_interactive_line`，不再通过 `cli_commands` 透传符号访问。
 - Rationale:
+  - 输入编辑属于 `repl_input` 的稳定职责，编排层只保留“读输入并驱动流程”，可降低模块耦合与误用概率。
 - Evidence:
   - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py`（桥接符号仍存在导致断言失败）
+    - Gate: `pytest -q`（`327 passed, 4 skipped`）
   - Entry:
+    - `commands.py` 不再导入/暴露输入引擎桥接符号，REPL 仍保持原有交互行为。
+    - `tests/unit/test_cli_main.py` 与 `tests/integration/test_cli_http_flow_integration.py` 已切换到 `repl_input` 直接调用。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `8f22cee`（R26.1 C1）
+- Commits: C1=`8f22cee`, C2=`99fb4dc`, C3=`<pending>`
 - Next:
+  - R26.2 Red：先补 CLI 帮助与 README 边界说明门禁断言。
 
 ### R26.2 README 与 CLI 帮助补齐边界约定
 - Context:

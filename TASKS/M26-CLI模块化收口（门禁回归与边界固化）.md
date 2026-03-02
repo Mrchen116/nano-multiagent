@@ -14,7 +14,7 @@
     - `tests/**` 的 contract/integration 门禁用例。
     - `README.md` 与 CLI 帮助说明文案（边界与开发约定补齐）。
 
-## [TODO] R26.1 清理 `commands.py` 冗余桥接与死代码，收敛为稳定入口编排层
+## [DONE] R26.1 清理 `commands.py` 冗余桥接与死代码，收敛为稳定入口编排层
 - Acceptance:
   - `commands.py` 不再暴露仅供测试使用的空转发桥接符号。
   - REPL 编排继续由 `commands.py` 主导，输入/命令处理委派清晰且可跳转。
@@ -35,10 +35,10 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录边界决策、证据、回滚点与哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `8f22cee`
+  - C2: `99fb4dc`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R26.2 README 与 CLI 帮助文案补齐模块边界与开发约定
 - Acceptance:
