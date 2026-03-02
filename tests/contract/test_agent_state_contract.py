@@ -29,4 +29,5 @@ def test_agent_policies_fields_are_stable() -> None:
     assert [field.name for field in fields(AgentPolicies)] == [
         "max_turns",
         "max_context_messages",
+        "max_tool_calls",
     ]
