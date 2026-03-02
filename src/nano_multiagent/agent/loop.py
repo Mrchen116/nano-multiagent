@@ -1,14 +1,15 @@
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from nano_multiagent.core.types import ToolSpec
-from nano_multiagent.core.ids import make_message_id
-from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.core.ids import make_message_id, make_tool_call_id
+from nano_multiagent.core.types import Message, ToolCall, ToolResult, ToolSpec, TurnResult
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
-from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest
+from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
 from nano_multiagent.skills.registry import SkillMetadata
+from nano_multiagent.tools.registry import ToolRegistry
 
 from .policies import AgentPolicies
 from .prompting import DEFAULT_SYSTEM_PROMPT, build_prompt_messages
@@ -26,6 +27,7 @@ class AgentLoop:
         hook_runner: HookRunner | None = None,
         available_skills: tuple[SkillMetadata, ...] = (),
         available_tools: tuple[ToolSpec, ...] | None = None,
+        tool_registry: ToolRegistry | None = None,
         current_working_directory: Path | None = None,
     ) -> None:
         self._llm_client = llm_client
@@ -35,7 +37,11 @@ class AgentLoop:
         self._hook_runner = hook_runner
         self._available_skills = available_skills
         self._available_tools = available_tools
+        self._tool_registry = tool_registry
         self._current_working_directory = current_working_directory
+
+    def bind_tool_registry(self, tool_registry: ToolRegistry | None) -> None:
+        self._tool_registry = tool_registry
 
     def run(
         self,
@@ -55,74 +61,166 @@ class AgentLoop:
         stop_reason = "error"
         completed = False
         self._policies.ensure_turn_allowed(turn_count=state.turn_count)
-        history = self._policies.truncate_history(state.history_messages)
-        prompt_messages = build_prompt_messages(
-            history_messages=history,
-            user_text=state.user_text,
-            system_prompt=system_prompt_override or self._system_prompt,
-            available_skills=self._available_skills,
-            available_tools=self._available_tools,
-            current_working_directory=self._current_working_directory,
+
+        active_tools = self._active_tool_specs()
+        llm_messages = list(
+            build_prompt_messages(
+                history_messages=self._policies.truncate_history(state.history_messages),
+                user_text=state.user_text,
+                system_prompt=system_prompt_override or self._system_prompt,
+                available_skills=self._available_skills,
+                available_tools=active_tools,
+                current_working_directory=self._current_working_directory,
+            )
         )
 
+        assistant_messages: list[Message] = []
+        tool_calls: list[ToolCall] = []
+        tool_results: list[ToolResult] = []
+
         try:
-            response = self._llm_client.generate(
-                LLMGenerateRequest(
-                    session_id=llm_session_id or state.session_id,
-                    model=self._model,
-                    messages=prompt_messages,
-                    stream=False,
+            while True:
+                response = self._llm_client.generate(
+                    LLMGenerateRequest(
+                        session_id=llm_session_id or state.session_id,
+                        model=self._model,
+                        messages=tuple(llm_messages),
+                        stream=False,
+                        tools=active_tools,
+                    )
                 )
-            )
+                normalized_calls = tuple(_normalize_tool_call(item) for item in response.message.tool_calls)
+                normalized_response_message = LLMMessage(
+                    role=response.message.role,
+                    content=response.message.content,
+                    name=response.message.name,
+                    tool_call_id=response.message.tool_call_id,
+                    tool_calls=_as_llm_tool_calls(normalized_calls),
+                )
 
-            assistant_message = Message(
-                message_id=make_message_id(),
-                role=response.message.role,
-                content=response.message.content,
-                name=response.message.name,
-            )
+                assistant_message = Message(
+                    message_id=make_message_id(),
+                    role=response.message.role,
+                    content=response.message.content,
+                    name=response.message.name,
+                    metadata=_assistant_metadata_from_tool_calls(normalized_calls),
+                )
+                assistant_messages.append(assistant_message)
+                llm_messages.append(normalized_response_message)
 
-            self._dispatch_observe(
-                "message_start",
-                {
-                    "session_id": state.session_id,
-                    "turn_id": state.turn_id,
-                    "message_id": assistant_message.message_id,
-                    "role": assistant_message.role,
-                },
-                active_hook_ctx,
-            )
-            self._dispatch_observe(
-                "message_update",
-                {
-                    "session_id": state.session_id,
-                    "turn_id": state.turn_id,
-                    "message_id": assistant_message.message_id,
-                    "delta": assistant_message.content,
-                },
-                active_hook_ctx,
-            )
-            self._dispatch_observe(
-                "message_end",
-                {
-                    "session_id": state.session_id,
-                    "turn_id": state.turn_id,
-                    "message_id": assistant_message.message_id,
-                    "content": assistant_message.content,
-                    "role": assistant_message.role,
-                },
-                active_hook_ctx,
-            )
+                self._dispatch_observe(
+                    "message_start",
+                    {
+                        "session_id": state.session_id,
+                        "turn_id": state.turn_id,
+                        "message_id": assistant_message.message_id,
+                        "role": assistant_message.role,
+                    },
+                    active_hook_ctx,
+                )
+                self._dispatch_observe(
+                    "message_update",
+                    {
+                        "session_id": state.session_id,
+                        "turn_id": state.turn_id,
+                        "message_id": assistant_message.message_id,
+                        "delta": assistant_message.content,
+                    },
+                    active_hook_ctx,
+                )
+                self._dispatch_observe(
+                    "message_end",
+                    {
+                        "session_id": state.session_id,
+                        "turn_id": state.turn_id,
+                        "message_id": assistant_message.message_id,
+                        "content": assistant_message.content,
+                        "role": assistant_message.role,
+                    },
+                    active_hook_ctx,
+                )
 
-            completed = True
-            stop_reason = response.finish_reason or "completed"
-            return TurnResult(
-                session_id=state.session_id,
-                turn_id=state.turn_id,
-                messages=(assistant_message,),
-                completed=completed,
-                stop_reason=stop_reason,
-            )
+                if not normalized_calls:
+                    completed = True
+                    stop_reason = response.finish_reason or "completed"
+                    return TurnResult(
+                        session_id=state.session_id,
+                        turn_id=state.turn_id,
+                        messages=tuple(assistant_messages),
+                        tool_calls=tuple(tool_calls),
+                        tool_results=tuple(tool_results),
+                        completed=completed,
+                        stop_reason=stop_reason,
+                    )
+
+                for parsed_call in normalized_calls:
+                    tool_calls.append(parsed_call)
+                    self._policies.ensure_tool_calls_allowed(tool_call_count=len(tool_calls))
+
+                if self._tool_registry is None:
+                    completed = True
+                    stop_reason = "tool_registry_unavailable"
+                    return TurnResult(
+                        session_id=state.session_id,
+                        turn_id=state.turn_id,
+                        messages=tuple(assistant_messages),
+                        tool_calls=tuple(tool_calls),
+                        tool_results=tuple(tool_results),
+                        completed=completed,
+                        stop_reason=stop_reason,
+                    )
+
+                for parsed_call in normalized_calls:
+                    tool_hook_ctx = HookContext(
+                        session_id=active_hook_ctx.session_id,
+                        turn_id=active_hook_ctx.turn_id,
+                        repo_root=active_hook_ctx.repo_root,
+                        metadata={**dict(active_hook_ctx.metadata), "tool_call_id": parsed_call.call_id},
+                    )
+                    self._dispatch_observe(
+                        "tool_call",
+                        {
+                            "session_id": state.session_id,
+                            "turn_id": state.turn_id,
+                            "call_id": parsed_call.call_id,
+                            "name": parsed_call.name,
+                            "arguments": dict(parsed_call.arguments),
+                        },
+                        tool_hook_ctx,
+                    )
+
+                    result_payload, error_text = self._execute_tool_call(
+                        parsed_call,
+                        hook_ctx=tool_hook_ctx,
+                    )
+                    parsed_result = ToolResult(
+                        call_id=parsed_call.call_id,
+                        name=parsed_call.name,
+                        output=result_payload,
+                        error=error_text,
+                    )
+                    tool_results.append(parsed_result)
+
+                    self._dispatch_observe(
+                        "tool_result",
+                        {
+                            "session_id": state.session_id,
+                            "turn_id": state.turn_id,
+                            "call_id": parsed_result.call_id,
+                            "name": parsed_result.name,
+                            "output": parsed_result.output,
+                            "error": parsed_result.error,
+                        },
+                        tool_hook_ctx,
+                    )
+
+                    llm_messages.append(
+                        LLMMessage(
+                            role="tool",
+                            content=_serialize_tool_result_content(parsed_result),
+                            tool_call_id=parsed_result.call_id,
+                        )
+                    )
         finally:
             self._dispatch_observe(
                 "turn_end",
@@ -134,6 +232,31 @@ class AgentLoop:
                 },
                 active_hook_ctx,
             )
+
+    def _execute_tool_call(
+        self,
+        tool_call: ToolCall,
+        *,
+        hook_ctx: HookContext,
+    ) -> tuple[Any, str | None]:
+        if self._tool_registry is None:
+            return None, "tool registry is unavailable"
+        try:
+            output = self._tool_registry.execute(
+                tool_call.name,
+                tool_call.arguments,
+                hook_context=hook_ctx,
+            )
+            return output, None
+        except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
+            return None, str(exc)
+
+    def _active_tool_specs(self) -> tuple[ToolSpec, ...]:
+        if self._tool_registry is not None:
+            return self._tool_registry.list_specs()
+        if self._available_tools is not None:
+            return self._available_tools
+        return ()
 
     def _dispatch_observe(
         self,
@@ -174,3 +297,55 @@ class AgentLoop:
                 duration_ms=item.duration_ms,
                 error=item.error,
             )
+
+
+def _normalize_tool_call(tool_call: LLMToolCall) -> ToolCall:
+    call_id = tool_call.call_id.strip() if isinstance(tool_call.call_id, str) else ""
+    if not call_id:
+        call_id = make_tool_call_id()
+    return ToolCall(
+        call_id=call_id,
+        name=tool_call.name,
+        arguments=dict(tool_call.arguments),
+    )
+
+
+def _assistant_metadata_from_tool_calls(tool_calls: tuple[ToolCall, ...]) -> Mapping[str, Any]:
+    if not tool_calls:
+        return {}
+    return {
+        "tool_calls": [
+            {
+                "call_id": tool_call.call_id,
+                "name": tool_call.name,
+                "arguments": dict(tool_call.arguments),
+            }
+            for tool_call in tool_calls
+        ]
+    }
+
+
+def _as_llm_tool_calls(tool_calls: tuple[ToolCall, ...]) -> tuple[LLMToolCall, ...]:
+    return tuple(
+        LLMToolCall(
+            call_id=tool_call.call_id,
+            name=tool_call.name,
+            arguments=dict(tool_call.arguments),
+        )
+        for tool_call in tool_calls
+    )
+
+
+def _serialize_tool_result_content(result: ToolResult) -> str:
+    payload: dict[str, Any] = {
+        "call_id": result.call_id,
+        "name": result.name,
+    }
+    if result.error is not None:
+        payload["error"] = result.error
+    else:
+        payload["output"] = result.output
+    try:
+        return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    except TypeError:
+        return str(payload)

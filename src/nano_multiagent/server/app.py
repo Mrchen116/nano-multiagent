@@ -78,6 +78,9 @@ def create_app(
         hook_runner=active_hook_runner,
         runtime=active_runtime,
     )
+    bind_tool_registry = getattr(active_runtime, "bind_tool_registry", None)
+    if callable(bind_tool_registry):
+        bind_tool_registry(app.state.tool_registry)
     app.state.auth_token = auth_token if auth_token is not None else os.getenv("NANO_MULTIAGENT_API_TOKEN")
 
     @app.middleware("http")

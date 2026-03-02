@@ -1,8 +1,17 @@
+from pathlib import Path
+
 from nano_multiagent.agent.runtime import AgentRuntime
-from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from nano_multiagent.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+    LLMToolCall,
+)
 from nano_multiagent.session.entries import SessionEntryKind
 from nano_multiagent.session.manager import SessionManager
 from nano_multiagent.session.stores.base import LoadedSession, SessionStore
+from nano_multiagent.tools.base import ToolContext
+from nano_multiagent.tools.registry import ToolRegistry
 
 
 class InMemorySessionStore(SessionStore):
@@ -28,16 +37,43 @@ class InMemorySessionStore(SessionStore):
 
 
 class FakeLLMClient:
-    def __init__(self) -> None:
+    def __init__(self, responses: tuple[LLMGenerateResponse, ...] | None = None) -> None:
         self.requests: list[LLMGenerateRequest] = []
+        self._responses = list(responses) if responses is not None else None
 
     def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
         self.requests.append(request)
+        if self._responses is None:
+            response = LLMGenerateResponse(
+                model="mock-model",
+                message=LLMMessage(role="assistant", content="runtime-pong"),
+                finish_reason="stop",
+            )
+        else:
+            if not self._responses:
+                raise AssertionError("unexpected llm call")
+            response = self._responses.pop(0)
         return LLMGenerateResponse(
             model=request.model,
-            message=LLMMessage(role="assistant", content="runtime-pong"),
-            finish_reason="stop",
+            message=response.message,
+            finish_reason=response.finish_reason,
+            raw=response.raw,
         )
+
+
+class EchoTool:
+    name = "echo"
+    description = "echo text"
+    input_schema = {
+        "type": "object",
+        "properties": {"text": {"type": "string"}},
+        "required": ["text"],
+        "additionalProperties": False,
+    }
+
+    def run(self, args, ctx):  # noqa: ANN001, ANN201
+        del ctx
+        return {"echoed": args["text"]}
 
 
 def test_runtime_run_appends_user_and_assistant_events() -> None:
@@ -81,3 +117,86 @@ def test_runtime_builds_followup_context_from_session_events() -> None:
     assert second_call_messages[1].content == "first"
     assert second_call_messages[2].content == "runtime-pong"
     assert second_call_messages[3].content == "second"
+
+
+def test_runtime_persists_tool_events_with_metadata_and_replays_context() -> None:
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+    llm_client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="mock-model",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="call_runtime_1",
+                            name="echo",
+                            arguments={"text": "first"},
+                        ),
+                    ),
+                ),
+                finish_reason="tool_calls",
+            ),
+            LLMGenerateResponse(
+                model="mock-model",
+                message=LLMMessage(role="assistant", content="runtime-after-tool"),
+                finish_reason="stop",
+            ),
+            LLMGenerateResponse(
+                model="mock-model",
+                message=LLMMessage(role="assistant", content="runtime-second"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="mock-model")
+    registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    registry.register(EchoTool())
+    runtime.bind_tool_registry(registry)
+
+    runtime.run(session.session_id, [{"type": "text", "text": "first"}], stream=False)
+    runtime.run(session.session_id, [{"type": "text", "text": "second"}], stream=False)
+
+    turn_events = [
+        entry
+        for _, entry in store.events
+        if entry.kind is SessionEntryKind.TURN_APPENDED
+    ]
+    call_events = [
+        entry
+        for entry in turn_events
+        if entry.data["metadata"].get("tool_phase") == "call"
+    ]
+    result_events = [
+        entry
+        for entry in turn_events
+        if entry.data["metadata"].get("tool_phase") == "result"
+    ]
+    assert len(call_events) == 1
+    assert len(result_events) == 1
+    assert call_events[0].data["role"] == "assistant"
+    assert result_events[0].data["role"] == "tool"
+    assert call_events[0].data["metadata"]["tool_call_id"] == "call_runtime_1"
+    assert result_events[0].data["metadata"]["tool_call_id"] == "call_runtime_1"
+    assert call_events[0].data["metadata"]["tool_calls"] == [
+        {
+            "call_id": "call_runtime_1",
+            "name": "echo",
+            "arguments": {"text": "first"},
+        }
+    ]
+
+    second_turn_request = llm_client.requests[-1]
+    assert [message.role for message in second_turn_request.messages] == [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "user",
+    ]
+    assert second_turn_request.messages[2].tool_calls[0].call_id == "call_runtime_1"
+    assert second_turn_request.messages[3].tool_call_id == "call_runtime_1"

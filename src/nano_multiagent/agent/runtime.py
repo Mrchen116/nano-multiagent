@@ -1,10 +1,11 @@
 import asyncio
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.ids import make_message_id, make_turn_id
-from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.core.types import Message, ToolCall, ToolResult, TurnResult
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
@@ -27,6 +28,7 @@ from .state import AgentState, InputPart, parse_input_parts, render_user_text
 
 if TYPE_CHECKING:
     from nano_multiagent.hooks.registry import HookRegistry
+    from nano_multiagent.tools.registry import ToolRegistry
 
 
 class AgentRuntime:
@@ -41,6 +43,7 @@ class AgentRuntime:
         repo_root: Path | None = None,
         available_skills: Sequence[SkillMetadata] | None = None,
         compaction_settings: CompactionSettings | None = None,
+        tool_registry: "ToolRegistry | None" = None,
     ) -> None:
         active_llm_client = llm_client or create_llm_client()
         self._hook_runner = hook_runner
@@ -59,6 +62,7 @@ class AgentRuntime:
             policies=policies,
             hook_runner=hook_runner,
             available_skills=resolved_skills,
+            tool_registry=tool_registry,
             current_working_directory=self._repo_root,
         )
         summary_model = self._compaction_settings.summary_model or self._model
@@ -188,14 +192,7 @@ class AgentRuntime:
                 llm_session_id=llm_session_id,
             )
 
-        for assistant_message in turn_result.messages:
-            self._session_manager.append_turn_message(
-                session_id,
-                turn_id=turn_id,
-                role=assistant_message.role,
-                content=assistant_message.content,
-                message_id=assistant_message.message_id,
-            )
+        self._append_turn_events(session_id=session_id, turn_id=turn_id, turn_result=turn_result)
         self._dispatch_observe(
             "agent_end",
             {
@@ -229,6 +226,9 @@ class AgentRuntime:
 
     def get_session(self, session_id: str) -> Session | None:
         return self._session_manager.get_session(session_id)
+
+    def bind_tool_registry(self, tool_registry: "ToolRegistry | None") -> None:
+        self._loop.bind_tool_registry(tool_registry)
 
     @property
     def hook_runner(self) -> HookRunner | None:
@@ -411,6 +411,97 @@ class AgentRuntime:
             messages.pop()
         return tuple(messages)
 
+    def _append_turn_events(self, *, session_id: str, turn_id: str, turn_result: TurnResult) -> None:
+        call_by_id = {item.call_id: item for item in turn_result.tool_calls}
+        result_by_id = {item.call_id: item for item in turn_result.tool_results}
+        emitted_call_ids: set[str] = set()
+        emitted_result_ids: set[str] = set()
+
+        for assistant_message in turn_result.messages:
+            tool_call_ids = _extract_tool_call_ids(assistant_message.metadata)
+            if not tool_call_ids:
+                self._session_manager.append_turn_message(
+                    session_id,
+                    turn_id=turn_id,
+                    role=assistant_message.role,
+                    content=assistant_message.content,
+                    message_id=assistant_message.message_id,
+                    metadata=assistant_message.metadata,
+                )
+                continue
+
+            if assistant_message.content:
+                self._session_manager.append_turn_message(
+                    session_id,
+                    turn_id=turn_id,
+                    role=assistant_message.role,
+                    content=assistant_message.content,
+                    message_id=assistant_message.message_id,
+                    metadata=_without_tool_calls_metadata(assistant_message.metadata),
+                )
+
+            for call_id in tool_call_ids:
+                tool_call = call_by_id.get(call_id)
+                if tool_call is None:
+                    continue
+                self._append_tool_call_event(session_id=session_id, turn_id=turn_id, tool_call=tool_call)
+                emitted_call_ids.add(call_id)
+                tool_result = result_by_id.get(call_id)
+                if tool_result is None:
+                    continue
+                self._append_tool_result_event(session_id=session_id, turn_id=turn_id, tool_result=tool_result)
+                emitted_result_ids.add(call_id)
+
+        for tool_call in turn_result.tool_calls:
+            if tool_call.call_id in emitted_call_ids:
+                continue
+            self._append_tool_call_event(session_id=session_id, turn_id=turn_id, tool_call=tool_call)
+            emitted_call_ids.add(tool_call.call_id)
+            tool_result = result_by_id.get(tool_call.call_id)
+            if tool_result is None or tool_result.call_id in emitted_result_ids:
+                continue
+            self._append_tool_result_event(session_id=session_id, turn_id=turn_id, tool_result=tool_result)
+            emitted_result_ids.add(tool_result.call_id)
+
+        for tool_result in turn_result.tool_results:
+            if tool_result.call_id in emitted_result_ids:
+                continue
+            self._append_tool_result_event(session_id=session_id, turn_id=turn_id, tool_result=tool_result)
+            emitted_result_ids.add(tool_result.call_id)
+
+    def _append_tool_call_event(self, *, session_id: str, turn_id: str, tool_call: ToolCall) -> None:
+        self._session_manager.append_turn_message(
+            session_id,
+            turn_id=turn_id,
+            role="assistant",
+            content="",
+            message_id=make_message_id(),
+            metadata={
+                "tool_phase": "call",
+                "tool_call_id": tool_call.call_id,
+                "tool_calls": [
+                    {
+                        "call_id": tool_call.call_id,
+                        "name": tool_call.name,
+                        "arguments": dict(tool_call.arguments),
+                    }
+                ],
+            },
+        )
+
+    def _append_tool_result_event(self, *, session_id: str, turn_id: str, tool_result: ToolResult) -> None:
+        self._session_manager.append_turn_message(
+            session_id,
+            turn_id=turn_id,
+            role="tool",
+            content=_serialize_tool_result_content(tool_result),
+            message_id=make_message_id(),
+            metadata={
+                "tool_phase": "result",
+                "tool_call_id": tool_result.call_id,
+            },
+        )
+
 
 def _serialize_input_parts(parts: Sequence[InputPart]) -> tuple[dict[str, Any], ...]:
     serialized: list[dict[str, Any]] = []
@@ -482,3 +573,38 @@ def _message_from_turn_entry(entry: SessionEntry) -> Message:
         role=str(entry.data.get("role", "")),
         content=str(entry.data.get("content", "")),
     )
+
+
+def _extract_tool_call_ids(metadata: Mapping[str, Any]) -> tuple[str, ...]:
+    raw_calls = metadata.get("tool_calls")
+    if not isinstance(raw_calls, list):
+        return ()
+    call_ids: list[str] = []
+    for item in raw_calls:
+        if not isinstance(item, Mapping):
+            continue
+        call_id = item.get("call_id")
+        if isinstance(call_id, str) and call_id:
+            call_ids.append(call_id)
+    return tuple(call_ids)
+
+
+def _without_tool_calls_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    copied = dict(metadata)
+    copied.pop("tool_calls", None)
+    return copied
+
+
+def _serialize_tool_result_content(result: ToolResult) -> str:
+    payload: dict[str, Any] = {
+        "call_id": result.call_id,
+        "name": result.name,
+    }
+    if result.error is not None:
+        payload["error"] = result.error
+    else:
+        payload["output"] = result.output
+    try:
+        return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    except TypeError:
+        return str(payload)
