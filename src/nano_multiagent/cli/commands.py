@@ -12,11 +12,9 @@ from nano_multiagent.cli.context_budget import extract_context_budget_metrics as
 from nano_multiagent.cli.context_budget import print_context_budget_snapshot as _print_context_budget_snapshot
 from nano_multiagent.cli.error_presenter import error_layer_for_exception as _error_layer_for_exception
 from nano_multiagent.cli.error_presenter import suggestion_for_exception as _suggestion_for_exception
+import nano_multiagent.cli.repl_input as repl_input
 from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig
 from nano_multiagent.cli.managed_server import ManagedServerConfig, ManagedServerProcess
-from nano_multiagent.cli.repl_input import ReplInputReader as _ReplInputReader
-from nano_multiagent.cli.repl_input import build_repl_input_reader as _build_repl_input_reader
-from nano_multiagent.cli.repl_input import read_interactive_line as _read_interactive_line
 from nano_multiagent.cli.repl_commands import REPL_COMMANDS as _REPL_COMMANDS
 from nano_multiagent.cli.repl_commands import handle_repl_command as _handle_repl_command
 from nano_multiagent.cli.repl_commands import print_actionable_error as _print_actionable_error
@@ -108,7 +106,7 @@ def run_cli(
     stdout: TextIO | None = None,
     client_factory: Callable[[ServerClientConfig], ServerClient] | None = None,
     input_fn: Callable[[str], str] | None = None,
-    repl_input_reader_factory: Callable[[], _ReplInputReader] | None = None,
+    repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None = None,
     managed_server_factory: Callable[[ManagedServerConfig], ManagedServerProcess] | None = None,
 ) -> int:
     parser = build_parser()
@@ -231,12 +229,12 @@ def _run_repl(
     out: TextIO,
     client: ServerClient,
     input_fn: Callable[[str], str] | None,
-    repl_input_reader_factory: Callable[[], _ReplInputReader] | None = None,
+    repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None = None,
 ) -> int:
     active_session_id = _resolve_initial_session_id()
     history_by_session: dict[str, list[tuple[str, str]]] = {}
     input_history_by_session: dict[str, list[str]] = {}
-    read_line = _build_repl_input_reader(
+    read_line = repl_input.build_repl_input_reader(
         out=out,
         input_fn=input_fn,
         repl_input_reader_factory=repl_input_reader_factory,

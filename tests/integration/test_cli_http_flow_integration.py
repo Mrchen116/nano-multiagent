@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 
 from nano_multiagent.cli import commands as cli_commands
+from nano_multiagent.cli import repl_input
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
 from nano_multiagent.cli.main import run_cli
@@ -35,7 +36,7 @@ class _ScriptedReplInputReader:
             except StopIteration:
                 return None
 
-        return cli_commands._read_interactive_line(
+        return repl_input.read_interactive_line(
             prompt=prompt,
             history=tuple(history),
             key_reader=_read_key,

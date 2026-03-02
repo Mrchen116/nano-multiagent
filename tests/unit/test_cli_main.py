@@ -2,6 +2,7 @@ import io
 import json
 
 from nano_multiagent.cli import commands as cli_commands
+from nano_multiagent.cli import repl_input
 from nano_multiagent.cli.main import run_cli
 
 
@@ -443,7 +444,7 @@ class _ScriptedReplInputReader:
             except StopIteration:
                 return None
 
-        return cli_commands._read_interactive_line(
+        return repl_input.read_interactive_line(
             prompt=prompt,
             history=tuple(history),
             key_reader=_read_key,
@@ -452,7 +453,7 @@ class _ScriptedReplInputReader:
 
 
 def test_repl_input_engine_supports_inline_insert_at_cursor() -> None:
-    typed = cli_commands._read_interactive_line(
+    typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=(),
         key_reader=_iter_keys(["h", "e", "l", "l", "o", "\x1b[D", "\x1b[D", "X", "\n"]),
@@ -463,7 +464,7 @@ def test_repl_input_engine_supports_inline_insert_at_cursor() -> None:
 
 
 def test_repl_input_engine_supports_left_right_with_backspace_editing() -> None:
-    typed = cli_commands._read_interactive_line(
+    typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=(),
         key_reader=_iter_keys(["a", "b", "c", "\x1b[D", "\x7f", "\x1b[C", "!", "\n"]),
@@ -474,7 +475,7 @@ def test_repl_input_engine_supports_left_right_with_backspace_editing() -> None:
 
 
 def test_repl_input_engine_arrow_up_recalls_and_allows_editing() -> None:
-    typed = cli_commands._read_interactive_line(
+    typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=("first", "second"),
         key_reader=_iter_keys(["\x1b[A", "\x1b[D", "\x1b[D", "X", "\n"]),
@@ -485,7 +486,7 @@ def test_repl_input_engine_arrow_up_recalls_and_allows_editing() -> None:
 
 
 def test_repl_input_engine_history_navigation_moves_up_and_down() -> None:
-    typed = cli_commands._read_interactive_line(
+    typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=("first", "second"),
         key_reader=_iter_keys(["\x1b[A", "\x1b[A", "\x1b[B", "\n"]),
