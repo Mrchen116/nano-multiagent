@@ -84,6 +84,6 @@
     - `LLMFactoryConfig(provider=\"anthropic\")` 可经工厂创建 anthropic client 并完成 runtime 端到端链路（MockTransport 集成）。
 - Rollback:
   - 若需重做，回退到 `b9b57dc`（R15.3 C1 红测基线）。
-- Commits: C1=`b9b57dc`, C2=`fa24134`, C3=
+- Commits: C1=`b9b57dc`, C2=`fa24134`, C3=`55a7e8e`
 - Next:
   - 进行 Milestone 级 rebase/main 合并与 `dev-tasks.json` DONE 回写。
