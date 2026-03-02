@@ -49,6 +49,29 @@
     - `commands.py` 输入细节函数体已迁出到 `repl_input.py`。
 - Rollback:
   - `e1af44f`（R24.1 C1）
-- Commits: C1=`e1af44f`, C2=`747dac1`, C3=`<pending>`
+- Commits: C1=`e1af44f`, C2=`747dac1`, C3=`6e73823`
 - Next:
   - R24.2 Red：新增 REPL 命令路由模块边界测试。
+
+### R24.2 抽离 REPL 命令路由与参数校验到 `cli/repl_commands.py`
+- Context:
+  - `_run_repl` 内联了全部命令路由、参数校验、错误兜底与历史展示，主流程编排被命令细节淹没。
+  - 需要在保持输出文案/异常分层完全一致的前提下拆出稳定命令边界。
+- Decision:
+  - 新增 `src/nano_multiagent/cli/repl_commands.py`，承载命令路由核心：`handle_repl_command`、参数校验、`/history` 解析与命令错误输出。
+  - `commands.py` 的 `_run_repl` 改为“读输入 -> 委派命令 -> 处理普通消息”薄编排，并通过 `_handle_repl_command` 维护会话切换/退出信号。
+  - `supported_repl_commands()` 改为读取新模块常量，防止命令清单漂移。
+- Rationale:
+  - 命令分层后，主循环与路由逻辑各自单一职责，后续扩命令时无需再修改大块 REPL 主流程。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py`（ImportError: `repl_commands` 不存在）
+    - Gate: `pytest -q`（`327 passed, 4 skipped`）
+  - Entry:
+    - 新增结构门禁通过：`commands._handle_repl_command` 委派到 `repl_commands.handle_repl_command`；
+    - 命令链路相关 unit/integration 断言保持稳定。
+- Rollback:
+  - `1cafc84`（R24.2 C1）
+- Commits: C1=`1cafc84`, C2=`f2fa5f8`, C3=`<pending>`
+- Next:
+  - Milestone 收口：rebase `origin/main`、全量回归、合并 `main` 并回写 `dev-tasks.json`。

@@ -29,10 +29,10 @@
 - Commits:
   - C1: `e1af44f`
   - C2: `747dac1`
-  - C3: `<pending>`
+  - C3: `6e73823`
 - Status: DONE
 
-## [TODO] R24.2 抽离 REPL 命令路由与参数校验到 `cli/repl_commands.py`
+## [DONE] R24.2 抽离 REPL 命令路由与参数校验到 `cli/repl_commands.py`
 - Acceptance:
   - `/help /new /use /session /tools /compact /history /exit` 的路由/参数校验迁移到独立模块。
   - `commands.py` 的 `_run_repl` 只保留主循环编排（读输入、委派命令、发送消息、错误兜底）。
@@ -52,7 +52,7 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `1cafc84`
+  - C2: `f2fa5f8`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
