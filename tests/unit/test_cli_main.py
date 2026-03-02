@@ -166,6 +166,45 @@ class _AsyncEventingStubClient(_StubClient):
         }
 
 
+class _AsyncFailedRunStubClient(_StubClient):
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_failed", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        return [
+            {
+                "event_id": "evt_fail_queued",
+                "event": "run_status",
+                "data": {"run_id": "run_failed", "status": "queued"},
+            }
+        ]
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "failed",
+            "created_at": "2026-03-02T00:00:00+00:00",
+            "updated_at": "2026-03-02T00:00:00+00:00",
+            "turn_id": None,
+            "stop_reason": "timeout",
+            "error": {
+                "code": "run_timeout",
+                "message": "timed out waiting for upstream; root_cause=connect ETIMEDOUT",
+            },
+        }
+
+
 def test_run_cli_health_outputs_json_payload() -> None:
     stub = _StubClient()
     output = io.StringIO()
@@ -444,6 +483,24 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert "[text] final:echo:ping" in text
     assert "ignore-me" not in text
     assert ("send_message_async", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
+
+
+def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
+    stub = _AsyncFailedRunStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "hi", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Error: send failed: run_id=run_failed" in text
+    assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
 
 class _ManagedServerSpy:
