@@ -27,7 +27,7 @@
   - C2: `2015e69`
 - Status: DONE
 
-## [TODO] R20.2 REPL 默认 async events 实时展示（含去重与 run_id 过滤）
+## [DONE] R20.2 REPL 默认 async events 实时展示（含去重与 run_id 过滤）
 - Acceptance:
   - REPL 发送消息改为默认走 async 提交，并实时展示 `run/tool/text` 事件。
   - 工具调用展示包含工具名与输出预览（长度受控，避免刷屏）。
@@ -45,9 +45,12 @@
   - Red->Green，且 test command 全绿。
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录证据、回滚点、提交哈希。
-- Status: TODO
+- Commits:
+  - C1: `0e9efbd`
+  - C2: `cff3b49`
+- Status: DONE
 
-## [TODO] R20.3 CLI 事件消费容错与回归加固
+## [DONE] R20.3 CLI 事件消费容错与回归加固
 - Acceptance:
   - REPL 在 run 失败/超时场景可给出可操作错误且不破坏交互循环。
   - 事件展示与最终消息聚合在关键失败路径可预期，不污染单命令输出。
@@ -65,4 +68,7 @@
   - Red->Green，且 test command 全绿。
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录证据、回滚点、提交哈希。
-- Status: TODO
+- Commits:
+  - C1: `eacb4a6`
+  - C2: `8b54d56`
+- Status: DONE
