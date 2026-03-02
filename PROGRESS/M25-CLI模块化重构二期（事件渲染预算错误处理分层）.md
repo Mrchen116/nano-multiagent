@@ -57,14 +57,26 @@
 
 ### R25.2 抽离预算快照与阈值提示到 `cli/context_budget.py`
 - Context:
+  - `commands.py` 仍内联预算拉取、payload 解析、阈值提示与失败 fail-open 文案，阻碍后续错误分层拆分。
+  - 预算展示文案和三档阈值提示（70/85/95）必须保持兼容。
 - Decision:
+  - 新建 `src/nano_multiagent/cli/context_budget.py`，集中封装预算快照输出、prefix 生成、payload 解析与 hint 选择。
+  - `commands.py` 改为引用 `context_budget` 导出函数别名，保留 REPL 编排调用点。
+  - 用边界测试固定预算职责归属，避免逻辑回流到 `commands.py`。
 - Rationale:
+  - 预算模块单独收敛后，可在不影响 REPL 主循环的前提下独立维护阈值规则与容错策略。
 - Evidence:
   - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py`（ImportError: `context_budget` 不存在）。
+    - Green: `pytest -q tests/unit/test_cli_refactor_boundaries.py tests/unit/test_cli_main.py`（`42 passed`）。
+    - Gate: `pytest -q`（`329 passed, 4 skipped`）。
   - Entry:
+    - 预算相关 REPL 回归用例继续通过（正常展示、阈值提示、获取失败 fail-open）。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `e21e67e`（仅边界测试，先红基线）。
+- Commits: C1=`e21e67e`, C2=`4dfcc60`, C3=`<pending>`
 - Next:
+  - R25.3 Red：先加错误分层模块边界测试并验证失败点。
 
 ### R25.3 抽离错误分层与建议映射到 `cli/error_presenter.py`
 - Context:

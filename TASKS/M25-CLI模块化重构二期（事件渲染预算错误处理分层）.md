@@ -39,7 +39,7 @@
   - C3: `<pending>`
 - Status: DONE
 
-## [TODO] R25.2 抽离预算快照与阈值提示到 `cli/context_budget.py`
+## [DONE] R25.2 抽离预算快照与阈值提示到 `cli/context_budget.py`
 - Acceptance:
   - 将 context budget 拉取、指标解析、阈值提示与容错输出迁移到独立模块。
   - `commands.py` 只调用 budget 模块入口，不再内联预算解析实现细节。
@@ -59,10 +59,10 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `e21e67e`
+  - C2: `4dfcc60`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R25.3 抽离错误分层与建议映射到 `cli/error_presenter.py`
 - Acceptance:
