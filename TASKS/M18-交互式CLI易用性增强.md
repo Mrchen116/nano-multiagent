@@ -3,7 +3,7 @@
 - Test command: `pytest -q`
 - Branch: `milestone/M18`
 
-## [TODO] R18.1 `/history [n]` 最近会话消息视图
+## [DONE] R18.1 `/history [n]` 最近会话消息视图
 - Acceptance:
   - REPL 支持 `/history` 与 `/history <n>`，默认展示最近消息，`n` 控制条数。
   - 展示采用最简文本视图（按行输出 `role: content`），不要求复杂 UI。
@@ -22,10 +22,10 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M18-*.md` 写明证据、回滚点、提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `b6ac8ae`
+  - C2: `a82a5c9`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R18.2 `/tools` 与 `/compact` 可读摘要 + 可操作错误提示
 - Acceptance:

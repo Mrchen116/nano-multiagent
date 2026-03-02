@@ -29,3 +29,26 @@
 - Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
 - Next:
   - R18.1 Red
+
+### R18.1 `/history [n]` 最近会话消息视图
+- Context:
+  - M17 REPL 尚无历史查看入口，用户无法回看当前会话最近消息。
+  - 本 Roadpoint 仅在 CLI 本地增强，不改服务端接口。
+- Decision:
+  - 在 REPL 中引入按 `session_id` 维护的本地历史缓存（`user`/`assistant`）。
+  - 新增 `/history [n]`：默认窗口 `20`，支持 `n` 指定最近条数，输出最简文本行。
+  - 发送消息后记录 user 输入与 assistant 回复内容；`/new`、`/use` 复用会话隔离历史。
+- Rationale:
+  - 不依赖后端新增消息查询接口即可满足“最近消息可查看”，实现最小、风险最小。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py` -> 2 failed（`/history` unknown command）
+    - Green: 同命令 -> `8 passed`
+    - Gate: `pytest -q` -> `238 passed, 3 skipped`
+  - Entry:
+    - `/history` 与 `/history 2` 可输出 `History for session ...` 及 `role: content` 行。
+- Rollback:
+  - `b6ac8ae`（R18.1 C1）
+- Commits: C1=`b6ac8ae`, C2=`a82a5c9`, C3=`<pending>`
+- Next:
+  - R18.2 Red
