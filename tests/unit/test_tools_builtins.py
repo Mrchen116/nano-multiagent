@@ -1,4 +1,5 @@
 from pathlib import Path
+import base64
 
 import pytest
 
@@ -135,3 +136,40 @@ def test_bash_truncates_large_output(tmp_path: Path) -> None:
     )
 
     assert result["truncated"] is True
+
+
+def test_read_returns_text_and_image_parts_for_png(tmp_path: Path) -> None:
+    image_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aWkAAAAASUVORK5CYII="
+    )
+    (tmp_path / "pixel.png").write_bytes(image_bytes)
+    ctx = _context(tmp_path)
+
+    result = ReadTool().run({"path": "pixel.png"}, ctx)
+
+    assert result["truncated"] is False
+    assert result["next_offset"] is None
+    assert isinstance(result["content"], list)
+    assert result["content"][0]["type"] == "text"
+    assert "pixel.png" in result["content"][0]["text"]
+    image_part = result["content"][1]
+    assert image_part["type"] == "image"
+    assert image_part["mime_type"] == "image/png"
+    assert image_part["image_url"].startswith("data:image/png;base64,")
+
+
+def test_read_truncation_appends_next_offset_hint(tmp_path: Path) -> None:
+    content = "\n".join(f"line-{idx}" for idx in range(1, 6)) + "\n"
+    (tmp_path / "note.txt").write_text(content, encoding="utf-8")
+    ctx = _context(
+        tmp_path,
+        config=ToolSafetyConfig(read_max_lines=2, read_max_bytes=1024),
+    )
+
+    result = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 5}, ctx)
+
+    assert result["truncated"] is True
+    assert result["next_offset"] == 3
+    assert isinstance(result["content"], str)
+    assert "line-1\nline-2" in result["content"]
+    assert "offset=3" in result["content"]
