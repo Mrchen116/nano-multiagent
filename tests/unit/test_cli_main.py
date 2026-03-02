@@ -38,6 +38,26 @@ class _StubClient:
         return {"session_id": session_id, "compacted": False, "result": None}
 
 
+class _CompactedStubClient(_StubClient):
+    def compact_session(self, *, session_id: str) -> dict[str, object]:
+        self.calls.append(("compact_session", {"session_id": session_id}))
+        return {
+            "session_id": session_id,
+            "compacted": True,
+            "result": {
+                "summary": "context compacted",
+                "kept_event_ids": ["evt_keep_1", "evt_keep_2"],
+                "dropped_event_ids": ["evt_drop_1"],
+            },
+        }
+
+
+class _FailingToolsStubClient(_StubClient):
+    def list_session_tools(self, *, session_id: str) -> dict[str, object]:
+        self.calls.append(("list_session_tools", {"session_id": session_id}))
+        raise RuntimeError("request failed (500): {'error': 'tools unavailable'}")
+
+
 def test_run_cli_health_outputs_json_payload() -> None:
     stub = _StubClient()
     output = io.StringIO()
@@ -92,9 +112,14 @@ def test_run_cli_repl_supports_required_commands() -> None:
 
     assert exit_code == 0
     lines = output.getvalue()
-    assert "/help /new /use <session_id> /session /tools /compact /exit" in lines
+    assert "/help /new /use <session_id> /session /tools /compact" in lines
+    assert "/history [n]" in lines
+    assert "/exit" in lines
     assert "session_id" in lines
     assert "hello repl" in lines
+    assert "Tools for session sess_cli (1):" in lines
+    assert "- read: Read" in lines
+    assert "Compaction for session sess_cli: no changes." in lines
     assert [call[0] for call in stub.calls] == [
         "create_session",
         "send_message",
@@ -117,3 +142,135 @@ def test_run_cli_repl_use_switches_active_session() -> None:
 
     assert exit_code == 0
     assert ("send_message", {"session_id": "sess_manual", "text": "ping"}) in stub.calls
+
+
+def test_run_cli_repl_history_shows_recent_messages() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "first", "second", "/history 2", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "History for session sess_cli (last 2/4):" in text
+    assert "user: second" in text
+    assert "assistant: echo:second" in text
+    assert "assistant: echo:first" not in text
+
+
+def test_run_cli_repl_command_errors_include_actionable_suggestions() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    inputs = iter(["/tools", "/use", "/unknown", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Error: no active session." in text
+    assert "Suggestion: run /new or /use <session_id>." in text
+    assert "Error: missing session_id for /use." in text
+    assert "Suggestion: try /use <session_id>." in text
+    assert "Error: unknown command '/unknown'." in text
+    assert "Suggestion: run /help to see available commands." in text
+
+
+def test_run_cli_repl_ignores_blank_input_and_exits_on_eof() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    calls = iter(["   "])
+
+    def _input(_: str) -> str:
+        try:
+            return next(calls)
+        except StopIteration as exc:
+            raise EOFError() from exc
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=_input,
+    )
+
+    assert exit_code == 0
+    assert output.getvalue().strip() == "bye"
+    assert stub.calls == []
+
+
+def test_run_cli_repl_rejects_invalid_command_arguments() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    inputs = iter(["/new extra", "/session now", "/use a b", "/history 0", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Error: command /new does not accept arguments." in text
+    assert "Suggestion: try /new." in text
+    assert "Usage: /new" in text
+    assert "Error: command /session does not accept arguments." in text
+    assert "Suggestion: try /session." in text
+    assert "Usage: /session" in text
+    assert "Error: /use expects exactly one session_id." in text
+    assert "Suggestion: try /use <session_id>." in text
+    assert "Usage: /use <session_id>" in text
+    assert "Error: invalid n for /history." in text
+    assert "Suggestion: try /history 10." in text
+    assert "Usage: /history [n]" in text
+    assert ("create_session", {"title": ""}) not in stub.calls
+
+
+def test_run_cli_repl_compact_summary_displays_key_fields() -> None:
+    stub = _CompactedStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "/compact", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Compaction for session sess_cli: compacted." in text
+    assert "Summary: context compacted" in text
+    assert "Kept events: 2" in text
+    assert "Dropped events: 1" in text
+
+
+def test_run_cli_repl_request_failures_include_suggestions() -> None:
+    stub = _FailingToolsStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "/tools", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Error: failed to run /tools." in text
+    assert "Suggestion: check server status/token and retry /tools." in text

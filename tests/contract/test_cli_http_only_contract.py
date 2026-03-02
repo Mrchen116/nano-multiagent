@@ -34,4 +34,4 @@ def test_cli_exposes_minimal_http_commands() -> None:
 
 def test_cli_exposes_required_repl_commands_contract() -> None:
     names = set(cli_commands.supported_repl_commands())
-    assert {"/help", "/new", "/use", "/session", "/tools", "/compact", "/exit"}.issubset(names)
+    assert {"/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit"}.issubset(names)
