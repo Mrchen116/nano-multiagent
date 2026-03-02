@@ -7,7 +7,7 @@
   - Must keep unchanged: CLI HTTP-only call path、REPL命令语义/错误文本、输入编辑行为（光标移动/历史回填）、现有测试期望。
   - Allowed to change: `cli` 内部文件布局、函数归属、模块边界、薄编排调用方式。
 
-## [TODO] R24.1 抽离可编辑输入与历史回填引擎到 `cli/repl_input.py`
+## [DONE] R24.1 抽离可编辑输入与历史回填引擎到 `cli/repl_input.py`
 - Acceptance:
   - `commands.py` 中终端输入编辑相关实现（raw mode/key 读取/行内编辑/历史回填）迁移到独立模块。
   - `commands.py` 仅保留对输入引擎的调用，不再承载输入细节分支。
@@ -27,10 +27,10 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `e1af44f`
+  - C2: `747dac1`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R24.2 抽离 REPL 命令路由与参数校验到 `cli/repl_commands.py`
 - Acceptance:

@@ -29,3 +29,26 @@
 - Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
 - Next:
   - R24.1 Red：先加输入引擎模块边界测试。
+
+### R24.1 抽离可编辑输入与历史回填引擎到 `cli/repl_input.py`
+- Context:
+  - `commands.py` 同时承载 REPL 主循环与终端输入细节（raw mode、按键解析、历史导航），导致文件过长且职责耦合。
+  - 现有测试直接调用 `cli_commands._read_interactive_line`，迁移时需保持兼容并防止行为漂移。
+- Decision:
+  - 新增 `src/nano_multiagent/cli/repl_input.py`，收敛输入引擎协议与实现：`build_repl_input_reader`、`read_interactive_line` 等。
+  - `commands.py` 通过导入别名委派输入逻辑，继续暴露 `_read_interactive_line` 兼容既有测试入口。
+  - 新增 `tests/unit/test_cli_refactor_boundaries.py`，为“输入引擎职责在独立模块”建立结构门禁。
+- Rationale:
+  - 把“输入编辑”从“REPL 编排”中剥离后，后续可独立演进输入能力，且不影响主流程可读性。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py`（ImportError: `repl_input` 不存在）
+    - Gate: `pytest -q`（`326 passed, 4 skipped`）
+  - Entry:
+    - 行内编辑/历史回填相关测试保持通过；
+    - `commands.py` 输入细节函数体已迁出到 `repl_input.py`。
+- Rollback:
+  - `e1af44f`（R24.1 C1）
+- Commits: C1=`e1af44f`, C2=`747dac1`, C3=`<pending>`
+- Next:
+  - R24.2 Red：新增 REPL 命令路由模块边界测试。
