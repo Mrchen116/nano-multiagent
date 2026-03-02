@@ -63,14 +63,30 @@
 
 ### R19.2 remote 模式直连语义与 REPL 命令兼容
 - Context:
+  - R19.1 后已具备 managed 生命周期基础，但发现 remote 缺参校验在 `try` 外，导致 CLI 会直接抛异常退出。
+  - 需要补齐两模式下 REPL 关键命令链路的 integration 证据。
 - Decision:
+  - 新增 Red 测试：`--mode remote` 且无 `--base-url` 时，CLI 必须返回 exit code=1 和结构化错误+建议。
+  - 将 `mode/base_url/config` 解析收拢到 `run_cli` 的统一异常边界，避免裸异常泄漏到调用端。
+  - 新增 contract + integration：
+    - contract 固化 `--mode` 选项（`managed|remote`）；
+    - integration 参数化覆盖两模式下 `/new /tools /compact /history` 链路。
 - Rationale:
+  - 将输入校验纳入统一错误路径，可稳定输出可执行建议，避免“堆栈即输出”的 CLI 体验。
+  - 用 integration 参数化验证双模式命令兼容，减少后续改动回归风险。
 - Evidence:
-  - Tests: `<pending>`
-  - Entry: `<pending>`
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py -k "remote_mode_requires_base_url"` -> 1 failed（ValueError 直接抛出）
+    - Green: `pytest -q tests/unit/test_cli_main.py tests/contract/test_cli_http_only_contract.py tests/integration/test_cli_http_flow_integration.py` -> `25 passed`
+    - Gate: `pytest -q` -> `259 passed, 3 skipped`
+  - Entry:
+    - remote 缺少 `--base-url` 返回 JSON 错误并附建议；
+    - managed/remote 两模式下 REPL 关键命令均可走通，且 remote 不触发 managed start。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `1de9b4c`（R19.2 C1）
+- Commits: C1=`1de9b4c`, C2=`d875363`, C3=`<pending>`
 - Next:
+  - R19.3 Red（诊断文案与 README 收口）
 
 ### R19.3 连接诊断与可操作错误提示收口
 - Context:

@@ -27,7 +27,7 @@
   - C3: `<pending>`
 - Status: DONE
 
-## [TODO] R19.2 remote 模式直连语义与 REPL 命令兼容
+## [DONE] R19.2 remote 模式直连语义与 REPL 命令兼容
 - Acceptance:
   - `remote` 模式仅连接既有 `--base-url`（或环境变量），不会启动本地服务。
   - 两模式下都可执行现有 REPL 命令：`/new /tools /compact /history`。
@@ -47,10 +47,10 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M19-*.md` 补齐证据、回滚点、提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `1de9b4c`
+  - C2: `d875363`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R19.3 连接诊断与可操作错误提示收口
 - Acceptance:
