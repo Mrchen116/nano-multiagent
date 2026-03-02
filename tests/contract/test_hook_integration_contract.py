@@ -139,3 +139,32 @@ def test_tool_result_rewrite_contract() -> None:
     )
 
     assert result == {"text": "rewritten-by-hook"}
+
+
+def test_tool_result_rewrite_list_content_contract() -> None:
+    registry = HookRegistry()
+
+    async def rewrite(event, ctx):
+        del event, ctx
+        return {"content": [{"type": "text", "text": "part-a"}, {"type": "image", "image_url": "data:image/png;base64,xxx"}]}
+
+    registry.on("tool_result", rewrite)
+
+    tool_registry = ToolRegistry(
+        context=ToolContext.create(repo_root=Path.cwd()),
+        hook_runner=HookRunner(registry=registry),
+    )
+    tool_registry.register(EchoTool())
+
+    result = tool_registry.execute(
+        "echo",
+        {"text": "ping"},
+        hook_context=HookContext(session_id="sess_contract", repo_root=Path.cwd()),
+    )
+
+    assert result == {
+        "content": [
+            {"type": "text", "text": "part-a"},
+            {"type": "image", "image_url": "data:image/png;base64,xxx"},
+        ]
+    }
