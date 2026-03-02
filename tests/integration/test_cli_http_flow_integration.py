@@ -404,6 +404,35 @@ def test_cli_repl_history_recall_allows_second_submit_after_editing() -> None:
     assert "cli:piXng" in text
 
 
+def test_cli_repl_up_recalls_previous_command_line() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    scripted_reader = _ScriptedReplInputReader(
+        scripted_lines=[
+            ["/", "n", "e", "w", "\n"],
+            ["/", "h", "e", "l", "p", "\n"],
+            ["\x1b[A", "\n"],
+            ["/", "e", "x", "i", "t", "\n"],
+        ]
+    )
+    output = io.StringIO()
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    assert output.getvalue().count("Commands: /help /new /use <session_id>") == 2
+
+
 def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     store = _InMemorySessionStore()
     llm = _ToolCallingLLMClient()

@@ -394,6 +394,29 @@ def _iter_keys(keys: list[str]):
     return _reader
 
 
+class _ScriptedReplInputReader:
+    def __init__(self, scripted_lines: list[list[str]]) -> None:
+        self._line_iterator = iter(scripted_lines)
+        self.render = io.StringIO()
+
+    def read_line(self, prompt: str, history: tuple[str, ...] | list[str]) -> str:
+        keys = next(self._line_iterator)
+        key_iterator = iter(keys)
+
+        def _read_key() -> str | None:
+            try:
+                return next(key_iterator)
+            except StopIteration:
+                return None
+
+        return cli_commands._read_interactive_line(
+            prompt=prompt,
+            history=tuple(history),
+            key_reader=_read_key,
+            out=self.render,
+        )
+
+
 def test_repl_input_engine_supports_inline_insert_at_cursor() -> None:
     typed = cli_commands._read_interactive_line(
         prompt="nano> ",
@@ -436,6 +459,29 @@ def test_repl_input_engine_history_navigation_moves_up_and_down() -> None:
     )
 
     assert typed == "second"
+
+
+def test_run_cli_repl_up_recalls_previous_command_line() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    scripted_reader = _ScriptedReplInputReader(
+        scripted_lines=[
+            ["/", "n", "e", "w", "\n"],
+            ["/", "h", "e", "l", "p", "\n"],
+            ["\x1b[A", "\n"],
+            ["/", "e", "x", "i", "t", "\n"],
+        ]
+    )
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    assert output.getvalue().count("Commands: /help /new /use <session_id>") == 2
 
 
 def test_run_cli_health_outputs_json_payload() -> None:
