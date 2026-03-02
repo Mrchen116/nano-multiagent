@@ -58,6 +58,12 @@ class _FailingToolsStubClient(_StubClient):
         raise RuntimeError("request failed (500): {'error': 'tools unavailable'}")
 
 
+class _ConnectionRefusedOnSendStubClient(_StubClient):
+    def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message", {"session_id": session_id, "text": text}))
+        raise ConnectionRefusedError(61, "Connection refused")
+
+
 def test_run_cli_health_outputs_json_payload() -> None:
     stub = _StubClient()
     output = io.StringIO()
@@ -274,3 +280,21 @@ def test_run_cli_repl_request_failures_include_suggestions() -> None:
     text = output.getvalue()
     assert "Error: failed to run /tools." in text
     assert "Suggestion: check server status/token and retry /tools." in text
+
+
+def test_run_cli_repl_connection_refused_shows_base_url_suggestion() -> None:
+    stub = _ConnectionRefusedOnSendStubClient()
+    output = io.StringIO()
+    inputs = iter(["hi", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Error: send failed: [Errno 61] Connection refused" in text
+    assert "Suggestion: check --base-url and ensure API server is running." in text

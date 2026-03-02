@@ -11,6 +11,8 @@ from nano_multiagent.core.errors import ModelError
 from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from nano_multiagent.llm.protocols.anthropic import AnthropicClient, AnthropicMapper
 from nano_multiagent.llm.protocols.openai_compat import OpenAICompatClient, OpenAICompatMapper
+from nano_multiagent.llm.protocols.anthropic.client import _should_trust_env as anthropic_should_trust_env
+from nano_multiagent.llm.protocols.openai_compat.client import _should_trust_env as openai_should_trust_env
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +130,16 @@ def test_provider_client_contract_streaming_not_supported(provider_case: Provide
 
     with pytest.raises(ModelError, match="streaming generation is not implemented yet"):
         client.generate(_build_request(stream=True))
+
+
+def test_provider_clients_bypass_env_proxy_for_local_base_url() -> None:
+    assert openai_should_trust_env("http://127.0.0.1:4000") is False
+    assert anthropic_should_trust_env("http://localhost:4000") is False
+
+
+def test_provider_clients_keep_env_proxy_for_remote_base_url() -> None:
+    assert openai_should_trust_env("https://api.example.com") is True
+    assert anthropic_should_trust_env("https://api.example.com") is True
 
 
 def _assert_openai_request(payload: dict[str, Any]) -> None:

@@ -2,7 +2,7 @@ import json
 
 import httpx
 
-from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig
+from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig, _should_trust_env
 from nano_multiagent.sdk.client import ServerClient as SDKServerClient
 from nano_multiagent.sdk.client import ServerClientConfig as SDKServerClientConfig
 
@@ -86,3 +86,12 @@ def test_session_tools_and_compact_call_session_scoped_endpoints() -> None:
 
     assert seen["method"] == "POST"
     assert seen["path"] == "/v1/sessions/sess_2:compact"
+
+
+def test_server_client_bypasses_env_proxy_for_local_base_url() -> None:
+    assert _should_trust_env("http://127.0.0.1:8000") is False
+    assert _should_trust_env("http://localhost:8000") is False
+
+
+def test_server_client_keeps_env_proxy_for_remote_base_url() -> None:
+    assert _should_trust_env("https://api.example.com") is True

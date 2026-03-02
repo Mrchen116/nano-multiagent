@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from urllib.parse import urlparse
 
 import httpx
 
@@ -23,10 +24,12 @@ class OpenAICompatClient(LLMClient):
         self._default_model = model
         self._api_key = api_key
         self._translator = LLMTranslator(OpenAICompatMapper())
+        trust_env = _should_trust_env(base_url)
         self._http_client = httpx.Client(
             base_url=base_url.rstrip("/"),
             timeout=timeout_seconds,
             transport=transport,
+            trust_env=trust_env,
         )
 
     def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
@@ -82,3 +85,9 @@ class OpenAICompatClient(LLMClient):
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         self.close()
+
+
+def _should_trust_env(base_url: str) -> bool:
+    host = (urlparse(base_url).hostname or "").strip().lower()
+    local_hosts = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+    return host not in local_hosts

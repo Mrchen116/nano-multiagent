@@ -3,6 +3,7 @@ import os
 import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping
+from urllib.parse import urlparse
 
 import httpx
 
@@ -38,10 +39,12 @@ class ServerClient:
         self._config = config or ServerClientConfig.from_env()
         resolved_transport = _wrap_transport(transport)
         self._transport = resolved_transport
+        trust_env = _should_trust_env(self._config.base_url)
         self._client = httpx.Client(
             base_url=self._config.base_url,
             timeout=self._config.timeout_seconds,
             transport=resolved_transport,
+            trust_env=trust_env,
         )
 
     def __enter__(self) -> "ServerClient":
@@ -138,6 +141,12 @@ def _wrap_transport(transport: httpx.BaseTransport | None) -> httpx.BaseTranspor
     if hasattr(transport, "handle_async_request"):
         return _AsyncTransportBridge(transport)  # type: ignore[arg-type]
     return transport
+
+
+def _should_trust_env(base_url: str) -> bool:
+    host = (urlparse(base_url).hostname or "").strip().lower()
+    local_hosts = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+    return host not in local_hosts
 
 
 class _AsyncTransportBridge(httpx.BaseTransport):

@@ -242,8 +242,11 @@ def _run_repl(
                     )
                     continue
             except Exception as exc:
-                del exc
-                _print_actionable_error(out=out, message=f"failed to run {command}.", suggestion=f"check server status/token and retry {command}.")
+                suggestion = _suggestion_for_exception(
+                    exc,
+                    default=f"check server status/token and retry {command}.",
+                )
+                _print_actionable_error(out=out, message=f"failed to run {command}.", suggestion=suggestion)
                 continue
 
             _print_actionable_error(
@@ -271,10 +274,14 @@ def _run_repl(
                 )
             print(json.dumps(payload, ensure_ascii=False), file=out)
         except Exception as exc:
+            suggestion = _suggestion_for_exception(
+                exc,
+                default="run /new to start a session, then retry.",
+            )
             _print_actionable_error(
                 out=out,
                 message=f"send failed: {exc}",
-                suggestion="run /new to start a session, then retry.",
+                suggestion=suggestion,
             )
 
 
@@ -288,6 +295,15 @@ def _parse_history_limit(argument: str | None) -> tuple[int, str | None]:
     if value <= 0:
         return 0, "invalid n for /history."
     return value, None
+
+
+def _suggestion_for_exception(exc: Exception, *, default: str) -> str:
+    text = str(exc).lower()
+    if "connection refused" in text or "connecterror" in text or "nodename nor servname" in text:
+        return "check --base-url and ensure API server is running."
+    if "missing api token" in text or "unauthorized" in text or "401" in text:
+        return "check --token or NANO_MULTIAGENT_API_TOKEN and retry."
+    return default
 
 
 def _split_argument_tokens(argument: str | None) -> list[str]:
