@@ -3,7 +3,7 @@
 - Test command: `pytest -q`
 - Branch: `milestone/M17`
 
-## [TODO] R17.1 会话级 `/compact` 与 `/tools` HTTP API
+## [DONE] R17.1 会话级 `/compact` 与 `/tools` HTTP API
 - Acceptance:
   - 新增 `POST /v1/sessions/{session_id}:compact`，可触发手动压缩并返回结构化结果。
   - 新增 `GET /v1/sessions/{session_id}/tools`，返回当前会话可用工具列表。
@@ -23,9 +23,9 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M17-*.md` 记录决策/证据/回滚点/哈希。
 - Commits:
-  - C1: <pending>
-  - C2: <pending>
-- Status: TODO
+  - C1: `684ed01`
+  - C2: `848b229`
+- Status: DONE
 
 ## [TODO] R17.2 CLI HTTP 客户端分层重构（`cli/main.py + cli/commands.py + cli/http_client.py`）
 - Acceptance:
