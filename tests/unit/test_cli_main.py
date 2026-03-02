@@ -518,6 +518,16 @@ def test_run_cli_repl_up_recalls_previous_command_line() -> None:
     assert output.getvalue().count("Commands: /help /new /use <session_id>") == 2
 
 
+def test_cli_help_mentions_repl_editing_budget_and_error_layers() -> None:
+    help_text = cli_commands.build_parser().format_help()
+
+    assert "REPL quick commands" in help_text
+    assert "/compact /history [n] /exit" in help_text
+    assert "Inline editing" in help_text
+    assert "History recall" in help_text
+    assert "Error layers: input / network / runtime" in help_text
+
+
 def test_run_cli_health_outputs_json_payload() -> None:
     stub = _StubClient()
     output = io.StringIO()
