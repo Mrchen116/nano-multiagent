@@ -10,7 +10,6 @@ def test_commands_does_not_expose_repl_input_bridge_symbols() -> None:
     assert not hasattr(cli_commands, "_read_interactive_line")
 
 
-<<<<<<< HEAD
 def test_commands_does_not_expose_repl_command_bridge_symbols() -> None:
     assert not hasattr(cli_commands, "_handle_repl_command")
     assert not hasattr(cli_commands, "supported_repl_commands")

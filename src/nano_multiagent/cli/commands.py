@@ -12,12 +12,10 @@ from nano_multiagent.cli.context_budget import extract_context_budget_metrics as
 from nano_multiagent.cli.context_budget import print_context_budget_snapshot as _print_context_budget_snapshot
 from nano_multiagent.cli.error_presenter import error_layer_for_exception as _error_layer_for_exception
 from nano_multiagent.cli.error_presenter import suggestion_for_exception as _suggestion_for_exception
+import nano_multiagent.cli.repl_commands as repl_commands
 import nano_multiagent.cli.repl_input as repl_input
 from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig
 from nano_multiagent.cli.managed_server import ManagedServerConfig, ManagedServerProcess
-from nano_multiagent.cli.repl_commands import REPL_COMMANDS as _REPL_COMMANDS
-from nano_multiagent.cli.repl_commands import handle_repl_command as _handle_repl_command
-from nano_multiagent.cli.repl_commands import print_actionable_error as _print_actionable_error
 from nano_multiagent.cli.repl_events import consume_async_run_events as _consume_async_run_events
 from nano_multiagent.cli.repl_events import merge_text_delta as _merge_text_delta
 from nano_multiagent.cli.repl_events import print_event_preview as _print_event_preview
@@ -171,10 +169,6 @@ def run_cli(
     return 0
 
 
-def supported_repl_commands() -> tuple[str, ...]:
-    return _REPL_COMMANDS
-
-
 def _run_single_command(*, args: argparse.Namespace, client: ServerClient) -> dict[str, object]:
     if args.command == "health":
         return client.health()
@@ -255,7 +249,7 @@ def _run_repl(
         if line.startswith("/"):
             if active_session_id:
                 _append_input_history_entry(input_history_by_session, active_session_id, line)
-            command_result = _handle_repl_command(
+            command_result = repl_commands.handle_repl_command(
                 line=line,
                 out=out,
                 client=client,
@@ -307,7 +301,7 @@ def _run_repl(
                 exc,
                 default="run /new to start a session, then retry.",
             )
-            _print_actionable_error(
+            repl_commands.print_actionable_error(
                 out=out,
                 message=f"send failed: {exc}",
                 suggestion=suggestion,
