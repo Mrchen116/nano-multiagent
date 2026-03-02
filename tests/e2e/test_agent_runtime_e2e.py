@@ -1,3 +1,5 @@
+import os
+
 import httpx
 import pytest
 
@@ -17,6 +19,9 @@ def _llm_proxy_available() -> bool:
 
 @pytest.mark.e2e
 def test_runtime_can_complete_text_only_turn_with_real_proxy(tmp_path) -> None:
+    if os.getenv("NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E") != "1":
+        pytest.skip("set NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 to run live proxy e2e tests")
+
     if not _llm_proxy_available():
         pytest.skip("LLM_PROXY is unavailable on http://127.0.0.1:4000")
 
