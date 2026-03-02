@@ -3,7 +3,7 @@
 - Test command: `pytest -q`
 - Branch: `milestone/M15`
 
-## [TODO] R15.1 Provider 契约测试集统一（OpenAI + Anthropic）
+## [DONE] R15.1 Provider 契约测试集统一（OpenAI + Anthropic）
 - Acceptance:
   - 新增共享 provider 契约测试集，`openai_compat` 与 `anthropic` 走同一套用例入口。
   - 契约覆盖请求映射、响应解析、错误归一化与 `X-Session-Id` 头传递语义。
@@ -24,8 +24,8 @@
   - `PROGRESS` 记录决策、证据与哈希
   - `pytest -q` 在仓库基线允许范围内不新增失败
 - Commits:
-  - C1: TBD
-  - C2: TBD
+  - C1: `272946c`
+  - C2: `6edbac4`
   - C3: TBD
 
 ## [TODO] R15.2 新增 anthropic 协议实现（llm/protocols/anthropic）
