@@ -22,7 +22,7 @@
   - 目标测试红转绿，且 `pytest -q` 全绿。
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M14-*.md` 记录决策/证据/回退点/哈希。
-- Status: TODO
+- Status: DOING
 
 ## [TODO] R14.2 tool_result list content 保真透传
 - Acceptance:
@@ -66,3 +66,11 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS/M14-*.md` 记录决策/证据/回退点/哈希。
 - Status: TODO
+
+## 续跑计划（2026-03-02）
+- 当前接手分支：`milestone/M14`（`use_worktree=false`，串行执行）。
+- 启动门禁：`pytest -q` 基线通过（`177 passed, 2 skipped`）。
+- 执行顺序：
+  - `R14.1` 先补 read 红测（图片 part + 截断/offset 提示）再实现。
+  - `R14.2` 衔接 hook/tool_result 透传语义，确保 list content 不破坏。
+  - `R14.3` 最后对齐 bash（无默认超时 + 截断落盘 fullOutputPath + 超时/中断）。

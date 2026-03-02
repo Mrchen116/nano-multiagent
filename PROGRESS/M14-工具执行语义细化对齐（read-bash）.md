@@ -21,6 +21,24 @@
 - Next:
   - R14.1
 
+### 续跑接手（2026-03-02）
+- Context:
+  - 接手输入契约确认：`execution_mode=serial`、`use_worktree=false`、`branch=milestone/M14`、`test_command=pytest -q`。
+  - `data/dev-tasks.json` 中 M14 当前为 READY，按续跑要求在本分支继续执行并最终收口。
+  - 本次接手未发现 `prevention_rules` 注入项，仅沿用 `LOGBOOK.md` 现有规则。
+- Decision:
+  - 保持既有三 Roadpoint 拆分不变，按 `R14.1 -> R14.2 -> R14.3` 顺序执行 C1/C2/C3。
+- Rationale:
+  - 三项 exit criteria 分别对应 read/tool_result/bash，串行推进可减少交叉回归。
+- Evidence:
+  - Tests: `pytest -q`（本次接手复跑）=`177 passed, 2 skipped`
+  - Entry: 代码基线可复现，全量门禁稳定。
+- Rollback:
+  - `cf66bd8`（handoff docs）可作为续跑前稳定点。
+- Commits: C1=<pending>, C2=<pending>, C3=<pending>
+- Next:
+  - R14.1 Red
+
 ### Handoff
 - Context:
   - 用户中止当前执行并要求控制塔切换新执行者续跑 M14。
