@@ -1,0 +1,88 @@
+# TASKS (Milestone: M26)
+
+- Test command: `pytest -q`
+- Branch: `milestone/M26`
+- Milestone status: `RUNNING`
+- 收口边界（先固化）:
+  - Must keep unchanged:
+    - CLI 仅通过 `cli.http_client.ServerClient` 访问 HTTP API，不直连 runtime/tool/session/llm 内核实现。
+    - 非交互单命令（如 `send-message`）stdout 仅输出最终 JSON，对机读脚本保持稳定。
+    - REPL 命令语义与错误分层（`Layer: input|network|runtime`）保持一致。
+    - HTTP API 行为契约不变。
+  - Allowed to change:
+    - `src/nano_multiagent/cli/**` 内部组织与调用路径（去冗余桥接/死代码）。
+    - `tests/**` 的 contract/integration 门禁用例。
+    - `README.md` 与 CLI 帮助说明文案（边界与开发约定补齐）。
+
+## [TODO] R26.1 清理 `commands.py` 冗余桥接与死代码，收敛为稳定入口编排层
+- Acceptance:
+  - `commands.py` 不再暴露仅供测试使用的空转发桥接符号。
+  - REPL 编排继续由 `commands.py` 主导，输入/命令处理委派清晰且可跳转。
+  - CLI 对外行为（命令返回、错误层级、REPL 交互）保持一致。
+  - 移除无业务价值的耦合点，避免后续逻辑回流到 `commands.py`。
+- Tests Plan:
+  - `unit`: 选。验证模块边界与核心编排行为不变。
+  - `contract`: 选。验证 CLI 边界约束（HTTP-only、REPL 命令契约）不回归。
+  - `integration`: 选。验证关键 CLI->HTTP 链路保持一致。
+  - `e2e`: 不选。当前收口不涉及部署差异，integration 已覆盖真实入口语义。
+- Expected Tests:
+  - `tests/unit/test_cli_refactor_boundaries.py`
+  - `tests/unit/test_cli_main.py`
+  - `tests/contract/test_cli_http_only_contract.py`
+  - `tests/integration/test_cli_http_flow_integration.py`
+- DoD:
+  - `pytest -q` 全绿。
+  - C1/C2/C3 提交齐全。
+  - PROGRESS 记录边界决策、证据、回滚点与哈希。
+- Commits:
+  - C1: `<pending>`
+  - C2: `<pending>`
+  - C3: `<pending>`
+- Status: TODO
+
+## [TODO] R26.2 README 与 CLI 帮助文案补齐模块边界与开发约定
+- Acceptance:
+  - README 明确 CLI 模块边界（入口编排/输入引擎/命令路由/HTTP 客户端）与“禁止跨边界直连”约定。
+  - CLI 帮助文案覆盖 HTTP-only 约束与单命令 JSON 契约说明。
+  - 文档内容与实现一致，避免出现误导性描述。
+- Tests Plan:
+  - `unit`: 选。通过 help 文案断言避免说明回归。
+  - `contract`: 选。约束帮助文本中的关键边界声明。
+  - `integration`: 不选。文档变化不影响链路行为。
+  - `e2e`: 不选。无需真实部署验证。
+- Expected Tests:
+  - `tests/unit/test_cli_main.py`
+  - `tests/contract/test_cli_http_only_contract.py`
+- DoD:
+  - `pytest -q` 全绿。
+  - C1/C2/C3 提交齐全。
+  - PROGRESS 记录边界文本与证据。
+- Commits:
+  - C1: `<pending>`
+  - C2: `<pending>`
+  - C3: `<pending>`
+- Status: TODO
+
+## [TODO] R26.3 增补 contract + integration 门禁，固化 HTTP-only 与关键交互链路
+- Acceptance:
+  - contract 明确断言 CLI 编排层依赖方向与单命令 JSON 契约稳定性。
+  - integration 覆盖关键链路：REPL 事件预览不污染单命令 JSON 输出、核心命令链无回归。
+  - 新增门禁均为行为保持校验，不改变 API 语义。
+- Tests Plan:
+  - `unit`: 选。补充轻量边界断言。
+  - `contract`: 选。核心边界与契约稳定性门禁。
+  - `integration`: 选。真实 CLI 入口链路回归。
+  - `e2e`: 不选。本里程碑目标为收口门禁，不新增部署路径。
+- Expected Tests:
+  - `tests/contract/test_cli_http_only_contract.py`
+  - `tests/integration/test_cli_http_flow_integration.py`
+  - `tests/unit/test_cli_refactor_boundaries.py`
+- DoD:
+  - `pytest -q` 全绿。
+  - C1/C2/C3 提交齐全。
+  - PROGRESS 记录契约证据与回滚点。
+- Commits:
+  - C1: `<pending>`
+  - C2: `<pending>`
+  - C3: `<pending>`
+- Status: TODO
