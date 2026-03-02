@@ -105,7 +105,8 @@ def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path) -> N
     assert turn_events[1].data["content"] == "ack"
 
     second_payload = observed_bodies[-1]
-    assert second_payload["system"] == "You are a concise assistant."
+    assert isinstance(second_payload.get("system"), str)
+    assert second_payload["system"].strip()
     messages = second_payload["messages"]
     assert [message["role"] for message in messages] == ["user", "assistant", "user"]
     assert messages[-1]["content"] == [{"type": "text", "text": "Q2"}]

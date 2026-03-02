@@ -10,6 +10,7 @@ from .model_registry import (
     get_default_model,
     resolve_model_metadata,
 )
+from .protocols.anthropic.client import AnthropicClient
 from .protocols.openai_compat.client import OpenAICompatClient
 
 
@@ -47,6 +48,14 @@ def create_llm_client(
 
     if active_config.provider == "openai_compat":
         return OpenAICompatClient(
+            base_url=active_config.base_url,
+            model=metadata.model,
+            api_key=active_config.api_key,
+            timeout_seconds=active_config.timeout_seconds,
+            transport=transport,
+        )
+    if active_config.provider == "anthropic":
+        return AnthropicClient(
             base_url=active_config.base_url,
             model=metadata.model,
             api_key=active_config.api_key,
