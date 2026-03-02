@@ -165,3 +165,59 @@ def test_server_client_bypasses_env_proxy_for_local_base_url() -> None:
 
 def test_server_client_keeps_env_proxy_for_remote_base_url() -> None:
     assert _should_trust_env("https://api.example.com") is True
+
+
+def test_get_llm_config_calls_v1_llm_config_endpoint() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["auth"] = request.headers.get("Authorization")
+        return httpx.Response(
+            status_code=200,
+            json={
+                "provider": "openai",
+                "model": "gpt-5",
+                "base_url": "https://api.example.com/v1",
+                "api_key": None,
+                "timeout_seconds": 30.0,
+            },
+        )
+
+    config = ServerClientConfig(base_url="http://test.local", token="secret", request_id="req-fixed")
+    with ServerClient(config=config, transport=httpx.MockTransport(handler)) as client:
+        payload = client.get_llm_config()
+
+    assert seen["method"] == "GET"
+    assert seen["path"] == "/v1/llm-config"
+    assert seen["auth"] == "Bearer secret"
+    assert payload["model"] == "gpt-5"
+
+
+def test_patch_llm_config_calls_v1_llm_config_endpoint() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["payload"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(
+            status_code=200,
+            json={
+                "provider": "openai",
+                "model": "gpt-5-mini",
+                "base_url": "https://api.example.com/v1",
+                "api_key": None,
+                "timeout_seconds": 45.0,
+            },
+        )
+
+    config = ServerClientConfig(base_url="http://test.local", token="secret", request_id="req-fixed")
+    with ServerClient(config=config, transport=httpx.MockTransport(handler)) as client:
+        payload = client.patch_llm_config({"model": "gpt-5-mini", "timeout_seconds": 45.0})
+
+    assert seen["method"] == "PATCH"
+    assert seen["path"] == "/v1/llm-config"
+    assert seen["payload"] == {"model": "gpt-5-mini", "timeout_seconds": 45.0}
+    assert payload["model"] == "gpt-5-mini"

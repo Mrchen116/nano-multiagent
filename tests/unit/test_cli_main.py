@@ -118,6 +118,135 @@ class _ConnectionRefusedOnHealthStubClient(_StubClient):
         raise ConnectionRefusedError(61, "Connection refused")
 
 
+class _AsyncEventingStubClient(_StubClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self._stream_calls = 0
+
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_target", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        self._stream_calls += 1
+        if self._stream_calls == 1:
+            return [
+                {
+                    "event_id": "evt_dup",
+                    "event": "run_status",
+                    "data": {"run_id": "run_target", "status": "queued"},
+                },
+                {
+                    "event_id": "evt_dup",
+                    "event": "run_status",
+                    "data": {"run_id": "run_target", "status": "queued"},
+                },
+                {
+                    "event_id": "evt_other",
+                    "event": "text_delta",
+                    "data": {"run_id": "run_other", "delta": "ignore-me"},
+                },
+                {
+                    "event_id": "evt_tool_start",
+                    "event": "tool_start",
+                    "data": {
+                        "run_id": "run_target",
+                        "name": "echo",
+                        "call_id": "call_1",
+                        "arguments": {"text": "ping"},
+                    },
+                },
+                {
+                    "event_id": "evt_tool_end",
+                    "event": "tool_end",
+                    "data": {
+                        "run_id": "run_target",
+                        "name": "echo",
+                        "call_id": "call_1",
+                        "output": {"text": "echo:ping"},
+                        "error": None,
+                    },
+                },
+                {
+                    "event_id": "evt_text",
+                    "event": "text_delta",
+                    "data": {"run_id": "run_target", "delta": "final:echo:ping"},
+                },
+            ]
+        return []
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        if self._stream_calls >= 1:
+            return {
+                "run_id": run_id,
+                "session_id": "sess_cli",
+                "status": "completed",
+                "created_at": "2026-03-02T00:00:00+00:00",
+                "updated_at": "2026-03-02T00:00:00+00:00",
+                "turn_id": "turn_async",
+                "stop_reason": "stop",
+                "error": None,
+            }
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "running",
+            "created_at": "2026-03-02T00:00:00+00:00",
+            "updated_at": "2026-03-02T00:00:00+00:00",
+            "turn_id": None,
+            "stop_reason": None,
+            "error": None,
+        }
+
+
+class _AsyncFailedRunStubClient(_StubClient):
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_failed", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        return [
+            {
+                "event_id": "evt_fail_queued",
+                "event": "run_status",
+                "data": {"run_id": "run_failed", "status": "queued"},
+            }
+        ]
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "failed",
+            "created_at": "2026-03-02T00:00:00+00:00",
+            "updated_at": "2026-03-02T00:00:00+00:00",
+            "turn_id": None,
+            "stop_reason": "timeout",
+            "error": {
+                "code": "run_timeout",
+                "message": "timed out waiting for upstream; root_cause=connect ETIMEDOUT",
+            },
+        }
+
+
 def test_run_cli_health_outputs_json_payload() -> None:
     stub = _StubClient()
     output = io.StringIO()
@@ -153,7 +282,9 @@ def test_run_cli_send_message_uses_session_id_from_env(monkeypatch) -> None:
     )
 
     assert exit_code == 0
-    payload = json.loads(output.getvalue())
+    raw = output.getvalue().strip()
+    assert "\n" not in raw
+    payload = json.loads(raw)
     assert payload["session_id"] == "sess_env"
     assert payload["message"]["content"] == "echo:ping"
 
@@ -372,6 +503,46 @@ def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
     text = output.getvalue().lower()
     assert "send failed: timed out" in text
     assert "nano_multiagent_api_timeout_seconds" in text
+
+
+def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
+    stub = _AsyncEventingStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert text.count("status=queued") == 1
+    assert "[tool echo] start" in text
+    assert "[tool echo] output=echo:ping" in text
+    assert "[text] final:echo:ping" in text
+    assert "ignore-me" not in text
+    assert ("send_message_async", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
+
+
+def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
+    stub = _AsyncFailedRunStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "hi", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Error: send failed: run_id=run_failed" in text
+    assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
 
 class _ManagedServerSpy:

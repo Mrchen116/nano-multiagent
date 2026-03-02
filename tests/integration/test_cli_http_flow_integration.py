@@ -289,9 +289,9 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Error: send failed: request failed (502): {'error': {'code': 'model_error'" in text
+    assert "run_id=" in text
+    assert "run failed: {'code': 'run_execution_failed'" in text
     assert "root_cause=connect ETIMEDOUT" in text
-    assert "'trace_id': 'req-cli-timeout-root-cause'" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
 
@@ -318,6 +318,50 @@ def test_cli_repl_flow_supports_tools_and_compact_commands() -> None:
     assert "cli:ping" in text
     assert "Tools for session" in text
     assert "Compaction for session" in text
+
+
+def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
+    store = _InMemorySessionStore()
+    llm = _ToolCallingLLMClient()
+    runtime = AgentRuntime(
+        session_manager=SessionManager(store=store),
+        llm_client=llm,
+        model="mock-model",
+        repo_root=Path.cwd(),
+    )
+    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    echo_tool = _EchoTool()
+    tool_registry.register(echo_tool)
+
+    app = create_app(
+        session_store=store,
+        runtime=runtime,
+        tool_registry=tool_registry,
+        auth_token="test-token",
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "[run " in text
+    assert "status=completed" in text
+    assert "[tool echo] start" in text
+    assert "[tool echo] output=echo:ping" in text
+    assert "[text] final:echo:ping" in text
 
 
 def test_cli_repl_flow_supports_history_listing() -> None:

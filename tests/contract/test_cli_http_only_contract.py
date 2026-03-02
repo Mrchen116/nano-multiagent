@@ -44,3 +44,8 @@ def test_cli_exposes_mode_contract() -> None:
 def test_cli_exposes_required_repl_commands_contract() -> None:
     names = set(cli_commands.supported_repl_commands())
     assert {"/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit"}.issubset(names)
+
+
+def test_cli_client_exposes_llm_config_contract() -> None:
+    assert hasattr(cli_http_client.ServerClient, "get_llm_config")
+    assert hasattr(cli_http_client.ServerClient, "patch_llm_config")
