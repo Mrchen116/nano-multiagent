@@ -92,7 +92,9 @@ def test_run_cli_repl_supports_required_commands() -> None:
 
     assert exit_code == 0
     lines = output.getvalue()
-    assert "/help /new /use <session_id> /session /tools /compact /exit" in lines
+    assert "/help /new /use <session_id> /session /tools /compact" in lines
+    assert "/history [n]" in lines
+    assert "/exit" in lines
     assert "session_id" in lines
     assert "hello repl" in lines
     assert [call[0] for call in stub.calls] == [

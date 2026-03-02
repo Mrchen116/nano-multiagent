@@ -6,8 +6,9 @@ from typing import Callable, Sequence, TextIO
 
 from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig
 
-_REPL_COMMANDS = ("/help", "/new", "/use", "/session", "/tools", "/compact", "/exit")
-_HELP_LINE = "Commands: /help /new /use <session_id> /session /tools /compact /exit"
+_DEFAULT_HISTORY_LIMIT = 20
+_REPL_COMMANDS = ("/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit")
+_HELP_LINE = "Commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -90,6 +91,7 @@ def _run_repl(
     input_fn: Callable[[str], str],
 ) -> int:
     active_session_id = _resolve_initial_session_id()
+    history_by_session: dict[str, list[tuple[str, str]]] = {}
     while True:
         try:
             raw = input_fn(_prompt(active_session_id))
@@ -137,6 +139,21 @@ def _run_repl(
                 payload = client.compact_session(session_id=active_session_id)
                 print(json.dumps(payload, ensure_ascii=False), file=out)
                 continue
+            if command == "/history":
+                if not active_session_id:
+                    print(json.dumps({"error": "no active session, use /new or /use <session_id>"}, ensure_ascii=False), file=out)
+                    continue
+                history_limit, error = _parse_history_limit(argument)
+                if error is not None:
+                    print(json.dumps({"error": error}, ensure_ascii=False), file=out)
+                    continue
+                _print_history(
+                    out=out,
+                    session_id=active_session_id,
+                    history=history_by_session.get(active_session_id, ()),
+                    limit=history_limit,
+                )
+                continue
             print(json.dumps({"error": f"unknown command: {command}"}, ensure_ascii=False), file=out)
             continue
 
@@ -146,7 +163,66 @@ def _run_repl(
             print(json.dumps(session_payload, ensure_ascii=False), file=out)
 
         payload = client.send_message(session_id=active_session_id, text=line)
+        _append_history_entry(history_by_session, active_session_id, role="user", content=line)
+        response_content = _extract_message_content(payload)
+        if response_content is not None:
+            _append_history_entry(
+                history_by_session,
+                active_session_id,
+                role="assistant",
+                content=response_content,
+            )
         print(json.dumps(payload, ensure_ascii=False), file=out)
+
+
+def _parse_history_limit(argument: str | None) -> tuple[int, str | None]:
+    if argument is None:
+        return _DEFAULT_HISTORY_LIMIT, None
+    try:
+        value = int(argument)
+    except ValueError:
+        return 0, "usage: /history [n], n must be a positive integer"
+    if value <= 0:
+        return 0, "usage: /history [n], n must be a positive integer"
+    return value, None
+
+
+def _print_history(
+    *,
+    out: TextIO,
+    session_id: str,
+    history: Sequence[tuple[str, str]],
+    limit: int,
+) -> None:
+    total = len(history)
+    if total == 0:
+        print(f"History for session {session_id} is empty.", file=out)
+        return
+    shown = list(history[-limit:])
+    print(f"History for session {session_id} (last {len(shown)}/{total}):", file=out)
+    for role, content in shown:
+        print(f"{role}: {content}", file=out)
+
+
+def _append_history_entry(
+    history_by_session: dict[str, list[tuple[str, str]]],
+    session_id: str,
+    *,
+    role: str,
+    content: str,
+) -> None:
+    entries = history_by_session.setdefault(session_id, [])
+    entries.append((role, content))
+
+
+def _extract_message_content(payload: dict[str, object]) -> str | None:
+    message = payload.get("message")
+    if not isinstance(message, dict):
+        return None
+    content = message.get("content")
+    if not isinstance(content, str):
+        return None
+    return content
 
 
 def _resolve_initial_session_id() -> str | None:
