@@ -6,6 +6,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
 from nano_multiagent.cli.main import run_cli
@@ -17,6 +18,29 @@ from nano_multiagent.session.manager import SessionManager
 from nano_multiagent.session.stores.base import LoadedSession, SessionStore
 from nano_multiagent.tools.base import ToolContext
 from nano_multiagent.tools.registry import ToolRegistry
+
+
+class _ScriptedReplInputReader:
+    def __init__(self, scripted_lines: list[list[str]]) -> None:
+        self._line_iterator = iter(scripted_lines)
+        self.render = io.StringIO()
+
+    def read_line(self, prompt: str, history: tuple[str, ...] | list[str]) -> str:
+        keys = next(self._line_iterator)
+        key_iterator = iter(keys)
+
+        def _read_key() -> str | None:
+            try:
+                return next(key_iterator)
+            except StopIteration:
+                return None
+
+        return cli_commands._read_interactive_line(
+            prompt=prompt,
+            history=tuple(history),
+            key_reader=_read_key,
+            out=self.render,
+        )
 
 
 class _RuntimeStub:
@@ -318,6 +342,95 @@ def test_cli_repl_flow_supports_tools_and_compact_commands() -> None:
     assert "cli:ping" in text
     assert "Tools for session" in text
     assert "Compaction for session" in text
+
+
+def test_cli_repl_inline_editing_keys_submit_edited_text() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    scripted_reader = _ScriptedReplInputReader(
+        scripted_lines=[
+            ["/", "n", "e", "w", "\n"],
+            ["h", "e", "l", "l", "o", "\x1b[D", "\x1b[D", "X", "\n"],
+            ["/", "e", "x", "i", "t", "\n"],
+        ]
+    )
+    output = io.StringIO()
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "cli:helXlo" in text
+
+
+def test_cli_repl_history_recall_allows_second_submit_after_editing() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    scripted_reader = _ScriptedReplInputReader(
+        scripted_lines=[
+            ["/", "n", "e", "w", "\n"],
+            ["p", "i", "n", "g", "\n"],
+            ["\x1b[A", "\x1b[D", "\x1b[D", "X", "\n"],
+            ["/", "e", "x", "i", "t", "\n"],
+        ]
+    )
+    output = io.StringIO()
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "cli:ping" in text
+    assert "cli:piXng" in text
+
+
+def test_cli_repl_up_recalls_previous_command_line() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    scripted_reader = _ScriptedReplInputReader(
+        scripted_lines=[
+            ["/", "n", "e", "w", "\n"],
+            ["/", "h", "e", "l", "p", "\n"],
+            ["\x1b[A", "\n"],
+            ["/", "e", "x", "i", "t", "\n"],
+        ]
+    )
+    output = io.StringIO()
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    assert output.getvalue().count("Commands: /help /new /use <session_id>") == 2
 
 
 def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
