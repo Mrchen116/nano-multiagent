@@ -11,7 +11,7 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.ids import make_run_id
-from nano_multiagent.core.types import TokenUsage, TurnResult
+from nano_multiagent.core.types import TurnResult
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.observability.logger import log_error, log_info
@@ -39,7 +39,6 @@ class RunRecord:
     turn_id: str | None = None
     stop_reason: str | None = None
     error: Mapping[str, Any] | None = None
-    usage: TokenUsage | None = None
     attempt: int | None = None
     next_delay: float | None = None
     cooldown: float | None = None
@@ -47,14 +46,7 @@ class RunRecord:
 
 
 class RuntimeRunner(Protocol):
-    def run(
-        self,
-        session_id: str,
-        parts,
-        *,
-        stream: bool = True,
-        run_id: str | None = None,
-    ):  # noqa: ANN001, ANN201
+    def run(self, session_id: str, parts, *, stream: bool = True):  # noqa: ANN001, ANN201
         ...
 
 
@@ -166,7 +158,7 @@ class RunsRegistry:
                 if self._is_cancelled(run_id):
                     return
                 try:
-                    result = self._runtime.run(session_id, parts, stream=False, run_id=run_id)
+                    result = self._runtime.run(session_id, parts, stream=False)
                 except TimeoutError as exc:
                     self._mark_timed_out(run_id, message=str(exc))
                     return
@@ -220,7 +212,6 @@ class RunsRegistry:
         turn_id: str | None = None,
         stop_reason: str | None = None,
         error: Mapping[str, Any] | None = None,
-        usage: TokenUsage | None = None,
         attempt: int | None = None,
         next_delay: float | None = None,
         cooldown: float | None = None,
@@ -240,7 +231,6 @@ class RunsRegistry:
                 turn_id=turn_id,
                 stop_reason=stop_reason,
                 error=error,
-                usage=usage,
                 attempt=attempt,
                 next_delay=next_delay,
                 cooldown=cooldown,
@@ -275,7 +265,6 @@ class RunsRegistry:
             turn_id=turn_result.turn_id,
             stop_reason=turn_result.stop_reason,
             error=None,
-            usage=turn_result.usage,
             only_if={RunStatus.RUNNING},
         )
         if updated is not None and updated.status is RunStatus.COMPLETED:
@@ -496,16 +485,6 @@ def _utc_now_iso() -> str:
 _TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
 
 
-def _serialize_usage(usage: TokenUsage | None) -> dict[str, int] | None:
-    if usage is None:
-        return None
-    return {
-        "prompt_tokens": usage.prompt_tokens,
-        "completion_tokens": usage.completion_tokens,
-        "total_tokens": usage.total_tokens,
-    }
-
-
 def _sleep(seconds: float) -> None:
     time.sleep(seconds)
 
@@ -533,9 +512,6 @@ def _truncate_error_message(message: str, *, max_chars: int = 240) -> str:
 
 def _run_status_data(record: RunRecord) -> dict[str, Any]:
     payload: dict[str, Any] = {}
-    usage_payload = _serialize_usage(record.usage)
-    if usage_payload is not None:
-        payload["usage"] = usage_payload
     if record.attempt is not None:
         payload["attempt"] = record.attempt
     if record.next_delay is not None:
