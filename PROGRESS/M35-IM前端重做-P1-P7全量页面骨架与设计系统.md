@@ -82,6 +82,30 @@
   - Entry: Agent 名称可编辑保存并反馈 `Saved`；Nodes 节点别名与开关可保存；Policies/Account 表单可读写并回显。
 - Rollback:
   - `bc30711`（R35.3 C1，仅测试先红）
-- Commits: C1=`bc30711`, C2=`0f08257`, C3=`<pending>`
+- Commits: C1=`bc30711`, C2=`0f08257`, C3=`622e792`
 - Next:
   - R35.4：补最终验收测试与 Playwright 桌面/手机真实浏览器检查，收口到 main。
+
+### R35.4 全量门禁与 Playwright 验收记录
+- Context:
+  - 需补齐最终移动端可访问性细节，并给出桌面+手机真实浏览器验收证据。
+  - 验收必须覆盖 chat/settings 关键页，并保持 `npm run test && npm run build` 全绿。
+- Decision:
+  - 先增加移动端 settings 导航可访问性测试（`Settings Sections`），再实现 `nav` 标注与横向可滚动导航。
+  - 启动本地 Vite 服务，使用 Playwright CLI 对桌面与手机路由执行真实打开与截图留证。
+- Rationale:
+  - 在单测覆盖之外，Playwright 真浏览器截图可以直接验证响应式骨架与关键页面可达性。
+- Evidence:
+  - Tests: `cd src/IM/frontend && npm run test && npm run build`（通过）
+  - Playwright:
+    - Desktop `/chat` -> `src/IM/frontend/output/playwright/m35-desktop-chat-list.png`
+    - Desktop `/chat/conv-kernel-ops` -> `src/IM/frontend/output/playwright/m35-desktop-chat-detail.png`
+    - Desktop `/settings/agents` -> `src/IM/frontend/output/playwright/m35-desktop-settings-agents.png`
+    - Mobile(390x844) `/chat` -> `src/IM/frontend/output/playwright/m35-mobile-chat-list.png`
+    - Mobile(390x844) `/chat/conv-kernel-ops` -> `src/IM/frontend/output/playwright/m35-mobile-chat-detail.png`
+    - Mobile(390x844) `/settings/nodes` -> `src/IM/frontend/output/playwright/m35-mobile-settings-nodes.png`
+- Rollback:
+  - `c92d74c`（R35.4 C1，仅测试先红）
+- Commits: C1=`c92d74c`, C2=`4ff3c86`, C3=`<pending>`
+- Next:
+  - 进入 Milestone 集成：rebase main、全绿复验、merge main、push、更新 dev-tasks DONE。

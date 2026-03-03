@@ -78,10 +78,10 @@
 - Commits:
   - C1: `bc30711`
   - C2: `0f08257`
-  - C3: `<pending>`
+  - C3: `622e792`
 - Status: DONE
 
-## [TODO] R35.4 全量门禁与 Playwright 验收记录
+## [DONE] R35.4 全量门禁与 Playwright 验收记录
 - Acceptance:
   - P1-P7 全部路由均可访问，桌面/手机关键流可操作。
   - Playwright 真浏览器完成至少桌面+手机关键页检查并产出截图。
@@ -100,7 +100,7 @@
   - C1/C2/C3 齐全。
   - PROGRESS 写清决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `c92d74c`
+  - C2: `4ff3c86`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
