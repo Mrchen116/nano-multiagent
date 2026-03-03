@@ -258,7 +258,7 @@ def _run_repl(
         if not line:
             continue
 
-        if line.startswith("/"):
+        if repl_commands.is_repl_command_candidate(line):
             if active_session_id:
                 _append_input_history_entry(input_history_by_session, active_session_id, line)
             command_result = repl_commands.handle_repl_command(

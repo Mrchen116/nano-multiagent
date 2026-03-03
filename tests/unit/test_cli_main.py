@@ -691,6 +691,26 @@ def test_run_cli_repl_command_errors_include_actionable_suggestions() -> None:
     assert "Suggestion: run /help to see available commands." in text
 
 
+def test_run_cli_repl_absolute_path_input_is_not_treated_as_command() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    path_line = "/Users/czj/Repos/nano-multiagent/Snipaste_2026-03-03_12-54-14.png这个呢"
+    inputs = iter(["/new", path_line, "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert f"echo:{path_line}" in text
+    assert "unknown command" not in text
+    assert ("send_message", {"session_id": "sess_cli", "text": path_line}) in stub.calls
+
+
 def test_run_cli_repl_ignores_blank_input_and_exits_on_eof() -> None:
     stub = _StubClient()
     output = io.StringIO()

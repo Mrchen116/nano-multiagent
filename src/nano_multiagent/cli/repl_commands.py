@@ -20,6 +20,27 @@ class ReplCommandResult:
     should_exit: bool = False
 
 
+def is_repl_command_candidate(line: str) -> bool:
+    """Return whether one REPL line should be parsed as slash command.
+
+    Notes:
+        Absolute paths (for example `/Users/...`) should be treated as regular
+        user text instead of command input to avoid false positives.
+    """
+    stripped = line.strip()
+    if not stripped.startswith("/"):
+        return False
+    command, _ = _parse_command(stripped)
+    if command in REPL_COMMANDS:
+        return True
+    if len(command) <= 1:
+        return False
+    body = command[1:]
+    if "/" in body:
+        return False
+    return all(char.isalnum() or char in {"_", "-"} for char in body)
+
+
 def handle_repl_command(
     *,
     line: str,
