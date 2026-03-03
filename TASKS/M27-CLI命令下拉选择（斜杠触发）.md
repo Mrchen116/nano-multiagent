@@ -26,9 +26,9 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `f75ad20`
-  - C2: `5308b13`
-  - C3: `f072de3`
+  - C1: `c12d6d4`
+  - C2: `448ff03`
+  - C3: `b9aa906`
 - Status: DONE
 
 ## [DONE] R27.2 在 REPL 编排层接线并补充边界门禁
@@ -52,7 +52,7 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `1a932c6`
-  - C2: `ec75ebe`
+  - C1: `725730e`
+  - C2: `69d1489`
   - C3: `<pending>`
 - Status: DONE
