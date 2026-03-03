@@ -1,3 +1,5 @@
+"""LLM client factory that keeps provider wiring in one boundary."""
+
 import os
 from dataclasses import dataclass
 
@@ -16,6 +18,8 @@ from .protocols.openai_compat.client import OpenAICompatClient
 
 @dataclass(frozen=True, slots=True)
 class LLMFactoryConfig:
+    """Collect provider configuration needed to build an LLM client."""
+
     provider: str = DEFAULT_PROVIDER
     model: str = "codexOAuth:gpt-5.2-codex"
     base_url: str = "http://127.0.0.1:4000"
@@ -24,6 +28,12 @@ class LLMFactoryConfig:
 
     @classmethod
     def from_env(cls) -> "LLMFactoryConfig":
+        """Load LLM factory configuration from environment variables.
+
+        Returns:
+            Parsed configuration with provider defaults applied.
+        """
+
         provider = os.getenv("NANO_MULTIAGENT_LLM_PROVIDER", DEFAULT_PROVIDER)
         model = os.getenv("NANO_MULTIAGENT_LLM_MODEL", get_default_model(provider))
         base_url = os.getenv("NANO_MULTIAGENT_LLM_BASE_URL", get_default_base_url(provider))
@@ -43,9 +53,27 @@ def create_llm_client(
     config: LLMFactoryConfig | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> LLMClient:
+    """Instantiate an LLM client for the configured provider.
+
+    Args:
+        config: Explicit config override; falls back to environment when omitted.
+        transport: Optional HTTPX transport for tests/custom networking.
+
+    Returns:
+        A provider-specific client implementing `LLMClient`.
+
+    Raises:
+        ValueError: If the provider/model pair is unsupported.
+
+    Notes:
+        Provider-specific branches are intentionally isolated in this factory and
+        `llm/protocols/*`, so runtime/agent code stays provider-agnostic.
+    """
+
     active_config = config or LLMFactoryConfig.from_env()
     metadata = resolve_model_metadata(active_config.provider, active_config.model)
 
+    # Provider protocol details must not leak into agent/runtime layers.
     if active_config.provider == "openai_compat":
         return OpenAICompatClient(
             base_url=active_config.base_url,

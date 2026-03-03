@@ -1,3 +1,5 @@
+"""Compaction domain contracts shared by planner/summarizer/applier."""
+
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -5,6 +7,8 @@ from nano_multiagent.session.entries import SessionEntry
 
 
 class CompactionReason(StrEnum):
+    """Enumerate reasons that can trigger context compaction."""
+
     THRESHOLD = "threshold"
     OVERFLOW = "overflow"
     MANUAL = "manual"
@@ -12,6 +16,8 @@ class CompactionReason(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class CompactionSettings:
+    """Configure runtime compaction thresholds and summarization behavior."""
+
     enabled: bool = True
     context_window: int = 8192
     reserve_tokens: int = 1024
@@ -21,6 +27,8 @@ class CompactionSettings:
 
 @dataclass(frozen=True, slots=True)
 class CompactionPlan:
+    """Describe which historical events are dropped/kept in one compaction pass."""
+
     reason: CompactionReason
     first_kept_event_id: str
     dropped_events: tuple[SessionEntry, ...]
@@ -29,6 +37,8 @@ class CompactionPlan:
 
 @dataclass(frozen=True, slots=True)
 class CompactionResult:
+    """Report persisted compaction outcome returned to callers."""
+
     reason: CompactionReason
     entry_id: str
     first_kept_event_id: str

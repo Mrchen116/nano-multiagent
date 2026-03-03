@@ -1,3 +1,5 @@
+"""Registry for supported providers, models, and capability metadata."""
+
 from dataclasses import dataclass
 
 
@@ -6,6 +8,8 @@ DEFAULT_PROVIDER = "openai_compat"
 
 @dataclass(frozen=True, slots=True)
 class ModelMetadata:
+    """Describe model capabilities used by runtime planning and validation."""
+
     provider: str
     model: str
     default_base_url: str
@@ -47,26 +51,55 @@ _PROVIDER_DEFAULT_MODEL: dict[str, str] = {
 
 
 def get_default_model(provider: str) -> str:
+    """Return the default model name for a provider.
+
+    Raises:
+        ValueError: If provider is unsupported.
+    """
+
     _ensure_provider(provider)
     return _PROVIDER_DEFAULT_MODEL[provider]
 
 
 def list_supported_providers() -> tuple[str, ...]:
+    """List all supported provider identifiers."""
+
     return tuple(sorted(_PROVIDER_MODELS.keys()))
 
 
 def list_provider_models(provider: str) -> tuple[ModelMetadata, ...]:
+    """List supported models for a provider ordered by model name.
+
+    Raises:
+        ValueError: If provider is unsupported.
+    """
+
     _ensure_provider(provider)
     provider_models = _PROVIDER_MODELS[provider]
     return tuple(provider_models[model] for model in sorted(provider_models.keys()))
 
 
 def get_default_base_url(provider: str) -> str:
+    """Return the default base URL for a provider."""
+
     metadata = resolve_model_metadata(provider, None)
     return metadata.default_base_url
 
 
 def resolve_model_metadata(provider: str, model: str | None) -> ModelMetadata:
+    """Resolve model metadata for a provider/model pair.
+
+    Args:
+        provider: Provider identifier.
+        model: Optional model override; defaults to provider default when omitted.
+
+    Returns:
+        Capability metadata for the resolved model.
+
+    Raises:
+        ValueError: If provider or model is unsupported.
+    """
+
     _ensure_provider(provider)
     selected_model = model or _PROVIDER_DEFAULT_MODEL[provider]
     provider_models = _PROVIDER_MODELS[provider]

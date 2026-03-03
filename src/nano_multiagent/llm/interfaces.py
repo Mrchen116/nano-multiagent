@@ -1,3 +1,5 @@
+"""Provider-agnostic request/response contracts for LLM calls."""
+
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 
@@ -6,6 +8,8 @@ from nano_multiagent.core.types import ToolSpec
 
 @dataclass(frozen=True, slots=True)
 class LLMToolCall:
+    """Represent one tool call emitted by the model."""
+
     call_id: str
     name: str
     arguments: Mapping[str, Any] = field(default_factory=dict)
@@ -13,6 +17,8 @@ class LLMToolCall:
 
 @dataclass(frozen=True, slots=True)
 class LLMMessage:
+    """Represent one message exchanged with the model provider."""
+
     role: str
     content: str
     name: str | None = None
@@ -22,6 +28,8 @@ class LLMMessage:
 
 @dataclass(frozen=True, slots=True)
 class LLMGenerateRequest:
+    """Describe one model generation request."""
+
     session_id: str
     model: str
     messages: tuple[LLMMessage, ...]
@@ -34,6 +42,8 @@ class LLMGenerateRequest:
 
 @dataclass(frozen=True, slots=True)
 class LLMGenerateResponse:
+    """Describe one normalized model generation response."""
+
     model: str
     message: LLMMessage
     finish_reason: str | None = None
@@ -41,5 +51,16 @@ class LLMGenerateResponse:
 
 
 class LLMClient(Protocol):
+    """Protocol implemented by provider-specific generation clients."""
+
     def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+        """Generate one response for the given normalized request.
+
+        Args:
+            request: Provider-agnostic request payload.
+
+        Returns:
+            Normalized provider response.
+        """
+
         ...

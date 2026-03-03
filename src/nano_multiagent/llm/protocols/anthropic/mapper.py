@@ -1,3 +1,5 @@
+"""Request/response mapper for Anthropic messages protocol."""
+
 from __future__ import annotations
 
 from typing import Any, Mapping
@@ -10,9 +12,13 @@ _DEFAULT_MAX_TOKENS = 1024
 
 
 class AnthropicMapper:
+    """Map normalized LLM contracts to Anthropic-compatible payloads."""
+
     endpoint_path = "/v1/messages"
 
     def map_generate_request(self, request: LLMGenerateRequest) -> Mapping[str, Any]:
+        """Map normalized request fields into Anthropic request JSON."""
+
         system_parts: list[str] = []
         messages: list[dict[str, Any]] = []
 
@@ -51,6 +57,12 @@ class AnthropicMapper:
         return payload
 
     def map_generate_response(self, payload: Mapping[str, Any]) -> LLMGenerateResponse:
+        """Normalize Anthropic response payload.
+
+        Raises:
+            ModelError: If payload misses required content/tool structure.
+        """
+
         content_blocks = payload.get("content")
         if not isinstance(content_blocks, list) or not content_blocks:
             raise ModelError(

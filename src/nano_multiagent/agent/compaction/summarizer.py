@@ -1,3 +1,5 @@
+"""Generate compaction summaries from dropped conversation history."""
+
 from typing import Sequence
 
 from nano_multiagent.core.types import Message
@@ -12,6 +14,8 @@ SUMMARY_SYSTEM_PROMPT = (
 
 
 class CompactionSummarizer:
+    """Summarize dropped history via LLM with deterministic fallback."""
+
     def __init__(self, *, llm_client: LLMClient, model: str) -> None:
         self._llm_client = llm_client
         self._model = model
@@ -23,6 +27,17 @@ class CompactionSummarizer:
         reason: CompactionReason,
         dropped_messages: Sequence[Message],
     ) -> str:
+        """Summarize dropped messages for compaction record.
+
+        Args:
+            session_id: Session id used for provider tracing.
+            reason: Compaction trigger reason.
+            dropped_messages: Messages that will be removed from active context.
+
+        Returns:
+            Generated summary, or fallback summary on empty input/failure.
+        """
+
         if not dropped_messages:
             return _fallback_summary(reason=reason)
 
