@@ -2,7 +2,11 @@ import { createBrowserRouter, Navigate, RouteObject } from "react-router-dom";
 
 import { App } from "./App";
 import { ChatWorkspacePage } from "../features/chat/chat-workspace-page";
-import { PlaceholderBlock } from "../features/settings/placeholders";
+import { AccountPage } from "../features/settings/account/account-page";
+import { AgentDetailPage } from "../features/settings/agents/agent-detail-page";
+import { AgentsListPage } from "../features/settings/agents/agents-list-page";
+import { NodesPage } from "../features/settings/nodes/nodes-page";
+import { PoliciesPage } from "../features/settings/policies/policies-page";
 import { SettingsPageShell } from "../features/settings/settings-page-shell";
 
 export const appRoutes: RouteObject[] = [
@@ -23,23 +27,23 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "agents",
-            element: <PlaceholderBlock title="Agents" description="Agent profiles and versions." />
+            element: <AgentsListPage />
           },
           {
             path: "agents/:agentId",
-            element: <PlaceholderBlock title="Agent Detail" description="Edit one agent profile." />
+            element: <AgentDetailPage />
           },
           {
             path: "nodes",
-            element: <PlaceholderBlock title="Nodes" description="Node status and center config." />
+            element: <NodesPage />
           },
           {
             path: "policies",
-            element: <PlaceholderBlock title="Policies" description="Global policy controls." />
+            element: <PoliciesPage />
           },
           {
             path: "account",
-            element: <PlaceholderBlock title="Account" description="Owner account metadata." />
+            element: <AccountPage />
           }
         ]
       }
