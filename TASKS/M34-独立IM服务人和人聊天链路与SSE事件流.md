@@ -1,0 +1,86 @@
+# TASKS (Milestone: M34)
+
+- Test command: `PYTHONPATH=src pytest -q tests/im_service`
+- Branch: `milestone/M34`
+- Milestone status: `RUNNING`
+- Scope guard:
+  - Allowed: `src/IM/**`、`tests/im_service/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`data/dev-tasks.json(仅脚本)`。
+  - Forbidden: `src/nano_multiagent/**`、`tests/**(除 tests/im_service)`、`ROADMAP.md`。
+- Prevention rules:
+  - 仅做人和人聊天后端与聊天相关 SSE。
+  - 不实现 Agent 助手/节点相关后端接口。
+  - 保持独立 IM 服务边界。
+
+## [TODO] R34.1 消息送达状态与事件持久化
+- Acceptance:
+  - `POST /im/v1/conversations/{id}/messages` 写入消息时同步生成会话事件。
+  - 消息模型与 `GET /messages` 输出包含 `delivery_status`。
+  - 事件持久化具备稳定排序主键（用于后续重连游标）。
+  - 基础错误处理保持可诊断（4xx + detail）。
+- Tests Plan:
+  - `unit`: 选。验证事件仓储排序、消息写入伴随事件生成、状态字段落库。
+  - `contract`: 选。固化消息响应字段契约（含 `delivery_status`）与错误响应。
+  - `integration`: 不选。该 Roadpoint 先聚焦数据与响应契约，链路在 R34.2/R34.3 覆盖。
+  - `e2e`: 不选。入口链路在 R34.3 覆盖。
+- Expected Tests:
+  - `tests/im_service/unit/test_event_repository.py`
+  - `tests/im_service/contract/test_messages_contract.py`
+- DoD:
+  - `PYTHONPATH=src pytest -q tests/im_service` 全绿。
+  - C1/C2/C3 提交齐全。
+  - PROGRESS 写清决策/证据/回滚点/提交哈希。
+- Commits:
+  - C1: `<pending>`
+  - C2: `<pending>`
+  - C3: `<pending>`
+- Status: TODO
+
+## [TODO] R34.2 SSE 事件流接口与重连稳定性
+- Acceptance:
+  - 提供 `GET /im/v1/conversations/{id}/events`，返回 `text/event-stream`。
+  - 支持 `Last-Event-ID` 或 `after_event_id` 增量重连读取。
+  - 空闲时返回心跳帧并在超时后安全结束，重连不崩。
+  - 非法游标参数返回稳定 400 错误。
+- Tests Plan:
+  - `unit`: 选。验证 SSE 编码器与游标解析边界。
+  - `contract`: 选。固化 `content-type`、事件帧字段与错误码契约。
+  - `integration`: 选。覆盖发消息后读取 SSE、重连增量与空闲连接行为。
+  - `e2e`: 不选。完整入口链路在 R34.3 覆盖。
+- Expected Tests:
+  - `tests/im_service/unit/test_sse_streaming.py`
+  - `tests/im_service/contract/test_events_contract.py`
+  - `tests/im_service/integration/test_events_sse_api.py`
+- DoD:
+  - `PYTHONPATH=src pytest -q tests/im_service` 全绿。
+  - C1/C2/C3 提交齐全。
+  - PROGRESS 写清决策/证据/回滚点/提交哈希。
+- Commits:
+  - C1: `<pending>`
+  - C2: `<pending>`
+  - C3: `<pending>`
+- Status: TODO
+
+## [TODO] R34.3 人和人聊天链路入口验证与错误处理收口
+- Acceptance:
+  - 入口链路可验证：建用户/会话 -> 发消息 -> 查历史 -> SSE 收事件。
+  - 重连仅返回游标之后的新增事件。
+  - 不存在会话、非法游标等基础错误路径稳定可预期。
+  - 覆盖 contract + integration + e2e 三类入口验证。
+- Tests Plan:
+  - `unit`: 不选。本 Roadpoint 目标是入口收口，优先链路测试。
+  - `contract`: 选。补齐错误路径与关键字段契约断言。
+  - `integration`: 选。覆盖 API 与 SQLite 串联主链路。
+  - `e2e`: 选。以 FastAPI 真实入口验证完整人聊链路与 SSE 重连。
+- Expected Tests:
+  - `tests/im_service/contract/test_chat_flow_contract.py`
+  - `tests/im_service/integration/test_chat_flow_integration.py`
+  - `tests/im_service/e2e/test_human_chat_sse_e2e.py`
+- DoD:
+  - `PYTHONPATH=src pytest -q tests/im_service` 全绿。
+  - C1/C2/C3 提交齐全。
+  - PROGRESS 写清决策/证据/回滚点/提交哈希。
+- Commits:
+  - C1: `<pending>`
+  - C2: `<pending>`
+  - C3: `<pending>`
+- Status: TODO
