@@ -32,7 +32,7 @@
   - C3: `<pending>`
 - Status: DONE
 
-## [TODO] R36.2 P1/P2 前端接入独立IM服务（settings 保持 mock）
+## [DONE] R36.2 P1/P2 前端接入独立IM服务（settings 保持 mock）
 - Acceptance:
   - `/chat`、`/chat/:conversationId` 改为接入独立 IM 服务接口，不再使用 chat mock 数据源。
   - 会话列表与消息历史基于后端数据展示，刷新后可恢复。
@@ -50,10 +50,10 @@
   - `cd src/IM/frontend && npm run test && npm run build` 全绿。
   - C1/C2/C3 齐全，PROGRESS 记录决策与证据。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `af30d3b`
+  - C2: `b538549`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R36.3 联调收口、Playwright 真浏览器验收、主干集成
 - Acceptance:

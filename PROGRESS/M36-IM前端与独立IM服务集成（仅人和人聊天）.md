@@ -50,14 +50,23 @@
 
 ### R36.2 P1/P2 前端接入独立IM服务（settings 保持 mock）
 - Context:
+  - M35 chat 页面仍绑定 `mock-chat-api`，无法连接独立 IM 服务，也无法消费 SSE 增量事件。
+  - 本里程碑要求 settings 保持 mock，不得接入真实 settings API。
 - Decision:
+  - 新增 `im-chat-api.ts` 作为真实 IM 适配层（users/conversations/messages + EventSource SSE），并在 `chat-api.ts` 里按环境选择 `im/mock` 模式（测试环境默认 mock）。
+  - `ChatWorkspacePage` 从 `chat-api` 读取数据，订阅 `message_created/text_delta/turn_end/message_status` 并直接更新 React Query 缓存。
+  - `MessagePane` 增加 `delivery_status` 显示，支持流式状态反馈；`types.ts` 扩展 `is_mine` 字段区分本端/对端气泡。
+  - settings 路径保持 `mock-settings-api` 不变，仅更新 chat 相关代码与 Vite `/im` 代理。
 - Rationale:
+  - 通过独立适配层隔离真实 IM 与 mock，可在不影响 settings 的前提下实现 chat 真联调与测试稳定性。
 - Evidence:
-  - Tests: `cd src/IM/frontend && npm run test && npm run build`
-  - Entry:
+  - Tests: `cd src/IM/frontend && npm run test && npm run build`（9 files / 11 tests 全绿）
+  - Entry: `/chat/:conversationId` 可展示消息状态文案（如 `sent/running/completed`），并可消费 SSE 事件更新消息内容与状态。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `af30d3b`（R36.2 C1，仅测试先红）
+- Commits: C1=`af30d3b`, C2=`b538549`, C3=`<pending>`
 - Next:
+  - R36.3：做真实浏览器 Playwright 验收，收口文档并执行 main 集成流程。
 
 ### R36.3 联调收口、Playwright 真浏览器验收、主干集成
 - Context:
