@@ -74,10 +74,25 @@ PYTHONPATH=src python3 -m nano_multiagent.cli.main --mode remote --base-url http
 - `/history [n]`
 - `/exit`
 
+### CLI module boundary
+
+- `main.py`: 仅负责 CLI 进程入口（调用 `run_cli`）。
+- `commands.py`: 稳定入口编排层（参数解析、模式决策、REPL 主循环、错误分层）。
+- `repl_input.py`: 可编辑输入与历史回填实现（行内编辑、方向键、草稿恢复）。
+- `repl_commands.py`: REPL 斜杠命令路由与参数校验（`/help /new /use ...`）。
+- `http_client.py`: 唯一 HTTP 边界（CLI 不直接依赖 runtime/tool/session/llm 内核实现）。
+
+开发约定（收口门禁）：
+
+- 保持 HTTP-only：CLI 只能通过 `ServerClient` 访问 API。
+- 避免空转发层：不要在 `commands.py` 里重新导出 `repl_input/repl_commands` 的内部实现。
+- 保持脚本机读稳定：非交互子命令 stdout 必须输出 single final JSON object on stdout。
+
 Interactive input ergonomics:
 
 - inline editing with `←/→` + Backspace
 - history recall with `↑/↓` (session-scoped), and draft restore when navigating back down
+- type `/` to open command dropdown, use `↑/↓` to switch, press `Enter` to fill selected command
 
 REPL will also print session context budget after each message turn and after `/compact`:
 

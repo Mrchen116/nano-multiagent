@@ -2,6 +2,8 @@ import io
 import json
 
 from nano_multiagent.cli import commands as cli_commands
+from nano_multiagent.cli import repl_input
+from nano_multiagent.cli import repl_commands
 from nano_multiagent.cli.main import run_cli
 
 
@@ -443,16 +445,17 @@ class _ScriptedReplInputReader:
             except StopIteration:
                 return None
 
-        return cli_commands._read_interactive_line(
+        return repl_input.read_interactive_line(
             prompt=prompt,
             history=tuple(history),
             key_reader=_read_key,
             out=self.render,
+            command_suggestions=repl_commands.REPL_COMMANDS,
         )
 
 
 def test_repl_input_engine_supports_inline_insert_at_cursor() -> None:
-    typed = cli_commands._read_interactive_line(
+    typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=(),
         key_reader=_iter_keys(["h", "e", "l", "l", "o", "\x1b[D", "\x1b[D", "X", "\n"]),
@@ -463,7 +466,7 @@ def test_repl_input_engine_supports_inline_insert_at_cursor() -> None:
 
 
 def test_repl_input_engine_supports_left_right_with_backspace_editing() -> None:
-    typed = cli_commands._read_interactive_line(
+    typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=(),
         key_reader=_iter_keys(["a", "b", "c", "\x1b[D", "\x7f", "\x1b[C", "!", "\n"]),
@@ -474,7 +477,7 @@ def test_repl_input_engine_supports_left_right_with_backspace_editing() -> None:
 
 
 def test_repl_input_engine_arrow_up_recalls_and_allows_editing() -> None:
-    typed = cli_commands._read_interactive_line(
+    typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=("first", "second"),
         key_reader=_iter_keys(["\x1b[A", "\x1b[D", "\x1b[D", "X", "\n"]),
@@ -485,7 +488,7 @@ def test_repl_input_engine_arrow_up_recalls_and_allows_editing() -> None:
 
 
 def test_repl_input_engine_history_navigation_moves_up_and_down() -> None:
-    typed = cli_commands._read_interactive_line(
+    typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=("first", "second"),
         key_reader=_iter_keys(["\x1b[A", "\x1b[A", "\x1b[B", "\n"]),
@@ -493,6 +496,30 @@ def test_repl_input_engine_history_navigation_moves_up_and_down() -> None:
     )
 
     assert typed == "second"
+
+
+def test_repl_input_engine_slash_menu_down_enter_fills_selected_command() -> None:
+    typed = repl_input.read_interactive_line(
+        prompt="nano> ",
+        history=("from-history",),
+        key_reader=_iter_keys(["/", "\x1b[B", "\n", "\n"]),
+        out=io.StringIO(),
+        command_suggestions=repl_commands.REPL_COMMANDS,
+    )
+
+    assert typed == "/new"
+
+
+def test_repl_input_engine_slash_menu_up_wraps_without_history_recall() -> None:
+    typed = repl_input.read_interactive_line(
+        prompt="nano> ",
+        history=("from-history",),
+        key_reader=_iter_keys(["/", "\x1b[A", "\n", "\n"]),
+        out=io.StringIO(),
+        command_suggestions=repl_commands.REPL_COMMANDS,
+    )
+
+    assert typed == "/exit"
 
 
 def test_run_cli_repl_up_recalls_previous_command_line() -> None:
@@ -525,6 +552,8 @@ def test_cli_help_mentions_repl_editing_budget_and_error_layers() -> None:
     assert "/compact /history [n] /exit" in help_text
     assert "Inline editing" in help_text
     assert "History recall" in help_text
+    assert "HTTP-only boundary" in help_text
+    assert "single final JSON object on stdout" in help_text
     assert "Error layers: input / network / runtime" in help_text
 
 

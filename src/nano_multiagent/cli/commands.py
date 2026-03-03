@@ -6,34 +6,32 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Callable, Sequence, TextIO
 
+from nano_multiagent.cli.context_budget import context_budget_hint_for_ratio as _context_budget_hint_for_ratio
+from nano_multiagent.cli.context_budget import context_budget_prefix as _context_budget_prefix
+from nano_multiagent.cli.context_budget import extract_context_budget_metrics as _extract_context_budget_metrics
+from nano_multiagent.cli.context_budget import print_context_budget_snapshot as _print_context_budget_snapshot
+from nano_multiagent.cli.error_presenter import error_layer_for_exception as _error_layer_for_exception
+from nano_multiagent.cli.error_presenter import suggestion_for_exception as _suggestion_for_exception
+import nano_multiagent.cli.repl_commands as repl_commands
+import nano_multiagent.cli.repl_input as repl_input
 from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig
 from nano_multiagent.cli.managed_server import ManagedServerConfig, ManagedServerProcess
-from nano_multiagent.cli.repl_input import ReplInputReader as _ReplInputReader
-from nano_multiagent.cli.repl_input import build_repl_input_reader as _build_repl_input_reader
-from nano_multiagent.cli.repl_input import read_interactive_line as _read_interactive_line
-from nano_multiagent.cli.repl_commands import REPL_COMMANDS as _REPL_COMMANDS
-from nano_multiagent.cli.repl_commands import handle_repl_command as _handle_repl_command
-from nano_multiagent.cli.repl_commands import print_actionable_error as _print_actionable_error
+from nano_multiagent.cli.repl_events import consume_async_run_events as _consume_async_run_events
+from nano_multiagent.cli.repl_events import merge_text_delta as _merge_text_delta
+from nano_multiagent.cli.repl_events import print_event_preview as _print_event_preview
+from nano_multiagent.cli.repl_events import send_message_with_async_events as _send_message_with_async_events
+from nano_multiagent.cli.repl_events import supports_async_repl_events as _supports_async_repl_events
 
 _CLI_HELP_EPILOG = (
     "REPL quick commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit\n"
     "Inline editing: ←/→ move cursor, Backspace deletes at cursor.\n"
     "History recall: ↑/↓ navigates per-session input history and restores draft.\n"
+    "HTTP-only boundary: CLI orchestrates via ServerClient, never direct runtime calls.\n"
+    "JSON contract: non-interactive commands print a single final JSON object on stdout.\n"
     "Context budget: shown after each assistant reply and after /compact.\n"
     "Error layers: input / network / runtime."
 )
 _DEFAULT_CLI_MODE = "remote"
-_TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
-_ERROR_LAYERS = {"input", "network", "runtime"}
-_EVENT_PREVIEW_MAX_LEN = 120
-_EVENT_POLL_MAX_EVENTS = 200
-_EVENT_POLL_TIMEOUT_SECONDS = 0.25
-_EVENT_DRAIN_MAX_ATTEMPTS = 8
-_CONTEXT_BUDGET_HINTS = (
-    (0.95, "Budget hint: usage >= 95%, run /compact now."),
-    (0.85, "Budget hint: usage >= 85%, consider /compact soon."),
-    (0.70, "Budget hint: usage >= 70%, monitor context and consider /compact."),
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +106,7 @@ def run_cli(
     stdout: TextIO | None = None,
     client_factory: Callable[[ServerClientConfig], ServerClient] | None = None,
     input_fn: Callable[[str], str] | None = None,
-    repl_input_reader_factory: Callable[[], _ReplInputReader] | None = None,
+    repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None = None,
     managed_server_factory: Callable[[ManagedServerConfig], ManagedServerProcess] | None = None,
 ) -> int:
     parser = build_parser()
@@ -171,10 +169,6 @@ def run_cli(
     return 0
 
 
-def supported_repl_commands() -> tuple[str, ...]:
-    return _REPL_COMMANDS
-
-
 def _run_single_command(*, args: argparse.Namespace, client: ServerClient) -> dict[str, object]:
     if args.command == "health":
         return client.health()
@@ -231,15 +225,16 @@ def _run_repl(
     out: TextIO,
     client: ServerClient,
     input_fn: Callable[[str], str] | None,
-    repl_input_reader_factory: Callable[[], _ReplInputReader] | None = None,
+    repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None = None,
 ) -> int:
     active_session_id = _resolve_initial_session_id()
     history_by_session: dict[str, list[tuple[str, str]]] = {}
     input_history_by_session: dict[str, list[str]] = {}
-    read_line = _build_repl_input_reader(
+    read_line = repl_input.build_repl_input_reader(
         out=out,
         input_fn=input_fn,
         repl_input_reader_factory=repl_input_reader_factory,
+        command_suggestions=repl_commands.REPL_COMMANDS,
     )
     while True:
         try:
@@ -255,7 +250,7 @@ def _run_repl(
         if line.startswith("/"):
             if active_session_id:
                 _append_input_history_entry(input_history_by_session, active_session_id, line)
-            command_result = _handle_repl_command(
+            command_result = repl_commands.handle_repl_command(
                 line=line,
                 out=out,
                 client=client,
@@ -307,7 +302,7 @@ def _run_repl(
                 exc,
                 default="run /new to start a session, then retry.",
             )
-            _print_actionable_error(
+            repl_commands.print_actionable_error(
                 out=out,
                 message=f"send failed: {exc}",
                 suggestion=suggestion,
@@ -324,274 +319,6 @@ def _send_message_from_repl(
     if not _supports_async_repl_events(client):
         return client.send_message(session_id=session_id, text=text)
     return _send_message_with_async_events(out=out, client=client, session_id=session_id, text=text)
-
-
-def _send_message_with_async_events(
-    *,
-    out: TextIO,
-    client: ServerClient,
-    session_id: str,
-    text: str,
-) -> dict[str, object]:
-    submitted = client.send_message_async(session_id=session_id, text=text)
-    run_id = _extract_run_id(submitted)
-    seen_event_ids: set[str] = set()
-    assistant_text = ""
-    terminal_run: dict[str, object] | None = None
-
-    while True:
-        events = client.stream_session_events(
-            session_id=session_id,
-            max_events=_EVENT_POLL_MAX_EVENTS,
-            timeout_seconds=_EVENT_POLL_TIMEOUT_SECONDS,
-        )
-        assistant_text, _ = _consume_async_run_events(
-            out=out,
-            events=events,
-            run_id=run_id,
-            seen_event_ids=seen_event_ids,
-            assistant_text=assistant_text,
-        )
-
-        run_payload = client.get_run(run_id=run_id)
-        status_text = str(run_payload.get("status", "")).strip().lower()
-        if status_text in _TERMINAL_RUN_STATUSES:
-            terminal_run = run_payload
-            break
-
-    # Drain any late-arriving events after terminal status is observed.
-    for _ in range(_EVENT_DRAIN_MAX_ATTEMPTS):
-        tail_events = client.stream_session_events(
-            session_id=session_id,
-            max_events=_EVENT_POLL_MAX_EVENTS,
-            timeout_seconds=0.0,
-        )
-        assistant_text, consumed = _consume_async_run_events(
-            out=out,
-            events=tail_events,
-            run_id=run_id,
-            seen_event_ids=seen_event_ids,
-            assistant_text=assistant_text,
-        )
-        if consumed == 0:
-            break
-
-    if terminal_run is None:
-        raise RuntimeError("missing terminal async run result")
-
-    if str(terminal_run.get("status", "")).strip().lower() != "completed":
-        error_payload = terminal_run.get("error")
-        raise RuntimeError(f"run_id={run_id} run failed: {error_payload}")
-
-    return {
-        "session_id": session_id,
-        "run_id": run_id,
-        "turn_id": terminal_run.get("turn_id"),
-        "message": {
-            "role": "assistant",
-            "content": assistant_text,
-        },
-        "completed": True,
-        "stop_reason": terminal_run.get("stop_reason") or "stop",
-    }
-
-
-def _supports_async_repl_events(client: ServerClient) -> bool:
-    required_methods = ("send_message_async", "stream_session_events", "get_run")
-    for name in required_methods:
-        method = getattr(client, name, None)
-        if not callable(method):
-            return False
-    return True
-
-
-def _extract_run_id(payload: dict[str, object]) -> str:
-    run_id = payload.get("run_id")
-    if not isinstance(run_id, str) or not run_id.strip():
-        raise RuntimeError("missing run_id in async response")
-    return run_id
-
-
-def _normalize_session_event(event: object) -> tuple[str, str, dict[str, object]]:
-    if not isinstance(event, dict):
-        return "", "message", {}
-    event_id = event.get("event_id")
-    event_name = event.get("event")
-    data = event.get("data")
-    resolved_id = event_id.strip() if isinstance(event_id, str) else ""
-    resolved_name = event_name.strip() if isinstance(event_name, str) and event_name.strip() else "message"
-    resolved_data = data if isinstance(data, dict) else {}
-    return resolved_id, resolved_name, resolved_data
-
-
-def _consume_async_run_events(
-    *,
-    out: TextIO,
-    events: list[dict[str, object]],
-    run_id: str,
-    seen_event_ids: set[str],
-    assistant_text: str,
-) -> tuple[str, int]:
-    delayed_terminal_run_status: dict[str, object] | None = None
-    consumed = 0
-    updated_text = assistant_text
-    for event in events:
-        event_id, event_name, data = _normalize_session_event(event)
-        if event_id and event_id in seen_event_ids:
-            continue
-        if event_id:
-            seen_event_ids.add(event_id)
-        if data.get("run_id") != run_id:
-            continue
-        consumed += 1
-        if event_name == "run_status":
-            status = data.get("status")
-            if isinstance(status, str) and status.strip().lower() in _TERMINAL_RUN_STATUSES:
-                # Runtime currently emits terminal run_status before tool/text tail events.
-                # Delay terminal line to keep CLI output closer to human reading order.
-                delayed_terminal_run_status = data
-                continue
-        _print_event_preview(out=out, event_name=event_name, data=data)
-        if event_name == "text_delta":
-            delta = data.get("delta")
-            if isinstance(delta, str):
-                updated_text = _merge_text_delta(updated_text, delta)
-    if delayed_terminal_run_status is not None:
-        _print_event_preview(out=out, event_name="run_status", data=delayed_terminal_run_status)
-    return updated_text, consumed
-
-
-def _print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]) -> None:
-    if event_name == "run_status":
-        run_id = data.get("run_id")
-        status = data.get("status")
-        resolved_run_id = str(run_id) if isinstance(run_id, str) and run_id.strip() else "<unknown>"
-        resolved_status = str(status) if isinstance(status, str) and status.strip() else "<unknown>"
-        print(f"[run {resolved_run_id}] status={resolved_status}", file=out, flush=True)
-        return
-
-    if event_name == "tool_start":
-        name = data.get("name")
-        arguments = data.get("arguments")
-        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
-        print(
-            f"[tool {resolved_name}] start args={_preview_event_value(arguments)}",
-            file=out,
-            flush=True,
-        )
-        return
-
-    if event_name == "tool_end":
-        name = data.get("name")
-        error = data.get("error")
-        output = data.get("output")
-        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
-        if error not in (None, "", {}):
-            print(f"[tool {resolved_name}] error={_preview_event_value(error)}", file=out, flush=True)
-            return
-        print(f"[tool {resolved_name}] output={_preview_event_value(output)}", file=out, flush=True)
-        return
-
-    if event_name == "text_delta":
-        delta = data.get("delta")
-        if isinstance(delta, str) and delta.strip():
-            print(f"[text] {_preview_event_value(delta)}", file=out, flush=True)
-        return
-
-
-def _preview_event_value(value: object) -> str:
-    if isinstance(value, dict):
-        candidate = value.get("text")
-        if isinstance(candidate, str):
-            value = candidate
-    if isinstance(value, str):
-        text = value
-    else:
-        text = json.dumps(value, ensure_ascii=False)
-    if len(text) <= _EVENT_PREVIEW_MAX_LEN:
-        return text
-    return f"{text[:_EVENT_PREVIEW_MAX_LEN]}..."
-
-
-def _merge_text_delta(current: str, delta: str) -> str:
-    if not current:
-        return delta
-    if delta.startswith(current):
-        return delta
-    return f"{current}{delta}"
-
-
-def _suggestion_for_exception(exc: Exception, *, default: str, mode: str | None = None) -> str:
-    explicit_suggestion = getattr(exc, "suggestion", None)
-    if isinstance(explicit_suggestion, str) and explicit_suggestion.strip():
-        return explicit_suggestion
-    text = str(exc).lower()
-    if "port" in text and "in use" in text:
-        return "free the port, choose another local --base-url, or switch to --mode remote."
-    if "remote mode requires --base-url" in text:
-        return "pass --base-url <url> (or set NANO_MULTIAGENT_API_BASE_URL)."
-    if "managed mode requires" in text:
-        return "use a local http:// base URL for managed mode, or switch to --mode remote."
-    if "managed startup llm options require --mode managed" in text:
-        return "use --mode managed when passing --llm-provider/--llm-model/--llm-base-url/--llm-api-key/--llm-timeout-seconds."
-    if "llm-config set requires at least one field" in text:
-        return "try: llm-config set --provider anthropic (or provide another field)."
-    if "--api-key and --clear-api-key cannot be used together" in text:
-        return "choose either --api-key <value> or --clear-api-key."
-    if "--timeout-seconds must be > 0" in text:
-        return "set --timeout-seconds to a positive value, for example --timeout-seconds 30."
-    if "--llm-timeout-seconds must be > 0" in text:
-        return "set --llm-timeout-seconds to a positive value, for example --llm-timeout-seconds 30."
-    if "timed out" in text or "timeout" in text:
-        if mode == "remote":
-            return "request timed out; check remote API latency or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
-        if mode == "managed":
-            return "request timed out; local API/LLM may be slow, retry or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
-        return "request timed out; retry or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
-    if "connection refused" in text or "connecterror" in text or "nodename nor servname" in text:
-        if mode == "remote":
-            return "check --base-url and ensure the remote API server is reachable."
-        if mode == "managed":
-            return "managed mode could not reach the local API; check startup logs/port, then retry or switch to --mode remote."
-        return "check --base-url and ensure API server is running."
-    if "missing api token" in text or "unauthorized" in text or "401" in text:
-        return "check --token or NANO_MULTIAGENT_API_TOKEN and retry."
-    return default
-
-
-def _error_layer_for_exception(exc: Exception, *, default: str = "runtime") -> str:
-    explicit_layer = getattr(exc, "layer", None)
-    if isinstance(explicit_layer, str):
-        normalized_layer = explicit_layer.strip().lower()
-        if normalized_layer in _ERROR_LAYERS:
-            return normalized_layer
-
-    text = str(exc).lower()
-    if (
-        "run failed" in text
-        or "run_id=" in text
-        or "run_execution_failed" in text
-        or "stop_reason" in text
-        or "root_cause=" in text
-    ):
-        return "runtime"
-    if isinstance(exc, ValueError):
-        return "input"
-    if (
-        "request failed (" in text
-        or "timed out" in text
-        or "timeout" in text
-        or "connection refused" in text
-        or "connecterror" in text
-        or "nodename nor servname" in text
-        or "name or service not known" in text
-        or "unauthorized" in text
-        or "missing api token" in text
-    ):
-        return "network"
-    if default in _ERROR_LAYERS:
-        return default
-    return "runtime"
 
 
 def _resolve_mode(raw_mode: str | None) -> str:
@@ -746,79 +473,6 @@ def _print_compact_summary(*, out: TextIO, payload: dict[str, object]) -> None:
         print(f"Kept events: {len(kept_event_ids)}", file=out)
     if isinstance(dropped_event_ids, list):
         print(f"Dropped events: {len(dropped_event_ids)}", file=out)
-
-
-def _print_context_budget_snapshot(
-    *,
-    out: TextIO,
-    client: ServerClient,
-    session_id: str,
-    context_label: str | None = None,
-) -> None:
-    getter = getattr(client, "get_context_budget", None)
-    if not callable(getter):
-        return
-    prefix = _context_budget_prefix(context_label)
-    try:
-        payload = getter(session_id=session_id)
-    except Exception as exc:
-        print(f"{prefix}: unavailable ({_short_error_text(exc)}).", file=out)
-        return
-
-    metrics = _extract_context_budget_metrics(payload)
-    if metrics is None:
-        print(f"{prefix}: unavailable (invalid payload).", file=out)
-        return
-    used_tokens, max_tokens, usage_ratio = metrics
-    print(f"{prefix}: {used_tokens}/{max_tokens} ({usage_ratio * 100:.1f}%)", file=out)
-    hint = _context_budget_hint_for_ratio(usage_ratio)
-    if hint is not None:
-        print(hint, file=out)
-
-
-def _context_budget_prefix(context_label: str | None) -> str:
-    if isinstance(context_label, str) and context_label.strip():
-        return f"Context budget ({context_label.strip()})"
-    return "Context budget"
-
-
-def _extract_context_budget_metrics(payload: object) -> tuple[int, int, float] | None:
-    if not isinstance(payload, dict):
-        return None
-    used_tokens = payload.get("used_tokens")
-    max_tokens = payload.get("max_tokens")
-    usage_ratio = payload.get("usage_ratio")
-    if isinstance(used_tokens, bool) or not isinstance(used_tokens, int):
-        return None
-    if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
-        return None
-
-    resolved_ratio: float
-    if isinstance(usage_ratio, bool):
-        return None
-    if isinstance(usage_ratio, (int, float)):
-        resolved_ratio = float(usage_ratio)
-    else:
-        resolved_ratio = float(used_tokens) / float(max_tokens)
-    if resolved_ratio < 0:
-        resolved_ratio = 0.0
-    return used_tokens, max_tokens, resolved_ratio
-
-
-def _context_budget_hint_for_ratio(usage_ratio: float) -> str | None:
-    for threshold, hint in _CONTEXT_BUDGET_HINTS:
-        if usage_ratio >= threshold:
-            return hint
-    return None
-
-
-def _short_error_text(exc: Exception) -> str:
-    text = str(exc).strip()
-    if not text:
-        return "unknown error"
-    if len(text) <= _EVENT_PREVIEW_MAX_LEN:
-        return text
-    return f"{text[:_EVENT_PREVIEW_MAX_LEN]}..."
 
 
 def _resolve_initial_session_id() -> str | None:

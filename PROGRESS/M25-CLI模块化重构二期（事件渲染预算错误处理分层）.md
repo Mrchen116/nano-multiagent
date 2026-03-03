@@ -1,0 +1,102 @@
+# PROGRESS (Milestone: M25)
+
+- Title: CLI模块化重构二期（事件渲染/预算/错误处理分层）
+- Goal: 继续拆分 `cli/commands.py`，抽离异步事件消费、预算展示、错误分层映射为可复用模块，保持行为一致。
+- Exit Criteria:
+  - 抽离 async 事件消费与预览输出模块。
+  - 抽离预算快照与阈值提示模块。
+  - 抽离错误分层/建议映射模块并保持单命令 JSON 错误契约稳定。
+  - `commands.py` 保持薄编排，`pytest -q` 全绿。
+- Test command: `pytest -q`
+- Branch: `milestone/M25`
+
+### Baseline
+- Context:
+  - Milestone：`M25`；execution_mode=`serial`；use_worktree=`true`；worktree=`/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M25`；branch=`milestone/M25`。
+  - 允许范围：`src/nano_multiagent/cli/**`、`tests/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`README.md`、`data/dev-tasks.json`（脚本更新）。
+  - 禁止范围：`agent/runtime/tool/session/llm` 核心逻辑；HTTP API 契约行为变更。
+  - prevention_rules：行为保持一致；CLI 继续 HTTP-only；单命令 JSON 错误兼容；不引入仅转发层；Roadpoint 必须 C1/C2/C3。
+  - LOGBOOK 继承规则：异步事件必须 `event_id` 去重 + `run_id` 过滤；错误分层需 `input/network/runtime`；单命令 JSON 保留 `error/suggestion`。
+- Decision:
+  - Roadpoints 拆为三段：R25.1 事件模块、R25.2 预算模块、R25.3 错误呈现模块。
+  - 采用 Red -> C1 -> Green/Refactor -> C2 -> Docs -> C3 的串行节奏执行。
+  - 先用边界测试固定职责归属，再迁移实现，避免重构过程回流。
+- Rationale:
+  - 模块化拆分降低 `commands.py` 认知负担，同时用现有 CLI 测试网保证无行为漂移。
+- Evidence:
+  - Tests: `pytest -q`（baseline：`327 passed, 4 skipped`）。
+  - Entry: 基线全绿，可进入 R25.1 Red。
+- Rollback:
+  - plan commit
+- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+- Next:
+  - R25.1 Red：先加 `repl_events` 模块边界测试并验证红灯。
+
+### R25.1 抽离异步事件消费与预览输出到 `cli/repl_events.py`
+- Context:
+  - `commands.py` 内仍包含 async 事件轮询、事件去重/过滤、预览渲染与文本增量合并细节，REPL 主循环负担过重。
+  - 需保持 LOGBOOK 约束：`event_id` 去重、`run_id` 过滤、terminal `run_status` 延后输出、尾部 drain 行为不变。
+- Decision:
+  - 新建 `src/nano_multiagent/cli/repl_events.py`，集中承载 async 事件消费与预览输出能力。
+  - `commands.py` 仅保留 `_send_message_from_repl` 编排，改为引用 `repl_events` 导出的函数别名。
+  - 在边界测试中固定 `commands.py` 与 `repl_events` 的职责委派关系。
+- Rationale:
+  - 通过模块边界收敛异步事件逻辑，可降低主入口复杂度并避免后续预算/错误模块拆分时互相干扰。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py`（ImportError: `repl_events` 不存在）。
+    - Green: `pytest -q tests/unit/test_cli_refactor_boundaries.py tests/unit/test_cli_main.py`（`41 passed`）。
+    - Gate: `pytest -q`（`328 passed, 4 skipped`）。
+  - Entry:
+    - REPL 异步事件相关用例保持通过（run 过滤、去重、terminal 延后、tail drain）。
+- Rollback:
+  - `6b0f041`（仅边界测试，先红基线）。
+- Commits: C1=`6b0f041`, C2=`d6e3338`, C3=`49c54c0`
+- Next:
+  - R25.2 Red：先加预算模块边界测试并验证失败点。
+
+### R25.2 抽离预算快照与阈值提示到 `cli/context_budget.py`
+- Context:
+  - `commands.py` 仍内联预算拉取、payload 解析、阈值提示与失败 fail-open 文案，阻碍后续错误分层拆分。
+  - 预算展示文案和三档阈值提示（70/85/95）必须保持兼容。
+- Decision:
+  - 新建 `src/nano_multiagent/cli/context_budget.py`，集中封装预算快照输出、prefix 生成、payload 解析与 hint 选择。
+  - `commands.py` 改为引用 `context_budget` 导出函数别名，保留 REPL 编排调用点。
+  - 用边界测试固定预算职责归属，避免逻辑回流到 `commands.py`。
+- Rationale:
+  - 预算模块单独收敛后，可在不影响 REPL 主循环的前提下独立维护阈值规则与容错策略。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py`（ImportError: `context_budget` 不存在）。
+    - Green: `pytest -q tests/unit/test_cli_refactor_boundaries.py tests/unit/test_cli_main.py`（`42 passed`）。
+    - Gate: `pytest -q`（`329 passed, 4 skipped`）。
+  - Entry:
+    - 预算相关 REPL 回归用例继续通过（正常展示、阈值提示、获取失败 fail-open）。
+- Rollback:
+  - `e21e67e`（仅边界测试，先红基线）。
+- Commits: C1=`e21e67e`, C2=`4dfcc60`, C3=`aa94c79`
+- Next:
+  - R25.3 Red：先加错误分层模块边界测试并验证失败点。
+
+### R25.3 抽离错误分层与建议映射到 `cli/error_presenter.py`
+- Context:
+  - `commands.py` 仍内联异常分层（input/network/runtime）与建议文本映射，导致单命令与 REPL 错误呈现逻辑耦合。
+  - 需保持单命令失败 JSON 契约兼容：`error/suggestion/layer` 字段稳定，不改 HTTP API 行为。
+- Decision:
+  - 新建 `src/nano_multiagent/cli/error_presenter.py`，承载 `error_layer_for_exception` 与 `suggestion_for_exception` 规则。
+  - `commands.py` 改为引用错误模块函数别名，维持原有输出路径与字段组装逻辑。
+  - 用边界测试固定错误映射职责迁移，防止回流到 `commands.py`。
+- Rationale:
+  - 把错误层级与建议规则独立后，可单点维护错误口径，同时确保 REPL 文案与单命令 JSON 合约一致。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py`（ImportError: `error_presenter` 不存在）。
+    - Green: `pytest -q tests/unit/test_cli_refactor_boundaries.py tests/unit/test_cli_main.py tests/contract/test_cli_error_contract.py`（`45 passed`）。
+    - Gate: `pytest -q`（`330 passed, 4 skipped`）。
+  - Entry:
+    - 单命令错误契约测试持续通过，字段 `error/suggestion/layer` 保持稳定。
+- Rollback:
+  - `6200e23`（仅边界测试，先红基线）。
+- Commits: C1=`6200e23`, C2=`2677e19`, C3=`<pending>`
+- Next:
+  - 全部 Roadpoint 已完成，进入 rebase + 全量验证 + 主干合并。
