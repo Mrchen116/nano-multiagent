@@ -32,7 +32,7 @@
   - PROGRESS 写清决策/证据/提交哈希。
 
 ### R28.2 agent(+compaction) public API docstring + 蓝图关键约束注释
-- Status: DOING
+- Status: DONE
 - Acceptance:
   - `agent/*` 与 `agent/compaction/*` public API docstring 补齐。
   - 为关键约束补块注释：

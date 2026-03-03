@@ -23,7 +23,7 @@
   - Entry: `llm/factory.py` 增加 provider 隔离边界说明；protocol mapper/client 补齐失败语义与返回契约说明。
 - Rollback:
   - 回退到 `f2838d2`（仅保留先红审计）。
-- Commits: C1=f2838d2, C2=1672cff, C3=待补充
+- Commits: C1=f2838d2, C2=1672cff, C3=77433e9
 - Next:
   - 进入 R28.2，补齐 agent/compaction 及关键约束块注释。
 
@@ -37,10 +37,10 @@
 - Rationale:
   - 让调用方不读实现也能正确使用，让维护方快速理解不可破坏约束。
 - Evidence:
-  - Tests: docstring AST 扫描（先红）显示 `agent(+compaction)` 多个 public 定义缺失 docstring。
-  - Entry: 以 runtime/loop/planner 为重点记录蓝图约束注释目标（provider隔离、loop边界、tool-pair切点完整性）。
+  - Tests: `PYTHONPATH=src pytest -q` => 337 passed, 4 skipped；agent+compaction docstring AST 扫描无缺口。
+  - Entry: 在 `agent/loop.py` 标注 runtime loop 终止/继续策略；在 `agent/runtime.py` 标注 overflow 重试边界；在 `agent/compaction/planner.py` 标注“不拆 tool-call/tool-result”切点约束。
 - Rollback:
-  - 待补充
-- Commits: C1=待补充, C2=待补充, C3=待补充
+  - 回退到 `2b8b2b7`（仅保留先红审计）。
+- Commits: C1=2b8b2b7, C2=bcbb102, C3=待补充
 - Next:
   - 全量门禁后进行 Milestone 集成与状态回写。
