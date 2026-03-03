@@ -287,6 +287,7 @@ class RunsRegistry:
                 turn_id=turn_result.turn_id,
                 trace_id=updated.trace_id,
             )
+            self._emit_turn_events(record=updated, turn_result=turn_result)
         return updated
 
     def _mark_failed(self, run_id: str, *, message: str) -> RunRecord | None:
@@ -439,6 +440,63 @@ class RunsRegistry:
             event="run_status",
             session_id=record.session_id,
             data=payload,
+        )
+
+    def _emit_turn_events(self, *, record: RunRecord, turn_result: TurnResult) -> None:
+        if self._event_hub is None:
+            return
+
+        for tool_call in turn_result.tool_calls:
+            self._event_hub.publish(
+                event="tool_start",
+                session_id=record.session_id,
+                data={
+                    "event": "tool_start",
+                    "run_id": record.run_id,
+                    "turn_id": turn_result.turn_id,
+                    "call_id": tool_call.call_id,
+                    "name": tool_call.name,
+                    "arguments": dict(tool_call.arguments),
+                },
+            )
+        for tool_result in turn_result.tool_results:
+            self._event_hub.publish(
+                event="tool_end",
+                session_id=record.session_id,
+                data={
+                    "event": "tool_end",
+                    "run_id": record.run_id,
+                    "turn_id": turn_result.turn_id,
+                    "call_id": tool_result.call_id,
+                    "name": tool_result.name,
+                    "output": tool_result.output,
+                    "error": tool_result.error,
+                },
+            )
+        for message in turn_result.messages:
+            if message.role != "assistant":
+                continue
+            self._event_hub.publish(
+                event="text_delta",
+                session_id=record.session_id,
+                data={
+                    "event": "text_delta",
+                    "run_id": record.run_id,
+                    "turn_id": turn_result.turn_id,
+                    "message_id": message.message_id,
+                    "delta": message.content,
+                },
+            )
+        self._event_hub.publish(
+            event="turn_end",
+            session_id=record.session_id,
+            data={
+                "event": "turn_end",
+                "run_id": record.run_id,
+                "turn_id": turn_result.turn_id,
+                "completed": turn_result.completed,
+                "stop_reason": turn_result.stop_reason,
+            },
         )
 
 def _utc_now_iso() -> str:
