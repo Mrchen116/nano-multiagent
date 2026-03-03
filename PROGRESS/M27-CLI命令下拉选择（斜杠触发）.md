@@ -30,3 +30,26 @@
 - Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
 - Next:
   - R27.1 Red：新增“/ 下拉选择”输入引擎测试并确认失败。
+
+### R27.1 在输入引擎实现“/ 触发命令下拉 + ↑/↓选择 + Enter填充”
+- Context:
+  - 现有可编辑输入仅支持行内编辑与历史回填，缺少命令候选选择能力。
+  - 需求要求下拉打开时 `↑/↓` 用于候选切换，避免误触历史回填。
+- Decision:
+  - 在 `repl_input.read_interactive_line` 增加 `command_suggestions` 参数与命令下拉状态机。
+  - 下拉触发条件限定为输入框当前内容为单个 `/` 且光标位于其后；`Enter` 首次用于填充选中命令，二次 `Enter` 才提交。
+  - 通过 ANSI 渲染在输入行下方展示候选列表，并用选中标记高亮当前项。
+- Rationale:
+  - 触发条件最小化可避免干扰已有输入路径，同时保持行为易于预测与测试。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_main.py -k slash_menu`（新增测试先红：缺少 `command_suggestions` 参数）
+    - Gate: `pytest -q`（`329 passed, 4 skipped`）
+  - Entry:
+    - `/_read_interactive_line` 已支持候选注入与下拉按键流；
+    - 既有行内编辑/历史回填回归测试保持通过。
+- Rollback:
+  - `f75ad20`（R27.1 C1）
+- Commits: C1=`f75ad20`, C2=`5308b13`, C3=`<pending>`
+- Next:
+  - R27.2 Red：补 REPL 接线与集成回归测试，确保真实入口输入 `/` 可触发并执行下拉命令。

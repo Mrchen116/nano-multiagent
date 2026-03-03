@@ -7,7 +7,7 @@
   - Must keep unchanged: CLI HTTP-only 调用路径、单命令模式 JSON 契约、现有 REPL 命令执行语义。
   - Allowed to change: `src/nano_multiagent/cli/**` 的可编辑输入实现与 REPL 交互增强测试。
 
-## [TODO] R27.1 在输入引擎实现“/ 触发命令下拉 + ↑/↓选择 + Enter填充”
+## [DONE] R27.1 在输入引擎实现“/ 触发命令下拉 + ↑/↓选择 + Enter填充”
 - Acceptance:
   - 可编辑输入模式下，输入 `/` 时展示命令候选（至少 `/help /new /use /session /tools /compact /history /exit`）。
   - 下拉打开时，`↑/↓` 仅切换候选选中项，不触发历史回填。
@@ -26,10 +26,10 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `f75ad20`
+  - C2: `5308b13`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R27.2 在 REPL 编排层接线并补充边界门禁
 - Acceptance:
