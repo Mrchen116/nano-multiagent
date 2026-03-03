@@ -52,14 +52,24 @@
 
 ### R34.2 SSE 事件流接口与重连稳定性
 - Context:
+  - R34.1 已具备事件持久化，但仍缺 HTTP SSE 入口与断线重连游标语义。
+  - 验收要求“重连不崩”，需在空闲连接场景下提供稳定 keepalive。
 - Decision:
+  - 新增 `src/IM/sse.py` 统一 SSE 帧编码（事件帧 + 心跳帧）。
+  - 在 `GET /im/v1/conversations/{id}/events` 接入轮询式流读取：支持 `after_event_id` 与 `Last-Event-ID`。
+  - 读取游标统一由 `_parse_event_cursor` 解析，非法值返回 `400 after_event_id must be an integer`。
+  - 流路径增加会话存在性校验，不存在会话返回 `404 conversation_id not found`。
 - Rationale:
+  - 轮询 + 心跳实现最小可靠，不引入额外 broker 就能满足“可回放 + 可重连”。
+  - 将游标逻辑集中在单函数可避免 query/header 分散解析导致语义不一致。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest -q tests/im_service`
-  - Entry:
+  - Tests: `PYTHONPATH=src pytest -q tests/im_service`（`19 passed`）
+  - Entry: `/im/v1/conversations/{id}/events` 返回 `text/event-stream`，支持 `Last-Event-ID` 增量读取且空闲时输出 `: keepalive`。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `030d46d`（R34.2 C1，仅红测）
+- Commits: C1=`030d46d`, C2=`804a48d`, C3=`<pending>`
 - Next:
+  - 进入 `R34.3` Red：补 e2e 入口链路与错误处理收口验证。
 
 ### R34.3 人和人聊天链路入口验证与错误处理收口
 - Context:
