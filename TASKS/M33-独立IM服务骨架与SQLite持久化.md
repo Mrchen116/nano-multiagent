@@ -28,10 +28,10 @@
 - Commits:
   - C1: `bbef20b`
   - C2: `9795d47`
-  - C3: `<pending-current-commit>`
+  - C3: `2484744`
 - Status: DONE
 
-## [TODO] R33.2 Users/Conversations 基础 REST 接口
+## [DONE] R33.2 Users/Conversations 基础 REST 接口
 - Acceptance:
   - 提供 `POST /im/v1/users`、`GET /im/v1/users`。
   - 提供 `POST /im/v1/conversations`、`GET /im/v1/conversations`。
@@ -50,10 +50,10 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
-  - C3: `<pending>`
-- Status: TODO
+  - C1: `75c2371`
+  - C2: `60ee744`
+  - C3: `<pending-current-commit>`
+- Status: DONE
 
 ## [TODO] R33.3 Messages 接口与独立服务入口收口
 - Acceptance:

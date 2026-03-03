@@ -44,20 +44,28 @@
   - Entry: `connect + initialize_schema` 可重复执行，用户/会话/消息增查与顺序断言通过。
 - Rollback:
   - `bbef20b`（R33.1 C1，仅红测）
-- Commits: C1=`bbef20b`, C2=`9795d47`, C3=`<pending-current-commit>`
+- Commits: C1=`bbef20b`, C2=`9795d47`, C3=`2484744`
 - Next:
   - 进入 `R33.2` Red：补 users/conversations API 集成红测。
 
 ### R33.2 Users/Conversations 基础 REST 接口
 - Context:
+  - Red 阶段新增 `tests/im_service/unit/test_app_factory.py` 与 `integration/test_users_conversations_api.py`，先红错误为 `ModuleNotFoundError: IM.app`。
+  - 要求保持独立服务边界，仅在 `src/IM` 暴露基础 users/conversations 接口。
 - Decision:
+  - 新增 `src/IM/app.py`，提供 `create_app(db_path=...)` 工厂并在启动时完成 SQLite schema 初始化。
+  - 暴露 `POST/GET /im/v1/users` 与 `POST/GET /im/v1/conversations`，统一把仓储层 `ValueError` 映射为 `HTTP 400`。
+  - 请求/响应模型采用 Pydantic，`participant_ids` 通过 `Field(min_length=1)` 固化空列表非法输入。
 - Rationale:
+  - app factory 支持测试注入临时 DB，能以最小成本覆盖 API->DB 真链路并避免全局状态污染。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest -q tests/im_service`
-  - Entry:
+  - Tests: `PYTHONPATH=src pytest -q tests/im_service`（`7 passed`）
+  - Entry: TestClient 下完成 users 创建/查询、conversations 创建/查询、unknown participant 返回 400。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `75c2371`（R33.2 C1，仅红测）
+- Commits: C1=`75c2371`, C2=`60ee744`, C3=`<pending-current-commit>`
 - Next:
+  - 进入 `R33.3` Red：补 messages API 红测并收口独立服务入口。
 
 ### R33.3 Messages 接口与独立服务入口收口
 - Context:
