@@ -1,5 +1,4 @@
 """Prompt assembly utilities for runtime/system/tool context injection."""
-
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -155,10 +154,7 @@ def _format_available_tools(tools: Sequence[ToolSpec]) -> str:
     if not tools:
         return "(none)"
 
-    lines: list[str] = []
-    for tool in tools:
-        lines.append(f"- {tool.name}: {tool.description}")
-    return "\n".join(lines)
+    return "\n".join(f"- {tool.name}: {tool.description}" for tool in tools)
 
 
 def _extract_tool_call_id(metadata: Mapping[str, Any]) -> str | None:

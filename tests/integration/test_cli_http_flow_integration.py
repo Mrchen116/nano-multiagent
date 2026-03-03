@@ -169,7 +169,7 @@ class _ModelTimeoutRuntime:
         del session_id
         del parts
         del stream
-        raise ModelError("timed out waiting for upstream; root_cause=connect ETIMEDOUT", retryable=True)
+        raise ModelError("timed out waiting for upstream; root_cause=connect ETIMEDOUT", retryable=False)
 
 
 class _AsyncMethodsMustNotBeCalledServerClient(ServerClient):

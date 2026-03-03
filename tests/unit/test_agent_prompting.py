@@ -2,6 +2,7 @@ from pathlib import Path
 
 from nano_multiagent.agent.prompting import build_prompt_messages
 from nano_multiagent.core.types import Message
+from nano_multiagent.core.types import ToolSpec
 from nano_multiagent.skills.registry import SkillMetadata
 
 
@@ -18,6 +19,7 @@ def test_build_prompt_messages_includes_system_history_and_user() -> None:
     assert "Guidelines:" in prompts[0].content
     assert "Current date and time:" in prompts[0].content
     assert "Current working directory:" in prompts[0].content
+    assert "input_schema" not in prompts[0].content
     assert "<RUNTIME_FILL:" not in prompts[0].content
     assert "input_schema" not in prompts[0].content
     assert prompts[-1].content == "new question"
@@ -51,3 +53,22 @@ def test_build_prompt_messages_skips_available_skills_section_when_empty() -> No
     assert "<available_skills>" not in prompts[0].content
     assert "Available tools:" in prompts[0].content
     assert "input_schema" not in prompts[0].content
+
+
+def test_build_prompt_messages_only_displays_tool_name_and_description() -> None:
+    prompts = build_prompt_messages(
+        history_messages=(),
+        user_text="run this",
+        available_tools=(
+            ToolSpec(
+                name="read",
+                description="Read file contents",
+                input_schema={"type": "object", "properties": {"path": {"type": "string"}}},
+            ),
+        ),
+    )
+
+    system_prompt = prompts[0].content
+    assert "Available tools:" in system_prompt
+    assert "- read: Read file contents" in system_prompt
+    assert "input_schema" not in system_prompt

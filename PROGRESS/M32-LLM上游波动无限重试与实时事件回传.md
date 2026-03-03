@@ -1,0 +1,107 @@
+# PROGRESS (Milestone: M32)
+
+- Title: LLM上游波动无限重试与实时事件回传
+- Goal: 为异步 run 主链路提供上游瞬时失败的可持续恢复能力（无限重试 + 指数退避 + 冷却），并在重试期间实时输出可消费事件，避免 CLI 静默等待。
+- Exit Criteria:
+  - openai_compat/anthropic 请求失败支持无限循环重试，节奏 `0.5s/1s/2s`，每连续 5 次失败冷却 30s 后重置节奏。
+  - 异步 run 重试过程持续产出状态事件（attempt/delay/cooldown/last_error）。
+  - run 仅在成功时 completed；未取消前不得因瞬时上游错误 failed。
+  - 覆盖 unit + integration + contract（必要时 e2e）并通过 `PYTHONPATH=src pytest -q`。
+- Test command: `PYTHONPATH=src pytest -q`
+- Branch: `milestone/M32`
+
+### Baseline
+- Context:
+  - execution_mode=`serial`，`use_worktree=true`，worktree=`/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M32`，branch=`milestone/M32`。
+  - 已按要求在 worktree 共享 `data/dev-tasks.json` 与 `data/locks`（符号链接到主仓）。
+  - 已读取 `LOGBOOK.md` 与 prevention_rules：真实入口优先、REPL 事件去重+run_id 过滤、禁止终态补发、错误摘要可诊断。
+- Decision:
+  - 采用两阶段 Roadpoint：先收敛 run registry 重试状态机，再扩展事件契约与 CLI 可视反馈。
+- Rationale:
+  - 先稳住状态机可避免在 CLI 展示层补丁式处理，确保事件语义来源唯一。
+- Evidence:
+  - Tests: `PYTHONPATH=src pytest -q`（baseline：`10 failed, 356 passed, 4 skipped`）
+  - Baseline failures（超出 M32 直接目标，后续集成阶段再与 main 对齐复验）:
+    - `tests/contract/test_core_types_contract.py::test_turn_result_contract_fields_are_stable`
+    - `tests/contract/test_llm_interfaces_contract.py::test_llm_generate_response_contract`
+    - `tests/integration/test_cli_http_flow_integration.py` 中 8 个既有断言失败
+- Rollback:
+  - plan commit
+- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+- Next:
+  - R32.1 Red：先写 registry 重试节奏/取消行为测试并确认先红。
+
+### R32.1 异步 run 引入无限重试节奏与取消保持
+- Context:
+  - 旧逻辑在 `RunsRegistry._run_worker` 捕获任意异常后直接 `failed`，无法满足“retryable 上游波动无限重试”。
+  - 初版实现用 `time.monotonic + _sleep(0.1)` 切片轮询取消，导致测试桩替换 sleep 后仍依赖真实时间推进，出现子集测试超时。
+- Decision:
+  - 在 `runs/registry.py` 增加 retry 状态字段：`attempt/next_delay/cooldown/last_error`，并将其写入 session run_status + SSE run_status。
+  - 对 `ModelError(retryable=True)` 进入无限循环：短退避固定 `0.5/1.0/2.0`，每 5 次失败追加 `30.0` 冷却并重置短退避索引。
+  - 等待机制改为 “可取消等待”：每个 run 建立 `threading.Event`，`cancel` 时置位；重试等待通过 `_wait_with_cancel(event, seconds)` 实现，可立即中断。
+- Rationale:
+  - `Event.wait(timeout)` 同时满足“严格等待节奏”和“取消快速生效”，并可通过 monkeypatch `_wait_with_cancel` 实现无真实睡眠测试。
+- Evidence:
+  - Tests:
+    - Red: `PYTHONPATH=src pytest -q tests/unit/test_runs_registry.py tests/unit/test_run_cancel.py tests/integration/test_runs_store_integration.py`（先红：retryable 仍直接 failed）
+    - Green: 同一命令 `11 passed`
+  - Entry:
+    - 异步 run 在 retryable 上游失败时不进入 failed，持续输出 running+retry 元数据，成功后保持 completed。
+    - `cancel` 置位后会打断等待并停留 `cancelled`，不再继续重试。
+  - Failure/Fix:
+    - 失败现象：重试测试在 1s 超时窗口内未终态（真实时间阻塞）。
+    - 修复点：将 `_sleep_until_retry` 从 monotonic 切片改为 `Event.wait` 可取消等待，并暴露 `_wait_with_cancel` 供测试替换。
+- Rollback:
+  - `d618d01`（R32.1 C1，仅测试先红）
+- Commits: C1=`d618d01`, C2=`73b1d18`, C3=`a1d2bdc`
+- Next:
+  - R32.2：CLI 实时展示重试进度，补齐事件契约 + CLI->HTTP 集成回归。
+
+### R32.2 事件契约扩展与 CLI 实时重试反馈
+- Context:
+  - 运行态已具备 retry 元数据，但 CLI `run_status` 预览仍只显示 `status`，用户仍难以区分“卡死”与“重试中”。
+  - prevention_rules 要求保持事件消费边界：`event_id` 去重 + `run_id` 过滤，不允许终态补发兜底。
+- Decision:
+  - 复用现有 `run_status` 事件，不新增事件类型；在 `cli/repl_events.py` 的 `print_event_preview` 增强 `run_status` 渲染。
+  - 新增 `_format_retry_progress`，显示 `attempt/next_delay/cooldown/last_error` 摘要，格式保持单行紧凑。
+  - 保持 `consume_async_run_events` 的去重/过滤/终态延迟打印逻辑不变，仅扩展显示内容。
+- Rationale:
+  - 复用既有事件通道改动最小、兼容性最好；CLI 只读扩展不会破坏服务端契约和消费顺序。
+- Evidence:
+  - Tests:
+    - Red: `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k retry_progress tests/contract/test_runs_async_contract.py -k retry_progress tests/integration/test_cli_async_retry_integration.py`（先红：输出缺少 `attempt=...`）
+    - Green: 同一命令 `3 passed`
+    - Gate subset: `PYTHONPATH=src pytest -q tests/unit/test_runs_registry.py tests/unit/test_run_cancel.py tests/integration/test_runs_store_integration.py tests/unit/test_cli_main.py::test_run_cli_repl_prints_retry_progress_from_run_status_event tests/contract/test_runs_async_contract.py::test_session_sse_run_status_contract_includes_retry_progress_fields tests/integration/test_cli_async_retry_integration.py`（`14 passed`）
+  - Entry:
+    - CLI REPL 在真实 `CLI -> HTTP async` 链路可实时打印 `attempt/next_delay/cooldown/last_error`，并保持 run_id 过滤与 event_id 去重行为。
+  - Failure/Fix:
+    - 失败现象：R32.2 Red 中 unit/integration 均缺失 `attempt` 文本。
+    - 修复点：`print_event_preview(run_status)` 拼接 retry 摘要字段，非重试状态保持原样。
+- Rollback:
+  - `72bf36c`（R32.2 C1，仅测试先红）
+- Commits: C1=`72bf36c`, C2=`8270564`, C3=`dd0c87e`
+- Next:
+  - 进入 milestone 集成（rebase main / 全量回归 / merge main / dev-tasks DONE / 清理 worktree）。
+
+### R32.3 续跑接管修复（主干契约漂移与阻塞测试）
+- Context:
+  - 接管时全量门禁在 collection 阶段直接报错：`runs/registry.py` 仍导入已移除的 `TokenUsage`，属于历史冲突残留。
+  - 修复导入后，全量门禁稳定阻塞在 `tests/integration/test_cli_http_flow_integration.py::test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence`：该 stub 使用 `ModelError(retryable=True)`，在 M32 新语义下会无限重试，REPL 永不返回。
+- Decision:
+  - 在 `runs/registry.py` 去除 `TokenUsage`/`usage` 依赖并恢复 `runtime.run(..., stream=False)` 兼容调用，保持 retry metadata（attempt/next_delay/cooldown/last_error）不变。
+  - 清理 `tests/unit/test_runs_registry.py` 中已失效的 usage 断言。
+  - 将 timeout 集成测试 stub 改为 `retryable=False`，明确该用例验证“不可重试错误的 CLI 诊断输出”，避免与 M32 无限重试语义冲突。
+- Rationale:
+  - 先恢复主干契约一致性，再最小化修复阻塞测试，能够在不改变 M32 目标语义的前提下恢复全量门禁可执行。
+- Evidence:
+  - Tests:
+    - `PYTHONPATH=src pytest -q tests/unit/test_runs_registry.py tests/unit/test_run_cancel.py tests/integration/test_runs_store_integration.py tests/contract/test_runs_async_contract.py tests/unit/test_cli_main.py::test_run_cli_repl_prints_retry_progress_from_run_status_event tests/integration/test_cli_async_retry_integration.py` -> `15 passed`
+    - `PYTHONPATH=src pytest -q tests/integration/test_capabilities_wiring_integration.py::test_capabilities_reflects_injected_tool_registry tests/integration/test_cli_async_retry_integration.py::test_cli_repl_http_chain_surfaces_retry_progress_events tests/integration/test_cli_http_flow_integration.py::test_cli_runs_http_flow_against_asgi_app tests/integration/test_cli_http_flow_integration.py::test_cli_send_message_command_keeps_single_json_stdout_contract_with_async_capable_client tests/integration/test_cli_http_flow_integration.py::test_cli_http_flow_executes_tool_call_loop_before_returning_final_answer tests/integration/test_cli_http_flow_integration.py::test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence` -> `6 passed`
+    - `PYTHONPATH=src pytest -q` -> `344 passed, 4 skipped`
+  - Entry:
+    - 接管后已恢复“可导入 + 可全量门禁”的稳定状态；M32 关键重试字段与 CLI 实时反馈行为保持通过。
+- Rollback:
+  - `dd0c87e`（R32.2 C3，接管前最近稳定点）
+- Commits: C1=`N/A (handoff recovery)`, C2=`2b181ad`, C3=`e4dd14f`
+- Next:
+  - 提交接管修复并完成 main 集成（rebase/merge/push/dev-task DONE/清理 worktree）。

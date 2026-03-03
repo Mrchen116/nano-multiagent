@@ -143,7 +143,11 @@ def print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]
         status = data.get("status")
         resolved_run_id = str(run_id) if isinstance(run_id, str) and run_id.strip() else "<unknown>"
         resolved_status = str(status) if isinstance(status, str) and status.strip() else "<unknown>"
-        print(f"[run {resolved_run_id}] status={resolved_status}", file=out, flush=True)
+        retry_preview = _format_retry_progress(data)
+        if retry_preview:
+            print(f"[run {resolved_run_id}] status={resolved_status} {retry_preview}", file=out, flush=True)
+        else:
+            print(f"[run {resolved_run_id}] status={resolved_status}", file=out, flush=True)
         return
 
     if event_name == "tool_start":
@@ -187,6 +191,29 @@ def _preview_event_value(value: object) -> str:
     if len(text) <= _EVENT_PREVIEW_MAX_LEN:
         return text
     return f"{text[:_EVENT_PREVIEW_MAX_LEN]}..."
+
+
+def _format_retry_progress(data: dict[str, object]) -> str:
+    attempt = data.get("attempt")
+    next_delay = data.get("next_delay")
+    cooldown = data.get("cooldown")
+    last_error = data.get("last_error")
+
+    parts: list[str] = []
+    if isinstance(attempt, int):
+        parts.append(f"attempt={attempt}")
+    if isinstance(next_delay, (int, float)):
+        parts.append(f"next_delay={float(next_delay):.1f}s")
+    if isinstance(cooldown, (int, float)) and float(cooldown) > 0:
+        parts.append(f"cooldown={float(cooldown):.1f}s")
+    if isinstance(last_error, dict):
+        code = last_error.get("code")
+        message = last_error.get("message")
+        if isinstance(code, str) and isinstance(message, str):
+            parts.append(f"last_error={code}:{_preview_event_value(message)}")
+        elif isinstance(message, str):
+            parts.append(f"last_error={_preview_event_value(message)}")
+    return " ".join(parts)
 
 
 def merge_text_delta(current: str, delta: str) -> str:
