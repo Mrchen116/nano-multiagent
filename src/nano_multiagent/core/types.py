@@ -8,6 +8,15 @@ StopReason = str
 
 
 @dataclass(frozen=True, slots=True)
+class TokenUsage:
+    """Canonical token usage fields shared across runtime boundaries."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
 class Message:
     """Represent a persisted conversation message."""
 
@@ -58,3 +67,4 @@ class TurnResult:
     tool_results: tuple[ToolResult, ...] = ()
     completed: bool = True
     stop_reason: StopReason = "completed"
+    usage: TokenUsage | None = None

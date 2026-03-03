@@ -6,6 +6,7 @@ import json
 from typing import Any, Mapping
 
 from nano_multiagent.core.errors import ModelError
+from nano_multiagent.core.types import TokenUsage
 
 from ...interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 
@@ -87,6 +88,7 @@ class AnthropicMapper:
             model=str(payload.get("model", "")),
             message=LLMMessage(role=role, content=normalized_content, tool_calls=tool_calls),
             finish_reason=str(finish_reason) if finish_reason is not None else None,
+            usage=_parse_anthropic_usage(payload.get("usage")),
             raw=dict(payload),
         )
 
@@ -239,3 +241,30 @@ def _normalize_tool_calls(content_blocks: list[Any]) -> tuple[LLMToolCall, ...]:
             )
         )
     return tuple(tool_calls)
+
+
+def _parse_anthropic_usage(payload: Any) -> TokenUsage | None:
+    if not isinstance(payload, Mapping):
+        return None
+
+    input_tokens = _extract_non_negative_int(payload.get("input_tokens"))
+    output_tokens = _extract_non_negative_int(payload.get("output_tokens"))
+    if input_tokens is None and output_tokens is None:
+        return None
+
+    cache_creation_tokens = _extract_non_negative_int(payload.get("cache_creation_input_tokens")) or 0
+    cache_read_tokens = _extract_non_negative_int(payload.get("cache_read_input_tokens")) or 0
+    prompt_tokens = (input_tokens or 0) + cache_creation_tokens + cache_read_tokens
+    completion_tokens = output_tokens or 0
+    total_tokens = prompt_tokens + completion_tokens
+    return TokenUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+    )
+
+
+def _extract_non_negative_int(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return int(value)
+    return None

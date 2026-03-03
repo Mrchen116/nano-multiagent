@@ -93,6 +93,23 @@ class _StubClient:
         }
 
 
+class _UsageStubClient(_StubClient):
+    def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message", {"session_id": session_id, "text": text}))
+        return {
+            "session_id": session_id,
+            "turn_id": "turn_usage",
+            "message": {"message_id": "msg_usage", "role": "assistant", "content": f"echo:{text}"},
+            "completed": True,
+            "stop_reason": "stop",
+            "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 35,
+                "total_tokens": 155,
+            },
+        }
+
+
 class _CompactedStubClient(_StubClient):
     def compact_session(self, *, session_id: str) -> dict[str, object]:
         self.calls.append(("compact_session", {"session_id": session_id}))
@@ -243,6 +260,18 @@ class _AsyncEventingStubClient(_StubClient):
             "stop_reason": None,
             "error": None,
         }
+
+
+class _AsyncUsageEventingStubClient(_AsyncEventingStubClient):
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        payload = super().get_run(run_id=run_id)
+        if payload["status"] == "completed":
+            payload["usage"] = {
+                "prompt_tokens": 320,
+                "completion_tokens": 41,
+                "total_tokens": 361,
+            }
+        return payload
 
 
 class _AsyncFailedRunStubClient(_StubClient):
@@ -554,6 +583,7 @@ def test_cli_help_mentions_repl_editing_budget_and_error_layers() -> None:
     assert "History recall" in help_text
     assert "HTTP-only boundary" in help_text
     assert "single final JSON object on stdout" in help_text
+    assert "LLM usage: shown per turn" in help_text
     assert "Error layers: input / network / runtime" in help_text
 
 
@@ -871,6 +901,24 @@ def test_run_cli_repl_context_budget_fetch_failure_is_fail_open() -> None:
     assert "Context budget: unavailable" in text
 
 
+def test_run_cli_repl_prints_turn_llm_usage_when_available() -> None:
+    stub = _UsageStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "hello", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "echo:hello" in text
+    assert "LLM usage (this turn): prompt=120, completion=35, total=155" in text
+
+
 def test_run_cli_repl_request_failures_include_suggestions() -> None:
     stub = _FailingToolsStubClient()
     output = io.StringIO()
@@ -950,6 +998,23 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert "[text] final:echo:ping" in text
     assert "ignore-me" not in text
     assert ("send_message_async", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
+
+
+def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
+    stub = _AsyncUsageEventingStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "LLM usage (this turn): prompt=320, completion=41, total=361" in text
 
 
 def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:

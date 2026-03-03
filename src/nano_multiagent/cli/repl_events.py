@@ -79,6 +79,7 @@ def send_message_with_async_events(
         },
         "completed": True,
         "stop_reason": terminal_run.get("stop_reason") or "stop",
+        "usage": terminal_run.get("usage"),
     }
 
 

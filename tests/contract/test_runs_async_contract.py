@@ -68,11 +68,13 @@ def test_messages_async_contract_submit_and_get_run() -> None:
         "turn_id",
         "stop_reason",
         "error",
+        "usage",
     }
     assert terminal["status"] == "completed"
     assert terminal["turn_id"] == "turn_contract_async"
     assert terminal["stop_reason"] == "completed"
     assert terminal["error"] is None
+    assert terminal["usage"] is None
 
 
 def test_get_run_not_found_uses_unified_error_shape() -> None:

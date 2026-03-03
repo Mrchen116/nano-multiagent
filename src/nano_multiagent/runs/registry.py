@@ -9,7 +9,7 @@ from threading import Lock
 from typing import Any, Mapping, Protocol, Sequence
 
 from nano_multiagent.core.ids import make_run_id
-from nano_multiagent.core.types import TurnResult
+from nano_multiagent.core.types import TokenUsage, TurnResult
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.observability.logger import log_error, log_info
@@ -37,6 +37,7 @@ class RunRecord:
     turn_id: str | None = None
     stop_reason: str | None = None
     error: Mapping[str, Any] | None = None
+    usage: TokenUsage | None = None
 
 
 class RuntimeRunner(Protocol):
@@ -155,6 +156,7 @@ class RunsRegistry:
         turn_id: str | None = None,
         stop_reason: str | None = None,
         error: Mapping[str, Any] | None = None,
+        usage: TokenUsage | None = None,
         only_if: set[RunStatus] | None = None,
     ) -> RunRecord | None:
         with self._lock:
@@ -170,6 +172,7 @@ class RunsRegistry:
                 turn_id=turn_id,
                 stop_reason=stop_reason,
                 error=error,
+                usage=usage,
             )
             self._runs[run_id] = updated
         self._append_run_status_event(updated)
@@ -182,6 +185,7 @@ class RunsRegistry:
             turn_id=turn_result.turn_id,
             stop_reason=turn_result.stop_reason,
             error=None,
+            usage=turn_result.usage,
             only_if={RunStatus.RUNNING},
         )
         if updated is not None and updated.status is RunStatus.COMPLETED:
@@ -312,6 +316,7 @@ class RunsRegistry:
             turn_id=record.turn_id,
             stop_reason=record.stop_reason,
             error=record.error,
+            data=_run_status_data(record),
         )
         if self._event_hub is None:
             return
@@ -327,6 +332,8 @@ class RunsRegistry:
             payload["stop_reason"] = record.stop_reason
         if record.error is not None:
             payload["error"] = dict(record.error)
+        if record.usage is not None:
+            payload["usage"] = _serialize_usage(record.usage)
         self._event_hub.publish(
             event="run_status",
             session_id=record.session_id,
@@ -378,16 +385,20 @@ class RunsRegistry:
                     "delta": message.content,
                 },
             )
+        payload: dict[str, Any] = {
+            "event": "turn_end",
+            "run_id": record.run_id,
+            "turn_id": turn_result.turn_id,
+            "completed": turn_result.completed,
+            "stop_reason": turn_result.stop_reason,
+        }
+        usage_payload = _serialize_usage(turn_result.usage)
+        if usage_payload is not None:
+            payload["usage"] = usage_payload
         self._event_hub.publish(
             event="turn_end",
             session_id=record.session_id,
-            data={
-                "event": "turn_end",
-                "run_id": record.run_id,
-                "turn_id": turn_result.turn_id,
-                "completed": turn_result.completed,
-                "stop_reason": turn_result.stop_reason,
-            },
+            data=payload,
         )
 
 
@@ -396,3 +407,20 @@ def _utc_now_iso() -> str:
 
 
 _TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
+
+
+def _serialize_usage(usage: TokenUsage | None) -> dict[str, int] | None:
+    if usage is None:
+        return None
+    return {
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
+    }
+
+
+def _run_status_data(record: RunRecord) -> dict[str, Any]:
+    usage_payload = _serialize_usage(record.usage)
+    if usage_payload is None:
+        return {}
+    return {"usage": usage_payload}

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from nano_multiagent.core.ids import make_message_id, make_tool_call_id
-from nano_multiagent.core.types import Message, ToolCall, ToolResult, ToolSpec, TurnResult
+from nano_multiagent.core.types import Message, TokenUsage, ToolCall, ToolResult, ToolSpec, TurnResult
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
@@ -105,6 +105,7 @@ class AgentLoop:
         assistant_messages: list[Message] = []
         tool_calls: list[ToolCall] = []
         tool_results: list[ToolResult] = []
+        turn_usage: TokenUsage | None = None
 
         try:
             # Runtime loop strategy:
@@ -123,6 +124,7 @@ class AgentLoop:
                         tools=active_tools,
                     )
                 )
+                turn_usage = _accumulate_usage(turn_usage, response.usage)
                 normalized_calls = tuple(_normalize_tool_call(item) for item in response.message.tool_calls)
                 normalized_response_message = LLMMessage(
                     role=response.message.role,
@@ -185,6 +187,7 @@ class AgentLoop:
                         tool_results=tuple(tool_results),
                         completed=completed,
                         stop_reason=stop_reason,
+                        usage=turn_usage,
                     )
 
                 for parsed_call in normalized_calls:
@@ -202,6 +205,7 @@ class AgentLoop:
                         tool_results=tuple(tool_results),
                         completed=completed,
                         stop_reason=stop_reason,
+                        usage=turn_usage,
                     )
 
                 for parsed_call in normalized_calls:
@@ -256,14 +260,21 @@ class AgentLoop:
                         )
                     )
         finally:
+            turn_end_payload: dict[str, Any] = {
+                "session_id": state.session_id,
+                "turn_id": state.turn_id,
+                "completed": completed,
+                "stop_reason": stop_reason,
+            }
+            if turn_usage is not None:
+                turn_end_payload["usage"] = {
+                    "prompt_tokens": turn_usage.prompt_tokens,
+                    "completion_tokens": turn_usage.completion_tokens,
+                    "total_tokens": turn_usage.total_tokens,
+                }
             self._dispatch_observe(
                 "turn_end",
-                {
-                    "session_id": state.session_id,
-                    "turn_id": state.turn_id,
-                    "completed": completed,
-                    "stop_reason": stop_reason,
-                },
+                turn_end_payload,
                 active_hook_ctx,
             )
 
@@ -391,3 +402,15 @@ def _serialize_tool_result_content(result: ToolResult) -> str:
         return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     except TypeError:
         return str(payload)
+
+
+def _accumulate_usage(current: TokenUsage | None, update: TokenUsage | None) -> TokenUsage | None:
+    if update is None:
+        return current
+    if current is None:
+        return update
+    return TokenUsage(
+        prompt_tokens=current.prompt_tokens + update.prompt_tokens,
+        completion_tokens=current.completion_tokens + update.completion_tokens,
+        total_tokens=current.total_tokens + update.total_tokens,
+    )

@@ -72,6 +72,32 @@ def test_map_generate_response_coerces_non_string_text_chunks() -> None:
     assert response.message.content == "123"
 
 
+def test_map_generate_response_normalizes_usage_to_canonical_fields() -> None:
+    mapper = AnthropicMapper()
+
+    response = mapper.map_generate_response(
+        {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-5-sonnet-20241022",
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 30,
+                "cache_creation_input_tokens": 5,
+                "cache_read_input_tokens": 2,
+            },
+            "content": [{"type": "text", "text": "ok"}],
+        }
+    )
+
+    assert response.usage is not None
+    assert response.usage.prompt_tokens == 107
+    assert response.usage.completion_tokens == 30
+    assert response.usage.total_tokens == 137
+
+
 def test_map_generate_response_requires_content_blocks() -> None:
     mapper = AnthropicMapper()
 

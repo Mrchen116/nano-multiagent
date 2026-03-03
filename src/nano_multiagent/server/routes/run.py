@@ -28,6 +28,7 @@ class RunResponse(BaseModel):
     turn_id: str | None = None
     stop_reason: str | None = None
     error: dict[str, Any] | None = None
+    usage: dict[str, int] | None = None
 
 
 @router.get("/{run_id}", response_model=RunResponse)
@@ -75,4 +76,13 @@ def _to_run_response(record: RunRecord) -> RunResponse:
         turn_id=record.turn_id,
         stop_reason=record.stop_reason,
         error=dict(record.error) if record.error is not None else None,
+        usage=(
+            {
+                "prompt_tokens": record.usage.prompt_tokens,
+                "completion_tokens": record.usage.completion_tokens,
+                "total_tokens": record.usage.total_tokens,
+            }
+            if record.usage is not None
+            else None
+        ),
     )

@@ -43,6 +43,11 @@ def provider_case(request: pytest.FixtureRequest) -> ProviderContractCase:
             request_assertion=_assert_openai_request,
             sample_response={
                 "model": "codexOAuth:gpt-5.2-codex",
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 4,
+                    "total_tokens": 15,
+                },
                 "choices": [
                     {
                         "message": {"role": "assistant", "content": "pong"},
@@ -69,6 +74,10 @@ def provider_case(request: pytest.FixtureRequest) -> ProviderContractCase:
             "role": "assistant",
             "model": "claude-3-5-sonnet-20241022",
             "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 11,
+                "output_tokens": 4,
+            },
             "content": [{"type": "text", "text": "pong"}],
         },
         response_assertion=_assert_anthropic_response,
@@ -409,9 +418,17 @@ def _assert_openai_response(response: LLMGenerateResponse) -> None:
     assert response.message.role == "assistant"
     assert response.message.content == "pong"
     assert response.finish_reason == "stop"
+    assert response.usage is not None
+    assert response.usage.prompt_tokens == 11
+    assert response.usage.completion_tokens == 4
+    assert response.usage.total_tokens == 15
 
 
 def _assert_anthropic_response(response: LLMGenerateResponse) -> None:
     assert response.message.role == "assistant"
     assert response.message.content == "pong"
     assert response.finish_reason == "end_turn"
+    assert response.usage is not None
+    assert response.usage.prompt_tokens == 11
+    assert response.usage.completion_tokens == 4
+    assert response.usage.total_tokens == 15

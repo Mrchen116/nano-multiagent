@@ -1,7 +1,7 @@
 from nano_multiagent.agent.loop import AgentLoop
 from nano_multiagent.agent.policies import AgentPolicies
 from nano_multiagent.agent.state import AgentState, InputPart
-from nano_multiagent.core.types import ToolSpec
+from nano_multiagent.core.types import TokenUsage, ToolSpec
 from nano_multiagent.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
@@ -33,6 +33,7 @@ class FakeLLMClient:
             model=request.model,
             message=response.message,
             finish_reason=response.finish_reason,
+            usage=response.usage,
             raw=response.raw,
         )
 
@@ -197,3 +198,34 @@ def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
     assert result.tool_results[0].error == "tool boom"
     assert result.tool_results[0].output is None
     assert '"error":"tool boom"' in client.requests[1].messages[-1].content
+
+
+def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id="", name="echo", arguments={"text": "ping"}),),
+                ),
+                finish_reason="tool_calls",
+                usage=TokenUsage(prompt_tokens=100, completion_tokens=10, total_tokens=110),
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+                usage=TokenUsage(prompt_tokens=80, completion_tokens=12, total_tokens=92),
+            ),
+        )
+    )
+    loop = AgentLoop(llm_client=client, model="model-x", tool_registry=FakeToolRegistry())
+
+    result = loop.run(_base_state())
+
+    assert result.usage is not None
+    assert result.usage.prompt_tokens == 180
+    assert result.usage.completion_tokens == 22
+    assert result.usage.total_tokens == 202

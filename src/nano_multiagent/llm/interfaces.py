@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 
-from nano_multiagent.core.types import ToolSpec
+from nano_multiagent.core.types import TokenUsage, ToolSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +47,7 @@ class LLMGenerateResponse:
     model: str
     message: LLMMessage
     finish_reason: str | None = None
+    usage: TokenUsage | None = None
     raw: Mapping[str, Any] = field(default_factory=dict)
 
 

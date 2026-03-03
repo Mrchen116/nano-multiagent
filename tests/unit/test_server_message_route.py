@@ -1,7 +1,12 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.core.types import Message, TokenUsage, TurnResult
+from nano_multiagent.hooks.usage_metrics_registry import (
+    SessionUsageSnapshot,
+    clear_session_usage_reader,
+    register_session_usage_reader,
+)
 from nano_multiagent.server.app import create_app
 from nano_multiagent.server.routes.session import _CONTEXT_BUDGET_MAX_TOKENS
 from nano_multiagent.server.deps import APIError
@@ -31,6 +36,25 @@ def test_to_message_response_uses_assistant_message_contract() -> None:
     assert payload["stop_reason"] == "completed"
 
 
+def test_to_message_response_includes_usage_when_present() -> None:
+    result = TurnResult(
+        session_id="sess_unit",
+        turn_id="turn_unit",
+        messages=(Message(message_id="msg_assistant", role="assistant", content="hi"),),
+        completed=True,
+        stop_reason="completed",
+        usage=TokenUsage(prompt_tokens=21, completion_tokens=8, total_tokens=29),
+    )
+
+    payload = _to_message_response(result)
+
+    assert payload["usage"] == {
+        "prompt_tokens": 21,
+        "completion_tokens": 8,
+        "total_tokens": 29,
+    }
+
+
 def test_to_message_response_raises_when_no_assistant_message() -> None:
     result = TurnResult(
         session_id="sess_unit",
@@ -44,7 +68,7 @@ def test_to_message_response_raises_when_no_assistant_message() -> None:
     assert exc_info.value.code == "invalid_runtime_response"
 
 
-def test_context_budget_caps_usage_and_ratio_for_long_history() -> None:
+def test_context_budget_defaults_to_zero_without_exact_usage_snapshot() -> None:
     client = TestClient(create_app(auth_token="test-token"))
     headers = {"Authorization": "Bearer test-token"}
 
@@ -52,19 +76,44 @@ def test_context_budget_caps_usage_and_ratio_for_long_history() -> None:
     assert created.status_code == 201
     session_id = created.json()["session_id"]
 
-    manager = client.app.state.session_service.manager
-    manager.append_turn_message(
-        session_id,
-        turn_id="turn_budget",
-        role="user",
-        content="x" * 1_000_000,
-        message_id="msg_budget",
+    response = client.get(f"/v1/sessions/{session_id}/context-budget", headers=headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["max_tokens"] == _CONTEXT_BUDGET_MAX_TOKENS
+    assert payload["used_tokens"] == 0
+    assert payload["remaining_tokens"] == _CONTEXT_BUDGET_MAX_TOKENS
+    assert payload["usage_ratio"] == 0.0
+
+
+def test_context_budget_prefers_exact_provider_prompt_tokens_when_available() -> None:
+    clear_session_usage_reader()
+    client = TestClient(create_app(auth_token="test-token"))
+    headers = {"Authorization": "Bearer test-token"}
+
+    created = client.post("/v1/sessions", json={}, headers=headers)
+    assert created.status_code == 201
+    session_id = created.json()["session_id"]
+
+    register_session_usage_reader(
+        lambda sid: (
+            SessionUsageSnapshot(
+                prompt_tokens=800,
+                completion_tokens=80,
+                total_tokens=880,
+                last_prompt_tokens=4321,
+                last_completion_tokens=40,
+                last_total_tokens=4361,
+                turn_count=2,
+            )
+            if sid == session_id
+            else None
+        )
     )
 
     response = client.get(f"/v1/sessions/{session_id}/context-budget", headers=headers)
     assert response.status_code == 200
     payload = response.json()
-    assert payload["max_tokens"] == _CONTEXT_BUDGET_MAX_TOKENS
-    assert payload["used_tokens"] == _CONTEXT_BUDGET_MAX_TOKENS
-    assert payload["remaining_tokens"] == 0
-    assert payload["usage_ratio"] == 1.0
+    assert payload["used_tokens"] == 4321
+    assert payload["remaining_tokens"] == _CONTEXT_BUDGET_MAX_TOKENS - 4321
+    assert payload["usage_ratio"] == 4321 / _CONTEXT_BUDGET_MAX_TOKENS
+    clear_session_usage_reader()

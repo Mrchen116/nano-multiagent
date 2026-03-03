@@ -23,6 +23,7 @@ from nano_multiagent.cli.repl_events import merge_text_delta as _merge_text_delt
 from nano_multiagent.cli.repl_events import print_event_preview as _print_event_preview
 from nano_multiagent.cli.repl_events import send_message_with_async_events as _send_message_with_async_events
 from nano_multiagent.cli.repl_events import supports_async_repl_events as _supports_async_repl_events
+from nano_multiagent.cli.turn_usage import print_turn_usage_snapshot as _print_turn_usage_snapshot
 
 _CLI_HELP_EPILOG = (
     "REPL quick commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit\n"
@@ -30,6 +31,7 @@ _CLI_HELP_EPILOG = (
     "History recall: ↑/↓ navigates per-session input history and restores draft.\n"
     "HTTP-only boundary: CLI orchestrates via ServerClient, never direct runtime calls.\n"
     "JSON contract: non-interactive commands print a single final JSON object on stdout.\n"
+    "LLM usage: shown per turn when provider usage is available.\n"
     "Context budget: shown after each assistant reply and after /compact.\n"
     "Error layers: input / network / runtime."
 )
@@ -306,6 +308,7 @@ def _run_repl(
                     content=response_content,
                 )
             print(json.dumps(payload, ensure_ascii=False), file=out)
+            _print_turn_usage_snapshot(out=out, payload=payload)
             _print_context_budget_snapshot(out=out, client=client, session_id=active_session_id)
         except Exception as exc:
             layer = _error_layer_for_exception(exc)

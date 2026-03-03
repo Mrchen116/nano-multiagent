@@ -15,6 +15,7 @@ from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.loader import build_hook_registry
 from nano_multiagent.hooks.registry import HookRegistry
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
+from nano_multiagent.hooks.usage_metrics_registry import clear_session_usage_reader
 from nano_multiagent.observability.logger import log_error
 from nano_multiagent.observability.tracing import bind_correlation
 from nano_multiagent.runs.registry import RunsRegistry
@@ -60,6 +61,7 @@ def create_app(
         runtime imports are required at clients.
     """
     app = FastAPI(title="nano-multiagent", version=__version__)
+    clear_session_usage_reader()
     resolved_repo_root = (
         repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
     ).expanduser().resolve()

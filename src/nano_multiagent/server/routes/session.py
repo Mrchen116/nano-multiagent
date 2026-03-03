@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from nano_multiagent.agent.compaction.types import CompactionSettings
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.hooks.usage_metrics_registry import get_session_usage_snapshot
 from nano_multiagent.runs.registry import RunsRegistry
 from nano_multiagent.server.sse import EventStreamHub, StreamEvent, encode_sse_event
 from nano_multiagent.session.models import Session
@@ -34,7 +35,7 @@ router = APIRouter(
     dependencies=[Depends(require_bearer_auth)],
 )
 
-_CONTEXT_BUDGET_MAX_TOKENS = 100_000
+_CONTEXT_BUDGET_MAX_TOKENS = CompactionSettings().context_window
 
 
 class CreateSessionRequest(BaseModel):
@@ -78,6 +79,14 @@ class MessageResponse(BaseModel):
     content: str
 
 
+class UsageResponse(BaseModel):
+    """Canonical per-turn model usage counters."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
 class SendMessageResponse(BaseModel):
     """Synchronous turn execution response payload."""
 
@@ -86,6 +95,7 @@ class SendMessageResponse(BaseModel):
     message: MessageResponse
     completed: bool
     stop_reason: str
+    usage: UsageResponse | None = None
 
 
 class SendMessageAsyncRequest(BaseModel):
@@ -139,7 +149,7 @@ class CompactSessionResponse(BaseModel):
 
 
 class ContextBudgetResponse(BaseModel):
-    """Approximate token budget snapshot used by CLI hints."""
+    """Session context budget snapshot used by CLI hints."""
 
     session_id: str
     used_tokens: int
@@ -269,7 +279,7 @@ def get_context_budget(
     session_service: SessionService = Depends(get_session_service),
     runtime=Depends(get_agent_runtime),
 ) -> ContextBudgetResponse:
-    """Estimate session context usage for user-facing budget hints."""
+    """Return session context usage for user-facing budget hints."""
     if session_service.get_session(session_id) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -278,10 +288,12 @@ def get_context_budget(
             retryable=False,
         )
 
-    messages = session_service.manager.list_turn_messages(session_id)
     max_tokens = _resolve_context_window(runtime)
-    estimated_tokens = _estimate_context_tokens(messages)
-    used_tokens = min(max(estimated_tokens, 0), max_tokens)
+    usage_snapshot = get_session_usage_snapshot(session_id)
+    if usage_snapshot is not None:
+        used_tokens = min(max(usage_snapshot.last_prompt_tokens, 0), max_tokens)
+    else:
+        used_tokens = 0
     remaining_tokens = max(max_tokens - used_tokens, 0)
     usage_ratio = float(used_tokens) / float(max_tokens)
     return ContextBudgetResponse(
@@ -293,7 +305,7 @@ def get_context_budget(
     )
 
 
-@router.post("/{session_id}/messages", response_model=SendMessageResponse)
+@router.post("/{session_id}/messages", response_model=SendMessageResponse, response_model_exclude_none=True)
 def send_message(
     session_id: str,
     payload: SendMessageRequest,
@@ -416,7 +428,7 @@ def _to_session_response(session: Session) -> SessionResponse:
 def _to_message_response(result: TurnResult) -> dict[str, Any]:
     """Convert runtime turn result into sync response payload."""
     message = _select_assistant_message(result.messages)
-    return {
+    payload: dict[str, Any] = {
         "session_id": result.session_id,
         "turn_id": result.turn_id,
         "message": {
@@ -427,6 +439,13 @@ def _to_message_response(result: TurnResult) -> dict[str, Any]:
         "completed": result.completed,
         "stop_reason": result.stop_reason,
     }
+    if result.usage is not None:
+        payload["usage"] = {
+            "prompt_tokens": result.usage.prompt_tokens,
+            "completion_tokens": result.usage.completion_tokens,
+            "total_tokens": result.usage.total_tokens,
+        }
+    return payload
 
 
 def _select_assistant_message(messages: tuple[Message, ...]) -> Message:
@@ -452,34 +471,11 @@ def _resolve_context_window(runtime: object) -> int:
     """Resolve user-facing context budget ceiling.
 
     Notes:
-        Budget hint output is intentionally standardized to 100K so the CLI
-        remains stable across models/providers and never prints >100% usage.
+        Context budget tracks the same runtime `context_window` source used by
+        compaction policy checks.
     """
-    default_context_window = CompactionSettings().context_window
     settings = getattr(runtime, "_compaction_settings", None)
     context_window = getattr(settings, "context_window", None)
-    if isinstance(context_window, bool):
-        return _CONTEXT_BUDGET_MAX_TOKENS
-    if isinstance(context_window, int) and context_window > 0:
-        if context_window >= _CONTEXT_BUDGET_MAX_TOKENS:
-            return _CONTEXT_BUDGET_MAX_TOKENS
-        if context_window == default_context_window:
-            return _CONTEXT_BUDGET_MAX_TOKENS
+    if isinstance(context_window, int) and not isinstance(context_window, bool) and context_window > 0:
         return context_window
     return _CONTEXT_BUDGET_MAX_TOKENS
-
-
-def _estimate_context_tokens(history: tuple[Message, ...]) -> int:
-    """Estimate token usage with stable heuristic used by CLI budget hints."""
-    total = 0
-    for message in history:
-        total += _estimate_text_tokens(message.content)
-    total += 4 + len(history) * 2
-    return total
-
-
-def _estimate_text_tokens(text: str) -> int:
-    normalized = " ".join(text.split())
-    if not normalized:
-        return 1
-    return max(1, (len(normalized) + 7) // 8)

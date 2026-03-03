@@ -5,6 +5,8 @@ from typing import Any, Mapping
 
 from nano_multiagent.core.errors import ModelError
 
+from nano_multiagent.core.types import TokenUsage
+
 from ...interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 
 
@@ -72,6 +74,7 @@ class OpenAICompatMapper:
                 tool_calls=tool_calls,
             ),
             finish_reason=str(finish_reason) if finish_reason is not None else None,
+            usage=_parse_openai_usage(payload.get("usage")),
             raw=dict(payload),
         )
 
@@ -251,3 +254,26 @@ def _parse_tool_arguments(arguments: Any) -> Mapping[str, Any]:
         retryable=False,
         details={"arguments_type": type(arguments).__name__},
     )
+
+
+def _parse_openai_usage(payload: Any) -> TokenUsage | None:
+    if not isinstance(payload, Mapping):
+        return None
+    prompt_tokens = payload.get("prompt_tokens")
+    completion_tokens = payload.get("completion_tokens")
+    total_tokens = payload.get("total_tokens")
+    if not _is_non_negative_int(prompt_tokens):
+        return None
+    if not _is_non_negative_int(completion_tokens):
+        return None
+    if not _is_non_negative_int(total_tokens):
+        total_tokens = int(prompt_tokens) + int(completion_tokens)
+    return TokenUsage(
+        prompt_tokens=int(prompt_tokens),
+        completion_tokens=int(completion_tokens),
+        total_tokens=int(total_tokens),
+    )
+
+
+def _is_non_negative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0

@@ -1,7 +1,7 @@
 import time
 from pathlib import Path
 
-from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.core.types import Message, TokenUsage, TurnResult
 from nano_multiagent.hooks.registry import HookRegistry
 from nano_multiagent.hooks.runner import HookRunner
 from nano_multiagent.runs.registry import RunStatus, RunsRegistry
@@ -27,6 +27,20 @@ class _RuntimeStub:
             messages=(Message(message_id="msg_async_unit", role="assistant", content="ok"),),
             completed=True,
             stop_reason="completed",
+        )
+
+
+class _RuntimeWithUsageStub:
+    def run(self, session_id: str, parts, *, stream: bool = True):  # noqa: ANN001, ANN201
+        del parts
+        del stream
+        return TurnResult(
+            session_id=session_id,
+            turn_id="turn_async_usage",
+            messages=(Message(message_id="msg_async_usage", role="assistant", content="ok"),),
+            completed=True,
+            stop_reason="completed",
+            usage=TokenUsage(prompt_tokens=200, completion_tokens=20, total_tokens=220),
         )
 
 
@@ -88,6 +102,40 @@ def test_runs_registry_marks_failed_when_runtime_raises(tmp_path: Path) -> None:
     assert failed is not None
     assert failed.error is not None
     assert failed.error["message"] == "runtime boom"
+
+
+def test_runs_registry_persists_completed_run_usage(tmp_path: Path) -> None:
+    store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-usage.sqlite3")
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+    registry = RunsRegistry(runtime=_RuntimeWithUsageStub(), session_manager=manager)
+
+    submitted = registry.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": "hello"}],
+    )
+    _wait_for(
+        lambda: registry.get(submitted.run_id) is not None
+        and registry.get(submitted.run_id).status is RunStatus.COMPLETED
+    )
+
+    completed = registry.get(submitted.run_id)
+    assert completed is not None
+    assert completed.usage is not None
+    assert completed.usage.total_tokens == 220
+
+    entries = manager.list_entries(session.session_id)
+    completed_entries = [
+        event
+        for event in entries
+        if getattr(event.kind, "value", "") == "session.run.status" and event.data.get("status") == "completed"
+    ]
+    assert completed_entries
+    assert completed_entries[-1].data.get("usage") == {
+        "prompt_tokens": 200,
+        "completion_tokens": 20,
+        "total_tokens": 220,
+    }
 
 
 def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp_path: Path) -> None:
