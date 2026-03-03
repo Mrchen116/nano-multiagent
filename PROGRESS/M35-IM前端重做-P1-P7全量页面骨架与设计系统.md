@@ -44,6 +44,25 @@
   - Entry: 可启动 Vite 应用，`/chat` 与 `/settings/*` 路由骨架已可渲染，主题样式已生效。
 - Rollback:
   - `c9ac187`（R35.1 C1，仅测试先红）
-- Commits: C1=`c9ac187`, C2=`e43b438`, C3=`<pending>`
+- Commits: C1=`c9ac187`, C2=`e43b438`, C3=`fcbb033`
 - Next:
   - R35.2 Red：补写 chat 响应式与路由行为测试，覆盖桌面两栏+手机单栏。
+
+### R35.2 Chat 工作区（P1/P2）与桌面/手机响应式
+- Context:
+  - 需要在 `/chat` 与 `/chat/:conversationId` 同时满足桌面两栏和手机单栏切换。
+  - 现有壳体仅占位页，缺少会话列表、消息区、输入区与 mock 数据链路。
+- Decision:
+  - 新增 mock chat API + React Query 查询/发送 mutation，数据完全本地内存化。
+  - 将 `/chat` 与 `/chat/:conversationId` 统一为 `ChatWorkspacePage`：桌面显示会话+详情双栏；手机在详情路由仅显示消息页并提供 Back。
+  - 新增 `useIsMobile` 宽度判断和会话/消息组件拆分，保证后续设置页可独立演进。
+- Rationale:
+  - 单页面控制布局分支可减少路由重复逻辑，同时保留 URL 语义，便于 Playwright 验收覆盖。
+- Evidence:
+  - Tests: `cd src/IM/frontend && npm run test && npm run build`（通过）
+  - Entry: `/chat` 可浏览会话列表与未选中占位；`/chat/conv-kernel-ops` 可展示消息与输入框；手机宽度下 `/chat` 仅列表，`/chat/:id` 为单栏详情。
+- Rollback:
+  - `06e4f3e`（R35.2 C1，仅测试先红）
+- Commits: C1=`06e4f3e`, C2=`a394561`, C3=`<pending>`
+- Next:
+  - R35.3 Red：补写 settings mock contract 与编辑联动测试，覆盖 P3-P7。

@@ -28,10 +28,10 @@
 - Commits:
   - C1: `c9ac187`
   - C2: `e43b438`
-  - C3: `af160b4`
+  - C3: `fcbb033`
 - Status: DONE
 
-## [TODO] R35.2 Chat 工作区（P1/P2）与桌面/手机响应式
+## [DONE] R35.2 Chat 工作区（P1/P2）与桌面/手机响应式
 - Acceptance:
   - 路由 `/chat` 与 `/chat/:conversationId` 落地，桌面两栏（会话列表+消息区）可用。
   - 手机端在窄屏切换为单栏：列表页进入会话页，支持返回。
@@ -51,10 +51,10 @@
   - C1/C2/C3 齐全。
   - PROGRESS 写清决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `06e4f3e`
+  - C2: `a394561`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R35.3 Settings 工作区（P3-P7）+ mock 可读可编辑
 - Acceptance:
