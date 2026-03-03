@@ -2,6 +2,7 @@ import time
 from threading import Event
 from pathlib import Path
 
+from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.runs.registry import RunStatus, RunsRegistry
 from nano_multiagent.session.manager import SessionManager
@@ -26,6 +27,12 @@ class _BlockingRuntime:
             completed=True,
             stop_reason="completed",
         )
+
+
+class _AlwaysRetryableFailureRuntime:
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
+        del session_id, parts, stream, run_id
+        raise ModelError("upstream temporary unavailable", retryable=True)
 
 
 def _wait_for(predicate, *, timeout_seconds: float = 1.0) -> None:  # noqa: ANN001
@@ -69,3 +76,33 @@ def test_cancel_unknown_run_returns_none(tmp_path: Path) -> None:
     registry = RunsRegistry(runtime=_BlockingRuntime(), session_manager=manager)
 
     assert registry.cancel("run_missing") is None
+
+
+def test_cancel_stops_retry_loop_without_transitioning_to_failed(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("nano_multiagent.runs.registry._sleep", lambda seconds: None, raising=False)
+
+    store = SQLiteSessionStore(db_path=tmp_path / "run-cancel-retryable.sqlite3")
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+    registry = RunsRegistry(runtime=_AlwaysRetryableFailureRuntime(), session_manager=manager)
+
+    submitted = registry.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": "cancel retry"}],
+    )
+
+    _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.RUNNING)
+    cancelled = registry.cancel(submitted.run_id)
+    assert cancelled is not None
+    assert cancelled.status is RunStatus.CANCELLED
+
+    _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.CANCELLED)
+
+    entries = manager.list_entries(session.session_id)
+    run_statuses = [
+        event.data["status"]
+        for event in entries
+        if getattr(event.kind, "value", "") == "session.run.status" and event.data.get("run_id") == submitted.run_id
+    ]
+    assert run_statuses[-1] == "cancelled"
+    assert "failed" not in run_statuses
