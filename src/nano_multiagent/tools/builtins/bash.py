@@ -1,3 +1,5 @@
+"""Built-in `bash` tool with policy and output guardrails."""
+
 import signal
 from typing import Any, Mapping
 
@@ -7,6 +9,8 @@ from ..base import ToolContext
 
 
 class BashTool:
+    """Execute shell commands within `ToolSafety` command and timeout policy."""
+
     name = "bash"
     description = "Execute a bash command under safety guardrails."
     input_schema = {
@@ -20,6 +24,8 @@ class BashTool:
     }
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+        """Run one shell command and normalize non-zero exits into `ToolError`."""
+
         command = str(args["command"])
 
         timeout = args.get("timeout")

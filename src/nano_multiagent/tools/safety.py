@@ -1,3 +1,5 @@
+"""Sandbox and command policy primitives used by file/shell tools."""
+
 import os
 import shlex
 import subprocess
@@ -10,6 +12,8 @@ from nano_multiagent.core.errors import ToolError
 
 @dataclass(frozen=True, slots=True)
 class ToolSafetyConfig:
+    """Configure read/bash output limits and executable allow/block policies."""
+
     read_max_lines: int = 200
     read_max_bytes: int = 64 * 1024
     bash_max_output_lines: int = 200
@@ -44,6 +48,8 @@ class ToolSafetyConfig:
 
 @dataclass(frozen=True, slots=True)
 class CommandExecution:
+    """Capture normalized command execution output after truncation policy."""
+
     exit_code: int
     stdout: str
     stderr: str
@@ -52,11 +58,15 @@ class CommandExecution:
 
 
 class ToolSafety:
+    """Enforce filesystem and shell guardrails for tool execution."""
+
     def __init__(self, *, repo_root: Path, config: ToolSafetyConfig) -> None:
         self.repo_root = repo_root
         self.config = config
 
     def resolve_path(self, path: str, *, cwd: Path, tool_name: str) -> Path:
+        """Resolve a path and require it to stay inside the repository root."""
+
         return self._resolve_path(
             path,
             cwd=cwd,
@@ -65,6 +75,8 @@ class ToolSafety:
         )
 
     def resolve_read_path(self, path: str, *, cwd: Path, tool_name: str) -> Path:
+        """Resolve a read path under repository root or trusted shared skills root."""
+
         return self._resolve_path(
             path,
             cwd=cwd,
@@ -80,6 +92,8 @@ class ToolSafety:
         tool_name: str,
         allowed_roots: tuple[Path, ...],
     ) -> Path:
+        # SECURITY BOUNDARY: all file tool paths are normalized and checked by
+        # `relative_to` before use, so symlink/`..` traversal cannot escape roots.
         candidate = Path(path).expanduser()
         if not candidate.is_absolute():
             candidate = cwd / candidate
@@ -97,6 +111,8 @@ class ToolSafety:
         )
 
     def _read_allowed_roots(self) -> tuple[Path, ...]:
+        """Return trusted roots that can be read without write permission."""
+
         codex_home = Path(os.getenv("CODEX_HOME", "~/.codex")).expanduser().resolve()
         return (
             self.repo_root,
@@ -104,6 +120,8 @@ class ToolSafety:
         )
 
     def truncate_text(self, text: str, *, max_lines: int, max_bytes: int, tail: bool = False) -> tuple[str, bool]:
+        """Truncate text by line and byte ceilings and report truncation flag."""
+
         max_lines = max(1, max_lines)
         max_bytes = max(1, max_bytes)
 
@@ -120,6 +138,8 @@ class ToolSafety:
         return "\n".join(lines), truncated
 
     def enforce_command_policy(self, command: str, *, tool_name: str) -> None:
+        """Validate a command against deny-list fragments and executable allow-list."""
+
         normalized = command.strip().lower()
         if not normalized:
             raise ToolError("command cannot be empty", tool_name=tool_name)
@@ -141,6 +161,8 @@ class ToolSafety:
             raise ToolError("command cannot be empty", tool_name=tool_name)
 
         executable = Path(parts[0]).name
+        # POLICY TRADE-OFF: allow-list by executable name is intentionally simple and
+        # auditable, but still permissive for shell composition handled by callers.
         if executable not in self.config.bash_allowed_commands:
             raise ToolError(
                 "command is not allowed by policy",
@@ -156,6 +178,8 @@ class ToolSafety:
         timeout: float | None,
         tool_name: str,
     ) -> CommandExecution:
+        """Run one command under policy/time/output limits and return structured output."""
+
         self.enforce_command_policy(command, tool_name=tool_name)
         try:
             completed = subprocess.run(

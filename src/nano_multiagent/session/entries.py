@@ -1,3 +1,5 @@
+"""Session event entry models and constructors."""
+
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -7,6 +9,8 @@ from nano_multiagent.core.ids import make_event_id
 
 
 class SessionEntryKind(StrEnum):
+    """Enumerate persisted session event kinds."""
+
     SESSION_CREATED = "session.created"
     TURN_APPENDED = "session.turn.appended"
     SESSION_ARCHIVED = "session.archived"
@@ -20,6 +24,8 @@ def _utc_now_iso() -> str:
 
 @dataclass(frozen=True, slots=True)
 class SessionEntry:
+    """Represent one generic session event record."""
+
     entry_id: str
     session_id: str
     created_at: str
@@ -29,6 +35,8 @@ class SessionEntry:
 
 @dataclass(frozen=True, slots=True)
 class CompactionEntry:
+    """Represent a compaction checkpoint plus summary payload."""
+
     entry_id: str
     session_id: str
     created_at: str
@@ -49,6 +57,8 @@ def new_session_created_entry(
     entry_id: str | None = None,
     data: Mapping[str, Any] | None = None,
 ) -> SessionEntry:
+    """Create a `session.created` event payload."""
+
     payload = {"status": status}
     if data:
         payload.update(data)
@@ -70,6 +80,8 @@ def new_compaction_entry(
     entry_id: str | None = None,
     data: Mapping[str, Any] | None = None,
 ) -> CompactionEntry:
+    """Create a compaction checkpoint event."""
+
     return CompactionEntry(
         entry_id=entry_id or make_event_id(),
         session_id=session_id,
@@ -92,6 +104,8 @@ def new_turn_appended_entry(
     created_at: str | None = None,
     entry_id: str | None = None,
 ) -> SessionEntry:
+    """Create a turn-appended event with normalized parts/metadata containers."""
+
     payload: dict[str, Any] = {
         "turn_id": turn_id,
         "message_id": message_id,
@@ -121,6 +135,8 @@ def new_run_status_entry(
     entry_id: str | None = None,
     data: Mapping[str, Any] | None = None,
 ) -> SessionEntry:
+    """Create a run-status event describing progress, stop reason, or failure."""
+
     payload: dict[str, Any] = {
         "run_id": run_id,
         "status": status,

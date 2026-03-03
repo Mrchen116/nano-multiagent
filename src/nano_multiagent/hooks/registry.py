@@ -1,3 +1,5 @@
+"""Hook registration primitives and source-aware setup API."""
+
 from pathlib import Path
 from typing import Mapping
 
@@ -14,6 +16,8 @@ from .types import (
 
 
 class HookRegistry:
+    """Store hook handlers by event with stable priority/order semantics."""
+
     def __init__(self) -> None:
         self._registrations: dict[str, list[HookRegistration]] = {}
         self._next_order = 0
@@ -29,6 +33,8 @@ class HookRegistry:
         module_name: str | None = None,
         file_path: Path | None = None,
     ) -> HookRegistration:
+        """Register a handler for one known event."""
+
         normalized_event = ensure_known_hook_event(event)
         if not callable(handler):
             raise TypeError("hook handler must be callable")
@@ -53,15 +59,21 @@ class HookRegistry:
         return registration
 
     def handlers_for(self, event: str | HookEventType) -> tuple[HookRegistration, ...]:
+        """Return handlers for an event sorted by priority then registration order."""
+
         normalized_event = normalize_hook_event(event)
         registrations = list(self._registrations.get(normalized_event, ()))
         registrations.sort(key=lambda item: (item.priority, item.order))
         return tuple(registrations)
 
     def by_event(self) -> Mapping[str, tuple[HookRegistration, ...]]:
+        """Return all handlers grouped by normalized event name."""
+
         return {event: self.handlers_for(event) for event in sorted(self._registrations.keys())}
 
     def all_handlers(self) -> tuple[HookRegistration, ...]:
+        """Return all handlers flattened and deterministically sorted."""
+
         all_items: list[HookRegistration] = []
         for registrations in self._registrations.values():
             all_items.extend(registrations)
@@ -70,6 +82,8 @@ class HookRegistry:
 
 
 class HookAPI:
+    """Module-facing registration facade that injects source metadata."""
+
     def __init__(
         self,
         registry: HookRegistry,
@@ -91,6 +105,8 @@ class HookAPI:
         priority: int = DEFAULT_HOOK_PRIORITY,
         timeout_ms: int = DEFAULT_HOOK_TIMEOUT_MS,
     ) -> HookRegistration:
+        """Register a hook while preserving module/source provenance."""
+
         return self._registry.on(
             event,
             handler,
@@ -100,4 +116,3 @@ class HookAPI:
             module_name=self._module_name,
             file_path=self._file_path,
         )
-

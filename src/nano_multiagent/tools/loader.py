@@ -1,3 +1,5 @@
+"""Discovery and dynamic loading for workspace-provided tools."""
+
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -17,6 +19,8 @@ def build_tool_registry(
     hook_runner: HookRunner | None = None,
     runtime: Any | None = None,
 ) -> ToolRegistry:
+    """Build a tool registry containing built-ins and `.nano/tools` plugins."""
+
     from .base import ToolContext
 
     context = ToolContext.create(repo_root=repo_root)
@@ -27,6 +31,8 @@ def build_tool_registry(
 
 
 def discover_tool_files(repo_root: Path) -> tuple[Path, ...]:
+    """Return importable user tool files from `<repo>/.nano/tools`."""
+
     tools_dir = repo_root / ".nano" / "tools"
     if not tools_dir.is_dir():
         return ()
@@ -40,6 +46,8 @@ def discover_tool_files(repo_root: Path) -> tuple[Path, ...]:
 
 
 def load_tools_from_directory(*, repo_root: Path, registry: ToolRegistry) -> tuple[str, ...]:
+    """Import user tool modules and register exported tool objects."""
+
     loaded_names: list[str] = []
     for file_path in discover_tool_files(repo_root):
         module = _import_module_from_path(file_path)

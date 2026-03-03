@@ -1,3 +1,5 @@
+"""Session aggregate manager built on event store plus optional snapshots."""
+
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Mapping, Sequence
@@ -19,10 +21,14 @@ from .stores.base import SessionStore
 
 
 class SessionManager:
+    """Create/query/update sessions by appending immutable session events."""
+
     def __init__(self, *, store: SessionStore) -> None:
         self._store = store
 
     def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
+        """Create a new active session and persist both event and initial snapshot."""
+
         session_id = ids.make_session_id()
         created_at = datetime.now(UTC).isoformat()
         extra_data: dict[str, Any] = {}
@@ -42,6 +48,8 @@ class SessionManager:
         return session
 
     def get_session(self, session_id: str) -> Session | None:
+        """Rebuild a session from snapshot + ordered events."""
+
         loaded = self._store.load_session(session_id)
         if loaded is None:
             return None
@@ -62,6 +70,8 @@ class SessionManager:
         parts: Sequence[Mapping[str, Any]] | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> SessionEntry:
+        """Append one turn message event for an existing session."""
+
         if self.get_session(session_id) is None:
             raise ValueError(f"session does not exist: {session_id}")
         entry = new_turn_appended_entry(
@@ -84,6 +94,8 @@ class SessionManager:
         summary: str,
         data: Mapping[str, Any] | None = None,
     ) -> CompactionEntry:
+        """Append a compaction checkpoint event for an existing session."""
+
         if self.get_session(session_id) is None:
             raise ValueError(f"session does not exist: {session_id}")
         entry = new_compaction_entry(
@@ -106,6 +118,8 @@ class SessionManager:
         error: Mapping[str, Any] | None = None,
         data: Mapping[str, Any] | None = None,
     ) -> SessionEntry:
+        """Append one run status event for an existing session."""
+
         if self.get_session(session_id) is None:
             raise ValueError(f"session does not exist: {session_id}")
         entry = new_run_status_entry(
@@ -121,12 +135,16 @@ class SessionManager:
         return entry
 
     def list_entries(self, session_id: str) -> tuple[SessionEntry | CompactionEntry, ...]:
+        """Return persisted events for one session in store order."""
+
         loaded = self._store.load_session(session_id)
         if loaded is None:
             return ()
         return tuple(loaded.events)
 
     def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
+        """Materialize chat messages, applying compaction summary semantics."""
+
         loaded = self._store.load_session(session_id)
         if loaded is None:
             return ()
@@ -151,6 +169,7 @@ class SessionManager:
                 collecting_kept_messages = True
             if not collecting_kept_messages:
                 continue
+            # Compaction boundary: only messages at/after first_kept_event_id are replayed.
             message = self._message_from_turn_event(entry)
             if message is not None:
                 messages.append(message)
@@ -169,6 +188,8 @@ class SessionManager:
         return tuple(messages)
 
     def list_sessions(self, *, limit: int, offset: int) -> tuple[tuple[Session, ...], bool]:
+        """List sessions with pagination and `has_more` sentinel."""
+
         if limit <= 0:
             raise ValueError("limit must be greater than 0")
         if offset < 0:

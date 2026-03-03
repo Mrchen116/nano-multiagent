@@ -1,3 +1,5 @@
+"""Hook discovery/registration loader for built-in and workspace modules."""
+
 import hashlib
 import importlib.util
 from pathlib import Path
@@ -13,6 +15,8 @@ def build_hook_registry(
     builtins_dir: Path | None = None,
     workspace_dir: Path | None = None,
 ) -> HookRegistry:
+    """Build a hook registry by loading built-in and workspace hook files."""
+
     registry, _ = load_hooks_from_directories(
         repo_root=repo_root,
         builtins_dir=builtins_dir,
@@ -23,6 +27,8 @@ def build_hook_registry(
 
 
 def discover_hook_files(directory: Path) -> tuple[Path, ...]:
+    """Return loadable `.py` hook files from a directory."""
+
     if not directory.is_dir():
         return ()
 
@@ -41,6 +47,8 @@ def load_hooks_from_directories(
     workspace_dir: Path | None = None,
     registry: HookRegistry | None = None,
 ) -> tuple[HookRegistry, tuple[LoadedHookModule, ...]]:
+    """Load hooks from canonical directories and return registry plus module metadata."""
+
     resolved_repo_root = repo_root.expanduser().resolve()
     active_registry = registry or HookRegistry()
     builtin_root = (builtins_dir or Path(__file__).resolve().parent / "builtins").expanduser().resolve()
@@ -81,4 +89,3 @@ def _import_hook_module(path: Path, *, source: str) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-

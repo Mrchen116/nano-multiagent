@@ -1,3 +1,5 @@
+"""Tool registration and execution pipeline with hook interception support."""
+
 import asyncio
 from typing import Any, Mapping
 
@@ -12,6 +14,8 @@ from .base import Tool, ToolContext
 
 
 class ToolRegistry:
+    """Store tool definitions and execute them with hook-aware lifecycle events."""
+
     def __init__(self, *, context: ToolContext, hook_runner: HookRunner | None = None) -> None:
         self._context = context
         self._hook_runner = hook_runner
@@ -19,9 +23,13 @@ class ToolRegistry:
 
     @property
     def context(self) -> ToolContext:
+        """Return immutable execution context shared by all tools."""
+
         return self._context
 
     def register(self, tool: Tool) -> None:
+        """Register one tool, rejecting empty or duplicate names."""
+
         name = str(getattr(tool, "name", "")).strip()
         if not name:
             raise ValueError("tool name is required")
@@ -30,10 +38,14 @@ class ToolRegistry:
         self._tools[name] = tool
 
     def register_many(self, tools: list[Tool] | tuple[Tool, ...]) -> None:
+        """Register a sequence of tools in order."""
+
         for tool in tools:
             self.register(tool)
 
     def list_specs(self) -> tuple[ToolSpec, ...]:
+        """Return sorted tool specs exposed to model-facing tool calling."""
+
         specs: list[ToolSpec] = []
         for name in sorted(self._tools):
             tool = self._tools[name]
@@ -53,6 +65,8 @@ class ToolRegistry:
         *,
         hook_context: HookContext | None = None,
     ) -> Mapping[str, Any]:
+        """Execute one tool call and apply hook intercept/observe semantics."""
+
         tool = self._tools.get(name)
         if tool is None:
             raise ToolError(
@@ -194,6 +208,8 @@ class ToolRegistry:
         payload: Mapping[str, Any],
         hook_ctx: HookContext,
     ) -> tuple[dict[str, Any], bool]:
+        """Dispatch intercept hook event and return rewritten payload."""
+
         if self._hook_runner is None:
             return dict(payload), False
         try:
@@ -205,6 +221,7 @@ class ToolRegistry:
                 )
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
+            # FAIL-OPEN GUARANTEE: hook infra failure must not block tool execution path.
             hook_ctx.logger.warn("hook intercept dispatch failed", event=event, error=str(exc))
             return dict(payload), False
         self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=dispatch_result.diagnostics)
@@ -216,6 +233,8 @@ class ToolRegistry:
         payload: Mapping[str, Any],
         hook_ctx: HookContext,
     ) -> None:
+        """Dispatch observe hooks while isolating failures from business flow."""
+
         if self._hook_runner is None:
             return
         try:
@@ -227,6 +246,7 @@ class ToolRegistry:
                 )
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
+            # FAIL-OPEN GUARANTEE: observe hooks are telemetry-only and cannot break tool flow.
             hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))
             return
         self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)

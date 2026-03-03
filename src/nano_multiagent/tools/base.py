@@ -1,3 +1,5 @@
+"""Shared tool protocol and immutable execution context."""
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Protocol, runtime_checkable
@@ -7,6 +9,8 @@ from .safety import ToolSafety, ToolSafetyConfig
 
 @runtime_checkable
 class Tool(Protocol):
+    """Describe the public contract every tool implementation must satisfy."""
+
     name: str
     description: str
     input_schema: Mapping[str, Any]
@@ -17,6 +21,8 @@ class Tool(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ToolContext:
+    """Carry sandbox state used by all tool executions within one request."""
+
     repo_root: Path
     cwd: Path
     safety: ToolSafety
@@ -30,12 +36,16 @@ class ToolContext:
         cwd: Path | None = None,
         safety_config: ToolSafetyConfig | None = None,
     ) -> "ToolContext":
+        """Build a context rooted at the resolved repository sandbox."""
+
         resolved_root = repo_root.expanduser().resolve()
         resolved_cwd = (cwd or resolved_root).expanduser().resolve()
         safety = ToolSafety(repo_root=resolved_root, config=safety_config or ToolSafetyConfig())
         return cls(repo_root=resolved_root, cwd=resolved_cwd, safety=safety)
 
     def with_session(self, session_id: str | None) -> "ToolContext":
+        """Clone the context with a session id for trace propagation."""
+
         return ToolContext(
             repo_root=self.repo_root,
             cwd=self.cwd,

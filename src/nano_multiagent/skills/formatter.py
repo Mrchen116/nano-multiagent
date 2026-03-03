@@ -1,3 +1,5 @@
+"""Formatting helpers for rendering available skills into system prompt text."""
+
 from html import escape
 from typing import Sequence
 
@@ -13,6 +15,8 @@ SKILLS_GUIDANCE = (
 
 
 def format_available_skills_section(skills: Sequence[SkillMetadata]) -> str:
+    """Render available skills into an XML-like block consumed by the prompt."""
+
     if not skills:
         return ""
 

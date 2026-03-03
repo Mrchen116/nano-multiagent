@@ -1,3 +1,5 @@
+"""Async hook dispatcher with timeout/error isolation semantics."""
+
 import asyncio
 import inspect
 import time
@@ -11,6 +13,8 @@ from .types import HookRegistration, HookStatus, ensure_known_hook_event
 
 @dataclass(frozen=True, slots=True)
 class HookExecution:
+    """Record one hook execution outcome for diagnostics and observability."""
+
     hook_id: str
     event: str
     status: HookStatus
@@ -20,17 +24,23 @@ class HookExecution:
 
 @dataclass(frozen=True, slots=True)
 class InterceptDispatchResult:
+    """Return rewritten intercept payload with stop flag and diagnostics."""
+
     payload: dict[str, Any]
     stopped: bool
     diagnostics: tuple[HookExecution, ...]
 
 
 class HookRunner:
+    """Dispatch hook events while isolating handler failures and timeouts."""
+
     def __init__(self, *, registry: HookRegistry) -> None:
         self._registry = registry
 
     @property
     def registry(self) -> HookRegistry:
+        """Expose backing registry for read-only inspection."""
+
         return self._registry
 
     async def dispatch_observe(
@@ -39,6 +49,8 @@ class HookRunner:
         payload: Mapping[str, Any],
         ctx: HookContext,
     ) -> tuple[HookExecution, ...]:
+        """Run observe handlers and collect per-hook diagnostics."""
+
         normalized_event = ensure_known_hook_event(event)
         diagnostics: list[HookExecution] = []
         for registration in self._registry.handlers_for(normalized_event):
@@ -56,6 +68,8 @@ class HookRunner:
         payload: Mapping[str, Any],
         ctx: HookContext,
     ) -> InterceptDispatchResult:
+        """Run intercept handlers that may rewrite payload or stop processing."""
+
         normalized_event = ensure_known_hook_event(event)
         mutable_payload = dict(payload)
         diagnostics: list[HookExecution] = []
@@ -63,6 +77,8 @@ class HookRunner:
 
         for registration in self._registry.handlers_for(normalized_event):
             handler_payload = dict(mutable_payload)
+            # DISPATCH ISOLATION: each handler receives a copy so failed/mutating
+            # handlers cannot corrupt shared payload state for later handlers.
             result, record = await self._execute_handler(
                 registration=registration,
                 payload=handler_payload,
@@ -71,6 +87,7 @@ class HookRunner:
             diagnostics.append(record)
 
             if record.status != "ok":
+                # Timeout/error diagnostics are preserved, but dispatch keeps going.
                 continue
             if not isinstance(result, Mapping):
                 continue
