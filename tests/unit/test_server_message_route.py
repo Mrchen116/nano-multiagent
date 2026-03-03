@@ -2,10 +2,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nano_multiagent.core.types import Message, TokenUsage, TurnResult
-from nano_multiagent.hooks.usage_metrics_registry import (
+from nano_multiagent.hooks.session_usage import (
     SessionUsageSnapshot,
-    clear_session_usage_reader,
-    register_session_usage_reader,
+    set_session_usage_snapshot_reader,
 )
 from nano_multiagent.server.app import create_app
 from nano_multiagent.server.routes.session import _CONTEXT_BUDGET_MAX_TOKENS
@@ -85,8 +84,7 @@ def test_context_budget_defaults_to_zero_without_exact_usage_snapshot() -> None:
     assert payload["usage_ratio"] == 0.0
 
 
-def test_context_budget_prefers_exact_provider_prompt_tokens_when_available() -> None:
-    clear_session_usage_reader()
+def test_context_budget_prefers_latest_provider_total_tokens_when_available() -> None:
     client = TestClient(create_app(auth_token="test-token"))
     headers = {"Authorization": "Bearer test-token"}
 
@@ -94,15 +92,16 @@ def test_context_budget_prefers_exact_provider_prompt_tokens_when_available() ->
     assert created.status_code == 201
     session_id = created.json()["session_id"]
 
-    register_session_usage_reader(
-        lambda sid: (
+    set_session_usage_snapshot_reader(
+        registry=client.app.state.hook_registry,
+        reader=lambda sid: (
             SessionUsageSnapshot(
                 prompt_tokens=800,
                 completion_tokens=80,
                 total_tokens=880,
                 last_prompt_tokens=4321,
                 last_completion_tokens=40,
-                last_total_tokens=4361,
+                last_total_tokens=12345,
                 turn_count=2,
             )
             if sid == session_id
@@ -113,7 +112,6 @@ def test_context_budget_prefers_exact_provider_prompt_tokens_when_available() ->
     response = client.get(f"/v1/sessions/{session_id}/context-budget", headers=headers)
     assert response.status_code == 200
     payload = response.json()
-    assert payload["used_tokens"] == 4321
-    assert payload["remaining_tokens"] == _CONTEXT_BUDGET_MAX_TOKENS - 4321
-    assert payload["usage_ratio"] == 4321 / _CONTEXT_BUDGET_MAX_TOKENS
-    clear_session_usage_reader()
+    assert payload["used_tokens"] == 12345
+    assert payload["remaining_tokens"] == _CONTEXT_BUDGET_MAX_TOKENS - 12345
+    assert payload["usage_ratio"] == 12345 / _CONTEXT_BUDGET_MAX_TOKENS

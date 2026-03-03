@@ -80,9 +80,17 @@ class AgentLoop:
         """
 
         active_hook_ctx = hook_ctx or HookContext(session_id=state.session_id, turn_id=state.turn_id)
+        run_id = _resolve_hook_run_id(active_hook_ctx)
         self._dispatch_observe(
             "turn_start",
-            {"session_id": state.session_id, "turn_id": state.turn_id, "turn_count": state.turn_count},
+            _with_optional_run_id(
+                {
+                    "session_id": state.session_id,
+                    "turn_id": state.turn_id,
+                    "turn_count": state.turn_count,
+                },
+                run_id=run_id,
+            ),
             active_hook_ctx,
         )
 
@@ -106,6 +114,7 @@ class AgentLoop:
         tool_calls: list[ToolCall] = []
         tool_results: list[ToolResult] = []
         turn_usage: TokenUsage | None = None
+        latest_usage: TokenUsage | None = None
 
         try:
             # Runtime loop strategy:
@@ -125,6 +134,7 @@ class AgentLoop:
                     )
                 )
                 turn_usage = _accumulate_usage(turn_usage, response.usage)
+                latest_usage = response.usage
                 normalized_calls = tuple(_normalize_tool_call(item) for item in response.message.tool_calls)
                 normalized_response_message = LLMMessage(
                     role=response.message.role,
@@ -146,33 +156,42 @@ class AgentLoop:
 
                 self._dispatch_observe(
                     "message_start",
-                    {
-                        "session_id": state.session_id,
-                        "turn_id": state.turn_id,
-                        "message_id": assistant_message.message_id,
-                        "role": assistant_message.role,
-                    },
+                    _with_optional_run_id(
+                        {
+                            "session_id": state.session_id,
+                            "turn_id": state.turn_id,
+                            "message_id": assistant_message.message_id,
+                            "role": assistant_message.role,
+                        },
+                        run_id=run_id,
+                    ),
                     active_hook_ctx,
                 )
                 self._dispatch_observe(
                     "message_update",
-                    {
-                        "session_id": state.session_id,
-                        "turn_id": state.turn_id,
-                        "message_id": assistant_message.message_id,
-                        "delta": assistant_message.content,
-                    },
+                    _with_optional_run_id(
+                        {
+                            "session_id": state.session_id,
+                            "turn_id": state.turn_id,
+                            "message_id": assistant_message.message_id,
+                            "delta": assistant_message.content,
+                        },
+                        run_id=run_id,
+                    ),
                     active_hook_ctx,
                 )
                 self._dispatch_observe(
                     "message_end",
-                    {
-                        "session_id": state.session_id,
-                        "turn_id": state.turn_id,
-                        "message_id": assistant_message.message_id,
-                        "content": assistant_message.content,
-                        "role": assistant_message.role,
-                    },
+                    _with_optional_run_id(
+                        {
+                            "session_id": state.session_id,
+                            "turn_id": state.turn_id,
+                            "message_id": assistant_message.message_id,
+                            "content": assistant_message.content,
+                            "role": assistant_message.role,
+                        },
+                        run_id=run_id,
+                    ),
                     active_hook_ctx,
                 )
 
@@ -215,16 +234,20 @@ class AgentLoop:
                         repo_root=active_hook_ctx.repo_root,
                         metadata={**dict(active_hook_ctx.metadata), "tool_call_id": parsed_call.call_id},
                         model_caller=active_hook_ctx.model_caller,
+                        session_event_publisher=active_hook_ctx.session_event_publisher,
                     )
                     self._dispatch_observe(
                         "tool_call",
-                        {
-                            "session_id": state.session_id,
-                            "turn_id": state.turn_id,
-                            "call_id": parsed_call.call_id,
-                            "name": parsed_call.name,
-                            "arguments": dict(parsed_call.arguments),
-                        },
+                        _with_optional_run_id(
+                            {
+                                "session_id": state.session_id,
+                                "turn_id": state.turn_id,
+                                "call_id": parsed_call.call_id,
+                                "name": parsed_call.name,
+                                "arguments": dict(parsed_call.arguments),
+                            },
+                            run_id=run_id,
+                        ),
                         tool_hook_ctx,
                     )
 
@@ -242,14 +265,17 @@ class AgentLoop:
 
                     self._dispatch_observe(
                         "tool_result",
-                        {
-                            "session_id": state.session_id,
-                            "turn_id": state.turn_id,
-                            "call_id": parsed_result.call_id,
-                            "name": parsed_result.name,
-                            "output": parsed_result.output,
-                            "error": parsed_result.error,
-                        },
+                        _with_optional_run_id(
+                            {
+                                "session_id": state.session_id,
+                                "turn_id": state.turn_id,
+                                "call_id": parsed_result.call_id,
+                                "name": parsed_result.name,
+                                "output": parsed_result.output,
+                                "error": parsed_result.error,
+                            },
+                            run_id=run_id,
+                        ),
                         tool_hook_ctx,
                     )
 
@@ -267,11 +293,19 @@ class AgentLoop:
                 "completed": completed,
                 "stop_reason": stop_reason,
             }
+            if run_id is not None:
+                turn_end_payload["run_id"] = run_id
             if turn_usage is not None:
                 turn_end_payload["usage"] = {
                     "prompt_tokens": turn_usage.prompt_tokens,
                     "completion_tokens": turn_usage.completion_tokens,
                     "total_tokens": turn_usage.total_tokens,
+                }
+            if latest_usage is not None:
+                turn_end_payload["latest_usage"] = {
+                    "prompt_tokens": latest_usage.prompt_tokens,
+                    "completion_tokens": latest_usage.completion_tokens,
+                    "total_tokens": latest_usage.total_tokens,
                 }
             self._dispatch_observe(
                 "turn_end",
@@ -415,3 +449,17 @@ def _accumulate_usage(current: TokenUsage | None, update: TokenUsage | None) -> 
         completion_tokens=current.completion_tokens + update.completion_tokens,
         total_tokens=current.total_tokens + update.total_tokens,
     )
+
+
+def _resolve_hook_run_id(hook_ctx: HookContext) -> str | None:
+    run_id = hook_ctx.metadata.get("run_id")
+    if isinstance(run_id, str) and run_id.strip():
+        return run_id.strip()
+    return None
+
+
+def _with_optional_run_id(payload: Mapping[str, Any], *, run_id: str | None) -> dict[str, Any]:
+    resolved = dict(payload)
+    if run_id is not None:
+        resolved["run_id"] = run_id
+    return resolved

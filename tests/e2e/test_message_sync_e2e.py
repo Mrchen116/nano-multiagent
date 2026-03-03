@@ -10,7 +10,7 @@ class RecordingRuntime:
         self.calls: list[dict[str, object]] = []
         self.compact_calls: list[str] = []
 
-    def run(self, session_id: str, parts, *, stream: bool = True) -> TurnResult:  # noqa: ANN001
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None) -> TurnResult:  # noqa: ANN001
         self.calls.append({"session_id": session_id, "parts": parts, "stream": stream})
         return TurnResult(
             session_id=session_id,

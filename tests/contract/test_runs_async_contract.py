@@ -7,7 +7,7 @@ from nano_multiagent.server.app import create_app
 
 
 class _RuntimeStub:
-    def run(self, session_id: str, parts, *, stream: bool = True):  # noqa: ANN001, ANN201
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
         del parts
         del stream
         return TurnResult(

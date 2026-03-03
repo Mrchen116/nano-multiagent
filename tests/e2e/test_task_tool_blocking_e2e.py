@@ -20,7 +20,7 @@ class _RuntimeStub:
         self.created += 1
         return type("Session", (), {"session_id": f"sess_task_e2e_{self.created}"})()
 
-    def run(self, session_id: str, parts, *, stream: bool = True, llm_session_id: str | None = None) -> TurnResult:  # noqa: ANN001
+    def run(self, session_id: str, parts, *, stream: bool = True, llm_session_id: str | None = None, run_id: str | None = None) -> TurnResult:  # noqa: ANN001
         del parts, stream, llm_session_id
         return TurnResult(
             session_id=session_id,

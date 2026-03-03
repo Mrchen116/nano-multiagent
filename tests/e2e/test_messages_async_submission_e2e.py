@@ -10,7 +10,7 @@ class _RecordingRuntime:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    def run(self, session_id: str, parts, *, stream: bool = True):  # noqa: ANN001, ANN201
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
         self.calls.append(
             {
                 "session_id": session_id,

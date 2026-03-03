@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field
 from nano_multiagent.agent.compaction.types import CompactionSettings
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.hooks.usage_metrics_registry import get_session_usage_snapshot
+from nano_multiagent.hooks.registry import HookRegistry
+from nano_multiagent.hooks.session_usage import get_session_usage_snapshot
 from nano_multiagent.runs.registry import RunsRegistry
 from nano_multiagent.server.sse import EventStreamHub, StreamEvent, encode_sse_event
 from nano_multiagent.session.models import Session
@@ -23,6 +24,7 @@ from ..deps import (
     APIError,
     get_agent_runtime,
     get_event_stream_hub,
+    get_hook_registry,
     get_runs_registry,
     get_session_service,
     get_tool_registry,
@@ -278,6 +280,7 @@ def get_context_budget(
     session_id: str,
     session_service: SessionService = Depends(get_session_service),
     runtime=Depends(get_agent_runtime),
+    hook_registry: HookRegistry = Depends(get_hook_registry),
 ) -> ContextBudgetResponse:
     """Return session context usage for user-facing budget hints."""
     if session_service.get_session(session_id) is None:
@@ -289,9 +292,9 @@ def get_context_budget(
         )
 
     max_tokens = _resolve_context_window(runtime)
-    usage_snapshot = get_session_usage_snapshot(session_id)
+    usage_snapshot = get_session_usage_snapshot(registry=hook_registry, session_id=session_id)
     if usage_snapshot is not None:
-        used_tokens = min(max(usage_snapshot.last_prompt_tokens, 0), max_tokens)
+        used_tokens = min(max(usage_snapshot.last_total_tokens, 0), max_tokens)
     else:
         used_tokens = 0
     remaining_tokens = max(max_tokens - used_tokens, 0)

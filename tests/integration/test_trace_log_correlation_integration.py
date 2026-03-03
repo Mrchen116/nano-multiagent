@@ -15,7 +15,7 @@ from nano_multiagent.tools.registry import ToolRegistry
 
 
 class _RuntimeStub:
-    def run(self, session_id: str, parts, *, stream: bool = True):  # noqa: ANN001, ANN201
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
         del parts, stream
         return TurnResult(
             session_id=session_id,

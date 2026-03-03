@@ -1,16 +1,63 @@
+import asyncio
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.hooks.context import HookContext
+from nano_multiagent.hooks.loader import build_hook_registry
+from nano_multiagent.hooks.runner import HookRunner
+from nano_multiagent.hooks.session_events import get_session_event_publisher
 from nano_multiagent.server.app import create_app
 
 
 class _RuntimeStub:
-    def run(self, session_id: str, parts, *, stream: bool = True):  # noqa: ANN001, ANN201
+    def __init__(self) -> None:
+        self.hook_registry = build_hook_registry(repo_root=Path.cwd())
+        self.hook_runner = HookRunner(registry=self.hook_registry)
+
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
         del parts
         del stream
+        turn_id = "turn_sse_contract"
+        hook_ctx = HookContext(
+            session_id=session_id,
+            turn_id=turn_id,
+            metadata={"run_id": run_id} if run_id is not None else {},
+            session_event_publisher=get_session_event_publisher(
+                registry=self.hook_registry,
+                session_id=session_id,
+            ),
+        )
+        asyncio.run(
+            self.hook_runner.dispatch_observe(
+                "message_update",
+                {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "message_id": "msg_sse_contract",
+                    "delta": "contract-sse",
+                    "run_id": run_id,
+                },
+                hook_ctx,
+            )
+        )
+        asyncio.run(
+            self.hook_runner.dispatch_observe(
+                "turn_end",
+                {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "completed": True,
+                    "stop_reason": "completed",
+                    "run_id": run_id,
+                },
+                hook_ctx,
+            )
+        )
         return TurnResult(
             session_id=session_id,
-            turn_id="turn_sse_contract",
+            turn_id=turn_id,
             messages=(Message(message_id="msg_sse_contract", role="assistant", content="contract-sse"),),
             completed=True,
             stop_reason="completed",

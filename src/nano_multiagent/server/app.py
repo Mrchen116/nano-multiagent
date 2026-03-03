@@ -15,7 +15,7 @@ from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.loader import build_hook_registry
 from nano_multiagent.hooks.registry import HookRegistry
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
-from nano_multiagent.hooks.usage_metrics_registry import clear_session_usage_reader
+from nano_multiagent.hooks.session_events import set_session_event_publisher_factory
 from nano_multiagent.observability.logger import log_error
 from nano_multiagent.observability.tracing import bind_correlation
 from nano_multiagent.runs.registry import RunsRegistry
@@ -61,7 +61,6 @@ def create_app(
         runtime imports are required at clients.
     """
     app = FastAPI(title="nano-multiagent", version=__version__)
-    clear_session_usage_reader()
     resolved_repo_root = (
         repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
     ).expanduser().resolve()
@@ -88,6 +87,10 @@ def create_app(
     app.state.hook_registry = active_hook_registry
     app.state.hook_runner = active_hook_runner
     app.state.event_stream_hub = EventStreamHub()
+    set_session_event_publisher_factory(
+        registry=active_hook_registry,
+        factory=_build_session_event_publisher_factory(event_hub=app.state.event_stream_hub),
+    )
     app.state.runs_registry = RunsRegistry(
         runtime=active_runtime,
         session_manager=session_service.manager,
@@ -232,6 +235,33 @@ def _error_response(
             }
         },
     )
+
+
+def _build_session_event_publisher_factory(
+    *,
+    event_hub: EventStreamHub,
+):
+    """Build session-bound event publisher factory for hook contexts."""
+
+    def _factory(session_id: str):
+        normalized_session_id = session_id.strip()
+        if not normalized_session_id:
+            return None
+
+        def _publish(event: str, data: dict[str, object]) -> None:
+            if not isinstance(event, str) or not event.strip():
+                return
+            payload = dict(data)
+            payload["session_id"] = normalized_session_id
+            event_hub.publish(
+                event=event,
+                session_id=normalized_session_id,
+                data=payload,
+            )
+
+        return _publish
+
+    return _factory
 
 
 app = create_app()

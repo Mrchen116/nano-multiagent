@@ -12,6 +12,7 @@ from nano_multiagent.core.ids import make_run_id
 from nano_multiagent.core.types import TokenUsage, TurnResult
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
+from nano_multiagent.hooks.session_events import get_session_event_publisher
 from nano_multiagent.observability.logger import log_error, log_info
 from nano_multiagent.observability.tracing import bind_correlation, current_trace_id
 from nano_multiagent.server.sse import EventStreamHub
@@ -41,7 +42,14 @@ class RunRecord:
 
 
 class RuntimeRunner(Protocol):
-    def run(self, session_id: str, parts, *, stream: bool = True):  # noqa: ANN001, ANN201
+    def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+    ):  # noqa: ANN001, ANN201
         ...
 
 
@@ -139,7 +147,7 @@ class RunsRegistry:
             log_info("run_started", run_id=run_id)
 
             try:
-                result = self._runtime.run(session_id, parts, stream=False)
+                result = self._runtime.run(session_id, parts, stream=False, run_id=run_id)
             except TimeoutError as exc:
                 self._mark_timed_out(run_id, message=str(exc))
                 return
@@ -196,7 +204,6 @@ class RunsRegistry:
                 turn_id=turn_result.turn_id,
                 trace_id=updated.trace_id,
             )
-            self._emit_turn_events(record=updated, turn_result=turn_result)
         return updated
 
     def _mark_failed(self, run_id: str, *, message: str) -> RunRecord | None:
@@ -221,6 +228,10 @@ class RunsRegistry:
                 session_id=updated.session_id,
                 turn_id=updated.turn_id,
                 metadata=hook_ctx_metadata,
+                session_event_publisher=_resolve_session_event_publisher(
+                    hook_runner=self._hook_runner,
+                    session_id=updated.session_id,
+                ),
             )
             self._dispatch_observe(
                 "run_error",
@@ -256,6 +267,10 @@ class RunsRegistry:
                 session_id=updated.session_id,
                 turn_id=updated.turn_id,
                 metadata=hook_ctx_metadata,
+                session_event_publisher=_resolve_session_event_publisher(
+                    hook_runner=self._hook_runner,
+                    session_id=updated.session_id,
+                ),
             )
             self._dispatch_observe(
                 "run_timeout",
@@ -340,68 +355,6 @@ class RunsRegistry:
             data=payload,
         )
 
-    def _emit_turn_events(self, *, record: RunRecord, turn_result: TurnResult) -> None:
-        if self._event_hub is None:
-            return
-
-        for tool_call in turn_result.tool_calls:
-            self._event_hub.publish(
-                event="tool_start",
-                session_id=record.session_id,
-                data={
-                    "event": "tool_start",
-                    "run_id": record.run_id,
-                    "turn_id": turn_result.turn_id,
-                    "call_id": tool_call.call_id,
-                    "name": tool_call.name,
-                    "arguments": dict(tool_call.arguments),
-                },
-            )
-        for tool_result in turn_result.tool_results:
-            self._event_hub.publish(
-                event="tool_end",
-                session_id=record.session_id,
-                data={
-                    "event": "tool_end",
-                    "run_id": record.run_id,
-                    "turn_id": turn_result.turn_id,
-                    "call_id": tool_result.call_id,
-                    "name": tool_result.name,
-                    "output": tool_result.output,
-                    "error": tool_result.error,
-                },
-            )
-        for message in turn_result.messages:
-            if message.role != "assistant":
-                continue
-            self._event_hub.publish(
-                event="text_delta",
-                session_id=record.session_id,
-                data={
-                    "event": "text_delta",
-                    "run_id": record.run_id,
-                    "turn_id": turn_result.turn_id,
-                    "message_id": message.message_id,
-                    "delta": message.content,
-                },
-            )
-        payload: dict[str, Any] = {
-            "event": "turn_end",
-            "run_id": record.run_id,
-            "turn_id": turn_result.turn_id,
-            "completed": turn_result.completed,
-            "stop_reason": turn_result.stop_reason,
-        }
-        usage_payload = _serialize_usage(turn_result.usage)
-        if usage_payload is not None:
-            payload["usage"] = usage_payload
-        self._event_hub.publish(
-            event="turn_end",
-            session_id=record.session_id,
-            data=payload,
-        )
-
-
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -424,3 +377,16 @@ def _run_status_data(record: RunRecord) -> dict[str, Any]:
     if usage_payload is None:
         return {}
     return {"usage": usage_payload}
+
+
+def _resolve_session_event_publisher(
+    *,
+    hook_runner: HookRunner | None,
+    session_id: str,
+):
+    if hook_runner is None:
+        return None
+    return get_session_event_publisher(
+        registry=hook_runner.registry,
+        session_id=session_id,
+    )

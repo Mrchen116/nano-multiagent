@@ -2,6 +2,9 @@ from nano_multiagent.agent.loop import AgentLoop
 from nano_multiagent.agent.policies import AgentPolicies
 from nano_multiagent.agent.state import AgentState, InputPart
 from nano_multiagent.core.types import TokenUsage, ToolSpec
+from nano_multiagent.hooks.context import HookContext
+from nano_multiagent.hooks.registry import HookRegistry
+from nano_multiagent.hooks.runner import HookRunner
 from nano_multiagent.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
@@ -229,3 +232,55 @@ def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
     assert result.usage.prompt_tokens == 180
     assert result.usage.completion_tokens == 22
     assert result.usage.total_tokens == 202
+
+
+def test_loop_propagates_session_event_publisher_to_tool_hook_context() -> None:
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id="", name="echo", arguments={"text": "ping"}),),
+                ),
+                finish_reason="tool_calls",
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    published: list[tuple[str, str]] = []
+    hooks = HookRegistry()
+
+    async def on_tool_call(event, ctx):  # noqa: ANN001
+        ctx.publish_session_event(
+            event="tool_start",
+            data={
+                "call_id": event.get("call_id"),
+            },
+        )
+
+    hooks.on("tool_call", on_tool_call)
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        policies=AgentPolicies(max_turns=3),
+        tool_registry=FakeToolRegistry(),
+        hook_runner=HookRunner(registry=hooks),
+    )
+
+    result = loop.run(
+        _base_state(),
+        hook_ctx=HookContext(
+            session_id="sess_agent",
+            turn_id="turn_1",
+            session_event_publisher=lambda event, data: published.append((event, str(data.get("call_id", "")))),
+        ),
+    )
+
+    assert len(result.tool_calls) == 1
+    assert published == [("tool_start", result.tool_calls[0].call_id)]

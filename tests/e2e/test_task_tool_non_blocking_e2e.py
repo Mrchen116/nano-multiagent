@@ -46,7 +46,7 @@ class _RuntimeStub:
             stop_reason="completed",
         )
 
-    def continue_turn(self, session_id: str, *, stream: bool = True, llm_session_id: str | None = None) -> TurnResult:
+    def continue_turn(self, session_id: str, *, stream: bool = True, llm_session_id: str | None = None, run_id: str | None = None) -> TurnResult:
         return self.run(session_id, [{"type": "text", "text": "continue"}], stream=stream, llm_session_id=llm_session_id)
 
 

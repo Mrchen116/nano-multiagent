@@ -1,7 +1,8 @@
 """Hook registration primitives and source-aware setup API."""
 
 from pathlib import Path
-from typing import Mapping
+from threading import Lock
+from typing import Any, Mapping
 
 from .types import (
     DEFAULT_HOOK_PRIORITY,
@@ -21,6 +22,8 @@ class HookRegistry:
     def __init__(self) -> None:
         self._registrations: dict[str, list[HookRegistration]] = {}
         self._next_order = 0
+        self._extension_state: dict[str, Any] = {}
+        self._extension_state_lock = Lock()
 
     def on(
         self,
@@ -80,6 +83,27 @@ class HookRegistry:
         all_items.sort(key=lambda item: (item.event, item.priority, item.order))
         return tuple(all_items)
 
+    def set_extension_state(self, key: str, value: object | None) -> None:
+        """Store extension state scoped to this registry instance."""
+
+        normalized_key = key.strip()
+        if not normalized_key:
+            raise ValueError("extension state key must be non-empty")
+        with self._extension_state_lock:
+            if value is None:
+                self._extension_state.pop(normalized_key, None)
+            else:
+                self._extension_state[normalized_key] = value
+
+    def get_extension_state(self, key: str) -> object | None:
+        """Read extension state scoped to this registry instance."""
+
+        normalized_key = key.strip()
+        if not normalized_key:
+            raise ValueError("extension state key must be non-empty")
+        with self._extension_state_lock:
+            return self._extension_state.get(normalized_key)
+
 
 class HookAPI:
     """Module-facing registration facade that injects source metadata."""
@@ -116,3 +140,13 @@ class HookAPI:
             module_name=self._module_name,
             file_path=self._file_path,
         )
+
+    def set_state(self, key: str, value: object | None) -> None:
+        """Store extension state on the backing registry."""
+
+        self._registry.set_extension_state(key, value)
+
+    def get_state(self, key: str) -> object | None:
+        """Read extension state from the backing registry."""
+
+        return self._registry.get_extension_state(key)

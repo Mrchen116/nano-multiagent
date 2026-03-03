@@ -48,7 +48,7 @@ class _ScriptedReplInputReader:
 
 
 class _RuntimeStub:
-    def run(self, session_id: str, parts, *, stream: bool = False):
+    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None):
         del stream
         text = ""
         for item in parts:
@@ -165,7 +165,7 @@ class _EchoTool:
 
 
 class _ModelTimeoutRuntime:
-    def run(self, session_id: str, parts, *, stream: bool = False) -> TurnResult:  # noqa: ANN001
+    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None) -> TurnResult:  # noqa: ANN001
         del session_id
         del parts
         del stream

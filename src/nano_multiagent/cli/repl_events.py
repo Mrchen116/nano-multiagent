@@ -9,7 +9,6 @@ _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 _EVENT_PREVIEW_MAX_LEN = 120
 _EVENT_POLL_MAX_EVENTS = 200
 _EVENT_POLL_TIMEOUT_SECONDS = 0.25
-_EVENT_DRAIN_MAX_ATTEMPTS = 8
 
 
 def send_message_with_async_events(
@@ -44,22 +43,6 @@ def send_message_with_async_events(
         status_text = str(run_payload.get("status", "")).strip().lower()
         if status_text in _TERMINAL_RUN_STATUSES:
             terminal_run = run_payload
-            break
-
-    for _ in range(_EVENT_DRAIN_MAX_ATTEMPTS):
-        tail_events = client.stream_session_events(
-            session_id=session_id,
-            max_events=_EVENT_POLL_MAX_EVENTS,
-            timeout_seconds=0.0,
-        )
-        assistant_text, consumed = consume_async_run_events(
-            out=out,
-            events=tail_events,
-            run_id=run_id,
-            seen_event_ids=seen_event_ids,
-            assistant_text=assistant_text,
-        )
-        if consumed == 0:
             break
 
     if terminal_run is None:

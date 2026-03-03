@@ -33,6 +33,7 @@ class HookModelResult:
 
 
 HookModelCaller = Callable[[HookModelCall], HookModelResult]
+HookSessionEventPublisher = Callable[[str, Mapping[str, Any]], None]
 
 
 class HookLogger:
@@ -113,6 +114,7 @@ class HookContext:
     metadata: Mapping[str, Any] = field(default_factory=dict)
     logger: HookLogger = field(default_factory=HookLogger)
     model_caller: HookModelCaller | None = None
+    session_event_publisher: HookSessionEventPublisher | None = None
 
     def __post_init__(self) -> None:
         if not self.session_id:
@@ -162,3 +164,16 @@ class HookContext:
                 metadata=dict(metadata or {}),
             )
         )
+
+    def publish_session_event(
+        self,
+        *,
+        event: str,
+        data: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Publish one session-scoped event with enforced session consistency."""
+
+        publisher = self.session_event_publisher
+        if publisher is None:
+            raise RuntimeError("session event publisher is unavailable in this hook context")
+        publisher(event, dict(data or {}))

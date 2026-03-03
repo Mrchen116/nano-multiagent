@@ -5,7 +5,10 @@ from __future__ import annotations
 from threading import Lock
 from typing import Any
 
-from nano_multiagent.hooks.usage_metrics_registry import SessionUsageSnapshot, register_session_usage_reader
+from nano_multiagent.hooks.session_usage import (
+    SESSION_USAGE_SNAPSHOT_READER_STATE_KEY,
+    SessionUsageSnapshot,
+)
 
 
 def setup(hooks):  # noqa: ANN001, ANN201
@@ -35,11 +38,12 @@ def setup(hooks):  # noqa: ANN001, ANN201
                 turn_count=totals.turn_count,
             )
 
-    register_session_usage_reader(_snapshot_reader)
+    hooks.set_state(SESSION_USAGE_SNAPSHOT_READER_STATE_KEY, _snapshot_reader)
 
     def on_turn_end(event, ctx):  # noqa: ANN001
         usage = _extract_usage_metrics(event.get("usage"))
-        if usage is None:
+        latest_usage = _extract_usage_metrics(event.get("latest_usage")) or usage
+        if usage is None or latest_usage is None:
             return
         session_id = _resolve_session_id(event=event, fallback_session_id=ctx.session_id)
         if session_id is None:
@@ -68,13 +72,14 @@ def setup(hooks):  # noqa: ANN001, ANN201
                 ),
             )
             prompt_tokens, completion_tokens, total_tokens = usage
+            latest_prompt_tokens, latest_completion_tokens, latest_total_tokens = latest_usage
             totals_by_session[session_id] = SessionUsageSnapshot(
                 prompt_tokens=previous.prompt_tokens + prompt_tokens,
                 completion_tokens=previous.completion_tokens + completion_tokens,
                 total_tokens=previous.total_tokens + total_tokens,
-                last_prompt_tokens=prompt_tokens,
-                last_completion_tokens=completion_tokens,
-                last_total_tokens=total_tokens,
+                last_prompt_tokens=latest_prompt_tokens,
+                last_completion_tokens=latest_completion_tokens,
+                last_total_tokens=latest_total_tokens,
                 turn_count=previous.turn_count + 1,
             )
 

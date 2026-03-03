@@ -10,6 +10,7 @@ from nano_multiagent.core.ids import make_message_id, make_turn_id
 from nano_multiagent.core.types import Message, ToolCall, ToolResult, TurnResult
 from nano_multiagent.hooks.context import HookContext, HookModelCall, HookModelResult
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
+from nano_multiagent.hooks.session_events import get_session_event_publisher
 from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
 from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from nano_multiagent.session.entries import SessionEntry
@@ -94,6 +95,7 @@ class AgentRuntime:
         *,
         stream: bool = True,
         llm_session_id: str | None = None,
+        run_id: str | None = None,
     ) -> TurnResult:
         """Execute one turn for an existing session.
 
@@ -125,7 +127,10 @@ class AgentRuntime:
             raise ValueError("empty input parts are not allowed")
 
         turn_id = make_turn_id()
-        hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id)
+        hook_metadata: dict[str, Any] = {}
+        if isinstance(run_id, str) and run_id.strip():
+            hook_metadata["run_id"] = run_id.strip()
+        hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id, metadata=hook_metadata)
 
         input_payload, handled = self._dispatch_intercept(
             "input",
@@ -431,12 +436,19 @@ class AgentRuntime:
         turn_id: str | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> HookContext:
+        session_event_publisher = None
+        if self._hook_runner is not None:
+            session_event_publisher = get_session_event_publisher(
+                registry=self._hook_runner.registry,
+                session_id=session_id,
+            )
         return HookContext(
             session_id=session_id,
             turn_id=turn_id,
             repo_root=self._repo_root,
             metadata=dict(metadata or {}),
             model_caller=self._call_hook_model,
+            session_event_publisher=session_event_publisher,
         )
 
     def _call_hook_model(self, call: HookModelCall) -> HookModelResult:
@@ -762,4 +774,3 @@ def _serialize_tool_result_content(result: ToolResult) -> str:
         return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     except TypeError:
         return str(payload)
-
