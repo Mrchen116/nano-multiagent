@@ -11,7 +11,7 @@
 ## Roadpoints
 
 ### R28.1 core + llm public API docstring 补齐
-- Status: DOING
+- Status: DONE
 - Acceptance:
   - `core/*` 与 `llm/*` 的 public module/class/function/method 补齐 docstring。
   - docstring 与真实行为一致，按需含 `Args/Returns/Raises/Side Effects`。
@@ -32,7 +32,7 @@
   - PROGRESS 写清决策/证据/提交哈希。
 
 ### R28.2 agent(+compaction) public API docstring + 蓝图关键约束注释
-- Status: TODO
+- Status: DOING
 - Acceptance:
   - `agent/*` 与 `agent/compaction/*` public API docstring 补齐。
   - 为关键约束补块注释：

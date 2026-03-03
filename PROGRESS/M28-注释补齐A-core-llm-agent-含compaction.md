@@ -19,11 +19,11 @@
 - Rationale:
   - 先收口 core/llm，可为后续 agent/runtime docstring 提供稳定引用语义。
 - Evidence:
-  - Tests: docstring AST 扫描（先红）显示 `core/llm` 多个 public 定义缺失 module/class/function/method docstring。
-  - Entry: 在 worktree 运行 `python3 - <<'PY' ...` 扫描缺口，作为 C1 基线。
+  - Tests: `PYTHONPATH=src pytest -q` => 337 passed, 4 skipped；core+llm docstring AST 扫描 `missing_count=0`。
+  - Entry: `llm/factory.py` 增加 provider 隔离边界说明；protocol mapper/client 补齐失败语义与返回契约说明。
 - Rollback:
-  - 待补充
-- Commits: C1=待补充, C2=待补充, C3=待补充
+  - 回退到 `f2838d2`（仅保留先红审计）。
+- Commits: C1=f2838d2, C2=1672cff, C3=待补充
 - Next:
   - 进入 R28.2，补齐 agent/compaction 及关键约束块注释。
 
