@@ -1,0 +1,106 @@
+# TASKS (Milestone: M35)
+
+- Test command: `cd src/IM/frontend && npm run test && npm run build`
+- Branch: `milestone/M35`
+- Milestone status: `RUNNING`
+- Scope guard:
+  - Allowed: `src/IM/frontend/**`、`src/IM/README.md(如需)`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`data/dev-tasks.json（仅脚本）`。
+  - Forbidden: `src/nano_multiagent/**`、现有 `tests/**(非前端新增)`、`ROADMAP.md`。
+
+## [DONE] R35.1 前端工程初始化与设计系统底座
+- Acceptance:
+  - 新建 `src/IM/frontend`，包含 React+TS+Vite 工程、Tailwind、Radix、Zustand、TanStack Query 依赖与基础配置。
+  - 建立明确视觉方向的 design tokens（颜色/排版/间距/阴影/圆角）与全局主题样式，不使用默认模板风格。
+  - 建立 App Shell 与顶层路由骨架，至少包含 `Chat / Settings` 工作区切换容器。
+  - 基线测试从“目录不存在”升级为“可执行测试与构建”。
+- Tests Plan:
+  - `unit`: 选。验证 AppShell/Router 关键节点渲染。
+  - `contract`: 不选。当前仅 UI 骨架与本地类型，不涉及后端契约。
+  - `integration`: 选。验证路由与 QueryProvider/Zustand 装配链路。
+  - `e2e`: 不选。本 Roadpoint 仅基础壳体，留到 R35.4 用 Playwright 做真实入口。
+- Expected Tests:
+  - `src/IM/frontend/src/app/App.test.tsx`
+  - `src/IM/frontend/src/app/router.test.tsx`
+- DoD:
+  - `cd src/IM/frontend && npm run test && npm run build` 全绿。
+  - C1/C2/C3 齐全。
+  - PROGRESS 写清决策/证据/回滚点/提交哈希。
+- Commits:
+  - C1: `c9ac187`
+  - C2: `e43b438`
+  - C3: `fcbb033`
+- Status: DONE
+
+## [DONE] R35.2 Chat 工作区（P1/P2）与桌面/手机响应式
+- Acceptance:
+  - 路由 `/chat` 与 `/chat/:conversationId` 落地，桌面两栏（会话列表+消息区）可用。
+  - 手机端在窄屏切换为单栏：列表页进入会话页，支持返回。
+  - 消息列表、消息气泡、输入框、附件入口、状态徽标具备视觉骨架。
+  - Chat 与 Settings 工作区入口可在任意页切换。
+- Tests Plan:
+  - `unit`: 选。验证布局切换条件与关键组件渲染。
+  - `contract`: 不选。仅使用 mock 数据，不接 API schema。
+  - `integration`: 选。验证路由参数驱动会话详情与 store 交互。
+  - `e2e`: 选（最小）。验证 `/chat` -> `/chat/:id` 在浏览器真实可达（可先行 smoke）。
+- Expected Tests:
+  - `src/IM/frontend/src/features/chat/chat-layout.test.tsx`
+  - `src/IM/frontend/src/features/chat/chat-routes.test.tsx`
+  - `src/IM/frontend/tests/e2e/chat-smoke.spec.ts`（若提前落地）
+- DoD:
+  - `cd src/IM/frontend && npm run test && npm run build` 全绿。
+  - C1/C2/C3 齐全。
+  - PROGRESS 写清决策/证据/回滚点/提交哈希。
+- Commits:
+  - C1: `06e4f3e`
+  - C2: `a394561`
+  - C3: `cdf23c9`
+- Status: DONE
+
+## [DONE] R35.3 Settings 工作区（P3-P7）+ mock 可读可编辑
+- Acceptance:
+  - 路由 `/settings/agents`、`/settings/agents/:agentId`、`/settings/nodes`、`/settings/policies`、`/settings/account` 全落地。
+  - Agent/Nodes/Policies/Account 页面字段按蓝图最小集展示并可编辑。
+  - 所有读写走 mock query + mock mutation（本地 store 持久态），不依赖 Agent 后端接口。
+  - 保存后 UI 立即可见更新（列表/详情联动）。
+- Tests Plan:
+  - `unit`: 选。验证表单字段映射与本地校验逻辑。
+  - `contract`: 选（前端本地 contract）。验证 mock payload 字段稳定且与页面使用字段一致。
+  - `integration`: 选。验证设置页读写链路（query -> form -> mutation -> state update）。
+  - `e2e`: 不选。集中在 R35.4 做完整真机验收。
+- Expected Tests:
+  - `src/IM/frontend/src/features/settings/settings-mock-contract.test.ts`
+  - `src/IM/frontend/src/features/settings/agents/agent-edit.test.tsx`
+  - `src/IM/frontend/src/features/settings/nodes/nodes-page.test.tsx`
+- DoD:
+  - `cd src/IM/frontend && npm run test && npm run build` 全绿。
+  - C1/C2/C3 齐全。
+  - PROGRESS 写清决策/证据/回滚点/提交哈希。
+- Commits:
+  - C1: `bc30711`
+  - C2: `0f08257`
+  - C3: `622e792`
+- Status: DONE
+
+## [DONE] R35.4 全量门禁与 Playwright 验收记录
+- Acceptance:
+  - P1-P7 全部路由均可访问，桌面/手机关键流可操作。
+  - Playwright 真浏览器完成至少桌面+手机关键页检查并产出截图。
+  - `npm run test` 与 `npm run build` 全绿。
+  - TASKS/PROGRESS 更新为 DONE，记录关键证据与提交。
+- Tests Plan:
+  - `unit`: 选。补齐遗漏边界。
+  - `contract`: 不选。主要为验收与回归。
+  - `integration`: 选。关键路由可达与工作区切换。
+  - `e2e`: 选。Playwright CLI 真实浏览器验收（桌面+手机）。
+- Expected Tests:
+  - `cd src/IM/frontend && npm run test && npm run build`
+  - `playwright-cli` 验收脚本/命令记录
+- DoD:
+  - `cd src/IM/frontend && npm run test && npm run build` 全绿。
+  - C1/C2/C3 齐全。
+  - PROGRESS 写清决策/证据/回滚点/提交哈希。
+- Commits:
+  - C1: `c92d74c`
+  - C2: `4ff3c86`
+  - C3: `<pending>`
+- Status: DONE

@@ -1,0 +1,88 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap");
+@import "tailwindcss";
+
+:root {
+  --im-bg: #f5f1e8;
+  --im-surface: #fcfaf5;
+  --im-surface-2: #f1ebdf;
+  --im-accent: #0f766e;
+  --im-accent-2: #334155;
+  --im-text: #1f2937;
+  --im-text-muted: #6b7280;
+  --im-border: #d6d0c4;
+  --im-danger: #b91c1c;
+  --im-shadow: 0 24px 45px -28px rgba(30, 41, 59, 0.45);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+  color: var(--im-text);
+  background:
+    radial-gradient(circle at 0% 0%, #fef5e6 0%, transparent 45%),
+    radial-gradient(circle at 100% 20%, #dbeafe 0%, transparent 36%),
+    var(--im-bg);
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.im-title {
+  font-family: "Space Grotesk", "Manrope", sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.im-card {
+  background: color-mix(in oklab, var(--im-surface) 96%, white 4%);
+  border: 1px solid color-mix(in oklab, var(--im-border) 88%, white 12%);
+  border-radius: 1.1rem;
+  box-shadow: var(--im-shadow);
+}
+
+.im-input {
+  width: 100%;
+  border: 1px solid var(--im-border);
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 0.6rem 0.8rem;
+  font: inherit;
+}
+
+.im-input:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--im-accent) 40%, white 60%);
+  outline-offset: 1px;
+}
+
+.im-btn {
+  border: 0;
+  border-radius: 0.75rem;
+  padding: 0.56rem 0.9rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.im-btn-primary {
+  background: linear-gradient(140deg, var(--im-accent), #2563eb);
+  color: #fff;
+}
+
+.im-btn-muted {
+  background: #ece7dc;
+  color: var(--im-accent-2);
+}
+
+@media (max-width: 900px) {
+  body {
+    background:
+      radial-gradient(circle at 80% 0%, #dbeafe 0%, transparent 28%),
+      radial-gradient(circle at 0% 100%, #fde68a 0%, transparent 30%),
+      var(--im-bg);
+  }
+}
