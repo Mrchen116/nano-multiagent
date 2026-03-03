@@ -1,15 +1,11 @@
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 
 import { appRoutes } from "./router";
+import { renderRouter } from "../test/render-router";
 
 describe("app routes", () => {
   it("contains chat and settings root routes", () => {
-    const router = createMemoryRouter(appRoutes, {
-      initialEntries: ["/chat"]
-    });
-
-    render(<RouterProvider router={router} />);
+    renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
 
     expect(screen.getByText("Conversations")).toBeInTheDocument();
   });
