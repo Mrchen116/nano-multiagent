@@ -7,7 +7,7 @@
   - Must keep unchanged: `tools/hooks/skills/session` 现有运行时行为、错误语义、协议字段与序列化格式。
   - Allowed to change: 仅补充 public API docstring 与关键约束注释；允许新增里程碑内注释契约检查脚本。
 
-## [TODO] R29.1 tools/hooks/skills/session 注释契约补齐与约束固化
+## [DONE] R29.1 tools/hooks/skills/session 注释契约补齐与约束固化
 - Acceptance:
   - `tools/hooks/skills/session` 的 public module/class/function/method docstring 补齐，且与真实行为一致。
   - `tools/safety.py` 写明路径沙箱与命令策略的安全边界、失败模式与代价。
@@ -27,7 +27,7 @@
   - R29.1 的 C1/C2/C3 提交齐全。
   - `PROGRESS` 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `b748e77`
+  - C2: `d449aae`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE

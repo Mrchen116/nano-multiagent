@@ -27,3 +27,27 @@
 - Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
 - Next:
   - R29.1 Red：新增注释契约检查脚本并确认先失败。
+
+### R29.1 tools/hooks/skills/session 注释契约补齐与约束固化
+- Context:
+  - 目标目录 public API 普遍缺少 docstring，且关键约束（工具安全策略、hook fail-open、会话持久化边界）缺少显式注释锚点。
+  - 受 allowed_scope 限制，不修改 `tests/**`；使用 `TASKS/` 下契约检查脚本完成 Red/Green。
+- Decision:
+  - 在 `TASKS/m29_comment_contract_check.py` 增加两类检查：public API docstring 覆盖、关键约束标记（`SECURITY BOUNDARY`/`FAIL-OPEN GUARANTEE`/`DISPATCH ISOLATION`/`STORE BOUNDARY`/`PERSISTENCE PROTOCOL`）。
+  - 在 `src/nano_multiagent/tools/**`、`hooks/**`、`skills/**`、`session/**` 批量补 module/class/function/method docstring。
+  - 在安全/并发/协议关键路径补“为什么/边界/代价”注释，不改业务逻辑。
+- Rationale:
+  - 先用脚本锁定“缺失点清单”可避免人工漏改；marker 约束能确保关键边界注释不是泛化描述。
+- Evidence:
+  - Tests:
+    - Red: `python3 TASKS/m29_comment_contract_check.py`（先红，报告缺失 docstring 与约束 marker）
+    - Green: `python3 TASKS/m29_comment_contract_check.py`（通过）
+    - Gate: `PYTHONPATH=src pytest -q`（`337 passed, 4 skipped`）
+  - Entry:
+    - public API docstring 已覆盖 tools/hooks/skills/session。
+    - 关键注释已落地到 `tools/safety.py`、`tools/registry.py`、`hooks/runner.py`、`session/stores/base.py`、`session/serializers.py`。
+- Rollback:
+  - `b748e77`（R29.1 C1）
+- Commits: C1=`b748e77`, C2=`d449aae`, C3=`<pending>`
+- Next:
+  - Milestone 集成：rebase `origin/main`、全量回归、合并 `main`、更新 `data/dev-tasks.json`、清理 worktree。
