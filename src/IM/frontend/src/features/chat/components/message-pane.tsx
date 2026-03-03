@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { ChatMessage, ConversationDetail } from "../types";
 
 function MessageBubble({ message }: { message: ChatMessage }) {
-  const mine = message.sender_type === "user";
+  const mine = message.is_mine ?? message.sender_type === "user";
   return (
     <div className={`mb-3 flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
@@ -15,6 +15,9 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       >
         <p className="text-[11px] opacity-75">{message.sender_name ?? message.sender_type}</p>
         <p className="mt-1 whitespace-pre-wrap">{message.content}</p>
+        {message.delivery_status && (
+          <p className="mt-1 text-[10px] uppercase tracking-wide opacity-70">{message.delivery_status}</p>
+        )}
       </div>
     </div>
   );

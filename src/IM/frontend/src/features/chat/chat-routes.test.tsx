@@ -12,5 +12,6 @@ describe("chat routes", () => {
 
     expect(await screen.findByRole("heading", { name: "Kernel Ops Crew" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Type message")).toBeInTheDocument();
+    expect(screen.getByText("sent")).toBeInTheDocument();
   });
 });

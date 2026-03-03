@@ -4,6 +4,14 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    proxy: {
+      "/im": {
+        target: "http://127.0.0.1:8011",
+        changeOrigin: true
+      }
+    }
+  },
   test: {
     globals: true,
     environment: "jsdom",
