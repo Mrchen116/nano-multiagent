@@ -35,7 +35,7 @@
   - C3: `<pending>`
 - Status: DONE
 
-## [TODO] R34.2 SSE 事件流接口与重连稳定性
+## [DONE] R34.2 SSE 事件流接口与重连稳定性
 - Acceptance:
   - 提供 `GET /im/v1/conversations/{id}/events`，返回 `text/event-stream`。
   - 支持 `Last-Event-ID` 或 `after_event_id` 增量重连读取。
@@ -55,10 +55,10 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 写清决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `030d46d`
+  - C2: `804a48d`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R34.3 人和人聊天链路入口验证与错误处理收口
 - Acceptance:
