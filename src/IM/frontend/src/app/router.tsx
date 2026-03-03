@@ -1,8 +1,7 @@
 import { createBrowserRouter, Navigate, RouteObject } from "react-router-dom";
 
 import { App } from "./App";
-import { ChatDetailPage } from "../features/chat/chat-detail-page";
-import { ChatOverviewPage } from "../features/chat/chat-overview-page";
+import { ChatWorkspacePage } from "../features/chat/chat-workspace-page";
 import { PlaceholderBlock } from "../features/settings/placeholders";
 import { SettingsPageShell } from "../features/settings/settings-page-shell";
 
@@ -12,8 +11,8 @@ export const appRoutes: RouteObject[] = [
     element: <App />,
     children: [
       { index: true, element: <Navigate to="/chat" replace /> },
-      { path: "chat", element: <ChatOverviewPage /> },
-      { path: "chat/:conversationId", element: <ChatDetailPage /> },
+      { path: "chat", element: <ChatWorkspacePage /> },
+      { path: "chat/:conversationId", element: <ChatWorkspacePage /> },
       {
         path: "settings",
         element: <SettingsPageShell />,

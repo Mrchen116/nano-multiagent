@@ -4,9 +4,9 @@ import { appRoutes } from "./router";
 import { renderRouter } from "../test/render-router";
 
 describe("app routes", () => {
-  it("contains chat and settings root routes", () => {
+  it("contains chat and settings root routes", async () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
 
-    expect(screen.getByText("Conversations")).toBeInTheDocument();
+    expect(await screen.findByText("Conversations")).toBeInTheDocument();
   });
 });

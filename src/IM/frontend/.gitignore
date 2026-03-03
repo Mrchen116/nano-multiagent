@@ -3,3 +3,4 @@ dist/
 .vite/
 playwright-report/
 output/
+*.tsbuildinfo
