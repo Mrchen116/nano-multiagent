@@ -44,7 +44,7 @@
   - Entry: `GET /im/v1/conversations/{id}/events?after_event_id=0&once=true` 可输出 `message_created/text_delta/turn_end/message_status`。
 - Rollback:
   - `f46c02a`（R36.1 C1，仅测试先红）
-- Commits: C1=`f46c02a`, C2=`0caa94b`, C3=`<pending>`
+- Commits: C1=`f46c02a`, C2=`0caa94b`, C3=`b19634e`
 - Next:
   - R36.2 Red：将前端 chat 从 `mock-chat-api` 切到独立 IM 服务，并补 SSE UI 渲染测试。
 
@@ -64,17 +64,37 @@
   - Entry: `/chat/:conversationId` 可展示消息状态文案（如 `sent/running/completed`），并可消费 SSE 事件更新消息内容与状态。
 - Rollback:
   - `af30d3b`（R36.2 C1，仅测试先红）
-- Commits: C1=`af30d3b`, C2=`b538549`, C3=`<pending>`
+- Commits: C1=`af30d3b`, C2=`b538549`, C3=`b3e27b7`
 - Next:
   - R36.3：做真实浏览器 Playwright 验收，收口文档并执行 main 集成流程。
 
 ### R36.3 联调收口、Playwright 真浏览器验收、主干集成
 - Context:
+  - R36.3 的 C1/C2 已存在（`dff42f1`/`d92bb66`），当前缺口是联调证据与文档收口（C3）。
+  - 按范围限制仅执行 IM 服务测试、前端 test/build 和 chat 页面真实浏览器抽检，不触碰 `src/nano_multiagent/**`。
 - Decision:
+  - 执行全量门禁：`PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`。
+  - 使用 Playwright CLI + `VITE_CHAT_API_MODE=mock` 启动前端，做 chat 桌面/手机实操抽检（会话加载、进入详情、发送消息）并保存截图到 `src/IM/frontend/output/playwright/`。
+  - 回填 TASKS/PROGRESS 的 R36.3 证据与提交信息，作为本 Roadpoint 的 C3。
 - Rationale:
+  - 门禁命令覆盖后端与前端主链路；Playwright 真浏览器补足“真实入口交互”证据，形成收口验收闭环。
+  - 设置页可用性继续由既有前端测试保障（`settings-*` 测试文件通过），避免收口阶段引入额外不必要改动。
 - Evidence:
   - Tests: `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`
+    - `tests/im_service`: 12 passed
+    - `npm run test`: 10 files / 13 tests passed
+    - `npm run build`: success
   - Entry:
+    - Desktop chat 抽检：进入 `/chat/conv-kernel-ops` 并发送 `M36 R36.3 desktop smoke message`。
+    - Mobile chat 抽检：`390x844` 视口进入 `/chat/conv-kernel-ops` 并发送 `M36 R36.3 mobile smoke message`。
+    - 截图：
+      - `src/IM/frontend/output/playwright/R36.3-chat-desktop-before-send.png`
+      - `src/IM/frontend/output/playwright/R36.3-chat-desktop-after-send.png`
+      - `src/IM/frontend/output/playwright/R36.3-chat-mobile-list.png`
+      - `src/IM/frontend/output/playwright/R36.3-chat-mobile-after-send.png`
+    - 控制台仅见 `favicon.ico 404`，不影响 chat 主流程。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `dff42f1`（R36.3 C1，仅测试先红）
+- Commits: C1=`dff42f1`, C2=`d92bb66`, C3=`docs(R36.3) 本提交`
 - Next:
+  - M36 完成后执行 rebase main、全绿复验、merge main、push main，并用脚本将 `data/dev-tasks.json` 更新为 `DONE`。

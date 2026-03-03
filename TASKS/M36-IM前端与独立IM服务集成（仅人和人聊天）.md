@@ -2,7 +2,7 @@
 
 - Test command: `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`
 - Branch: `milestone/M36`
-- Milestone status: `RUNNING`
+- Milestone status: `DONE`
 - Scope guard:
   - Allowed: `src/IM/**`、`tests/im_service/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`data/dev-tasks.json（仅脚本）`。
   - Forbidden: `src/nano_multiagent/**`、`ROADMAP.md`、与任务无关 tests。
@@ -29,7 +29,7 @@
 - Commits:
   - C1: `f46c02a`
   - C2: `0caa94b`
-  - C3: `<pending>`
+  - C3: `b19634e`
 - Status: DONE
 
 ## [DONE] R36.2 P1/P2 前端接入独立IM服务（settings 保持 mock）
@@ -52,10 +52,10 @@
 - Commits:
   - C1: `af30d3b`
   - C2: `b538549`
-  - C3: `<pending>`
+  - C3: `b3e27b7`
 - Status: DONE
 
-## [TODO] R36.3 联调收口、Playwright 真浏览器验收、主干集成
+## [DONE] R36.3 联调收口、Playwright 真浏览器验收、主干集成
 - Acceptance:
   - 前后端完整门禁命令全绿。
   - Playwright 在真实浏览器完成 chat 页关键流（加载会话、发送、SSE 回显、状态变化）检查并留证。
@@ -73,7 +73,7 @@
   - 全量门禁通过 + Playwright 验收完成。
   - C1/C2/C3 齐全，PROGRESS 记录证据与回滚点。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
-  - C3: `<pending>`
-- Status: TODO
+  - C1: `dff42f1`
+  - C2: `d92bb66`
+  - C3: `docs(R36.3) 本提交`
+- Status: DONE
