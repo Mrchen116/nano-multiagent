@@ -82,6 +82,6 @@
   - Entry: `create_app(db_path=...)` 下可完成消息创建、按插入顺序查询、跨会话隔离查询为空。
 - Rollback:
   - `5da4d71`（R33.3 C1，仅红测）
-- Commits: C1=`5da4d71`, C2=`477deae`, C3=`<pending-current-commit>`
+- Commits: C1=`5da4d71`, C2=`477deae`, C3=`ff02f29`
 - Next:
-  - 执行 Milestone 集成：`rebase origin/main` -> 全绿 -> merge 到 main -> push -> 更新 `data/dev-tasks.json`。
+  - Milestone 已完成集成：merge commit `b5a0e5b` 已推送 `origin/main`，待更新 `data/dev-tasks.json` 状态为 DONE。

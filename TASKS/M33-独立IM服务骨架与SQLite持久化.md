@@ -2,7 +2,7 @@
 
 - Test command: `PYTHONPATH=src pytest -q tests/im_service`
 - Branch: `milestone/M33`
-- Milestone status: `RUNNING`
+- Milestone status: `DONE`
 - Scope guard:
   - Allowed: `src/IM/**`、`tests/im_service/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`data/dev-tasks.json(仅脚本)`。
   - Forbidden: `src/nano_multiagent/**`、`tests/im_service` 外既有测试、`ROADMAP.md`。
@@ -76,5 +76,5 @@
 - Commits:
   - C1: `5da4d71`
   - C2: `477deae`
-  - C3: `<pending-current-commit>`
+  - C3: `ff02f29`
 - Status: DONE
