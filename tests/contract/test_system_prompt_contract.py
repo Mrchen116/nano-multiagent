@@ -13,4 +13,4 @@ def test_system_prompt_contract_matches_runtime_template_sections() -> None:
     assert "<RUNTIME_FILL:" not in system_prompt
     assert "read" in system_prompt
     assert "bash" in system_prompt
-
+    assert "input_schema" not in system_prompt

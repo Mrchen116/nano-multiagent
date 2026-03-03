@@ -19,6 +19,7 @@ def test_build_prompt_messages_includes_system_history_and_user() -> None:
     assert "Current date and time:" in prompts[0].content
     assert "Current working directory:" in prompts[0].content
     assert "<RUNTIME_FILL:" not in prompts[0].content
+    assert "input_schema" not in prompts[0].content
     assert prompts[-1].content == "new question"
 
 
@@ -49,3 +50,4 @@ def test_build_prompt_messages_skips_available_skills_section_when_empty() -> No
     prompts = build_prompt_messages(history_messages=(), user_text="run this", available_skills=())
     assert "<available_skills>" not in prompts[0].content
     assert "Available tools:" in prompts[0].content
+    assert "input_schema" not in prompts[0].content

@@ -1,6 +1,5 @@
 """Prompt assembly utilities for runtime/system/tool context injection."""
 
-import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -158,9 +157,7 @@ def _format_available_tools(tools: Sequence[ToolSpec]) -> str:
 
     lines: list[str] = []
     for tool in tools:
-        schema = json.dumps(tool.input_schema, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
         lines.append(f"- {tool.name}: {tool.description}")
-        lines.append(f"  input_schema: {schema}")
     return "\n".join(lines)
 
 
