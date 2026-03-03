@@ -23,4 +23,14 @@ describe("chat layout", () => {
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
     expect(screen.queryByText("Select a conversation")).not.toBeInTheDocument();
   });
+
+  it("anchors desktop conversation messages to the bottom", async () => {
+    window.innerWidth = 1280;
+    window.dispatchEvent(new Event("resize"));
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/chat/conv-kernel-ops"] });
+
+    const stack = await screen.findByTestId("message-list-stack");
+    expect(stack).toHaveClass("justify-end");
+  });
 });
