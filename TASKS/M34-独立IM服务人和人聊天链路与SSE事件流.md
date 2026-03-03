@@ -11,7 +11,7 @@
   - 不实现 Agent 助手/节点相关后端接口。
   - 保持独立 IM 服务边界。
 
-## [TODO] R34.1 消息送达状态与事件持久化
+## [DONE] R34.1 消息送达状态与事件持久化
 - Acceptance:
   - `POST /im/v1/conversations/{id}/messages` 写入消息时同步生成会话事件。
   - 消息模型与 `GET /messages` 输出包含 `delivery_status`。
@@ -30,10 +30,10 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 写清决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `661f940`
+  - C2: `f890075`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R34.2 SSE 事件流接口与重连稳定性
 - Acceptance:

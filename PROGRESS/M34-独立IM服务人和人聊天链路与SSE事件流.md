@@ -31,14 +31,24 @@
 
 ### R34.1 消息送达状态与事件持久化
 - Context:
+  - 既有 M33 只有 `messages` 表与消息增查接口，尚未提供送达状态字段与事件持久化能力。
+  - 本 Roadpoint 目标是先固化“消息写入即产出可回放事件”的数据约束，为 SSE 重连游标打基础。
 - Decision:
+  - 在 `messages` 表新增 `delivery_status` 字段，并在 `create_message` 内完成 `sent -> completed` 状态收口。
+  - 新增 `conversation_events` 表（`event_id` 自增主键）作为事件持久化日志。
+  - 消息写入事务内同步落两条事件：`message.sent`、`message.delivered`，并新增 `EventRepository.list_events` 游标读取接口。
+  - API `MessageResponse` 与 `GET messages` 返回 `delivery_status`，契约可被前端消费。
 - Rationale:
+  - 用数据库自增 `event_id` 作为 SSE 重连游标最稳定，避免时间戳去重误差。
+  - 在仓储层原子写入消息与事件，可避免“消息写入成功但无事件”造成链路断层。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest -q tests/im_service`
-  - Entry:
+  - Tests: `PYTHONPATH=src pytest -q tests/im_service`（`14 passed`）
+  - Entry: `POST /im/v1/conversations/{id}/messages` 返回 `delivery_status=completed`，事件仓储可按 `after_event_id` 增量读取。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `661f940`（R34.1 C1，仅红测）
+- Commits: C1=`661f940`, C2=`f890075`, C3=`<pending>`
 - Next:
+  - 进入 `R34.2` Red：新增 SSE 事件流接口、重连游标与心跳流测试。
 
 ### R34.2 SSE 事件流接口与重连稳定性
 - Context:
