@@ -28,3 +28,25 @@
 - Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
 - Next:
   - R30.1 C1：记录测试阶段提交并进入注释实现。
+
+### R30.1 补齐 server/cli/sdk/observability 入口契约注释
+- Context:
+  - 目标模块的 public 入口、HTTP handler 与协议边界注释覆盖不足，调用方需要下钻实现才能确认鉴权、错误映射与流式事件语义。
+  - Milestone scope 限制仅允许修改 `server/cli/sdk/observability` 与里程碑文档，不改测试目录。
+- Decision:
+  - 为 `server` 的 app/auth/deps/sse/routes 补齐 handler 与协议模型 docstring，明确 401/404/400/502 映射、SSE 轮询窗口与编码约束。
+  - 为 `cli/sdk` 补齐 HTTP-only 边界注释，强调 CLI/SDK 通过 `ServerClient` 调 server，不直连 runtime。
+  - 为 `observability` 补齐 correlation 传播与日志捕获语义注释，并补全 public API docstring 覆盖。
+- Rationale:
+  - 在不改变行为的前提下，把“边界/约束/失败语义”前移到入口注释，可降低二次维护时的误解成本和错误调用风险。
+- Evidence:
+  - Tests: `PYTHONPATH=src pytest -q`（`337 passed, 4 skipped`）
+  - Entry:
+    - server handler/docstring 已覆盖鉴权与错误映射语义；
+    - SSE 相关注释覆盖了历史回放、session 过滤与事件编码；
+    - CLI/SDK 注释明确 HTTP-only 边界，observability 注释覆盖关联字段传播语义。
+- Rollback:
+  - `701f3f3`（R30.1 C1）
+- Commits: C1=`701f3f3`, C2=`cab2203`, C3=`<pending>`
+- Next:
+  - 提交 C3 文档收口并进入 Milestone 集成到 `main`。

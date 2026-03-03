@@ -7,7 +7,7 @@
   - Must keep unchanged: 运行时行为、HTTP 路由语义、CLI/SDK 调用链、SSE 事件结构与错误码映射。
   - Allowed to change: `server/cli/sdk/observability` 的入口 docstring、协议/边界意图注释、Milestone 文档。
 
-## [TODO] R30.1 补齐 server/cli/sdk/observability 入口契约注释
+## [DONE] R30.1 补齐 server/cli/sdk/observability 入口契约注释
 - Acceptance:
   - `server` 入口与 route handler 补齐 docstring，明确鉴权前置、HTTP 状态码与错误映射语义。
   - `server.sse` 与 SSE 路由补齐流式事件语义注释（历史回放窗口、session 过滤、编码约束）。
@@ -26,7 +26,7 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS` 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `701f3f3`
+  - C2: `cab2203`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
