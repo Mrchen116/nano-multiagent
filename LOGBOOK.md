@@ -19,3 +19,5 @@
 - 单命令 JSON 契约隔离规则（2026-03-02）：`send-message` 这类脚本入口的 stdout 只能输出最终 JSON，实时事件必须限定在 REPL 路径或 stderr/独立通道，避免机读解析被中间事件污染。
 - CLI 错误分层规则（2026-03-02）：交互错误必须显式输出 `Layer: input|network|runtime` 并附可执行建议；单命令失败 JSON 需至少保留 `error/suggestion`，可新增 `layer`，但不得移除旧字段。
 - CLI 模块边界防回流规则（2026-03-03）：`commands.py` 只做入口编排，不要重新导出 `repl_input/repl_commands` 内部函数；边界测试应直接依赖所属模块，并保持 `send-message` 单行 JSON 契约与异步事件路径隔离。
+- Hook 扩展边界纪律（2026-03-03）：当需求明确要求“以 hook 形态外置/内置一致”时，禁止在 runtime/server/tools 层扩散特化逻辑（例如全局 evaluator registry、专用 runtime 方法）；正确做法是把通用能力沉入 `HookContext`（如 `call_model`），并由 hook 自主消费。对“session 一致性”这类约束必须在 `HookContext` API 级强制（调用方不可传 `session_id`），再用测试验证 request.session_id 恒等于当前会话。
+- 架构收敛纪律（2026-03-03）：当目标架构已明确（例如“执行期实时事件桥接”）时，禁止保留“旧路径兜底”作为长期并行分支（如失败后补发/完成后二次回放）。做法：同一改动内删除旧路径、只保留单一主链路，并补回归测试保证新主链路覆盖成功/失败场景；若确有必要保留两条，得及时汇报确认。
