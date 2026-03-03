@@ -7,7 +7,7 @@
   - Allowed: `src/IM/frontend/**`、`src/IM/README.md(如需)`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`data/dev-tasks.json（仅脚本）`。
   - Forbidden: `src/nano_multiagent/**`、现有 `tests/**(非前端新增)`、`ROADMAP.md`。
 
-## [TODO] R35.1 前端工程初始化与设计系统底座
+## [DONE] R35.1 前端工程初始化与设计系统底座
 - Acceptance:
   - 新建 `src/IM/frontend`，包含 React+TS+Vite 工程、Tailwind、Radix、Zustand、TanStack Query 依赖与基础配置。
   - 建立明确视觉方向的 design tokens（颜色/排版/间距/阴影/圆角）与全局主题样式，不使用默认模板风格。
@@ -26,10 +26,10 @@
   - C1/C2/C3 齐全。
   - PROGRESS 写清决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
-  - C3: `<pending>`
-- Status: TODO
+  - C1: `c9ac187`
+  - C2: `e43b438`
+  - C3: `af160b4`
+- Status: DONE
 
 ## [TODO] R35.2 Chat 工作区（P1/P2）与桌面/手机响应式
 - Acceptance:

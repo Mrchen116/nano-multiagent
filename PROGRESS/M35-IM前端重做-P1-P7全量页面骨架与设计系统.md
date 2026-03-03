@@ -29,3 +29,21 @@
 - Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
 - Next:
   - R35.1 Red：先为路由与壳体写测试，确认先红。
+
+### R35.1 前端工程初始化与设计系统底座
+- Context:
+  - 基线 `test_command` 在 `cd src/IM/frontend` 阶段失败，仓库无前端目录。
+  - 需先建立可运行前端工程，并用明确视觉方向的 token 防止模板感。
+- Decision:
+  - 新建 `src/IM/frontend`（React+TS+Vite+Tailwind v4+Radix+Zustand+TanStack Query）。
+  - 先提交壳体测试（App 工作区切换、路由可达）做 Red，再实现 AppShell/Router/主题样式。
+- Rationale:
+  - 先让门禁链路可执行，再进入页面与交互细化，可降低后续 Roadpoint 的排障成本。
+- Evidence:
+  - Tests: `cd src/IM/frontend && npm run test && npm run build`（通过）
+  - Entry: 可启动 Vite 应用，`/chat` 与 `/settings/*` 路由骨架已可渲染，主题样式已生效。
+- Rollback:
+  - `c9ac187`（R35.1 C1，仅测试先红）
+- Commits: C1=`c9ac187`, C2=`e43b438`, C3=`<pending>`
+- Next:
+  - R35.2 Red：补写 chat 响应式与路由行为测试，覆盖桌面两栏+手机单栏。
