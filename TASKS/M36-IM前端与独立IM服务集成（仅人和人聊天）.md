@@ -7,7 +7,7 @@
   - Allowed: `src/IM/**`、`tests/im_service/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`data/dev-tasks.json（仅脚本）`。
   - Forbidden: `src/nano_multiagent/**`、`ROADMAP.md`、与任务无关 tests。
 
-## [TODO] R36.1 IM服务人聊事件流与持久化契约
+## [DONE] R36.1 IM服务人聊事件流与持久化契约
 - Acceptance:
   - IM 服务新增 `GET /im/v1/conversations/{id}/events` SSE 端点，支持按 event_id 顺序消费。
   - 发送消息后会写入消息历史（SQLite）并产出可用于 UI 状态驱动的事件（`message_created` / `text_delta` / `turn_end` / `message_status`）。
@@ -27,10 +27,10 @@
   - `PYTHONPATH=src pytest -q tests/im_service` 全绿。
   - C1/C2/C3 齐全，PROGRESS 记录决策与证据。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `f46c02a`
+  - C2: `0caa94b`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R36.2 P1/P2 前端接入独立IM服务（settings 保持 mock）
 - Acceptance:

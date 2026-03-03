@@ -31,14 +31,22 @@
 
 ### R36.1 IM服务人聊事件流与持久化契约
 - Context:
+  - 独立 IM 服务只有 users/conversations/messages，缺少事件存储与 `/events` SSE，前端无法做流式渲染与状态反馈。
+  - M36 只允许做人和人聊天，不能新增 Agent 后端接口。
 - Decision:
+  - 在 SQLite 新增 `message_events` 表并实现 `EventRepository`（append/list/latest）。
+  - `POST /messages` 在保存用户消息后，持久化 `message_created/message_status` 事件，并生成“对端人类回声消息”的 `text_delta/turn_end` 事件序列。
+  - 新增 `GET /im/v1/conversations/{id}/events` SSE 端点，支持 `Last-Event-ID` 与 `after_event_id` 游标、`once` 单次拉取模式（测试用）。
 - Rationale:
+  - 先把事件与 SSE 做成持久化日志，前端即可在刷新恢复历史的同时获取增量流；`once` 模式让集成测试可稳定读取流结果。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest -q tests/im_service`
-  - Entry:
+  - Tests: `PYTHONPATH=src pytest -q tests/im_service`（12 passed）
+  - Entry: `GET /im/v1/conversations/{id}/events?after_event_id=0&once=true` 可输出 `message_created/text_delta/turn_end/message_status`。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `f46c02a`（R36.1 C1，仅测试先红）
+- Commits: C1=`f46c02a`, C2=`0caa94b`, C3=`<pending>`
 - Next:
+  - R36.2 Red：将前端 chat 从 `mock-chat-api` 切到独立 IM 服务，并补 SSE UI 渲染测试。
 
 ### R36.2 P1/P2 前端接入独立IM服务（settings 保持 mock）
 - Context:
