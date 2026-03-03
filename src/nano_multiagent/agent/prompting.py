@@ -1,3 +1,5 @@
+"""Prompt assembly utilities for runtime/system/tool context injection."""
+
 import json
 from datetime import datetime
 from pathlib import Path
@@ -42,6 +44,21 @@ def build_prompt_messages(
     current_datetime: datetime | None = None,
     current_working_directory: Path | None = None,
 ) -> tuple[LLMMessage, ...]:
+    """Build model input messages for one turn.
+
+    Args:
+        history_messages: Persisted conversation history before current user input.
+        user_text: Current user text input after preprocessing.
+        system_prompt: System prompt template.
+        available_skills: Skills shown in the rendered system prompt.
+        available_tools: Optional explicit tool list; falls back to builtins when omitted.
+        current_datetime: Optional timestamp override for deterministic tests.
+        current_working_directory: Optional cwd override for deterministic tests.
+
+    Returns:
+        Ordered message tuple: system, history, then current user.
+    """
+
     active_system_prompt = build_system_prompt(
         system_prompt=system_prompt,
         available_skills=available_skills,
@@ -73,6 +90,19 @@ def build_system_prompt(
     current_datetime: datetime | None = None,
     current_working_directory: Path | None = None,
 ) -> str:
+    """Render system prompt template with runtime placeholders.
+
+    Args:
+        system_prompt: Template possibly containing `<RUNTIME_FILL:*` placeholders.
+        available_skills: Skills displayed in skills section.
+        available_tools: Tool specs rendered into available tools section.
+        current_datetime: Optional timestamp override.
+        current_working_directory: Optional cwd override.
+
+    Returns:
+        Fully rendered system prompt text.
+    """
+
     skills_section = format_available_skills_section(available_skills)
     with_runtime_fill = _fill_runtime_placeholders(
         system_prompt=system_prompt,

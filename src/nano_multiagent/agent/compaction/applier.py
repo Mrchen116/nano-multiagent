@@ -1,9 +1,13 @@
+"""Persist compaction summary and translate it into API-level result."""
+
 from nano_multiagent.session.manager import SessionManager
 
 from .types import CompactionPlan, CompactionResult
 
 
 class CompactionApplier:
+    """Apply a compaction plan to session storage."""
+
     def __init__(self, *, session_manager: SessionManager) -> None:
         self._session_manager = session_manager
 
@@ -14,6 +18,20 @@ class CompactionApplier:
         plan: CompactionPlan,
         summary: str,
     ) -> CompactionResult:
+        """Persist compaction record and return normalized result.
+
+        Args:
+            session_id: Target session id.
+            plan: Selected compaction plan.
+            summary: Generated summary for dropped history.
+
+        Returns:
+            Persisted compaction result.
+
+        Side Effects:
+            Appends one compaction entry to the session store.
+        """
+
         entry = self._session_manager.append_compaction(
             session_id,
             first_kept_event_id=plan.first_kept_event_id,

@@ -1,3 +1,5 @@
+"""Agent turn loop that mediates model calls, tools, and hooks."""
+
 import asyncio
 import json
 from pathlib import Path
@@ -17,6 +19,8 @@ from .state import AgentState
 
 
 class AgentLoop:
+    """Execute one turn with optional tool-calling iterations."""
+
     def __init__(
         self,
         *,
@@ -41,9 +45,13 @@ class AgentLoop:
         self._current_working_directory = current_working_directory
 
     def bind_tool_registry(self, tool_registry: ToolRegistry | None) -> None:
+        """Hot-swap tool registry used by subsequent turns."""
+
         self._tool_registry = tool_registry
 
     def bind_llm_client(self, *, llm_client: LLMClient, model: str) -> None:
+        """Hot-swap LLM client/model without rebuilding runtime."""
+
         self._llm_client = llm_client
         self._model = model
 
@@ -55,6 +63,22 @@ class AgentLoop:
         system_prompt_override: str | None = None,
         llm_session_id: str | None = None,
     ) -> TurnResult:
+        """Run one user turn until completion or terminal stop reason.
+
+        Args:
+            state: Immutable per-turn state.
+            hook_ctx: Hook execution context; derived from state when omitted.
+            system_prompt_override: Optional system prompt override for this turn.
+            llm_session_id: Optional provider session id override.
+
+        Returns:
+            Turn result containing assistant messages, tool calls/results, and stop reason.
+
+        Raises:
+            ModelError: Propagated from the LLM client when provider calls fail.
+            PolicyViolation: When turn/tool-call policies are exceeded.
+        """
+
         active_hook_ctx = hook_ctx or HookContext(session_id=state.session_id, turn_id=state.turn_id)
         self._dispatch_observe(
             "turn_start",
@@ -83,6 +107,12 @@ class AgentLoop:
         tool_results: list[ToolResult] = []
 
         try:
+            # Runtime loop strategy:
+            # 1) If model returns plain assistant text, finish current turn.
+            # 2) If model returns tool calls, execute them and append tool messages,
+            #    then continue the loop for the next model round.
+            # 3) If tools are unavailable, stop with explicit terminal reason instead
+            #    of silently dropping tool calls.
             while True:
                 response = self._llm_client.generate(
                     LLMGenerateRequest(
@@ -304,6 +334,8 @@ class AgentLoop:
 
 
 def _normalize_tool_call(tool_call: LLMToolCall) -> ToolCall:
+    """Normalize provider tool call payload into core tool call contract."""
+
     call_id = tool_call.call_id.strip() if isinstance(tool_call.call_id, str) else ""
     if not call_id:
         call_id = make_tool_call_id()
@@ -315,6 +347,8 @@ def _normalize_tool_call(tool_call: LLMToolCall) -> ToolCall:
 
 
 def _assistant_metadata_from_tool_calls(tool_calls: tuple[ToolCall, ...]) -> Mapping[str, Any]:
+    """Serialize tool calls into assistant metadata persisted in session history."""
+
     if not tool_calls:
         return {}
     return {
@@ -330,6 +364,8 @@ def _assistant_metadata_from_tool_calls(tool_calls: tuple[ToolCall, ...]) -> Map
 
 
 def _as_llm_tool_calls(tool_calls: tuple[ToolCall, ...]) -> tuple[LLMToolCall, ...]:
+    """Convert normalized tool calls back to LLM-layer tool call objects."""
+
     return tuple(
         LLMToolCall(
             call_id=tool_call.call_id,
@@ -341,6 +377,8 @@ def _as_llm_tool_calls(tool_calls: tuple[ToolCall, ...]) -> tuple[LLMToolCall, .
 
 
 def _serialize_tool_result_content(result: ToolResult) -> str:
+    """Serialize tool result into tool-message content delivered back to model."""
+
     payload: dict[str, Any] = {
         "call_id": result.call_id,
         "name": result.name,

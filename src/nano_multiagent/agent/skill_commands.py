@@ -1,3 +1,5 @@
+"""Rewrite `/skill:*` shortcuts into explicit model instructions."""
+
 import re
 
 _SKILL_COMMAND_PATTERN = re.compile(
@@ -6,6 +8,15 @@ _SKILL_COMMAND_PATTERN = re.compile(
 
 
 def rewrite_skill_command(user_text: str) -> str:
+    """Normalize slash-skill shortcuts into plain prompt text.
+
+    Args:
+        user_text: Raw user input text.
+
+    Returns:
+        Rewritten instruction when `/skill:<name>` matches; otherwise original text.
+    """
+
     match = _SKILL_COMMAND_PATTERN.match(user_text)
     if match is None:
         return user_text

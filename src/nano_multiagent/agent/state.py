@@ -1,3 +1,5 @@
+"""Input parsing and immutable state objects for one agent turn."""
+
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
@@ -6,6 +8,8 @@ from nano_multiagent.core.types import Message
 
 @dataclass(frozen=True, slots=True)
 class InputPart:
+    """Represent one normalized user input part (text or image)."""
+
     type: str
     text: str | None = None
     image_url: str | None = None
@@ -15,6 +19,8 @@ class InputPart:
 
 @dataclass(frozen=True, slots=True)
 class AgentState:
+    """Represent immutable state consumed by the loop for one turn."""
+
     session_id: str
     turn_id: str
     turn_count: int
@@ -24,6 +30,18 @@ class AgentState:
 
 
 def parse_input_parts(parts: Sequence[Mapping[str, Any]]) -> tuple[InputPart, ...]:
+    """Validate and normalize raw input parts.
+
+    Args:
+        parts: User-provided parts with `type=text|image`.
+
+    Returns:
+        Parsed immutable input parts.
+
+    Raises:
+        ValueError: If part type or required fields are invalid.
+    """
+
     parsed: list[InputPart] = []
     for raw_part in parts:
         part_type = str(raw_part.get("type", "")).strip()
@@ -62,6 +80,15 @@ def parse_input_parts(parts: Sequence[Mapping[str, Any]]) -> tuple[InputPart, ..
 
 
 def render_user_text(parts: Sequence[InputPart]) -> str:
+    """Render input parts into text fallback consumed by prompt builders.
+
+    Args:
+        parts: Parsed input parts.
+
+    Returns:
+        Joined text representation with image placeholders.
+    """
+
     lines: list[str] = []
     for part in parts:
         if part.type == "text" and part.text is not None:

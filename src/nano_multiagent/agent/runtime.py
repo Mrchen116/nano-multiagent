@@ -1,3 +1,5 @@
+"""High-level runtime orchestration over sessions, hooks, loop, and compaction."""
+
 import asyncio
 import json
 from pathlib import Path
@@ -32,6 +34,8 @@ if TYPE_CHECKING:
 
 
 class AgentRuntime:
+    """Coordinate one runtime instance for session-based agent execution."""
+
     def __init__(
         self,
         *,
@@ -90,6 +94,25 @@ class AgentRuntime:
         stream: bool = True,
         llm_session_id: str | None = None,
     ) -> TurnResult:
+        """Execute one turn for an existing session.
+
+        Args:
+            session_id: Target session id.
+            parts: Structured input parts (`text` or `image`).
+            stream: Reserved compatibility flag (currently ignored).
+            llm_session_id: Optional provider session id override.
+
+        Returns:
+            Turn result containing assistant output, tool calls/results, and stop reason.
+
+        Raises:
+            ValueError: If session is missing or resolved user text is empty.
+            ModelError: If provider call fails and overflow recovery cannot recover.
+
+        Side Effects:
+            Persists turn events/messages and dispatches hook events.
+        """
+
         del stream  # M4 minimal runtime only supports non-stream flow.
 
         if self._session_manager.get_session(session_id) is None:
@@ -181,6 +204,8 @@ class AgentRuntime:
                 llm_session_id=llm_session_id,
             )
         except ModelError as exc:
+            # Retry boundary: only context-overflow-like failures trigger one
+            # compaction attempt plus one replay; all other model errors bubble up.
             if not self._post_turn_check_overflow(session_id=session_id, error=exc):
                 raise
             retry_history = self._history_without_message(
@@ -213,6 +238,18 @@ class AgentRuntime:
         return turn_result
 
     def compact(self, session_id: str) -> CompactionResult | None:
+        """Run manual session compaction.
+
+        Args:
+            session_id: Target session id.
+
+        Returns:
+            Compaction result, or `None` when planner decides compaction is unnecessary.
+
+        Raises:
+            ValueError: If session does not exist.
+        """
+
         if self._session_manager.get_session(session_id) is None:
             raise ValueError(f"session does not exist: {session_id}")
         return self._compact_session(session_id=session_id, reason=CompactionReason.MANUAL)
@@ -224,6 +261,8 @@ class AgentRuntime:
         stream: bool = True,
         llm_session_id: str | None = None,
     ) -> TurnResult:
+        """Request another assistant step by submitting synthetic `continue` input."""
+
         return self.run(
             session_id,
             [{"type": "text", "text": "continue"}],
@@ -232,9 +271,13 @@ class AgentRuntime:
         )
 
     def get_session(self, session_id: str) -> Session | None:
+        """Return session model by id, or `None` when absent."""
+
         return self._session_manager.get_session(session_id)
 
     def get_llm_config(self) -> LLMFactoryConfig:
+        """Return active LLM configuration used by the runtime."""
+
         return self._llm_config
 
     def reconfigure_llm(
@@ -247,6 +290,16 @@ class AgentRuntime:
         api_key: str | None = None,
         update_api_key: bool = False,
     ) -> LLMFactoryConfig:
+        """Reconfigure provider/model connection without recreating runtime.
+
+        Notes:
+            Provider adaptation details stay encapsulated in `llm.factory` and
+            `llm.protocols.*`; runtime continues to depend on `LLMClient` only.
+
+        Raises:
+            ValueError: If no effective config field is provided.
+        """
+
         if (
             provider is None
             and model is None
@@ -277,19 +330,27 @@ class AgentRuntime:
         return self._llm_config
 
     def bind_tool_registry(self, tool_registry: "ToolRegistry | None") -> None:
+        """Bind or unbind runtime tool registry."""
+
         self._loop.bind_tool_registry(tool_registry)
 
     @property
     def hook_runner(self) -> HookRunner | None:
+        """Expose active hook runner."""
+
         return self._hook_runner
 
     @property
     def hook_registry(self) -> "HookRegistry | None":
+        """Expose active hook registry when runner is configured."""
+
         if self._hook_runner is None:
             return None
         return self._hook_runner.registry
 
     def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
+        """Create a session and emit `session_start` observe hook."""
+
         session = self._session_manager.create_session(title=title, metadata=metadata)
         hook_ctx = HookContext(session_id=session.session_id, repo_root=self._repo_root)
         self._dispatch_observe(
