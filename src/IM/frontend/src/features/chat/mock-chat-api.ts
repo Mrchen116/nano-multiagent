@@ -54,6 +54,7 @@ const details = new Map<string, ConversationDetail>([
           message_id: "m-2",
           sender_type: "user",
           sender_name: "You",
+          is_mine: true,
           content: "Ship the patch after frontend milestone smoke.",
           created_at: "2026-03-03T22:34:00+08:00",
           delivery_status: "sent"
@@ -120,6 +121,7 @@ export async function sendMessage(input: { conversationId: string; content: stri
     message_id: `m-${Date.now()}`,
     sender_type: "user",
     sender_name: "You",
+    is_mine: true,
     content: input.content,
     created_at: timestamp,
     delivery_status: "sent"
@@ -133,4 +135,12 @@ export async function sendMessage(input: { conversationId: string; content: stri
   }
 
   return userMessage;
+}
+
+export function streamConversationEvents(_: {
+  conversationId: string;
+  onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void;
+  onError?: (error: Error) => void;
+}) {
+  return () => undefined;
 }

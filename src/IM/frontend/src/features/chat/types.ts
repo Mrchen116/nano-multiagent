@@ -15,6 +15,7 @@ export interface ChatMessage {
   message_id: string;
   sender_type: SenderType;
   sender_name?: string;
+  is_mine?: boolean;
   content: string;
   created_at: string;
   delivery_status?: "sent" | "running" | "completed" | "failed";
