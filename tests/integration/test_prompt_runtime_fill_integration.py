@@ -38,4 +38,4 @@ def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path: Path
     assert f"Current working directory: {tmp_path}" in system_prompt
     assert "<RUNTIME_FILL:" not in system_prompt
     assert "Available tools:" in system_prompt
-
+    assert "input_schema" not in system_prompt
