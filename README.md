@@ -92,6 +92,7 @@ Interactive input ergonomics:
 
 - inline editing with `←/→` + Backspace
 - history recall with `↑/↓` (session-scoped), and draft restore when navigating back down
+- type `/` to open command dropdown, use `↑/↓` to switch, press `Enter` to fill selected command
 
 REPL will also print session context budget after each message turn and after `/compact`:
 

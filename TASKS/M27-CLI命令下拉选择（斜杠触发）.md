@@ -28,10 +28,10 @@
 - Commits:
   - C1: `f75ad20`
   - C2: `5308b13`
-  - C3: `<pending>`
+  - C3: `f072de3`
 - Status: DONE
 
-## [TODO] R27.2 在 REPL 编排层接线并补充边界门禁
+## [DONE] R27.2 在 REPL 编排层接线并补充边界门禁
 - Acceptance:
   - `_run_repl` 调用输入引擎时注入命令候选来源，且与 `supported_repl_commands()` 对齐。
   - 历史回填链路不被命令下拉污染（例如 `↑` 仍可回填上一条普通输入）。
@@ -52,7 +52,7 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `1a932c6`
+  - C2: `ec75ebe`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE

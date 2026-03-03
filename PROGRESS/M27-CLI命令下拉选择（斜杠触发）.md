@@ -50,6 +50,29 @@
     - 既有行内编辑/历史回填回归测试保持通过。
 - Rollback:
   - `f75ad20`（R27.1 C1）
-- Commits: C1=`f75ad20`, C2=`5308b13`, C3=`<pending>`
+- Commits: C1=`f75ad20`, C2=`5308b13`, C3=`f072de3`
 - Next:
   - R27.2 Red：补 REPL 接线与集成回归测试，确保真实入口输入 `/` 可触发并执行下拉命令。
+
+### R27.2 在 REPL 编排层接线并补充边界门禁
+- Context:
+  - R27.1 已具备输入引擎能力，但 `_run_repl` 尚未显式注入候选命令列表，真实入口接线不完整。
+  - 需要验证“斜杠选择 -> 命令执行”链路，并确保不破坏历史回填与单命令 JSON 契约。
+- Decision:
+  - 在 `commands._run_repl` 调用 `_build_repl_input_reader` 时传入 `_REPL_COMMANDS`。
+  - 为 scripted REPL 测试读入器注入 `supported_repl_commands()`，让集成测试可稳定复现 `↑/↓ + Enter` 选择流。
+  - 新增边界测试校验 `_run_repl` 的候选命令接线，新增集成测试校验“/ 下拉选择 /new 并执行”主链路。
+- Rationale:
+  - 在编排层接线后，真实 REPL 与测试脚本入口保持一致，能防止后续重构遗漏候选注入导致能力失效。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py -k "supported_commands_to_input_reader or slash_menu_selects_command"`（新增断言先红）
+    - Gate: `pytest -q`（`331 passed, 4 skipped`）
+  - Entry:
+    - `/` 下拉命令在 REPL 主流程可用，`↑/↓` 选择后 `Enter` 可填充并执行命令；
+    - 既有编辑/历史/命令测试链路保持通过。
+- Rollback:
+  - `1a932c6`（R27.2 C1）
+- Commits: C1=`1a932c6`, C2=`ec75ebe`, C3=`<pending>`
+- Next:
+  - Milestone 收口：rebase `origin/main`、全量回归、合并 `main`、更新 `dev-tasks.json`。
