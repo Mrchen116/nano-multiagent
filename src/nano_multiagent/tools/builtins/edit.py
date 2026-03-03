@@ -1,3 +1,5 @@
+"""Built-in `edit` tool for one-shot exact text replacement."""
+
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -7,6 +9,8 @@ from ..base import ToolContext
 
 
 class EditTool:
+    """Replace exactly one text match in a file inside the sandbox."""
+
     name = "edit"
     description = "Edit a file by replacing exact text once."
     input_schema = {
@@ -21,6 +25,8 @@ class EditTool:
     }
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+        """Apply one deterministic replacement and return changed line metadata."""
+
         raw_path = str(args["path"])
         old_text = str(args["oldText"])
         new_text = str(args["newText"])

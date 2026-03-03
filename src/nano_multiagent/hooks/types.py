@@ -1,3 +1,5 @@
+"""Canonical hook event/type declarations shared across runtime and plugins."""
+
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -8,6 +10,8 @@ DEFAULT_HOOK_TIMEOUT_MS = 1500
 
 
 class HookEventType(StrEnum):
+    """Enumerate supported hook event names."""
+
     SESSION_START = "session_start"
     SESSION_COMPACT = "session_compact"
     SESSION_SHUTDOWN = "session_shutdown"
@@ -31,6 +35,8 @@ class HookEventType(StrEnum):
 
 
 class HookEventMode(StrEnum):
+    """Describe whether an event is observe-only or intercept-capable."""
+
     OBSERVE = "observe"
     INTERCEPT = "intercept"
 
@@ -58,6 +64,8 @@ HookStatus: TypeAlias = Literal["ok", "error", "timeout"]
 
 @dataclass(frozen=True, slots=True)
 class HookRegistration:
+    """Store normalized metadata for one registered hook handler."""
+
     event: HookEventName
     handler: HookHandler
     priority: int = DEFAULT_HOOK_PRIORITY
@@ -71,18 +79,24 @@ class HookRegistration:
 
 @dataclass(frozen=True, slots=True)
 class LoadedHookModule:
+    """Describe one imported hook module and its source location."""
+
     module_name: str
     file_path: Path
     source: HookSource
 
 
 def normalize_hook_event(event: str | HookEventType) -> str:
+    """Normalize enum/string event input to canonical string name."""
+
     if isinstance(event, HookEventType):
         return event.value
     return str(event)
 
 
 def ensure_known_hook_event(event: str | HookEventType) -> str:
+    """Validate that an event exists in the known hook event set."""
+
     normalized = normalize_hook_event(event)
     if normalized not in ALL_HOOK_EVENTS:
         raise ValueError(f"unknown hook event: {normalized}")
@@ -90,8 +104,9 @@ def ensure_known_hook_event(event: str | HookEventType) -> str:
 
 
 def event_mode_of(event: str | HookEventType) -> HookEventMode:
+    """Return dispatch mode for an event (`intercept` or `observe`)."""
+
     normalized = ensure_known_hook_event(event)
     if normalized in INTERCEPT_EVENTS:
         return HookEventMode.INTERCEPT
     return HookEventMode.OBSERVE
-

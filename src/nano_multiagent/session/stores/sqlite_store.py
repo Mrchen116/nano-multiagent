@@ -1,3 +1,5 @@
+"""SQLite-backed session store with append-only events and upserted snapshots."""
+
 import json
 import sqlite3
 from datetime import UTC, datetime
@@ -14,12 +16,16 @@ from nano_multiagent.session.stores.base import LoadedSession, SessionStore
 
 
 class SQLiteSessionStore(SessionStore):
+    """Persist session events/snapshots in a local SQLite database."""
+
     def __init__(self, *, db_path: str | Path) -> None:
         self._db_path = Path(db_path)
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
 
     def append_event(self, session_id: str, entry: Any) -> None:
+        """Append one serialized event row for a session."""
+
         if entry.session_id != session_id:
             raise ValueError("entry.session_id must match append session_id")
         payload = json.dumps(serialize_entry(entry), separators=(",", ":"))
@@ -33,6 +39,8 @@ class SQLiteSessionStore(SessionStore):
             )
 
     def load_session(self, session_id: str) -> LoadedSession | None:
+        """Load ordered event stream and optional snapshot for a session."""
+
         with self._connect() as conn:
             event_rows = conn.execute(
                 """
@@ -65,6 +73,8 @@ class SQLiteSessionStore(SessionStore):
         return LoadedSession(session_id=session_id, events=events, snapshot=snapshot)
 
     def save_snapshot(self, session_id: str, snapshot: Mapping[str, Any]) -> None:
+        """Upsert snapshot payload and timestamp for a session."""
+
         payload = json.dumps(serialize_snapshot(snapshot), separators=(",", ":"))
         updated_at = datetime.now(UTC).isoformat()
         with self._connect() as conn:
@@ -80,6 +90,8 @@ class SQLiteSessionStore(SessionStore):
             )
 
     def list_session_ids(self, *, limit: int, offset: int) -> tuple[str, ...]:
+        """List session ids ordered by newest first event sequence."""
+
         with self._connect() as conn:
             rows = conn.execute(
                 """

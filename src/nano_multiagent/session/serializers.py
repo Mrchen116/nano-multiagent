@@ -1,3 +1,5 @@
+"""Serialization helpers for session events and snapshots."""
+
 from typing import Any, Mapping
 
 from .entries import CompactionEntry, SessionEntry, SessionEntryKind, SessionEventEntry
@@ -7,6 +9,8 @@ SNAPSHOT_SERIALIZATION_VERSION = 1
 
 
 def serialize_entry(entry: SessionEventEntry) -> dict[str, Any]:
+    """Serialize one session event entry into persisted JSON payload."""
+
     payload: dict[str, Any] = {
         "version": ENTRY_SERIALIZATION_VERSION,
         "entry_id": entry.entry_id,
@@ -22,6 +26,10 @@ def serialize_entry(entry: SessionEventEntry) -> dict[str, Any]:
 
 
 def deserialize_entry(payload: Mapping[str, Any]) -> SessionEventEntry:
+    """Deserialize one persisted event payload with strict version checks."""
+
+    # PERSISTENCE PROTOCOL: version mismatch must fail fast to avoid silently
+    # replaying incompatible on-disk history with corrupted semantics.
     version = int(payload["version"])
     if version != ENTRY_SERIALIZATION_VERSION:
         raise ValueError(f"unsupported session entry version: {version}")
@@ -43,6 +51,8 @@ def deserialize_entry(payload: Mapping[str, Any]) -> SessionEventEntry:
 
 
 def serialize_snapshot(snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    """Serialize session snapshot state with protocol version metadata."""
+
     return {
         "version": SNAPSHOT_SERIALIZATION_VERSION,
         "state": dict(snapshot),
@@ -50,6 +60,8 @@ def serialize_snapshot(snapshot: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def deserialize_snapshot(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Deserialize snapshot payload with strict version enforcement."""
+
     version = int(payload["version"])
     if version != SNAPSHOT_SERIALIZATION_VERSION:
         raise ValueError(f"unsupported session snapshot version: {version}")

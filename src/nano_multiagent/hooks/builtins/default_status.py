@@ -1,4 +1,8 @@
+"""Default built-in hook module for shutdown/timeout status logging."""
+
 def setup(hooks):  # noqa: ANN001, ANN201
+    """Register lightweight built-in observe hooks for runtime status events."""
+
     def on_session_shutdown(event, ctx):  # noqa: ANN001
         ctx.logger.info(
             "builtin session shutdown observed",

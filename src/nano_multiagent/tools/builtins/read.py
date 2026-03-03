@@ -1,3 +1,5 @@
+"""Built-in `read` tool for bounded text and image loading."""
+
 import base64
 from pathlib import Path
 from typing import Any, Mapping
@@ -16,6 +18,8 @@ _IMAGE_MIME_BY_SUFFIX = {
 
 
 class ReadTool:
+    """Read UTF-8 text with pagination or inline supported image formats."""
+
     name = "read"
     description = "Read text files and images with offset/limit and output truncation."
     input_schema = {
@@ -30,6 +34,8 @@ class ReadTool:
     }
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+        """Read file content while enforcing sandbox paths and output limits."""
+
         raw_path = str(args["path"])
         file_path = ctx.safety.resolve_read_path(raw_path, cwd=ctx.cwd, tool_name=self.name)
 

@@ -1,3 +1,5 @@
+"""Built-in `task` tool for blocking and background sub-agent execution."""
+
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from copy import deepcopy
 from threading import Lock
@@ -13,7 +15,11 @@ from ..base import ToolContext
 
 
 class TaskRuntime(Protocol):
+    """Runtime surface required by `TaskTool` to create and execute sessions."""
+
     def create_session(self):  # noqa: ANN201
+        """Create a sub-session used by a new task run."""
+
         ...
 
     def run(
@@ -24,6 +30,8 @@ class TaskRuntime(Protocol):
         stream: bool = True,
         llm_session_id: str | None = None,
     ) -> TurnResult:
+        """Execute one turn in the target task session."""
+
         ...
 
     def continue_turn(
@@ -33,10 +41,14 @@ class TaskRuntime(Protocol):
         stream: bool = True,
         llm_session_id: str | None = None,
     ) -> TurnResult:
+        """Continue a session without appending a new user prompt."""
+
         ...
 
 
 class TaskTool:
+    """Schedule or execute in-process sub-agent tasks with idempotent replay."""
+
     name = "task"
     description = "Run or schedule a local in-process subagent task."
     input_schema = {
@@ -65,6 +77,8 @@ class TaskTool:
         self._lock = Lock()
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+        """Execute one task request in blocking or non-blocking mode."""
+
         run_in_background = bool(args["run_in_background"])
         mode = "non_blocking" if run_in_background else "blocking"
 

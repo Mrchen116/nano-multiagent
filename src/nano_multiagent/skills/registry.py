@@ -1,3 +1,5 @@
+"""Skill metadata model and filesystem-backed skill discovery registry."""
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -5,6 +7,8 @@ from typing import Mapping, Sequence
 
 @dataclass(frozen=True, slots=True)
 class SkillMetadata:
+    """Describe one discovered skill file and its resolved metadata."""
+
     name: str
     description: str
     location: Path
@@ -12,11 +16,15 @@ class SkillMetadata:
 
 
 class SkillRegistry:
+    """Discover and cache skills from configured root directories."""
+
     def __init__(self, *, search_roots: Sequence[Path]) -> None:
         self._search_roots = tuple(root.expanduser().resolve() for root in search_roots)
         self._cache: tuple[SkillMetadata, ...] | None = None
 
     def list_skills(self, *, refresh: bool = False) -> tuple[SkillMetadata, ...]:
+        """Return discovered skills, optionally refreshing the filesystem scan."""
+
         if self._cache is None or refresh:
             self._cache = self._discover_skills()
         return self._cache

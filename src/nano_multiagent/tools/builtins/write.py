@@ -1,3 +1,5 @@
+"""Built-in `write` tool for sandboxed file creation and overwrite."""
+
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -5,6 +7,8 @@ from ..base import ToolContext
 
 
 class WriteTool:
+    """Write full file content and report overwrite metadata."""
+
     name = "write"
     description = "Write content to a file (create or overwrite) with sandbox checks."
     input_schema = {
@@ -18,6 +22,8 @@ class WriteTool:
     }
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+        """Write UTF-8 content to a resolved sandbox path."""
+
         raw_path = str(args["path"])
         content = str(args["content"])
         file_path = ctx.safety.resolve_path(raw_path, cwd=ctx.cwd, tool_name=self.name)

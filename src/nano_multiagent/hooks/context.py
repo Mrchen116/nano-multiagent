@@ -1,3 +1,5 @@
+"""Hook logging facade and per-dispatch context container."""
+
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +13,8 @@ LogSink = Callable[[str, str, Mapping[str, Any]], None]
 
 
 class HookLogger:
+    """Emit structured hook logs with optional sink override and base fields."""
+
     def __init__(
         self,
         sink: LogSink | None = None,
@@ -22,18 +26,28 @@ class HookLogger:
         self._logger = logging.getLogger("nano_multiagent.hooks")
 
     def debug(self, message: str, **fields: Any) -> None:
+        """Emit a debug-level hook log entry."""
+
         self._emit("debug", message, fields)
 
     def info(self, message: str, **fields: Any) -> None:
+        """Emit an info-level hook log entry."""
+
         self._emit("info", message, fields)
 
     def warn(self, message: str, **fields: Any) -> None:
+        """Emit a warning-level hook log entry."""
+
         self._emit("warning", message, fields)
 
     def error(self, message: str, **fields: Any) -> None:
+        """Emit an error-level hook log entry."""
+
         self._emit("error", message, fields)
 
     def with_fields(self, **fields: Any) -> "HookLogger":
+        """Return a logger copy with merged base fields."""
+
         merged = dict(self._base_fields)
         for key, value in fields.items():
             if value is None:
@@ -68,6 +82,8 @@ class HookLogger:
 
 @dataclass(frozen=True, slots=True)
 class HookContext:
+    """Carry immutable metadata and logger for a single hook dispatch."""
+
     session_id: str
     turn_id: str | None = None
     repo_root: Path | None = None
