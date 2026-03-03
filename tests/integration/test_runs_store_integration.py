@@ -101,7 +101,10 @@ def test_async_run_status_entries_persist_in_sqlite_store(tmp_path: Path) -> Non
 
 def test_async_run_persists_retry_metadata_during_retryable_failures(tmp_path: Path, monkeypatch) -> None:
     sleep_calls: list[float] = []
-    monkeypatch.setattr("nano_multiagent.runs.registry._sleep", lambda seconds: sleep_calls.append(seconds), raising=False)
+    monkeypatch.setattr(
+        "nano_multiagent.runs.registry._wait_with_cancel",
+        lambda _event, seconds: sleep_calls.append(seconds) or False,
+    )
 
     db_path = tmp_path / "runs-store-retry.sqlite3"
     store = SQLiteSessionStore(db_path=db_path)

@@ -5,11 +5,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
-from threading import Lock
+from threading import Event, Lock
+import time
 from typing import Any, Mapping, Protocol, Sequence
 
+from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.ids import make_run_id
-from nano_multiagent.core.types import TurnResult
+from nano_multiagent.core.types import TokenUsage, TurnResult
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.observability.logger import log_error, log_info
@@ -37,10 +39,22 @@ class RunRecord:
     turn_id: str | None = None
     stop_reason: str | None = None
     error: Mapping[str, Any] | None = None
+    usage: TokenUsage | None = None
+    attempt: int | None = None
+    next_delay: float | None = None
+    cooldown: float | None = None
+    last_error: Mapping[str, Any] | None = None
 
 
 class RuntimeRunner(Protocol):
-    def run(self, session_id: str, parts, *, stream: bool = True):  # noqa: ANN001, ANN201
+    def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+    ):  # noqa: ANN001, ANN201
         ...
 
 
@@ -61,6 +75,7 @@ class RunsRegistry:
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="nano-runs")
         self._lock = Lock()
         self._runs: dict[str, RunRecord] = {}
+        self._cancel_events: dict[str, Event] = {}
 
     def submit(
         self,
@@ -87,6 +102,7 @@ class RunsRegistry:
         )
         with self._lock:
             self._runs[run_id] = record
+            self._cancel_events[run_id] = Event()
         self._append_run_status_event(record)
         log_info(
             "run_submitted",
@@ -109,6 +125,9 @@ class RunsRegistry:
     def cancel(self, run_id: str) -> RunRecord | None:
         with self._lock:
             current = self._runs.get(run_id)
+            cancel_event = self._cancel_events.get(run_id)
+        if cancel_event is not None:
+            cancel_event.set()
         if current is None:
             return None
         if current.status in _TERMINAL_STATUSES:
@@ -127,6 +146,12 @@ class RunsRegistry:
         parts: Sequence[Mapping[str, Any]],
         trace_id: str | None,
     ) -> None:
+        backoff_delays = (0.5, 1.0, 2.0)
+        cooldown_every_failures = 5
+        cooldown_seconds = 30.0
+        backoff_index = 0
+        failed_attempts = 0
+
         with bind_correlation(session_id=session_id, trace_id=trace_id):
             started = self._set_status(
                 run_id,
@@ -137,15 +162,55 @@ class RunsRegistry:
                 return
             log_info("run_started", run_id=run_id)
 
-            try:
-                result = self._runtime.run(session_id, parts, stream=False)
-            except TimeoutError as exc:
-                self._mark_timed_out(run_id, message=str(exc))
+            while True:
+                if self._is_cancelled(run_id):
+                    return
+                try:
+                    result = self._runtime.run(session_id, parts, stream=False, run_id=run_id)
+                except TimeoutError as exc:
+                    self._mark_timed_out(run_id, message=str(exc))
+                    return
+                except ModelError as exc:
+                    if not exc.retryable:
+                        self._mark_failed(run_id, message=str(exc))
+                        return
+
+                    failed_attempts += 1
+                    next_delay = backoff_delays[backoff_index]
+                    backoff_index = (backoff_index + 1) % len(backoff_delays)
+                    cooldown = cooldown_seconds if failed_attempts % cooldown_every_failures == 0 else 0.0
+                    if cooldown > 0:
+                        backoff_index = 0
+
+                    updated = self._set_status(
+                        run_id,
+                        status=RunStatus.RUNNING,
+                        attempt=failed_attempts,
+                        next_delay=next_delay,
+                        cooldown=cooldown,
+                        last_error=_summarize_retry_error(exc),
+                        only_if={RunStatus.RUNNING},
+                    )
+                    if updated is None or updated.status is not RunStatus.RUNNING:
+                        return
+                    log_info(
+                        "run_retry_scheduled",
+                        run_id=run_id,
+                        attempt=failed_attempts,
+                        next_delay=next_delay,
+                        cooldown=cooldown,
+                    )
+
+                    if not self._sleep_until_retry(run_id=run_id, seconds=next_delay):
+                        return
+                    if cooldown > 0 and not self._sleep_until_retry(run_id=run_id, seconds=cooldown):
+                        return
+                    continue
+                except Exception as exc:  # noqa: BLE001
+                    self._mark_failed(run_id, message=str(exc))
+                    return
+                self._mark_completed(run_id, turn_result=result)
                 return
-            except Exception as exc:  # noqa: BLE001
-                self._mark_failed(run_id, message=str(exc))
-                return
-            self._mark_completed(run_id, turn_result=result)
 
     def _set_status(
         self,
@@ -155,6 +220,11 @@ class RunsRegistry:
         turn_id: str | None = None,
         stop_reason: str | None = None,
         error: Mapping[str, Any] | None = None,
+        usage: TokenUsage | None = None,
+        attempt: int | None = None,
+        next_delay: float | None = None,
+        cooldown: float | None = None,
+        last_error: Mapping[str, Any] | None = None,
         only_if: set[RunStatus] | None = None,
     ) -> RunRecord | None:
         with self._lock:
@@ -170,10 +240,33 @@ class RunsRegistry:
                 turn_id=turn_id,
                 stop_reason=stop_reason,
                 error=error,
+                usage=usage,
+                attempt=attempt,
+                next_delay=next_delay,
+                cooldown=cooldown,
+                last_error=last_error,
             )
             self._runs[run_id] = updated
         self._append_run_status_event(updated)
         return updated
+
+    def _is_cancelled(self, run_id: str) -> bool:
+        with self._lock:
+            current = self._runs.get(run_id)
+            return current is not None and current.status is RunStatus.CANCELLED
+
+    def _sleep_until_retry(self, *, run_id: str, seconds: float) -> bool:
+        if seconds <= 0:
+            return not self._is_cancelled(run_id)
+        with self._lock:
+            cancel_event = self._cancel_events.get(run_id)
+        if cancel_event is None:
+            _sleep(seconds)
+            return not self._is_cancelled(run_id)
+        cancelled = _wait_with_cancel(cancel_event, seconds)
+        if cancelled:
+            return False
+        return not self._is_cancelled(run_id)
 
     def _mark_completed(self, run_id: str, *, turn_result: TurnResult) -> RunRecord | None:
         updated = self._set_status(
@@ -182,6 +275,7 @@ class RunsRegistry:
             turn_id=turn_result.turn_id,
             stop_reason=turn_result.stop_reason,
             error=None,
+            usage=turn_result.usage,
             only_if={RunStatus.RUNNING},
         )
         if updated is not None and updated.status is RunStatus.COMPLETED:
@@ -305,6 +399,7 @@ class RunsRegistry:
             )
 
     def _append_run_status_event(self, record: RunRecord) -> None:
+        status_data = _run_status_data(record)
         self._session_manager.append_run_status(
             record.session_id,
             run_id=record.run_id,
@@ -312,6 +407,7 @@ class RunsRegistry:
             turn_id=record.turn_id,
             stop_reason=record.stop_reason,
             error=record.error,
+            data=status_data,
         )
         if self._event_hub is None:
             return
@@ -327,6 +423,8 @@ class RunsRegistry:
             payload["stop_reason"] = record.stop_reason
         if record.error is not None:
             payload["error"] = dict(record.error)
+        for key, value in status_data.items():
+            payload[key] = value
         self._event_hub.publish(
             event="run_status",
             session_id=record.session_id,
@@ -396,3 +494,54 @@ def _utc_now_iso() -> str:
 
 
 _TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
+
+
+def _serialize_usage(usage: TokenUsage | None) -> dict[str, int] | None:
+    if usage is None:
+        return None
+    return {
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
+    }
+
+
+def _sleep(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def _wait_with_cancel(cancel_event: Event, seconds: float) -> bool:
+    return cancel_event.wait(timeout=seconds)
+
+
+def _summarize_retry_error(error: ModelError) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "code": error.code,
+        "message": _truncate_error_message(error.message),
+        "retryable": error.retryable,
+    }
+    if error.details:
+        payload["details"] = dict(error.details)
+    return payload
+
+
+def _truncate_error_message(message: str, *, max_chars: int = 240) -> str:
+    if len(message) <= max_chars:
+        return message
+    return f"{message[:max_chars]}..."
+
+
+def _run_status_data(record: RunRecord) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    usage_payload = _serialize_usage(record.usage)
+    if usage_payload is not None:
+        payload["usage"] = usage_payload
+    if record.attempt is not None:
+        payload["attempt"] = record.attempt
+    if record.next_delay is not None:
+        payload["next_delay"] = record.next_delay
+    if record.cooldown is not None:
+        payload["cooldown"] = record.cooldown
+    if record.last_error is not None:
+        payload["last_error"] = dict(record.last_error)
+    return payload

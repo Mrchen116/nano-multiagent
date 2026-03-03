@@ -78,9 +78,7 @@ def test_cancel_unknown_run_returns_none(tmp_path: Path) -> None:
     assert registry.cancel("run_missing") is None
 
 
-def test_cancel_stops_retry_loop_without_transitioning_to_failed(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr("nano_multiagent.runs.registry._sleep", lambda seconds: None, raising=False)
-
+def test_cancel_stops_retry_loop_without_transitioning_to_failed(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "run-cancel-retryable.sqlite3")
     manager = SessionManager(store=store)
     session = manager.create_session()

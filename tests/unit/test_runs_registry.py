@@ -249,7 +249,10 @@ def test_runs_registry_retries_retryable_model_errors_and_resets_backoff_after_c
     monkeypatch,
 ) -> None:
     sleep_calls: list[float] = []
-    monkeypatch.setattr("nano_multiagent.runs.registry._sleep", lambda seconds: sleep_calls.append(seconds), raising=False)
+    monkeypatch.setattr(
+        "nano_multiagent.runs.registry._wait_with_cancel",
+        lambda _event, seconds: sleep_calls.append(seconds) or False,
+    )
 
     store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-retry.sqlite3")
     manager = SessionManager(store=store)
