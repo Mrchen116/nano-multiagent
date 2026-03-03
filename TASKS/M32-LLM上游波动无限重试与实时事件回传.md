@@ -29,7 +29,7 @@
 - Commits:
   - C1: `b1e3aa2`
   - C2: `ec0c36a`
-  - C3: `<pending>`
+  - C3: `03f4e7c`
 - Status: DONE
 
 ## [DONE] R32.2 事件契约扩展与 CLI 实时重试反馈
@@ -54,5 +54,5 @@
 - Commits:
   - C1: `62b54b6`
   - C2: `5cbc5ce`
-  - C3: `<pending>`
+  - C3: `<pending, docs(R32.2) in next commit>`
 - Status: DONE

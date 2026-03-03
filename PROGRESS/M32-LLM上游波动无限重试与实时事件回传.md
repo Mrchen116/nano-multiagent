@@ -53,7 +53,7 @@
     - 修复点：将 `_sleep_until_retry` 从 monotonic 切片改为 `Event.wait` 可取消等待，并暴露 `_wait_with_cancel` 供测试替换。
 - Rollback:
   - `b1e3aa2`（R32.1 C1，仅测试先红）
-- Commits: C1=`b1e3aa2`, C2=`ec0c36a`, C3=`<pending>`
+- Commits: C1=`b1e3aa2`, C2=`ec0c36a`, C3=`03f4e7c`
 - Next:
   - R32.2：CLI 实时展示重试进度，补齐事件契约 + CLI->HTTP 集成回归。
 
@@ -79,6 +79,6 @@
     - 修复点：`print_event_preview(run_status)` 拼接 retry 摘要字段，非重试状态保持原样。
 - Rollback:
   - `62b54b6`（R32.2 C1，仅测试先红）
-- Commits: C1=`62b54b6`, C2=`5cbc5ce`, C3=`<pending>`
+- Commits: C1=`62b54b6`, C2=`5cbc5ce`, C3=`<pending, docs(R32.2) in next commit>`
 - Next:
   - 执行 C3 文档提交，随后进入 milestone 集成（rebase main / 全量回归 / merge main / dev-tasks DONE / 清理 worktree）。
