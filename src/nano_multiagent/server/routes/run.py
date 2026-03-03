@@ -1,3 +1,5 @@
+"""HTTP handlers for async run state query and cancellation."""
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, status
@@ -16,6 +18,8 @@ router = APIRouter(
 
 
 class RunResponse(BaseModel):
+    """Run snapshot returned by polling and cancel endpoints."""
+
     run_id: str
     session_id: str
     status: str
@@ -31,6 +35,7 @@ def get_run(
     run_id: str,
     runs: RunsRegistry = Depends(get_runs_registry),
 ) -> RunResponse:
+    """Return current run state, or 404 when run id is unknown."""
     record = runs.get(run_id)
     if record is None:
         raise APIError(
@@ -47,6 +52,7 @@ def cancel_run(
     run_id: str,
     runs: RunsRegistry = Depends(get_runs_registry),
 ) -> RunResponse:
+    """Request run cancellation and return updated run record."""
     record = runs.cancel(run_id)
     if record is None:
         raise APIError(
@@ -59,6 +65,7 @@ def cancel_run(
 
 
 def _to_run_response(record: RunRecord) -> RunResponse:
+    """Convert registry model to stable HTTP response schema."""
     return RunResponse(
         run_id=record.run_id,
         session_id=record.session_id,

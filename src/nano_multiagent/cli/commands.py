@@ -1,3 +1,5 @@
+"""CLI entry orchestration over HTTP-only ServerClient interactions."""
+
 import argparse
 import json
 import os
@@ -43,6 +45,7 @@ class _ManagedLLMOverrides:
     timeout_seconds: float | None = None
 
     def is_empty(self) -> bool:
+        """Return whether managed-mode override set is empty."""
         return (
             self.provider is None
             and self.model is None
@@ -53,6 +56,7 @@ class _ManagedLLMOverrides:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build command parser for REPL and single-shot CLI modes."""
     parser = argparse.ArgumentParser(
         prog="nano-multiagent-cli",
         description="Interactive Coding Agent CLI over HTTP API.",
@@ -109,6 +113,12 @@ def run_cli(
     repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None = None,
     managed_server_factory: Callable[[ManagedServerConfig], ManagedServerProcess] | None = None,
 ) -> int:
+    """Run CLI command/REPL and return process exit code.
+
+    Notes:
+        Non-interactive commands always print exactly one JSON object to stdout
+        so scripts can parse results without SSE/repl noise.
+    """
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     out = stdout or sys.stdout
@@ -165,6 +175,7 @@ def run_cli(
         )
         return 1
 
+    # Keep stdout machine-readable for command mode integrations.
     print(json.dumps(payload, ensure_ascii=False), file=out)
     return 0
 

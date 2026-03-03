@@ -1,3 +1,5 @@
+"""HTTP introspection handlers for hook events and loaded hook handlers."""
+
 from typing import Literal
 
 from fastapi import APIRouter, Depends
@@ -26,16 +28,22 @@ _RETURN_CONTRACTS: dict[str, str] = {
 
 
 class HookEventDescriptor(BaseModel):
+    """Hook event contract descriptor exposed to clients."""
+
     event: str
     mode: HookMode
     return_contract: str
 
 
 class HookEventListResponse(BaseModel):
+    """Response envelope for hook event contract list."""
+
     events: list[HookEventDescriptor]
 
 
 class HookDescriptor(BaseModel):
+    """Loaded hook metadata visible from HTTP inspection endpoint."""
+
     hook_id: str
     event: str
     mode: HookMode
@@ -47,20 +55,25 @@ class HookDescriptor(BaseModel):
 
 
 class HookListResponse(BaseModel):
+    """Response envelope for loaded hook list."""
+
     hooks: list[HookDescriptor]
 
 
 @router.get("/events", response_model=HookEventListResponse)
 def list_hook_events() -> HookEventListResponse:
+    """List hook event names with mode and return-contract summary."""
     return HookEventListResponse(events=build_event_descriptors())
 
 
 @router.get("", response_model=HookListResponse)
 def list_hooks(registry: HookRegistry = Depends(get_hook_registry)) -> HookListResponse:
+    """List currently loaded hooks and operational metadata."""
     return HookListResponse(hooks=build_hook_descriptors(registry))
 
 
 def build_event_descriptors() -> list[HookEventDescriptor]:
+    """Build stable event descriptor list sorted by event name."""
     return [
         HookEventDescriptor(
             event=event_name,
@@ -72,6 +85,7 @@ def build_event_descriptors() -> list[HookEventDescriptor]:
 
 
 def build_hook_descriptors(registry: HookRegistry) -> list[HookDescriptor]:
+    """Convert runtime hook registrations to response descriptors."""
     return [_to_hook_descriptor(item) for item in registry.all_handlers()]
 
 

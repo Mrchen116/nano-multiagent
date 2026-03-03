@@ -1,3 +1,5 @@
+"""In-memory SSE event hub with bounded history replay semantics."""
+
 from __future__ import annotations
 
 import json
@@ -13,6 +15,8 @@ from nano_multiagent.core.ids import make_event_id
 
 @dataclass(frozen=True, slots=True)
 class StreamEvent:
+    """Canonical SSE event payload stored in stream history."""
+
     event_id: str
     event: str
     session_id: str
@@ -27,6 +31,13 @@ class _Subscriber:
 
 
 class EventStreamHub:
+    """Publish/subscribe hub for session and global SSE HTTP endpoints.
+
+    Notes:
+        The hub keeps a bounded history for late subscribers and isolates slow
+        subscribers by dropping events when their queue is full.
+    """
+
     def __init__(self, *, history_limit: int = 2000) -> None:
         self._history_limit = history_limit
         self._history: list[StreamEvent] = []
@@ -40,6 +51,16 @@ class EventStreamHub:
         session_id: str,
         data: dict[str, Any],
     ) -> StreamEvent:
+        """Publish one event and fan out to matching subscribers.
+
+        Args:
+            event: Event name used by SSE `event:` field.
+            session_id: Session scope for routing and replay filtering.
+            data: JSON-serializable event payload.
+
+        Returns:
+            Stored `StreamEvent` with generated id/timestamp.
+        """
         payload = dict(data)
         payload.setdefault("event", event)
         payload.setdefault("session_id", session_id)
@@ -74,6 +95,13 @@ class EventStreamHub:
         max_events: int,
         timeout_seconds: float,
     ) -> Iterator[StreamEvent]:
+        """Yield history replay followed by live events for one subscriber.
+
+        Args:
+            session_id: Session filter; `None` subscribes to global stream.
+            max_events: Maximum number of events yielded in this poll window.
+            timeout_seconds: Long-poll timeout for waiting on new events.
+        """
         buffer: queue.Queue[StreamEvent] = queue.Queue(maxsize=max_events * 2 + 8)
         subscriber = _Subscriber(queue=buffer, session_id=session_id)
 
@@ -111,6 +139,7 @@ class EventStreamHub:
 
 
 def encode_sse_event(*, event_id: str, event: str, data: dict[str, Any]) -> str:
+    """Encode one event in SSE wire format expected by HTTP clients."""
     encoded_data = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
     return f"id: {event_id}\nevent: {event}\ndata: {encoded_data}\n\n"
 

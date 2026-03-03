@@ -1,7 +1,10 @@
+"""Map exceptions to user-facing suggestion/layer semantics for CLI output."""
+
 _ERROR_LAYERS = {"input", "network", "runtime"}
 
 
 def suggestion_for_exception(exc: Exception, *, default: str, mode: str | None = None) -> str:
+    """Return actionable remediation suggestion for a CLI-visible exception."""
     explicit_suggestion = getattr(exc, "suggestion", None)
     if isinstance(explicit_suggestion, str) and explicit_suggestion.strip():
         return explicit_suggestion
@@ -40,6 +43,7 @@ def suggestion_for_exception(exc: Exception, *, default: str, mode: str | None =
 
 
 def error_layer_for_exception(exc: Exception, *, default: str = "runtime") -> str:
+    """Classify exception into input/network/runtime layer for user guidance."""
     explicit_layer = getattr(exc, "layer", None)
     if isinstance(explicit_layer, str):
         normalized_layer = explicit_layer.strip().lower()

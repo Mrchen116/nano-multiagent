@@ -1,3 +1,5 @@
+"""SSE HTTP handlers for global event stream polling."""
+
 from collections.abc import Iterator
 
 from fastapi import APIRouter, Depends, Query
@@ -21,6 +23,7 @@ def stream_global_events(
     timeout_seconds: float = Query(default=0.25, ge=0.0, le=5.0),
     event_hub: EventStreamHub = Depends(get_event_stream_hub),
 ) -> StreamingResponse:
+    """Stream cross-session SSE events within one bounded poll window."""
     return StreamingResponse(
         _iter_sse(
             event_hub.stream(
@@ -34,5 +37,6 @@ def stream_global_events(
 
 
 def _iter_sse(events: Iterator[StreamEvent]) -> Iterator[str]:
+    """Encode hub events into wire-level SSE text chunks."""
     for item in events:
         yield encode_sse_event(event_id=item.event_id, event=item.event, data=item.data)

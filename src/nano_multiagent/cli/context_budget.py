@@ -1,3 +1,5 @@
+"""Context-budget presentation helpers for interactive CLI feedback."""
+
 from typing import TextIO
 
 from nano_multiagent.cli.http_client import ServerClient
@@ -17,6 +19,7 @@ def print_context_budget_snapshot(
     session_id: str,
     context_label: str | None = None,
 ) -> None:
+    """Print context usage summary and threshold hint when available."""
     getter = getattr(client, "get_context_budget", None)
     if not callable(getter):
         return
@@ -39,12 +42,14 @@ def print_context_budget_snapshot(
 
 
 def context_budget_prefix(context_label: str | None) -> str:
+    """Build display prefix for context budget lines."""
     if isinstance(context_label, str) and context_label.strip():
         return f"Context budget ({context_label.strip()})"
     return "Context budget"
 
 
 def extract_context_budget_metrics(payload: object) -> tuple[int, int, float] | None:
+    """Extract/normalize budget metrics from HTTP payload."""
     if not isinstance(payload, dict):
         return None
     used_tokens = payload.get("used_tokens")
@@ -68,6 +73,7 @@ def extract_context_budget_metrics(payload: object) -> tuple[int, int, float] | 
 
 
 def context_budget_hint_for_ratio(usage_ratio: float) -> str | None:
+    """Return first matching budget hint for usage ratio threshold."""
     for threshold, hint in _CONTEXT_BUDGET_HINTS:
         if usage_ratio >= threshold:
             return hint

@@ -1,3 +1,5 @@
+"""Console script module for launching CLI through HTTP API boundary."""
+
 from nano_multiagent.cli.commands import build_parser, run_cli
 
 

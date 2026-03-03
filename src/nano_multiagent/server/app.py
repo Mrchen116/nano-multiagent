@@ -1,3 +1,5 @@
+"""FastAPI application factory with shared middleware and error mapping."""
+
 import os
 from pathlib import Path
 from typing import Any
@@ -40,6 +42,23 @@ def create_app(
     repo_root: Path | None = None,
     auth_token: str | None = None,
 ) -> FastAPI:
+    """Create and wire the HTTP API application.
+
+    Args:
+        session_store: Optional custom session storage backend.
+        runtime: Optional prebuilt runtime instance; when omitted runtime is created.
+        tool_registry: Optional prebuilt tool registry.
+        hook_registry: Optional prebuilt hook registry.
+        repo_root: Repository root used by hooks/tool loader.
+        auth_token: API bearer token override; falls back to env when omitted.
+
+    Returns:
+        Configured FastAPI app with all route groups and middleware attached.
+
+    Notes:
+        CLI/SDK must call this runtime through HTTP handlers only; no direct
+        runtime imports are required at clients.
+    """
     app = FastAPI(title="nano-multiagent", version=__version__)
     resolved_repo_root = (
         repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
@@ -85,6 +104,7 @@ def create_app(
 
     @app.middleware("http")
     async def trace_middleware(request: Request, call_next: Any):  # type: ignore[valid-type]
+        """Bind/propagate `trace_id` on every HTTP request/response."""
         incoming_trace_id = request.headers.get("X-Request-Id", "").strip()
         request.state.trace_id = incoming_trace_id or make_event_id()
         with bind_correlation(trace_id=request.state.trace_id):
@@ -94,6 +114,7 @@ def create_app(
 
     @app.on_event("shutdown")
     async def emit_session_shutdown_hooks() -> None:
+        """Dispatch `session_shutdown` observe hooks before process exits."""
         await _dispatch_session_shutdown(
             session_service=session_service,
             hook_runner=active_hook_runner,
@@ -102,6 +123,7 @@ def create_app(
 
     @app.exception_handler(APIError)
     async def handle_api_error(request: Request, exc: APIError) -> JSONResponse:
+        """Map internal APIError into stable JSON envelope."""
         trace_id = get_trace_id(request)
         log_error(
             "api_error",
@@ -119,7 +141,9 @@ def create_app(
 
     @app.exception_handler(HTTPException)
     async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:
+        """Normalize framework HTTPException into API error contract."""
         trace_id = get_trace_id(request)
+        # Keep coarse error codes for client-side retry/auth routing.
         code = "http_error"
         if exc.status_code == 401:
             code = "unauthorized"
@@ -142,6 +166,7 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        """Map request-schema violations to `invalid_request`."""
         trace_id = get_trace_id(request)
         log_error(
             "request_validation_error",
@@ -159,6 +184,7 @@ def create_app(
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        """Fail closed for unknown exceptions while keeping traceability."""
         trace_id = get_trace_id(request)
         log_error(
             "unexpected_error",
@@ -192,6 +218,7 @@ def _error_response(
     status_code: int,
     trace_id: str,
 ) -> JSONResponse:
+    """Build canonical error response payload shared by all handlers."""
     return JSONResponse(
         status_code=status_code,
         content={
@@ -214,6 +241,7 @@ async def _dispatch_session_shutdown(
     hook_runner: HookRunner | None,
     repo_root: Path,
 ) -> None:
+    """Broadcast shutdown observe hooks for all sessions in paged batches."""
     if hook_runner is None:
         return
 
@@ -245,6 +273,7 @@ def _log_hook_diagnostics(
     event: str,
     diagnostics: tuple[HookExecution, ...],
 ) -> None:
+    """Log non-success hook results while keeping main shutdown path fail-open."""
     for item in diagnostics:
         if item.status == "ok":
             continue
