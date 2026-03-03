@@ -30,9 +30,22 @@ CREATE TABLE IF NOT EXISTS messages (
     conversation_id TEXT NOT NULL,
     sender_user_id TEXT NOT NULL,
     content TEXT NOT NULL,
+    delivery_status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS conversation_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL,
+    message_id TEXT,
+    event_type TEXT NOT NULL,
+    delivery_status TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 );
 """
 
@@ -66,4 +79,15 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
         Executes DDL statements and commits the transaction.
     """
     connection.executescript(_SCHEMA_SQL)
+    _migrate_messages_delivery_status(connection)
     connection.commit()
+
+
+def _migrate_messages_delivery_status(connection: sqlite3.Connection) -> None:
+    """Backfill delivery_status column for databases created before M34."""
+    rows = connection.execute("PRAGMA table_info(messages)").fetchall()
+    column_names = {row["name"] for row in rows}
+    if "delivery_status" not in column_names:
+        connection.execute(
+            "ALTER TABLE messages ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'completed'"
+        )
