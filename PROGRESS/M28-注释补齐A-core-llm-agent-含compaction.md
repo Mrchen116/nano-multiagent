@@ -19,8 +19,8 @@
 - Rationale:
   - 先收口 core/llm，可为后续 agent/runtime docstring 提供稳定引用语义。
 - Evidence:
-  - Tests: 待补充
-  - Entry: 待补充
+  - Tests: docstring AST 扫描（先红）显示 `core/llm` 多个 public 定义缺失 module/class/function/method docstring。
+  - Entry: 在 worktree 运行 `python3 - <<'PY' ...` 扫描缺口，作为 C1 基线。
 - Rollback:
   - 待补充
 - Commits: C1=待补充, C2=待补充, C3=待补充

@@ -11,7 +11,7 @@
 ## Roadpoints
 
 ### R28.1 core + llm public API docstring 补齐
-- Status: TODO
+- Status: DOING
 - Acceptance:
   - `core/*` 与 `llm/*` 的 public module/class/function/method 补齐 docstring。
   - docstring 与真实行为一致，按需含 `Args/Returns/Raises/Side Effects`。
