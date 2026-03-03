@@ -32,7 +32,7 @@
 - Commits:
   - C1: `661f940`
   - C2: `f890075`
-  - C3: `<pending>`
+  - C3: `4777c85`
 - Status: DONE
 
 ## [DONE] R34.2 SSE 事件流接口与重连稳定性
@@ -57,10 +57,10 @@
 - Commits:
   - C1: `030d46d`
   - C2: `804a48d`
-  - C3: `<pending>`
+  - C3: `81f9f78`
 - Status: DONE
 
-## [TODO] R34.3 人和人聊天链路入口验证与错误处理收口
+## [DONE] R34.3 人和人聊天链路入口验证与错误处理收口
 - Acceptance:
   - 入口链路可验证：建用户/会话 -> 发消息 -> 查历史 -> SSE 收事件。
   - 重连仅返回游标之后的新增事件。
@@ -80,7 +80,7 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 写清决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `1e8790e`
+  - C2: `a1af04e`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
