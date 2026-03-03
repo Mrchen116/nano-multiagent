@@ -33,22 +33,52 @@
 
 ### R32.1 异步 run 引入无限重试节奏与取消保持
 - Context:
+  - 旧逻辑在 `RunsRegistry._run_worker` 捕获任意异常后直接 `failed`，无法满足“retryable 上游波动无限重试”。
+  - 初版实现用 `time.monotonic + _sleep(0.1)` 切片轮询取消，导致测试桩替换 sleep 后仍依赖真实时间推进，出现子集测试超时。
 - Decision:
+  - 在 `runs/registry.py` 增加 retry 状态字段：`attempt/next_delay/cooldown/last_error`，并将其写入 session run_status + SSE run_status。
+  - 对 `ModelError(retryable=True)` 进入无限循环：短退避固定 `0.5/1.0/2.0`，每 5 次失败追加 `30.0` 冷却并重置短退避索引。
+  - 等待机制改为 “可取消等待”：每个 run 建立 `threading.Event`，`cancel` 时置位；重试等待通过 `_wait_with_cancel(event, seconds)` 实现，可立即中断。
 - Rationale:
+  - `Event.wait(timeout)` 同时满足“严格等待节奏”和“取消快速生效”，并可通过 monkeypatch `_wait_with_cancel` 实现无真实睡眠测试。
 - Evidence:
   - Tests:
+    - Red: `PYTHONPATH=src pytest -q tests/unit/test_runs_registry.py tests/unit/test_run_cancel.py tests/integration/test_runs_store_integration.py`（先红：retryable 仍直接 failed）
+    - Green: 同一命令 `11 passed`
   - Entry:
+    - 异步 run 在 retryable 上游失败时不进入 failed，持续输出 running+retry 元数据，成功后保持 completed。
+    - `cancel` 置位后会打断等待并停留 `cancelled`，不再继续重试。
+  - Failure/Fix:
+    - 失败现象：重试测试在 1s 超时窗口内未终态（真实时间阻塞）。
+    - 修复点：将 `_sleep_until_retry` 从 monotonic 切片改为 `Event.wait` 可取消等待，并暴露 `_wait_with_cancel` 供测试替换。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `b1e3aa2`（R32.1 C1，仅测试先红）
+- Commits: C1=`b1e3aa2`, C2=`ec0c36a`, C3=`<pending>`
 - Next:
+  - R32.2：CLI 实时展示重试进度，补齐事件契约 + CLI->HTTP 集成回归。
 
 ### R32.2 事件契约扩展与 CLI 实时重试反馈
 - Context:
+  - 运行态已具备 retry 元数据，但 CLI `run_status` 预览仍只显示 `status`，用户仍难以区分“卡死”与“重试中”。
+  - prevention_rules 要求保持事件消费边界：`event_id` 去重 + `run_id` 过滤，不允许终态补发兜底。
 - Decision:
+  - 复用现有 `run_status` 事件，不新增事件类型；在 `cli/repl_events.py` 的 `print_event_preview` 增强 `run_status` 渲染。
+  - 新增 `_format_retry_progress`，显示 `attempt/next_delay/cooldown/last_error` 摘要，格式保持单行紧凑。
+  - 保持 `consume_async_run_events` 的去重/过滤/终态延迟打印逻辑不变，仅扩展显示内容。
 - Rationale:
+  - 复用既有事件通道改动最小、兼容性最好；CLI 只读扩展不会破坏服务端契约和消费顺序。
 - Evidence:
   - Tests:
+    - Red: `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k retry_progress tests/contract/test_runs_async_contract.py -k retry_progress tests/integration/test_cli_async_retry_integration.py`（先红：输出缺少 `attempt=...`）
+    - Green: 同一命令 `3 passed`
+    - Gate subset: `PYTHONPATH=src pytest -q tests/unit/test_runs_registry.py tests/unit/test_run_cancel.py tests/integration/test_runs_store_integration.py tests/unit/test_cli_main.py::test_run_cli_repl_prints_retry_progress_from_run_status_event tests/contract/test_runs_async_contract.py::test_session_sse_run_status_contract_includes_retry_progress_fields tests/integration/test_cli_async_retry_integration.py`（`14 passed`）
   - Entry:
+    - CLI REPL 在真实 `CLI -> HTTP async` 链路可实时打印 `attempt/next_delay/cooldown/last_error`，并保持 run_id 过滤与 event_id 去重行为。
+  - Failure/Fix:
+    - 失败现象：R32.2 Red 中 unit/integration 均缺失 `attempt` 文本。
+    - 修复点：`print_event_preview(run_status)` 拼接 retry 摘要字段，非重试状态保持原样。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `62b54b6`（R32.2 C1，仅测试先红）
+- Commits: C1=`62b54b6`, C2=`5cbc5ce`, C3=`<pending>`
 - Next:
+  - 执行 C3 文档提交，随后进入 milestone 集成（rebase main / 全量回归 / merge main / dev-tasks DONE / 清理 worktree）。

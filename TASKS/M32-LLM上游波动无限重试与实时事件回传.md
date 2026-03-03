@@ -7,7 +7,7 @@
   - Allowed: `src/nano_multiagent/runs/**`、`src/nano_multiagent/agent/**`、`src/nano_multiagent/hooks/**`、`src/nano_multiagent/server/**`、`src/nano_multiagent/cli/**`、`tests/**`、`TASKS/PROGRESS`。
   - Forbidden: `ROADMAP.md`、与 M32 无关重构、删除既有契约语义。
 
-## [TODO] R32.1 异步 run 引入无限重试节奏与取消保持
+## [DONE] R32.1 异步 run 引入无限重试节奏与取消保持
 - Acceptance:
   - 对 `ModelError(retryable=True)`（openai_compat/anthropic 上游瞬时失败）进入无限循环重试，不直接 failed。
   - 重试短退避严格按 `0.5s -> 1s -> 2s` 循环；每连续 5 次失败额外冷却 `30s`，并重置短退避节奏。
@@ -27,12 +27,12 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `b1e3aa2`
+  - C2: `ec0c36a`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
-## [TODO] R32.2 事件契约扩展与 CLI 实时重试反馈
+## [DONE] R32.2 事件契约扩展与 CLI 实时重试反馈
 - Acceptance:
   - 重试中持续产生可消费事件，至少含 `attempt`、`next_delay`、`cooldown`、`last_error` 摘要。
   - CLI REPL 在异步轮询中实时展示“正在重试”信息，用户可区分“重试中”与“卡死无输出”。
@@ -52,7 +52,7 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `62b54b6`
+  - C2: `5cbc5ce`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
