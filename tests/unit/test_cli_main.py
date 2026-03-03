@@ -496,6 +496,30 @@ def test_repl_input_engine_history_navigation_moves_up_and_down() -> None:
     assert typed == "second"
 
 
+def test_repl_input_engine_slash_menu_down_enter_fills_selected_command() -> None:
+    typed = cli_commands._read_interactive_line(
+        prompt="nano> ",
+        history=("from-history",),
+        key_reader=_iter_keys(["/", "\x1b[B", "\n", "\n"]),
+        out=io.StringIO(),
+        command_suggestions=cli_commands.supported_repl_commands(),
+    )
+
+    assert typed == "/new"
+
+
+def test_repl_input_engine_slash_menu_up_wraps_without_history_recall() -> None:
+    typed = cli_commands._read_interactive_line(
+        prompt="nano> ",
+        history=("from-history",),
+        key_reader=_iter_keys(["/", "\x1b[A", "\n", "\n"]),
+        out=io.StringIO(),
+        command_suggestions=cli_commands.supported_repl_commands(),
+    )
+
+    assert typed == "/exit"
+
+
 def test_run_cli_repl_up_recalls_previous_command_line() -> None:
     stub = _StubClient()
     output = io.StringIO()
