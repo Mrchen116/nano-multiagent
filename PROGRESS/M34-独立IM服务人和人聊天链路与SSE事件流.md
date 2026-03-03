@@ -46,7 +46,7 @@
   - Entry: `POST /im/v1/conversations/{id}/messages` 返回 `delivery_status=completed`，事件仓储可按 `after_event_id` 增量读取。
 - Rollback:
   - `661f940`（R34.1 C1，仅红测）
-- Commits: C1=`661f940`, C2=`f890075`, C3=`<pending>`
+- Commits: C1=`661f940`, C2=`f890075`, C3=`4777c85`
 - Next:
   - 进入 `R34.2` Red：新增 SSE 事件流接口、重连游标与心跳流测试。
 
@@ -67,17 +67,29 @@
   - Entry: `/im/v1/conversations/{id}/events` 返回 `text/event-stream`，支持 `Last-Event-ID` 增量读取且空闲时输出 `: keepalive`。
 - Rollback:
   - `030d46d`（R34.2 C1，仅红测）
-- Commits: C1=`030d46d`, C2=`804a48d`, C3=`<pending>`
+- Commits: C1=`030d46d`, C2=`804a48d`, C3=`81f9f78`
 - Next:
   - 进入 `R34.3` Red：补 e2e 入口链路与错误处理收口验证。
 
 ### R34.3 人和人聊天链路入口验证与错误处理收口
 - Context:
+  - R34.2 已具备 SSE 与重连，但入口层还缺“未知会话 messages 返回 404”语义，错误路径不一致。
+  - Milestone 要求 contract + integration + e2e 都有入口验证，需补齐完整链路测试组。
 - Decision:
+  - 新增三层验证：
+    - contract：未知会话下 `messages/events` 均返回 `404 conversation_id not found`；
+    - integration：用户/会话/消息/历史/会话列表主链路；
+    - e2e：完整人聊链路 + `after_event_id` 增量重连。
+  - 在 `list_messages` 接口前增加会话存在性检查；
+  - 在 `create_message` 错误映射中把 `conversation_id not found`、`sender_user_id not found` 收敛到 404。
 - Rationale:
+  - 错误分层一致可减少前端兜底分支，404 也更符合资源语义。
+  - 入口三层同时覆盖可防止“单测通过但真实请求链路偏差”。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest -q tests/im_service`
-  - Entry:
+  - Tests: `PYTHONPATH=src pytest -q tests/im_service`（`22 passed`）
+  - Entry: create users/conversation -> post messages -> list messages -> SSE replay/reconnect 全链路可运行；未知会话 messages/events 统一 404。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `1e8790e`（R34.3 C1，仅红测）
+- Commits: C1=`1e8790e`, C2=`a1af04e`, C3=`<pending>`
 - Next:
+  - 执行 Milestone 最终集成：rebase main、全绿、合并到 main、更新 dev-tasks 状态。
