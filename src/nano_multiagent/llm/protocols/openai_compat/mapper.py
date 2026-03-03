@@ -1,3 +1,5 @@
+"""Request/response mapper for OpenAI-compatible chat completion protocol."""
+
 import json
 from typing import Any, Mapping
 
@@ -7,9 +9,13 @@ from ...interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, L
 
 
 class OpenAICompatMapper:
+    """Map normalized LLM contracts to OpenAI-compatible payloads."""
+
     endpoint_path = "/v1/chat/completions"
 
     def map_generate_request(self, request: LLMGenerateRequest) -> Mapping[str, Any]:
+        """Map normalized request fields into provider request JSON."""
+
         payload: dict[str, Any] = {
             "model": request.model,
             "messages": [self._map_message(message) for message in request.messages],
@@ -25,6 +31,12 @@ class OpenAICompatMapper:
         return payload
 
     def map_generate_response(self, payload: Mapping[str, Any]) -> LLMGenerateResponse:
+        """Normalize OpenAI-compatible response payload.
+
+        Raises:
+            ModelError: If payload misses required schema fields.
+        """
+
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
             raise ModelError(

@@ -1,3 +1,5 @@
+"""Core value objects shared across runtime, providers, and tools."""
+
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
@@ -7,6 +9,8 @@ StopReason = str
 
 @dataclass(frozen=True, slots=True)
 class Message:
+    """Represent a persisted conversation message."""
+
     message_id: str
     role: Role
     content: str
@@ -17,6 +21,8 @@ class Message:
 
 @dataclass(frozen=True, slots=True)
 class ToolSpec:
+    """Describe a tool contract exposed to the model."""
+
     name: str
     description: str
     input_schema: Mapping[str, Any]
@@ -24,6 +30,8 @@ class ToolSpec:
 
 @dataclass(frozen=True, slots=True)
 class ToolCall:
+    """Capture one tool invocation requested by the assistant."""
+
     call_id: str
     name: str
     arguments: Mapping[str, Any] = field(default_factory=dict)
@@ -31,6 +39,8 @@ class ToolCall:
 
 @dataclass(frozen=True, slots=True)
 class ToolResult:
+    """Capture one tool execution outcome returned to the model."""
+
     call_id: str
     name: str
     output: Any = None
@@ -39,6 +49,8 @@ class ToolResult:
 
 @dataclass(frozen=True, slots=True)
 class TurnResult:
+    """Bundle all artifacts produced while handling one user turn."""
+
     session_id: str
     turn_id: str
     messages: tuple[Message, ...] = ()

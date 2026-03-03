@@ -1,3 +1,5 @@
+"""Runtime event schema shared by observability and hook pipelines."""
+
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Mapping
@@ -6,6 +8,8 @@ from .ids import make_event_id
 
 
 class RuntimeEventType(StrEnum):
+    """Enumerate event kinds emitted by the runtime lifecycle."""
+
     INPUT = "input"
     SESSION_START = "session_start"
     SESSION_COMPACT = "session_compact"
@@ -22,6 +26,8 @@ class RuntimeEventType(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class RuntimeEvent:
+    """Represent one immutable runtime event record."""
+
     event_id: str
     type: RuntimeEventType
     session_id: str
@@ -36,6 +42,18 @@ def new_runtime_event(
     turn_id: str | None = None,
     payload: Mapping[str, Any] | None = None,
 ) -> RuntimeEvent:
+    """Build a runtime event with a generated event id.
+
+    Args:
+        event_type: Event type identifier.
+        session_id: Session owning this event.
+        turn_id: Optional turn identifier when event is turn-scoped.
+        payload: Event-specific data payload.
+
+    Returns:
+        A runtime event ready for persistence/streaming.
+    """
+
     return RuntimeEvent(
         event_id=make_event_id(),
         type=event_type,

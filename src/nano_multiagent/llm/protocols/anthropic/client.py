@@ -1,3 +1,5 @@
+"""HTTP client for Anthropic messages-compatible providers."""
+
 from __future__ import annotations
 
 import json
@@ -14,6 +16,8 @@ from .mapper import AnthropicMapper
 
 
 class AnthropicClient(LLMClient):
+    """Send normalized generation requests to Anthropic-compatible endpoint."""
+
     def __init__(
         self,
         *,
@@ -37,6 +41,18 @@ class AnthropicClient(LLMClient):
         )
 
     def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+        """Execute one generation call.
+
+        Args:
+            request: Normalized generation request.
+
+        Returns:
+            Normalized generation response.
+
+        Raises:
+            ModelError: If request/transport/response parsing fails.
+        """
+
         if request.stream:
             raise ModelError("streaming generation is not implemented yet", retryable=False)
 
@@ -84,6 +100,8 @@ class AnthropicClient(LLMClient):
         return self._translator.from_provider_response(payload)
 
     def close(self) -> None:
+        """Close underlying HTTP resources."""
+
         self._http_client.close()
 
     def __enter__(self) -> "AnthropicClient":

@@ -1,7 +1,18 @@
+"""Domain errors with stable machine-readable semantics."""
+
 from typing import Any, Mapping
 
 
 class NanoMultiAgentError(Exception):
+    """Represent a structured runtime error.
+
+    Args:
+        message: Human-readable error description.
+        code: Stable code consumed by API and clients.
+        retryable: Whether callers may retry safely.
+        details: Extra diagnostic fields for observability.
+    """
+
     def __init__(
         self,
         message: str,
@@ -17,6 +28,12 @@ class NanoMultiAgentError(Exception):
         self.details = dict(details or {})
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize the error for transport over HTTP/event channels.
+
+        Returns:
+            A JSON-serializable error payload.
+        """
+
         return {
             "code": self.code,
             "message": self.message,
@@ -26,6 +43,8 @@ class NanoMultiAgentError(Exception):
 
 
 class ModelError(NanoMultiAgentError):
+    """Wrap LLM provider failures with normalized error semantics."""
+
     def __init__(
         self,
         message: str,
@@ -42,6 +61,8 @@ class ModelError(NanoMultiAgentError):
 
 
 class ToolError(NanoMultiAgentError):
+    """Wrap tool execution failures with call context."""
+
     def __init__(
         self,
         message: str,
@@ -64,6 +85,8 @@ class ToolError(NanoMultiAgentError):
 
 
 class PolicyViolation(NanoMultiAgentError):
+    """Signal runtime guardrail violations that should fail fast."""
+
     def __init__(
         self,
         message: str,

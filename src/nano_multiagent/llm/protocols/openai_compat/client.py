@@ -1,3 +1,5 @@
+"""HTTP client for OpenAI-compatible chat completion providers."""
+
 import json
 from dataclasses import replace
 from urllib.parse import urlparse
@@ -12,6 +14,8 @@ from .mapper import OpenAICompatMapper
 
 
 class OpenAICompatClient(LLMClient):
+    """Send normalized generation requests to an OpenAI-compatible endpoint."""
+
     def __init__(
         self,
         *,
@@ -33,6 +37,18 @@ class OpenAICompatClient(LLMClient):
         )
 
     def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+        """Execute one generation call.
+
+        Args:
+            request: Normalized generation request.
+
+        Returns:
+            Normalized generation response.
+
+        Raises:
+            ModelError: If request/transport/response parsing fails.
+        """
+
         if request.stream:
             raise ModelError("streaming generation is not implemented yet", retryable=False)
 
@@ -78,6 +94,8 @@ class OpenAICompatClient(LLMClient):
         return self._translator.from_provider_response(payload)
 
     def close(self) -> None:
+        """Close underlying HTTP resources."""
+
         self._http_client.close()
 
     def __enter__(self) -> "OpenAICompatClient":
