@@ -63,6 +63,25 @@
   - Entry: `/chat` 可浏览会话列表与未选中占位；`/chat/conv-kernel-ops` 可展示消息与输入框；手机宽度下 `/chat` 仅列表，`/chat/:id` 为单栏详情。
 - Rollback:
   - `06e4f3e`（R35.2 C1，仅测试先红）
-- Commits: C1=`06e4f3e`, C2=`a394561`, C3=`<pending>`
+- Commits: C1=`06e4f3e`, C2=`a394561`, C3=`cdf23c9`
 - Next:
   - R35.3 Red：补写 settings mock contract 与编辑联动测试，覆盖 P3-P7。
+
+### R35.3 Settings 工作区（P3-P7）+ mock 可读可编辑
+- Context:
+  - 先前 settings 仍为占位页面，无法编辑 Agent/Nodes/Policies/Account 配置。
+  - 目标要求所有设置数据走 mock 且可写回，不接 Agent 后端。
+- Decision:
+  - 新增 `mock-settings-api` 作为单一 mock 数据源，覆盖 agents/nodes/policies/account 全字段。
+  - 用 React Query 管理读写：列表/详情查询 + mutation 更新 + query 失效刷新。
+  - 落地五页真实表单：`/settings/agents`、`/settings/agents/:id`、`/settings/nodes`、`/settings/policies`、`/settings/account`。
+- Rationale:
+  - 通过统一 mock API 可以在不依赖后端的情况下稳定复用数据逻辑，且便于后续替换真实接口。
+- Evidence:
+  - Tests: `cd src/IM/frontend && npm run test && npm run build`（通过）
+  - Entry: Agent 名称可编辑保存并反馈 `Saved`；Nodes 节点别名与开关可保存；Policies/Account 表单可读写并回显。
+- Rollback:
+  - `bc30711`（R35.3 C1，仅测试先红）
+- Commits: C1=`bc30711`, C2=`0f08257`, C3=`<pending>`
+- Next:
+  - R35.4：补最终验收测试与 Playwright 桌面/手机真实浏览器检查，收口到 main。

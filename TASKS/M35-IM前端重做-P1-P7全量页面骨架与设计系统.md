@@ -53,10 +53,10 @@
 - Commits:
   - C1: `06e4f3e`
   - C2: `a394561`
-  - C3: `<pending>`
+  - C3: `cdf23c9`
 - Status: DONE
 
-## [TODO] R35.3 Settings 工作区（P3-P7）+ mock 可读可编辑
+## [DONE] R35.3 Settings 工作区（P3-P7）+ mock 可读可编辑
 - Acceptance:
   - 路由 `/settings/agents`、`/settings/agents/:agentId`、`/settings/nodes`、`/settings/policies`、`/settings/account` 全落地。
   - Agent/Nodes/Policies/Account 页面字段按蓝图最小集展示并可编辑。
@@ -76,10 +76,10 @@
   - C1/C2/C3 齐全。
   - PROGRESS 写清决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `bc30711`
+  - C2: `0f08257`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
 
 ## [TODO] R35.4 全量门禁与 Playwright 验收记录
 - Acceptance:
