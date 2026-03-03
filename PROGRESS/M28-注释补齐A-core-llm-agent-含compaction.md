@@ -41,6 +41,6 @@
   - Entry: 在 `agent/loop.py` 标注 runtime loop 终止/继续策略；在 `agent/runtime.py` 标注 overflow 重试边界；在 `agent/compaction/planner.py` 标注“不拆 tool-call/tool-result”切点约束。
 - Rollback:
   - 回退到 `2b8b2b7`（仅保留先红审计）。
-- Commits: C1=2b8b2b7, C2=bcbb102, C3=待补充
+- Commits: C1=2b8b2b7, C2=bcbb102, C3=da18993
 - Next:
   - 全量门禁后进行 Milestone 集成与状态回写。
