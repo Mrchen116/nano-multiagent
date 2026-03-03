@@ -1,8 +1,20 @@
+import io
+
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import context_budget
 from nano_multiagent.cli import error_presenter
 from nano_multiagent.cli import repl_commands
 from nano_multiagent.cli import repl_events
+from nano_multiagent.cli import repl_input
+from nano_multiagent.cli.main import run_cli
+
+
+class _ExitOnlyStubClient:
+    def __enter__(self) -> "_ExitOnlyStubClient":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        del exc_type, exc, tb
 
 
 def test_commands_does_not_expose_repl_input_bridge_symbols() -> None:
@@ -37,3 +49,23 @@ def test_commands_delegates_context_budget_snapshot_to_module() -> None:
 def test_commands_delegates_error_layer_and_suggestion_mapping_to_module() -> None:
     assert cli_commands._error_layer_for_exception is error_presenter.error_layer_for_exception
     assert cli_commands._suggestion_for_exception is error_presenter.suggestion_for_exception
+
+def test_run_repl_passes_supported_commands_to_input_reader(monkeypatch) -> None:
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def _fake_build_reader(*, out, input_fn, repl_input_reader_factory, command_suggestions):
+        del out, input_fn, repl_input_reader_factory
+        captured["command_suggestions"] = tuple(command_suggestions)
+        return lambda prompt, history: "/exit"
+
+    monkeypatch.setattr(repl_input, "build_repl_input_reader", _fake_build_reader)
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: _ExitOnlyStubClient(),
+    )
+
+    assert exit_code == 0
+    assert captured["command_suggestions"] == repl_commands.REPL_COMMANDS
