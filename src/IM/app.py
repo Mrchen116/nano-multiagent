@@ -158,7 +158,7 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
                 content=payload.content,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            raise _map_message_write_error(exc) from exc
         return _to_message_response(created)
 
     @app.get(
@@ -167,6 +167,7 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
     )
     def list_messages(conversation_id: str, request: Request) -> list[MessageResponse]:
         """List messages for one conversation in insertion order."""
+        _assert_conversation_exists(request, conversation_id=conversation_id)
         repository = _get_message_repository(request)
         return [
             _to_message_response(item)
@@ -308,6 +309,14 @@ def _assert_conversation_exists(request: Request, *, conversation_id: str) -> No
             status_code=status.HTTP_404_NOT_FOUND,
             detail="conversation_id not found",
         )
+
+
+def _map_message_write_error(exc: ValueError) -> HTTPException:
+    """Map repository write failures to stable HTTP status codes."""
+    detail = str(exc)
+    if detail in {"conversation_id not found", "sender_user_id not found"}:
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
 
 def _get_user_repository(request: Request) -> UserRepository:
