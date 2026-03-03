@@ -1,3 +1,5 @@
+"""HTTP client used by CLI/SDK to access server APIs without runtime imports."""
+
 import asyncio
 import json
 import os
@@ -14,6 +16,8 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 
 @dataclass(frozen=True, slots=True)
 class ServerClientConfig:
+    """Configuration for HTTP client transport/authentication defaults."""
+
     base_url: str = DEFAULT_BASE_URL
     token: str | None = None
     request_id: str | None = None
@@ -21,6 +25,7 @@ class ServerClientConfig:
 
     @classmethod
     def from_env(cls) -> "ServerClientConfig":
+        """Load config from CLI environment variables."""
         timeout_text = os.getenv("NANO_MULTIAGENT_API_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS))
         return cls(
             base_url=os.getenv("NANO_MULTIAGENT_API_BASE_URL", DEFAULT_BASE_URL),
@@ -31,6 +36,13 @@ class ServerClientConfig:
 
 
 class ServerClient:
+    """Synchronous HTTP client exposing CLI/SDK-level API methods.
+
+    Notes:
+        This class is the CLI/SDK boundary to server runtime. Callers should not
+        import runtime internals directly.
+    """
+
     def __init__(
         self,
         *,
@@ -56,18 +68,22 @@ class ServerClient:
         self.close()
 
     def close(self) -> None:
+        """Release underlying HTTP transport resources."""
         self._client.close()
 
     def health(self) -> dict[str, Any]:
+        """Call unauthenticated health endpoint."""
         return self._request("GET", "/v1/health", require_auth=False)
 
     def create_session(self, *, title: str | None = None) -> dict[str, Any]:
+        """Create a session through HTTP API."""
         payload: dict[str, Any] = {}
         if title is not None:
             payload["title"] = title
         return self._request("POST", "/v1/sessions", json=payload, require_auth=True)
 
     def send_message(self, *, session_id: str, text: str) -> dict[str, Any]:
+        """Send one synchronous message turn to server runtime."""
         if not session_id.strip():
             raise ValueError("session_id is required")
         if not text.strip():
@@ -84,6 +100,7 @@ class ServerClient:
         )
 
     def send_message_async(self, *, session_id: str, text: str) -> dict[str, Any]:
+        """Submit one asynchronous run and return run handle payload."""
         if not session_id.strip():
             raise ValueError("session_id is required")
         if not text.strip():
@@ -99,11 +116,13 @@ class ServerClient:
         )
 
     def get_run(self, *, run_id: str) -> dict[str, Any]:
+        """Fetch run status snapshot for polling-based async flows."""
         if not run_id.strip():
             raise ValueError("run_id is required")
         return self._request("GET", f"/v1/runs/{run_id}", require_auth=True)
 
     def list_session_tools(self, *, session_id: str) -> dict[str, Any]:
+        """List tool descriptors exposed to one session."""
         if not session_id.strip():
             raise ValueError("session_id is required")
         return self._request(
@@ -113,6 +132,7 @@ class ServerClient:
         )
 
     def compact_session(self, *, session_id: str) -> dict[str, Any]:
+        """Trigger manual session compaction."""
         if not session_id.strip():
             raise ValueError("session_id is required")
         return self._request(
@@ -123,6 +143,7 @@ class ServerClient:
         )
 
     def get_context_budget(self, *, session_id: str) -> dict[str, Any]:
+        """Fetch context budget snapshot for REPL budget hints."""
         if not session_id.strip():
             raise ValueError("session_id is required")
         return self._request(
@@ -132,6 +153,7 @@ class ServerClient:
         )
 
     def get_llm_config(self) -> dict[str, Any]:
+        """Get active LLM configuration."""
         return self._request("GET", "/v1/llm-config", require_auth=True)
 
     def set_llm_config(
@@ -144,6 +166,7 @@ class ServerClient:
         timeout_seconds: float | None = None,
         clear_api_key: bool = False,
     ) -> dict[str, Any]:
+        """Validate and patch runtime LLM config via HTTP API."""
         payload: dict[str, Any] = {}
         if provider is not None:
             resolved_provider = provider.strip()
@@ -173,6 +196,7 @@ class ServerClient:
         return self._request("PATCH", "/v1/llm-config", json=payload, require_auth=True)
 
     def patch_llm_config(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Pass through partial LLM config payload without local normalization."""
         return self._request(
             "PATCH",
             "/v1/llm-config",
@@ -187,6 +211,7 @@ class ServerClient:
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, Any]]:
+        """Fetch one SSE poll window and parse it into structured events."""
         if not session_id.strip():
             raise ValueError("session_id is required")
         if max_events <= 0:
@@ -222,6 +247,7 @@ class ServerClient:
         json: Mapping[str, Any] | None = None,
         require_auth: bool,
     ) -> dict[str, Any]:
+        """Send JSON request and map HTTP errors to RuntimeError payloads."""
         headers = self._build_headers(require_auth=require_auth)
         response = self._client.request(method=method, url=path, json=json, headers=headers)
 
@@ -237,6 +263,7 @@ class ServerClient:
         return payload
 
     def _build_headers(self, *, require_auth: bool) -> dict[str, str]:
+        """Build headers with request correlation and optional bearer auth."""
         request_id = self._config.request_id or f"req-cli-{uuid.uuid4().hex[:8]}"
         headers = {"X-Request-Id": request_id}
         if self._config.token:
@@ -247,6 +274,7 @@ class ServerClient:
 
 
 def _wrap_transport(transport: httpx.BaseTransport | None) -> httpx.BaseTransport | None:
+    """Adapt async test transport objects for sync `httpx.Client` usage."""
     if transport is None:
         return None
     if hasattr(transport, "handle_request"):
@@ -257,12 +285,19 @@ def _wrap_transport(transport: httpx.BaseTransport | None) -> httpx.BaseTranspor
 
 
 def _should_trust_env(base_url: str) -> bool:
+    """Disable proxy inheritance for loopback targets."""
     host = (urlparse(base_url).hostname or "").strip().lower()
     local_hosts = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
     return host not in local_hosts
 
 
 def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
+    """Parse raw SSE response text into event dictionaries.
+
+    Notes:
+        Invalid/non-JSON event blocks are skipped intentionally so transient
+        malformed frames do not break CLI polling loops.
+    """
     events: list[dict[str, Any]] = []
     for block in raw.split("\n\n"):
         segment = block.strip()
@@ -301,10 +336,13 @@ def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
 
 
 class _AsyncTransportBridge(httpx.BaseTransport):
+    """Bridge async transport to sync interface for deterministic tests."""
+
     def __init__(self, transport: httpx.AsyncBaseTransport) -> None:
         self._transport = transport
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
+        """Handle sync request by delegating to async transport event loop."""
         return asyncio.run(self._handle_request(request))
 
     async def _handle_request(self, request: httpx.Request) -> httpx.Response:
@@ -319,5 +357,6 @@ class _AsyncTransportBridge(httpx.BaseTransport):
         )
 
     def close(self) -> None:
+        """Close bridged async transport when supported."""
         if hasattr(self._transport, "aclose"):
             asyncio.run(self._transport.aclose())

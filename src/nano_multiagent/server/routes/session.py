@@ -1,3 +1,5 @@
+"""Session-scoped HTTP handlers covering message, SSE, tools, and compaction."""
+
 from typing import Any
 
 from collections.abc import Iterator
@@ -34,17 +36,23 @@ router = APIRouter(
 
 
 class CreateSessionRequest(BaseModel):
+    """Payload for creating a new session container."""
+
     title: str | None = None
     metadata: dict[str, Any] | None = None
 
 
 class SessionResponse(BaseModel):
+    """Canonical session summary returned by session lookup APIs."""
+
     session_id: str
     status: str
     created_at: str
 
 
 class SessionListResponse(BaseModel):
+    """Paginated session list response."""
+
     items: list[SessionResponse]
     limit: int
     offset: int
@@ -52,6 +60,8 @@ class SessionListResponse(BaseModel):
 
 
 class SendMessageRequest(BaseModel):
+    """Synchronous message submission payload."""
+
     message_id: str | None = None
     parts: list[dict[str, Any]] = Field(min_length=1)
     model: str | None = None
@@ -59,12 +69,16 @@ class SendMessageRequest(BaseModel):
 
 
 class MessageResponse(BaseModel):
+    """Assistant message projection for sync response payload."""
+
     message_id: str
     role: str
     content: str
 
 
 class SendMessageResponse(BaseModel):
+    """Synchronous turn execution response payload."""
+
     session_id: str
     turn_id: str
     message: MessageResponse
@@ -73,29 +87,39 @@ class SendMessageResponse(BaseModel):
 
 
 class SendMessageAsyncRequest(BaseModel):
+    """Asynchronous message submission payload."""
+
     message_id: str | None = None
     parts: list[dict[str, Any]] = Field(min_length=1)
     model: str | None = None
 
 
 class SendMessageAsyncResponse(BaseModel):
+    """Accepted async run record reference."""
+
     run_id: str
     session_id: str
     status: str
 
 
 class ToolDescriptor(BaseModel):
+    """Tool descriptor visible to one authenticated session."""
+
     name: str
     description: str
     input_schema: dict[str, Any]
 
 
 class SessionToolsResponse(BaseModel):
+    """Response envelope for session tool listing."""
+
     session_id: str
     tools: list[ToolDescriptor]
 
 
 class CompactResultResponse(BaseModel):
+    """Compaction details when session history was compacted."""
+
     reason: str
     entry_id: str
     first_kept_event_id: str
@@ -105,12 +129,16 @@ class CompactResultResponse(BaseModel):
 
 
 class CompactSessionResponse(BaseModel):
+    """Response envelope for manual compaction request."""
+
     session_id: str
     compacted: bool
     result: CompactResultResponse | None
 
 
 class ContextBudgetResponse(BaseModel):
+    """Approximate token budget snapshot used by CLI hints."""
+
     session_id: str
     used_tokens: int
     max_tokens: int
@@ -123,6 +151,7 @@ def create_session(
     payload: CreateSessionRequest,
     session_service: SessionService = Depends(get_session_service),
 ) -> SessionResponse:
+    """Create one session via HTTP boundary."""
     session = session_service.create_session(title=payload.title, metadata=payload.metadata)
     return _to_session_response(session)
 
@@ -133,6 +162,7 @@ def list_sessions(
     offset: int = Query(default=0, ge=0),
     session_service: SessionService = Depends(get_session_service),
 ) -> SessionListResponse:
+    """List sessions with offset pagination semantics."""
     sessions, has_more = session_service.list_sessions(limit=limit, offset=offset)
     return SessionListResponse(
         items=[_to_session_response(session) for session in sessions],
@@ -147,6 +177,7 @@ def get_session(
     session_id: str,
     session_service: SessionService = Depends(get_session_service),
 ) -> SessionResponse:
+    """Fetch session by id or map missing session to HTTP 404."""
     session = session_service.get_session(session_id)
     if session is None:
         raise APIError(
@@ -164,6 +195,7 @@ def list_session_tools(
     session_service: SessionService = Depends(get_session_service),
     registry: ToolRegistry = Depends(get_tool_registry),
 ) -> SessionToolsResponse:
+    """List available tools for one session after existence check."""
     if session_service.get_session(session_id) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -192,6 +224,7 @@ def compact_session(
     session_service: SessionService = Depends(get_session_service),
     runtime=Depends(get_agent_runtime),
 ) -> CompactSessionResponse:
+    """Trigger manual compaction and return compaction metadata when applied."""
     del payload
     if session_service.get_session(session_id) is None:
         raise APIError(
@@ -234,6 +267,7 @@ def get_context_budget(
     session_service: SessionService = Depends(get_session_service),
     runtime=Depends(get_agent_runtime),
 ) -> ContextBudgetResponse:
+    """Estimate session context usage for user-facing budget hints."""
     if session_service.get_session(session_id) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -262,6 +296,7 @@ def send_message(
     payload: SendMessageRequest,
     runtime=Depends(get_agent_runtime),
 ) -> SendMessageResponse:
+    """Execute one synchronous turn and normalize runtime errors to HTTP codes."""
     if payload.stream:
         raise APIError(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -273,6 +308,7 @@ def send_message(
     try:
         result = runtime.run(session_id, payload.parts, stream=False)
     except ValueError as exc:
+        # Preserve 404 vs 400 split so CLI can present actionable guidance.
         message = str(exc)
         if message.startswith("session does not exist:"):
             raise APIError(
@@ -288,6 +324,7 @@ def send_message(
             retryable=False,
         ) from exc
     except ModelError as exc:
+        # Provider/model upstream failures are surfaced as 502 gateway errors.
         raise APIError(
             status_code=status.HTTP_502_BAD_GATEWAY,
             code=exc.code,
@@ -305,6 +342,7 @@ def send_message_async(
     request: Request,
     runs: RunsRegistry = Depends(get_runs_registry),
 ) -> SendMessageAsyncResponse:
+    """Submit an async run and return polling handle (`run_id`)."""
     del payload.message_id
     del payload.model
     try:
@@ -343,6 +381,7 @@ def stream_session_events(
     session_service: SessionService = Depends(get_session_service),
     event_hub: EventStreamHub = Depends(get_event_stream_hub),
 ) -> StreamingResponse:
+    """Stream SSE events for one session with bounded long-poll semantics."""
     if session_service.get_session(session_id) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -363,6 +402,7 @@ def stream_session_events(
 
 
 def _to_session_response(session: Session) -> SessionResponse:
+    """Convert domain session model to HTTP response schema."""
     return SessionResponse(
         session_id=session.session_id,
         status=session.status,
@@ -371,6 +411,7 @@ def _to_session_response(session: Session) -> SessionResponse:
 
 
 def _to_message_response(result: TurnResult) -> dict[str, Any]:
+    """Convert runtime turn result into sync response payload."""
     message = _select_assistant_message(result.messages)
     return {
         "session_id": result.session_id,
@@ -386,6 +427,7 @@ def _to_message_response(result: TurnResult) -> dict[str, Any]:
 
 
 def _select_assistant_message(messages: tuple[Message, ...]) -> Message:
+    """Select latest assistant message or raise contract violation error."""
     for message in reversed(messages):
         if message.role == "assistant":
             return message
@@ -398,11 +440,13 @@ def _select_assistant_message(messages: tuple[Message, ...]) -> Message:
 
 
 def _iter_sse(events: Iterator[StreamEvent]) -> Iterator[str]:
+    """Encode hub events into text/event-stream payload chunks."""
     for item in events:
         yield encode_sse_event(event_id=item.event_id, event=item.event, data=item.data)
 
 
 def _resolve_context_window(runtime: object) -> int:
+    """Read context window from runtime with defensive fallback."""
     default_context_window = CompactionSettings().context_window
     settings = getattr(runtime, "_compaction_settings", None)
     context_window = getattr(settings, "context_window", None)
@@ -414,6 +458,7 @@ def _resolve_context_window(runtime: object) -> int:
 
 
 def _estimate_context_tokens(history: tuple[Message, ...]) -> int:
+    """Estimate token usage with stable heuristic used by CLI budget hints."""
     total = 0
     for message in history:
         total += _estimate_text_tokens(message.content)

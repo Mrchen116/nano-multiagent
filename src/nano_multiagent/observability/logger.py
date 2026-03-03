@@ -1,3 +1,5 @@
+"""Structured logging helpers with correlation field propagation."""
+
 from __future__ import annotations
 
 import logging
@@ -17,6 +19,7 @@ _sink: LogSink | None = None
 
 @contextmanager
 def capture_logs() -> Iterator[list[dict[str, Any]]]:
+    """Temporarily capture log emissions for tests and diagnostics."""
     records: list[dict[str, Any]] = []
 
     def _capture(level: str, message: str, fields: dict[str, Any]) -> None:
@@ -36,22 +39,27 @@ def capture_logs() -> Iterator[list[dict[str, Any]]]:
 
 
 def log_debug(message: str, **fields: Any) -> None:
+    """Emit debug log with correlation fields."""
     _emit("debug", message, fields)
 
 
 def log_info(message: str, **fields: Any) -> None:
+    """Emit info log with correlation fields."""
     _emit("info", message, fields)
 
 
 def log_warn(message: str, **fields: Any) -> None:
+    """Emit warning log with correlation fields."""
     _emit("warning", message, fields)
 
 
 def log_error(message: str, **fields: Any) -> None:
+    """Emit error log with correlation fields."""
     _emit("error", message, fields)
 
 
 def _emit(level: str, message: str, fields: dict[str, Any]) -> None:
+    """Merge correlation + explicit fields and write to sink or logger."""
     merged_fields: dict[str, Any] = current_correlation()
     merged_fields.update(fields)
     for key in _REQUIRED_CORRELATION_FIELDS:

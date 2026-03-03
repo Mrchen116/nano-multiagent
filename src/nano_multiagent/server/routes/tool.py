@@ -1,3 +1,5 @@
+"""HTTP endpoint for listing tool contracts available to sessions."""
+
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -16,17 +18,22 @@ router = APIRouter(
 
 
 class ToolDescriptor(BaseModel):
+    """Public tool descriptor exposed through HTTP capabilities endpoints."""
+
     name: str
     description: str
     input_schema: dict[str, Any]
 
 
 class ToolListResponse(BaseModel):
+    """Response envelope for `GET /v1/tools`."""
+
     tools: list[ToolDescriptor]
 
 
 @router.get("", response_model=ToolListResponse)
 def list_tools(registry: ToolRegistry = Depends(get_tool_registry)) -> ToolListResponse:
+    """List all registered tools with JSON-schema input contracts."""
     tools = [
         ToolDescriptor(
             name=spec.name,

@@ -1,3 +1,5 @@
+"""Request/run correlation context propagation for logs and diagnostics."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -26,6 +28,7 @@ def bind_correlation(
     tool_call_id: str | None | object = _UNSET,
     trace_id: str | None | object = _UNSET,
 ) -> Iterator[None]:
+    """Bind correlation fields for current context and restore on exit."""
     current = dict(_context.get())
     if session_id is not _UNSET:
         current["session_id"] = _string_or_none(session_id)
@@ -44,6 +47,7 @@ def bind_correlation(
 
 
 def current_correlation() -> dict[str, str | None]:
+    """Return normalized correlation dictionary with all known keys present."""
     current = dict(_context.get())
     for field in _CORRELATION_FIELDS:
         current.setdefault(field, None)
@@ -51,6 +55,7 @@ def current_correlation() -> dict[str, str | None]:
 
 
 def current_trace_id() -> str | None:
+    """Return active trace id when present and non-empty."""
     trace_id = current_correlation().get("trace_id")
     if isinstance(trace_id, str) and trace_id:
         return trace_id

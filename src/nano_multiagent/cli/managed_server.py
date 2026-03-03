@@ -1,3 +1,5 @@
+"""Managed-mode local API process lifecycle helpers for CLI."""
+
 import errno
 import os
 import socket
@@ -14,6 +16,8 @@ _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
 
 class ManagedServerError(RuntimeError):
+    """Managed-mode startup/runtime error with optional user suggestion."""
+
     def __init__(self, message: str, *, suggestion: str | None = None) -> None:
         super().__init__(message)
         self.suggestion = suggestion
@@ -21,6 +25,8 @@ class ManagedServerError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ManagedServerConfig:
+    """Managed local API process settings derived from CLI options."""
+
     base_url: str
     token: str | None
     llm_provider: str | None = None
@@ -33,6 +39,8 @@ class ManagedServerConfig:
 
 
 class ManagedServerProcess:
+    """Start/stop local API process for CLI managed mode."""
+
     def __init__(
         self,
         *,
@@ -50,6 +58,7 @@ class ManagedServerProcess:
         self._process: subprocess.Popen[str] | None = None
 
     def start(self) -> None:
+        """Start local API process and wait until health endpoint is reachable."""
         if self._process is not None and self._process.poll() is None:
             return
 
@@ -102,6 +111,7 @@ class ManagedServerProcess:
             raise
 
     def stop(self) -> None:
+        """Stop managed API process with terminate-then-kill fallback."""
         process = self._process
         self._process = None
         if process is None or process.poll() is not None:
@@ -153,6 +163,7 @@ def _default_health_probe(base_url: str) -> bool:
 
 
 def _parse_local_host_port(base_url: str) -> tuple[str, int]:
+    """Validate managed-mode base URL and extract host/port."""
     parsed = urlparse(base_url)
     if parsed.scheme != "http":
         raise ManagedServerError(

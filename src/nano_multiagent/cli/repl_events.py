@@ -1,3 +1,5 @@
+"""REPL helpers for async run polling and SSE event preview rendering."""
+
 import json
 from typing import TextIO
 
@@ -17,6 +19,7 @@ def send_message_with_async_events(
     session_id: str,
     text: str,
 ) -> dict[str, object]:
+    """Send message through async endpoint and stream incremental event previews."""
     submitted = client.send_message_async(session_id=session_id, text=text)
     run_id = _extract_run_id(submitted)
     seen_event_ids: set[str] = set()
@@ -80,6 +83,7 @@ def send_message_with_async_events(
 
 
 def supports_async_repl_events(client: ServerClient) -> bool:
+    """Check whether client supports async run APIs required by REPL event mode."""
     required_methods = ("send_message_async", "stream_session_events", "get_run")
     for name in required_methods:
         method = getattr(client, name, None)
@@ -115,6 +119,12 @@ def consume_async_run_events(
     seen_event_ids: set[str],
     assistant_text: str,
 ) -> tuple[str, int]:
+    """Consume one poll batch with dedupe and run-id filtering.
+
+    Notes:
+        Event id dedupe avoids replayed-history duplicates, and run-id filtering
+        prevents cross-run events from polluting the current REPL turn.
+    """
     delayed_terminal_run_status: dict[str, object] | None = None
     consumed = 0
     updated_text = assistant_text
@@ -143,6 +153,7 @@ def consume_async_run_events(
 
 
 def print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]) -> None:
+    """Render concise human-readable preview for one streamed event."""
     if event_name == "run_status":
         run_id = data.get("run_id")
         status = data.get("status")
@@ -195,6 +206,7 @@ def _preview_event_value(value: object) -> str:
 
 
 def merge_text_delta(current: str, delta: str) -> str:
+    """Merge text delta with full-text fallback behavior."""
     if not current:
         return delta
     if delta.startswith(current):

@@ -1,3 +1,5 @@
+"""REPL slash-command parsing and execution helpers."""
+
 import json
 from dataclasses import dataclass
 from typing import Callable, Sequence, TextIO
@@ -11,6 +13,8 @@ HELP_LINE = "Commands: /help /new /use <session_id> /session /tools /compact /hi
 
 @dataclass(frozen=True, slots=True)
 class ReplCommandResult:
+    """Result object describing command handling outcome."""
+
     handled: bool
     active_session_id: str | None
     should_exit: bool = False
@@ -30,6 +34,7 @@ def handle_repl_command(
     layer_for_exception: Callable[[Exception], str],
     suggestion_for_exception: Callable[[Exception, str], str],
 ) -> ReplCommandResult:
+    """Handle one slash command and keep command UX/errors consistent."""
     command, argument = _parse_command(line)
     argument_tokens = _split_argument_tokens(argument)
 
@@ -206,6 +211,7 @@ def print_actionable_error(
     layer: str = "input",
     usage: str | None = None,
 ) -> None:
+    """Print standardized layered CLI error message."""
     print(f"Error: {message}", file=out)
     print(f"Layer: {layer}", file=out)
     print(f"Suggestion: {suggestion}", file=out)
@@ -254,4 +260,3 @@ def _parse_command(line: str) -> tuple[str, str | None]:
     command = parts[0]
     argument = parts[1].strip() if len(parts) == 2 else None
     return command, argument
-

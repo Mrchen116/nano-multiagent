@@ -1,3 +1,5 @@
+"""Global HTTP endpoints for health, capability discovery, and LLM config."""
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, status
@@ -22,6 +24,7 @@ router = APIRouter()
 
 @router.get("/v1/health")
 def health() -> dict[str, bool | str]:
+    """Return liveness payload for probes and managed CLI startup checks."""
     return {
         "healthy": True,
         "version": __version__,
@@ -37,6 +40,7 @@ def capabilities(
     registry: ToolRegistry = Depends(get_tool_registry),
     runtime=Depends(get_agent_runtime),
 ) -> dict[str, Any]:
+    """Describe current LLM/tool capabilities exposed by this HTTP node."""
     return build_capabilities_payload(
         tool_registry=registry,
         llm_config=runtime.get_llm_config(),
@@ -44,6 +48,8 @@ def capabilities(
 
 
 class LLMConfigResponse(BaseModel):
+    """Response schema for current runtime LLM configuration."""
+
     provider: str
     model: str
     base_url: str
@@ -52,6 +58,8 @@ class LLMConfigResponse(BaseModel):
 
 
 class PatchLLMConfigRequest(BaseModel):
+    """Partial update request schema for LLM runtime configuration."""
+
     provider: str | None = None
     model: str | None = None
     base_url: str | None = None
@@ -66,6 +74,7 @@ class PatchLLMConfigRequest(BaseModel):
     dependencies=[Depends(require_bearer_auth)],
 )
 def get_llm_config(runtime=Depends(get_agent_runtime)) -> LLMConfigResponse:
+    """Fetch current runtime LLM config via HTTP boundary."""
     return _to_llm_config_response(runtime.get_llm_config())
 
 
@@ -78,6 +87,7 @@ def patch_llm_config(
     payload: PatchLLMConfigRequest,
     runtime=Depends(get_agent_runtime),
 ) -> LLMConfigResponse:
+    """Patch runtime LLM config and map runtime/provider errors to HTTP codes."""
     fields_set = payload.model_fields_set
     _ensure_patch_request_is_valid(payload=payload, fields_set=fields_set)
 
@@ -125,6 +135,7 @@ def patch_llm_config(
     dependencies=[Depends(require_bearer_auth)],
 )
 def openapi_v1(request: Request) -> JSONResponse:
+    """Return OpenAPI schema document under authenticated `/v1` namespace."""
     return JSONResponse(content=request.app.openapi())
 
 
@@ -133,6 +144,7 @@ def build_capabilities_payload(
     tool_registry: ToolRegistry,
     llm_config: LLMFactoryConfig,
 ) -> dict[str, Any]:
+    """Build capabilities payload consumed by CLI/SDK feature discovery."""
     providers: list[dict[str, Any]] = []
     for provider in list_supported_providers():
         models = [
@@ -174,6 +186,7 @@ def build_capabilities_payload(
 
 
 def _to_llm_config_response(config: LLMFactoryConfig) -> LLMConfigResponse:
+    """Convert runtime config model into HTTP response schema."""
     return LLMConfigResponse(
         provider=config.provider,
         model=config.model,
@@ -188,6 +201,7 @@ def _require_non_null_if_provided(
     value: Any,
     fields_set: set[str],
 ) -> Any:
+    """Reject explicit null on fields that must be concrete when present."""
     if field_name not in fields_set:
         return None
     if value is None:
@@ -205,6 +219,7 @@ def _ensure_patch_request_is_valid(
     payload: PatchLLMConfigRequest,
     fields_set: set[str],
 ) -> None:
+    """Enforce mutually exclusive patch semantics before runtime reconfigure."""
     if not fields_set:
         raise APIError(
             status_code=status.HTTP_400_BAD_REQUEST,

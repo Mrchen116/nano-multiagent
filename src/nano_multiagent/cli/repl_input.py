@@ -1,3 +1,5 @@
+"""Interactive terminal input helpers used by CLI REPL."""
+
 import sys
 from contextlib import contextmanager
 from typing import Callable, Protocol, Sequence, TextIO
@@ -20,7 +22,10 @@ _MENU_MARKER_IDLE = " "
 
 
 class ReplInputReader(Protocol):
+    """Protocol for pluggable REPL line readers."""
+
     def read_line(self, prompt: str, history: Sequence[str]) -> str:
+        """Read one logical input line for current prompt/history context."""
         ...
 
 
@@ -31,6 +36,7 @@ def build_repl_input_reader(
     repl_input_reader_factory: Callable[[], ReplInputReader] | None,
     command_suggestions: Sequence[str] = (),
 ) -> Callable[[str, Sequence[str]], str]:
+    """Build line-reader adapter for tests, plain input, or editable terminal."""
     if repl_input_reader_factory is not None:
         reader = repl_input_reader_factory()
         return reader.read_line
@@ -50,6 +56,7 @@ def build_repl_input_reader(
 
 
 def supports_editable_terminal_input(stdin: TextIO) -> bool:
+    """Check whether terminal supports raw-mode interactive editing."""
     if termios is None or tty is None:
         return False
     is_tty = getattr(stdin, "isatty", None)
@@ -100,6 +107,7 @@ def read_interactive_line_from_terminal(
     out: TextIO,
     command_suggestions: Sequence[str] = (),
 ) -> str:
+    """Read one line from real terminal with raw-key handling."""
     with _stdin_raw_mode(sys.stdin):
         return read_interactive_line(
             prompt=prompt,
@@ -118,6 +126,7 @@ def read_interactive_line(
     out: TextIO,
     command_suggestions: Sequence[str] = (),
 ) -> str:
+    """Read/edit one line with history and slash-command menu support."""
     chars: list[str] = []
     cursor = 0
     history_items = [item for item in history if isinstance(item, str)]
@@ -331,6 +340,7 @@ def render_interactive_line(
     command_items: Sequence[str] = (),
     selected_command_index: int | None = None,
 ) -> None:
+    """Render editable line and optional slash-command menu in terminal."""
     line = "".join(chars)
     out.write(f"\r{prompt}{line}\x1b[K")
     out.write("\x1b[J")
