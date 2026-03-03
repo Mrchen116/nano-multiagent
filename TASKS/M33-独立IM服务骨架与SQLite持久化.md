@@ -7,7 +7,7 @@
   - Allowed: `src/IM/**`、`tests/im_service/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`data/dev-tasks.json(仅脚本)`。
   - Forbidden: `src/nano_multiagent/**`、`tests/im_service` 外既有测试、`ROADMAP.md`。
 
-## [TODO] R33.1 SQLite 持久化骨架与初始化机制
+## [DONE] R33.1 SQLite 持久化骨架与初始化机制
 - Acceptance:
   - 提供 `src/IM` 独立数据层（用户/会话/消息）与 SQLite schema 初始化。
   - 数据库初始化具备幂等性，可在空库首次启动自动建表。
@@ -26,10 +26,10 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
-  - C3: `<pending>`
-- Status: TODO
+  - C1: `bbef20b`
+  - C2: `9795d47`
+  - C3: `<pending-current-commit>`
+- Status: DONE
 
 ## [TODO] R33.2 Users/Conversations 基础 REST 接口
 - Acceptance:

@@ -31,14 +31,22 @@
 
 ### R33.1 SQLite 持久化骨架与初始化机制
 - Context:
+  - Red 阶段新增 `tests/im_service/unit/test_db_init.py` 与 `test_repositories.py`，先红错误为 `ModuleNotFoundError: IM`。
+  - 需要在不依赖 `src/nano_multiagent/**` 的前提下提供用户/会话/消息最小持久化能力。
 - Decision:
+  - 新建独立包 `src/IM`，落地 `models`、`infra/db`、`repositories` 三层最小实现。
+  - SQLite schema 采用幂等 `CREATE TABLE IF NOT EXISTS`，并启用 foreign keys。
+  - 会话创建要求 participant 非空且必须是已存在用户；消息创建要求会话存在、发送者存在且为会话成员。
 - Rationale:
+  - 先把约束收敛到仓储层，可确保后续 API 层只做输入映射，避免逻辑分散。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest -q tests/im_service`
-  - Entry:
+  - Tests: `PYTHONPATH=src pytest -q tests/im_service`（`4 passed`）
+  - Entry: `connect + initialize_schema` 可重复执行，用户/会话/消息增查与顺序断言通过。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `bbef20b`（R33.1 C1，仅红测）
+- Commits: C1=`bbef20b`, C2=`9795d47`, C3=`<pending-current-commit>`
 - Next:
+  - 进入 `R33.2` Red：补 users/conversations API 集成红测。
 
 ### R33.2 Users/Conversations 基础 REST 接口
 - Context:
