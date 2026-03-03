@@ -43,4 +43,4 @@
   - 回退到 `2b8b2b7`（仅保留先红审计）。
 - Commits: C1=2b8b2b7, C2=bcbb102, C3=da18993
 - Next:
-  - 全量门禁后进行 Milestone 集成与状态回写。
+  - Milestone 完成，进入 main 集成与 dev-tasks 状态回写。
