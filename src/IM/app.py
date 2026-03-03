@@ -58,6 +58,7 @@ class MessageResponse(BaseModel):
     conversation_id: str
     sender_user_id: str
     content: str
+    delivery_status: str
     created_at: str
 
 
@@ -197,6 +198,7 @@ def _to_message_response(message: Message) -> MessageResponse:
         conversation_id=message.conversation_id,
         sender_user_id=message.sender_user_id,
         content=message.content,
+        delivery_status=message.delivery_status,
         created_at=message.created_at,
     )
 
