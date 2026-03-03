@@ -234,6 +234,7 @@ def _run_repl(
         out=out,
         input_fn=input_fn,
         repl_input_reader_factory=repl_input_reader_factory,
+        command_suggestions=_REPL_COMMANDS,
     )
     while True:
         try:

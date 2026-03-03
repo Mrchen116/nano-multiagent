@@ -449,6 +449,7 @@ class _ScriptedReplInputReader:
             history=tuple(history),
             key_reader=_read_key,
             out=self.render,
+            command_suggestions=cli_commands.supported_repl_commands(),
         )
 
 
