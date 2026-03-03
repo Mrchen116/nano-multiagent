@@ -52,10 +52,10 @@
 - Commits:
   - C1: `75c2371`
   - C2: `60ee744`
-  - C3: `<pending-current-commit>`
+  - C3: `491a1d7`
 - Status: DONE
 
-## [TODO] R33.3 Messages 接口与独立服务入口收口
+## [DONE] R33.3 Messages 接口与独立服务入口收口
 - Acceptance:
   - 提供 `POST /im/v1/conversations/{id}/messages`、`GET /im/v1/conversations/{id}/messages`。
   - 消息按创建时间/自增顺序返回，跨会话隔离。
@@ -74,7 +74,7 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
-  - C3: `<pending>`
-- Status: TODO
+  - C1: `5da4d71`
+  - C2: `477deae`
+  - C3: `<pending-current-commit>`
+- Status: DONE

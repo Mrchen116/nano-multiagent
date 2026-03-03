@@ -63,17 +63,25 @@
   - Entry: TestClient 下完成 users 创建/查询、conversations 创建/查询、unknown participant 返回 400。
 - Rollback:
   - `75c2371`（R33.2 C1，仅红测）
-- Commits: C1=`75c2371`, C2=`60ee744`, C3=`<pending-current-commit>`
+- Commits: C1=`75c2371`, C2=`60ee744`, C3=`491a1d7`
 - Next:
   - 进入 `R33.3` Red：补 messages API 红测并收口独立服务入口。
 
 ### R33.3 Messages 接口与独立服务入口收口
 - Context:
+  - Red 阶段新增 `tests/im_service/unit/test_message_repo.py` 与 `integration/test_messages_api.py`，当前实现返回 404，未提供 messages 路由。
+  - `src/IM/app.py` 使用 `on_event` 存在 deprecation warning，适合在本轮一并收口到 lifespan。
 - Decision:
+  - 在 `src/IM/app.py` 新增 `POST/GET /im/v1/conversations/{conversation_id}/messages`，接入 `MessageRepository`。
+  - 新增 `CreateMessageRequest/MessageResponse`，消息创建异常统一映射为 `HTTP 400`。
+  - 将 SQLite 连接管理从 `on_event` 改为 `lifespan`，保持单连接与显式关闭。
 - Rationale:
+  - 在单文件内完成入口与消息链路闭环，满足“独立服务可单独启动 + 基础消息持久化”验收目标。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest -q tests/im_service`
-  - Entry:
+  - Tests: `PYTHONPATH=src pytest -q tests/im_service`（`10 passed`）
+  - Entry: `create_app(db_path=...)` 下可完成消息创建、按插入顺序查询、跨会话隔离查询为空。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `5da4d71`（R33.3 C1，仅红测）
+- Commits: C1=`5da4d71`, C2=`477deae`, C3=`<pending-current-commit>`
 - Next:
+  - 执行 Milestone 集成：`rebase origin/main` -> 全绿 -> merge 到 main -> push -> 更新 `data/dev-tasks.json`。
