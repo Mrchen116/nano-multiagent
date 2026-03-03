@@ -50,6 +50,7 @@ def test_commands_delegates_error_layer_and_suggestion_mapping_to_module() -> No
     assert cli_commands._error_layer_for_exception is error_presenter.error_layer_for_exception
     assert cli_commands._suggestion_for_exception is error_presenter.suggestion_for_exception
 
+
 def test_run_repl_passes_supported_commands_to_input_reader(monkeypatch) -> None:
     captured: dict[str, tuple[str, ...]] = {}
 

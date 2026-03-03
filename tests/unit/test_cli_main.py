@@ -3,6 +3,7 @@ import json
 
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import repl_input
+from nano_multiagent.cli import repl_commands
 from nano_multiagent.cli.main import run_cli
 
 
@@ -449,7 +450,7 @@ class _ScriptedReplInputReader:
             history=tuple(history),
             key_reader=_read_key,
             out=self.render,
-            command_suggestions=cli_commands.supported_repl_commands(),
+            command_suggestions=repl_commands.REPL_COMMANDS,
         )
 
 
@@ -498,24 +499,24 @@ def test_repl_input_engine_history_navigation_moves_up_and_down() -> None:
 
 
 def test_repl_input_engine_slash_menu_down_enter_fills_selected_command() -> None:
-    typed = cli_commands._read_interactive_line(
+    typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=("from-history",),
         key_reader=_iter_keys(["/", "\x1b[B", "\n", "\n"]),
         out=io.StringIO(),
-        command_suggestions=cli_commands.supported_repl_commands(),
+        command_suggestions=repl_commands.REPL_COMMANDS,
     )
 
     assert typed == "/new"
 
 
 def test_repl_input_engine_slash_menu_up_wraps_without_history_recall() -> None:
-    typed = cli_commands._read_interactive_line(
+    typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=("from-history",),
         key_reader=_iter_keys(["/", "\x1b[A", "\n", "\n"]),
         out=io.StringIO(),
-        command_suggestions=cli_commands.supported_repl_commands(),
+        command_suggestions=repl_commands.REPL_COMMANDS,
     )
 
     assert typed == "/exit"

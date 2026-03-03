@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 
 from nano_multiagent.cli import commands as cli_commands
+from nano_multiagent.cli import repl_commands
 from nano_multiagent.cli import repl_input
 from nano_multiagent.cli.http_client import ServerClient
 from nano_multiagent.agent.runtime import AgentRuntime
@@ -42,7 +43,7 @@ class _ScriptedReplInputReader:
             history=tuple(history),
             key_reader=_read_key,
             out=self.render,
-            command_suggestions=cli_commands.supported_repl_commands(),
+            command_suggestions=repl_commands.REPL_COMMANDS,
         )
 
 
