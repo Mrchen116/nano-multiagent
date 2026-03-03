@@ -48,6 +48,6 @@
     - 关键注释已落地到 `tools/safety.py`、`tools/registry.py`、`hooks/runner.py`、`session/stores/base.py`、`session/serializers.py`。
 - Rollback:
   - `b748e77`（R29.1 C1）
-- Commits: C1=`b748e77`, C2=`d449aae`, C3=`<pending>`
+- Commits: C1=`b748e77`, C2=`d449aae`, C3=`2eef453`
 - Next:
   - Milestone 集成：rebase `origin/main`、全量回归、合并 `main`、更新 `data/dev-tasks.json`、清理 worktree。
