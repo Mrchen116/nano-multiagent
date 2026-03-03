@@ -1,10 +1,11 @@
 """SQLite repositories for IM users, conversations, and messages."""
 
 from datetime import datetime, timezone
+import json
 import sqlite3
 from uuid import uuid4
 
-from IM.models import Conversation, Message, User
+from IM.models import Conversation, ConversationEvent, Message, User
 
 
 class UserRepository:
@@ -216,19 +217,54 @@ class MessageRepository:
 
         message_id = uuid4().hex
         created_at = _utc_now()
+        final_status = "completed"
         with self._connection:
             self._connection.execute(
                 """
-                INSERT INTO messages(id, conversation_id, sender_user_id, content, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO messages(id, conversation_id, sender_user_id, content, delivery_status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (message_id, conversation_id, sender_user_id, content, created_at),
+                (
+                    message_id,
+                    conversation_id,
+                    sender_user_id,
+                    content,
+                    "sent",
+                    created_at,
+                ),
+            )
+            self._insert_event(
+                conversation_id=conversation_id,
+                message_id=message_id,
+                event_type="message.sent",
+                delivery_status="sent",
+                payload={
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "sender_user_id": sender_user_id,
+                },
+            )
+            self._connection.execute(
+                "UPDATE messages SET delivery_status = ? WHERE id = ?",
+                (final_status, message_id),
+            )
+            self._insert_event(
+                conversation_id=conversation_id,
+                message_id=message_id,
+                event_type="message.delivered",
+                delivery_status=final_status,
+                payload={
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "sender_user_id": sender_user_id,
+                },
             )
         return Message(
             id=message_id,
             conversation_id=conversation_id,
             sender_user_id=sender_user_id,
             content=content,
+            delivery_status=final_status,
             created_at=created_at,
         )
 
@@ -243,7 +279,7 @@ class MessageRepository:
         """
         rows = self._connection.execute(
             """
-            SELECT id, conversation_id, sender_user_id, content, created_at
+            SELECT id, conversation_id, sender_user_id, content, delivery_status, created_at
             FROM messages
             WHERE conversation_id = ?
             ORDER BY rowid
@@ -256,6 +292,93 @@ class MessageRepository:
                 conversation_id=row["conversation_id"],
                 sender_user_id=row["sender_user_id"],
                 content=row["content"],
+                delivery_status=row["delivery_status"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    def _insert_event(
+        self,
+        *,
+        conversation_id: str,
+        message_id: str | None,
+        event_type: str,
+        delivery_status: str,
+        payload: dict[str, object],
+    ) -> int:
+        """Insert one persisted event row and return SQLite event id."""
+        created_at = _utc_now()
+        cursor = self._connection.execute(
+            """
+            INSERT INTO conversation_events(
+                conversation_id,
+                message_id,
+                event_type,
+                delivery_status,
+                payload_json,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                message_id,
+                event_type,
+                delivery_status,
+                json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+                created_at,
+            ),
+        )
+        return int(cursor.lastrowid)
+
+
+class EventRepository:
+    """Persist and query conversation events."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        """Bind repository to a database connection.
+
+        Args:
+            connection: SQLite connection used for reads and writes.
+        """
+        self._connection = connection
+
+    def list_events(
+        self,
+        *,
+        conversation_id: str,
+        after_event_id: int = 0,
+        limit: int = 200,
+    ) -> list[ConversationEvent]:
+        """List events newer than the cursor for one conversation.
+
+        Args:
+            conversation_id: Target conversation identifier.
+            after_event_id: Exclusive cursor; only events with bigger ids are returned.
+            limit: Maximum number of events to return.
+
+        Returns:
+            Events ordered by event id ascending.
+        """
+        bounded_limit = max(1, min(limit, 500))
+        rows = self._connection.execute(
+            """
+            SELECT event_id, conversation_id, message_id, event_type, delivery_status, payload_json, created_at
+            FROM conversation_events
+            WHERE conversation_id = ? AND event_id > ?
+            ORDER BY event_id
+            LIMIT ?
+            """,
+            (conversation_id, after_event_id, bounded_limit),
+        ).fetchall()
+        return [
+            ConversationEvent(
+                event_id=int(row["event_id"]),
+                conversation_id=row["conversation_id"],
+                message_id=row["message_id"],
+                event_type=row["event_type"],
+                delivery_status=row["delivery_status"],
+                payload_json=row["payload_json"],
                 created_at=row["created_at"],
             )
             for row in rows

@@ -31,4 +31,18 @@ class Message:
     conversation_id: str
     sender_user_id: str
     content: str
+    delivery_status: str
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationEvent:
+    """Represent a persisted conversation event for SSE replay/reconnect."""
+
+    event_id: int
+    conversation_id: str
+    message_id: str | None
+    event_type: str
+    delivery_status: str
+    payload_json: str
     created_at: str
