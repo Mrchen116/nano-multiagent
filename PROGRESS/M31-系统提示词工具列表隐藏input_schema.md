@@ -28,3 +28,27 @@
 - Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
 - Next:
   - 执行 R31.1 的 C1（先更新测试断言并确认失败）。
+
+### R31.1 调整 Available tools 展示并同步测试断言
+- Context:
+  - 现状是 `_format_available_tools` 会在每个工具后拼接 `input_schema` JSON，导致 system prompt 暴露 schema 细节，不符合本 Milestone 目标。
+  - 约束是仅改展示层；`ToolSpec` 结构、tool execution contract 与 placeholder/skills 注入逻辑必须保持不变。
+- Decision:
+  - C1 先在 unit/contract/integration 三层新增“prompt 不含 `input_schema`”断言，并补充 unit 用例验证仅展示 `- name: description`。
+  - C2 仅修改 `src/nano_multiagent/agent/prompting.py::_format_available_tools`，移除 schema 文本拼接，保留工具名与描述输出。
+  - 不改 `_default_tool_specs` 与 runtime 执行链路，确保工具调用契约保持原样。
+- Rationale:
+  - 先红后绿可证明变更必要性；最小实现只触及渲染函数，风险最低且满足“仅展示层调整”。
+- Evidence:
+  - Tests:
+    - Red: `pytest -q tests/unit/test_agent_prompting.py tests/contract/test_system_prompt_contract.py tests/integration/test_prompt_runtime_fill_integration.py`（4 failed）
+    - Green: `pytest -q`（`338 passed, 4 skipped`）
+  - Entry:
+    - system prompt `Available tools` 仅含工具名与描述；
+    - prompt 文本中无 `input_schema`；
+    - runtime placeholders 仍可正常替换，skills 注入逻辑未变。
+- Rollback:
+  - `6570943`（R31.1 C1）
+- Commits: C1=`6570943`, C2=`af2b54d`, C3=`<pending>`
+- Next:
+  - 提交 C3 文档收口，然后执行 `rebase origin/main` + `pytest -q` 并整体合并到 `main`。

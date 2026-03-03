@@ -7,7 +7,7 @@
   - Must keep unchanged: `ToolSpec.input_schema` 数据结构、工具调用执行路径、system prompt placeholder 与 skills 注入机制。
   - Allowed to change: `src/nano_multiagent/agent/prompting.py` 的工具展示文案与 prompt 相关测试、里程碑文档。
 
-## [TODO] R31.1 调整 Available tools 展示并同步测试断言
+## [DONE] R31.1 调整 Available tools 展示并同步测试断言
 - Acceptance:
   - system prompt 的 `Available tools` 区段只保留 `- <name>: <description>` 行，不再输出 `input_schema`。
   - prompt 文本中不出现 `input_schema` 字样。
@@ -27,7 +27,7 @@
   - C1/C2/C3 提交齐全。
   - `PROGRESS` 记录决策、证据、回滚点、提交哈希。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
+  - C1: `6570943`
+  - C2: `af2b54d`
   - C3: `<pending>`
-- Status: TODO
+- Status: DONE
