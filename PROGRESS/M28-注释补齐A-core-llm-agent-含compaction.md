@@ -37,8 +37,8 @@
 - Rationale:
   - 让调用方不读实现也能正确使用，让维护方快速理解不可破坏约束。
 - Evidence:
-  - Tests: 待补充
-  - Entry: 待补充
+  - Tests: docstring AST 扫描（先红）显示 `agent(+compaction)` 多个 public 定义缺失 docstring。
+  - Entry: 以 runtime/loop/planner 为重点记录蓝图约束注释目标（provider隔离、loop边界、tool-pair切点完整性）。
 - Rollback:
   - 待补充
 - Commits: C1=待补充, C2=待补充, C3=待补充
