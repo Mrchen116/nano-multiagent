@@ -80,6 +80,6 @@
   - PROGRESS 记录阻塞根因与修复证据。
 - Commits:
   - C1: `N/A (handoff recovery)`
-  - C2: `<pending>`
-  - C3: `<pending>`
+  - C2: `2b181ad`
+  - C3: `e4dd14f`
 - Status: DONE

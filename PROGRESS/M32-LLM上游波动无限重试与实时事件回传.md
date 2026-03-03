@@ -102,6 +102,6 @@
     - 接管后已恢复“可导入 + 可全量门禁”的稳定状态；M32 关键重试字段与 CLI 实时反馈行为保持通过。
 - Rollback:
   - `dd0c87e`（R32.2 C3，接管前最近稳定点）
-- Commits: C1=`N/A (handoff recovery)`, C2=`<pending>`, C3=`<pending>`
+- Commits: C1=`N/A (handoff recovery)`, C2=`2b181ad`, C3=`e4dd14f`
 - Next:
   - 提交接管修复并完成 main 集成（rebase/merge/push/dev-task DONE/清理 worktree）。
