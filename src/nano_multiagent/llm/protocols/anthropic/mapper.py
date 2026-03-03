@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping
 
 from nano_multiagent.core.errors import ModelError
@@ -113,7 +114,7 @@ class AnthropicMapper:
                     {
                         "type": "tool_result",
                         "tool_use_id": message.tool_call_id,
-                        "content": [{"type": "text", "text": message.content}],
+                        "content": _map_tool_result_content(message.content),
                     }
                 ],
             }
@@ -122,6 +123,80 @@ class AnthropicMapper:
             "role": role,
             "content": [{"type": "text", "text": message.content}],
         }
+
+
+def _map_tool_result_content(content: str) -> list[dict[str, Any]]:
+    payload = _parse_tool_payload(content)
+    if payload is None:
+        return [{"type": "text", "text": content}]
+    output = payload.get("output")
+    if not isinstance(output, Mapping):
+        return [{"type": "text", "text": content}]
+    structured_content = output.get("content")
+    if not isinstance(structured_content, list):
+        return [{"type": "text", "text": content}]
+
+    normalized = _normalize_tool_result_parts(structured_content)
+    if normalized:
+        return normalized
+    return [{"type": "text", "text": content}]
+
+
+def _parse_tool_payload(content: str) -> Mapping[str, Any] | None:
+    if not content:
+        return None
+    try:
+        decoded = json.loads(content)
+    except ValueError:
+        return None
+    if not isinstance(decoded, Mapping):
+        return None
+    return decoded
+
+
+def _normalize_tool_result_parts(parts: list[Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in parts:
+        if not isinstance(item, Mapping):
+            continue
+        part_type = item.get("type")
+        if part_type == "text":
+            text = item.get("text")
+            if isinstance(text, str):
+                normalized.append({"type": "text", "text": text})
+            continue
+        if part_type == "image":
+            image_url = item.get("image_url")
+            mime_type = item.get("mime_type")
+            image_part = _to_anthropic_image_part(image_url=image_url, mime_type=mime_type)
+            if image_part is not None:
+                normalized.append(image_part)
+            continue
+    return normalized
+
+
+def _to_anthropic_image_part(*, image_url: Any, mime_type: Any) -> dict[str, Any] | None:
+    if not isinstance(image_url, str) or not image_url.startswith("data:"):
+        return None
+    header, separator, payload = image_url.partition(",")
+    if separator != "," or not payload:
+        return None
+    if ";base64" not in header:
+        return None
+
+    media_type = header.removeprefix("data:").split(";", 1)[0]
+    if not media_type and isinstance(mime_type, str):
+        media_type = mime_type
+    if not media_type:
+        media_type = "application/octet-stream"
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": media_type,
+            "data": payload,
+        },
+    }
 
 
 def _normalize_content(content_blocks: list[Any]) -> str:

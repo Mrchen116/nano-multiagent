@@ -34,6 +34,8 @@ router = APIRouter(
     dependencies=[Depends(require_bearer_auth)],
 )
 
+_CONTEXT_BUDGET_MAX_TOKENS = 100_000
+
 
 class CreateSessionRequest(BaseModel):
     """Payload for creating a new session container."""
@@ -277,8 +279,9 @@ def get_context_budget(
         )
 
     messages = session_service.manager.list_turn_messages(session_id)
-    used_tokens = _estimate_context_tokens(messages)
     max_tokens = _resolve_context_window(runtime)
+    estimated_tokens = _estimate_context_tokens(messages)
+    used_tokens = min(max(estimated_tokens, 0), max_tokens)
     remaining_tokens = max(max_tokens - used_tokens, 0)
     usage_ratio = float(used_tokens) / float(max_tokens)
     return ContextBudgetResponse(
@@ -446,15 +449,24 @@ def _iter_sse(events: Iterator[StreamEvent]) -> Iterator[str]:
 
 
 def _resolve_context_window(runtime: object) -> int:
-    """Read context window from runtime with defensive fallback."""
+    """Resolve user-facing context budget ceiling.
+
+    Notes:
+        Budget hint output is intentionally standardized to 100K so the CLI
+        remains stable across models/providers and never prints >100% usage.
+    """
     default_context_window = CompactionSettings().context_window
     settings = getattr(runtime, "_compaction_settings", None)
     context_window = getattr(settings, "context_window", None)
     if isinstance(context_window, bool):
-        return default_context_window
+        return _CONTEXT_BUDGET_MAX_TOKENS
     if isinstance(context_window, int) and context_window > 0:
+        if context_window >= _CONTEXT_BUDGET_MAX_TOKENS:
+            return _CONTEXT_BUDGET_MAX_TOKENS
+        if context_window == default_context_window:
+            return _CONTEXT_BUDGET_MAX_TOKENS
         return context_window
-    return default_context_window
+    return _CONTEXT_BUDGET_MAX_TOKENS
 
 
 def _estimate_context_tokens(history: tuple[Message, ...]) -> int:

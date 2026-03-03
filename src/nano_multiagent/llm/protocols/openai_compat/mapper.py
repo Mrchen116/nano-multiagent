@@ -81,7 +81,7 @@ class OpenAICompatMapper:
             mapped["content"] = message.content or ""
             mapped["tool_calls"] = [self._map_tool_call(call) for call in message.tool_calls]
         elif message.role == "tool":
-            mapped["content"] = message.content
+            mapped["content"] = _map_tool_content(message.content)
             if message.tool_call_id is None:
                 raise ModelError("tool message requires tool_call_id", retryable=False)
             mapped["tool_call_id"] = message.tool_call_id
@@ -168,6 +168,61 @@ def _normalize_content(content: Any) -> str:
                     chunks.append(text_value)
         return "".join(chunks)
     return str(content)
+
+
+def _map_tool_content(content: str) -> Any:
+    payload = _parse_tool_payload(content)
+    if payload is None:
+        return content
+    output = payload.get("output")
+    if not isinstance(output, Mapping):
+        return content
+    structured_content = output.get("content")
+    if not isinstance(structured_content, list):
+        return content
+    normalized_parts = _normalize_tool_output_parts(structured_content)
+    if not normalized_parts:
+        return content
+    return normalized_parts
+
+
+def _parse_tool_payload(content: str) -> Mapping[str, Any] | None:
+    if not content:
+        return None
+    try:
+        decoded = json.loads(content)
+    except ValueError:
+        return None
+    if not isinstance(decoded, Mapping):
+        return None
+    return decoded
+
+
+def _normalize_tool_output_parts(parts: list[Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in parts:
+        if not isinstance(item, Mapping):
+            continue
+        part_type = item.get("type")
+        if part_type == "text":
+            text = item.get("text")
+            if isinstance(text, str):
+                normalized.append({"type": "text", "text": text})
+            continue
+        if part_type == "image":
+            image_url = item.get("image_url")
+            if isinstance(image_url, str) and image_url:
+                normalized.append({"type": "image_url", "image_url": {"url": image_url}})
+            continue
+        if part_type == "image_url":
+            image_payload = item.get("image_url")
+            if isinstance(image_payload, Mapping):
+                url = image_payload.get("url")
+                if isinstance(url, str) and url:
+                    normalized.append({"type": "image_url", "image_url": {"url": url}})
+            elif isinstance(image_payload, str) and image_payload:
+                normalized.append({"type": "image_url", "image_url": {"url": image_payload}})
+    return normalized
 
 
 def _parse_tool_arguments(arguments: Any) -> Mapping[str, Any]:

@@ -120,6 +120,58 @@ def _build_tool_request() -> LLMGenerateRequest:
     )
 
 
+def _build_tool_image_request() -> LLMGenerateRequest:
+    return LLMGenerateRequest(
+        session_id="sess_provider_contract",
+        model="codexOAuth:gpt-5.2-codex",
+        messages=(
+            LLMMessage(role="system", content="You are concise."),
+            LLMMessage(role="user", content="what is in the image?"),
+            LLMMessage(
+                role="assistant",
+                content="",
+                tool_calls=(LLMToolCall(call_id="call_1", name="read", arguments={"path": "pixel.png"}),),
+            ),
+            LLMMessage(
+                role="tool",
+                tool_call_id="call_1",
+                content=json.dumps(
+                    {
+                        "call_id": "call_1",
+                        "name": "read",
+                        "output": {
+                            "content": [
+                                {"type": "text", "text": "Image: pixel.png (image/png, 68 bytes)"},
+                                {
+                                    "type": "image",
+                                    "mime_type": "image/png",
+                                    "image_url": "data:image/png;base64,abcd",
+                                },
+                            ]
+                        },
+                    },
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                ),
+            ),
+        ),
+        stream=False,
+        temperature=0.2,
+        max_tokens=64,
+        tools=(
+            ToolSpec(
+                name="read",
+                description="Read a file",
+                input_schema={
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                },
+            ),
+        ),
+    )
+
+
 def test_provider_mapper_request_contract(provider_case: ProviderContractCase) -> None:
     payload = provider_case.mapper.map_generate_request(_build_request())
 
@@ -204,6 +256,37 @@ def test_provider_mapper_tool_request_contract(provider_case: ProviderContractCa
                     "content": [{"type": "text", "text": "file content"}],
                 }
             ],
+        }
+
+
+def test_provider_mapper_tool_request_preserves_image_parts(provider_case: ProviderContractCase) -> None:
+    payload = provider_case.mapper.map_generate_request(_build_tool_image_request())
+
+    if provider_case.provider == "openai_compat":
+        tool_message = payload["messages"][3]
+        assert tool_message == {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": [
+                {"type": "text", "text": "Image: pixel.png (image/png, 68 bytes)"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abcd"}},
+            ],
+        }
+    else:
+        tool_message = payload["messages"][2]
+        assert tool_message["role"] == "user"
+        tool_result = tool_message["content"][0]
+        assert tool_result["type"] == "tool_result"
+        assert tool_result["tool_use_id"] == "call_1"
+        blocks = tool_result["content"]
+        assert blocks[0] == {"type": "text", "text": "Image: pixel.png (image/png, 68 bytes)"}
+        assert blocks[1] == {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "abcd",
+            },
         }
 
 

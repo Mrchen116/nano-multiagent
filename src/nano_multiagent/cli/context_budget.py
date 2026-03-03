@@ -69,6 +69,8 @@ def extract_context_budget_metrics(payload: object) -> tuple[int, int, float] | 
         resolved_ratio = float(used_tokens) / float(max_tokens)
     if resolved_ratio < 0:
         resolved_ratio = 0.0
+    if resolved_ratio > 1:
+        resolved_ratio = 1.0
     return used_tokens, max_tokens, resolved_ratio
 
 
