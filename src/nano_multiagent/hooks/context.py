@@ -12,6 +12,29 @@ from nano_multiagent.observability.tracing import current_trace_id
 LogSink = Callable[[str, str, Mapping[str, Any]], None]
 
 
+@dataclass(frozen=True, slots=True)
+class HookModelCall:
+    """Model call request shape exposed to hook handlers."""
+
+    session_id: str
+    system_prompt: str
+    user_prompt: str
+    model: str | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class HookModelResult:
+    """Model call result returned to hook handlers."""
+
+    model: str
+    content: str
+    raw: Mapping[str, Any] = field(default_factory=dict)
+
+
+HookModelCaller = Callable[[HookModelCall], HookModelResult]
+
+
 class HookLogger:
     """Emit structured hook logs with optional sink override and base fields."""
 
@@ -89,6 +112,7 @@ class HookContext:
     repo_root: Path | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
     logger: HookLogger = field(default_factory=HookLogger)
+    model_caller: HookModelCaller | None = None
 
     def __post_init__(self) -> None:
         if not self.session_id:
@@ -110,4 +134,31 @@ class HookContext:
                 tool_call_id=tool_call_id,
                 trace_id=trace_id,
             ),
+        )
+
+    def call_model(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        model: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> HookModelResult:
+        """Call the runtime model with enforced session-id consistency.
+
+        Notes:
+            The request session id is always `self.session_id`; callers cannot override it.
+        """
+
+        caller = self.model_caller
+        if caller is None:
+            raise RuntimeError("model caller is unavailable in this hook context")
+        return caller(
+            HookModelCall(
+                session_id=self.session_id,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                metadata=dict(metadata or {}),
+            )
         )

@@ -80,7 +80,6 @@ class ToolRegistry:
             repo_root=self._context.repo_root,
             metadata={"cwd": str(self._context.cwd)},
         )
-        execution_context = self._context.with_session(active_hook_context.session_id)
         tool_call_id = _extract_tool_call_id(args=args, hook_context=active_hook_context)
 
         with bind_correlation(
@@ -104,7 +103,19 @@ class ToolRegistry:
                     },
                 )
 
-            normalized_args = _validate_args(name=name, args=args, schema=tool.input_schema)
+            payload_args = tool_call_payload.get("args")
+            effective_args: Mapping[str, Any] = args
+            if isinstance(payload_args, Mapping):
+                effective_args = dict(payload_args)
+            safety_overrides: dict[str, Any] = {}
+            if bool(tool_call_payload.get("allow_unlisted")):
+                safety_overrides["bash_allow_unlisted"] = True
+            execution_context = self._context.with_session(
+                active_hook_context.session_id,
+                tool_call_id=tool_call_id,
+                safety_overrides=safety_overrides,
+            )
+            normalized_args = _validate_args(name=name, args=effective_args, schema=tool.input_schema)
             log_info("tool_execution_start", tool_name=name)
             self._dispatch_observe(
                 "tool_execution_start",

@@ -11,6 +11,7 @@ from nano_multiagent.hooks.runner import HookRunner
 from .base import Tool
 from .builtins import register_builtin_tools
 from .registry import ToolRegistry
+from .safety import load_tool_safety_config
 
 
 def build_tool_registry(
@@ -23,7 +24,10 @@ def build_tool_registry(
 
     from .base import ToolContext
 
-    context = ToolContext.create(repo_root=repo_root)
+    context = ToolContext.create(
+        repo_root=repo_root,
+        safety_config=load_tool_safety_config(repo_root=repo_root),
+    )
     registry = ToolRegistry(context=context, hook_runner=hook_runner)
     register_builtin_tools(registry, runtime=runtime)
     load_tools_from_directory(repo_root=repo_root, registry=registry)

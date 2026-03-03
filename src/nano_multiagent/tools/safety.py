@@ -4,24 +4,28 @@ import os
 import shlex
 import subprocess
 import tempfile
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Mapping
 
 from nano_multiagent.core.errors import ToolError
 
 
 @dataclass(frozen=True, slots=True)
 class ToolSafetyConfig:
-    """Configure read/bash output limits and executable allow/block policies."""
+    """Configure read/bash output limits and command policy guardrails."""
 
     read_max_lines: int = 200
     read_max_bytes: int = 64 * 1024
     bash_max_output_lines: int = 200
     bash_max_output_bytes: int = 64 * 1024
     bash_default_timeout: float = 30.0
-    bash_allowed_commands: tuple[str, ...] = (
+    # Prefix-based allow list used after splitting command by "&&" segments.
+    bash_allowed_prefixes: tuple[str, ...] = (
         "bash",
         "cat",
+        "command -v",
         "echo",
         "false",
         "git",
@@ -30,6 +34,7 @@ class ToolSafetyConfig:
         "pwd",
         "pytest",
         "python",
+        "python3",
         "rg",
         "sed",
         "sleep",
@@ -37,6 +42,8 @@ class ToolSafetyConfig:
         "true",
         "wc",
     )
+    # Backward-compatible executable allow-list; merged into prefixes at runtime.
+    bash_allowed_commands: tuple[str, ...] = ()
     bash_blocked_fragments: tuple[str, ...] = (
         ":(){",
         "mkfs",
@@ -44,6 +51,74 @@ class ToolSafetyConfig:
         "rm -rf /",
         "shutdown",
     )
+
+
+@dataclass(frozen=True, slots=True)
+class CommandPolicyDecision:
+    """Capture command policy decision before shell execution."""
+
+    status: str
+    details: Mapping[str, Any]
+
+
+def load_tool_safety_config(*, repo_root: Path, default: ToolSafetyConfig | None = None) -> ToolSafetyConfig:
+    """Load optional `.nano/policy.toml` overrides for tool safety."""
+
+    base = default or ToolSafetyConfig()
+    policy_path = (repo_root / ".nano" / "policy.toml").expanduser().resolve()
+    if not policy_path.is_file():
+        return base
+
+    loaded = tomllib.loads(policy_path.read_text(encoding="utf-8"))
+    bash_policy = _read_bash_policy_table(loaded)
+    if not bash_policy:
+        return base
+
+    allowed_prefixes = _read_optional_string_tuple(bash_policy.get("allow_prefixes"))
+    blocked_fragments = _read_optional_string_tuple(bash_policy.get("deny_fragments"))
+
+    return ToolSafetyConfig(
+        read_max_lines=base.read_max_lines,
+        read_max_bytes=base.read_max_bytes,
+        bash_max_output_lines=base.bash_max_output_lines,
+        bash_max_output_bytes=base.bash_max_output_bytes,
+        bash_default_timeout=base.bash_default_timeout,
+        bash_allowed_prefixes=allowed_prefixes or base.bash_allowed_prefixes,
+        bash_allowed_commands=base.bash_allowed_commands,
+        bash_blocked_fragments=blocked_fragments or base.bash_blocked_fragments,
+    )
+
+
+def _read_bash_policy_table(raw: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    if not isinstance(raw, Mapping):
+        return None
+    direct = raw.get("bash")
+    if isinstance(direct, Mapping):
+        return direct
+    tools_section = raw.get("tools")
+    if not isinstance(tools_section, Mapping):
+        return None
+    nested = tools_section.get("bash")
+    if not isinstance(nested, Mapping):
+        return None
+    return nested
+
+
+def _read_optional_string_tuple(value: Any) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return None
+    normalized: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        stripped = item.strip()
+        if stripped:
+            normalized.append(stripped)
+    if not normalized:
+        return None
+    return tuple(normalized)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,8 +212,8 @@ class ToolSafety:
 
         return "\n".join(lines), truncated
 
-    def enforce_command_policy(self, command: str, *, tool_name: str) -> None:
-        """Validate a command against deny-list fragments and executable allow-list."""
+    def check_command_policy(self, command: str, *, tool_name: str) -> CommandPolicyDecision:
+        """Classify command as allow/deny/review using current policy config."""
 
         normalized = command.strip().lower()
         if not normalized:
@@ -146,29 +221,50 @@ class ToolSafety:
 
         for fragment in self.config.bash_blocked_fragments:
             if fragment in normalized:
-                raise ToolError(
-                    "command is not allowed by policy",
-                    tool_name=tool_name,
+                return CommandPolicyDecision(
+                    status="denied",
                     details={"blocked_fragment": fragment},
                 )
 
-        try:
-            parts = shlex.split(command, posix=True)
-        except ValueError as exc:
-            raise ToolError("command parsing failed", tool_name=tool_name) from exc
+        _ensure_command_parseable(command=command, tool_name=tool_name)
 
-        if not parts:
-            raise ToolError("command cannot be empty", tool_name=tool_name)
+        unmatched_segments: list[str] = []
+        for segment in _split_and_segments(command):
+            if not _matches_any_allowed_prefix(
+                segment=segment,
+                allow_prefixes=_combined_allow_prefixes(self.config),
+            ):
+                unmatched_segments.append(segment)
 
-        executable = Path(parts[0]).name
-        # POLICY TRADE-OFF: allow-list by executable name is intentionally simple and
-        # auditable, but still permissive for shell composition handled by callers.
-        if executable not in self.config.bash_allowed_commands:
-            raise ToolError(
-                "command is not allowed by policy",
-                tool_name=tool_name,
-                details={"executable": executable},
+        if unmatched_segments:
+            return CommandPolicyDecision(
+                status="review",
+                details={
+                    "allow_prefixes": _combined_allow_prefixes(self.config),
+                    "unmatched_segments": tuple(unmatched_segments),
+                },
             )
+        return CommandPolicyDecision(status="allowed", details={})
+
+    def enforce_command_policy(
+        self,
+        command: str,
+        *,
+        tool_name: str,
+        allow_unlisted: bool = False,
+    ) -> None:
+        """Validate command policy and optionally allow LLM-reviewed unlisted commands."""
+
+        decision = self.check_command_policy(command, tool_name=tool_name)
+        if decision.status == "allowed":
+            return
+        if decision.status == "review" and allow_unlisted:
+            return
+        raise ToolError(
+            "command is not allowed by policy",
+            tool_name=tool_name,
+            details=dict(decision.details),
+        )
 
     def run_command(
         self,
@@ -177,10 +273,15 @@ class ToolSafety:
         cwd: Path,
         timeout: float | None,
         tool_name: str,
+        allow_unlisted: bool = False,
     ) -> CommandExecution:
         """Run one command under policy/time/output limits and return structured output."""
 
-        self.enforce_command_policy(command, tool_name=tool_name)
+        self.enforce_command_policy(
+            command,
+            tool_name=tool_name,
+            allow_unlisted=allow_unlisted,
+        )
         try:
             completed = subprocess.run(
                 ["bash", "-lc", command],
@@ -233,3 +334,46 @@ class ToolSafety:
                     handle.write("\n")
                 handle.write(stderr)
         return str(Path(tmp_path))
+
+
+def _ensure_command_parseable(*, command: str, tool_name: str) -> None:
+    try:
+        parsed = shlex.split(command, posix=True)
+    except ValueError as exc:
+        raise ToolError("command parsing failed", tool_name=tool_name) from exc
+    if not parsed:
+        raise ToolError("command cannot be empty", tool_name=tool_name)
+
+
+def _split_and_segments(command: str) -> tuple[str, ...]:
+    segments = [segment.strip() for segment in command.split("&&")]
+    return tuple(segment for segment in segments if segment)
+
+
+def _combined_allow_prefixes(config: ToolSafetyConfig) -> tuple[str, ...]:
+    prefixes = list(config.bash_allowed_prefixes)
+    for command_name in config.bash_allowed_commands:
+        stripped = str(command_name).strip()
+        if stripped:
+            prefixes.append(stripped)
+    deduped: list[str] = []
+    for prefix in prefixes:
+        if prefix not in deduped:
+            deduped.append(prefix)
+    return tuple(deduped)
+
+
+def _matches_any_allowed_prefix(*, segment: str, allow_prefixes: tuple[str, ...]) -> bool:
+    lowered_segment = segment.strip().lower()
+    for prefix in allow_prefixes:
+        lowered_prefix = prefix.strip().lower()
+        if not lowered_prefix:
+            continue
+        if not lowered_segment.startswith(lowered_prefix):
+            continue
+        if len(lowered_segment) == len(lowered_prefix):
+            return True
+        next_char = lowered_segment[len(lowered_prefix)]
+        if next_char.isspace() or next_char in "<>|;&()":
+            return True
+    return False

@@ -40,6 +40,7 @@ class BashTool:
             cwd=ctx.cwd,
             timeout=timeout_value,
             tool_name=self.name,
+            allow_unlisted=bool(ctx.safety_overrides.get("bash_allow_unlisted")),
         )
 
         if execution.exit_code != 0:

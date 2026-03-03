@@ -214,6 +214,7 @@ class AgentLoop:
                         turn_id=active_hook_ctx.turn_id,
                         repo_root=active_hook_ctx.repo_root,
                         metadata={**dict(active_hook_ctx.metadata), "tool_call_id": parsed_call.call_id},
+                        model_caller=active_hook_ctx.model_caller,
                     )
                     self._dispatch_observe(
                         "tool_call",

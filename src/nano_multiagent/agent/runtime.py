@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.ids import make_message_id, make_turn_id
 from nano_multiagent.core.types import Message, ToolCall, ToolResult, TurnResult
-from nano_multiagent.hooks.context import HookContext
+from nano_multiagent.hooks.context import HookContext, HookModelCall, HookModelResult
 from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
-from nano_multiagent.llm.interfaces import LLMClient
+from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from nano_multiagent.session.entries import SessionEntry
 from nano_multiagent.session.manager import SessionManager
 from nano_multiagent.session.models import Session
@@ -58,6 +58,7 @@ class AgentRuntime:
             timeout_seconds=env_llm_config.timeout_seconds,
         )
         active_llm_client = llm_client or create_llm_client(config=self._llm_config)
+        self._llm_client = active_llm_client
         self._hook_runner = hook_runner
         self._repo_root = (repo_root or Path.cwd()).expanduser().resolve()
         self._compaction_settings = compaction_settings or CompactionSettings()
@@ -124,7 +125,7 @@ class AgentRuntime:
             raise ValueError("empty input parts are not allowed")
 
         turn_id = make_turn_id()
-        hook_ctx = HookContext(session_id=session_id, turn_id=turn_id, repo_root=self._repo_root)
+        hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id)
 
         input_payload, handled = self._dispatch_intercept(
             "input",
@@ -319,6 +320,7 @@ class AgentRuntime:
 
         active_llm_client = create_llm_client(config=next_config)
         self._llm_config = next_config
+        self._llm_client = active_llm_client
         self._loop.bind_llm_client(
             llm_client=active_llm_client,
             model=next_config.model,
@@ -352,7 +354,7 @@ class AgentRuntime:
         """Create a session and emit `session_start` observe hook."""
 
         session = self._session_manager.create_session(title=title, metadata=metadata)
-        hook_ctx = HookContext(session_id=session.session_id, repo_root=self._repo_root)
+        hook_ctx = self._build_hook_context(session_id=session.session_id)
         self._dispatch_observe(
             "session_start",
             {"session_id": session.session_id},
@@ -421,6 +423,48 @@ class AgentRuntime:
                 duration_ms=item.duration_ms,
                 error=item.error,
             )
+
+    def _build_hook_context(
+        self,
+        *,
+        session_id: str,
+        turn_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> HookContext:
+        return HookContext(
+            session_id=session_id,
+            turn_id=turn_id,
+            repo_root=self._repo_root,
+            metadata=dict(metadata or {}),
+            model_caller=self._call_hook_model,
+        )
+
+    def _call_hook_model(self, call: HookModelCall) -> HookModelResult:
+        """Execute one hook-initiated model call under runtime configuration."""
+
+        normalized_session = call.session_id.strip()
+        if not normalized_session:
+            raise ValueError("session_id is required")
+        model = (call.model or self._llm_config.model).strip()
+        if not model:
+            raise ValueError("model is required")
+        response = self._llm_client.generate(
+            LLMGenerateRequest(
+                session_id=normalized_session,
+                model=model,
+                stream=False,
+                messages=(
+                    LLMMessage(role="system", content=call.system_prompt),
+                    LLMMessage(role="user", content=call.user_prompt),
+                ),
+                metadata=dict(call.metadata),
+            )
+        )
+        return HookModelResult(
+            model=response.model,
+            content=response.message.content,
+            raw=response.raw,
+        )
 
     def _execute_loop(
         self,
@@ -506,7 +550,7 @@ class AgentRuntime:
                 "dropped_event_ids": result.dropped_event_ids,
                 "kept_event_ids": result.kept_event_ids,
             },
-            HookContext(session_id=session_id, repo_root=self._repo_root),
+            self._build_hook_context(session_id=session_id),
         )
         return result
 
@@ -718,3 +762,4 @@ def _serialize_tool_result_content(result: ToolResult) -> str:
         return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     except TypeError:
         return str(payload)
+

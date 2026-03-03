@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.hooks.registry import HookRegistry
+from nano_multiagent.hooks.runner import HookRunner
 from nano_multiagent.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
@@ -200,3 +202,86 @@ def test_runtime_persists_tool_events_with_metadata_and_replays_context() -> Non
     ]
     assert second_turn_request.messages[2].tool_calls[0].call_id == "call_runtime_1"
     assert second_turn_request.messages[3].tool_call_id == "call_runtime_1"
+
+
+def test_hook_context_model_call_uses_same_session_id() -> None:
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+    llm_client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="mock-model",
+                message=LLMMessage(role="assistant", content='{"risk":"safe","reason":"read only"}'),
+                finish_reason="stop",
+            ),
+            LLMGenerateResponse(
+                model="mock-model",
+                message=LLMMessage(role="assistant", content="runtime-pong"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    hooks = HookRegistry()
+
+    def on_input(payload, ctx):  # noqa: ANN001
+        _ = ctx.call_model(
+            system_prompt="risk-system",
+            user_prompt="risk-user",
+        )
+        return {"action": "continue", "text": payload["text"]}
+
+    hooks.on("input", on_input, priority=10)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="mock-model",
+        hook_runner=HookRunner(registry=hooks),
+    )
+
+    runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+
+    assert llm_client.requests[0].session_id == session.session_id
+    assert llm_client.requests[1].session_id == session.session_id
+
+
+def test_hook_context_model_call_supports_model_override() -> None:
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    session = manager.create_session()
+    llm_client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="risk-model-x",
+                message=LLMMessage(role="assistant", content='{"risk":"safe","reason":"ok"}'),
+                finish_reason="stop",
+            ),
+            LLMGenerateResponse(
+                model="mock-model",
+                message=LLMMessage(role="assistant", content="runtime-pong"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    hooks = HookRegistry()
+
+    def on_input(payload, ctx):  # noqa: ANN001
+        _ = ctx.call_model(
+            system_prompt="risk-system",
+            user_prompt="risk-user",
+            model="risk-model-x",
+        )
+        return {"action": "continue", "text": payload["text"]}
+
+    hooks.on("input", on_input, priority=10)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="mock-model",
+        hook_runner=HookRunner(registry=hooks),
+    )
+
+    runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+
+    assert llm_client.requests[0].model == "risk-model-x"
+    assert llm_client.requests[0].session_id == session.session_id

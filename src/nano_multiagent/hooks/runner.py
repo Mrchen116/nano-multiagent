@@ -112,6 +112,10 @@ class HookRunner:
                 continue
 
             if normalized_event == "tool_call":
+                if "args" in result and isinstance(result["args"], Mapping):
+                    mutable_payload["args"] = dict(result["args"])
+                if "allow_unlisted" in result:
+                    mutable_payload["allow_unlisted"] = bool(result["allow_unlisted"])
                 if bool(result.get("block")):
                     mutable_payload["block"] = True
                     mutable_payload["reason"] = result.get("reason")

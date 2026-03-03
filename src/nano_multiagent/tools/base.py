@@ -1,6 +1,6 @@
 """Shared tool protocol and immutable execution context."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Protocol, runtime_checkable
 
@@ -27,6 +27,8 @@ class ToolContext:
     cwd: Path
     safety: ToolSafety
     session_id: str | None = None
+    tool_call_id: str | None = None
+    safety_overrides: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
     def create(
@@ -43,12 +45,20 @@ class ToolContext:
         safety = ToolSafety(repo_root=resolved_root, config=safety_config or ToolSafetyConfig())
         return cls(repo_root=resolved_root, cwd=resolved_cwd, safety=safety)
 
-    def with_session(self, session_id: str | None) -> "ToolContext":
-        """Clone the context with a session id for trace propagation."""
+    def with_session(
+        self,
+        session_id: str | None,
+        *,
+        tool_call_id: str | None = None,
+        safety_overrides: Mapping[str, Any] | None = None,
+    ) -> "ToolContext":
+        """Clone context with session/call metadata and per-call safety overrides."""
 
         return ToolContext(
             repo_root=self.repo_root,
             cwd=self.cwd,
             safety=self.safety,
             session_id=session_id,
+            tool_call_id=tool_call_id,
+            safety_overrides=dict(safety_overrides or {}),
         )
