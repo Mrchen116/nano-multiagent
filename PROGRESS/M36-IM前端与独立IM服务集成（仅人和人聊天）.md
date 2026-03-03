@@ -44,7 +44,7 @@
   - Entry: `GET /im/v1/conversations/{id}/events?after_event_id=0&once=true` 可输出 `message_created/text_delta/turn_end/message_status`。
 - Rollback:
   - `f46c02a`（R36.1 C1，仅测试先红）
-- Commits: C1=`f46c02a`, C2=`0caa94b`, C3=`b19634e`
+- Commits: C1=`8435abd`, C2=`16ee8eb`, C3=`790ed56`
 - Next:
   - R36.2 Red：将前端 chat 从 `mock-chat-api` 切到独立 IM 服务，并补 SSE UI 渲染测试。
 
@@ -64,13 +64,13 @@
   - Entry: `/chat/:conversationId` 可展示消息状态文案（如 `sent/running/completed`），并可消费 SSE 事件更新消息内容与状态。
 - Rollback:
   - `af30d3b`（R36.2 C1，仅测试先红）
-- Commits: C1=`af30d3b`, C2=`b538549`, C3=`b3e27b7`
+- Commits: C1=`939af42`, C2=`cdc4d06`, C3=`4006d1d`
 - Next:
   - R36.3：做真实浏览器 Playwright 验收，收口文档并执行 main 集成流程。
 
 ### R36.3 联调收口、Playwright 真浏览器验收、主干集成
 - Context:
-  - R36.3 的 C1/C2 已存在（`dff42f1`/`d92bb66`），当前缺口是联调证据与文档收口（C3）。
+  - R36.3 的 C1/C2 已存在（`b810984`/`b296d2c`），当前缺口是联调证据与文档收口（C3）。
   - 按范围限制仅执行 IM 服务测试、前端 test/build 和 chat 页面真实浏览器抽检，不触碰 `src/nano_multiagent/**`。
 - Decision:
   - 执行全量门禁：`PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`。
@@ -94,7 +94,7 @@
       - `src/IM/frontend/output/playwright/R36.3-chat-mobile-after-send.png`
     - 控制台仅见 `favicon.ico 404`，不影响 chat 主流程。
 - Rollback:
-  - `dff42f1`（R36.3 C1，仅测试先红）
-- Commits: C1=`dff42f1`, C2=`d92bb66`, C3=`docs(R36.3) 本提交`
+  - `b810984`（R36.3 C1，仅测试先红）
+- Commits: C1=`b810984`, C2=`b296d2c`, C3=`0774005`
 - Next:
-  - M36 完成后执行 rebase main、全绿复验、merge main、push main，并用脚本将 `data/dev-tasks.json` 更新为 `DONE`。
+  - rebase main 已完成；等待 merge/push 与 `dev-tasks.json` 状态更新。

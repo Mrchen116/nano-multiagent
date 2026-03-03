@@ -22,4 +22,4 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     assert "conversations" in table_names
     assert "conversation_participants" in table_names
     assert "messages" in table_names
-    assert "message_events" in table_names
+    assert "conversation_events" in table_names

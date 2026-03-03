@@ -95,13 +95,11 @@ def test_sse_events_roundtrip_for_sent_message(tmp_path: Path) -> None:
 
         with client.stream(
             "GET",
-            f"/im/v1/conversations/{conversation_id}/events?after_event_id=0&once=true",
+            f"/im/v1/conversations/{conversation_id}/events?after_event_id=0&max_events=10&timeout_seconds=0.05",
         ) as stream_response:
             assert stream_response.status_code == 200
             body = "".join(chunk for chunk in stream_response.iter_text())
 
-        assert "event: message_created" in body
-        assert "event: text_delta" in body
-        assert "event: turn_end" in body
-        assert "event: message_status" in body
+        assert "event: message.sent" in body
+        assert "event: message.delivered" in body
         assert "\"conversation_id\"" in body

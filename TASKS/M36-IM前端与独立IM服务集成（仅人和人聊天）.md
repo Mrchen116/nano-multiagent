@@ -27,9 +27,9 @@
   - `PYTHONPATH=src pytest -q tests/im_service` 全绿。
   - C1/C2/C3 齐全，PROGRESS 记录决策与证据。
 - Commits:
-  - C1: `f46c02a`
-  - C2: `0caa94b`
-  - C3: `b19634e`
+  - C1: `8435abd`
+  - C2: `16ee8eb`
+  - C3: `790ed56`
 - Status: DONE
 
 ## [DONE] R36.2 P1/P2 前端接入独立IM服务（settings 保持 mock）
@@ -50,9 +50,9 @@
   - `cd src/IM/frontend && npm run test && npm run build` 全绿。
   - C1/C2/C3 齐全，PROGRESS 记录决策与证据。
 - Commits:
-  - C1: `af30d3b`
-  - C2: `b538549`
-  - C3: `b3e27b7`
+  - C1: `939af42`
+  - C2: `cdc4d06`
+  - C3: `4006d1d`
 - Status: DONE
 
 ## [DONE] R36.3 联调收口、Playwright 真浏览器验收、主干集成
@@ -73,7 +73,7 @@
   - 全量门禁通过 + Playwright 验收完成。
   - C1/C2/C3 齐全，PROGRESS 记录证据与回滚点。
 - Commits:
-  - C1: `dff42f1`
-  - C2: `d92bb66`
-  - C3: `docs(R36.3) 本提交`
+  - C1: `b810984`
+  - C2: `b296d2c`
+  - C3: `0774005`
 - Status: DONE
