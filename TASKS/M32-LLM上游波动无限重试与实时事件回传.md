@@ -27,9 +27,9 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `b1e3aa2`
-  - C2: `ec0c36a`
-  - C3: `03f4e7c`
+  - C1: `d618d01`
+  - C2: `73b1d18`
+  - C3: `a1d2bdc`
 - Status: DONE
 
 ## [DONE] R32.2 事件契约扩展与 CLI 实时重试反馈
@@ -52,7 +52,34 @@
   - C1/C2/C3 提交齐全。
   - PROGRESS 记录决策/证据/回滚点/提交哈希。
 - Commits:
-  - C1: `62b54b6`
-  - C2: `5cbc5ce`
-  - C3: `<pending, docs(R32.2) in next commit>`
+  - C1: `72bf36c`
+  - C2: `8270564`
+  - C3: `dd0c87e`
+- Status: DONE
+
+## [DONE] R32.3 续跑接管修复（主干契约漂移与阻塞测试）
+- Acceptance:
+  - 修复 `runs/registry.py` 残留旧契约：不再依赖 `TokenUsage`，可在当前 `core.types` 上完成导入与执行。
+  - 保持 M32 重试/事件语义不退化，同时恢复 `runtime.run` 调用与现有 runtime/stub 兼容。
+  - 修复全量门禁阻塞点：CLI timeout 集成用例不应因 `retryable=True` 无限重试而挂起。
+- Tests Plan:
+  - `unit`: 选。覆盖 registry 状态机与取消语义回归。
+  - `contract`: 选。覆盖 runs async 事件字段契约回归。
+  - `integration`: 选。覆盖 CLI 异步重试链路与 timeout 诊断链路。
+  - `e2e`: 不选。本 Roadpoint 为接管修复，不新增入口行为。
+- Expected Tests:
+  - `tests/unit/test_runs_registry.py`
+  - `tests/unit/test_run_cancel.py`
+  - `tests/integration/test_runs_store_integration.py`
+  - `tests/integration/test_cli_async_retry_integration.py`
+  - `tests/integration/test_cli_http_flow_integration.py::test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence`
+  - `PYTHONPATH=src pytest -q`
+- DoD:
+  - `PYTHONPATH=src pytest -q` 全绿。
+  - C2/C3 提交齐全（本次为“换人续跑接管修复”，不新增独立 C1）。
+  - PROGRESS 记录阻塞根因与修复证据。
+- Commits:
+  - C1: `N/A (handoff recovery)`
+  - C2: `<pending>`
+  - C3: `<pending>`
 - Status: DONE

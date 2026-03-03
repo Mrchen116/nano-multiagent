@@ -52,8 +52,8 @@
     - 失败现象：重试测试在 1s 超时窗口内未终态（真实时间阻塞）。
     - 修复点：将 `_sleep_until_retry` 从 monotonic 切片改为 `Event.wait` 可取消等待，并暴露 `_wait_with_cancel` 供测试替换。
 - Rollback:
-  - `b1e3aa2`（R32.1 C1，仅测试先红）
-- Commits: C1=`b1e3aa2`, C2=`ec0c36a`, C3=`03f4e7c`
+  - `d618d01`（R32.1 C1，仅测试先红）
+- Commits: C1=`d618d01`, C2=`73b1d18`, C3=`a1d2bdc`
 - Next:
   - R32.2：CLI 实时展示重试进度，补齐事件契约 + CLI->HTTP 集成回归。
 
@@ -78,7 +78,30 @@
     - 失败现象：R32.2 Red 中 unit/integration 均缺失 `attempt` 文本。
     - 修复点：`print_event_preview(run_status)` 拼接 retry 摘要字段，非重试状态保持原样。
 - Rollback:
-  - `62b54b6`（R32.2 C1，仅测试先红）
-- Commits: C1=`62b54b6`, C2=`5cbc5ce`, C3=`<pending, docs(R32.2) in next commit>`
+  - `72bf36c`（R32.2 C1，仅测试先红）
+- Commits: C1=`72bf36c`, C2=`8270564`, C3=`dd0c87e`
 - Next:
-  - 执行 C3 文档提交，随后进入 milestone 集成（rebase main / 全量回归 / merge main / dev-tasks DONE / 清理 worktree）。
+  - 进入 milestone 集成（rebase main / 全量回归 / merge main / dev-tasks DONE / 清理 worktree）。
+
+### R32.3 续跑接管修复（主干契约漂移与阻塞测试）
+- Context:
+  - 接管时全量门禁在 collection 阶段直接报错：`runs/registry.py` 仍导入已移除的 `TokenUsage`，属于历史冲突残留。
+  - 修复导入后，全量门禁稳定阻塞在 `tests/integration/test_cli_http_flow_integration.py::test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence`：该 stub 使用 `ModelError(retryable=True)`，在 M32 新语义下会无限重试，REPL 永不返回。
+- Decision:
+  - 在 `runs/registry.py` 去除 `TokenUsage`/`usage` 依赖并恢复 `runtime.run(..., stream=False)` 兼容调用，保持 retry metadata（attempt/next_delay/cooldown/last_error）不变。
+  - 清理 `tests/unit/test_runs_registry.py` 中已失效的 usage 断言。
+  - 将 timeout 集成测试 stub 改为 `retryable=False`，明确该用例验证“不可重试错误的 CLI 诊断输出”，避免与 M32 无限重试语义冲突。
+- Rationale:
+  - 先恢复主干契约一致性，再最小化修复阻塞测试，能够在不改变 M32 目标语义的前提下恢复全量门禁可执行。
+- Evidence:
+  - Tests:
+    - `PYTHONPATH=src pytest -q tests/unit/test_runs_registry.py tests/unit/test_run_cancel.py tests/integration/test_runs_store_integration.py tests/contract/test_runs_async_contract.py tests/unit/test_cli_main.py::test_run_cli_repl_prints_retry_progress_from_run_status_event tests/integration/test_cli_async_retry_integration.py` -> `15 passed`
+    - `PYTHONPATH=src pytest -q tests/integration/test_capabilities_wiring_integration.py::test_capabilities_reflects_injected_tool_registry tests/integration/test_cli_async_retry_integration.py::test_cli_repl_http_chain_surfaces_retry_progress_events tests/integration/test_cli_http_flow_integration.py::test_cli_runs_http_flow_against_asgi_app tests/integration/test_cli_http_flow_integration.py::test_cli_send_message_command_keeps_single_json_stdout_contract_with_async_capable_client tests/integration/test_cli_http_flow_integration.py::test_cli_http_flow_executes_tool_call_loop_before_returning_final_answer tests/integration/test_cli_http_flow_integration.py::test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence` -> `6 passed`
+    - `PYTHONPATH=src pytest -q` -> `344 passed, 4 skipped`
+  - Entry:
+    - 接管后已恢复“可导入 + 可全量门禁”的稳定状态；M32 关键重试字段与 CLI 实时反馈行为保持通过。
+- Rollback:
+  - `dd0c87e`（R32.2 C3，接管前最近稳定点）
+- Commits: C1=`N/A (handoff recovery)`, C2=`<pending>`, C3=`<pending>`
+- Next:
+  - 提交接管修复并完成 main 集成（rebase/merge/push/dev-task DONE/清理 worktree）。
