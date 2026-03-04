@@ -40,13 +40,15 @@
 - Evidence:
   - Tests:
     - 红测：`rg -n '^#### R1\\.Q1|^#### R1\\.Q2|^#### R1\\.Q3' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md` → `R1_RED_EXIT=1`（变更前）。
+    - 绿测：`rg -n '^#### R1\\.Q1|^#### R1\\.Q2|^#### R1\\.Q3' ... && rg -n 'TTY边界规则|non-TTY反例|迁移约束' ...` 命中通过。
+    - 基线：`PYTHONPATH=src pytest -q ...` → `113 passed, 42 warnings`。
   - Entry:
     - 代码锚点来源：`/Users/czj/Repos/opencode-hub/codex/codex-rs/exec/src/lib.rs`、`.../event_processor_with_human_output.rs`、`.../event_processor_with_jsonl_output.rs`、`.../cli/src/main.rs`。
 - Rollback:
 - 回退到 `d413aef`（R1 C1）。
-- Commits: C1=`d413aef`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`d413aef`, C2=`848bd93`, C3=`TBD`
 - Next:
-- 跑 R1 校验命令 + baseline 门禁后，提交 C2/C3。
+- 进入 R2：先补“状态折叠/错误分层/观测指标”文档红测校验命令（C1）。
 
 #### R1.Q1 默认输出模式如何保证“脚本可机读 + 人类可读”不冲突？
 - 结论：

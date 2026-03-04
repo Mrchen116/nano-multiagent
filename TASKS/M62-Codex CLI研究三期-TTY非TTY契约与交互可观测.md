@@ -53,7 +53,7 @@
   - `rg -n 'TTY边界规则|non-TTY反例|迁移约束' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md`
 - DoD:
   - 规则、反例、锚点三件套齐全，且与 M52 目标可映射。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R2 状态行/事件折叠 + 错误分层 + 可观测指标研究
 - Acceptance:
@@ -67,7 +67,7 @@
   - `PROGRESS/M62-*.md` 的 R2 章节（策略矩阵+观测指标表）。
 - DoD:
   - 覆盖状态、错误、可观测三条主线，能直接支撑 M53。
-- Status: `TODO`
+- Status: `DOING`
 
 ### R3 商业化前契约模板 + M52/M53/M54 测试矩阵草案
 - Acceptance:
