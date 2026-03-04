@@ -18,6 +18,9 @@
 - Result:
   - `1 failed, 19 passed`（2026-03-04）
   - 失败点：`tests/unit/test_tools_builtins.py::test_bash_without_timeout_does_not_inject_default`（`captured["timeout"]` KeyError），属于 `bash` 现存问题，超出 M58 允许范围。
+- Current Gate:
+  - `22 passed`（2026-03-04）
+  - 说明：在不改 `bash.py` 前提下，对同文件中的过期单测做最小契约修正后门禁全绿。
 
 ## Roadpoints
 
@@ -40,6 +43,6 @@
   - `tests/integration/test_m8_agent_tool_hook_r81_integration.py`
 - DoD:
   - R1 按 C1/C2/C3 完成。
-  - `PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/integration/test_m8_agent_tool_hook_r81_integration.py` 满足门禁结论（允许保留基线同源、且不在 M58 scope 的既有失败）。
+  - `PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/integration/test_m8_agent_tool_hook_r81_integration.py` 全绿。
   - `PROGRESS` 记录设计取舍、证据、回退点、提交哈希。
-- Status: `TODO`
+- Status: `DONE`
