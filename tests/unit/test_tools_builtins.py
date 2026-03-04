@@ -336,11 +336,13 @@ def test_read_returns_text_and_image_parts_for_png(tmp_path: Path) -> None:
     assert result["next_offset"] is None
     assert isinstance(result["content"], list)
     assert result["content"][0]["type"] == "text"
-    assert "pixel.png" in result["content"][0]["text"]
+    assert result["content"][0]["text"].startswith("Read image file [image/png]")
+    assert "original 1x1" in result["content"][0]["text"]
+    assert "displayed at 1x1" in result["content"][0]["text"]
     image_part = result["content"][1]
     assert image_part["type"] == "image"
-    assert image_part["mime_type"] == "image/png"
-    assert image_part["image_url"].startswith("data:image/png;base64,")
+    assert image_part["mimeType"] == "image/png"
+    assert image_part["data"] == base64.b64encode(image_bytes).decode("ascii")
 
 
 def test_read_truncation_appends_next_offset_hint(tmp_path: Path) -> None:

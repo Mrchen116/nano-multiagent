@@ -23,9 +23,14 @@ def test_read_image_contract_returns_text_plus_image_parts(tmp_path: Path) -> No
     assert set(result.keys()) == {"path", "offset", "next_offset", "total_lines", "truncated", "content"}
     assert isinstance(result["content"], list)
     assert result["content"][0]["type"] == "text"
+    assert result["content"][0]["text"].startswith("Read image file [image/png]")
+    assert "original 1x1" in result["content"][0]["text"]
     assert result["content"][1]["type"] == "image"
-    assert result["content"][1]["mime_type"] == "image/png"
-    assert result["content"][1]["image_url"].startswith("data:image/png;base64,")
+    assert result["content"][1] == {
+        "type": "image",
+        "mimeType": "image/png",
+        "data": base64.b64encode(image_bytes).decode("ascii"),
+    }
 
 
 def test_read_truncation_contract_contains_next_offset_hint(tmp_path: Path) -> None:
