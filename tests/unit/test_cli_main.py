@@ -111,6 +111,16 @@ class _UsageStubClient(_StubClient):
         }
 
 
+class _StopReasonOnlyStubClient(_StubClient):
+    def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message", {"session_id": session_id, "text": text}))
+        return {
+            "session_id": session_id,
+            "message": {"role": "assistant", "content": f"echo:{text}"},
+            "stop_reason": "stop",
+        }
+
+
 class _CompactedStubClient(_StubClient):
     def compact_session(self, *, session_id: str) -> dict[str, object]:
         self.calls.append(("compact_session", {"session_id": session_id}))
@@ -1046,8 +1056,27 @@ def test_run_cli_repl_prints_turn_llm_usage_when_available() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "echo:hello" in text
+    assert "- state=completed" in text
     assert "Usage:" in text
     assert "prompt=120, completion=35, total=155" in text
+
+
+def test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason() -> None:
+    stub = _StopReasonOnlyStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "hello", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "- stop_reason=stop" in text
+    assert "- state=completed" in text
 
 
 def test_run_cli_repl_request_failures_include_suggestions() -> None:
