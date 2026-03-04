@@ -40,7 +40,11 @@
   - `tests/unit/test_cli_main.py::test_send_message_with_async_events_exposes_perf_metrics_snapshot`
 - DoD:
   - 红测失败点明确且仅提交测试（C1）。
-- Status: `TODO`
+- Commits:
+  - C1: `cd73353`
+  - C2: `cf8242a`
+  - C3: `TBD`
+- Status: `DONE`
 
 ### R2 性能护栏落地（指标观测 + 阈值判定 + 重绘基线）
 - Acceptance:
@@ -60,7 +64,7 @@
   - `tests/contract/test_cli_error_contract.py`
 - DoD:
   - C2 前执行门禁并全绿；提交实现/重构（C2）。
-- Status: `TODO`
+- Status: `DOING`
 
 ### R3 收口（门禁 + managed + main 集成 + dev_tasks DONE）
 - Acceptance:

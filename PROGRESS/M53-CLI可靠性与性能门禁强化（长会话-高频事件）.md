@@ -26,14 +26,25 @@
 
 ### R1 长会话/高频事件回归红测集
 - Context:
+  - 当前异步事件链路缺少“性能门禁”可观测结构，无法稳定验证高频批次和长会话下的吞吐/重绘比例是否退化。
+  - M53 要求把门禁变成可测试指标快照，且不改 `app/commands.py`。
 - Decision:
+  - 新增 3 条红测覆盖：高频批次指标、长会话多批次稳定性、`send_message_with_async_events` 暴露指标快照。
+  - 在 `event_pipeline` 新增 `ReplPerfTracker`，在 `consume_async_run_events` 记录批次指标并随 `_repl_view.perf_metrics` 回传。
 - Rationale:
+  - 保持改动集中在 `cli/events`，用最小接线实现“门禁可观测 + 阈值可判定”，避免并行冲突。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "high_frequency_batch_records_perf_baseline or long_session_batches_keep_perf_guardrails_stable or exposes_perf_metrics_snapshot"` -> `3 failed`。
+    - 子集绿测：同命令 -> `3 passed`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `115 passed, 44 warnings`。
   - Entry:
+    - `_repl_view.perf_metrics` 现已包含 `sample_ready/throughput_ok/redraw_ratio_ok/stable` 与批次计数。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - 回退到 `cd73353`（R1 红测提交）可重做实现。
+- Commits: C1=`cd73353`, C2=`cf8242a`, C3=`TBD`
 - Next:
+  - 执行 R2：补充阈值不达标场景判定与原因字段，强化门禁可解释性。
 
 ### R2 性能护栏落地（指标观测 + 阈值判定 + 重绘基线）
 - Context:
