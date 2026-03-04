@@ -1186,6 +1186,28 @@ def test_run_cli_repl_use_switches_active_session() -> None:
     assert ("send_message", {"session_id": "sess_manual", "text": "ping"}) in stub.calls
 
 
+def test_run_cli_repl_session_transitions_render_active_copy_without_json() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    inputs = iter(["hello auto", "/new", "/use sess_manual", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert text.count("Started new session sess_cli.") == 2
+    assert text.count("Active session: sess_cli.") >= 2
+    assert "Switched to session sess_manual." in text
+    assert "Active session: sess_manual." in text
+    assert '{"session_id":' not in text
+    assert '"session_id":' not in text
+
+
 def test_run_cli_repl_history_shows_recent_messages() -> None:
     stub = _StubClient()
     output = io.StringIO()
