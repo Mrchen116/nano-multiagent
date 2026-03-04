@@ -4,6 +4,11 @@ import json
 from typing import Callable
 from typing import TextIO
 
+from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
+from nano_multiagent.cli.events.event_pipeline import build_repl_view_model as _build_repl_view_model_from_pipeline
+from nano_multiagent.cli.events.event_pipeline import consume_event_for_run as _consume_event_for_run
+from nano_multiagent.cli.events.event_pipeline import normalize_session_event as _normalize_session_event_from_pipeline
+from nano_multiagent.cli.events.event_pipeline import replay_fallback_dedupe_key
 from nano_multiagent.cli.http_client import ServerClient
 
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
@@ -12,15 +17,6 @@ _EVENT_PREVIEW_HEAD_LEN = 72
 _EVENT_PREVIEW_TAIL_LEN = 45
 _EVENT_POLL_MAX_EVENTS = 200
 _EVENT_POLL_TIMEOUT_SECONDS = 0.25
-_REPLAY_FALLBACK_DEDUPE_EVENTS = {
-    "run_status",
-    "tool_start",
-    "tool_end",
-    "tool_exec_started",
-    "tool_exec_running",
-    "tool_exec_chunk",
-    "tool_exec_exit",
-}
 
 
 def send_message_with_async_events(
@@ -34,6 +30,7 @@ def send_message_with_async_events(
     """Send message through async endpoint and aggregate structured turn view."""
     submitted = client.send_message_async(session_id=session_id, text=text)
     run_id = _extract_run_id(submitted)
+    dedupe_window = EventDedupeWindow()
     seen_event_ids: set[str] = set()
     seen_event_fingerprints: set[str] = set()
     previewed_tool_lines: set[str] = set()
@@ -54,6 +51,7 @@ def send_message_with_async_events(
             run_id=run_id,
             seen_event_ids=seen_event_ids,
             seen_event_fingerprints=seen_event_fingerprints,
+            dedupe_window=dedupe_window,
             assistant_text=assistant_text,
             emit_preview=True,
             collected_events=collected_events,
@@ -114,15 +112,8 @@ def _extract_run_id(payload: dict[str, object]) -> str:
 
 
 def _normalize_session_event(event: object) -> tuple[str, str, dict[str, object]]:
-    if not isinstance(event, dict):
-        return "", "message", {}
-    event_id = event.get("event_id")
-    event_name = event.get("event")
-    data = event.get("data")
-    resolved_id = event_id.strip() if isinstance(event_id, str) else ""
-    resolved_name = event_name.strip() if isinstance(event_name, str) and event_name.strip() else "message"
-    resolved_data = data if isinstance(data, dict) else {}
-    return resolved_id, resolved_name, resolved_data
+    normalized_event = _normalize_session_event_from_pipeline(event)
+    return normalized_event.event_id, normalized_event.event_name, normalized_event.data
 
 
 def consume_async_run_events(
@@ -132,6 +123,7 @@ def consume_async_run_events(
     run_id: str,
     seen_event_ids: set[str],
     seen_event_fingerprints: set[str] | None = None,
+    dedupe_window: EventDedupeWindow | None = None,
     assistant_text: str,
     emit_preview: bool = True,
     collected_events: list[tuple[str, dict[str, object]]] | None = None,
@@ -148,20 +140,19 @@ def consume_async_run_events(
     delayed_terminal_run_status: dict[str, object] | None = None
     consumed = 0
     updated_text = assistant_text
+    resolved_dedupe_window = dedupe_window or EventDedupeWindow()
     for event in events:
-        event_id, event_name, data = _normalize_session_event(event)
-        if event_id and event_id in seen_event_ids:
+        normalized_event = _normalize_session_event_from_pipeline(event)
+        event_name = normalized_event.event_name
+        data = normalized_event.data
+        if not _consume_event_for_run(
+            normalized_event=normalized_event,
+            run_id=run_id,
+            dedupe_window=resolved_dedupe_window,
+            seen_event_ids=seen_event_ids,
+            seen_event_fingerprints=seen_event_fingerprints,
+        ):
             continue
-        if event_id:
-            seen_event_ids.add(event_id)
-        if data.get("run_id") != run_id:
-            continue
-        if seen_event_fingerprints is not None:
-            replay_key = _event_replay_dedupe_key(event_name=event_name, data=data)
-            if replay_key is not None:
-                if replay_key in seen_event_fingerprints:
-                    continue
-                seen_event_fingerprints.add(replay_key)
         consumed += 1
         if event_name == "run_status":
             status = data.get("status")
@@ -226,117 +217,12 @@ def _emit_preview_line(
 
 
 def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[str], list[str]]:
-    status_updates: list[str] = []
-    tool_order: list[str] = []
-    tool_views: dict[str, dict[str, object]] = {}
-
-    def _ensure_tool(group_key: str, *, tool_name: str) -> dict[str, object]:
-        if group_key not in tool_views:
-            tool_views[group_key] = {"tool_name": tool_name}
-            tool_order.append(group_key)
-        return tool_views[group_key]
-
-    for event_name, data in events:
-        if event_name == "run_status":
-            status_line = _format_status_progress(data)
-            if status_line:
-                status_updates.append(status_line)
-            continue
-        if event_name not in {
-            "tool_start",
-            "tool_end",
-            "tool_exec_started",
-            "tool_exec_running",
-            "tool_exec_chunk",
-            "tool_exec_exit",
-        }:
-            continue
-        group_key = _tool_group_key(data)
-        tool_name = _tool_name_from_data(data)
-        if not group_key or not tool_name:
-            continue
-        tool_line = _event_preview_line(event_name=event_name, data=data)
-        if not tool_line:
-            continue
-        slot = _ensure_tool(group_key, tool_name=tool_name)
-        if event_name == "tool_start":
-            slot["start"] = tool_line
-            continue
-        if event_name == "tool_end":
-            if " error=" in tool_line:
-                slot["error"] = tool_line
-            else:
-                slot["output"] = tool_line
-            continue
-        if event_name == "tool_exec_started":
-            slot["exec_started"] = tool_line
-            continue
-        if event_name == "tool_exec_chunk":
-            stream = data.get("stream")
-            if isinstance(stream, str) and stream.strip():
-                stream_key = stream.strip().lower()
-                count_key = f"chunk_count_{stream_key}"
-                current_count = slot.get(count_key)
-                slot[count_key] = current_count + 1 if isinstance(current_count, int) else 1
-            else:
-                current_count = slot.get("chunk_count_unknown")
-                slot["chunk_count_unknown"] = current_count + 1 if isinstance(current_count, int) else 1
-            continue
-        if event_name == "tool_exec_exit":
-            slot["exec_exit"] = tool_line
-
-    tool_updates: list[str] = []
-    for group_key in tool_order:
-        slot = tool_views.get(group_key, {})
-        if not slot:
-            continue
-        progress_line = _format_tool_chunk_progress(slot)
-        error_line = slot.get("error")
-        if isinstance(error_line, str) and error_line:
-            start_line = slot.get("start")
-            if isinstance(start_line, str) and start_line:
-                tool_updates.append(start_line)
-            if progress_line:
-                tool_updates.append(progress_line)
-            tool_updates.append(error_line)
-            continue
-
-        output_line = slot.get("output")
-        exit_line = slot.get("exec_exit")
-        started_line = slot.get("exec_started")
-
-        if isinstance(output_line, str) and output_line and not isinstance(exit_line, str):
-            tool_updates.append(output_line)
-        if progress_line:
-            tool_updates.append(progress_line)
-        if isinstance(exit_line, str) and exit_line:
-            tool_updates.append(exit_line)
-            continue
-        if isinstance(started_line, str) and started_line and not isinstance(output_line, str):
-            tool_updates.append(started_line)
-            continue
-    return status_updates, tool_updates
-
-
-def _format_tool_chunk_progress(slot: dict[str, object]) -> str | None:
-    tool_name = slot.get("tool_name")
-    resolved_name = str(tool_name) if isinstance(tool_name, str) and tool_name.strip() else "<unknown>"
-
-    count_items: list[tuple[str, int]] = []
-    for key, label in (
-        ("chunk_count_stdout", "stdout"),
-        ("chunk_count_stderr", "stderr"),
-        ("chunk_count_unknown", "unknown"),
-    ):
-        raw = slot.get(key)
-        if isinstance(raw, int) and raw > 0:
-            count_items.append((label, raw))
-    if not count_items:
-        return None
-
-    total_chunks = sum(count for _, count in count_items)
-    details = ", ".join(f"{label}={count}" for label, count in count_items)
-    return f"Tool {resolved_name} progress chunks={total_chunks} ({details})"
+    model = _build_repl_view_model_from_pipeline(
+        events=events,
+        preview_line_resolver=lambda event_name, data: _event_preview_line(event_name=event_name, data=data),
+        status_line_resolver=_format_status_progress,
+    )
+    return model.status_updates, model.tool_updates
 
 
 def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | None:
@@ -484,10 +370,7 @@ def merge_text_delta(current: str, delta: str) -> str:
 
 
 def _event_replay_dedupe_key(*, event_name: str, data: dict[str, object]) -> str | None:
-    if event_name not in _REPLAY_FALLBACK_DEDUPE_EVENTS:
-        return None
-    canonical_data = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return f"{event_name}|{canonical_data}"
+    return replay_fallback_dedupe_key(event_name=event_name, data=data)
 
 
 def _filter_previewed_tool_updates(*, tool_updates: list[str], previewed_tool_lines: set[str]) -> list[str]:
