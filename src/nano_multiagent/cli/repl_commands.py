@@ -1,6 +1,5 @@
 """REPL slash-command parsing and execution helpers."""
 
-import json
 from dataclasses import dataclass
 from typing import Callable, Sequence, TextIO
 
@@ -94,7 +93,7 @@ def handle_repl_command(
                 return ReplCommandResult(handled=True, active_session_id=active_session_id)
             payload = client.create_session()
             next_session_id = extract_session_id(payload)
-            print(json.dumps(payload, ensure_ascii=False), file=out)
+            print_session_created(out=out, session_id=next_session_id)
             return ReplCommandResult(handled=True, active_session_id=next_session_id)
 
         if command == "/use":
@@ -114,7 +113,7 @@ def handle_repl_command(
                 )
                 return ReplCommandResult(handled=True, active_session_id=active_session_id)
             next_session_id = argument_tokens[0]
-            print(json.dumps({"session_id": next_session_id}, ensure_ascii=False), file=out)
+            print_session_switched(out=out, session_id=next_session_id)
             return ReplCommandResult(handled=True, active_session_id=next_session_id)
 
         if command == "/session":
@@ -126,7 +125,7 @@ def handle_repl_command(
                     usage="/session",
                 )
                 return ReplCommandResult(handled=True, active_session_id=active_session_id)
-            print(json.dumps({"session_id": active_session_id}, ensure_ascii=False), file=out)
+            print_active_session(out=out, session_id=active_session_id)
             return ReplCommandResult(handled=True, active_session_id=active_session_id)
 
         if command == "/tools":
@@ -238,6 +237,21 @@ def print_actionable_error(
     print(f"Suggestion: {suggestion}", file=out)
     if usage is not None:
         print(f"Usage: {usage}", file=out)
+
+
+def print_session_created(*, out: TextIO, session_id: str) -> None:
+    print(f"Started new session {session_id}.", file=out)
+
+
+def print_session_switched(*, out: TextIO, session_id: str) -> None:
+    print(f"Switched to session {session_id}.", file=out)
+
+
+def print_active_session(*, out: TextIO, session_id: str | None) -> None:
+    if isinstance(session_id, str) and session_id.strip():
+        print(f"Active session: {session_id}.", file=out)
+        return
+    print("Active session: none.", file=out)
 
 
 def _split_argument_tokens(argument: str | None) -> list[str]:
