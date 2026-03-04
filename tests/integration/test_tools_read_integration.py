@@ -39,7 +39,12 @@ def test_registry_executes_read_text_with_truncation_hint(tmp_path: Path) -> Non
 
     assert result["truncated"] is True
     assert result["next_offset"] == 3
-    assert "offset=3" in result["content"]
+    text_part = result["content"][0]
+    assert text_part == {
+        "type": "text",
+        "text": "line-1\nline-2\n\n[Showing lines 1-2 of 4. Use offset=3 to continue.]",
+    }
+    assert result["details"]["truncation"]["truncatedBy"] == "lines"
 
 
 def test_read_image_parts_survive_tool_result_content_rewrite(tmp_path: Path) -> None:
