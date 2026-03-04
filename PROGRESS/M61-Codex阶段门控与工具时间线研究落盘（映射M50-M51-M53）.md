@@ -113,11 +113,19 @@
 
 ### R3 迁移总清单与managed CLI观感验收模板收口
 - Context:
+  - Red 问题清单（待解）：
+    - M50/M51/M53 迁移任务边界如何避免互相覆盖或重复实现？
+    - managed CLI 观感验收模板如何做到“命令可执行 + 结果可判定 + 失败可归因”？
+    - 哪些规则具备跨里程碑复用价值，值得进入 LOGBOOK？
 - Decision:
 - Rationale:
 - Evidence:
   - Tests:
+    - `N/A（研究型 Red：以收口问题未解为失败点）`
   - Entry:
+    - 前两轮已具备锚点基础，待组合成最终执行清单。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - `45e1512`（R2 C3）。
+- Commits: C1=`本提交`, C2=`TBD`, C3=`TBD`
 - Next:
+  - 进入 R3 Green：输出最终迁移清单与 managed CLI 验收模板，并提炼 LOGBOOK 规则。
