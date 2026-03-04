@@ -42,9 +42,9 @@
 
 ### R2 CLI 事件渲染去重与风格统一实现
 - Acceptance:
-  - 为无 `event_id` 事件增加安全去重补偿（不影响 text_delta/chunk 主流程）。
-  - 队列模式下最终摘要只保留未在实时预览中展示的工具信息。
-  - 实时预览与摘要文案风格一致（`Tool:`）。
+  - 工具实时预览文案统一使用 `Tool:` 前缀。
+  - 摘要渲染与预览格式兼容，不出现 `Tool: Tool: ...` 双前缀。
+  - HTTP 集成链路中 `echo/bash` 工具预览文案统一为 `Tool:`。
 - Tests Plan:
   - unit: 选；验证上述行为全部通过。
   - integration: 选；验证 HTTP 真实链路不回归。
@@ -57,11 +57,12 @@
   - `tests/contract/test_cli_error_contract.py`
 - DoD:
   - 目标门禁全绿。
-  - 完成 C2。
-- Status: `DOING`
+  - 完成 C2/C3。
+- Status: `DONE`
 
 ### R3 收口验收与集成
 - Acceptance:
+  - 队列模式下最终摘要不复读已在实时预览输出的工具关键线（`start/started/exit`）。
   - 全量门禁通过。
   - managed CLI 实跑确认工具事件无重复且文案统一。
   - 分支 rebase/merge/push 完成，`dev-tasks` 更新 DONE。
@@ -72,6 +73,7 @@
   - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`
   - `PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token`
 - DoD:
+  - 完成“队列摘要去重”红测->绿测闭环（C1/C2/C3）。
   - main 合并并 push。
   - `data/dev-tasks.json` 更新为 DONE，记录结果与证据。
-- Status: `TODO`
+- Status: `DOING`

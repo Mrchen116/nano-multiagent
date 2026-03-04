@@ -47,14 +47,26 @@
 
 ### R2 Tool 文案一致性与“预览已出则摘要不重播”
 - Context:
+  - 现状实时预览使用 `Tool <name> ...`，最终摘要使用 `Tool: ...`，同一轮内风格割裂。
+  - 风格不一致会放大“重复打印”的观感噪音。
 - Decision:
+  - 先在 unit+integration 调整断言为统一 `Tool: ` 前缀，形成红测。
+  - 统一 `repl_events._event_preview_line` 的所有工具事件文案为 `Tool: ...`。
+  - 扩展 `repl_render._normalize_tool_update` 支持 `Tool:` 归一化，避免摘要出现双前缀。
 - Rationale:
+  - 保持预览与摘要同一视觉语法，后续做摘要去重时可直接按统一模式比对。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py -k "uses_async_events_with_run_filter_and_dedup or groups_same_tool_name_events_by_call_id or compact_answer_first_summary_for_async_flow or streams_started_running_chunk_and_exit_for_tool_execution or streams_async_run_tool_and_text_events or streams_started_running_chunk_and_exit_for_bash_tool"` -> `6 failed`（均为 `Tool:` 断言不满足）。
+    - 绿测：同命令 -> `6 passed`。
+    - 门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `104 passed, 42 warnings`。
   - Entry:
+    - 预览链路 `echo/bash` 关键线统一为 `Tool: ...`，不再混用无冒号风格。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - `b82005f`（R2 红测提交）
+- Commits: C1=`b82005f`, C2=`84d966e`, C3=`本提交`
 - Next:
+  - 进入 R3：补“预览已输出则摘要不复读”的红测并实现队列摘要去重。
 
 ### R3 收口（全量门禁 + managed 实跑 + main 集成 + dev_tasks DONE）
 - Context:
