@@ -90,6 +90,13 @@ class ReplPerfTracker:
         throughput_ok = throughput_ratio >= self._min_throughput_ratio
         redraw_ratio_ok = redraw_ratio <= self._max_redraw_ratio
         stable = sample_ready and throughput_ok and redraw_ratio_ok
+        reasons: list[str] = []
+        if not throughput_ok:
+            reasons.append("throughput")
+        if not redraw_ratio_ok:
+            reasons.append("redraw_ratio")
+        if not sample_ready:
+            reasons.append("sample_size")
         return {
             "batches": self._batches,
             "polled_events": self._polled_events,
@@ -103,6 +110,7 @@ class ReplPerfTracker:
             "throughput_ok": throughput_ok,
             "redraw_ratio_ok": redraw_ratio_ok,
             "stable": stable,
+            "guardrail_reason": ", ".join(reasons) if reasons else "ok",
             "thresholds": {
                 "min_sample_events": self._min_sample_events,
                 "min_throughput_ratio": self._min_throughput_ratio,
