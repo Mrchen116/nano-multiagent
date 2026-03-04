@@ -23,3 +23,26 @@
 - Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
 - Next:
   - 执行 R1：补“成功统一文本 + 截断提示 + fullOutputPath 可追溯”的红测并进入实现。
+
+### R1 成功输出收口（统一 text + 截断提示 + fullOutputPath）
+- Context:
+  - 现状返回 `stdout/stderr` 分离字段，且截断时缺少统一文本提示，不满足里程碑契约。
+  - 需要在不改 CLI 的前提下，收口为单一 `content` 文本并保留可追溯路径。
+- Decision:
+  - `bash` 成功结果改为 `content + exitCode + truncated (+ fullOutputPath)`。
+  - 在 `ToolSafety` 中按合并流生成尾部预览；截断时自动持久化全量输出并在文本末尾追加 `Showing lines ... Full output: ...` 提示。
+  - `timeout=None` 路径改为通过 `run_command_stream` 透传测试桩验证，不再依赖 `subprocess.run`。
+- Rationale:
+  - 把“输出合并/截断提示”的逻辑集中在 safety 层可复用且更容易保证文本与落盘路径一致。
+- Evidence:
+  - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py::test_bash_success_merges_stdout_and_stderr_into_content tests/unit/test_tools_builtins.py::test_bash_truncation_returns_full_output_path tests/contract/test_tools_bash_contract.py::test_bash_truncation_contract_exposes_full_output_path tests/integration/test_tools_bash_integration.py::test_registry_executes_bash_with_truncation_and_persisted_output` -> `4 failed`。
+    - 绿测（子集）：同上 + `tests/unit/test_tools_builtins.py::test_bash_without_timeout_does_not_inject_default` -> `5 passed`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_bash_contract.py tests/integration/test_tools_bash_integration.py` -> `21 passed`。
+  - Entry:
+    - `bash` 成功输出返回统一字符串，截断文案可直接定位 `fullOutputPath`。
+- Rollback:
+  - `548238e`（R1 红测提交）。
+- Commits: C1=`548238e`, C2=`9ff069d`, C3=`本提交`
+- Next:
+  - 进入 R2：锁定 non-zero / timeout / abort 错误 message 与 details 结构契约，再做最小实现收口。

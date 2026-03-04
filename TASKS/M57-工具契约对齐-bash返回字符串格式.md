@@ -40,7 +40,7 @@
   - R1 的 C1/C2/C3 完整。
   - `test_command` 全绿。
   - PROGRESS 记录决策、证据、回退点、提交哈希。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R2 错误文案收口（non-zero / timeout / abort）
 - Acceptance:
@@ -63,4 +63,4 @@
   - R2 的 C1/C2/C3 完整。
   - `test_command` 全绿。
   - PROGRESS 记录关键取舍与回退点。
-- Status: `TODO`
+- Status: `DOING`
