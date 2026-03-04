@@ -89,4 +89,4 @@
   - `rg -n 'M62' LOGBOOK.md`
 - DoD:
   - M52/M53/M54 执行者可直接按矩阵拆实现与验收。
-- Status: `DOING`
+- Status: `DONE`

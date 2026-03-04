@@ -46,7 +46,7 @@
     - 代码锚点来源：`/Users/czj/Repos/opencode-hub/codex/codex-rs/exec/src/lib.rs`、`.../event_processor_with_human_output.rs`、`.../event_processor_with_jsonl_output.rs`、`.../cli/src/main.rs`。
 - Rollback:
 - 回退到 `d413aef`（R1 C1）。
-- Commits: C1=`d413aef`, C2=`848bd93`, C3=`TBD`
+- Commits: C1=`d413aef`, C2=`848bd93`, C3=`61ced74`
 - Next:
 - 进入 R2：先补“状态折叠/错误分层/观测指标”文档红测校验命令（C1）。
 
@@ -111,7 +111,7 @@
     - 代码锚点来源：`exec/src/event_processor.rs`、`exec/src/event_processor_with_human_output.rs`、`exec/src/event_processor_with_jsonl_output.rs`、`exec/src/lib.rs`。
 - Rollback:
 - 回退到 `1a9ee53`（R2 C1）。
-- Commits: C1=`1a9ee53`, C2=`6524990`, C3=`TBD`
+- Commits: C1=`1a9ee53`, C2=`6524990`, C3=`4e2f832`
 - Next:
 - 进入 R3：先补“商业化契约模板/测试矩阵”文档红测校验命令（C1）。
 
@@ -174,13 +174,15 @@
 - Evidence:
   - Tests:
     - 红测：`rg -n '^#### R3\\.Q1|^#### R3\\.Q2|^#### R3\\.Q3' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md` → `R3_RED_EXIT=1`（变更前）。
+    - 绿测：`rg -n '^#### R3\\.Q1|^#### R3\\.Q2|^#### R3\\.Q3' ... && rg -n '商业化前契约模板|测试矩阵草案|M52|M53|M54' ... && rg -n 'M62' LOGBOOK.md` 命中通过。
+    - 基线：`PYTHONPATH=src pytest -q ...` → `113 passed, 42 warnings`。
   - Entry:
     - 代码锚点补充：`exec/src/exec_events.rs`（JSON 事件域模型）、`exec/src/event_processor_with_jsonl_output.rs`（事件聚合与容错）。
 - Rollback:
 - 回退到 `7508dd3`（R3 C1）。
-- Commits: C1=`7508dd3`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`7508dd3`, C2=`a1ffb58`, C3=`TBD`
 - Next:
-- 运行 R3 校验 + baseline，然后完成 C2/C3 与主干集成。
+- 执行主干集成：rebase origin/main、全量门禁、merge & push、dev_tasks 置 DONE。
 
 #### R3.Q1 如何把 R1/R2 的研究结果固化为商业化前契约模板？
 - 商业化前契约模板（v0.1）：
