@@ -165,11 +165,60 @@
 
 ### R3 商业化前契约模板 + M52/M53/M54 测试矩阵草案
 - Context:
+- M52/M53/M54 需要统一消费同一份“发布前契约”，避免各里程碑分别解释 stdout/stderr、事件折叠、错误层级与指标语义。
 - Decision:
+- 产出 `商业化前契约模板`（v0.1）和 `测试矩阵草案`（按 M52/M53/M54 映射）。
+- 将可复用规则精炼写入 `LOGBOOK.md`，仅保留可执行预防条款。
 - Rationale:
+- 研究结论只有被模板化、矩阵化后，才能转为可执行验收与跨人协作基线。
 - Evidence:
   - Tests:
+    - 红测：`rg -n '^#### R3\\.Q1|^#### R3\\.Q2|^#### R3\\.Q3' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md` → `R3_RED_EXIT=1`（变更前）。
   - Entry:
+    - 代码锚点补充：`exec/src/exec_events.rs`（JSON 事件域模型）、`exec/src/event_processor_with_jsonl_output.rs`（事件聚合与容错）。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+- 回退到 `7508dd3`（R3 C1）。
+- Commits: C1=`7508dd3`, C2=`TBD`, C3=`TBD`
 - Next:
+- 运行 R3 校验 + baseline，然后完成 C2/C3 与主干集成。
+
+#### R3.Q1 如何把 R1/R2 的研究结果固化为商业化前契约模板？
+- 商业化前契约模板（v0.1）：
+  - A. 模式与输出通道契约  
+    - `interactive/human`：过程事件与状态行仅 `stderr`；`stdout` 仅 final output。  
+    - `jsonl`：`stdout` 仅结构化事件 JSONL；禁止任何非 JSON 文案。  
+    - 参考锚点：`exec/src/lib.rs:1-5`, `342-350`, `exec/src/event_processor_with_jsonl_output.rs:846-853`, `.../event_processor_with_human_output.rs:862-883`。
+  - B. 状态行与事件折叠契约  
+    - 静默事件白名单折叠；仅关键中断事件（error/warning/stream/turn.complete/shutdown）可打断状态行。  
+    - 参考锚点：`.../event_processor_with_human_output.rs:893-942`, `962-1025`。
+  - C. 错误分层契约  
+    - `input`（参数/输入/解码）、`network`（stream transport）、`runtime`（执行失败/依赖失效）三层必须显式标识。  
+    - 参考锚点：`exec/src/lib.rs:856-890`, `612-624`, `646-648`。
+  - D. 观测契约  
+    - 最小必选指标：`dedup_dropped_total`, `orphan_total`, `tool_timeline_duration_ms`。  
+    - 参考锚点：`.../event_processor_with_jsonl_output.rs:372-383`, `605-614`, `676-688`。
+
+#### R3.Q2 M52/M53/M54 的测试矩阵草案如何拆？
+- 测试矩阵草案：
+
+| Milestone | 主目标 | unit | contract | integration | e2e | 关键断言 | 主要风险 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| M52 | TTY/non-TTY 与输出契约落地 | `normalize_output_mode` 判定 | stdout/stderr JSON 契约 | CLI 入口 `isatty` + `--prompt -` | 非 TTY 管道实跑 | stdout 不被过程文案污染 | JSON 污染导致自动化解析失败 |
+| M53 | 状态行/折叠/错误分层 | 折叠门控与中断白名单 | Error envelope `layer/code/suggestion` | run-loop 中 begin/end 配对 | managed REPL 长会话 | 错误分层稳定、状态行不刷屏 | 关键事件被误折叠 |
+| M54 | 可观测与发布门禁 | 指标计数器与标签映射 | metrics schema 固化 | 事件采样与聚合链路 | 发布前 smoke + 统计校验 | 指标可追溯到具体事件位点 | 只看日志不看指标导致漏判 |
+
+- 分层入口约束：
+  - unit 覆盖纯逻辑，不依赖 I/O。
+  - contract 固化字段/类型/必填与错误层级。
+  - integration 覆盖 CLI 真入口（stdin/stderr、队列模式、run 过滤）。
+  - e2e 覆盖 managed 场景长链路（含异常与恢复）。
+
+#### R3.Q3 M52/M53/M54 执行前的发布闸门应如何定义？
+- 发布闸门（建议）：
+  - Gate-1：`stdout` 契约快照通过（human/json/send-message 三模式）。
+  - Gate-2：状态折叠回归通过（重复/孤儿/中断三场景）。
+  - Gate-3：错误分层契约通过（input/network/runtime）。
+  - Gate-4：指标最小集可采样且与日志可互证。
+- 执行顺序建议：
+  - 先 M52（通道边界）再 M53（可读性与错误语义）再 M54（观测与发布守门）。
+  - 若 Gate-1 失败，后续里程碑不应继续推进。

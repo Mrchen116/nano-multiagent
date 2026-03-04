@@ -30,3 +30,7 @@
 - fallback 去重窗口规则（2026-03-04）：当 `event_id` 缺失或不可靠时，去重必须使用 `run_id + 语义键(name/call_id/phase/seq)`，并放入按 `run_id` 分桶的 TTL/LRU 窗口；禁止无界 set 持续增长。
 - 去重判定单一真源规则（2026-03-04）：引入有界 dedupe window 后，legacy `seen_*` 集合只能做兼容镜像或诊断观测，不能再参与准入判定；否则会把窗口策略重新变成“永久去重”。
 - CLI 渲染阶段批次切换规则（2026-03-04）：当 `run_status=completed` 与工具事件同批返回时，`STREAMING -> FINALIZING` 切换应在批次尾生效；若在批次中途切换，会误吞同批合法 preview 关键线（如 `Tool: ... start`）。
+- CLI TTY/non-TTY 双通道契约规则（2026-03-04，M62）：默认 human 模式下 `stdout` 只允许 final message、`stderr` 承载过程事件；json 模式下 `stdout` 必须保持纯 JSONL。新增日志/提示默认走 `stderr`，除非先证明不会破坏机读契约。
+- 状态行中断白名单规则（2026-03-04，M62）：进度/状态行渲染必须有“仅关键事件可中断”的白名单（至少含 error/warning/stream/turn.complete/shutdown）；其余增量事件一律折叠，避免刷屏与上下文跳动。
+- orphan 先观测后修复规则（2026-03-04，M62）：对 `end` 无 `begin` 的工具事件必须先落 `orphan_total{tool,phase}` 指标并保留原始语义，再决定是 synthesize 还是丢弃；禁止静默吞掉导致排障不可见。
+- 交互入口 TTY 护栏规则（2026-03-04，M62）：`TERM=dumb` 或 stdin/stderr 非 TTY 场景下，交互模式必须显式拒绝或二次确认；禁止隐式启动导致不可确认阻塞。脚本模式应要求显式 prompt 参数或管道输入，避免 hanging read。
