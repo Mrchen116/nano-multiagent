@@ -1,5 +1,6 @@
 """Built-in `edit` tool for one-shot exact text replacement."""
 
+import difflib
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -41,22 +42,39 @@ class EditTool:
         source = file_path.read_text(encoding="utf-8")
         matches = source.count(old_text)
         if matches == 0:
-            raise ToolError("oldText not found", tool_name=self.name)
+            raise ToolError("Could not find the exact text to replace", tool_name=self.name)
         if matches > 1:
-            raise ToolError("multiple matches found; edit requires unique match", tool_name=self.name)
+            raise ToolError("Found multiple matches; text must be unique", tool_name=self.name)
 
         updated = source.replace(old_text, new_text, 1)
         if updated == source:
-            raise ToolError("edit produced no changes", tool_name=self.name)
+            raise ToolError("No changes made", tool_name=self.name)
 
         file_path.write_text(updated, encoding="utf-8")
+        display_path = _display_path(file_path, ctx.repo_root)
         first_offset = source.index(old_text)
         first_changed_line = source[:first_offset].count("\n") + 1
+        diff = "\n".join(
+            difflib.unified_diff(
+                source.splitlines(),
+                updated.splitlines(),
+                fromfile=f"a/{display_path}",
+                tofile=f"b/{display_path}",
+                lineterm="",
+            )
+        )
 
         return {
-            "path": _display_path(file_path, ctx.repo_root),
-            "replaced": 1,
-            "first_changed_line": first_changed_line,
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"Successfully replaced text in {display_path}.",
+                }
+            ],
+            "details": {
+                "diff": diff,
+                "firstChangedLine": first_changed_line,
+            },
         }
 
 

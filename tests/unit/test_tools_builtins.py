@@ -78,7 +78,7 @@ def test_write_overwrites_existing_file(tmp_path: Path) -> None:
     result = WriteTool().run({"path": "notes/todo.txt", "content": "after"}, ctx)
 
     assert target.read_text(encoding="utf-8") == "after"
-    assert result["bytes_written"] == len("after".encode("utf-8"))
+    assert result["content"] == [{"type": "text", "text": "Successfully wrote 5 bytes to notes/todo.txt"}]
 
 
 def test_edit_replaces_exact_text_once(tmp_path: Path) -> None:
@@ -92,7 +92,12 @@ def test_edit_replaces_exact_text_once(tmp_path: Path) -> None:
     )
 
     assert target.read_text(encoding="utf-8") == "alpha\nBETA\ngamma\n"
-    assert result["first_changed_line"] == 2
+    assert result["content"] == [{"type": "text", "text": "Successfully replaced text in config.txt."}]
+    assert result["details"]["firstChangedLine"] == 2
+    assert "--- a/config.txt" in result["details"]["diff"]
+    assert "+++ b/config.txt" in result["details"]["diff"]
+    assert "-beta" in result["details"]["diff"]
+    assert "+BETA" in result["details"]["diff"]
 
 
 def test_edit_fails_on_multiple_matches(tmp_path: Path) -> None:
@@ -100,8 +105,26 @@ def test_edit_fails_on_multiple_matches(tmp_path: Path) -> None:
     target.write_text("x\nx\n", encoding="utf-8")
     ctx = _context(tmp_path)
 
-    with pytest.raises(ToolError, match="multiple matches"):
+    with pytest.raises(ToolError, match="text must be unique"):
         EditTool().run({"path": "dup.txt", "oldText": "x", "newText": "y"}, ctx)
+
+
+def test_edit_fails_when_old_text_not_found(tmp_path: Path) -> None:
+    target = tmp_path / "missing.txt"
+    target.write_text("alpha\nbeta\n", encoding="utf-8")
+    ctx = _context(tmp_path)
+
+    with pytest.raises(ToolError, match="Could not find the exact text"):
+        EditTool().run({"path": "missing.txt", "oldText": "gamma", "newText": "GAMMA"}, ctx)
+
+
+def test_edit_fails_when_replacement_makes_no_change(tmp_path: Path) -> None:
+    target = tmp_path / "same.txt"
+    target.write_text("alpha\nbeta\n", encoding="utf-8")
+    ctx = _context(tmp_path)
+
+    with pytest.raises(ToolError, match="No changes made"):
+        EditTool().run({"path": "same.txt", "oldText": "beta", "newText": "beta"}, ctx)
 
 
 def test_bash_reports_non_zero_exit(tmp_path: Path) -> None:
@@ -183,8 +206,8 @@ def test_bash_truncation_returns_full_output_path(tmp_path: Path) -> None:
 def test_bash_without_timeout_does_not_inject_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run_command_stream(  # noqa: ANN001
-        self,
+    def fake_run_command_stream(  # noqa: ANN202
+        self,  # noqa: ANN001
         *,
         command: str,
         cwd: Path,
