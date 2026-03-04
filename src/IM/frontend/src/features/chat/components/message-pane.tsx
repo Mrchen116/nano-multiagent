@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ChatMessage, ConversationDetail } from "../types";
@@ -30,6 +30,18 @@ export function MessagePane(props: {
   onSend: (content: string) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!props.detail) {
+      return;
+    }
+    const node = listRef.current;
+    if (!node) {
+      return;
+    }
+    node.scrollTop = node.scrollHeight;
+  }, [props.detail, props.detail?.messages.length]);
 
   if (!props.detail) {
     return (
@@ -59,10 +71,12 @@ export function MessagePane(props: {
         )}
         <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-4">
-        {props.detail.messages.map((message) => (
-          <MessageBubble key={message.message_id} message={message} />
-        ))}
+      <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4">
+        <div data-testid="message-list-stack" className="flex min-h-full flex-col justify-end">
+          {props.detail.messages.map((message) => (
+            <MessageBubble key={message.message_id} message={message} />
+          ))}
+        </div>
       </div>
       <form className="border-t border-[var(--im-border)] p-3" onSubmit={onSubmit}>
         <div className="flex items-center gap-2">

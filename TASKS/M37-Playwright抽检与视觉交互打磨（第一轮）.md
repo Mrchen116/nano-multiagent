@@ -1,0 +1,84 @@
+# TASKS (Milestone: M37)
+
+- Test command: `cd src/IM/frontend && npm run test && npm run build`
+- Branch: `milestone/M37`
+- Milestone status: `RUNNING`
+- Scope guard:
+  - Allowed: `src/IM/frontend/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`data/dev-tasks.json（仅脚本）`
+  - Forbidden: `src/nano_multiagent/**`、`src/IM/app.py等后端核心`、`ROADMAP.md`
+
+## [DONE] R37.1 Chat/Settings 桌面+手机 Playwright 抽检与证据采集
+- Acceptance:
+  - 使用真实浏览器对 chat 关键路径完成桌面+手机抽检（会话列表、进入会话、发送消息、状态反馈）。
+  - 使用真实浏览器对 settings 关键路径完成桌面+手机抽检（导航切换、主要表单可编辑/可提交）。
+  - 产出截图证据并统一落盘到 `src/IM/frontend/output/playwright/`，文件名包含 `M37`。
+  - 形成第一轮问题清单，按 C1/C2/C3 节奏进入修复。
+- Tests Plan:
+  - `unit`: 不选。该点聚焦真实浏览器行为验证，不引入单元逻辑变化。
+  - `contract`: 不选。接口契约在 M36 已覆盖，本轮聚焦 UI 表现与交互。
+  - `integration`: 选。执行里程碑门禁命令验证前端整体不回退。
+  - `e2e`: 选。Playwright CLI 真浏览器（desktop+mobile）抽检并存证。
+- Expected Tests:
+  - `cd src/IM/frontend && npm run test && npm run build`
+  - Playwright CLI workflow（open/snapshot/click/type/press/screenshot）
+- DoD:
+  - 门禁命令全绿。
+  - desktop+mobile chat/settings 抽检截图完备。
+  - PROGRESS 写清问题清单、入口验证、证据与回滚点。
+  - C1/C2/C3 提交齐全。
+- Commits:
+  - C1: `N/A（抽检取证）`
+  - C2: `N/A（抽检取证）`
+  - C3: `N/A（抽检取证）`
+- Status: DONE
+
+## [DONE] R37.2 视觉/响应式/交互缺陷修复（第一轮）
+- Acceptance:
+  - 修复 R37.1 暴露的明显缺陷（至少覆盖视觉层、响应式层、交互层）。
+  - chat 与 settings 在 desktop+mobile 下布局和可操作性符合蓝图基线（高可读、操作链路顺畅）。
+  - 对关键修复点补充/更新前端测试（优先组件或路由级）。
+  - 变更仅限 `src/IM/frontend/**`，不触碰后端核心。
+- Tests Plan:
+  - `unit`: 选。对受影响组件（chat/settings）补充渲染与交互边界测试。
+  - `contract`: 不选。本 Roadpoint 不涉及 API 字段契约变更。
+  - `integration`: 选。执行 `npm run test && npm run build` 验证全链路。
+  - `e2e`: 选。回归 Playwright 抽检，确认修复生效。
+- Expected Tests:
+  - `src/IM/frontend/src/features/chat/*.test.tsx`
+  - `src/IM/frontend/src/features/settings/*.test.tsx`
+  - `cd src/IM/frontend && npm run test && npm run build`
+  - Playwright 修复后截图（desktop+mobile）
+- DoD:
+  - 所有新增/更新测试通过，门禁全绿。
+  - 修复前后截图对比可验。
+  - PROGRESS 记录每个缺陷的 Context/Decision/Rationale/Evidence。
+  - C1/C2/C3 提交齐全。
+- Commits:
+  - C1: `ac014c2`
+  - C2: `fcb3c59`
+  - C3: `<this-doc-commit>`
+- Status: DONE
+
+## [TODO] R37.3 第一轮验收记录与主干集成
+- Acceptance:
+  - 输出第一轮验收记录（覆盖 chat/settings + desktop/mobile）。
+  - rebase `origin/main` 成功并处理冲突（如有）。
+  - `test_command` 全绿后完成 `main` 合并与 push。
+  - 使用脚本将 `data/dev-tasks.json` 中 `M37` 更新为 `DONE`，含 summary/tests/commits/new_rules。
+- Tests Plan:
+  - `unit`: 不选。该点以收口和集成为主。
+  - `contract`: 不选。不引入新契约。
+  - `integration`: 选。执行里程碑门禁命令。
+  - `e2e`: 选。最终 Playwright 复核（desktop+mobile）。
+- Expected Tests:
+  - `cd src/IM/frontend && npm run test && npm run build`
+  - Playwright 终检截图与验收说明
+- DoD:
+  - 主干集成完成且远端同步成功。
+  - dev-tasks 状态已脚本更新为 `DONE`。
+  - TASKS/PROGRESS 完整记录 C1/C2/C3 hash 与验收证据。
+- Commits:
+  - C1: `<pending>`
+  - C2: `<pending>`
+  - C3: `<pending>`
+- Status: TODO
