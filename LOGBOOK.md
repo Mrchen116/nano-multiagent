@@ -41,3 +41,4 @@
 - 工具时间线文本去重边界规则（2026-03-04）：`Tool` 摘要层不能仅按文案字符串去重；对同名同输出但不同调用必须保留 `call_id` 身份（例如追加 ` [call_id=...]`），否则会把合法并行/串行调用折叠成一条，造成跨调用串味与排障信息丢失。
 - REPL 命令屏障二次复检规则（2026-03-04，M63）：`wait_for_drain` 返回 timeout 时，命令入口必须立即再检查一次 backlog；若已为 0，应按“已排空”继续执行（尤其 `/history`），禁止直接判定超时并跳过。`/exit` 超时提示必须包含 remaining in-flight 数量，避免误导。
 - 高频事件性能门禁可解释性规则（2026-03-04）：性能快照除 `sample_ready/throughput_ok/redraw_ratio_ok/stable` 外，必须提供统一机读归因字段（如 `guardrail_reason`），至少覆盖 `throughput/redraw_ratio/sample_size`；否则门禁失败难以自动归因与告警分流。
+- 发布脚本解释器一致性规则（2026-03-04，M54）：发布验收脚本中任何 `python -m ...` 子步骤必须复用当前解释器（`sys.executable` 或等价注入），禁止写死系统 `python3` 或用户绝对路径；否则会在多 Python 环境下出现“门禁通过但实跑缺依赖”的漂移故障。
