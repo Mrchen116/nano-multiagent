@@ -57,7 +57,7 @@
   - `tests/contract/test_cli_error_contract.py`
 - DoD:
   - C2 前执行全量门禁并全绿；提交实现/重构 C2。
-- Status: `DOING`
+- Status: `DONE`
 
 ### R3 收口验收（门禁 + managed + main 集成 + dev_tasks DONE）
 - Acceptance:
@@ -76,4 +76,4 @@
 - DoD:
   - main 合并并 push。
   - `data/dev-tasks.json` 的 `M50` 状态为 `DONE` 且 result 完整。
-- Status: `TODO`
+- Status: `DOING`

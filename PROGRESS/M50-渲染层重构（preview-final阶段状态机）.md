@@ -47,14 +47,25 @@
 
 ### R2 状态机落地与文案统一（preview/final 分离）
 - Context:
+  - R1 接入基础阶段机后，preview 幂等与 summary 过滤仍分散在 `repl_events` 的外部集合，状态真源不集中。
 - Decision:
+  - 为阶段机新增 `should_emit_tool_preview/record_tool_preview/filter_summary_tool_updates`，将 preview 发射幂等和 final 摘要过滤收口到同一对象。
+  - `send_message_with_async_events` 改为由阶段机统一过滤 `tool_updates`，减少外部散落状态。
+  - 终态 `run_status` 的阶段切换在批次末尾生效，避免同批次事件顺序抖动导致合法 preview 被误吞。
 - Rationale:
+  - 状态集中后可明确“STREAMING 只负责 preview；FINALIZING/FINALIZED 只负责 summary 过滤”，降低双写复读与维护复杂度。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "filters_previewed_tool_lines_from_final_summary"` -> `1 failed`（阶段机缺少预期 API）。
+    - 绿测子集：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "render_phase_machine_ or dedupes_replayed_tool_start_with_changed_event_id_and_nonsemantic_metadata or streams_started_running_chunk_and_exit_for_tool_execution"` -> `4 passed`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `116 passed, 42 warnings`。
   - Entry:
+    - preview/final 去重已由 `ReplRenderPhaseMachine` 统一控制；CLI 输出仍保持 `Assistant/State/Progress/Tool/Usage` 风格。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - 回退到 `7dca46b`（R2 红测提交）。
+- Commits: C1=`7dca46b`, C2=`3c14eda`, C3=`本提交`
 - Next:
+  - 执行 R3：managed 实跑、rebase/merge/push、dev_tasks DONE 回填。
 
 ### R3 收口（门禁 + managed + main + dev_tasks DONE）
 - Context:
