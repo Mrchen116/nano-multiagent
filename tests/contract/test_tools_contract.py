@@ -32,3 +32,13 @@ def test_tools_contract_returns_name_description_and_schema() -> None:
     names = {item["name"] for item in payload["tools"]}
     assert {"read", "write", "edit", "bash"}.issubset(names)
 
+
+def test_tools_contract_descriptions_do_not_expose_placeholders() -> None:
+    client = TestClient(create_app(auth_token="test-token"))
+
+    response = client.get("/v1/tools", headers=_auth_headers("req-tools-no-placeholder"))
+
+    assert response.status_code == 200
+    tools = {item["name"]: item for item in response.json()["tools"]}
+    assert "${DEFAULT_" not in tools["read"]["description"]
+    assert "${DEFAULT_" not in tools["bash"]["description"]

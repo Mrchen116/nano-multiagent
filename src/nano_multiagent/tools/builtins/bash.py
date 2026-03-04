@@ -4,6 +4,7 @@ import signal
 from typing import Any, Mapping
 
 from nano_multiagent.core.errors import ToolError
+from nano_multiagent.tools.constants import DEFAULT_MAX_KILOBYTES, DEFAULT_MAX_LINES
 
 from ..base import ToolContext
 
@@ -14,7 +15,7 @@ class BashTool:
     name = "bash"
     description = (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "
-        "Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB "
+        f"Output is truncated to last {DEFAULT_MAX_LINES} lines or {DEFAULT_MAX_KILOBYTES}KB "
         "(whichever is hit first). If truncated, full output is saved to a temp file. Optionally "
         "provide a timeout in seconds."
     )

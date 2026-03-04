@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from nano_multiagent.core.errors import ToolError
+from nano_multiagent.tools.constants import (
+    DEFAULT_MAX_KILOBYTES,
+    DEFAULT_MAX_LINES,
+)
 
 from ..base import ToolContext
 
@@ -23,8 +27,8 @@ class ReadTool:
     name = "read"
     description = (
         "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
-        "Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} "
-        "lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large "
+        f"Images are sent as attachments. For text files, output is truncated to {DEFAULT_MAX_LINES} "
+        f"lines or {DEFAULT_MAX_KILOBYTES}KB (whichever is hit first). Use offset/limit for large "
         "files. When you need the full file, continue with offset until complete."
     )
     input_schema = {

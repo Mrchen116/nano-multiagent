@@ -13,15 +13,17 @@ from typing import Any, Callable, Mapping
 
 from nano_multiagent.core.errors import ToolError
 
+from .constants import DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES
+
 
 @dataclass(frozen=True, slots=True)
 class ToolSafetyConfig:
     """Configure read/bash output limits and command policy guardrails."""
 
-    read_max_lines: int = 200
-    read_max_bytes: int = 64 * 1024
-    bash_max_output_lines: int = 200
-    bash_max_output_bytes: int = 64 * 1024
+    read_max_lines: int = DEFAULT_MAX_LINES
+    read_max_bytes: int = DEFAULT_MAX_BYTES
+    bash_max_output_lines: int = DEFAULT_MAX_LINES
+    bash_max_output_bytes: int = DEFAULT_MAX_BYTES
     bash_default_timeout: float = 30.0
     # Prefix-based allow list used after splitting command by "&&" segments.
     bash_allowed_prefixes: tuple[str, ...] = (
