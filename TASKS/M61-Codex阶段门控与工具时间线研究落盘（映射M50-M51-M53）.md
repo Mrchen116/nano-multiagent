@@ -49,7 +49,7 @@
 - DoD:
   - PROGRESS 追加第二轮研究记录，含“新问题 -> 新锚点 -> 新规则”链路。
   - C1/C2/C3 提交齐全（文档型执行）。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R3 迁移总清单与managed CLI观感验收模板收口
 - Acceptance:

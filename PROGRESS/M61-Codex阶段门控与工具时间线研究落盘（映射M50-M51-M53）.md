@@ -107,9 +107,9 @@
       - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/history_cell.rs:3301`
 - Rollback:
   - `98aab7b`（R1 C3）。
-- Commits: C1=`68a1a94`, C2=`本提交`, C3=`TBD`
+- Commits: C1=`68a1a94`, C2=`4cc078f`, C3=`本提交`
 - Next:
-  - 进入 R2 C3：同步 TASKS 状态并收口第二轮结论。
+  - 进入 R3：汇总 M50/M51/M53 最终清单与 managed CLI 验收脚本模板。
 
 ### R3 迁移总清单与managed CLI观感验收模板收口
 - Context:
