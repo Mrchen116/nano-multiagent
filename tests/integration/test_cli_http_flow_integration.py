@@ -396,7 +396,8 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "run_id=" in text
-    assert "Error:" in text
+    assert "Assistant: (empty)" in text
+    assert "[error]" in text
     assert "layer=runtime" in text
     assert "run failed: {'code': 'run_execution_failed'" in text
     assert "root_cause=connect ETIMEDOUT" in text
@@ -647,7 +648,7 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     text = output.getvalue()
     assert "Assistant:" in text
     assert "[status] completed | stop=stop | run=run_" in text
-    assert "[tool] echo start args={\"text\": \"ping\"}" in text
+    assert "[tool] echo start args=ping" in text
     assert "[tool] echo output=echo:ping" in text
     assert "[usage]" in text
     assert "final:echo:ping" in text

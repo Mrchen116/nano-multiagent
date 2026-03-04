@@ -1129,9 +1129,8 @@ def test_run_cli_repl_prints_turn_llm_usage_when_available() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "echo:hello" in text
-    assert "- state=completed" in text
-    assert "Usage:" in text
-    assert "prompt=120, completion=35, total=155" in text
+    assert "[status] completed | stop=stop | session=sess_cli" in text
+    assert "[usage] prompt=120, completion=35, total=155" in text
 
 
 def test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason() -> None:
@@ -1148,8 +1147,7 @@ def test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason()
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "- stop_reason=stop" in text
-    assert "- state=completed" in text
+    assert "[status] completed | stop=stop | session=sess_cli" in text
 
 
 def test_run_cli_repl_request_failures_include_suggestions() -> None:
@@ -1185,7 +1183,7 @@ def test_run_cli_repl_connection_refused_shows_base_url_suggestion() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Error:" in text
+    assert "Assistant: (empty)" in text
     assert "send failed: [Errno 61] Connection refused" in text
     assert "layer=network" in text
     assert "suggestion=check --base-url and ensure API server is running." in text
@@ -1207,6 +1205,7 @@ def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
 
     assert exit_code == 0
     text = output.getvalue().lower()
+    assert "assistant: (empty)" in text
     assert "send failed: timed out" in text
     assert "layer=network" in text
     assert "nano_multiagent_api_timeout_seconds" in text
@@ -1227,8 +1226,8 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert text.count("status=queued") == 1
-    assert "[tool echo] start" in text
-    assert "[tool echo] output=echo:ping" in text
+    assert "[tool] echo start" in text
+    assert "[tool] echo output=echo:ping" in text
     assert "Assistant:" in text
     assert "final:echo:ping" in text
     assert "ignore-me" not in text
@@ -1249,8 +1248,8 @@ def test_send_message_with_async_events_sanitizes_multiline_tool_preview() -> No
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "[tool echo] output=line1\\nline2" in text
-    assert "[tool echo] output=line1\nline2" not in text
+    assert "[tool] echo output=line1\\nline2" in text
+    assert "[tool] echo output=line1\nline2" not in text
 
 
 def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> None:
@@ -1270,7 +1269,7 @@ def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> No
     assert "Assistant:" in text
     assert "final:echo:ping" in text
     assert "[status] completed | stop=stop | run=run_target | session=sess_cli" in text
-    assert "[tool] echo start args={\"text\": \"ping\"}" in text
+    assert "[tool] echo start args=ping" in text
     assert "[tool] echo output=echo:ping" in text
     assert "[usage] unavailable" in text
     assert '"run_id": "run_target"' not in text
@@ -1308,7 +1307,7 @@ def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Error:" in text
+    assert "Assistant: (empty)" in text
     assert "send failed: run_id=run_failed" in text
     assert "layer=runtime" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
@@ -1370,8 +1369,8 @@ def test_run_cli_repl_delays_terminal_run_status_until_after_tool_tail_events() 
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "status=completed" in text
-    assert "[tool echo] output=echo:ping" in text
+    assert "[status] completed | stop=stop | run=run_completed_first | session=sess_cli" in text
+    assert "[tool] echo output=echo:ping" in text
 
 
 def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress() -> None:
