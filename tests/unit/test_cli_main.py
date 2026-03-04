@@ -1413,7 +1413,7 @@ def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
     assert "[tool bash] chunk stdout#1: out-line" in text
     assert "[tool bash] chunk stderr#2: err-line" in text
     assert "[tool bash] exit code=0 status=completed duration=210ms" in text
-    assert text.index("[tool bash] started status=started elapsed=0ms") < text.index("Status:")
+    assert text.index("[tool bash] started status=started elapsed=0ms") < text.index("[status]")
 
 
 def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
