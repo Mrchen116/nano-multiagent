@@ -1376,6 +1376,20 @@ def test_repl_input_engine_skips_redundant_redraw_for_noop_keys(monkeypatch) -> 
     assert len(render_calls) == 2
 
 
+def test_repl_input_state_machine_skips_redraw_when_history_up_hits_top_boundary() -> None:
+    from nano_multiagent.cli.input import repl_input as layered_repl_input
+
+    state = layered_repl_input._initial_input_state(history=("first",), command_items=repl_commands.REPL_COMMANDS)
+
+    first_up = layered_repl_input._apply_input_key(state=state, key="\x1b[A")
+    assert first_up.needs_redraw is True
+    assert first_up.state.chars == ("f", "i", "r", "s", "t")
+
+    second_up = layered_repl_input._apply_input_key(state=first_up.state, key="\x1b[A")
+    assert second_up.needs_redraw is False
+    assert second_up.state == first_up.state
+
+
 def test_run_cli_repl_up_recalls_previous_command_line() -> None:
     stub = _StubClient()
     output = io.StringIO()
