@@ -17,7 +17,7 @@
 - Command:
   - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`
 - Result:
-  - `106 passed, 42 warnings`（2026-03-04）
+  - `106 passed, 42 warnings`（2026-03-04，开工基线）
 
 ## Roadpoints
 
@@ -35,8 +35,8 @@
   - `tests/unit/test_cli_refactor_boundaries.py`
 - DoD:
   - 红测先失败并锁定兼容门面目标。
-  - 完成 C1。
-- Status: `TODO`
+  - 完成 C1/C2/C3。
+- Status: `DONE`
 
 ### R2 按职责迁移并保持行为等价
 - Acceptance:
@@ -57,7 +57,7 @@
 - DoD:
   - 全量门禁全绿。
   - 完成 C2。
-- Status: `TODO`
+- Status: `DOING`
 
 ### R3 收口验收与集成
 - Acceptance:
