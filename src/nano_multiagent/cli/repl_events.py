@@ -227,6 +227,7 @@ def _preview_event_value(value: object) -> str:
         text = value
     else:
         text = json.dumps(value, ensure_ascii=False)
+    text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
     if len(text) <= _EVENT_PREVIEW_MAX_LEN:
         return text
     return f"{text[:_EVENT_PREVIEW_MAX_LEN]}..."

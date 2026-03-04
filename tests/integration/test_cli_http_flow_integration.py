@@ -396,7 +396,8 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "run_id=" in text
-    assert "Error:" in text
+    assert "Assistant: (empty)" in text
+    assert "[error]" in text
     assert "layer=runtime" in text
     assert "run failed: {'code': 'run_execution_failed'" in text
     assert "root_cause=connect ETIMEDOUT" in text
@@ -645,15 +646,15 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Status:" in text
-    assert "status=completed" in text
-    assert "[tool echo] start" in text
-    assert "[tool echo] output=echo:ping" in text
-    assert "Answer:" in text
+    assert "Assistant:" in text
+    assert "[status] completed | stop=stop | run=run_" in text
+    assert "[tool] echo start args=ping" in text
+    assert "[tool] echo output=echo:ping" in text
+    assert "[usage]" in text
     assert "final:echo:ping" in text
 
 
-def test_cli_repl_prints_structured_sections_in_async_turn_output() -> None:
+def test_cli_repl_prints_compact_sections_in_async_turn_output() -> None:
     store = _InMemorySessionStore()
     llm = _ToolCallingLLMClient()
     runtime = AgentRuntime(
@@ -690,10 +691,10 @@ def test_cli_repl_prints_structured_sections_in_async_turn_output() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Status:" in text
-    assert "Tools:" in text
-    assert "Answer:" in text
-    assert "Usage:" in text
+    assert "Assistant:" in text
+    assert "[status] completed" in text
+    assert "[tool]" in text
+    assert "[usage]" in text
     assert '"run_id": "run_' not in text
 
 
@@ -718,7 +719,7 @@ def test_cli_repl_allows_queueing_next_input_while_previous_async_run_is_running
     assert exit_code == 0
     text = output.getvalue()
     assert "Queued message #1" in text
-    assert text.count("run_id=") >= 2
+    assert text.count("run=") >= 2
 
 
 def test_cli_repl_flow_supports_history_listing() -> None:

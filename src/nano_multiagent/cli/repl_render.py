@@ -11,7 +11,7 @@ def print_repl_turn_summary(
     payload: dict[str, object],
     context_budget_client: object | None = None,
 ) -> None:
-    """Render one turn result with status/tools/answer/error/usage sections."""
+    """Render one turn result with compact answer-first summary."""
     run_id = _read_non_empty_str(payload.get("run_id"))
     session_id = _read_non_empty_str(payload.get("session_id"))
     state = _resolve_state(payload)
@@ -24,33 +24,29 @@ def print_repl_turn_summary(
         tool_updates = _as_non_empty_str_list(view.get("tool_updates"))
     answer = _extract_message_content(payload)
     usage_line = _format_usage_line(payload.get("usage"))
+    compact_status_updates = _compact_status_updates(status_updates, final_state=state)
+    compact_tool_updates = _compact_tool_updates(tool_updates)
 
-    print("Status:", file=out)
-    if session_id is not None:
-        print(f"- session_id={session_id}", file=out)
-    if run_id is not None:
-        print(f"- run_id={run_id}", file=out)
-    print(f"- state={state}", file=out)
-    if stop_reason is not None:
-        print(f"- stop_reason={stop_reason}", file=out)
-    for update in status_updates:
-        print(f"- {update}", file=out)
-
-    print("Tools:", file=out)
-    if tool_updates:
-        for update in tool_updates:
-            print(f"- {update}", file=out)
-    else:
-        print("- (none)", file=out)
-
-    print("Answer:", file=out)
+    print("Assistant:", file=out)
     if answer is not None:
         print(answer, file=out)
     else:
         print("(empty)", file=out)
 
-    print("Usage:", file=out)
-    print(f"- {usage_line}", file=out)
+    status_parts: list[str] = [state]
+    if stop_reason is not None:
+        status_parts.append(f"stop={stop_reason}")
+    if run_id is not None:
+        status_parts.append(f"run={run_id}")
+    if session_id is not None:
+        status_parts.append(f"session={session_id}")
+    print(f"[status] {' | '.join(status_parts)}", file=out)
+    for update in compact_status_updates:
+        print(f"[progress] {update}", file=out)
+    for update in compact_tool_updates:
+        print(f"[tool] {update}", file=out)
+
+    print(f"[usage] {usage_line}", file=out)
 
     if context_budget_client is not None and session_id is not None:
         print_context_budget_snapshot(out=out, client=context_budget_client, session_id=session_id)
@@ -63,19 +59,12 @@ def print_repl_turn_error(
     layer: str,
     suggestion: str,
 ) -> None:
-    """Render one failed turn with structured sections."""
-    print("Status:", file=out)
-    print("- state=failed", file=out)
-    print("Tools:", file=out)
-    print("- (none)", file=out)
-    print("Answer:", file=out)
-    print("(empty)", file=out)
-    print("Error:", file=out)
-    print(f"- {error}", file=out)
-    print(f"- layer={layer}", file=out)
-    print(f"- suggestion={suggestion}", file=out)
-    print("Usage:", file=out)
-    print("- unavailable", file=out)
+    """Render one failed turn with compact answer-first summary."""
+    print("Assistant: (empty)", file=out)
+    print(f"[status] failed | layer={layer}", file=out)
+    print(f"[error] {error}", file=out)
+    print(f"[hint] suggestion={suggestion}", file=out)
+    print("[usage] unavailable", file=out)
 
 
 def _resolve_state(payload: dict[str, object]) -> str:
@@ -124,3 +113,48 @@ def _format_usage_line(usage: object) -> str:
     if all(isinstance(value, int) for value in (prompt, completion, total)):
         return f"prompt={prompt}, completion={completion}, total={total}"
     return "unavailable"
+
+
+def _compact_status_updates(updates: list[str], *, final_state: str) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in updates:
+        line = raw.strip()
+        if not line:
+            continue
+        if line == f"status={final_state}":
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        result.append(line)
+    if len(result) <= 3:
+        return result
+    return result[-3:]
+
+
+def _compact_tool_updates(updates: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in updates:
+        normalized = _normalize_tool_update(raw)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    if len(result) <= 4:
+        return result
+    return result[-4:]
+
+
+def _normalize_tool_update(line: str) -> str:
+    trimmed = line.strip()
+    if not trimmed:
+        return ""
+    if trimmed.startswith("[tool ") and "] " in trimmed:
+        closing = trimmed.find("] ")
+        name = trimmed[6:closing].strip()
+        remainder = trimmed[closing + 2 :].strip()
+        if name and remainder:
+            return f"{name} {remainder}"
+    return trimmed

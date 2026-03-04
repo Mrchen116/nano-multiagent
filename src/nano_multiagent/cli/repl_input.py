@@ -2,6 +2,8 @@
 
 import sys
 from contextlib import contextmanager
+from dataclasses import dataclass
+from threading import RLock
 from typing import Callable, Protocol, Sequence, TextIO
 
 try:
@@ -19,6 +21,20 @@ _KEY_ENTER = {"\n", "\r"}
 _KEY_BACKSPACE = {"\x7f", "\b"}
 _MENU_MARKER_SELECTED = "▶"
 _MENU_MARKER_IDLE = " "
+
+
+@dataclass(slots=True)
+class _ActiveRenderState:
+    out: TextIO
+    prompt: str
+    chars: tuple[str, ...]
+    cursor: int
+    command_items: tuple[str, ...]
+    selected_command_index: int | None
+
+
+_RENDER_LOCK = RLock()
+_ACTIVE_RENDER_STATE: _ActiveRenderState | None = None
 
 
 class ReplInputReader(Protocol):
@@ -140,22 +156,125 @@ def read_interactive_line(
         command_items=command_items,
         selected_index=command_menu_index,
     )
-    render_interactive_line(
-        out=out,
-        prompt=prompt,
-        chars=chars,
-        cursor=cursor,
-        command_items=command_items,
-        selected_command_index=command_menu_index,
-    )
-    while True:
-        key = key_reader()
-        if key is None:
-            raise EOFError()
-        if key in _KEY_ENTER:
-            if command_menu_index is not None and command_items:
-                selected_command = command_items[command_menu_index]
-                chars = list(selected_command)
+    try:
+        render_interactive_line(
+            out=out,
+            prompt=prompt,
+            chars=chars,
+            cursor=cursor,
+            command_items=command_items,
+            selected_command_index=command_menu_index,
+        )
+        while True:
+            key = key_reader()
+            if key is None:
+                raise EOFError()
+            if key in _KEY_ENTER:
+                if command_menu_index is not None and command_items:
+                    selected_command = command_items[command_menu_index]
+                    chars = list(selected_command)
+                    cursor = len(chars)
+                    command_menu_index = _sync_command_menu_selection(
+                        chars=chars,
+                        cursor=cursor,
+                        command_items=command_items,
+                        selected_index=None,
+                    )
+                    render_interactive_line(
+                        out=out,
+                        prompt=prompt,
+                        chars=chars,
+                        cursor=cursor,
+                        command_items=command_items,
+                        selected_command_index=command_menu_index,
+                    )
+                    continue
+                print("", file=out)
+                return "".join(chars)
+            if key == "\x03":
+                raise KeyboardInterrupt()
+            if key == "\x04":
+                if chars:
+                    continue
+                print("", file=out)
+                raise EOFError()
+            if key in _KEY_BACKSPACE:
+                if cursor > 0:
+                    if history_index is not None:
+                        history_index = None
+                    del chars[cursor - 1]
+                    cursor -= 1
+                    command_menu_index = _sync_command_menu_selection(
+                        chars=chars,
+                        cursor=cursor,
+                        command_items=command_items,
+                        selected_index=command_menu_index,
+                    )
+                    render_interactive_line(
+                        out=out,
+                        prompt=prompt,
+                        chars=chars,
+                        cursor=cursor,
+                        command_items=command_items,
+                        selected_command_index=command_menu_index,
+                    )
+                continue
+            if key == _KEY_ARROW_LEFT:
+                if cursor > 0:
+                    cursor -= 1
+                    command_menu_index = _sync_command_menu_selection(
+                        chars=chars,
+                        cursor=cursor,
+                        command_items=command_items,
+                        selected_index=command_menu_index,
+                    )
+                    render_interactive_line(
+                        out=out,
+                        prompt=prompt,
+                        chars=chars,
+                        cursor=cursor,
+                        command_items=command_items,
+                        selected_command_index=command_menu_index,
+                    )
+                continue
+            if key == _KEY_ARROW_RIGHT:
+                if cursor < len(chars):
+                    cursor += 1
+                    command_menu_index = _sync_command_menu_selection(
+                        chars=chars,
+                        cursor=cursor,
+                        command_items=command_items,
+                        selected_index=command_menu_index,
+                    )
+                    render_interactive_line(
+                        out=out,
+                        prompt=prompt,
+                        chars=chars,
+                        cursor=cursor,
+                        command_items=command_items,
+                        selected_command_index=command_menu_index,
+                    )
+                continue
+            if key == _KEY_ARROW_UP:
+                if command_menu_index is not None and command_items:
+                    command_menu_index = (command_menu_index - 1) % len(command_items)
+                    render_interactive_line(
+                        out=out,
+                        prompt=prompt,
+                        chars=chars,
+                        cursor=cursor,
+                        command_items=command_items,
+                        selected_command_index=command_menu_index,
+                    )
+                    continue
+                if not history_items:
+                    continue
+                if history_index is None:
+                    draft_before_history = chars.copy()
+                    history_index = len(history_items) - 1
+                elif history_index > 0:
+                    history_index -= 1
+                chars = list(history_items[history_index])
                 cursor = len(chars)
                 command_menu_index = _sync_command_menu_selection(
                     chars=chars,
@@ -172,56 +291,46 @@ def read_interactive_line(
                     selected_command_index=command_menu_index,
                 )
                 continue
-            print("", file=out)
-            return "".join(chars)
-        if key == "\x03":
-            raise KeyboardInterrupt()
-        if key == "\x04":
-            if chars:
+            if key == _KEY_ARROW_DOWN:
+                if command_menu_index is not None and command_items:
+                    command_menu_index = (command_menu_index + 1) % len(command_items)
+                    render_interactive_line(
+                        out=out,
+                        prompt=prompt,
+                        chars=chars,
+                        cursor=cursor,
+                        command_items=command_items,
+                        selected_command_index=command_menu_index,
+                    )
+                    continue
+                if history_index is None:
+                    continue
+                if history_index < len(history_items) - 1:
+                    history_index += 1
+                    chars = list(history_items[history_index])
+                else:
+                    history_index = None
+                    chars = draft_before_history.copy()
+                cursor = len(chars)
+                command_menu_index = _sync_command_menu_selection(
+                    chars=chars,
+                    cursor=cursor,
+                    command_items=command_items,
+                    selected_index=None,
+                )
+                render_interactive_line(
+                    out=out,
+                    prompt=prompt,
+                    chars=chars,
+                    cursor=cursor,
+                    command_items=command_items,
+                    selected_command_index=command_menu_index,
+                )
                 continue
-            print("", file=out)
-            raise EOFError()
-        if key in _KEY_BACKSPACE:
-            if cursor > 0:
+            if len(key) == 1 and key.isprintable():
                 if history_index is not None:
                     history_index = None
-                del chars[cursor - 1]
-                cursor -= 1
-                command_menu_index = _sync_command_menu_selection(
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_index=command_menu_index,
-                )
-                render_interactive_line(
-                    out=out,
-                    prompt=prompt,
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_command_index=command_menu_index,
-                )
-            continue
-        if key == _KEY_ARROW_LEFT:
-            if cursor > 0:
-                cursor -= 1
-                command_menu_index = _sync_command_menu_selection(
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_index=command_menu_index,
-                )
-                render_interactive_line(
-                    out=out,
-                    prompt=prompt,
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_command_index=command_menu_index,
-                )
-            continue
-        if key == _KEY_ARROW_RIGHT:
-            if cursor < len(chars):
+                chars.insert(cursor, key)
                 cursor += 1
                 command_menu_index = _sync_command_menu_selection(
                     chars=chars,
@@ -237,98 +346,8 @@ def read_interactive_line(
                     command_items=command_items,
                     selected_command_index=command_menu_index,
                 )
-            continue
-        if key == _KEY_ARROW_UP:
-            if command_menu_index is not None and command_items:
-                command_menu_index = (command_menu_index - 1) % len(command_items)
-                render_interactive_line(
-                    out=out,
-                    prompt=prompt,
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_command_index=command_menu_index,
-                )
-                continue
-            if not history_items:
-                continue
-            if history_index is None:
-                draft_before_history = chars.copy()
-                history_index = len(history_items) - 1
-            elif history_index > 0:
-                history_index -= 1
-            chars = list(history_items[history_index])
-            cursor = len(chars)
-            command_menu_index = _sync_command_menu_selection(
-                chars=chars,
-                cursor=cursor,
-                command_items=command_items,
-                selected_index=None,
-            )
-            render_interactive_line(
-                out=out,
-                prompt=prompt,
-                chars=chars,
-                cursor=cursor,
-                command_items=command_items,
-                selected_command_index=command_menu_index,
-            )
-            continue
-        if key == _KEY_ARROW_DOWN:
-            if command_menu_index is not None and command_items:
-                command_menu_index = (command_menu_index + 1) % len(command_items)
-                render_interactive_line(
-                    out=out,
-                    prompt=prompt,
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_command_index=command_menu_index,
-                )
-                continue
-            if history_index is None:
-                continue
-            if history_index < len(history_items) - 1:
-                history_index += 1
-                chars = list(history_items[history_index])
-            else:
-                history_index = None
-                chars = draft_before_history.copy()
-            cursor = len(chars)
-            command_menu_index = _sync_command_menu_selection(
-                chars=chars,
-                cursor=cursor,
-                command_items=command_items,
-                selected_index=None,
-            )
-            render_interactive_line(
-                out=out,
-                prompt=prompt,
-                chars=chars,
-                cursor=cursor,
-                command_items=command_items,
-                selected_command_index=command_menu_index,
-            )
-            continue
-        if len(key) == 1 and key.isprintable():
-            if history_index is not None:
-                history_index = None
-            chars.insert(cursor, key)
-            cursor += 1
-            command_menu_index = _sync_command_menu_selection(
-                chars=chars,
-                cursor=cursor,
-                command_items=command_items,
-                selected_index=command_menu_index,
-            )
-            render_interactive_line(
-                out=out,
-                prompt=prompt,
-                chars=chars,
-                cursor=cursor,
-                command_items=command_items,
-                selected_command_index=command_menu_index,
-            )
+    finally:
+        _clear_active_render_state(out=out)
 
 
 def render_interactive_line(
@@ -341,6 +360,61 @@ def render_interactive_line(
     selected_command_index: int | None = None,
 ) -> None:
     """Render editable line and optional slash-command menu in terminal."""
+    with _RENDER_LOCK:
+        _set_active_render_state(
+            out=out,
+            prompt=prompt,
+            chars=chars,
+            cursor=cursor,
+            command_items=command_items,
+            selected_command_index=selected_command_index,
+        )
+        _render_interactive_line_locked(
+            out=out,
+            prompt=prompt,
+            chars=chars,
+            cursor=cursor,
+            command_items=command_items,
+            selected_command_index=selected_command_index,
+        )
+
+
+def emit_external_text(*, out: TextIO, text: str) -> None:
+    """Emit one external message block without corrupting interactive prompt layout."""
+    with _RENDER_LOCK:
+        active = _ACTIVE_RENDER_STATE
+        should_restore_prompt = active is not None and active.out is out
+        if should_restore_prompt:
+            _clear_interactive_line_locked(out=out)
+
+        out.write(text)
+        if text and not text.endswith("\n"):
+            out.write("\n")
+
+        if should_restore_prompt and active is not None:
+            _render_interactive_line_locked(
+                out=out,
+                prompt=active.prompt,
+                chars=active.chars,
+                cursor=active.cursor,
+                command_items=active.command_items,
+                selected_command_index=active.selected_command_index,
+            )
+
+        flush = getattr(out, "flush", None)
+        if callable(flush):
+            flush()
+
+
+def _render_interactive_line_locked(
+    *,
+    out: TextIO,
+    prompt: str,
+    chars: Sequence[str],
+    cursor: int,
+    command_items: Sequence[str] = (),
+    selected_command_index: int | None = None,
+) -> None:
     line = "".join(chars)
     out.write(f"\r{prompt}{line}\x1b[K")
     out.write("\x1b[J")
@@ -354,6 +428,38 @@ def render_interactive_line(
     flush = getattr(out, "flush", None)
     if callable(flush):
         flush()
+
+
+def _set_active_render_state(
+    *,
+    out: TextIO,
+    prompt: str,
+    chars: Sequence[str],
+    cursor: int,
+    command_items: Sequence[str],
+    selected_command_index: int | None,
+) -> None:
+    global _ACTIVE_RENDER_STATE
+    _ACTIVE_RENDER_STATE = _ActiveRenderState(
+        out=out,
+        prompt=prompt,
+        chars=tuple(chars),
+        cursor=cursor,
+        command_items=tuple(command_items),
+        selected_command_index=selected_command_index,
+    )
+
+
+def _clear_active_render_state(*, out: TextIO) -> None:
+    global _ACTIVE_RENDER_STATE
+    with _RENDER_LOCK:
+        if _ACTIVE_RENDER_STATE is not None and _ACTIVE_RENDER_STATE.out is out:
+            _ACTIVE_RENDER_STATE = None
+
+
+def _clear_interactive_line_locked(*, out: TextIO) -> None:
+    out.write("\r\x1b[K")
+    out.write("\x1b[J")
 
 
 def _sync_command_menu_selection(
