@@ -34,7 +34,7 @@
 - DoD:
   - PROGRESS 记录一轮完整研究结论（含锚点、决策、风险）。
   - C1/C2/C3 提交齐全（文档型执行）。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R2 工具时间线聚合/orphan隔离与summary去重研究
 - Acceptance:

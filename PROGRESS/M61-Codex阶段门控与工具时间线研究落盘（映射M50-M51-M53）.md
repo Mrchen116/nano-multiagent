@@ -62,9 +62,9 @@
       - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/tui/frame_requester.rs:110`
 - Rollback:
   - `a9b9dc4`（计划提交）。
-- Commits: C1=`4c9a55c`, C2=`本提交`, C3=`TBD`
+- Commits: C1=`4c9a55c`, C2=`768519e`, C3=`本提交`
 - Next:
-  - 进入 R1 C3：更新 TASKS 状态并收口第一轮结论。
+  - 进入 R2：围绕 tool timeline/orphan 隔离与 summary 去重继续深挖。
 
 ### R2 工具时间线聚合/orphan隔离与summary去重研究
 - Context:
