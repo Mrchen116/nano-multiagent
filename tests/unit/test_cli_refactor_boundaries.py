@@ -1,5 +1,6 @@
 import io
 import json
+import subprocess
 
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import context_budget
@@ -120,3 +121,44 @@ def test_cli_release_observability_builds_summary_lines_from_perf_metrics() -> N
         "perf: throughput=0.8 redraw_ratio=0.125 sample_ready=True",
     ]
     assert json.dumps(lines, ensure_ascii=False)
+
+
+def test_cli_release_playbook_dry_run_outputs_acceptance_and_rollback_steps() -> None:
+    from nano_multiagent.cli.release_playbook import build_release_playbook_report
+
+    report = build_release_playbook_report(base_url="http://127.0.0.1:8003", token="test-token", execute=False)
+
+    assert report["execute"] is False
+    acceptance_steps = report["acceptance_steps"]
+    rollback_steps = report["rollback_steps"]
+    assert isinstance(acceptance_steps, list) and len(acceptance_steps) >= 2
+    assert isinstance(rollback_steps, list) and len(rollback_steps) >= 2
+    assert acceptance_steps[0]["name"] == "cli_gate_tests"
+    assert "pytest -q tests/unit/test_cli_main.py" in acceptance_steps[0]["command"]
+    assert rollback_steps[0]["name"] == "rollback_main_to_previous_commit"
+
+
+def test_cli_release_playbook_execute_runs_steps_and_collects_status() -> None:
+    from nano_multiagent.cli.release_playbook import build_release_playbook_report
+
+    calls: list[str] = []
+
+    def _fake_runner(command: str) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if "pytest -q" in command:
+            return subprocess.CompletedProcess(command, 0, stdout="gate ok", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    report = build_release_playbook_report(
+        base_url="http://127.0.0.1:8003",
+        token="test-token",
+        execute=True,
+        runner=_fake_runner,
+    )
+
+    assert report["execute"] is True
+    assert report["status"] == "passed"
+    execution = report["execution"]
+    assert isinstance(execution, list) and len(execution) >= 2
+    assert all(item["returncode"] == 0 for item in execution)
+    assert any("pytest -q tests/unit/test_cli_main.py" in cmd for cmd in calls)
