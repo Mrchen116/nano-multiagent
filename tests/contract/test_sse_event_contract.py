@@ -31,6 +31,72 @@ class _RuntimeStub:
         )
         asyncio.run(
             self.hook_runner.dispatch_observe(
+                "tool_execution_update",
+                {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "run_id": run_id,
+                    "call_id": "call_sse_contract",
+                    "name": "bash",
+                    "phase": "started",
+                    "status": "started",
+                    "elapsed_ms": 0,
+                },
+                hook_ctx,
+            )
+        )
+        asyncio.run(
+            self.hook_runner.dispatch_observe(
+                "tool_execution_update",
+                {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "run_id": run_id,
+                    "call_id": "call_sse_contract",
+                    "name": "bash",
+                    "phase": "running",
+                    "status": "running",
+                    "elapsed_ms": 120,
+                },
+                hook_ctx,
+            )
+        )
+        asyncio.run(
+            self.hook_runner.dispatch_observe(
+                "tool_execution_update",
+                {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "run_id": run_id,
+                    "call_id": "call_sse_contract",
+                    "name": "bash",
+                    "phase": "chunk",
+                    "stream": "stdout",
+                    "chunk": "chunk-1",
+                    "seq": 1,
+                },
+                hook_ctx,
+            )
+        )
+        asyncio.run(
+            self.hook_runner.dispatch_observe(
+                "tool_execution_update",
+                {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "run_id": run_id,
+                    "call_id": "call_sse_contract",
+                    "name": "bash",
+                    "phase": "exit",
+                    "status": "completed",
+                    "duration_ms": 220,
+                    "exit_code": 0,
+                },
+                hook_ctx,
+            )
+        )
+        asyncio.run(
+            self.hook_runner.dispatch_observe(
                 "message_update",
                 {
                     "session_id": session_id,
@@ -85,15 +151,16 @@ def test_global_sse_contract_returns_event_stream_frames() -> None:
     )
     assert submitted.status_code == 202
 
-    response = client.get(
-        "/v1/events?max_events=8&timeout_seconds=0.1",
-        headers=_auth_headers("req-sse-contract-global"),
-    )
+    response = client.get("/v1/events?max_events=16&timeout_seconds=0.1", headers=_auth_headers("req-sse-contract-global"))
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     body = response.text
     assert "event: run_status" in body
+    assert "event: tool_exec_started" in body
+    assert "event: tool_exec_running" in body
+    assert "event: tool_exec_chunk" in body
+    assert "event: tool_exec_exit" in body
     assert "event: text_delta" in body
     assert "event: turn_end" in body
 
