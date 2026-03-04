@@ -49,10 +49,10 @@
   - 全量门禁命令全绿。
   - 完成 C1/C2/C3 并在 PROGRESS 记录证据、回滚点、哈希。
 - Commits:
-  - C1: `TBD`
-  - C2: `TBD`
+  - C1: `3611048`
+  - C2: `622105e`
   - C3: `TBD`
-- Status: `DOING`
+- Status: `DONE`
 
 ### R2 工具过程折叠（关键节点摘要优先）
 - Acceptance:
@@ -79,7 +79,7 @@
   - C1: `TBD`
   - C2: `TBD`
   - C3: `TBD`
-- Status: `TODO`
+- Status: `DOING`
 
 ### R3 收口验收与集成（managed 真机验收 + main 集成）
 - Acceptance:

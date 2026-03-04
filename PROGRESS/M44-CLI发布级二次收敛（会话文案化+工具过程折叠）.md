@@ -25,15 +25,15 @@
 - 输出遵循 `event -> semantic -> render`，默认以会话主内容优先可读。
 
 ### R1 会话创建文案化（去 JSON 直出）
-- Context:
-- Decision:
-- Rationale:
+- Context: 现状 `/new`、`/use`、`/session` 与“无会话时首条消息自动建会话”都直接打印 JSON，阅读流不友好且与发布态摘要风格不一致。
+- Decision: 在 REPL 路径统一改为人类文案：`Started new session ...`、`Switched to session ...`、`Active session: ...`，并在自动建会话分支复用同一文案；非交互命令 JSON 契约保持不变。
+- Rationale: REPL 面向人读，单命令模式面向机读，二者输出职责分离可减少噪音并保持兼容。
 - Evidence:
-  - Tests: 
-  - Entry:
-- Rollback:
-- Commits: C1=<TBD>, C2=<TBD>, C3=<TBD>
-- Next: 先修改 unit/integration 断言使其体现“会话文案化、去 JSON”。
+  - Tests: `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `101 passed, 40 warnings`
+  - Entry: REPL `/new` + `/session` + `/use` 均输出人类文案，且 REPL 不再出现会话 JSON 直出。
+- Rollback: `3611048`（R1 红测基线）
+- Commits: C1=`3611048`, C2=`622105e`, C3=`TBD`
+- Next: 进入 R2，收敛工具过程为关键节点摘要并继续保持 run_id/event_id 与排队能力。
 
 ### R2 工具过程折叠（关键节点摘要优先）
 - Context:
