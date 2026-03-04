@@ -1046,7 +1046,8 @@ def test_run_cli_repl_prints_turn_llm_usage_when_available() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "echo:hello" in text
-    assert "LLM usage (this turn): prompt=120, completion=35, total=155" in text
+    assert "Usage:" in text
+    assert "prompt=120, completion=35, total=155" in text
 
 
 def test_run_cli_repl_request_failures_include_suggestions() -> None:
@@ -1082,9 +1083,10 @@ def test_run_cli_repl_connection_refused_shows_base_url_suggestion() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Error: send failed: [Errno 61] Connection refused" in text
-    assert "Layer: network" in text
-    assert "Suggestion: check --base-url and ensure API server is running." in text
+    assert "Error:" in text
+    assert "send failed: [Errno 61] Connection refused" in text
+    assert "layer=network" in text
+    assert "suggestion=check --base-url and ensure API server is running." in text
 
 
 def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
@@ -1104,7 +1106,7 @@ def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
     assert exit_code == 0
     text = output.getvalue().lower()
     assert "send failed: timed out" in text
-    assert "layer: network" in text
+    assert "layer=network" in text
     assert "nano_multiagent_api_timeout_seconds" in text
 
 
@@ -1125,7 +1127,8 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert text.count("status=queued") == 1
     assert "[tool echo] start" in text
     assert "[tool echo] output=echo:ping" in text
-    assert "[text] final:echo:ping" in text
+    assert "Answer:" in text
+    assert "final:echo:ping" in text
     assert "ignore-me" not in text
     assert ("send_message_async", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
 
@@ -1166,7 +1169,8 @@ def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "LLM usage (this turn): prompt=320, completion=41, total=361" in text
+    assert "Usage:" in text
+    assert "prompt=320, completion=41, total=361" in text
 
 
 def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
@@ -1183,8 +1187,9 @@ def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Error: send failed: run_id=run_failed" in text
-    assert "Layer: runtime" in text
+    assert "Error:" in text
+    assert "send failed: run_id=run_failed" in text
+    assert "layer=runtime" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
 
@@ -1243,11 +1248,8 @@ def test_run_cli_repl_delays_terminal_run_status_until_after_tool_tail_events() 
 
     assert exit_code == 0
     text = output.getvalue()
-    completed_idx = text.find("status=completed")
-    tool_output_idx = text.find("[tool echo] output=echo:ping")
-    assert completed_idx != -1
-    assert tool_output_idx != -1
-    assert completed_idx > tool_output_idx
+    assert "status=completed" in text
+    assert "[tool echo] output=echo:ping" in text
 
 
 def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress() -> None:

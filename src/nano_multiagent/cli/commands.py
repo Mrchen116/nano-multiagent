@@ -23,6 +23,8 @@ from nano_multiagent.cli.repl_events import merge_text_delta as _merge_text_delt
 from nano_multiagent.cli.repl_events import print_event_preview as _print_event_preview
 from nano_multiagent.cli.repl_events import send_message_with_async_events as _send_message_with_async_events
 from nano_multiagent.cli.repl_events import supports_async_repl_events as _supports_async_repl_events
+from nano_multiagent.cli.repl_render import print_repl_turn_error as _print_repl_turn_error
+from nano_multiagent.cli.repl_render import print_repl_turn_summary as _print_repl_turn_summary
 from nano_multiagent.cli.repl_runtime import QueuedReplMessage, ReplRunQueue
 from nano_multiagent.cli.turn_usage import print_turn_usage_snapshot as _print_turn_usage_snapshot
 
@@ -262,20 +264,22 @@ def _run_repl(
                     role="assistant",
                     content=response_content,
                 )
-            print(json.dumps(payload, ensure_ascii=False), file=out)
-            _print_turn_usage_snapshot(out=out, payload=payload)
-            _print_context_budget_snapshot(out=out, client=client, session_id=item.session_id)
+            _print_repl_turn_summary(
+                out=out,
+                payload=payload,
+                context_budget_client=client,
+            )
         except Exception as exc:
             layer = _error_layer_for_exception(exc)
             suggestion = _suggestion_for_exception(
                 exc,
                 default="run /new to start a session, then retry.",
             )
-            repl_commands.print_actionable_error(
+            _print_repl_turn_error(
                 out=out,
-                message=f"send failed: {exc}",
-                suggestion=suggestion,
+                error=RuntimeError(f"send failed: {exc}"),
                 layer=layer,
+                suggestion=suggestion,
             )
 
     run_queue = ReplRunQueue(process_message=_process_queued_message) if async_repl_enabled else None
@@ -358,9 +362,11 @@ def _run_repl(
                             role="assistant",
                             content=response_content,
                         )
-                    print(json.dumps(payload, ensure_ascii=False), file=out)
-                    _print_turn_usage_snapshot(out=out, payload=payload)
-                    _print_context_budget_snapshot(out=out, client=client, session_id=active_session_id)
+                    _print_repl_turn_summary(
+                        out=out,
+                        payload=payload,
+                        context_budget_client=client,
+                    )
                     continue
 
                 backlog_before = run_queue.enqueue(session_id=active_session_id, text=line)
@@ -372,11 +378,11 @@ def _run_repl(
                     exc,
                     default="run /new to start a session, then retry.",
                 )
-                repl_commands.print_actionable_error(
+                _print_repl_turn_error(
                     out=out,
-                    message=f"send failed: {exc}",
-                    suggestion=suggestion,
+                    error=RuntimeError(f"send failed: {exc}"),
                     layer=layer,
+                    suggestion=suggestion,
                 )
     finally:
         if run_queue is not None:
