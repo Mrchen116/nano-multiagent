@@ -44,4 +44,4 @@
   - C1 红测 -> C2 实现绿测 -> C3 文档完成。
   - 指定 `test_command` 全绿。
   - `PROGRESS` 写清决策/证据/回退点/提交哈希。
-- Status: `TODO`
+- Status: `DONE`
