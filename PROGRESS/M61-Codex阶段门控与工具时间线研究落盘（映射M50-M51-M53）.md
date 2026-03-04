@@ -26,14 +26,22 @@
 
 ### R1 阶段门控与渲染调度锚点深挖（STREAMING/FINALIZING/FINALIZED）
 - Context:
+  - Red 问题清单（待解）：
+    - `STREAMING/FINALIZING/FINALIZED` 在 codex 中的真实门控条件是什么（而非命名推断）？
+    - status line 在流式阶段何时隐藏、何时恢复，是否受 commentary/final-answer phase 双重约束？
+    - commit tick 与 frame coalesce 的边界在哪里（谁负责“节流”，谁负责“排空”）？
 - Decision:
 - Rationale:
 - Evidence:
   - Tests:
+    - `N/A（研究型 Red：以问题未解为失败点）`
   - Entry:
+    - 已锁定一批候选锚点，待二次筛选。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - `a9b9dc4`（计划提交）。
+- Commits: C1=`本提交`, C2=`TBD`, C3=`TBD`
 - Next:
+  - 进入 R1 Green：补齐 phase gating、commit tick、frame coalesce 的可执行迁移规则。
 
 ### R2 工具时间线聚合/orphan隔离与summary去重研究
 - Context:
