@@ -1326,6 +1326,70 @@ def test_repl_input_engine_supports_crlf_line_break_for_terminal_mode() -> None:
     assert output.getvalue().endswith("\r\n")
 
 
+def test_repl_input_state_machine_reports_needs_redraw_for_noop_and_mutating_keys() -> None:
+    from nano_multiagent.cli.input import repl_input as layered_repl_input
+
+    state = layered_repl_input._initial_input_state(history=(), command_items=repl_commands.REPL_COMMANDS)
+
+    noop = layered_repl_input._apply_input_key(state=state, key="\x1b[D")
+    assert noop.needs_redraw is False
+    assert noop.state.cursor == 0
+    assert noop.state.chars == ()
+
+    inserted = layered_repl_input._apply_input_key(state=noop.state, key="a")
+    assert inserted.needs_redraw is True
+    assert inserted.state.cursor == 1
+    assert inserted.state.chars == ("a",)
+    assert inserted.final_line is None
+
+
+def test_repl_input_engine_skips_redundant_redraw_for_noop_keys(monkeypatch) -> None:
+    from nano_multiagent.cli.input import repl_input as layered_repl_input
+
+    output = io.StringIO()
+    render_calls: list[tuple[str, str, int]] = []
+    original_render = layered_repl_input.render_interactive_line
+
+    def _counting_render(*, out, prompt, chars, cursor, command_items=(), selected_command_index=None):
+        render_calls.append(("render", "".join(chars), cursor))
+        return original_render(
+            out=out,
+            prompt=prompt,
+            chars=chars,
+            cursor=cursor,
+            command_items=command_items,
+            selected_command_index=selected_command_index,
+        )
+
+    monkeypatch.setattr(layered_repl_input, "render_interactive_line", _counting_render)
+
+    typed = repl_input.read_interactive_line(
+        prompt="nano> ",
+        history=(),
+        key_reader=_iter_keys(["\x1b[D", "\x1b[D", "a", "\n"]),
+        out=output,
+        command_suggestions=repl_commands.REPL_COMMANDS,
+    )
+
+    assert typed == "a"
+    # Initial render + one mutating render.
+    assert len(render_calls) == 2
+
+
+def test_repl_input_state_machine_skips_redraw_when_history_up_hits_top_boundary() -> None:
+    from nano_multiagent.cli.input import repl_input as layered_repl_input
+
+    state = layered_repl_input._initial_input_state(history=("first",), command_items=repl_commands.REPL_COMMANDS)
+
+    first_up = layered_repl_input._apply_input_key(state=state, key="\x1b[A")
+    assert first_up.needs_redraw is True
+    assert first_up.state.chars == ("f", "i", "r", "s", "t")
+
+    second_up = layered_repl_input._apply_input_key(state=first_up.state, key="\x1b[A")
+    assert second_up.needs_redraw is False
+    assert second_up.state == first_up.state
+
+
 def test_run_cli_repl_up_recalls_previous_command_line() -> None:
     stub = _StubClient()
     output = io.StringIO()
