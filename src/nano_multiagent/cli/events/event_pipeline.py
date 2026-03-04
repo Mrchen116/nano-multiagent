@@ -36,6 +36,89 @@ class ReplViewModel:
     tool_updates: list[str]
 
 
+class ReplPerfTracker:
+    """Track async event throughput/redraw metrics and evaluate guardrails."""
+
+    def __init__(
+        self,
+        *,
+        min_sample_events: int = 40,
+        min_throughput_ratio: float = 0.6,
+        max_redraw_ratio: float = 0.35,
+    ) -> None:
+        self._min_sample_events = max(1, min_sample_events)
+        self._min_throughput_ratio = max(0.0, min(1.0, min_throughput_ratio))
+        self._max_redraw_ratio = max(0.0, max_redraw_ratio)
+
+        self._batches = 0
+        self._polled_events = 0
+        self._consumed_events = 0
+        self._preview_emitted = 0
+        self._run_filtered = 0
+        self._dedupe_dropped = 0
+
+    def record_batch(
+        self,
+        *,
+        polled_events: int,
+        consumed_events: int,
+        preview_emitted: int,
+        run_filtered: int,
+        dedupe_dropped: int,
+    ) -> None:
+        """Record one poll batch counters for guardrail evaluation."""
+        self._batches += 1
+        self._polled_events += max(0, polled_events)
+        self._consumed_events += max(0, consumed_events)
+        self._preview_emitted += max(0, preview_emitted)
+        self._run_filtered += max(0, run_filtered)
+        self._dedupe_dropped += max(0, dedupe_dropped)
+
+    def snapshot(self) -> dict[str, object]:
+        """Return current metric snapshot with guardrail booleans."""
+        throughput_ratio = (
+            float(self._consumed_events) / float(self._polled_events)
+            if self._polled_events > 0
+            else 1.0
+        )
+        redraw_ratio = (
+            float(self._preview_emitted) / float(self._consumed_events)
+            if self._consumed_events > 0
+            else 0.0
+        )
+        sample_ready = self._consumed_events >= self._min_sample_events
+        throughput_ok = throughput_ratio >= self._min_throughput_ratio
+        redraw_ratio_ok = redraw_ratio <= self._max_redraw_ratio
+        stable = sample_ready and throughput_ok and redraw_ratio_ok
+        reasons: list[str] = []
+        if not throughput_ok:
+            reasons.append("throughput")
+        if not redraw_ratio_ok:
+            reasons.append("redraw_ratio")
+        if not sample_ready:
+            reasons.append("sample_size")
+        return {
+            "batches": self._batches,
+            "polled_events": self._polled_events,
+            "consumed_events": self._consumed_events,
+            "preview_emitted": self._preview_emitted,
+            "run_filtered": self._run_filtered,
+            "dedupe_dropped": self._dedupe_dropped,
+            "throughput_ratio": round(throughput_ratio, 4),
+            "redraw_ratio": round(redraw_ratio, 4),
+            "sample_ready": sample_ready,
+            "throughput_ok": throughput_ok,
+            "redraw_ratio_ok": redraw_ratio_ok,
+            "stable": stable,
+            "guardrail_reason": ", ".join(reasons) if reasons else "ok",
+            "thresholds": {
+                "min_sample_events": self._min_sample_events,
+                "min_throughput_ratio": self._min_throughput_ratio,
+                "max_redraw_ratio": self._max_redraw_ratio,
+            },
+        }
+
+
 class ReplRenderPhase(str, Enum):
     """Render phase for async REPL turn output lifecycle."""
 
