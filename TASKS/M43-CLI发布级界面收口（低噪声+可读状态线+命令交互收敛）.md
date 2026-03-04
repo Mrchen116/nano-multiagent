@@ -94,6 +94,6 @@
   - `dev-tasks` 标记 DONE。
 - Commits:
   - C1: `N/A（收口路标无独立红测提交）`
-  - C2: `TODO`
-  - C3: `TODO`
-- Status: `TODO`
+  - C2: `N/A（R3无实现代码提交）`
+  - C3: `本提交（docs R3.1）`
+- Status: `DONE`

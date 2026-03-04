@@ -62,11 +62,24 @@
 
 ### R3 收口与验收（真实 managed 交互 + 集成）
 - Context:
+  - R1/R2 已完成且门禁全绿，但里程碑缺少最终收口记录（managed 真实交互验收 + 主干集成证据）。
+  - 验收阶段出现环境差异：TTY 默认 `python3` 指向系统 3.9，缺少 `httpx`；改为与测试一致的 `/Users/czj/miniforge3/bin/python3` 后可正常验收。
 - Decision:
+  - 保持 R1/R2 代码不再新增改动，仅执行 R3 验收与集成：复跑全量门禁、执行 managed 模式真实终端交互抽检、随后集成到 main。
+  - managed 抽检重点验证：默认输出是语义状态线（`State/Tool/Usage`）且 `/` 命令提示已改为行内提示，不再出现多行 `Commands ↓` 刷屏。
 - Rationale:
+  - R3 目标是“可发布验收”，不是追加功能；冻结实现可降低回归风险并保证里程碑快速收口。
 - Evidence:
   - Tests:
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`（`101 passed, 40 warnings`）
   - Entry:
+    - managed 抽检命令：`PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token`
+    - 关键观测：
+      - `/` 输入时显示行内提示 `(/help)`，不再渲染多行菜单；
+      - 单轮结果为 `Assistant + State + Tool + Usage` 语义摘要，不再输出 `[status]/[tool]/[usage]` 裸标签；
+      - 运行中输入排队提示 `Queued message #1 ...` 仍可用。
 - Rollback:
-- Commits: C1=N/A, C2=TODO, C3=TODO
+  - `9e4de5f`（R2 文档完成点，可回退并重新执行 R3 集成）
+- Commits: C1=N/A, C2=N/A（R3无实现代码提交）, C3=本提交（docs R3.1）
 - Next:
+  - rebase `origin/main`、合并 `milestone/M43` 到 `main`、push `origin/main`，并将 `data/dev-tasks.json` 的 M43 标记为 `DONE`。
