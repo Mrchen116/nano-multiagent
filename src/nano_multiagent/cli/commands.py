@@ -1,6 +1,7 @@
 """CLI entry orchestration over HTTP-only ServerClient interactions."""
 
 import argparse
+import io
 import json
 import os
 import sys
@@ -248,6 +249,19 @@ def _run_repl(
     input_history_by_session: dict[str, list[str]] = {}
     async_repl_enabled = _supports_async_repl_events(client)
 
+    def _emit_external_repl_block(text: str) -> None:
+        repl_input.emit_external_text(out=out, text=text)
+
+    def _print_repl_turn_summary_block(payload: dict[str, object], *, context_budget_client: object | None = None) -> None:
+        buffer = io.StringIO()
+        _print_repl_turn_summary(out=buffer, payload=payload, context_budget_client=context_budget_client)
+        _emit_external_repl_block(buffer.getvalue())
+
+    def _print_repl_turn_error_block(*, error: Exception, layer: str, suggestion: str) -> None:
+        buffer = io.StringIO()
+        _print_repl_turn_error(out=buffer, error=error, layer=layer, suggestion=suggestion)
+        _emit_external_repl_block(buffer.getvalue())
+
     def _process_queued_message(item: QueuedReplMessage) -> None:
         try:
             payload = _send_message_from_repl(
@@ -264,19 +278,14 @@ def _run_repl(
                     role="assistant",
                     content=response_content,
                 )
-            _print_repl_turn_summary(
-                out=out,
-                payload=payload,
-                context_budget_client=client,
-            )
+            _print_repl_turn_summary_block(payload, context_budget_client=client)
         except Exception as exc:
             layer = _error_layer_for_exception(exc)
             suggestion = _suggestion_for_exception(
                 exc,
                 default="run /new to start a session, then retry.",
             )
-            _print_repl_turn_error(
-                out=out,
+            _print_repl_turn_error_block(
                 error=RuntimeError(f"send failed: {exc}"),
                 layer=layer,
                 suggestion=suggestion,
