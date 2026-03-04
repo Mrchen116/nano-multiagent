@@ -55,7 +55,7 @@
   - integration: 选；验证 non-TTY REPL 异步流输出契约与 `send-message` 单 JSON 保持。
   - e2e: 不选；本里程碑已有 managed CLI 实跑作为入口验收。
 - Expected Tests:
-  - `tests/unit/test_cli_main.py::test_run_cli_repl_non_tty_async_output_uses_plain_lines_without_terminal_control_sequences`
+  - `tests/unit/test_cli_main.py::test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path`
   - `tests/unit/test_cli_main.py::test_run_cli_repl_tty_async_output_uses_emit_external_text_path`
   - `tests/integration/test_cli_http_flow_integration.py::test_cli_repl_non_tty_async_output_avoids_terminal_control_sequences`
   - 以及门禁命令全量回归
@@ -63,4 +63,9 @@
   - `test_command` 全绿。
   - R1 完成 C1/C2/C3 三提交。
   - `PROGRESS` 写清决策、证据、回滚点、提交哈希。
-- Status: `TODO`
+- Status: `DONE`
+
+## Delivery Notes
+- C1 红测已锁定 non-TTY 不得走 `emit_external_text`，并新增 integration 护栏断言无 `\\r`/ANSI 污染。
+- C2 已在 `src/nano_multiagent/cli/app/commands.py` 实现输出策略分流：TTY 走交互渲染，non-TTY 走纯文本块输出。
+- 全量门禁：`109 passed, 44 warnings`。
