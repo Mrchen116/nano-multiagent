@@ -39,7 +39,7 @@ def build_prompt_messages(
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     available_skills: Sequence[SkillMetadata] = (),
     available_tools: Sequence[ToolSpec] | None = None,
-    current_datetime: datetime | None = None,
+    current_datetime: datetime | str | None = None,
     current_working_directory: Path | None = None,
 ) -> tuple[LLMMessage, ...]:
     """Build model input messages for one turn.
@@ -85,7 +85,7 @@ def build_system_prompt(
     system_prompt: str,
     available_skills: Sequence[SkillMetadata],
     available_tools: Sequence[ToolSpec] | None = None,
-    current_datetime: datetime | None = None,
+    current_datetime: datetime | str | None = None,
     current_working_directory: Path | None = None,
 ) -> str:
     """Render system prompt template with runtime placeholders.
@@ -121,12 +121,12 @@ def _fill_runtime_placeholders(
     system_prompt: str,
     available_skills_section: str,
     available_tools: Sequence[ToolSpec] | None,
-    current_datetime: datetime | None,
+    current_datetime: datetime | str | None,
     current_working_directory: Path | None,
 ) -> str:
     active_tools = tuple(available_tools) if available_tools is not None else _default_tool_specs()
     rendered_tools = _format_available_tools(active_tools)
-    timestamp = (current_datetime or datetime.now().astimezone()).isoformat(timespec="seconds")
+    timestamp = _resolve_prompt_timestamp(current_datetime)
     cwd = str((current_working_directory or Path.cwd()).expanduser().resolve())
 
     return (
@@ -135,6 +135,16 @@ def _fill_runtime_placeholders(
         .replace("<RUNTIME_FILL:CURRENT_DATETIME>", timestamp)
         .replace("<RUNTIME_FILL:CURRENT_WORKING_DIRECTORY>", cwd)
     )
+
+
+def _resolve_prompt_timestamp(current_datetime: datetime | str | None) -> str:
+    if isinstance(current_datetime, str):
+        stripped = current_datetime.strip()
+        if stripped:
+            return stripped
+    if isinstance(current_datetime, datetime):
+        return current_datetime.isoformat(timespec="seconds")
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 def _default_tool_specs() -> tuple[ToolSpec, ...]:

@@ -118,8 +118,10 @@ class AgentRuntime:
 
         del stream  # M4 minimal runtime only supports non-stream flow.
 
-        if self._session_manager.get_session(session_id) is None:
+        session = self._session_manager.get_session(session_id)
+        if session is None:
             raise ValueError(f"session does not exist: {session_id}")
+        session_created_at = session.created_at
 
         input_parts = parse_input_parts(parts)
         user_text = render_user_text(input_parts)
@@ -208,6 +210,7 @@ class AgentRuntime:
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
                 llm_session_id=llm_session_id,
+                session_created_at=session_created_at,
             )
         except ModelError as exc:
             # Retry boundary: only context-overflow-like failures trigger one
@@ -228,6 +231,7 @@ class AgentRuntime:
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
                 llm_session_id=llm_session_id,
+                session_created_at=session_created_at,
             )
 
         self._append_turn_events(session_id=session_id, turn_id=turn_id, turn_result=turn_result)
@@ -490,6 +494,7 @@ class AgentRuntime:
         hook_ctx: HookContext,
         system_prompt_override: str | None,
         llm_session_id: str | None,
+        session_created_at: str,
     ) -> TurnResult:
         return self._loop.run(
             AgentState(
@@ -503,6 +508,7 @@ class AgentRuntime:
             hook_ctx=hook_ctx,
             system_prompt_override=system_prompt_override,
             llm_session_id=llm_session_id,
+            session_created_at=session_created_at,
         )
 
     def _preflight_compaction(

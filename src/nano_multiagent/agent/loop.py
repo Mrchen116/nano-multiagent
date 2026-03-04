@@ -62,6 +62,7 @@ class AgentLoop:
         hook_ctx: HookContext | None = None,
         system_prompt_override: str | None = None,
         llm_session_id: str | None = None,
+        session_created_at: str | None = None,
     ) -> TurnResult:
         """Run one user turn until completion or terminal stop reason.
 
@@ -70,6 +71,8 @@ class AgentLoop:
             hook_ctx: Hook execution context; derived from state when omitted.
             system_prompt_override: Optional system prompt override for this turn.
             llm_session_id: Optional provider session id override.
+            session_created_at: Optional session-level timestamp used to keep
+                system prompt time stable across turns in one session.
 
         Returns:
             Turn result containing assistant messages, tool calls/results, and stop reason.
@@ -106,6 +109,7 @@ class AgentLoop:
                 system_prompt=system_prompt_override or self._system_prompt,
                 available_skills=self._available_skills,
                 available_tools=active_tools,
+                current_datetime=session_created_at,
                 current_working_directory=self._current_working_directory,
             )
         )
