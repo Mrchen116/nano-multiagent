@@ -647,6 +647,7 @@ def test_cli_repl_slash_menu_selects_command_and_executes_it() -> None:
     text = output.getvalue()
     assert "Error: unknown command '/'" not in text
     assert '"session_id": "sess_' in text
+    assert "Commands ↓ " not in text
 
 
 def test_cli_repl_streams_async_run_tool_and_text_events() -> None:

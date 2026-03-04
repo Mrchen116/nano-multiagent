@@ -859,6 +859,20 @@ def test_repl_input_engine_slash_menu_up_wraps_without_history_recall() -> None:
     assert typed == "/exit"
 
 
+def test_repl_input_engine_slash_menu_does_not_render_multiline_panel() -> None:
+    output = io.StringIO()
+    typed = repl_input.read_interactive_line(
+        prompt="nano> ",
+        history=("from-history",),
+        key_reader=_iter_keys(["/", "\x1b[B", "\n", "\n"]),
+        out=output,
+        command_suggestions=repl_commands.REPL_COMMANDS,
+    )
+
+    assert typed == "/new"
+    assert "Commands ↓ " not in output.getvalue()
+
+
 def test_repl_input_external_output_replays_prompt_without_layout_break() -> None:
     output = io.StringIO()
 
