@@ -12,12 +12,17 @@ class BashTool:
     """Execute shell commands within `ToolSafety` command and timeout policy."""
 
     name = "bash"
-    description = "Execute a bash command under safety guardrails."
+    description = (
+        "Execute a bash command in the current working directory. Returns stdout and stderr. "
+        "Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB "
+        "(whichever is hit first). If truncated, full output is saved to a temp file. Optionally "
+        "provide a timeout in seconds."
+    )
     input_schema = {
         "type": "object",
         "properties": {
-            "command": {"type": "string"},
-            "timeout": {"type": "number"},
+            "command": {"type": "string", "description": "Bash command to execute"},
+            "timeout": {"type": "number", "description": "Timeout in seconds (optional, no default timeout)"},
         },
         "required": ["command"],
         "additionalProperties": False,
