@@ -73,4 +73,4 @@
 - DoD:
   - main 合并并 push。
   - `data/dev-tasks.json` 更新为 `DONE` 并记录 result。
-- Status: `DOING`
+- Status: `DONE`

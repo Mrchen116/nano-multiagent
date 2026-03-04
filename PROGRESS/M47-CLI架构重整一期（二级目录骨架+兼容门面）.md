@@ -68,10 +68,21 @@
 ### R3 收口（门禁 + managed 实跑 + main 集成 + dev_tasks DONE）
 - Context:
 - Decision:
+  - 在 R2 完成后复跑全量门禁，并执行 managed CLI 脚本化实跑（`/new -> bash工具请求 -> /exit`）确认入口行为稳定。
+  - 以 Milestone 分支整体集成到 `main`，随后用 `dev_tasks.py update` 回填 `M47=DONE`。
 - Rationale:
+  - M47 为结构重整里程碑，必须通过真实 managed 入口验收来证明“仅架构重排、外部行为不变”。
 - Evidence:
   - Tests:
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `108 passed, 42 warnings`。
   - Entry:
+    - managed 验收输出片段：
+      - `Tool: bash start args={"command": "echo M47_MANAGED", "timeout": 1000}`
+      - `Tool: bash started status=started elapsed=0ms`
+      - `Tool: bash exit code=0 status=completed duration=438ms`
+      - `State: completed | stop=stop | run=...`
+    - 计数：`Tool start=1, started=1, exit=1, completed=1`。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`N/A`, C2=`N/A`, C3=`本提交`
 - Next:
+  - rebase/merge/push main，并更新 `data/dev-tasks.json` 为 `M47=DONE`。
