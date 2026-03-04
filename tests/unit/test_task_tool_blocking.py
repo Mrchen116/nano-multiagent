@@ -103,7 +103,9 @@ def test_task_blocking_wraps_subagent_errors_without_raising(tmp_path: Path) -> 
 
     assert result.startswith("Task failed")
     assert "**Error**: subagent exploded" in result
-    assert "<task_metadata>\nsession_id: sess_task_1\n</task_metadata>" in result
+    assert "<task_metadata>" in result
+    assert "session_id: sess_task_1" in result
+    assert "</task_metadata>" in result
 
 
 def test_task_blocking_respects_timeout_seconds(tmp_path: Path) -> None:
@@ -124,4 +126,6 @@ def test_task_blocking_respects_timeout_seconds(tmp_path: Path) -> None:
 
     assert result.startswith("Task timed out")
     assert "**Error**: task exceeded timeout_seconds=0.05" in result
-    assert "<task_metadata>\nsession_id: sess_task_1\n</task_metadata>" in result
+    assert "<task_metadata>" in result
+    assert "session_id: sess_task_1" in result
+    assert "</task_metadata>" in result

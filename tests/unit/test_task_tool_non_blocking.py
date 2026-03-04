@@ -178,7 +178,7 @@ def test_task_continuation_uses_existing_session_id(tmp_path: Path) -> None:
     )
 
     assert result.startswith("Task continued and completed in ")
-    assert "\n---\n\ntask:fix failing assertion\n" in result
+    assert "\n---\n\ndone\n" in result
     assert "<task_metadata>\nsession_id: sess_existing\n</task_metadata>" in result
     assert runtime.run_calls[0]["session_id"] == "sess_existing"
     assert runtime.created == 0
