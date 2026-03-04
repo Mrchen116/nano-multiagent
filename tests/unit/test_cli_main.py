@@ -137,7 +137,7 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
     assert assistant_text == ""
     assert consumed == 2
     assert machine.phase is ReplRenderPhase.FINALIZING
-    assert preview_lines == ["Tool: bash start args=ping"]
+    assert preview_lines == ["Tool: bash start args=ping [call_id=call_1]"]
 
     assistant_text, consumed = consume_async_run_events(
         out=out,
@@ -157,7 +157,7 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
     )
 
     assert consumed == 1
-    assert preview_lines == ["Tool: bash start args=ping"]
+    assert preview_lines == ["Tool: bash start args=ping [call_id=call_1]"]
 
 
 def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summary() -> None:
