@@ -1,5 +1,6 @@
 import io
 import json
+import time
 
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import repl_input
@@ -521,6 +522,61 @@ class _AsyncRetryingStatusStubClient(_StubClient):
             "stop_reason": None,
             "error": None,
         }
+
+
+class _AsyncQueueingStubClient(_StubClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self._run_count = 0
+        self._poll_by_run: dict[str, int] = {}
+
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self._run_count += 1
+        run_id = f"run_queue_{self._run_count}"
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": run_id, "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        return []
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        poll_count = self._poll_by_run.get(run_id, 0) + 1
+        self._poll_by_run[run_id] = poll_count
+
+        # Hold first run in-progress briefly so REPL can accept and queue next input.
+        if run_id == "run_queue_1" and poll_count < 4:
+            time.sleep(0.03)
+            return {
+                "run_id": run_id,
+                "session_id": "sess_cli",
+                "status": "running",
+                "created_at": "2026-03-04T00:00:00+00:00",
+                "updated_at": "2026-03-04T00:00:00+00:00",
+                "turn_id": None,
+                "stop_reason": None,
+                "error": None,
+            }
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "completed",
+            "created_at": "2026-03-04T00:00:00+00:00",
+            "updated_at": "2026-03-04T00:00:00+00:00",
+            "turn_id": f"turn_{run_id}",
+            "stop_reason": "stop",
+            "error": None,
+        }
+
+
 def _iter_keys(keys: list[str]):
     iterator = iter(keys)
 
@@ -1150,6 +1206,28 @@ def test_run_cli_repl_delays_terminal_run_status_until_after_tool_tail_events() 
     assert completed_idx != -1
     assert tool_output_idx != -1
     assert completed_idx > tool_output_idx
+
+
+def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress() -> None:
+    stub = _AsyncQueueingStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "first", "second", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Queued message #1" in text
+    send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
+    assert send_async_calls == [
+        ("send_message_async", {"session_id": "sess_cli", "text": "first"}),
+        ("send_message_async", {"session_id": "sess_cli", "text": "second"}),
+    ]
 
 class _ManagedServerSpy:
     def __init__(self, *, fail_on_start: Exception | None = None) -> None:
