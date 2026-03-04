@@ -437,7 +437,7 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
     text = output.getvalue()
     assert "run_id=" in text
     assert "Assistant: (empty)" in text
-    assert "[error]" in text
+    assert "Error:" in text
     assert "layer=runtime" in text
     assert "run failed: {'code': 'run_execution_failed'" in text
     assert "root_cause=connect ETIMEDOUT" in text
