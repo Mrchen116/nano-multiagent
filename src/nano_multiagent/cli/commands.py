@@ -368,6 +368,7 @@ def _run_repl(
                     session_payload = client.create_session()
                     active_session_id = _extract_session_id(session_payload)
                     repl_commands.print_session_created(out=out, session_id=active_session_id)
+                    repl_commands.print_active_session(out=out, session_id=active_session_id)
 
                 _append_input_history_entry(input_history_by_session, active_session_id, line)
                 _append_history_entry(history_by_session, active_session_id, role="user", content=line)

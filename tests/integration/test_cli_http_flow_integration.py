@@ -651,6 +651,34 @@ def test_cli_repl_slash_menu_selects_command_and_executes_it() -> None:
     assert "Commands ↓ " not in text
 
 
+def test_cli_repl_session_transitions_render_active_copy_without_json() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["hello http", "/new", "/use sess_manual", "/exit"])
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert text.count("Started new session sess_") == 2
+    assert text.count("Active session: sess_") >= 2
+    assert "Switched to session sess_manual." in text
+    assert "Active session: sess_manual." in text
+    assert '{"session_id":' not in text
+    assert '"session_id":' not in text
+
+
 def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     store = _InMemorySessionStore()
     llm = _ToolCallingLLMClient()

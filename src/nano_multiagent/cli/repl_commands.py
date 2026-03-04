@@ -94,6 +94,7 @@ def handle_repl_command(
             payload = client.create_session()
             next_session_id = extract_session_id(payload)
             print_session_created(out=out, session_id=next_session_id)
+            print_active_session(out=out, session_id=next_session_id)
             return ReplCommandResult(handled=True, active_session_id=next_session_id)
 
         if command == "/use":
@@ -114,6 +115,7 @@ def handle_repl_command(
                 return ReplCommandResult(handled=True, active_session_id=active_session_id)
             next_session_id = argument_tokens[0]
             print_session_switched(out=out, session_id=next_session_id)
+            print_active_session(out=out, session_id=next_session_id)
             return ReplCommandResult(handled=True, active_session_id=next_session_id)
 
         if command == "/session":
