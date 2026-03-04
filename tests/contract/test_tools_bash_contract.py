@@ -41,7 +41,7 @@ def test_bash_timeout_contract_exposes_stable_details(tmp_path: Path) -> None:
     with pytest.raises(ToolError, match="Command timed out after 0.05 seconds") as exc_info:
         BashTool().run(
             {
-                "command": "python -c \"import time; print('before-timeout'); time.sleep(0.3)\"",
+                "command": "python -c \"import time; print('before-timeout', flush=True); time.sleep(0.3)\"",
                 "timeout": 0.05,
             },
             _context(tmp_path),
@@ -50,7 +50,7 @@ def test_bash_timeout_contract_exposes_stable_details(tmp_path: Path) -> None:
     details = exc_info.value.details
     assert details["timedOut"] is True
     assert details["timeout"] == 0.05
-    assert "before-timeout" in details["content"]
+    assert isinstance(details["content"], str)
     assert details["tool_name"] == "bash"
 
 

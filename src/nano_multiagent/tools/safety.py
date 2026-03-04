@@ -131,6 +131,9 @@ class CommandExecution:
     text: str
     truncated: bool
     full_output_path: str | None = None
+    timed_out: bool = False
+    aborted: bool = False
+    timeout: float | None = None
 
 
 class ToolSafety:
@@ -326,6 +329,7 @@ class ToolSafety:
         last_heartbeat = start_monotonic
         seq = 0
         timed_out = False
+        aborted = False
         merged_parts: list[str] = []
 
         _emit_command_event(
@@ -380,6 +384,10 @@ class ToolSafety:
                             "elapsed_ms": int((current - start_monotonic) * 1000),
                         },
                     )
+        except KeyboardInterrupt:
+            aborted = True
+            if process.poll() is None:
+                process.kill()
         finally:
             selector.close()
 
@@ -393,7 +401,14 @@ class ToolSafety:
 
         exit_code = int(process.returncode if process.returncode is not None else process.wait())
         duration_ms = int((time.monotonic() - start_monotonic) * 1000)
-        status_text = "timeout" if timed_out else ("completed" if exit_code == 0 else "failed")
+        if aborted:
+            status_text = "aborted"
+        elif timed_out:
+            status_text = "timeout"
+        elif exit_code == 0:
+            status_text = "completed"
+        else:
+            status_text = "failed"
         _emit_command_event(
             on_event,
             {
@@ -403,14 +418,6 @@ class ToolSafety:
                 "duration_ms": duration_ms,
             },
         )
-
-        if timed_out:
-            timeout_details = timeout if timeout is not None else 0.0
-            raise ToolError(
-                f"command timed out after {timeout_details}s",
-                tool_name=tool_name,
-                details={"timeout": timeout_details, "timed_out": True},
-            )
 
         full_output = "".join(merged_parts)
         tail_output, truncated, byte_limited, start_line, end_line, total_lines, showing_last = _truncate_tail_output(
@@ -437,6 +444,9 @@ class ToolSafety:
             text=rendered_output,
             truncated=truncated,
             full_output_path=full_output_path,
+            timed_out=timed_out,
+            aborted=aborted,
+            timeout=timeout,
         )
 
     def _persist_full_output(self, *, content: str) -> str:

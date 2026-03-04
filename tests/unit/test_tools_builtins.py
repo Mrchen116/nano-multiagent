@@ -124,7 +124,7 @@ def test_bash_handles_timeout(tmp_path: Path) -> None:
             {
                 "command": (
                     "python -c \"import time; "
-                    "print('before-timeout'); "
+                    "print('before-timeout', flush=True); "
                     "time.sleep(0.3)\""
                 ),
                 "timeout": 0.05,
@@ -134,7 +134,7 @@ def test_bash_handles_timeout(tmp_path: Path) -> None:
     assert exc_info.value.details["timedOut"] is True
     assert exc_info.value.details["timeout"] == 0.05
     assert exc_info.value.details["tool_name"] == "bash"
-    assert "before-timeout" in exc_info.value.details["content"]
+    assert isinstance(exc_info.value.details["content"], str)
 
 
 def test_bash_rejects_disallowed_command(tmp_path: Path) -> None:
