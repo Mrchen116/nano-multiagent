@@ -99,8 +99,9 @@ def test_task_blocking_passes_parent_session_id_to_subagent_llm(tmp_path: Path) 
         hook_context=HookContext(session_id="sess_main_header", repo_root=tmp_path),
     )
 
-    assert result["status"] == "completed"
-    assert result["session_id"] != "sess_main_header"
+    assert result["result"].startswith("Task completed in ")
+    assert "<task_metadata>\nsession_id:" in result["result"]
+    assert "sess_main_header" not in result["result"]
     assert llm_client.requests[0].session_id == "sess_main_header"
 
 
@@ -120,8 +121,7 @@ def test_task_non_blocking_executes_on_same_node_and_returns_receipt(tmp_path: P
         hook_context=HookContext(session_id="sess_main_non_blocking", repo_root=tmp_path),
     )
 
-    assert result["mode"] == "non_blocking"
-    assert result["run_in_background"] is True
-    assert result["status"] == "queued"
-    assert result["session_id"] == "sess_non_blocking_integration_1"
+    assert result["result"].startswith("Background task launched.")
+    assert "Status: queued" in result["result"]
+    assert "<task_metadata>\nsession_id: sess_non_blocking_integration_1\n</task_metadata>" in result["result"]
     _wait_for(lambda: len(runtime.run_calls) == 1)
