@@ -42,20 +42,31 @@
     - `_repl_view.perf_metrics` 现已包含 `sample_ready/throughput_ok/redraw_ratio_ok/stable` 与批次计数。
 - Rollback:
   - 回退到 `cd73353`（R1 红测提交）可重做实现。
-- Commits: C1=`cd73353`, C2=`cf8242a`, C3=`TBD`
+- Commits: C1=`cd73353`, C2=`cf8242a`, C3=`763d304`
 - Next:
   - 执行 R2：补充阈值不达标场景判定与原因字段，强化门禁可解释性。
 
 ### R2 性能护栏落地（指标观测 + 阈值判定 + 重绘基线）
 - Context:
+  - R1 已完成基础快照，但阈值不达标场景缺少统一“失败原因”字段，不利于自动化验收与故障归因。
+  - 需要在不改变现有输出结构的前提下提供可机读诊断信息。
 - Decision:
+  - 为 `ReplPerfTracker.snapshot()` 增加 `guardrail_reason`：按 `throughput/redraw_ratio/sample_size` 聚合失败原因，全部通过时为 `ok`。
+  - 新增红测锁定低吞吐 + 样本不足场景输出 `throughput, sample_size`。
 - Rationale:
+  - 用单字段汇总可避免并行里程碑新增复杂结构，同时支持脚本化告警与门禁断言。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "perf_snapshot_marks_unstable_with_guardrail_reason"` -> `1 failed`。
+    - 子集绿测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "high_frequency_batch_records_perf_baseline or long_session_batches_keep_perf_guardrails_stable or perf_snapshot_marks_unstable_with_guardrail_reason or exposes_perf_metrics_snapshot"` -> `4 passed`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `116 passed, 44 warnings`。
   - Entry:
+    - `_repl_view.perf_metrics.guardrail_reason` 可直接区分性能门禁失败归因。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - 回退到 `1bb25ea`（R2 红测提交）可重做阈值解释策略。
+- Commits: C1=`1bb25ea`, C2=`2489b02`, C3=`TBD`
 - Next:
+  - 执行 R3：managed 实跑取证、集成 main、更新 dev_tasks。
 
 ### R3 收口（门禁 + managed + main + dev_tasks DONE）
 - Context:

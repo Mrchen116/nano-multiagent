@@ -64,7 +64,11 @@
   - `tests/contract/test_cli_error_contract.py`
 - DoD:
   - C2 前执行门禁并全绿；提交实现/重构（C2）。
-- Status: `DOING`
+- Commits:
+  - C1: `1bb25ea`
+  - C2: `2489b02`
+  - C3: `TBD`
+- Status: `DONE`
 
 ### R3 收口（门禁 + managed + main 集成 + dev_tasks DONE）
 - Acceptance:
@@ -83,4 +87,4 @@
 - DoD:
   - main 合并并 push。
   - `data/dev-tasks.json` 中 `M53` 为 `DONE` 且 result 完整。
-- Status: `TODO`
+- Status: `DOING`
