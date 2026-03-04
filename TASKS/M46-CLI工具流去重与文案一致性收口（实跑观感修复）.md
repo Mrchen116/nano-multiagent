@@ -17,7 +17,7 @@
 - Command:
   - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`
 - Result:
-  - Pending (M46 execution)
+  - `104 passed, 42 warnings`（R3 全量门禁）
 
 ## Roadpoints
 
@@ -76,4 +76,4 @@
   - 完成“队列摘要去重”红测->绿测闭环（C1/C2/C3）。
   - main 合并并 push。
   - `data/dev-tasks.json` 更新为 DONE，记录结果与证据。
-- Status: `DOING`
+- Status: `DONE`

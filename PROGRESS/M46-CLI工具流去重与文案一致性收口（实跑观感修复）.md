@@ -41,7 +41,7 @@
     - 回放缺 `event_id` 时，`bash start args=` 从重复输出降为 1 次。
 - Rollback:
   - `1047442`（R1 红测提交）
-- Commits: C1=`1047442`, C2=`6e6cb2d`, C3=`本提交`
+- Commits: C1=`1047442`, C2=`6e6cb2d`, C3=`6345556`
 - Next:
   - 进入 R2：统一实时预览与摘要 `Tool: ` 文案风格。
 
@@ -64,17 +64,29 @@
     - 预览链路 `echo/bash` 关键线统一为 `Tool: ...`，不再混用无冒号风格。
 - Rollback:
   - `b82005f`（R2 红测提交）
-- Commits: C1=`b82005f`, C2=`84d966e`, C3=`本提交`
+- Commits: C1=`b82005f`, C2=`84d966e`, C3=`6bd4f9d`
 - Next:
   - 进入 R3：补“预览已输出则摘要不复读”的红测并实现队列摘要去重。
 
 ### R3 收口（全量门禁 + managed 实跑 + main 集成 + dev_tasks DONE）
 - Context:
+  - 文案统一后，队列模式仍会出现“实时预览已输出 exit，摘要再次输出 exit”的复读。
+  - 里程碑要求队列模式下关键工具线层次稳定，可读且不重复。
 - Decision:
+  - 先在 unit+integration 把 `bash exit` 断言改为“仅出现 1 次”形成红测。
+  - 在 `send_message_with_async_events` 路径记录实时已输出的工具关键线，并在 `_build_repl_view` 后过滤同一标识的摘要项。
+  - 过滤时统一归一化 `Tool:`/`Tool ` 前缀，按“工具线语义”去重，不影响 `Assistant/State/Usage` 主摘要。
 - Rationale:
+  - 只过滤“已实时展示”的工具线，能精确消除复读，同时保留进度聚合（如 chunks）等未预览信息。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py -k "dedupes_replayed_tool_start_without_event_id or streams_started_running_chunk_and_exit_for_tool_execution or streams_started_running_chunk_and_exit_for_bash_tool"` -> `3 failed`（`Tool: ... exit` 均出现 2 次）。
+    - 绿测：同命令 -> `3 passed`。
+    - 门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `104 passed, 42 warnings`。
   - Entry:
+    - 队列 REPL 下 `Tool: ... exit` 仅输出一次；摘要不再复读实时已输出关键线。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - `54c2000`（R3 红测提交）
+- Commits: C1=`54c2000`, C2=`a16f009`, C3=`本提交`
 - Next:
+  - 执行 managed CLI 实跑留证，随后 rebase/merge/push 与 dev_tasks DONE 更新。
