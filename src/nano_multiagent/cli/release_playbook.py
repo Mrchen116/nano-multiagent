@@ -73,7 +73,7 @@ def _build_acceptance_steps(*, base_url: str, token: str) -> list[dict[str, str]
             "name": "managed_smoke_ping",
             "command": (
                 "printf '/new\\nping\\n/exit\\n' | "
-                "PYTHONPATH=src /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main "
+                "PYTHONPATH=src python3 -m nano_multiagent.cli.main "
                 f"--mode managed --base-url {base_url} --token {token}"
             ),
             "description": "Smoke managed mode with one short conversation turn.",
