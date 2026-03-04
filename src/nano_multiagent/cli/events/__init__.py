@@ -1,5 +1,5 @@
 """CLI event-layer modules."""
 
-from . import repl_events
+from . import event_pipeline, repl_events
 
-__all__ = ["repl_events"]
+__all__ = ["event_pipeline", "repl_events"]
