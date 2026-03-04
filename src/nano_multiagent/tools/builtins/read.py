@@ -51,6 +51,14 @@ class ReadTool:
             image_bytes = file_path.read_bytes()
             encoded = base64.b64encode(image_bytes).decode("ascii")
             display_path = _display_path(file_path, ctx.repo_root)
+            width, height = _image_dimensions(image_bytes, mime_type)
+            text_note = f"Read image file [{mime_type}]"
+            if width is not None and height is not None:
+                text_note = (
+                    f"{text_note}\n"
+                    f"[Image: original {width}x{height}, displayed at {width}x{height}. "
+                    "Multiply coordinates by 1.0 to map to original image.]"
+                )
             return {
                 "path": display_path,
                 "offset": 1,
@@ -60,12 +68,12 @@ class ReadTool:
                 "content": [
                     {
                         "type": "text",
-                        "text": f"Image: {display_path} ({mime_type}, {len(image_bytes)} bytes)",
+                        "text": text_note,
                     },
                     {
                         "type": "image",
-                        "mime_type": mime_type,
-                        "image_url": f"data:{mime_type};base64,{encoded}",
+                        "data": encoded,
+                        "mimeType": mime_type,
                     },
                 ],
             }
@@ -162,6 +170,96 @@ def _display_path(path: Path, repo_root: Path) -> str:
 
 def _image_mime_type(path: Path) -> str | None:
     return _IMAGE_MIME_BY_SUFFIX.get(path.suffix.lower())
+
+
+def _image_dimensions(image_bytes: bytes, mime_type: str) -> tuple[int | None, int | None]:
+    if mime_type == "image/png":
+        return _png_dimensions(image_bytes)
+    if mime_type == "image/gif":
+        return _gif_dimensions(image_bytes)
+    if mime_type == "image/jpeg":
+        return _jpeg_dimensions(image_bytes)
+    if mime_type == "image/webp":
+        return _webp_dimensions(image_bytes)
+    return None, None
+
+
+def _png_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
+    if len(image_bytes) < 24 or image_bytes[:8] != b"\x89PNG\r\n\x1a\n":
+        return None, None
+    if image_bytes[12:16] != b"IHDR":
+        return None, None
+    width = int.from_bytes(image_bytes[16:20], "big")
+    height = int.from_bytes(image_bytes[20:24], "big")
+    return width, height
+
+
+def _gif_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
+    if len(image_bytes) < 10 or image_bytes[:6] not in {b"GIF87a", b"GIF89a"}:
+        return None, None
+    width = int.from_bytes(image_bytes[6:8], "little")
+    height = int.from_bytes(image_bytes[8:10], "little")
+    return width, height
+
+
+def _jpeg_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
+    if len(image_bytes) < 4 or image_bytes[:2] != b"\xff\xd8":
+        return None, None
+
+    index = 2
+    while index + 1 < len(image_bytes):
+        if image_bytes[index] != 0xFF:
+            index += 1
+            continue
+        while index < len(image_bytes) and image_bytes[index] == 0xFF:
+            index += 1
+        if index >= len(image_bytes):
+            return None, None
+
+        marker = image_bytes[index]
+        index += 1
+        if marker in {0xD8, 0xD9} or 0xD0 <= marker <= 0xD7:
+            continue
+        if index + 1 >= len(image_bytes):
+            return None, None
+        segment_length = int.from_bytes(image_bytes[index : index + 2], "big")
+        if segment_length < 2:
+            return None, None
+        segment_start = index + 2
+        segment_end = index + segment_length
+        if segment_end > len(image_bytes):
+            return None, None
+
+        if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+            if segment_length < 7:
+                return None, None
+            height = int.from_bytes(image_bytes[segment_start + 1 : segment_start + 3], "big")
+            width = int.from_bytes(image_bytes[segment_start + 3 : segment_start + 5], "big")
+            return width, height
+
+        index = segment_end
+    return None, None
+
+
+def _webp_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
+    if len(image_bytes) < 30 or image_bytes[:4] != b"RIFF" or image_bytes[8:12] != b"WEBP":
+        return None, None
+
+    chunk_type = image_bytes[12:16]
+    if chunk_type == b"VP8X" and len(image_bytes) >= 30:
+        width = int.from_bytes(image_bytes[24:27], "little") + 1
+        height = int.from_bytes(image_bytes[27:30], "little") + 1
+        return width, height
+    if chunk_type == b"VP8L" and len(image_bytes) >= 25 and image_bytes[20] == 0x2F:
+        bits = int.from_bytes(image_bytes[21:25], "little")
+        width = (bits & 0x3FFF) + 1
+        height = ((bits >> 14) & 0x3FFF) + 1
+        return width, height
+    if chunk_type == b"VP8 " and len(image_bytes) >= 30 and image_bytes[23:26] == b"\x9d\x01\x2a":
+        width = int.from_bytes(image_bytes[26:28], "little") & 0x3FFF
+        height = int.from_bytes(image_bytes[28:30], "little") & 0x3FFF
+        return width, height
+    return None, None
 
 
 def _format_size(bytes_count: int) -> str:
