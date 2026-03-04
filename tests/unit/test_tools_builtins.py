@@ -9,6 +9,7 @@ from nano_multiagent.tools.builtins.bash import BashTool
 from nano_multiagent.tools.builtins.edit import EditTool
 from nano_multiagent.tools.builtins.read import ReadTool
 from nano_multiagent.tools.builtins.write import WriteTool
+from nano_multiagent.tools.safety import CommandExecution
 from nano_multiagent.tools.safety import ToolSafety
 from nano_multiagent.tools.safety import ToolSafetyConfig
 
@@ -152,7 +153,10 @@ def test_bash_truncation_returns_full_output_path(tmp_path: Path) -> None:
     )
 
     assert result["truncated"] is True
-    full_output_path = result["full_output_path"]
+    assert "Showing lines" in result["content"]
+    assert "Full output:" in result["content"]
+    full_output_path = result["fullOutputPath"]
+    assert full_output_path in result["content"]
     assert isinstance(full_output_path, str)
     content = Path(full_output_path).read_text(encoding="utf-8")
     assert "line-0" in content
@@ -162,30 +166,52 @@ def test_bash_truncation_returns_full_output_path(tmp_path: Path) -> None:
 def test_bash_without_timeout_does_not_inject_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run(*args, **kwargs):  # noqa: ANN002, ANN003
-        del args
-        captured["timeout"] = kwargs.get("timeout")
+    def fake_run_command_stream(  # noqa: ANN001
+        self,
+        *,
+        command: str,
+        cwd: Path,
+        timeout: float | None,
+        tool_name: str,
+        allow_unlisted: bool = False,
+        on_event=None,  # noqa: ANN001,ARG001
+        heartbeat_interval: float = 0.5,  # noqa: ARG001
+    ) -> CommandExecution:
+        del self, command, cwd, tool_name, allow_unlisted
+        captured["timeout"] = timeout
+        return CommandExecution(exit_code=0, text="ok", truncated=False)
 
-        class _Completed:
-            returncode = 0
-            stdout = "ok"
-            stderr = ""
+    monkeypatch.setattr(ToolSafety, "run_command_stream", fake_run_command_stream)
+    ctx = _context(tmp_path)
 
-        return _Completed()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-    safety = ToolSafety(repo_root=tmp_path, config=ToolSafetyConfig())
-
-    execution = safety.run_command(
-        command="python -c \"print('ok')\"",
-        cwd=tmp_path,
-        timeout=None,
-        tool_name="bash",
-    )
+    result = BashTool().run({"command": "python -c \"print('ok')\""}, ctx)
 
     assert captured["timeout"] is None
-    assert execution.stdout == "ok"
-    assert execution.exit_code == 0
+    assert result["content"] == "ok"
+    assert result["exitCode"] == 0
+
+
+def test_bash_success_merges_stdout_and_stderr_into_content(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+
+    result = BashTool().run(
+        {
+            "command": (
+                "python -c \"import sys; "
+                "print('out-1'); "
+                "sys.stderr.write('err-1\\\\n'); "
+                "print('out-2')\""
+            )
+        },
+        ctx,
+    )
+
+    assert result["content"]
+    assert "out-1" in result["content"]
+    assert "err-1" in result["content"]
+    assert "out-2" in result["content"]
+    assert "stdout" not in result
+    assert "stderr" not in result
 
 
 def test_read_returns_text_and_image_parts_for_png(tmp_path: Path) -> None:

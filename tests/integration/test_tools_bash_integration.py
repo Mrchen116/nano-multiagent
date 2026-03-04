@@ -24,8 +24,11 @@ def test_registry_executes_bash_with_truncation_and_persisted_output(tmp_path: P
     )
 
     assert result["truncated"] is True
-    full_output_path = result["full_output_path"]
+    full_output_path = result["fullOutputPath"]
     assert isinstance(full_output_path, str)
+    assert full_output_path in result["content"]
+    assert "[Showing lines " in result["content"]
+    assert "Full output: " in result["content"]
     output = Path(full_output_path).read_text(encoding="utf-8")
     assert "line-0" in output
     assert "line-7" in output

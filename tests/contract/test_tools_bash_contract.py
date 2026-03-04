@@ -24,15 +24,17 @@ def test_bash_truncation_contract_exposes_full_output_path(tmp_path: Path) -> No
 
     assert set(result.keys()) == {
         "command",
-        "exit_code",
-        "stdout",
-        "stderr",
+        "exitCode",
+        "content",
         "truncated",
-        "full_output_path",
+        "fullOutputPath",
     }
     assert result["truncated"] is True
-    assert isinstance(result["full_output_path"], str)
-    assert Path(result["full_output_path"]).exists()
+    assert isinstance(result["fullOutputPath"], str)
+    assert result["fullOutputPath"] in result["content"]
+    assert "[Showing lines " in result["content"]
+    assert "Full output: " in result["content"]
+    assert Path(result["fullOutputPath"]).exists()
 
 
 def test_bash_timeout_contract_exposes_stable_details(tmp_path: Path) -> None:
