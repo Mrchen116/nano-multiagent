@@ -8,6 +8,7 @@ from nano_multiagent.tools.base import ToolContext
 from nano_multiagent.tools.builtins.bash import BashTool
 from nano_multiagent.tools.builtins.edit import EditTool
 from nano_multiagent.tools.builtins.read import ReadTool
+from nano_multiagent.tools.builtins.task import TaskTool
 from nano_multiagent.tools.builtins.write import WriteTool
 from nano_multiagent.tools.safety import CommandExecution
 from nano_multiagent.tools.safety import ToolSafety
@@ -16,6 +17,85 @@ from nano_multiagent.tools.safety import ToolSafetyConfig
 
 def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolContext:
     return ToolContext.create(repo_root=tmp_path, safety_config=config)
+
+
+def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
+    assert ReadTool.description == (
+        "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
+        "Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} "
+        "lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large "
+        "files. When you need the full file, continue with offset until complete."
+    )
+    assert BashTool.description == (
+        "Execute a bash command in the current working directory. Returns stdout and stderr. "
+        "Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB "
+        "(whichever is hit first). If truncated, full output is saved to a temp file. Optionally "
+        "provide a timeout in seconds."
+    )
+    assert EditTool.description == (
+        "Edit a file by replacing exact text. The oldText must match exactly (including whitespace). "
+        "Use this for precise, surgical edits."
+    )
+    assert WriteTool.description == (
+        "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. "
+        "Automatically creates parent directories."
+    )
+    assert TaskTool.description == (
+        "Spawn agent task with category-based or direct agent selection.\n\n"
+        "MUTUALLY EXCLUSIVE: Provide EITHER category OR subagent_type, not both (unless continuing a session).\n\n"
+        "- load_skills: ALWAYS REQUIRED. Pass at least one skill name (e.g., [\"playwright\"], [\"git-master\", \"frontend-ui-ux\"]).\n"
+        "- category: Use predefined category → Spawns Sisyphus-Junior with category config\n"
+        "  Available categories:\n"
+        "${categoryList}\n"
+        "- subagent_type: Use specific agent directly (e.g., \"oracle\", \"explore\")\n"
+        "- run_in_background: true=async (returns task_id), false=sync (waits for result). Default: false. "
+        "Use background=true ONLY for parallel exploration with 5+ independent queries.\n"
+        "- session_id: Existing Task session to continue (from previous task output). Continues agent with FULL CONTEXT PRESERVED - "
+        "saves tokens, maintains continuity.\n"
+        "- command: The command that triggered this task (optional, for slash command tracking).\n\n"
+        "**WHEN TO USE session_id:**\n"
+        "- Task failed/incomplete → session_id with \"fix: [specific issue]\"\n"
+        "- Need follow-up on previous result → session_id with additional question\n"
+        "- Multi-turn conversation with same agent → always session_id instead of new task\n\n"
+        "Prompts MUST be in English."
+    )
+
+
+def test_builtin_tool_parameter_descriptions_align_with_tool_design_doc() -> None:
+    read_properties = ReadTool.input_schema["properties"]
+    assert read_properties["path"]["description"] == "Path to the file to read (relative or absolute)"
+    assert read_properties["offset"]["description"] == "Line number to start reading from (1-indexed)"
+    assert read_properties["limit"]["description"] == "Maximum number of lines to read"
+
+    bash_properties = BashTool.input_schema["properties"]
+    assert bash_properties["command"]["description"] == "Bash command to execute"
+    assert bash_properties["timeout"]["description"] == "Timeout in seconds (optional, no default timeout)"
+
+    edit_properties = EditTool.input_schema["properties"]
+    assert edit_properties["path"]["description"] == "Path to the file to edit (relative or absolute)"
+    assert edit_properties["oldText"]["description"] == "Exact text to find and replace (must match exactly)"
+    assert edit_properties["newText"]["description"] == "New text to replace the old text with"
+
+    write_properties = WriteTool.input_schema["properties"]
+    assert write_properties["path"]["description"] == "Path to the file to write (relative or absolute)"
+    assert write_properties["content"]["description"] == "Content to write to the file"
+
+    task_properties = TaskTool.input_schema["properties"]
+    assert task_properties["load_skills"]["description"] == (
+        "Skill names to inject. REQUIRED - pass [] if no skills needed, but IT IS HIGHLY RECOMMENDED to pass "
+        "proper skills like [\"playwright\"], [\"git-master\"] for best results."
+    )
+    assert task_properties["description"]["description"] == "Short task description (3-5 words)"
+    assert task_properties["prompt"]["description"] == "Full detailed prompt for the agent"
+    assert task_properties["run_in_background"]["description"] == "true=async (returns task_id), false=sync (waits). Default: false"
+    assert task_properties["category"]["description"] == (
+        "Category (e.g., ${categoryExamples}). Mutually exclusive with subagent_type."
+    )
+    assert task_properties["subagent_type"]["description"] == (
+        "Agent name (e.g., 'oracle', 'explore'). Mutually exclusive with category."
+    )
+    assert task_properties["session_id"]["description"] == "Existing Task session to continue"
+    assert task_properties["command"]["description"] == "The command that triggered this task"
 
 
 def test_read_supports_segmented_reads(tmp_path: Path) -> None:
