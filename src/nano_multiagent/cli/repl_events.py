@@ -8,6 +8,8 @@ from nano_multiagent.cli.http_client import ServerClient
 
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 _EVENT_PREVIEW_MAX_LEN = 120
+_EVENT_PREVIEW_HEAD_LEN = 72
+_EVENT_PREVIEW_TAIL_LEN = 45
 _EVENT_POLL_MAX_EVENTS = 200
 _EVENT_POLL_TIMEOUT_SECONDS = 0.25
 
@@ -188,13 +190,13 @@ def _emit_preview_line(
 def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[str], list[str]]:
     status_updates: list[str] = []
     tool_order: list[str] = []
-    tool_views: dict[str, dict[str, str]] = {}
+    tool_views: dict[str, dict[str, object]] = {}
 
-    def _ensure_tool(name: str) -> dict[str, str]:
-        if name not in tool_views:
-            tool_views[name] = {}
-            tool_order.append(name)
-        return tool_views[name]
+    def _ensure_tool(group_key: str, *, tool_name: str) -> dict[str, object]:
+        if group_key not in tool_views:
+            tool_views[group_key] = {"tool_name": tool_name}
+            tool_order.append(group_key)
+        return tool_views[group_key]
 
     for event_name, data in events:
         if event_name == "run_status":
@@ -211,13 +213,14 @@ def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[
             "tool_exec_exit",
         }:
             continue
-        name = _tool_name_from_data(data)
-        if not name:
+        group_key = _tool_group_key(data)
+        tool_name = _tool_name_from_data(data)
+        if not group_key or not tool_name:
             continue
         tool_line = _event_preview_line(event_name=event_name, data=data)
         if not tool_line:
             continue
-        slot = _ensure_tool(name)
+        slot = _ensure_tool(group_key, tool_name=tool_name)
         if event_name == "tool_start":
             slot["start"] = tool_line
             continue
@@ -230,54 +233,46 @@ def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[
         if event_name == "tool_exec_started":
             slot["exec_started"] = tool_line
             continue
-        if event_name == "tool_exec_running":
-            slot["exec_running"] = tool_line
-            continue
         if event_name == "tool_exec_chunk":
             stream = data.get("stream")
             if isinstance(stream, str) and stream.strip():
-                slot[f"chunk_{stream.strip().lower()}"] = tool_line
+                stream_key = stream.strip().lower()
+                count_key = f"chunk_count_{stream_key}"
+                current_count = slot.get(count_key)
+                slot[count_key] = current_count + 1 if isinstance(current_count, int) else 1
             else:
-                slot["chunk_unknown"] = tool_line
+                current_count = slot.get("chunk_count_unknown")
+                slot["chunk_count_unknown"] = current_count + 1 if isinstance(current_count, int) else 1
             continue
         if event_name == "tool_exec_exit":
             slot["exec_exit"] = tool_line
 
     tool_updates: list[str] = []
-    for name in tool_order:
-        slot = tool_views.get(name, {})
+    for group_key in tool_order:
+        slot = tool_views.get(group_key, {})
         if not slot:
             continue
         error_line = slot.get("error")
-        if error_line:
+        if isinstance(error_line, str) and error_line:
+            start_line = slot.get("start")
+            if isinstance(start_line, str) and start_line:
+                tool_updates.append(start_line)
             tool_updates.append(error_line)
             continue
+
         output_line = slot.get("output")
-        chunk_stdout = slot.get("chunk_stdout")
-        chunk_stderr = slot.get("chunk_stderr")
-        chunk_unknown = slot.get("chunk_unknown")
         exit_line = slot.get("exec_exit")
-        running_line = slot.get("exec_running")
         started_line = slot.get("exec_started")
         start_line = slot.get("start")
 
-        if start_line:
+        if isinstance(start_line, str) and start_line:
             tool_updates.append(start_line)
-        if output_line and not any((chunk_stdout, chunk_stderr, chunk_unknown)):
+        if isinstance(output_line, str) and output_line:
             tool_updates.append(output_line)
-        if chunk_stdout:
-            tool_updates.append(chunk_stdout)
-        if chunk_stderr:
-            tool_updates.append(chunk_stderr)
-        if chunk_unknown:
-            tool_updates.append(chunk_unknown)
-        if exit_line:
+        if isinstance(exit_line, str) and exit_line:
             tool_updates.append(exit_line)
             continue
-        if running_line:
-            tool_updates.append(running_line)
-            continue
-        if started_line:
+        if isinstance(started_line, str) and started_line and not isinstance(output_line, str):
             tool_updates.append(started_line)
             continue
     return status_updates, tool_updates
@@ -360,11 +355,19 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
 
 def _format_status_progress(data: dict[str, object]) -> str:
     status = data.get("status")
-    resolved_status = str(status) if isinstance(status, str) and status.strip() else "<unknown>"
+    resolved_status = str(status).strip().lower() if isinstance(status, str) and status.strip() else "<unknown>"
     retry_preview = _format_retry_progress(data)
+    if resolved_status in {"queued", "running", "completed"} and not retry_preview:
+        return ""
+    if resolved_status == "completed":
+        return ""
+    if resolved_status == "running" and retry_preview:
+        return f"retrying ({retry_preview})"
+    if resolved_status == "queued" and retry_preview:
+        return f"queued ({retry_preview})"
     if retry_preview:
-        return f"status={resolved_status} {retry_preview}"
-    return f"status={resolved_status}"
+        return f"{resolved_status} ({retry_preview})"
+    return resolved_status
 
 
 def _preview_event_value(value: object) -> str:
@@ -379,7 +382,12 @@ def _preview_event_value(value: object) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
     if len(text) <= _EVENT_PREVIEW_MAX_LEN:
         return text
-    return f"{text[:_EVENT_PREVIEW_MAX_LEN]}..."
+    head_len = _EVENT_PREVIEW_HEAD_LEN
+    tail_len = _EVENT_PREVIEW_TAIL_LEN
+    if head_len + tail_len + 3 > _EVENT_PREVIEW_MAX_LEN:
+        head_len = (_EVENT_PREVIEW_MAX_LEN - 3) // 2
+        tail_len = _EVENT_PREVIEW_MAX_LEN - 3 - head_len
+    return f"{text[:head_len]}...{text[-tail_len:]}"
 
 
 def _format_retry_progress(data: dict[str, object]) -> str:
@@ -390,19 +398,19 @@ def _format_retry_progress(data: dict[str, object]) -> str:
 
     parts: list[str] = []
     if isinstance(attempt, int):
-        parts.append(f"attempt={attempt}")
+        parts.append(f"attempt {attempt}")
     if isinstance(next_delay, (int, float)):
-        parts.append(f"next_delay={float(next_delay):.1f}s")
+        parts.append(f"next {float(next_delay):.1f}s")
     if isinstance(cooldown, (int, float)) and float(cooldown) > 0:
-        parts.append(f"cooldown={float(cooldown):.1f}s")
+        parts.append(f"cooldown {float(cooldown):.1f}s")
     if isinstance(last_error, dict):
         code = last_error.get("code")
         message = last_error.get("message")
         if isinstance(code, str) and isinstance(message, str):
-            parts.append(f"last_error={code}:{_preview_event_value(message)}")
+            parts.append(f"last error {code}: {_preview_event_value(message)}")
         elif isinstance(message, str):
-            parts.append(f"last_error={_preview_event_value(message)}")
-    return " ".join(parts)
+            parts.append(f"last error {_preview_event_value(message)}")
+    return ", ".join(parts)
 
 
 def merge_text_delta(current: str, delta: str) -> str:
@@ -431,3 +439,13 @@ def _tool_name_from_data(data: dict[str, object]) -> str:
     if not isinstance(raw, str):
         return ""
     return raw.strip()
+
+
+def _tool_group_key(data: dict[str, object]) -> str:
+    name = _tool_name_from_data(data)
+    if not name:
+        return ""
+    call_id = data.get("call_id")
+    if isinstance(call_id, str) and call_id.strip():
+        return f"{name}::{call_id.strip()}"
+    return name
