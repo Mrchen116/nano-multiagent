@@ -17,7 +17,7 @@
 - Command:
   - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`
 - Result:
-  - `92 passed, 38 warnings`
+  - `94 passed, 38 warnings`
 
 ## Roadpoints
 
@@ -44,7 +44,7 @@
 - Commits:
   - C1: `05f39bc`
   - C2: `b2c53ed`
-  - C3: `待提交`
+  - C3: `79b8075`
 - Status: `DONE`
 
 ### R2 输出信息架构收敛（答案优先 + 紧凑摘要）
@@ -67,7 +67,11 @@
   - 红测先失败后通过。
   - 门禁全绿。
   - 形成 C1/C2/C3 并在 PROGRESS 记录证据/回滚点/提交哈希。
-- Status: `TODO`
+- Commits:
+  - C1: `26a4694`
+  - C2: `37d2935`
+  - C3: `本提交（docs R2.1）`
+- Status: `DONE`
 
 ### R3 收口与集成（门禁、文档、合并）
 - Acceptance:
