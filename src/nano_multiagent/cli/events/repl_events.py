@@ -35,8 +35,6 @@ def send_message_with_async_events(
     render_phase_machine = ReplRenderPhaseMachine()
     seen_event_ids: set[str] | None = None
     seen_event_fingerprints: set[str] | None = None
-    previewed_tool_lines: set[str] = set()
-    emitted_tool_preview_identities: set[str] = set()
     assistant_text = ""
     terminal_run: dict[str, object] | None = None
     collected_events: list[tuple[str, dict[str, object]]] = []
@@ -59,8 +57,6 @@ def send_message_with_async_events(
             emit_preview=True,
             collected_events=collected_events,
             preview_writer=preview_writer,
-            previewed_tool_lines=previewed_tool_lines,
-            emitted_tool_preview_identities=emitted_tool_preview_identities,
         )
 
         run_payload = client.get_run(run_id=run_id)
@@ -80,7 +76,10 @@ def send_message_with_async_events(
     if not render_phase_machine.can_build_final_summary():
         render_phase_machine.begin_finalizing()
     status_updates, tool_updates = _build_repl_view(collected_events)
-    tool_updates = _filter_previewed_tool_updates(tool_updates=tool_updates, previewed_tool_lines=previewed_tool_lines)
+    tool_updates = render_phase_machine.filter_summary_tool_updates(
+        tool_updates,
+        line_identity_resolver=_tool_line_identity,
+    )
     render_phase_machine.mark_finalized()
     return {
         "session_id": session_id,
@@ -174,16 +173,24 @@ def consume_async_run_events(
             collected_events.append((event_name, data))
         if emit_preview and _is_live_preview_event(event_name) and resolved_phase_machine.can_emit_preview():
             preview_identity = _tool_preview_identity(event_name=event_name, data=data, run_id=run_id)
+            should_emit_preview = resolved_phase_machine.should_emit_tool_preview(preview_identity)
+            if emitted_tool_preview_identities is not None and preview_identity is not None:
+                if preview_identity in emitted_tool_preview_identities:
+                    should_emit_preview = False
             if (
-                emitted_tool_preview_identities is not None
-                and preview_identity is not None
-                and preview_identity in emitted_tool_preview_identities
+                not should_emit_preview
             ):
                 emitted_line = None
             else:
                 emitted_line = _emit_preview_line(out=out, event_name=event_name, data=data, preview_writer=preview_writer)
-                if emitted_line is not None and preview_identity is not None and emitted_tool_preview_identities is not None:
-                    emitted_tool_preview_identities.add(preview_identity)
+                if emitted_line is not None:
+                    preview_line_identity = _tool_line_identity(emitted_line) if event_name.startswith("tool_") else ""
+                    resolved_phase_machine.record_tool_preview(
+                        preview_identity=preview_identity,
+                        preview_line_identity=preview_line_identity,
+                    )
+                    if preview_identity is not None and emitted_tool_preview_identities is not None:
+                        emitted_tool_preview_identities.add(preview_identity)
             if previewed_tool_lines is not None and emitted_line is not None and event_name.startswith("tool_"):
                 previewed_tool_lines.add(emitted_line)
         if event_name == "text_delta":

@@ -49,6 +49,8 @@ class ReplRenderPhaseMachine:
 
     def __init__(self) -> None:
         self._phase = ReplRenderPhase.STREAMING
+        self._emitted_tool_preview_identities: set[str] = set()
+        self._previewed_tool_line_identities: set[str] = set()
 
     @property
     def phase(self) -> ReplRenderPhase:
@@ -62,6 +64,40 @@ class ReplRenderPhaseMachine:
     def can_build_final_summary(self) -> bool:
         """Return whether final summary rendering is allowed."""
         return self._phase in {ReplRenderPhase.FINALIZING, ReplRenderPhase.FINALIZED}
+
+    def should_emit_tool_preview(self, preview_identity: str | None) -> bool:
+        """Return whether one tool preview line should emit under current phase."""
+        if not self.can_emit_preview():
+            return False
+        if preview_identity is None:
+            return True
+        return preview_identity not in self._emitted_tool_preview_identities
+
+    def record_tool_preview(self, *, preview_identity: str | None, preview_line_identity: str | None) -> None:
+        """Record emitted preview identities for later dedupe and summary filtering."""
+        if preview_identity is not None and preview_identity:
+            self._emitted_tool_preview_identities.add(preview_identity)
+        if preview_line_identity is not None and preview_line_identity:
+            self._previewed_tool_line_identities.add(preview_line_identity)
+
+    def filter_summary_tool_updates(
+        self,
+        tool_updates: list[str],
+        *,
+        line_identity_resolver: Callable[[str], str],
+    ) -> list[str]:
+        """Filter summary tool lines that were already emitted in preview phase."""
+        if not self.can_build_final_summary():
+            return tool_updates
+        if not self._previewed_tool_line_identities:
+            return tool_updates
+        filtered: list[str] = []
+        for line in tool_updates:
+            identity = line_identity_resolver(line)
+            if identity and identity in self._previewed_tool_line_identities:
+                continue
+            filtered.append(line)
+        return filtered
 
     def begin_finalizing(self) -> None:
         """Transition to FINALIZING phase when terminal status is observed."""
