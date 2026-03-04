@@ -54,6 +54,38 @@ def test_cli_event_pipeline_layer_exposes_normalize_dedupe_and_view_model() -> N
     assert hasattr(event_pipeline, "build_repl_view_model")
 
 
+def test_consume_async_run_events_fallback_dedupe_window_evicts_old_semantic_keys() -> None:
+    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+
+    out = io.StringIO()
+    dedupe_window = EventDedupeWindow(max_event_ids=8, max_runs=1, max_fallback_keys_per_run=2)
+    seen_event_ids: set[str] = set()
+    seen_event_fingerprints: set[str] = set()
+    assistant_text = ""
+    consumed_counts: list[int] = []
+
+    event_batches = [
+        [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_a"}}],
+        [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_b"}}],
+        [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_c"}}],
+        [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_a"}}],
+    ]
+    for events in event_batches:
+        assistant_text, consumed = consume_async_run_events(
+            out=out,
+            events=events,
+            run_id="run_window",
+            seen_event_ids=seen_event_ids,
+            seen_event_fingerprints=seen_event_fingerprints,
+            dedupe_window=dedupe_window,
+            assistant_text=assistant_text,
+            emit_preview=False,
+        )
+        consumed_counts.append(consumed)
+    assert consumed_counts == [1, 1, 1, 1]
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object] | None]] = []
