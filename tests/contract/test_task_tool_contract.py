@@ -35,13 +35,13 @@ def test_task_tool_contract_is_exposed_by_tools_endpoint() -> None:
     assert "subagent_type" in task_descriptor["input_schema"]["properties"]
     assert tools["read"]["description"] == (
         "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
-        "Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} lines "
-        "or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. "
+        "Images are sent as attachments. For text files, output is truncated to 2000 lines "
+        "or 50KB (whichever is hit first). Use offset/limit for large files. "
         "When you need the full file, continue with offset until complete."
     )
     assert tools["bash"]["description"] == (
         "Execute a bash command in the current working directory. Returns stdout and stderr. Output is "
-        "truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). "
+        "truncated to last 2000 lines or 50KB (whichever is hit first). "
         "If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds."
     )
     assert tools["edit"]["description"] == (
