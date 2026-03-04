@@ -65,6 +65,9 @@
   - unit/contract/integration/e2e: 不选（研究文档）。
 - Expected Artifacts:
   - `PROGRESS/M62-*.md` 的 R2 章节（策略矩阵+观测指标表）。
+- Validation Commands:
+  - `rg -n '^#### R2\\.Q1|^#### R2\\.Q2|^#### R2\\.Q3' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md`
+  - `rg -n '状态行门控策略|错误分层模型|可观测指标建议' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md`
 - DoD:
   - 覆盖状态、错误、可观测三条主线，能直接支撑 M53。
 - Status: `DOING`
