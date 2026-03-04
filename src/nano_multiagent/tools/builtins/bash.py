@@ -35,12 +35,19 @@ class BashTool:
             if timeout_value <= 0:
                 raise ToolError("timeout must be > 0", tool_name=self.name)
 
-        execution = ctx.safety.run_command(
+        def _on_execution_event(payload: Mapping[str, Any]) -> None:
+            event_payload: dict[str, Any] = dict(payload)
+            event_payload.setdefault("command", command)
+            ctx.emit_execution_event(event_payload)
+
+        execution = ctx.safety.run_command_stream(
             command=command,
             cwd=ctx.cwd,
             timeout=timeout_value,
             tool_name=self.name,
             allow_unlisted=bool(ctx.safety_overrides.get("bash_allow_unlisted")),
+            on_event=_on_execution_event,
+            heartbeat_interval=0.1,
         )
 
         if execution.exit_code != 0:

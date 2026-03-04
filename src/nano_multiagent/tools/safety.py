@@ -1,13 +1,15 @@
 """Sandbox and command policy primitives used by file/shell tools."""
 
 import os
+import selectors
 import shlex
 import subprocess
 import tempfile
+import time
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from nano_multiagent.core.errors import ToolError
 
@@ -277,36 +279,152 @@ class ToolSafety:
     ) -> CommandExecution:
         """Run one command under policy/time/output limits and return structured output."""
 
+        return self.run_command_stream(
+            command=command,
+            cwd=cwd,
+            timeout=timeout,
+            tool_name=tool_name,
+            allow_unlisted=allow_unlisted,
+            on_event=None,
+            heartbeat_interval=0.5,
+        )
+
+    def run_command_stream(
+        self,
+        *,
+        command: str,
+        cwd: Path,
+        timeout: float | None,
+        tool_name: str,
+        allow_unlisted: bool = False,
+        on_event: Callable[[Mapping[str, Any]], None] | None = None,
+        heartbeat_interval: float = 0.5,
+    ) -> CommandExecution:
+        """Run one command and optionally emit realtime execution progress events."""
+
         self.enforce_command_policy(
             command,
             tool_name=tool_name,
             allow_unlisted=allow_unlisted,
         )
+
+        process = subprocess.Popen(  # noqa: S603
+            ["bash", "-lc", command],
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+        )
+        if process.stdout is None or process.stderr is None:
+            raise ToolError("command stream unavailable", tool_name=tool_name)
+
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ, data="stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, data="stderr")
+
+        start_monotonic = time.monotonic()
+        deadline = start_monotonic + timeout if timeout is not None else None
+        last_heartbeat = start_monotonic
+        seq = 0
+        timed_out = False
+        stdout_parts: list[str] = []
+        stderr_parts: list[str] = []
+
+        _emit_command_event(
+            on_event,
+            {
+                "phase": "started",
+                "status": "started",
+                "elapsed_ms": 0,
+            },
+        )
+
         try:
-            completed = subprocess.run(
-                ["bash", "-lc", command],
-                cwd=str(cwd),
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
+            while True:
+                now = time.monotonic()
+                if deadline is not None and now >= deadline and process.poll() is None:
+                    timed_out = True
+                    process.kill()
+
+                wait_timeout = heartbeat_interval
+                if deadline is not None:
+                    wait_timeout = min(wait_timeout, max(0.0, deadline - now))
+
+                for key, _ in selector.select(timeout=wait_timeout):
+                    stream_name = str(key.data)
+                    chunk_bytes = os.read(key.fileobj.fileno(), 4096)
+                    if not chunk_bytes:
+                        selector.unregister(key.fileobj)
+                        continue
+                    chunk = _decode_stream_bytes(chunk_bytes)
+                    if stream_name == "stdout":
+                        stdout_parts.append(chunk)
+                    else:
+                        stderr_parts.append(chunk)
+                    seq += 1
+                    _emit_command_event(
+                        on_event,
+                        {
+                            "phase": "chunk",
+                            "stream": stream_name,
+                            "chunk": chunk,
+                            "seq": seq,
+                        },
+                    )
+
+                current = time.monotonic()
+                if process.poll() is not None and not selector.get_map():
+                    break
+                if process.poll() is None and current - last_heartbeat >= heartbeat_interval:
+                    last_heartbeat = current
+                    _emit_command_event(
+                        on_event,
+                        {
+                            "phase": "running",
+                            "status": "running",
+                            "elapsed_ms": int((current - start_monotonic) * 1000),
+                        },
+                    )
+        finally:
+            selector.close()
+
+        tail_stdout_bytes, tail_stderr_bytes = process.communicate()
+        if tail_stdout_bytes:
+            stdout_parts.append(_decode_stream_bytes(tail_stdout_bytes))
+        if tail_stderr_bytes:
+            stderr_parts.append(_decode_stream_bytes(tail_stderr_bytes))
+
+        exit_code = int(process.returncode if process.returncode is not None else process.wait())
+        duration_ms = int((time.monotonic() - start_monotonic) * 1000)
+        status_text = "timeout" if timed_out else ("completed" if exit_code == 0 else "failed")
+        _emit_command_event(
+            on_event,
+            {
+                "phase": "exit",
+                "status": status_text,
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+            },
+        )
+
+        if timed_out:
             timeout_details = timeout if timeout is not None else 0.0
             raise ToolError(
                 f"command timed out after {timeout_details}s",
                 tool_name=tool_name,
                 details={"timeout": timeout_details, "timed_out": True},
-            ) from exc
+            )
 
+        full_stdout = "".join(stdout_parts)
+        full_stderr = "".join(stderr_parts)
         stdout, stdout_truncated = self.truncate_text(
-            completed.stdout,
+            full_stdout,
             max_lines=self.config.bash_max_output_lines,
             max_bytes=self.config.bash_max_output_bytes,
             tail=True,
         )
         stderr, stderr_truncated = self.truncate_text(
-            completed.stderr,
+            full_stderr,
             max_lines=self.config.bash_max_output_lines,
             max_bytes=self.config.bash_max_output_bytes,
             tail=True,
@@ -314,9 +432,9 @@ class ToolSafety:
         truncated = stdout_truncated or stderr_truncated
         full_output_path = None
         if truncated:
-            full_output_path = self._persist_full_output(stdout=completed.stdout, stderr=completed.stderr)
+            full_output_path = self._persist_full_output(stdout=full_stdout, stderr=full_stderr)
         return CommandExecution(
-            exit_code=completed.returncode,
+            exit_code=exit_code,
             stdout=stdout,
             stderr=stderr,
             truncated=truncated,
@@ -377,3 +495,20 @@ def _matches_any_allowed_prefix(*, segment: str, allow_prefixes: tuple[str, ...]
         if next_char.isspace() or next_char in "<>|;&()":
             return True
     return False
+
+
+def _decode_stream_bytes(data: bytes) -> str:
+    return data.decode("utf-8", errors="replace")
+
+
+def _emit_command_event(
+    callback: Callable[[Mapping[str, Any]], None] | None,
+    payload: Mapping[str, Any],
+) -> None:
+    if callback is None:
+        return
+    try:
+        callback(dict(payload))
+    except Exception:
+        # Event sinks are observability-only and must not break command execution.
+        return

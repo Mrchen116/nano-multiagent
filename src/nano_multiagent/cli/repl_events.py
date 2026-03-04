@@ -38,7 +38,7 @@ def send_message_with_async_events(
             run_id=run_id,
             seen_event_ids=seen_event_ids,
             assistant_text=assistant_text,
-            emit_preview=False,
+            emit_preview=True,
             collected_events=collected_events,
         )
 
@@ -139,7 +139,7 @@ def consume_async_run_events(
                 continue
         if collected_events is not None:
             collected_events.append((event_name, data))
-        if emit_preview:
+        if emit_preview and _is_live_preview_event(event_name):
             print_event_preview(out=out, event_name=event_name, data=data)
         if event_name == "text_delta":
             delta = data.get("delta")
@@ -148,7 +148,7 @@ def consume_async_run_events(
     if delayed_terminal_run_status is not None:
         if collected_events is not None:
             collected_events.append(("run_status", delayed_terminal_run_status))
-        if emit_preview:
+        if emit_preview and _is_live_preview_event("run_status"):
             print_event_preview(out=out, event_name="run_status", data=delayed_terminal_run_status)
     return updated_text, consumed
 
@@ -169,7 +169,14 @@ def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[
             if status_line:
                 status_updates.append(status_line)
             continue
-        if event_name == "tool_start" or event_name == "tool_end":
+        if event_name in {
+            "tool_start",
+            "tool_end",
+            "tool_exec_started",
+            "tool_exec_running",
+            "tool_exec_chunk",
+            "tool_exec_exit",
+        }:
             tool_line = _event_preview_line(event_name=event_name, data=data)
             if tool_line:
                 tool_updates.append(tool_line)
@@ -201,6 +208,45 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         if error not in (None, "", {}):
             return f"[tool {resolved_name}] error={_preview_event_value(error)}"
         return f"[tool {resolved_name}] output={_preview_event_value(output)}"
+
+    if event_name == "tool_exec_started":
+        name = data.get("name")
+        status = data.get("status")
+        elapsed_ms = data.get("elapsed_ms")
+        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        resolved_status = str(status) if isinstance(status, str) and status.strip() else "started"
+        resolved_elapsed = _preview_elapsed_ms(elapsed_ms)
+        return f"[tool {resolved_name}] started status={resolved_status} elapsed={resolved_elapsed}"
+
+    if event_name == "tool_exec_running":
+        name = data.get("name")
+        status = data.get("status")
+        elapsed_ms = data.get("elapsed_ms")
+        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        resolved_status = str(status) if isinstance(status, str) and status.strip() else "running"
+        resolved_elapsed = _preview_elapsed_ms(elapsed_ms)
+        return f"[tool {resolved_name}] running status={resolved_status} elapsed={resolved_elapsed}"
+
+    if event_name == "tool_exec_chunk":
+        name = data.get("name")
+        stream = data.get("stream")
+        chunk = data.get("chunk")
+        seq = data.get("seq")
+        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        resolved_stream = str(stream) if isinstance(stream, str) and stream.strip() else "<unknown>"
+        resolved_seq = str(seq) if isinstance(seq, int) else "?"
+        return f"[tool {resolved_name}] chunk {resolved_stream}#{resolved_seq}: {_preview_event_value(chunk)}"
+
+    if event_name == "tool_exec_exit":
+        name = data.get("name")
+        status = data.get("status")
+        duration_ms = data.get("duration_ms")
+        exit_code = data.get("exit_code")
+        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        resolved_status = str(status) if isinstance(status, str) and status.strip() else "<unknown>"
+        resolved_duration = _preview_elapsed_ms(duration_ms)
+        resolved_exit_code = str(exit_code) if isinstance(exit_code, int) else "<unknown>"
+        return f"[tool {resolved_name}] exit code={resolved_exit_code} status={resolved_status} duration={resolved_duration}"
 
     if event_name == "text_delta":
         delta = data.get("delta")
@@ -263,3 +309,15 @@ def merge_text_delta(current: str, delta: str) -> str:
     if delta.startswith(current):
         return delta
     return f"{current}{delta}"
+
+
+def _is_live_preview_event(event_name: str) -> bool:
+    return event_name in {"tool_exec_started", "tool_exec_running", "tool_exec_chunk", "tool_exec_exit"}
+
+
+def _preview_elapsed_ms(value: object) -> str:
+    if isinstance(value, int):
+        return f"{value}ms"
+    if isinstance(value, float):
+        return f"{int(value)}ms"
+    return "unknown"

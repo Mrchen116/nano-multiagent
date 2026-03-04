@@ -110,16 +110,34 @@ class ToolRegistry:
             safety_overrides: dict[str, Any] = {}
             if bool(tool_call_payload.get("allow_unlisted")):
                 safety_overrides["bash_allow_unlisted"] = True
+            normalized_args = _validate_args(name=name, args=effective_args, schema=tool.input_schema)
+            event_base_payload = _build_tool_execution_base_payload(
+                name=name,
+                args=normalized_args,
+                hook_context=active_hook_context,
+                tool_call_id=tool_call_id,
+            )
+
+            def _emit_execution_update(update_payload: Mapping[str, Any]) -> None:
+                self._dispatch_observe(
+                    "tool_execution_update",
+                    {
+                        **event_base_payload,
+                        **dict(update_payload),
+                    },
+                    active_hook_context,
+                )
+
             execution_context = self._context.with_session(
                 active_hook_context.session_id,
                 tool_call_id=tool_call_id,
                 safety_overrides=safety_overrides,
+                execution_event_callback=_emit_execution_update,
             )
-            normalized_args = _validate_args(name=name, args=effective_args, schema=tool.input_schema)
             log_info("tool_execution_start", tool_name=name)
             self._dispatch_observe(
                 "tool_execution_start",
-                {"name": name, "args": normalized_args},
+                dict(event_base_payload),
                 active_hook_context,
             )
 
@@ -139,12 +157,18 @@ class ToolRegistry:
             if execution_error is None:
                 self._dispatch_observe(
                     "tool_execution_update",
-                    {"name": name, "args": normalized_args, "output": raw_result},
+                    {
+                        **event_base_payload,
+                        "output": raw_result,
+                    },
                     active_hook_context,
                 )
                 self._dispatch_observe(
                     "tool_execution_end",
-                    {"name": name, "args": normalized_args, "is_error": False},
+                    {
+                        **event_base_payload,
+                        "is_error": False,
+                    },
                     active_hook_context,
                 )
                 log_info("tool_execution_end", tool_name=name, is_error=False)
@@ -152,8 +176,7 @@ class ToolRegistry:
                 self._dispatch_observe(
                     "tool_execution_end",
                     {
-                        "name": name,
-                        "args": normalized_args,
+                        **event_base_payload,
                         "is_error": True,
                         "error": str(execution_error),
                         "details": execution_error.details,
@@ -344,6 +367,27 @@ def _extract_tool_call_id(*, args: Mapping[str, Any], hook_context: HookContext)
     if isinstance(metadata_value, str) and metadata_value.strip():
         return metadata_value
     return None
+
+
+def _build_tool_execution_base_payload(
+    *,
+    name: str,
+    args: Mapping[str, Any],
+    hook_context: HookContext,
+    tool_call_id: str | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "name": name,
+        "args": dict(args),
+    }
+    if hook_context.turn_id is not None:
+        payload["turn_id"] = hook_context.turn_id
+    if tool_call_id is not None:
+        payload["call_id"] = tool_call_id
+    run_id = hook_context.metadata.get("run_id")
+    if isinstance(run_id, str) and run_id.strip():
+        payload["run_id"] = run_id.strip()
+    return payload
 
 
 def _matches_json_type(value: Any, expected: str) -> bool:

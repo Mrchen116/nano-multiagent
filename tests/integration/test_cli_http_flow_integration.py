@@ -16,11 +16,14 @@ from nano_multiagent.agent.compaction.types import CompactionReason, CompactionR
 from nano_multiagent.cli.main import run_cli
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.hooks.loader import build_hook_registry
+from nano_multiagent.hooks.runner import HookRunner
 from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 from nano_multiagent.server.app import create_app
 from nano_multiagent.session.manager import SessionManager
 from nano_multiagent.session.stores.base import LoadedSession, SessionStore
 from nano_multiagent.tools.base import ToolContext
+from nano_multiagent.tools.builtins.bash import BashTool
 from nano_multiagent.tools.registry import ToolRegistry
 
 
@@ -152,6 +155,43 @@ class _ToolCallingLLMClient:
         return LLMGenerateResponse(
             model=request.model,
             message=LLMMessage(role="assistant", content=f"final:{tool_text}"),
+            finish_reason="stop",
+        )
+
+
+class _BashToolCallingLLMClient:
+    def __init__(self) -> None:
+        self.requests: list[LLMGenerateRequest] = []
+
+    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            return LLMGenerateResponse(
+                model=request.model,
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="call_cli_bash_1",
+                            name="bash",
+                            arguments={
+                                "command": (
+                                    "python -c \"import sys,time;"
+                                    "print('out-line');sys.stdout.flush();"
+                                    "time.sleep(0.2);"
+                                    "print('err-line', file=sys.stderr);sys.stderr.flush()\""
+                                )
+                            },
+                        ),
+                    ),
+                ),
+                finish_reason="tool_calls",
+            )
+
+        return LLMGenerateResponse(
+            model=request.model,
+            message=LLMMessage(role="assistant", content="final:bash-finished"),
             finish_reason="stop",
         )
 
@@ -652,6 +692,56 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     assert "[tool] echo output=echo:ping" in text
     assert "[usage]" in text
     assert "final:echo:ping" in text
+
+
+def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool() -> None:
+    store = _InMemorySessionStore()
+    llm = _BashToolCallingLLMClient()
+    hook_runner = HookRunner(registry=build_hook_registry(repo_root=Path.cwd()))
+    runtime = AgentRuntime(
+        session_manager=SessionManager(store=store),
+        llm_client=llm,
+        model="mock-model",
+        hook_runner=hook_runner,
+        repo_root=Path.cwd(),
+    )
+    tool_registry = ToolRegistry(
+        context=ToolContext.create(repo_root=Path.cwd()),
+        hook_runner=hook_runner,
+    )
+    tool_registry.register(BashTool())
+
+    app = create_app(
+        session_store=store,
+        runtime=runtime,
+        tool_registry=tool_registry,
+        auth_token="test-token",
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "[tool bash] started" in text
+    assert "[tool bash] running" in text
+    assert "[tool bash] chunk stdout" in text
+    assert "[tool bash] chunk stderr" in text
+    assert "[tool bash] exit code=0" in text
+    assert text.index("[tool bash] started") < text.index("[status]")
+    assert "final:bash-finished" in text
 
 
 def test_cli_repl_prints_compact_sections_in_async_turn_output() -> None:
