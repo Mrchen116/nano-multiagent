@@ -69,10 +69,10 @@
   - 全量门禁全绿。
   - 完成 C1/C2/C3，PROGRESS 写明证据、回滚点、提交哈希。
 - Commits:
-  - C1: `TODO`
-  - C2: `TODO`
-  - C3: `TODO`
-- Status: `TODO`
+  - C1: `8dbe722`
+  - C2: `6390566`
+  - C3: `本提交（docs R2.1）`
+- Status: `DONE`
 
 ### R3 收口与验收（真实 managed 交互 + 集成）
 - Acceptance:

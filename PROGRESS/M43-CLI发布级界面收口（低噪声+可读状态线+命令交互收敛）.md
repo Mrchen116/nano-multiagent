@@ -37,14 +37,28 @@
 
 ### R2 `/` 命令提示交互收敛（不刷屏、不污染输入行）
 - Context:
+  - `/` 命令候选当前通过多行 `Commands ↓ ...` 面板实时重绘，终端里容易刷屏并污染输入区。
+  - 事件摘要仍有高频碎片（queued/chunk）和原始结构痕迹，需要对齐“event -> semantic -> render”三层并降低噪声。
 - Decision:
+  - `repl_input` 将斜杠菜单改为输入行内提示（保留 ↑/↓ + Enter 选择），移除多行菜单输出。
+  - `repl_events` 引入最小语义化渲染：raw event 映射到自然状态/工具文案，不直接暴露原始事件名。
+  - 默认静默低价值高频事件（如 queued/running 常规状态、chunk 明细）；保留关键阶段（tool start/started/exit、error、retry progress）。
+  - 工具输出预览改为 head+ellipsis+tail 截断；多工具按 `call_id/name` 分组后聚合摘要，避免同名工具互相覆盖。
 - Rationale:
+  - 只在 CLI 文本渲染层做最小等价实现即可落地交互体验目标，同时保留异步队列、run_id/event_id 契约。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py::test_repl_input_engine_slash_menu_does_not_render_multiline_panel tests/integration/test_cli_http_flow_integration.py::test_cli_repl_slash_menu_selects_command_and_executes_it`（1 failed）
+    - 绿测（全量门禁）：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`（101 passed, 40 warnings）
   - Entry:
+    - `/` 交互不再出现 `Commands ↓ ...` 多行刷屏，补全仍可用。
+    - 工具摘要默认不再输出 chunk 碎片，展示 `Tool ... start/exit` 关键阶段。
+    - 长工具输出显示 `head...tail`，可读且不刷屏。
 - Rollback:
-- Commits: C1=TODO, C2=TODO, C3=TODO
+  - `8dbe722`（R2 红测提交）
+- Commits: C1=8dbe722, C2=6390566, C3=本提交（docs R2.1）
 - Next:
+  - 进入 R3：真实 managed CLI 验收、rebase/main 集成、push 与 dev-tasks DONE 更新。
 
 ### R3 收口与验收（真实 managed 交互 + 集成）
 - Context:
