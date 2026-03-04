@@ -43,10 +43,10 @@
   - 全量门禁全绿。
   - 完成 C1/C2/C3，PROGRESS 写明证据、回滚点、提交哈希。
 - Commits:
-  - C1: `TODO`
-  - C2: `TODO`
-  - C3: `TODO`
-- Status: `TODO`
+  - C1: `ca4ec09`
+  - C2: `189acff`
+  - C3: `本提交（docs R1.1）`
+- Status: `DONE`
 
 ### R2 `/` 命令提示交互收敛（不刷屏、不污染输入行）
 - Acceptance:
