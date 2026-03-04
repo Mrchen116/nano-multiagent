@@ -334,7 +334,7 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         name = data.get("name")
         arguments = data.get("arguments")
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
-        return f"Tool {resolved_name} start args={_preview_event_value(arguments)}"
+        return f"Tool: {resolved_name} start args={_preview_event_value(arguments)}"
 
     if event_name == "tool_end":
         name = data.get("name")
@@ -342,8 +342,8 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         output = data.get("output")
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
         if error not in (None, "", {}):
-            return f"Tool {resolved_name} error={_preview_event_value(error)}"
-        return f"Tool {resolved_name} output={_preview_event_value(output)}"
+            return f"Tool: {resolved_name} error={_preview_event_value(error)}"
+        return f"Tool: {resolved_name} output={_preview_event_value(output)}"
 
     if event_name == "tool_exec_started":
         name = data.get("name")
@@ -352,7 +352,7 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
         resolved_status = str(status) if isinstance(status, str) and status.strip() else "started"
         resolved_elapsed = _preview_elapsed_ms(elapsed_ms)
-        return f"Tool {resolved_name} started status={resolved_status} elapsed={resolved_elapsed}"
+        return f"Tool: {resolved_name} started status={resolved_status} elapsed={resolved_elapsed}"
 
     if event_name == "tool_exec_running":
         name = data.get("name")
@@ -361,7 +361,7 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
         resolved_status = str(status) if isinstance(status, str) and status.strip() else "running"
         resolved_elapsed = _preview_elapsed_ms(elapsed_ms)
-        return f"Tool {resolved_name} running status={resolved_status} elapsed={resolved_elapsed}"
+        return f"Tool: {resolved_name} running status={resolved_status} elapsed={resolved_elapsed}"
 
     if event_name == "tool_exec_chunk":
         name = data.get("name")
@@ -371,7 +371,7 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
         resolved_stream = str(stream) if isinstance(stream, str) and stream.strip() else "<unknown>"
         resolved_seq = str(seq) if isinstance(seq, int) else "?"
-        return f"Tool {resolved_name} chunk {resolved_stream}#{resolved_seq}: {_preview_event_value(chunk)}"
+        return f"Tool: {resolved_name} chunk {resolved_stream}#{resolved_seq}: {_preview_event_value(chunk)}"
 
     if event_name == "tool_exec_exit":
         name = data.get("name")
@@ -383,7 +383,7 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         resolved_duration = _preview_elapsed_ms(duration_ms)
         resolved_exit_code = str(exit_code) if isinstance(exit_code, int) else "<unknown>"
         return (
-            f"Tool {resolved_name} exit code={resolved_exit_code} "
+            f"Tool: {resolved_name} exit code={resolved_exit_code} "
             f"status={resolved_status} duration={resolved_duration}"
         )
 

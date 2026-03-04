@@ -147,6 +147,10 @@ def _normalize_tool_update(line: str) -> str:
     trimmed = line.strip()
     if not trimmed:
         return ""
+    if trimmed.startswith("Tool:"):
+        normalized = trimmed[5:].strip()
+        if normalized:
+            return normalized
     if trimmed.startswith("Tool "):
         normalized = trimmed[5:].strip()
         if normalized:
