@@ -196,6 +196,134 @@ def test_build_repl_view_model_isolates_orphan_exec_exit_from_active_call_timeli
     assert any("Tool: bash exit code=0 status=completed duration=21ms" in line for line in model.tool_updates)
 
 
+def test_consume_async_run_events_high_frequency_batch_records_perf_baseline() -> None:
+    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.cli.events.event_pipeline import ReplPerfTracker
+    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+
+    out = io.StringIO()
+    preview_lines: list[str] = []
+    events: list[dict[str, object]] = [
+        {"event_id": "evt_hf_start", "event": "tool_start", "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "arguments": {"command": "echo hi"}}},
+        {"event_id": "evt_hf_started", "event": "tool_exec_started", "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "status": "started", "elapsed_ms": 0}},
+    ]
+    events.extend(
+        {
+            "event_id": f"evt_hf_chunk_{idx}",
+            "event": "tool_exec_chunk",
+            "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "stream": "stdout", "chunk": f"line-{idx}", "seq": idx},
+        }
+        for idx in range(1, 81)
+    )
+    events.append(
+        {
+            "event_id": "evt_hf_exit",
+            "event": "tool_exec_exit",
+            "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "status": "completed", "duration_ms": 200, "exit_code": 0},
+        }
+    )
+
+    tracker = ReplPerfTracker()
+    _, consumed = consume_async_run_events(
+        out=out,
+        events=events,
+        run_id="run_hf",
+        dedupe_window=EventDedupeWindow(),
+        assistant_text="",
+        emit_preview=True,
+        preview_writer=preview_lines.append,
+        perf_tracker=tracker,
+    )
+
+    snapshot = tracker.snapshot()
+    assert consumed == len(events)
+    assert snapshot["sample_ready"] is True
+    assert snapshot["throughput_ok"] is True
+    assert snapshot["redraw_ratio_ok"] is True
+    assert snapshot["polled_events"] == len(events)
+    assert snapshot["consumed_events"] == len(events)
+    assert snapshot["preview_emitted"] == 3
+
+
+def test_consume_async_run_events_long_session_batches_keep_perf_guardrails_stable() -> None:
+    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.cli.events.event_pipeline import ReplPerfTracker
+    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+
+    out = io.StringIO()
+    tracker = ReplPerfTracker()
+    dedupe_window = EventDedupeWindow(max_event_ids=512, max_runs=8, max_fallback_keys_per_run=512)
+    assistant_text = ""
+
+    for batch_idx in range(1, 6):
+        events: list[dict[str, object]] = [
+            {"event_id": f"evt_other_run_{batch_idx}", "event": "tool_start", "data": {"run_id": "run_other", "name": "bash", "call_id": f"other_{batch_idx}", "arguments": {"command": "echo other"}}},
+            {"event_id": f"evt_long_start_{batch_idx}", "event": "tool_start", "data": {"run_id": "run_long", "name": "bash", "call_id": f"call_{batch_idx}", "arguments": {"command": "echo long"}}},
+            {"event_id": f"evt_long_start_{batch_idx}", "event": "tool_start", "data": {"run_id": "run_long", "name": "bash", "call_id": f"call_{batch_idx}", "arguments": {"command": "echo long"}}},
+        ]
+        events.extend(
+            {
+                "event_id": f"evt_long_chunk_{batch_idx}_{chunk_idx}",
+                "event": "tool_exec_chunk",
+                "data": {
+                    "run_id": "run_long",
+                    "name": "bash",
+                    "call_id": f"call_{batch_idx}",
+                    "stream": "stdout",
+                    "chunk": f"chunk-{batch_idx}-{chunk_idx}",
+                    "seq": chunk_idx,
+                },
+            }
+            for chunk_idx in range(1, 11)
+        )
+        events.append(
+            {
+                "event_id": f"evt_long_exit_{batch_idx}",
+                "event": "tool_exec_exit",
+                "data": {"run_id": "run_long", "name": "bash", "call_id": f"call_{batch_idx}", "status": "completed", "duration_ms": 80 + batch_idx, "exit_code": 0},
+            }
+        )
+        assistant_text, _ = consume_async_run_events(
+            out=out,
+            events=events,
+            run_id="run_long",
+            dedupe_window=dedupe_window,
+            assistant_text=assistant_text,
+            emit_preview=False,
+            perf_tracker=tracker,
+        )
+
+    snapshot = tracker.snapshot()
+    assert snapshot["batches"] == 5
+    assert snapshot["run_filtered"] == 5
+    assert snapshot["dedupe_dropped"] >= 5
+    assert snapshot["sample_ready"] is True
+    assert snapshot["stable"] is True
+
+
+def test_send_message_with_async_events_exposes_perf_metrics_snapshot() -> None:
+    from nano_multiagent.cli.events.repl_events import send_message_with_async_events
+
+    payload = send_message_with_async_events(
+        out=io.StringIO(),
+        client=_AsyncToolExecStreamingStubClient(),
+        session_id="sess_cli",
+        text="ping",
+    )
+
+    view = payload.get("_repl_view")
+    assert isinstance(view, dict)
+    perf_metrics = view.get("perf_metrics")
+    assert isinstance(perf_metrics, dict)
+    assert perf_metrics["batches"] >= 1
+    assert perf_metrics["polled_events"] >= 1
+    assert perf_metrics["consumed_events"] >= 1
+    assert "sample_ready" in perf_metrics
+    assert "throughput_ok" in perf_metrics
+    assert "redraw_ratio_ok" in perf_metrics
+    assert "stable" in perf_metrics
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object] | None]] = []
