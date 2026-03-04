@@ -423,13 +423,12 @@ def _render_interactive_line_locked(
     selected_command_index: int | None = None,
 ) -> None:
     line = "".join(chars)
-    out.write(f"\r{prompt}{line}\x1b[K")
-    out.write("\x1b[J")
+    inline_hint = ""
     if selected_command_index is not None and command_items:
-        out.write(f"\n{_format_command_menu(command_items=command_items, selected_index=selected_command_index)}\x1b[K")
-        out.write("\x1b[1A\r")
-        out.write(f"{prompt}{line}")
-    tail_size = len(line) - cursor
+        inline_hint = f"  ({command_items[selected_command_index]})"
+    out.write(f"\r{prompt}{line}{inline_hint}\x1b[K")
+    out.write("\x1b[J")
+    tail_size = len(line) - cursor + len(inline_hint)
     if tail_size > 0:
         out.write(f"\x1b[{tail_size}D")
     flush = getattr(out, "flush", None)

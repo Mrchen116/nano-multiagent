@@ -342,6 +342,142 @@ class _AsyncUsageEventingStubClient(_AsyncEventingStubClient):
         return payload
 
 
+class _AsyncLongToolOutputStubClient(_StubClient):
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_long_output", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        long_output = "HEAD-" + ("x" * 200) + "-TAIL"
+        return [
+            {
+                "event_id": "evt_long_tool_start",
+                "event": "tool_start",
+                "data": {
+                    "run_id": "run_long_output",
+                    "name": "echo",
+                    "call_id": "call_long",
+                    "arguments": {"text": "ping"},
+                },
+            },
+            {
+                "event_id": "evt_long_tool_end",
+                "event": "tool_end",
+                "data": {
+                    "run_id": "run_long_output",
+                    "name": "echo",
+                    "call_id": "call_long",
+                    "output": {"text": long_output},
+                    "error": None,
+                },
+            },
+            {
+                "event_id": "evt_long_text",
+                "event": "text_delta",
+                "data": {"run_id": "run_long_output", "delta": "final:echo:ping"},
+            },
+        ]
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "completed",
+            "created_at": "2026-03-04T00:00:00+00:00",
+            "updated_at": "2026-03-04T00:00:00+00:00",
+            "turn_id": "turn_long_output",
+            "stop_reason": "stop",
+            "error": None,
+        }
+
+
+class _AsyncSameToolTwiceStubClient(_StubClient):
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_twice", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        return [
+            {
+                "event_id": "evt_twice_start_1",
+                "event": "tool_start",
+                "data": {
+                    "run_id": "run_twice",
+                    "name": "echo",
+                    "call_id": "call_1",
+                    "arguments": {"text": "first"},
+                },
+            },
+            {
+                "event_id": "evt_twice_end_1",
+                "event": "tool_end",
+                "data": {
+                    "run_id": "run_twice",
+                    "name": "echo",
+                    "call_id": "call_1",
+                    "output": {"text": "echo:first"},
+                    "error": None,
+                },
+            },
+            {
+                "event_id": "evt_twice_start_2",
+                "event": "tool_start",
+                "data": {
+                    "run_id": "run_twice",
+                    "name": "echo",
+                    "call_id": "call_2",
+                    "arguments": {"text": "second"},
+                },
+            },
+            {
+                "event_id": "evt_twice_end_2",
+                "event": "tool_end",
+                "data": {
+                    "run_id": "run_twice",
+                    "name": "echo",
+                    "call_id": "call_2",
+                    "output": {"text": "echo:second"},
+                    "error": None,
+                },
+            },
+            {
+                "event_id": "evt_twice_text",
+                "event": "text_delta",
+                "data": {"run_id": "run_twice", "delta": "final:echo:second"},
+            },
+        ]
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "completed",
+            "created_at": "2026-03-04T00:00:00+00:00",
+            "updated_at": "2026-03-04T00:00:00+00:00",
+            "turn_id": "turn_twice",
+            "stop_reason": "stop",
+            "error": None,
+        }
+
+
 class _AsyncToolExecStreamingStubClient(_StubClient):
     def __init__(self) -> None:
         super().__init__()
@@ -859,6 +995,20 @@ def test_repl_input_engine_slash_menu_up_wraps_without_history_recall() -> None:
     assert typed == "/exit"
 
 
+def test_repl_input_engine_slash_menu_does_not_render_multiline_panel() -> None:
+    output = io.StringIO()
+    typed = repl_input.read_interactive_line(
+        prompt="nano> ",
+        history=("from-history",),
+        key_reader=_iter_keys(["/", "\x1b[B", "\n", "\n"]),
+        out=output,
+        command_suggestions=repl_commands.REPL_COMMANDS,
+    )
+
+    assert typed == "/new"
+    assert "Commands ↓ " not in output.getvalue()
+
+
 def test_repl_input_external_output_replays_prompt_without_layout_break() -> None:
     output = io.StringIO()
 
@@ -1271,8 +1421,10 @@ def test_run_cli_repl_prints_turn_llm_usage_when_available() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "echo:hello" in text
-    assert "[status] completed | stop=stop | session=sess_cli" in text
-    assert "[usage] prompt=120, completion=35, total=155" in text
+    assert "State: completed | stop=stop | session=sess_cli" in text
+    assert "Usage: prompt=120, completion=35, total=155" in text
+    assert "[status]" not in text
+    assert "[usage]" not in text
 
 
 def test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason() -> None:
@@ -1289,7 +1441,7 @@ def test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason()
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "[status] completed | stop=stop | session=sess_cli" in text
+    assert "State: completed | stop=stop | session=sess_cli" in text
 
 
 def test_run_cli_repl_request_failures_include_suggestions() -> None:
@@ -1367,9 +1519,9 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert text.count("status=queued") == 1
-    assert "[tool] echo start" in text
-    assert "[tool] echo output=echo:ping" in text
+    assert "status=queued" not in text
+    assert "Tool: echo start" in text
+    assert "Tool: echo output=echo:ping" in text
     assert "Assistant:" in text
     assert "final:echo:ping" in text
     assert "ignore-me" not in text
@@ -1390,8 +1542,47 @@ def test_send_message_with_async_events_sanitizes_multiline_tool_preview() -> No
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "[tool] echo output=line1\\nline2" in text
-    assert "[tool] echo output=line1\nline2" not in text
+    assert "Tool: echo output=line1\\nline2" in text
+    assert "Tool: echo output=line1\nline2" not in text
+
+
+def test_send_message_with_async_events_truncates_long_tool_output_with_head_and_tail() -> None:
+    stub = _AsyncLongToolOutputStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Tool: echo output=HEAD-" in text
+    assert "..." in text
+    assert "-TAIL" in text
+    assert "x" * 150 not in text
+
+
+def test_run_cli_repl_groups_same_tool_name_events_by_call_id() -> None:
+    stub = _AsyncSameToolTwiceStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert text.count("Tool: echo start args=") == 2
+    assert "Tool: echo output=echo:first" in text
+    assert "Tool: echo output=echo:second" in text
 
 
 def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> None:
@@ -1410,12 +1601,12 @@ def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> No
     text = output.getvalue()
     assert "Assistant:" in text
     assert "final:echo:ping" in text
-    assert "[status] completed | stop=stop | run=run_target | session=sess_cli" in text
-    assert "[tool] echo start args=ping" in text
-    assert "[tool] echo output=echo:ping" in text
-    assert "[usage] unavailable" in text
+    assert "State: completed | stop=stop | run=run_target | session=sess_cli" in text
+    assert "Tool: echo start args=ping" in text
+    assert "Tool: echo output=echo:ping" in text
+    assert "Usage: unavailable" in text
     assert '"run_id": "run_target"' not in text
-    assert "Status:" not in text
+    assert "[status]" not in text
 
 
 def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
@@ -1432,7 +1623,7 @@ def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "[usage] prompt=320, completion=41, total=361" in text
+    assert "Usage: prompt=320, completion=41, total=361" in text
 
 
 def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution() -> None:
@@ -1449,15 +1640,15 @@ def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "[tool bash] start args=" in text
-    assert "[tool bash] started status=started elapsed=0ms" in text
-    assert "[tool bash] running status=running elapsed=120ms" not in text
-    assert "[tool bash] chunk stdout#1: out-line" not in text
-    assert "[tool bash] chunk stderr#2: err-line" not in text
-    assert "[tool] bash chunk stdout#1: out-line" in text
-    assert "[tool] bash chunk stderr#2: err-line" in text
-    assert "[tool] bash exit code=0 status=completed duration=210ms" in text
-    assert text.index("[tool bash] started status=started elapsed=0ms") < text.index("[status]")
+    assert "Tool bash start args=" in text
+    assert "Tool bash started status=started elapsed=0ms" in text
+    assert "Tool bash running status=running elapsed=120ms" not in text
+    assert "Tool bash chunk stdout#1: out-line" not in text
+    assert "Tool bash chunk stderr#2: err-line" not in text
+    assert "Tool: bash chunk stdout#1: out-line" not in text
+    assert "Tool: bash chunk stderr#2: err-line" not in text
+    assert "Tool: bash exit code=0 status=completed duration=210ms" in text
+    assert text.index("Tool bash started status=started elapsed=0ms") < text.index("State:")
 
 
 def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
@@ -1495,10 +1686,10 @@ def test_run_cli_repl_prints_compact_error_summary_for_failed_run() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Assistant: (empty)" in text
-    assert "[status] failed | layer=runtime" in text
-    assert "[error] send failed: run_id=run_failed" in text
-    assert "[usage] unavailable" in text
-    assert "Status:" not in text
+    assert "State: failed | layer=runtime" in text
+    assert "Error: send failed: run_id=run_failed" in text
+    assert "Usage: unavailable" in text
+    assert "[status]" not in text
 
 
 def test_run_cli_repl_prints_retry_progress_from_run_status_event() -> None:
@@ -1515,11 +1706,13 @@ def test_run_cli_repl_prints_retry_progress_from_run_status_event() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "status=running" in text
-    assert "attempt=1" not in text
-    assert "next_delay=1.0s" in text
-    assert "cooldown=30.0s" in text
-    assert "last_error=model_error:upstream flaky #5" in text
+    assert "Progress: retrying (" in text
+    assert "attempt 5" in text
+    assert "attempt 1" not in text
+    assert "next 1.0s" in text
+    assert "cooldown 30.0s" in text
+    assert "last error model_error:" in text
+    assert "upstream flaky #5" in text
 
 
 def test_run_cli_repl_delays_terminal_run_status_until_after_tool_tail_events() -> None:
@@ -1536,8 +1729,8 @@ def test_run_cli_repl_delays_terminal_run_status_until_after_tool_tail_events() 
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "[status] completed | stop=stop | run=run_completed_first | session=sess_cli" in text
-    assert "[tool] echo output=echo:ping" in text
+    assert "State: completed | stop=stop | run=run_completed_first | session=sess_cli" in text
+    assert "Tool: echo output=echo:ping" in text
 
 
 def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress() -> None:

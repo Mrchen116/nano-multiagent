@@ -437,7 +437,7 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
     text = output.getvalue()
     assert "run_id=" in text
     assert "Assistant: (empty)" in text
-    assert "[error]" in text
+    assert "Error:" in text
     assert "layer=runtime" in text
     assert "run failed: {'code': 'run_execution_failed'" in text
     assert "root_cause=connect ETIMEDOUT" in text
@@ -647,6 +647,7 @@ def test_cli_repl_slash_menu_selects_command_and_executes_it() -> None:
     text = output.getvalue()
     assert "Error: unknown command '/'" not in text
     assert '"session_id": "sess_' in text
+    assert "Commands ↓ " not in text
 
 
 def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
@@ -687,10 +688,13 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Assistant:" in text
-    assert "[status] completed | stop=stop | run=run_" in text
-    assert "[tool] echo start args=ping" in text
-    assert "[tool] echo output=echo:ping" in text
-    assert "[usage]" in text
+    assert "State: completed | stop=stop | run=run_" in text
+    assert "Tool: echo start args=ping" in text
+    assert "Tool: echo output=echo:ping" in text
+    assert "Usage:" in text
+    assert "[status]" not in text
+    assert "[tool]" not in text
+    assert "[usage]" not in text
     assert "final:echo:ping" in text
 
 
@@ -735,15 +739,15 @@ def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool() -> None
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "[tool bash] start args=" in text
-    assert "[tool bash] started" in text
-    assert "[tool bash] running" not in text
-    assert "[tool bash] chunk stdout" not in text
-    assert "[tool bash] chunk stderr" not in text
-    assert "[tool] bash chunk stdout" in text
-    assert "[tool] bash chunk stderr" in text
-    assert "[tool] bash exit code=0" in text
-    assert text.index("[tool bash] started") < text.index("[status]")
+    assert "Tool bash start args=" in text
+    assert "Tool bash started" in text
+    assert "Tool bash running" not in text
+    assert "Tool bash chunk stdout" not in text
+    assert "Tool bash chunk stderr" not in text
+    assert "Tool: bash chunk stdout" not in text
+    assert "Tool: bash chunk stderr" not in text
+    assert "Tool: bash exit code=0" in text
+    assert text.index("Tool bash started") < text.index("State:")
     assert "final:bash-finished" in text
 
 
@@ -785,9 +789,12 @@ def test_cli_repl_prints_compact_sections_in_async_turn_output() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Assistant:" in text
-    assert "[status] completed" in text
-    assert "[tool]" in text
-    assert "[usage]" in text
+    assert "State: completed" in text
+    assert "Tool:" in text
+    assert "Usage:" in text
+    assert "[status]" not in text
+    assert "[tool]" not in text
+    assert "[usage]" not in text
     assert '"run_id": "run_' not in text
 
 

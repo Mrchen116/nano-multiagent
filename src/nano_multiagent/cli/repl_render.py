@@ -40,13 +40,13 @@ def print_repl_turn_summary(
         status_parts.append(f"run={run_id}")
     if session_id is not None:
         status_parts.append(f"session={session_id}")
-    print(f"[status] {' | '.join(status_parts)}", file=out)
+    print(f"State: {' | '.join(status_parts)}", file=out)
     for update in compact_status_updates:
-        print(f"[progress] {update}", file=out)
+        print(f"Progress: {update}", file=out)
     for update in compact_tool_updates:
-        print(f"[tool] {update}", file=out)
+        print(f"Tool: {update}", file=out)
 
-    print(f"[usage] {usage_line}", file=out)
+    print(f"Usage: {usage_line}", file=out)
 
     if context_budget_client is not None and session_id is not None:
         print_context_budget_snapshot(out=out, client=context_budget_client, session_id=session_id)
@@ -61,10 +61,10 @@ def print_repl_turn_error(
 ) -> None:
     """Render one failed turn with compact answer-first summary."""
     print("Assistant: (empty)", file=out)
-    print(f"[status] failed | layer={layer}", file=out)
-    print(f"[error] {error}", file=out)
-    print(f"[hint] suggestion={suggestion}", file=out)
-    print("[usage] unavailable", file=out)
+    print(f"State: failed | layer={layer}", file=out)
+    print(f"Error: {error}", file=out)
+    print(f"Hint: suggestion={suggestion}", file=out)
+    print("Usage: unavailable", file=out)
 
 
 def _resolve_state(payload: dict[str, object]) -> str:
@@ -147,6 +147,10 @@ def _normalize_tool_update(line: str) -> str:
     trimmed = line.strip()
     if not trimmed:
         return ""
+    if trimmed.startswith("Tool "):
+        normalized = trimmed[5:].strip()
+        if normalized:
+            return normalized
     if trimmed.startswith("[tool ") and "] " in trimmed:
         closing = trimmed.find("] ")
         name = trimmed[6:closing].strip()
