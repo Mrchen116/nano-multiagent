@@ -151,14 +151,14 @@ def consume_async_run_events(
             continue
         if event_id:
             seen_event_ids.add(event_id)
-        elif seen_event_fingerprints is not None:
+        if data.get("run_id") != run_id:
+            continue
+        if seen_event_fingerprints is not None:
             replay_key = _event_replay_dedupe_key(event_name=event_name, data=data)
             if replay_key is not None:
                 if replay_key in seen_event_fingerprints:
                     continue
                 seen_event_fingerprints.add(replay_key)
-        if data.get("run_id") != run_id:
-            continue
         consumed += 1
         if event_name == "run_status":
             status = data.get("status")
