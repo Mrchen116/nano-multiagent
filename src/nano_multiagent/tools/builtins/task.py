@@ -1,7 +1,6 @@
 """Built-in `task` tool for blocking and background sub-agent execution."""
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from copy import deepcopy
 from threading import Lock
 from time import perf_counter
 from typing import Any, Mapping, Protocol
@@ -72,21 +71,20 @@ class TaskTool:
     def __init__(self, *, runtime: TaskRuntime | None = None) -> None:
         self._runtime = runtime
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="nano-task")
-        self._idempotent_results: dict[str, dict[str, Any]] = {}
-        self._task_results: dict[str, dict[str, Any]] = {}
+        self._idempotent_results: dict[str, str] = {}
+        self._task_results: dict[str, str] = {}
         self._lock = Lock()
 
-    def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+    def run(self, args: Mapping[str, Any], ctx: ToolContext) -> str:
         """Execute one task request in blocking or non-blocking mode."""
 
-        run_in_background = bool(args["run_in_background"])
+        run_in_background = _normalize_run_in_background(args.get("run_in_background"))
         mode = "non_blocking" if run_in_background else "blocking"
 
         self._validate_task_arguments(args, ctx=ctx)
         idempotency_key = _normalize_optional_text(args.get("idempotency_key"))
         cached = self._get_cached_result(idempotency_key)
         if cached is not None:
-            cached["idempotent_replay"] = True
             return cached
 
         if mode == "blocking":
@@ -103,11 +101,13 @@ class TaskTool:
         ctx: ToolContext,
         *,
         run_in_background: bool,
-    ) -> Mapping[str, Any]:
+    ) -> str:
         runtime = self._require_runtime()
         task_id = make_tool_call_id()
         timeout_seconds = _resolve_timeout_seconds(args)
         task_session_id, prompt, continuation = self._resolve_target_session(args, runtime=runtime)
+        description = _normalize_optional_text(args.get("description")) or ""
+        agent = _resolve_agent_name(args)
 
         start = perf_counter()
         future = self._executor.submit(
@@ -121,34 +121,33 @@ class TaskTool:
         try:
             turn = future.result(timeout=timeout_seconds)
         except FutureTimeoutError:
-            return _timed_out_payload(
+            return _error_message(
+                title="Task timed out",
+                message=f"task exceeded timeout_seconds={timeout_seconds}",
                 task_id=task_id,
-                mode="blocking",
-                run_in_background=run_in_background,
                 session_id=task_session_id,
                 continuation=continuation,
-                timeout_seconds=timeout_seconds,
-                duration_ms=_elapsed_ms(start),
+                subagent=_resolve_subagent(args),
             )
         except Exception as exc:  # noqa: BLE001
-            return _failed_payload(
+            return _error_message(
+                title="Task failed",
+                message=str(exc),
                 task_id=task_id,
-                mode="blocking",
-                run_in_background=run_in_background,
                 session_id=task_session_id,
                 continuation=continuation,
-                duration_ms=_elapsed_ms(start),
-                message=str(exc),
+                subagent=_resolve_subagent(args),
             )
 
-        return _completed_payload(
+        return _sync_success_message(
             task_id=task_id,
-            mode="blocking",
-            run_in_background=run_in_background,
+            description=description,
+            agent=agent,
             session_id=task_session_id,
             continuation=continuation,
             duration_ms=_elapsed_ms(start),
             turn=turn,
+            subagent=_resolve_subagent(args),
         )
 
     def _run_non_blocking(
@@ -157,23 +156,23 @@ class TaskTool:
         ctx: ToolContext,
         *,
         run_in_background: bool,
-    ) -> Mapping[str, Any]:
+    ) -> str:
         runtime = self._require_runtime()
         timeout_seconds = _resolve_timeout_seconds(args)
         task_id = make_tool_call_id()
         task_session_id, prompt, continuation = self._resolve_target_session(args, runtime=runtime)
-        receipt = {
-            "task_id": task_id,
-            "mode": "non_blocking",
-            "run_in_background": run_in_background,
-            "status": "queued",
-            "session_id": task_session_id,
-            "continuation": continuation,
-            "timeout_seconds": timeout_seconds,
-            "idempotent_replay": False,
-        }
+        description = _normalize_optional_text(args.get("description")) or ""
+        agent = _resolve_agent_name(args)
+        receipt = _background_receipt_message(
+            task_id=task_id,
+            description=description,
+            session_id=task_session_id,
+            continuation=continuation,
+            agent=agent,
+            subagent=_resolve_subagent(args),
+        )
         with self._lock:
-            self._task_results[task_id] = dict(receipt)
+            self._task_results[task_id] = receipt
 
         self._executor.submit(
             self._run_non_blocking_worker,
@@ -210,14 +209,13 @@ class TaskTool:
                 llm_session_id=llm_session_id,
             )
         except Exception as exc:  # noqa: BLE001
-            payload = _failed_payload(
+            payload = _error_message(
+                title="Task failed",
+                message=str(exc),
                 task_id=task_id,
-                mode="non_blocking",
-                run_in_background=True,
                 session_id=task_session_id,
                 continuation=continuation,
-                duration_ms=_elapsed_ms(start),
-                message=str(exc),
+                subagent=None,
             )
             with self._lock:
                 self._task_results[task_id] = payload
@@ -225,24 +223,24 @@ class TaskTool:
 
         duration_ms = _elapsed_ms(start)
         if duration_ms > int(timeout_seconds * 1000):
-            payload = _timed_out_payload(
+            payload = _error_message(
+                title="Task timed out",
+                message=f"task exceeded timeout_seconds={timeout_seconds}",
                 task_id=task_id,
-                mode="non_blocking",
-                run_in_background=True,
                 session_id=task_session_id,
                 continuation=continuation,
-                timeout_seconds=timeout_seconds,
-                duration_ms=duration_ms,
+                subagent=None,
             )
         else:
-            payload = _completed_payload(
+            payload = _sync_success_message(
                 task_id=task_id,
-                mode="non_blocking",
-                run_in_background=True,
+                description="background worker result",
+                agent="background",
                 session_id=task_session_id,
                 continuation=continuation,
                 duration_ms=duration_ms,
                 turn=turn,
+                subagent=None,
             )
 
         with self._lock:
@@ -339,22 +337,20 @@ class TaskTool:
             raise ToolError("task runtime is not configured", tool_name=self.name)
         return runtime
 
-    def _get_cached_result(self, idempotency_key: str | None) -> dict[str, Any] | None:
+    def _get_cached_result(self, idempotency_key: str | None) -> str | None:
         if not idempotency_key:
             return None
         with self._lock:
             cached = self._idempotent_results.get(idempotency_key)
             if cached is None:
                 return None
-            return deepcopy(cached)
+            return str(cached)
 
-    def _cache_result(self, idempotency_key: str | None, result: Mapping[str, Any]) -> None:
+    def _cache_result(self, idempotency_key: str | None, result: str) -> None:
         if not idempotency_key:
             return
-        stored = dict(result)
-        stored["idempotent_replay"] = False
         with self._lock:
-            self._idempotent_results[idempotency_key] = stored
+            self._idempotent_results[idempotency_key] = str(result)
 
 
 def _resolve_timeout_seconds(args: Mapping[str, Any]) -> float:
@@ -368,6 +364,15 @@ def _resolve_timeout_seconds(args: Mapping[str, Any]) -> float:
             tool_name="task",
         )
     return timeout_seconds
+
+
+def _normalize_run_in_background(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ToolError(
+            "run_in_background must be a boolean",
+            tool_name="task",
+        )
+    return value
 
 
 def _normalize_optional_text(value: Any) -> str | None:
@@ -403,96 +408,109 @@ def _normalize_skill_names(value: Any, *, tool_name: str) -> tuple[str, ...]:
     return tuple(normalized)
 
 
-def _completed_payload(
+def _resolve_agent_name(args: Mapping[str, Any]) -> str:
+    subagent_type = _normalize_optional_text(args.get("subagent_type"))
+    if subagent_type is not None:
+        return subagent_type
+    category = _normalize_optional_text(args.get("category"))
+    if category is not None:
+        return f"{category} (category: {category})"
+    return "unknown"
+
+
+def _resolve_subagent(args: Mapping[str, Any]) -> str | None:
+    subagent_type = _normalize_optional_text(args.get("subagent_type"))
+    if subagent_type is not None:
+        return subagent_type
+    return _normalize_optional_text(args.get("category"))
+
+
+def _background_receipt_message(
     *,
     task_id: str,
-    mode: str,
-    run_in_background: bool,
+    description: str,
+    agent: str,
+    session_id: str,
+    continuation: bool,
+    subagent: str | None,
+) -> str:
+    status_line = "Background task continued." if continuation else "Background task launched."
+    guidance = (
+        'Agent continues with full previous context preserved.\nUse `background_output` with task_id="{task_id}" to check progress.'
+        if continuation
+        else 'System notifies on completion. Use `background_output` with task_id="{task_id}" to check.'
+    )
+    return (
+        f"{status_line}\n\n"
+        f"Task ID: {task_id}\n"
+        f"Description: {description}\n"
+        f"Agent: {agent}\n"
+        "Status: queued\n\n"
+        f"{guidance.format(task_id=task_id)}\n\n"
+        f"{_task_metadata_block(session_id=session_id, subagent=subagent if continuation else None)}"
+    )
+
+
+def _sync_success_message(
+    *,
+    task_id: str,
+    description: str,
+    agent: str,
     session_id: str,
     continuation: bool,
     duration_ms: int,
     turn: TurnResult,
-) -> dict[str, Any]:
-    assistant_message = _pick_assistant_message(turn.messages)
-    return {
-        "task_id": task_id,
-        "mode": mode,
-        "run_in_background": run_in_background,
-        "status": "completed",
-        "session_id": session_id,
-        "continuation": continuation,
-        "duration_ms": duration_ms,
-        "idempotent_replay": False,
-        "output": {
-            "turn_id": turn.turn_id,
-            "completed": turn.completed,
-            "stop_reason": turn.stop_reason,
-            "message": {
-                "message_id": assistant_message.message_id if assistant_message is not None else None,
-                "role": assistant_message.role if assistant_message is not None else "assistant",
-                "content": assistant_message.content if assistant_message is not None else "",
-            },
-        },
-    }
+    subagent: str | None,
+) -> str:
+    del task_id, description
+    output_text = _pick_assistant_text(turn.messages)
+    if continuation:
+        return (
+            f"Task continued and completed in {duration_ms}ms.\n\n"
+            "---\n\n"
+            f"{output_text}\n\n"
+            f"{_task_metadata_block(session_id=session_id, subagent=subagent)}"
+        )
+    return (
+        f"Task completed in {duration_ms}ms.\n\n"
+        f"Agent: {agent}\n\n"
+        "---\n\n"
+        f"{output_text}\n\n"
+        f"{_task_metadata_block(session_id=session_id, subagent=None)}"
+    )
 
 
-def _failed_payload(
+def _error_message(
     *,
-    task_id: str,
-    mode: str,
-    run_in_background: bool,
-    session_id: str,
-    continuation: bool,
-    duration_ms: int,
+    title: str,
     message: str,
-) -> dict[str, Any]:
-    return {
-        "task_id": task_id,
-        "mode": mode,
-        "run_in_background": run_in_background,
-        "status": "failed",
-        "session_id": session_id,
-        "continuation": continuation,
-        "duration_ms": duration_ms,
-        "idempotent_replay": False,
-        "error": {
-            "code": "task_execution_failed",
-            "message": message,
-        },
-    }
-
-
-def _timed_out_payload(
-    *,
     task_id: str,
-    mode: str,
-    run_in_background: bool,
     session_id: str,
     continuation: bool,
-    timeout_seconds: float,
-    duration_ms: int,
-) -> dict[str, Any]:
-    return {
-        "task_id": task_id,
-        "mode": mode,
-        "run_in_background": run_in_background,
-        "status": "timed_out",
-        "session_id": session_id,
-        "continuation": continuation,
-        "duration_ms": duration_ms,
-        "idempotent_replay": False,
-        "error": {
-            "code": "task_timeout",
-            "message": f"task exceeded timeout_seconds={timeout_seconds}",
-        },
-    }
+    subagent: str | None,
+) -> str:
+    del task_id, continuation
+    return (
+        f"{title}\n\n"
+        f"**Error**: {message}\n\n"
+        f"{_task_metadata_block(session_id=session_id, subagent=subagent)}"
+    )
 
 
-def _pick_assistant_message(messages: tuple[Message, ...]) -> Message | None:
+def _pick_assistant_text(messages: tuple[Message, ...]) -> str:
     for message in reversed(messages):
         if message.role == "assistant":
-            return message
-    return None
+            content = message.content.strip()
+            return content or "(No text output)"
+    return "(No text output)"
+
+
+def _task_metadata_block(*, session_id: str, subagent: str | None) -> str:
+    lines = ["<task_metadata>", f"session_id: {session_id}"]
+    if subagent is not None:
+        lines.append(f"subagent: {subagent}")
+    lines.append("</task_metadata>")
+    return "\n".join(lines)
 
 
 def _elapsed_ms(start: float) -> int:

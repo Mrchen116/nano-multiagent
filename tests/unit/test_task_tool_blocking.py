@@ -79,12 +79,10 @@ def test_task_blocking_returns_structured_success_payload(tmp_path: Path) -> Non
         _context(tmp_path),
     )
 
-    assert result["mode"] == "blocking"
-    assert result["run_in_background"] is False
-    assert result["status"] == "completed"
-    assert result["session_id"] == "sess_task_1"
-    assert result["output"]["message"]["content"] == "task:hello"
-    assert result["duration_ms"] >= 0
+    assert result.startswith("Task completed in ")
+    assert "Agent: oracle" in result
+    assert "\n---\n\ntask:hello\n" in result
+    assert "<task_metadata>\nsession_id: sess_task_1\n</task_metadata>" in result
     assert runtime.run_calls[0]["stream"] is False
 
 
@@ -103,10 +101,11 @@ def test_task_blocking_wraps_subagent_errors_without_raising(tmp_path: Path) -> 
         _context(tmp_path),
     )
 
-    assert result["mode"] == "blocking"
-    assert result["status"] == "failed"
-    assert result["error"]["code"] == "task_execution_failed"
-    assert "subagent exploded" in result["error"]["message"]
+    assert result.startswith("Task failed")
+    assert "**Error**: subagent exploded" in result
+    assert "<task_metadata>" in result
+    assert "session_id: sess_task_1" in result
+    assert "</task_metadata>" in result
 
 
 def test_task_blocking_respects_timeout_seconds(tmp_path: Path) -> None:
@@ -125,6 +124,8 @@ def test_task_blocking_respects_timeout_seconds(tmp_path: Path) -> None:
         _context(tmp_path),
     )
 
-    assert result["mode"] == "blocking"
-    assert result["status"] == "timed_out"
-    assert result["error"]["code"] == "task_timeout"
+    assert result.startswith("Task timed out")
+    assert "**Error**: task exceeded timeout_seconds=0.05" in result
+    assert "<task_metadata>" in result
+    assert "session_id: sess_task_1" in result
+    assert "</task_metadata>" in result

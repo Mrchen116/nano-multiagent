@@ -61,9 +61,8 @@ def test_task_blocking_runs_through_tool_registry_with_runtime_wiring(tmp_path: 
         hook_context=HookContext(session_id="sess_main_integration", repo_root=tmp_path),
     )
 
-    assert result["mode"] == "blocking"
-    assert result["run_in_background"] is False
-    assert result["status"] == "completed"
-    assert result["session_id"] == "sess_task_blocking_1"
-    assert result["output"]["message"]["content"] == "task-ok"
+    assert result["result"].startswith("Task completed in ")
+    assert "Agent: oracle" in result["result"]
+    assert "\n---\n\ntask-ok\n" in result["result"]
+    assert "<task_metadata>\nsession_id: sess_task_blocking_1\n</task_metadata>" in result["result"]
     assert runtime.run_calls[0]["stream"] is False

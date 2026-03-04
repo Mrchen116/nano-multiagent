@@ -87,9 +87,8 @@ def test_non_blocking_task_receipt_is_returned_without_new_http_endpoint(tmp_pat
         hook_context=HookContext(session_id="sess_main_non_blocking_e2e", repo_root=tmp_path),
     )
 
-    assert receipt["mode"] == "non_blocking"
-    assert receipt["run_in_background"] is True
-    assert receipt["status"] == "queued"
-    assert receipt["task_id"].startswith("call_")
-    assert receipt["session_id"] == "sess_non_blocking_e2e_1"
+    assert receipt["result"].startswith("Background task launched.")
+    assert "Task ID: call_" in receipt["result"]
+    assert "Status: queued" in receipt["result"]
+    assert "<task_metadata>\nsession_id: sess_non_blocking_e2e_1\n</task_metadata>" in receipt["result"]
     _wait_for(lambda: len(runtime.run_calls) == 1)

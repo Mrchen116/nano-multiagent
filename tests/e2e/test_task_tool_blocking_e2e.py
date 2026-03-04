@@ -53,7 +53,7 @@ def test_tools_listing_contains_task_without_task_http_endpoint(tmp_path) -> Non
         },
         hook_context=HookContext(session_id="sess_main_e2e", repo_root=tmp_path),
     )
-    assert result["status"] == "completed"
-    assert result["mode"] == "blocking"
-    assert result["run_in_background"] is False
-    assert result["output"]["message"]["content"] == "task-e2e-ok"
+    assert result["result"].startswith("Task completed in ")
+    assert "Agent: oracle" in result["result"]
+    assert "\n---\n\ntask-e2e-ok\n" in result["result"]
+    assert "<task_metadata>\nsession_id: sess_task_e2e_1\n</task_metadata>" in result["result"]

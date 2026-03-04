@@ -101,11 +101,12 @@ def test_task_non_blocking_returns_receipt_and_executes_in_background(tmp_path: 
         _context(tmp_path),
     )
 
-    assert result["mode"] == "non_blocking"
-    assert result["run_in_background"] is True
-    assert result["status"] == "queued"
-    assert result["task_id"].startswith("call_")
-    assert result["session_id"] == "sess_task_non_blocking_1"
+    assert result.startswith("Background task launched.")
+    assert "Task ID: call_" in result
+    assert "Description: delegate task" in result
+    assert "Agent: research (category: research)" in result
+    assert "Status: queued" in result
+    assert "<task_metadata>\nsession_id: sess_task_non_blocking_1\n</task_metadata>" in result
     _wait_for(lambda: len(runtime.run_calls) == 1)
 
 
@@ -124,8 +125,7 @@ def test_task_idempotency_key_returns_same_receipt(tmp_path: Path) -> None:
     first = tool.run(args, _context(tmp_path))
     second = tool.run(args, _context(tmp_path))
 
-    assert first["task_id"] == second["task_id"]
-    assert second["idempotent_replay"] is True
+    assert first == second
 
 
 def test_task_rejects_new_task_when_category_and_subagent_type_both_present(tmp_path: Path) -> None:
@@ -177,8 +177,25 @@ def test_task_continuation_uses_existing_session_id(tmp_path: Path) -> None:
         _context(tmp_path),
     )
 
-    assert result["status"] == "completed"
-    assert result["continuation"] is True
-    assert result["session_id"] == "sess_existing"
+    assert result.startswith("Task continued and completed in ")
+    assert "\n---\n\ndone\n" in result
+    assert "<task_metadata>\nsession_id: sess_existing\n</task_metadata>" in result
     assert runtime.run_calls[0]["session_id"] == "sess_existing"
     assert runtime.created == 0
+
+
+def test_task_rejects_non_boolean_run_in_background(tmp_path: Path) -> None:
+    runtime = _RuntimeStub()
+    tool = TaskTool(runtime=runtime)
+
+    with pytest.raises(ToolError, match="run_in_background must be a boolean"):
+        tool.run(
+            {
+                "run_in_background": "true",
+                "load_skills": [],
+                "description": "delegate task",
+                "prompt": "do work",
+                "subagent_type": "oracle",
+            },
+            _context(tmp_path),
+        )
