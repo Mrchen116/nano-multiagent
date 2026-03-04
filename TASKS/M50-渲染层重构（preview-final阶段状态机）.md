@@ -76,4 +76,4 @@
 - DoD:
   - main 合并并 push。
   - `data/dev-tasks.json` 的 `M50` 状态为 `DONE` 且 result 完整。
-- Status: `DOING`
+- Status: `DONE`

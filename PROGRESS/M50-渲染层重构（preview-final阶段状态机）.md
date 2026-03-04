@@ -41,7 +41,7 @@
     - 阶段机已接入 `send_message_with_async_events` 与 `consume_async_run_events`，终态后预览发射由 `can_emit_preview()` 闸门统一控制。
 - Rollback:
   - 回退到 `ed6435c`（R1 红测提交）。
-- Commits: C1=`ed6435c`, C2=`396ae12`, C3=`本提交`
+- Commits: C1=`ed6435c`, C2=`396ae12`, C3=`e2a9cca`
 - Next:
   - 执行 R2：把 preview/final 去重过滤职责进一步收口到阶段机，减少散落状态与双写路径。
 
@@ -63,17 +63,32 @@
     - preview/final 去重已由 `ReplRenderPhaseMachine` 统一控制；CLI 输出仍保持 `Assistant/State/Progress/Tool/Usage` 风格。
 - Rollback:
   - 回退到 `7dca46b`（R2 红测提交）。
-- Commits: C1=`7dca46b`, C2=`3c14eda`, C3=`本提交`
+- Commits: C1=`7dca46b`, C2=`3c14eda`, C3=`0f7640d`
 - Next:
   - 执行 R3：managed 实跑、rebase/merge/push、dev_tasks DONE 回填。
 
 ### R3 收口（门禁 + managed + main + dev_tasks DONE）
 - Context:
+  - R1/R2 完成后需要最终收口，验证渲染阶段机在真实 managed 入口下无双写复读，并完成 main 集成与任务面板回填。
 - Decision:
+  - 复跑全量门禁，执行两组 managed 实跑（`ping` 与 `bash echo`）。
+  - 记录关键输出计数（start/started/exit/progress 各 1）作为 preview/final 分离验收依据。
 - Rationale:
+  - 单测可验证逻辑边界，managed 入口验证可证明实际交互观感稳定且无重复关键线。
 - Evidence:
   - Tests:
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `116 passed, 42 warnings`。
   - Entry:
+    - managed `ping` 片段：`Assistant: pong`、`State: completed | stop=stop | run=...`。
+    - managed 工具片段：
+      - `Tool: bash start args={"command": "echo M50_TOOL", ...}`
+      - `Tool: bash started status=started elapsed=0ms`
+      - `Tool: bash exit code=0 status=completed duration=...`
+      - `Tool: bash progress chunks=2 (stdout=1, stderr=1)`
+      - `Assistant: M50_TOOL`
+    - 计数：`start args=1, started=1, exit=1, progress=1`。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - 回退到 `0f7640d`（R2 文档收口提交）。
+- Commits: C1=`N/A`, C2=`N/A`, C3=`本提交`
 - Next:
+  - 执行 `rebase origin/main`、合并 `main` 并 push，然后更新 `data/dev-tasks.json` 的 `M50=DONE`。
