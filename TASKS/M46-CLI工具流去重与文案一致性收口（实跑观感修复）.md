@@ -38,7 +38,7 @@
 - DoD:
   - 红测先失败并锁定目标回归。
   - 提交 C1。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R2 CLI 事件渲染去重与风格统一实现
 - Acceptance:
@@ -58,7 +58,7 @@
 - DoD:
   - 目标门禁全绿。
   - 完成 C2。
-- Status: `TODO`
+- Status: `DOING`
 
 ### R3 收口验收与集成
 - Acceptance:
