@@ -9,25 +9,25 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Callable, Sequence, TextIO
 
-from nano_multiagent.cli.context_budget import context_budget_hint_for_ratio as _context_budget_hint_for_ratio
-from nano_multiagent.cli.context_budget import context_budget_prefix as _context_budget_prefix
-from nano_multiagent.cli.context_budget import extract_context_budget_metrics as _extract_context_budget_metrics
-from nano_multiagent.cli.context_budget import print_context_budget_snapshot as _print_context_budget_snapshot
-from nano_multiagent.cli.error_presenter import error_layer_for_exception as _error_layer_for_exception
-from nano_multiagent.cli.error_presenter import suggestion_for_exception as _suggestion_for_exception
+from nano_multiagent.cli.render.context_budget import context_budget_hint_for_ratio as _context_budget_hint_for_ratio
+from nano_multiagent.cli.render.context_budget import context_budget_prefix as _context_budget_prefix
+from nano_multiagent.cli.render.context_budget import extract_context_budget_metrics as _extract_context_budget_metrics
+from nano_multiagent.cli.render.context_budget import print_context_budget_snapshot as _print_context_budget_snapshot
+from nano_multiagent.cli.render.error_presenter import error_layer_for_exception as _error_layer_for_exception
+from nano_multiagent.cli.render.error_presenter import suggestion_for_exception as _suggestion_for_exception
 import nano_multiagent.cli.repl_commands as repl_commands
 import nano_multiagent.cli.repl_input as repl_input
 from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig
 from nano_multiagent.cli.managed_server import ManagedServerConfig, ManagedServerProcess
-from nano_multiagent.cli.repl_events import consume_async_run_events as _consume_async_run_events
-from nano_multiagent.cli.repl_events import merge_text_delta as _merge_text_delta
-from nano_multiagent.cli.repl_events import print_event_preview as _print_event_preview
-from nano_multiagent.cli.repl_events import send_message_with_async_events as _send_message_with_async_events
-from nano_multiagent.cli.repl_events import supports_async_repl_events as _supports_async_repl_events
-from nano_multiagent.cli.repl_render import print_repl_turn_error as _print_repl_turn_error
-from nano_multiagent.cli.repl_render import print_repl_turn_summary as _print_repl_turn_summary
-from nano_multiagent.cli.repl_runtime import QueuedReplMessage, ReplRunQueue
-from nano_multiagent.cli.turn_usage import print_turn_usage_snapshot as _print_turn_usage_snapshot
+from nano_multiagent.cli.events.repl_events import consume_async_run_events as _consume_async_run_events
+from nano_multiagent.cli.events.repl_events import merge_text_delta as _merge_text_delta
+from nano_multiagent.cli.events.repl_events import print_event_preview as _print_event_preview
+from nano_multiagent.cli.events.repl_events import send_message_with_async_events as _send_message_with_async_events
+from nano_multiagent.cli.events.repl_events import supports_async_repl_events as _supports_async_repl_events
+from nano_multiagent.cli.render.repl_render import print_repl_turn_error as _print_repl_turn_error
+from nano_multiagent.cli.render.repl_render import print_repl_turn_summary as _print_repl_turn_summary
+from nano_multiagent.cli.runtime.repl_runtime import QueuedReplMessage, ReplRunQueue
+from nano_multiagent.cli.render.turn_usage import print_turn_usage_snapshot as _print_turn_usage_snapshot
 
 _CLI_HELP_EPILOG = (
     "REPL quick commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit\n"
