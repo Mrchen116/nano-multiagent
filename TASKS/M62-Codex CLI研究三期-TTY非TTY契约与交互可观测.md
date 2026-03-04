@@ -48,6 +48,9 @@
   - e2e: 不选（本里程碑只做研究文档）。
 - Expected Artifacts:
   - `PROGRESS/M62-*.md` 的 R1 章节（规则+反例+锚点）。
+- Validation Commands:
+  - `rg -n '^#### R1\\.Q1|^#### R1\\.Q2|^#### R1\\.Q3' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md`
+  - `rg -n 'TTY边界规则|non-TTY反例|迁移约束' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md`
 - DoD:
   - 规则、反例、锚点三件套齐全，且与 M52 目标可映射。
 - Status: `TODO`
