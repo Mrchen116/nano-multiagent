@@ -16,6 +16,34 @@ def test_cli_commands_facade_matches_new_app_commands_module() -> None:
     assert run_cli is app_commands.run_cli
 
 
+def test_cli_legacy_modules_delegate_to_layered_subpackages() -> None:
+    from nano_multiagent.cli.events import repl_events as layered_events
+    from nano_multiagent.cli.input import repl_commands as layered_repl_commands
+    from nano_multiagent.cli.input import repl_input as layered_repl_input
+    from nano_multiagent.cli.render import context_budget as layered_context_budget
+    from nano_multiagent.cli.render import error_presenter as layered_error_presenter
+    from nano_multiagent.cli.render import repl_render as layered_repl_render
+    from nano_multiagent.cli.render import turn_usage as layered_turn_usage
+    from nano_multiagent.cli.runtime import repl_runtime as layered_repl_runtime
+    from nano_multiagent.cli import context_budget as legacy_context_budget
+    from nano_multiagent.cli import error_presenter as legacy_error_presenter
+    from nano_multiagent.cli import repl_commands as legacy_repl_commands
+    from nano_multiagent.cli import repl_events as legacy_repl_events
+    from nano_multiagent.cli import repl_input as legacy_repl_input
+    from nano_multiagent.cli import repl_render as legacy_repl_render
+    from nano_multiagent.cli import repl_runtime as legacy_repl_runtime
+    from nano_multiagent.cli import turn_usage as legacy_turn_usage
+
+    assert legacy_repl_events.consume_async_run_events is layered_events.consume_async_run_events
+    assert legacy_repl_input.emit_external_text is layered_repl_input.emit_external_text
+    assert legacy_repl_commands.REPL_COMMANDS is layered_repl_commands.REPL_COMMANDS
+    assert legacy_repl_render.print_repl_turn_summary is layered_repl_render.print_repl_turn_summary
+    assert legacy_repl_runtime.ReplRunQueue is layered_repl_runtime.ReplRunQueue
+    assert legacy_context_budget.print_context_budget_snapshot is layered_context_budget.print_context_budget_snapshot
+    assert legacy_error_presenter.error_layer_for_exception is layered_error_presenter.error_layer_for_exception
+    assert legacy_turn_usage.extract_turn_usage_metrics is layered_turn_usage.extract_turn_usage_metrics
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object] | None]] = []
