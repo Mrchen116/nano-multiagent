@@ -21,7 +21,7 @@
 
 ## Roadpoints
 
-### R1 运行中输入排队与顺序执行（TODO）
+### R1 运行中输入排队与顺序执行（DONE）
 - Acceptance:
   - REPL 在 run 进行中不阻塞输入主循环，可继续输入下一条需求。
   - 新输入按 FIFO 排队发送，保持会话一致性与消息顺序。
@@ -40,7 +40,11 @@
   - 新测试先红后绿。
   - 全量 `test_command` 通过。
   - C1/C2/C3 提交齐全并记录哈希到 PROGRESS。
-- Status: `TODO`
+- Commits:
+  - C1: `af06611`
+  - C2: `43d4d1e`
+  - C3: `<this-doc-commit>`
+- Status: `DONE`
 
 ### R2 REPL 结构化渲染（状态/工具/回答/错误/用量）（TODO）
 - Acceptance:
