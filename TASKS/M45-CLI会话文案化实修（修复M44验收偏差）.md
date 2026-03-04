@@ -62,7 +62,7 @@
   - 先红后绿。
   - 全量门禁全绿。
   - C1/C2/C3 三提交完成，PROGRESS 含证据/回滚点/哈希。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R2 收口（全量门禁 + managed 验收 + main 集成 + dev_tasks DONE）
 - Acceptance:
@@ -79,4 +79,4 @@
 - DoD:
   - R1 已 DONE。
   - 门禁与 managed 验收结果写入 PROGRESS。
-- Status: `TODO`
+- Status: `DONE`
