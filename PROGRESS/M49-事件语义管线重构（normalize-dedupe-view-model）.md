@@ -26,14 +26,26 @@
 
 ### R1 语义管线分层（normalize -> dedupe -> view-model）
 - Context:
+  - `repl_events.py` 既做 normalize/dedupe，又做摘要视图聚合，职责耦合导致后续 M50/M51 难以并行演进。
+  - 需要在不改 CLI 外部契约前提下落地可复用的语义管线层。
 - Decision:
+  - 新增 `src/nano_multiagent/cli/events/event_pipeline.py`，提供 `NormalizedSessionEvent`、`EventDedupeWindow`、`consume_event_for_run`、`build_repl_view_model`。
+  - `repl_events.consume_async_run_events` 改为委托管线层处理 normalize+dedupe；`_build_repl_view` 改为委托 view-model 构建。
+  - `events/__init__.py` 显式导出 `event_pipeline`，保留旧入口兼容。
 - Rationale:
+  - 通过“调用方不变、职责下沉”的方式重构，能在不改变 `run_cli`/REPL 输出结构下完成架构解耦。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "event_pipeline_layer_exposes_normalize_dedupe_and_view_model"` -> `1 failed`（`ImportError: cannot import name 'event_pipeline'`）。
+    - 绿测（子集）：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "event_pipeline_layer_exposes_normalize_dedupe_and_view_model or uses_async_events_with_run_filter_and_dedup or streams_started_running_chunk_and_exit_for_tool_execution or dedupes_replayed_tool_start_without_event_id"` -> `4 passed`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `109 passed, 42 warnings`。
   - Entry:
+    - `send-message` 与 REPL 输出契约保持不变，异步事件摘要仍输出 `status_updates/tool_updates`。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - `5bbb835`（R1 红测提交）。
+- Commits: C1=`5bbb835`, C2=`b285862`, C3=`本提交`
 - Next:
+  - 进入 R2：补“fallback 去重窗口有界 + 非语义字段漂移去重稳定”红测并实现。
 
 ### R2 event_id + fallback 去重窗口稳态化
 - Context:

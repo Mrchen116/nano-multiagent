@@ -38,7 +38,7 @@
   - `tests/contract/test_cli_http_only_contract.py`
 - DoD:
   - C1 红测先锁定分层目标，C2 实现后门禁绿，C3 文档补齐。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R2 event_id + fallback 去重窗口稳态化
 - Acceptance:
