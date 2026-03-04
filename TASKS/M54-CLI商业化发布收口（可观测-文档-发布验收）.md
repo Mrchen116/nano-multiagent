@@ -44,7 +44,7 @@
 - Commits:
   - C1: `8835e99`
   - C2: `4638ce1`
-  - C3: `TBD`
+  - C3: `b4a7e5f`
 - Status: `DONE`
 
 ### R2 发布验收与回滚流程：可执行脚本化
@@ -63,7 +63,11 @@
   - `tests/unit/test_cli_refactor_boundaries.py::test_cli_release_playbook_execute_runs_steps_and_collects_status`
 - DoD:
   - C1/C2/C3 完整；C2 前全量门禁全绿。
-- Status: `DOING`
+- Commits:
+  - C1: `f54e86a`
+  - C2: `89c3598`、`0e9182c`、`947e092`
+  - C3: `TBD`
+- Status: `DONE`
 
 ### R3 文档收口 + 发布验收 + 集成
 - Acceptance:
@@ -82,4 +86,13 @@
 - DoD:
   - main 合并并 push。
   - `dev_tasks` 中 `M54` 为 `DONE` 且 result 完整。
-- Status: `TODO`
+- Status: `DONE`
+
+### Delivery Notes
+- 门禁：`123 passed, 46 warnings`（含 R2 脚本与 R3 文档变更后复跑）。
+- 发布验收脚本：
+  - dry-run：输出 `acceptance_steps/rollback_steps/status=pending`。
+  - execute：输出 `status=passed`，并执行 `cli_gate_tests + managed_smoke_ping`。
+- managed 实跑：
+  - `--base-url http://127.0.0.1:8131 health` -> healthy JSON。
+  - `--base-url http://127.0.0.1:8131 create-session` -> active session JSON。

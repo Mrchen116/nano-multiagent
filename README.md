@@ -110,6 +110,60 @@ Error output is layered and actionable:
 - REPL errors include `Layer: input|network|runtime` plus `Suggestion`
 - non-interactive command failures keep JSON shape and include `layer`, e.g. `{"error":"...","layer":"network","suggestion":"..."}`.
 
+### Release observability helpers
+
+Use `release_observability` to translate perf snapshots into actionable diagnostics:
+
+```bash
+PYTHONPATH=src python3 - <<'PY'
+from nano_multiagent.cli.release_observability import summarize_perf_metrics, build_guardrail_hints
+
+metrics = {
+    "batches": 3,
+    "polled_events": 120,
+    "consumed_events": 96,
+    "preview_emitted": 12,
+    "run_filtered": 18,
+    "dedupe_dropped": 6,
+    "throughput_ratio": 0.8,
+    "redraw_ratio": 0.125,
+    "sample_ready": True,
+    "throughput_ok": True,
+    "redraw_ratio_ok": True,
+    "stable": True,
+    "guardrail_reason": "ok",
+}
+print("\n".join(summarize_perf_metrics(metrics)))
+print("\n".join(build_guardrail_hints(metrics)))
+PY
+```
+
+### Release acceptance & rollback playbook
+
+Render release steps without executing them:
+
+```bash
+PYTHONPATH=src python3 -m nano_multiagent.cli.release_playbook \
+  --base-url http://127.0.0.1:8003 \
+  --token test-token
+```
+
+Execute acceptance steps (CLI gate + managed smoke):
+
+```bash
+PYTHONPATH=src python3 -m nano_multiagent.cli.release_playbook \
+  --base-url http://127.0.0.1:8003 \
+  --token test-token \
+  --execute
+```
+
+Playbook output is JSON and includes:
+
+- `acceptance_steps`: required pre-release checks.
+- `rollback_steps`: rollback command template list.
+- `status`: `pending` / `passed` / `failed`.
+- `execution`: per-step return code and captured stdout/stderr when `--execute` is set.
+
 ### Non-interactive commands
 
 ```bash

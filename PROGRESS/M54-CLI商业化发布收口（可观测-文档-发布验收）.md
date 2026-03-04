@@ -48,22 +48,44 @@
 
 ### R2 发布验收与回滚流程：可执行脚本化
 - Context:
+- 里程碑已具备可观测摘要，但缺少“一键发布验收 + 回滚模板”执行入口，交付仍依赖手工命令。
+- 约束：不改 server/core，只在 CLI 层落地可执行 playbook。
 - Decision:
+- 新增 `src/nano_multiagent/cli/release_playbook.py`，提供 `build_release_playbook_report` 与 CLI 入口。
+- 支持 `--execute` 开关：dry-run 只输出步骤；execute 顺序执行门禁与 managed smoke，并返回结构化执行结果。
+- managed smoke 命令使用当前解释器（`sys.executable`），避免 `python3` 指向系统环境导致依赖缺失。
 - Rationale:
+- 将发布检查流程统一结构化后，可被文档、自动化任务与人工值班同时复用，降低发布歧义。
 - Evidence:
   - Tests:
+    - 红测（C1）：`PYTHONPATH=src pytest -q tests/unit/test_cli_refactor_boundaries.py -k "release_playbook"`（提交 `f54e86a`，缺失模块导致失败）。
+    - 绿测子集：`PYTHONPATH=src pytest -q tests/unit/test_cli_refactor_boundaries.py -k "release_playbook"` -> `2 passed, 9 deselected`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `123 passed, 46 warnings`。
   - Entry:
+    - `PYTHONPATH=src /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.release_playbook --base-url http://127.0.0.1:8127 --token test-token --execute` -> `status=passed`（包含 `cli_gate_tests` + `managed_smoke_ping` 执行记录）。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+- 回退到 `f54e86a`（R2 红测稳定点）。
+- Commits: C1=`f54e86a`, C2=`89c3598`/`0e9182c`/`947e092`, C3=`TBD`
 - Next:
+- 执行 R3：README 与运维入口文档收口、补 managed 实跑证据并集成 main。
 
 ### R3 文档收口 + 发布验收 + 集成
 - Context:
+- R1/R2 能力已落地，但 README 尚未覆盖“可观测解释器 + 发布 playbook”入口，发布值班不可直接按文档执行。
 - Decision:
+- 在 `README.md` 新增 `Release observability helpers` 与 `Release acceptance & rollback playbook` 两节，补齐命令入口与 JSON 产物字段说明。
+- 使用 playbook execute 与 managed 命令做实跑留证，作为发布验收前后对比样本。
 - Rationale:
+- 让“能力实现”转化为“可执行操作手册”，并保证值班场景不需要阅读源码也可完成验收/回滚准备。
 - Evidence:
   - Tests:
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `123 passed, 46 warnings`。
   - Entry:
+    - `PYTHONPATH=src /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.release_playbook --base-url http://127.0.0.1:8127 --token test-token --execute` -> `status=passed`。
+    - `PYTHONPATH=src /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8131 --token test-token health` -> `{"healthy": true, ...}`。
+    - `PYTHONPATH=src /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8131 --token test-token create-session --title m54-managed-smoke-8131` -> `{"session_id": "...", "status": "active", ...}`。
 - Rollback:
+- 回退到 `947e092`（R2 实现全绿且可执行 playbook）。
 - Commits: C1=`N/A`, C2=`N/A`, C3=`TBD`
 - Next:
+- 提交 R2/R3 文档收口后执行 rebase/merge/push 与 dev_tasks DONE。
