@@ -43,10 +43,10 @@
 - Commits:
   - C1: `af06611`
   - C2: `43d4d1e`
-  - C3: `<this-doc-commit>`
+  - C3: `9d4e60f`
 - Status: `DONE`
 
-### R2 REPL 结构化渲染（状态/工具/回答/错误/用量）（TODO）
+### R2 REPL 结构化渲染（状态/工具/回答/错误/用量）（DONE）
 - Acceptance:
   - 默认 REPL 不再输出原始 JSON 与逐行调试事件日志。
   - 每轮输出结构化分区：状态、工具、回答、错误、用量。
@@ -67,9 +67,13 @@
   - `send-message` 合同无回归。
   - 全量 `test_command` 通过。
   - C1/C2/C3 提交齐全并记录哈希到 PROGRESS。
-- Status: `TODO`
+- Commits:
+  - C1: `fb14031`
+  - C2: `8879691`
+  - C3: `<this-doc-commit>`
+- Status: `DONE`
 
-### R3 CLI 层回归收口与边界固化（TODO）
+### R3 CLI 层回归收口与边界固化（DONE）
 - Acceptance:
   - 关键边界（HTTP-only、非交互 JSON、模块边界）保持稳定。
   - 新增/调整的测试纳入现有门禁并全部通过。
@@ -80,9 +84,20 @@
   - integration: 选；复跑 CLI HTTP 流程。
   - e2e: 不选；该里程碑聚焦 CLI 层。
 - Expected Tests:
+  - `tests/unit/test_cli_main.py::test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason`
   - 完整门禁命令（同 Baseline Gate）
 - DoD:
   - 门禁全绿。
   - TASKS/PROGRESS 记录完整。
   - C1/C2/C3 提交齐全并记录哈希到 PROGRESS。
-- Status: `TODO`
+- Commits:
+  - C1: `f9173dc`
+  - C2: `eb14cda`
+  - C3: `<this-doc-commit>`
+- Status: `DONE`
+
+## Final Gate
+- Command:
+  - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`
+- Result:
+  - `92 passed, 38 warnings`

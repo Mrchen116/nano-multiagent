@@ -34,38 +34,55 @@
     - 队列最终按 FIFO 顺序完成两条 `send_message_async` 调用。
 - Rollback:
   - `af06611`（R1 红测提交）
-- Commits: C1=`af06611`, C2=`43d4d1e`, C3=`<this-doc-commit>`
+- Commits: C1=`af06611`, C2=`43d4d1e`, C3=`9d4e60f`
 - Next:
   - R2：将 REPL 默认输出从 JSON/事件日志切换为结构化分区展示。
 
 ### R2 REPL 结构化渲染（状态/工具/回答/错误/用量）
 - Context:
-  -
+  - R1 完成后，REPL 仍保留“原始事件预览 + 旧错误文案”断言，导致门禁出现 10 条失败（旧断言与新交互目标冲突）。
+  - 目标是默认输出结构化分区（Status/Tools/Answer/Error/Usage），且不破坏 `send-message` 的单 JSON 契约与 HTTP-only 边界。
 - Decision:
-  -
+  - 新增 `cli/repl_render.py`，统一渲染成功/失败轮次分区（状态、工具、回答、错误、用量、context budget）。
+  - `commands._run_repl` 改为只调用 `print_repl_turn_summary/error`，移除直接打印 turn payload JSON 与 `print_actionable_error` 的旧路径。
+  - `repl_events.send_message_with_async_events` 关闭逐事件实时预览（`emit_preview=False`），改为聚合 `run_status/tool_*` 事件并注入 `_repl_view` 给渲染器。
+  - 将既有 unit/integration 断言迁移为结构化输出口径（仍校验 run_id/工具更新/错误根因/排队顺序等行为）。
 - Rationale:
-  -
+  - 渲染职责集中后，CLI 交互体验可统一演进，避免在 `commands.py` 内散落多套文本格式。
+  - 保留异步事件去重与 run_id 过滤逻辑，仅调整展示层，可在不改内核前提下达成 M40 UI 目标。
 - Evidence:
-  - Tests: `待补`
-  - Entry: `待补`
+  - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`（10 failed，定位旧断言与新渲染冲突）
+    - 绿测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`（91 passed, 38 warnings）
+  - Entry:
+    - REPL 每轮默认输出 `Status/Tools/Answer/Usage` 分区；失败路径输出 `Error` 分区并携带 `layer/suggestion`。
+    - 异步流程不再打印 `[text] ...` 逐字调试流，工具与状态进度改为结构化聚合行。
 - Rollback:
-  -
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `fb14031`（R2 红测提交）
+- Commits: C1=`fb14031`, C2=`8879691`, C3=`<this-doc-commit>`
 - Next:
-  -
+  - R3：补齐同步路径完成态边界回归，并完成 Milestone 收口文档。
 
 ### R3 CLI 层回归收口与边界固化
 - Context:
-  -
+  - R2 后发现同步 `send_message` payload 若仅有 `stop_reason`（无 `status/completed`）会展示 `state=unknown`，不利于结构化状态语义一致性。
+  - 需要在不改协议字段的前提下，固化“同步 stop_reason 视作完成态”的 CLI 呈现规则。
 - Decision:
-  -
+  - 新增红测 `test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason` 锁定该缺口。
+  - 在 `repl_render._resolve_state` 中新增 stop_reason 推断：存在非空 `stop_reason` 时将状态映射为 `completed`。
+  - 全量复跑 unit/integration/contract 门禁作为 Milestone 收口。
 - Rationale:
-  -
+  - 该修复只影响 CLI 展示层，不改 HTTP 接口与内核行为，风险低且直接提升用户读屏一致性。
+  - 用红测先锁定缺口，可防后续重构回退到 `state=unknown`。
 - Evidence:
-  - Tests: `待补`
-  - Entry: `待补`
+  - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py::test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason`（1 failed）
+    - 绿测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`（92 passed, 38 warnings）
+  - Entry:
+    - 同步路径在仅返回 `stop_reason` 时，`Status` 分区显示 `state=completed`。
+    - 非交互命令 `send-message` 仍保持 stdout 单 JSON 契约（相关 contract/integration 全绿）。
 - Rollback:
-  -
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `f9173dc`（R3 红测提交）
+- Commits: C1=`f9173dc`, C2=`eb14cda`, C3=`<this-doc-commit>`
 - Next:
-  -
+  - Milestone DONE：执行 rebase/main 集成与 `dev-tasks.json` DONE 回填。
