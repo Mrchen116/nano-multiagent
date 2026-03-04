@@ -168,16 +168,29 @@ def _normalize_tool_result_parts(parts: list[Any]) -> list[dict[str, Any]]:
                 normalized.append({"type": "text", "text": text})
             continue
         if part_type == "image":
-            image_url = item.get("image_url")
-            mime_type = item.get("mime_type")
-            image_part = _to_anthropic_image_part(image_url=image_url, mime_type=mime_type)
+            image_part = _to_anthropic_image_part(
+                image_url=item.get("image_url"),
+                image_data=item.get("data"),
+                mime_type=item.get("mimeType", item.get("mime_type")),
+            )
             if image_part is not None:
                 normalized.append(image_part)
             continue
     return normalized
 
 
-def _to_anthropic_image_part(*, image_url: Any, mime_type: Any) -> dict[str, Any] | None:
+def _to_anthropic_image_part(*, image_url: Any, image_data: Any, mime_type: Any) -> dict[str, Any] | None:
+    if isinstance(image_data, str) and image_data:
+        media_type = mime_type if isinstance(mime_type, str) and mime_type else "application/octet-stream"
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": image_data,
+            },
+        }
+
     if not isinstance(image_url, str) or not image_url.startswith("data:"):
         return None
     header, separator, payload = image_url.partition(",")

@@ -1,6 +1,10 @@
 from pathlib import Path
 import base64
+import json
 
+from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMMessage
+from nano_multiagent.llm.protocols.anthropic.mapper import AnthropicMapper
+from nano_multiagent.llm.protocols.openai_compat.mapper import OpenAICompatMapper
 from nano_multiagent.hooks.context import HookContext
 from nano_multiagent.hooks.registry import HookRegistry
 from nano_multiagent.hooks.runner import HookRunner
@@ -22,7 +26,8 @@ def test_registry_executes_read_image_and_keeps_part_structure(tmp_path: Path) -
 
     assert isinstance(result["content"], list)
     assert [part["type"] for part in result["content"]] == ["text", "image"]
-    assert result["content"][1]["image_url"].startswith("data:image/png;base64,")
+    assert result["content"][1]["mimeType"] == "image/png"
+    assert result["content"][1]["data"] == base64.b64encode(image_bytes).decode("ascii")
 
 
 def test_registry_executes_read_text_with_truncation_hint(tmp_path: Path) -> None:
@@ -39,7 +44,12 @@ def test_registry_executes_read_text_with_truncation_hint(tmp_path: Path) -> Non
 
     assert result["truncated"] is True
     assert result["next_offset"] == 3
-    assert "offset=3" in result["content"]
+    text_part = result["content"][0]
+    assert text_part == {
+        "type": "text",
+        "text": "line-1\nline-2\n\n[Showing lines 1-2 of 4. Use offset=3 to continue.]",
+    }
+    assert result["details"]["truncation"]["truncatedBy"] == "lines"
 
 
 def test_read_image_parts_survive_tool_result_content_rewrite(tmp_path: Path) -> None:
@@ -68,7 +78,79 @@ def test_read_image_parts_survive_tool_result_content_rewrite(tmp_path: Path) ->
 
     assert set(result.keys()) == {"content"}
     assert isinstance(result["content"], list)
-    assert result["content"][0] == {"type": "text", "text": "Image: pixel.png (image/png, 68 bytes)"}
+    assert result["content"][0]["type"] == "text"
+    assert result["content"][0]["text"].startswith("Read image file [image/png]")
     assert result["content"][1]["type"] == "image"
-    assert result["content"][1]["mime_type"] == "image/png"
-    assert result["content"][1]["image_url"].startswith("data:image/png;base64,")
+    assert result["content"][1]["mimeType"] == "image/png"
+    assert result["content"][1]["data"] == base64.b64encode(image_bytes).decode("ascii")
+
+
+def test_anthropic_mapper_accepts_read_image_data_part() -> None:
+    mapper = AnthropicMapper()
+    base64_data = "QUJDRA=="
+    tool_payload = json.dumps(
+        {
+            "output": {
+                "content": [
+                    {"type": "text", "text": "Read image file [image/png]"},
+                    {"type": "image", "data": base64_data, "mimeType": "image/png"},
+                ]
+            }
+        }
+    )
+    request = LLMGenerateRequest(
+        session_id="sess-read-image",
+        model="anthropic-test",
+        messages=(
+            LLMMessage(role="user", content="show image"),
+            LLMMessage(role="tool", content=tool_payload, tool_call_id="call-read-image"),
+        ),
+        stream=False,
+    )
+
+    payload = mapper.map_generate_request(request)
+
+    tool_result = payload["messages"][1]["content"][0]["content"]
+    assert tool_result == [
+        {"type": "text", "text": "Read image file [image/png]"},
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": base64_data,
+            },
+        },
+    ]
+
+
+def test_openai_compat_mapper_accepts_read_image_data_part() -> None:
+    mapper = OpenAICompatMapper()
+    base64_data = "QUJDRA=="
+    tool_payload = json.dumps(
+        {
+            "output": {
+                "content": [
+                    {"type": "text", "text": "Read image file [image/png]"},
+                    {"type": "image", "data": base64_data, "mimeType": "image/png"},
+                ]
+            }
+        }
+    )
+    request = LLMGenerateRequest(
+        session_id="sess-read-image",
+        model="openai-test",
+        messages=(
+            LLMMessage(role="user", content="show image"),
+            LLMMessage(role="tool", content=tool_payload, tool_call_id="call-read-image"),
+        ),
+        stream=False,
+    )
+
+    payload = mapper.map_generate_request(request)
+
+    tool_message = payload["messages"][1]
+    assert tool_message["content"] == [
+        {"type": "text", "text": "Read image file [image/png]"},
+        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_data}"}},
+    ]

@@ -213,6 +213,12 @@ def _normalize_tool_output_parts(parts: list[Any]) -> list[dict[str, Any]]:
                 normalized.append({"type": "text", "text": text})
             continue
         if part_type == "image":
+            image_data = item.get("data")
+            mime_type = item.get("mimeType", item.get("mime_type"))
+            if isinstance(image_data, str) and image_data:
+                media_type = mime_type if isinstance(mime_type, str) and mime_type else "application/octet-stream"
+                normalized.append({"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{image_data}"}})
+                continue
             image_url = item.get("image_url")
             if isinstance(image_url, str) and image_url:
                 normalized.append({"type": "image_url", "image_url": {"url": image_url}})

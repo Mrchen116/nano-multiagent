@@ -19,19 +19,21 @@ def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolC
 
 
 def test_read_supports_segmented_reads(tmp_path: Path) -> None:
-    content = "\n".join(f"line-{idx}" for idx in range(1, 7)) + "\n"
+    content = "\n".join(f"line-{idx}" for idx in range(1, 7))
     (tmp_path / "note.txt").write_text(content, encoding="utf-8")
     ctx = _context(tmp_path)
 
     result = ReadTool().run({"path": "note.txt", "offset": 3, "limit": 2}, ctx)
 
-    assert result["content"] == "line-3\nline-4"
+    text_part = result["content"][0]
+    assert text_part["type"] == "text"
+    assert text_part["text"] == "line-3\nline-4\n\n[2 more lines in file. Use offset=5 to continue.]"
     assert result["truncated"] is False
     assert result["next_offset"] == 5
 
 
 def test_read_truncates_output_and_reports_next_offset(tmp_path: Path) -> None:
-    content = "\n".join(f"line-{idx}" for idx in range(1, 7)) + "\n"
+    content = "\n".join(f"line-{idx}" for idx in range(1, 7))
     (tmp_path / "note.txt").write_text(content, encoding="utf-8")
     ctx = _context(
         tmp_path,
@@ -40,10 +42,59 @@ def test_read_truncates_output_and_reports_next_offset(tmp_path: Path) -> None:
 
     result = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 5}, ctx)
 
-    assert "line-1\nline-2" in result["content"]
-    assert "offset=3" in result["content"]
+    text_part = result["content"][0]
+    assert text_part["type"] == "text"
+    assert text_part["text"] == "line-1\nline-2\n\n[Showing lines 1-2 of 6. Use offset=3 to continue.]"
     assert result["truncated"] is True
     assert result["next_offset"] == 3
+    assert result["details"]["truncation"]["truncatedBy"] == "lines"
+
+
+def test_read_truncates_by_bytes_and_reports_limit_hint(tmp_path: Path) -> None:
+    (tmp_path / "note.txt").write_text("1234567890\nabcdefghij\nline-3", encoding="utf-8")
+    ctx = _context(
+        tmp_path,
+        config=ToolSafetyConfig(read_max_lines=200, read_max_bytes=16),
+    )
+
+    result = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 3}, ctx)
+
+    text_part = result["content"][0]
+    assert text_part["type"] == "text"
+    assert text_part["text"] == "1234567890\n\n[Showing lines 1-1 of 3 (16B limit). Use offset=2 to continue.]"
+    assert result["truncated"] is True
+    assert result["next_offset"] == 2
+    assert result["details"]["truncation"]["truncatedBy"] == "bytes"
+
+
+def test_read_first_line_exceeds_byte_limit_returns_bash_hint(tmp_path: Path) -> None:
+    (tmp_path / "oversized.txt").write_text(f"{'a' * 11}\nline-2", encoding="utf-8")
+    ctx = _context(
+        tmp_path,
+        config=ToolSafetyConfig(read_max_lines=200, read_max_bytes=10),
+    )
+
+    result = ReadTool().run({"path": "oversized.txt", "offset": 1}, ctx)
+
+    text_part = result["content"][0]
+    assert text_part["type"] == "text"
+    assert (
+        text_part["text"]
+        == "[Line 1 is 11B, exceeds 10B limit. Use bash: sed -n '1p' oversized.txt | head -c 10]"
+    )
+    assert result["truncated"] is True
+    assert result["details"]["truncation"]["firstLineExceedsLimit"] is True
+
+
+def test_read_offset_out_of_range_surfaces_details(tmp_path: Path) -> None:
+    (tmp_path / "note.txt").write_text("line-1\nline-2", encoding="utf-8")
+    ctx = _context(tmp_path)
+
+    with pytest.raises(ToolError, match="offset is out of range") as exc_info:
+        ReadTool().run({"path": "note.txt", "offset": 3}, ctx)
+
+    assert exc_info.value.details["offset"] == 3
+    assert exc_info.value.details["total_lines"] == 2
 
 
 def test_read_rejects_path_outside_repo(tmp_path: Path) -> None:
@@ -65,7 +116,9 @@ def test_read_allows_codex_home_skills_outside_repo(tmp_path: Path, monkeypatch:
 
     result = ReadTool().run({"path": str(skill_file)}, ctx)
 
-    assert result["content"].startswith("# Demo")
+    text_part = result["content"][0]
+    assert text_part["type"] == "text"
+    assert text_part["text"].startswith("# Demo")
     assert result["path"] == str(skill_file)
 
 
@@ -283,15 +336,17 @@ def test_read_returns_text_and_image_parts_for_png(tmp_path: Path) -> None:
     assert result["next_offset"] is None
     assert isinstance(result["content"], list)
     assert result["content"][0]["type"] == "text"
-    assert "pixel.png" in result["content"][0]["text"]
+    assert result["content"][0]["text"].startswith("Read image file [image/png]")
+    assert "original 1x1" in result["content"][0]["text"]
+    assert "displayed at 1x1" in result["content"][0]["text"]
     image_part = result["content"][1]
     assert image_part["type"] == "image"
-    assert image_part["mime_type"] == "image/png"
-    assert image_part["image_url"].startswith("data:image/png;base64,")
+    assert image_part["mimeType"] == "image/png"
+    assert image_part["data"] == base64.b64encode(image_bytes).decode("ascii")
 
 
 def test_read_truncation_appends_next_offset_hint(tmp_path: Path) -> None:
-    content = "\n".join(f"line-{idx}" for idx in range(1, 6)) + "\n"
+    content = "\n".join(f"line-{idx}" for idx in range(1, 6))
     (tmp_path / "note.txt").write_text(content, encoding="utf-8")
     ctx = _context(
         tmp_path,
@@ -302,6 +357,6 @@ def test_read_truncation_appends_next_offset_hint(tmp_path: Path) -> None:
 
     assert result["truncated"] is True
     assert result["next_offset"] == 3
-    assert isinstance(result["content"], str)
-    assert "line-1\nline-2" in result["content"]
-    assert "offset=3" in result["content"]
+    text_part = result["content"][0]
+    assert text_part["type"] == "text"
+    assert text_part["text"] == "line-1\nline-2\n\n[Showing lines 1-2 of 5. Use offset=3 to continue.]"
