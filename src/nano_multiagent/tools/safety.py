@@ -128,8 +128,7 @@ class CommandExecution:
     """Capture normalized command execution output after truncation policy."""
 
     exit_code: int
-    stdout: str
-    stderr: str
+    text: str
     truncated: bool
     full_output_path: str | None = None
 
@@ -327,8 +326,7 @@ class ToolSafety:
         last_heartbeat = start_monotonic
         seq = 0
         timed_out = False
-        stdout_parts: list[str] = []
-        stderr_parts: list[str] = []
+        merged_parts: list[str] = []
 
         _emit_command_event(
             on_event,
@@ -357,10 +355,7 @@ class ToolSafety:
                         selector.unregister(key.fileobj)
                         continue
                     chunk = _decode_stream_bytes(chunk_bytes)
-                    if stream_name == "stdout":
-                        stdout_parts.append(chunk)
-                    else:
-                        stderr_parts.append(chunk)
+                    merged_parts.append(chunk)
                     seq += 1
                     _emit_command_event(
                         on_event,
@@ -390,9 +385,11 @@ class ToolSafety:
 
         tail_stdout_bytes, tail_stderr_bytes = process.communicate()
         if tail_stdout_bytes:
-            stdout_parts.append(_decode_stream_bytes(tail_stdout_bytes))
+            tail_stdout = _decode_stream_bytes(tail_stdout_bytes)
+            merged_parts.append(tail_stdout)
         if tail_stderr_bytes:
-            stderr_parts.append(_decode_stream_bytes(tail_stderr_bytes))
+            tail_stderr = _decode_stream_bytes(tail_stderr_bytes)
+            merged_parts.append(tail_stderr)
 
         exit_code = int(process.returncode if process.returncode is not None else process.wait())
         duration_ms = int((time.monotonic() - start_monotonic) * 1000)
@@ -415,42 +412,39 @@ class ToolSafety:
                 details={"timeout": timeout_details, "timed_out": True},
             )
 
-        full_stdout = "".join(stdout_parts)
-        full_stderr = "".join(stderr_parts)
-        stdout, stdout_truncated = self.truncate_text(
-            full_stdout,
+        full_output = "".join(merged_parts)
+        tail_output, truncated, byte_limited, start_line, end_line, total_lines, showing_last = _truncate_tail_output(
+            full_output,
             max_lines=self.config.bash_max_output_lines,
             max_bytes=self.config.bash_max_output_bytes,
-            tail=True,
         )
-        stderr, stderr_truncated = self.truncate_text(
-            full_stderr,
-            max_lines=self.config.bash_max_output_lines,
-            max_bytes=self.config.bash_max_output_bytes,
-            tail=True,
-        )
-        truncated = stdout_truncated or stderr_truncated
         full_output_path = None
+        rendered_output = tail_output
         if truncated:
-            full_output_path = self._persist_full_output(stdout=full_stdout, stderr=full_stderr)
+            full_output_path = self._persist_full_output(content=full_output)
+            rendered_output = _append_truncation_hint(
+                content=tail_output,
+                full_output_path=full_output_path,
+                start_line=start_line,
+                end_line=end_line,
+                total_lines=total_lines,
+                max_bytes=self.config.bash_max_output_bytes,
+                byte_limited=byte_limited,
+                showing_last=showing_last,
+            )
         return CommandExecution(
             exit_code=exit_code,
-            stdout=stdout,
-            stderr=stderr,
+            text=rendered_output,
             truncated=truncated,
             full_output_path=full_output_path,
         )
 
-    def _persist_full_output(self, *, stdout: str, stderr: str) -> str:
+    def _persist_full_output(self, *, content: str) -> str:
         output_dir = self.repo_root / ".nano_multiagent" / "tmp"
         output_dir.mkdir(parents=True, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(prefix="bash-output-", suffix=".log", dir=output_dir)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(stdout)
-            if stderr:
-                if stdout and not stdout.endswith("\n"):
-                    handle.write("\n")
-                handle.write(stderr)
+            handle.write(content)
         return str(Path(tmp_path))
 
 
@@ -512,3 +506,71 @@ def _emit_command_event(
     except Exception:
         # Event sinks are observability-only and must not break command execution.
         return
+
+
+def _truncate_tail_output(
+    content: str,
+    *,
+    max_lines: int,
+    max_bytes: int,
+) -> tuple[str, bool, bool, int, int, int, bool]:
+    lines = content.splitlines()
+    total_lines = len(lines)
+    if total_lines == 0:
+        return "", False, False, 0, 0, 0, False
+
+    max_lines = max(1, max_lines)
+    max_bytes = max(1, max_bytes)
+    start_index = max(0, total_lines - max_lines)
+    selected_lines = list(lines[start_index:])
+    line_truncated = total_lines > max_lines
+    byte_limited = False
+
+    while selected_lines and len("\n".join(selected_lines).encode("utf-8")) > max_bytes and len(selected_lines) > 1:
+        selected_lines = selected_lines[1:]
+        start_index += 1
+        byte_limited = True
+
+    showing_last = False
+    if selected_lines and len("\n".join(selected_lines).encode("utf-8")) > max_bytes:
+        byte_limited = True
+        showing_last = True
+        tail_bytes = selected_lines[-1].encode("utf-8")[-max_bytes:]
+        selected_lines = [tail_bytes.decode("utf-8", errors="replace")]
+
+    end_index = start_index + len(selected_lines) - 1
+    truncated = line_truncated or byte_limited
+    return (
+        "\n".join(selected_lines),
+        truncated,
+        byte_limited,
+        start_index + 1,
+        end_index + 1,
+        total_lines,
+        showing_last,
+    )
+
+
+def _append_truncation_hint(
+    *,
+    content: str,
+    full_output_path: str,
+    start_line: int,
+    end_line: int,
+    total_lines: int,
+    max_bytes: int,
+    byte_limited: bool,
+    showing_last: bool,
+) -> str:
+    if showing_last:
+        hint = f"[Showing last {max_bytes} bytes of line {end_line}. Full output: {full_output_path}]"
+    elif byte_limited:
+        hint = (
+            f"[Showing lines {start_line}-{end_line} of {total_lines} "
+            f"({max_bytes / 1024:.1f}KB limit). Full output: {full_output_path}]"
+        )
+    else:
+        hint = f"[Showing lines {start_line}-{end_line} of {total_lines}. Full output: {full_output_path}]"
+    if not content:
+        return hint
+    return f"{content}\n\n{hint}"

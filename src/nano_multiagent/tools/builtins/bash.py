@@ -53,12 +53,13 @@ class BashTool:
         if execution.exit_code != 0:
             details: dict[str, Any] = {
                 "exit_code": execution.exit_code,
-                "stdout": execution.stdout,
-                "stderr": execution.stderr,
+                "exitCode": execution.exit_code,
+                "content": execution.text,
                 "truncated": execution.truncated,
             }
             if execution.full_output_path is not None:
                 details["full_output_path"] = execution.full_output_path
+                details["fullOutputPath"] = execution.full_output_path
             if execution.exit_code < 0:
                 signal_number = -execution.exit_code
                 try:
@@ -80,11 +81,10 @@ class BashTool:
 
         result: dict[str, Any] = {
             "command": command,
-            "exit_code": execution.exit_code,
-            "stdout": execution.stdout,
-            "stderr": execution.stderr,
+            "exitCode": execution.exit_code,
+            "content": execution.text if execution.text else "(no output)",
             "truncated": execution.truncated,
         }
         if execution.full_output_path is not None:
-            result["full_output_path"] = execution.full_output_path
+            result["fullOutputPath"] = execution.full_output_path
         return result
