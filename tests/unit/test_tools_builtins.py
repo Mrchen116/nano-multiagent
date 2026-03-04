@@ -110,14 +110,31 @@ def test_bash_reports_non_zero_exit(tmp_path: Path) -> None:
     with pytest.raises(ToolError) as exc_info:
         BashTool().run({"command": "python -c \"import sys;sys.exit(7)\""}, ctx)
 
-    assert exc_info.value.details["exit_code"] == 7
+    assert str(exc_info.value).endswith("Command exited with code 7")
+    assert exc_info.value.details["exitCode"] == 7
+    assert exc_info.value.details["tool_name"] == "bash"
+    assert "content" in exc_info.value.details
 
 
 def test_bash_handles_timeout(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
 
-    with pytest.raises(ToolError, match="timed out"):
-        BashTool().run({"command": "python -c \"import time;time.sleep(0.3)\"", "timeout": 0.05}, ctx)
+    with pytest.raises(ToolError, match="Command timed out after 0.05 seconds") as exc_info:
+        BashTool().run(
+            {
+                "command": (
+                    "python -c \"import time; "
+                    "print('before-timeout'); "
+                    "time.sleep(0.3)\""
+                ),
+                "timeout": 0.05,
+            },
+            ctx,
+        )
+    assert exc_info.value.details["timedOut"] is True
+    assert exc_info.value.details["timeout"] == 0.05
+    assert exc_info.value.details["tool_name"] == "bash"
+    assert "before-timeout" in exc_info.value.details["content"]
 
 
 def test_bash_rejects_disallowed_command(tmp_path: Path) -> None:
@@ -212,6 +229,22 @@ def test_bash_success_merges_stdout_and_stderr_into_content(tmp_path: Path) -> N
     assert "out-2" in result["content"]
     assert "stdout" not in result
     assert "stderr" not in result
+
+
+def test_bash_aborted_contract_message_and_details(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+
+    def fake_run_command_stream(**kwargs):  # noqa: ANN003
+        del kwargs
+        raise ToolError("keyboard interrupt", tool_name="bash", details={"aborted": True})
+
+    monkeypatch.setattr(ctx.safety, "run_command_stream", fake_run_command_stream)
+
+    with pytest.raises(ToolError, match="Command aborted") as exc_info:
+        BashTool().run({"command": "python -c \"print('ignored')\""}, ctx)
+
+    assert exc_info.value.details["aborted"] is True
+    assert exc_info.value.details["tool_name"] == "bash"
 
 
 def test_read_returns_text_and_image_parts_for_png(tmp_path: Path) -> None:

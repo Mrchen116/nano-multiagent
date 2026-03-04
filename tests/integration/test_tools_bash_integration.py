@@ -38,7 +38,7 @@ def test_registry_bash_signal_error_keeps_signal_details(tmp_path: Path) -> None
     registry = ToolRegistry(context=ToolContext.create(repo_root=tmp_path))
     registry.register(BashTool())
 
-    with pytest.raises(ToolError, match="terminated by signal") as exc_info:
+    with pytest.raises(ToolError, match="Command exited with code") as exc_info:
         registry.execute(
             "bash",
             {"command": "python -c \"import os,signal; os.kill(os.getpid(), signal.SIGTERM)\""},
@@ -47,4 +47,4 @@ def test_registry_bash_signal_error_keeps_signal_details(tmp_path: Path) -> None
     details = exc_info.value.details
     assert details["tool_name"] == "bash"
     assert details["signal"] == "SIGTERM"
-    assert details["signal_number"] == 15
+    assert details["signalNumber"] == 15
