@@ -84,6 +84,8 @@ def _resolve_state(payload: dict[str, object]) -> str:
         return status
     if payload.get("completed") is True:
         return "completed"
+    if _read_non_empty_str(payload.get("stop_reason")) is not None:
+        return "completed"
     return "unknown"
 
 
