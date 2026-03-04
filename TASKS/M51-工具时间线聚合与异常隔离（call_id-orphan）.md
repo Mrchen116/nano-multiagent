@@ -44,7 +44,11 @@
 - DoD:
   - C1 红测提交、C2 实现提交、C3 文档提交齐全。
   - 全量门禁命令在 C2 前全绿。
-- Status: `TODO`
+- Commits:
+  - C1: `c0f7d1f`
+  - C2: `753e8a8`
+  - C3: `TBD`
+- Status: `DONE`
 
 ### R2 高频事件可读性与异常指标收口
 - Acceptance:
@@ -66,7 +70,7 @@
 - DoD:
   - 全量门禁命令全绿。
   - C1/C2/C3 提交齐全。
-- Status: `TODO`
+- Status: `DOING`
 
 ### R3 收口验收与集成（门禁 + managed + main + dev_tasks）
 - Acceptance:
