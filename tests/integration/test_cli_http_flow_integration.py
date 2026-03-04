@@ -1,6 +1,7 @@
 import io
 import json
 from pathlib import Path
+import time
 
 import httpx
 import pytest
@@ -78,6 +79,17 @@ class _RuntimeStub:
             dropped_event_ids=("evt_cli_drop",),
             kept_event_ids=("evt_cli_kept",),
         )
+
+
+class _SlowFirstTurnRuntime(_RuntimeStub):
+    def __init__(self) -> None:
+        self._turn_count = 0
+
+    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None):
+        self._turn_count += 1
+        if self._turn_count == 1:
+            time.sleep(0.2)
+        return super().run(session_id=session_id, parts=parts, stream=stream, run_id=run_id)
 
 
 class _InMemorySessionStore(SessionStore):
@@ -384,7 +396,8 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "run_id=" in text
-    assert "Layer: runtime" in text
+    assert "Error:" in text
+    assert "layer=runtime" in text
     assert "run failed: {'code': 'run_execution_failed'" in text
     assert "root_cause=connect ETIMEDOUT" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
@@ -632,11 +645,80 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "[run " in text
+    assert "Status:" in text
     assert "status=completed" in text
     assert "[tool echo] start" in text
     assert "[tool echo] output=echo:ping" in text
-    assert "[text] final:echo:ping" in text
+    assert "Answer:" in text
+    assert "final:echo:ping" in text
+
+
+def test_cli_repl_prints_structured_sections_in_async_turn_output() -> None:
+    store = _InMemorySessionStore()
+    llm = _ToolCallingLLMClient()
+    runtime = AgentRuntime(
+        session_manager=SessionManager(store=store),
+        llm_client=llm,
+        model="mock-model",
+        repo_root=Path.cwd(),
+    )
+    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    echo_tool = _EchoTool()
+    tool_registry.register(echo_tool)
+
+    app = create_app(
+        session_store=store,
+        runtime=runtime,
+        tool_registry=tool_registry,
+        auth_token="test-token",
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Status:" in text
+    assert "Tools:" in text
+    assert "Answer:" in text
+    assert "Usage:" in text
+    assert '"run_id": "run_' not in text
+
+
+def test_cli_repl_allows_queueing_next_input_while_previous_async_run_is_running() -> None:
+    app = create_app(runtime=_SlowFirstTurnRuntime(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "first", "second", "/exit"])
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Queued message #1" in text
+    assert text.count("run_id=") >= 2
 
 
 def test_cli_repl_flow_supports_history_listing() -> None:

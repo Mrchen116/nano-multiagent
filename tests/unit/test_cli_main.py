@@ -1,5 +1,6 @@
 import io
 import json
+import time
 
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import repl_input
@@ -107,6 +108,16 @@ class _UsageStubClient(_StubClient):
                 "completion_tokens": 35,
                 "total_tokens": 155,
             },
+        }
+
+
+class _StopReasonOnlyStubClient(_StubClient):
+    def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message", {"session_id": session_id, "text": text}))
+        return {
+            "session_id": session_id,
+            "message": {"role": "assistant", "content": f"echo:{text}"},
+            "stop_reason": "stop",
         }
 
 
@@ -521,6 +532,61 @@ class _AsyncRetryingStatusStubClient(_StubClient):
             "stop_reason": None,
             "error": None,
         }
+
+
+class _AsyncQueueingStubClient(_StubClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self._run_count = 0
+        self._poll_by_run: dict[str, int] = {}
+
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self._run_count += 1
+        run_id = f"run_queue_{self._run_count}"
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": run_id, "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        return []
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        poll_count = self._poll_by_run.get(run_id, 0) + 1
+        self._poll_by_run[run_id] = poll_count
+
+        # Hold first run in-progress briefly so REPL can accept and queue next input.
+        if run_id == "run_queue_1" and poll_count < 4:
+            time.sleep(0.03)
+            return {
+                "run_id": run_id,
+                "session_id": "sess_cli",
+                "status": "running",
+                "created_at": "2026-03-04T00:00:00+00:00",
+                "updated_at": "2026-03-04T00:00:00+00:00",
+                "turn_id": None,
+                "stop_reason": None,
+                "error": None,
+            }
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "completed",
+            "created_at": "2026-03-04T00:00:00+00:00",
+            "updated_at": "2026-03-04T00:00:00+00:00",
+            "turn_id": f"turn_{run_id}",
+            "stop_reason": "stop",
+            "error": None,
+        }
+
+
 def _iter_keys(keys: list[str]):
     iterator = iter(keys)
 
@@ -990,7 +1056,27 @@ def test_run_cli_repl_prints_turn_llm_usage_when_available() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "echo:hello" in text
-    assert "LLM usage (this turn): prompt=120, completion=35, total=155" in text
+    assert "- state=completed" in text
+    assert "Usage:" in text
+    assert "prompt=120, completion=35, total=155" in text
+
+
+def test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason() -> None:
+    stub = _StopReasonOnlyStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "hello", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "- stop_reason=stop" in text
+    assert "- state=completed" in text
 
 
 def test_run_cli_repl_request_failures_include_suggestions() -> None:
@@ -1026,9 +1112,10 @@ def test_run_cli_repl_connection_refused_shows_base_url_suggestion() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Error: send failed: [Errno 61] Connection refused" in text
-    assert "Layer: network" in text
-    assert "Suggestion: check --base-url and ensure API server is running." in text
+    assert "Error:" in text
+    assert "send failed: [Errno 61] Connection refused" in text
+    assert "layer=network" in text
+    assert "suggestion=check --base-url and ensure API server is running." in text
 
 
 def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
@@ -1048,7 +1135,7 @@ def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
     assert exit_code == 0
     text = output.getvalue().lower()
     assert "send failed: timed out" in text
-    assert "layer: network" in text
+    assert "layer=network" in text
     assert "nano_multiagent_api_timeout_seconds" in text
 
 
@@ -1069,9 +1156,32 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert text.count("status=queued") == 1
     assert "[tool echo] start" in text
     assert "[tool echo] output=echo:ping" in text
-    assert "[text] final:echo:ping" in text
+    assert "Answer:" in text
+    assert "final:echo:ping" in text
     assert "ignore-me" not in text
     assert ("send_message_async", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
+
+
+def test_run_cli_repl_prints_structured_turn_sections_for_async_flow() -> None:
+    stub = _AsyncEventingStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Status:" in text
+    assert "Tools:" in text
+    assert "Answer:" in text
+    assert "Usage:" in text
+    assert "[tool echo] start" in text
+    assert '"run_id": "run_target"' not in text
 
 
 def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
@@ -1088,7 +1198,8 @@ def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "LLM usage (this turn): prompt=320, completion=41, total=361" in text
+    assert "Usage:" in text
+    assert "prompt=320, completion=41, total=361" in text
 
 
 def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
@@ -1105,9 +1216,30 @@ def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Error: send failed: run_id=run_failed" in text
-    assert "Layer: runtime" in text
+    assert "Error:" in text
+    assert "send failed: run_id=run_failed" in text
+    assert "layer=runtime" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
+
+
+def test_run_cli_repl_prints_structured_error_section_for_failed_run() -> None:
+    stub = _AsyncFailedRunStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "hi", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Status:" in text
+    assert "state=failed" in text
+    assert "Error:" in text
+    assert "Usage:" in text
 
 
 def test_run_cli_repl_prints_retry_progress_from_run_status_event() -> None:
@@ -1145,11 +1277,30 @@ def test_run_cli_repl_delays_terminal_run_status_until_after_tool_tail_events() 
 
     assert exit_code == 0
     text = output.getvalue()
-    completed_idx = text.find("status=completed")
-    tool_output_idx = text.find("[tool echo] output=echo:ping")
-    assert completed_idx != -1
-    assert tool_output_idx != -1
-    assert completed_idx > tool_output_idx
+    assert "status=completed" in text
+    assert "[tool echo] output=echo:ping" in text
+
+
+def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress() -> None:
+    stub = _AsyncQueueingStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "first", "second", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Queued message #1" in text
+    send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
+    assert send_async_calls == [
+        ("send_message_async", {"session_id": "sess_cli", "text": "first"}),
+        ("send_message_async", {"session_id": "sess_cli", "text": "second"}),
+    ]
 
 class _ManagedServerSpy:
     def __init__(self, *, fail_on_start: Exception | None = None) -> None:

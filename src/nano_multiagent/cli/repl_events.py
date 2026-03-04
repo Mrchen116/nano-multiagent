@@ -18,12 +18,13 @@ def send_message_with_async_events(
     session_id: str,
     text: str,
 ) -> dict[str, object]:
-    """Send message through async endpoint and stream incremental event previews."""
+    """Send message through async endpoint and aggregate structured turn view."""
     submitted = client.send_message_async(session_id=session_id, text=text)
     run_id = _extract_run_id(submitted)
     seen_event_ids: set[str] = set()
     assistant_text = ""
     terminal_run: dict[str, object] | None = None
+    collected_events: list[tuple[str, dict[str, object]]] = []
 
     while True:
         events = client.stream_session_events(
@@ -37,6 +38,8 @@ def send_message_with_async_events(
             run_id=run_id,
             seen_event_ids=seen_event_ids,
             assistant_text=assistant_text,
+            emit_preview=False,
+            collected_events=collected_events,
         )
 
         run_payload = client.get_run(run_id=run_id)
@@ -52,6 +55,7 @@ def send_message_with_async_events(
         error_payload = terminal_run.get("error")
         raise RuntimeError(f"run_id={run_id} run failed: {error_payload}")
 
+    status_updates, tool_updates = _build_repl_view(collected_events)
     return {
         "session_id": session_id,
         "run_id": run_id,
@@ -60,9 +64,14 @@ def send_message_with_async_events(
             "role": "assistant",
             "content": assistant_text,
         },
+        "status": terminal_run.get("status") or "completed",
         "completed": True,
         "stop_reason": terminal_run.get("stop_reason") or "stop",
         "usage": terminal_run.get("usage"),
+        "_repl_view": {
+            "status_updates": status_updates,
+            "tool_updates": tool_updates,
+        },
     }
 
 
@@ -102,6 +111,8 @@ def consume_async_run_events(
     run_id: str,
     seen_event_ids: set[str],
     assistant_text: str,
+    emit_preview: bool = True,
+    collected_events: list[tuple[str, dict[str, object]]] | None = None,
 ) -> tuple[str, int]:
     """Consume one poll batch with dedupe and run-id filtering.
 
@@ -126,18 +137,46 @@ def consume_async_run_events(
             if isinstance(status, str) and status.strip().lower() in _TERMINAL_RUN_STATUSES:
                 delayed_terminal_run_status = data
                 continue
-        print_event_preview(out=out, event_name=event_name, data=data)
+        if collected_events is not None:
+            collected_events.append((event_name, data))
+        if emit_preview:
+            print_event_preview(out=out, event_name=event_name, data=data)
         if event_name == "text_delta":
             delta = data.get("delta")
             if isinstance(delta, str):
                 updated_text = merge_text_delta(updated_text, delta)
     if delayed_terminal_run_status is not None:
-        print_event_preview(out=out, event_name="run_status", data=delayed_terminal_run_status)
+        if collected_events is not None:
+            collected_events.append(("run_status", delayed_terminal_run_status))
+        if emit_preview:
+            print_event_preview(out=out, event_name="run_status", data=delayed_terminal_run_status)
     return updated_text, consumed
 
 
 def print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]) -> None:
     """Render concise human-readable preview for one streamed event."""
+    line = _event_preview_line(event_name=event_name, data=data)
+    if line is not None:
+        print(line, file=out, flush=True)
+
+
+def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[str], list[str]]:
+    status_updates: list[str] = []
+    tool_updates: list[str] = []
+    for event_name, data in events:
+        if event_name == "run_status":
+            status_line = _format_status_progress(data)
+            if status_line:
+                status_updates.append(status_line)
+            continue
+        if event_name == "tool_start" or event_name == "tool_end":
+            tool_line = _event_preview_line(event_name=event_name, data=data)
+            if tool_line:
+                tool_updates.append(tool_line)
+    return status_updates, tool_updates
+
+
+def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | None:
     if event_name == "run_status":
         run_id = data.get("run_id")
         status = data.get("status")
@@ -145,21 +184,14 @@ def print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]
         resolved_status = str(status) if isinstance(status, str) and status.strip() else "<unknown>"
         retry_preview = _format_retry_progress(data)
         if retry_preview:
-            print(f"[run {resolved_run_id}] status={resolved_status} {retry_preview}", file=out, flush=True)
-        else:
-            print(f"[run {resolved_run_id}] status={resolved_status}", file=out, flush=True)
-        return
+            return f"[run {resolved_run_id}] status={resolved_status} {retry_preview}"
+        return f"[run {resolved_run_id}] status={resolved_status}"
 
     if event_name == "tool_start":
         name = data.get("name")
         arguments = data.get("arguments")
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
-        print(
-            f"[tool {resolved_name}] start args={_preview_event_value(arguments)}",
-            file=out,
-            flush=True,
-        )
-        return
+        return f"[tool {resolved_name}] start args={_preview_event_value(arguments)}"
 
     if event_name == "tool_end":
         name = data.get("name")
@@ -167,16 +199,23 @@ def print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]
         output = data.get("output")
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
         if error not in (None, "", {}):
-            print(f"[tool {resolved_name}] error={_preview_event_value(error)}", file=out, flush=True)
-            return
-        print(f"[tool {resolved_name}] output={_preview_event_value(output)}", file=out, flush=True)
-        return
+            return f"[tool {resolved_name}] error={_preview_event_value(error)}"
+        return f"[tool {resolved_name}] output={_preview_event_value(output)}"
 
     if event_name == "text_delta":
         delta = data.get("delta")
         if isinstance(delta, str) and delta.strip():
-            print(f"[text] {_preview_event_value(delta)}", file=out, flush=True)
-        return
+            return f"[text] {_preview_event_value(delta)}"
+    return None
+
+
+def _format_status_progress(data: dict[str, object]) -> str:
+    status = data.get("status")
+    resolved_status = str(status) if isinstance(status, str) and status.strip() else "<unknown>"
+    retry_preview = _format_retry_progress(data)
+    if retry_preview:
+        return f"status={resolved_status} {retry_preview}"
+    return f"status={resolved_status}"
 
 
 def _preview_event_value(value: object) -> str:
