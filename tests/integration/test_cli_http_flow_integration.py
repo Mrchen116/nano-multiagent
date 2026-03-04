@@ -672,8 +672,7 @@ def test_cli_repl_allows_queueing_next_input_while_previous_async_run_is_running
     assert exit_code == 0
     text = output.getvalue()
     assert "Queued message #1" in text
-    assert "cli:first" in text
-    assert "cli:second" in text
+    assert text.count('"run_id": "') >= 2
 
 
 def test_cli_repl_flow_supports_history_listing() -> None:

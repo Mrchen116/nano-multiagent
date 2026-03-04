@@ -23,6 +23,7 @@ from nano_multiagent.cli.repl_events import merge_text_delta as _merge_text_delt
 from nano_multiagent.cli.repl_events import print_event_preview as _print_event_preview
 from nano_multiagent.cli.repl_events import send_message_with_async_events as _send_message_with_async_events
 from nano_multiagent.cli.repl_events import supports_async_repl_events as _supports_async_repl_events
+from nano_multiagent.cli.repl_runtime import QueuedReplMessage, ReplRunQueue
 from nano_multiagent.cli.turn_usage import print_turn_usage_snapshot as _print_turn_usage_snapshot
 
 _CLI_HELP_EPILOG = (
@@ -243,73 +244,27 @@ def _run_repl(
     active_session_id = _resolve_initial_session_id()
     history_by_session: dict[str, list[tuple[str, str]]] = {}
     input_history_by_session: dict[str, list[str]] = {}
-    read_line = repl_input.build_repl_input_reader(
-        out=out,
-        input_fn=input_fn,
-        repl_input_reader_factory=repl_input_reader_factory,
-        command_suggestions=repl_commands.REPL_COMMANDS,
-    )
-    while True:
+    async_repl_enabled = _supports_async_repl_events(client)
+
+    def _process_queued_message(item: QueuedReplMessage) -> None:
         try:
-            raw = read_line(_prompt(active_session_id), input_history_by_session.get(active_session_id or "", ()))
-        except EOFError:
-            print("bye", file=out)
-            return 0
-
-        line = raw.strip()
-        if not line:
-            continue
-
-        if repl_commands.is_repl_command_candidate(line):
-            if active_session_id:
-                _append_input_history_entry(input_history_by_session, active_session_id, line)
-            command_result = repl_commands.handle_repl_command(
-                line=line,
-                out=out,
-                client=client,
-                active_session_id=active_session_id,
-                history_by_session=history_by_session,
-                extract_session_id=_extract_session_id,
-                print_tools_summary=_print_tools_summary,
-                print_compact_summary=_print_compact_summary,
-                print_context_budget_snapshot=_print_context_budget_snapshot,
-                layer_for_exception=lambda exc: _error_layer_for_exception(exc, default="network"),
-                suggestion_for_exception=lambda exc, command: _suggestion_for_exception(
-                    exc,
-                    default=f"check server status/token and retry {command}.",
-                ),
-            )
-            active_session_id = command_result.active_session_id
-            if command_result.should_exit:
-                return 0
-            if command_result.handled:
-                continue
-
-        try:
-            if not active_session_id:
-                session_payload = client.create_session()
-                active_session_id = _extract_session_id(session_payload)
-                print(json.dumps(session_payload, ensure_ascii=False), file=out)
-
-            _append_input_history_entry(input_history_by_session, active_session_id, line)
             payload = _send_message_from_repl(
                 out=out,
                 client=client,
-                session_id=active_session_id,
-                text=line,
+                session_id=item.session_id,
+                text=item.text,
             )
-            _append_history_entry(history_by_session, active_session_id, role="user", content=line)
             response_content = _extract_message_content(payload)
             if response_content is not None:
                 _append_history_entry(
                     history_by_session,
-                    active_session_id,
+                    item.session_id,
                     role="assistant",
                     content=response_content,
                 )
             print(json.dumps(payload, ensure_ascii=False), file=out)
             _print_turn_usage_snapshot(out=out, payload=payload)
-            _print_context_budget_snapshot(out=out, client=client, session_id=active_session_id)
+            _print_context_budget_snapshot(out=out, client=client, session_id=item.session_id)
         except Exception as exc:
             layer = _error_layer_for_exception(exc)
             suggestion = _suggestion_for_exception(
@@ -322,6 +277,110 @@ def _run_repl(
                 suggestion=suggestion,
                 layer=layer,
             )
+
+    run_queue = ReplRunQueue(process_message=_process_queued_message) if async_repl_enabled else None
+
+    read_line = repl_input.build_repl_input_reader(
+        out=out,
+        input_fn=input_fn,
+        repl_input_reader_factory=repl_input_reader_factory,
+        command_suggestions=repl_commands.REPL_COMMANDS,
+    )
+    try:
+        while True:
+            try:
+                raw = read_line(_prompt(active_session_id), input_history_by_session.get(active_session_id or "", ()))
+            except EOFError:
+                if run_queue is not None and run_queue.backlog_size() > 0:
+                    print(f"Waiting for {run_queue.backlog_size()} in-flight message(s) before exit.", file=out)
+                print("bye", file=out)
+                return 0
+
+            line = raw.strip()
+            if not line:
+                continue
+
+            if repl_commands.is_repl_command_candidate(line):
+                command_name = line.split(maxsplit=1)[0]
+                if run_queue is not None and run_queue.backlog_size() > 0 and command_name != "/exit":
+                    print(
+                        f"Waiting for {run_queue.backlog_size()} in-flight message(s) before {command_name}.",
+                        file=out,
+                    )
+                    run_queue.wait_for_drain()
+                if active_session_id:
+                    _append_input_history_entry(input_history_by_session, active_session_id, line)
+                command_result = repl_commands.handle_repl_command(
+                    line=line,
+                    out=out,
+                    client=client,
+                    active_session_id=active_session_id,
+                    history_by_session=history_by_session,
+                    extract_session_id=_extract_session_id,
+                    print_tools_summary=_print_tools_summary,
+                    print_compact_summary=_print_compact_summary,
+                    print_context_budget_snapshot=_print_context_budget_snapshot,
+                    layer_for_exception=lambda exc: _error_layer_for_exception(exc, default="network"),
+                    suggestion_for_exception=lambda exc, command: _suggestion_for_exception(
+                        exc,
+                        default=f"check server status/token and retry {command}.",
+                    ),
+                )
+                active_session_id = command_result.active_session_id
+                if command_result.should_exit:
+                    if run_queue is not None and run_queue.backlog_size() > 0:
+                        print(f"Waiting for {run_queue.backlog_size()} in-flight message(s) before exit.", file=out)
+                    return 0
+                if command_result.handled:
+                    continue
+
+            try:
+                if not active_session_id:
+                    session_payload = client.create_session()
+                    active_session_id = _extract_session_id(session_payload)
+                    print(json.dumps(session_payload, ensure_ascii=False), file=out)
+
+                _append_input_history_entry(input_history_by_session, active_session_id, line)
+                _append_history_entry(history_by_session, active_session_id, role="user", content=line)
+
+                if run_queue is None:
+                    payload = _send_message_from_repl(
+                        out=out,
+                        client=client,
+                        session_id=active_session_id,
+                        text=line,
+                    )
+                    response_content = _extract_message_content(payload)
+                    if response_content is not None:
+                        _append_history_entry(
+                            history_by_session,
+                            active_session_id,
+                            role="assistant",
+                            content=response_content,
+                        )
+                    print(json.dumps(payload, ensure_ascii=False), file=out)
+                    _print_turn_usage_snapshot(out=out, payload=payload)
+                    _print_context_budget_snapshot(out=out, client=client, session_id=active_session_id)
+                    continue
+
+                backlog_before = run_queue.enqueue(session_id=active_session_id, text=line)
+                if backlog_before > 0:
+                    print(f"Queued message #{backlog_before} for session {active_session_id}.", file=out)
+            except Exception as exc:
+                layer = _error_layer_for_exception(exc)
+                suggestion = _suggestion_for_exception(
+                    exc,
+                    default="run /new to start a session, then retry.",
+                )
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message=f"send failed: {exc}",
+                    suggestion=suggestion,
+                    layer=layer,
+                )
+    finally:
+        if run_queue is not None:
+            run_queue.close(wait_for_drain=True)
 
 def _send_message_from_repl(
     *,
