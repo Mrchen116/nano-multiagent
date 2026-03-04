@@ -55,16 +55,21 @@
 - Tests Plan:
   - unit: 选择。覆盖 `commands.py` 在 false-timeout 竞态与 `/exit` 超时剩余信息场景。
   - contract: 选择。复核 `send-message` JSON 契约不被队列状态文本影响（回归不破坏）。
-  - integration: 选择。覆盖真实 REPL 输入链路下 `/exit` timeout 剩余提示。
+  - integration: 选择。覆盖真实 REPL 输入链路下 `/history` 屏障误判场景。
   - e2e: 不选。已有 managed 实跑作为入口补充证据，避免引入新 e2e 桩复杂度。
 - Expected Tests:
   - `tests/unit/test_cli_main.py::test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_drained`
   - `tests/unit/test_cli_main.py::test_run_cli_repl_exit_reports_remaining_inflight_messages_after_timeout`
-  - `tests/integration/test_cli_http_flow_integration.py::test_cli_repl_exit_timeout_reports_remaining_inflight_messages`
+  - `tests/integration/test_cli_http_flow_integration.py::test_cli_repl_history_wait_barrier_ignores_false_timeout_after_drain`
   - 门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`
 - DoD:
   - C1/C2/C3 三提交完整。
   - `test_command` 全绿。
   - `PROGRESS` 记录 Context/Decision/Evidence/Rollback/Commits。
   - managed CLI 实跑补充前后对比片段。
-- Status: `TODO`
+- Status: `DONE`
+
+### Delivery Notes
+- C1 红测：新增 3 条回归并稳定复现（`3 failed`）。
+- C2 绿化：`commands.py` 统一 in-flight 屏障等待逻辑，`repl_runtime.py` 修复 drain deadline 边界竞态，新增回归全部通过。
+- 全量门禁：`115 passed, 46 warnings`。
