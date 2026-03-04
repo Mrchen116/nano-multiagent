@@ -73,11 +73,28 @@
 
 ### R3 收口（全量门禁 + managed 实跑 + main 集成 + dev_tasks DONE）
 - Context:
+  - 需要在真实 managed CLI 场景确认事件语义管线重构无行为回归，并给出“前后对比”证据用于发布验收。
 - Decision:
+  - 执行两次 managed CLI 脚本化验收：基础问答链路与工具事件链路（`bash echo`）。
+  - 以 R2 红/绿测试结果作为“窗口策略前后对比”，并结合 managed 实跑观察关键线次数。
 - Rationale:
+  - 单测可证明逻辑正确，managed 实跑可验证真实入口链路（server lifecycle + REPL queue + event render）可用。
 - Evidence:
   - Tests:
+    - 全量门禁（最终）：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `110 passed, 42 warnings`。
+    - 前后对比（窗口策略）：
+      - Before（R2 红测）：`consumed_counts == [1,1,1,0]`（旧语义键被 legacy set 永久拦截）。
+      - After（R2 绿测）：`consumed_counts == [1,1,1,1]`（窗口淘汰后旧键可重新消费）。
   - Entry:
+    - managed 验收 1（`/new -> ping -> /exit`）：
+      - `Assistant: pong`
+      - `State: completed | stop=stop | run=run_84a4c52ab7d4bfb1 | session=sess_e5dd2183c61656a3`
+    - managed 验收 2（`/new -> 请使用bash工具执行: echo M49_TOOL -> /exit`）：
+      - `Tool: bash start ...`、`Tool: bash started ...`、`Tool: bash exit ...` 各 1 次
+      - `Assistant: M49_TOOL`
+      - `State: completed | stop=stop | run=run_f12150dba07373a5 | session=sess_c11327c0c8761693`
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - `db5c31a`（R2 文档收口提交）。
+- Commits: C1=`N/A`, C2=`N/A`, C3=`本提交`
 - Next:
+  - 执行 `rebase origin/main`、`merge --no-ff`、`push origin main`，并用 `dev_tasks.py` 更新 `M49=DONE`。
