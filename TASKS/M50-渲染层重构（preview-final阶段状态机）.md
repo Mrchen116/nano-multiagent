@@ -37,7 +37,7 @@
   - `tests/unit/test_cli_main.py::test_consume_async_run_events_stops_preview_after_finalizing`
 - DoD:
   - 红测先失败并提交 C1。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R2 状态机落地与文案统一（preview/final 分离）
 - Acceptance:
@@ -57,7 +57,7 @@
   - `tests/contract/test_cli_error_contract.py`
 - DoD:
   - C2 前执行全量门禁并全绿；提交实现/重构 C2。
-- Status: `TODO`
+- Status: `DOING`
 
 ### R3 收口验收（门禁 + managed + main 集成 + dev_tasks DONE）
 - Acceptance:

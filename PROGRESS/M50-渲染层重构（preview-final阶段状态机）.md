@@ -26,14 +26,24 @@
 
 ### R1 渲染阶段状态机红测（STREAMING/FINALIZING/FINALIZED）
 - Context:
+  - M49 的事件链路虽然有去重窗口，但 preview/final 没有显式阶段约束，收口时机只靠散落条件，存在复读风险。
 - Decision:
+  - 新增 `ReplRenderPhaseMachine` 与 `ReplRenderPhase(STREAMING/FINALIZING/FINALIZED)`。
+  - `consume_async_run_events` 接收阶段机并在终态 `run_status` 后切到 `FINALIZING`，后续批次禁止继续 live preview。
 - Rationale:
+  - 先把阶段机能力测试化并接入消费主路径，确保后续 summary 过滤收口有统一状态真源。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "render_phase_machine_transitions_and_guards or stops_preview_after_finalizing"` -> `2 failed`（缺少阶段机导出）。
+    - 绿测：同命令 -> `2 passed`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `115 passed, 42 warnings`。
   - Entry:
+    - 阶段机已接入 `send_message_with_async_events` 与 `consume_async_run_events`，终态后预览发射由 `can_emit_preview()` 闸门统一控制。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - 回退到 `ed6435c`（R1 红测提交）。
+- Commits: C1=`ed6435c`, C2=`396ae12`, C3=`本提交`
 - Next:
+  - 执行 R2：把 preview/final 去重过滤职责进一步收口到阶段机，减少散落状态与双写路径。
 
 ### R2 状态机落地与文案统一（preview/final 分离）
 - Context:
