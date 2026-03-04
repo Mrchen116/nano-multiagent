@@ -59,7 +59,7 @@
     - 异步流程不再打印 `[text] ...` 逐字调试流，工具与状态进度改为结构化聚合行。
 - Rollback:
   - `fb14031`（R2 红测提交）
-- Commits: C1=`fb14031`, C2=`8879691`, C3=`<this-doc-commit>`
+- Commits: C1=`fb14031`, C2=`8879691`, C3=`ee04073`
 - Next:
   - R3：补齐同步路径完成态边界回归，并完成 Milestone 收口文档。
 
@@ -83,6 +83,6 @@
     - 非交互命令 `send-message` 仍保持 stdout 单 JSON 契约（相关 contract/integration 全绿）。
 - Rollback:
   - `f9173dc`（R3 红测提交）
-- Commits: C1=`f9173dc`, C2=`eb14cda`, C3=`<this-doc-commit>`
+- Commits: C1=`f9173dc`, C2=`eb14cda`, C3=`ee04073`
 - Next:
   - Milestone DONE：执行 rebase/main 集成与 `dev-tasks.json` DONE 回填。

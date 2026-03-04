@@ -70,7 +70,7 @@
 - Commits:
   - C1: `fb14031`
   - C2: `8879691`
-  - C3: `<this-doc-commit>`
+  - C3: `ee04073`
 - Status: `DONE`
 
 ### R3 CLI 层回归收口与边界固化（DONE）
@@ -93,7 +93,7 @@
 - Commits:
   - C1: `f9173dc`
   - C2: `eb14cda`
-  - C3: `<this-doc-commit>`
+  - C3: `ee04073`
 - Status: `DONE`
 
 ## Final Gate
