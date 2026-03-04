@@ -690,7 +690,8 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     text = output.getvalue()
     assert "Assistant:" in text
     assert "State: completed | stop=stop | run=run_" in text
-    assert "Tool: echo start args=ping" in text
+    assert "Tool echo start args=ping" in text
+    assert "Tool: echo start args=ping" not in text
     assert "Tool: echo output=echo:ping" in text
     assert "Usage:" in text
     assert "[status]" not in text
@@ -747,6 +748,7 @@ def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool() -> None
     assert "Tool bash chunk stderr" not in text
     assert "Tool: bash chunk stdout" not in text
     assert "Tool: bash chunk stderr" not in text
+    assert "Tool: bash progress chunks=2 (stdout=1, stderr=1)" in text
     assert "Tool: bash exit code=0" in text
     assert text.index("Tool bash started") < text.index("State:")
     assert "final:bash-finished" in text

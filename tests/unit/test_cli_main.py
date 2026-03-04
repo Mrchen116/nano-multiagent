@@ -1523,7 +1523,8 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "status=queued" not in text
-    assert "Tool: echo start" in text
+    assert "Tool echo start args=ping" in text
+    assert "Tool: echo start" not in text
     assert "Tool: echo output=echo:ping" in text
     assert "Assistant:" in text
     assert "final:echo:ping" in text
@@ -1583,7 +1584,8 @@ def test_run_cli_repl_groups_same_tool_name_events_by_call_id() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert text.count("Tool: echo start args=") == 2
+    assert text.count("Tool echo start args=") == 2
+    assert "Tool: echo start args=" not in text
     assert "Tool: echo output=echo:first" in text
     assert "Tool: echo output=echo:second" in text
 
@@ -1605,7 +1607,8 @@ def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> No
     assert "Assistant:" in text
     assert "final:echo:ping" in text
     assert "State: completed | stop=stop | run=run_target | session=sess_cli" in text
-    assert "Tool: echo start args=ping" in text
+    assert "Tool echo start args=ping" in text
+    assert "Tool: echo start args=ping" not in text
     assert "Tool: echo output=echo:ping" in text
     assert "Usage: unavailable" in text
     assert '"run_id": "run_target"' not in text
@@ -1650,6 +1653,7 @@ def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
     assert "Tool bash chunk stderr#2: err-line" not in text
     assert "Tool: bash chunk stdout#1: out-line" not in text
     assert "Tool: bash chunk stderr#2: err-line" not in text
+    assert "Tool: bash progress chunks=2 (stdout=1, stderr=1)" in text
     assert "Tool: bash exit code=0 status=completed duration=210ms" in text
     assert text.index("Tool bash started status=started elapsed=0ms") < text.index("State:")
 
