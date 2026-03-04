@@ -105,13 +105,15 @@
 - Evidence:
   - Tests:
     - 红测：`rg -n '^#### R2\\.Q1|^#### R2\\.Q2|^#### R2\\.Q3' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md` → `R2_RED_EXIT=1`（变更前）。
+    - 绿测：`rg -n '^#### R2\\.Q1|^#### R2\\.Q2|^#### R2\\.Q3' ... && rg -n '状态行门控策略|错误分层模型|可观测指标建议' ...` 命中通过。
+    - 基线：`PYTHONPATH=src pytest -q ...` → `113 passed, 42 warnings`。
   - Entry:
     - 代码锚点来源：`exec/src/event_processor.rs`、`exec/src/event_processor_with_human_output.rs`、`exec/src/event_processor_with_jsonl_output.rs`、`exec/src/lib.rs`。
 - Rollback:
 - 回退到 `1a9ee53`（R2 C1）。
-- Commits: C1=`1a9ee53`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`1a9ee53`, C2=`6524990`, C3=`TBD`
 - Next:
-- 跑 R2 校验命令与 baseline 门禁，完成 C2/C3。
+- 进入 R3：先补“商业化契约模板/测试矩阵”文档红测校验命令（C1）。
 
 #### R2.Q1 codex 如何做“状态行门控 + 事件折叠”避免刷屏？
 - 状态行门控策略：

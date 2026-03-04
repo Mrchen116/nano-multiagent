@@ -70,7 +70,7 @@
   - `rg -n '状态行门控策略|错误分层模型|可观测指标建议' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md`
 - DoD:
   - 覆盖状态、错误、可观测三条主线，能直接支撑 M53。
-- Status: `DOING`
+- Status: `DONE`
 
 ### R3 商业化前契约模板 + M52/M53/M54 测试矩阵草案
 - Acceptance:
@@ -85,4 +85,4 @@
   - `LOGBOOK.md` 新增 M62 规则条目。
 - DoD:
   - M52/M53/M54 执行者可直接按矩阵拆实现与验收。
-- Status: `TODO`
+- Status: `DOING`
