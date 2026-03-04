@@ -33,8 +33,8 @@
     - REPL 在首条 run 未完成时可接受第二条输入并输出 `Queued message #1`。
     - 队列最终按 FIFO 顺序完成两条 `send_message_async` 调用。
 - Rollback:
-  - `af06611`（R1 红测提交）
-- Commits: C1=`af06611`, C2=`43d4d1e`, C3=`9d4e60f`
+  - `81ad406`（R1 红测提交）
+- Commits: C1=`81ad406`, C2=`5fcc73c`, C3=`0611562`
 - Next:
   - R2：将 REPL 默认输出从 JSON/事件日志切换为结构化分区展示。
 
@@ -58,8 +58,8 @@
     - REPL 每轮默认输出 `Status/Tools/Answer/Usage` 分区；失败路径输出 `Error` 分区并携带 `layer/suggestion`。
     - 异步流程不再打印 `[text] ...` 逐字调试流，工具与状态进度改为结构化聚合行。
 - Rollback:
-  - `fb14031`（R2 红测提交）
-- Commits: C1=`fb14031`, C2=`8879691`, C3=`ee04073`
+  - `33ea52c`（R2 红测提交）
+- Commits: C1=`33ea52c`, C2=`a679206`, C3=`e2d25d1`
 - Next:
   - R3：补齐同步路径完成态边界回归，并完成 Milestone 收口文档。
 
@@ -82,7 +82,7 @@
     - 同步路径在仅返回 `stop_reason` 时，`Status` 分区显示 `state=completed`。
     - 非交互命令 `send-message` 仍保持 stdout 单 JSON 契约（相关 contract/integration 全绿）。
 - Rollback:
-  - `f9173dc`（R3 红测提交）
-- Commits: C1=`f9173dc`, C2=`eb14cda`, C3=`ee04073`
+  - `c8ff0dc`（R3 红测提交）
+- Commits: C1=`c8ff0dc`, C2=`499bf59`, C3=`e2d25d1`
 - Next:
   - Milestone DONE：执行 rebase/main 集成与 `dev-tasks.json` DONE 回填。
