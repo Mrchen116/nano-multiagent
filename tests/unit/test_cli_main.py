@@ -137,7 +137,7 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
     assert assistant_text == ""
     assert consumed == 2
     assert machine.phase is ReplRenderPhase.FINALIZING
-    assert preview_lines == ["Tool: bash start args=ping"]
+    assert preview_lines == ["Tool: bash start args=ping [call_id=call_1]"]
 
     assistant_text, consumed = consume_async_run_events(
         out=out,
@@ -157,7 +157,7 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
     )
 
     assert consumed == 1
-    assert preview_lines == ["Tool: bash start args=ping"]
+    assert preview_lines == ["Tool: bash start args=ping [call_id=call_1]"]
 
 
 def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summary() -> None:
@@ -175,6 +175,25 @@ def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summar
         line_identity_resolver=lambda line: line.strip(),
     )
     assert filtered == ["bash exit code=0 status=completed duration=10ms"]
+
+
+def test_build_repl_view_model_isolates_orphan_exec_exit_from_active_call_timeline() -> None:
+    from nano_multiagent.cli.events.event_pipeline import build_repl_view_model
+    from nano_multiagent.cli.events.repl_events import _event_preview_line
+
+    model = build_repl_view_model(
+        events=[
+            ("tool_start", {"run_id": "run_orphan", "name": "bash", "call_id": "call_active", "arguments": {"command": "echo ok"}}),
+            ("tool_exec_started", {"run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "started", "elapsed_ms": 0}),
+            ("tool_exec_exit", {"run_id": "run_orphan", "name": "bash", "call_id": "call_orphan", "status": "failed", "duration_ms": 44, "exit_code": 99}),
+            ("tool_exec_exit", {"run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "completed", "duration_ms": 21, "exit_code": 0}),
+        ],
+        preview_line_resolver=lambda event_name, data: _event_preview_line(event_name=event_name, data=data),
+    )
+
+    assert "orphan_events=1" in model.status_updates
+    assert any(line.startswith("orphan ") and "exit code=99" in line for line in model.tool_updates)
+    assert any("Tool: bash exit code=0 status=completed duration=21ms" in line for line in model.tool_updates)
 
 
 class _StubClient:
@@ -647,6 +666,84 @@ class _AsyncSameToolTwiceStubClient(_StubClient):
         }
 
 
+class _AsyncSameToolSameOutputStubClient(_StubClient):
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_same_output", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        return [
+            {
+                "event_id": "evt_same_output_start_1",
+                "event": "tool_start",
+                "data": {
+                    "run_id": "run_same_output",
+                    "name": "echo",
+                    "call_id": "call_same_1",
+                    "arguments": {"text": "same"},
+                },
+            },
+            {
+                "event_id": "evt_same_output_end_1",
+                "event": "tool_end",
+                "data": {
+                    "run_id": "run_same_output",
+                    "name": "echo",
+                    "call_id": "call_same_1",
+                    "output": {"text": "echo:same"},
+                    "error": None,
+                },
+            },
+            {
+                "event_id": "evt_same_output_start_2",
+                "event": "tool_start",
+                "data": {
+                    "run_id": "run_same_output",
+                    "name": "echo",
+                    "call_id": "call_same_2",
+                    "arguments": {"text": "same"},
+                },
+            },
+            {
+                "event_id": "evt_same_output_end_2",
+                "event": "tool_end",
+                "data": {
+                    "run_id": "run_same_output",
+                    "name": "echo",
+                    "call_id": "call_same_2",
+                    "output": {"text": "echo:same"},
+                    "error": None,
+                },
+            },
+            {
+                "event_id": "evt_same_output_text",
+                "event": "text_delta",
+                "data": {"run_id": "run_same_output", "delta": "final:echo:same"},
+            },
+        ]
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "completed",
+            "created_at": "2026-03-04T00:00:00+00:00",
+            "updated_at": "2026-03-04T00:00:00+00:00",
+            "turn_id": "turn_same_output",
+            "stop_reason": "stop",
+            "error": None,
+        }
+
+
 class _AsyncToolExecStreamingStubClient(_StubClient):
     def __init__(self) -> None:
         super().__init__()
@@ -754,6 +851,95 @@ class _AsyncToolExecStreamingStubClient(_StubClient):
             "updated_at": "2026-03-04T00:00:00+00:00",
             "turn_id": "turn_tool_exec",
             "stop_reason": "stop",
+            "error": None,
+        }
+
+
+class _AsyncOrphanExecExitStubClient(_StubClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self._stream_calls = 0
+
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_orphan", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        self._stream_calls += 1
+        if self._stream_calls == 1:
+            return [
+                {
+                    "event_id": "evt_orphan_start",
+                    "event": "tool_start",
+                    "data": {
+                        "run_id": "run_orphan",
+                        "name": "bash",
+                        "call_id": "call_active",
+                        "arguments": {"command": "echo active"},
+                    },
+                },
+                {
+                    "event_id": "evt_orphan_started",
+                    "event": "tool_exec_started",
+                    "data": {
+                        "run_id": "run_orphan",
+                        "name": "bash",
+                        "call_id": "call_active",
+                        "status": "started",
+                        "elapsed_ms": 0,
+                    },
+                },
+                {
+                    "event_id": "evt_orphan_exit",
+                    "event": "tool_exec_exit",
+                    "data": {
+                        "run_id": "run_orphan",
+                        "name": "bash",
+                        "call_id": "call_orphan",
+                        "status": "failed",
+                        "duration_ms": 31,
+                        "exit_code": 137,
+                    },
+                },
+                {
+                    "event_id": "evt_active_exit",
+                    "event": "tool_exec_exit",
+                    "data": {
+                        "run_id": "run_orphan",
+                        "name": "bash",
+                        "call_id": "call_active",
+                        "status": "completed",
+                        "duration_ms": 19,
+                        "exit_code": 0,
+                    },
+                },
+                {
+                    "event_id": "evt_orphan_text",
+                    "event": "text_delta",
+                    "data": {"run_id": "run_orphan", "delta": "final:orphan-isolated"},
+                },
+            ]
+        return []
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        status = "completed" if self._stream_calls >= 2 else "running"
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": status,
+            "created_at": "2026-03-04T00:00:00+00:00",
+            "updated_at": "2026-03-04T00:00:00+00:00",
+            "turn_id": "turn_orphan" if status == "completed" else None,
+            "stop_reason": "stop" if status == "completed" else None,
             "error": None,
         }
 
@@ -2084,6 +2270,24 @@ def test_run_cli_repl_groups_same_tool_name_events_by_call_id() -> None:
     assert "Tool: echo output=echo:second" in text
 
 
+def test_run_cli_repl_keeps_same_tool_output_lines_for_distinct_call_id() -> None:
+    stub = _AsyncSameToolSameOutputStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert text.count("Tool: echo output=echo:same") == 2
+    assert "final:echo:same" in text
+
+
 def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> None:
     stub = _AsyncEventingStubClient()
     output = io.StringIO()
@@ -2150,6 +2354,26 @@ def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
     assert "Tool: bash progress chunks=2 (stdout=1, stderr=1)" in text
     assert text.count("Tool: bash exit code=0 status=completed duration=210ms") == 1
     assert text.index("Tool: bash started status=started elapsed=0ms") < text.index("State:")
+
+
+def test_run_cli_repl_renders_orphan_tool_exit_as_isolated_timeline() -> None:
+    stub = _AsyncOrphanExecExitStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Tool: orphan bash exit code=137 status=failed duration=31ms" in text
+    assert "Tool: bash exit code=0 status=completed duration=19ms" in text
+    assert "Progress: orphan_events=1" in text
+    assert "final:orphan-isolated" in text
 
 
 def test_run_cli_repl_dedupes_replayed_tool_start_without_event_id() -> None:
