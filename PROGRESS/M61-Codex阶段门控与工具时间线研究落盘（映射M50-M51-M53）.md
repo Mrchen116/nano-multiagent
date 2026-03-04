@@ -31,17 +31,40 @@
     - status line 在流式阶段何时隐藏、何时恢复，是否受 commentary/final-answer phase 双重约束？
     - commit tick 与 frame coalesce 的边界在哪里（谁负责“节流”，谁负责“排空”）？
 - Decision:
+  - 结论（含推断）：
+    - `STREAMING`（推断）：`stream_controller/plan_stream_controller` 非空且 commit tick 持续排空，期间 status row 被隐藏。
+    - `FINALIZING`（推断）：`MessagePhase::Commentary` 完成后设置 `pending_status_indicator_restore=true`，等待“队列空闲 + task 仍运行”再恢复 status row。
+    - `FINALIZED`（推断）：final-answer 或 turn 终态触发 `finalize_turn`/`flush_answer_stream_with_separator`，控制器清空并重置 chunking 状态。
+  - `phase` 语义锚点：
+    - `MessagePhase::{Commentary, FinalAnswer}`：`protocol/src/models.rs:156`
+    - commentary 完成门控：`tui/src/chatwidget.rs:2293`
+  - commit/drain 与 redraw 分层：
+    - commit 计划与排空：`tui/src/streaming/commit_tick.rs:69`
+    - 阈值与滞回策略：`tui/src/streaming/chunking.rs:85`
+    - frame coalesce（最早 deadline + 120fps 限速）：`tui/src/tui/frame_requester.rs:110`
+  - M50 迁移建议（可执行）：
+    - 建立 `TurnRenderPhase` 显式状态机：`STREAMING -> FINALIZING -> FINALIZED`。
+    - 把“流式排空策略”和“重绘调度策略”分层：前者在 `events/stream_runtime`，后者在 `render/frame_scheduler`。
+    - status row 恢复必须与 `phase=Commentary` + `queue_idle` 双门控绑定，禁止仅凭“收到一次 completed”切换。
 - Rationale:
+  - codex 并非依赖单一状态字段，而是“phase + queue idle + task running”组合门控；这比简单 done flag 抗抖动更强。
 - Evidence:
   - Tests:
-    - `N/A（研究型 Red：以问题未解为失败点）`
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `113 passed, 42 warnings`
   - Entry:
-    - 已锁定一批候选锚点，待二次筛选。
+    - 关键锚点：
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/protocol/src/models.rs:156`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:913`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:1269`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:2293`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/streaming/commit_tick.rs:69`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/streaming/chunking.rs:85`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/tui/frame_requester.rs:110`
 - Rollback:
   - `a9b9dc4`（计划提交）。
-- Commits: C1=`本提交`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`4c9a55c`, C2=`本提交`, C3=`TBD`
 - Next:
-  - 进入 R1 Green：补齐 phase gating、commit tick、frame coalesce 的可执行迁移规则。
+  - 进入 R1 C3：更新 TASKS 状态并收口第一轮结论。
 
 ### R2 工具时间线聚合/orphan隔离与summary去重研究
 - Context:
