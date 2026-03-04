@@ -7,7 +7,7 @@
   - Allowed: `src/IM/**`、`tests/im_service/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`README.md（如需补充运行说明）`、`data/dev-tasks.json（仅脚本）`
   - Forbidden: `src/nano_multiagent/**`、`ROADMAP.md`
 
-## [TODO] R38.1 第二轮 Playwright 抽检（desktop+mobile，chat+settings）
+## [DONE] R38.1 第二轮 Playwright 抽检（desktop+mobile，chat+settings）
 - Acceptance:
   - 使用真实浏览器对 chat 核心页（`/chat`、`/chat/:conversationId`）完成桌面与手机抽检。
   - 使用真实浏览器对 settings 核心页（`/settings/agents`、`/settings/agents/:id`、`/settings/nodes`）完成桌面与手机抽检。
@@ -31,9 +31,9 @@
   - C1: `N/A（抽检取证）`
   - C2: `N/A（抽检取证）`
   - C3: `N/A（抽检取证）`
-- Status: TODO
+- Status: DONE
 
-## [TODO] R38.2 回归守卫：测试先红（C1）-> 最小修复/补强（C2）
+## [DONE] R38.2 回归守卫：测试先红（C1）-> 最小修复/补强（C2）
 - Acceptance:
   - 若 R38.1 发现回归：先写失败测试锁定问题，再做最小修复。
   - 若 R38.1 未发现回归：仍补一条可复用回归守卫测试，并按先红后绿完成证据链。
@@ -44,7 +44,7 @@
   - `integration`: 选。执行里程碑门禁命令确认全绿。
   - `e2e`: 选。Playwright 回归复核修复/补强结果。
 - Expected Tests:
-  - `src/IM/frontend/src/features/**/**.test.ts(x)`（新增/更新的回归守卫测试）
+  - `src/IM/frontend/src/app/index-html.test.ts`（新增 favicon 回归守卫测试）
   - `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`
   - Playwright 二次截图复核
 - DoD:
@@ -52,12 +52,12 @@
   - 门禁命令全绿，且 Playwright 复核通过。
   - PROGRESS 记录问题、决策、证据与回滚点。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
-  - C3: `<pending>`
-- Status: TODO
+  - C1: `cd4235b`
+  - C2: `b3b085d`
+  - C3: `N/A（在 R38.3 完成）`
+- Status: DONE
 
-## [TODO] R38.3 交付文档收口（运行说明/API与Mock边界/截图索引）
+## [DONE] R38.3 交付文档收口（运行说明/API与Mock边界/截图索引）
 - Acceptance:
   - 补齐可复现运行说明（服务启动、前端启动、抽检入口）。
   - 补齐“真实后端与 Mock 边界”说明（chat/settings 各自边界与切换方式）。
@@ -75,10 +75,10 @@
   - 门禁命令全绿。
   - C3 文档提交完成。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
-  - C3: `<pending>`
-- Status: TODO
+  - C1: `cd4235b`
+  - C2: `b3b085d`
+  - C3: `<this-doc-commit>`
+- Status: DONE
 
 ## [TODO] R38.4 主干集成与任务收口
 - Acceptance:

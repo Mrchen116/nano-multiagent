@@ -33,36 +33,85 @@
 
 ### R38.1 第二轮 Playwright 抽检（desktop+mobile，chat+settings）
 - Context:
+  - 抽检入口：`VITE_CHAT_API_MODE=mock npm run dev -- --host 127.0.0.1 --port 4173`。
+  - 覆盖范围：chat（列表/详情/发送）与 settings（agents/detail/nodes/policies/account）的 desktop+mobile。
 - Decision:
+  - 使用 Playwright CLI 同一 session 依次执行 `open/snapshot/click/fill/screenshot`，并统一将截图复制到 `src/IM/frontend/output/playwright/`。
 - Rationale:
+  - 第二轮目标是“回归稳定性验证”，优先验证关键用户路径可用，并保留可追溯截图证据。
 - Evidence:
   - Tests:
+    - 抽检前门禁：`PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build` 全绿。
   - Entry:
+    - chat:
+      - `M38-chat-desktop-list.png`
+      - `M38-chat-desktop-after-send.png`
+      - `M38-chat-mobile-list.png`
+      - `M38-chat-mobile-after-send.png`
+    - settings:
+      - `M38-settings-desktop-agents-list.png`
+      - `M38-settings-desktop-agent-detail-saved.png`
+      - `M38-settings-desktop-nodes-saved.png`
+      - `M38-settings-desktop-policies.png`
+      - `M38-settings-desktop-account.png`
+      - `M38-settings-mobile-agents-list.png`
+      - `M38-settings-mobile-nodes.png`
+      - `M38-settings-mobile-policies.png`
+      - `M38-settings-mobile-account.png`
+    - 结论：关键功能无回归；发现浏览器控制台存在持续 `404 /favicon.ico` 噪音。
 - Rollback:
+  - `7341252`（计划提交）
 - Commits: C1=`N/A`, C2=`N/A`, C3=`N/A`
 - Next:
+  - R38.2：围绕 favicon 控制台噪音补回归守卫测试并最小修复。
 
 ### R38.2 回归守卫：测试先红（C1）-> 最小修复/补强（C2）
 - Context:
+  - R38.1 未发现业务功能回归，但控制台错误会污染后续回归信号，需要纳入守卫。
 - Decision:
+  - C1：新增 `src/IM/frontend/src/app/index-html.test.ts`，要求 `index.html` 必须显式声明 favicon（先红）。
+  - C2：在 `src/IM/frontend/index.html` 增加 favicon link，并新增 `src/IM/frontend/public/favicon.svg`。
+  - 修复后再次执行 Playwright `goto /chat`，验证 console 错误清零并截图复核。
 - Rationale:
+  - 以测试先红将“控制台洁净”从人工观察提升为可回归规则，降低未来回归噪音。
 - Evidence:
   - Tests:
+    - Red：`cd src/IM/frontend && npm run test`（`index-html.test.ts` 失败，缺失 `rel="icon"`）。
+    - Green：`PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build` 全绿（23 + 16 tests + build success）。
   - Entry:
+    - Playwright 复核：`goto /chat` 后 snapshot 无 console error 字段。
+    - 修复后截图：`M38-chat-desktop-post-favicon-fix.png`。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `cd4235b`（R38.2 C1）
+- Commits: C1=`cd4235b`, C2=`b3b085d`, C3=`N/A（在 R38.3 完成）`
 - Next:
+  - R38.3：补齐运行说明/API与Mock边界/截图索引并完成文档收口。
 
 ### R38.3 交付文档收口（运行说明/API与Mock边界/截图索引）
 - Context:
+  - 里程碑要求补齐交付文档，且需与第二轮抽检产物一一对应。
 - Decision:
+  - 新增 `src/IM/frontend/README.md`，集中提供运行说明、边界说明与截图索引。
+  - 在仓库 `README.md` 增加 frontend 交付文档入口。
+  - 在 `LOGBOOK.md` 补一条可复用规则：Playwright 抽检需同步关注 console 洁净度。
+  - 回填 `TASKS/PROGRESS` 的 R38 证据链与提交哈希。
 - Rationale:
+  - 文档集中在 frontend 子目录可降低联调成本；根 README 仅保留入口，避免重复维护。
 - Evidence:
   - Tests:
+    - `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`（文档收口前已复跑全绿）。
   - Entry:
+    - 文档产物：
+      - `src/IM/frontend/README.md`
+      - `README.md`（frontend 文档入口）
+      - `LOGBOOK.md`（新增控制台洁净规则）
+      - `TASKS/M38-Playwright回归抽检（第二轮）与交付收口.md`
+      - `PROGRESS/M38-Playwright回归抽检（第二轮）与交付收口.md`
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `b3b085d`（R38.2 C2）
+- Commits: C1=`cd4235b`, C2=`b3b085d`, C3=`<this-doc-commit>`
 - Next:
+  - R38.4：rebase `origin/main`、全量门禁、merge main、push、dev-tasks 脚本收口。
 
 ### R38.4 主干集成与任务收口
 - Context:
