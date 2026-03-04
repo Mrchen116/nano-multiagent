@@ -41,7 +41,11 @@
   - 红测先失败后通过。
   - 门禁全绿。
   - 形成 C1/C2/C3 并在 PROGRESS 记录证据/回滚点/提交哈希。
-- Status: `TODO`
+- Commits:
+  - C1: `05f39bc`
+  - C2: `b2c53ed`
+  - C3: `待提交`
+- Status: `DONE`
 
 ### R2 输出信息架构收敛（答案优先 + 紧凑摘要）
 - Acceptance:
