@@ -776,7 +776,7 @@ def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool() -> None
     assert "Tool: bash chunk stderr" not in text
     assert "Tool: bash chunk stdout" not in text
     assert "Tool: bash chunk stderr" not in text
-    assert "Tool: bash exit code=0" in text
+    assert text.count("Tool: bash exit code=0") == 1
     assert text.index("Tool: bash started") < text.index("State:")
     assert "final:bash-finished" in text
 

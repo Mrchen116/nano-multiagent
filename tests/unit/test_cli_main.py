@@ -1739,7 +1739,7 @@ def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
     assert "Tool: bash chunk stdout#1: out-line" not in text
     assert "Tool: bash chunk stderr#2: err-line" not in text
     assert "Tool: bash progress chunks=2 (stdout=1, stderr=1)" in text
-    assert "Tool: bash exit code=0 status=completed duration=210ms" in text
+    assert text.count("Tool: bash exit code=0 status=completed duration=210ms") == 1
     assert text.index("Tool: bash started status=started elapsed=0ms") < text.index("State:")
 
 
@@ -1758,6 +1758,7 @@ def test_run_cli_repl_dedupes_replayed_tool_start_without_event_id() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert text.count("bash start args=") == 1
+    assert text.count("Tool: bash exit code=0 status=completed duration=12ms") == 1
     assert "final:no-event-id" in text
 
 
