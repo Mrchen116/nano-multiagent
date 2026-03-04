@@ -5,6 +5,7 @@ from typing import Callable
 from typing import TextIO
 
 from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
+from nano_multiagent.cli.events.event_pipeline import ReplPerfTracker
 from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
 from nano_multiagent.cli.events.event_pipeline import build_repl_view_model as _build_repl_view_model_from_pipeline
 from nano_multiagent.cli.events.event_pipeline import consume_event_for_run as _consume_event_for_run
@@ -32,6 +33,7 @@ def send_message_with_async_events(
     submitted = client.send_message_async(session_id=session_id, text=text)
     run_id = _extract_run_id(submitted)
     dedupe_window = EventDedupeWindow()
+    perf_tracker = ReplPerfTracker()
     render_phase_machine = ReplRenderPhaseMachine()
     seen_event_ids: set[str] | None = None
     seen_event_fingerprints: set[str] | None = None
@@ -57,6 +59,7 @@ def send_message_with_async_events(
             emit_preview=True,
             collected_events=collected_events,
             preview_writer=preview_writer,
+            perf_tracker=perf_tracker,
         )
 
         run_payload = client.get_run(run_id=run_id)
@@ -96,6 +99,7 @@ def send_message_with_async_events(
         "_repl_view": {
             "status_updates": status_updates,
             "tool_updates": tool_updates,
+            "perf_metrics": perf_tracker.snapshot(),
         },
     }
 
@@ -137,6 +141,7 @@ def consume_async_run_events(
     preview_writer: Callable[[str], None] | None = None,
     previewed_tool_lines: set[str] | None = None,
     emitted_tool_preview_identities: set[str] | None = None,
+    perf_tracker: ReplPerfTracker | None = None,
 ) -> tuple[str, int]:
     """Consume one poll batch with dedupe and run-id filtering.
 
@@ -147,6 +152,10 @@ def consume_async_run_events(
     delayed_terminal_run_status: dict[str, object] | None = None
     saw_terminal_run_status = False
     consumed = 0
+    preview_emitted = 0
+    dedupe_dropped = 0
+    run_filtered = 0
+    polled_events = len(events)
     updated_text = assistant_text
     resolved_dedupe_window = dedupe_window or EventDedupeWindow()
     resolved_phase_machine = render_phase_machine or ReplRenderPhaseMachine()
@@ -154,6 +163,9 @@ def consume_async_run_events(
         normalized_event = _normalize_session_event_from_pipeline(event)
         event_name = normalized_event.event_name
         data = normalized_event.data
+        if data.get("run_id") != run_id:
+            run_filtered += 1
+            continue
         if not _consume_event_for_run(
             normalized_event=normalized_event,
             run_id=run_id,
@@ -161,6 +173,7 @@ def consume_async_run_events(
             seen_event_ids=seen_event_ids,
             seen_event_fingerprints=seen_event_fingerprints,
         ):
+            dedupe_dropped += 1
             continue
         consumed += 1
         if event_name == "run_status":
@@ -184,6 +197,7 @@ def consume_async_run_events(
             else:
                 emitted_line = _emit_preview_line(out=out, event_name=event_name, data=data, preview_writer=preview_writer)
                 if emitted_line is not None:
+                    preview_emitted += 1
                     preview_line_identity = _tool_line_identity(emitted_line) if event_name.startswith("tool_") else ""
                     resolved_phase_machine.record_tool_preview(
                         preview_identity=preview_identity,
@@ -209,6 +223,14 @@ def consume_async_run_events(
                 data=delayed_terminal_run_status,
                 preview_writer=preview_writer,
             )
+    if perf_tracker is not None:
+        perf_tracker.record_batch(
+            polled_events=polled_events,
+            consumed_events=consumed,
+            preview_emitted=preview_emitted,
+            run_filtered=run_filtered,
+            dedupe_dropped=dedupe_dropped,
+        )
     return updated_text, consumed
 
 
