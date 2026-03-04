@@ -57,7 +57,7 @@
   - `tests/integration/test_cli_http_flow_integration.py`（相关异步事件用例）
 - DoD:
   - 红测失败点明确为去重窗口缺陷；C2 后目标用例与门禁全绿。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R3 收口验收（全量门禁 + managed 实跑 + 集成）
 - Acceptance:

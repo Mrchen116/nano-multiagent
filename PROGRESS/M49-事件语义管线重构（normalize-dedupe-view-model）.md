@@ -49,14 +49,27 @@
 
 ### R2 event_id + fallback 去重窗口稳态化
 - Context:
+  - 分层后仍存在“去重窗口与 legacy set 双轨判重”问题：即便窗口淘汰了旧语义键，legacy set 仍会永久拦截，导致窗口失效。
+  - 该问题会让长会话 fallback 去重退化为无界行为。
 - Decision:
+  - 新增红测验证“窗口容量淘汰后旧语义键可重新消费”。
+  - `consume_event_for_run` 改为仅使用 `EventDedupeWindow` 进行判重；`seen_event_ids/seen_event_fingerprints` 仅做兼容镜像，不再参与准入判断。
+  - `send_message_with_async_events` 默认不再维护 legacy 去重集合，避免无界增长。
 - Rationale:
+  - 将判重真源收敛到有界窗口，才能同时满足“缺失 event_id 去重稳定”与“窗口内存可控”。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "fallback_dedupe_window_evicts_old_semantic_keys"` -> `1 failed`（消费计数 `[1,1,1,0]`）。
+    - 绿测（子集）：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "fallback_dedupe_window_evicts_old_semantic_keys or event_pipeline_layer_exposes_normalize_dedupe_and_view_model"` -> `2 passed`。
+    - 回归子集：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "dedupes_replayed_tool_start_without_event_id or dedupes_replayed_tool_start_with_changed_event_id or dedupes_replayed_tool_start_with_changed_event_id_and_nonsemantic_metadata or uses_async_events_with_run_filter_and_dedup"` -> `4 passed`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `110 passed, 42 warnings`。
   - Entry:
+    - fallback 去重在缺失/漂移 `event_id` 场景保持稳定，且窗口淘汰语义生效。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - `1a346c3`（R2 红测提交）。
+- Commits: C1=`1a346c3`, C2=`f92212a`, C3=`本提交`
 - Next:
+  - 进入 R3：执行 managed CLI 实跑留证、更新文档收口并完成 main 集成与 dev_tasks DONE。
 
 ### R3 收口（全量门禁 + managed 实跑 + main 集成 + dev_tasks DONE）
 - Context:
