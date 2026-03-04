@@ -17,7 +17,7 @@
 - Command:
   - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`
 - Result:
-  - `105 passed, 42 warnings`（R3.2 全量门禁）
+  - `106 passed, 42 warnings`（R4.1 全量门禁）
 
 ## Roadpoints
 
@@ -76,4 +76,25 @@
   - 完成“队列摘要去重”红测->绿测闭环（C1/C2/C3）。
   - main 合并并 push。
   - `data/dev-tasks.json` 更新为 DONE，记录结果与证据。
+- Status: `DONE`
+
+### R4 managed 实跑重复 start 专项修复（preview 幂等）
+- Acceptance:
+  - 提供可复现脚本与输出片段，明确重复 `Tool: ... start` 来自 live preview 重发，不是 summary 复读，也不是真实双调用。
+  - 新增红测锁定“同 run/call/phase 但 `event_id` 与非语义字段变化”时的 preview 重复。
+  - 在 live preview 发射前按 `run_id + tool semantic identity(name/call_id/phase)` 幂等去重，不吞合法不同事件。
+  - 全量门禁 + managed 实跑通过，`Tool: ... start` 仅一次。
+- Tests Plan:
+  - unit: 选；新增非语义字段变化场景红测并绿化。
+  - integration: 不选；本路标聚焦 CLI preview 发射前去重策略。
+  - contract: 选；复跑里程碑门禁确保 `send-message` JSON 契约不回归。
+  - e2e: 选；managed CLI 快速退出场景实跑验收。
+- Expected Tests:
+  - `tests/unit/test_cli_main.py::test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id_and_nonsemantic_metadata`
+  - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`
+  - `PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token`（脚本化输入 `/new -> bash 请求 -> /exit`）
+- DoD:
+  - 完成 R4 红测->绿测->文档 C1/C2/C3。
+  - managed 输出确认 `Tool: bash start args=...` 仅出现一次。
+  - `main` push + `dev_tasks` 更新 `M46=DONE`。
 - Status: `DONE`

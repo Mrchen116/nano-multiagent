@@ -94,3 +94,40 @@
   - R3.2: C1=`1fe36fc`, C2=`6d0a7b3`, C3=`本提交`
 - Next:
   - 执行 managed CLI 实跑留证，随后 rebase/merge/push 与 dev_tasks DONE 更新。
+
+### R4 managed 实跑重复 start 专项修复（preview 幂等）
+- Context:
+  - 用户反馈 managed REPL 仍观测到 `Tool: ... start` 重复；现有去重主要依赖 `event_id` 或全量 `data` 指纹，遇到“同语义事件但非语义字段变化（如 `ts`）”时会失效。
+  - 边界约束保持不变：只改 CLI，不触碰 server/runtime/core。
+- Decision:
+  - 先用可复现脚本（自定义 stub）复现：同一 `run_id+call_id` 的 `tool_start` 二次回放仅变化 `event_id/ts`，观察输出中 `start` 出现 2 次。
+  - 新增红测 `test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id_and_nonsemantic_metadata` 锁定该场景。
+  - 在 `consume_async_run_events` 的 live preview 发射前增加语义幂等键：`run_id|name|call_id|phase(start|started|exit)`；命中已发射集合则跳过二次发射。
+- Rationale:
+  - 该方案只抑制“同 run 同工具同阶段”的重复 preview，不影响不同 `call_id` 或不同阶段的合法事件。
+  - 去重位置前移到 preview 发射前，可直接消除用户感知重复；摘要层逻辑保持兼容。
+- Evidence:
+  - Repro Script（修复前）：
+    - `PYTHONPATH=src /Users/czj/miniforge3/bin/python3 - <<'PY' ... ReplayTsShiftStub ... PY`
+    - 输出片段：
+      - `Tool: bash start args={"command": "echo hi"}`
+      - `Tool: bash started status=started elapsed=0ms`
+      - `Tool: bash start args={"command": "echo hi"}`  ← 重复
+      - `Tool: bash exit code=0 status=completed duration=19ms`
+      - `summary_start_count=0`
+    - 结论：重复来自 live preview 重发；不是 summary 复读；且仅 1 条 `exit`，不属于真实双调用。
+  - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "changed_event_id_and_nonsemantic_metadata"` -> `1 failed`（`Tool: bash start args=` 计数为 2）。
+    - 绿测（子集）：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "changed_event_id_and_nonsemantic_metadata or changed_event_id or dedupes_replayed_tool_start_without_event_id or streams_started_running_chunk_and_exit_for_tool_execution"` -> `4 passed`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `106 passed, 42 warnings`。
+  - Entry:
+    - managed 验收（快速 `/exit` 压力路径）输出计数：
+      - `Tool start count: 1`
+      - `Tool started count: 1`
+      - `Tool exit count: 1`
+      - `Summary(start) count after State: 0`
+- Rollback:
+  - `050b29a`（R4 红测提交）
+- Commits: C1=`050b29a`, C2=`2a4b61f`, C3=`本提交`
+- Next:
+  - push `main` 并更新 `dev_tasks` 的 `M46=DONE`。
