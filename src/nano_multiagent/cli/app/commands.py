@@ -43,6 +43,31 @@ _DEFAULT_CLI_MODE = "remote"
 _REPL_DRAIN_TIMEOUT_SECONDS = 5.0
 
 
+def _is_tty_output(out: TextIO) -> bool:
+    """Return whether the output stream is an interactive TTY."""
+    isatty = getattr(out, "isatty", None)
+    if not callable(isatty):
+        return False
+    try:
+        return bool(isatty())
+    except Exception:
+        return False
+
+
+def _emit_plain_repl_block(*, out: TextIO, text: str) -> None:
+    """Emit REPL block for non-TTY outputs without terminal control sequences."""
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    if not normalized:
+        return
+    if normalized.endswith("\n"):
+        out.write(normalized)
+    else:
+        out.write(f"{normalized}\n")
+    flush = getattr(out, "flush", None)
+    if callable(flush):
+        flush()
+
+
 @dataclass(frozen=True, slots=True)
 class _ManagedLLMOverrides:
     provider: str | None = None
@@ -250,8 +275,12 @@ def _run_repl(
     input_history_by_session: dict[str, list[str]] = {}
     async_repl_enabled = _supports_async_repl_events(client)
 
-    def _emit_external_repl_block(text: str) -> None:
-        repl_input.emit_external_text(out=out, text=text)
+    if _is_tty_output(out):
+        def _emit_external_repl_block(text: str) -> None:
+            repl_input.emit_external_text(out=out, text=text)
+    else:
+        def _emit_external_repl_block(text: str) -> None:
+            _emit_plain_repl_block(out=out, text=text)
 
     def _print_repl_turn_summary_block(payload: dict[str, object], *, context_budget_client: object | None = None) -> None:
         buffer = io.StringIO()
