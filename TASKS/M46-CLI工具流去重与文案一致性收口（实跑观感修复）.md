@@ -17,7 +17,7 @@
 - Command:
   - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`
 - Result:
-  - `104 passed, 42 warnings`（R3 全量门禁）
+  - `105 passed, 42 warnings`（R3.2 全量门禁）
 
 ## Roadpoints
 

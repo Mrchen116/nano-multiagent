@@ -82,11 +82,15 @@
   - Tests:
     - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py -k "dedupes_replayed_tool_start_without_event_id or streams_started_running_chunk_and_exit_for_tool_execution or streams_started_running_chunk_and_exit_for_bash_tool"` -> `3 failed`（`Tool: ... exit` 均出现 2 次）。
     - 绿测：同命令 -> `3 passed`。
-    - 门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `104 passed, 42 warnings`。
+    - Follow-up 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "changed_event_id"` -> `1 failed`（同内容但不同 `event_id` 回放导致 `Tool: ... start` 出现 2 次）。
+    - Follow-up 绿测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py -k "changed_event_id or dedupes_replayed_tool_start_without_event_id or streams_started_running_chunk_and_exit_for_tool_execution or streams_started_running_chunk_and_exit_for_bash_tool or uses_async_events_with_run_filter_and_dedup"` -> `5 passed`。
+    - 门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `105 passed, 42 warnings`。
   - Entry:
     - 队列 REPL 下 `Tool: ... exit` 仅输出一次；摘要不再复读实时已输出关键线。
 - Rollback:
   - `54c2000`（R3 红测提交）
-- Commits: C1=`54c2000`, C2=`a16f009`, C3=`本提交`
+- Commits:
+  - R3.1: C1=`54c2000`, C2=`a16f009`, C3=`78300d2`
+  - R3.2: C1=`1fe36fc`, C2=`6d0a7b3`, C3=`本提交`
 - Next:
   - 执行 managed CLI 实跑留证，随后 rebase/merge/push 与 dev_tasks DONE 更新。
