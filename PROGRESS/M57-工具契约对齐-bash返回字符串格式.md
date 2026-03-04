@@ -42,8 +42,8 @@
   - Entry:
     - `bash` 成功输出返回统一字符串，截断文案可直接定位 `fullOutputPath`。
 - Rollback:
-  - `548238e`（R1 红测提交）。
-- Commits: C1=`548238e`, C2=`9ff069d`, C3=`本提交`
+  - `ba778a5`（R1 红测提交）。
+- Commits: C1=`ba778a5`, C2=`db647a8`, C3=`4a40d28`
 - Next:
   - 进入 R2：锁定 non-zero / timeout / abort 错误 message 与 details 结构契约，再做最小实现收口。
 
@@ -68,7 +68,7 @@
   - Entry:
     - non-zero/timeout/abort 均输出统一文案；timeout 与截断路径可在 details 中解析 `fullOutputPath`。
 - Rollback:
-  - `bf29f1a`（R2 红测提交）。
-- Commits: C1=`bf29f1a`, C2=`9798530`, C3=`本提交`
+  - `34fb4ee`（R2 红测提交）。
+- Commits: C1=`34fb4ee`, C2=`265595c`, C3=`7fd861f`
 - Next:
   - 执行里程碑收口：更新 `dev-tasks.json` 为 DONE 并回传 summary/tests/commits。
