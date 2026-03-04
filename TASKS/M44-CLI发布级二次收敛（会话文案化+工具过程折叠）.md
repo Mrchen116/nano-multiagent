@@ -76,10 +76,10 @@
   - 全量门禁命令全绿。
   - 完成 C1/C2/C3 并在 PROGRESS 记录证据、回滚点、哈希。
 - Commits:
-  - C1: `TBD`
-  - C2: `TBD`
+  - C1: `724407a`
+  - C2: `148945e`
   - C3: `TBD`
-- Status: `DOING`
+- Status: `DONE`
 
 ### R3 收口验收与集成（managed 真机验收 + main 集成）
 - Acceptance:
@@ -103,4 +103,4 @@
   - C1: `N/A（收口路标无独立红测提交）`
   - C2: `N/A（收口路标无实现代码提交）`
   - C3: `TBD`
-- Status: `TODO`
+- Status: `DOING`

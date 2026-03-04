@@ -36,15 +36,15 @@
 - Next: 进入 R2，收敛工具过程为关键节点摘要并继续保持 run_id/event_id 与排队能力。
 
 ### R2 工具过程折叠（关键节点摘要优先）
-- Context:
-- Decision:
-- Rationale:
+- Context: 现状虽然已隐藏 running/chunk 明细，但最终摘要仍重复展示 `start`，且缺少对 chunk 的聚合进度表达；工具过程信息密度仍偏高。
+- Decision: 调整 `repl_events._build_repl_view`：默认不在最终摘要重复 `start`；保留 `output/exit/error`；将 `tool_exec_chunk` 汇总为单条 `progress chunks=...` 关键进度行。
+- Rationale: 把事件细粒度信息收束成“关键节点 + 聚合进度”，兼顾可读性与排障信息。
 - Evidence:
-  - Tests: 
-  - Entry:
-- Rollback:
-- Commits: C1=<TBD>, C2=<TBD>, C3=<TBD>
-- Next:
+  - Tests: `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `101 passed, 40 warnings`
+  - Entry: bash 工具链路只保留 start/started/exit 与聚合 progress，无 running/chunk 明细；`run_id` 过滤、`event_id` 去重与排队用例持续通过。
+- Rollback: `724407a`（R2 红测基线）
+- Commits: C1=`724407a`, C2=`148945e`, C3=`TBD`
+- Next: 执行 R3 收口：门禁复跑、managed 真实验收、rebase+merge+push、dev_tasks 更新 DONE。
 
 ### R3 收口验收与集成（managed 真机验收 + main 集成）
 - Context:
