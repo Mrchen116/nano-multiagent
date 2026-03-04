@@ -1,6 +1,7 @@
 """REPL helpers for async run polling and SSE event preview rendering."""
 
 import json
+from typing import Callable
 from typing import TextIO
 
 from nano_multiagent.cli.http_client import ServerClient
@@ -17,6 +18,7 @@ def send_message_with_async_events(
     client: ServerClient,
     session_id: str,
     text: str,
+    preview_writer: Callable[[str], None] | None = None,
 ) -> dict[str, object]:
     """Send message through async endpoint and aggregate structured turn view."""
     submitted = client.send_message_async(session_id=session_id, text=text)
@@ -40,6 +42,7 @@ def send_message_with_async_events(
             assistant_text=assistant_text,
             emit_preview=True,
             collected_events=collected_events,
+            preview_writer=preview_writer,
         )
 
         run_payload = client.get_run(run_id=run_id)
@@ -113,6 +116,7 @@ def consume_async_run_events(
     assistant_text: str,
     emit_preview: bool = True,
     collected_events: list[tuple[str, dict[str, object]]] | None = None,
+    preview_writer: Callable[[str], None] | None = None,
 ) -> tuple[str, int]:
     """Consume one poll batch with dedupe and run-id filtering.
 
@@ -140,7 +144,7 @@ def consume_async_run_events(
         if collected_events is not None:
             collected_events.append((event_name, data))
         if emit_preview and _is_live_preview_event(event_name):
-            print_event_preview(out=out, event_name=event_name, data=data)
+            _emit_preview_line(out=out, event_name=event_name, data=data, preview_writer=preview_writer)
         if event_name == "text_delta":
             delta = data.get("delta")
             if isinstance(delta, str):
@@ -149,7 +153,12 @@ def consume_async_run_events(
         if collected_events is not None:
             collected_events.append(("run_status", delayed_terminal_run_status))
         if emit_preview and _is_live_preview_event("run_status"):
-            print_event_preview(out=out, event_name="run_status", data=delayed_terminal_run_status)
+            _emit_preview_line(
+                out=out,
+                event_name="run_status",
+                data=delayed_terminal_run_status,
+                preview_writer=preview_writer,
+            )
     return updated_text, consumed
 
 
@@ -160,16 +169,40 @@ def print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]
         print(line, file=out, flush=True)
 
 
+def _emit_preview_line(
+    *,
+    out: TextIO,
+    event_name: str,
+    data: dict[str, object],
+    preview_writer: Callable[[str], None] | None,
+) -> None:
+    line = _event_preview_line(event_name=event_name, data=data)
+    if line is None:
+        return
+    if preview_writer is not None:
+        preview_writer(line)
+        return
+    print(line, file=out, flush=True)
+
+
 def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[str], list[str]]:
     status_updates: list[str] = []
-    tool_updates: list[str] = []
+    tool_order: list[str] = []
+    tool_views: dict[str, dict[str, str]] = {}
+
+    def _ensure_tool(name: str) -> dict[str, str]:
+        if name not in tool_views:
+            tool_views[name] = {}
+            tool_order.append(name)
+        return tool_views[name]
+
     for event_name, data in events:
         if event_name == "run_status":
             status_line = _format_status_progress(data)
             if status_line:
                 status_updates.append(status_line)
             continue
-        if event_name in {
+        if event_name not in {
             "tool_start",
             "tool_end",
             "tool_exec_started",
@@ -177,9 +210,76 @@ def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[
             "tool_exec_chunk",
             "tool_exec_exit",
         }:
-            tool_line = _event_preview_line(event_name=event_name, data=data)
-            if tool_line:
-                tool_updates.append(tool_line)
+            continue
+        name = _tool_name_from_data(data)
+        if not name:
+            continue
+        tool_line = _event_preview_line(event_name=event_name, data=data)
+        if not tool_line:
+            continue
+        slot = _ensure_tool(name)
+        if event_name == "tool_start":
+            slot["start"] = tool_line
+            continue
+        if event_name == "tool_end":
+            if " error=" in tool_line:
+                slot["error"] = tool_line
+            else:
+                slot["output"] = tool_line
+            continue
+        if event_name == "tool_exec_started":
+            slot["exec_started"] = tool_line
+            continue
+        if event_name == "tool_exec_running":
+            slot["exec_running"] = tool_line
+            continue
+        if event_name == "tool_exec_chunk":
+            stream = data.get("stream")
+            if isinstance(stream, str) and stream.strip():
+                slot[f"chunk_{stream.strip().lower()}"] = tool_line
+            else:
+                slot["chunk_unknown"] = tool_line
+            continue
+        if event_name == "tool_exec_exit":
+            slot["exec_exit"] = tool_line
+
+    tool_updates: list[str] = []
+    for name in tool_order:
+        slot = tool_views.get(name, {})
+        if not slot:
+            continue
+        error_line = slot.get("error")
+        if error_line:
+            tool_updates.append(error_line)
+            continue
+        output_line = slot.get("output")
+        chunk_stdout = slot.get("chunk_stdout")
+        chunk_stderr = slot.get("chunk_stderr")
+        chunk_unknown = slot.get("chunk_unknown")
+        exit_line = slot.get("exec_exit")
+        running_line = slot.get("exec_running")
+        started_line = slot.get("exec_started")
+        start_line = slot.get("start")
+
+        if start_line:
+            tool_updates.append(start_line)
+        if output_line and not any((chunk_stdout, chunk_stderr, chunk_unknown)):
+            tool_updates.append(output_line)
+        if chunk_stdout:
+            tool_updates.append(chunk_stdout)
+        if chunk_stderr:
+            tool_updates.append(chunk_stderr)
+        if chunk_unknown:
+            tool_updates.append(chunk_unknown)
+        if exit_line:
+            tool_updates.append(exit_line)
+            continue
+        if running_line:
+            tool_updates.append(running_line)
+            continue
+        if started_line:
+            tool_updates.append(started_line)
+            continue
     return status_updates, tool_updates
 
 
@@ -312,7 +412,7 @@ def merge_text_delta(current: str, delta: str) -> str:
 
 
 def _is_live_preview_event(event_name: str) -> bool:
-    return event_name in {"tool_exec_started", "tool_exec_running", "tool_exec_chunk", "tool_exec_exit"}
+    return event_name in {"tool_start", "tool_exec_started", "tool_exec_exit"}
 
 
 def _preview_elapsed_ms(value: object) -> str:
@@ -321,3 +421,10 @@ def _preview_elapsed_ms(value: object) -> str:
     if isinstance(value, float):
         return f"{int(value)}ms"
     return "unknown"
+
+
+def _tool_name_from_data(data: dict[str, object]) -> str:
+    raw = data.get("name")
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip()

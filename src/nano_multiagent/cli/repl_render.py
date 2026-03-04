@@ -116,21 +116,17 @@ def _format_usage_line(usage: object) -> str:
 
 
 def _compact_status_updates(updates: list[str], *, final_state: str) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
+    latest: str | None = None
     for raw in updates:
         line = raw.strip()
         if not line:
             continue
         if line == f"status={final_state}":
             continue
-        if line in seen:
-            continue
-        seen.add(line)
-        result.append(line)
-    if len(result) <= 3:
-        return result
-    return result[-3:]
+        latest = line
+    if latest is None:
+        return []
+    return [latest]
 
 
 def _compact_tool_updates(updates: list[str]) -> list[str]:

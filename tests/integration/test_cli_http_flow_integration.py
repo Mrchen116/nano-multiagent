@@ -735,11 +735,14 @@ def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool() -> None
 
     assert exit_code == 0
     text = output.getvalue()
+    assert "[tool bash] start args=" in text
     assert "[tool bash] started" in text
-    assert "[tool bash] running" in text
-    assert "[tool bash] chunk stdout" in text
-    assert "[tool bash] chunk stderr" in text
-    assert "[tool bash] exit code=0" in text
+    assert "[tool bash] running" not in text
+    assert "[tool bash] chunk stdout" not in text
+    assert "[tool bash] chunk stderr" not in text
+    assert "[tool] bash chunk stdout" in text
+    assert "[tool] bash chunk stderr" in text
+    assert "[tool] bash exit code=0" in text
     assert text.index("[tool bash] started") < text.index("[status]")
     assert "final:bash-finished" in text
 

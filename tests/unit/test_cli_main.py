@@ -364,6 +364,16 @@ class _AsyncToolExecStreamingStubClient(_StubClient):
         if self._stream_calls == 1:
             return [
                 {
+                    "event_id": "evt_tool_start",
+                    "event": "tool_start",
+                    "data": {
+                        "run_id": "run_tool_exec",
+                        "name": "bash",
+                        "call_id": "call_bash_1",
+                        "arguments": {"command": "printf out-line; printf err-line >&2", "timeout": 1},
+                    },
+                },
+                {
                     "event_id": "evt_tool_exec_started",
                     "event": "tool_exec_started",
                     "data": {
@@ -862,7 +872,38 @@ def test_repl_input_external_output_replays_prompt_without_layout_break() -> Non
 
     text = output.getvalue()
     assert "[tool echo] output=ok" in text
+    assert "\r[tool echo] output=ok\r\n" in text
     assert text.count("nano> ping") >= 2
+
+
+def test_repl_input_external_multiline_output_uses_terminal_safe_line_endings() -> None:
+    output = io.StringIO()
+
+    repl_input.render_interactive_line(
+        out=output,
+        prompt="nano> ",
+        chars=list("ping"),
+        cursor=4,
+    )
+    repl_input.emit_external_text(out=output, text="line-1\nline-2")
+
+    text = output.getvalue()
+    assert "line-1\r\nline-2\r\n" in text
+    assert text.count("nano> ping") >= 2
+
+
+def test_repl_input_engine_supports_crlf_line_break_for_terminal_mode() -> None:
+    output = io.StringIO()
+    typed = repl_input.read_interactive_line(
+        prompt="nano> ",
+        history=(),
+        key_reader=_iter_keys(["h", "i", "\n"]),
+        out=output,
+        line_break="\r\n",
+    )
+
+    assert typed == "hi"
+    assert output.getvalue().endswith("\r\n")
 
 
 def test_run_cli_repl_up_recalls_previous_command_line() -> None:
@@ -1408,11 +1449,14 @@ def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
 
     assert exit_code == 0
     text = output.getvalue()
+    assert "[tool bash] start args=" in text
     assert "[tool bash] started status=started elapsed=0ms" in text
-    assert "[tool bash] running status=running elapsed=120ms" in text
-    assert "[tool bash] chunk stdout#1: out-line" in text
-    assert "[tool bash] chunk stderr#2: err-line" in text
-    assert "[tool bash] exit code=0 status=completed duration=210ms" in text
+    assert "[tool bash] running status=running elapsed=120ms" not in text
+    assert "[tool bash] chunk stdout#1: out-line" not in text
+    assert "[tool bash] chunk stderr#2: err-line" not in text
+    assert "[tool] bash chunk stdout#1: out-line" in text
+    assert "[tool] bash chunk stderr#2: err-line" in text
+    assert "[tool] bash exit code=0 status=completed duration=210ms" in text
     assert text.index("[tool bash] started status=started elapsed=0ms") < text.index("[status]")
 
 
@@ -1472,8 +1516,8 @@ def test_run_cli_repl_prints_retry_progress_from_run_status_event() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "status=running" in text
-    assert "attempt=1" in text
-    assert "next_delay=0.5s" in text
+    assert "attempt=1" not in text
+    assert "next_delay=1.0s" in text
     assert "cooldown=30.0s" in text
     assert "last_error=model_error:upstream flaky #5" in text
 

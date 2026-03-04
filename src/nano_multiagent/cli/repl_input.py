@@ -131,6 +131,7 @@ def read_interactive_line_from_terminal(
             key_reader=lambda: _read_terminal_key(sys.stdin),
             out=out,
             command_suggestions=command_suggestions,
+            line_break="\r\n",
         )
 
 
@@ -141,6 +142,7 @@ def read_interactive_line(
     key_reader: Callable[[], str | None],
     out: TextIO,
     command_suggestions: Sequence[str] = (),
+    line_break: str = "\n",
 ) -> str:
     """Read/edit one line with history and slash-command menu support."""
     chars: list[str] = []
@@ -189,14 +191,14 @@ def read_interactive_line(
                         selected_command_index=command_menu_index,
                     )
                     continue
-                print("", file=out)
+                out.write(line_break)
                 return "".join(chars)
             if key == "\x03":
                 raise KeyboardInterrupt()
             if key == "\x04":
                 if chars:
                     continue
-                print("", file=out)
+                out.write(line_break)
                 raise EOFError()
             if key in _KEY_BACKSPACE:
                 if cursor > 0:
@@ -387,9 +389,14 @@ def emit_external_text(*, out: TextIO, text: str) -> None:
         if should_restore_prompt:
             _clear_interactive_line_locked(out=out)
 
-        out.write(text)
-        if text and not text.endswith("\n"):
-            out.write("\n")
+        normalized_text = _normalize_terminal_multiline_text(text)
+        if normalized_text:
+            # Always force external block to start at column 0. This avoids
+            # progressive right-shift when terminal output happens in raw mode.
+            out.write("\r")
+            out.write(normalized_text)
+            if not normalized_text.endswith("\r\n"):
+                out.write("\r\n")
 
         if should_restore_prompt and active is not None:
             _render_interactive_line_locked(
@@ -460,6 +467,11 @@ def _clear_active_render_state(*, out: TextIO) -> None:
 def _clear_interactive_line_locked(*, out: TextIO) -> None:
     out.write("\r\x1b[K")
     out.write("\x1b[J")
+
+
+def _normalize_terminal_multiline_text(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return normalized.replace("\n", "\r\n")
 
 
 def _sync_command_menu_selection(

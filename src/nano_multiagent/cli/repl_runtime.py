@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from queue import Queue
 from threading import Lock, Thread
+import time
 from typing import Callable
 
 
@@ -51,20 +52,36 @@ class ReplRunQueue:
         with self._state_lock:
             return self._queue.qsize() + (1 if self._active else 0)
 
-    def close(self, *, wait_for_drain: bool) -> None:
-        """Close worker and optionally wait for all queued messages to finish."""
+    def close(self, *, wait_for_drain: bool, drain_timeout_seconds: float | None = None) -> bool:
+        """Close worker and optionally wait for queued messages.
+
+        Returns:
+            True when queue drained before shutdown sentinel, False when timeout reached.
+        """
         with self._state_lock:
             if self._closed:
-                return
+                return True
             self._closed = True
+        drained = True
         if wait_for_drain:
-            self._queue.join()
+            drained = self.wait_for_drain(timeout_seconds=drain_timeout_seconds)
         self._queue.put(None)
-        self._worker.join()
+        self._worker.join(timeout=drain_timeout_seconds)
+        return drained
 
-    def wait_for_drain(self) -> None:
-        """Block until active/queued work is fully drained."""
-        self._queue.join()
+    def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
+        """Wait until active/queued work is drained.
+
+        Returns:
+            True when queue drained, False when timeout reached.
+        """
+        deadline = None if timeout_seconds is None else (time.monotonic() + max(timeout_seconds, 0.0))
+        while True:
+            if self.backlog_size() == 0:
+                return True
+            if deadline is not None and time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
 
     def _run(self) -> None:
         while True:

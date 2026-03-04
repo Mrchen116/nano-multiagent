@@ -40,6 +40,7 @@ _CLI_HELP_EPILOG = (
     "Error layers: input / network / runtime."
 )
 _DEFAULT_CLI_MODE = "remote"
+_REPL_DRAIN_TIMEOUT_SECONDS = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,6 +270,7 @@ def _run_repl(
                 client=client,
                 session_id=item.session_id,
                 text=item.text,
+                preview_writer=_emit_external_repl_block,
             )
             response_content = _extract_message_content(payload)
             if response_content is not None:
@@ -305,8 +307,13 @@ def _run_repl(
                 raw = read_line(_prompt(active_session_id), input_history_by_session.get(active_session_id or "", ()))
             except EOFError:
                 if run_queue is not None and run_queue.backlog_size() > 0:
-                    print(f"Waiting for {run_queue.backlog_size()} in-flight message(s) before exit.", file=out)
-                print("bye", file=out)
+                    _emit_external_repl_block(
+                        f"Waiting for {run_queue.backlog_size()} in-flight message(s) before exit."
+                    )
+                    drained = run_queue.wait_for_drain(timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS)
+                    if not drained:
+                        _emit_external_repl_block("Timed out waiting for in-flight messages; exiting now.")
+                _emit_external_repl_block("bye")
                 return 0
 
             line = raw.strip()
@@ -316,11 +323,15 @@ def _run_repl(
             if repl_commands.is_repl_command_candidate(line):
                 command_name = line.split(maxsplit=1)[0]
                 if run_queue is not None and run_queue.backlog_size() > 0 and command_name != "/exit":
-                    print(
-                        f"Waiting for {run_queue.backlog_size()} in-flight message(s) before {command_name}.",
-                        file=out,
+                    _emit_external_repl_block(
+                        f"Waiting for {run_queue.backlog_size()} in-flight message(s) before {command_name}."
                     )
-                    run_queue.wait_for_drain()
+                    drained = run_queue.wait_for_drain(timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS)
+                    if not drained:
+                        _emit_external_repl_block(
+                            f"Timed out waiting for in-flight messages; skipping {command_name} for now."
+                        )
+                        continue
                 if active_session_id:
                     _append_input_history_entry(input_history_by_session, active_session_id, line)
                 command_result = repl_commands.handle_repl_command(
@@ -342,7 +353,12 @@ def _run_repl(
                 active_session_id = command_result.active_session_id
                 if command_result.should_exit:
                     if run_queue is not None and run_queue.backlog_size() > 0:
-                        print(f"Waiting for {run_queue.backlog_size()} in-flight message(s) before exit.", file=out)
+                        _emit_external_repl_block(
+                            f"Waiting for {run_queue.backlog_size()} in-flight message(s) before exit."
+                        )
+                        drained = run_queue.wait_for_drain(timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS)
+                        if not drained:
+                            _emit_external_repl_block("Timed out waiting for in-flight messages; exiting now.")
                     return 0
                 if command_result.handled:
                     continue
@@ -351,7 +367,7 @@ def _run_repl(
                 if not active_session_id:
                     session_payload = client.create_session()
                     active_session_id = _extract_session_id(session_payload)
-                    print(json.dumps(session_payload, ensure_ascii=False), file=out)
+                    _emit_external_repl_block(json.dumps(session_payload, ensure_ascii=False))
 
                 _append_input_history_entry(input_history_by_session, active_session_id, line)
                 _append_history_entry(history_by_session, active_session_id, role="user", content=line)
@@ -380,7 +396,7 @@ def _run_repl(
 
                 backlog_before = run_queue.enqueue(session_id=active_session_id, text=line)
                 if backlog_before > 0:
-                    print(f"Queued message #{backlog_before} for session {active_session_id}.", file=out)
+                    _emit_external_repl_block(f"Queued message #{backlog_before} for session {active_session_id}.")
             except Exception as exc:
                 layer = _error_layer_for_exception(exc)
                 suggestion = _suggestion_for_exception(
@@ -395,7 +411,7 @@ def _run_repl(
                 )
     finally:
         if run_queue is not None:
-            run_queue.close(wait_for_drain=True)
+            run_queue.close(wait_for_drain=False)
 
 def _send_message_from_repl(
     *,
@@ -403,10 +419,17 @@ def _send_message_from_repl(
     client: ServerClient,
     session_id: str,
     text: str,
+    preview_writer: Callable[[str], None] | None = None,
 ) -> dict[str, object]:
     if not _supports_async_repl_events(client):
         return client.send_message(session_id=session_id, text=text)
-    return _send_message_with_async_events(out=out, client=client, session_id=session_id, text=text)
+    return _send_message_with_async_events(
+        out=out,
+        client=client,
+        session_id=session_id,
+        text=text,
+        preview_writer=preview_writer,
+    )
 
 
 def _resolve_mode(raw_mode: str | None) -> str:
