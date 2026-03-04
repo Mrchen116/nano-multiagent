@@ -12,6 +12,15 @@ _EVENT_PREVIEW_HEAD_LEN = 72
 _EVENT_PREVIEW_TAIL_LEN = 45
 _EVENT_POLL_MAX_EVENTS = 200
 _EVENT_POLL_TIMEOUT_SECONDS = 0.25
+_REPLAY_FALLBACK_DEDUPE_EVENTS = {
+    "run_status",
+    "tool_start",
+    "tool_end",
+    "tool_exec_started",
+    "tool_exec_running",
+    "tool_exec_chunk",
+    "tool_exec_exit",
+}
 
 
 def send_message_with_async_events(
@@ -26,6 +35,7 @@ def send_message_with_async_events(
     submitted = client.send_message_async(session_id=session_id, text=text)
     run_id = _extract_run_id(submitted)
     seen_event_ids: set[str] = set()
+    seen_event_fingerprints: set[str] = set()
     assistant_text = ""
     terminal_run: dict[str, object] | None = None
     collected_events: list[tuple[str, dict[str, object]]] = []
@@ -41,6 +51,7 @@ def send_message_with_async_events(
             events=events,
             run_id=run_id,
             seen_event_ids=seen_event_ids,
+            seen_event_fingerprints=seen_event_fingerprints,
             assistant_text=assistant_text,
             emit_preview=True,
             collected_events=collected_events,
@@ -115,6 +126,7 @@ def consume_async_run_events(
     events: list[dict[str, object]],
     run_id: str,
     seen_event_ids: set[str],
+    seen_event_fingerprints: set[str] | None = None,
     assistant_text: str,
     emit_preview: bool = True,
     collected_events: list[tuple[str, dict[str, object]]] | None = None,
@@ -135,6 +147,12 @@ def consume_async_run_events(
             continue
         if event_id:
             seen_event_ids.add(event_id)
+        elif seen_event_fingerprints is not None:
+            replay_key = _event_replay_dedupe_key(event_name=event_name, data=data)
+            if replay_key is not None:
+                if replay_key in seen_event_fingerprints:
+                    continue
+                seen_event_fingerprints.add(replay_key)
         if data.get("run_id") != run_id:
             continue
         consumed += 1
@@ -443,6 +461,13 @@ def merge_text_delta(current: str, delta: str) -> str:
     if delta.startswith(current):
         return delta
     return f"{current}{delta}"
+
+
+def _event_replay_dedupe_key(*, event_name: str, data: dict[str, object]) -> str | None:
+    if event_name not in _REPLAY_FALLBACK_DEDUPE_EVENTS:
+        return None
+    canonical_data = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return f"{event_name}|{canonical_data}"
 
 
 def _is_live_preview_event(event_name: str) -> bool:
