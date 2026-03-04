@@ -96,14 +96,70 @@
 
 ### R2 状态行/事件折叠 + 错误分层 + 可观测指标研究
 - Context:
+- M53 需要把“实时状态线 + 事件折叠 + 错误提示 + 指标采样”一次性收敛，否则会出现重复刷屏、错误语义混层、排障不可观测。
 - Decision:
+- 仍采用三轮追问（`R2.Q1~Q3`）：先识别状态门控，再抽象错误分层，最后给可观测指标与采样位点。
+- 以 codex 的 `EventProcessor` 生命周期与 JSON/human 双处理器为锚点，映射到 nano CLI 契约草图。
 - Rationale:
+- codex 已在事件层实现“静默事件折叠 + 进度行中断 + begin/end 配对容错”，可直接转化为 nano 的可落地规则。
 - Evidence:
   - Tests:
+    - 红测：`rg -n '^#### R2\\.Q1|^#### R2\\.Q2|^#### R2\\.Q3' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md` → `R2_RED_EXIT=1`（变更前）。
   - Entry:
+    - 代码锚点来源：`exec/src/event_processor.rs`、`exec/src/event_processor_with_human_output.rs`、`exec/src/event_processor_with_jsonl_output.rs`、`exec/src/lib.rs`。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+- 回退到 `1a9ee53`（R2 C1）。
+- Commits: C1=`1a9ee53`, C2=`TBD`, C3=`TBD`
 - Next:
+- 跑 R2 校验命令与 baseline 门禁，完成 C2/C3。
+
+#### R2.Q1 codex 如何做“状态行门控 + 事件折叠”避免刷屏？
+- 状态行门控策略：
+  - `BackgroundEvent(agent_job_progress:...)` 被解析为进度模型并单独渲染，普通事件默认不打断进度行。
+  - 仅错误/警告/流错误/turn complete/shutdown 等关键事件会中断进度行，保证异常可见性优先。
+  - `is_silent_event` 会折叠大批增量型事件（delta、raw item、undo 等），避免冗余输出。
+  - `EventProcessor` 生命周期使用 `Running -> InitiateShutdown -> Shutdown`，主循环按状态推进并避免重复关停。
+- 代码锚点：
+  - `exec/src/event_processor_with_human_output.rs:207-220`
+  - `exec/src/event_processor_with_human_output.rs:893-942`
+  - `exec/src/event_processor_with_human_output.rs:962-1025`
+  - `exec/src/event_processor.rs:7-11`
+  - `exec/src/lib.rs:633-643`
+
+#### R2.Q2 错误提示在 codex 中如何分层，nano 可如何映射？
+- 错误分层模型：
+  - `input` 层：参数/输入问题（无 prompt、stdin 解码失败、schema 文件不可读/非 JSON）直接给出可执行提示并退出。
+  - `network/stream` 层：`StreamError` 保留 `additional_details` 拼接后输出，强调传输/上游异常上下文。
+  - `runtime` 层：`ErrorEvent` 与 required MCP startup failed 触发 `error_seen` 和主动 shutdown，保证退出码非零。
+  - `warning/deprecation` 作为非致命层，允许继续执行但需保留语义标签。
+- 代码锚点：
+  - `exec/src/lib.rs:757-780`
+  - `exec/src/lib.rs:856-890`
+  - `exec/src/event_processor_with_human_output.rs:222-241`
+  - `exec/src/event_processor_with_human_output.rs:285-295`
+  - `exec/src/lib.rs:612-624`
+  - `exec/src/lib.rs:646-648`
+
+#### R2.Q3 哪些观测点最能支撑“去重/孤儿事件/工具时间线”？
+- 可观测指标建议：
+  - `dedup_dropped_total{reason}`：统计被折叠或忽略事件数量。
+  - 采样位点A：`is_silent_event` 命中（静默折叠）。
+  - 采样位点B：`progress_active && !should_interrupt_progress` 直接 continue（进度期间折叠）。
+  - 采样位点C：重复 begin 被跳过（如 web_search begin 去重）。
+  - `orphan_total{tool,phase}`：end 到达但没有 begin 配对。
+  - 采样位点D：`ExecCommandEnd` 无 begin（当前直接 warn+skip）。
+  - 采样位点E：`McpToolCallEnd/CollabEnd` 无 begin（当前 synthesize 新 item）。
+  - `tool_timeline_duration_ms{tool,status}`：begin/end 配对得到的耗时分布与失败率。
+  - 采样位点F：exec/mcp/collab end 的 `duration` 或状态收口处。
+- 代码锚点：
+  - `exec/src/event_processor_with_human_output.rs:215-217`
+  - `exec/src/event_processor_with_human_output.rs:893-930`
+  - `exec/src/event_processor_with_jsonl_output.rs:212-214`
+  - `exec/src/event_processor_with_jsonl_output.rs:676-688`
+  - `exec/src/event_processor_with_jsonl_output.rs:372-383`
+  - `exec/src/event_processor_with_jsonl_output.rs:605-614`
+  - `exec/src/event_processor_with_human_output.rs:368-389`
+  - `exec/src/event_processor_with_human_output.rs:404-414`
 
 ### R3 商业化前契约模板 + M52/M53/M54 测试矩阵草案
 - Context:
