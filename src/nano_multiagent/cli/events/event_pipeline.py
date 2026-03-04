@@ -117,20 +117,19 @@ def consume_event_for_run(
 
     event_id = normalized_event.event_id
     if event_id:
-        if (seen_event_ids is not None and event_id in seen_event_ids) or dedupe_window.has_event_id(event_id):
+        if dedupe_window.has_event_id(event_id):
             return False
         dedupe_window.record_event_id(event_id)
+        # Keep legacy sink in sync for compatibility callers that inspect this set.
         if seen_event_ids is not None:
             seen_event_ids.add(event_id)
 
     replay_key = replay_fallback_dedupe_key(event_name=normalized_event.event_name, data=data)
     if replay_key is not None:
-        if (
-            seen_event_fingerprints is not None
-            and replay_key in seen_event_fingerprints
-        ) or dedupe_window.has_fallback_key(run_id=run_id, key=replay_key):
+        if dedupe_window.has_fallback_key(run_id=run_id, key=replay_key):
             return False
         dedupe_window.record_fallback_key(run_id=run_id, key=replay_key)
+        # Keep legacy sink in sync for compatibility callers that inspect this set.
         if seen_event_fingerprints is not None:
             seen_event_fingerprints.add(replay_key)
 

@@ -31,8 +31,8 @@ def send_message_with_async_events(
     submitted = client.send_message_async(session_id=session_id, text=text)
     run_id = _extract_run_id(submitted)
     dedupe_window = EventDedupeWindow()
-    seen_event_ids: set[str] = set()
-    seen_event_fingerprints: set[str] = set()
+    seen_event_ids: set[str] | None = None
+    seen_event_fingerprints: set[str] | None = None
     previewed_tool_lines: set[str] = set()
     emitted_tool_preview_identities: set[str] = set()
     assistant_text = ""
@@ -121,7 +121,7 @@ def consume_async_run_events(
     out: TextIO,
     events: list[dict[str, object]],
     run_id: str,
-    seen_event_ids: set[str],
+    seen_event_ids: set[str] | None = None,
     seen_event_fingerprints: set[str] | None = None,
     dedupe_window: EventDedupeWindow | None = None,
     assistant_text: str,
