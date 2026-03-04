@@ -81,17 +81,28 @@
       - mobile settings agents 改为卡片布局，横向溢出消失。
 - Rollback:
   - `ac014c2`（R37.2 C1）
-- Commits: C1=`ac014c2`, C2=`fcb3c59`, C3=`<this-doc-commit>`
+- Commits: C1=`ac014c2`, C2=`fcb3c59`, C3=`a676c24`
 - Next:
   - R37.3：rebase main、全量门禁复跑、主干合并与 dev-tasks 状态收口。
 
 ### R37.3 第一轮验收记录与主干集成
 - Context:
+  - R37.2 已完成并全绿，需要按里程碑契约完成主干集成与派工板状态收口。
 - Decision:
+  - `milestone/M37` 执行 `git fetch origin && git rebase origin/main`（无冲突）。
+  - 复跑门禁 `cd src/IM/frontend && npm run test && npm run build`。
+  - 获取 `data/locks/merge.lock` 后，在 main worktree 执行 `git merge --no-ff milestone/M37` 并推送。
+  - 使用 `dev_tasks.py update` 将 `data/dev-tasks.json` 的 M37 置为 `DONE`，写入 summary/tests/commits/new_rules。
 - Rationale:
+  - 主干串行合并需要锁避免并发冲突；派工板状态必须脚本更新避免手工漂移。
 - Evidence:
-  - Tests: `cd src/IM/frontend && npm run test && npm run build`
+  - Tests: `cd src/IM/frontend && npm run test && npm run build`（11 files / 15 tests passed，build success）。
   - Entry:
+    - `main` 合并提交：`1c34b64`
+    - 远端推送：`origin/main` 已更新到 `1c34b64`
+    - `data/dev-tasks.json`：`M37.status=DONE`，`result.commits.merge_main=1c34b64`
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `a676c24`（merge 前最后稳定点）
+- Commits: C1=`N/A`, C2=`N/A`, C3=`<this-doc-commit-main>`
 - Next:
+  - Milestone DONE。

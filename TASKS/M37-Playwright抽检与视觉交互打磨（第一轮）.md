@@ -2,7 +2,7 @@
 
 - Test command: `cd src/IM/frontend && npm run test && npm run build`
 - Branch: `milestone/M37`
-- Milestone status: `RUNNING`
+- Milestone status: `DONE`
 - Scope guard:
   - Allowed: `src/IM/frontend/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`data/dev-tasks.json（仅脚本）`
   - Forbidden: `src/nano_multiagent/**`、`src/IM/app.py等后端核心`、`ROADMAP.md`
@@ -56,10 +56,10 @@
 - Commits:
   - C1: `ac014c2`
   - C2: `fcb3c59`
-  - C3: `<this-doc-commit>`
+  - C3: `a676c24`
 - Status: DONE
 
-## [TODO] R37.3 第一轮验收记录与主干集成
+## [DONE] R37.3 第一轮验收记录与主干集成
 - Acceptance:
   - 输出第一轮验收记录（覆盖 chat/settings + desktop/mobile）。
   - rebase `origin/main` 成功并处理冲突（如有）。
@@ -78,7 +78,7 @@
   - dev-tasks 状态已脚本更新为 `DONE`。
   - TASKS/PROGRESS 完整记录 C1/C2/C3 hash 与验收证据。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
-  - C3: `<pending>`
-- Status: TODO
+  - C1: `N/A（集成收口）`
+  - C2: `N/A（集成收口）`
+  - C3: `<this-doc-commit-main>`
+- Status: DONE
