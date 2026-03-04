@@ -57,7 +57,10 @@ class TaskTool:
             "description": {"type": "string"},
             "prompt": {"type": "string"},
             "run_in_background": {"type": "boolean"},
-            "session_id": {"type": "string"},
+            "session_id": {
+                "type": "string",
+                "description": "Existing task session id returned by a previous task call; omit for new tasks.",
+            },
             "category": {"type": "string"},
             "subagent_type": {"type": "string"},
             "command": {"type": "string"},
@@ -279,7 +282,17 @@ class TaskTool:
         continuation = bool(task_session_id)
 
         if continuation:
-            return task_session_id, prompt, True
+            exists = _runtime_session_exists(runtime, task_session_id)
+            if exists is not False:
+                return task_session_id, prompt, True
+            if not prompt:
+                raise ToolError(
+                    "prompt is required when session_id does not exist",
+                    tool_name=self.name,
+                    details={"session_id": task_session_id},
+                )
+            created = runtime.create_session()
+            return str(created.session_id), prompt, False
 
         if not prompt:
             raise ToolError(
@@ -373,6 +386,16 @@ def _normalize_run_in_background(value: Any) -> bool:
             tool_name="task",
         )
     return value
+
+
+def _runtime_session_exists(runtime: TaskRuntime, session_id: str) -> bool | None:
+    getter = getattr(runtime, "get_session", None)
+    if not callable(getter):
+        return None
+    try:
+        return getter(session_id) is not None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _normalize_optional_text(value: Any) -> str | None:

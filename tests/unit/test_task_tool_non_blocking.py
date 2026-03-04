@@ -20,10 +20,18 @@ class _RuntimeStub:
         self.created = 0
         self.run_calls: list[dict[str, object]] = []
         self.continue_calls: list[dict[str, object]] = []
+        self._sessions: set[str] = {"sess_existing"}
 
     def create_session(self) -> _Session:
         self.created += 1
-        return _Session(session_id=f"sess_task_non_blocking_{self.created}")
+        session_id = f"sess_task_non_blocking_{self.created}"
+        self._sessions.add(session_id)
+        return _Session(session_id=session_id)
+
+    def get_session(self, session_id: str) -> _Session | None:
+        if session_id in self._sessions:
+            return _Session(session_id=session_id)
+        return None
 
     def run(
         self,
@@ -182,6 +190,30 @@ def test_task_continuation_uses_existing_session_id(tmp_path: Path) -> None:
     assert "<task_metadata>\nsession_id: sess_existing\n</task_metadata>" in result
     assert runtime.run_calls[0]["session_id"] == "sess_existing"
     assert runtime.created == 0
+
+
+def test_task_unknown_session_id_starts_new_task_when_prompt_present(tmp_path: Path) -> None:
+    runtime = _RuntimeStub()
+    tool = TaskTool(runtime=runtime)
+
+    result = tool.run(
+        {
+            "run_in_background": False,
+            "load_skills": [],
+            "description": "tell joke",
+            "prompt": "讲个冷笑话",
+            "session_id": "joke-subagent-1",
+            "category": "conversation",
+            "subagent_type": "default",
+        },
+        _context(tmp_path),
+    )
+
+    assert result.startswith("Task completed in ")
+    assert "session_id: sess_task_non_blocking_1" in result
+    assert "session_id: joke-subagent-1" not in result
+    assert runtime.run_calls[0]["session_id"] == "sess_task_non_blocking_1"
+    assert runtime.created == 1
 
 
 def test_task_rejects_non_boolean_run_in_background(tmp_path: Path) -> None:
