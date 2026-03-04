@@ -301,6 +301,41 @@ def test_consume_async_run_events_long_session_batches_keep_perf_guardrails_stab
     assert snapshot["stable"] is True
 
 
+def test_consume_async_run_events_perf_snapshot_marks_unstable_with_guardrail_reason() -> None:
+    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.cli.events.event_pipeline import ReplPerfTracker
+    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+
+    out = io.StringIO()
+    tracker = ReplPerfTracker(min_sample_events=10, min_throughput_ratio=0.8)
+    dedupe_window = EventDedupeWindow()
+
+    events = [{"event_id": f"evt_other_{idx}", "event": "tool_start", "data": {"run_id": "run_other", "name": "bash", "call_id": f"other_{idx}", "arguments": {"command": "echo other"}}} for idx in range(1, 16)]
+    events.extend(
+        [
+            {"event_id": "evt_target_start", "event": "tool_start", "data": {"run_id": "run_target", "name": "bash", "call_id": "call_target", "arguments": {"command": "echo target"}}},
+            {"event_id": "evt_target_exit", "event": "tool_exec_exit", "data": {"run_id": "run_target", "name": "bash", "call_id": "call_target", "status": "completed", "duration_ms": 12, "exit_code": 0}},
+        ]
+    )
+
+    _, consumed = consume_async_run_events(
+        out=out,
+        events=events,
+        run_id="run_target",
+        dedupe_window=dedupe_window,
+        assistant_text="",
+        emit_preview=False,
+        perf_tracker=tracker,
+    )
+
+    snapshot = tracker.snapshot()
+    assert consumed == 2
+    assert snapshot["sample_ready"] is False
+    assert snapshot["throughput_ok"] is False
+    assert snapshot["stable"] is False
+    assert snapshot["guardrail_reason"] == "throughput, sample_size"
+
+
 def test_send_message_with_async_events_exposes_perf_metrics_snapshot() -> None:
     from nano_multiagent.cli.events.repl_events import send_message_with_async_events
 
