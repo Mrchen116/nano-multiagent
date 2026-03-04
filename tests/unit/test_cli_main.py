@@ -589,6 +589,148 @@ class _AsyncToolExecStreamingStubClient(_StubClient):
         }
 
 
+class _AsyncNoEventIdReplayStubClient(_StubClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self._stream_calls = 0
+
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_no_event_id", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        self._stream_calls += 1
+        if self._stream_calls > 2:
+            return []
+        return [
+            {
+                "event": "tool_start",
+                "data": {
+                    "run_id": "run_no_event_id",
+                    "name": "bash",
+                    "call_id": "call_no_event_id",
+                    "arguments": {"command": "echo hi"},
+                },
+            },
+            {
+                "event": "tool_exec_exit",
+                "data": {
+                    "run_id": "run_no_event_id",
+                    "name": "bash",
+                    "call_id": "call_no_event_id",
+                    "status": "completed",
+                    "duration_ms": 12,
+                    "exit_code": 0,
+                },
+            },
+            {
+                "event": "text_delta",
+                "data": {"run_id": "run_no_event_id", "delta": "final:no-event-id"},
+            },
+        ]
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        status = "completed" if self._stream_calls >= 2 else "running"
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": status,
+            "created_at": "2026-03-04T00:00:00+00:00",
+            "updated_at": "2026-03-04T00:00:00+00:00",
+            "turn_id": "turn_no_event_id" if status == "completed" else None,
+            "stop_reason": "stop" if status == "completed" else None,
+            "error": None,
+        }
+
+
+class _AsyncChangedEventIdReplayStubClient(_StubClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self._stream_calls = 0
+
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_changed_event_id", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        self._stream_calls += 1
+        if self._stream_calls == 1:
+            return [
+                {
+                    "event_id": "evt_tool_start_1",
+                    "event": "tool_start",
+                    "data": {
+                        "run_id": "run_changed_event_id",
+                        "name": "bash",
+                        "call_id": "call_changed_event_id",
+                        "arguments": {"command": "echo hi"},
+                    },
+                },
+                {
+                    "event_id": "evt_tool_exec_exit_1",
+                    "event": "tool_exec_exit",
+                    "data": {
+                        "run_id": "run_changed_event_id",
+                        "name": "bash",
+                        "call_id": "call_changed_event_id",
+                        "status": "completed",
+                        "duration_ms": 18,
+                        "exit_code": 0,
+                    },
+                },
+                {
+                    "event_id": "evt_text_1",
+                    "event": "text_delta",
+                    "data": {"run_id": "run_changed_event_id", "delta": "final:changed-event-id"},
+                },
+            ]
+        if self._stream_calls == 2:
+            return [
+                {
+                    "event_id": "evt_tool_start_2",
+                    "event": "tool_start",
+                    "data": {
+                        "run_id": "run_changed_event_id",
+                        "name": "bash",
+                        "call_id": "call_changed_event_id",
+                        "arguments": {"command": "echo hi"},
+                    },
+                }
+            ]
+        return []
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        status = "completed" if self._stream_calls >= 2 else "running"
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": status,
+            "created_at": "2026-03-04T00:00:00+00:00",
+            "updated_at": "2026-03-04T00:00:00+00:00",
+            "turn_id": "turn_changed_event_id" if status == "completed" else None,
+            "stop_reason": "stop" if status == "completed" else None,
+            "error": None,
+        }
+
+
 class _AsyncFailedRunStubClient(_StubClient):
     def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
         self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
@@ -1545,8 +1687,8 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "status=queued" not in text
-    assert "Tool echo start args=ping" in text
-    assert "Tool: echo start" not in text
+    assert "Tool: echo start args=ping" in text
+    assert "Tool echo start args=ping" not in text
     assert "Tool: echo output=echo:ping" in text
     assert "Assistant:" in text
     assert "final:echo:ping" in text
@@ -1606,8 +1748,8 @@ def test_run_cli_repl_groups_same_tool_name_events_by_call_id() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert text.count("Tool echo start args=") == 2
-    assert "Tool: echo start args=" not in text
+    assert text.count("Tool: echo start args=") == 2
+    assert "Tool echo start args=" not in text
     assert "Tool: echo output=echo:first" in text
     assert "Tool: echo output=echo:second" in text
 
@@ -1629,8 +1771,8 @@ def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> No
     assert "Assistant:" in text
     assert "final:echo:ping" in text
     assert "State: completed | stop=stop | run=run_target | session=sess_cli" in text
-    assert "Tool echo start args=ping" in text
-    assert "Tool: echo start args=ping" not in text
+    assert "Tool: echo start args=ping" in text
+    assert "Tool echo start args=ping" not in text
     assert "Tool: echo output=echo:ping" in text
     assert "Usage: unavailable" in text
     assert '"run_id": "run_target"' not in text
@@ -1668,16 +1810,53 @@ def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Tool bash start args=" in text
-    assert "Tool bash started status=started elapsed=0ms" in text
-    assert "Tool bash running status=running elapsed=120ms" not in text
-    assert "Tool bash chunk stdout#1: out-line" not in text
-    assert "Tool bash chunk stderr#2: err-line" not in text
+    assert "Tool: bash start args=" in text
+    assert "Tool: bash started status=started elapsed=0ms" in text
+    assert "Tool: bash running status=running elapsed=120ms" not in text
+    assert "Tool: bash chunk stdout#1: out-line" not in text
+    assert "Tool: bash chunk stderr#2: err-line" not in text
     assert "Tool: bash chunk stdout#1: out-line" not in text
     assert "Tool: bash chunk stderr#2: err-line" not in text
     assert "Tool: bash progress chunks=2 (stdout=1, stderr=1)" in text
-    assert "Tool: bash exit code=0 status=completed duration=210ms" in text
-    assert text.index("Tool bash started status=started elapsed=0ms") < text.index("State:")
+    assert text.count("Tool: bash exit code=0 status=completed duration=210ms") == 1
+    assert text.index("Tool: bash started status=started elapsed=0ms") < text.index("State:")
+
+
+def test_run_cli_repl_dedupes_replayed_tool_start_without_event_id() -> None:
+    stub = _AsyncNoEventIdReplayStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert text.count("bash start args=") == 1
+    assert text.count("Tool: bash exit code=0 status=completed duration=12ms") == 1
+    assert "final:no-event-id" in text
+
+
+def test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id() -> None:
+    stub = _AsyncChangedEventIdReplayStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert text.count("Tool: bash start args=") == 1
+    assert "final:changed-event-id" in text
 
 
 def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:

@@ -12,6 +12,15 @@ _EVENT_PREVIEW_HEAD_LEN = 72
 _EVENT_PREVIEW_TAIL_LEN = 45
 _EVENT_POLL_MAX_EVENTS = 200
 _EVENT_POLL_TIMEOUT_SECONDS = 0.25
+_REPLAY_FALLBACK_DEDUPE_EVENTS = {
+    "run_status",
+    "tool_start",
+    "tool_end",
+    "tool_exec_started",
+    "tool_exec_running",
+    "tool_exec_chunk",
+    "tool_exec_exit",
+}
 
 
 def send_message_with_async_events(
@@ -26,6 +35,8 @@ def send_message_with_async_events(
     submitted = client.send_message_async(session_id=session_id, text=text)
     run_id = _extract_run_id(submitted)
     seen_event_ids: set[str] = set()
+    seen_event_fingerprints: set[str] = set()
+    previewed_tool_lines: set[str] = set()
     assistant_text = ""
     terminal_run: dict[str, object] | None = None
     collected_events: list[tuple[str, dict[str, object]]] = []
@@ -41,10 +52,12 @@ def send_message_with_async_events(
             events=events,
             run_id=run_id,
             seen_event_ids=seen_event_ids,
+            seen_event_fingerprints=seen_event_fingerprints,
             assistant_text=assistant_text,
             emit_preview=True,
             collected_events=collected_events,
             preview_writer=preview_writer,
+            previewed_tool_lines=previewed_tool_lines,
         )
 
         run_payload = client.get_run(run_id=run_id)
@@ -61,6 +74,7 @@ def send_message_with_async_events(
         raise RuntimeError(f"run_id={run_id} run failed: {error_payload}")
 
     status_updates, tool_updates = _build_repl_view(collected_events)
+    tool_updates = _filter_previewed_tool_updates(tool_updates=tool_updates, previewed_tool_lines=previewed_tool_lines)
     return {
         "session_id": session_id,
         "run_id": run_id,
@@ -115,10 +129,12 @@ def consume_async_run_events(
     events: list[dict[str, object]],
     run_id: str,
     seen_event_ids: set[str],
+    seen_event_fingerprints: set[str] | None = None,
     assistant_text: str,
     emit_preview: bool = True,
     collected_events: list[tuple[str, dict[str, object]]] | None = None,
     preview_writer: Callable[[str], None] | None = None,
+    previewed_tool_lines: set[str] | None = None,
 ) -> tuple[str, int]:
     """Consume one poll batch with dedupe and run-id filtering.
 
@@ -137,6 +153,12 @@ def consume_async_run_events(
             seen_event_ids.add(event_id)
         if data.get("run_id") != run_id:
             continue
+        if seen_event_fingerprints is not None:
+            replay_key = _event_replay_dedupe_key(event_name=event_name, data=data)
+            if replay_key is not None:
+                if replay_key in seen_event_fingerprints:
+                    continue
+                seen_event_fingerprints.add(replay_key)
         consumed += 1
         if event_name == "run_status":
             status = data.get("status")
@@ -146,7 +168,9 @@ def consume_async_run_events(
         if collected_events is not None:
             collected_events.append((event_name, data))
         if emit_preview and _is_live_preview_event(event_name):
-            _emit_preview_line(out=out, event_name=event_name, data=data, preview_writer=preview_writer)
+            emitted_line = _emit_preview_line(out=out, event_name=event_name, data=data, preview_writer=preview_writer)
+            if previewed_tool_lines is not None and emitted_line is not None and event_name.startswith("tool_"):
+                previewed_tool_lines.add(emitted_line)
         if event_name == "text_delta":
             delta = data.get("delta")
             if isinstance(delta, str):
@@ -177,14 +201,15 @@ def _emit_preview_line(
     event_name: str,
     data: dict[str, object],
     preview_writer: Callable[[str], None] | None,
-) -> None:
+) -> str | None:
     line = _event_preview_line(event_name=event_name, data=data)
     if line is None:
-        return
+        return None
     if preview_writer is not None:
         preview_writer(line)
-        return
+        return line
     print(line, file=out, flush=True)
+    return line
 
 
 def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[str], list[str]]:
@@ -316,7 +341,7 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         name = data.get("name")
         arguments = data.get("arguments")
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
-        return f"Tool {resolved_name} start args={_preview_event_value(arguments)}"
+        return f"Tool: {resolved_name} start args={_preview_event_value(arguments)}"
 
     if event_name == "tool_end":
         name = data.get("name")
@@ -324,8 +349,8 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         output = data.get("output")
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
         if error not in (None, "", {}):
-            return f"Tool {resolved_name} error={_preview_event_value(error)}"
-        return f"Tool {resolved_name} output={_preview_event_value(output)}"
+            return f"Tool: {resolved_name} error={_preview_event_value(error)}"
+        return f"Tool: {resolved_name} output={_preview_event_value(output)}"
 
     if event_name == "tool_exec_started":
         name = data.get("name")
@@ -334,7 +359,7 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
         resolved_status = str(status) if isinstance(status, str) and status.strip() else "started"
         resolved_elapsed = _preview_elapsed_ms(elapsed_ms)
-        return f"Tool {resolved_name} started status={resolved_status} elapsed={resolved_elapsed}"
+        return f"Tool: {resolved_name} started status={resolved_status} elapsed={resolved_elapsed}"
 
     if event_name == "tool_exec_running":
         name = data.get("name")
@@ -343,7 +368,7 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
         resolved_status = str(status) if isinstance(status, str) and status.strip() else "running"
         resolved_elapsed = _preview_elapsed_ms(elapsed_ms)
-        return f"Tool {resolved_name} running status={resolved_status} elapsed={resolved_elapsed}"
+        return f"Tool: {resolved_name} running status={resolved_status} elapsed={resolved_elapsed}"
 
     if event_name == "tool_exec_chunk":
         name = data.get("name")
@@ -353,7 +378,7 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
         resolved_stream = str(stream) if isinstance(stream, str) and stream.strip() else "<unknown>"
         resolved_seq = str(seq) if isinstance(seq, int) else "?"
-        return f"Tool {resolved_name} chunk {resolved_stream}#{resolved_seq}: {_preview_event_value(chunk)}"
+        return f"Tool: {resolved_name} chunk {resolved_stream}#{resolved_seq}: {_preview_event_value(chunk)}"
 
     if event_name == "tool_exec_exit":
         name = data.get("name")
@@ -365,7 +390,7 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         resolved_duration = _preview_elapsed_ms(duration_ms)
         resolved_exit_code = str(exit_code) if isinstance(exit_code, int) else "<unknown>"
         return (
-            f"Tool {resolved_name} exit code={resolved_exit_code} "
+            f"Tool: {resolved_name} exit code={resolved_exit_code} "
             f"status={resolved_status} duration={resolved_duration}"
         )
 
@@ -443,6 +468,39 @@ def merge_text_delta(current: str, delta: str) -> str:
     if delta.startswith(current):
         return delta
     return f"{current}{delta}"
+
+
+def _event_replay_dedupe_key(*, event_name: str, data: dict[str, object]) -> str | None:
+    if event_name not in _REPLAY_FALLBACK_DEDUPE_EVENTS:
+        return None
+    canonical_data = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return f"{event_name}|{canonical_data}"
+
+
+def _filter_previewed_tool_updates(*, tool_updates: list[str], previewed_tool_lines: set[str]) -> list[str]:
+    if not previewed_tool_lines:
+        return tool_updates
+    previewed_identities = {_tool_line_identity(line) for line in previewed_tool_lines}
+    previewed_identities.discard("")
+    if not previewed_identities:
+        return tool_updates
+
+    result: list[str] = []
+    for line in tool_updates:
+        identity = _tool_line_identity(line)
+        if identity and identity in previewed_identities:
+            continue
+        result.append(line)
+    return result
+
+
+def _tool_line_identity(line: str) -> str:
+    trimmed = line.strip()
+    if trimmed.startswith("Tool:"):
+        return trimmed[5:].strip()
+    if trimmed.startswith("Tool "):
+        return trimmed[5:].strip()
+    return trimmed
 
 
 def _is_live_preview_event(event_name: str) -> bool:
