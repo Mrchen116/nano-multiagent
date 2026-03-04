@@ -7,7 +7,7 @@
   - Allowed: `src/IM/frontend/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`data/dev-tasks.json（仅脚本）`
   - Forbidden: `src/nano_multiagent/**`、`src/IM/app.py等后端核心`、`ROADMAP.md`
 
-## [TODO] R37.1 Chat/Settings 桌面+手机 Playwright 抽检与证据采集
+## [DONE] R37.1 Chat/Settings 桌面+手机 Playwright 抽检与证据采集
 - Acceptance:
   - 使用真实浏览器对 chat 关键路径完成桌面+手机抽检（会话列表、进入会话、发送消息、状态反馈）。
   - 使用真实浏览器对 settings 关键路径完成桌面+手机抽检（导航切换、主要表单可编辑/可提交）。
@@ -27,12 +27,12 @@
   - PROGRESS 写清问题清单、入口验证、证据与回滚点。
   - C1/C2/C3 提交齐全。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
-  - C3: `<pending>`
-- Status: TODO
+  - C1: `N/A（抽检取证）`
+  - C2: `N/A（抽检取证）`
+  - C3: `N/A（抽检取证）`
+- Status: DONE
 
-## [TODO] R37.2 视觉/响应式/交互缺陷修复（第一轮）
+## [DONE] R37.2 视觉/响应式/交互缺陷修复（第一轮）
 - Acceptance:
   - 修复 R37.1 暴露的明显缺陷（至少覆盖视觉层、响应式层、交互层）。
   - chat 与 settings 在 desktop+mobile 下布局和可操作性符合蓝图基线（高可读、操作链路顺畅）。
@@ -54,10 +54,10 @@
   - PROGRESS 记录每个缺陷的 Context/Decision/Rationale/Evidence。
   - C1/C2/C3 提交齐全。
 - Commits:
-  - C1: `<pending>`
-  - C2: `<pending>`
-  - C3: `<pending>`
-- Status: TODO
+  - C1: `ac014c2`
+  - C2: `fcb3c59`
+  - C3: `<this-doc-commit>`
+- Status: DONE
 
 ## [TODO] R37.3 第一轮验收记录与主干集成
 - Acceptance:
