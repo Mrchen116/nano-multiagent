@@ -118,14 +118,54 @@
     - managed CLI 观感验收模板如何做到“命令可执行 + 结果可判定 + 失败可归因”？
     - 哪些规则具备跨里程碑复用价值，值得进入 LOGBOOK？
 - Decision:
+  - 最终迁移清单（按里程碑映射）：
+    - M50（渲染层与阶段状态机）：
+      - 新建 `TurnRenderPhase`（`STREAMING/FINALIZING/FINALIZED`）与状态转换守卫。
+      - 将 `status_line` 恢复条件绑定为：`phase=commentary_done && stream_queues_idle && task_running`。
+      - 将 `commit_tick`（排空）与 `frame_scheduler`（合帧限频）拆分，禁止相互越权。
+    - M51（工具时间线聚合与异常隔离）：
+      - 新建 `ToolTimelineAggregator`：`run_id+call_id` 聚合，状态含 `active/orphan/finalized`。
+      - 对 unmatched end 强制落 `orphan` 组并可视化计数，禁止并入当前 active。
+      - 引入 FIFO 事件缓存层，保证 begin/end 顺序一致后再渲染。
+    - M53（可靠性与性能门禁）：
+      - 增加长会话门禁：`dedupe_drop_count/orphan_count/queue_depth/oldest_age` 指标上报。
+      - 增加高频事件门禁：commit tick catch-up 阈值、re-entry hold、120fps draw clamp 不回退。
+      - 增加低噪摘要门禁：coalesce 读取摘要去重（同文件名不重复列出）。
+  - managed CLI 观感验收脚本模板（模板，不改实现）：
+    - 模板 A（阶段门控）：
+      - 命令：
+        - ``/bin/zsh -lc 'printf "/new\n请先给简短commentary，再给final answer：1+1=?\n/exit\n" | PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token'``
+      - 期望关键片段：`Assistant:`、`State: completed`、`Usage:`
+      - 判定标准：最终答案仅出现一次；状态线不在流式中反复抖动；退出时无悬挂 in-flight。
+    - 模板 B（工具时间线）：
+      - 命令：
+        - ``/bin/zsh -lc 'printf "/new\n请使用bash工具执行: echo M61_TOOL\n/exit\n" | PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token'``
+      - 期望关键片段：`Tool: bash start`、`Tool: bash started`、`Tool: bash exit`、`Assistant: M61_TOOL`
+      - 判定标准：`start/started/exit` 各 1 次；无重复 summary 行；state 最终 completed。
+    - 模板 C（排队与高频）：
+      - 命令：
+        - ``/bin/zsh -lc 'printf "/new\nfirst\nsecond\n/exit\n" | PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token'``
+      - 期望关键片段：`Queued message #1`、两轮 `State: completed`
+      - 判定标准：FIFO 顺序正确；无 run 串线；无重复工具关键线。
+  - 失败归因模板（用于验收脚本）：
+    - `重复答案/状态抖动` -> 优先检查 M50 phase 门控与 status restore 条件。
+    - `工具串味/orphan 丢失` -> 优先检查 M51 call_id 聚合与 orphan 分支。
+    - `高频卡顿/输出延迟` -> 优先检查 M53 chunking 阈值与 frame coalesce 限速。
 - Rationale:
+  - 将“功能迁移任务”和“观感验收模板”并排交付，可让 M50/M51/M53 在实现前先锁定验证口径，降低返工。
 - Evidence:
   - Tests:
-    - `N/A（研究型 Red：以收口问题未解为失败点）`
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `113 passed, 42 warnings`
   - Entry:
-    - 前两轮已具备锚点基础，待组合成最终执行清单。
+    - 关键锚点补充：
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/tests.rs:3269`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/tests.rs:3301`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/tests.rs:3320`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/tests.rs:3347`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/streaming/chunking.rs:180`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/tui/frame_requester.rs:186`
 - Rollback:
   - `45e1512`（R2 C3）。
-- Commits: C1=`本提交`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`183858e`, C2=`本提交`, C3=`TBD`
 - Next:
-  - 进入 R3 Green：输出最终迁移清单与 managed CLI 验收模板，并提炼 LOGBOOK 规则。
+  - 进入 R3 C3：更新 TASKS 状态、补充 LOGBOOK 高价值规则并完成里程碑收口。
