@@ -44,6 +44,16 @@ def test_cli_legacy_modules_delegate_to_layered_subpackages() -> None:
     assert legacy_turn_usage.extract_turn_usage_metrics is layered_turn_usage.extract_turn_usage_metrics
 
 
+def test_cli_event_pipeline_layer_exposes_normalize_dedupe_and_view_model() -> None:
+    from nano_multiagent.cli.events import event_pipeline
+
+    assert hasattr(event_pipeline, "NormalizedSessionEvent")
+    assert hasattr(event_pipeline, "EventDedupeWindow")
+    assert hasattr(event_pipeline, "normalize_session_event")
+    assert hasattr(event_pipeline, "consume_event_for_run")
+    assert hasattr(event_pipeline, "build_repl_view_model")
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object] | None]] = []
