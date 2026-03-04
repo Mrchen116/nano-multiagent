@@ -41,9 +41,9 @@
   - 全量 `test_command` 通过。
   - C1/C2/C3 提交齐全并记录哈希到 PROGRESS。
 - Commits:
-  - C1: `af06611`
-  - C2: `43d4d1e`
-  - C3: `9d4e60f`
+  - C1: `81ad406`
+  - C2: `5fcc73c`
+  - C3: `0611562`
 - Status: `DONE`
 
 ### R2 REPL 结构化渲染（状态/工具/回答/错误/用量）（DONE）
@@ -68,9 +68,9 @@
   - 全量 `test_command` 通过。
   - C1/C2/C3 提交齐全并记录哈希到 PROGRESS。
 - Commits:
-  - C1: `fb14031`
-  - C2: `8879691`
-  - C3: `ee04073`
+  - C1: `33ea52c`
+  - C2: `a679206`
+  - C3: `e2d25d1`
 - Status: `DONE`
 
 ### R3 CLI 层回归收口与边界固化（DONE）
@@ -91,9 +91,9 @@
   - TASKS/PROGRESS 记录完整。
   - C1/C2/C3 提交齐全并记录哈希到 PROGRESS。
 - Commits:
-  - C1: `f9173dc`
-  - C2: `eb14cda`
-  - C3: `ee04073`
+  - C1: `c8ff0dc`
+  - C2: `499bf59`
+  - C3: `e2d25d1`
 - Status: `DONE`
 
 ## Final Gate
