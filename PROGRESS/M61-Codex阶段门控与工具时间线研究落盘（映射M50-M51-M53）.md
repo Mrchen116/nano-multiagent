@@ -166,6 +166,6 @@
       - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/tui/frame_requester.rs:186`
 - Rollback:
   - `45e1512`（R2 C3）。
-- Commits: C1=`183858e`, C2=`本提交`, C3=`TBD`
+- Commits: C1=`183858e`, C2=`c16a320`, C3=`本提交`
 - Next:
-  - 进入 R3 C3：更新 TASKS 状态、补充 LOGBOOK 高价值规则并完成里程碑收口。
+  - R3 文档收口完成，进入里程碑集成：rebase -> gate -> merge main -> push -> dev_tasks DONE。

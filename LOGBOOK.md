@@ -35,3 +35,6 @@
 - orphan 先观测后修复规则（2026-03-04，M62）：对 `end` 无 `begin` 的工具事件必须先落 `orphan_total{tool,phase}` 指标并保留原始语义，再决定是 synthesize 还是丢弃；禁止静默吞掉导致排障不可见。
 - 交互入口 TTY 护栏规则（2026-03-04，M62）：`TERM=dumb` 或 stdin/stderr 非 TTY 场景下，交互模式必须显式拒绝或二次确认；禁止隐式启动导致不可确认阻塞。脚本模式应要求显式 prompt 参数或管道输入，避免 hanging read。
 - CLI 输出通道分流规则（2026-03-04）：REPL 异步输出必须按 `stdout.isatty()` 分流；TTY 才允许 `emit_external_text`（含回车/控制序列），non-TTY 必须降级为纯文本块输出，防止日志/管道污染。
+- 阶段门控三条件规则（2026-03-04）：`status/提示线` 的恢复必须同时满足 `commentary阶段完成 + stream队列空闲 + task仍运行`；禁止仅凭单个 completed 事件切换 UI 阶段，否则会出现流式末尾抖动或提前收口。
+- 流式预览与最终摘要去重规则（2026-03-04）：同一 assistant 输出链路必须有“阶段切换”与“已播报集合”双保险；若流式预览已写入，则 final 文本路径只允许补缺，不允许整段重放。
+- 事件管线分层纪律（2026-03-04）：去重与时序修正必须在 `normalize/dedupe/aggregator` 层完成；渲染层只消费稳定 view-model，不承载补排序或兜底去重逻辑。

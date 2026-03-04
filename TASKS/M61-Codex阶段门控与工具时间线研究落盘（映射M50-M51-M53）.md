@@ -64,4 +64,4 @@
 - DoD:
   - TASKS/PROGRESS/LOGBOOK 完整更新并可直接支撑 M50/M51/M53 执行。
   - 分支 rebase/merge/push 与 dev_tasks M61=DONE 完成。
-- Status: `TODO`
+- Status: `DONE`
