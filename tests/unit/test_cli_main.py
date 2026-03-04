@@ -1229,7 +1229,7 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert text.count("status=queued") == 1
     assert "[tool echo] start" in text
     assert "[tool echo] output=echo:ping" in text
-    assert "Answer:" in text
+    assert "Assistant:" in text
     assert "final:echo:ping" in text
     assert "ignore-me" not in text
     assert ("send_message_async", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
@@ -1253,7 +1253,7 @@ def test_send_message_with_async_events_sanitizes_multiline_tool_preview() -> No
     assert "[tool echo] output=line1\nline2" not in text
 
 
-def test_run_cli_repl_prints_structured_turn_sections_for_async_flow() -> None:
+def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> None:
     stub = _AsyncEventingStubClient()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
@@ -1267,12 +1267,14 @@ def test_run_cli_repl_prints_structured_turn_sections_for_async_flow() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Status:" in text
-    assert "Tools:" in text
-    assert "Answer:" in text
-    assert "Usage:" in text
-    assert "[tool echo] start" in text
+    assert "Assistant:" in text
+    assert "final:echo:ping" in text
+    assert "[status] completed | stop=stop | run=run_target | session=sess_cli" in text
+    assert "[tool] echo start args={\"text\": \"ping\"}" in text
+    assert "[tool] echo output=echo:ping" in text
+    assert "[usage] unavailable" in text
     assert '"run_id": "run_target"' not in text
+    assert "Status:" not in text
 
 
 def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
@@ -1289,8 +1291,7 @@ def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Usage:" in text
-    assert "prompt=320, completion=41, total=361" in text
+    assert "[usage] prompt=320, completion=41, total=361" in text
 
 
 def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
@@ -1313,7 +1314,7 @@ def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
 
-def test_run_cli_repl_prints_structured_error_section_for_failed_run() -> None:
+def test_run_cli_repl_prints_compact_error_summary_for_failed_run() -> None:
     stub = _AsyncFailedRunStubClient()
     output = io.StringIO()
     inputs = iter(["/new", "hi", "/exit"])
@@ -1327,10 +1328,11 @@ def test_run_cli_repl_prints_structured_error_section_for_failed_run() -> None:
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Status:" in text
-    assert "state=failed" in text
-    assert "Error:" in text
-    assert "Usage:" in text
+    assert "Assistant: (empty)" in text
+    assert "[status] failed | layer=runtime" in text
+    assert "[error] send failed: run_id=run_failed" in text
+    assert "[usage] unavailable" in text
+    assert "Status:" not in text
 
 
 def test_run_cli_repl_prints_retry_progress_from_run_status_event() -> None:
