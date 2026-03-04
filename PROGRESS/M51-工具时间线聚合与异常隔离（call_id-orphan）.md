@@ -49,14 +49,25 @@
 
 ### R2 高频事件可读性与异常指标收口
 - Context:
+  - `repl_render._compact_tool_updates` 以文本去重会把“不同 call_id 但同文案”折叠成一条，弱化时间线可读性。
+  - 需要在保持现有输出风格的前提下，让跨调用同文案仍可区分。
 - Decision:
+  - 工具类 preview/summary 行统一追加 ` [call_id=...]` 后缀（仅 `call_id` 存在时）。
+  - 保留现有文本前缀，避免破坏既有断言与阅读流；同步更新阶段机相关断言。
 - Rationale:
+  - 在不改渲染总线结构的情况下，最小改动即可让文本去重键天然包含调用身份，防止跨调用串味。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "keeps_same_tool_output_lines_for_distinct_call_id"` -> `1 failed`（仅输出 1 条）。
+    - 子集绿测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "keeps_same_tool_output_lines_for_distinct_call_id or renders_orphan_tool_exit_as_isolated_timeline or groups_same_tool_name_events_by_call_id or streams_started_running_chunk_and_exit_for_tool_execution"` -> `4 passed`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `109 passed, 42 warnings`。
   - Entry:
+    - REPL 输出可见 `Tool: ... [call_id=...]`，同名同输出不同调用不再被折叠。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - 回退到 `426dc1d`（R2 红测提交）。
+- Commits: C1=`426dc1d`, C2=`4d3c8cc`, C3=`TBD`
 - Next:
+  - 执行 R3：managed 实跑、main 集成、dev_tasks DONE 回填。
 
 ### R3 收口验收与集成
 - Context:

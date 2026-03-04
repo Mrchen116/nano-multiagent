@@ -70,7 +70,11 @@
 - DoD:
   - 全量门禁命令全绿。
   - C1/C2/C3 提交齐全。
-- Status: `DOING`
+- Commits:
+  - C1: `426dc1d`
+  - C2: `4d3c8cc`
+  - C3: `TBD`
+- Status: `DONE`
 
 ### R3 收口验收与集成（门禁 + managed + main + dev_tasks）
 - Acceptance:
@@ -89,4 +93,4 @@
 - DoD:
   - main 合并并 push。
   - `M51` 在 `dev_tasks` 中为 `DONE`。
-- Status: `TODO`
+- Status: `DOING`
