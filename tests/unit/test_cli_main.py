@@ -86,6 +86,97 @@ def test_consume_async_run_events_fallback_dedupe_window_evicts_old_semantic_key
     assert consumed_counts == [1, 1, 1, 1]
 
 
+def test_cli_render_phase_machine_transitions_and_guards() -> None:
+    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhase
+    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
+
+    machine = ReplRenderPhaseMachine()
+    assert machine.phase is ReplRenderPhase.STREAMING
+    assert machine.can_emit_preview() is True
+
+    machine.begin_finalizing()
+    assert machine.phase is ReplRenderPhase.FINALIZING
+    assert machine.can_emit_preview() is False
+
+    machine.mark_finalized()
+    assert machine.phase is ReplRenderPhase.FINALIZED
+    assert machine.can_emit_preview() is False
+
+
+def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
+    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhase
+    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
+    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+
+    out = io.StringIO()
+    preview_lines: list[str] = []
+    machine = ReplRenderPhaseMachine()
+    assistant_text, consumed = consume_async_run_events(
+        out=out,
+        events=[
+            {
+                "event": "tool_start",
+                "event_id": "evt-1",
+                "data": {"run_id": "run_phase", "name": "bash", "arguments": "ping", "call_id": "call_1"},
+            },
+            {
+                "event": "run_status",
+                "event_id": "evt-2",
+                "data": {"run_id": "run_phase", "status": "completed"},
+            },
+        ],
+        run_id="run_phase",
+        dedupe_window=EventDedupeWindow(),
+        assistant_text="",
+        emit_preview=True,
+        preview_writer=preview_lines.append,
+        render_phase_machine=machine,
+    )
+
+    assert assistant_text == ""
+    assert consumed == 2
+    assert machine.phase is ReplRenderPhase.FINALIZING
+    assert preview_lines == ["Tool: bash start args=ping"]
+
+    assistant_text, consumed = consume_async_run_events(
+        out=out,
+        events=[
+            {
+                "event": "tool_exec_started",
+                "event_id": "evt-3",
+                "data": {"run_id": "run_phase", "name": "bash", "status": "started", "elapsed_ms": 0, "call_id": "call_1"},
+            }
+        ],
+        run_id="run_phase",
+        dedupe_window=EventDedupeWindow(),
+        assistant_text=assistant_text,
+        emit_preview=True,
+        preview_writer=preview_lines.append,
+        render_phase_machine=machine,
+    )
+
+    assert consumed == 1
+    assert preview_lines == ["Tool: bash start args=ping"]
+
+
+def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summary() -> None:
+    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
+
+    machine = ReplRenderPhaseMachine()
+    preview_identity = "run_target|bash|call_1|start"
+    assert machine.should_emit_tool_preview(preview_identity) is True
+    machine.record_tool_preview(preview_identity=preview_identity, preview_line_identity="bash start args=ping")
+    assert machine.should_emit_tool_preview(preview_identity) is False
+
+    machine.begin_finalizing()
+    filtered = machine.filter_summary_tool_updates(
+        ["bash start args=ping", "bash exit code=0 status=completed duration=10ms"],
+        line_identity_resolver=lambda line: line.strip(),
+    )
+    assert filtered == ["bash exit code=0 status=completed duration=10ms"]
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object] | None]] = []

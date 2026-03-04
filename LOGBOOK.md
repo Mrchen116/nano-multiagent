@@ -29,3 +29,4 @@
 - 工具 orphan 终态隔离规则（2026-03-04）：`tool_exec_exit/exec_end` 在 active 组中找不到对应 `call_id` 时，必须落独立 orphan 条目并保留计数；禁止并入当前活跃组，避免跨工具串味。
 - fallback 去重窗口规则（2026-03-04）：当 `event_id` 缺失或不可靠时，去重必须使用 `run_id + 语义键(name/call_id/phase/seq)`，并放入按 `run_id` 分桶的 TTL/LRU 窗口；禁止无界 set 持续增长。
 - 去重判定单一真源规则（2026-03-04）：引入有界 dedupe window 后，legacy `seen_*` 集合只能做兼容镜像或诊断观测，不能再参与准入判定；否则会把窗口策略重新变成“永久去重”。
+- CLI 渲染阶段批次切换规则（2026-03-04）：当 `run_status=completed` 与工具事件同批返回时，`STREAMING -> FINALIZING` 切换应在批次尾生效；若在批次中途切换，会误吞同批合法 preview 关键线（如 `Tool: ... start`）。
