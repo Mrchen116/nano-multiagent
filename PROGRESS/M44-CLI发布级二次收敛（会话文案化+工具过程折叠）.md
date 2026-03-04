@@ -47,12 +47,19 @@
 - Next: 执行 R3 收口：门禁复跑、managed 真实验收、rebase+merge+push、dev_tasks 更新 DONE。
 
 ### R3 收口验收与集成（managed 真机验收 + main 集成）
-- Context:
-- Decision:
-- Rationale:
+- Context: M44 进入收口阶段，需要确认“会话文案化 + 工具过程折叠 + 关键兼容约束”在门禁与真实 managed CLI 下都成立。
+- Decision: 先执行全量门禁，再用真实 managed CLI 做两轮脚本化验收（普通回复 + 强制 bash 工具调用），并记录变更前后对比。
+- Rationale: 单测/集成可验证行为边界，managed 实跑可验证真实入口与运维参数下的最终体验。
 - Evidence:
-  - Tests: 
+  - Tests: `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `101 passed, 40 warnings`
   - Entry:
-- Rollback:
+    - Managed 验收命令：
+      - `printf '/new\nping\n/exit\n' | PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token`
+      - `printf '/new\n请调用bash工具执行 echo hi 并返回结果\n/exit\n' | PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token`
+    - Before -> After（对比）：
+      - 会话创建提示：`{"session_id":"..."}` -> `Started new session sess_... .`
+      - 会话查看提示：`{"session_id":"sess_..."}` -> `Active session: sess_... .`
+      - 工具过程：重复 `Tool: ... start args=...` + 明细噪音 -> `Tool ... start` / `Tool ... exit` + `Tool: ... progress chunks=...`（隐藏 running/chunk 明细）
+- Rollback: `148945e`（R2 完成后稳定点）
 - Commits: C1=<N/A>, C2=<N/A>, C3=<TBD>
-- Next:
+- Next: rebase `origin/main`，合并并 push 到 `main`，随后更新 `dev-tasks` 为 DONE。
