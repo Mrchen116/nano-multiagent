@@ -280,6 +280,7 @@ def build_repl_view_model(
     status_updates: list[str] = []
     tool_order: list[str] = []
     tool_views: dict[str, dict[str, object]] = {}
+    orphan_events = 0
 
     def _ensure_tool(group_key: str, *, tool_name: str) -> dict[str, object]:
         if group_key not in tool_views:
@@ -313,6 +314,9 @@ def build_repl_view_model(
         if not tool_line:
             continue
         slot = _ensure_tool(group_key, tool_name=tool_name)
+        if _is_terminal_tool_event(event_name) and _is_orphan_terminal_event(slot):
+            slot["orphan"] = True
+            orphan_events += 1
         if event_name == "tool_start":
             slot["start"] = tool_line
             continue
@@ -336,6 +340,7 @@ def build_repl_view_model(
         slot = tool_views.get(group_key, {})
         if not slot:
             continue
+        is_orphan = slot.get("orphan") is True
         progress_line = _format_tool_chunk_progress(slot)
         error_line = slot.get("error")
         if isinstance(error_line, str) and error_line:
@@ -344,7 +349,7 @@ def build_repl_view_model(
                 tool_updates.append(start_line)
             if progress_line:
                 tool_updates.append(progress_line)
-            tool_updates.append(error_line)
+            tool_updates.append(_format_orphan_tool_line(error_line) if is_orphan else error_line)
             continue
 
         output_line = slot.get("output")
@@ -352,15 +357,17 @@ def build_repl_view_model(
         started_line = slot.get("exec_started")
 
         if isinstance(output_line, str) and output_line and not isinstance(exit_line, str):
-            tool_updates.append(output_line)
+            tool_updates.append(_format_orphan_tool_line(output_line) if is_orphan else output_line)
         if progress_line:
             tool_updates.append(progress_line)
         if isinstance(exit_line, str) and exit_line:
-            tool_updates.append(exit_line)
+            tool_updates.append(_format_orphan_tool_line(exit_line) if is_orphan else exit_line)
             continue
         if isinstance(started_line, str) and started_line and not isinstance(output_line, str):
             tool_updates.append(started_line)
             continue
+    if orphan_events > 0:
+        status_updates.append(f"orphan_events={orphan_events}")
     return ReplViewModel(status_updates=status_updates, tool_updates=tool_updates)
 
 
@@ -392,6 +399,27 @@ def _format_tool_chunk_progress(slot: dict[str, object]) -> str | None:
     total_chunks = sum(count for _, count in count_items)
     details = ", ".join(f"{label}={count}" for label, count in count_items)
     return f"Tool {resolved_name} progress chunks={total_chunks} ({details})"
+
+
+def _is_terminal_tool_event(event_name: str) -> bool:
+    return event_name in {"tool_end", "tool_exec_exit"}
+
+
+def _is_orphan_terminal_event(slot: dict[str, object]) -> bool:
+    has_start = isinstance(slot.get("start"), str) and bool(str(slot.get("start")).strip())
+    has_exec_started = isinstance(slot.get("exec_started"), str) and bool(str(slot.get("exec_started")).strip())
+    return not has_start and not has_exec_started
+
+
+def _format_orphan_tool_line(line: str) -> str:
+    normalized = line.strip()
+    if normalized.startswith("Tool:"):
+        normalized = normalized[5:].strip()
+    elif normalized.startswith("Tool "):
+        normalized = normalized[5:].strip()
+    if not normalized:
+        return "orphan"
+    return f"orphan {normalized}"
 
 
 def _format_status_progress(data: dict[str, object]) -> str:

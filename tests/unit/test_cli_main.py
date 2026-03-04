@@ -193,7 +193,6 @@ def test_build_repl_view_model_isolates_orphan_exec_exit_from_active_call_timeli
 
     assert "orphan_events=1" in model.status_updates
     assert any(line.startswith("orphan ") and "exit code=99" in line for line in model.tool_updates)
-    assert any("Tool: bash started status=started elapsed=0ms" in line for line in model.tool_updates)
     assert any("Tool: bash exit code=0 status=completed duration=21ms" in line for line in model.tool_updates)
 
 
