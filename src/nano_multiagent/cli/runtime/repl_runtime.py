@@ -80,7 +80,8 @@ class ReplRunQueue:
             if self.backlog_size() == 0:
                 return True
             if deadline is not None and time.monotonic() >= deadline:
-                return False
+                # One final check avoids false timeout when drain races deadline.
+                return self.backlog_size() == 0
             time.sleep(0.05)
 
     def _run(self) -> None:

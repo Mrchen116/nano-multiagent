@@ -68,6 +68,31 @@ def _emit_plain_repl_block(*, out: TextIO, text: str) -> None:
         flush()
 
 
+def _wait_for_inflight_messages(
+    *,
+    run_queue: ReplRunQueue,
+    emit_block: Callable[[str], None],
+    before_action: str,
+    timeout_seconds: float,
+) -> bool:
+    """Wait for REPL in-flight messages before executing a barrier action."""
+    pending_before = run_queue.backlog_size()
+    if pending_before <= 0:
+        return True
+    emit_block(f"Waiting for {pending_before} in-flight message(s) before {before_action}.")
+    drained = run_queue.wait_for_drain(timeout_seconds=timeout_seconds)
+    if drained:
+        return True
+    remaining = run_queue.backlog_size()
+    if remaining <= 0:
+        return True
+    emit_block(
+        f"Timed out waiting for in-flight messages before {before_action}; "
+        f"{remaining} still in-flight message(s)."
+    )
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class _ManagedLLMOverrides:
     provider: str | None = None
@@ -335,13 +360,13 @@ def _run_repl(
             try:
                 raw = read_line(_prompt(active_session_id), input_history_by_session.get(active_session_id or "", ()))
             except EOFError:
-                if run_queue is not None and run_queue.backlog_size() > 0:
-                    _emit_external_repl_block(
-                        f"Waiting for {run_queue.backlog_size()} in-flight message(s) before exit."
+                if run_queue is not None:
+                    _wait_for_inflight_messages(
+                        run_queue=run_queue,
+                        emit_block=_emit_external_repl_block,
+                        before_action="exit",
+                        timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS,
                     )
-                    drained = run_queue.wait_for_drain(timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS)
-                    if not drained:
-                        _emit_external_repl_block("Timed out waiting for in-flight messages; exiting now.")
                 _emit_external_repl_block("bye")
                 return 0
 
@@ -351,15 +376,15 @@ def _run_repl(
 
             if repl_commands.is_repl_command_candidate(line):
                 command_name = line.split(maxsplit=1)[0]
-                if run_queue is not None and run_queue.backlog_size() > 0 and command_name != "/exit":
-                    _emit_external_repl_block(
-                        f"Waiting for {run_queue.backlog_size()} in-flight message(s) before {command_name}."
+                if run_queue is not None and command_name != "/exit":
+                    drained = _wait_for_inflight_messages(
+                        run_queue=run_queue,
+                        emit_block=_emit_external_repl_block,
+                        before_action=command_name,
+                        timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS,
                     )
-                    drained = run_queue.wait_for_drain(timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS)
                     if not drained:
-                        _emit_external_repl_block(
-                            f"Timed out waiting for in-flight messages; skipping {command_name} for now."
-                        )
+                        _emit_external_repl_block(f"Skipping {command_name} for now.")
                         continue
                 if active_session_id:
                     _append_input_history_entry(input_history_by_session, active_session_id, line)
@@ -381,13 +406,13 @@ def _run_repl(
                 )
                 active_session_id = command_result.active_session_id
                 if command_result.should_exit:
-                    if run_queue is not None and run_queue.backlog_size() > 0:
-                        _emit_external_repl_block(
-                            f"Waiting for {run_queue.backlog_size()} in-flight message(s) before exit."
+                    if run_queue is not None:
+                        _wait_for_inflight_messages(
+                            run_queue=run_queue,
+                            emit_block=_emit_external_repl_block,
+                            before_action="exit",
+                            timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS,
                         )
-                        drained = run_queue.wait_for_drain(timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS)
-                        if not drained:
-                            _emit_external_repl_block("Timed out waiting for in-flight messages; exiting now.")
                     return 0
                 if command_result.handled:
                     continue

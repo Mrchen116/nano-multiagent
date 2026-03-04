@@ -894,6 +894,60 @@ def test_cli_repl_allows_queueing_next_input_while_previous_async_run_is_running
     assert text.count("run=") >= 2
 
 
+def test_cli_repl_history_wait_barrier_ignores_false_timeout_after_drain(monkeypatch) -> None:
+    from nano_multiagent.cli.app import commands as app_commands
+
+    class _FalseTimeoutAfterDrainQueue:
+        def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001
+            del on_worker_error
+            self._process_message = process_message
+            self._pending: list[object] = []
+
+        def enqueue(self, *, session_id: str, text: str) -> int:
+            backlog_before = len(self._pending)
+            self._pending.append(app_commands.QueuedReplMessage(session_id=session_id, text=text))
+            return backlog_before
+
+        def backlog_size(self) -> int:
+            return len(self._pending)
+
+        def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
+            del timeout_seconds
+            while self._pending:
+                item = self._pending.pop(0)
+                self._process_message(item)
+            return False
+
+        def close(self, *, wait_for_drain: bool, drain_timeout_seconds: float | None = None) -> bool:
+            del wait_for_drain, drain_timeout_seconds
+            return True
+
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/history", "/exit"])
+    monkeypatch.setattr(app_commands, "ReplRunQueue", _FalseTimeoutAfterDrainQueue)
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "History for session" in text
+    assert "user: ping" in text
+    assert "assistant: cli:ping" in text
+    assert "Timed out waiting for in-flight messages; skipping /history for now." not in text
+
+
 def test_cli_repl_flow_supports_history_listing() -> None:
     app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
     transport = httpx.ASGITransport(app=app)

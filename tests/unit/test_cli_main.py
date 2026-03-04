@@ -2537,6 +2537,96 @@ def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress(
     ]
 
 
+def test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_drained(monkeypatch) -> None:
+    from nano_multiagent.cli.app import commands as app_commands
+
+    class _FalseTimeoutAfterDrainQueue:
+        def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001
+            del on_worker_error
+            self._process_message = process_message
+            self._pending: list[object] = []
+
+        def enqueue(self, *, session_id: str, text: str) -> int:
+            backlog_before = len(self._pending)
+            self._pending.append(app_commands.QueuedReplMessage(session_id=session_id, text=text))
+            return backlog_before
+
+        def backlog_size(self) -> int:
+            return len(self._pending)
+
+        def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
+            del timeout_seconds
+            while self._pending:
+                item = self._pending.pop(0)
+                self._process_message(item)
+            # Emulate deadline-race false negative: drained but returns False.
+            return False
+
+        def close(self, *, wait_for_drain: bool, drain_timeout_seconds: float | None = None) -> bool:
+            del wait_for_drain, drain_timeout_seconds
+            return True
+
+    stub = _AsyncEventingStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/history", "/exit"])
+
+    monkeypatch.setattr(app_commands, "ReplRunQueue", _FalseTimeoutAfterDrainQueue)
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "History for session sess_cli" in text
+    assert "assistant: final:echo:ping" in text
+    assert "Timed out waiting for in-flight messages; skipping /history for now." not in text
+
+
+def test_run_cli_repl_exit_reports_remaining_inflight_messages_after_timeout(monkeypatch) -> None:
+    from nano_multiagent.cli.app import commands as app_commands
+
+    class _NeverDrainQueue:
+        def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001
+            del process_message, on_worker_error
+            self._pending = 0
+
+        def enqueue(self, *, session_id: str, text: str) -> int:
+            del session_id, text
+            backlog_before = self._pending
+            self._pending += 1
+            return backlog_before
+
+        def backlog_size(self) -> int:
+            return self._pending
+
+        def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
+            del timeout_seconds
+            return False
+
+        def close(self, *, wait_for_drain: bool, drain_timeout_seconds: float | None = None) -> bool:
+            del wait_for_drain, drain_timeout_seconds
+            return True
+
+    output = io.StringIO()
+    inputs = iter(["/new", "first", "second", "/exit"])
+
+    monkeypatch.setattr(app_commands, "ReplRunQueue", _NeverDrainQueue)
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: _AsyncEventingStubClient(),
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Waiting for 2 in-flight message(s) before exit." in text
+    assert "Timed out waiting for in-flight messages before exit; 2 still in-flight message(s)." in text
+
+
 def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(monkeypatch) -> None:
     stub = _AsyncToolExecStreamingStubClient()
     output = io.StringIO()
