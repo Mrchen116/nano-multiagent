@@ -10,6 +10,11 @@ from nano_multiagent.tools.builtins.edit import EditTool
 from nano_multiagent.tools.builtins.read import ReadTool
 from nano_multiagent.tools.builtins.task import TaskTool
 from nano_multiagent.tools.builtins.write import WriteTool
+from nano_multiagent.tools.constants import (
+    DEFAULT_MAX_BYTES,
+    DEFAULT_MAX_KILOBYTES,
+    DEFAULT_MAX_LINES,
+)
 from nano_multiagent.tools.safety import CommandExecution
 from nano_multiagent.tools.safety import ToolSafety
 from nano_multiagent.tools.safety import ToolSafetyConfig
@@ -22,13 +27,13 @@ def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolC
 def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
     assert ReadTool.description == (
         "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
-        "Images are sent as attachments. For text files, output is truncated to 2000 "
-        "lines or 50KB (whichever is hit first). Use offset/limit for large "
+        f"Images are sent as attachments. For text files, output is truncated to {DEFAULT_MAX_LINES} "
+        f"lines or {DEFAULT_MAX_KILOBYTES}KB (whichever is hit first). Use offset/limit for large "
         "files. When you need the full file, continue with offset until complete."
     )
     assert BashTool.description == (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "
-        "Output is truncated to last 2000 lines or 50KB "
+        f"Output is truncated to last {DEFAULT_MAX_LINES} lines or {DEFAULT_MAX_KILOBYTES}KB "
         "(whichever is hit first). If truncated, full output is saved to a temp file. Optionally "
         "provide a timeout in seconds."
     )
@@ -96,6 +101,15 @@ def test_builtin_tool_parameter_descriptions_align_with_tool_design_doc() -> Non
     )
     assert task_properties["session_id"]["description"] == "Existing Task session to continue"
     assert task_properties["command"]["description"] == "The command that triggered this task"
+
+
+def test_tool_safety_default_limits_follow_shared_tool_constants() -> None:
+    config = ToolSafetyConfig()
+
+    assert config.read_max_lines == DEFAULT_MAX_LINES
+    assert config.bash_max_output_lines == DEFAULT_MAX_LINES
+    assert config.read_max_bytes == DEFAULT_MAX_BYTES
+    assert config.bash_max_output_bytes == DEFAULT_MAX_BYTES
 
 
 def test_read_supports_segmented_reads(tmp_path: Path) -> None:
