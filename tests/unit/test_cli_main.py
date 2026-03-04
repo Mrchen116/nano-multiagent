@@ -273,6 +273,63 @@ class _AsyncEventingStubClient(_StubClient):
         }
 
 
+class _AsyncMultilineToolOutputStubClient(_StubClient):
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_multiline", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del max_events, timeout_seconds
+        self.calls.append(("stream_session_events", {"session_id": session_id}))
+        return [
+            {
+                "event_id": "evt_ml_tool_start",
+                "event": "tool_start",
+                "data": {
+                    "run_id": "run_multiline",
+                    "name": "echo",
+                    "call_id": "call_ml",
+                    "arguments": {"text": "ping"},
+                },
+            },
+            {
+                "event_id": "evt_ml_tool_end",
+                "event": "tool_end",
+                "data": {
+                    "run_id": "run_multiline",
+                    "name": "echo",
+                    "call_id": "call_ml",
+                    "output": {"text": "line1\nline2"},
+                    "error": None,
+                },
+            },
+            {
+                "event_id": "evt_ml_text",
+                "event": "text_delta",
+                "data": {"run_id": "run_multiline", "delta": "final:echo:ping"},
+            },
+        ]
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "completed",
+            "created_at": "2026-03-04T00:00:00+00:00",
+            "updated_at": "2026-03-04T00:00:00+00:00",
+            "turn_id": "turn_ml",
+            "stop_reason": "stop",
+            "error": None,
+        }
+
+
 class _AsyncUsageEventingStubClient(_AsyncEventingStubClient):
     def get_run(self, *, run_id: str) -> dict[str, object]:
         payload = super().get_run(run_id=run_id)
@@ -689,6 +746,22 @@ def test_repl_input_engine_slash_menu_up_wraps_without_history_recall() -> None:
     )
 
     assert typed == "/exit"
+
+
+def test_repl_input_external_output_replays_prompt_without_layout_break() -> None:
+    output = io.StringIO()
+
+    repl_input.render_interactive_line(
+        out=output,
+        prompt="nano> ",
+        chars=list("ping"),
+        cursor=4,
+    )
+    repl_input.emit_external_text(out=output, text="[tool echo] output=ok")
+
+    text = output.getvalue()
+    assert "[tool echo] output=ok" in text
+    assert text.count("nano> ping") >= 2
 
 
 def test_run_cli_repl_up_recalls_previous_command_line() -> None:
@@ -1160,6 +1233,24 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert "final:echo:ping" in text
     assert "ignore-me" not in text
     assert ("send_message_async", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
+
+
+def test_send_message_with_async_events_sanitizes_multiline_tool_preview() -> None:
+    stub = _AsyncMultilineToolOutputStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "[tool echo] output=line1\\nline2" in text
+    assert "[tool echo] output=line1\nline2" not in text
 
 
 def test_run_cli_repl_prints_structured_turn_sections_for_async_flow() -> None:
