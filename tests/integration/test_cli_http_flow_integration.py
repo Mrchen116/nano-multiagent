@@ -646,7 +646,8 @@ def test_cli_repl_slash_menu_selects_command_and_executes_it() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: unknown command '/'" not in text
-    assert '"session_id": "sess_' in text
+    assert "Active session: sess_" in text
+    assert '{"session_id":' not in text
     assert "Commands ↓ " not in text
 
 

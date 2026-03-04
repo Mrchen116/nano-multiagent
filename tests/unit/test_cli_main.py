@@ -1151,7 +1151,9 @@ def test_run_cli_repl_supports_required_commands() -> None:
     assert "/help /new /use <session_id> /session /tools /compact" in lines
     assert "/history [n]" in lines
     assert "/exit" in lines
-    assert "session_id" in lines
+    assert "Started new session sess_cli." in lines
+    assert "Active session: sess_cli." in lines
+    assert '{"session_id":' not in lines
     assert "hello repl" in lines
     assert "Tools for session sess_cli (1):" in lines
     assert "- read: Read" in lines
@@ -1180,6 +1182,7 @@ def test_run_cli_repl_use_switches_active_session() -> None:
     )
 
     assert exit_code == 0
+    assert "Switched to session sess_manual." in output.getvalue()
     assert ("send_message", {"session_id": "sess_manual", "text": "ping"}) in stub.calls
 
 
