@@ -9,6 +9,7 @@ from nano_multiagent.tools.builtins.bash import BashTool
 from nano_multiagent.tools.builtins.edit import EditTool
 from nano_multiagent.tools.builtins.read import ReadTool
 from nano_multiagent.tools.builtins.write import WriteTool
+from nano_multiagent.tools.safety import CommandExecution
 from nano_multiagent.tools.safety import ToolSafety
 from nano_multiagent.tools.safety import ToolSafetyConfig
 
@@ -109,14 +110,31 @@ def test_bash_reports_non_zero_exit(tmp_path: Path) -> None:
     with pytest.raises(ToolError) as exc_info:
         BashTool().run({"command": "python -c \"import sys;sys.exit(7)\""}, ctx)
 
-    assert exc_info.value.details["exit_code"] == 7
+    assert str(exc_info.value).endswith("Command exited with code 7")
+    assert exc_info.value.details["exitCode"] == 7
+    assert exc_info.value.details["tool_name"] == "bash"
+    assert "content" in exc_info.value.details
 
 
 def test_bash_handles_timeout(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
 
-    with pytest.raises(ToolError, match="timed out"):
-        BashTool().run({"command": "python -c \"import time;time.sleep(0.3)\"", "timeout": 0.05}, ctx)
+    with pytest.raises(ToolError, match="Command timed out after 0.05 seconds") as exc_info:
+        BashTool().run(
+            {
+                "command": (
+                    "python -c \"import time; "
+                    "print('before-timeout', flush=True); "
+                    "time.sleep(0.3)\""
+                ),
+                "timeout": 0.05,
+            },
+            ctx,
+        )
+    assert exc_info.value.details["timedOut"] is True
+    assert exc_info.value.details["timeout"] == 0.05
+    assert exc_info.value.details["tool_name"] == "bash"
+    assert isinstance(exc_info.value.details["content"], str)
 
 
 def test_bash_rejects_disallowed_command(tmp_path: Path) -> None:
@@ -152,7 +170,10 @@ def test_bash_truncation_returns_full_output_path(tmp_path: Path) -> None:
     )
 
     assert result["truncated"] is True
-    full_output_path = result["full_output_path"]
+    assert "Showing lines" in result["content"]
+    assert "Full output:" in result["content"]
+    full_output_path = result["fullOutputPath"]
+    assert full_output_path in result["content"]
     assert isinstance(full_output_path, str)
     content = Path(full_output_path).read_text(encoding="utf-8")
     assert "line-0" in content
@@ -162,30 +183,68 @@ def test_bash_truncation_returns_full_output_path(tmp_path: Path) -> None:
 def test_bash_without_timeout_does_not_inject_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run(*args, **kwargs):  # noqa: ANN002, ANN003
-        del args
-        captured["timeout"] = kwargs.get("timeout")
+    def fake_run_command_stream(  # noqa: ANN001
+        self,
+        *,
+        command: str,
+        cwd: Path,
+        timeout: float | None,
+        tool_name: str,
+        allow_unlisted: bool = False,
+        on_event=None,  # noqa: ANN001,ARG001
+        heartbeat_interval: float = 0.5,  # noqa: ARG001
+    ) -> CommandExecution:
+        del self, command, cwd, tool_name, allow_unlisted
+        captured["timeout"] = timeout
+        return CommandExecution(exit_code=0, text="ok", truncated=False)
 
-        class _Completed:
-            returncode = 0
-            stdout = "ok"
-            stderr = ""
+    monkeypatch.setattr(ToolSafety, "run_command_stream", fake_run_command_stream)
+    ctx = _context(tmp_path)
 
-        return _Completed()
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-    safety = ToolSafety(repo_root=tmp_path, config=ToolSafetyConfig())
-
-    execution = safety.run_command(
-        command="python -c \"print('ok')\"",
-        cwd=tmp_path,
-        timeout=None,
-        tool_name="bash",
-    )
+    result = BashTool().run({"command": "python -c \"print('ok')\""}, ctx)
 
     assert captured["timeout"] is None
-    assert execution.stdout == "ok"
-    assert execution.exit_code == 0
+    assert result["content"] == "ok"
+    assert result["exitCode"] == 0
+
+
+def test_bash_success_merges_stdout_and_stderr_into_content(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+
+    result = BashTool().run(
+        {
+            "command": (
+                "python -c \"import sys; "
+                "print('out-1'); "
+                "sys.stderr.write('err-1\\\\n'); "
+                "print('out-2')\""
+            )
+        },
+        ctx,
+    )
+
+    assert result["content"]
+    assert "out-1" in result["content"]
+    assert "err-1" in result["content"]
+    assert "out-2" in result["content"]
+    assert "stdout" not in result
+    assert "stderr" not in result
+
+
+def test_bash_aborted_contract_message_and_details(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+
+    def fake_run_command_stream(**kwargs):  # noqa: ANN003
+        del kwargs
+        raise ToolError("keyboard interrupt", tool_name="bash", details={"aborted": True})
+
+    monkeypatch.setattr(ctx.safety, "run_command_stream", fake_run_command_stream)
+
+    with pytest.raises(ToolError, match="Command aborted") as exc_info:
+        BashTool().run({"command": "python -c \"print('ignored')\""}, ctx)
+
+    assert exc_info.value.details["aborted"] is True
+    assert exc_info.value.details["tool_name"] == "bash"
 
 
 def test_read_returns_text_and_image_parts_for_png(tmp_path: Path) -> None:

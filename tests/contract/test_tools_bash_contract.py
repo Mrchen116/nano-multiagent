@@ -24,32 +24,38 @@ def test_bash_truncation_contract_exposes_full_output_path(tmp_path: Path) -> No
 
     assert set(result.keys()) == {
         "command",
-        "exit_code",
-        "stdout",
-        "stderr",
+        "exitCode",
+        "content",
         "truncated",
-        "full_output_path",
+        "fullOutputPath",
     }
     assert result["truncated"] is True
-    assert isinstance(result["full_output_path"], str)
-    assert Path(result["full_output_path"]).exists()
+    assert isinstance(result["fullOutputPath"], str)
+    assert result["fullOutputPath"] in result["content"]
+    assert "[Showing lines " in result["content"]
+    assert "Full output: " in result["content"]
+    assert Path(result["fullOutputPath"]).exists()
 
 
 def test_bash_timeout_contract_exposes_stable_details(tmp_path: Path) -> None:
-    with pytest.raises(ToolError, match="timed out") as exc_info:
+    with pytest.raises(ToolError, match="Command timed out after 0.05 seconds") as exc_info:
         BashTool().run(
-            {"command": "python -c \"import time;time.sleep(0.3)\"", "timeout": 0.05},
+            {
+                "command": "python -c \"import time; print('before-timeout', flush=True); time.sleep(0.3)\"",
+                "timeout": 0.05,
+            },
             _context(tmp_path),
         )
 
     details = exc_info.value.details
-    assert details["timed_out"] is True
+    assert details["timedOut"] is True
     assert details["timeout"] == 0.05
+    assert isinstance(details["content"], str)
     assert details["tool_name"] == "bash"
 
 
 def test_bash_signal_contract_exposes_signal_details(tmp_path: Path) -> None:
-    with pytest.raises(ToolError, match="terminated by signal") as exc_info:
+    with pytest.raises(ToolError, match="Command exited with code") as exc_info:
         BashTool().run(
             {
                 "command": "python -c \"import os,signal; os.kill(os.getpid(), signal.SIGTERM)\"",
@@ -58,7 +64,7 @@ def test_bash_signal_contract_exposes_signal_details(tmp_path: Path) -> None:
         )
 
     details = exc_info.value.details
-    assert details["exit_code"] == -signal.SIGTERM
+    assert details["exitCode"] == -signal.SIGTERM
     assert details["signal"] == "SIGTERM"
-    assert details["signal_number"] == signal.SIGTERM
+    assert details["signalNumber"] == signal.SIGTERM
     assert details["tool_name"] == "bash"
