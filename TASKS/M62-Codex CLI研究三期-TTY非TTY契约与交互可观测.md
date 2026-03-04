@@ -83,6 +83,10 @@
 - Expected Artifacts:
   - `PROGRESS/M62-*.md` 最终交付章节。
   - `LOGBOOK.md` 新增 M62 规则条目。
+- Validation Commands:
+  - `rg -n '^#### R3\\.Q1|^#### R3\\.Q2|^#### R3\\.Q3' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md`
+  - `rg -n '商业化前契约模板|测试矩阵草案|M52|M53|M54' PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md`
+  - `rg -n 'M62' LOGBOOK.md`
 - DoD:
   - M52/M53/M54 执行者可直接按矩阵拆实现与验收。
 - Status: `DOING`
