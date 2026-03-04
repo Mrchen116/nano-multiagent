@@ -56,4 +56,4 @@
   - Red 先失败、C1/C2/C3 完整。
   - `test_command` 全绿。
   - `PROGRESS` 记录决策、证据、回滚点、提交哈希。
-- Status: `TODO`
+- Status: `DONE`
