@@ -651,6 +651,50 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     assert "[text] final:echo:ping" in text
 
 
+def test_cli_repl_prints_structured_sections_in_async_turn_output() -> None:
+    store = _InMemorySessionStore()
+    llm = _ToolCallingLLMClient()
+    runtime = AgentRuntime(
+        session_manager=SessionManager(store=store),
+        llm_client=llm,
+        model="mock-model",
+        repo_root=Path.cwd(),
+    )
+    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    echo_tool = _EchoTool()
+    tool_registry.register(echo_tool)
+
+    app = create_app(
+        session_store=store,
+        runtime=runtime,
+        tool_registry=tool_registry,
+        auth_token="test-token",
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Status:" in text
+    assert "Tools:" in text
+    assert "Answer:" in text
+    assert "Usage:" in text
+    assert '"run_id": "run_' not in text
+
+
 def test_cli_repl_allows_queueing_next_input_while_previous_async_run_is_running() -> None:
     app = create_app(runtime=_SlowFirstTurnRuntime(), auth_token="test-token")
     transport = httpx.ASGITransport(app=app)

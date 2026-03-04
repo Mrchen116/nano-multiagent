@@ -1130,6 +1130,28 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert ("send_message_async", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
 
 
+def test_run_cli_repl_prints_structured_turn_sections_for_async_flow() -> None:
+    stub = _AsyncEventingStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Status:" in text
+    assert "Tools:" in text
+    assert "Answer:" in text
+    assert "Usage:" in text
+    assert "[tool echo] start" in text
+    assert '"run_id": "run_target"' not in text
+
+
 def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
     stub = _AsyncUsageEventingStubClient()
     output = io.StringIO()
@@ -1164,6 +1186,26 @@ def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
     assert "Error: send failed: run_id=run_failed" in text
     assert "Layer: runtime" in text
     assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
+
+
+def test_run_cli_repl_prints_structured_error_section_for_failed_run() -> None:
+    stub = _AsyncFailedRunStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "hi", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Status:" in text
+    assert "state=failed" in text
+    assert "Error:" in text
+    assert "Usage:" in text
 
 
 def test_run_cli_repl_prints_retry_progress_from_run_status_event() -> None:
