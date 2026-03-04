@@ -34,7 +34,7 @@
 - [x] 已阅读 `COMMENTING_GUIDE.md` 并承诺遵守
 - [x] 已确认工作区：`milestone/M56` @ `/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M56`
 - [x] 已确认 `data/dev-tasks.json` 与 `data/locks` 为主仓共享 symlink
-- [x] 已跑基线门禁（存在 1 个 `bash` 相关既有失败，超出 M56 范围）
+- [x] 已跑基线门禁（`24 passed`，可直接续跑）
 
 ## Roadpoints
 
@@ -78,7 +78,7 @@
   - R2 红测先失败并明确缺失点。
   - 实现后 `test_command` 全绿。
   - C1/C2/C3 提交齐全。
-- Status: `DOING`
+- Status: `DONE`
 
 ## Delivery Notes
 - 本 Milestone 以 read 工具契约为唯一目标；不触碰 bash/edit/write/task 实现。

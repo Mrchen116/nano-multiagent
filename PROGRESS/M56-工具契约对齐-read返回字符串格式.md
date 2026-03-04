@@ -21,7 +21,7 @@
   - Entry: 变更入口限定在 `read.py` 与指定三类测试文件；mapper 仅在 image part 兼容需要时改动。
 - Rollback:
   - 回退到本计划提交前稳定点（`milestone/M56` 初始 commit）。
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`2b9ef35`, C2=`e57bbd6`, C3=`9b58502`
 - Next:
   - 进入 R1：补文本契约红测（content parts / Showing lines / 首行超限 / details 契约）。
 
@@ -40,6 +40,25 @@
   - Entry: `ReadTool.run` 文本分支在 unit+contract+integration 均验证了 offset/limit/截断边界与 details 契约。
 - Rollback:
   - `2b9ef35`（R1 红测基线，便于重做实现）。
-- Commits: C1=`2b9ef35`, C2=`e57bbd6`, C3=`本提交`
+- Commits: C1=`2b9ef35`, C2=`e57bbd6`, C3=`9b58502`
 - Next:
   - 进入 R2：补图片 part 新契约红测并改 mapper 兼容。
+
+### R2.1 图片 read part 与 mapper 兼容对齐
+- Context:
+  - 图片返回仍为旧字段 `image_url/mime_type`，与契约要求 `data/mimeType` 不一致；文本 note 也未对齐 `Read image file[...]`。
+  - 协议侧需保证 anthropic/openai_compat 对新 image part 可映射，且不破坏旧字段兼容。
+- Decision:
+  - `ReadTool` 图片输出改为 `text + image(data,mimeType)`；文本 note 固定 `Read image file [mime]`，并补尺寸语义行。
+  - read 内新增图片尺寸解析（png/gif/jpeg/webp）用于生成 `original/displayed/scale` 提示。
+  - 两个 mapper 新增 `image(data/mimeType)` 解析，同时保留旧 `image_url/mime_type` 回退兼容。
+- Rationale:
+  - 只做字段层兼容与文案对齐，不扩散到其它工具，满足 M56 最小变更面。
+- Evidence:
+  - Tests: `PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_read_contract.py tests/integration/test_tools_read_integration.py`（`26 passed`）。
+  - Entry: registry + hook rewrite + mapper request 组装均验证新 image part 不丢失且可映射到 provider payload。
+- Rollback:
+  - `ef04604`（R2 红测基线）。
+- Commits: C1=`ef04604`, C2=`a0471c5`, C3=`本提交`
+- Next:
+  - 进入 Milestone 收口：rebase main、门禁复跑、合并与更新 dev-tasks 状态。
