@@ -63,4 +63,4 @@
   - R2 的 C1/C2/C3 完整。
   - `test_command` 全绿。
   - PROGRESS 记录关键取舍与回退点。
-- Status: `DOING`
+- Status: `DONE`

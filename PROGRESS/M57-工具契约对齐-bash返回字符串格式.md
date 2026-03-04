@@ -46,3 +46,29 @@
 - Commits: C1=`548238e`, C2=`9ff069d`, C3=`本提交`
 - Next:
   - 进入 R2：锁定 non-zero / timeout / abort 错误 message 与 details 结构契约，再做最小实现收口。
+
+### R2 错误文案收口（non-zero / timeout / abort）
+- Context:
+  - R1 完成后，错误路径仍沿用旧文案（`command exited with non-zero status` / `command timed out after ...s`）且字段命名混杂，不符合里程碑契约。
+  - 需要保证错误 message 可读一致，并在 details 中保留可机读路径信息。
+- Decision:
+  - `BashTool` 对错误统一输出：
+    - 非 0：`Command exited with code {exitCode}`
+    - timeout：`Command timed out after {timeoutSecs} seconds`
+    - abort：`Command aborted`
+  - `ToolSafety.run_command_stream` 超时不再直接抛错，改为回传 `timed_out/aborted` 状态与已有输出，再由 `BashTool` 统一封装错误 message/details。
+  - details 统一补齐 `exitCode/content/truncated/fullOutputPath`，并保留 `signal/signalNumber`（及兼容别名）供错误路径解析。
+- Rationale:
+  - 错误语义收口到 `BashTool` 可避免 safety 层与工具层分别拼文案导致契约分裂。
+- Evidence:
+  - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py::test_bash_reports_non_zero_exit tests/unit/test_tools_builtins.py::test_bash_handles_timeout tests/unit/test_tools_builtins.py::test_bash_aborted_contract_message_and_details tests/contract/test_tools_bash_contract.py::test_bash_timeout_contract_exposes_stable_details tests/contract/test_tools_bash_contract.py::test_bash_signal_contract_exposes_signal_details tests/integration/test_tools_bash_integration.py::test_registry_bash_signal_error_keeps_signal_details` -> `6 failed`。
+    - 绿测（子集）：同上 -> `6 passed`。
+    - 全量门禁：`PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_bash_contract.py tests/integration/test_tools_bash_integration.py` -> `22 passed`。
+  - Entry:
+    - non-zero/timeout/abort 均输出统一文案；timeout 与截断路径可在 details 中解析 `fullOutputPath`。
+- Rollback:
+  - `bf29f1a`（R2 红测提交）。
+- Commits: C1=`bf29f1a`, C2=`9798530`, C3=`本提交`
+- Next:
+  - 执行里程碑收口：更新 `dev-tasks.json` 为 DONE 并回传 summary/tests/commits。
