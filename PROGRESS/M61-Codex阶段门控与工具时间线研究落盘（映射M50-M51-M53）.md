@@ -73,17 +73,43 @@
     - orphan end 与 active group 冲突时，何时“独立落历史”而不是并入当前组？
     - human 流式预览与最终 summary 的去重边界在哪里（哪些内容只播一次）？
 - Decision:
+  - tool timeline 聚合机制：
+    - 事件先入 `InterruptManager` FIFO 队列，再统一 `flush_all` 处理，避免 `ExecEnd` 先于 `ExecBegin` 乱序落地（`chatwidget/interrupts.rs:30`、`chatwidget/interrupts.rs:82`）。
+    - `ExecCell.complete_call` 返回布尔用于识别 call_id 未命中；未命中不会静默吞掉，而由上层走 orphan 分支（`exec_cell/model.rs:82`）。
+    - `handle_exec_end_now` 区分 `ActiveTracked / OrphanHistoryWhileActiveExec / NewCell`，orphan 独立插入历史，避免并入当前活跃组（`chatwidget.rs:2436`、`chatwidget.rs:2507`）。
+  - summary 去重边界：
+    - 若已有 `stream_controller`，最终 `on_agent_message` 不再重复注入完整文本，避免流式+最终双写（`chatwidget.rs:1269`）。
+    - plan 路径优先 finalize 已流式 cell；仅在无流式内容时回退到最终文本（`chatwidget.rs:1311`）。
+    - reasoning 仅在 final 生成 summary block，并清空 delta 缓冲，防止同内容多次落历史（`chatwidget.rs:1367`）。
+  - M51 迁移建议（可执行）：
+    - 在 nano CLI 引入 `ToolTimelineAggregator`：键为 `run_id+call_id`，状态机含 `active/orphan/finalized`。
+    - 对 `exec_end` 未匹配活跃 call 的事件，强制落 `orphan_updates` 独立数组并计数。
+    - 引入“处理队列先于渲染”纪律：事件消费层保证 FIFO，渲染层禁止重排。
+  - M53 迁移建议（可执行）：
+    - 建立 summary 去重统计：`suppressed_final_message`, `suppressed_stream_preview`, `orphan_count`。
+    - 长会话低噪策略：保留“同类读取 coalesce + name 去重”摘要（参考 `history_cell.rs:3244`、`history_cell.rs:3301`）。
 - Rationale:
+  - codex 将“顺序一致性”和“聚合正确性”分开建模：前者靠 FIFO 中断队列，后者靠 call_id 状态机；这是避免工具串味的关键。
 - Evidence:
   - Tests:
-    - `N/A（研究型 Red：以问题未解为失败点）`
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `113 passed, 42 warnings`
   - Entry:
-    - 已收集候选锚点：`chatwidget/interrupts.rs`、`exec_cell/model.rs`、`chatwidget.rs`。
+    - 关键锚点：
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/interrupts.rs:30`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/interrupts.rs:82`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/exec_cell/model.rs:82`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:2436`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:2507`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:1269`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:1311`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:1367`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/history_cell.rs:3244`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/history_cell.rs:3301`
 - Rollback:
   - `98aab7b`（R1 C3）。
-- Commits: C1=`本提交`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`68a1a94`, C2=`本提交`, C3=`TBD`
 - Next:
-  - 进入 R2 Green：补齐 timeline 聚合/orphan/summary 去重机制并映射 M51/M53。
+  - 进入 R2 C3：同步 TASKS 状态并收口第二轮结论。
 
 ### R3 迁移总清单与managed CLI观感验收模板收口
 - Context:
