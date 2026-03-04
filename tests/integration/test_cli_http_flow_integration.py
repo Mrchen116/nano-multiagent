@@ -16,6 +16,8 @@ from nano_multiagent.agent.compaction.types import CompactionReason, CompactionR
 from nano_multiagent.cli.main import run_cli
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.hooks.loader import build_hook_registry
+from nano_multiagent.hooks.runner import HookRunner
 from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 from nano_multiagent.server.app import create_app
 from nano_multiagent.session.manager import SessionManager
@@ -695,13 +697,18 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
 def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool() -> None:
     store = _InMemorySessionStore()
     llm = _BashToolCallingLLMClient()
+    hook_runner = HookRunner(registry=build_hook_registry(repo_root=Path.cwd()))
     runtime = AgentRuntime(
         session_manager=SessionManager(store=store),
         llm_client=llm,
         model="mock-model",
+        hook_runner=hook_runner,
         repo_root=Path.cwd(),
     )
-    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    tool_registry = ToolRegistry(
+        context=ToolContext.create(repo_root=Path.cwd()),
+        hook_runner=hook_runner,
+    )
     tool_registry.register(BashTool())
 
     app = create_app(

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
 from .safety import ToolSafety, ToolSafetyConfig
 
@@ -29,6 +29,7 @@ class ToolContext:
     session_id: str | None = None
     tool_call_id: str | None = None
     safety_overrides: Mapping[str, Any] = field(default_factory=dict)
+    execution_event_callback: Callable[[Mapping[str, Any]], None] | None = None
 
     @classmethod
     def create(
@@ -51,6 +52,7 @@ class ToolContext:
         *,
         tool_call_id: str | None = None,
         safety_overrides: Mapping[str, Any] | None = None,
+        execution_event_callback: Callable[[Mapping[str, Any]], None] | None = None,
     ) -> "ToolContext":
         """Clone context with session/call metadata and per-call safety overrides."""
 
@@ -61,4 +63,13 @@ class ToolContext:
             session_id=session_id,
             tool_call_id=tool_call_id,
             safety_overrides=dict(safety_overrides or {}),
+            execution_event_callback=execution_event_callback,
         )
+
+    def emit_execution_event(self, payload: Mapping[str, Any]) -> None:
+        """Forward one tool execution update to runtime/hook observers when available."""
+
+        callback = self.execution_event_callback
+        if callback is None:
+            return
+        callback(dict(payload))
