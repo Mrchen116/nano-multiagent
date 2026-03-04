@@ -125,11 +125,6 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
                 "event_id": "evt-2",
                 "data": {"run_id": "run_phase", "status": "completed"},
             },
-            {
-                "event": "tool_exec_started",
-                "event_id": "evt-3",
-                "data": {"run_id": "run_phase", "name": "bash", "status": "started", "elapsed_ms": 0, "call_id": "call_1"},
-            },
         ],
         run_id="run_phase",
         dedupe_window=EventDedupeWindow(),
@@ -140,8 +135,28 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
     )
 
     assert assistant_text == ""
-    assert consumed == 3
+    assert consumed == 2
     assert machine.phase is ReplRenderPhase.FINALIZING
+    assert preview_lines == ["Tool: bash start args=ping"]
+
+    assistant_text, consumed = consume_async_run_events(
+        out=out,
+        events=[
+            {
+                "event": "tool_exec_started",
+                "event_id": "evt-3",
+                "data": {"run_id": "run_phase", "name": "bash", "status": "started", "elapsed_ms": 0, "call_id": "call_1"},
+            }
+        ],
+        run_id="run_phase",
+        dedupe_window=EventDedupeWindow(),
+        assistant_text=assistant_text,
+        emit_preview=True,
+        preview_writer=preview_lines.append,
+        render_phase_machine=machine,
+    )
+
+    assert consumed == 1
     assert preview_lines == ["Tool: bash start args=ping"]
 
 

@@ -5,6 +5,7 @@ from typing import Callable
 from typing import TextIO
 
 from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
+from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
 from nano_multiagent.cli.events.event_pipeline import build_repl_view_model as _build_repl_view_model_from_pipeline
 from nano_multiagent.cli.events.event_pipeline import consume_event_for_run as _consume_event_for_run
 from nano_multiagent.cli.events.event_pipeline import normalize_session_event as _normalize_session_event_from_pipeline
@@ -31,6 +32,7 @@ def send_message_with_async_events(
     submitted = client.send_message_async(session_id=session_id, text=text)
     run_id = _extract_run_id(submitted)
     dedupe_window = EventDedupeWindow()
+    render_phase_machine = ReplRenderPhaseMachine()
     seen_event_ids: set[str] | None = None
     seen_event_fingerprints: set[str] | None = None
     previewed_tool_lines: set[str] = set()
@@ -52,6 +54,7 @@ def send_message_with_async_events(
             seen_event_ids=seen_event_ids,
             seen_event_fingerprints=seen_event_fingerprints,
             dedupe_window=dedupe_window,
+            render_phase_machine=render_phase_machine,
             assistant_text=assistant_text,
             emit_preview=True,
             collected_events=collected_events,
@@ -64,6 +67,7 @@ def send_message_with_async_events(
         status_text = str(run_payload.get("status", "")).strip().lower()
         if status_text in _TERMINAL_RUN_STATUSES:
             terminal_run = run_payload
+            render_phase_machine.begin_finalizing()
             break
 
     if terminal_run is None:
@@ -73,8 +77,11 @@ def send_message_with_async_events(
         error_payload = terminal_run.get("error")
         raise RuntimeError(f"run_id={run_id} run failed: {error_payload}")
 
+    if not render_phase_machine.can_build_final_summary():
+        render_phase_machine.begin_finalizing()
     status_updates, tool_updates = _build_repl_view(collected_events)
     tool_updates = _filter_previewed_tool_updates(tool_updates=tool_updates, previewed_tool_lines=previewed_tool_lines)
+    render_phase_machine.mark_finalized()
     return {
         "session_id": session_id,
         "run_id": run_id,
@@ -121,10 +128,11 @@ def consume_async_run_events(
     out: TextIO,
     events: list[dict[str, object]],
     run_id: str,
+    assistant_text: str,
     seen_event_ids: set[str] | None = None,
     seen_event_fingerprints: set[str] | None = None,
     dedupe_window: EventDedupeWindow | None = None,
-    assistant_text: str,
+    render_phase_machine: ReplRenderPhaseMachine | None = None,
     emit_preview: bool = True,
     collected_events: list[tuple[str, dict[str, object]]] | None = None,
     preview_writer: Callable[[str], None] | None = None,
@@ -138,9 +146,11 @@ def consume_async_run_events(
         prevents cross-run events from polluting the current REPL turn.
     """
     delayed_terminal_run_status: dict[str, object] | None = None
+    saw_terminal_run_status = False
     consumed = 0
     updated_text = assistant_text
     resolved_dedupe_window = dedupe_window or EventDedupeWindow()
+    resolved_phase_machine = render_phase_machine or ReplRenderPhaseMachine()
     for event in events:
         normalized_event = _normalize_session_event_from_pipeline(event)
         event_name = normalized_event.event_name
@@ -158,10 +168,11 @@ def consume_async_run_events(
             status = data.get("status")
             if isinstance(status, str) and status.strip().lower() in _TERMINAL_RUN_STATUSES:
                 delayed_terminal_run_status = data
+                saw_terminal_run_status = True
                 continue
         if collected_events is not None:
             collected_events.append((event_name, data))
-        if emit_preview and _is_live_preview_event(event_name):
+        if emit_preview and _is_live_preview_event(event_name) and resolved_phase_machine.can_emit_preview():
             preview_identity = _tool_preview_identity(event_name=event_name, data=data, run_id=run_id)
             if (
                 emitted_tool_preview_identities is not None
@@ -179,6 +190,8 @@ def consume_async_run_events(
             delta = data.get("delta")
             if isinstance(delta, str):
                 updated_text = merge_text_delta(updated_text, delta)
+    if saw_terminal_run_status:
+        resolved_phase_machine.begin_finalizing()
     if delayed_terminal_run_status is not None:
         if collected_events is not None:
             collected_events.append(("run_status", delayed_terminal_run_status))

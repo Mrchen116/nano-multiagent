@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections import OrderedDict
 from dataclasses import dataclass
+from enum import Enum
 from typing import Callable
 
 _REPLAY_FALLBACK_DEDUPE_EVENTS = {
@@ -33,6 +34,44 @@ class ReplViewModel:
 
     status_updates: list[str]
     tool_updates: list[str]
+
+
+class ReplRenderPhase(str, Enum):
+    """Render phase for async REPL turn output lifecycle."""
+
+    STREAMING = "streaming"
+    FINALIZING = "finalizing"
+    FINALIZED = "finalized"
+
+
+class ReplRenderPhaseMachine:
+    """State machine for separating preview streaming and final summary render."""
+
+    def __init__(self) -> None:
+        self._phase = ReplRenderPhase.STREAMING
+
+    @property
+    def phase(self) -> ReplRenderPhase:
+        """Return current render phase."""
+        return self._phase
+
+    def can_emit_preview(self) -> bool:
+        """Return whether live preview lines are allowed to emit."""
+        return self._phase is ReplRenderPhase.STREAMING
+
+    def can_build_final_summary(self) -> bool:
+        """Return whether final summary rendering is allowed."""
+        return self._phase in {ReplRenderPhase.FINALIZING, ReplRenderPhase.FINALIZED}
+
+    def begin_finalizing(self) -> None:
+        """Transition to FINALIZING phase when terminal status is observed."""
+        if self._phase is ReplRenderPhase.STREAMING:
+            self._phase = ReplRenderPhase.FINALIZING
+
+    def mark_finalized(self) -> None:
+        """Transition to FINALIZED after summary render is complete."""
+        if self._phase in {ReplRenderPhase.STREAMING, ReplRenderPhase.FINALIZING}:
+            self._phase = ReplRenderPhase.FINALIZED
 
 
 class EventDedupeWindow:
