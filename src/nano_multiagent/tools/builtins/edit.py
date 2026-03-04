@@ -13,13 +13,16 @@ class EditTool:
     """Replace exactly one text match in a file inside the sandbox."""
 
     name = "edit"
-    description = "Edit a file by replacing exact text once."
+    description = (
+        "Edit a file by replacing exact text. The oldText must match exactly (including whitespace). "
+        "Use this for precise, surgical edits."
+    )
     input_schema = {
         "type": "object",
         "properties": {
-            "path": {"type": "string"},
-            "oldText": {"type": "string"},
-            "newText": {"type": "string"},
+            "path": {"type": "string", "description": "Path to the file to edit (relative or absolute)"},
+            "oldText": {"type": "string", "description": "Exact text to find and replace (must match exactly)"},
+            "newText": {"type": "string", "description": "New text to replace the old text with"},
         },
         "required": ["path", "oldText", "newText"],
         "additionalProperties": False,

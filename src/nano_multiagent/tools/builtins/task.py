@@ -49,21 +49,58 @@ class TaskTool:
     """Schedule or execute in-process sub-agent tasks with idempotent replay."""
 
     name = "task"
-    description = "Run or schedule a local in-process subagent task."
+    description = (
+        "Spawn agent task with category-based or direct agent selection.\n\n"
+        "MUTUALLY EXCLUSIVE: Provide EITHER category OR subagent_type, not both (unless continuing a session).\n\n"
+        "- load_skills: ALWAYS REQUIRED. Pass at least one skill name (e.g., [\"playwright\"], [\"git-master\", \"frontend-ui-ux\"]).\n"
+        "- category: Use predefined category → Spawns Sisyphus-Junior with category config\n"
+        "  Available categories:\n"
+        "${categoryList}\n"
+        "- subagent_type: Use specific agent directly (e.g., \"oracle\", \"explore\")\n"
+        "- run_in_background: true=async (returns task_id), false=sync (waits for result). Default: false. "
+        "Use background=true ONLY for parallel exploration with 5+ independent queries.\n"
+        "- session_id: Existing Task session to continue (from previous task output). Continues agent with FULL CONTEXT PRESERVED - "
+        "saves tokens, maintains continuity.\n"
+        "- command: The command that triggered this task (optional, for slash command tracking).\n\n"
+        "**WHEN TO USE session_id:**\n"
+        "- Task failed/incomplete → session_id with \"fix: [specific issue]\"\n"
+        "- Need follow-up on previous result → session_id with additional question\n"
+        "- Multi-turn conversation with same agent → always session_id instead of new task\n\n"
+        "Prompts MUST be in English."
+    )
     input_schema = {
         "type": "object",
         "properties": {
-            "load_skills": {"type": "array", "items": {"type": "string"}},
-            "description": {"type": "string"},
-            "prompt": {"type": "string"},
-            "run_in_background": {"type": "boolean"},
+            "load_skills": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Skill names to inject. REQUIRED - pass [] if no skills needed, but IT IS HIGHLY RECOMMENDED to pass "
+                    "proper skills like [\"playwright\"], [\"git-master\"] for best results."
+                ),
+            },
+            "description": {"type": "string", "description": "Short task description (3-5 words)"},
+            "prompt": {"type": "string", "description": "Full detailed prompt for the agent"},
+            "run_in_background": {
+                "type": "boolean",
+                "description": "true=async (returns task_id), false=sync (waits). Default: false",
+            },
             "session_id": {
                 "type": "string",
-                "description": "Existing task session id returned by a previous task call; omit for new tasks.",
+                "description": "Existing Task session to continue",
             },
-            "category": {"type": "string"},
-            "subagent_type": {"type": "string"},
-            "command": {"type": "string"},
+            "category": {
+                "type": "string",
+                "description": "Category (e.g., ${categoryExamples}). Mutually exclusive with subagent_type.",
+            },
+            "subagent_type": {
+                "type": "string",
+                "description": "Agent name (e.g., 'oracle', 'explore'). Mutually exclusive with category.",
+            },
+            "command": {
+                "type": "string",
+                "description": "The command that triggered this task",
+            },
             "idempotency_key": {"type": "string"},
             "timeout_seconds": {"type": "number"},
         },

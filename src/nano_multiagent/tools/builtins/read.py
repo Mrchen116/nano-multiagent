@@ -21,13 +21,18 @@ class ReadTool:
     """Read UTF-8 text with pagination or inline supported image formats."""
 
     name = "read"
-    description = "Read text files and images with offset/limit and output truncation."
+    description = (
+        "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
+        "Images are sent as attachments. For text files, output is truncated to ${DEFAULT_MAX_LINES} "
+        "lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large "
+        "files. When you need the full file, continue with offset until complete."
+    )
     input_schema = {
         "type": "object",
         "properties": {
-            "path": {"type": "string"},
-            "offset": {"type": "integer"},
-            "limit": {"type": "integer"},
+            "path": {"type": "string", "description": "Path to the file to read (relative or absolute)"},
+            "offset": {"type": "integer", "description": "Line number to start reading from (1-indexed)"},
+            "limit": {"type": "integer", "description": "Maximum number of lines to read"},
         },
         "required": ["path"],
         "additionalProperties": False,

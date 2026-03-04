@@ -10,12 +10,15 @@ class WriteTool:
     """Write full file content and report overwrite metadata."""
 
     name = "write"
-    description = "Write content to a file (create or overwrite) with sandbox checks."
+    description = (
+        "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. "
+        "Automatically creates parent directories."
+    )
     input_schema = {
         "type": "object",
         "properties": {
-            "path": {"type": "string"},
-            "content": {"type": "string"},
+            "path": {"type": "string", "description": "Path to the file to write (relative or absolute)"},
+            "content": {"type": "string", "description": "Content to write to the file"},
         },
         "required": ["path", "content"],
         "additionalProperties": False,
