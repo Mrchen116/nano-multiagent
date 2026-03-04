@@ -103,39 +103,54 @@ class ReadTool:
         if limit is not None:
             selected = selected[:limit]
 
-        rendered, truncated = ctx.safety.truncate_text(
-            "\n".join(selected),
+        truncation = _truncate_head_lines(
+            selected,
             max_lines=ctx.safety.config.read_max_lines,
             max_bytes=ctx.safety.config.read_max_bytes,
-            tail=False,
         )
+        rendered = truncation["content"]
+        details: dict[str, Any] | None = None
+        next_offset: int | None = None
 
-        returned_lines = len(rendered.splitlines()) if rendered else 0
-        next_offset: int | None
-        if returned_lines == 0:
-            if truncated and selected:
-                rendered = (
-                    "Output omitted because at least one line exceeds the byte limit. "
-                    "Use `bash`/`sed` with explicit ranges to inspect this file."
+        if truncation["firstLineExceedsLimit"]:
+            first_line_size = _format_size(len(selected[0].encode("utf-8")))
+            max_bytes_display = _format_size(ctx.safety.config.read_max_bytes)
+            rendered = (
+                f"[Line {offset} is {first_line_size}, exceeds {max_bytes_display} limit. "
+                f"Use bash: sed -n '{offset}p' {raw_path} | head -c {ctx.safety.config.read_max_bytes}]"
+            )
+            details = {"truncation": truncation}
+            next_offset = offset
+        elif truncation["truncated"]:
+            output_lines = int(truncation["outputLines"])
+            end_line = offset + output_lines - 1
+            next_offset = end_line + 1
+            if truncation["truncatedBy"] == "bytes":
+                max_bytes_display = _format_size(ctx.safety.config.read_max_bytes)
+                hint = (
+                    f"[Showing lines {offset}-{end_line} of {total_lines} "
+                    f"({max_bytes_display} limit). Use offset={next_offset} to continue.]"
                 )
-                next_offset = offset
             else:
-                next_offset = None
-        else:
-            candidate_offset = offset + returned_lines
-            next_offset = candidate_offset if total_lines == 0 or candidate_offset <= total_lines else None
-        if truncated and next_offset is not None:
-            hint = f"[output truncated; continue with offset={next_offset}]"
+                hint = f"[Showing lines {offset}-{end_line} of {total_lines}. Use offset={next_offset} to continue.]"
             rendered = f"{rendered}\n\n{hint}" if rendered else hint
+            details = {"truncation": truncation}
+        elif limit is not None and start_index + len(selected) < total_lines:
+            remaining = total_lines - (start_index + len(selected))
+            next_offset = start_index + len(selected) + 1
+            rendered = f"{rendered}\n\n[{remaining} more lines in file. Use offset={next_offset} to continue.]"
 
-        return {
+        response: dict[str, Any] = {
             "path": _display_path(file_path, ctx.repo_root),
             "offset": offset,
             "next_offset": next_offset,
             "total_lines": total_lines,
-            "truncated": truncated,
-            "content": rendered,
+            "truncated": bool(truncation["truncated"]),
+            "content": [{"type": "text", "text": rendered}],
         }
+        if details is not None:
+            response["details"] = details
+        return response
 
 
 def _display_path(path: Path, repo_root: Path) -> str:
@@ -147,3 +162,76 @@ def _display_path(path: Path, repo_root: Path) -> str:
 
 def _image_mime_type(path: Path) -> str | None:
     return _IMAGE_MIME_BY_SUFFIX.get(path.suffix.lower())
+
+
+def _format_size(bytes_count: int) -> str:
+    if bytes_count < 1024:
+        return f"{bytes_count}B"
+    if bytes_count < 1024 * 1024:
+        return f"{bytes_count / 1024:.1f}KB"
+    return f"{bytes_count / (1024 * 1024):.1f}MB"
+
+
+def _truncate_head_lines(lines: list[str], *, max_lines: int, max_bytes: int) -> dict[str, Any]:
+    max_lines = max(1, max_lines)
+    max_bytes = max(1, max_bytes)
+
+    content = "\n".join(lines)
+    total_lines = len(lines)
+    total_bytes = len(content.encode("utf-8"))
+    if total_lines <= max_lines and total_bytes <= max_bytes:
+        return {
+            "content": content,
+            "truncated": False,
+            "truncatedBy": None,
+            "totalLines": total_lines,
+            "totalBytes": total_bytes,
+            "outputLines": total_lines,
+            "outputBytes": total_bytes,
+            "firstLineExceedsLimit": False,
+            "maxLines": max_lines,
+            "maxBytes": max_bytes,
+        }
+
+    first_line_bytes = len(lines[0].encode("utf-8")) if lines else 0
+    if lines and first_line_bytes > max_bytes:
+        return {
+            "content": "",
+            "truncated": True,
+            "truncatedBy": "bytes",
+            "totalLines": total_lines,
+            "totalBytes": total_bytes,
+            "outputLines": 0,
+            "outputBytes": 0,
+            "firstLineExceedsLimit": True,
+            "maxLines": max_lines,
+            "maxBytes": max_bytes,
+        }
+
+    output_lines: list[str] = []
+    output_bytes = 0
+    truncated_by = "lines"
+    for index, line in enumerate(lines):
+        if index >= max_lines:
+            truncated_by = "lines"
+            break
+        line_bytes = len(line.encode("utf-8")) + (1 if output_lines else 0)
+        if output_bytes + line_bytes > max_bytes:
+            truncated_by = "bytes"
+            break
+        output_lines.append(line)
+        output_bytes += line_bytes
+
+    output_content = "\n".join(output_lines)
+    return {
+        "content": output_content,
+        "truncated": True,
+        "truncatedBy": truncated_by,
+        "totalLines": total_lines,
+        "totalBytes": total_bytes,
+        "outputLines": len(output_lines),
+        "outputBytes": len(output_content.encode("utf-8")),
+        "firstLineExceedsLimit": False,
+        "maxLines": max_lines,
+        "maxBytes": max_bytes,
+    }
