@@ -27,15 +27,18 @@ class WriteTool:
         raw_path = str(args["path"])
         content = str(args["content"])
         file_path = ctx.safety.resolve_path(raw_path, cwd=ctx.cwd, tool_name=self.name)
-        existed_before = file_path.exists()
-
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
+        display_path = _display_path(file_path, ctx.repo_root)
+        byte_count = len(content.encode("utf-8"))
 
         return {
-            "path": _display_path(file_path, ctx.repo_root),
-            "bytes_written": len(content.encode("utf-8")),
-            "overwritten": existed_before,
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"Successfully wrote {byte_count} bytes to {display_path}",
+                }
+            ]
         }
 
 

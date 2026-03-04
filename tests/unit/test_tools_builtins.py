@@ -206,8 +206,8 @@ def test_bash_truncation_returns_full_output_path(tmp_path: Path) -> None:
 def test_bash_without_timeout_does_not_inject_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run_command_stream(  # noqa: ANN001
-        self,
+    def fake_run_command_stream(  # noqa: ANN202
+        self,  # noqa: ANN001
         *,
         command: str,
         cwd: Path,
