@@ -65,7 +65,7 @@
     - `PYTHONPATH=src /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.release_playbook --base-url http://127.0.0.1:8127 --token test-token --execute` -> `status=passed`（包含 `cli_gate_tests` + `managed_smoke_ping` 执行记录）。
 - Rollback:
 - 回退到 `f54e86a`（R2 红测稳定点）。
-- Commits: C1=`f54e86a`, C2=`89c3598`/`0e9182c`/`947e092`, C3=`TBD`
+- Commits: C1=`f54e86a`, C2=`89c3598`/`0e9182c`/`947e092`, C3=`c815d57`
 - Next:
 - 执行 R3：README 与运维入口文档收口、补 managed 实跑证据并集成 main。
 
@@ -86,6 +86,6 @@
     - `PYTHONPATH=src /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8131 --token test-token create-session --title m54-managed-smoke-8131` -> `{"session_id": "...", "status": "active", ...}`。
 - Rollback:
 - 回退到 `947e092`（R2 实现全绿且可执行 playbook）。
-- Commits: C1=`N/A`, C2=`N/A`, C3=`TBD`
+- Commits: C1=`N/A`, C2=`N/A`, C3=`c815d57`
 - Next:
 - 提交 R2/R3 文档收口后执行 rebase/merge/push 与 dev_tasks DONE。
