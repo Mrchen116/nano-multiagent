@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 from typing import Callable
@@ -17,6 +18,7 @@ _CLI_GATE_TEST_COMMAND = (
     "tests/contract/test_cli_http_only_contract.py "
     "tests/contract/test_cli_error_contract.py"
 )
+_PYTHON_EXECUTABLE = shlex.quote(sys.executable)
 
 
 def build_release_playbook_report(
@@ -73,7 +75,7 @@ def _build_acceptance_steps(*, base_url: str, token: str) -> list[dict[str, str]
             "name": "managed_smoke_ping",
             "command": (
                 "printf '/new\\nping\\n/exit\\n' | "
-                "PYTHONPATH=src python3 -m nano_multiagent.cli.main "
+                f"PYTHONPATH=src {_PYTHON_EXECUTABLE} -m nano_multiagent.cli.main "
                 f"--mode managed --base-url {base_url} --token {token}"
             ),
             "description": "Smoke managed mode with one short conversation turn.",
