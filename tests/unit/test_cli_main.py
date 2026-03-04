@@ -86,6 +86,65 @@ def test_consume_async_run_events_fallback_dedupe_window_evicts_old_semantic_key
     assert consumed_counts == [1, 1, 1, 1]
 
 
+def test_cli_render_phase_machine_transitions_and_guards() -> None:
+    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhase
+    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
+
+    machine = ReplRenderPhaseMachine()
+    assert machine.phase is ReplRenderPhase.STREAMING
+    assert machine.can_emit_preview() is True
+
+    machine.begin_finalizing()
+    assert machine.phase is ReplRenderPhase.FINALIZING
+    assert machine.can_emit_preview() is False
+
+    machine.mark_finalized()
+    assert machine.phase is ReplRenderPhase.FINALIZED
+    assert machine.can_emit_preview() is False
+
+
+def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
+    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhase
+    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
+    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+
+    out = io.StringIO()
+    preview_lines: list[str] = []
+    machine = ReplRenderPhaseMachine()
+    assistant_text, consumed = consume_async_run_events(
+        out=out,
+        events=[
+            {
+                "event": "tool_start",
+                "event_id": "evt-1",
+                "data": {"run_id": "run_phase", "name": "bash", "arguments": "ping", "call_id": "call_1"},
+            },
+            {
+                "event": "run_status",
+                "event_id": "evt-2",
+                "data": {"run_id": "run_phase", "status": "completed"},
+            },
+            {
+                "event": "tool_exec_started",
+                "event_id": "evt-3",
+                "data": {"run_id": "run_phase", "name": "bash", "status": "started", "elapsed_ms": 0, "call_id": "call_1"},
+            },
+        ],
+        run_id="run_phase",
+        dedupe_window=EventDedupeWindow(),
+        assistant_text="",
+        emit_preview=True,
+        preview_writer=preview_lines.append,
+        render_phase_machine=machine,
+    )
+
+    assert assistant_text == ""
+    assert consumed == 3
+    assert machine.phase is ReplRenderPhase.FINALIZING
+    assert preview_lines == ["Tool: bash start args=ping"]
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object] | None]] = []
