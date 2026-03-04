@@ -27,7 +27,7 @@
   - Entry: `command -v npx` 返回可用，满足 Playwright CLI 前置条件。
 - Rollback:
   - plan commit
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+- Commits: C1=`cd4235b`, C2=`b3b085d`, C3=`4085581`
 - Next:
   - 执行 R38.1：第二轮 desktop+mobile chat/settings 抽检并产出截图与回归清单。
 
@@ -109,17 +109,29 @@
       - `PROGRESS/M38-Playwright回归抽检（第二轮）与交付收口.md`
 - Rollback:
   - `b3b085d`（R38.2 C2）
-- Commits: C1=`cd4235b`, C2=`b3b085d`, C3=`<this-doc-commit>`
+- Commits: C1=`cd4235b`, C2=`b3b085d`, C3=`4085581`
 - Next:
   - R38.4：rebase `origin/main`、全量门禁、merge main、push、dev-tasks 脚本收口。
 
 ### R38.4 主干集成与任务收口
 - Context:
+  - R38.3 完成后，分支 `milestone/M38` 已具备主干集成条件。
 - Decision:
+  - 执行 `git fetch origin && git rebase origin/main`（无冲突）。
+  - 复跑全量门禁后，在 main worktree 获取 `data/locks/merge.lock` 并执行 `git merge --no-ff milestone/M38`。
+  - 推送 `origin/main` 后，使用 `dev_tasks.py update` 将 `M38` 标记为 `DONE` 并写入 result。
 - Rationale:
+  - 通过合并锁串行化主干合并，可避免并发 Milestone 互相踩踏。
 - Evidence:
   - Tests:
+    - `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`（合并前复跑全绿）。
   - Entry:
+    - rebase：`milestone/M38` up to date with `origin/main`。
+    - merge commit：`6c1b9dc`（`main`）。
+    - push：`origin/main` 已更新到 `6c1b9dc`。
+    - `data/dev-tasks.json`：`M38.status = DONE`，`result.commits.merge_main = 6c1b9dc`。
 - Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+  - `4085581`（merge 前最后稳定点）
+- Commits: C1=`cd4235b`, C2=`b3b085d`, C3=`4085581`, merge_main=`6c1b9dc`
 - Next:
+  - Milestone DONE。
