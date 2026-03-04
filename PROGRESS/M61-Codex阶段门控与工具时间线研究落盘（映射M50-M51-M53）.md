@@ -68,14 +68,22 @@
 
 ### R2 工具时间线聚合/orphan隔离与summary去重研究
 - Context:
+  - Red 问题清单（待解）：
+    - tool begin/end 在 codex 里如何保证 FIFO 与 call_id 对齐，避免顺序错乱？
+    - orphan end 与 active group 冲突时，何时“独立落历史”而不是并入当前组？
+    - human 流式预览与最终 summary 的去重边界在哪里（哪些内容只播一次）？
 - Decision:
 - Rationale:
 - Evidence:
   - Tests:
+    - `N/A（研究型 Red：以问题未解为失败点）`
   - Entry:
+    - 已收集候选锚点：`chatwidget/interrupts.rs`、`exec_cell/model.rs`、`chatwidget.rs`。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - `98aab7b`（R1 C3）。
+- Commits: C1=`本提交`, C2=`TBD`, C3=`TBD`
 - Next:
+  - 进入 R2 Green：补齐 timeline 聚合/orphan/summary 去重机制并映射 M51/M53。
 
 ### R3 迁移总清单与managed CLI观感验收模板收口
 - Context:
