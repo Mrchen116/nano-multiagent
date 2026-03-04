@@ -70,7 +70,7 @@
 - Commits:
   - C1: `26a4694`
   - C2: `37d2935`
-  - C3: `本提交（docs R2.1）`
+  - C3: `71d36b3`
 - Status: `DONE`
 
 ### R3 收口与集成（门禁、文档、合并）
@@ -90,4 +90,8 @@
   - 全量门禁全绿。
   - main 集成成功并 push。
   - `dev-tasks` 标记 DONE。
-- Status: `TODO`
+- Commits:
+  - C1: `N/A（收口路标无独立红测提交）`
+  - C2: `9fcedb2`
+  - C3: `本提交（docs R3.1）`
+- Status: `DONE`
