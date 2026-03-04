@@ -21,6 +21,7 @@ _KEY_ENTER = {"\n", "\r"}
 _KEY_BACKSPACE = {"\x7f", "\b"}
 _MENU_MARKER_SELECTED = "▶"
 _MENU_MARKER_IDLE = " "
+_KEEP_STATE = object()
 
 
 @dataclass(slots=True)
@@ -35,6 +36,27 @@ class _ActiveRenderState:
 
 _RENDER_LOCK = RLock()
 _ACTIVE_RENDER_STATE: _ActiveRenderState | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _InputState:
+    chars: tuple[str, ...]
+    cursor: int
+    history_items: tuple[str, ...]
+    history_index: int | None
+    draft_before_history: tuple[str, ...]
+    command_items: tuple[str, ...]
+    command_menu_index: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class _InputStep:
+    state: _InputState
+    needs_redraw: bool
+    final_line: str | None = None
+    write_line_break: bool = False
+    raises_eof: bool = False
+    raises_keyboard_interrupt: bool = False
 
 
 class ReplInputReader(Protocol):
@@ -145,211 +167,219 @@ def read_interactive_line(
     line_break: str = "\n",
 ) -> str:
     """Read/edit one line with history and slash-command menu support."""
-    chars: list[str] = []
-    cursor = 0
-    history_items = [item for item in history if isinstance(item, str)]
-    history_index: int | None = None
-    draft_before_history: list[str] = []
-    command_items = tuple(item for item in command_suggestions if isinstance(item, str) and item.startswith("/"))
-    command_menu_index: int | None = None
-    command_menu_index = _sync_command_menu_selection(
-        chars=chars,
-        cursor=cursor,
-        command_items=command_items,
-        selected_index=command_menu_index,
-    )
+    state = _initial_input_state(history=history, command_items=command_suggestions)
     try:
         render_interactive_line(
             out=out,
             prompt=prompt,
-            chars=chars,
-            cursor=cursor,
-            command_items=command_items,
-            selected_command_index=command_menu_index,
+            chars=state.chars,
+            cursor=state.cursor,
+            command_items=state.command_items,
+            selected_command_index=state.command_menu_index,
         )
         while True:
             key = key_reader()
             if key is None:
                 raise EOFError()
-            if key in _KEY_ENTER:
-                if command_menu_index is not None and command_items:
-                    selected_command = command_items[command_menu_index]
-                    chars = list(selected_command)
-                    cursor = len(chars)
-                    command_menu_index = _sync_command_menu_selection(
-                        chars=chars,
-                        cursor=cursor,
-                        command_items=command_items,
-                        selected_index=None,
-                    )
-                    render_interactive_line(
-                        out=out,
-                        prompt=prompt,
-                        chars=chars,
-                        cursor=cursor,
-                        command_items=command_items,
-                        selected_command_index=command_menu_index,
-                    )
-                    continue
-                out.write(line_break)
-                return "".join(chars)
-            if key == "\x03":
+            step = _apply_input_key(state=state, key=key)
+            state = step.state
+            if step.raises_keyboard_interrupt:
                 raise KeyboardInterrupt()
-            if key == "\x04":
-                if chars:
-                    continue
-                out.write(line_break)
+            if step.raises_eof:
+                if step.write_line_break:
+                    out.write(line_break)
                 raise EOFError()
-            if key in _KEY_BACKSPACE:
-                if cursor > 0:
-                    if history_index is not None:
-                        history_index = None
-                    del chars[cursor - 1]
-                    cursor -= 1
-                    command_menu_index = _sync_command_menu_selection(
-                        chars=chars,
-                        cursor=cursor,
-                        command_items=command_items,
-                        selected_index=command_menu_index,
-                    )
-                    render_interactive_line(
-                        out=out,
-                        prompt=prompt,
-                        chars=chars,
-                        cursor=cursor,
-                        command_items=command_items,
-                        selected_command_index=command_menu_index,
-                    )
-                continue
-            if key == _KEY_ARROW_LEFT:
-                if cursor > 0:
-                    cursor -= 1
-                    command_menu_index = _sync_command_menu_selection(
-                        chars=chars,
-                        cursor=cursor,
-                        command_items=command_items,
-                        selected_index=command_menu_index,
-                    )
-                    render_interactive_line(
-                        out=out,
-                        prompt=prompt,
-                        chars=chars,
-                        cursor=cursor,
-                        command_items=command_items,
-                        selected_command_index=command_menu_index,
-                    )
-                continue
-            if key == _KEY_ARROW_RIGHT:
-                if cursor < len(chars):
-                    cursor += 1
-                    command_menu_index = _sync_command_menu_selection(
-                        chars=chars,
-                        cursor=cursor,
-                        command_items=command_items,
-                        selected_index=command_menu_index,
-                    )
-                    render_interactive_line(
-                        out=out,
-                        prompt=prompt,
-                        chars=chars,
-                        cursor=cursor,
-                        command_items=command_items,
-                        selected_command_index=command_menu_index,
-                    )
-                continue
-            if key == _KEY_ARROW_UP:
-                if command_menu_index is not None and command_items:
-                    command_menu_index = (command_menu_index - 1) % len(command_items)
-                    render_interactive_line(
-                        out=out,
-                        prompt=prompt,
-                        chars=chars,
-                        cursor=cursor,
-                        command_items=command_items,
-                        selected_command_index=command_menu_index,
-                    )
-                    continue
-                if not history_items:
-                    continue
-                if history_index is None:
-                    draft_before_history = chars.copy()
-                    history_index = len(history_items) - 1
-                elif history_index > 0:
-                    history_index -= 1
-                chars = list(history_items[history_index])
-                cursor = len(chars)
-                command_menu_index = _sync_command_menu_selection(
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_index=None,
-                )
+            if step.final_line is not None:
+                out.write(line_break)
+                return step.final_line
+            if step.needs_redraw:
                 render_interactive_line(
                     out=out,
                     prompt=prompt,
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_command_index=command_menu_index,
+                    chars=state.chars,
+                    cursor=state.cursor,
+                    command_items=state.command_items,
+                    selected_command_index=state.command_menu_index,
                 )
-                continue
-            if key == _KEY_ARROW_DOWN:
-                if command_menu_index is not None and command_items:
-                    command_menu_index = (command_menu_index + 1) % len(command_items)
-                    render_interactive_line(
-                        out=out,
-                        prompt=prompt,
-                        chars=chars,
-                        cursor=cursor,
-                        command_items=command_items,
-                        selected_command_index=command_menu_index,
-                    )
-                    continue
-                if history_index is None:
-                    continue
-                if history_index < len(history_items) - 1:
-                    history_index += 1
-                    chars = list(history_items[history_index])
-                else:
-                    history_index = None
-                    chars = draft_before_history.copy()
-                cursor = len(chars)
-                command_menu_index = _sync_command_menu_selection(
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_index=None,
-                )
-                render_interactive_line(
-                    out=out,
-                    prompt=prompt,
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_command_index=command_menu_index,
-                )
-                continue
-            if len(key) == 1 and key.isprintable():
-                if history_index is not None:
-                    history_index = None
-                chars.insert(cursor, key)
-                cursor += 1
-                command_menu_index = _sync_command_menu_selection(
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_index=command_menu_index,
-                )
-                render_interactive_line(
-                    out=out,
-                    prompt=prompt,
-                    chars=chars,
-                    cursor=cursor,
-                    command_items=command_items,
-                    selected_command_index=command_menu_index,
-                )
+
     finally:
         _clear_active_render_state(out=out)
+
+
+def _initial_input_state(*, history: Sequence[str], command_items: Sequence[str]) -> _InputState:
+    state = _InputState(
+        chars=(),
+        cursor=0,
+        history_items=tuple(item for item in history if isinstance(item, str)),
+        history_index=None,
+        draft_before_history=(),
+        command_items=tuple(item for item in command_items if isinstance(item, str) and item.startswith("/")),
+        command_menu_index=None,
+    )
+    return _next_input_state(state)
+
+
+def _apply_input_key(*, state: _InputState, key: str) -> _InputStep:
+    if key in _KEY_ENTER:
+        if state.command_menu_index is not None and state.command_items:
+            selected = state.command_items[state.command_menu_index]
+            return _InputStep(
+                state=_next_input_state(
+                    state,
+                    chars=tuple(selected),
+                    cursor=len(selected),
+                    command_menu_index_seed=None,
+                ),
+                needs_redraw=True,
+            )
+        return _InputStep(state=state, needs_redraw=False, final_line="".join(state.chars))
+    if key == "\x03":
+        return _InputStep(state=state, needs_redraw=False, raises_keyboard_interrupt=True)
+    if key == "\x04":
+        if state.chars:
+            return _InputStep(state=state, needs_redraw=False)
+        return _InputStep(
+            state=state,
+            needs_redraw=False,
+            write_line_break=True,
+            raises_eof=True,
+        )
+    if key in _KEY_BACKSPACE:
+        if state.cursor == 0:
+            return _InputStep(state=state, needs_redraw=False)
+        next_chars = list(state.chars)
+        del next_chars[state.cursor - 1]
+        return _InputStep(
+            state=_next_input_state(
+                state,
+                chars=tuple(next_chars),
+                cursor=state.cursor - 1,
+                history_index=None if state.history_index is not None else _KEEP_STATE,
+            ),
+            needs_redraw=True,
+        )
+    if key == _KEY_ARROW_LEFT:
+        if state.cursor == 0:
+            return _InputStep(state=state, needs_redraw=False)
+        return _InputStep(
+            state=_next_input_state(state, cursor=state.cursor - 1),
+            needs_redraw=True,
+        )
+    if key == _KEY_ARROW_RIGHT:
+        if state.cursor >= len(state.chars):
+            return _InputStep(state=state, needs_redraw=False)
+        return _InputStep(
+            state=_next_input_state(state, cursor=state.cursor + 1),
+            needs_redraw=True,
+        )
+    if key == _KEY_ARROW_UP:
+        if state.command_menu_index is not None and state.command_items:
+            return _InputStep(
+                state=_next_input_state(
+                    state,
+                    command_menu_index_seed=(state.command_menu_index - 1) % len(state.command_items),
+                ),
+                needs_redraw=True,
+            )
+        if not state.history_items:
+            return _InputStep(state=state, needs_redraw=False)
+        next_history_index = state.history_index
+        next_draft = state.draft_before_history
+        if state.history_index is None:
+            next_draft = state.chars
+            next_history_index = len(state.history_items) - 1
+        elif state.history_index > 0:
+            next_history_index = state.history_index - 1
+        assert next_history_index is not None
+        history_chars = tuple(state.history_items[next_history_index])
+        return _InputStep(
+            state=_next_input_state(
+                state,
+                chars=history_chars,
+                cursor=len(history_chars),
+                history_index=next_history_index,
+                draft_before_history=next_draft,
+                command_menu_index_seed=None,
+            ),
+            needs_redraw=True,
+        )
+    if key == _KEY_ARROW_DOWN:
+        if state.command_menu_index is not None and state.command_items:
+            return _InputStep(
+                state=_next_input_state(
+                    state,
+                    command_menu_index_seed=(state.command_menu_index + 1) % len(state.command_items),
+                ),
+                needs_redraw=True,
+            )
+        if state.history_index is None:
+            return _InputStep(state=state, needs_redraw=False)
+        if state.history_index < len(state.history_items) - 1:
+            next_history_index = state.history_index + 1
+            next_chars = tuple(state.history_items[next_history_index])
+            return _InputStep(
+                state=_next_input_state(
+                    state,
+                    chars=next_chars,
+                    cursor=len(next_chars),
+                    history_index=next_history_index,
+                    command_menu_index_seed=None,
+                ),
+                needs_redraw=True,
+            )
+        return _InputStep(
+            state=_next_input_state(
+                state,
+                chars=state.draft_before_history,
+                cursor=len(state.draft_before_history),
+                history_index=None,
+                command_menu_index_seed=None,
+            ),
+            needs_redraw=True,
+        )
+    if len(key) == 1 and key.isprintable():
+        next_chars = list(state.chars)
+        next_chars.insert(state.cursor, key)
+        return _InputStep(
+            state=_next_input_state(
+                state,
+                chars=tuple(next_chars),
+                cursor=state.cursor + 1,
+                history_index=None if state.history_index is not None else _KEEP_STATE,
+            ),
+            needs_redraw=True,
+        )
+    return _InputStep(state=state, needs_redraw=False)
+
+
+def _next_input_state(
+    state: _InputState,
+    *,
+    chars: tuple[str, ...] | object = _KEEP_STATE,
+    cursor: int | object = _KEEP_STATE,
+    history_index: int | None | object = _KEEP_STATE,
+    draft_before_history: tuple[str, ...] | object = _KEEP_STATE,
+    command_menu_index_seed: int | None | object = _KEEP_STATE,
+) -> _InputState:
+    next_chars = state.chars if chars is _KEEP_STATE else chars
+    next_cursor = state.cursor if cursor is _KEEP_STATE else cursor
+    next_history_index = state.history_index if history_index is _KEEP_STATE else history_index
+    next_draft = state.draft_before_history if draft_before_history is _KEEP_STATE else draft_before_history
+    next_command_seed = state.command_menu_index if command_menu_index_seed is _KEEP_STATE else command_menu_index_seed
+    return _InputState(
+        chars=next_chars,
+        cursor=next_cursor,
+        history_items=state.history_items,
+        history_index=next_history_index,
+        draft_before_history=next_draft,
+        command_items=state.command_items,
+        command_menu_index=_sync_command_menu_selection(
+            chars=next_chars,
+            cursor=next_cursor,
+            command_items=state.command_items,
+            selected_index=next_command_seed,
+        ),
+    )
 
 
 def render_interactive_line(

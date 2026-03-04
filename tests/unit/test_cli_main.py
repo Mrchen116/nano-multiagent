@@ -1327,14 +1327,16 @@ def test_repl_input_engine_supports_crlf_line_break_for_terminal_mode() -> None:
 
 
 def test_repl_input_state_machine_reports_needs_redraw_for_noop_and_mutating_keys() -> None:
-    state = repl_input._initial_input_state(history=(), command_items=repl_commands.REPL_COMMANDS)
+    from nano_multiagent.cli.input import repl_input as layered_repl_input
 
-    noop = repl_input._apply_input_key(state=state, key="\x1b[D")
+    state = layered_repl_input._initial_input_state(history=(), command_items=repl_commands.REPL_COMMANDS)
+
+    noop = layered_repl_input._apply_input_key(state=state, key="\x1b[D")
     assert noop.needs_redraw is False
     assert noop.state.cursor == 0
     assert noop.state.chars == ()
 
-    inserted = repl_input._apply_input_key(state=noop.state, key="a")
+    inserted = layered_repl_input._apply_input_key(state=noop.state, key="a")
     assert inserted.needs_redraw is True
     assert inserted.state.cursor == 1
     assert inserted.state.chars == ("a",)
@@ -1342,9 +1344,11 @@ def test_repl_input_state_machine_reports_needs_redraw_for_noop_and_mutating_key
 
 
 def test_repl_input_engine_skips_redundant_redraw_for_noop_keys(monkeypatch) -> None:
+    from nano_multiagent.cli.input import repl_input as layered_repl_input
+
     output = io.StringIO()
     render_calls: list[tuple[str, str, int]] = []
-    original_render = repl_input.render_interactive_line
+    original_render = layered_repl_input.render_interactive_line
 
     def _counting_render(*, out, prompt, chars, cursor, command_items=(), selected_command_index=None):
         render_calls.append(("render", "".join(chars), cursor))
@@ -1357,7 +1361,7 @@ def test_repl_input_engine_skips_redundant_redraw_for_noop_keys(monkeypatch) -> 
             selected_command_index=selected_command_index,
         )
 
-    monkeypatch.setattr(repl_input, "render_interactive_line", _counting_render)
+    monkeypatch.setattr(layered_repl_input, "render_interactive_line", _counting_render)
 
     typed = repl_input.read_interactive_line(
         prompt="nano> ",
