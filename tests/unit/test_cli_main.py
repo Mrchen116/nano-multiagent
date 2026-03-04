@@ -1330,6 +1330,11 @@ class _ScriptedReplInputReader:
         )
 
 
+class _TTYStringIO(io.StringIO):
+    def isatty(self) -> bool:  # pragma: no cover - simple test seam
+        return True
+
+
 def test_repl_input_engine_supports_inline_insert_at_cursor() -> None:
     typed = repl_input.read_interactive_line(
         prompt="nano> ",
@@ -2306,6 +2311,55 @@ def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress(
         ("send_message_async", {"session_id": "sess_cli", "text": "first"}),
         ("send_message_async", {"session_id": "sess_cli", "text": "second"}),
     ]
+
+
+def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(monkeypatch) -> None:
+    stub = _AsyncToolExecStreamingStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    def _forbid_emit_external_text(*, out, text):  # noqa: ANN001
+        del out, text
+        raise AssertionError("non-tty path must not call emit_external_text")
+
+    monkeypatch.setattr(repl_input, "emit_external_text", _forbid_emit_external_text)
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Tool: bash start args=" in text
+    assert "State: completed" in text
+    assert "\r" not in text
+    assert "\x1b[" not in text
+
+
+def test_run_cli_repl_tty_async_output_uses_emit_external_text_path(monkeypatch) -> None:
+    stub = _AsyncToolExecStreamingStubClient()
+    output = _TTYStringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+    emitted: list[str] = []
+
+    original_emit_external_text = repl_input.emit_external_text
+
+    def _record_emit_external_text(*, out, text):  # noqa: ANN001
+        emitted.append(text)
+        return original_emit_external_text(out=out, text=text)
+
+    monkeypatch.setattr(repl_input, "emit_external_text", _record_emit_external_text)
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    assert emitted
 
 class _ManagedServerSpy:
     def __init__(self, *, fail_on_start: Exception | None = None) -> None:

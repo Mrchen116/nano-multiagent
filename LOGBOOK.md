@@ -34,3 +34,4 @@
 - 状态行中断白名单规则（2026-03-04，M62）：进度/状态行渲染必须有“仅关键事件可中断”的白名单（至少含 error/warning/stream/turn.complete/shutdown）；其余增量事件一律折叠，避免刷屏与上下文跳动。
 - orphan 先观测后修复规则（2026-03-04，M62）：对 `end` 无 `begin` 的工具事件必须先落 `orphan_total{tool,phase}` 指标并保留原始语义，再决定是 synthesize 还是丢弃；禁止静默吞掉导致排障不可见。
 - 交互入口 TTY 护栏规则（2026-03-04，M62）：`TERM=dumb` 或 stdin/stderr 非 TTY 场景下，交互模式必须显式拒绝或二次确认；禁止隐式启动导致不可确认阻塞。脚本模式应要求显式 prompt 参数或管道输入，避免 hanging read。
+- CLI 输出通道分流规则（2026-03-04）：REPL 异步输出必须按 `stdout.isatty()` 分流；TTY 才允许 `emit_external_text`（含回车/控制序列），non-TTY 必须降级为纯文本块输出，防止日志/管道污染。
