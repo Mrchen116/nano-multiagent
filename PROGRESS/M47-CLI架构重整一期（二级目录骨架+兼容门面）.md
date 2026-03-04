@@ -46,13 +46,24 @@
 ### R2 按职责迁移并保持行为等价
 - Context:
 - Decision:
+  - 先补红测 `test_cli_legacy_modules_delegate_to_layered_subpackages`，锁定 `events/input/render/runtime` 二级目录存在且旧模块对象映射到新分层模块。
+  - 将 `repl_input/repl_commands` 下沉到 `cli/input/`，`repl_events` 下沉到 `cli/events/`，`context_budget/error_presenter/repl_render/turn_usage` 下沉到 `cli/render/`，`repl_runtime` 下沉到 `cli/runtime/`。
+  - 保留旧路径 facade 文件（`cli/repl_*.py`、`cli/context_budget.py` 等）转发到新子目录，确保旧 import 不回归。
+  - `app/commands.py` 改为优先依赖新分层模块；针对 `repl_input/repl_commands` 保持通过旧 facade 导入，确保 monkeypatch 兼容行为不变。
 - Rationale:
+  - 以“物理迁移 + 兼容门面”方式先搭建稳定骨架，可减少后续里程碑并行改造冲突，同时避免一次性切断旧测试依赖。
 - Evidence:
   - Tests:
+    - 红测：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "legacy_modules_delegate_to_layered_subpackages"` -> `1 failed`（`ModuleNotFoundError: nano_multiagent.cli.events`）。
+    - 子集回归：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py -k "legacy_modules_delegate_to_layered_subpackages or facade_matches_new_app_commands_module"` -> `2 passed`。
+    - 边界回归：`PYTHONPATH=src pytest -q tests/unit/test_cli_refactor_boundaries.py` -> `7 passed`。
+    - 门禁：`PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `108 passed, 42 warnings`。
   - Entry:
+    - `run_cli`、REPL 与 `send-message` 行为保持一致；旧导入路径继续可用，新子目录导入路径已建立。
 - Rollback:
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`f9eb0a1`, C2=`6d6d002`, C3=`本提交`
 - Next:
+  - 进入 R3：执行 managed CLI 实跑验收、分支集成到 `main` 并更新 `dev_tasks` 为 DONE。
 
 ### R3 收口（门禁 + managed 实跑 + main 集成 + dev_tasks DONE）
 - Context:

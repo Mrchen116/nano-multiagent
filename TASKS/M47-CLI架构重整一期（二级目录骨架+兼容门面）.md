@@ -57,7 +57,7 @@
 - DoD:
   - 全量门禁全绿。
   - 完成 C2。
-- Status: `DOING`
+- Status: `DONE`
 
 ### R3 收口验收与集成
 - Acceptance:
@@ -73,4 +73,4 @@
 - DoD:
   - main 合并并 push。
   - `data/dev-tasks.json` 更新为 `DONE` 并记录 result。
-- Status: `TODO`
+- Status: `DOING`
