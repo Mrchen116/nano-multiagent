@@ -728,6 +728,48 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     assert "final:echo:ping" in text
 
 
+def test_cli_repl_non_tty_async_output_avoids_terminal_control_sequences() -> None:
+    store = _InMemorySessionStore()
+    llm = _ToolCallingLLMClient()
+    runtime = AgentRuntime(
+        session_manager=SessionManager(store=store),
+        llm_client=llm,
+        model="mock-model",
+        repo_root=Path.cwd(),
+    )
+    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    tool_registry.register(_EchoTool())
+
+    app = create_app(
+        session_store=store,
+        runtime=runtime,
+        tool_registry=tool_registry,
+        auth_token="test-token",
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from nano_multiagent.cli.http_client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "Tool: echo start args=ping" in text
+    assert "State: completed" in text
+    assert "\r" not in text
+    assert "\x1b[" not in text
+
+
 def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool() -> None:
     store = _InMemorySessionStore()
     llm = _BashToolCallingLLMClient()
