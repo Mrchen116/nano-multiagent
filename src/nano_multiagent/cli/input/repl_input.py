@@ -274,12 +274,13 @@ def _apply_input_key(*, state: _InputState, key: str) -> _InputStep:
         )
     if key == _KEY_ARROW_UP:
         if state.command_menu_index is not None and state.command_items:
+            next_state = _next_input_state(
+                state,
+                command_menu_index_seed=(state.command_menu_index - 1) % len(state.command_items),
+            )
             return _InputStep(
-                state=_next_input_state(
-                    state,
-                    command_menu_index_seed=(state.command_menu_index - 1) % len(state.command_items),
-                ),
-                needs_redraw=True,
+                state=next_state,
+                needs_redraw=next_state != state,
             )
         if not state.history_items:
             return _InputStep(state=state, needs_redraw=False)
@@ -292,51 +293,46 @@ def _apply_input_key(*, state: _InputState, key: str) -> _InputStep:
             next_history_index = state.history_index - 1
         assert next_history_index is not None
         history_chars = tuple(state.history_items[next_history_index])
-        return _InputStep(
-            state=_next_input_state(
-                state,
-                chars=history_chars,
-                cursor=len(history_chars),
-                history_index=next_history_index,
-                draft_before_history=next_draft,
-                command_menu_index_seed=None,
-            ),
-            needs_redraw=True,
+        next_state = _next_input_state(
+            state,
+            chars=history_chars,
+            cursor=len(history_chars),
+            history_index=next_history_index,
+            draft_before_history=next_draft,
+            command_menu_index_seed=None,
         )
+        return _InputStep(state=next_state, needs_redraw=next_state != state)
     if key == _KEY_ARROW_DOWN:
         if state.command_menu_index is not None and state.command_items:
+            next_state = _next_input_state(
+                state,
+                command_menu_index_seed=(state.command_menu_index + 1) % len(state.command_items),
+            )
             return _InputStep(
-                state=_next_input_state(
-                    state,
-                    command_menu_index_seed=(state.command_menu_index + 1) % len(state.command_items),
-                ),
-                needs_redraw=True,
+                state=next_state,
+                needs_redraw=next_state != state,
             )
         if state.history_index is None:
             return _InputStep(state=state, needs_redraw=False)
         if state.history_index < len(state.history_items) - 1:
             next_history_index = state.history_index + 1
             next_chars = tuple(state.history_items[next_history_index])
-            return _InputStep(
-                state=_next_input_state(
-                    state,
-                    chars=next_chars,
-                    cursor=len(next_chars),
-                    history_index=next_history_index,
-                    command_menu_index_seed=None,
-                ),
-                needs_redraw=True,
-            )
-        return _InputStep(
-            state=_next_input_state(
+            next_state = _next_input_state(
                 state,
-                chars=state.draft_before_history,
-                cursor=len(state.draft_before_history),
-                history_index=None,
+                chars=next_chars,
+                cursor=len(next_chars),
+                history_index=next_history_index,
                 command_menu_index_seed=None,
-            ),
-            needs_redraw=True,
+            )
+            return _InputStep(state=next_state, needs_redraw=next_state != state)
+        next_state = _next_input_state(
+            state,
+            chars=state.draft_before_history,
+            cursor=len(state.draft_before_history),
+            history_index=None,
+            command_menu_index_seed=None,
         )
+        return _InputStep(state=next_state, needs_redraw=next_state != state)
     if len(key) == 1 and key.isprintable():
         next_chars = list(state.chars)
         next_chars.insert(state.cursor, key)
