@@ -160,6 +160,23 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
     assert preview_lines == ["Tool: bash start args=ping"]
 
 
+def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summary() -> None:
+    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
+
+    machine = ReplRenderPhaseMachine()
+    preview_identity = "run_target|bash|call_1|start"
+    assert machine.should_emit_tool_preview(preview_identity) is True
+    machine.record_tool_preview(preview_identity=preview_identity, preview_line_identity="bash start args=ping")
+    assert machine.should_emit_tool_preview(preview_identity) is False
+
+    machine.begin_finalizing()
+    filtered = machine.filter_summary_tool_updates(
+        ["bash start args=ping", "bash exit code=0 status=completed duration=10ms"],
+        line_identity_resolver=lambda line: line.strip(),
+    )
+    assert filtered == ["bash exit code=0 status=completed duration=10ms"]
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object] | None]] = []
