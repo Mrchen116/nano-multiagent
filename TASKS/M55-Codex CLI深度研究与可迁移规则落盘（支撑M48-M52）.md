@@ -51,7 +51,7 @@
 - DoD:
   - 锚点覆盖四类主题且可检索复核。
   - 对每个主题形成至少 1 条可迁移规则。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R2 可执行迁移清单（M48-M52 分配）
 - Acceptance:
@@ -65,7 +65,7 @@
   - `PROGRESS/M55-Codex CLI深度研究与可迁移规则落盘（支撑M48-M52）.md` 的迁移矩阵章节。
 - DoD:
   - M48-M52 执行者可直接按清单拆实现 Roadpoint。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R3 研究结论沉淀与复用规则更新
 - Acceptance:
@@ -79,4 +79,9 @@
   - `PROGRESS/M55-...md` 完整记录。
 - DoD:
   - 满足 Exit Criteria 1-4。
-- Status: `TODO`
+- Status: `DONE`
+
+## Delivery Notes
+- 已交付计划文档：`TASKS/M55-Codex CLI深度研究与可迁移规则落盘（支撑M48-M52）.md`
+- 已交付研究落盘：`PROGRESS/M55-Codex CLI深度研究与可迁移规则落盘（支撑M48-M52）.md`
+- 已追加复用规则：`LOGBOOK.md`（M55 新增规则段）
