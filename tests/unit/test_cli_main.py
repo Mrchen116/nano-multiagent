@@ -8,6 +8,14 @@ from nano_multiagent.cli import repl_commands
 from nano_multiagent.cli.main import run_cli
 
 
+def test_cli_commands_facade_matches_new_app_commands_module() -> None:
+    from nano_multiagent.cli.app import commands as app_commands
+
+    assert cli_commands.build_parser is app_commands.build_parser
+    assert cli_commands.run_cli is app_commands.run_cli
+    assert run_cli is app_commands.run_cli
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object] | None]] = []
