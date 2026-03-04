@@ -57,7 +57,7 @@
   - R1 相关红测先失败，随后实现通过。
   - `test_command` 全绿（记录基线已知失败边界与最终结果）。
   - C1/C2/C3 提交齐全，PROGRESS 记录决策/证据/回退点。
-- Status: `TODO`
+- Status: `DONE`
 
 ### R2 图片 read part 与 mapper 兼容对齐
 - Acceptance:
@@ -78,7 +78,7 @@
   - R2 红测先失败并明确缺失点。
   - 实现后 `test_command` 全绿。
   - C1/C2/C3 提交齐全。
-- Status: `TODO`
+- Status: `DOING`
 
 ## Delivery Notes
 - 本 Milestone 以 read 工具契约为唯一目标；不触碰 bash/edit/write/task 实现。
