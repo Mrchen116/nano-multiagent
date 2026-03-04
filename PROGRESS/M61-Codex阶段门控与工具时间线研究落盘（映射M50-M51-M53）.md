@@ -1,0 +1,171 @@
+# M61 - Codex阶段门控与工具时间线研究落盘（映射M50-M51-M53）
+
+## Baseline
+- Tests:
+  - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`
+- Result:
+  - `113 passed, 42 warnings`（2026-03-04）
+
+### Plan（一次性拆分）
+- Context:
+  - M61 为研究型里程碑，硬约束是不改实现代码；交付物是可执行研究结论与迁移清单。
+  - 目标聚焦 codex 的阶段门控、工具时间线/orphan、summary 去重，并映射到 M50/M51/M53。
+- Decision:
+  - 拆分为三轮研究：`R1 阶段门控`、`R2 工具时间线与去重`、`R3 迁移清单与验收模板收口`。
+  - 每轮补充“新问题 -> 新锚点 -> 迁移决策 -> 风险”闭环，及时写入 PROGRESS。
+- Rationale:
+  - 多轮递进能确保研究不是静态摘录，而是可被后续里程碑直接执行的工程清单。
+- Evidence:
+  - Tests: baseline gate 全绿。
+  - Entry: 必读文件已完成（`LOGBOOK.md`、`内核设计蓝图.md`、`PROGRESS/M44-Codex-CLI-研究补充-输入历史-事件折叠-去重策略.md`、`tdd-execution-worker`）。
+- Rollback:
+  - 回退到计划提交前稳定点。
+- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+- Next:
+  - 执行 R1：补全 STREAMING/FINALIZING/FINALIZED 与 frame coalesce 关键锚点。
+
+### R1 阶段门控与渲染调度锚点深挖（STREAMING/FINALIZING/FINALIZED）
+- Context:
+  - Red 问题清单（待解）：
+    - `STREAMING/FINALIZING/FINALIZED` 在 codex 中的真实门控条件是什么（而非命名推断）？
+    - status line 在流式阶段何时隐藏、何时恢复，是否受 commentary/final-answer phase 双重约束？
+    - commit tick 与 frame coalesce 的边界在哪里（谁负责“节流”，谁负责“排空”）？
+- Decision:
+  - 结论（含推断）：
+    - `STREAMING`（推断）：`stream_controller/plan_stream_controller` 非空且 commit tick 持续排空，期间 status row 被隐藏。
+    - `FINALIZING`（推断）：`MessagePhase::Commentary` 完成后设置 `pending_status_indicator_restore=true`，等待“队列空闲 + task 仍运行”再恢复 status row。
+    - `FINALIZED`（推断）：final-answer 或 turn 终态触发 `finalize_turn`/`flush_answer_stream_with_separator`，控制器清空并重置 chunking 状态。
+  - `phase` 语义锚点：
+    - `MessagePhase::{Commentary, FinalAnswer}`：`protocol/src/models.rs:156`
+    - commentary 完成门控：`tui/src/chatwidget.rs:2293`
+  - commit/drain 与 redraw 分层：
+    - commit 计划与排空：`tui/src/streaming/commit_tick.rs:69`
+    - 阈值与滞回策略：`tui/src/streaming/chunking.rs:85`
+    - frame coalesce（最早 deadline + 120fps 限速）：`tui/src/tui/frame_requester.rs:110`
+  - M50 迁移建议（可执行）：
+    - 建立 `TurnRenderPhase` 显式状态机：`STREAMING -> FINALIZING -> FINALIZED`。
+    - 把“流式排空策略”和“重绘调度策略”分层：前者在 `events/stream_runtime`，后者在 `render/frame_scheduler`。
+    - status row 恢复必须与 `phase=Commentary` + `queue_idle` 双门控绑定，禁止仅凭“收到一次 completed”切换。
+- Rationale:
+  - codex 并非依赖单一状态字段，而是“phase + queue idle + task running”组合门控；这比简单 done flag 抗抖动更强。
+- Evidence:
+  - Tests:
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `113 passed, 42 warnings`
+  - Entry:
+    - 关键锚点：
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/protocol/src/models.rs:156`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:913`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:1269`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:2293`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/streaming/commit_tick.rs:69`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/streaming/chunking.rs:85`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/tui/frame_requester.rs:110`
+- Rollback:
+  - `a9b9dc4`（计划提交）。
+- Commits: C1=`4c9a55c`, C2=`768519e`, C3=`本提交`
+- Next:
+  - 进入 R2：围绕 tool timeline/orphan 隔离与 summary 去重继续深挖。
+
+### R2 工具时间线聚合/orphan隔离与summary去重研究
+- Context:
+  - Red 问题清单（待解）：
+    - tool begin/end 在 codex 里如何保证 FIFO 与 call_id 对齐，避免顺序错乱？
+    - orphan end 与 active group 冲突时，何时“独立落历史”而不是并入当前组？
+    - human 流式预览与最终 summary 的去重边界在哪里（哪些内容只播一次）？
+- Decision:
+  - tool timeline 聚合机制：
+    - 事件先入 `InterruptManager` FIFO 队列，再统一 `flush_all` 处理，避免 `ExecEnd` 先于 `ExecBegin` 乱序落地（`chatwidget/interrupts.rs:30`、`chatwidget/interrupts.rs:82`）。
+    - `ExecCell.complete_call` 返回布尔用于识别 call_id 未命中；未命中不会静默吞掉，而由上层走 orphan 分支（`exec_cell/model.rs:82`）。
+    - `handle_exec_end_now` 区分 `ActiveTracked / OrphanHistoryWhileActiveExec / NewCell`，orphan 独立插入历史，避免并入当前活跃组（`chatwidget.rs:2436`、`chatwidget.rs:2507`）。
+  - summary 去重边界：
+    - 若已有 `stream_controller`，最终 `on_agent_message` 不再重复注入完整文本，避免流式+最终双写（`chatwidget.rs:1269`）。
+    - plan 路径优先 finalize 已流式 cell；仅在无流式内容时回退到最终文本（`chatwidget.rs:1311`）。
+    - reasoning 仅在 final 生成 summary block，并清空 delta 缓冲，防止同内容多次落历史（`chatwidget.rs:1367`）。
+  - M51 迁移建议（可执行）：
+    - 在 nano CLI 引入 `ToolTimelineAggregator`：键为 `run_id+call_id`，状态机含 `active/orphan/finalized`。
+    - 对 `exec_end` 未匹配活跃 call 的事件，强制落 `orphan_updates` 独立数组并计数。
+    - 引入“处理队列先于渲染”纪律：事件消费层保证 FIFO，渲染层禁止重排。
+  - M53 迁移建议（可执行）：
+    - 建立 summary 去重统计：`suppressed_final_message`, `suppressed_stream_preview`, `orphan_count`。
+    - 长会话低噪策略：保留“同类读取 coalesce + name 去重”摘要（参考 `history_cell.rs:3244`、`history_cell.rs:3301`）。
+- Rationale:
+  - codex 将“顺序一致性”和“聚合正确性”分开建模：前者靠 FIFO 中断队列，后者靠 call_id 状态机；这是避免工具串味的关键。
+- Evidence:
+  - Tests:
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `113 passed, 42 warnings`
+  - Entry:
+    - 关键锚点：
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/interrupts.rs:30`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/interrupts.rs:82`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/exec_cell/model.rs:82`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:2436`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:2507`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:1269`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:1311`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget.rs:1367`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/history_cell.rs:3244`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/history_cell.rs:3301`
+- Rollback:
+  - `98aab7b`（R1 C3）。
+- Commits: C1=`68a1a94`, C2=`4cc078f`, C3=`本提交`
+- Next:
+  - 进入 R3：汇总 M50/M51/M53 最终清单与 managed CLI 验收脚本模板。
+
+### R3 迁移总清单与managed CLI观感验收模板收口
+- Context:
+  - Red 问题清单（待解）：
+    - M50/M51/M53 迁移任务边界如何避免互相覆盖或重复实现？
+    - managed CLI 观感验收模板如何做到“命令可执行 + 结果可判定 + 失败可归因”？
+    - 哪些规则具备跨里程碑复用价值，值得进入 LOGBOOK？
+- Decision:
+  - 最终迁移清单（按里程碑映射）：
+    - M50（渲染层与阶段状态机）：
+      - 新建 `TurnRenderPhase`（`STREAMING/FINALIZING/FINALIZED`）与状态转换守卫。
+      - 将 `status_line` 恢复条件绑定为：`phase=commentary_done && stream_queues_idle && task_running`。
+      - 将 `commit_tick`（排空）与 `frame_scheduler`（合帧限频）拆分，禁止相互越权。
+    - M51（工具时间线聚合与异常隔离）：
+      - 新建 `ToolTimelineAggregator`：`run_id+call_id` 聚合，状态含 `active/orphan/finalized`。
+      - 对 unmatched end 强制落 `orphan` 组并可视化计数，禁止并入当前 active。
+      - 引入 FIFO 事件缓存层，保证 begin/end 顺序一致后再渲染。
+    - M53（可靠性与性能门禁）：
+      - 增加长会话门禁：`dedupe_drop_count/orphan_count/queue_depth/oldest_age` 指标上报。
+      - 增加高频事件门禁：commit tick catch-up 阈值、re-entry hold、120fps draw clamp 不回退。
+      - 增加低噪摘要门禁：coalesce 读取摘要去重（同文件名不重复列出）。
+  - managed CLI 观感验收脚本模板（模板，不改实现）：
+    - 模板 A（阶段门控）：
+      - 命令：
+        - ``/bin/zsh -lc 'printf "/new\n请先给简短commentary，再给final answer：1+1=?\n/exit\n" | PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token'``
+      - 期望关键片段：`Assistant:`、`State: completed`、`Usage:`
+      - 判定标准：最终答案仅出现一次；状态线不在流式中反复抖动；退出时无悬挂 in-flight。
+    - 模板 B（工具时间线）：
+      - 命令：
+        - ``/bin/zsh -lc 'printf "/new\n请使用bash工具执行: echo M61_TOOL\n/exit\n" | PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token'``
+      - 期望关键片段：`Tool: bash start`、`Tool: bash started`、`Tool: bash exit`、`Assistant: M61_TOOL`
+      - 判定标准：`start/started/exit` 各 1 次；无重复 summary 行；state 最终 completed。
+    - 模板 C（排队与高频）：
+      - 命令：
+        - ``/bin/zsh -lc 'printf "/new\nfirst\nsecond\n/exit\n" | PYTHONPATH=src NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:4000 /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8003 --token test-token'``
+      - 期望关键片段：`Queued message #1`、两轮 `State: completed`
+      - 判定标准：FIFO 顺序正确；无 run 串线；无重复工具关键线。
+  - 失败归因模板（用于验收脚本）：
+    - `重复答案/状态抖动` -> 优先检查 M50 phase 门控与 status restore 条件。
+    - `工具串味/orphan 丢失` -> 优先检查 M51 call_id 聚合与 orphan 分支。
+    - `高频卡顿/输出延迟` -> 优先检查 M53 chunking 阈值与 frame coalesce 限速。
+- Rationale:
+  - 将“功能迁移任务”和“观感验收模板”并排交付，可让 M50/M51/M53 在实现前先锁定验证口径，降低返工。
+- Evidence:
+  - Tests:
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py` -> `113 passed, 42 warnings`
+  - Entry:
+    - 关键锚点补充：
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/tests.rs:3269`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/tests.rs:3301`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/tests.rs:3320`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/chatwidget/tests.rs:3347`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/streaming/chunking.rs:180`
+      - `/Users/czj/Repos/opencode-hub/codex/codex-rs/tui/src/tui/frame_requester.rs:186`
+- Rollback:
+  - `45e1512`（R2 C3）。
+- Commits: C1=`183858e`, C2=`c16a320`, C3=`本提交`
+- Next:
+  - R3 文档收口完成，进入里程碑集成：rebase -> gate -> merge main -> push -> dev_tasks DONE。
