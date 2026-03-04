@@ -252,23 +252,25 @@ def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[
         slot = tool_views.get(group_key, {})
         if not slot:
             continue
+        progress_line = _format_tool_chunk_progress(slot)
         error_line = slot.get("error")
         if isinstance(error_line, str) and error_line:
             start_line = slot.get("start")
             if isinstance(start_line, str) and start_line:
                 tool_updates.append(start_line)
+            if progress_line:
+                tool_updates.append(progress_line)
             tool_updates.append(error_line)
             continue
 
         output_line = slot.get("output")
         exit_line = slot.get("exec_exit")
         started_line = slot.get("exec_started")
-        start_line = slot.get("start")
 
-        if isinstance(start_line, str) and start_line:
-            tool_updates.append(start_line)
-        if isinstance(output_line, str) and output_line:
+        if isinstance(output_line, str) and output_line and not isinstance(exit_line, str):
             tool_updates.append(output_line)
+        if progress_line:
+            tool_updates.append(progress_line)
         if isinstance(exit_line, str) and exit_line:
             tool_updates.append(exit_line)
             continue
@@ -276,6 +278,27 @@ def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[
             tool_updates.append(started_line)
             continue
     return status_updates, tool_updates
+
+
+def _format_tool_chunk_progress(slot: dict[str, object]) -> str | None:
+    tool_name = slot.get("tool_name")
+    resolved_name = str(tool_name) if isinstance(tool_name, str) and tool_name.strip() else "<unknown>"
+
+    count_items: list[tuple[str, int]] = []
+    for key, label in (
+        ("chunk_count_stdout", "stdout"),
+        ("chunk_count_stderr", "stderr"),
+        ("chunk_count_unknown", "unknown"),
+    ):
+        raw = slot.get(key)
+        if isinstance(raw, int) and raw > 0:
+            count_items.append((label, raw))
+    if not count_items:
+        return None
+
+    total_chunks = sum(count for _, count in count_items)
+    details = ", ".join(f"{label}={count}" for label, count in count_items)
+    return f"Tool {resolved_name} progress chunks={total_chunks} ({details})"
 
 
 def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | None:

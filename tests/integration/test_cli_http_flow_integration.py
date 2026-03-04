@@ -646,7 +646,8 @@ def test_cli_repl_slash_menu_selects_command_and_executes_it() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "Error: unknown command '/'" not in text
-    assert '"session_id": "sess_' in text
+    assert "Active session: sess_" in text
+    assert '{"session_id":' not in text
     assert "Commands ↓ " not in text
 
 
@@ -689,7 +690,8 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     text = output.getvalue()
     assert "Assistant:" in text
     assert "State: completed | stop=stop | run=run_" in text
-    assert "Tool: echo start args=ping" in text
+    assert "Tool echo start args=ping" in text
+    assert "Tool: echo start args=ping" not in text
     assert "Tool: echo output=echo:ping" in text
     assert "Usage:" in text
     assert "[status]" not in text

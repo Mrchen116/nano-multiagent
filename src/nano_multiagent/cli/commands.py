@@ -367,7 +367,7 @@ def _run_repl(
                 if not active_session_id:
                     session_payload = client.create_session()
                     active_session_id = _extract_session_id(session_payload)
-                    _emit_external_repl_block(json.dumps(session_payload, ensure_ascii=False))
+                    repl_commands.print_session_created(out=out, session_id=active_session_id)
 
                 _append_input_history_entry(input_history_by_session, active_session_id, line)
                 _append_history_entry(history_by_session, active_session_id, role="user", content=line)
