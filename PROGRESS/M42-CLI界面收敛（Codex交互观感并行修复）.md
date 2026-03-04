@@ -57,17 +57,29 @@
     - 失败流输出形态为 `Assistant: (empty)` + `[error]` + `[hint] suggestion=...`，仍可定位 layer 与建议。
 - Rollback:
 - `26a4694`（R2 红测提交）
-- Commits: C1=`26a4694`, C2=`37d2935`, C3=`本提交（docs R2.1）`
+- Commits: C1=`26a4694`, C2=`37d2935`, C3=`71d36b3`
 - Next:
   - 进入 R3：rebase main、复跑门禁、整体合并并更新 `dev-tasks`。
 
 ### R3 收口与集成（门禁、文档、合并）
 - Context:
+- 主仓 `main` 有并行脏改动（`ROADMAP.md` 等），不能在主工作区直接执行合并，需避免触碰他人现场。
+- 目标是在不影响并行开发前提下完成 M42 整体集成，并将派工板状态改为 `DONE`。
 - Decision:
+- 在 M42 worktree 执行 `git fetch origin` + `git rebase origin/main` 并复跑门禁；通过后获取 `data/locks/merge.lock`。
+- 在 `/tmp` 建立临时集成 worktree（`integration/M42`）从 `origin/main` 合并 `milestone/M42`（`--no-ff`）并 push 到 `origin/main`。
+- 里程碑状态通过 `dev_tasks.py update` 脚本写入 `data/dev-tasks.json`，不手改 JSON。
 - Rationale:
+- 临时 worktree 方案绕开主仓脏状态，同时满足“整体集成到 main”的要求，不回退或覆盖其他 agent 的变更。
+- 使用共享 merge lock 可避免并行里程碑同时写 main 的竞态。
 - Evidence:
   - Tests:
+    - `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py`（94 passed, 38 warnings）。
   - Entry:
+    - `git rebase origin/main`：`Current branch milestone/M42 is up to date.`
+    - 临时集成 worktree merge+push：`origin/main` 从 `feb26ea` 更新到 `9fcedb2`。
 - Rollback:
-- Commits: C1=, C2=, C3=
+- `71d36b3`（R2 文档完成点，可重新执行 R3 集成流程）
+- Commits: C1=`N/A（收口路标无独立红测提交）`, C2=`9fcedb2`, C3=`本提交（docs R3.1）`
 - Next:
+  - 更新 `data/dev-tasks.json` 的 M42 状态为 `DONE`，写入 commits/tests/result。
