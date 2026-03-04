@@ -37,6 +37,7 @@ def send_message_with_async_events(
     seen_event_ids: set[str] = set()
     seen_event_fingerprints: set[str] = set()
     previewed_tool_lines: set[str] = set()
+    emitted_tool_preview_identities: set[str] = set()
     assistant_text = ""
     terminal_run: dict[str, object] | None = None
     collected_events: list[tuple[str, dict[str, object]]] = []
@@ -58,6 +59,7 @@ def send_message_with_async_events(
             collected_events=collected_events,
             preview_writer=preview_writer,
             previewed_tool_lines=previewed_tool_lines,
+            emitted_tool_preview_identities=emitted_tool_preview_identities,
         )
 
         run_payload = client.get_run(run_id=run_id)
@@ -135,6 +137,7 @@ def consume_async_run_events(
     collected_events: list[tuple[str, dict[str, object]]] | None = None,
     preview_writer: Callable[[str], None] | None = None,
     previewed_tool_lines: set[str] | None = None,
+    emitted_tool_preview_identities: set[str] | None = None,
 ) -> tuple[str, int]:
     """Consume one poll batch with dedupe and run-id filtering.
 
@@ -168,7 +171,17 @@ def consume_async_run_events(
         if collected_events is not None:
             collected_events.append((event_name, data))
         if emit_preview and _is_live_preview_event(event_name):
-            emitted_line = _emit_preview_line(out=out, event_name=event_name, data=data, preview_writer=preview_writer)
+            preview_identity = _tool_preview_identity(event_name=event_name, data=data, run_id=run_id)
+            if (
+                emitted_tool_preview_identities is not None
+                and preview_identity is not None
+                and preview_identity in emitted_tool_preview_identities
+            ):
+                emitted_line = None
+            else:
+                emitted_line = _emit_preview_line(out=out, event_name=event_name, data=data, preview_writer=preview_writer)
+                if emitted_line is not None and preview_identity is not None and emitted_tool_preview_identities is not None:
+                    emitted_tool_preview_identities.add(preview_identity)
             if previewed_tool_lines is not None and emitted_line is not None and event_name.startswith("tool_"):
                 previewed_tool_lines.add(emitted_line)
         if event_name == "text_delta":
@@ -501,6 +514,28 @@ def _tool_line_identity(line: str) -> str:
     if trimmed.startswith("Tool "):
         return trimmed[5:].strip()
     return trimmed
+
+
+def _tool_preview_identity(*, event_name: str, data: dict[str, object], run_id: str) -> str | None:
+    phase_by_event = {
+        "tool_start": "start",
+        "tool_exec_started": "started",
+        "tool_exec_exit": "exit",
+    }
+    phase = phase_by_event.get(event_name)
+    if phase is None:
+        return None
+
+    name = _tool_name_from_data(data)
+    if not name:
+        return None
+
+    raw_call_id = data.get("call_id")
+    if isinstance(raw_call_id, str) and raw_call_id.strip():
+        call_id = raw_call_id.strip()
+    else:
+        call_id = "<missing-call-id>"
+    return f"{run_id}|{name}|{call_id}|{phase}"
 
 
 def _is_live_preview_event(event_name: str) -> bool:
