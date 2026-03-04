@@ -1,0 +1,125 @@
+# PROGRESS (Milestone: M38)
+
+- Title: Playwright 回归抽检（第二轮）与交付收口
+- Goal: 在多 Milestone 完成后进行第二轮桌面+手机回归抽检，确认 chat/settings 无功能回归，并补齐最终交付文档与主干集成收口。
+- Exit Criteria:
+  - 第二轮 desktop+mobile 抽检通过；
+  - 关键页面无功能回归；
+  - 交付文档（运行说明/API与Mock边界/验收截图索引）补齐；
+  - `main` 分支保持可运行可验证。
+- Test command: `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`
+- Branch: `milestone/M38`
+
+### Baseline
+- Context:
+  - use_worktree=true，工作目录：`/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M38`。
+  - 已读取并应用：`tdd-execution-worker`、`playwright`、`COMMENTING_GUIDE.md`、`LOGBOOK.md`、`IM前端蓝图.md`、`IM服务蓝图.md`、`Agent 助手（基于 SDK 的上层应用）蓝图.md`。
+  - worktree 初始缺少运行态 `data`，已建立到主仓 `data` 的 symlink（仅本地运行态，不纳入提交）。
+- Decision:
+  - 先跑门禁建基线，再按 `R38.1 -> R38.2 -> R38.3 -> R38.4` 串行推进。
+  - 对 UI 验收统一采用 Playwright CLI，截图统一落盘 `src/IM/frontend/output/playwright/`。
+- Rationale:
+  - 先验证“当前可运行”再抽检，可避免把环境问题误判为功能回归。
+- Evidence:
+  - Tests:
+    - 首次基线：`vitest: command not found`（前端依赖未安装）。
+    - 修复后：`PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build` 全绿（23 Python tests + 15 frontend tests + build success）。
+  - Entry: `command -v npx` 返回可用，满足 Playwright CLI 前置条件。
+- Rollback:
+  - plan commit
+- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+- Next:
+  - 执行 R38.1：第二轮 desktop+mobile chat/settings 抽检并产出截图与回归清单。
+
+### R38.1 第二轮 Playwright 抽检（desktop+mobile，chat+settings）
+- Context:
+  - 抽检入口：`VITE_CHAT_API_MODE=mock npm run dev -- --host 127.0.0.1 --port 4173`。
+  - 覆盖范围：chat（列表/详情/发送）与 settings（agents/detail/nodes/policies/account）的 desktop+mobile。
+- Decision:
+  - 使用 Playwright CLI 同一 session 依次执行 `open/snapshot/click/fill/screenshot`，并统一将截图复制到 `src/IM/frontend/output/playwright/`。
+- Rationale:
+  - 第二轮目标是“回归稳定性验证”，优先验证关键用户路径可用，并保留可追溯截图证据。
+- Evidence:
+  - Tests:
+    - 抽检前门禁：`PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build` 全绿。
+  - Entry:
+    - chat:
+      - `M38-chat-desktop-list.png`
+      - `M38-chat-desktop-after-send.png`
+      - `M38-chat-mobile-list.png`
+      - `M38-chat-mobile-after-send.png`
+    - settings:
+      - `M38-settings-desktop-agents-list.png`
+      - `M38-settings-desktop-agent-detail-saved.png`
+      - `M38-settings-desktop-nodes-saved.png`
+      - `M38-settings-desktop-policies.png`
+      - `M38-settings-desktop-account.png`
+      - `M38-settings-mobile-agents-list.png`
+      - `M38-settings-mobile-nodes.png`
+      - `M38-settings-mobile-policies.png`
+      - `M38-settings-mobile-account.png`
+    - 结论：关键功能无回归；发现浏览器控制台存在持续 `404 /favicon.ico` 噪音。
+- Rollback:
+  - `7341252`（计划提交）
+- Commits: C1=`N/A`, C2=`N/A`, C3=`N/A`
+- Next:
+  - R38.2：围绕 favicon 控制台噪音补回归守卫测试并最小修复。
+
+### R38.2 回归守卫：测试先红（C1）-> 最小修复/补强（C2）
+- Context:
+  - R38.1 未发现业务功能回归，但控制台错误会污染后续回归信号，需要纳入守卫。
+- Decision:
+  - C1：新增 `src/IM/frontend/src/app/index-html.test.ts`，要求 `index.html` 必须显式声明 favicon（先红）。
+  - C2：在 `src/IM/frontend/index.html` 增加 favicon link，并新增 `src/IM/frontend/public/favicon.svg`。
+  - 修复后再次执行 Playwright `goto /chat`，验证 console 错误清零并截图复核。
+- Rationale:
+  - 以测试先红将“控制台洁净”从人工观察提升为可回归规则，降低未来回归噪音。
+- Evidence:
+  - Tests:
+    - Red：`cd src/IM/frontend && npm run test`（`index-html.test.ts` 失败，缺失 `rel="icon"`）。
+    - Green：`PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build` 全绿（23 + 16 tests + build success）。
+  - Entry:
+    - Playwright 复核：`goto /chat` 后 snapshot 无 console error 字段。
+    - 修复后截图：`M38-chat-desktop-post-favicon-fix.png`。
+- Rollback:
+  - `cd4235b`（R38.2 C1）
+- Commits: C1=`cd4235b`, C2=`b3b085d`, C3=`N/A（在 R38.3 完成）`
+- Next:
+  - R38.3：补齐运行说明/API与Mock边界/截图索引并完成文档收口。
+
+### R38.3 交付文档收口（运行说明/API与Mock边界/截图索引）
+- Context:
+  - 里程碑要求补齐交付文档，且需与第二轮抽检产物一一对应。
+- Decision:
+  - 新增 `src/IM/frontend/README.md`，集中提供运行说明、边界说明与截图索引。
+  - 在仓库 `README.md` 增加 frontend 交付文档入口。
+  - 在 `LOGBOOK.md` 补一条可复用规则：Playwright 抽检需同步关注 console 洁净度。
+  - 回填 `TASKS/PROGRESS` 的 R38 证据链与提交哈希。
+- Rationale:
+  - 文档集中在 frontend 子目录可降低联调成本；根 README 仅保留入口，避免重复维护。
+- Evidence:
+  - Tests:
+    - `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`（文档收口前已复跑全绿）。
+  - Entry:
+    - 文档产物：
+      - `src/IM/frontend/README.md`
+      - `README.md`（frontend 文档入口）
+      - `LOGBOOK.md`（新增控制台洁净规则）
+      - `TASKS/M38-Playwright回归抽检（第二轮）与交付收口.md`
+      - `PROGRESS/M38-Playwright回归抽检（第二轮）与交付收口.md`
+- Rollback:
+  - `b3b085d`（R38.2 C2）
+- Commits: C1=`cd4235b`, C2=`b3b085d`, C3=`<this-doc-commit>`
+- Next:
+  - R38.4：rebase `origin/main`、全量门禁、merge main、push、dev-tasks 脚本收口。
+
+### R38.4 主干集成与任务收口
+- Context:
+- Decision:
+- Rationale:
+- Evidence:
+  - Tests:
+  - Entry:
+- Rollback:
+- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
+- Next:

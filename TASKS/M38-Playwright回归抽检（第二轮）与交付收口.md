@@ -1,0 +1,103 @@
+# TASKS (Milestone: M38)
+
+- Test command: `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`
+- Branch: `milestone/M38`
+- Milestone status: `RUNNING`
+- Scope guard:
+  - Allowed: `src/IM/**`、`tests/im_service/**`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、`README.md（如需补充运行说明）`、`data/dev-tasks.json（仅脚本）`
+  - Forbidden: `src/nano_multiagent/**`、`ROADMAP.md`
+
+## [DONE] R38.1 第二轮 Playwright 抽检（desktop+mobile，chat+settings）
+- Acceptance:
+  - 使用真实浏览器对 chat 核心页（`/chat`、`/chat/:conversationId`）完成桌面与手机抽检。
+  - 使用真实浏览器对 settings 核心页（`/settings/agents`、`/settings/agents/:id`、`/settings/nodes`）完成桌面与手机抽检。
+  - 截图落盘到 `src/IM/frontend/output/playwright/`，文件名含 `M38`。
+  - 形成“是否回归”的结论与问题清单。
+- Tests Plan:
+  - `unit`: 不选。本 Roadpoint 聚焦真实浏览器抽检，不新增单测。
+  - `contract`: 不选。接口契约变更不在本点范围。
+  - `integration`: 选。执行里程碑门禁命令确认抽检前后整体可运行。
+  - `e2e`: 选。Playwright CLI（desktop+mobile）实机交互与截图。
+- Expected Tests:
+  - `PYTHONPATH=src pytest -q tests/im_service`
+  - `cd src/IM/frontend && npm run test && npm run build`
+  - Playwright CLI：`open/snapshot/click/fill/type/press/screenshot`
+- DoD:
+  - 门禁命令全绿。
+  - 抽检截图完整并可索引。
+  - PROGRESS 写清入口验证与回归结论。
+  - C1/C2/C3 证据链已规划到后续 Roadpoint。
+- Commits:
+  - C1: `N/A（抽检取证）`
+  - C2: `N/A（抽检取证）`
+  - C3: `N/A（抽检取证）`
+- Status: DONE
+
+## [DONE] R38.2 回归守卫：测试先红（C1）-> 最小修复/补强（C2）
+- Acceptance:
+  - 若 R38.1 发现回归：先写失败测试锁定问题，再做最小修复。
+  - 若 R38.1 未发现回归：仍补一条可复用回归守卫测试，并按先红后绿完成证据链。
+  - 变更控制在 `src/IM/**` 与 `tests/im_service/**` 允许范围内。
+- Tests Plan:
+  - `unit`: 选。为回归点补前端组件/逻辑级守卫测试。
+  - `contract`: 按需。仅当涉及字段或边界协议时补契约断言。
+  - `integration`: 选。执行里程碑门禁命令确认全绿。
+  - `e2e`: 选。Playwright 回归复核修复/补强结果。
+- Expected Tests:
+  - `src/IM/frontend/src/app/index-html.test.ts`（新增 favicon 回归守卫测试）
+  - `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`
+  - Playwright 二次截图复核
+- DoD:
+  - 存在 C1（先红测试）与 C2（实现/修复）提交。
+  - 门禁命令全绿，且 Playwright 复核通过。
+  - PROGRESS 记录问题、决策、证据与回滚点。
+- Commits:
+  - C1: `cd4235b`
+  - C2: `b3b085d`
+  - C3: `N/A（在 R38.3 完成）`
+- Status: DONE
+
+## [DONE] R38.3 交付文档收口（运行说明/API与Mock边界/截图索引）
+- Acceptance:
+  - 补齐可复现运行说明（服务启动、前端启动、抽检入口）。
+  - 补齐“真实后端与 Mock 边界”说明（chat/settings 各自边界与切换方式）。
+  - 输出第二轮截图索引（页面、设备、文件名、结论）。
+- Tests Plan:
+  - `unit`: 不选。文档收口不引入单元逻辑。
+  - `contract`: 不选。文档描述已有契约，不新增协议实现。
+  - `integration`: 选。文档落地后复跑门禁确保主干可运行。
+  - `e2e`: 选。文档中的截图索引对应 Playwright 实际产物。
+- Expected Tests:
+  - `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`
+  - Playwright 截图文件存在性核对
+- DoD:
+  - 文档条目齐全且与现状一致。
+  - 门禁命令全绿。
+  - C3 文档提交完成。
+- Commits:
+  - C1: `cd4235b`
+  - C2: `b3b085d`
+  - C3: `<this-doc-commit>`
+- Status: DONE
+
+## [TODO] R38.4 主干集成与任务收口
+- Acceptance:
+  - `milestone/M38` rebase `origin/main` 成功。
+  - 全量门禁通过后完成 `main` 合并与 `origin/main` 推送。
+  - 用脚本将 `data/dev-tasks.json` 的 M38 更新为 `DONE` 并写入 result。
+- Tests Plan:
+  - `unit`: 不选。该点聚焦集成与收口。
+  - `contract`: 不选。不引入契约代码改动。
+  - `integration`: 选。执行里程碑全量门禁。
+  - `e2e`: 选。以第二轮 Playwright 结果作为最终 UI 验收证据。
+- Expected Tests:
+  - `PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build`
+- DoD:
+  - main 分支可运行可验证，远端同步成功。
+  - `data/dev-tasks.json` 状态与 result 已脚本更新。
+  - PROGRESS 完整记录最终提交与证据。
+- Commits:
+  - C1: `<pending>`
+  - C2: `<pending>`
+  - C3: `<pending>`
+- Status: TODO

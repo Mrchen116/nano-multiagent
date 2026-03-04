@@ -8,6 +8,10 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+## IM Frontend
+
+- 运行说明、API/Mock 边界、M38 验收截图索引见：`src/IM/frontend/README.md`
+
 ```bash
 export NANO_MULTIAGENT_API_TOKEN=test-token
 uvicorn nano_multiagent.server.app:app --reload
