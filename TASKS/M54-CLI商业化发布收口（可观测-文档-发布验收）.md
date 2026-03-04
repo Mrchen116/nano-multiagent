@@ -41,7 +41,11 @@
   - `tests/unit/test_cli_refactor_boundaries.py::test_cli_release_observability_builds_summary_lines_from_perf_metrics`
 - DoD:
   - C1/C2/C3 完整；C2 前全量门禁全绿。
-- Status: `TODO`
+- Commits:
+  - C1: `8835e99`
+  - C2: `4638ce1`
+  - C3: `TBD`
+- Status: `DONE`
 
 ### R2 发布验收与回滚流程：可执行脚本化
 - Acceptance:
@@ -59,7 +63,7 @@
   - `tests/unit/test_cli_refactor_boundaries.py::test_cli_release_playbook_execute_runs_steps_and_collects_status`
 - DoD:
   - C1/C2/C3 完整；C2 前全量门禁全绿。
-- Status: `TODO`
+- Status: `DOING`
 
 ### R3 文档收口 + 发布验收 + 集成
 - Acceptance:
