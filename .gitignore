@@ -213,3 +213,10 @@ data/locks/
 
 # Playwright
 .playwright-cli/
+
+# Nano multiagent runtime artifacts
+.nano_multiagent/
+data/*.sqlite3
+
+# Local screenshots / scratch artifacts
+Snipaste_*.png
