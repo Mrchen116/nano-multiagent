@@ -93,7 +93,7 @@ def create_app(
         # uses its own empty-string default rather than setting empty explicitly.
         if resolved_product.resolved_system_prompt:
             resolved_system_prompt = resolved_product.resolved_system_prompt
-    session_service = SessionService(store=session_store)
+    session_service = SessionService(store=session_store, profile=product_profile)
     app.state.session_service = session_service
     if runtime is None:
         active_hook_registry = hook_registry or build_hook_registry(repo_root=resolved_repo_root)
