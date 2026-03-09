@@ -53,13 +53,15 @@
 
 ### R74.3 local_coding ProductProfile stub
 
-- Context: pending
-- Decision: pending
-- Rationale: pending
-- Evidence: pending
-- Rollback: pending
-- Commits: C1=pending, C2=pending, C3=pending
-- Next: R74.4
+- Context: 需要一个与当前行为完全等价的 ProductProfile，使 app.py 迁移后无行为变化。
+- Decision: `platform/products/local_coding.py` 中 `LOCAL_CODING_PROFILE`，`default_system_prompt=DEFAULT_SYSTEM_PROMPT`，`config_namespace="nanocode"`，tool/hook ids=None（继承平台全量默认）。
+- Rationale: None 语义"使用平台全量默认"与当前 `build_tool_registry` 调用等价，零行为差。
+- Evidence:
+  - Tests: pytest -q → 5 pre-existing failed, 475 passed (+5 new green)
+  - Entry: `from nano_multiagent.platform.products.local_coding import LOCAL_CODING_PROFILE` 可用
+- Rollback: 回退到 3744a85 (R74.3 C1)
+- Commits: C1=3744a85, C2=b8e90b3, C3=pending
+- Next: R74.4 server/app.py 接受 ProductProfile
 
 ---
 
