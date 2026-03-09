@@ -53,7 +53,13 @@
 - `test_command` 全绿。
 - `PROGRESS/M83-兼容-shim-清理与目录目标态验收.md` 记录决策、证据、回滚点与提交哈希。
 
-### 状态：TODO
+### 状态：DONE
+
+### 完成说明
+- Red：将 `tests/unit/test_platform_persistence_session_location.py` 调整为 post-M82 最终分层预期（store contract 属于 `core.session.store`），并把 `tests/unit/test_platform_sdk_location.py`、`tests/unit/test_apps_coding_cli_location.py`、`tests/unit/test_sdk_client.py` 收口到“`platform.sdk.client` 为 canonical、`sdk.client` 为 compat shim”的断言；先触发 `ServerClient.__module__ == 'nano_multiagent.sdk.client'` 与新预期不一致的失败。
+- Green：把共享 HTTP client 真实实现迁到 `src/nano_multiagent/platform/sdk/client.py`，`platform/sdk/__init__.py` 改为本地 canonical 导出，`src/nano_multiagent/sdk/client.py` 降为 compatibility shim；同时让 `apps/coding_cli/client.py` 与 `cli/http_client.py` 直接依赖 platform SDK canonical surface。
+- Gate：`PYTHONPATH=src python3 -m pytest -q tests/unit/test_platform_llm_providers_location.py tests/unit/test_platform_sdk_location.py tests/unit/test_apps_coding_cli_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_core_hooks_location.py tests/unit/test_core_llm_location.py tests/unit/test_core_session_location.py tests/unit/test_core_skills_location.py tests/contract/test_core_no_platform_imports.py` 全绿（28 passed）。
+- 提交序列：C1=`fd375fe`, C2=`be2f00f`, C3=`<pending>`。
 
 ---
 

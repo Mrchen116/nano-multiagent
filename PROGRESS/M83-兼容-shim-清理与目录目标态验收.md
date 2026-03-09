@@ -24,3 +24,23 @@
 - 失败项：`tests/unit/test_platform_persistence_session_location.py::test_platform_persistence_session_is_canonical_home`，原因是 `SessionStore.__module__` 实际已为 `nano_multiagent.core.session.store`，与 M81-era 平台 canonical 假设冲突；该失败纳入 M83 直接修复范围。
 
 ---
+
+### R1 收口最终 canonical ownership，并把 SDK 归位到 platform
+- Context: M82 已把 shared session store contract 收口到 `core.session.store`，但 M81-era 的 `test_platform_persistence_session_location.py` 仍坚持“platform/base 是 canonical”；同时 M79 虽声明 `platform/sdk` 为目标面，但真实 HTTP client 实现仍物理留在 `sdk/client.py`，造成 platform 只是 facade、不是最终单一真源。
+- Decision: 统一把 session persistence 的最终 ownership 定义为“core 持有 shared contract，platform 持有具体 store backend”；并将共享 HTTP client 的真实实现搬到 `src/nano_multiagent/platform/sdk/client.py`，让 `sdk/client.py` 降为 compatibility shim，apps/cli 直接依赖 platform SDK canonical surface。
+- Rationale: session store contract 若继续声称属于 platform，会与 M82 的 core shared-kernel 边界互相矛盾；SDK 若继续以 `sdk/client.py` 为真实实现，则 `platform/sdk` 只是伪 canonical，无法满足 M83 的“最终目标态验收”。
+- Evidence:
+  - Tests:
+    - Red: `PYTHONPATH=src python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_sdk_location.py tests/unit/test_apps_coding_cli_location.py tests/unit/test_sdk_client.py tests/contract/test_cli_http_only_contract.py` -> `1 failed, 22 passed`；失败为 `ServerClient.__module__ == 'nano_multiagent.sdk.client'`，说明 platform SDK 仍非 canonical home。
+    - Focused Green: 同上 focused gate -> `23 passed`
+    - Seed gate: `PYTHONPATH=src python3 -m pytest -q tests/unit/test_platform_llm_providers_location.py tests/unit/test_platform_sdk_location.py tests/unit/test_apps_coding_cli_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_core_hooks_location.py tests/unit/test_core_llm_location.py tests/unit/test_core_session_location.py tests/unit/test_core_skills_location.py tests/contract/test_core_no_platform_imports.py` -> `28 passed`
+  - Entry:
+    - canonical SDK home: `src/nano_multiagent/platform/sdk/client.py`
+    - SDK compat shim: `src/nano_multiagent/sdk/client.py`
+    - app/CLI alignment: `src/nano_multiagent/apps/coding_cli/client.py`、`src/nano_multiagent/cli/http_client.py`
+    - final session ownership assertion: `tests/unit/test_platform_persistence_session_location.py` 与 `tests/unit/test_core_session_location.py`
+- Rollback: 若需重做，回退到 R1 测试提交 `fd375fe`，或回退到计划提交 `fe3b595` 后重新拆 final ownership。
+- Commits: C1=`fd375fe`, C2=`be2f00f`, C3=`<pending>`
+- Next: 新增 architecture acceptance / doc-linkage 契约测试，回写 `多产品架构调整建议.md` 的目标目录树与 intentional shim inventory。
+
+---
