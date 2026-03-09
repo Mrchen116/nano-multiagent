@@ -6,6 +6,12 @@ Verifies that LOCAL_CODING_PROFILE and PERSONAL_ASSISTANT_PROFILE live under
 
 from pathlib import Path
 
+from nano_multiagent.platform.products.local_coding import (
+    LOCAL_CODING_PROFILE as LEGACY_LOCAL_CODING_PROFILE,
+)
+from nano_multiagent.platform.products.personal_assistant import (
+    PERSONAL_ASSISTANT_PROFILE as LEGACY_PERSONAL_ASSISTANT_PROFILE,
+)
 from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
 from nano_multiagent.products.local_coding import defaults as local_coding_defaults
 from nano_multiagent.products.local_coding import hooks as local_coding_hooks
@@ -68,3 +74,8 @@ def test_personal_assistant_package_exports_default_modules() -> None:
     )
     assert set(personal_assistant_toolsets.DEFAULT_TOOL_IDS) == {"read", "task"}
     assert "default_status" in personal_assistant_hooks.DEFAULT_HOOK_MODULES
+
+
+def test_platform_products_shims_export_canonical_profiles() -> None:
+    assert LEGACY_LOCAL_CODING_PROFILE is LOCAL_CODING_PROFILE
+    assert LEGACY_PERSONAL_ASSISTANT_PROFILE is PERSONAL_ASSISTANT_PROFILE

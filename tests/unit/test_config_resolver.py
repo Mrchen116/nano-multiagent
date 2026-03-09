@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from nano_multiagent.platform.config.resolver import ConfigResolver
-from nano_multiagent.platform.product import ProductProfile
+from nano_multiagent.products.base import ProductProfile
 
 
 def _make_profile(

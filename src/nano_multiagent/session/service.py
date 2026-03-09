@@ -12,7 +12,7 @@ from .stores.base import SessionStore
 from .stores.sqlite_store import SQLiteSessionStore
 
 if TYPE_CHECKING:
-    from nano_multiagent.platform.product import ProductProfile
+    from nano_multiagent.products.base import ProductProfile
 
 
 class SessionService:

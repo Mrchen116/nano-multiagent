@@ -7,7 +7,7 @@ when a ConfigResolver is provided, and falls back to CODEX_HOME env behavior.
 from pathlib import Path
 
 from nano_multiagent.platform.config.resolver import ConfigResolver
-from nano_multiagent.platform.product import ProductProfile
+from nano_multiagent.products.base import ProductProfile
 from nano_multiagent.skills.workspace import default_skill_search_roots
 
 

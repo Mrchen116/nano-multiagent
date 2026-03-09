@@ -16,7 +16,7 @@ from nano_multiagent.hooks.registry import HookRegistry
 from nano_multiagent.tools.loader import build_tool_registry
 from nano_multiagent.tools.registry import ToolRegistry
 
-from .product import ProductProfile, ResolvedProductConfig
+from nano_multiagent.products.base import ProductProfile, ResolvedProductConfig
 
 
 def bootstrap_product(

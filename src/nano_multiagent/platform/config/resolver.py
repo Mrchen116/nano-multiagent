@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nano_multiagent.platform.product import ProductProfile
+from nano_multiagent.products.base import ProductProfile
 
 
 class ConfigResolver:

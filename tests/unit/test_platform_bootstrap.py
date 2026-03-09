@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from nano_multiagent.platform.bootstrap import bootstrap_product
-from nano_multiagent.platform.product import ProductProfile, ResolvedProductConfig
+from nano_multiagent.products.base import ProductProfile, ResolvedProductConfig
 
 
 def test_bootstrap_product_returns_resolved_config(tmp_path: Path) -> None:

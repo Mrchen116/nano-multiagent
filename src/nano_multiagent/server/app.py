@@ -26,7 +26,7 @@ from nano_multiagent.tools.loader import build_tool_registry
 from nano_multiagent.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
-    from nano_multiagent.platform.product import ProductProfile
+    from nano_multiagent.products.base import ProductProfile
 
 from .deps import APIError, get_trace_id
 from .routes.event import router as event_router

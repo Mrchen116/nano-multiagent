@@ -2,6 +2,10 @@
 
 from dataclasses import fields, is_dataclass
 
+from nano_multiagent.platform.product import (
+    ProductProfile as LegacyProductProfile,
+    ResolvedProductConfig as LegacyResolvedProductConfig,
+)
 from nano_multiagent.products.base import ProductProfile, ResolvedProductConfig
 
 
@@ -43,3 +47,8 @@ def test_resolved_product_config_required_fields_stable() -> None:
         "session_store",
     }
     assert required <= field_names, f"missing fields: {required - field_names}"
+
+
+def test_platform_product_shim_exports_canonical_contracts() -> None:
+    assert LegacyProductProfile is ProductProfile
+    assert LegacyResolvedProductConfig is ResolvedProductConfig
