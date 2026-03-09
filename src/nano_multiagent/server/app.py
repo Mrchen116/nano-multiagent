@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -25,6 +25,9 @@ from nano_multiagent.session.stores.base import SessionStore
 from nano_multiagent.tools.loader import build_tool_registry
 from nano_multiagent.tools.registry import ToolRegistry
 
+if TYPE_CHECKING:
+    from nano_multiagent.platform.product import ProductProfile
+
 from .deps import APIError, get_trace_id
 from .routes.event import router as event_router
 from .routes.global_routes import router as global_router
@@ -42,6 +45,7 @@ def create_app(
     hook_registry: HookRegistry | None = None,
     repo_root: Path | None = None,
     auth_token: str | None = None,
+    product_profile: "ProductProfile | None" = None,
 ) -> FastAPI:
     """Create and wire the HTTP API application.
 
@@ -52,6 +56,10 @@ def create_app(
         hook_registry: Optional prebuilt hook registry.
         repo_root: Repository root used by hooks/tool loader.
         auth_token: API bearer token override; falls back to env when omitted.
+        product_profile: Optional product profile; when supplied, the app uses
+            bootstrap-resolved registries instead of ad-hoc defaults. Explicit
+            ``tool_registry``/``hook_registry`` args still override the profile
+            when both are provided (explicit > profile > platform defaults).
 
     Returns:
         Configured FastAPI app with all route groups and middleware attached.
@@ -64,6 +72,21 @@ def create_app(
     resolved_repo_root = (
         repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
     ).expanduser().resolve()
+
+    # If a product profile was supplied, bootstrap it to get resolved defaults.
+    # Explicit registry args (tool_registry / hook_registry) take precedence
+    # over profile-resolved ones, matching the principle of "explicit > profile > defaults".
+    if product_profile is not None:
+        from nano_multiagent.platform.bootstrap import bootstrap_product
+
+        resolved_product = bootstrap_product(
+            profile=product_profile,
+            repo_root=resolved_repo_root,
+        )
+        if tool_registry is None:
+            tool_registry = resolved_product.tool_registry
+        if hook_registry is None:
+            hook_registry = resolved_product.hook_registry
     session_service = SessionService(store=session_store)
     app.state.session_service = session_service
     if runtime is None:
