@@ -58,12 +58,19 @@
 - Next: 继续将 HTTP API app/routes 真实实现归位到 `platform/http_api`，并把 `server` 降为 compat shim。
 
 ### R3 HTTP API app/routes 物理归位到 platform/http_api
-- Context:
-- Decision:
-- Rationale:
+- Context: M78 只提供了 `platform.http_api` façade，但真实 `app/auth/deps/sse/routes` 仍物理留在 `server/**`；R3 的 Red 证明 `platform.http_api.create_app.__module__` 仍来自 `nano_multiagent.server.app`。同时，M81 还必须守住 `runs/agent/session` 等 core-oriented 包不得越层依赖 `platform.http_api` 的合同。
+- Decision: 将 `server/app.py`、`auth.py`、`deps.py`、`sse.py`、`routes/*.py` 整体复制并落到 `platform/http_api/**` 作为 canonical home，修复其内部对 `server.sse` 的引用为 `platform.http_api.sse`；然后把 legacy `server/**` 反转成 compat shim。`server.__init__` 改 lazy export，以便 legacy `server.sse` 等子模块还能被 core-oriented 包安全引用而不回卷导入整个 platform app package。
+- Rationale: HTTP API 层内部模块互相耦合，整包复制再统一改内链，比逐个 re-export 更容易维持行为一致；而 `server.__init__` lazy export + 继续允许 core-oriented 包引用 legacy `server.sse`，可以同时满足“platform 为 canonical home”与“不让 core-oriented 包直接 import platform.http_api”的双重约束。
 - Evidence:
   - Tests:
+    - Red #1: `python3 -m pytest -q tests/unit/test_platform_http_api_location.py` -> `create_app.__module__ == 'nano_multiagent.server.app'`
+    - Red #2: 迁移后首次 gate 失败于 `tests/contract/test_core_no_platform_imports.py`，暴露 `runs/registry.py` 直接依赖 `platform.http_api.sse`
+    - Focused Green: `python3 -m pytest -q tests/unit/test_platform_http_api_location.py` -> `2 passed`
+    - Gate: `python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_config_resolver.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/integration/test_app_bootstrap.py tests/contract/test_core_no_platform_imports.py` -> `30 passed`
   - Entry:
-- Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
-- Next:
+    - canonical homes: `src/nano_multiagent/platform/http_api/__init__.py`、`app.py`、`auth.py`、`deps.py`、`sse.py`、`routes/*.py`
+    - compat shims: `src/nano_multiagent/server/__init__.py`、`app.py`、`auth.py`、`deps.py`、`sse.py`、`routes/*.py`
+    - layering guard: `src/nano_multiagent/runs/registry.py` 继续依赖 legacy `nano_multiagent.server.sse`，由 compat shim 间接落到 canonical platform HTTP API，实现 ownership 迁移而不触发 core-oriented package 越层依赖
+- Rollback: 若需重做，回退到 R3 测试提交 `09891c5`，或从 R2 docs 点 `3c26bb0` 重新搬运 http_api 包。
+- Commits: C1=`09891c5`, C2=`04c6ba5`, C3=`<pending>`
+- Next: 进行 Milestone 级集成：确保 TASKS 全 DONE、最终 gate 全绿、rebase/merge/push、更新 dev-tasks、清理 worktree。

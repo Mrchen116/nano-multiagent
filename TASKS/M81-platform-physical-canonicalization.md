@@ -125,7 +125,15 @@
 - `test_command` 全绿。
 - `PROGRESS/M81-platform-physical-canonicalization.md` 记录决策、证据、回滚点与提交哈希。
 
-### 状态：TODO
+### 状态：DONE
+
+### 完成说明
+- Red：把 `tests/unit/test_platform_http_api_location.py` 提升为 canonical `create_app` / route router ownership 与 legacy server compat identity 断言，先看到 `create_app.__module__` 仍为 `nano_multiagent.server.app`。
+- Green：将 `platform/http_api/{app,auth,deps,sse,routes/*.py}` 落成真实 canonical home，并把 `server/**` 全部反转为 compatibility shim；`server.__init__` 改为 lazy export 以避免 legacy `server.sse` 等子模块 import 时回卷整包。
+- Guardrail：首次全量 gate 暴露 `runs/registry.py` 直接依赖 `platform.http_api.sse` 违反层级合同，随后修正为继续依赖 legacy `server.sse` compat path，从而保持 core-oriented 包不直接 import `platform.http_api`。
+- Router ownership：为 platform route module 导出的 `router` 设置 `router.__module__ = __name__`，让 location tests 能验证路由对象归属的是 canonical platform route module，而不是 FastAPI 内部类型模块。
+- Gate：`python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_config_resolver.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/integration/test_app_bootstrap.py tests/contract/test_core_no_platform_imports.py` 全绿（30 passed）。
+- 提交序列：C1=`09891c5`, C2=`04c6ba5`, C3=`<pending>`。
 
 ---
 
