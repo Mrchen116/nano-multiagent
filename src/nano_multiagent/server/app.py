@@ -76,6 +76,7 @@ def create_app(
     # If a product profile was supplied, bootstrap it to get resolved defaults.
     # Explicit registry args (tool_registry / hook_registry) take precedence
     # over profile-resolved ones, matching the principle of "explicit > profile > defaults".
+    resolved_system_prompt: str | None = None
     if product_profile is not None:
         from nano_multiagent.platform.bootstrap import bootstrap_product
 
@@ -87,15 +88,24 @@ def create_app(
             tool_registry = resolved_product.tool_registry
         if hook_registry is None:
             hook_registry = resolved_product.hook_registry
+        # Inject the product-specific system prompt into the runtime.
+        # Empty string means "no prompt declared"; keep None so the runtime
+        # uses its own empty-string default rather than setting empty explicitly.
+        if resolved_product.resolved_system_prompt:
+            resolved_system_prompt = resolved_product.resolved_system_prompt
     session_service = SessionService(store=session_store)
     app.state.session_service = session_service
     if runtime is None:
         active_hook_registry = hook_registry or build_hook_registry(repo_root=resolved_repo_root)
         active_hook_runner = HookRunner(registry=active_hook_registry)
+        runtime_kwargs: dict = {}
+        if resolved_system_prompt is not None:
+            runtime_kwargs["system_prompt"] = resolved_system_prompt
         active_runtime = AgentRuntime(
             session_manager=session_service.manager,
             hook_runner=active_hook_runner,
             repo_root=resolved_repo_root,
+            **runtime_kwargs,
         )
     else:
         active_runtime = runtime
