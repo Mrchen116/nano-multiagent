@@ -18,7 +18,7 @@
   - Tests: pytest -q 无 collection error，457 passed + 5 pre-existing failed
   - Entry: `touch tests/__init__.py tests/unit/__init__.py ...`（10个目录）
 - Rollback: 删除所有 __init__.py 文件
-- Commits: C1=pending, C2=pending, C3=pending
+- Commits: C1=N/A（无独立测试文件）, C2=a0fff27, C3=（含入计划提交 ca9b671）
 - Next: R74.1 ProductProfile dataclass
 
 ---
@@ -67,10 +67,12 @@
 
 ### R74.4 server/app.py 接受 ProductProfile
 
-- Context: pending
-- Decision: pending
-- Rationale: pending
-- Evidence: pending
-- Rollback: pending
-- Commits: C1=pending, C2=pending, C3=pending
-- Next: Milestone 集成
+- Context: `create_app` 当前手动拼装 tool/hook registry；需要支持通过 ProductProfile 驱动，同时保持无 profile 调用行为不变。
+- Decision: 新增 `product_profile: ProductProfile | None = None`，当非 None 时调用 `bootstrap_product`；explicit registry 参数优先级 > profile > 平台默认（三档兜底链）。
+- Rationale: TYPE_CHECKING guard 避免在 import 时拉入 platform 层；延迟 import `bootstrap_product` 保持启动开销不变。原有 9 个测试全绿。
+- Evidence:
+  - Tests: pytest -q → 5 pre-existing failed, 480 passed (+5 new green)
+  - Entry: `create_app(product_profile=LOCAL_CODING_PROFILE)` 返回 FastAPI app，`app.state.tool_registry` 非空
+- Rollback: 回退到 02bd18e (R74.4 C1)
+- Commits: C1=02bd18e, C2=b9c1c61, C3=pending
+- Next: Milestone 整体集成到 main
