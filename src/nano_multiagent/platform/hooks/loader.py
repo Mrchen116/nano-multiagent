@@ -8,8 +8,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING
 
-from nano_multiagent.hooks.registry import HookAPI, HookRegistry
-from nano_multiagent.hooks.types import LoadedHookModule
+from nano_multiagent.core.hooks.registry import HookAPI, HookRegistry
+from nano_multiagent.core.hooks.types import LoadedHookModule
 
 if TYPE_CHECKING:
     from nano_multiagent.platform.config.resolver import ConfigResolver

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Callable, Mapping
 
-from .registry import HookRegistry
+from nano_multiagent.core.hooks.registry import HookRegistry
 
 SessionEventPublisher = Callable[[str, Mapping[str, object]], None]
 SessionEventPublisherFactory = Callable[[str], SessionEventPublisher | None]

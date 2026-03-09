@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.ids import make_message_id, make_turn_id
 from nano_multiagent.core.types import Message, ToolCall, ToolResult, TurnResult
-from nano_multiagent.hooks.context import HookContext, HookModelCall, HookModelResult
-from nano_multiagent.hooks.runner import HookExecution, HookRunner
+from nano_multiagent.core.hooks.context import HookContext, HookModelCall, HookModelResult
+from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.hooks.session_events import get_session_event_publisher
 from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
 from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from nano_multiagent.core.session.entries import SessionEntry
 from nano_multiagent.core.session.manager import SessionManager
 from nano_multiagent.core.session.models import Session
-from nano_multiagent.skills.registry import SkillMetadata
+from nano_multiagent.core.skills.registry import SkillMetadata
 from nano_multiagent.skills.workspace import resolve_available_skills
 
 from .compaction.applier import CompactionApplier
@@ -30,7 +30,7 @@ from .skill_commands import rewrite_skill_command
 from .state import AgentState, InputPart, parse_input_parts, render_user_text
 
 if TYPE_CHECKING:
-    from nano_multiagent.hooks.registry import HookRegistry
+    from nano_multiagent.core.hooks.registry import HookRegistry
     from nano_multiagent.tools.registry import ToolRegistry
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
-from nano_multiagent.hooks.runner import HookRunner
+from nano_multiagent.core.hooks.runner import HookRunner
 from nano_multiagent.tools.base import Tool, ToolContext
 from nano_multiagent.tools.registry import ToolRegistry
 

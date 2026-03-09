@@ -1,21 +1,9 @@
-"""Hook subsystem: registration, loading, and event dispatch."""
+"""Canonical shared hook abstractions and execution contracts."""
 
-from .loader import build_hook_registry, discover_hook_files, load_hooks_from_directories
-from nano_multiagent.core.hooks import (
-    HookAPI,
-    HookContext,
-    HookEventMode,
-    HookEventType,
-    HookExecution,
-    HookLogger,
-    HookModelCall,
-    HookModelResult,
-    HookRegistration,
-    HookRegistry,
-    HookRunner,
-    InterceptDispatchResult,
-)
-from nano_multiagent.core.hooks.types import (
+from .context import HookContext, HookLogger, HookModelCall, HookModelResult
+from .registry import HookAPI, HookRegistry
+from .runner import HookExecution, HookRunner, InterceptDispatchResult
+from .types import (
     ALL_HOOK_EVENTS,
     INTERCEPT_EVENTS,
     OBSERVE_EVENTS,
@@ -47,8 +35,5 @@ __all__ = [
     "HookRunner",
     "InterceptDispatchResult",
     "LoadedHookModule",
-    "build_hook_registry",
-    "discover_hook_files",
     "event_mode_of",
-    "load_hooks_from_directories",
 ]

@@ -11,9 +11,9 @@ from fastapi.responses import JSONResponse
 from nano_multiagent import __version__
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.core.ids import make_event_id
-from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.hooks.registry import HookRegistry
-from nano_multiagent.hooks.runner import HookExecution, HookRunner
+from nano_multiagent.core.hooks.context import HookContext
+from nano_multiagent.core.hooks.registry import HookRegistry
+from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.hooks.session_events import set_session_event_publisher_factory
 from nano_multiagent.platform.hooks.loader import build_hook_registry
 from nano_multiagent.observability.logger import log_error

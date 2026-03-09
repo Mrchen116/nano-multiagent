@@ -1,7 +1,6 @@
 """Skills discovery and formatting helpers."""
 
-from .formatter import format_available_skills_section
-from .registry import SkillMetadata, SkillRegistry
+from nano_multiagent.core.skills import SkillMetadata, SkillRegistry, format_available_skills_section
 from .workspace import default_skill_search_roots, resolve_available_skills
 
 __all__ = [

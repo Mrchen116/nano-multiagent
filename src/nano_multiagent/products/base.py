@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from nano_multiagent.core.hooks.registry import HookRegistry
     from nano_multiagent.core.session.store import SessionStore
-    from nano_multiagent.hooks.registry import HookRegistry
     from nano_multiagent.tools.registry import ToolRegistry
 
 

@@ -5,8 +5,8 @@ from typing import Literal
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from nano_multiagent.hooks.registry import HookRegistry
-from nano_multiagent.hooks.types import ALL_HOOK_EVENTS, HookRegistration, event_mode_of
+from nano_multiagent.core.hooks.registry import HookRegistry
+from nano_multiagent.core.hooks.types import ALL_HOOK_EVENTS, HookRegistration, event_mode_of
 
 from ..auth import require_bearer_auth
 from ..deps import get_hook_registry

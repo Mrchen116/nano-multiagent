@@ -5,8 +5,8 @@ from typing import Any, Mapping
 
 from nano_multiagent.core.errors import ToolError
 from nano_multiagent.core.types import ToolSpec
-from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.hooks.runner import HookExecution, HookRunner
+from nano_multiagent.core.hooks.context import HookContext
+from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.observability.logger import log_error, log_info
 from nano_multiagent.observability.tracing import bind_correlation
 

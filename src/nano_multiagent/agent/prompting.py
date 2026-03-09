@@ -6,8 +6,8 @@ from typing import Any, Mapping, Sequence
 from nano_multiagent.core.types import ToolSpec
 from nano_multiagent.core.types import Message
 from nano_multiagent.llm.interfaces import LLMMessage, LLMToolCall
-from nano_multiagent.skills.formatter import format_available_skills_section
-from nano_multiagent.skills.registry import SkillMetadata
+from nano_multiagent.core.skills.formatter import format_available_skills_section
+from nano_multiagent.core.skills.registry import SkillMetadata
 from nano_multiagent.tools.builtins import builtin_tools
 
 # Coding-persona prompt template; canonical home for the local_coding product.
