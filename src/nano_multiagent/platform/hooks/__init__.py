@@ -1,5 +1,5 @@
 """Platform-owned hook implementations: builtins and loader."""
 
-from nano_multiagent.hooks import builtins
+from . import builtins
 
 __all__ = ["builtins"]

@@ -1,22 +1,7 @@
-"""Registration helpers for built-in tools."""
+"""Compatibility alias for platform-owned built-in tool helpers."""
 
-from typing import Any
+import sys
 
-from .bash import BashTool
-from .edit import EditTool
-from .read import ReadTool
-from .task import TaskTool
-from .write import WriteTool
+from nano_multiagent.platform.tools import builtins as _platform_builtins
 
-
-def builtin_tools(*, runtime: Any | None = None) -> tuple[object, ...]:
-    """Return built-in tool instances in the canonical registration order."""
-
-    return (ReadTool(), WriteTool(), EditTool(), BashTool(), TaskTool(runtime=runtime))
-
-
-def register_builtin_tools(registry, *, runtime: Any | None = None) -> None:  # noqa: ANN001
-    """Register all built-in tools into the provided registry."""
-
-    for tool in builtin_tools(runtime=runtime):
-        registry.register(tool)
+sys.modules[__name__] = _platform_builtins

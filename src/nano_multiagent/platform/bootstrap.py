@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nano_multiagent.hooks.loader import build_hook_registry
 from nano_multiagent.hooks.registry import HookRegistry
-from nano_multiagent.tools.loader import build_tool_registry
+from nano_multiagent.platform.hooks.loader import build_hook_registry
+from nano_multiagent.platform.tools.loader import build_tool_registry
 from nano_multiagent.tools.registry import ToolRegistry
 
 from nano_multiagent.products.base import ProductProfile, ResolvedProductConfig
