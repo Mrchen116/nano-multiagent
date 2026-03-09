@@ -28,8 +28,15 @@
 - Decision: 以单一 Roadpoint 收口本 milestone：保留既有 apps facade / sdk canonical home / managed server platform 入口改动，并补一条包根稳定导出契约测试，再以最小实现补齐包根 facade。
 - Rationale: 当前未提交改动已经让主要 targeted tests 通过；额外补一条 package-root contract 可把隐性兼容缺口转成显式门禁，同时避免把 milestone 再拆成多次代码移动。
 - Evidence:
-  - Tests: Baseline green in reused worktree; Red/C1/C2/C3 pending.
-  - Entry: `apps/coding_cli` 子模块已存在，legacy `cli.*` 入口已指向 apps/application-layer facade。
-- Rollback: 若需重做，优先回退到计划提交（待补 hash），再从 package-root contract Red 重来。
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
-- Next: 补 `apps.coding_cli` 包根 contract Red，随后分离测试/实现/文档提交。
+  - Tests:
+    - Red: `python3 -m pytest -q tests/unit/test_apps_coding_cli_location.py` -> `AttributeError: module 'nano_multiagent.apps.coding_cli' has no attribute 'build_parser'`
+    - Green: `python3 -m pytest -q tests/unit/test_apps_coding_cli_location.py`
+    - Gate: `python3 -m pytest -q tests/unit/test_apps_coding_cli_location.py tests/unit/test_sdk_client.py tests/unit/test_cli_main.py tests/unit/test_cli_managed_server.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_platform_sdk_location.py` -> `113 passed`
+  - Entry:
+    - `nano_multiagent.apps.coding_cli` 包根现已稳定导出 `build_parser/run_cli/ServerClient/ManagedServer*`
+    - `nano_multiagent.cli.main` 与 `nano_multiagent.cli.commands` 继续通过 apps/application facade 提供兼容入口
+    - managed mode 启动目标为 `nano_multiagent.platform.http_api.app:create_app`
+  - Boundary: `apps/coding_cli` 未直接 import runtime internals，CLI 继续通过 shared HTTP client 与 managed HTTP API 边界交互。
+- Rollback: 若需重做，优先回退到计划提交 `b5b9549`，或实现前测试提交 `f9558f4`，再从 package-root contract Red 重来。
+- Commits: C1=`f9558f4`, C2=`3bb991d`, C3=`<pending>`
+- Next: 提交文档 C3，随后 rebase/merge main、更新 dev-tasks、清理 worktree。

@@ -52,4 +52,16 @@
 - `test_command` 全绿。
 - `PROGRESS/M79-apps-coding-cli-alignment.md` 记录决策、证据、回滚点与提交哈希。
 
-### 状态：DOING
+### 状态：DONE
+
+### 完成说明
+- Red：新增 `test_apps_coding_cli_package_root_exports_stable_application_surface`，确认当前缺失 `apps.coding_cli` 包根稳定导出。
+- Green：补齐 `apps/coding_cli/__init__.py` 稳定导出，并收口既有 apps facade / sdk canonical home / managed server platform 入口改动。
+- Gate：`python3 -m pytest -q tests/unit/test_apps_coding_cli_location.py tests/unit/test_sdk_client.py tests/unit/test_cli_main.py tests/unit/test_cli_managed_server.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_platform_sdk_location.py` 全绿（113 passed）。
+- 提交序列：Plan=`b5b9549`, C1=`f9558f4`, C2=`3bb991d`, C3=`<pending>`。
+
+## 结果
+- `nano_multiagent.apps.coding_cli` 成为稳定 apps-level facade，包根与子模块均可用。
+- `nano_multiagent.sdk.client` 成为 canonical HTTP client home，`nano_multiagent.cli.http_client` 与 `nano_multiagent.apps.coding_cli.client` 保持兼容 shim。
+- managed mode 通过 `nano_multiagent.platform.http_api.app:create_app` 启动，CLI 维持 HTTP-only 边界。
+- legacy `nano_multiagent.cli` 入口持续可用，并指向 apps/application-layer surface。
