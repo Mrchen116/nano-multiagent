@@ -1,4 +1,4 @@
-"""Public SDK exports for HTTP-only server access."""
+"""Shim package: canonical SDK surface now lives under platform/sdk."""
 
 from .client import ServerClient, ServerClientConfig
 
