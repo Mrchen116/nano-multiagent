@@ -50,7 +50,14 @@
 - `test_command` 全绿。
 - `PROGRESS/M80-products-canonicalization-and-profile-contracts.md` 记录决策、证据、回滚点与提交哈希。
 
-### 状态：TODO
+### 状态：DONE
+
+### 完成说明
+- Red：将关键测试切到 `nano_multiagent.products.*` canonical 导入，并新增 `ProductProfile.optional_tool_ids/memory_layout/heartbeat_layout` 与产品包骨架断言，确认当前缺失 `products` 包导致 collection 失败。
+- Green：新增 `src/nano_multiagent/products/base.py` 与 `products/{local_coding,personal_assistant}/profile.py|prompts.py|toolsets.py|hooks.py|defaults.py`，同时把 `platform.product(s)` 改为 compatibility shim。
+- Gate：`python3 -m pytest -q tests/unit/test_product_profile.py tests/unit/test_product_profiles.py tests/contract/test_product_profile_contract.py tests/integration/test_bootstrap_integration.py tests/integration/test_personal_assistant_bootstrap_integration.py tests/integration/test_personal_assistant_server_integration.py` 全绿（38 passed）。
+- 扩展验证：`python3 -m pytest -q tests/unit/test_product_profile.py tests/unit/test_product_profiles.py tests/unit/test_local_coding_profile.py tests/unit/test_personal_assistant_profile.py tests/unit/test_platform_bootstrap.py tests/unit/test_config_resolver.py tests/unit/test_session_service_with_profile.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/unit/test_skills_workspace_with_resolver.py tests/unit/test_app_factory_with_profile.py tests/contract/test_product_profile_contract.py tests/integration/test_bootstrap_integration.py tests/integration/test_personal_assistant_bootstrap_integration.py tests/integration/test_personal_assistant_server_integration.py` 全绿（95 passed）。
+- 提交序列：Plan=`17d9cb5`, C1=`e9dd06b`, C2=`0542a93`, C3=`<pending>`。
 
 ---
 
@@ -84,11 +91,18 @@
 - `test_command` 全绿。
 - `PROGRESS/M80-products-canonicalization-and-profile-contracts.md` 记录决策、证据、回滚点与提交哈希。
 
-### 状态：TODO
+### 状态：DONE
+
+### 完成说明
+- Red：新增 `test_create_app_with_profile_uses_profile_session_store_path`，证明 `create_app(product_profile=...)` 仍落回 legacy `.nano_multiagent/sessions.sqlite3`，尚未把产品 profile 传入 `SessionService`。
+- Green：`create_app()` 传递 `product_profile` 给 `SessionService`，并在 `SessionService` 侧保留“仅当 `global_config_home` 已声明时才启用产品路径，否则回落 legacy 路径”的兼容语义。
+- Gate：`python3 -m pytest -q tests/unit/test_product_profile.py tests/unit/test_product_profiles.py tests/contract/test_product_profile_contract.py tests/integration/test_bootstrap_integration.py tests/integration/test_personal_assistant_bootstrap_integration.py tests/integration/test_personal_assistant_server_integration.py` 全绿（38 passed）。
+- 补充验证：`python3 -m pytest -q tests/unit/test_app_factory_with_profile.py` 全绿（7 passed）。
+- 提交序列：C1=`32f276a`, C2=`2825132`, C3=`<pending>`。
 
 ---
 
-## 结果（待完成）
-- canonical `nano_multiagent.products` 将成为产品层真实归属地。
-- legacy `platform.product(s)` 将仅保留兼容 shim。
-- `ProductProfile` 合同将补齐剩余关键字段并由测试固化。
+## 结果
+- canonical `nano_multiagent.products` 已成为产品层真实归属地。
+- legacy `platform.product(s)` 已收口为 compatibility shim。
+- `ProductProfile` 合同已补齐剩余关键字段并由测试固化。
