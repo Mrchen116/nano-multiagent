@@ -7,7 +7,7 @@
 
 ## Roadpoints
 
-### R76.1 中和 DEFAULT_SYSTEM_PROMPT，将 coding prompt 迁至 local_coding
+### R76.1 中和 DEFAULT_SYSTEM_PROMPT，将 coding prompt 迁至 local_coding（C1=0b9cb69 C2=b271e4e）
 
 **状态**: DONE
 

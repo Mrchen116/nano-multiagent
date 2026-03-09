@@ -7,14 +7,14 @@
 
 ### R76.1 中和 DEFAULT_SYSTEM_PROMPT，将 coding prompt 迁至 local_coding
 
-- Context: `DEFAULT_SYSTEM_PROMPT` 在 `agent/prompting.py` 是 coding 专属文案；`LOCAL_CODING_PROFILE.default_system_prompt` 从它导入；`loop.py` 以它为默认参数。目标：prompting.py 持通用 fallback，coding 文案迁到 local_coding.py 的 `CODING_SYSTEM_PROMPT`。不做 loop/runtime 的 system_prompt 注入（R76.3 做）。
-- Decision: 在 `agent/prompting.py` 中把原 coding 文案重命名为 `CODING_SYSTEM_PROMPT`，`DEFAULT_SYSTEM_PROMPT = ""` 作为 backward-compat alias；`local_coding.py` 改为从 `CODING_SYSTEM_PROMPT` 导入；`loop.py` 默认参数改为空字符串（`""`）；更新受影响的测试（test_local_coding_profile_system_prompt_matches_default 改为断言 CODING_SYSTEM_PROMPT）。
-- Rationale: 保留 `DEFAULT_SYSTEM_PROMPT` 名称（值改为 `""`）可以不破坏任何已知 import；coding 文案迁至 `CODING_SYSTEM_PROMPT` 让 shared 层语义清晰。
+- Context: `DEFAULT_SYSTEM_PROMPT` 在 `agent/prompting.py` 是 coding 专属文案；`LOCAL_CODING_PROFILE.default_system_prompt` 从它导入；`loop.py` 以它为默认参数。目标：prompting.py 持通用 fallback，coding 文案迁到 local_coding.py 的 `CODING_SYSTEM_PROMPT`。同时把 `AgentRuntime.system_prompt` 注入接口一并引入（原 R76.3 工作提前）。
+- Decision: 在 `agent/prompting.py` 中把原 coding 文案重命名为 `CODING_SYSTEM_PROMPT`，`DEFAULT_SYSTEM_PROMPT = ""` 作为 backward-compat alias；`local_coding.py` 改为从 `CODING_SYSTEM_PROMPT` 导入；`loop.py` 默认参数改为空字符串（`""`）；`bootstrap.py` 移除对 `DEFAULT_SYSTEM_PROMPT` 的 fallback；`AgentRuntime.__init__` 增加 `system_prompt: str | None` 参数；受影响测试均显式传 `CODING_SYSTEM_PROMPT`。
+- Rationale: 保留 `DEFAULT_SYSTEM_PROMPT` 名称（值改为 `""`）不破坏任何已知 import；AgentRuntime 注入接口提前做让现有测试可稳定通过，避免分阶段拆出造成多轮回归。
 - Evidence:
-  - Tests: pytest -q → 512 passed（基线维持）
+  - Tests: pytest -q → 514 passed，5 pre-existing failures（基线 +2，全绿）
   - Entry: `from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT` 可导入，值含 coding 专属文案
-- Rollback: 回退到计划提交
-- Commits: C1=, C2=, C3=
+- Rollback: 回退到 eedc948（计划提交）
+- Commits: C1=0b9cb69, C2=b271e4e, C3=
 - Next: R76.2
 
 ---
