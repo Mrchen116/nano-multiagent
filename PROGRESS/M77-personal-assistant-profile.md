@@ -22,15 +22,15 @@ worktree: /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M77
 
 ### R77.1 完善 PERSONAL_ASSISTANT_PROFILE 字段
 
-- Context: M75 stub 中 PERSONAL_ASSISTANT_PROFILE 所有可选字段为 None/空。M77 要求填充完整字段。
-- Decision:
-- Rationale:
+- Context: M75 stub 中 PERSONAL_ASSISTANT_PROFILE 所有可选字段为 None/空（default_system_prompt/default_tool_ids/default_hook_modules/capabilities 均未填充）。M77 要求填充完整字段，不添加业务逻辑。
+- Decision: 填充 default_system_prompt（IM/协作导向）、default_tool_ids=["read","task"]、default_hook_modules=["default_status","usage_metrics"]、capabilities={"im":True,"heartbeat":True,"memory":True}
+- Rationale: 保守工具集（无 write/edit/bash）；无 bash_risk_gate（因为无 bash 工具，添加会有无效 hook）；capabilities 纯声明式，不含业务实现
 - Evidence:
-  - Tests:
-  - Entry:
-- Rollback:
-- Commits: C1=, C2=, C3=
-- Next:
+  - Tests: 532 passed, 5 failed (pre-existing), 4 skipped — 新增 12 个 unit 测试全绿
+  - Entry: pytest tests/unit/test_personal_assistant_profile.py — 12/12 passed
+- Rollback: 回退到 plan commit cd1fddb
+- Commits: C1=eed4621, C2=91e0ad8, C3=（待填）
+- Next: R77.2 — bootstrap_product(PERSONAL_ASSISTANT_PROFILE) 集成验证
 
 ---
 

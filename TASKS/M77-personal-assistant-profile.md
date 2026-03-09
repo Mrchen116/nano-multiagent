@@ -9,7 +9,7 @@
 
 ### R77.1 完善 PERSONAL_ASSISTANT_PROFILE 字段
 
-**Status**: TODO
+**Status**: DONE
 
 **Acceptance**:
 - `default_system_prompt` 为非空字符串（个人助手人格，非 coding）
