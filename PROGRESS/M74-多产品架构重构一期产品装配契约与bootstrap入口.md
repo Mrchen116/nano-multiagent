@@ -39,13 +39,15 @@
 
 ### R74.2 platform/bootstrap.py
 
-- Context: pending
-- Decision: pending
-- Rationale: pending
-- Evidence: pending
-- Rollback: pending
-- Commits: C1=pending, C2=pending, C3=pending
-- Next: R74.3
+- Context: 需要一个"产品解析入口"，接收 ProductProfile + repo_root 输出可注入对象；runtime 不能感知 Profile。
+- Decision: `bootstrap_product(profile, repo_root) -> ResolvedProductConfig`；内部调用 `build_hook_registry` + `build_tool_registry`；`session_store=None`（M75 补 store path）。
+- Rationale: 复用现有 loader；bootstrap 是 platform 层唯一知道 Profile 的地方，runtime/loop 完全不变。
+- Evidence:
+  - Tests: pytest -q → 5 pre-existing failed, 470 passed (+6 new green)
+  - Entry: `bootstrap_product(profile=LOCAL_CODING_PROFILE, repo_root=Path.cwd())` 可用，返回 tool_registry/hook_registry 非空
+- Rollback: 回退到 ae9492b (R74.1 C1)
+- Commits: C1=e24479d, C2=0dcfc3d, C3=pending
+- Next: R74.3 local_coding ProductProfile stub
 
 ---
 
