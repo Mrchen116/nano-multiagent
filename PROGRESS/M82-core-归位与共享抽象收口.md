@@ -26,15 +26,21 @@
 ---
 
 ### R1 session 共享模型/事件/管理器归位到 core/session
-- Context:
-- Decision:
-- Rationale:
+- Context: M78/M81 后 session persistence 已归到 platform，但 `SessionManager`、`SessionEntry*`、`Session` 以及 store contract 仍分散在 legacy `session/*` 与 `platform.persistence.session.base`，导致共享内核边界不清，且 `session.manager` 直接依赖 platform store contract，不满足 M82 想要的 core ownership。
+- Decision: 新增 `src/nano_multiagent/core/session/{models,entries,store,manager}.py` 作为 canonical home；旧 `session.models`、`session.entries`、`session.manager` 改为 re-export shim；同时把 `platform.persistence.session.base` 反转为 `core.session.store` compat shim，并将共享调用点统一切到 `nano_multiagent.core.session.*`。
+- Rationale: 把 session store contract 一并归到 core，才能避免“manager 已在 core，但仍反向依赖 platform”的层级倒挂；保留 legacy 与 platform shim 则能在不重写上层调用者的前提下完成最小归位。
 - Evidence:
   - Tests:
+    - Red: `python3 -m pytest -q tests/unit/test_core_session_location.py` -> `ModuleNotFoundError: No module named 'nano_multiagent.core.session'`
+    - Focused Green: `python3 -m pytest -q tests/unit/test_core_session_location.py tests/unit/test_session_manager.py tests/unit/test_session_entries.py` -> `6 passed`
+    - Gate: `python3 -m pytest -q tests/contract/test_core_events_contract.py tests/contract/test_core_types_contract.py tests/contract/test_core_no_platform_imports.py tests/unit/test_core_errors.py tests/unit/test_core_ids.py tests/unit/test_core_session_location.py tests/unit/test_session_manager.py tests/unit/test_session_entries.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_llm_model_registry.py` -> `25 passed, 1 failed`（唯一失败仍为既有基线 `test_turn_result_contract_fields_are_stable` / `TurnResult.usage`）
   - Entry:
-- Rollback:
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
-- Next:
+    - canonical home: `src/nano_multiagent/core/session/__init__.py`、`models.py`、`entries.py`、`store.py`、`manager.py`
+    - compat shim: `src/nano_multiagent/session/models.py`、`entries.py`、`manager.py`、`src/nano_multiagent/platform/persistence/session/base.py`
+    - caller alignment: `src/nano_multiagent/agent/runtime.py`、`agent/compaction/{applier,types,planner}.py`、`runs/registry.py`、`session/service.py`、`platform/http_api/routes/session.py`、`products/base.py`
+- Rollback: 若需重做，回退到 R1 测试提交 `4ae2bbd`，或回退到计划提交 `f64f8a8` 后重新拆 session/store contract 归位。
+- Commits: C1=`4ae2bbd`, C2=`926095e`, C3=<pending>
+- Next: 继续把 hooks/skills shared abstractions 归到 `core/hooks` 与 `core/skills`，并扩展 core layering guard 只约束真正 core-owned canonical surface。
 
 ### R2 hooks/skills 共享抽象归位到 core/hooks 与 core/skills
 - Context:
