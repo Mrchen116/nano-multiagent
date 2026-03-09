@@ -55,7 +55,7 @@
     - compat shim: `src/nano_multiagent/hooks/{context,types,registry,runner}.py`、`src/nano_multiagent/skills/{registry,formatter}.py`
     - caller alignment: `src/nano_multiagent/agent/{loop,prompting,runtime}.py`、`src/nano_multiagent/tools/registry.py`、`src/nano_multiagent/runs/registry.py`、`src/nano_multiagent/platform/bootstrap.py`、`src/nano_multiagent/platform/hooks/loader.py`、`src/nano_multiagent/platform/tools/loader.py`、`src/nano_multiagent/platform/http_api/{app,deps,routes/hook,routes/session}.py`、`src/nano_multiagent/products/base.py`、`src/nano_multiagent/hooks/__init__.py`、`src/nano_multiagent/hooks/session_events.py`、`src/nano_multiagent/skills/__init__.py`
 - Rollback: 若需重做，回退到 R2 测试提交 `16bdf41`，或回退到 R1 文档提交 `61c357c` 后重新拆 hooks/skills canonical home 与 compat shim。
-- Commits: C1=`16bdf41`, C2=`78b570e`, C3=<pending>
+- Commits: C1=`16bdf41`, C2=`78b570e`, C3=`b2c8ef9`
 - Next: 继续把 `llm` 共享抽象归到 `core/llm`，并扩展 `test_core_no_platform_imports.py` 为真正覆盖 `src/nano_multiagent/core/**` 的反向依赖护栏。
 
 ### R3 llm 共享抽象归位到 core/llm 并补强 core layering contract
@@ -72,5 +72,10 @@
     - caller alignment: `src/nano_multiagent/agent/{loop,prompting,runtime}.py`、`src/nano_multiagent/agent/compaction/summarizer.py`、`src/nano_multiagent/platform/http_api/routes/global_routes.py`
     - layering guard: `tests/contract/test_core_no_platform_imports.py`
 - Rollback: 若需重做，回退到 R3 测试提交 `002026b`，或回退到 R2 文档提交 `b2c8ef9` 后重新拆 llm canonical home 与 layering guard。
-- Commits: C1=`002026b`, C2=`dda994f`, C3=<pending>
+- Commits: C1=`002026b`, C2=`dda994f`, C3=`97083e9`
 - Next: 运行 milestone 最终 gate，确认除已知 `TurnResult.usage` 基线外无新增失败，再准备收尾集成与主线合并。
+
+## 最终门禁
+- Milestone gate：`PYTHONPATH=src python -m pytest -q tests/contract/test_core_events_contract.py tests/contract/test_core_types_contract.py tests/contract/test_core_no_platform_imports.py tests/unit/test_core_errors.py tests/unit/test_core_ids.py tests/unit/test_core_session_location.py tests/unit/test_core_hooks_location.py tests/unit/test_core_skills_location.py tests/unit/test_core_llm_location.py tests/unit/test_session_manager.py tests/unit/test_session_entries.py tests/unit/test_hooks_runner.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_agent_prompting.py tests/unit/test_llm_model_registry.py` -> `41 passed, 1 failed`
+- 失败项仍仅为已知基线：`tests/contract/test_core_types_contract.py::test_turn_result_contract_fields_are_stable`，原因仍是 `TurnResult.usage` 额外字段；本 milestone 未引入其它新增失败。
+- 收口结论：`core/session`、`core/hooks`、`core/skills`、`core/llm` 已建立 canonical home，legacy `session/hooks/skills/llm` 共享路径均降为 compatibility shim，`test_core_no_platform_imports.py` 已收窄为真正覆盖 `src/nano_multiagent/core/**` 的反向依赖护栏。

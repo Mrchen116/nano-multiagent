@@ -100,7 +100,8 @@
 - Green：新增 `src/nano_multiagent/core/hooks/{__init__,context,types,registry,runner}.py` 与 `src/nano_multiagent/core/skills/{__init__,registry,formatter}.py` 作为 shared-kernel canonical home；旧 `hooks.context/types/registry/runner` 与 `skills.registry/formatter` 改为 compatibility shim。
 - Caller alignment：`agent/loop`、`agent/runtime`、`agent/prompting`、`tools/registry`、`runs/registry`、`platform/http_api/*`、`platform/hooks/loader.py`、`platform/tools/loader.py`、`platform/bootstrap.py`、`products/base.py`、`hooks/__init__.py`、`skills/__init__.py` 等共享调用点已切到 `nano_multiagent.core.hooks.*` / `nano_multiagent.core.skills.*`；`skills/workspace.py` 继续留在 legacy 装配边界。
 - Focused Green：`PYTHONPATH=src python -m pytest tests/unit/test_core_hooks_location.py tests/unit/test_core_skills_location.py tests/unit/test_hooks_runner.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_agent_prompting.py` 结果为 `20 passed`。
-- 提交序列：C1=`16bdf41`, C2=`78b570e`, C3=`<pending>`。
+- 提交序列：C1=`16bdf41`, C2=`78b570e`, C3=`b2c8ef9`。
+- Gate：`PYTHONPATH=src python -m pytest -q tests/contract/test_core_events_contract.py tests/contract/test_core_types_contract.py tests/contract/test_core_no_platform_imports.py tests/unit/test_core_errors.py tests/unit/test_core_ids.py tests/unit/test_core_session_location.py tests/unit/test_core_hooks_location.py tests/unit/test_core_skills_location.py tests/unit/test_core_llm_location.py tests/unit/test_session_manager.py tests/unit/test_session_entries.py tests/unit/test_hooks_runner.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_agent_prompting.py tests/unit/test_llm_model_registry.py` 结果为 `41 passed, 1 failed`；唯一失败仍是已知基线 `test_turn_result_contract_fields_are_stable`（`TurnResult.usage` 额外字段）。
 
 ---
 
@@ -139,7 +140,8 @@
 - Green：新增 `src/nano_multiagent/core/llm/{__init__,interfaces,model_registry,factory}.py` 作为 shared LLM canonical home；旧 `llm.interfaces`、`llm.model_registry`、`llm.factory` 改为 compatibility shim，`llm/__init__.py` 收窄为轻量兼容包以避免循环导入。
 - Caller alignment：`agent/loop`、`agent/runtime`、`agent/prompting`、`agent/compaction/summarizer.py`、`platform/http_api/routes/global_routes.py` 已切到 `nano_multiagent.core.llm.*`；provider protocol 仍留在 `nano_multiagent.llm.protocols` / `platform.llm.providers` 边界。
 - Focused Green：`PYTHONPATH=src python -m pytest tests/unit/test_core_llm_location.py tests/unit/test_llm_model_registry.py tests/contract/test_core_no_platform_imports.py` 结果为 `7 passed`。
-- 提交序列：C1=`002026b`, C2=`dda994f`, C3=`<pending>`。
+- 提交序列：C1=`002026b`, C2=`dda994f`, C3=`97083e9`。
+- Milestone Gate：`PYTHONPATH=src python -m pytest -q tests/contract/test_core_events_contract.py tests/contract/test_core_types_contract.py tests/contract/test_core_no_platform_imports.py tests/unit/test_core_errors.py tests/unit/test_core_ids.py tests/unit/test_core_session_location.py tests/unit/test_core_hooks_location.py tests/unit/test_core_skills_location.py tests/unit/test_core_llm_location.py tests/unit/test_session_manager.py tests/unit/test_session_entries.py tests/unit/test_hooks_runner.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_agent_prompting.py tests/unit/test_llm_model_registry.py` 结果为 `41 passed, 1 failed`；唯一失败仍是已知基线 `test_turn_result_contract_fields_are_stable`（`TurnResult.usage` 额外字段）。
 
 ---
 
