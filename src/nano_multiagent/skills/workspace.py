@@ -1,15 +1,39 @@
 """Workspace-level helpers for resolving available Codex skills."""
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from .registry import SkillMetadata, SkillRegistry
 
+if TYPE_CHECKING:
+    from nano_multiagent.platform.config.resolver import ConfigResolver
 
-def default_skill_search_roots(*, workspace_root: Path) -> tuple[Path, ...]:
-    """Return default skill roots in precedence order with duplicates removed."""
 
+def default_skill_search_roots(
+    *,
+    workspace_root: Path,
+    config_resolver: ConfigResolver | None = None,
+) -> tuple[Path, ...]:
+    """Return skill search roots in precedence order with duplicates removed.
+
+    Args:
+        workspace_root: Repository or project root; used as workspace base for
+            both resolver-based and legacy path calculation.
+        config_resolver: When provided, skill roots are resolved via
+            ``config_resolver.user_skill_roots()`` (workspace > global > compat).
+            When absent, falls back to the legacy ``CODEX_HOME``-based roots.
+
+    Returns:
+        Ordered, deduplicated tuple of absolute skill directory paths.
+    """
+
+    if config_resolver is not None:
+        return config_resolver.user_skill_roots()
+
+    # Legacy behavior: CODEX_HOME env var + workspace-relative fallbacks.
     codex_home = Path(os.getenv("CODEX_HOME", "~/.codex")).expanduser().resolve()
     workspace = workspace_root.expanduser().resolve()
 
