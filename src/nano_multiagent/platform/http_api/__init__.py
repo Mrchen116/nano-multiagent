@@ -1,5 +1,5 @@
-"""Platform HTTP API surface re-exported from canonical server package."""
+"""Canonical platform-owned HTTP API surface."""
 
-from nano_multiagent.server.app import app, create_app  # noqa: F401
+from .app import app, create_app
 
 __all__ = ["app", "create_app"]

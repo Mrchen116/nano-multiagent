@@ -1,1 +1,1 @@
-"""HTTP route groups for server layer."""
+"""Compatibility shims for the canonical platform HTTP API route modules."""

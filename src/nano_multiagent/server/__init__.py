@@ -1,9 +1,23 @@
-"""Shim package: canonical HTTP API surface now lives under platform/http_api.
+"""Compatibility shim package for the canonical platform HTTP API.
 
-Backward compat import path: nano_multiagent.server
-New platform alias: nano_multiagent.platform.http_api
+Exports are resolved lazily so legacy imports like ``nano_multiagent.server.sse``
+can keep working without eagerly importing the platform HTTP app package.
 """
 
-from .app import app, create_app
+from importlib import import_module
+from typing import Any
 
 __all__ = ["app", "create_app"]
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve legacy server exports lazily for import-cycle safety."""
+    if name in {"app", "create_app"}:
+        module = import_module("nano_multiagent.platform.http_api")
+        return getattr(module, name)
+    raise AttributeError(name)
+
+
+def __dir__() -> list[str]:
+    """Return stable legacy server exports for interactive inspection."""
+    return sorted(__all__)

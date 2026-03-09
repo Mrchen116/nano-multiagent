@@ -1,1 +1,1 @@
-"""Shim package for canonical server routes."""
+"""HTTP route groups for server layer."""
