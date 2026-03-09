@@ -54,7 +54,7 @@
 - Green：新增 `platform/persistence/session/{base,jsonl_store,sqlite_store}.py` 作为 canonical home，并将 `session/stores` 及其子模块反转为 compatibility shim；同时把 `session.manager` / `session.service` / `server.app` / `products.base` 对齐到 canonical imports。
 - Guardrail：`session/__init__.py` 改为 lazy export，避免 canonical store 模块导入 `session.entries` 时经 package 初始化回卷到 compat shim 形成循环依赖。
 - Gate：`python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_config_resolver.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/integration/test_app_bootstrap.py tests/contract/test_core_no_platform_imports.py` 全绿（33 passed）。
-- 提交序列：C1=`7520c9e`, C2=`c5847ca`, C3=`<pending>`。
+- 提交序列：C1=`7520c9e`, C2=`c5847ca`, C3=`7980193`。
 
 ---
 
@@ -94,7 +94,7 @@
 - Guardrail：`tools/__init__.py` 改为 lazy export，避免 platform builtins 在引用 `nano_multiagent.tools.constants` 时因 compat shim 回卷造成循环导入。
 - Caller alignment：`platform/bootstrap.py` 与 `server/app.py` 已改用 `nano_multiagent.platform.{tools,hooks}.loader`。
 - Gate：`python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_config_resolver.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/integration/test_app_bootstrap.py tests/contract/test_core_no_platform_imports.py` 全绿（30 passed）。
-- 提交序列：C1=`7309fe2`, C2=`fd35288`, C3=`<pending>`。
+- 提交序列：C1=`7309fe2`, C2=`fd35288`, C3=`3c26bb0`。
 
 ---
 
@@ -133,7 +133,7 @@
 - Guardrail：首次全量 gate 暴露 `runs/registry.py` 直接依赖 `platform.http_api.sse` 违反层级合同，随后修正为继续依赖 legacy `server.sse` compat path，从而保持 core-oriented 包不直接 import `platform.http_api`。
 - Router ownership：为 platform route module 导出的 `router` 设置 `router.__module__ = __name__`，让 location tests 能验证路由对象归属的是 canonical platform route module，而不是 FastAPI 内部类型模块。
 - Gate：`python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_config_resolver.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/integration/test_app_bootstrap.py tests/contract/test_core_no_platform_imports.py` 全绿（30 passed）。
-- 提交序列：C1=`09891c5`, C2=`04c6ba5`, C3=`<pending>`。
+- 提交序列：C1=`09891c5`, C2=`04c6ba5`, C3=`39779ef`。
 
 ---
 

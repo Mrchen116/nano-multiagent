@@ -37,7 +37,7 @@
     - compat shim: `src/nano_multiagent/session/stores/__init__.py`、`base.py`、`jsonl_store.py`、`sqlite_store.py`
     - import-cycle guard: `src/nano_multiagent/session/__init__.py` 现改为 lazy export，避免 canonical store 导入 `session.entries` 时回卷到 compat shim
 - Rollback: 若需重做，回退到计划提交 `909eb7f` 或测试提交 `7520c9e`，再从 canonical ownership Red 重来。
-- Commits: C1=`7520c9e`, C2=`c5847ca`, C3=`<pending>`
+- Commits: C1=`7520c9e`, C2=`c5847ca`, C3=`7980193`
 - Next: 继续把 tools/hooks 的 loader/safety/builtins 真实实现归位到 platform，并把旧路径降为 compat shim。
 
 ### R2 tools/hooks loader/safety/builtins 物理归位到 platform
@@ -54,7 +54,7 @@
     - compat shims: `src/nano_multiagent/tools/loader.py`、`safety.py`、`builtins/__init__.py`；`src/nano_multiagent/hooks/loader.py`、`builtins/__init__.py`
     - caller alignment: `src/nano_multiagent/platform/bootstrap.py` 与 `src/nano_multiagent/server/app.py` 已切到 platform loader imports
 - Rollback: 若需重做，回退到 R2 测试提交 `7309fe2`，或保留 R1 docs 点 `7980193` 后重新拆 loader/builtins alias。
-- Commits: C1=`7309fe2`, C2=`fd35288`, C3=`<pending>`
+- Commits: C1=`7309fe2`, C2=`fd35288`, C3=`3c26bb0`
 - Next: 继续将 HTTP API app/routes 真实实现归位到 `platform/http_api`，并把 `server` 降为 compat shim。
 
 ### R3 HTTP API app/routes 物理归位到 platform/http_api
@@ -72,5 +72,5 @@
     - compat shims: `src/nano_multiagent/server/__init__.py`、`app.py`、`auth.py`、`deps.py`、`sse.py`、`routes/*.py`
     - layering guard: `src/nano_multiagent/runs/registry.py` 继续依赖 legacy `nano_multiagent.server.sse`，由 compat shim 间接落到 canonical platform HTTP API，实现 ownership 迁移而不触发 core-oriented package 越层依赖
 - Rollback: 若需重做，回退到 R3 测试提交 `09891c5`，或从 R2 docs 点 `3c26bb0` 重新搬运 http_api 包。
-- Commits: C1=`09891c5`, C2=`04c6ba5`, C3=`<pending>`
+- Commits: C1=`09891c5`, C2=`04c6ba5`, C3=`39779ef`
 - Next: 进行 Milestone 级集成：确保 TASKS 全 DONE、最终 gate 全绿、rebase/merge/push、更新 dev-tasks、清理 worktree。
