@@ -1,8 +1,8 @@
-"""Contract tests: ProductProfile and ResolvedProductConfig field stability."""
+"""Contract tests: canonical ProductProfile and ResolvedProductConfig field stability."""
 
 from dataclasses import fields, is_dataclass
 
-from nano_multiagent.platform.product import ProductProfile, ResolvedProductConfig
+from nano_multiagent.products.base import ProductProfile, ResolvedProductConfig
 
 
 def test_product_profile_is_dataclass() -> None:
@@ -17,9 +17,12 @@ def test_product_profile_required_fields_stable() -> None:
         "config_namespace",
         "default_system_prompt",
         "default_tool_ids",
+        "optional_tool_ids",
         "default_hook_modules",
         "skill_search_policy",
         "session_store_policy",
+        "memory_layout",
+        "heartbeat_layout",
         "safety_defaults",
         "capabilities",
     }

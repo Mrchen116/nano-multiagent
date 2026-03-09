@@ -13,10 +13,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from nano_multiagent.platform.products.local_coding import LOCAL_CODING_PROFILE
-from nano_multiagent.platform.products.personal_assistant import (
-    PERSONAL_ASSISTANT_PROFILE,
-)
+from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
+from nano_multiagent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 from nano_multiagent.server.app import create_app
 
 

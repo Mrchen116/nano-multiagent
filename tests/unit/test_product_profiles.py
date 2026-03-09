@@ -1,12 +1,21 @@
-"""Unit tests for product profile path field values.
+"""Unit tests for canonical product profile packages and path fields.
 
-Verifies that LOCAL_CODING_PROFILE and PERSONAL_ASSISTANT_PROFILE declare
-the correct path fields per M75 architecture spec.
+Verifies that LOCAL_CODING_PROFILE and PERSONAL_ASSISTANT_PROFILE live under
+`nano_multiagent.products.*` and declare the expected package-level defaults.
 """
 
 from pathlib import Path
 
-from nano_multiagent.platform.products.local_coding import LOCAL_CODING_PROFILE
+from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
+from nano_multiagent.products.local_coding import defaults as local_coding_defaults
+from nano_multiagent.products.local_coding import hooks as local_coding_hooks
+from nano_multiagent.products.local_coding import prompts as local_coding_prompts
+from nano_multiagent.products.local_coding import toolsets as local_coding_toolsets
+from nano_multiagent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
+from nano_multiagent.products.personal_assistant import defaults as personal_assistant_defaults
+from nano_multiagent.products.personal_assistant import hooks as personal_assistant_hooks
+from nano_multiagent.products.personal_assistant import prompts as personal_assistant_prompts
+from nano_multiagent.products.personal_assistant import toolsets as personal_assistant_toolsets
 
 
 def test_local_coding_profile_global_config_home() -> None:
@@ -28,33 +37,34 @@ def test_local_coding_profile_compat_skill_roots_contains_codex() -> None:
     )
 
 
-def test_personal_assistant_profile_exists() -> None:
-    from nano_multiagent.platform.products.personal_assistant import (
-        PERSONAL_ASSISTANT_PROFILE,
-    )
+def test_local_coding_package_exports_default_modules() -> None:
+    assert local_coding_defaults.CONFIG_NAMESPACE == "nanocode"
+    assert local_coding_prompts.LOCAL_CODING_SYSTEM_PROMPT == LOCAL_CODING_PROFILE.default_system_prompt
+    assert set(local_coding_toolsets.DEFAULT_TOOL_IDS) == {"read", "write", "edit", "bash", "task"}
+    assert "bash_risk_gate" in local_coding_hooks.DEFAULT_HOOK_MODULES
 
+
+def test_personal_assistant_profile_exists() -> None:
     assert PERSONAL_ASSISTANT_PROFILE.product_id == "personal_assistant"
 
 
 def test_personal_assistant_profile_global_config_home() -> None:
-    from nano_multiagent.platform.products.personal_assistant import (
-        PERSONAL_ASSISTANT_PROFILE,
-    )
-
     assert PERSONAL_ASSISTANT_PROFILE.global_config_home == Path("~/.nanoassistant")
 
 
 def test_personal_assistant_profile_workspace_config_dirname() -> None:
-    from nano_multiagent.platform.products.personal_assistant import (
-        PERSONAL_ASSISTANT_PROFILE,
-    )
-
     assert PERSONAL_ASSISTANT_PROFILE.workspace_config_dirname == ".nanoassistant"
 
 
 def test_personal_assistant_profile_session_db_filename() -> None:
-    from nano_multiagent.platform.products.personal_assistant import (
-        PERSONAL_ASSISTANT_PROFILE,
-    )
-
     assert PERSONAL_ASSISTANT_PROFILE.session_db_filename == "sessions.sqlite3"
+
+
+def test_personal_assistant_package_exports_default_modules() -> None:
+    assert personal_assistant_defaults.CONFIG_NAMESPACE == "nanoassistant"
+    assert (
+        personal_assistant_prompts.PERSONAL_ASSISTANT_SYSTEM_PROMPT
+        == PERSONAL_ASSISTANT_PROFILE.default_system_prompt
+    )
+    assert set(personal_assistant_toolsets.DEFAULT_TOOL_IDS) == {"read", "task"}
+    assert "default_status" in personal_assistant_hooks.DEFAULT_HOOK_MODULES
