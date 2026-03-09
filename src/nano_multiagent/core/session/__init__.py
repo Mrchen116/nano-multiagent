@@ -1,6 +1,6 @@
-"""Compatibility shim re-exporting canonical core session entries."""
+"""Canonical shared session models, events, manager, and store contract."""
 
-from nano_multiagent.core.session.entries import (
+from .entries import (
     CompactionEntry,
     SessionEntry,
     SessionEntryKind,
@@ -10,12 +10,19 @@ from nano_multiagent.core.session.entries import (
     new_session_created_entry,
     new_turn_appended_entry,
 )
+from .manager import SessionManager
+from .models import Session
+from .store import LoadedSession, SessionStore
 
 __all__ = [
     "CompactionEntry",
+    "LoadedSession",
+    "Session",
     "SessionEntry",
     "SessionEntryKind",
     "SessionEventEntry",
+    "SessionManager",
+    "SessionStore",
     "new_compaction_entry",
     "new_run_status_entry",
     "new_session_created_entry",

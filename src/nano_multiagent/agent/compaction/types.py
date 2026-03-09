@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
-from nano_multiagent.session.entries import SessionEntry
+from nano_multiagent.core.session.entries import SessionEntry
 
 
 class CompactionReason(StrEnum):

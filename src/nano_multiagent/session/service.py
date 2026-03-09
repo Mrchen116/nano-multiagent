@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
-from .manager import SessionManager
-from .models import Session
-from nano_multiagent.platform.persistence.session.base import SessionStore
+from nano_multiagent.core.session.manager import SessionManager
+from nano_multiagent.core.session.models import Session
+from nano_multiagent.core.session.store import SessionStore
 from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 if TYPE_CHECKING:

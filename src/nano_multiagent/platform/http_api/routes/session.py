@@ -15,7 +15,7 @@ from nano_multiagent.hooks.registry import HookRegistry
 from nano_multiagent.hooks.session_usage import get_session_usage_snapshot
 from nano_multiagent.runs.registry import RunsRegistry
 from nano_multiagent.platform.http_api.sse import EventStreamHub, StreamEvent, encode_sse_event
-from nano_multiagent.session.models import Session
+from nano_multiagent.core.session.models import Session
 from nano_multiagent.session.service import SessionService
 from nano_multiagent.tools.registry import ToolRegistry
 

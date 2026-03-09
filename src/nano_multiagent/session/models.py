@@ -1,12 +1,5 @@
-"""Session domain models."""
+"""Compatibility shim re-exporting canonical core session models."""
 
-from dataclasses import dataclass
+from nano_multiagent.core.session.models import Session
 
-
-@dataclass(frozen=True)
-class Session:
-    """Represent persisted high-level session metadata."""
-
-    session_id: str
-    status: str
-    created_at: str
+__all__ = ["Session"]

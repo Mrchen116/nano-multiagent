@@ -1,6 +1,6 @@
 """Persist compaction summary and translate it into API-level result."""
 
-from nano_multiagent.session.manager import SessionManager
+from nano_multiagent.core.session.manager import SessionManager
 
 from .types import CompactionPlan, CompactionResult
 

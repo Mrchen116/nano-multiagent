@@ -13,9 +13,9 @@ from nano_multiagent.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.hooks.session_events import get_session_event_publisher
 from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
 from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
-from nano_multiagent.session.entries import SessionEntry
-from nano_multiagent.session.manager import SessionManager
-from nano_multiagent.session.models import Session
+from nano_multiagent.core.session.entries import SessionEntry
+from nano_multiagent.core.session.manager import SessionManager
+from nano_multiagent.core.session.models import Session
 from nano_multiagent.skills.registry import SkillMetadata
 from nano_multiagent.skills.workspace import resolve_available_skills
 

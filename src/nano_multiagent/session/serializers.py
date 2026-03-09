@@ -2,7 +2,12 @@
 
 from typing import Any, Mapping
 
-from .entries import CompactionEntry, SessionEntry, SessionEntryKind, SessionEventEntry
+from nano_multiagent.core.session.entries import (
+    CompactionEntry,
+    SessionEntry,
+    SessionEntryKind,
+    SessionEventEntry,
+)
 
 ENTRY_SERIALIZATION_VERSION = 1
 SNAPSHOT_SERIALIZATION_VERSION = 1

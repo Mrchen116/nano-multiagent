@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
-from nano_multiagent.platform.persistence.session.base import LoadedSession, SessionStore
+from nano_multiagent.core.session.store import LoadedSession, SessionStore
 from nano_multiagent.session.serializers import (
     deserialize_entry,
     deserialize_snapshot,

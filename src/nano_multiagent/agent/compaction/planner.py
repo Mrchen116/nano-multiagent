@@ -2,7 +2,7 @@
 
 from typing import Mapping, Sequence
 
-from nano_multiagent.session.entries import CompactionEntry, SessionEntry, SessionEntryKind
+from nano_multiagent.core.session.entries import CompactionEntry, SessionEntry, SessionEntryKind
 
 from .types import CompactionPlan, CompactionReason
 
