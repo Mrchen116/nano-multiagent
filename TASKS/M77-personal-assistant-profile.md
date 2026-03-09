@@ -58,7 +58,7 @@
 
 ### R77.3 server/app 以 PERSONAL_ASSISTANT_PROFILE 启动，/v1/capabilities 返回正确工具子集
 
-**Status**: TODO
+**Status**: DONE
 
 **Acceptance**:
 - `create_app(product_profile=PERSONAL_ASSISTANT_PROFILE)` 成功返回 FastAPI app

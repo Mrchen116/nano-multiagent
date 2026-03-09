@@ -50,12 +50,12 @@ worktree: /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M77
 
 ### R77.3 server/app 以 PERSONAL_ASSISTANT_PROFILE 启动的集成验证
 
-- Context:
-- Decision:
-- Rationale:
+- Context: 验证 create_app(product_profile=PERSONAL_ASSISTANT_PROFILE) 端到端链路——/v1/capabilities 只返回 read/task，/v1/sessions 正常工作，无 if-product 分支。
+- Decision: 6 个 HTTP 集成测试（TestClient）：FastAPI 返回值类型、capabilities 集合、capabilities 排除 write/edit/bash、sessions endpoint 200、LOCAL_CODING_PROFILE 5 工具回归、双产品无分支验证
+- Rationale: TestClient 覆盖了 HTTP 入口；无需 subprocess e2e（HTTP 层已足够）；sessions endpoint 返回字段是 items 而非 sessions（已通过 debug 修正）
 - Evidence:
-  - Tests:
-  - Entry:
-- Rollback:
-- Commits: C1=, C2=, C3=
-- Next:
+  - Tests: 548 passed, 5 failed (pre-existing), 4 skipped
+  - Entry: pytest tests/integration/test_personal_assistant_server_integration.py — 6/6 passed
+- Rollback: 回退到 R77.2 的 C3 commit c345af6
+- Commits: C1=c09f878, C2=af348f4, C3=（待填）
+- Next: 全部 Roadpoints DONE，进入 Milestone 收口
