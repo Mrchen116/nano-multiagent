@@ -123,6 +123,7 @@
 - `tests/unit/test_core_llm_location.py`
 - `tests/unit/test_llm_model_registry.py`
 - `tests/contract/test_core_no_platform_imports.py`
+- 阶段 gate：`PYTHONPATH=src python -m pytest tests/unit/test_core_llm_location.py tests/unit/test_llm_model_registry.py tests/contract/test_core_no_platform_imports.py`
 - 最终门禁：同上 `test_command`
 
 ### DoD
@@ -131,7 +132,14 @@
 - `test_command` 全绿（允许保留已知 `TurnResult.usage` 基线）。
 - `PROGRESS/M82-core-归位与共享抽象收口.md` 记录决策、证据、回滚点与提交哈希。
 
-### 状态：TODO
+### 状态：DONE
+
+### 完成说明
+- Red：新增 `tests/unit/test_core_llm_location.py` 与覆盖 `src/nano_multiagent/core/**` 的 `tests/contract/test_core_no_platform_imports.py`，先触发 `ModuleNotFoundError: No module named 'nano_multiagent.core.llm'`，明确证明 canonical core llm home 尚未建立。
+- Green：新增 `src/nano_multiagent/core/llm/{__init__,interfaces,model_registry,factory}.py` 作为 shared LLM canonical home；旧 `llm.interfaces`、`llm.model_registry`、`llm.factory` 改为 compatibility shim，`llm/__init__.py` 收窄为轻量兼容包以避免循环导入。
+- Caller alignment：`agent/loop`、`agent/runtime`、`agent/prompting`、`agent/compaction/summarizer.py`、`platform/http_api/routes/global_routes.py` 已切到 `nano_multiagent.core.llm.*`；provider protocol 仍留在 `nano_multiagent.llm.protocols` / `platform.llm.providers` 边界。
+- Focused Green：`PYTHONPATH=src python -m pytest tests/unit/test_core_llm_location.py tests/unit/test_llm_model_registry.py tests/contract/test_core_no_platform_imports.py` 结果为 `7 passed`。
+- 提交序列：C1=`002026b`, C2=`dda994f`, C3=`<pending>`。
 
 ---
 

@@ -59,12 +59,18 @@
 - Next: 继续把 `llm` 共享抽象归到 `core/llm`，并扩展 `test_core_no_platform_imports.py` 为真正覆盖 `src/nano_multiagent/core/**` 的反向依赖护栏。
 
 ### R3 llm 共享抽象归位到 core/llm 并补强 core layering contract
-- Context:
-- Decision:
-- Rationale:
+- Context: `llm/interfaces.py`、`llm/model_registry.py`、`llm/factory.py` 仍承载 provider-agnostic shared contract；`agent/*` 与 `platform/http_api/routes/global_routes.py` 继续直接依赖 legacy 物理路径，而 `test_core_no_platform_imports.py` 也只覆盖 core-oriented 目录，尚未成为真正的 `core/**` 反向依赖护栏。
+- Decision: 新增 `src/nano_multiagent/core/llm/{__init__,interfaces,model_registry,factory}.py` 作为 canonical home；旧 `llm.interfaces`、`llm.model_registry`、`llm.factory` 改为 compatibility shim，`llm/__init__.py` 保持轻量兼容包避免导入环；共享调用点切到 `nano_multiagent.core.llm.*`；同时把 `tests/contract/test_core_no_platform_imports.py` 收窄为扫描 `src/nano_multiagent/core/**`，禁止反向依赖 `platform/products/apps` 与 HTTP 框架。
+- Rationale: LLM shared abstractions 属于共享执行内核，而 provider adapter/HTTP wiring 仍应留在 platform/legacy 边界；通过 core canonical home + legacy shim，可以在不触碰 provider transport 层的前提下完成 ownership 收口，并让 layering guard 精准约束真正需要稳定的 core 面。
 - Evidence:
   - Tests:
+    - Red: `PYTHONPATH=src python -m pytest tests/unit/test_core_llm_location.py tests/contract/test_core_no_platform_imports.py` -> `ModuleNotFoundError: No module named 'nano_multiagent.core.llm'`
+    - Focused Green: `PYTHONPATH=src python -m pytest tests/unit/test_core_llm_location.py tests/unit/test_llm_model_registry.py tests/contract/test_core_no_platform_imports.py` -> `7 passed`
   - Entry:
-- Rollback:
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
-- Next:
+    - canonical home: `src/nano_multiagent/core/llm/{__init__,interfaces,model_registry,factory}.py`
+    - compat shim: `src/nano_multiagent/llm/{interfaces,model_registry,factory}.py`、`src/nano_multiagent/llm/__init__.py`
+    - caller alignment: `src/nano_multiagent/agent/{loop,prompting,runtime}.py`、`src/nano_multiagent/agent/compaction/summarizer.py`、`src/nano_multiagent/platform/http_api/routes/global_routes.py`
+    - layering guard: `tests/contract/test_core_no_platform_imports.py`
+- Rollback: 若需重做，回退到 R3 测试提交 `002026b`，或回退到 R2 文档提交 `b2c8ef9` 后重新拆 llm canonical home 与 layering guard。
+- Commits: C1=`002026b`, C2=`dda994f`, C3=<pending>
+- Next: 运行 milestone 最终 gate，确认除已知 `TurnResult.usage` 基线外无新增失败，再准备收尾集成与主线合并。
