@@ -34,7 +34,7 @@ def test_session_service_uses_profile_db_path_when_profile_given(tmp_path: Path)
     store = svc.manager._store  # type: ignore[attr-defined]
     expected_db = (tmp_path / ".testprod" / "sessions.sqlite3").resolve()
     assert isinstance(store, SQLiteSessionStore)
-    assert Path(store.db_path).resolve() == expected_db
+    assert store._db_path.resolve() == expected_db
 
 
 def test_session_service_falls_back_to_default_when_no_profile(tmp_path: Path) -> None:
@@ -47,7 +47,7 @@ def test_session_service_falls_back_to_default_when_no_profile(tmp_path: Path) -
         svc = SessionService()
     store = svc.manager._store  # type: ignore[attr-defined]
     assert isinstance(store, SQLiteSessionStore)
-    assert Path(store.db_path).resolve() == legacy_path.resolve()
+    assert store._db_path.resolve() == legacy_path.resolve()
 
 
 def test_session_service_explicit_store_takes_priority(tmp_path: Path) -> None:
@@ -57,4 +57,4 @@ def test_session_service_explicit_store_takes_priority(tmp_path: Path) -> None:
     custom_store = SQLiteSessionStore(db_path=explicit_path)
     svc = SessionService(store=custom_store, profile=profile)
     store = svc.manager._store  # type: ignore[attr-defined]
-    assert Path(store.db_path).resolve() == explicit_path.resolve()
+    assert store._db_path.resolve() == explicit_path.resolve()
