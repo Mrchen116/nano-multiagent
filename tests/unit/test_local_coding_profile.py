@@ -28,3 +28,21 @@ def test_local_coding_profile_system_prompt_uses_coding_system_prompt() -> None:
 def test_local_coding_profile_has_display_name() -> None:
     assert LOCAL_CODING_PROFILE.display_name
     assert isinstance(LOCAL_CODING_PROFILE.display_name, str)
+
+
+def test_local_coding_profile_default_tool_ids() -> None:
+    """local_coding profile must explicitly declare the 5 built-in tool ids."""
+    assert LOCAL_CODING_PROFILE.default_tool_ids is not None
+    assert set(LOCAL_CODING_PROFILE.default_tool_ids) == {"read", "write", "edit", "bash", "task"}
+
+
+def test_local_coding_profile_default_hook_modules() -> None:
+    """local_coding profile must explicitly declare the built-in hook module names."""
+    assert LOCAL_CODING_PROFILE.default_hook_modules is not None
+    assert len(LOCAL_CODING_PROFILE.default_hook_modules) > 0
+    # All 4 builtin hook modules must be declared.
+    modules = set(LOCAL_CODING_PROFILE.default_hook_modules)
+    assert "bash_risk_gate" in modules
+    assert "default_status" in modules
+    assert "realtime_stream" in modules
+    assert "usage_metrics" in modules
