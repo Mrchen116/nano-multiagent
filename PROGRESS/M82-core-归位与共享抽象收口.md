@@ -39,19 +39,24 @@
     - compat shim: `src/nano_multiagent/session/models.py`、`entries.py`、`manager.py`、`src/nano_multiagent/platform/persistence/session/base.py`
     - caller alignment: `src/nano_multiagent/agent/runtime.py`、`agent/compaction/{applier,types,planner}.py`、`runs/registry.py`、`session/service.py`、`platform/http_api/routes/session.py`、`products/base.py`
 - Rollback: 若需重做，回退到 R1 测试提交 `4ae2bbd`，或回退到计划提交 `f64f8a8` 后重新拆 session/store contract 归位。
-- Commits: C1=`4ae2bbd`, C2=`926095e`, C3=<pending>
+- Commits: C1=`4ae2bbd`, C2=`926095e`, C3=`61c357c`
 - Next: 继续把 hooks/skills shared abstractions 归到 `core/hooks` 与 `core/skills`，并扩展 core layering guard 只约束真正 core-owned canonical surface。
 
 ### R2 hooks/skills 共享抽象归位到 core/hooks 与 core/skills
-- Context:
-- Decision:
-- Rationale:
+- Context: `hooks/context.py`、`hooks/types.py`、`hooks/registry.py`、`hooks/runner.py` 与 `skills/registry.py`、`skills/formatter.py` 仍承载共享抽象真实实现；`agent/runtime`、`agent/prompting`、`tools/registry`、`runs/registry`、`platform/http_api/*` 等共享层继续依赖 legacy 物理路径，导致 core 仍缺少 hooks/skills canonical home。
+- Decision: 新增 `src/nano_multiagent/core/hooks/{__init__,context,types,registry,runner}.py` 与 `src/nano_multiagent/core/skills/{__init__,registry,formatter}.py` 作为 canonical home；旧 `hooks.context/types/registry/runner` 与 `skills.registry/formatter` 改为 compatibility shim；共享调用点统一切到 `nano_multiagent.core.hooks.*` / `nano_multiagent.core.skills.*`，但保留 `skills/workspace.py`、`platform/hooks/loader.py` 这类装配逻辑在 legacy/platform 边界。
+- Rationale: 共享 hook/skill contract 应归属于执行内核，而不是遗留包路径；通过 canonical core 实现 + 旧路径 shim，可以同时锁定 module ownership、避免 API 断裂，并为后续 `core` layering guard 扩展提供清晰目标面。
 - Evidence:
   - Tests:
+    - Red: `python3 -m pytest -q tests/unit/test_core_hooks_location.py tests/unit/test_core_skills_location.py` -> `ModuleNotFoundError: No module named 'nano_multiagent.core.hooks'`
+    - Focused Green: `PYTHONPATH=src python -m pytest tests/unit/test_core_hooks_location.py tests/unit/test_core_skills_location.py tests/unit/test_hooks_runner.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_agent_prompting.py` -> `20 passed`
   - Entry:
-- Rollback:
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
-- Next:
+    - canonical home: `src/nano_multiagent/core/hooks/{__init__,context,types,registry,runner}.py`、`src/nano_multiagent/core/skills/{__init__,registry,formatter}.py`
+    - compat shim: `src/nano_multiagent/hooks/{context,types,registry,runner}.py`、`src/nano_multiagent/skills/{registry,formatter}.py`
+    - caller alignment: `src/nano_multiagent/agent/{loop,prompting,runtime}.py`、`src/nano_multiagent/tools/registry.py`、`src/nano_multiagent/runs/registry.py`、`src/nano_multiagent/platform/bootstrap.py`、`src/nano_multiagent/platform/hooks/loader.py`、`src/nano_multiagent/platform/tools/loader.py`、`src/nano_multiagent/platform/http_api/{app,deps,routes/hook,routes/session}.py`、`src/nano_multiagent/products/base.py`、`src/nano_multiagent/hooks/__init__.py`、`src/nano_multiagent/hooks/session_events.py`、`src/nano_multiagent/skills/__init__.py`
+- Rollback: 若需重做，回退到 R2 测试提交 `16bdf41`，或回退到 R1 文档提交 `61c357c` 后重新拆 hooks/skills canonical home 与 compat shim。
+- Commits: C1=`16bdf41`, C2=`78b570e`, C3=<pending>
+- Next: 继续把 `llm` 共享抽象归到 `core/llm`，并扩展 `test_core_no_platform_imports.py` 为真正覆盖 `src/nano_multiagent/core/**` 的反向依赖护栏。
 
 ### R3 llm 共享抽象归位到 core/llm 并补强 core layering contract
 - Context:

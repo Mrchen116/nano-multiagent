@@ -43,6 +43,7 @@
 - `tests/unit/test_session_manager.py`
 - `tests/unit/test_session_entries.py`
 - `tests/contract/test_core_no_platform_imports.py`
+- 阶段 gate：`python3 -m pytest -q tests/contract/test_core_events_contract.py tests/contract/test_core_types_contract.py tests/contract/test_core_no_platform_imports.py tests/unit/test_core_errors.py tests/unit/test_core_ids.py tests/unit/test_core_session_location.py tests/unit/test_session_manager.py tests/unit/test_session_entries.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_llm_model_registry.py`
 - 最终门禁：同上 `test_command`
 
 ### DoD
@@ -58,7 +59,7 @@
 - Green：新增 `src/nano_multiagent/core/session/{__init__,models,entries,store,manager}.py` 作为 shared-kernel canonical home；旧 `session.models`、`session.entries`、`session.manager` 改为 compatibility shim；`platform.persistence.session.base` 也反转为 core store contract 的兼容导出，避免 `core.session.manager` 继续反向依赖 platform。
 - Caller alignment：`agent/runtime`、`agent/compaction/*`、`runs/registry`、`platform/http_api/routes/session`、`products/base`、`session/service` 等共享调用点已切到 `nano_multiagent.core.session.*`。
 - Gate：`python3 -m pytest -q tests/contract/test_core_events_contract.py tests/contract/test_core_types_contract.py tests/contract/test_core_no_platform_imports.py tests/unit/test_core_errors.py tests/unit/test_core_ids.py tests/unit/test_core_session_location.py tests/unit/test_session_manager.py tests/unit/test_session_entries.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_llm_model_registry.py` 结果为 `25 passed, 1 failed`；唯一失败仍是已知基线 `test_turn_result_contract_fields_are_stable`（`TurnResult.usage` 额外字段）。
-- 提交序列：C1=`4ae2bbd`, C2=`926095e`, C3=`<pending>`。
+- 提交序列：C1=`4ae2bbd`, C2=`926095e`, C3=`61c357c`。
 
 ---
 
@@ -92,7 +93,14 @@
 - `test_command` 全绿（允许保留已知 `TurnResult.usage` 基线）。
 - `PROGRESS/M82-core-归位与共享抽象收口.md` 记录决策、证据、回滚点与提交哈希。
 
-### 状态：TODO
+### 状态：DONE
+
+### 完成说明
+- Red：新增 `tests/unit/test_core_hooks_location.py` 与 `tests/unit/test_core_skills_location.py`，先触发 `ModuleNotFoundError: No module named 'nano_multiagent.core.hooks'` / `No module named 'nano_multiagent.core.skills'`，证明 canonical core hooks/skills home 尚未建立。
+- Green：新增 `src/nano_multiagent/core/hooks/{__init__,context,types,registry,runner}.py` 与 `src/nano_multiagent/core/skills/{__init__,registry,formatter}.py` 作为 shared-kernel canonical home；旧 `hooks.context/types/registry/runner` 与 `skills.registry/formatter` 改为 compatibility shim。
+- Caller alignment：`agent/loop`、`agent/runtime`、`agent/prompting`、`tools/registry`、`runs/registry`、`platform/http_api/*`、`platform/hooks/loader.py`、`platform/tools/loader.py`、`platform/bootstrap.py`、`products/base.py`、`hooks/__init__.py`、`skills/__init__.py` 等共享调用点已切到 `nano_multiagent.core.hooks.*` / `nano_multiagent.core.skills.*`；`skills/workspace.py` 继续留在 legacy 装配边界。
+- Focused Green：`PYTHONPATH=src python -m pytest tests/unit/test_core_hooks_location.py tests/unit/test_core_skills_location.py tests/unit/test_hooks_runner.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_agent_prompting.py` 结果为 `20 passed`。
+- 提交序列：C1=`16bdf41`, C2=`78b570e`, C3=`<pending>`。
 
 ---
 
