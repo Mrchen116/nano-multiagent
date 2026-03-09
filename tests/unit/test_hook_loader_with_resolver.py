@@ -13,9 +13,9 @@ from nano_multiagent.platform.product import ProductProfile
 
 _HOOK_CODE = """
 def setup(hooks):
-    @hooks.on("turn.start")
-    def my_hook(ctx):
+    def my_hook(event, ctx):
         pass
+    hooks.on("turn_start", my_hook)
 """
 
 
@@ -42,7 +42,7 @@ def test_build_hook_registry_uses_resolver_workspace_hook_root(tmp_path: Path) -
     registry = build_hook_registry(repo_root=tmp_path, config_resolver=resolver)
 
     # Verify hook was registered (turn.start listener present)
-    hooks = registry.handlers_for("turn.start")
+    hooks = registry.handlers_for("turn_start")
     assert len(hooks) >= 1
     assert any(h.source == "workspace" for h in hooks)
 
@@ -57,7 +57,7 @@ def test_build_hook_registry_uses_resolver_global_hook_root(tmp_path: Path) -> N
     # No workspace root → only global hook root used
     registry = build_hook_registry(repo_root=tmp_path, config_resolver=resolver)
 
-    hooks = registry.handlers_for("turn.start")
+    hooks = registry.handlers_for("turn_start")
     assert len(hooks) >= 1
     assert any(h.source == "workspace" for h in hooks)
 
@@ -70,7 +70,7 @@ def test_build_hook_registry_falls_back_to_nano_hooks(tmp_path: Path) -> None:
 
     # No resolver: falls back to .nano/hooks
     registry = build_hook_registry(repo_root=tmp_path)
-    hooks = registry.handlers_for("turn.start")
+    hooks = registry.handlers_for("turn_start")
     # Should find the workspace hook (legacy path)
     assert any(h.source == "workspace" for h in hooks)
 
@@ -84,7 +84,7 @@ def test_build_hook_registry_with_resolver_does_not_load_nano_hooks(tmp_path: Pa
     # No hooks in resolver paths → turn.start should only have builtin hooks
     resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
     registry = build_hook_registry(repo_root=tmp_path, config_resolver=resolver)
-    hooks = registry.handlers_for("turn.start")
+    hooks = registry.handlers_for("turn_start")
     # All workspace hooks should come from resolver-specified dirs (not .nano/hooks)
     for h in hooks:
         if h.source == "workspace":

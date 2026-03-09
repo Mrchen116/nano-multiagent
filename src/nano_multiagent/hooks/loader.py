@@ -1,12 +1,18 @@
 """Hook discovery/registration loader for built-in and workspace modules."""
 
+from __future__ import annotations
+
 import hashlib
 import importlib.util
 from pathlib import Path
 from types import ModuleType
+from typing import TYPE_CHECKING
 
 from .registry import HookAPI, HookRegistry
 from .types import LoadedHookModule
+
+if TYPE_CHECKING:
+    from nano_multiagent.platform.config.resolver import ConfigResolver
 
 
 def build_hook_registry(
@@ -14,16 +20,54 @@ def build_hook_registry(
     repo_root: Path,
     builtins_dir: Path | None = None,
     workspace_dir: Path | None = None,
+    config_resolver: ConfigResolver | None = None,
 ) -> HookRegistry:
-    """Build a hook registry by loading built-in and workspace hook files."""
+    """Build a hook registry by loading built-in and user-provided hook modules.
 
-    registry, _ = load_hooks_from_directories(
-        repo_root=repo_root,
-        builtins_dir=builtins_dir,
-        workspace_dir=workspace_dir,
-        registry=HookRegistry(),
-    )
-    return registry
+    Args:
+        repo_root: Workspace root; used as reference even when resolver is given.
+        builtins_dir: Override for built-in hooks directory; defaults to the
+            ``builtins/`` sub-package next to this module.
+        workspace_dir: Override for workspace hooks directory; only used when
+            ``config_resolver`` is ``None``.
+        config_resolver: When provided, workspace hook directories are resolved
+            via ``config_resolver.user_hook_roots()``; the legacy ``.nano/hooks``
+            path (and ``workspace_dir`` kwarg) is ignored.  When absent, falls
+            back to ``workspace_dir`` or ``<repo_root>/.nano/hooks``.
+
+    Returns:
+        HookRegistry with built-in hooks loaded, plus any user hook modules.
+    """
+
+    if config_resolver is not None:
+        # Use resolver-specified hook roots; first root = workspace, rest = global/compat.
+        hook_roots = config_resolver.user_hook_roots()
+        # Load builtins first, then each resolver-specified dir as "workspace".
+        resolved_workspace_dir = hook_roots[0] if hook_roots else None
+        registry, _ = load_hooks_from_directories(
+            repo_root=repo_root,
+            builtins_dir=builtins_dir,
+            workspace_dir=resolved_workspace_dir,
+            registry=HookRegistry(),
+        )
+        # Load additional (global, compat) roots as "workspace" source too.
+        for extra_root in hook_roots[1:]:
+            if extra_root.is_dir():
+                for file_path in discover_hook_files(extra_root):
+                    module = _import_hook_module(file_path, source="workspace")
+                    setup = getattr(module, "setup", None)
+                    if not callable(setup):
+                        raise RuntimeError(f"hook module missing setup(hooks): {file_path}")
+                    setup(HookAPI(registry, source="workspace", module_name=module.__name__, file_path=file_path))
+        return registry
+    else:
+        registry, _ = load_hooks_from_directories(
+            repo_root=repo_root,
+            builtins_dir=builtins_dir,
+            workspace_dir=workspace_dir,
+            registry=HookRegistry(),
+        )
+        return registry
 
 
 def discover_hook_files(directory: Path) -> tuple[Path, ...]:
