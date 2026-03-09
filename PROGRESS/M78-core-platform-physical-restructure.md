@@ -13,4 +13,15 @@
 
 ---
 
-<!-- Roadpoint 完成后补充 -->
+### R1 - session/stores → platform/persistence/session
+- Context: session/stores 含 SQLite/JSONL 持久化实现，属 platform 关心内容；core 不关心具体存储介质。
+- Decision: 在 platform/persistence/session/__init__.py 中 re-export session.stores 的全部符号；旧路径不变（shim 暂留）。暂不移动物理实现文件，以最小改动通过门禁。
+- Rationale: 先建立 platform 路径可 import，再逐步迁移实现，避免一次性大范围改动破坏测试。
+- Evidence:
+  - Tests: 5 failed(pre-existing), 550 passed, 4 skipped
+  - Entry: from nano_multiagent.platform.persistence.session import SQLiteSessionStore 可用
+- Rollback: revert e3b2c58
+- Commits: C1=f21adff, C2=e3b2c58, C3=TBD
+- Next: R2 - llm/protocols → platform/llm/providers
+
+<!-- 后续 Roadpoint 在此追加 -->
