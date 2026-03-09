@@ -9,7 +9,7 @@ from nano_multiagent.core.ids import make_message_id, make_tool_call_id
 from nano_multiagent.core.types import Message, TokenUsage, ToolCall, ToolResult, ToolSpec, TurnResult
 from nano_multiagent.core.hooks.context import HookContext
 from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
-from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
+from nano_multiagent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
 from nano_multiagent.core.skills.registry import SkillMetadata
 from nano_multiagent.tools.registry import ToolRegistry
 

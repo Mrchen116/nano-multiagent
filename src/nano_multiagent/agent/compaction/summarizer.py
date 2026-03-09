@@ -3,7 +3,7 @@
 from typing import Sequence
 
 from nano_multiagent.core.types import Message
-from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
+from nano_multiagent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 
 from .types import CompactionReason
 

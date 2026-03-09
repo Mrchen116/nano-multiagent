@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 
 from nano_multiagent import __version__
 from nano_multiagent.core.errors import ModelError
-from nano_multiagent.llm.factory import LLMFactoryConfig
-from nano_multiagent.llm.model_registry import (
+from nano_multiagent.core.llm.factory import LLMFactoryConfig
+from nano_multiagent.core.llm.model_registry import (
     get_default_model,
     list_provider_models,
     list_supported_providers,

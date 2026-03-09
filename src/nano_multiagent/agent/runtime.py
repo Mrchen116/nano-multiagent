@@ -11,8 +11,8 @@ from nano_multiagent.core.types import Message, ToolCall, ToolResult, TurnResult
 from nano_multiagent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.hooks.session_events import get_session_event_publisher
-from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
-from nano_multiagent.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
+from nano_multiagent.core.llm.factory import LLMFactoryConfig, create_llm_client
+from nano_multiagent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from nano_multiagent.core.session.entries import SessionEntry
 from nano_multiagent.core.session.manager import SessionManager
 from nano_multiagent.core.session.models import Session
