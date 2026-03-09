@@ -24,4 +24,15 @@
 - Commits: C1=f21adff, C2=e3b2c58, C3=TBD
 - Next: R2 - llm/protocols → platform/llm/providers
 
+### R2 - llm/protocols → platform/llm/providers
+- Context: llm/protocols 含 anthropic/openai_compat 两个 provider 适配器，属 platform 关心内容。
+- Decision: 在 platform/llm/providers/__init__.py re-export llm.protocols 下的子模块；旧路径保持不变。
+- Rationale: 同 R1 策略—先建立新路径可用，保留旧路径兼容。
+- Evidence:
+  - Tests: 5 failed(pre-existing), 553 passed, 4 skipped
+  - Entry: from nano_multiagent.platform.llm.providers import anthropic 可用
+- Rollback: revert ca8c020
+- Commits: C1=eabc1db, C2=ca8c020, C3=TBD
+- Next: R3 - tools/builtins+loader+safety → platform/tools
+
 <!-- 后续 Roadpoint 在此追加 -->
