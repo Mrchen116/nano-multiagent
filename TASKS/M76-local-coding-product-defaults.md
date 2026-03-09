@@ -36,7 +36,7 @@
 
 ---
 
-### R76.2 local_coding 明确列出 default_tool_ids 与 default_hook_modules
+### R76.2 local_coding 明确列出 default_tool_ids 与 default_hook_modules（C1=f499448 C2=21e4f8b）
 
 **状态**: DONE
 

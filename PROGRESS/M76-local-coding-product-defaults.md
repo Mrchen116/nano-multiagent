@@ -21,14 +21,14 @@
 
 ### R76.2 local_coding 明确列出 default_tool_ids 与 default_hook_modules
 
-- Context: `LOCAL_CODING_PROFILE.default_tool_ids=None` 表示"用所有内置"；M76 要求显式列出，让 bootstrap 可按 profile 过滤。`bootstrap.py` 当前忽略这两个字段。4 个内置 hook 模块路径需要从代码中确认。
-- Decision: 将 `default_tool_ids=["read", "write", "edit", "bash", "task"]`；`default_hook_modules` 列出 4 个内置 hook 模块的 Python 模块路径；`bootstrap.py` 增加：当 `default_tool_ids` 非 None 时只注册指定 ids，当 `default_hook_modules` 非 None 时按模块名过滤（或直接利用 build_hook_registry 现有机制）。
-- Rationale: 显式优于隐式；列出全部内置等同于当前行为，但变成可审计的声明式配置。
+- Context: `LOCAL_CODING_PROFILE.default_tool_ids=None` 表示"用所有内置"；M76 要求显式列出，让 bootstrap 可按 profile 过滤。`bootstrap.py` 当前忽略这两个字段。4 个内置 hook 模块路径从 hooks/builtins/*.py 文件名确认。
+- Decision: `default_tool_ids=["read", "write", "edit", "bash", "task"]`；`default_hook_modules=["bash_risk_gate", "default_status", "realtime_stream", "usage_metrics"]`（模块文件名 stem）。`bootstrap.py` 增加 `_filter_tool_registry` 和 `_filter_hook_registry` helper；当字段非 None 时按声明过滤；ToolRegistry 通过访问 `_tools` dict 重建，HookRegistry 通过 `all_handlers()` + `file_path.stem` 过滤重建。
+- Rationale: 显式优于隐式；当前声明的 5 个 tool + 4 个 hook 等同于现有"全部内置"行为，但现在可审计。未来产品可声明子集。
 - Evidence:
-  - Tests: pytest -q → 512 passed
-  - Entry: `LOCAL_CODING_PROFILE.default_tool_ids` 非 None，含 5 个 id
-- Rollback: 回退到 R76.1 C3
-- Commits: C1=, C2=, C3=
+  - Tests: pytest -q → 518 passed，5 pre-existing failures（基线 +4）
+  - Entry: `LOCAL_CODING_PROFILE.default_tool_ids` == `["read","write","edit","bash","task"]`
+- Rollback: 回退到 R76.1 C3（c4060c6）
+- Commits: C1=f499448, C2=21e4f8b, C3=
 - Next: R76.3
 
 ---
