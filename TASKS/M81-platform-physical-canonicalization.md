@@ -47,7 +47,14 @@
 - `test_command` 全绿。
 - `PROGRESS/M81-platform-physical-canonicalization.md` 记录决策、证据、回滚点与提交哈希。
 
-### 状态：TODO
+### 状态：DONE
+
+### 完成说明
+- Red：把 `tests/unit/test_platform_persistence_session_location.py` 从“仅验证可导入”提升为“验证 platform 模块 ownership + legacy shim identity”，先触发 `ModuleNotFoundError: nano_multiagent.platform.persistence.session.base`。
+- Green：新增 `platform/persistence/session/{base,jsonl_store,sqlite_store}.py` 作为 canonical home，并将 `session/stores` 及其子模块反转为 compatibility shim；同时把 `session.manager` / `session.service` / `server.app` / `products.base` 对齐到 canonical imports。
+- Guardrail：`session/__init__.py` 改为 lazy export，避免 canonical store 模块导入 `session.entries` 时经 package 初始化回卷到 compat shim 形成循环依赖。
+- Gate：`python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_config_resolver.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/integration/test_app_bootstrap.py tests/contract/test_core_no_platform_imports.py` 全绿（33 passed）。
+- 提交序列：C1=`7520c9e`, C2=`c5847ca`, C3=`<pending>`。
 
 ---
 

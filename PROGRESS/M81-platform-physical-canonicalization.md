@@ -24,15 +24,21 @@
 ---
 
 ### R1 session persistence 物理归位到 platform/persistence/session
-- Context:
-- Decision:
-- Rationale:
+- Context: M78 只建立了 `platform.persistence.session` 的表面入口，真实 store contract/实现仍物理留在 `session/stores/*`；location test 只能证明 import 成功，不能证明 canonical ownership。
+- Decision: 在 `platform/persistence/session/` 下新增 `base.py`、`jsonl_store.py`、`sqlite_store.py` 作为 canonical home，并把 `session/stores` 及其子模块全部反转为 re-export compat shim；同时把 `session.manager`、`session.service`、`server.app`、`products.base` 对齐到 canonical store contract。
+- Rationale: 直接把实现搬到 platform 并让旧路径回指，是最小的物理归位方式；保留 legacy import identity 能避免上层调用者重写，同时 location tests 可以精确断言 `__module__` 已切换到 platform。
 - Evidence:
   - Tests:
+    - Red: `python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py` -> `ModuleNotFoundError: No module named 'nano_multiagent.platform.persistence.session.base'`
+    - Focused Green: `python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py` -> `2 passed`
+    - Gate: `python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_config_resolver.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/integration/test_app_bootstrap.py tests/contract/test_core_no_platform_imports.py` -> `33 passed`
   - Entry:
-- Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
-- Next:
+    - canonical home: `src/nano_multiagent/platform/persistence/session/base.py`、`jsonl_store.py`、`sqlite_store.py`
+    - compat shim: `src/nano_multiagent/session/stores/__init__.py`、`base.py`、`jsonl_store.py`、`sqlite_store.py`
+    - import-cycle guard: `src/nano_multiagent/session/__init__.py` 现改为 lazy export，避免 canonical store 导入 `session.entries` 时回卷到 compat shim
+- Rollback: 若需重做，回退到计划提交 `909eb7f` 或测试提交 `7520c9e`，再从 canonical ownership Red 重来。
+- Commits: C1=`7520c9e`, C2=`c5847ca`, C3=`<pending>`
+- Next: 继续把 tools/hooks 的 loader/safety/builtins 真实实现归位到 platform，并把旧路径降为 compat shim。
 
 ### R2 tools/hooks loader/safety/builtins 物理归位到 platform
 - Context:
