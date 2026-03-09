@@ -25,7 +25,7 @@
 
 ### R74.1 ProductProfile + ResolvedProductConfig 数据契约
 
-**状态**: TODO
+**状态**: DONE
 
 **Acceptance**:
 1. `nano_multiagent/platform/product.py` 包含 `ProductProfile` dataclass（product_id, display_name, config_namespace, default_system_prompt, default_tool_ids, default_hook_modules, skill_search_policy, session_store_policy, safety_defaults, capabilities）
@@ -47,7 +47,7 @@
 
 ### R74.2 platform/bootstrap.py - 产品配置解析入口
 
-**状态**: TODO
+**状态**: DONE
 
 **Acceptance**:
 1. `bootstrap_product(profile, repo_root)` 接收 `ProductProfile` + `repo_root` 返回 `ResolvedProductConfig`
@@ -69,7 +69,7 @@
 
 ### R74.3 local_coding ProductProfile stub
 
-**状态**: TODO
+**状态**: DONE
 
 **Acceptance**:
 1. `nano_multiagent/platform/products/local_coding.py` 包含 `LOCAL_CODING_PROFILE: ProductProfile` 常量
@@ -89,7 +89,7 @@
 
 ### R74.4 server/app.py 接受 ProductProfile 启动
 
-**状态**: TODO
+**状态**: DONE
 
 **Acceptance**:
 1. `create_app()` 新增可选 `product_profile: ProductProfile | None = None` 参数
