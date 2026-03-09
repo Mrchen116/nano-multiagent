@@ -3,8 +3,10 @@ import json
 import httpx
 
 from nano_multiagent.cli.http_client import ServerClient, ServerClientConfig, _should_trust_env
-from nano_multiagent.sdk.client import ServerClient as SDKServerClient
-from nano_multiagent.sdk.client import ServerClientConfig as SDKServerClientConfig
+from nano_multiagent.platform.sdk.client import ServerClient as PlatformServerClient
+from nano_multiagent.platform.sdk.client import ServerClientConfig as PlatformServerClientConfig
+from nano_multiagent.sdk.client import ServerClient as LegacySDKServerClient
+from nano_multiagent.sdk.client import ServerClientConfig as LegacySDKServerClientConfig
 
 
 def test_server_client_config_from_env_overrides(monkeypatch) -> None:
@@ -20,8 +22,10 @@ def test_server_client_config_from_env_overrides(monkeypatch) -> None:
 
 
 def test_sdk_client_module_keeps_backward_compatible_aliases() -> None:
-    assert SDKServerClient is ServerClient
-    assert SDKServerClientConfig is ServerClientConfig
+    assert PlatformServerClient is ServerClient
+    assert PlatformServerClientConfig is ServerClientConfig
+    assert LegacySDKServerClient is PlatformServerClient
+    assert LegacySDKServerClientConfig is PlatformServerClientConfig
 
 
 def test_send_message_posts_http_payload_with_auth_and_request_id() -> None:
