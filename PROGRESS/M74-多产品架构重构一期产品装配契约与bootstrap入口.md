@@ -25,13 +25,15 @@
 
 ### R74.1 ProductProfile + ResolvedProductConfig 数据契约
 
-- Context: 引入产品装配契约，为后续多产品路由建立"接缝"；不做 runtime 内 product 分支。
-- Decision: pending
-- Rationale: pending
-- Evidence: pending
-- Rollback: pending
-- Commits: C1=pending, C2=pending, C3=pending
-- Next: R74.2
+- Context: 引入产品装配契约，为后续多产品路由建立"接缝"；不做 runtime 内 product 分支。不引入 ABC/Protocol，用简单 dataclass 保持低耦合。
+- Decision: `platform/product.py` 两个 dataclass：`ProductProfile`（10字段，全有默认值）+ `ResolvedProductConfig`（5字段）。使用 `TYPE_CHECKING` guard 避免在 import 时拉入具体注册表。
+- Rationale: dataclass 比 TypedDict 易扩展，比 pydantic 依赖轻；`TYPE_CHECKING` guard 保持 platform 层不强依赖 tools/hooks/session 模块。
+- Evidence:
+  - Tests: pytest -q → 5 pre-existing failed, 464 passed (7 new green)
+  - Entry: `from nano_multiagent.platform.product import ProductProfile` 可用
+- Rollback: 回退到 ae9492b (C1 commit)
+- Commits: C1=ae9492b, C2=33cf429, C3=pending
+- Next: R74.2 platform/bootstrap.py
 
 ---
 
