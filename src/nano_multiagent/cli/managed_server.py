@@ -73,7 +73,7 @@ class ManagedServerProcess:
             sys.executable,
             "-m",
             "uvicorn",
-            "nano_multiagent.server.app:create_app",
+            "nano_multiagent.platform.http_api.app:create_app",
             "--factory",
             "--host",
             host,

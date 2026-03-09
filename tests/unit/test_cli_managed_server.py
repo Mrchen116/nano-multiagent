@@ -80,6 +80,29 @@ def test_managed_server_start_and_stop_lifecycle(monkeypatch: pytest.MonkeyPatch
     assert process.terminated is True
 
 
+
+def test_managed_server_uses_platform_http_api_entrypoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("nano_multiagent.cli.managed_server._is_port_in_use", lambda host, port: False)
+    process = _FakeProcess()
+    captured_command: list[str] = []
+
+    def _popen(command, **kwargs):  # noqa: ANN001, ANN003
+        del kwargs
+        captured_command.extend(command)
+        return process
+
+    manager = ManagedServerProcess(
+        config=ManagedServerConfig(base_url="http://127.0.0.1:8127", token="test-token"),
+        popen_factory=_popen,
+        health_probe=lambda _: True,
+    )
+
+    manager.start()
+    manager.stop()
+
+    assert "nano_multiagent.platform.http_api.app:create_app" in captured_command
+
+
 def test_managed_server_reports_startup_timeout_with_suggestion(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("nano_multiagent.cli.managed_server._is_port_in_use", lambda host, port: False)
     process = _FakeProcess()
