@@ -35,12 +35,12 @@
 
 ### R76.3 server/app.py 通过 ResolvedProductConfig 注入 system_prompt
 
-- Context: `create_app(product_profile=...)` 当前只用 bootstrap 的 tool/hook registry，没有把 `resolved_system_prompt` 传给 `AgentRuntime`/`AgentLoop`。目标：profile 激活后 runtime 使用 profile 的 prompt，无 profile 时保持现有行为。
-- Decision: `AgentRuntime.__init__` 增加 `system_prompt: str | None = None` 参数，传给 `AgentLoop`；`create_app` 当 product_profile 非 None 时，把 `resolved_product.resolved_system_prompt` 传给 `AgentRuntime`。
-- Rationale: 最小侵入：runtime 接受 system_prompt 参数，loop 使用注入值；loop.py 默认空字符串兜底，不再持有 coding 专属文案。
+- Context: `create_app(product_profile=...)` 当前只用 bootstrap 的 tool/hook registry，没有把 `resolved_system_prompt` 传给 `AgentRuntime`/`AgentLoop`。`AgentRuntime.system_prompt` 参数已在 R76.1 引入。
+- Decision: `create_app` 当 `product_profile` 非 None 且 `resolved_product.resolved_system_prompt` 非空时，通过 `**runtime_kwargs` 把它传给 `AgentRuntime`；无 profile 时行为不变（AgentRuntime 使用空字符串 fallback）。
+- Rationale: 最小侵入；`resolved_system_prompt=""` 时不传（不覆盖 runtime 默认），非空时传入，保证"explicit > profile > default"链路。
 - Evidence:
-  - Tests: pytest -q → 512 passed
-  - Entry: `create_app(product_profile=LOCAL_CODING_PROFILE)` 后，runtime loop 使用 coding prompt
-- Rollback: 回退到 R76.2 C3
-- Commits: C1=, C2=, C3=
+  - Tests: pytest -q → 520 passed，5 pre-existing failures（基线 +2）
+  - Entry: `create_app(product_profile=LOCAL_CODING_PROFILE)` 后，`app.state.agent_runtime._loop._system_prompt == CODING_SYSTEM_PROMPT`
+- Rollback: 回退到 R76.2 C3（9661a37）
+- Commits: C1=32d05f7, C2=b654c52, C3=
 - Next: Milestone 完成，合并到 main

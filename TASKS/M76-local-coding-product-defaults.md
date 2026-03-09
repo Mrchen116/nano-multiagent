@@ -65,7 +65,7 @@
 
 ---
 
-### R76.3 server/app.py 通过 ResolvedProductConfig 注入 system_prompt
+### R76.3 server/app.py 通过 ResolvedProductConfig 注入 system_prompt（C1=32d05f7 C2=b654c52）
 
 **状态**: DONE
 
