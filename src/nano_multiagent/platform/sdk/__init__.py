@@ -1,5 +1,5 @@
-"""Platform SDK surface re-exported from canonical sdk package."""
+"""Canonical platform SDK surface for the shared HTTP client contract."""
 
-from nano_multiagent.sdk.client import ServerClient, ServerClientConfig  # noqa: F401
+from .client import ServerClient, ServerClientConfig
 
 __all__ = ["ServerClient", "ServerClientConfig"]
