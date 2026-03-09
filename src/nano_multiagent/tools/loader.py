@@ -1,10 +1,12 @@
 """Discovery and dynamic loading for workspace-provided tools."""
 
+from __future__ import annotations
+
 import hashlib
 import importlib.util
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nano_multiagent.hooks.runner import HookRunner
 
@@ -13,14 +15,32 @@ from .builtins import register_builtin_tools
 from .registry import ToolRegistry
 from .safety import load_tool_safety_config
 
+if TYPE_CHECKING:
+    from nano_multiagent.platform.config.resolver import ConfigResolver
+
 
 def build_tool_registry(
     *,
     repo_root: Path,
     hook_runner: HookRunner | None = None,
     runtime: Any | None = None,
+    config_resolver: ConfigResolver | None = None,
 ) -> ToolRegistry:
-    """Build a tool registry containing built-ins and `.nano/tools` plugins."""
+    """Build a tool registry containing built-ins and user-provided tool plugins.
+
+    Args:
+        repo_root: Workspace root; used for safety sandboxing and, when no
+            ``config_resolver`` is given, for legacy ``.nano/tools`` discovery.
+        hook_runner: Optional hook runner wired after registry construction.
+        runtime: Optional runtime reference passed to built-in tools.
+        config_resolver: When provided, user tool directories are resolved via
+            ``config_resolver.user_tool_roots()`` instead of the legacy
+            ``<repo_root>/.nano/tools`` path.  When absent, falls back to the
+            legacy location for backward compatibility.
+
+    Returns:
+        Wired ToolRegistry with built-ins and any discovered user tools loaded.
+    """
 
     from .base import ToolContext
 
@@ -30,12 +50,26 @@ def build_tool_registry(
     )
     registry = ToolRegistry(context=context, hook_runner=hook_runner)
     register_builtin_tools(registry, runtime=runtime)
-    load_tools_from_directory(repo_root=repo_root, registry=registry)
+
+    if config_resolver is not None:
+        # Load from resolver-specified roots; legacy .nano/tools is NOT searched.
+        for tool_root in config_resolver.user_tool_roots():
+            _load_tools_from_single_dir(tool_root=tool_root, registry=registry)
+    else:
+        load_tools_from_directory(repo_root=repo_root, registry=registry)
+
     return registry
 
 
 def discover_tool_files(repo_root: Path) -> tuple[Path, ...]:
-    """Return importable user tool files from `<repo>/.nano/tools`."""
+    """Return importable user tool files from the legacy `<repo>/.nano/tools` dir.
+
+    Args:
+        repo_root: Repository root; scans ``<repo_root>/.nano/tools``.
+
+    Returns:
+        Sorted tuple of ``.py`` files that do not start with ``_``.
+    """
 
     tools_dir = repo_root / ".nano" / "tools"
     if not tools_dir.is_dir():
@@ -47,6 +81,31 @@ def discover_tool_files(repo_root: Path) -> tuple[Path, ...]:
         if path.is_file() and not path.name.startswith("_")
     ]
     return tuple(sorted(files))
+
+
+def _load_tools_from_single_dir(*, tool_root: Path, registry: ToolRegistry) -> tuple[str, ...]:
+    """Import tool modules from a single directory and register discovered tools.
+
+    Args:
+        tool_root: Absolute directory to scan for ``.py`` tool files.
+        registry: Registry to register discovered tools into.
+
+    Returns:
+        Tuple of registered tool names from this directory.
+    """
+
+    if not tool_root.is_dir():
+        return ()
+
+    loaded_names: list[str] = []
+    for file_path in sorted(tool_root.glob("*.py")):
+        if not file_path.is_file() or file_path.name.startswith("_"):
+            continue
+        module = _import_module_from_path(file_path)
+        for tool in _extract_tools(module, file_path=file_path):
+            registry.register(tool)
+            loaded_names.append(tool.name)
+    return tuple(loaded_names)
 
 
 def load_tools_from_directory(*, repo_root: Path, registry: ToolRegistry) -> tuple[str, ...]:

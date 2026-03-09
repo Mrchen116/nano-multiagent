@@ -10,7 +10,14 @@ Architecture note (M74 scope):
   at bootstrap time (M75 will implement the store path logic).
 - default_tool_ids=None means "activate all registered built-ins + workspace",
   which is the current platform default behavior.
+
+Path resolution (M75):
+- global_config_home: ~/.nanocode
+- workspace_config_dirname: .nanocode
+- compat_skill_roots includes ~/.codex/skills for users who keep skills there.
 """
+
+from pathlib import Path
 
 from nano_multiagent.agent.prompting import DEFAULT_SYSTEM_PROMPT
 
@@ -31,4 +38,10 @@ LOCAL_CODING_PROFILE = ProductProfile(
     session_store_policy="sqlite",
     safety_defaults={},
     capabilities={},
+    # M75 path resolution fields.
+    global_config_home=Path("~/.nanocode"),
+    workspace_config_dirname=".nanocode",
+    session_db_filename="sessions.sqlite3",
+    # Backward-compat: users who stored skills at ~/.codex/skills still find them.
+    compat_skill_roots=[Path("~/.codex/skills")],
 )

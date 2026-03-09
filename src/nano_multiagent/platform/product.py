@@ -9,6 +9,7 @@ product-agnostic.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -43,6 +44,15 @@ class ProductProfile:
         safety_defaults: Mapping of safety flag overrides; merged over
             platform-level safety config at bootstrap time.
         capabilities: Freeform capability flags (e.g. ``{"multi_tool": True}``).
+        global_config_home: User-global config directory path (may start with
+            ``~``); e.g. ``Path("~/.nanocode")``. ``None`` uses legacy defaults.
+        workspace_config_dirname: Name of the per-workspace config directory;
+            e.g. ``".nanocode"``. Only relevant when a workspace root is known.
+        session_db_filename: Filename of the SQLite sessions database; always
+            placed inside ``global_config_home``, never in the workspace.
+        compat_skill_roots: Legacy skill root directories to include at lowest
+            priority (e.g. ``[Path("~/.codex/skills")]``). Resolved and
+            deduplicated by ``ConfigResolver``.
     """
 
     # --- Identity ---
@@ -58,13 +68,20 @@ class ProductProfile:
     default_tool_ids: list[str] | None = None
     default_hook_modules: list[str] | None = None
 
-    # --- Policies (reserved for M75+) ---
+    # --- Policies ---
     skill_search_policy: str | None = None
     session_store_policy: str | None = None
 
     # --- Safety / capabilities ---
     safety_defaults: dict[str, Any] = field(default_factory=dict)
     capabilities: dict[str, Any] = field(default_factory=dict)
+
+    # --- Path resolution fields (M75) ---
+    # None signals "use legacy/fallback behavior" in ConfigResolver.
+    global_config_home: Path | None = None
+    workspace_config_dirname: str | None = None
+    session_db_filename: str = "sessions.sqlite3"
+    compat_skill_roots: list[Path] = field(default_factory=list)
 
 
 @dataclass
