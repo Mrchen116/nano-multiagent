@@ -7,7 +7,7 @@ ConfigResolver is provided, and falls back to .nano/tools otherwise.
 from pathlib import Path
 
 from nano_multiagent.platform.config.resolver import ConfigResolver
-from nano_multiagent.platform.product import ProductProfile
+from nano_multiagent.products.base import ProductProfile
 from nano_multiagent.tools.loader import build_tool_registry
 
 

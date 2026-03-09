@@ -1,11 +1,31 @@
 """Unit tests: create_app accepts an optional ProductProfile."""
 
+from pathlib import Path
+
 from fastapi import FastAPI
 
 from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
-from nano_multiagent.platform.product import ProductProfile
-from nano_multiagent.platform.products.local_coding import LOCAL_CODING_PROFILE
+from nano_multiagent.products.base import ProductProfile
+from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
 from nano_multiagent.server.app import create_app
+from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
+
+
+def _make_profile(global_home: Path) -> ProductProfile:
+    return ProductProfile(
+        product_id="test_product",
+        display_name="Test",
+        config_namespace="test",
+        global_config_home=global_home,
+        workspace_config_dirname=".testproduct",
+        session_db_filename="sessions.sqlite3",
+    )
+
+
+def _session_store_path(app: FastAPI) -> Path:
+    store = app.state.session_service.manager._store  # type: ignore[attr-defined]
+    assert isinstance(store, SQLiteSessionStore)
+    return store._db_path.resolve()
 
 
 def test_create_app_with_local_coding_profile_returns_fastapi() -> None:
@@ -52,3 +72,10 @@ def test_create_app_with_profile_uses_resolved_system_prompt() -> None:
     loop = getattr(runtime, "_loop", None)
     assert loop is not None
     assert loop._system_prompt == CODING_SYSTEM_PROMPT
+
+
+def test_create_app_with_profile_uses_profile_session_store_path(tmp_path: Path) -> None:
+    """create_app should pass product_profile into SessionService path resolution."""
+    profile = _make_profile(tmp_path / ".testproduct")
+    app = create_app(product_profile=profile)
+    assert _session_store_path(app) == (tmp_path / ".testproduct" / "sessions.sqlite3").resolve()

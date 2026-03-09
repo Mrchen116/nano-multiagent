@@ -1,8 +1,8 @@
 """Unit tests: LOCAL_CODING_PROFILE matches current coding defaults."""
 
 from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
-from nano_multiagent.platform.product import ProductProfile
-from nano_multiagent.platform.products.local_coding import LOCAL_CODING_PROFILE
+from nano_multiagent.products.base import ProductProfile
+from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
 
 
 def test_local_coding_profile_is_product_profile() -> None:
@@ -46,3 +46,9 @@ def test_local_coding_profile_default_hook_modules() -> None:
     assert "default_status" in modules
     assert "realtime_stream" in modules
     assert "usage_metrics" in modules
+
+
+def test_local_coding_profile_layout_contracts_present() -> None:
+    assert LOCAL_CODING_PROFILE.optional_tool_ids == []
+    assert LOCAL_CODING_PROFILE.memory_layout == {"kind": "workspace_scoped"}
+    assert LOCAL_CODING_PROFILE.heartbeat_layout == {"transport": "runtime_events"}

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from nano_multiagent.hooks.loader import build_hook_registry
 from nano_multiagent.platform.config.resolver import ConfigResolver
-from nano_multiagent.platform.product import ProductProfile
+from nano_multiagent.products.base import ProductProfile
 
 
 _HOOK_CODE = """

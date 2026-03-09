@@ -2,10 +2,8 @@
 
 from pathlib import Path
 
-from nano_multiagent.platform.product import ProductProfile
-from nano_multiagent.platform.products.personal_assistant import (
-    PERSONAL_ASSISTANT_PROFILE,
-)
+from nano_multiagent.products.base import ProductProfile
+from nano_multiagent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 
 
 def test_personal_assistant_profile_is_product_profile() -> None:
@@ -77,3 +75,9 @@ def test_personal_assistant_profile_capabilities() -> None:
     assert caps.get("im") is True
     assert caps.get("heartbeat") is True
     assert caps.get("memory") is True
+
+
+def test_personal_assistant_profile_layout_contracts_present() -> None:
+    assert PERSONAL_ASSISTANT_PROFILE.optional_tool_ids == []
+    assert PERSONAL_ASSISTANT_PROFILE.memory_layout == {"kind": "personal_memory"}
+    assert PERSONAL_ASSISTANT_PROFILE.heartbeat_layout == {"transport": "assistant_presence"}

@@ -12,7 +12,7 @@ from .stores.base import SessionStore
 from .stores.sqlite_store import SQLiteSessionStore
 
 if TYPE_CHECKING:
-    from nano_multiagent.platform.product import ProductProfile
+    from nano_multiagent.products.base import ProductProfile
 
 
 class SessionService:
@@ -25,9 +25,10 @@ class SessionService:
             provided.
         profile: Optional product profile; when given and ``store`` is not
             explicitly provided, the session database is placed at
-            ``ConfigResolver(profile).session_db_path()`` (inside the product's
-            global config directory).  When absent, falls back to legacy
-            ``_default_sqlite_store_path()`` behavior.
+            ``ConfigResolver(profile).session_db_path()`` only when the profile
+            declares ``global_config_home``. Otherwise, or when profile is
+            absent, falls back to legacy ``_default_sqlite_store_path()``
+            behavior.
     """
 
     def __init__(
@@ -39,7 +40,7 @@ class SessionService:
     ) -> None:
         if store is not None:
             active_store = store
-        elif profile is not None:
+        elif profile is not None and profile.global_config_home is not None:
             active_store = _store_from_profile(profile)
         else:
             active_store = SQLiteSessionStore(db_path=_default_sqlite_store_path())

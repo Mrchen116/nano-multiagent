@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nano_multiagent.platform.product import ProductProfile
+from nano_multiagent.products.base import ProductProfile
 from nano_multiagent.session.service import SessionService
 from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
 
