@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from nano_multiagent.server.app import create_app
@@ -32,11 +33,13 @@ def _auth_headers(request_id: str) -> dict[str, str]:
 def test_message_sync_e2e_renders_runtime_system_prompt(tmp_path: Path) -> None:
     llm = CapturePromptLLM()
     store = SQLiteSessionStore(db_path=tmp_path / "prompt-e2e.sqlite3")
+    # CODING_SYSTEM_PROMPT injected so "Guidelines:" and placeholders are present.
     runtime = AgentRuntime(
         session_manager=SessionManager(store=store),
         llm_client=llm,
         model="mock-model",
         repo_root=tmp_path,
+        system_prompt=CODING_SYSTEM_PROMPT,
     )
     app = create_app(session_store=store, runtime=runtime, auth_token="test-token")
     client = TestClient(app)

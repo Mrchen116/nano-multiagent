@@ -10,7 +10,9 @@ from nano_multiagent.skills.formatter import format_available_skills_section
 from nano_multiagent.skills.registry import SkillMetadata
 from nano_multiagent.tools.builtins import builtin_tools
 
-DEFAULT_SYSTEM_PROMPT = """You are an expert coding assistant operating inside a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
+# Coding-persona prompt template; canonical home for the local_coding product.
+# Carries <RUNTIME_FILL:*> placeholders expanded per-turn by build_system_prompt().
+CODING_SYSTEM_PROMPT = """You are an expert coding assistant operating inside a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
 Available tools:
 <RUNTIME_FILL:AVAILABLE_TOOLS>
@@ -30,6 +32,11 @@ Guidelines:
 
 Current date and time: <RUNTIME_FILL:CURRENT_DATETIME>
 Current working directory: <RUNTIME_FILL:CURRENT_WORKING_DIRECTORY>"""
+
+# Generic fallback: empty string signals "product must inject its own prompt".
+# Retained as named export to avoid breaking any existing imports; callers that
+# relied on the old coding-specific text must migrate to CODING_SYSTEM_PROMPT.
+DEFAULT_SYSTEM_PROMPT = ""
 
 
 def build_prompt_messages(

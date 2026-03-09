@@ -1,8 +1,11 @@
-from nano_multiagent.agent.prompting import build_prompt_messages
+from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT, build_prompt_messages
 
 
 def test_system_prompt_contract_matches_runtime_template_sections() -> None:
-    system_prompt = build_prompt_messages(history_messages=(), user_text="ping")[0].content
+    # CODING_SYSTEM_PROMPT must be passed explicitly; DEFAULT_SYSTEM_PROMPT is now "".
+    system_prompt = build_prompt_messages(
+        history_messages=(), user_text="ping", system_prompt=CODING_SYSTEM_PROMPT
+    )[0].content
 
     assert "You are an expert coding assistant operating inside a coding agent harness." in system_prompt
     assert "Available tools:" in system_prompt

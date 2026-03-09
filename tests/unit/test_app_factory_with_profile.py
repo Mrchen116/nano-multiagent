@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 
+from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
 from nano_multiagent.platform.product import ProductProfile
 from nano_multiagent.platform.products.local_coding import LOCAL_CODING_PROFILE
 from nano_multiagent.server.app import create_app
@@ -42,3 +43,12 @@ def test_create_app_with_minimal_profile() -> None:
     app = create_app(product_profile=profile)
     assert isinstance(app, FastAPI)
     assert app.state.hook_registry is not None
+
+
+def test_create_app_with_profile_uses_resolved_system_prompt() -> None:
+    """app wired via local_coding profile must inject CODING_SYSTEM_PROMPT into runtime."""
+    app = create_app(product_profile=LOCAL_CODING_PROFILE)
+    runtime = app.state.agent_runtime
+    loop = getattr(runtime, "_loop", None)
+    assert loop is not None
+    assert loop._system_prompt == CODING_SYSTEM_PROMPT

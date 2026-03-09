@@ -19,7 +19,7 @@ Path resolution (M75):
 
 from pathlib import Path
 
-from nano_multiagent.agent.prompting import DEFAULT_SYSTEM_PROMPT
+from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
 
 from nano_multiagent.platform.product import ProductProfile
 
@@ -28,12 +28,13 @@ LOCAL_CODING_PROFILE = ProductProfile(
     display_name="Nano Coding CLI",
     # Global config: ~/.nanocode  Workspace config: <workspace>/.nanocode
     config_namespace="nanocode",
-    # Reproduce current DEFAULT_SYSTEM_PROMPT exactly so no behavioral change.
-    default_system_prompt=DEFAULT_SYSTEM_PROMPT,
-    # None = use all registered built-ins + workspace tools (current behavior).
-    default_tool_ids=None,
-    # None = load all built-in hooks + workspace hooks (current behavior).
-    default_hook_modules=None,
+    # Coding-persona prompt; owned by this product, not the shared prompting layer.
+    default_system_prompt=CODING_SYSTEM_PROMPT,
+    # Explicit declaration; equivalent to the current "all builtins" but now
+    # auditable.  Order mirrors registration order in tools/builtins/__init__.py.
+    default_tool_ids=["read", "write", "edit", "bash", "task"],
+    # Explicit declaration; module stems match hooks/builtins/*.py filenames.
+    default_hook_modules=["bash_risk_gate", "default_status", "realtime_stream", "usage_metrics"],
     skill_search_policy="workspace",
     session_store_policy="sqlite",
     safety_defaults={},

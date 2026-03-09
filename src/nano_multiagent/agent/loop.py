@@ -14,7 +14,7 @@ from nano_multiagent.skills.registry import SkillMetadata
 from nano_multiagent.tools.registry import ToolRegistry
 
 from .policies import AgentPolicies
-from .prompting import DEFAULT_SYSTEM_PROMPT, build_prompt_messages
+from .prompting import build_prompt_messages
 from .state import AgentState
 
 
@@ -27,7 +27,7 @@ class AgentLoop:
         llm_client: LLMClient,
         model: str,
         policies: AgentPolicies | None = None,
-        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+        system_prompt: str = "",
         hook_runner: HookRunner | None = None,
         available_skills: tuple[SkillMetadata, ...] = (),
         available_tools: tuple[ToolSpec, ...] | None = None,
