@@ -41,15 +41,21 @@
 - Next: 继续把 tools/hooks 的 loader/safety/builtins 真实实现归位到 platform，并把旧路径降为 compat shim。
 
 ### R2 tools/hooks loader/safety/builtins 物理归位到 platform
-- Context:
-- Decision:
-- Rationale:
+- Context: M78 只把 `platform.tools` / `platform.hooks` 暴露成 facade，真实 loader/safety/builtins 仍落在 `tools/*`、`hooks/*`；R2 的 Red 已证明 platform 导出对象 `__module__` 仍来自 legacy 路径，且 legacy builtins package 与 platform package 不是同一模块对象。
+- Decision: 将 `tools.loader`、`tools.safety`、`hooks.loader` 的实现复制并反转到 `platform/tools/loader.py`、`platform/tools/safety.py`、`platform/hooks/loader.py` 作为 canonical home；新增 `platform/tools/builtins/` 与 `platform/hooks/builtins/` 真实包；旧 `tools.loader` / `tools.safety` / `hooks.loader` 改为 compat shim，旧 `tools.builtins` / `hooks.builtins` 包改为 `sys.modules` alias 指向 platform canonical package。
+- Rationale: loader/safety/builtins 同时牵涉函数对象归属与 package identity，直接让 legacy 包 alias 到 platform package 能最稳地满足“旧导入继续工作、模块对象也一致”；`tools.__init__` 改 lazy export 则避免 platform builtin 引用 `tools.constants` 时经 package 初始化回卷到 compat shim 形成循环依赖。
 - Evidence:
   - Tests:
+    - Red: `python3 -m pytest -q tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py` -> `6 failed, 1 passed`
+    - Focused Green: `python3 -m pytest -q tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py` -> `7 passed`
+    - Gate: `python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_config_resolver.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/integration/test_app_bootstrap.py tests/contract/test_core_no_platform_imports.py` -> `30 passed`
   - Entry:
-- Rollback:
-- Commits: C1=`<pending>`, C2=`<pending>`, C3=`<pending>`
-- Next:
+    - canonical homes: `src/nano_multiagent/platform/tools/loader.py`、`safety.py`、`builtins/**`；`src/nano_multiagent/platform/hooks/loader.py`、`builtins/**`
+    - compat shims: `src/nano_multiagent/tools/loader.py`、`safety.py`、`builtins/__init__.py`；`src/nano_multiagent/hooks/loader.py`、`builtins/__init__.py`
+    - caller alignment: `src/nano_multiagent/platform/bootstrap.py` 与 `src/nano_multiagent/server/app.py` 已切到 platform loader imports
+- Rollback: 若需重做，回退到 R2 测试提交 `7309fe2`，或保留 R1 docs 点 `7980193` 后重新拆 loader/builtins alias。
+- Commits: C1=`7309fe2`, C2=`fd35288`, C3=`<pending>`
+- Next: 继续将 HTTP API app/routes 真实实现归位到 `platform/http_api`，并把 `server` 降为 compat shim。
 
 ### R3 HTTP API app/routes 物理归位到 platform/http_api
 - Context:

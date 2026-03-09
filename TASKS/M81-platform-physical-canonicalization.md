@@ -86,7 +86,15 @@
 - `test_command` 全绿。
 - `PROGRESS/M81-platform-physical-canonicalization.md` 记录决策、证据、回滚点与提交哈希。
 
-### 状态：TODO
+### 状态：DONE
+
+### 完成说明
+- Red：把 `tests/unit/test_platform_tools_location.py` 与 `tests/unit/test_platform_hooks_location.py` 提升为 canonical ownership + compat identity 断言，先得到 `6 failed, 1 passed`，明确证明 loader/safety/builtins 仍由 legacy 模块持有。
+- Green：将 `platform/tools/{loader,safety,builtins/**}` 与 `platform/hooks/{loader,builtins/**}` 落成真实 canonical home；`tools.loader` / `tools.safety` / `hooks.loader` 反转为 compat shim；`tools.builtins` / `hooks.builtins` 通过 `sys.modules` alias 指向 canonical package，保证模块对象 identity。
+- Guardrail：`tools/__init__.py` 改为 lazy export，避免 platform builtins 在引用 `nano_multiagent.tools.constants` 时因 compat shim 回卷造成循环导入。
+- Caller alignment：`platform/bootstrap.py` 与 `server/app.py` 已改用 `nano_multiagent.platform.{tools,hooks}.loader`。
+- Gate：`python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_config_resolver.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/integration/test_app_bootstrap.py tests/contract/test_core_no_platform_imports.py` 全绿（30 passed）。
+- 提交序列：C1=`7309fe2`, C2=`fd35288`, C3=`<pending>`。
 
 ---
 
