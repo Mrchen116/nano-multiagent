@@ -36,15 +36,15 @@ worktree: /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M77
 
 ### R77.2 bootstrap_product(PERSONAL_ASSISTANT_PROFILE) 集成验证
 
-- Context:
-- Decision:
-- Rationale:
+- Context: 验证完整 bootstrap 链路（profile → tool_registry/hook_registry/resolved_system_prompt/ConfigResolver 路径）正确工作，同时覆盖 LOCAL_CODING_PROFILE 回归。
+- Decision: 集成测试覆盖 10 个场景：ResolvedProductConfig 类型、product_id、system_prompt 非空、tool_names=={read,task}、hook 无 bash_risk_gate、hook 有 default_status/usage_metrics、ConfigResolver session_db_path、global_config_root、LOCAL_CODING_PROFILE 回归（工具集/hook_registry）
+- Rationale: R77.1 实现已足够驱动 R77.2 测试全绿；R77.2 的价值在于覆盖完整链路（bootstrap → resolver → registry），不只是字段值检查
 - Evidence:
-  - Tests:
-  - Entry:
-- Rollback:
-- Commits: C1=, C2=, C3=
-- Next:
+  - Tests: 542 passed, 5 failed (pre-existing), 4 skipped
+  - Entry: pytest tests/integration/test_personal_assistant_bootstrap_integration.py — 10/10 passed
+- Rollback: 回退到 R77.1 的 C3 commit 4b323a1
+- Commits: C1=ba109d9, C2=a9eb96f, C3=（待填）
+- Next: R77.3 — server/app 以 PERSONAL_ASSISTANT_PROFILE 启动，/v1/capabilities 返回正确工具子集
 
 ---
 

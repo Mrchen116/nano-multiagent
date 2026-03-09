@@ -33,7 +33,7 @@
 
 ### R77.2 bootstrap_product(PERSONAL_ASSISTANT_PROFILE) 集成验证
 
-**Status**: TODO
+**Status**: DONE
 
 **Acceptance**:
 - `bootstrap_product(PERSONAL_ASSISTANT_PROFILE, repo_root)` 返回 `ResolvedProductConfig`
