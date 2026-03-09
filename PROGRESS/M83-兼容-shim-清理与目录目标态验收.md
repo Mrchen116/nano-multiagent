@@ -40,7 +40,24 @@
     - app/CLI alignment: `src/nano_multiagent/apps/coding_cli/client.py`、`src/nano_multiagent/cli/http_client.py`
     - final session ownership assertion: `tests/unit/test_platform_persistence_session_location.py` 与 `tests/unit/test_core_session_location.py`
 - Rollback: 若需重做，回退到 R1 测试提交 `fd375fe`，或回退到计划提交 `fe3b595` 后重新拆 final ownership。
-- Commits: C1=`fd375fe`, C2=`be2f00f`, C3=`<pending>`
+- Commits: C1=`fd375fe`, C2=`be2f00f`, C3=`1766431`
 - Next: 新增 architecture acceptance / doc-linkage 契约测试，回写 `多产品架构调整建议.md` 的目标目录树与 intentional shim inventory。
+
+### R2 补齐目标目录树、保留 shim 清单与架构验收勾稽
+- Context: M80-M82 已分别完成 products/platform/core 归位，但缺少一条统一的 acceptance contract 来证明“代码目录、location tests、架构文档”三者已经对齐；`多产品架构调整建议.md` 仍停留在早期提案，没有最终目标态章节，也没有 intentional shim 清单。
+- Decision: 新增 `tests/contract/test_multi_product_architecture_acceptance.py`，把最终目标目录树、保留 shim inventory、文档勾稽与 M80-M83 收口状态固化为 contract；同时在 `多产品架构调整建议.md` 追加“M83 最终目标态验收”章节，明确目录树、canonical ownership、intentional shim、deferred 项与维护原则。
+- Rationale: 仅靠 location tests 还不能证明架构文档已跟上最终代码状态；把文档要点写成 contract 后，后续任何 shim 增删或目录漂移都会先在测试层暴露，避免再次出现“代码已迁移、文档还停留在旧提案”的偏差。
+- Evidence:
+  - Tests:
+    - Red: `PYTHONPATH=src python3 -m pytest -q tests/contract/test_multi_product_architecture_acceptance.py` -> `2 failed, 1 passed`；失败点为缺失 `## 八、M83 最终目标态验收（代码/测试/文档对齐）` 与缺失 shim inventory 文档条目。
+    - Focused Green: 同上 focused gate -> `3 passed`
+    - Final gate: `PYTHONPATH=src python3 -m pytest -q tests/unit/test_platform_llm_providers_location.py tests/unit/test_platform_sdk_location.py tests/unit/test_apps_coding_cli_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_core_hooks_location.py tests/unit/test_core_llm_location.py tests/unit/test_core_session_location.py tests/unit/test_core_skills_location.py tests/contract/test_core_no_platform_imports.py tests/contract/test_multi_product_architecture_acceptance.py` -> `31 passed`
+  - Entry:
+    - acceptance contract: `tests/contract/test_multi_product_architecture_acceptance.py`
+    - architecture doc: `多产品架构调整建议.md`
+    - intentional shim inventory now documents `platform.product`、`platform.products.*`、`session.stores*`、`platform.persistence.session.base`、`tools.loader`、`tools.safety`、`hooks.loader`、`server*`、`sdk.client`、`cli.http_client`、`apps.coding_cli.client`、`session.*`、`hooks.*`、`skills.*`、`llm.*`
+- Rollback: 若需重做，回退到 R2 测试提交 `b158926`，或回退到 R1 文档提交 `1766431` 后重新拆 acceptance/doc linkage。
+- Commits: C1=`b158926`, C2=`e19211c`, C3=`<pending>`
+- Next: 提交 R2 的 Green/C3，然后执行 milestone 级 rebase、merge、push、dev-tasks 更新与 worktree 清理。
 
 ---
