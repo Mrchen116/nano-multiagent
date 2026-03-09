@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from nano_multiagent.session.manager import SessionManager
@@ -24,11 +25,13 @@ def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path: Path
     manager = SessionManager(store=store)
     session = manager.create_session()
     llm = CapturePromptLLM()
+    # CODING_SYSTEM_PROMPT must be injected explicitly; AgentRuntime default is now "".
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=llm,
         model="mock-model",
         repo_root=tmp_path,
+        system_prompt=CODING_SYSTEM_PROMPT,
     )
 
     runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)

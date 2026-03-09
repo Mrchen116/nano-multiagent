@@ -42,11 +42,11 @@ def bootstrap_product(
 
     resolved_root = Path(repo_root).expanduser().resolve()
 
-    # Resolve system prompt: use profile default when set, otherwise let the
-    # server/runtime fall back to the platform-level DEFAULT_SYSTEM_PROMPT.
-    from nano_multiagent.agent.prompting import DEFAULT_SYSTEM_PROMPT
-
-    resolved_system_prompt = profile.default_system_prompt or DEFAULT_SYSTEM_PROMPT
+    # Use profile's declared prompt; empty string signals "no product prompt set".
+    # Callers (server/runtime) should supply a product profile with a non-empty
+    # default_system_prompt; the empty fallback is intentional — it forces
+    # product owners to declare their prompt rather than inheriting a shared one.
+    resolved_system_prompt = profile.default_system_prompt or ""
 
     # Build hook registry using platform defaults (builtin + workspace).
     # ProductProfile.default_hook_modules is reserved for future filtering (M75+).

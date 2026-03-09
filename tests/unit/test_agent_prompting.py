@@ -68,16 +68,24 @@ def test_build_prompt_messages_injects_available_skills_section_with_absolute_lo
 
 
 def test_build_prompt_messages_skips_available_skills_section_when_empty() -> None:
-    prompts = build_prompt_messages(history_messages=(), user_text="run this", available_skills=())
+    # Use CODING_SYSTEM_PROMPT explicitly: default is now generic empty string.
+    prompts = build_prompt_messages(
+        history_messages=(),
+        user_text="run this",
+        system_prompt=CODING_SYSTEM_PROMPT,
+        available_skills=(),
+    )
     assert "<available_skills>" not in prompts[0].content
     assert "Available tools:" in prompts[0].content
     assert "input_schema" not in prompts[0].content
 
 
 def test_build_prompt_messages_only_displays_tool_name_and_description() -> None:
+    # Use CODING_SYSTEM_PROMPT explicitly: default is now generic empty string.
     prompts = build_prompt_messages(
         history_messages=(),
         user_text="run this",
+        system_prompt=CODING_SYSTEM_PROMPT,
         available_tools=(
             ToolSpec(
                 name="read",

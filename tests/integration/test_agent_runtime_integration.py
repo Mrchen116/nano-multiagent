@@ -6,6 +6,7 @@ import httpx
 
 import nano_multiagent.agent.prompting as prompting_module
 import nano_multiagent.session.manager as session_manager_module
+from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
 from nano_multiagent.session.entries import SessionEntryKind
@@ -141,7 +142,13 @@ def test_runtime_keeps_same_prompt_timestamp_within_one_session(
         ),
         transport=httpx.MockTransport(handler),
     )
-    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="codexOAuth:gpt-5.2-codex")
+    # CODING_SYSTEM_PROMPT injected so "Current date and time:" placeholder is present.
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=client,
+        model="codexOAuth:gpt-5.2-codex",
+        system_prompt=CODING_SYSTEM_PROMPT,
+    )
 
     runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
     runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
@@ -191,7 +198,13 @@ def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
         ),
         transport=httpx.MockTransport(handler),
     )
-    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="codexOAuth:gpt-5.2-codex")
+    # CODING_SYSTEM_PROMPT injected so "Current date and time:" placeholder is present.
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=client,
+        model="codexOAuth:gpt-5.2-codex",
+        system_prompt=CODING_SYSTEM_PROMPT,
+    )
 
     runtime.run(first_session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
     runtime.run(second_session.session_id, [{"type": "text", "text": "Q2"}], stream=False)

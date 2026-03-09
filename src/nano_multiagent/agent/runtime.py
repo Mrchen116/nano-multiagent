@@ -49,6 +49,7 @@ class AgentRuntime:
         available_skills: Sequence[SkillMetadata] | None = None,
         compaction_settings: CompactionSettings | None = None,
         tool_registry: "ToolRegistry | None" = None,
+        system_prompt: str | None = None,
     ) -> None:
         env_llm_config = LLMFactoryConfig.from_env()
         self._llm_config = LLMFactoryConfig(
@@ -69,6 +70,11 @@ class AgentRuntime:
             else resolve_available_skills(workspace_root=self._repo_root)
         )
         self._session_manager = session_manager
+        # system_prompt=None uses AgentLoop's empty-string default; callers that
+        # want product-specific prompts must inject via this parameter or bootstrap.
+        loop_kwargs: dict = {}
+        if system_prompt is not None:
+            loop_kwargs["system_prompt"] = system_prompt
         self._loop = AgentLoop(
             llm_client=active_llm_client,
             model=self._llm_config.model,
@@ -77,6 +83,7 @@ class AgentRuntime:
             available_skills=resolved_skills,
             tool_registry=tool_registry,
             current_working_directory=self._repo_root,
+            **loop_kwargs,
         )
         summary_model = self._compaction_settings.summary_model or self._llm_config.model
         self._compaction_planner = CompactionPlanner(
