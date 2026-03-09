@@ -31,7 +31,7 @@
 ### DoD
 test_command 全绿 + C1/C2/C3 提交完成 + PROGRESS 更新
 
-### 状态：TODO
+### 状态：DONE
 
 ---
 
@@ -50,7 +50,7 @@ test_command 全绿 + C1/C2/C3 提交完成 + PROGRESS 更新
 ### DoD
 test_command 全绿 + C1/C2/C3
 
-### 状态：TODO
+### 状态：DONE
 
 ---
 
@@ -70,7 +70,7 @@ test_command 全绿 + C1/C2/C3
 ### DoD
 test_command 全绿 + C1/C2/C3
 
-### 状态：TODO
+### 状态：DONE
 
 ---
 
@@ -89,7 +89,7 @@ test_command 全绿 + C1/C2/C3
 ### DoD
 test_command 全绿 + C1/C2/C3
 
-### 状态：TODO
+### 状态：DONE
 
 ---
 
@@ -109,7 +109,7 @@ test_command 全绿 + C1/C2/C3
 ### DoD
 test_command 全绿 + C1/C2/C3
 
-### 状态：TODO
+### 状态：DONE
 
 ---
 
@@ -126,7 +126,7 @@ test_command 全绿 + C1/C2/C3
 ### DoD
 test_command 全绿 + C1/C2/C3
 
-### 状态：TODO
+### 状态：DONE
 
 ---
 
@@ -143,4 +143,4 @@ test_command 全绿 + C1/C2/C3
 ### DoD
 test_command 全绿 + C1/C2/C3
 
-### 状态：TODO
+### 状态：DONE
