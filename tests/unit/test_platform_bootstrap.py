@@ -40,7 +40,7 @@ def test_bootstrap_product_resolved_config_has_product_id(tmp_path: Path) -> Non
 
 
 def test_bootstrap_product_tool_registry_not_none(tmp_path: Path) -> None:
-    """bootstrap must wire a ToolRegistry (not None) for the product."""
+    """bootstrap_product must wire a ToolRegistry (not None) for the product."""
     profile = ProductProfile(
         product_id="test",
         display_name="Test",
@@ -51,7 +51,7 @@ def test_bootstrap_product_tool_registry_not_none(tmp_path: Path) -> None:
 
 
 def test_bootstrap_product_hook_registry_not_none(tmp_path: Path) -> None:
-    """bootstrap must wire a HookRegistry (not None) for the product."""
+    """bootstrap_product must wire a HookRegistry (not None) for the product."""
     profile = ProductProfile(
         product_id="test",
         display_name="Test",
