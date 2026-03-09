@@ -21,7 +21,7 @@ from nano_multiagent.observability.tracing import bind_correlation
 from nano_multiagent.runs.registry import RunsRegistry
 from nano_multiagent.server.sse import EventStreamHub
 from nano_multiagent.session.service import SessionService
-from nano_multiagent.session.stores.base import SessionStore
+from nano_multiagent.platform.persistence.session.base import SessionStore
 from nano_multiagent.tools.loader import build_tool_registry
 from nano_multiagent.tools.registry import ToolRegistry
 

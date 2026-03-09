@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 from .manager import SessionManager
 from .models import Session
-from .stores.base import SessionStore
-from .stores.sqlite_store import SQLiteSessionStore
+from nano_multiagent.platform.persistence.session.base import SessionStore
+from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 if TYPE_CHECKING:
     from nano_multiagent.products.base import ProductProfile

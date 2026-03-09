@@ -1,12 +1,8 @@
-"""Platform session store implementations re-exported from canonical location.
+"""Canonical platform-owned session store interfaces and implementations."""
 
-Canonical location: nano_multiagent.platform.persistence.session
-Shim (backward compat): nano_multiagent.session.stores
-"""
-
-from nano_multiagent.session.stores.base import LoadedSession, SessionStore
-from nano_multiagent.session.stores.jsonl_store import JsonlSessionStore
-from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
+from .base import LoadedSession, SessionStore
+from .jsonl_store import JsonlSessionStore
+from .sqlite_store import SQLiteSessionStore
 
 __all__ = [
     "JsonlSessionStore",

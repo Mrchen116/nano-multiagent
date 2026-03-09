@@ -17,7 +17,7 @@ from .entries import (
     new_turn_appended_entry,
 )
 from .models import Session
-from .stores.base import SessionStore
+from nano_multiagent.platform.persistence.session.base import SessionStore
 
 
 class SessionManager:

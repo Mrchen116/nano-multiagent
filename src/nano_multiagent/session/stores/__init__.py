@@ -1,8 +1,11 @@
-"""Session store interfaces and built-in store implementations."""
+"""Compatibility shims for platform-owned session store implementations."""
 
-from .base import LoadedSession, SessionStore
-from .jsonl_store import JsonlSessionStore
-from .sqlite_store import SQLiteSessionStore
+from nano_multiagent.platform.persistence.session import (
+    JsonlSessionStore,
+    LoadedSession,
+    SessionStore,
+    SQLiteSessionStore,
+)
 
 __all__ = [
     "JsonlSessionStore",
