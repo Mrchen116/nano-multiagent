@@ -36,23 +36,23 @@ from nano_multiagent.core.hooks.types import HookEventType as CoreHookEventType
 from nano_multiagent.core.hooks.types import HookRegistration as CoreHookRegistration
 from nano_multiagent.core.hooks.types import LoadedHookModule as CoreLoadedHookModule
 from nano_multiagent.core.hooks.types import event_mode_of as CoreEventModeOf
-from nano_multiagent.hooks.context import HookContext as LegacyHookContext
-from nano_multiagent.hooks.context import HookLogger as LegacyHookLogger
-from nano_multiagent.hooks.context import HookModelCall as LegacyHookModelCall
-from nano_multiagent.hooks.context import HookModelResult as LegacyHookModelResult
-from nano_multiagent.hooks.registry import HookAPI as LegacyHookAPI
-from nano_multiagent.hooks.registry import HookRegistry as LegacyHookRegistry
-from nano_multiagent.hooks.runner import HookExecution as LegacyHookExecution
-from nano_multiagent.hooks.runner import HookRunner as LegacyHookRunner
-from nano_multiagent.hooks.runner import InterceptDispatchResult as LegacyInterceptDispatchResult
-from nano_multiagent.hooks.types import ALL_HOOK_EVENTS as LegacyAllHookEvents
-from nano_multiagent.hooks.types import DEFAULT_HOOK_PRIORITY as LegacyDefaultHookPriority
-from nano_multiagent.hooks.types import DEFAULT_HOOK_TIMEOUT_MS as LegacyDefaultHookTimeoutMs
-from nano_multiagent.hooks.types import HookEventMode as LegacyHookEventMode
-from nano_multiagent.hooks.types import HookEventType as LegacyHookEventType
-from nano_multiagent.hooks.types import HookRegistration as LegacyHookRegistration
-from nano_multiagent.hooks.types import LoadedHookModule as LegacyLoadedHookModule
-from nano_multiagent.hooks.types import event_mode_of as LegacyEventModeOf
+from nano_multiagent.core.hooks.context import HookContext as LegacyHookContext
+from nano_multiagent.core.hooks.context import HookLogger as LegacyHookLogger
+from nano_multiagent.core.hooks.context import HookModelCall as LegacyHookModelCall
+from nano_multiagent.core.hooks.context import HookModelResult as LegacyHookModelResult
+from nano_multiagent.core.hooks.registry import HookAPI as LegacyHookAPI
+from nano_multiagent.core.hooks.registry import HookRegistry as LegacyHookRegistry
+from nano_multiagent.core.hooks.runner import HookExecution as LegacyHookExecution
+from nano_multiagent.core.hooks.runner import HookRunner as LegacyHookRunner
+from nano_multiagent.core.hooks.runner import InterceptDispatchResult as LegacyInterceptDispatchResult
+from nano_multiagent.core.hooks.types import ALL_HOOK_EVENTS as LegacyAllHookEvents
+from nano_multiagent.core.hooks.types import DEFAULT_HOOK_PRIORITY as LegacyDefaultHookPriority
+from nano_multiagent.core.hooks.types import DEFAULT_HOOK_TIMEOUT_MS as LegacyDefaultHookTimeoutMs
+from nano_multiagent.core.hooks.types import HookEventMode as LegacyHookEventMode
+from nano_multiagent.core.hooks.types import HookEventType as LegacyHookEventType
+from nano_multiagent.core.hooks.types import HookRegistration as LegacyHookRegistration
+from nano_multiagent.core.hooks.types import LoadedHookModule as LegacyLoadedHookModule
+from nano_multiagent.core.hooks.types import event_mode_of as LegacyEventModeOf
 
 
 def test_core_hooks_is_canonical_home() -> None:

@@ -4,20 +4,20 @@ import base64
 import pytest
 
 from nano_multiagent.core.errors import ToolError
-from nano_multiagent.tools.base import ToolContext
-from nano_multiagent.tools.builtins.bash import BashTool
-from nano_multiagent.tools.builtins.edit import EditTool
-from nano_multiagent.tools.builtins.read import ReadTool
-from nano_multiagent.tools.builtins.task import TaskTool
-from nano_multiagent.tools.builtins.write import WriteTool
-from nano_multiagent.tools.constants import (
+from nano_multiagent.platform.tools.base import ToolContext
+from nano_multiagent.platform.tools.builtins.bash import BashTool
+from nano_multiagent.platform.tools.builtins.edit import EditTool
+from nano_multiagent.platform.tools.builtins.read import ReadTool
+from nano_multiagent.platform.tools.builtins.task import TaskTool
+from nano_multiagent.platform.tools.builtins.write import WriteTool
+from nano_multiagent.platform.tools.constants import (
     DEFAULT_MAX_BYTES,
     DEFAULT_MAX_KILOBYTES,
     DEFAULT_MAX_LINES,
 )
-from nano_multiagent.tools.safety import CommandExecution
-from nano_multiagent.tools.safety import ToolSafety
-from nano_multiagent.tools.safety import ToolSafetyConfig
+from nano_multiagent.platform.tools.safety import CommandExecution
+from nano_multiagent.platform.tools.safety import ToolSafety
+from nano_multiagent.platform.tools.safety import ToolSafetyConfig
 
 
 def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolContext:

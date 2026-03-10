@@ -1,5 +1,0 @@
-"""Compatibility shim package for provider adapters."""
-
-from . import anthropic, openai_compat
-
-__all__ = ["anthropic", "openai_compat"]

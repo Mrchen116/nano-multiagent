@@ -1,4 +1,4 @@
-from nano_multiagent.session.entries import (
+from nano_multiagent.core.session.entries import (
     SessionEntryKind,
     new_compaction_entry,
     new_session_created_entry,

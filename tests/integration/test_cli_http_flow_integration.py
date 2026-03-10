@@ -8,22 +8,22 @@ import pytest
 from fastapi import FastAPI
 
 from nano_multiagent.apps.coding_cli.input import repl_commands, repl_input
-from nano_multiagent.cli import commands as cli_commands
+from nano_multiagent.apps.coding_cli import commands as cli_commands
 from nano_multiagent.apps.coding_cli.client import ServerClient
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
-from nano_multiagent.cli.main import run_cli
+from nano_multiagent.apps.coding_cli.main import run_cli
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.hooks.loader import build_hook_registry
-from nano_multiagent.hooks.runner import HookRunner
-from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
-from nano_multiagent.server.app import create_app
-from nano_multiagent.session.manager import SessionManager
-from nano_multiagent.session.stores.base import LoadedSession, SessionStore
-from nano_multiagent.tools.base import ToolContext
-from nano_multiagent.tools.builtins.bash import BashTool
-from nano_multiagent.tools.registry import ToolRegistry
+from nano_multiagent.platform.hooks.loader import build_hook_registry
+from nano_multiagent.core.hooks.runner import HookRunner
+from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
+from nano_multiagent.platform.http_api.app import create_app
+from nano_multiagent.core.session.manager import SessionManager
+from nano_multiagent.core.session.store import LoadedSession, SessionStore
+from nano_multiagent.platform.tools.base import ToolContext
+from nano_multiagent.platform.tools.builtins.bash import BashTool
+from nano_multiagent.platform.tools.registry import ToolRegistry
 
 
 class _ScriptedReplInputReader:

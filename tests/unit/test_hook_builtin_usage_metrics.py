@@ -1,10 +1,10 @@
 import asyncio
 
-from nano_multiagent.hooks.builtins import usage_metrics
-from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.hooks.registry import HookAPI, HookRegistry
-from nano_multiagent.hooks.runner import HookRunner
-from nano_multiagent.hooks.session_usage import get_session_usage_snapshot
+from nano_multiagent.platform.hooks.builtins import usage_metrics
+from nano_multiagent.core.hooks.context import HookContext
+from nano_multiagent.core.hooks.registry import HookAPI, HookRegistry
+from nano_multiagent.core.hooks.runner import HookRunner
+from nano_multiagent.platform.hooks.session_usage import get_session_usage_snapshot
 
 
 def _build_registry_with_usage_hook() -> HookRegistry:

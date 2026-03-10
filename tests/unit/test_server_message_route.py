@@ -2,11 +2,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nano_multiagent.core.types import Message, TokenUsage, TurnResult
-from nano_multiagent.hooks.session_usage import (
+from nano_multiagent.platform.hooks.session_usage import (
     SessionUsageSnapshot,
     set_session_usage_snapshot_reader,
 )
-from nano_multiagent.server.app import create_app
+from nano_multiagent.platform.http_api.app import create_app
 from nano_multiagent.platform.http_api.deps import APIError
 from nano_multiagent.platform.http_api.routes.session import _CONTEXT_BUDGET_MAX_TOKENS, _to_message_response
 

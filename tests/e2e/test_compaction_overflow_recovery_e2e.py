@@ -5,11 +5,11 @@ from fastapi.testclient import TestClient
 from nano_multiagent.agent.compaction.types import CompactionReason, CompactionSettings
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.core.errors import ModelError
-from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
-from nano_multiagent.server.app import create_app
-from nano_multiagent.session.entries import CompactionEntry
-from nano_multiagent.session.manager import SessionManager
-from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
+from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from nano_multiagent.platform.http_api.app import create_app
+from nano_multiagent.core.session.entries import CompactionEntry
+from nano_multiagent.core.session.manager import SessionManager
+from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class OverflowRetryLLMClient:

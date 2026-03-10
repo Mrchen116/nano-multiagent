@@ -3,12 +3,12 @@ from pathlib import Path
 import pytest
 
 from nano_multiagent.core.errors import ToolError
-from nano_multiagent.hooks.context import HookContext, HookModelCall, HookModelResult
-from nano_multiagent.hooks.loader import build_hook_registry
-from nano_multiagent.hooks.runner import HookRunner
-from nano_multiagent.tools.base import ToolContext
-from nano_multiagent.tools.builtins.bash import BashTool
-from nano_multiagent.tools.registry import ToolRegistry
+from nano_multiagent.core.hooks.context import HookContext, HookModelCall, HookModelResult
+from nano_multiagent.platform.hooks.loader import build_hook_registry
+from nano_multiagent.core.hooks.runner import HookRunner
+from nano_multiagent.platform.tools.base import ToolContext
+from nano_multiagent.platform.tools.builtins.bash import BashTool
+from nano_multiagent.platform.tools.registry import ToolRegistry
 
 
 def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(tmp_path: Path) -> None:

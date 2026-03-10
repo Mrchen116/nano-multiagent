@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from nano_multiagent.core import ids
-from nano_multiagent.server.app import create_app
+from nano_multiagent.platform.http_api.app import create_app
 
 
 def test_create_session_entry_respects_core_id_contract(monkeypatch) -> None:

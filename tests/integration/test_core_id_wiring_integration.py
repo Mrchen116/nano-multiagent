@@ -1,5 +1,5 @@
 from nano_multiagent.core import ids
-from nano_multiagent.server.app import create_app
+from nano_multiagent.platform.http_api.app import create_app
 
 
 def test_session_service_uses_core_id_generator(monkeypatch) -> None:

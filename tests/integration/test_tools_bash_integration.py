@@ -3,10 +3,10 @@ from pathlib import Path
 import pytest
 
 from nano_multiagent.core.errors import ToolError
-from nano_multiagent.tools.base import ToolContext
-from nano_multiagent.tools.builtins.bash import BashTool
-from nano_multiagent.tools.registry import ToolRegistry
-from nano_multiagent.tools.safety import ToolSafetyConfig
+from nano_multiagent.platform.tools.base import ToolContext
+from nano_multiagent.platform.tools.builtins.bash import BashTool
+from nano_multiagent.platform.tools.registry import ToolRegistry
+from nano_multiagent.platform.tools.safety import ToolSafetyConfig
 
 
 def test_registry_executes_bash_with_truncation_and_persisted_output(tmp_path: Path) -> None:

@@ -8,10 +8,10 @@ import nano_multiagent.agent.prompting as prompting_module
 import nano_multiagent.core.session.manager as session_manager_module
 from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
 from nano_multiagent.agent.runtime import AgentRuntime
-from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client
-from nano_multiagent.session.entries import SessionEntryKind
-from nano_multiagent.session.manager import SessionManager
-from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
+from nano_multiagent.core.llm.factory import LLMFactoryConfig, create_llm_client
+from nano_multiagent.core.session.entries import SessionEntryKind
+from nano_multiagent.core.session.manager import SessionManager
+from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 def _extract_prompt_timestamp(prompt: str) -> str:

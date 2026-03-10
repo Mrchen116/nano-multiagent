@@ -1,9 +1,9 @@
 import asyncio
 from pathlib import Path
 
-from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.hooks.registry import HookRegistry
-from nano_multiagent.hooks.runner import HookRunner
+from nano_multiagent.core.hooks.context import HookContext
+from nano_multiagent.core.hooks.registry import HookRegistry
+from nano_multiagent.core.hooks.runner import HookRunner
 
 
 def _context(session_id: str) -> HookContext:

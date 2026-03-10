@@ -1,9 +1,9 @@
 import asyncio
 from pathlib import Path
 
-from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.hooks.loader import load_hooks_from_directories
-from nano_multiagent.hooks.runner import HookRunner
+from nano_multiagent.core.hooks.context import HookContext
+from nano_multiagent.platform.hooks.loader import load_hooks_from_directories
+from nano_multiagent.core.hooks.runner import HookRunner
 
 
 def test_hooks_e2e_input_transform_and_session_isolated_closure_state(tmp_path: Path) -> None:

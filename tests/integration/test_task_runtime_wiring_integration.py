@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from nano_multiagent.core.errors import ToolError
-from nano_multiagent.tools.loader import build_tool_registry
+from nano_multiagent.platform.tools.loader import build_tool_registry
 
 
 def test_task_tool_is_registered_and_validated_by_registry(tmp_path: Path) -> None:
