@@ -57,8 +57,11 @@
   - Tests: `python3 -m pytest -q` -> `605 passed, 4 skipped, 246 warnings in 23.76s`
   - Entry: `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py` -> `1 passed in 4.09s`
   - Entry: `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py` -> `1 passed in 6.20s`
+  - Integration: `milestone/M86` 已 merge 到 `main` 并 push，merge commit=`4a433e2f3fe2`
+  - Board: `/Users/czj/Repos/nano-multiagent/data/dev-tasks.json` 已写入 `status=DONE` 与结果摘要
+  - Cleanup: `/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M86` 已移除，`milestone/M86` 分支已删除
 - Rollback:
   - 最近稳定点：`1ba2f76c672d`
-- Commits: C1=`53bb96862b01`, C2=`1ba2f76c672d`, C3=`pending`
+- Commits: C1=`53bb96862b01`, C2=`1ba2f76c672d`, C3=`15cb919d3706`
 - Next:
-  - merge `milestone/M86` -> `main`，push `main`，更新 `data/dev-tasks.json`，随后移除 M86 worktree。
+  - 已完成：merge `milestone/M86` -> `main`，push `main`，更新 `data/dev-tasks.json`，并移除 M86 worktree。
