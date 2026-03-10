@@ -1,10 +1,10 @@
 import inspect
 from pathlib import Path
 
+from nano_multiagent.apps.coding_cli.input import repl_commands as cli_repl_commands
 from nano_multiagent.cli import commands as cli_commands
 from nano_multiagent.cli import http_client as cli_http_client
 from nano_multiagent.cli import main as cli_main
-from nano_multiagent.cli import repl_commands as cli_repl_commands
 from nano_multiagent.sdk import client as sdk_client
 
 

@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.llm.factory import LLMFactoryConfig
 from nano_multiagent.server.app import create_app
-from nano_multiagent.server.routes.global_routes import build_capabilities_payload
+from nano_multiagent.platform.http_api.routes.global_routes import build_capabilities_payload
 from nano_multiagent.tools.base import ToolContext
 from nano_multiagent.tools.registry import ToolRegistry
 

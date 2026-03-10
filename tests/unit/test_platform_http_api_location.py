@@ -1,18 +1,11 @@
-"""Verify platform/http_api is the canonical home for the HTTP API app and routes."""
+"""Verify platform/http_api is the canonical home for the HTTP API app surface."""
 
+import nano_multiagent.server as legacy_server
 from nano_multiagent.platform.http_api import create_app
 from nano_multiagent.platform.http_api.app import app, create_app as platform_create_app
-from nano_multiagent.platform.http_api.routes.event import (
-    router as platform_event_router,
-)
-from nano_multiagent.platform.http_api.routes.session import (
-    router as platform_session_router,
-)
-from nano_multiagent.server import app as legacy_app_module
-from nano_multiagent.server import create_app as legacy_create_app
+from nano_multiagent.platform.http_api.routes.event import router as platform_event_router
+from nano_multiagent.platform.http_api.routes.session import router as platform_session_router
 from nano_multiagent.server.app import app as legacy_app
-from nano_multiagent.server.routes.event import router as legacy_event_router
-from nano_multiagent.server.routes.session import router as legacy_session_router
 
 
 def test_platform_http_api_is_canonical_home() -> None:
@@ -23,12 +16,13 @@ def test_platform_http_api_is_canonical_home() -> None:
     assert platform_session_router.__module__ == "nano_multiagent.platform.http_api.routes.session"
 
 
-def test_old_server_paths_are_compat_shims() -> None:
-    """Legacy server modules must re-export canonical platform HTTP API objects."""
-    assert legacy_create_app is create_app
-    assert legacy_create_app is platform_create_app
+
+def test_surviving_server_entrypoints_are_compat_shims() -> None:
+    """Only the legacy server package root and app entrypoint should survive in M87."""
+    assert legacy_server.create_app is create_app
+    assert legacy_server.create_app is platform_create_app
+    assert legacy_server.app.__name__ == "nano_multiagent.server.app"
     assert legacy_app is app
-    assert legacy_app_module.app is app
-    assert legacy_app_module.create_app is create_app
-    assert legacy_event_router is platform_event_router
-    assert legacy_session_router is platform_session_router
+    assert legacy_server.app.app is app
+    assert legacy_server.app.create_app is create_app
+    assert legacy_server.app.create_app is platform_create_app

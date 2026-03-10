@@ -2,9 +2,8 @@ import io
 import json
 import time
 
+from nano_multiagent.apps.coding_cli.input import repl_commands, repl_input
 from nano_multiagent.cli import commands as cli_commands
-from nano_multiagent.cli import repl_input
-from nano_multiagent.cli import repl_commands
 from nano_multiagent.cli.main import run_cli
 
 
@@ -55,8 +54,8 @@ def test_cli_event_pipeline_layer_exposes_normalize_dedupe_and_view_model() -> N
 
 
 def test_consume_async_run_events_fallback_dedupe_window_evicts_old_semantic_keys() -> None:
-    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
-    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.apps.coding_cli.events.repl_events import consume_async_run_events
 
     out = io.StringIO()
     dedupe_window = EventDedupeWindow(max_event_ids=8, max_runs=1, max_fallback_keys_per_run=2)
@@ -87,8 +86,8 @@ def test_consume_async_run_events_fallback_dedupe_window_evicts_old_semantic_key
 
 
 def test_cli_render_phase_machine_transitions_and_guards() -> None:
-    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhase
-    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplRenderPhase
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplRenderPhaseMachine
 
     machine = ReplRenderPhaseMachine()
     assert machine.phase is ReplRenderPhase.STREAMING
@@ -104,10 +103,10 @@ def test_cli_render_phase_machine_transitions_and_guards() -> None:
 
 
 def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
-    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
-    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhase
-    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
-    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplRenderPhase
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplRenderPhaseMachine
+    from nano_multiagent.apps.coding_cli.events.repl_events import consume_async_run_events
 
     out = io.StringIO()
     preview_lines: list[str] = []
@@ -161,7 +160,7 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
 
 
 def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summary() -> None:
-    from nano_multiagent.cli.events.event_pipeline import ReplRenderPhaseMachine
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplRenderPhaseMachine
 
     machine = ReplRenderPhaseMachine()
     preview_identity = "run_target|bash|call_1|start"
@@ -178,8 +177,8 @@ def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summar
 
 
 def test_build_repl_view_model_isolates_orphan_exec_exit_from_active_call_timeline() -> None:
-    from nano_multiagent.cli.events.event_pipeline import build_repl_view_model
-    from nano_multiagent.cli.events.repl_events import _event_preview_line
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import build_repl_view_model
+    from nano_multiagent.apps.coding_cli.events.repl_events import _event_preview_line
 
     model = build_repl_view_model(
         events=[
@@ -197,9 +196,9 @@ def test_build_repl_view_model_isolates_orphan_exec_exit_from_active_call_timeli
 
 
 def test_consume_async_run_events_high_frequency_batch_records_perf_baseline() -> None:
-    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
-    from nano_multiagent.cli.events.event_pipeline import ReplPerfTracker
-    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplPerfTracker
+    from nano_multiagent.apps.coding_cli.events.repl_events import consume_async_run_events
 
     out = io.StringIO()
     preview_lines: list[str] = []
@@ -246,9 +245,9 @@ def test_consume_async_run_events_high_frequency_batch_records_perf_baseline() -
 
 
 def test_consume_async_run_events_long_session_batches_keep_perf_guardrails_stable() -> None:
-    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
-    from nano_multiagent.cli.events.event_pipeline import ReplPerfTracker
-    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplPerfTracker
+    from nano_multiagent.apps.coding_cli.events.repl_events import consume_async_run_events
 
     out = io.StringIO()
     tracker = ReplPerfTracker()
@@ -302,9 +301,9 @@ def test_consume_async_run_events_long_session_batches_keep_perf_guardrails_stab
 
 
 def test_consume_async_run_events_perf_snapshot_marks_unstable_with_guardrail_reason() -> None:
-    from nano_multiagent.cli.events.event_pipeline import EventDedupeWindow
-    from nano_multiagent.cli.events.event_pipeline import ReplPerfTracker
-    from nano_multiagent.cli.events.repl_events import consume_async_run_events
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import EventDedupeWindow
+    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplPerfTracker
+    from nano_multiagent.apps.coding_cli.events.repl_events import consume_async_run_events
 
     out = io.StringIO()
     tracker = ReplPerfTracker(min_sample_events=10, min_throughput_ratio=0.8)
@@ -337,7 +336,7 @@ def test_consume_async_run_events_perf_snapshot_marks_unstable_with_guardrail_re
 
 
 def test_send_message_with_async_events_exposes_perf_metrics_snapshot() -> None:
-    from nano_multiagent.cli.events.repl_events import send_message_with_async_events
+    from nano_multiagent.apps.coding_cli.events.repl_events import send_message_with_async_events
 
     payload = send_message_with_async_events(
         out=io.StringIO(),

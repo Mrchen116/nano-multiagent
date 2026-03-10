@@ -1,4 +1,4 @@
-from nano_multiagent.cli.turn_usage import extract_turn_usage_metrics
+from nano_multiagent.apps.coding_cli.render.turn_usage import extract_turn_usage_metrics
 
 
 def test_extract_turn_usage_metrics_returns_none_when_missing_usage() -> None:
