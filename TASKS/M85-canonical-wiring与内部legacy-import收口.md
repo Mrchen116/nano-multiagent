@@ -14,7 +14,11 @@
 - Worktree: `/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85`
 
 ## R85.1 resolver/profile 驱动的 canonical wiring 打通
-- Status: TODO
+- Status: DONE
+  - Focused Tests: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && /Users/czj/miniforge3/bin/python3 -m pytest -q tests/unit/test_core_skills_location.py tests/unit/test_skills_workspace_with_resolver.py tests/unit/test_platform_bootstrap.py tests/unit/test_app_factory_with_profile.py tests/unit/test_task_tool_with_resolver.py` -> `25 passed`
+  - Full Gate: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && /Users/czj/miniforge3/bin/python3 -m pytest -q` -> `599 passed, 4 skipped`
+  - Commits: C1=`5f25146`, C2=`b91a814`, C3=`TBD`
+  - Notes: `core.skills.discovery` 通过协议类型接收 resolver，避免 core 层源码字符串触发 `test_core_no_platform_imports`；profile 模式下 bootstrap/create_app/runtime/task 均走 resolver roots。
 - Acceptance:
   - `platform/bootstrap.py` 在 profile 模式下构造并向 tool/hook live wiring 传递 `ConfigResolver`。
   - `create_app(...)` 与 `AgentRuntime` 在 profile 模式下共享/接收 resolver，runtime 默认 skill 解析不再回落到 `.codex/.nano/CODEX_HOME` 主路径。

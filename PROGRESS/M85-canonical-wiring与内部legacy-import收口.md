@@ -18,17 +18,20 @@
   - 审计指出 loaders 已支持 `ConfigResolver`，但 live bootstrap/create_app/runtime/task 仍未把 resolver 真正贯穿到 skill/tool/hook 搜索与 profile 装配。
   - 当前 profile 模式下 runtime/task 仍可落回 `.codex/.nano/CODEX_HOME` 语义，违背 milestone 目标。
 - Decision:
-  - 待执行。
+  - 在 `platform/bootstrap.py` 构造 `ConfigResolver` 与 profile session store，并把 resolver 挂进 `ResolvedProductConfig`，再由 `create_app(...)` 注入 runtime/tool/hook wiring。
+  - 把 skill discovery 提升到 `core.skills.discovery`，由 core 只依赖 `user_skill_roots()` 协议；`skills.workspace` 退化为兼容 shim，task tool 通过 `bind_runtime()` 回填 resolver 感知。
 - Rationale:
-  - 待执行。
+  - resolver/profile 本来就是产品级装配入口，应该在 bootstrap/app factory 一次性接通，而不是让 runtime/task 各自猜测 `.codex/.nano/CODEX_HOME`。
+  - `test_core_no_platform_imports` 以源码字符串做边界扫描，所以 core discovery 不能出现任何 `nano_multiagent.platform` 字样；用协议类型能保留 resolver 能力同时维持分层约束。
 - Evidence:
-  - Tests: 待补。
-  - Entry: 待补。
+  - Tests: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && /Users/czj/miniforge3/bin/python3 -m pytest -q tests/unit/test_core_skills_location.py tests/unit/test_skills_workspace_with_resolver.py tests/unit/test_platform_bootstrap.py tests/unit/test_app_factory_with_profile.py tests/unit/test_task_tool_with_resolver.py` -> `25 passed, 24 warnings in 0.51s`
+  - Tests: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && /Users/czj/miniforge3/bin/python3 -m pytest -q` -> `599 passed, 4 skipped, 246 warnings in 16.42s`
+  - Entry: profile 模式下 `bootstrap_product()` 暴露 resolver/session store，`create_app()` 生成的 runtime 带 `config_resolver`，且 resolver skill 可见而 `.codex`/`CODEX_HOME` legacy skill 在 profile 路径下被排除。
 - Rollback:
-  - 最近稳定点：基线 `8330bd8`。
-- Commits: C1=, C2=, C3=
+  - 最近稳定点：`b91a814`。
+- Commits: C1=`5f25146`, C2=`b91a814`, C3=`TBD`
 - Next:
-  - 先写 red tests 锁定 profile workspace skill root 与 task skill 校验必须走 resolver。
+  - 继续执行 R85.2 的 canonical import 收口、prompt ownership 回归与 import-guard 固化。
 
 ### R85.2 canonical import 收口与 product prompt ownership 实化
 - Context:
