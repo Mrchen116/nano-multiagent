@@ -37,17 +37,20 @@
 - Context:
   - 当前 active layer 仍存在 `session.service` / `skills.workspace` / `server.sse` / `llm.protocols.*` 等 legacy import；`products/local_coding/prompts.py` 仍反向依赖 `agent/prompting.py`。
 - Decision:
-  - 待执行。
+  - 新增 `nano_multiagent.llm.providers.*` 作为 shared provider canonical home，让 `core.llm.factory` 只依赖 shared LLM package，不再写入 `nano_multiagent.platform` 字符串；`platform.llm.providers.*` 与旧 `llm.protocols.*` 全部改为 compatibility shim。
+  - `platform/http_api/deps.py`、`platform/http_api/routes/session.py`、`runs/registry.py` 改走 canonical `nano_multiagent.session` / `platform.http_api.sse`；`products/local_coding/prompts.py` 收回 prompt 文本 ownership，`agent/prompting.py` 只保留兼容 alias。
 - Rationale:
-  - 待执行。
+  - milestone 要求 active 层停止沿 legacy import 运行，但已有 `test_core_no_platform_imports` 又禁止 core 反向依赖 platform，因此真正的 provider canonical home 只能放在 shared `llm` 包，而不是继续把平台路径塞回 core。
+  - 将 platform/providers 与 legacy/protocols 双双降为 shim，既满足新入口的 canonical import guard，也保留既有测试和外部兼容路径。
 - Evidence:
-  - Tests: 待补。
-  - Entry: 待补。
+  - Tests: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && /Users/czj/miniforge3/bin/python3 -m pytest -q tests/contract/test_core_no_platform_imports.py tests/contract/test_m85_canonical_wiring_imports.py tests/unit/test_platform_llm_providers_location.py tests/unit/test_sse_encoder.py tests/unit/test_llm_anthropic_mapper.py tests/contract/test_llm_provider_contract.py` -> `29 passed, 2 warnings in 0.38s`
+  - Tests: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && /Users/czj/miniforge3/bin/python3 -m pytest -q` -> `601 passed, 4 skipped, 246 warnings in 16.33s`
+  - Entry: `tests/contract/test_m85_canonical_wiring_imports.py` 证明 runtime/http_api/runs/core.llm 不再包含 legacy import；`tests/unit/test_platform_llm_providers_location.py` 证明 canonical `llm.providers.*` 与兼容 `platform.llm.providers.*`/`llm.protocols.*` 三条入口同时可用；`products/local_coding/prompts.py` 现在独立持有 prompt 文本。
 - Rollback:
-  - 最近稳定点：R85.1 的 C3。
-- Commits: C1=, C2=, C3=
+  - 最近稳定点：`5c3901a`。
+- Commits: C1=`db9ac1b`, C2=`5c3901a`, C3=`TBD`
 - Next:
-  - 先写 import-guard/ownership red tests，再收口 canonical imports。
+  - 执行 R85.3：跑 live 验证，完成 main 集成、board 更新与 worktree 清理。
 
 ### R85.3 full sweep、live 验证、main 集成与清理
 - Context:

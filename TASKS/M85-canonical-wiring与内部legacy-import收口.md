@@ -40,7 +40,12 @@
   - `PROGRESS/M85-*.md` 记录 Context/Decision/Rationale/Evidence/Rollback/Commits/Next
 
 ## R85.2 canonical import 收口与 product prompt ownership 实化
-- Status: TODO
+- Status: DONE
+  - Focused Tests: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && /Users/czj/miniforge3/bin/python3 -m pytest -q tests/contract/test_core_no_platform_imports.py tests/contract/test_m85_canonical_wiring_imports.py tests/unit/test_platform_llm_providers_location.py tests/unit/test_sse_encoder.py tests/unit/test_llm_anthropic_mapper.py tests/contract/test_llm_provider_contract.py` -> `29 passed`
+  - Full Gate: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && /Users/czj/miniforge3/bin/python3 -m pytest -q` -> `601 passed, 4 skipped`
+  - Commits: C1=`db9ac1b`, C2=`5c3901a`, C3=`TBD`
+  - Notes: 引入 `nano_multiagent.llm.providers.*` 作为真正 canonical home，使 `core.llm` 远离 `platform` 字符串边界，同时 `platform.llm.providers.*` 与 `llm.protocols.*` 都退化为兼容 shim；`local_coding` prompt 文本回到 product 自有模块。
+
 - Acceptance:
   - active runtime/canonical layers 不再内部 import `nano_multiagent.session.service`、`nano_multiagent.skills.workspace`、`nano_multiagent.server.sse`、`nano_multiagent.llm.protocols.*`。
   - `products/local_coding/prompts.py` 不再从 `agent/prompting.py` 反向导入 prompt 文本。
