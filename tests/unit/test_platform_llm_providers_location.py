@@ -11,6 +11,11 @@ def test_platform_llm_providers_openai_compat_importable() -> None:
     from nano_multiagent.platform.llm.providers import openai_compat  # noqa: F401
 
 
+def test_platform_llm_provider_subpackages_are_importable() -> None:
+    from nano_multiagent.platform.llm.providers.anthropic import AnthropicClient, AnthropicMapper  # noqa: F401
+    from nano_multiagent.platform.llm.providers.openai_compat import OpenAICompatClient, OpenAICompatMapper  # noqa: F401
+
+
 def test_old_llm_protocols_shim_still_works() -> None:
     """Shim at old path must preserve backward compat for llm.protocols."""
     from nano_multiagent.llm.protocols import anthropic, openai_compat  # noqa: F401
