@@ -1,5 +1,7 @@
-"""Canonical provider adapter package for shared LLM transports."""
+"""Compatibility alias exposing canonical platform LLM provider package."""
 
-from . import anthropic, openai_compat
+import sys
 
-__all__ = ["anthropic", "openai_compat"]
+from nano_multiagent.platform.llm import providers as _platform_providers
+
+sys.modules[__name__] = _platform_providers

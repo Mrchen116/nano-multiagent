@@ -1,3 +1,7 @@
-"""Compatibility facade for CLI error layer mapping helpers."""
+"""Compatibility alias exposing canonical apps-level error presenter helpers."""
 
-from nano_multiagent.cli.render.error_presenter import *  # noqa: F401,F403
+import sys
+
+from nano_multiagent.apps.coding_cli.render import error_presenter as _error_presenter
+
+sys.modules[__name__] = _error_presenter

@@ -5,7 +5,7 @@ from __future__ import annotations
 from threading import Lock
 from typing import Any
 
-from nano_multiagent.hooks.session_usage import (
+from nano_multiagent.platform.hooks.session_usage import (
     SESSION_USAGE_SNAPSHOT_READER_STATE_KEY,
     SessionUsageSnapshot,
 )

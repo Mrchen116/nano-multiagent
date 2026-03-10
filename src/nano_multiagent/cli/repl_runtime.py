@@ -1,3 +1,7 @@
-"""Compatibility facade for CLI run-queue runtime helpers."""
+"""Compatibility alias exposing canonical apps-level REPL runtime helpers."""
 
-from nano_multiagent.cli.runtime.repl_runtime import *  # noqa: F401,F403
+import sys
+
+from nano_multiagent.apps.coding_cli.runtime import repl_runtime as _repl_runtime
+
+sys.modules[__name__] = _repl_runtime

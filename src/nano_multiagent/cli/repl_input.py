@@ -1,3 +1,7 @@
-"""Compatibility facade for CLI input helpers."""
+"""Compatibility alias exposing canonical apps-level REPL input helpers."""
 
-from nano_multiagent.cli.input.repl_input import *  # noqa: F401,F403
+import sys
+
+from nano_multiagent.apps.coding_cli.input import repl_input as _repl_input
+
+sys.modules[__name__] = _repl_input

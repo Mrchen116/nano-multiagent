@@ -1,6 +1,7 @@
-"""Canonical Anthropic provider adapter exports."""
+"""Compatibility alias exposing canonical Anthropic provider package."""
 
-from .client import AnthropicClient, _should_trust_env
-from .mapper import AnthropicMapper
+import sys
 
-__all__ = ["AnthropicClient", "AnthropicMapper", "_should_trust_env"]
+from nano_multiagent.platform.llm.providers import anthropic as _platform_anthropic
+
+sys.modules[__name__] = _platform_anthropic

@@ -4,9 +4,8 @@ import signal
 from typing import Any, Mapping
 
 from nano_multiagent.core.errors import ToolError
-from nano_multiagent.tools.constants import DEFAULT_MAX_KILOBYTES, DEFAULT_MAX_LINES
-
-from nano_multiagent.tools.base import ToolContext
+from nano_multiagent.platform.tools.base import ToolContext
+from nano_multiagent.platform.tools.constants import DEFAULT_MAX_KILOBYTES, DEFAULT_MAX_LINES
 
 
 class BashTool:

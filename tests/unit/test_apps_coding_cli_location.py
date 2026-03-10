@@ -23,6 +23,8 @@ def test_apps_coding_cli_commands_surface_matches_legacy_cli_entrypoints() -> No
     assert legacy_cli_commands.run_cli is app_commands.run_cli
     assert legacy_cli_main_run_cli is app_commands.run_cli
     assert app_main_run_cli is app_commands.run_cli
+    assert app_commands.build_parser.__module__ == "nano_multiagent.apps.coding_cli.commands"
+    assert app_commands.run_cli.__module__ == "nano_multiagent.apps.coding_cli.commands"
 
 
 
@@ -44,3 +46,6 @@ def test_apps_coding_cli_package_root_exports_stable_application_surface() -> No
     assert coding_cli_app.ManagedServerConfig is AppsManagedServerConfig
     assert coding_cli_app.ManagedServerError is AppsManagedServerError
     assert coding_cli_app.ManagedServerProcess is AppsManagedServerProcess
+    assert AppsManagedServerConfig.__module__ == "nano_multiagent.apps.coding_cli.managed_server"
+    assert AppsManagedServerError.__module__ == "nano_multiagent.apps.coding_cli.managed_server"
+    assert AppsManagedServerProcess.__module__ == "nano_multiagent.apps.coding_cli.managed_server"

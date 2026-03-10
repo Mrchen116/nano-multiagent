@@ -1,3 +1,7 @@
-"""Compatibility facade for CLI event helpers."""
+"""Compatibility alias exposing canonical apps-level REPL event helpers."""
 
-from nano_multiagent.cli.events.repl_events import *  # noqa: F401,F403
+import sys
+
+from nano_multiagent.apps.coding_cli.events import repl_events as _repl_events
+
+sys.modules[__name__] = _repl_events

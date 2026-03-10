@@ -2,6 +2,9 @@
 
 import nano_multiagent.platform.tools.builtins as platform_builtins
 import nano_multiagent.tools.builtins as legacy_builtins
+from nano_multiagent.platform.tools.base import ToolContext
+from nano_multiagent.platform.tools.constants import DEFAULT_MAX_BYTES, DEFAULT_MAX_KILOBYTES, DEFAULT_MAX_LINES
+from nano_multiagent.platform.tools.registry import ToolRegistry
 from nano_multiagent.platform.tools.builtins import builtin_tools, register_builtin_tools
 from nano_multiagent.platform.tools.loader import (
     build_tool_registry,
@@ -15,6 +18,10 @@ from nano_multiagent.platform.tools.safety import (
     ToolSafetyConfig,
     load_tool_safety_config,
 )
+from nano_multiagent.tools.base import ToolContext as LegacyToolContext
+from nano_multiagent.tools.constants import DEFAULT_MAX_BYTES as LegacyDefaultMaxBytes
+from nano_multiagent.tools.constants import DEFAULT_MAX_KILOBYTES as LegacyDefaultMaxKilobytes
+from nano_multiagent.tools.constants import DEFAULT_MAX_LINES as LegacyDefaultMaxLines
 from nano_multiagent.tools.loader import (
     build_tool_registry as legacy_build_tool_registry,
 )
@@ -28,6 +35,7 @@ from nano_multiagent.tools.safety import CommandExecution as LegacyCommandExecut
 from nano_multiagent.tools.safety import (
     CommandPolicyDecision as LegacyCommandPolicyDecision,
 )
+from nano_multiagent.tools.registry import ToolRegistry as LegacyToolRegistry
 from nano_multiagent.tools.safety import ToolSafety as LegacyToolSafety
 from nano_multiagent.tools.safety import ToolSafetyConfig as LegacyToolSafetyConfig
 from nano_multiagent.tools.safety import (
@@ -55,6 +63,15 @@ def test_platform_tools_safety_is_canonical_home() -> None:
     assert load_tool_safety_config.__module__ == "nano_multiagent.platform.tools.safety"
 
 
+def test_platform_tool_contracts_are_canonical_home() -> None:
+    """Platform tool contracts/constants must originate from platform modules."""
+    assert ToolContext.__module__ == "nano_multiagent.platform.tools.base"
+    assert ToolRegistry.__module__ == "nano_multiagent.platform.tools.registry"
+    assert DEFAULT_MAX_LINES == 2000
+    assert DEFAULT_MAX_BYTES == 50 * 1024
+    assert DEFAULT_MAX_KILOBYTES == 50
+
+
 def test_platform_tools_builtins_is_canonical_home() -> None:
     """Platform builtins helpers must live under the platform tools package."""
     assert platform_builtins.__name__ == "nano_multiagent.platform.tools.builtins"
@@ -67,6 +84,12 @@ def test_old_tools_paths_are_compat_shims() -> None:
     assert legacy_build_tool_registry is build_tool_registry
     assert legacy_discover_tool_files is discover_tool_files
     assert legacy_load_tools_from_directory is load_tools_from_directory
+
+    assert LegacyToolContext is ToolContext
+    assert LegacyToolRegistry is ToolRegistry
+    assert LegacyDefaultMaxLines == DEFAULT_MAX_LINES
+    assert LegacyDefaultMaxBytes == DEFAULT_MAX_BYTES
+    assert LegacyDefaultMaxKilobytes == DEFAULT_MAX_KILOBYTES
 
     assert LegacyToolSafety is ToolSafety
     assert LegacyToolSafetyConfig is ToolSafetyConfig

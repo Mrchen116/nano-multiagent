@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from nano_multiagent.tools.registry import ToolRegistry
+from nano_multiagent.platform.tools.registry import ToolRegistry
 
 from ..auth import require_bearer_auth
 from ..deps import get_tool_registry
