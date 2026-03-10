@@ -88,6 +88,8 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 | 文档 | 路径 | 内容 |
 |---|---|---|
+| **Coding CLI SPEC** | `docs/CodingCLI-SPEC.md` | coding_cli 运行模式、REPL 交互、模块结构、硬约束、验收标准 |
+| **Node Gateway SPEC** | `docs/NodeGateway-SPEC.md` | personal_assistant 进程模型、Channel、入站四步决策、Heartbeat、多 Agent 路由、硬约束、验收标准 |
 | Agent 助手蓝图 | `Agent 助手（基于 SDK 的上层应用）蓝图.md` | IM 服务与 Agent 节点契约 |
 | Agent 节点蓝图 | `Agent节点蓝图.md` | 节点网关、Channel、heartbeat |
 | IM 服务蓝图 | `IM服务蓝图.md` | Web IM API、配置中心、中继 |
