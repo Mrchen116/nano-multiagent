@@ -68,11 +68,12 @@
   - `PROGRESS/M85-*.md` 写清 canonical home 与 legacy shim 边界
 
 ## R85.3 full sweep、live 验证、main 集成与清理
-- Status: DOING
+- Status: DONE
   - Full Sweep: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && /Users/czj/miniforge3/bin/python3 -m pytest -q` -> `601 passed, 4 skipped`
   - Live Tests: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 /Users/czj/miniforge3/bin/python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py` -> `1 passed`; `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 /Users/czj/miniforge3/bin/python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py` -> `1 passed`
-  - Next: push milestone branch、merge 到 `main`、更新 `data/dev-tasks.json`、移除 worktree
-  - Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - Integration: `git push -u origin milestone/M85` 成功；clean integration worktree merge commit `2b10925` 已 push 到 `origin/main`；`data/dev-tasks.json` 已更新为 `DONE`
+  - Commits: C1=`12f5dcd`, C2=`2b10925`, C3=`fd8c12b`
+  - Cleanup: 待提交最终 docs hash 后移除 `/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85` 与临时 integration worktree
 - Acceptance:
   - 跑完整 `python3 -m pytest -q` 与本里程碑相关 focused tests。
   - 运行默认 skip 的相关 live tests（如适用）并把精确命令/结果写入 `PROGRESS`。
