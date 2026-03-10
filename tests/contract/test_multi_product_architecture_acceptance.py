@@ -1,7 +1,7 @@
 """Architecture acceptance for the final multi-product target state.
 
-This contract keeps the post-M83 target tree, canonical ownership, and
-intentional compatibility shim inventory in sync with the architecture document.
+This contract keeps the post-M87 target tree, canonical ownership, and
+minimal intentional compatibility surface in sync with the architecture doc.
 """
 
 from pathlib import Path
@@ -72,12 +72,17 @@ EXPECTED_EXISTING_PATHS = (
     "platform/llm/providers/__init__.py",
     "platform/persistence/session/base.py",
     "platform/persistence/session/jsonl_store.py",
+    "platform/persistence/session/serializers.py",
+    "platform/persistence/session/service.py",
     "platform/persistence/session/sqlite_store.py",
     "platform/product.py",
     "platform/products/local_coding.py",
     "platform/products/personal_assistant.py",
     "platform/sdk/client.py",
+    "platform/tools/base.py",
+    "platform/tools/constants.py",
     "platform/tools/loader.py",
+    "platform/tools/registry.py",
     "platform/tools/safety.py",
     "products/base.py",
     "products/local_coding/profile.py",
@@ -86,9 +91,11 @@ EXPECTED_EXISTING_PATHS = (
     "apps/coding_cli/commands.py",
     "apps/coding_cli/main.py",
     "apps/coding_cli/managed_server.py",
+    "apps/coding_cli/release_observability.py",
+    "apps/coding_cli/release_playbook.py",
 )
 
-INTENTIONAL_SHIMS = {
+MINIMAL_SURVIVING_SHIMS = {
     "platform.product": {
         "path": "platform/product.py",
         "canonical": "products/base.py",
@@ -103,6 +110,11 @@ INTENTIONAL_SHIMS = {
         "path": "platform/products/personal_assistant.py",
         "canonical": "products/personal_assistant/profile.py",
         "marker": "Compatibility shim for the canonical personal_assistant product profile.",
+    },
+    "platform.persistence.session.base": {
+        "path": "platform/persistence/session/base.py",
+        "canonical": "core/session/store.py",
+        "marker": "Compatibility shim re-exporting the canonical core session store contract.",
     },
     "session.stores": {
         "path": "session/stores/__init__.py",
@@ -124,51 +136,6 @@ INTENTIONAL_SHIMS = {
         "canonical": "platform/persistence/session/sqlite_store.py",
         "marker": "Compatibility shim for the canonical platform SQLite session store.",
     },
-    "platform.persistence.session.base": {
-        "path": "platform/persistence/session/base.py",
-        "canonical": "core/session/store.py",
-        "marker": "Compatibility shim re-exporting the canonical core session store contract.",
-    },
-    "tools.loader": {
-        "path": "tools/loader.py",
-        "canonical": "platform/tools/loader.py",
-        "marker": "Compatibility shim for the canonical platform tool loader.",
-    },
-    "tools.safety": {
-        "path": "tools/safety.py",
-        "canonical": "platform/tools/safety.py",
-        "marker": "Compatibility shim for the canonical platform tool safety module.",
-    },
-    "hooks.loader": {
-        "path": "hooks/loader.py",
-        "canonical": "platform/hooks/loader.py",
-        "marker": "Compatibility shim for the canonical platform hook loader.",
-    },
-    "server": {
-        "path": "server/__init__.py",
-        "canonical": "platform/http_api/__init__.py",
-        "marker": "Compatibility shim package for the canonical platform HTTP API.",
-    },
-    "server.app": {
-        "path": "server/app.py",
-        "canonical": "platform/http_api/app.py",
-        "marker": "Compatibility shim for the canonical platform HTTP API app module.",
-    },
-    "sdk.client": {
-        "path": "sdk/client.py",
-        "canonical": "platform/sdk/client.py",
-        "marker": "Compatibility shim for the canonical platform SDK client surface.",
-    },
-    "cli.http_client": {
-        "path": "cli/http_client.py",
-        "canonical": "platform/sdk/client.py",
-        "marker": "Compatibility shim for the shared HTTP client contract.",
-    },
-    "apps.coding_cli.client": {
-        "path": "apps/coding_cli/client.py",
-        "canonical": "platform/sdk/client.py",
-        "marker": "Application-layer alias for the shared HTTP client contract.",
-    },
     "session.entries": {
         "path": "session/entries.py",
         "canonical": "core/session/entries.py",
@@ -183,6 +150,31 @@ INTENTIONAL_SHIMS = {
         "path": "session/manager.py",
         "canonical": "core/session/manager.py",
         "marker": "Compatibility shim re-exporting the canonical core session manager.",
+    },
+    "session.service": {
+        "path": "session/service.py",
+        "canonical": "platform/persistence/session/service.py",
+        "marker": "Compatibility alias exposing canonical platform session service module.",
+    },
+    "session.serializers": {
+        "path": "session/serializers.py",
+        "canonical": "platform/persistence/session/serializers.py",
+        "marker": "Compatibility shim for canonical platform session serializers.",
+    },
+    "hooks.loader": {
+        "path": "hooks/loader.py",
+        "canonical": "platform/hooks/loader.py",
+        "marker": "Compatibility shim for the canonical platform hook loader.",
+    },
+    "hooks.session_events": {
+        "path": "hooks/session_events.py",
+        "canonical": "platform/hooks/session_events.py",
+        "marker": "Compatibility shim for canonical platform session event contracts.",
+    },
+    "hooks.session_usage": {
+        "path": "hooks/session_usage.py",
+        "canonical": "platform/hooks/session_usage.py",
+        "marker": "Compatibility shim for canonical platform session usage contracts.",
     },
     "hooks.context": {
         "path": "hooks/context.py",
@@ -229,25 +221,128 @@ INTENTIONAL_SHIMS = {
         "canonical": "core/llm/model_registry.py",
         "marker": "Compatibility shim re-exporting canonical core LLM model metadata.",
     },
+    "tools.base": {
+        "path": "tools/base.py",
+        "canonical": "platform/tools/base.py",
+        "marker": "Compatibility shim for canonical platform tool contracts.",
+    },
+    "tools.constants": {
+        "path": "tools/constants.py",
+        "canonical": "platform/tools/constants.py",
+        "marker": "Compatibility shim for canonical platform tool constants.",
+    },
+    "tools.registry": {
+        "path": "tools/registry.py",
+        "canonical": "platform/tools/registry.py",
+        "marker": "Compatibility shim for the canonical platform tool registry.",
+    },
+    "tools.loader": {
+        "path": "tools/loader.py",
+        "canonical": "platform/tools/loader.py",
+        "marker": "Compatibility shim for the canonical platform tool loader.",
+    },
+    "tools.safety": {
+        "path": "tools/safety.py",
+        "canonical": "platform/tools/safety.py",
+        "marker": "Compatibility shim for the canonical platform tool safety module.",
+    },
+    "server": {
+        "path": "server/__init__.py",
+        "canonical": "platform/http_api/__init__.py",
+        "marker": "Compatibility shim package for the canonical platform HTTP API.",
+    },
+    "server.app": {
+        "path": "server/app.py",
+        "canonical": "platform/http_api/app.py",
+        "marker": "Compatibility shim for the canonical platform HTTP API app module.",
+    },
+    "sdk.client": {
+        "path": "sdk/client.py",
+        "canonical": "platform/sdk/client.py",
+        "marker": "Compatibility shim for the canonical platform SDK client surface.",
+    },
+    "cli.commands": {
+        "path": "cli/commands.py",
+        "canonical": "apps/coding_cli/commands.py",
+        "marker": "Compatibility facade for CLI command orchestration module.",
+    },
+    "cli.main": {
+        "path": "cli/main.py",
+        "canonical": "apps/coding_cli/main.py",
+        "marker": "Console script module for launching CLI through HTTP API boundary.",
+    },
+    "cli.http_client": {
+        "path": "cli/http_client.py",
+        "canonical": "platform/sdk/client.py",
+        "marker": "Compatibility shim for the shared HTTP client contract.",
+    },
+    "cli.release_playbook": {
+        "path": "cli/release_playbook.py",
+        "canonical": "apps/coding_cli/release_playbook.py",
+        "marker": "Compatibility shim for the canonical apps-level CLI release playbook.",
+    },
+    "cli.release_observability": {
+        "path": "cli/release_observability.py",
+        "canonical": "apps/coding_cli/release_observability.py",
+        "marker": "Compatibility shim for the canonical apps-level CLI release observability helpers.",
+    },
 }
+
+REMOVED_LEGACY_PATHS = (
+    "server/auth.py",
+    "server/deps.py",
+    "server/sse.py",
+    "server/routes/__init__.py",
+    "server/routes/event.py",
+    "server/routes/global_routes.py",
+    "server/routes/hook.py",
+    "server/routes/run.py",
+    "server/routes/session.py",
+    "server/routes/tool.py",
+    "cli/app/__init__.py",
+    "cli/app/commands.py",
+    "cli/context_budget.py",
+    "cli/error_presenter.py",
+    "cli/events/__init__.py",
+    "cli/events/event_pipeline.py",
+    "cli/events/repl_events.py",
+    "cli/input/__init__.py",
+    "cli/input/repl_commands.py",
+    "cli/input/repl_input.py",
+    "cli/managed_server.py",
+    "cli/render/__init__.py",
+    "cli/render/context_budget.py",
+    "cli/render/error_presenter.py",
+    "cli/render/repl_render.py",
+    "cli/render/turn_usage.py",
+    "cli/repl_commands.py",
+    "cli/repl_events.py",
+    "cli/repl_input.py",
+    "cli/repl_render.py",
+    "cli/repl_runtime.py",
+    "cli/runtime/__init__.py",
+    "cli/runtime/repl_runtime.py",
+    "cli/turn_usage.py",
+)
 
 REQUIRED_DOC_SNIPPETS = (
     "## 八、M83 最终目标态验收（代码/测试/文档对齐）",
-    "### 1. 最终目标目录树（以当前代码为准）",
-    "### 2. M83 验收后的 canonical ownership",
-    "### 3. 保留的 compatibility shim 清单（intentional only）",
-    "### 4. 验收测试与文档勾稽",
-    "### 5. M80-M83 高优先项收口状态",
+    "## 十、M87 legacy shim 截肢与最小兼容面验收",
+    "### 1. M87 最小保留 compatibility surface（intentional only）",
+    "### 2. 已删除的低价值 legacy shim families",
+    "### 3. M87 验收测试与文档勾稽",
     "tests/contract/test_multi_product_architecture_acceptance.py",
-    "DONE：M80 products canonicalization and profile contracts",
-    "DONE：M81 platform physical canonicalization",
-    "DONE：M82 core 归位与共享抽象收口",
-    "DONE：M83 compatibility shim 清理与目录目标态验收",
-    "deferred：`apps/node_gateway/`",
+    "tests/unit/test_platform_http_api_location.py",
+    "tests/unit/test_apps_coding_cli_location.py",
+    "server/auth.py",
+    "server/routes/session.py",
+    "cli/context_budget.py",
+    "cli/events/repl_events.py",
+    "cli/managed_server.py",
 )
 
 
-def test_architecture_doc_contains_final_target_tree_and_acceptance_sections() -> None:
+def test_architecture_doc_contains_final_target_tree_and_m87_minimal_compat_sections() -> None:
     doc = ARCHITECTURE_DOC.read_text(encoding="utf-8")
     for snippet in REQUIRED_DOC_SNIPPETS:
         assert snippet in doc, f"missing architecture acceptance snippet: {snippet}"
@@ -262,9 +357,9 @@ def test_final_target_tree_paths_exist_in_repository() -> None:
 
 
 
-def test_intentional_shims_still_point_at_documented_canonical_homes() -> None:
+def test_minimal_surviving_shims_still_point_at_documented_canonical_homes() -> None:
     doc = ARCHITECTURE_DOC.read_text(encoding="utf-8")
-    for shim_name, meta in INTENTIONAL_SHIMS.items():
+    for shim_name, meta in MINIMAL_SURVIVING_SHIMS.items():
         shim_path = SRC_ROOT / meta["path"]
         canonical_path = SRC_ROOT / meta["canonical"]
         assert shim_path.exists(), f"missing shim path: {meta['path']}"
@@ -274,3 +369,11 @@ def test_intentional_shims_still_point_at_documented_canonical_homes() -> None:
         assert meta["marker"] in source, f"shim marker drifted for {shim_name}"
         assert shim_name in doc, f"architecture doc missing shim entry: {shim_name}"
         assert meta["canonical"] in doc, f"architecture doc missing canonical target for {shim_name}"
+
+
+
+def test_low_value_legacy_shim_families_have_been_deleted() -> None:
+    doc = ARCHITECTURE_DOC.read_text(encoding="utf-8")
+    for relative_path in REMOVED_LEGACY_PATHS:
+        assert not (SRC_ROOT / relative_path).exists(), f"legacy shim should be deleted in M87: {relative_path}"
+        assert relative_path in doc, f"architecture doc missing removed-shim note: {relative_path}"

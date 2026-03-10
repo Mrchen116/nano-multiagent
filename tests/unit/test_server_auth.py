@@ -1,4 +1,4 @@
-from nano_multiagent.server.auth import extract_bearer_token
+from nano_multiagent.platform.http_api.auth import extract_bearer_token
 
 
 def test_extract_bearer_token_accepts_valid_header() -> None:

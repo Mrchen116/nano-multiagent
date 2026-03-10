@@ -7,9 +7,8 @@ from nano_multiagent.hooks.session_usage import (
     set_session_usage_snapshot_reader,
 )
 from nano_multiagent.server.app import create_app
-from nano_multiagent.server.routes.session import _CONTEXT_BUDGET_MAX_TOKENS
-from nano_multiagent.server.deps import APIError
-from nano_multiagent.server.routes.session import _to_message_response
+from nano_multiagent.platform.http_api.deps import APIError
+from nano_multiagent.platform.http_api.routes.session import _CONTEXT_BUDGET_MAX_TOKENS, _to_message_response
 
 
 def test_server_session_shim_reexports_context_budget_constant() -> None:

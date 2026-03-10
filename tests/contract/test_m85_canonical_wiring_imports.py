@@ -12,7 +12,7 @@ FORBIDDEN_IMPORTS = {
     "platform/http_api/app.py": ("nano_multiagent.session.service",),
     "platform/http_api/deps.py": ("nano_multiagent.session.service",),
     "platform/http_api/routes/session.py": ("nano_multiagent.session.service",),
-    "runs/registry.py": ("nano_multiagent.server.sse",),
+    "runs/registry.py": ("nano_multiagent.server.sse",),  # M87: legacy server.sse removed; runs wiring must stay on platform.http_api.sse.
     "core/llm/factory.py": ("nano_multiagent.llm.protocols",),
     "platform/llm/providers/__init__.py": ("nano_multiagent.llm.protocols",),
     "products/local_coding/prompts.py": ("nano_multiagent.agent.prompting",),

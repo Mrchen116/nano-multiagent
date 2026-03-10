@@ -7,10 +7,9 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from nano_multiagent.apps.coding_cli.input import repl_commands, repl_input
 from nano_multiagent.cli import commands as cli_commands
-from nano_multiagent.cli import repl_commands
-from nano_multiagent.cli import repl_input
-from nano_multiagent.cli.http_client import ServerClient
+from nano_multiagent.apps.coding_cli.client import ServerClient
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
 from nano_multiagent.cli.main import run_cli
@@ -249,7 +248,7 @@ def test_cli_runs_http_flow_against_asgi_app() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -363,7 +362,7 @@ def test_cli_http_flow_executes_tool_call_loop_before_returning_final_answer() -
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -413,7 +412,7 @@ def test_cli_timeout_error_surfaces_root_cause_and_trace_id_evidence() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -449,7 +448,7 @@ def test_cli_repl_flow_supports_tools_and_compact_commands() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -474,7 +473,7 @@ def test_cli_repl_compact_refreshes_context_budget_snapshot() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -498,7 +497,7 @@ def test_cli_repl_inline_editing_keys_submit_edited_text() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -527,7 +526,7 @@ def test_cli_repl_history_recall_allows_second_submit_after_editing() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -558,7 +557,7 @@ def test_cli_repl_full_chain_edit_history_and_compact_budget_state() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -595,7 +594,7 @@ def test_cli_repl_up_recalls_previous_command_line() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -624,7 +623,7 @@ def test_cli_repl_slash_menu_selects_command_and_executes_it() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -656,7 +655,7 @@ def test_cli_repl_session_transitions_render_active_copy_without_json() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -701,7 +700,7 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -749,7 +748,7 @@ def test_cli_repl_non_tty_async_output_avoids_terminal_control_sequences() -> No
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -796,7 +795,7 @@ def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool() -> None
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -845,7 +844,7 @@ def test_cli_repl_prints_compact_sections_in_async_turn_output() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -875,7 +874,7 @@ def test_cli_repl_allows_queueing_next_input_while_previous_async_run_is_running
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -926,7 +925,7 @@ def test_cli_repl_history_wait_barrier_ignores_false_timeout_after_drain(monkeyp
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -953,7 +952,7 @@ def test_cli_repl_flow_supports_history_listing() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -978,7 +977,7 @@ def test_cli_repl_rejects_invalid_command_arguments() -> None:
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -1020,7 +1019,7 @@ def test_cli_repl_flow_supports_key_commands_in_both_modes(mode: str) -> None:
     managed_server = _ManagedServerRecorder()
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 
@@ -1084,7 +1083,7 @@ def test_cli_llm_config_get_set_flow_supports_remote_and_managed_modes(mode: str
     managed_server = _ManagedServerRecorder()
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.apps.coding_cli.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 

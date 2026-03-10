@@ -1,4 +1,4 @@
-from nano_multiagent.cli.context_budget import extract_context_budget_metrics
+from nano_multiagent.apps.coding_cli.render.context_budget import extract_context_budget_metrics
 
 
 def test_extract_context_budget_metrics_clamps_usage_ratio_above_one() -> None:
