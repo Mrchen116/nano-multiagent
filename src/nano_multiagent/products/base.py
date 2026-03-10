@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from nano_multiagent.core.hooks.registry import HookRegistry
     from nano_multiagent.core.session.store import SessionStore
+    from nano_multiagent.platform.config.resolver import ConfigResolver
     from nano_multiagent.tools.registry import ToolRegistry
 
 
@@ -93,6 +94,7 @@ class ResolvedProductConfig:
             the effective registry.
         session_store: Session backing store, or ``None`` when the product
             defers to server defaults.
+        config_resolver: Resolver used to derive product-owned filesystem roots.
     """
 
     product_id: str
@@ -100,6 +102,7 @@ class ResolvedProductConfig:
     tool_registry: "ToolRegistry | None"
     hook_registry: "HookRegistry | None"
     session_store: "SessionStore | None"
+    config_resolver: "ConfigResolver | None" = None
 
 
 __all__ = ["ProductProfile", "ResolvedProductConfig"]

@@ -1,4 +1,4 @@
-"""Compatibility shim for the canonical platform OpenAI-compatible client."""
+"""Compatibility shim for the canonical OpenAI-compatible provider client."""
 
 from nano_multiagent.llm.providers.openai_compat.client import OpenAICompatClient, _should_trust_env
 

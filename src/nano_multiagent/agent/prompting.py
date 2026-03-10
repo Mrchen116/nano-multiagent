@@ -8,30 +8,11 @@ from nano_multiagent.core.types import Message
 from nano_multiagent.core.llm.interfaces import LLMMessage, LLMToolCall
 from nano_multiagent.core.skills.formatter import format_available_skills_section
 from nano_multiagent.core.skills.registry import SkillMetadata
+from nano_multiagent.products.local_coding.prompts import LOCAL_CODING_SYSTEM_PROMPT
 from nano_multiagent.tools.builtins import builtin_tools
 
-# Coding-persona prompt template; canonical home for the local_coding product.
-# Carries <RUNTIME_FILL:*> placeholders expanded per-turn by build_system_prompt().
-CODING_SYSTEM_PROMPT = """You are an expert coding assistant operating inside a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
-
-Available tools:
-<RUNTIME_FILL:AVAILABLE_TOOLS>
-
-In addition to the tools above, you may have access to other custom tools depending on the project.
-
-Guidelines:
-- Use bash for file operations like ls, rg, find
-- Use read to examine files before editing. You must use this tool instead of cat or sed.
-- Use edit for precise changes (old text must match exactly)
-- Use write only for new files or complete rewrites
-- When summarizing your actions, output plain text directly - do NOT use cat or bash to display what you did
-- Be concise in your responses
-- Show file paths clearly when working with files
-
-<RUNTIME_FILL:SKILLS_SECTION>
-
-Current date and time: <RUNTIME_FILL:CURRENT_DATETIME>
-Current working directory: <RUNTIME_FILL:CURRENT_WORKING_DIRECTORY>"""
+# Compatibility alias: the local_coding product now owns the canonical prompt text.
+CODING_SYSTEM_PROMPT = LOCAL_CODING_SYSTEM_PROMPT
 
 # Generic fallback: empty string signals "product must inject its own prompt".
 # Retained as named export to avoid breaking any existing imports; callers that

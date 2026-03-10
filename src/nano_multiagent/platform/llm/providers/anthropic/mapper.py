@@ -1,4 +1,4 @@
-"""Compatibility shim for the canonical platform Anthropic mapper."""
+"""Compatibility shim for the canonical Anthropic provider mapper."""
 
 from nano_multiagent.llm.providers.anthropic.mapper import AnthropicMapper
 

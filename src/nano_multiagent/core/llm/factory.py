@@ -5,8 +5,8 @@ from dataclasses import dataclass
 
 import httpx
 
-from nano_multiagent.llm.protocols.anthropic.client import AnthropicClient
-from nano_multiagent.llm.protocols.openai_compat.client import OpenAICompatClient
+from nano_multiagent.llm.providers.anthropic.client import AnthropicClient
+from nano_multiagent.llm.providers.openai_compat.client import OpenAICompatClient
 
 from .interfaces import LLMClient
 from .model_registry import (
@@ -68,7 +68,7 @@ def create_llm_client(
 
     Notes:
         Provider-specific branches are intentionally isolated in this factory and
-        `llm/protocols/*`, so runtime/agent code stays provider-agnostic.
+        `llm/providers/*`, so runtime/agent code stays provider-agnostic.
     """
 
     active_config = config or LLMFactoryConfig.from_env()

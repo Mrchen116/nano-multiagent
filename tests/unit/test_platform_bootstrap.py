@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from nano_multiagent.platform.bootstrap import bootstrap_product
+from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 from nano_multiagent.products.base import ProductProfile, ResolvedProductConfig
 
 
@@ -78,3 +79,35 @@ def test_bootstrap_respects_default_tool_ids(tmp_path: Path) -> None:
     assert "write" not in tool_names
     assert "edit" not in tool_names
     assert "task" not in tool_names
+
+
+def test_bootstrap_product_exposes_config_resolver(tmp_path: Path) -> None:
+    profile = ProductProfile(
+        product_id="test",
+        display_name="Test",
+        config_namespace="test",
+        global_config_home=tmp_path / ".test-global",
+        workspace_config_dirname=".test-workspace",
+    )
+
+    resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
+
+    assert resolved.config_resolver is not None
+    assert resolved.config_resolver.workspace_config_root() == tmp_path / ".test-workspace"
+    assert resolved.config_resolver.global_config_root() == (tmp_path / ".test-global").resolve()
+
+
+def test_bootstrap_product_builds_profile_session_store(tmp_path: Path) -> None:
+    profile = ProductProfile(
+        product_id="test",
+        display_name="Test",
+        config_namespace="test",
+        global_config_home=tmp_path / ".test-global",
+        workspace_config_dirname=".test-workspace",
+        session_db_filename="profile.sqlite3",
+    )
+
+    resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
+
+    assert isinstance(resolved.session_store, SQLiteSessionStore)
+    assert resolved.session_store._db_path.resolve() == (tmp_path / ".test-global" / "profile.sqlite3").resolve()

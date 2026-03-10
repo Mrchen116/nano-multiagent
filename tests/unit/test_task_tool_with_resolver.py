@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import pytest
+
+from nano_multiagent.core.errors import ToolError
+from nano_multiagent.core.types import Message, TurnResult
+from nano_multiagent.hooks.context import HookContext
+from nano_multiagent.platform.config.resolver import ConfigResolver
+from nano_multiagent.products.base import ProductProfile
+from nano_multiagent.server.app import create_app
+
+
+@dataclass(frozen=True, slots=True)
+class _Session:
+    session_id: str
+
+
+class _RuntimeStub:
+    def __init__(self, *, config_resolver: ConfigResolver) -> None:
+        self.config_resolver = config_resolver
+        self.created = 0
+
+    def create_session(self) -> _Session:
+        self.created += 1
+        return _Session(session_id=f"sess_task_with_resolver_{self.created}")
+
+    def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        llm_session_id: str | None = None,
+    ) -> TurnResult:
+        return TurnResult(
+            session_id=session_id,
+            turn_id="turn_task_with_resolver",
+            messages=(Message(message_id="msg_task_with_resolver", role="assistant", content="ok"),),
+            completed=True,
+            stop_reason="completed",
+        )
+
+    def continue_turn(
+        self,
+        session_id: str,
+        *,
+        stream: bool = True,
+        llm_session_id: str | None = None,
+    ) -> TurnResult:
+        return self.run(
+            session_id,
+            [{"type": "text", "text": "continue"}],
+            stream=stream,
+            llm_session_id=llm_session_id,
+        )
+
+
+def _make_profile(global_home: Path) -> ProductProfile:
+    return ProductProfile(
+        product_id="resolver_task",
+        display_name="Resolver Task",
+        config_namespace="resolver-task",
+        global_config_home=global_home,
+        workspace_config_dirname=".resolver-task",
+        session_db_filename="sessions.sqlite3",
+    )
+
+
+def _write_skill(root: Path, name: str) -> None:
+    skill_dir = root / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {name} description\n---\n{name}\n",
+        encoding="utf-8",
+    )
+
+
+def test_task_tool_accepts_resolver_workspace_skill(tmp_path: Path) -> None:
+    profile = _make_profile(tmp_path / ".resolver-global")
+    resolver = ConfigResolver(profile=profile, workspace_root=tmp_path)
+    _write_skill(tmp_path / ".resolver-task" / "skills", "resolver-skill")
+    _write_skill(tmp_path / ".codex" / "skills", "legacy-only")
+
+    app = create_app(runtime=_RuntimeStub(config_resolver=resolver), repo_root=tmp_path, product_profile=profile)
+
+    result = app.state.tool_registry.execute(
+        "task",
+        {
+            "run_in_background": False,
+            "load_skills": ["resolver-skill"],
+            "description": "delegate task",
+            "prompt": "run task",
+            "subagent_type": "oracle",
+        },
+        hook_context=HookContext(session_id="sess_main", repo_root=tmp_path),
+    )
+
+    assert "Task completed" in result["result"]
+
+
+def test_task_tool_rejects_legacy_codex_skill_when_runtime_has_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex-home"))
+    profile = _make_profile(tmp_path / ".resolver-global")
+    resolver = ConfigResolver(profile=profile, workspace_root=tmp_path)
+    _write_skill(tmp_path / ".codex" / "skills", "legacy-only")
+    _write_skill(tmp_path / ".codex-home" / "skills", "legacy-home-only")
+
+    app = create_app(runtime=_RuntimeStub(config_resolver=resolver), repo_root=tmp_path, product_profile=profile)
+
+    with pytest.raises(ToolError, match="unknown skills requested"):
+        app.state.tool_registry.execute(
+            "task",
+            {
+                "run_in_background": False,
+                "load_skills": ["legacy-only", "legacy-home-only"],
+                "description": "delegate task",
+                "prompt": "run task",
+                "subagent_type": "oracle",
+            },
+            hook_context=HookContext(session_id="sess_main", repo_root=tmp_path),
+        )

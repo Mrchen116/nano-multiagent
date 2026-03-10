@@ -54,6 +54,8 @@ def test_resolved_product_config_accepts_none_fields() -> None:
         tool_registry=None,
         hook_registry=None,
         session_store=None,
+        config_resolver=None,
     )
     assert resolved.product_id == "coding"
     assert resolved.tool_registry is None
+    assert resolved.config_resolver is None

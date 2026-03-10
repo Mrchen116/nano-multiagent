@@ -79,3 +79,39 @@ def test_create_app_with_profile_uses_profile_session_store_path(tmp_path: Path)
     profile = _make_profile(tmp_path / ".testproduct")
     app = create_app(product_profile=profile)
     assert _session_store_path(app) == (tmp_path / ".testproduct" / "sessions.sqlite3").resolve()
+
+
+def test_create_app_with_profile_exposes_runtime_config_resolver(tmp_path: Path) -> None:
+    profile = _make_profile(tmp_path / ".testproduct")
+
+    app = create_app(product_profile=profile, repo_root=tmp_path)
+
+    runtime = app.state.agent_runtime
+    resolver = getattr(runtime, "config_resolver", None)
+    assert resolver is not None
+    assert resolver.workspace_config_root() == tmp_path / ".testproduct"
+
+
+def test_create_app_with_profile_uses_resolver_skill_roots_over_legacy_codex(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex-home"))
+    profile = _make_profile(tmp_path / ".testproduct-global")
+    skill_root = tmp_path / ".testproduct" / "skills" / "resolver-skill"
+    skill_root.mkdir(parents=True)
+    (skill_root / "SKILL.md").write_text(
+        "---\nname: resolver-skill\ndescription: resolver skill\n---\nresolver skill\n",
+        encoding="utf-8",
+    )
+    legacy_root = tmp_path / ".codex" / "skills" / "legacy-skill"
+    legacy_root.mkdir(parents=True)
+    (legacy_root / "SKILL.md").write_text(
+        "---\nname: legacy-skill\ndescription: legacy skill\n---\nlegacy skill\n",
+        encoding="utf-8",
+    )
+
+    app = create_app(product_profile=profile, repo_root=tmp_path)
+
+    runtime = app.state.agent_runtime
+    available_skills = getattr(runtime._loop, "_available_skills")
+    available_names = {skill.name for skill in available_skills}
+    assert "resolver-skill" in available_names
+    assert "legacy-skill" not in available_names
