@@ -1,4 +1,4 @@
-"""Compatibility shim package for provider adapters."""
+"""Canonical provider adapter package for shared LLM transports."""
 
 from . import anthropic, openai_compat
 

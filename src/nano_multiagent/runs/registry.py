@@ -17,7 +17,7 @@ from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.hooks.session_events import get_session_event_publisher
 from nano_multiagent.observability.logger import log_error, log_info
 from nano_multiagent.observability.tracing import bind_correlation, current_trace_id
-from nano_multiagent.server.sse import EventStreamHub
+from nano_multiagent.platform.http_api.sse import EventStreamHub
 from nano_multiagent.core.session.manager import SessionManager
 
 

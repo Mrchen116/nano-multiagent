@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import Protocol, Sequence
 
 from .registry import SkillMetadata, SkillRegistry
 
-if TYPE_CHECKING:
-    from nano_multiagent.platform.config.resolver import ConfigResolver
+
+class SkillRootResolver(Protocol):
+    """Describe the resolver contract needed by core skill discovery."""
+
+    def user_skill_roots(self) -> tuple[Path, ...]:
+        """Return ordered skill search roots for the active product context."""
 
 
 def default_skill_search_roots(
     *,
     workspace_root: Path,
-    config_resolver: ConfigResolver | None = None,
+    config_resolver: SkillRootResolver | None = None,
 ) -> tuple[Path, ...]:
     """Return skill search roots in precedence order with duplicates removed."""
 
@@ -41,7 +45,7 @@ def resolve_available_skills(
     workspace_root: Path,
     include_names: Sequence[str] | None = None,
     registry: SkillRegistry | None = None,
-    config_resolver: ConfigResolver | None = None,
+    config_resolver: SkillRootResolver | None = None,
 ) -> tuple[SkillMetadata, ...]:
     """Resolve available skills, optionally filtering by requested names."""
 
