@@ -2,49 +2,41 @@ import io
 import json
 import time
 
+from nano_multiagent.apps.coding_cli import commands as cli_commands
 from nano_multiagent.apps.coding_cli.input import repl_commands, repl_input
-from nano_multiagent.cli import commands as cli_commands
-from nano_multiagent.cli.main import run_cli
+from nano_multiagent.apps.coding_cli.main import run_cli
 
 
-def test_cli_commands_facade_matches_new_app_commands_module() -> None:
-    from nano_multiagent.cli.app import commands as app_commands
+def test_cli_commands_surface_matches_app_commands_module() -> None:
+    import nano_multiagent.apps.coding_cli.commands as app_commands
 
     assert cli_commands.build_parser is app_commands.build_parser
     assert cli_commands.run_cli is app_commands.run_cli
     assert run_cli is app_commands.run_cli
 
 
-def test_cli_legacy_modules_delegate_to_layered_subpackages() -> None:
-    from nano_multiagent.cli.events import repl_events as layered_events
-    from nano_multiagent.cli.input import repl_commands as layered_repl_commands
-    from nano_multiagent.cli.input import repl_input as layered_repl_input
-    from nano_multiagent.cli.render import context_budget as layered_context_budget
-    from nano_multiagent.cli.render import error_presenter as layered_error_presenter
-    from nano_multiagent.cli.render import repl_render as layered_repl_render
-    from nano_multiagent.cli.render import turn_usage as layered_turn_usage
-    from nano_multiagent.cli.runtime import repl_runtime as layered_repl_runtime
-    from nano_multiagent.cli import context_budget as legacy_context_budget
-    from nano_multiagent.cli import error_presenter as legacy_error_presenter
-    from nano_multiagent.cli import repl_commands as legacy_repl_commands
-    from nano_multiagent.cli import repl_events as legacy_repl_events
-    from nano_multiagent.cli import repl_input as legacy_repl_input
-    from nano_multiagent.cli import repl_render as legacy_repl_render
-    from nano_multiagent.cli import repl_runtime as legacy_repl_runtime
-    from nano_multiagent.cli import turn_usage as legacy_turn_usage
+def test_cli_internal_modules_live_under_apps_coding_cli_subpackages() -> None:
+    from nano_multiagent.apps.coding_cli.events import repl_events as layered_events
+    from nano_multiagent.apps.coding_cli.input import repl_commands as layered_repl_commands
+    from nano_multiagent.apps.coding_cli.input import repl_input as layered_repl_input
+    from nano_multiagent.apps.coding_cli.render import context_budget as layered_context_budget
+    from nano_multiagent.apps.coding_cli.render import error_presenter as layered_error_presenter
+    from nano_multiagent.apps.coding_cli.render import repl_render as layered_repl_render
+    from nano_multiagent.apps.coding_cli.render import turn_usage as layered_turn_usage
+    from nano_multiagent.apps.coding_cli.runtime import repl_runtime as layered_repl_runtime
 
-    assert legacy_repl_events.consume_async_run_events is layered_events.consume_async_run_events
-    assert legacy_repl_input.emit_external_text is layered_repl_input.emit_external_text
-    assert legacy_repl_commands.REPL_COMMANDS is layered_repl_commands.REPL_COMMANDS
-    assert legacy_repl_render.print_repl_turn_summary is layered_repl_render.print_repl_turn_summary
-    assert legacy_repl_runtime.ReplRunQueue is layered_repl_runtime.ReplRunQueue
-    assert legacy_context_budget.print_context_budget_snapshot is layered_context_budget.print_context_budget_snapshot
-    assert legacy_error_presenter.error_layer_for_exception is layered_error_presenter.error_layer_for_exception
-    assert legacy_turn_usage.extract_turn_usage_metrics is layered_turn_usage.extract_turn_usage_metrics
+    assert layered_events.consume_async_run_events.__module__ == "nano_multiagent.apps.coding_cli.events.repl_events"
+    assert layered_repl_input.emit_external_text.__module__ == "nano_multiagent.apps.coding_cli.input.repl_input"
+    assert layered_repl_commands.REPL_COMMANDS
+    assert layered_repl_render.print_repl_turn_summary.__module__ == "nano_multiagent.apps.coding_cli.render.repl_render"
+    assert layered_repl_runtime.ReplRunQueue.__module__ == "nano_multiagent.apps.coding_cli.runtime.repl_runtime"
+    assert layered_context_budget.print_context_budget_snapshot.__module__ == "nano_multiagent.apps.coding_cli.render.context_budget"
+    assert layered_error_presenter.error_layer_for_exception.__module__ == "nano_multiagent.apps.coding_cli.render.error_presenter"
+    assert layered_turn_usage.extract_turn_usage_metrics.__module__ == "nano_multiagent.apps.coding_cli.render.turn_usage"
 
 
 def test_cli_event_pipeline_layer_exposes_normalize_dedupe_and_view_model() -> None:
-    from nano_multiagent.cli.events import event_pipeline
+    from nano_multiagent.apps.coding_cli.events import event_pipeline
 
     assert hasattr(event_pipeline, "NormalizedSessionEvent")
     assert hasattr(event_pipeline, "EventDedupeWindow")
@@ -1813,7 +1805,7 @@ def test_repl_input_engine_supports_crlf_line_break_for_terminal_mode() -> None:
 
 
 def test_repl_input_state_machine_reports_needs_redraw_for_noop_and_mutating_keys() -> None:
-    from nano_multiagent.cli.input import repl_input as layered_repl_input
+    from nano_multiagent.apps.coding_cli.input import repl_input as layered_repl_input
 
     state = layered_repl_input._initial_input_state(history=(), command_items=repl_commands.REPL_COMMANDS)
 
@@ -1830,7 +1822,7 @@ def test_repl_input_state_machine_reports_needs_redraw_for_noop_and_mutating_key
 
 
 def test_repl_input_engine_skips_redundant_redraw_for_noop_keys(monkeypatch) -> None:
-    from nano_multiagent.cli.input import repl_input as layered_repl_input
+    from nano_multiagent.apps.coding_cli.input import repl_input as layered_repl_input
 
     output = io.StringIO()
     render_calls: list[tuple[str, str, int]] = []
@@ -1863,7 +1855,7 @@ def test_repl_input_engine_skips_redundant_redraw_for_noop_keys(monkeypatch) -> 
 
 
 def test_repl_input_state_machine_skips_redraw_when_history_up_hits_top_boundary() -> None:
-    from nano_multiagent.cli.input import repl_input as layered_repl_input
+    from nano_multiagent.apps.coding_cli.input import repl_input as layered_repl_input
 
     state = layered_repl_input._initial_input_state(history=("first",), command_items=repl_commands.REPL_COMMANDS)
 
@@ -2700,7 +2692,7 @@ def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress(
 
 
 def test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_drained(monkeypatch) -> None:
-    from nano_multiagent.cli.app import commands as app_commands
+    from nano_multiagent.apps.coding_cli import commands as app_commands
 
     class _FalseTimeoutAfterDrainQueue:
         def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001
@@ -2748,7 +2740,7 @@ def test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_d
 
 
 def test_run_cli_repl_exit_reports_remaining_inflight_messages_after_timeout(monkeypatch) -> None:
-    from nano_multiagent.cli.app import commands as app_commands
+    from nano_multiagent.apps.coding_cli import commands as app_commands
 
     class _NeverDrainQueue:
         def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001

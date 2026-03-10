@@ -1,5 +1,7 @@
 """Verify core/llm is the canonical home for shared LLM abstractions."""
 
+from importlib.util import find_spec
+
 from nano_multiagent.core.llm import (
     DEFAULT_PROVIDER,
     LLMClient,
@@ -30,20 +32,7 @@ from nano_multiagent.core.llm.model_registry import get_default_model as CoreGet
 from nano_multiagent.core.llm.model_registry import list_provider_models as CoreListProviderModels
 from nano_multiagent.core.llm.model_registry import list_supported_providers as CoreListSupportedProviders
 from nano_multiagent.core.llm.model_registry import resolve_model_metadata as CoreResolveModelMetadata
-from nano_multiagent.llm.factory import LLMFactoryConfig as LegacyLLMFactoryConfig
-from nano_multiagent.llm.factory import create_llm_client as LegacyCreateLLMClient
-from nano_multiagent.llm.interfaces import LLMClient as LegacyLLMClient
-from nano_multiagent.llm.interfaces import LLMGenerateRequest as LegacyLLMGenerateRequest
-from nano_multiagent.llm.interfaces import LLMGenerateResponse as LegacyLLMGenerateResponse
-from nano_multiagent.llm.interfaces import LLMMessage as LegacyLLMMessage
-from nano_multiagent.llm.interfaces import LLMToolCall as LegacyLLMToolCall
-from nano_multiagent.llm.model_registry import DEFAULT_PROVIDER as LegacyDefaultProvider
-from nano_multiagent.llm.model_registry import ModelMetadata as LegacyModelMetadata
-from nano_multiagent.llm.model_registry import get_default_base_url as LegacyGetDefaultBaseUrl
-from nano_multiagent.llm.model_registry import get_default_model as LegacyGetDefaultModel
-from nano_multiagent.llm.model_registry import list_provider_models as LegacyListProviderModels
-from nano_multiagent.llm.model_registry import list_supported_providers as LegacyListSupportedProviders
-from nano_multiagent.llm.model_registry import resolve_model_metadata as LegacyResolveModelMetadata
+
 
 
 def test_core_llm_is_canonical_home() -> None:
@@ -78,19 +67,6 @@ def test_core_llm_is_canonical_home() -> None:
     assert resolve_model_metadata.__module__ == "nano_multiagent.core.llm.model_registry"
 
 
-def test_old_llm_paths_are_compat_shims() -> None:
-    """Legacy llm modules must re-export canonical core llm objects."""
-    assert LegacyLLMClient is CoreLLMClient
-    assert LegacyLLMGenerateRequest is CoreLLMGenerateRequest
-    assert LegacyLLMGenerateResponse is CoreLLMGenerateResponse
-    assert LegacyLLMMessage is CoreLLMMessage
-    assert LegacyLLMToolCall is CoreLLMToolCall
-    assert LegacyLLMFactoryConfig is CoreLLMFactoryConfig
-    assert LegacyModelMetadata is CoreModelMetadata
-    assert LegacyCreateLLMClient is CoreCreateLLMClient
-    assert LegacyGetDefaultModel is CoreGetDefaultModel
-    assert LegacyGetDefaultBaseUrl is CoreGetDefaultBaseUrl
-    assert LegacyListSupportedProviders is CoreListSupportedProviders
-    assert LegacyListProviderModels is CoreListProviderModels
-    assert LegacyResolveModelMetadata is CoreResolveModelMetadata
-    assert LegacyDefaultProvider == CoreDefaultProvider
+
+def test_legacy_llm_root_is_removed() -> None:
+    assert find_spec("nano_multiagent.llm") is None

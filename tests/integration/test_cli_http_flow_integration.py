@@ -894,7 +894,7 @@ def test_cli_repl_allows_queueing_next_input_while_previous_async_run_is_running
 
 
 def test_cli_repl_history_wait_barrier_ignores_false_timeout_after_drain(monkeypatch) -> None:
-    from nano_multiagent.cli.app import commands as app_commands
+    from nano_multiagent.apps.coding_cli import commands as app_commands
 
     class _FalseTimeoutAfterDrainQueue:
         def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001

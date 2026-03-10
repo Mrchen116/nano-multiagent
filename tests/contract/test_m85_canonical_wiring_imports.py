@@ -1,4 +1,4 @@
-"""Import guard for M85 canonical wiring and legacy path containment."""
+"""Import guard for M88 canonical wiring after zero-residue cleanup."""
 
 from pathlib import Path
 
@@ -7,15 +7,21 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src" / "nano_multiagent"
 
 FORBIDDEN_IMPORTS = {
-    "agent/runtime.py": ("nano_multiagent.skills.workspace",),
-    "platform/tools/builtins/task.py": ("nano_multiagent.skills.workspace",),
-    "platform/http_api/app.py": ("nano_multiagent.session.service",),
-    "platform/http_api/deps.py": ("nano_multiagent.session.service",),
-    "platform/http_api/routes/session.py": ("nano_multiagent.session.service",),
-    "runs/registry.py": ("nano_multiagent.server.sse",),  # M87: legacy server.sse removed; runs wiring must stay on platform.http_api.sse.
-    "core/llm/factory.py": ("nano_multiagent.llm.protocols",),
-    "platform/llm/providers/__init__.py": ("nano_multiagent.llm.protocols",),
-    "products/local_coding/prompts.py": ("nano_multiagent.agent.prompting",),
+    "agent/loop.py": ("nano_multiagent.tools.registry",),
+    "agent/runtime.py": (
+        "nano_multiagent.skills.workspace",
+        "nano_multiagent.tools.registry",
+    ),
+    "agent/prompting.py": ("nano_multiagent.tools.builtins",),
+    "core/llm/factory.py": (
+        "nano_multiagent.llm.protocols",
+        "nano_multiagent.llm.providers",
+        "nano_multiagent.llm.translator",
+    ),
+    "products/base.py": ("nano_multiagent.tools.registry",),
+    "platform/hooks/builtins/usage_metrics.py": ("nano_multiagent.hooks.session_usage",),
+    "platform/hooks/builtins/bash_risk_gate.py": ("nano_multiagent.tools.safety",),
+    "apps/coding_cli/__init__.py": ("nano_multiagent.cli",),
 }
 
 
