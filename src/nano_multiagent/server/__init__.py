@@ -1,7 +1,8 @@
 """Compatibility shim package for the canonical platform HTTP API.
 
-Exports are resolved lazily so legacy imports like ``nano_multiagent.server.sse``
-can keep working without eagerly importing the platform HTTP app package.
+Only the package root and ``server.app`` entrypoint survive in M87 as minimal
+external-compat surface; deeper legacy route/helper modules are intentionally
+removed.
 """
 
 from importlib import import_module
