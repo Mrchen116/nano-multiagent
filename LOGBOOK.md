@@ -44,3 +44,4 @@
 - 发布脚本解释器一致性规则（2026-03-04，M54）：发布验收脚本中任何 `python -m ...` 子步骤必须复用当前解释器（`sys.executable` 或等价注入），禁止写死系统 `python3` 或用户绝对路径；否则会在多 Python 环境下出现“门禁通过但实跑缺依赖”的漂移故障。
 - 工具常量单一真源规则（2026-03-04，M73）：涉及 tool description 的默认限制值（如 `DEFAULT_MAX_LINES/DEFAULT_MAX_BYTES`）必须集中在共享常量模块，并由“文案+默认行为”共同引用；禁止一处改字符串、另一处保留旧行为导致漂移。
 - 源码字符串边界门禁规则（2026-03-10，M85）：若 contract test 直接扫描源码片段（例如禁止 `core/*` 出现 `nano_multiagent.platform`），即使放在 `TYPE_CHECKING` 里的 import 也会触发失败。需要跨层只传最小能力时，应优先在低层定义 `Protocol`/回调契约，避免把高层包名写进源码文本。
+- 兼容 facade 身份一致性规则（2026-03-10，M86）：若 legacy 模块仍需支持 `is` 身份断言、`unittest.mock.patch("legacy.path.symbol")` 或模块级 monkeypatch，就不能只做符号 re-export；应优先把 legacy 模块做成 `sys.modules[__name__] = canonical_module` 级别的模块 alias，确保 import 命中同一模块对象。
