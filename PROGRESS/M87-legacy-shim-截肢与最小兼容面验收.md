@@ -27,9 +27,9 @@
   - Entry: M87 acceptance contract 已改写为“最小保留 compatibility surface + 已删除低价值 shim family”；`server` surviving compat 收缩到 package root + `server.app`，`cli` surviving compat 收缩到 `commands/main/http_client/release_*`。
 - Rollback:
   - 最近稳定点：`9584577`
-- Commits: C1=`75a7781`, C2=`6881ff7`, C3=`pending`
+- Commits: C1=`75a7781`, C2=`6881ff7`, C3=`62ba336`
 - Next:
-  - R87.1/R87.2 已合流，继续做文档收尾与集成。
+  - R87.1/R87.2 已合流，进入最终集成。
 
 ### R87.2 删除低价值 shim family 并切回 canonical imports
 - Context:
@@ -45,7 +45,7 @@
   - `src/nano_multiagent/cli/release_playbook.py` 与 `src/nano_multiagent/cli/release_observability.py` 已改为极薄 compat shim，canonical home 分别是 `apps/coding_cli/release_playbook.py` 与 `apps/coding_cli/release_observability.py`。
 - Rollback:
   - 最近稳定点：`9584577`
-- Commits: C1=`75a7781`, C2=`6881ff7`, C3=`pending`
+- Commits: C1=`75a7781`, C2=`6881ff7`, C3=`62ba336`
 - Next:
   - 已完成删减与回线，进入 R87.3 集成收尾。
 
@@ -60,8 +60,10 @@
   - Tests: `python3 -m pytest -q` -> `605 passed, 4 skipped, 246 warnings in 20.75s`
   - Live: `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py` -> `1 passed in 4.56s`
   - Live: `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py` -> `1 passed in 6.11s`
+  - Merge: `git merge --no-ff milestone/M87 && git push origin main` -> `main` at `c46133e`
+  - Board/Cleanup: `data/dev-tasks.json` 已更新为 `DONE`，随后移除 M87 worktree 并删除本地 `milestone/M87` 分支。
 - Rollback:
-  - 最近稳定点：`9584577`
-- Commits: C1=`75a7781`, C2=`6881ff7`, C3=`pending`
+  - 最近稳定点：`62ba336`
+- Commits: C1=`75a7781`, C2=`6881ff7`, C3=`62ba336`
 - Next:
-  - 提交 M87 文档收尾，随后 merge `milestone/M87` -> `main`，更新 `data/dev-tasks.json`，并移除 M87 worktree。
+  - DONE.

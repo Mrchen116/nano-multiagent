@@ -40,7 +40,7 @@
   - C1/C2/C3 齐全
 
 ## R87.3 全量门禁、live 验证、集成与清理
-- Status: DOING
+- Status: DONE
 - Acceptance:
   - `python3 -m pytest -q` 全绿。
   - milestone relevant live tests 全绿或明确记录不支持/阻塞。
