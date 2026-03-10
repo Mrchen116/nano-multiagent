@@ -14,7 +14,8 @@
 - Worktree: `/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M88`
 
 ## R88.1 zero-residue contract 先红
-- Status: TODO
+- Status: DONE
+- Result: `fc32839` 已提交；focused red batch 在真实 M88 worktree 上得到 `16 failed, 16 passed`，失败点集中在 legacy roots 仍存在、active wiring 仍含 legacy path、架构文档仍停留在 M87 口径。
 - Acceptance:
   - 改写 acceptance/location/import-guard 测试，明确 zero-residue 目标：legacy root dirs 必须物理消失，canonical home 仅允许 `core/platform/products/apps`。
   - README / architecture doc / 相关 SPEC 文档新增 M88 零残留口径并先触发红测。
@@ -30,7 +31,8 @@
   - C1 为真实 commit hash
 
 ## R88.2 迁移 source/tests/docs 并物理删除 legacy roots
-- Status: TODO
+- Status: DONE
+- Result: `fb6e2cf` 已提交；删除 `cli/server/session/hooks/skills/llm/tools/sdk` 八个 legacy roots，并把 source/tests/docs 全量切到 canonical imports，focused 回归与 `python3 -m pytest -q` 均已转绿。
 - Acceptance:
   - source/test/doc imports 全部改到 canonical home。
   - 剩余真实实现物理搬迁完成，`src/nano_multiagent` 不再保留 legacy roots。
@@ -49,7 +51,7 @@
   - C2 为真实 commit hash
 
 ## R88.3 full sweep、live 验证、main 集成与清理
-- Status: TODO
+- Status: DOING
 - Acceptance:
   - `python3 -m pytest -q` 全绿。
   - milestone-relevant live tests 全绿，或明确记录不支持/阻塞。
