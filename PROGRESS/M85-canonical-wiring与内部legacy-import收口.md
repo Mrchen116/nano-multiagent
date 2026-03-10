@@ -48,7 +48,7 @@
   - Entry: `tests/contract/test_m85_canonical_wiring_imports.py` 证明 runtime/http_api/runs/core.llm 不再包含 legacy import；`tests/unit/test_platform_llm_providers_location.py` 证明 canonical `llm.providers.*` 与兼容 `platform.llm.providers.*`/`llm.protocols.*` 三条入口同时可用；`products/local_coding/prompts.py` 现在独立持有 prompt 文本。
 - Rollback:
   - 最近稳定点：`5c3901a`。
-- Commits: C1=`db9ac1b`, C2=`5c3901a`, C3=`TBD`
+- Commits: C1=`db9ac1b`, C2=`5c3901a`, C3=`3b68051`
 - Next:
   - 执行 R85.3：跑 live 验证，完成 main 集成、board 更新与 worktree 清理。
 
