@@ -55,15 +55,18 @@
 ### R85.3 full sweep、live 验证、main 集成与清理
 - Context:
   - 根据技能要求，DONE 前必须跑完整 sweep，并对本 milestone 相关默认 skip live tests 给出精确命令与结果，然后 merge main / update board / remove worktree。
+  - 主仓 `/Users/czj/Repos/nano-multiagent` 当前 `main` worktree 带有与 M85 无关的未提交改动，因此不能直接在该 worktree 上切换/快进 `main`；集成需要通过临时 integration branch 推到 `origin/main`，避免碰撞用户现场。
 - Decision:
-  - 待执行。
+  - 先在 milestone worktree 上完成 full sweep + 两条 live tests 取证，再把分支 push 到 `origin/milestone/M85`，随后从 `origin/main` 创建临时 integration branch 完成 merge/push。
 - Rationale:
-  - 待执行。
+  - 这样既满足 DONE 前必须有完整实跑证据，也能绕开主仓 dirty worktree 对 `main` checkout/merge 的阻塞，避免对用户未提交内容做 stash/restore 等未经授权的动作。
 - Evidence:
-  - Tests: 待补。
-  - Entry: 待补。
+  - Tests: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && /Users/czj/miniforge3/bin/python3 -m pytest -q` -> `601 passed, 4 skipped, 246 warnings in 16.33s`
+  - Tests: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 /Users/czj/miniforge3/bin/python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py` -> `1 passed in 6.17s`
+  - Tests: `cd /Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85 && NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 /Users/czj/miniforge3/bin/python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py` -> `1 passed in 8.85s`
+  - Entry: `tests/e2e/test_anthropic_generate_e2e.py` 与 `tests/e2e/test_cli_managed_live_agent_e2e.py` 均在 live 环境通过，说明 canonical wiring 未破坏 provider generate 与 CLI managed 真实入口。
 - Rollback:
-  - 最近稳定点：R85.2 的 C3。
-- Commits: C1=, C2=, C3=
+  - 最近稳定点：`808a41d`。
+- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
 - Next:
-  - 待 R85.1 / R85.2 完成后执行 full sweep、live、merge、board、cleanup。
+  - push `milestone/M85`，然后在 integration branch 上完成 merge/push、board 更新与 worktree 清理。
