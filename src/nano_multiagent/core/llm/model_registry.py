@@ -32,6 +32,15 @@ _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
         ),
     },
     "anthropic": {
+        "codexOAuth:gpt-5.2-codex": ModelMetadata(
+            provider="anthropic",
+            model="codexOAuth:gpt-5.2-codex",
+            default_base_url="http://127.0.0.1:4000",
+            supports_text=True,
+            supports_image=False,
+            supports_tools=False,
+            supports_streaming=False,
+        ),
         "claude-3-5-sonnet-20241022": ModelMetadata(
             provider="anthropic",
             model="claude-3-5-sonnet-20241022",
@@ -46,7 +55,7 @@ _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
 
 _PROVIDER_DEFAULT_MODEL: dict[str, str] = {
     "openai_compat": "codexOAuth:gpt-5.2-codex",
-    "anthropic": "claude-3-5-sonnet-20241022",
+    "anthropic": "codexOAuth:gpt-5.2-codex",
 }
 
 
