@@ -43,35 +43,38 @@ def test_cli_managed_mode_can_complete_live_agent_turn(monkeypatch: pytest.Monke
     monkeypatch.setenv("NANO_MULTIAGENT_API_TIMEOUT_SECONDS", "120")
 
     port = _pick_free_port()
-    output = io.StringIO()
-    inputs = iter(["/new", "reply one word: pong", "/exit"])
+    base_args = [
+        "--mode",
+        "managed",
+        "--base-url",
+        f"http://127.0.0.1:{port}",
+        "--token",
+        "test-token",
+        "--llm-provider",
+        "anthropic",
+        "--llm-model",
+        "codexOAuth:gpt-5.2-codex",
+        "--llm-base-url",
+        "http://127.0.0.1:4000",
+    ]
 
-    exit_code = run_cli(
-        [
-            "--mode",
-            "managed",
-            "--base-url",
-            f"http://127.0.0.1:{port}",
-            "--token",
-            "test-token",
-        ],
-        stdout=output,
-        input_fn=lambda _: next(inputs),
+    create_output = io.StringIO()
+    create_exit_code = run_cli(
+        [*base_args, "create-session", "--title", "m84-live-managed"],
+        stdout=create_output,
     )
+    assert create_exit_code == 0
+    session_payload = json.loads(create_output.getvalue())
+    session_id = str(session_payload["session_id"])
 
-    assert exit_code == 0
+    message_output = io.StringIO()
+    message_exit_code = run_cli(
+        [*base_args, "send-message", "--session-id", session_id, "--text", "reply one word: pong"],
+        stdout=message_output,
+    )
+    assert message_exit_code == 0
+    message_payload = json.loads(message_output.getvalue())
 
-    json_lines = []
-    for raw_line in output.getvalue().splitlines():
-        line = raw_line.strip()
-        if not line.startswith("{"):
-            continue
-        json_lines.append(json.loads(line))
-
-    assert len(json_lines) >= 2
-    session_payload = json_lines[0]
-    message_payload = json_lines[1]
-    assert "session_id" in session_payload
     assert message_payload.get("message", {}).get("role") == "assistant"
     content = str(message_payload.get("message", {}).get("content", "")).lower()
     assert "pong" in content

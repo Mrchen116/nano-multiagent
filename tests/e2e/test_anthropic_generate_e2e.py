@@ -28,7 +28,7 @@ def test_anthropic_non_stream_generate_against_local_proxy() -> None:
     with create_llm_client(
         config=LLMFactoryConfig(
             provider="anthropic",
-            model="claude-3-5-sonnet-20241022",
+            model="codexOAuth:gpt-5.2-codex",
             base_url="http://127.0.0.1:4000",
             api_key=None,
         )

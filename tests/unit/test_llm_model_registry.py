@@ -18,14 +18,14 @@ def test_resolve_model_metadata_has_text_capability() -> None:
 
 
 def test_anthropic_default_model_and_base_url() -> None:
-    assert get_default_model("anthropic") == "claude-3-5-sonnet-20241022"
+    assert get_default_model("anthropic") == "codexOAuth:gpt-5.2-codex"
     assert get_default_base_url("anthropic") == "http://127.0.0.1:4000"
 
 
 def test_resolve_anthropic_metadata_has_text_capability() -> None:
-    metadata = resolve_model_metadata("anthropic", "claude-3-5-sonnet-20241022")
+    metadata = resolve_model_metadata("anthropic", "codexOAuth:gpt-5.2-codex")
 
     assert metadata.provider == "anthropic"
-    assert metadata.model == "claude-3-5-sonnet-20241022"
+    assert metadata.model == "codexOAuth:gpt-5.2-codex"
     assert metadata.supports_text is True
     assert metadata.supports_streaming is False
