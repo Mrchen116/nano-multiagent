@@ -64,7 +64,7 @@
   - 所有命令/结果记录进 `PROGRESS`
   - merge / push / board / worktree cleanup 全完成
 - Evidence so far:
-  - `python3 -m pytest -q` -> `601 passed, 4 skipped, 246 warnings in 20.35s`
+  - `python3 -m pytest -q` -> `605 passed, 4 skipped, 246 warnings in 23.76s`
   - `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py` -> `1 passed in 4.09s`
   - `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py` -> `1 passed in 6.20s`
 - Remaining:
