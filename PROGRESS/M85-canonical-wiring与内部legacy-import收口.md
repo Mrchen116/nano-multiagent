@@ -29,7 +29,7 @@
   - Entry: profile 模式下 `bootstrap_product()` 暴露 resolver/session store，`create_app()` 生成的 runtime 带 `config_resolver`，且 resolver skill 可见而 `.codex`/`CODEX_HOME` legacy skill 在 profile 路径下被排除。
 - Rollback:
   - 最近稳定点：`b91a814`。
-- Commits: C1=`5f25146`, C2=`b91a814`, C3=`TBD`
+- Commits: C1=`5f25146`, C2=`b91a814`, C3=`6d8008a`
 - Next:
   - 继续执行 R85.2 的 canonical import 收口、prompt ownership 回归与 import-guard 固化。
 
