@@ -71,6 +71,6 @@
   - Entry: `git push -u origin milestone/M85` 成功；integration merge commit `2b10925ad77fc6c7ef7c517d2e902f9a74ad8229` 已 push 到 `origin/main`；`python3 /Users/czj/.codex/skills/tdd-control-tower/scripts/dev_tasks.py get --path /Users/czj/Repos/nano-multiagent/data/dev-tasks.json --milestone-id M85` 返回 `status: DONE`。
 - Rollback:
   - 最近稳定点：`2b10925`。
-- Commits: C1=`12f5dcd`, C2=`2b10925`, C3=`TBD`
+- Commits: C1=`12f5dcd`, C2=`2b10925`, C3=`fd8c12b`
 - Next:
   - 提交最终文档哈希，随后删除 `M85` / `M85-integration` worktree 与临时 integration branch。
