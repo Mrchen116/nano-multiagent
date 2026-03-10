@@ -3,11 +3,11 @@ from pathlib import Path
 
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TokenUsage, TurnResult
-from nano_multiagent.hooks.registry import HookRegistry
-from nano_multiagent.hooks.runner import HookRunner
+from nano_multiagent.core.hooks.registry import HookRegistry
+from nano_multiagent.core.hooks.runner import HookRunner
 from nano_multiagent.runs.registry import RunStatus, RunsRegistry
-from nano_multiagent.session.manager import SessionManager
-from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
+from nano_multiagent.core.session.manager import SessionManager
+from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class _RuntimeStub:

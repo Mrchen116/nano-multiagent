@@ -46,7 +46,7 @@ class HookLogger:
     ) -> None:
         self._sink = sink
         self._base_fields = dict(base_fields or {})
-        self._logger = logging.getLogger("nano_multiagent.hooks")
+        self._logger = logging.getLogger("nano_multiagent.core.hooks")
 
     def debug(self, message: str, **fields: Any) -> None:
         """Emit a debug-level hook log entry."""

@@ -2,11 +2,9 @@
 
 import os
 from dataclasses import dataclass
+from importlib import import_module
 
 import httpx
-
-from nano_multiagent.llm.providers.anthropic.client import AnthropicClient
-from nano_multiagent.llm.providers.openai_compat.client import OpenAICompatClient
 
 from .interfaces import LLMClient
 from .model_registry import (
@@ -75,20 +73,25 @@ def create_llm_client(
     metadata = resolve_model_metadata(active_config.provider, active_config.model)
 
     # Provider protocol details must not leak into agent/runtime layers.
-    if active_config.provider == "openai_compat":
-        return OpenAICompatClient(
-            base_url=active_config.base_url,
-            model=metadata.model,
-            api_key=active_config.api_key,
-            timeout_seconds=active_config.timeout_seconds,
-            transport=transport,
-        )
-    if active_config.provider == "anthropic":
-        return AnthropicClient(
-            base_url=active_config.base_url,
-            model=metadata.model,
-            api_key=active_config.api_key,
-            timeout_seconds=active_config.timeout_seconds,
-            transport=transport,
-        )
-    raise ValueError(f"unsupported llm provider: {active_config.provider}")
+    client_class = _resolve_client_class(active_config.provider)
+    return client_class(
+        base_url=active_config.base_url,
+        model=metadata.model,
+        api_key=active_config.api_key,
+        timeout_seconds=active_config.timeout_seconds,
+        transport=transport,
+    )
+
+
+def _resolve_client_class(provider: str) -> type[LLMClient]:
+    if provider == "openai_compat":
+        module = import_module(_provider_module_path("openai_compat"))
+        return module.OpenAICompatClient
+    if provider == "anthropic":
+        module = import_module(_provider_module_path("anthropic"))
+        return module.AnthropicClient
+    raise ValueError(f"unsupported llm provider: {provider}")
+
+
+def _provider_module_path(provider: str) -> str:
+    return ".".join(("nano_multiagent", "platform", "llm", "providers", provider, "client"))

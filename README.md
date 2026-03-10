@@ -14,13 +14,13 @@ pip install -e ".[dev]"
 
 ```bash
 export NANO_MULTIAGENT_API_TOKEN=test-token
-uvicorn nano_multiagent.server.app:app --reload
+uvicorn nano_multiagent.platform.http_api.app:app --reload
 ```
 
 If you are not using editable install, run server with:
 
 ```bash
-PYTHONPATH=src uvicorn nano_multiagent.server.app:app --reload
+PYTHONPATH=src uvicorn nano_multiagent.platform.http_api.app:app --reload
 ```
 
 ## CLI
@@ -30,7 +30,7 @@ PYTHONPATH=src uvicorn nano_multiagent.server.app:app --reload
 Managed mode (CLI starts/stops local API automatically):
 
 ```bash
-python3 -m nano_multiagent.cli.main \
+python3 -m nano_multiagent.apps.coding_cli.main \
   --mode managed \
   --base-url http://127.0.0.1:8000 \
   --token test-token
@@ -39,7 +39,7 @@ python3 -m nano_multiagent.cli.main \
 Managed mode can inject LLM runtime config into the managed API process:
 
 ```bash
-python3 -m nano_multiagent.cli.main \
+python3 -m nano_multiagent.apps.coding_cli.main \
   --mode managed \
   --base-url http://127.0.0.1:8000 \
   --token test-token \
@@ -55,7 +55,7 @@ python3 -m nano_multiagent.cli.main \
 Remote mode (connect existing API, never starts local process):
 
 ```bash
-python3 -m nano_multiagent.cli.main \
+python3 -m nano_multiagent.apps.coding_cli.main \
   --mode remote \
   --base-url http://127.0.0.1:8000 \
   --token test-token
@@ -64,7 +64,7 @@ python3 -m nano_multiagent.cli.main \
 If you are not using editable install, run with `PYTHONPATH=src`:
 
 ```bash
-PYTHONPATH=src python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token
+PYTHONPATH=src python3 -m nano_multiagent.apps.coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token
 ```
 
 ### REPL commands
@@ -116,7 +116,7 @@ Use `release_observability` to translate perf snapshots into actionable diagnost
 
 ```bash
 PYTHONPATH=src python3 - <<'PY'
-from nano_multiagent.cli.release_observability import summarize_perf_metrics, build_guardrail_hints
+from nano_multiagent.apps.coding_cli.release_observability import summarize_perf_metrics, build_guardrail_hints
 
 metrics = {
     "batches": 3,
@@ -143,7 +143,7 @@ PY
 Render release steps without executing them:
 
 ```bash
-PYTHONPATH=src python3 -m nano_multiagent.cli.release_playbook \
+PYTHONPATH=src python3 -m nano_multiagent.apps.coding_cli.release_playbook \
   --base-url http://127.0.0.1:8003 \
   --token test-token
 ```
@@ -151,7 +151,7 @@ PYTHONPATH=src python3 -m nano_multiagent.cli.release_playbook \
 Execute acceptance steps (CLI gate + managed smoke):
 
 ```bash
-PYTHONPATH=src python3 -m nano_multiagent.cli.release_playbook \
+PYTHONPATH=src python3 -m nano_multiagent.apps.coding_cli.release_playbook \
   --base-url http://127.0.0.1:8003 \
   --token test-token \
   --execute
@@ -167,11 +167,11 @@ Playbook output is JSON and includes:
 ### Non-interactive commands
 
 ```bash
-python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token health
-python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token create-session --title "demo"
-python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token send-message --session-id <session_id> --text "hello"
-python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token llm-config get
-python3 -m nano_multiagent.cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token llm-config set --provider anthropic --model claude-3-5-sonnet-20241022 --base-url http://127.0.0.1:4100 --timeout-seconds 60
+python3 -m nano_multiagent.apps.coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token health
+python3 -m nano_multiagent.apps.coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token create-session --title "demo"
+python3 -m nano_multiagent.apps.coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token send-message --session-id <session_id> --text "hello"
+python3 -m nano_multiagent.apps.coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token llm-config get
+python3 -m nano_multiagent.apps.coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token llm-config set --provider anthropic --model claude-3-5-sonnet-20241022 --base-url http://127.0.0.1:4100 --timeout-seconds 60
 ```
 
 ### Environment variables

@@ -2,10 +2,10 @@ import io
 
 import httpx
 
-from nano_multiagent.cli.main import run_cli
+from nano_multiagent.apps.coding_cli.main import run_cli
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.server.app import create_app
+from nano_multiagent.platform.http_api.app import create_app
 
 
 class _RetryThenSuccessRuntime:
@@ -38,7 +38,7 @@ def test_cli_repl_http_chain_surfaces_retry_progress_events(monkeypatch) -> None
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.cli.http_client import ServerClient
+        from nano_multiagent.platform.sdk.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 

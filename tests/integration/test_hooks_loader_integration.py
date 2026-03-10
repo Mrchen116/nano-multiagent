@@ -1,9 +1,9 @@
 import asyncio
 from pathlib import Path
 
-from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.hooks.loader import load_hooks_from_directories
-from nano_multiagent.hooks.runner import HookRunner
+from nano_multiagent.core.hooks.context import HookContext
+from nano_multiagent.platform.hooks.loader import load_hooks_from_directories
+from nano_multiagent.core.hooks.runner import HookRunner
 
 
 def test_loader_uses_builtin_then_workspace_order_for_same_priority(tmp_path: Path) -> None:

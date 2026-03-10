@@ -2,9 +2,9 @@ from pathlib import Path
 
 from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
 from nano_multiagent.agent.runtime import AgentRuntime
-from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
-from nano_multiagent.session.manager import SessionManager
-from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
+from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from nano_multiagent.core.session.manager import SessionManager
+from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class CapturePromptLLM:

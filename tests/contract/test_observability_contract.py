@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from nano_multiagent.observability.logger import capture_logs
-from nano_multiagent.server.app import create_app
+from nano_multiagent.platform.http_api.app import create_app
 
 
 REQUIRED = {"session_id", "turn_id", "tool_call_id", "trace_id"}

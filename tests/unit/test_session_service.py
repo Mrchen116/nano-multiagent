@@ -1,4 +1,4 @@
-from nano_multiagent.session.service import SessionService
+from nano_multiagent.platform.persistence.session.service import SessionService
 
 
 def test_create_session_generates_prefixed_id() -> None:

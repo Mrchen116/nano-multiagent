@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from nano_multiagent.hooks.registry import HookRegistry
+from nano_multiagent.core.hooks.registry import HookRegistry
 from nano_multiagent.platform.http_api.routes.hook import build_event_descriptors, build_hook_descriptors
 
 

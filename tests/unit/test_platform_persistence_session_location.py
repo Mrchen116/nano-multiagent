@@ -20,20 +20,20 @@ from nano_multiagent.platform.persistence.session.jsonl_store import (
 from nano_multiagent.platform.persistence.session.sqlite_store import (
     SQLiteSessionStore as PlatformSQLiteSessionStore,
 )
-from nano_multiagent.session.stores import (
+from nano_multiagent.platform.persistence.session import (
     JsonlSessionStore as LegacyJsonlSessionStore,
     LoadedSession as LegacyLoadedSession,
     SQLiteSessionStore as LegacySQLiteSessionStore,
     SessionStore as LegacySessionStore,
 )
-from nano_multiagent.session.stores.base import (
+from nano_multiagent.core.session.store import (
     LoadedSession as LegacyLoadedSessionBase,
 )
-from nano_multiagent.session.stores.base import SessionStore as LegacySessionStoreBase
-from nano_multiagent.session.stores.jsonl_store import (
+from nano_multiagent.core.session.store import SessionStore as LegacySessionStoreBase
+from nano_multiagent.platform.persistence.session.jsonl_store import (
     JsonlSessionStore as LegacyJsonlSessionStoreModule,
 )
-from nano_multiagent.session.stores.sqlite_store import (
+from nano_multiagent.platform.persistence.session.sqlite_store import (
     SQLiteSessionStore as LegacySQLiteSessionStoreModule,
 )
 

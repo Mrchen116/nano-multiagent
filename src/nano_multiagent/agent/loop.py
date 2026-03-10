@@ -11,7 +11,7 @@ from nano_multiagent.core.hooks.context import HookContext
 from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
 from nano_multiagent.core.skills.registry import SkillMetadata
-from nano_multiagent.tools.registry import ToolRegistry
+from nano_multiagent.platform.tools.registry import ToolRegistry
 
 from .policies import AgentPolicies
 from .prompting import build_prompt_messages

@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from nano_multiagent.core.errors import ModelError
-from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMMessage
-from nano_multiagent.llm.protocols.anthropic.mapper import AnthropicMapper
+from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from nano_multiagent.platform.llm.providers.anthropic.mapper import AnthropicMapper
 
 
 def _request(*, messages: tuple[LLMMessage, ...], max_tokens: int | None = None) -> LLMGenerateRequest:

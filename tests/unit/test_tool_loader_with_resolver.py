@@ -8,7 +8,7 @@ from pathlib import Path
 
 from nano_multiagent.platform.config.resolver import ConfigResolver
 from nano_multiagent.products.base import ProductProfile
-from nano_multiagent.tools.loader import build_tool_registry
+from nano_multiagent.platform.tools.loader import build_tool_registry
 
 
 def _make_resolver(global_home: Path, workspace_root: Path | None = None) -> ConfigResolver:

@@ -18,11 +18,11 @@ from nano_multiagent.core.session.store import LoadedSession as CoreLoadedSessio
 from nano_multiagent.core.session.store import SessionStore as CoreSessionStore
 from nano_multiagent.platform.persistence.session.base import LoadedSession as PlatformLoadedSession
 from nano_multiagent.platform.persistence.session.base import SessionStore as PlatformSessionStore
-from nano_multiagent.session.entries import CompactionEntry as LegacyCompactionEntry
-from nano_multiagent.session.entries import SessionEntry as LegacySessionEntry
-from nano_multiagent.session.entries import SessionEntryKind as LegacySessionEntryKind
-from nano_multiagent.session.manager import SessionManager as LegacySessionManager
-from nano_multiagent.session.models import Session as LegacySession
+from nano_multiagent.core.session.entries import CompactionEntry as LegacyCompactionEntry
+from nano_multiagent.core.session.entries import SessionEntry as LegacySessionEntry
+from nano_multiagent.core.session.entries import SessionEntryKind as LegacySessionEntryKind
+from nano_multiagent.core.session.manager import SessionManager as LegacySessionManager
+from nano_multiagent.core.session.models import Session as LegacySession
 
 
 def test_core_session_is_canonical_home() -> None:

@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from nano_multiagent.session.entries import SessionEntryKind
-from nano_multiagent.session.service import SessionService
-from nano_multiagent.session.stores.sqlite_store import SQLiteSessionStore
+from nano_multiagent.core.session.entries import SessionEntryKind
+from nano_multiagent.platform.persistence.session.service import SessionService
+from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 def test_session_service_can_rebuild_session_after_store_reopen(tmp_path: Path) -> None:

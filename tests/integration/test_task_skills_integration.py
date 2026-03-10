@@ -5,8 +5,8 @@ import pytest
 
 from nano_multiagent.core.errors import ToolError
 from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.server.app import create_app
+from nano_multiagent.core.hooks.context import HookContext
+from nano_multiagent.platform.http_api.app import create_app
 
 
 @dataclass(frozen=True, slots=True)

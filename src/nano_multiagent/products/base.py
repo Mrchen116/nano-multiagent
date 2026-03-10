@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from nano_multiagent.core.hooks.registry import HookRegistry
     from nano_multiagent.core.session.store import SessionStore
     from nano_multiagent.platform.config.resolver import ConfigResolver
-    from nano_multiagent.tools.registry import ToolRegistry
+    from nano_multiagent.platform.tools.registry import ToolRegistry
 
 
 @dataclass

@@ -1,7 +1,7 @@
 from dataclasses import fields
 
 from nano_multiagent.agent.runtime import AgentRuntime
-from nano_multiagent.session.entries import SessionEntry, new_turn_appended_entry
+from nano_multiagent.core.session.entries import SessionEntry, new_turn_appended_entry
 
 
 def test_runtime_public_methods_are_stable() -> None:

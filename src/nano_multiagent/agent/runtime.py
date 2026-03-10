@@ -31,7 +31,7 @@ from .state import AgentState, InputPart, parse_input_parts, render_user_text
 if TYPE_CHECKING:
     from nano_multiagent.core.hooks.registry import HookRegistry
     from nano_multiagent.platform.config.resolver import ConfigResolver
-    from nano_multiagent.tools.registry import ToolRegistry
+    from nano_multiagent.platform.tools.registry import ToolRegistry
 
 
 class AgentRuntime:

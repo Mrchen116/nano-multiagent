@@ -6,8 +6,8 @@ import pytest
 
 from nano_multiagent.core.errors import ToolError
 from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.tools.base import ToolContext
-from nano_multiagent.tools.builtins.task import TaskTool
+from nano_multiagent.platform.tools.base import ToolContext
+from nano_multiagent.platform.tools.builtins.task import TaskTool
 
 
 @dataclass(frozen=True, slots=True)

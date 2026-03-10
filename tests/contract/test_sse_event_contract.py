@@ -4,11 +4,11 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.hooks.loader import build_hook_registry
-from nano_multiagent.hooks.runner import HookRunner
-from nano_multiagent.hooks.session_events import get_session_event_publisher
-from nano_multiagent.server.app import create_app
+from nano_multiagent.core.hooks.context import HookContext
+from nano_multiagent.platform.hooks.loader import build_hook_registry
+from nano_multiagent.core.hooks.runner import HookRunner
+from nano_multiagent.platform.hooks.session_events import get_session_event_publisher
+from nano_multiagent.platform.http_api.app import create_app
 
 
 class _RuntimeStub:

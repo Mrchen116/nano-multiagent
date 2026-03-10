@@ -4,9 +4,9 @@ import signal
 import pytest
 
 from nano_multiagent.core.errors import ToolError
-from nano_multiagent.tools.base import ToolContext
-from nano_multiagent.tools.builtins.bash import BashTool
-from nano_multiagent.tools.safety import ToolSafetyConfig
+from nano_multiagent.platform.tools.base import ToolContext
+from nano_multiagent.platform.tools.builtins.bash import BashTool
+from nano_multiagent.platform.tools.safety import ToolSafetyConfig
 
 
 def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolContext:

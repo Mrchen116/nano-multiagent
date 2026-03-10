@@ -9,7 +9,7 @@ from nano_multiagent.core.llm.interfaces import LLMMessage, LLMToolCall
 from nano_multiagent.core.skills.formatter import format_available_skills_section
 from nano_multiagent.core.skills.registry import SkillMetadata
 from nano_multiagent.products.local_coding.prompts import LOCAL_CODING_SYSTEM_PROMPT
-from nano_multiagent.tools.builtins import builtin_tools
+from nano_multiagent.platform.tools.builtins import builtin_tools
 
 # Compatibility alias: the local_coding product now owns the canonical prompt text.
 CODING_SYSTEM_PROMPT = LOCAL_CODING_SYSTEM_PROMPT

@@ -1,7 +1,7 @@
 from dataclasses import fields, is_dataclass
 
 from nano_multiagent.core.types import ToolSpec
-from nano_multiagent.llm.interfaces import (
+from nano_multiagent.core.llm.interfaces import (
     LLMClient,
     LLMGenerateRequest,
     LLMGenerateResponse,

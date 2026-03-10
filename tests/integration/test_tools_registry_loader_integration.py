@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 
 from nano_multiagent.core.errors import ToolError
-from nano_multiagent.tools.base import ToolContext
-from nano_multiagent.tools.loader import discover_tool_files, load_tools_from_directory
-from nano_multiagent.tools.registry import ToolRegistry
+from nano_multiagent.platform.tools.base import ToolContext
+from nano_multiagent.platform.tools.loader import discover_tool_files, load_tools_from_directory
+from nano_multiagent.platform.tools.registry import ToolRegistry
 
 
 class EchoTool:

@@ -2,10 +2,10 @@ from nano_multiagent.agent.loop import AgentLoop
 from nano_multiagent.agent.policies import AgentPolicies
 from nano_multiagent.agent.state import AgentState, InputPart
 from nano_multiagent.core.types import TokenUsage, ToolSpec
-from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.hooks.registry import HookRegistry
-from nano_multiagent.hooks.runner import HookRunner
-from nano_multiagent.llm.interfaces import (
+from nano_multiagent.core.hooks.context import HookContext
+from nano_multiagent.core.hooks.registry import HookRegistry
+from nano_multiagent.core.hooks.runner import HookRunner
+from nano_multiagent.core.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
     LLMMessage,

@@ -1,7 +1,6 @@
 """Stable application surface for the coding CLI package.
 
-This package exposes the supported apps-level entrypoints for the coding CLI
-while keeping legacy ``nano_multiagent.cli`` imports as compatibility facades.
+This package exposes the supported apps-level entrypoints for the coding CLI.
 """
 
 from nano_multiagent.apps.coding_cli.client import ServerClient, ServerClientConfig

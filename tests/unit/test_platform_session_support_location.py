@@ -1,5 +1,7 @@
 """Verify platform session support modules are the canonical home for wiring helpers."""
 
+from importlib.util import find_spec
+
 from nano_multiagent.platform.persistence.session.serializers import (
     deserialize_entry,
     deserialize_snapshot,
@@ -7,15 +9,7 @@ from nano_multiagent.platform.persistence.session.serializers import (
     serialize_snapshot,
 )
 from nano_multiagent.platform.persistence.session.service import SessionService
-from nano_multiagent.session.serializers import (
-    deserialize_entry as legacy_deserialize_entry,
-)
-from nano_multiagent.session.serializers import (
-    deserialize_snapshot as legacy_deserialize_snapshot,
-)
-from nano_multiagent.session.serializers import serialize_entry as legacy_serialize_entry
-from nano_multiagent.session.serializers import serialize_snapshot as legacy_serialize_snapshot
-from nano_multiagent.session.service import SessionService as LegacySessionService
+
 
 
 def test_platform_session_support_modules_are_canonical_home() -> None:
@@ -27,9 +21,5 @@ def test_platform_session_support_modules_are_canonical_home() -> None:
 
 
 
-def test_old_session_support_paths_are_compat_shims() -> None:
-    assert LegacySessionService is SessionService
-    assert legacy_serialize_entry is serialize_entry
-    assert legacy_deserialize_entry is deserialize_entry
-    assert legacy_serialize_snapshot is serialize_snapshot
-    assert legacy_deserialize_snapshot is deserialize_snapshot
+def test_legacy_session_root_is_removed() -> None:
+    assert find_spec("nano_multiagent.session") is None

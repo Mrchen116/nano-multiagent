@@ -4,14 +4,14 @@ import pytest
 
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.core.errors import ToolError
-from nano_multiagent.hooks.context import HookContext
-from nano_multiagent.hooks.loader import load_hooks_from_directories
-from nano_multiagent.hooks.runner import HookRunner
-from nano_multiagent.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
-from nano_multiagent.session.manager import SessionManager
-from nano_multiagent.session.stores.base import LoadedSession, SessionStore
-from nano_multiagent.tools.base import ToolContext
-from nano_multiagent.tools.registry import ToolRegistry
+from nano_multiagent.core.hooks.context import HookContext
+from nano_multiagent.platform.hooks.loader import load_hooks_from_directories
+from nano_multiagent.core.hooks.runner import HookRunner
+from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from nano_multiagent.core.session.manager import SessionManager
+from nano_multiagent.core.session.store import LoadedSession, SessionStore
+from nano_multiagent.platform.tools.base import ToolContext
+from nano_multiagent.platform.tools.registry import ToolRegistry
 
 
 class InMemorySessionStore(SessionStore):
