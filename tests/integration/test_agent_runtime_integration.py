@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 
 import nano_multiagent.agent.prompting as prompting_module
-import nano_multiagent.session.manager as session_manager_module
+import nano_multiagent.core.session.manager as session_manager_module
 from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
 from nano_multiagent.agent.runtime import AgentRuntime
 from nano_multiagent.llm.factory import LLMFactoryConfig, create_llm_client

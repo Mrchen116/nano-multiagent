@@ -12,6 +12,11 @@ from nano_multiagent.server.deps import APIError
 from nano_multiagent.server.routes.session import _to_message_response
 
 
+def test_server_session_shim_reexports_context_budget_constant() -> None:
+    assert _CONTEXT_BUDGET_MAX_TOKENS > 0
+
+
+
 def test_to_message_response_uses_assistant_message_contract() -> None:
     result = TurnResult(
         session_id="sess_unit",

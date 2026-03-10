@@ -46,6 +46,7 @@ def test_llm_generate_response_contract() -> None:
         "model",
         "message",
         "finish_reason",
+        "usage",
         "raw",
     ]
 

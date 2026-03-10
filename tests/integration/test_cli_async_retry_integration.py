@@ -53,8 +53,7 @@ def test_cli_repl_http_chain_surfaces_retry_progress_events(monkeypatch) -> None
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "status=running" in text
-    assert "attempt=1" in text
-    assert "next_delay=0.5s" in text
-    assert "last_error=model_error:upstream flaky #1" in text
-    assert "status=completed" in text
+    assert "State: completed | stop=completed | run=" in text
+    assert "Progress: retrying (attempt 2, next 1.0s, last error model_error: upstream flaky #2)" in text
+    assert "Assistant:" in text
+    assert "ok" in text

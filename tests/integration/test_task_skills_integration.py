@@ -81,8 +81,8 @@ def test_task_continuation_can_skip_selector(tmp_path: Path) -> None:
         hook_context=HookContext(session_id="sess_main", repo_root=tmp_path),
     )
 
-    assert result["status"] == "completed"
-    assert result["session_id"] == "sess_existing_task"
+    assert "Task continued and completed" in result["result"]
+    assert "session_id: sess_existing_task" in result["result"]
     assert runtime.created == 0
 
 

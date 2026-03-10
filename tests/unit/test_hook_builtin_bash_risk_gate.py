@@ -41,7 +41,8 @@ def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(tmp_pa
         ),
     )
 
-    assert result["exit_code"] == 0
+    assert result["exitCode"] == 0
+    assert "Darwin" in str(result["content"])
     assert captured["session_id"] == "sess-risk-1"
     assert str(captured["user_prompt"]).endswith("command: uname -s")
 

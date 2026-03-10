@@ -42,4 +42,5 @@ def test_turn_result_contract_fields_are_stable() -> None:
         "tool_results",
         "completed",
         "stop_reason",
+        "usage",
     ]
