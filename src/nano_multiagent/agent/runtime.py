@@ -10,7 +10,7 @@ from nano_multiagent.core.ids import make_message_id, make_turn_id
 from nano_multiagent.core.types import Message, ToolCall, ToolResult, TurnResult
 from nano_multiagent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
-from nano_multiagent.hooks.session_events import get_session_event_publisher
+from nano_multiagent.platform.hooks.session_events import get_session_event_publisher
 from nano_multiagent.core.llm.factory import LLMFactoryConfig, create_llm_client
 from nano_multiagent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from nano_multiagent.core.session.entries import SessionEntry

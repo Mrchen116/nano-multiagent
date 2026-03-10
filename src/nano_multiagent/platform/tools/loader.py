@@ -9,8 +9,8 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from nano_multiagent.core.hooks.runner import HookRunner
-from nano_multiagent.tools.base import Tool, ToolContext
-from nano_multiagent.tools.registry import ToolRegistry
+from .base import Tool, ToolContext
+from .registry import ToolRegistry
 
 from .builtins import register_builtin_tools
 from .safety import load_tool_safety_config

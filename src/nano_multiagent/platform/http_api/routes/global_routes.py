@@ -14,7 +14,7 @@ from nano_multiagent.core.llm.model_registry import (
     list_provider_models,
     list_supported_providers,
 )
-from nano_multiagent.tools.registry import ToolRegistry
+from nano_multiagent.platform.tools.registry import ToolRegistry
 
 from ..auth import require_bearer_auth
 from ..deps import APIError, get_agent_runtime, get_tool_registry

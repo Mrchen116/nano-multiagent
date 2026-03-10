@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any, Mapping
 
-from nano_multiagent.tools.base import ToolContext
+from nano_multiagent.platform.tools.base import ToolContext
 
 
 class WriteTool:

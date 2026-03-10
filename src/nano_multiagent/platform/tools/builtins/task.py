@@ -10,7 +10,7 @@ from nano_multiagent.core.ids import make_tool_call_id
 from nano_multiagent.core.skills import resolve_available_skills
 from nano_multiagent.core.types import Message, TurnResult
 
-from nano_multiagent.tools.base import ToolContext
+from nano_multiagent.platform.tools.base import ToolContext
 
 
 class TaskRuntime(Protocol):

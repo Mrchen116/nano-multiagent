@@ -1,3 +1,7 @@
-"""Compatibility facade for CLI turn-usage render helpers."""
+"""Compatibility alias exposing canonical apps-level turn usage helpers."""
 
-from nano_multiagent.cli.render.turn_usage import *  # noqa: F401,F403
+import sys
+
+from nano_multiagent.apps.coding_cli.render import turn_usage as _turn_usage
+
+sys.modules[__name__] = _turn_usage

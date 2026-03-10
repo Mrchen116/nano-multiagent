@@ -1,11 +1,9 @@
-"""Shared tool output limits aligned with upstream coding-agent defaults.
+"""Compatibility shim for canonical platform tool constants."""
 
-Source of truth (upstream):
-- /Users/czj/Repos/opencode-hub/pi-mono/packages/coding-agent/src/core/tools/truncate.ts
-  - DEFAULT_MAX_LINES = 2000
-  - DEFAULT_MAX_BYTES = 50 * 1024
-"""
+from nano_multiagent.platform.tools.constants import (
+    DEFAULT_MAX_BYTES,
+    DEFAULT_MAX_KILOBYTES,
+    DEFAULT_MAX_LINES,
+)
 
-DEFAULT_MAX_LINES = 2000
-DEFAULT_MAX_BYTES = 50 * 1024
-DEFAULT_MAX_KILOBYTES = DEFAULT_MAX_BYTES // 1024
+__all__ = ["DEFAULT_MAX_LINES", "DEFAULT_MAX_BYTES", "DEFAULT_MAX_KILOBYTES"]

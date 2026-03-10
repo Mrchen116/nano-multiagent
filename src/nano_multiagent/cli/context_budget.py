@@ -1,3 +1,7 @@
-"""Compatibility facade for CLI context-budget render helpers."""
+"""Compatibility alias exposing canonical apps-level context budget helpers."""
 
-from nano_multiagent.cli.render.context_budget import *  # noqa: F401,F403
+import sys
+
+from nano_multiagent.apps.coding_cli.render import context_budget as _context_budget
+
+sys.modules[__name__] = _context_budget

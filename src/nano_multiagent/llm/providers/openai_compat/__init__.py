@@ -1,6 +1,7 @@
-"""Canonical OpenAI-compatible provider adapter exports."""
+"""Compatibility alias exposing canonical OpenAI-compatible provider package."""
 
-from .client import OpenAICompatClient, _should_trust_env
-from .mapper import OpenAICompatMapper
+import sys
 
-__all__ = ["OpenAICompatClient", "OpenAICompatMapper", "_should_trust_env"]
+from nano_multiagent.platform.llm.providers import openai_compat as _platform_openai_compat
+
+sys.modules[__name__] = _platform_openai_compat

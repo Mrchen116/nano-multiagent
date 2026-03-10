@@ -13,7 +13,7 @@ from typing import Any, Callable, Mapping
 
 from nano_multiagent.core.errors import ToolError
 
-from nano_multiagent.tools.constants import DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES
+from .constants import DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES
 
 
 @dataclass(frozen=True, slots=True)
