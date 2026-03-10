@@ -7,8 +7,8 @@ from typing import Any, Mapping, Protocol
 
 from nano_multiagent.core.errors import ToolError
 from nano_multiagent.core.ids import make_tool_call_id
+from nano_multiagent.core.skills import resolve_available_skills
 from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.skills.workspace import resolve_available_skills
 
 from ..base import ToolContext
 
@@ -114,6 +114,11 @@ class TaskTool:
         self._idempotent_results: dict[str, str] = {}
         self._task_results: dict[str, str] = {}
         self._lock = Lock()
+
+    def bind_runtime(self, runtime: TaskRuntime | None) -> None:
+        """Bind runtime after bootstrap when the tool registry was prebuilt."""
+
+        self._runtime = runtime
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> str:
         """Execute one task request in blocking or non-blocking mode."""
@@ -355,6 +360,7 @@ class TaskTool:
         available = resolve_available_skills(
             workspace_root=ctx.repo_root,
             include_names=load_skills,
+            config_resolver=getattr(self._runtime, "config_resolver", None),
         )
         available_names = {skill.name for skill in available}
         missing_skills = [name for name in load_skills if name not in available_names]

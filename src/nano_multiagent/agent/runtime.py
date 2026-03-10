@@ -16,8 +16,7 @@ from nano_multiagent.core.llm.interfaces import LLMClient, LLMGenerateRequest, L
 from nano_multiagent.core.session.entries import SessionEntry
 from nano_multiagent.core.session.manager import SessionManager
 from nano_multiagent.core.session.models import Session
-from nano_multiagent.core.skills.registry import SkillMetadata
-from nano_multiagent.skills.workspace import resolve_available_skills
+from nano_multiagent.core.skills import SkillMetadata, resolve_available_skills
 
 from .compaction.applier import CompactionApplier
 from .compaction.planner import CompactionPlanner
@@ -31,6 +30,7 @@ from .state import AgentState, InputPart, parse_input_parts, render_user_text
 
 if TYPE_CHECKING:
     from nano_multiagent.core.hooks.registry import HookRegistry
+    from nano_multiagent.platform.config.resolver import ConfigResolver
     from nano_multiagent.tools.registry import ToolRegistry
 
 
@@ -50,6 +50,7 @@ class AgentRuntime:
         compaction_settings: CompactionSettings | None = None,
         tool_registry: "ToolRegistry | None" = None,
         system_prompt: str | None = None,
+        config_resolver: "ConfigResolver | None" = None,
     ) -> None:
         env_llm_config = LLMFactoryConfig.from_env()
         self._llm_config = LLMFactoryConfig(
@@ -63,11 +64,15 @@ class AgentRuntime:
         self._llm_client = active_llm_client
         self._hook_runner = hook_runner
         self._repo_root = (repo_root or Path.cwd()).expanduser().resolve()
+        self._config_resolver = config_resolver
         self._compaction_settings = compaction_settings or CompactionSettings()
         resolved_skills = (
             tuple(available_skills)
             if available_skills is not None
-            else resolve_available_skills(workspace_root=self._repo_root)
+            else resolve_available_skills(
+                workspace_root=self._repo_root,
+                config_resolver=self._config_resolver,
+            )
         )
         self._session_manager = session_manager
         # system_prompt=None uses AgentLoop's empty-string default; callers that
@@ -357,6 +362,12 @@ class AgentRuntime:
         """Expose active hook runner."""
 
         return self._hook_runner
+
+    @property
+    def config_resolver(self) -> "ConfigResolver | None":
+        """Expose the resolver used for product-owned workspace/global paths."""
+
+        return self._config_resolver
 
     @property
     def hook_registry(self) -> "HookRegistry | None":

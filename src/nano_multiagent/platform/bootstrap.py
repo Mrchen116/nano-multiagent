@@ -12,7 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from nano_multiagent.core.hooks.registry import HookRegistry
+from nano_multiagent.platform.config.resolver import ConfigResolver
 from nano_multiagent.platform.hooks.loader import build_hook_registry
+from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 from nano_multiagent.platform.tools.loader import build_tool_registry
 from nano_multiagent.tools.registry import ToolRegistry
 
@@ -43,6 +45,9 @@ def bootstrap_product(
     """
 
     resolved_root = Path(repo_root).expanduser().resolve()
+    config_resolver = None
+    if profile.global_config_home is not None:
+        config_resolver = ConfigResolver(profile=profile, workspace_root=resolved_root)
 
     # Use profile's declared prompt; empty string signals "no product prompt set".
     # Callers (server/runtime) should supply a product profile with a non-empty
@@ -53,7 +58,10 @@ def bootstrap_product(
     # Build hook registry.  When default_hook_modules is declared, only the
     # specified module stems (e.g. "bash_risk_gate") are retained; otherwise
     # all built-in hooks are loaded (None = platform default "load all").
-    full_hook_registry = build_hook_registry(repo_root=resolved_root)
+    full_hook_registry = build_hook_registry(
+        repo_root=resolved_root,
+        config_resolver=config_resolver,
+    )
     if profile.default_hook_modules is not None:
         hook_registry = _filter_hook_registry(full_hook_registry, profile.default_hook_modules)
     else:
@@ -66,20 +74,24 @@ def bootstrap_product(
         repo_root=resolved_root,
         hook_runner=None,
         runtime=None,
+        config_resolver=config_resolver,
     )
     if profile.default_tool_ids is not None:
         tool_registry = _filter_tool_registry(full_tool_registry, profile.default_tool_ids)
     else:
         tool_registry = full_tool_registry
 
-    # session_store=None: M74 scope only introduces the seam; M75 will wire
-    # product-specific SQLite paths based on config_namespace.
+    session_store = None
+    if config_resolver is not None:
+        session_store = SQLiteSessionStore(db_path=config_resolver.session_db_path())
+
     return ResolvedProductConfig(
         product_id=profile.product_id,
         resolved_system_prompt=resolved_system_prompt,
         tool_registry=tool_registry,
         hook_registry=hook_registry,
-        session_store=None,
+        session_store=session_store,
+        config_resolver=config_resolver,
     )
 
 

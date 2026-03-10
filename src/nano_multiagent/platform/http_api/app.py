@@ -20,7 +20,7 @@ from nano_multiagent.observability.logger import log_error
 from nano_multiagent.observability.tracing import bind_correlation
 from nano_multiagent.platform.http_api.sse import EventStreamHub
 from nano_multiagent.runs.registry import RunsRegistry
-from nano_multiagent.session.service import SessionService
+from nano_multiagent.session import SessionService
 from nano_multiagent.platform.persistence.session.base import SessionStore
 from nano_multiagent.platform.tools.loader import build_tool_registry
 from nano_multiagent.tools.registry import ToolRegistry
@@ -77,6 +77,7 @@ def create_app(
     # Explicit registry args (tool_registry / hook_registry) take precedence
     # over profile-resolved ones, matching the principle of "explicit > profile > defaults".
     resolved_system_prompt: str | None = None
+    resolved_config_resolver = None
     if product_profile is not None:
         from nano_multiagent.platform.bootstrap import bootstrap_product
 
@@ -84,10 +85,13 @@ def create_app(
             profile=product_profile,
             repo_root=resolved_repo_root,
         )
+        resolved_config_resolver = resolved_product.config_resolver
         if tool_registry is None:
             tool_registry = resolved_product.tool_registry
         if hook_registry is None:
             hook_registry = resolved_product.hook_registry
+        if session_store is None and resolved_product.session_store is not None:
+            session_store = resolved_product.session_store
         # Inject the product-specific system prompt into the runtime.
         # Empty string means "no prompt declared"; keep None so the runtime
         # uses its own empty-string default rather than setting empty explicitly.
@@ -96,11 +100,16 @@ def create_app(
     session_service = SessionService(store=session_store, profile=product_profile)
     app.state.session_service = session_service
     if runtime is None:
-        active_hook_registry = hook_registry or build_hook_registry(repo_root=resolved_repo_root)
+        active_hook_registry = hook_registry or build_hook_registry(
+            repo_root=resolved_repo_root,
+            config_resolver=resolved_config_resolver,
+        )
         active_hook_runner = HookRunner(registry=active_hook_registry)
         runtime_kwargs: dict = {}
         if resolved_system_prompt is not None:
             runtime_kwargs["system_prompt"] = resolved_system_prompt
+        if resolved_config_resolver is not None:
+            runtime_kwargs["config_resolver"] = resolved_config_resolver
         active_runtime = AgentRuntime(
             session_manager=session_service.manager,
             hook_runner=active_hook_runner,
@@ -111,8 +120,10 @@ def create_app(
         active_runtime = runtime
         runtime_hook_registry = getattr(active_runtime, "hook_registry", None)
         runtime_hook_runner = getattr(active_runtime, "hook_runner", None)
+        runtime_config_resolver = getattr(active_runtime, "config_resolver", None) or resolved_config_resolver
         active_hook_registry = hook_registry or runtime_hook_registry or build_hook_registry(
-            repo_root=resolved_repo_root
+            repo_root=resolved_repo_root,
+            config_resolver=runtime_config_resolver,
         )
         active_hook_runner = runtime_hook_runner or HookRunner(registry=active_hook_registry)
 
@@ -130,10 +141,17 @@ def create_app(
         event_hub=app.state.event_stream_hub,
         hook_runner=active_hook_runner,
     )
+    active_config_resolver = getattr(active_runtime, "config_resolver", None) or resolved_config_resolver
     app.state.tool_registry = tool_registry or build_tool_registry(
         repo_root=resolved_repo_root,
         hook_runner=active_hook_runner,
         runtime=active_runtime,
+        config_resolver=active_config_resolver,
+    )
+    _bind_runtime_to_tool_registry(
+        tool_registry=app.state.tool_registry,
+        runtime=active_runtime,
+        hook_runner=active_hook_runner,
     )
     bind_tool_registry = getattr(active_runtime, "bind_tool_registry", None)
     if callable(bind_tool_registry):
@@ -268,6 +286,21 @@ def _error_response(
             }
         },
     )
+
+
+def _bind_runtime_to_tool_registry(
+    *,
+    tool_registry: ToolRegistry,
+    runtime: AgentRuntime,
+    hook_runner: HookRunner | None,
+) -> None:
+    """Backfill runtime/hook wiring onto pre-bootstrapped tool registries."""
+    setattr(tool_registry, "_hook_runner", hook_runner)
+    task_tool = getattr(tool_registry, "_tools", {}).get("task")
+    bind_runtime = getattr(task_tool, "bind_runtime", None)
+    if callable(bind_runtime):
+        bind_runtime(runtime)
+
 
 
 def _build_session_event_publisher_factory(
