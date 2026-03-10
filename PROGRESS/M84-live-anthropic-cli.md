@@ -26,7 +26,7 @@
     - 直打代理复核后发现：当前 anthropic live 失败并非代理宕机，而是本项目测试/默认模型选择与本地代理可用模型不匹配；同时 managed REPL 本身输出的是人类可读文本，不是 JSON 行。
 - Rollback:
   - 当前为 baseline，无回滚点。
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`N/A`, C2=`N/A`, C3=`N/A`
 - Next:
   - R84.1 固化 anthropic live 兼容模型选择；R84.2 将 managed live 验收收敛到既有单命令 JSON 契约而非破坏 REPL 文本契约。
 
@@ -49,7 +49,7 @@
       - `model=codexOAuth:gpt-5.2-codex` -> `200`，返回 `content[0].text = "pong"`
 - Rollback:
   - 若需重做，回退到 `0c32df6`（R84.1 C1 红测基线）。
-- Commits: C1=`0c32df6`, C2=`637de12`, C3=`TBD`
+- Commits: C1=`0c32df6`, C2=`637de12`, C3=`01db9d6`
 - Next:
   - R84.2 收口 managed live 验收入口，并补全 full sweep。
 
@@ -69,7 +69,7 @@
     - 直接调用 `run_cli([... create-session ...])` + `run_cli([... send-message ...])` 可返回 JSON，并在真实代理下得到 assistant `pong`。
 - Rollback:
   - 若需重做，回退到 `0c32df6`（同一 Red 基线提交）。
-- Commits: C1=`0c32df6`, C2=`637de12`, C3=`TBD`
+- Commits: C1=`0c32df6`, C2=`637de12`, C3=`01db9d6`
 - Next:
   - R84.3 补 full sweep、managed 实跑命令证据、兼容回归与 main 集成。
 
@@ -97,6 +97,6 @@
         -> `{"session_id": "sess_98bed07d5c553303", "message": {"role": "assistant", "content": "pong"}, ...}`
 - Rollback:
   - 若需回退到 live 修复前稳定点，可回退到 `637de12`（anthropic live 绿点）；若仅需撤销全量兼容扫尾，可回退到本 Roadpoint 的 C1。
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+- Commits: C1=`637de12`, C2=`ac5f5e8`, C3=`01db9d6`
 - Next:
   - rebase main、merge milestone/M84、push、更新 `data/dev-tasks.json`、删除 worktree。
