@@ -20,8 +20,12 @@
   - Tests: `PYTHONPATH=src pytest -q tests/unit/personal_assistant tests/e2e/test_personal_assistant_main_e2e.py tests/e2e/test_m112_real_process_roundtrip_e2e.py`
   - Entry: `test_run_gateway_e2e_starts_runtime_with_loaded_config` 已通过真实入口 `run_gateway()` 断言缺省配置会解析并创建 `~/nano-assistant/workspace/assistant-a`。
 - Rollback: 9c70def
-- Commits: C1=9c70def, C2=
+- Commits: C1=9c70def, C2=6fcc2c6, C3=待补
 - Next: R2 收口 `kernel.base_url` 用户配置口径与文档示例。
+
+## 里程碑收口备注
+- R1 文档在实现提交中一并落盘，未产生额外独立文档 diff；因此没有单独的 R1 C3 hash。
+- R2 因代码层已具备 `kernel.base_url` 默认行为，未额外制造“先红后绿”的伪实现提交，而是直接将测试入口与用户文档收口到最小配置契约。
 
 ### R2 kernel.base_url 内部化与文档示例收口
 - Context: 代码层面对 `kernel.base_url` 早已存在默认值，但 runbook / smoke 配置示例仍要求用户显式填写，导致用户契约暴露了内部默认细节；同时要保证真实入口测试改成最小配置后仍能正常启动。
@@ -31,5 +35,5 @@
   - Tests: `PYTHONPATH=src pytest -q tests/unit/personal_assistant tests/e2e/test_personal_assistant_main_e2e.py tests/e2e/test_m112_real_process_roundtrip_e2e.py`
   - Entry: smoke 配置与 `run_gateway()` e2e 均在未填写 `kernel.base_url` 时通过，证明用户最小配置无需暴露该字段。
 - Rollback: 6fcc2c6
-- Commits: C1=, C2=, C3=
+- Commits: C1=未单独提交（现有实现已满足，直接以测试/文档收口）, C2=c4b187f, C3=待补
 - Next: 全部 Roadpoint 已完成，等待主 agent 验收/后续集成。
