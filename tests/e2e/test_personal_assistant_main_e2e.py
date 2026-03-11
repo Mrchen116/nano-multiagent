@@ -221,10 +221,10 @@ class _FakeIMManager:
         self._closed.set()
 
 
-def test_run_gateway_e2e_starts_runtime_with_loaded_config(tmp_path: Path) -> None:
+def test_run_gateway_e2e_starts_runtime_with_loaded_config(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     config_path = tmp_path / "node-config.yaml"
-    workspace_root = tmp_path / "agent-a"
-    workspace_root.mkdir()
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
     config_path.write_text(
         "\n".join(
             [
@@ -232,7 +232,6 @@ def test_run_gateway_e2e_starts_runtime_with_loaded_config(tmp_path: Path) -> No
                 "  node_id: node-e2e",
                 "agents:",
                 "  - agent_id: assistant-a",
-                f"    workspace_root: {workspace_root}",
                 "kernel:",
                 "  command: python -m agent.platform.http_api.app",
             ]
@@ -246,6 +245,7 @@ def test_run_gateway_e2e_starts_runtime_with_loaded_config(tmp_path: Path) -> No
         def __init__(self, config) -> None:  # noqa: ANN001
             seen["node_id"] = config.node.node_id
             seen["health_path"] = config.kernel.health_path
+            seen["workspace_root"] = str(config.agents[0].workspace_root)
 
         def run_forever(self) -> int:
             seen["started"] = True
@@ -257,7 +257,13 @@ def test_run_gateway_e2e_starts_runtime_with_loaded_config(tmp_path: Path) -> No
     )
 
     assert exit_code == 0
-    assert seen == {"node_id": "node-e2e", "health_path": "/v1/health", "started": True}
+    assert seen == {
+        "node_id": "node-e2e",
+        "health_path": "/v1/health",
+        "workspace_root": str((home_dir / "nano-assistant" / "workspace" / "assistant-a").resolve()),
+        "started": True,
+    }
+    assert (home_dir / "nano-assistant" / "workspace" / "assistant-a").is_dir() is True
 
 
 def test_gateway_runtime_e2e_waits_for_shutdown_after_reaching_ready(tmp_path: Path) -> None:
