@@ -3128,6 +3128,46 @@ def test_run_cli_explicit_remote_mode_overrides_managed_default() -> None:
     assert json.loads(output.getvalue()) == {"healthy": True}
 
 
+def test_run_cli_without_mode_ignores_api_base_url_env_for_repl_default(monkeypatch) -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    inputs = iter(["/exit"])
+    manager = _ManagedServerSpy()
+    monkeypatch.setenv("NANO_MULTIAGENT_API_BASE_URL", "http://remote.example:8123")
+
+    exit_code = run_cli(
+        ["--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+        managed_server_factory=lambda config: manager.bind(config),
+    )
+
+    assert exit_code == 0
+    assert manager.config_base_url == "http://127.0.0.1:8000"
+    assert manager.events == ["start", "stop"]
+    assert output.getvalue() == ""
+
+
+def test_run_cli_without_mode_ignores_api_base_url_env_for_command_default(monkeypatch) -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    manager = _ManagedServerSpy()
+    monkeypatch.setenv("NANO_MULTIAGENT_API_BASE_URL", "http://remote.example:8123")
+
+    exit_code = run_cli(
+        ["--token", "test-token", "health"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        managed_server_factory=lambda config: manager.bind(config),
+    )
+
+    assert exit_code == 0
+    assert json.loads(output.getvalue()) == {"healthy": True}
+    assert manager.config_base_url == "http://127.0.0.1:8000"
+    assert manager.events == ["start", "stop"]
+
+
 def test_run_cli_remote_mode_does_not_start_local_server() -> None:
     stub = _StubClient()
     output = io.StringIO()
