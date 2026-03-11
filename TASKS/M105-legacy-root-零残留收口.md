@@ -6,7 +6,8 @@
 
 ## Scope
 - 仅处理 legacy `src/nano_multiagent` 根清理相关的测试/文档/导入收口。
-- 如主目标已满足，则只补齐 M105 必需的里程碑文档与看板状态。
+- 结合最新现实更新 closeout 结论：主仓 `main` 在本 milestone 启动后仍曾存在本地文件系统残留，后由 control tower 在 `main` 上移除；因此 M105 不是空转验证，而是对该 closeout 事实做收口记录、验证与交付。
+- 本次 follow-up commit 仅保留 M105 必需的里程碑文档，不触碰 `data/dev-tasks.json`。
 
 ## TDD / Execution Steps
 1. Baseline：先验证 `src/` 顶层目录与负向测试现状，不做盲删。
