@@ -51,4 +51,4 @@
   - `cd /Users/czj/Repos/nano-multiagent && python -m pytest tests/im_service -q 2>&1 | tail -80` 全绿。
   - C1/C2/C3 齐全。
   - `PROGRESS/M113-IM-消息交付状态与SSE回执收口.md` 记录决策、证据、回滚点、提交哈希。
-- 状态: TODO
+- 状态: DONE
