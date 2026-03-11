@@ -38,6 +38,8 @@ def test_gateway_websocket_registers_and_receives_relay_messages(tmp_path: Path)
                     "type": "node.register",
                     "payload": {
                         "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
                         "agents": ["agent-a"],
                         "capabilities": {"relay": True},
                     },
@@ -97,7 +99,7 @@ def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) 
             websocket.send_json(
                 {
                     "type": "node.register",
-                    "payload": {"node_id": "node-1", "agents": [], "capabilities": {}},
+                    "payload": {"node_id": "node-1", "node_name": "MacBook", "version": "1.0.0", "agents": [], "capabilities": {}},
                 }
             )
             websocket.receive_json()
@@ -129,3 +131,8 @@ def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) 
                 "type": "heartbeat.trigger",
                 "payload": {"agent_id": "agent-a", "reason": "manual"},
             }
+
+            node_row = client.get("/im/v1/nodes")
+            assert node_row.status_code == 200
+            assert node_row.json()[0]["status"] == "online"
+            assert node_row.json()[0]["node_name"] == "MacBook"

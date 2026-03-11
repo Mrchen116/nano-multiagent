@@ -5,7 +5,7 @@ import json
 import sqlite3
 from uuid import uuid4
 
-from IM.domain.models import AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, User
+from IM.domain.models import AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, UsageMetric, User
 
 
 class UserRepository:
@@ -702,7 +702,7 @@ class AgentProfileRepository:
 
 
 class NodeRepository:
-    """Persist and query gateway node ownership and status."""
+    """Persist and query gateway node ownership, center config, and status."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
@@ -717,41 +717,133 @@ class NodeRepository:
         owner_id: str | None = None,
     ) -> NodeStatus:
         """Create or update a node row and return the stored snapshot."""
+        normalized_status = _normalize_node_status(status=status, last_error=None)
         with self._connection:
             self._connection.execute(
                 """
-                INSERT INTO nodes(node_id, owner_id, node_name, status, last_heartbeat_at, agent_count, version, last_error)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO nodes(
+                    node_id,
+                    owner_id,
+                    node_name,
+                    status,
+                    last_heartbeat_at,
+                    agent_count,
+                    version,
+                    relay_enabled,
+                    reporting_enabled,
+                    alias,
+                    last_error
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(node_id) DO UPDATE SET
                     owner_id = COALESCE(excluded.owner_id, nodes.owner_id),
                     node_name = excluded.node_name,
                     status = excluded.status,
                     version = excluded.version
                 """,
-                (node_id, owner_id, node_name, status, "", 0, version, None),
+                (node_id, owner_id, node_name, normalized_status, "", 0, version, 1, 1, None, None),
             )
         node = self.get_node(node_id=node_id)
         assert node is not None
         return node
 
+    def record_gateway_registration(
+        self,
+        *,
+        node_id: str,
+        node_name: str,
+        version: str,
+        agent_count: int,
+        owner_id: str | None = None,
+    ) -> NodeStatus:
+        """Persist node.register metadata as an online snapshot."""
+        with self._connection:
+            self._connection.execute(
+                """
+                INSERT INTO nodes(
+                    node_id,
+                    owner_id,
+                    node_name,
+                    status,
+                    last_heartbeat_at,
+                    agent_count,
+                    version,
+                    relay_enabled,
+                    reporting_enabled,
+                    alias,
+                    last_error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(node_id) DO UPDATE SET
+                    owner_id = COALESCE(excluded.owner_id, nodes.owner_id),
+                    node_name = excluded.node_name,
+                    status = excluded.status,
+                    last_heartbeat_at = excluded.last_heartbeat_at,
+                    agent_count = excluded.agent_count,
+                    version = excluded.version,
+                    last_error = excluded.last_error
+                """,
+                (node_id, owner_id, node_name, "online", _utc_now(), max(agent_count, 0), version, 1, 1, None, None),
+            )
+        node = self.get_node(node_id=node_id)
+        assert node is not None
+        return node
+
+    def record_heartbeat(
+        self,
+        *,
+        node_id: str,
+        reported_status: str | None,
+        agent_count: int | None,
+        last_error: str | None,
+        version: str | None,
+    ) -> NodeStatus:
+        """Persist node.heartbeat payload and derive canonical status aggregation."""
+        existing = self.get_node(node_id=node_id)
+        if existing is None:
+            raise ValueError("node_id not found")
+        next_status = _normalize_node_status(status=reported_status, last_error=last_error)
+        next_agent_count = existing.agent_count if agent_count is None else max(agent_count, 0)
+        next_version = existing.version if version is None else version
+        with self._connection:
+            self._connection.execute(
+                """
+                UPDATE nodes
+                SET status = ?, last_heartbeat_at = ?, agent_count = ?, version = ?, last_error = ?
+                WHERE node_id = ?
+                """,
+                (next_status, _utc_now(), next_agent_count, next_version, last_error, node_id),
+            )
+        node = self.get_node(node_id=node_id)
+        assert node is not None
+        return node
+
+    def list_nodes(self) -> list[NodeStatus]:
+        """List node board snapshots in recency order."""
+        rows = self._connection.execute(
+            """
+            SELECT node_id, owner_id, node_name, status, last_heartbeat_at, agent_count, version,
+                   relay_enabled, reporting_enabled, alias, last_error
+            FROM nodes
+            ORDER BY CASE status WHEN 'online' THEN 0 WHEN 'degraded' THEN 1 ELSE 2 END,
+                     COALESCE(last_heartbeat_at, '') DESC,
+                     rowid DESC
+            """
+        ).fetchall()
+        return [self._row_to_node(row) for row in rows]
+
     def get_node(self, *, node_id: str) -> NodeStatus | None:
         """Return one node snapshot, or None when missing."""
         row = self._connection.execute(
-            "SELECT node_id, owner_id, node_name, status, last_heartbeat_at, agent_count, version, last_error FROM nodes WHERE node_id = ?",
+            """
+            SELECT node_id, owner_id, node_name, status, last_heartbeat_at, agent_count, version,
+                   relay_enabled, reporting_enabled, alias, last_error
+            FROM nodes WHERE node_id = ?
+            """,
             (node_id,),
         ).fetchone()
         if row is None:
             return None
-        return NodeStatus(
-            node_id=row["node_id"],
-            owner_id=row["owner_id"] or "",
-            node_name=row["node_name"],
-            status=row["status"],
-            last_heartbeat_at=row["last_heartbeat_at"],
-            agent_count=int(row["agent_count"]),
-            version=row["version"],
-            last_error=row["last_error"],
-        )
+        return self._row_to_node(row)
 
     def assign_owner(self, *, node_id: str, owner_id: str) -> NodeStatus:
         """Bind a node to an owner and return the updated snapshot."""
@@ -765,6 +857,62 @@ class NodeRepository:
         node = self.get_node(node_id=node_id)
         assert node is not None
         return node
+
+    def update_node_config(
+        self,
+        *,
+        node_id: str,
+        alias: str | None,
+        relay_enabled: bool | None,
+        reporting_enabled: bool | None,
+    ) -> NodeStatus:
+        """Update node center config and return the latest snapshot."""
+        existing = self.get_node(node_id=node_id)
+        if existing is None:
+            raise ValueError("node_id not found")
+        next_alias = existing.alias if alias is None else (alias.strip() or None)
+        next_relay_enabled = existing.relay_enabled if relay_enabled is None else relay_enabled
+        next_reporting_enabled = existing.reporting_enabled if reporting_enabled is None else reporting_enabled
+        with self._connection:
+            self._connection.execute(
+                """
+                UPDATE nodes
+                SET alias = ?, relay_enabled = ?, reporting_enabled = ?
+                WHERE node_id = ?
+                """,
+                (next_alias, int(next_relay_enabled), int(next_reporting_enabled), node_id),
+            )
+        updated = self.get_node(node_id=node_id)
+        assert updated is not None
+        return updated
+
+    def mark_disconnected(self, *, node_id: str) -> NodeStatus | None:
+        """Mark a node offline when its websocket disconnects."""
+        existing = self.get_node(node_id=node_id)
+        if existing is None:
+            return None
+        with self._connection:
+            self._connection.execute(
+                "UPDATE nodes SET status = ? WHERE node_id = ?",
+                ("offline", node_id),
+            )
+        return self.get_node(node_id=node_id)
+
+    def _row_to_node(self, row: sqlite3.Row) -> NodeStatus:
+        """Convert one row into a node status model."""
+        return NodeStatus(
+            node_id=row["node_id"],
+            owner_id=row["owner_id"] or "",
+            node_name=row["node_name"],
+            status=row["status"],
+            last_heartbeat_at=row["last_heartbeat_at"],
+            agent_count=int(row["agent_count"]),
+            version=row["version"],
+            relay_enabled=bool(row["relay_enabled"]),
+            reporting_enabled=bool(row["reporting_enabled"]),
+            alias=row["alias"],
+            last_error=row["last_error"],
+        )
 
 
 class BindRepository:
@@ -830,6 +978,111 @@ class BindRepository:
         request = self.get_bind_request(bind_id=bind_id)
         assert request is not None
         return request
+
+
+class UsageMetricsRepository:
+    """Persist and aggregate token/turn usage metrics for IM board APIs."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+
+    def record_usage(
+        self,
+        *,
+        owner_id: str | None,
+        conversation_id: str | None,
+        agent_id: str | None,
+        prompt_tokens: int,
+        completion_tokens: int,
+        turns: int = 1,
+    ) -> None:
+        """Persist one usage sample emitted by IM-visible activity."""
+        normalized_prompt = max(prompt_tokens, 0)
+        normalized_completion = max(completion_tokens, 0)
+        normalized_turns = max(turns, 0)
+        with self._connection:
+            self._connection.execute(
+                """
+                INSERT INTO usage_metrics(
+                    owner_id,
+                    conversation_id,
+                    agent_id,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    turns,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    owner_id,
+                    conversation_id,
+                    agent_id,
+                    normalized_prompt,
+                    normalized_completion,
+                    normalized_prompt + normalized_completion,
+                    normalized_turns,
+                    _utc_now(),
+                ),
+            )
+
+    def list_usage_metrics(
+        self,
+        *,
+        owner_id: str | None = None,
+        conversation_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> list[UsageMetric]:
+        """Return aggregated usage grouped by owner, conversation, and agent scopes."""
+        filters: list[str] = []
+        params: list[object] = []
+        if owner_id is not None:
+            filters.append("owner_id = ?")
+            params.append(owner_id)
+        if conversation_id is not None:
+            filters.append("conversation_id = ?")
+            params.append(conversation_id)
+        if agent_id is not None:
+            filters.append("agent_id = ?")
+            params.append(agent_id)
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        rows = self._connection.execute(
+            f"""
+            SELECT owner_id, conversation_id, agent_id,
+                   SUM(turns) AS turns,
+                   SUM(prompt_tokens) AS prompt_tokens,
+                   SUM(completion_tokens) AS completion_tokens,
+                   SUM(total_tokens) AS total_tokens,
+                   MAX(created_at) AS last_used_at
+            FROM usage_metrics
+            {where_clause}
+            GROUP BY owner_id, conversation_id, agent_id
+            ORDER BY last_used_at DESC, rowid DESC
+            """,
+            tuple(params),
+        ).fetchall()
+        metrics: list[UsageMetric] = []
+        for row in rows:
+            scope, scope_id = _resolve_usage_scope(
+                owner_id=row["owner_id"],
+                conversation_id=row["conversation_id"],
+                agent_id=row["agent_id"],
+            )
+            metrics.append(
+                UsageMetric(
+                    scope=scope,
+                    scope_id=scope_id,
+                    owner_id=row["owner_id"],
+                    conversation_id=row["conversation_id"],
+                    agent_id=row["agent_id"],
+                    turns=int(row["turns"] or 0),
+                    prompt_tokens=int(row["prompt_tokens"] or 0),
+                    completion_tokens=int(row["completion_tokens"] or 0),
+                    total_tokens=int(row["total_tokens"] or 0),
+                    last_used_at=row["last_used_at"],
+                )
+            )
+        return metrics
 
 
 class EventRepository:
@@ -899,6 +1152,33 @@ def _decode_string_list(raw_value: str) -> list[str]:
     if not isinstance(decoded, list):
         return []
     return [str(item) for item in decoded]
+
+
+def _resolve_usage_scope(*, owner_id: str | None, conversation_id: str | None, agent_id: str | None) -> tuple[str, str | None]:
+    """Choose the most specific scope label for one aggregated usage row."""
+    if agent_id:
+        return "agent", agent_id
+    if conversation_id:
+        return "conversation", conversation_id
+    if owner_id:
+        return "owner", owner_id
+    return "global", None
+
+
+def _normalize_node_status(*, status: str | None, last_error: str | None) -> str:
+    """Collapse raw gateway state into the canonical node board statuses."""
+    normalized = (status or "").strip().lower()
+    if last_error:
+        return "degraded"
+    if normalized in {"online", "offline", "degraded"}:
+        return normalized
+    if normalized in {"error", "failed", "warning", "degraded_partial"}:
+        return "degraded"
+    if normalized in {"connected", "healthy", "ready"}:
+        return "online"
+    if normalized in {"disconnected", "unknown", "timeout"}:
+        return "offline"
+    return "online" if normalized else "offline"
 
 
 def _attachment_to_dict(attachment: Attachment) -> dict[str, object]:

@@ -1,5 +1,6 @@
 """Application service for IM conversations and messages."""
 
+from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayEnqueueResult, RelayService
 from IM.domain.models import Attachment, Conversation, Message
 from IM.infra.repositories import ConversationRepository, MessageRepository
@@ -14,6 +15,7 @@ class WebIMService:
         conversations: ConversationRepository,
         messages: MessageRepository,
         relay_service: RelayService | None = None,
+        metrics_service: MetricsService | None = None,
     ) -> None:
         """Bind service to repositories used by Web IM routes.
 
@@ -21,10 +23,12 @@ class WebIMService:
             conversations: Repository for conversation reads and writes.
             messages: Repository for message reads and writes.
             relay_service: Optional relay task service used by M97 websocket flow.
+            metrics_service: Optional usage metrics service used by M99 statistics APIs.
         """
         self._conversations = conversations
         self._messages = messages
         self._relay_service = relay_service
+        self._metrics_service = metrics_service
 
     def create_conversation(self, *, title: str, participant_ids: list[str]) -> Conversation:
         """Create one conversation with validated participants."""
@@ -64,13 +68,27 @@ class WebIMService:
         attachments: list[Attachment] | None = None,
     ) -> Message:
         """Create one message inside a conversation."""
-        return self._messages.create_message(
+        created = self._messages.create_message(
             conversation_id=conversation_id,
             sender_user_id=sender_user_id,
             content=content,
             sender_type=sender_type,
             attachments=attachments,
         )
+        if self._metrics_service is not None:
+            conversation = self._conversations.get_conversation(conversation_id=conversation_id)
+            owner_id = conversation.owner_id if conversation is not None else None
+            prompt_tokens = max(1, len(content.split()))
+            completion_tokens = 0 if sender_type == "user" else max(1, len(content.split()))
+            self._metrics_service.record_usage(
+                owner_id=owner_id,
+                conversation_id=conversation_id,
+                agent_id=sender_user_id if sender_type == "agent" else None,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                turns=1,
+            )
+        return created
 
     def list_messages(
         self,

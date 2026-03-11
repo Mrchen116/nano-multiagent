@@ -49,7 +49,22 @@ CREATE TABLE IF NOT EXISTS nodes (
     last_heartbeat_at TEXT NOT NULL DEFAULT '',
     agent_count INTEGER NOT NULL DEFAULT 0,
     version TEXT NOT NULL DEFAULT '',
+    relay_enabled INTEGER NOT NULL DEFAULT 1,
+    reporting_enabled INTEGER NOT NULL DEFAULT 1,
+    alias TEXT,
     last_error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS usage_metrics (
+    metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id TEXT,
+    conversation_id TEXT,
+    agent_id TEXT,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    turns INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS bind_requests (
@@ -147,7 +162,9 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _migrate_conversations_metadata(connection)
     _migrate_messages_metadata(connection)
     _migrate_agent_profile_tables(connection)
+    _migrate_nodes_metadata(connection)
     _migrate_relay_tasks(connection)
+    _migrate_usage_metrics(connection)
     connection.commit()
 
 
@@ -250,6 +267,18 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE nodes ADD COLUMN owner_id TEXT")
 
 
+def _migrate_nodes_metadata(connection: sqlite3.Connection) -> None:
+    """Backfill node config columns introduced by M99 node management APIs."""
+    rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
+    column_names = {row["name"] for row in rows}
+    if rows and "relay_enabled" not in column_names:
+        connection.execute("ALTER TABLE nodes ADD COLUMN relay_enabled INTEGER NOT NULL DEFAULT 1")
+    if rows and "reporting_enabled" not in column_names:
+        connection.execute("ALTER TABLE nodes ADD COLUMN reporting_enabled INTEGER NOT NULL DEFAULT 1")
+    if rows and "alias" not in column_names:
+        connection.execute("ALTER TABLE nodes ADD COLUMN alias TEXT")
+
+
 def _migrate_relay_tasks(connection: sqlite3.Connection) -> None:
     """Backfill relay task storage introduced by IM-SPEC §4."""
     tables = {
@@ -295,3 +324,27 @@ def _migrate_relay_tasks(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE relay_tasks ADD COLUMN receipt_status TEXT")
     if "receipt_detail" not in column_names:
         connection.execute("ALTER TABLE relay_tasks ADD COLUMN receipt_detail TEXT")
+
+
+def _migrate_usage_metrics(connection: sqlite3.Connection) -> None:
+    """Create usage metrics table for M99 token/turn aggregation when missing."""
+    tables = {
+        row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    if "usage_metrics" in tables:
+        return
+    connection.execute(
+        """
+        CREATE TABLE usage_metrics (
+            metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id TEXT,
+            conversation_id TEXT,
+            agent_id TEXT,
+            prompt_tokens INTEGER NOT NULL DEFAULT 0,
+            completion_tokens INTEGER NOT NULL DEFAULT 0,
+            total_tokens INTEGER NOT NULL DEFAULT 0,
+            turns INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+        """
+    )

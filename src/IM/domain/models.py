@@ -73,7 +73,7 @@ class Message:
 
 @dataclass(frozen=True, slots=True)
 class NodeStatus:
-    """Represent the runtime status snapshot of one gateway node."""
+    """Represent the runtime status snapshot and center config of one gateway node."""
 
     node_id: str
     owner_id: str
@@ -82,7 +82,26 @@ class NodeStatus:
     last_heartbeat_at: str
     agent_count: int
     version: str
+    relay_enabled: bool = True
+    reporting_enabled: bool = True
+    alias: str | None = None
     last_error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class UsageMetric:
+    """Represent one aggregated token/turn usage snapshot."""
+
+    scope: str
+    scope_id: str | None
+    owner_id: str | None
+    conversation_id: str | None
+    agent_id: str | None
+    turns: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    last_used_at: str | None
 
 
 @dataclass(frozen=True, slots=True)
