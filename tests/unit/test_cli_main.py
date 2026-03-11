@@ -1761,7 +1761,7 @@ def test_read_interactive_line_groups_multiline_paste_into_single_submission() -
     typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=(),
-        key_reader=_iter_keys(["f", "i", "r", "s", "t", "\n", "s", "e", "c", "o", "n", "d", "\n"]),
+        key_reader=_iter_keys(["f", "i", "r", "s", "t", "\nsecond\n" ]),
         out=io.StringIO(),
     )
 
@@ -2751,7 +2751,7 @@ def test_run_cli_repl_async_multiline_paste_submits_single_message() -> None:
     scripted_reader = _ScriptedReplInputReader(
         [
             ["/", "\x1b[B", "\n", "\n"],
-            ["f", "i", "r", "s", "t", "\n", "s", "e", "c", "o", "n", "d", "\n"],
+            ["f", "i", "r", "s", "t", "\nsecond\n"],
             ["/", "\x1b[A", "\n", "\n"],
         ]
     )

@@ -906,7 +906,7 @@ def test_cli_repl_multiline_paste_submits_single_async_message() -> None:
     scripted_reader = _ScriptedReplInputReader(
         [
             ["/", "\x1b[B", "\n", "\n"],
-            ["f", "i", "r", "s", "t", "\n", "s", "e", "c", "o", "n", "d", "\n"],
+            ["f", "i", "r", "s", "t", "\nsecond\n"],
             ["/", "\x1b[A", "\n", "\n"],
         ]
     )
