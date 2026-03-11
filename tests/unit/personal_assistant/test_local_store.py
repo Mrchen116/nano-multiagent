@@ -106,6 +106,32 @@ def test_load_local_config_uses_internal_kernel_base_url_default(tmp_path: Path)
     assert config.agents[0].workspace_root == workspace_root
 
 
+def test_load_local_config_derives_kernel_base_url_from_local_command_port(tmp_path: Path) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+                "kernel:",
+                "  command: python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8123",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert config.kernel.base_url == "http://127.0.0.1:8123"
+    assert config.kernel.command.endswith("--host 127.0.0.1 --port 8123")
+    assert config.agents[0].workspace_root == workspace_root
+
+
 def test_load_local_config_rejects_missing_agents(tmp_path: Path) -> None:
     config_path = tmp_path / "node-config.yaml"
     config_path.write_text(
