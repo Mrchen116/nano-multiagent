@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import shlex
 from typing import Any
 
 import yaml
@@ -241,10 +242,11 @@ def _parse_kernel(payload: Any) -> KernelConfig:
         payload = {}
     if not isinstance(payload, dict):
         raise ValueError("kernel must be a mapping")
-    base_url = _optional_string(payload.get("base_url"), field_name="kernel.base_url") or _DEFAULT_KERNEL_BASE_URL
+    command = _optional_string(payload.get("command"), field_name="kernel.command") or _DEFAULT_KERNEL_ENTRYPOINT
+    explicit_base_url = _optional_string(payload.get("base_url"), field_name="kernel.base_url")
+    base_url = explicit_base_url or _derive_kernel_base_url(command) or _DEFAULT_KERNEL_BASE_URL
     token = _optional_string(payload.get("token"), field_name="kernel.token")
     request_id = _optional_string(payload.get("request_id"), field_name="kernel.request_id")
-    command = _optional_string(payload.get("command"), field_name="kernel.command") or _DEFAULT_KERNEL_ENTRYPOINT
     health_path = _optional_string(payload.get("health_path"), field_name="kernel.health_path") or _DEFAULT_KERNEL_HEALTH_PATH
     timeout_seconds = _positive_number(payload.get("timeout_seconds", 10.0), field_name="kernel.timeout_seconds")
     startup_timeout_seconds = _positive_number(
@@ -292,6 +294,36 @@ def _parse_im_service(payload: Any) -> IMServiceConfig | None:
     url = _require_non_empty_string(payload.get("url"), field_name="im_service.url")
     token = _optional_string(payload.get("token"), field_name="im_service.token")
     return IMServiceConfig(url=url, token=token)
+
+
+def _derive_kernel_base_url(command: str) -> str | None:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    host: str | None = None
+    port: str | None = None
+    for index, token in enumerate(tokens):
+        if token == "--host" and index + 1 < len(tokens):
+            host = tokens[index + 1].strip()
+            continue
+        if token == "--port" and index + 1 < len(tokens):
+            port = tokens[index + 1].strip()
+            continue
+        if token.startswith("--host="):
+            host = token.partition("=")[2].strip()
+            continue
+        if token.startswith("--port="):
+            port = token.partition("=")[2].strip()
+    if not host or not port:
+        return None
+    if host == "0.0.0.0":
+        host = "127.0.0.1"
+    if host not in {"127.0.0.1", "localhost"}:
+        return None
+    if not port.isdigit():
+        return None
+    return f"http://{host}:{port}"
 
 
 def _require_non_empty_string(value: Any, *, field_name: str) -> str:
