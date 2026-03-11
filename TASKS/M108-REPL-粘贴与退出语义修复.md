@@ -21,7 +21,7 @@
 ## Roadpoints
 
 ### R1 输入聚合：多行粘贴应作为一次用户输入提交
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - raw terminal 输入在一次粘贴中出现多个换行时，应聚合为单条逻辑输入，而不是逐行立即提交。
   - 最终提交给 `send_message` / `send_message_async` 的 text 保留换行内容。
