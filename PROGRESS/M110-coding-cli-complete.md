@@ -19,7 +19,7 @@
   - Tests: `PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py tests/e2e/test_cli_managed_live_agent_e2e.py` → `117 passed, 1 skipped`
   - Entry: 新增 unit 覆盖无参数 REPL / 无参数单命令默认 managed，以及“带 `--base-url` 但未指定 mode 时仍走 remote”。
 - Rollback: `a5b4279`（R1 C1 红灯测试）
-- Commits: C1=`a5b4279`, C2=`9484fce`, C3=<pending>
+- Commits: C1=`a5b4279`, C2=`9484fce`, C3=`383c4ad`
 - Next: R2 补 live/default 验收覆盖，并记录真实 CLI smoke 证据与 §10 对应关系。
 
 ### R2 验收口径补齐与真实 smoke 证据固化
@@ -46,5 +46,5 @@
     - multiline paste：`tests/integration/test_cli_http_flow_integration.py::test_cli_repl_multiline_paste_submits_single_async_message`
     - `/exit` 清队：`tests/integration/test_cli_http_flow_integration.py::test_cli_repl_managed_exit_discards_queued_messages_and_stops_server` + `tests/unit/test_cli_main.py` 的 drain/remaining in-flight 回归
 - Rollback: `92d8adf`（R2 C1 红灯测试）
-- Commits: C1=`92d8adf`, C2=`767f437`, C3=<pending>
-- Next: 里程碑文档收尾后 rebase/merge main，更新 `data/dev-tasks.json`，再清理 worktree。
+- Commits: C1=`92d8adf`, C2=`767f437`, C3=`858885e`
+- Next: rebase/merge main，更新 `data/dev-tasks.json`，再清理 worktree。
