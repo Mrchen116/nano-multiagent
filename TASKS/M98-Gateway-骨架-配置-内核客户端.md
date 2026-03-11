@@ -18,7 +18,7 @@
 ## Roadpoints
 
 ### R1 包骨架与配置加载
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `src/personal_assistant/` 作为独立 Python 包存在，含 `__init__.py`
   - `config/local_store.py` 可从 YAML 文件加载 Gateway 本地配置
