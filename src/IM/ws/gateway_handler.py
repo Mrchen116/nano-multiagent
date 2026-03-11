@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from IM.application.relay_service import RelayService
+from IM.infra.repositories import NodeRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,8 +37,9 @@ class GatewayHandler:
         concurrent throughput.
     """
 
-    def __init__(self, *, relay_service: RelayService) -> None:
+    def __init__(self, *, relay_service: RelayService, node_repository: NodeRepository | None = None) -> None:
         self._relay_service = relay_service
+        self._node_repository = node_repository
         self._lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
         self._reports: list[dict[str, object]] = []
@@ -127,6 +129,8 @@ class GatewayHandler:
         """Remove one node from the active connection map."""
         async with self._lock:
             self._connections.pop(node_id, None)
+        if self._node_repository is not None:
+            self._node_repository.mark_disconnected(node_id=node_id)
 
     async def is_connected(self, *, node_id: str) -> bool:
         """Report whether one node currently has an active websocket."""
@@ -142,6 +146,8 @@ class GatewayHandler:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
         agents = _require_string_list(payload.get("agents", []), field_name="agents")
         capabilities = _require_dict(payload.get("capabilities", {}), field_name="capabilities")
+        node_name = _optional_text(payload.get("node_name")) or node_id
+        version = _optional_text(payload.get("version")) or ""
         connection = GatewayConnection(
             node_id=node_id,
             websocket=websocket,
@@ -152,6 +158,13 @@ class GatewayHandler:
         )
         async with self._lock:
             self._connections[node_id] = connection
+        if self._node_repository is not None:
+            self._node_repository.record_gateway_registration(
+                node_id=node_id,
+                node_name=node_name,
+                version=version,
+                agent_count=len(agents),
+            )
         return {"type": "ack", "payload": {"message_type": "node.register", "node_id": node_id}}
 
     async def _handle_heartbeat(self, *, payload: dict[str, object]) -> dict[str, object]:
@@ -161,6 +174,14 @@ class GatewayHandler:
             if connection is None:
                 return _not_registered_error(node_id=node_id)
             connection.heartbeats.append(payload)
+        if self._node_repository is not None:
+            self._node_repository.record_heartbeat(
+                node_id=node_id,
+                reported_status=_optional_text(payload.get("status")),
+                agent_count=_optional_int(payload.get("agent_count")),
+                last_error=_optional_text(payload.get("last_error")),
+                version=_optional_text(payload.get("version")),
+            )
         return {"type": "ack", "payload": {"message_type": "node.heartbeat", "node_id": node_id}}
 
     async def _handle_report(self, *, payload: dict[str, object]) -> dict[str, object]:
@@ -239,6 +260,23 @@ def _require_string_list(value: object, *, field_name: str) -> list[str]:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ValueError(f"{field_name} must be a list of strings")
     return [item for item in value]
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("optional text fields must be strings when provided")
+    stripped = value.strip()
+    return stripped or None
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, int):
+        raise ValueError("optional integer fields must be integers when provided")
+    return value
 
 
 def _not_registered_error(*, node_id: str) -> dict[str, object]:

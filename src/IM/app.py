@@ -9,10 +9,13 @@ from fastapi import FastAPI, WebSocket
 from IM.api.routes.account import router as account_router
 from IM.api.routes.agents import router as agent_router
 from IM.api.routes.messages import router as message_router
+from IM.api.routes.metrics import router as metrics_router
+from IM.api.routes.nodes import router as nodes_router
 from IM.api.routes.users import router as user_router
 from IM.api.routes.web_im import router as web_im_router
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
+from IM.infra.repositories import NodeRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -37,7 +40,8 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
         initialize_schema(connection)
         app_instance.state.connection = connection
         app_instance.state.gateway_handler = GatewayHandler(
-            relay_service=RelayService(connection)
+            relay_service=RelayService(connection),
+            node_repository=NodeRepository(connection),
         )
         try:
             yield
@@ -50,6 +54,8 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(web_im_router)
     app.include_router(message_router)
+    app.include_router(nodes_router)
+    app.include_router(metrics_router)
 
     @app.websocket("/im/ws/gateway")
     async def gateway_websocket(websocket: WebSocket) -> None:

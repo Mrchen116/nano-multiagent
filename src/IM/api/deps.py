@@ -5,10 +5,12 @@ from fastapi import HTTPException, Request, status
 from IM.application.bind_service import BindService
 from IM.application.config_service import ConfigService
 from IM.application.event_service import EventService
+from IM.application.metrics_service import MetricsService
+from IM.application.node_service import NodeService
 from IM.application.relay_service import RelayService
 from IM.application.user_service import UserService
 from IM.application.web_im_service import WebIMService
-from IM.infra.repositories import AgentProfileRepository, BindRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, UserRepository
+from IM.infra.repositories import AgentProfileRepository, BindRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, UsageMetricsRepository, UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -120,6 +122,7 @@ def get_web_im_service(request: Request) -> WebIMService:
         conversations=_build_conversation_repository(request),
         messages=_build_message_repository(request),
         relay_service=RelayService(request.app.state.connection),
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(request.app.state.connection)),
     )
 
 
@@ -131,6 +134,16 @@ def get_event_service(request: Request) -> EventService:
 def get_config_service(request: Request) -> ConfigService:
     """Build the agent config application service from app-scoped dependencies."""
     return ConfigService(profiles=_build_profile_repository(request))
+
+
+def get_node_service(request: Request) -> NodeService:
+    """Build the node board application service from app-scoped dependencies."""
+    return NodeService(nodes=_build_node_repository(request))
+
+
+def get_metrics_service(request: Request) -> MetricsService:
+    """Build the usage metrics application service from app-scoped dependencies."""
+    return MetricsService(metrics=UsageMetricsRepository(request.app.state.connection))
 
 
 def get_bind_service(request: Request) -> BindService:
