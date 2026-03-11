@@ -10,7 +10,7 @@ from agent.core.ids import make_tool_call_id
 from agent.core.skills import resolve_available_skills
 from agent.core.types import Message, TurnResult
 
-from agent.platform.tools.base import ToolContext
+from agent.core.tools.base import ToolContext
 
 
 class TaskRuntime(Protocol):

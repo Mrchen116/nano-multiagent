@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from agent.core.errors import ToolError
 
-from agent.platform.tools.base import ToolContext
+from agent.core.tools.base import ToolContext
 
 
 class EditTool:
