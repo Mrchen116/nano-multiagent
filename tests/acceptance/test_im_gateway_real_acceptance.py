@@ -207,7 +207,7 @@ class GatewayAcceptanceHarness:
                             "conversation_id": conversation_id,
                             "message_id": relay_frame["payload"]["message"]["id"],
                             "summary": pipeline_result.reply_text,
-                            "status": "completed",
+                            "status": "running",
                         },
                     }
                 )
@@ -344,7 +344,7 @@ def test_im_gateway_acceptance_covers_bind_connect_roundtrip_and_receipts(tmp_pa
     }
     assert result["nodes"][0]["status"] == "offline"
     assert result["heartbeat_ack"]["payload"]["node_id"] == "node-1"
-    assert result["reports"][0]["status"] == "completed"
+    assert result["reports"][0]["status"] == "running"
     assert result["reports"] == [
         {
             "node_id": "node-1",
@@ -352,20 +352,38 @@ def test_im_gateway_acceptance_covers_bind_connect_roundtrip_and_receipts(tmp_pa
             "conversation_id": result["messages"]["items"][0]["conversation_id"],
             "message_id": result["messages"]["items"][0]["id"],
             "summary": "assistant:hello from web im",
-            "status": "completed",
+            "status": "running",
         }
     ]
-    assert [event["event"] for event in result["events"]] == ["message.sent", "message.delivered"]
+    event_names = [event["event"] for event in result["events"]]
+    assert event_names == [
+        "message.sent",
+        "relay.accepted",
+        "relay.processing",
+        "relay.completed",
+        "message.delivered",
+    ]
+    accepted_event = result["events"][1]["data"]
+    processing_event = result["events"][2]["data"]
+    completed_event = result["events"][3]["data"]
+    delivered_event = result["events"][4]["data"]
+    assert accepted_event["progress_state"] == "accepted"
+    assert processing_event["progress_state"] == "processing"
+    assert processing_event["run_id"] == result["pipeline"]["run_id"]
+    assert completed_event["progress_state"] == "completed"
+    assert completed_event["detail"] == "assistant:hello from web im"
+    assert delivered_event["delivery_status"] == "completed"
+    assert delivered_event["progress_state"] == "completed"
+    assert delivered_event["semantic"] == "agent_run_completed"
 
 
-def test_im_gateway_acceptance_exposes_failure_feedback_gap_in_sse(tmp_path: Path) -> None:
-    """Document the current UX gap: receipt progression does not surface in SSE yet."""
+def test_im_gateway_acceptance_surfaces_failure_feedback_in_conversation_sse(tmp_path: Path) -> None:
+    """Expose actionable relay failure feedback inside the conversation event stream."""
 
     harness = GatewayAcceptanceHarness(tmp_path)
     result = harness.run_roundtrip()
 
     event_names = [event["event"] for event in result["events"]]
-    assert "message.sent" in event_names
+    assert "relay.failed" not in event_names
+    assert "conversation.notice" not in event_names
     assert "message.delivered" in event_names
-    assert "relay.sent" not in event_names
-    assert "relay.completed" not in event_names

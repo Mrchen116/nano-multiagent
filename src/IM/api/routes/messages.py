@@ -167,6 +167,14 @@ async def create_message(
             payload=relay_result.relay_task.payload,
         )
         if not dispatched:
+            gateway_handler.record_relay_failure(
+                conversation_id=created.conversation_id,
+                message_id=created.id,
+                relay_task_id=relay_result.relay_task.relay_task_id,
+                target_node_id=payload.target_node_id,
+                reason="node_disconnected",
+                guidance="检查目标节点连接状态后重试，或切换到在线节点。",
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="target_node_id is not connected",

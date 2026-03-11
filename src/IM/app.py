@@ -15,7 +15,7 @@ from IM.api.routes.users import router as user_router
 from IM.api.routes.web_im import router as web_im_router
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import NodeRepository
+from IM.infra.repositories import EventRepository, NodeRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -42,6 +42,7 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
         app_instance.state.gateway_handler = GatewayHandler(
             relay_service=RelayService(connection),
             node_repository=NodeRepository(connection),
+            event_repository=EventRepository(connection),
         )
         try:
             yield
