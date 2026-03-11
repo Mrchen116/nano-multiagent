@@ -19,8 +19,8 @@
 - Evidence:
   - Tests: `PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M111/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/contract/test_personal_assistant_main_contract.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/integration/test_personal_assistant_bootstrap_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/integration/test_personal_assistant_server_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/e2e/test_personal_assistant_main_e2e.py`
   - Entry: `GatewayRuntime` 现已在 ready 后保持线程存活，收到 `request_shutdown()` 后按 `heartbeat -> channels -> IM -> kernel` 顺序收口退出。
-- Rollback: 45ab588dbc306263719af25872f8c5c43a674df9
-- Commits: C1=45ab588, C2=5a9efe4, C3=89243c9
+- Rollback: 280d605b309ed77353a34f8c560c90cf9af91f67
+- Commits: C1=280d605, C2=56c631d, C3=df3cae0
 - Next: 进入 R2，补 operator-facing smoke script 与脚本化 readiness/shutdown 证据。
 
 ### R2 Readiness / shutdown 回归与操作员 smoke 证据
@@ -30,6 +30,6 @@
 - Evidence:
   - Tests: `PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M111/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/contract/test_personal_assistant_main_contract.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/integration/test_personal_assistant_bootstrap_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/integration/test_personal_assistant_server_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/e2e/test_personal_assistant_main_e2e.py`
   - Entry: `PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M111/src python -m personal_assistant.smoke_runtime --config <node-config.yaml> --ready-timeout 20 --steady-seconds 0.2 --shutdown-timeout 10` 输出 `READY pid=...`、`RUNNING steady_seconds=0.2 alive=true`、`SHUTDOWN exit_code=0`。
-- Rollback: 034d3e61d5e2f8d1b710c37695922f8ea6c6e8e3
-- Commits: C1=034d3e6, C2=f258314, C3=<pending>
+- Rollback: 119e185368ecb63891deca7c2cc66fcd81239983
+- Commits: C1=119e185, C2=4dc41ca, C3=e3a2eb8
 - Next: 全部 Roadpoint 已完成，可进入 milestone rebase / merge / dev-tasks 更新。
