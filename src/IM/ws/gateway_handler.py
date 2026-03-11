@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from IM.application.relay_service import RelayService
-from IM.infra.repositories import NodeRepository
+from IM.infra.repositories import EventRepository, NodeRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,9 +37,16 @@ class GatewayHandler:
         concurrent throughput.
     """
 
-    def __init__(self, *, relay_service: RelayService, node_repository: NodeRepository | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        relay_service: RelayService,
+        node_repository: NodeRepository | None = None,
+        event_repository: EventRepository | None = None,
+    ) -> None:
         self._relay_service = relay_service
         self._node_repository = node_repository
+        self._event_repository = event_repository
         self._lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
         self._reports: list[dict[str, object]] = []
@@ -192,6 +199,7 @@ class GatewayHandler:
                 return _not_registered_error(node_id=node_id)
             connection.reports.append(payload)
             self._reports.append(payload)
+        self._persist_report_event(payload=payload)
         return {"type": "ack", "payload": {"message_type": "node.report", "node_id": node_id}}
 
     async def _handle_delivery_receipt(self, *, payload: dict[str, object]) -> dict[str, object]:
@@ -209,6 +217,7 @@ class GatewayHandler:
             delivery_status=delivery_status,
             detail=detail,
         )
+        self._persist_receipt_events(task=task, node_id=node_id, detail=detail)
         return {
             "type": "ack",
             "payload": {
@@ -226,6 +235,163 @@ class GatewayHandler:
             return False
         await connection.websocket.send_json({"type": message_type, "payload": payload})
         return True
+
+    def record_relay_failure(
+        self,
+        *,
+        conversation_id: str,
+        message_id: str,
+        relay_task_id: str,
+        target_node_id: str,
+        reason: str,
+        guidance: str,
+    ) -> None:
+        """Persist actionable conversation events for relay failures before execution starts."""
+        if self._event_repository is None:
+            return
+        base_payload = {
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "relay_task_id": relay_task_id,
+            "target_node_id": target_node_id,
+            "reason": reason,
+            "guidance": guidance,
+            "progress_state": "failed",
+            "semantic": "relay_failed_before_processing",
+        }
+        self._event_repository.append_event(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type="relay.failed",
+            delivery_status="failed",
+            payload=base_payload,
+        )
+        self._event_repository.append_event(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type="conversation.notice",
+            delivery_status="failed",
+            payload={
+                **base_payload,
+                "notice_type": "action_required",
+            },
+        )
+        self._event_repository.update_message_delivery_status(
+            message_id=message_id,
+            delivery_status="failed",
+        )
+
+    def _persist_receipt_events(self, *, task, node_id: str, detail: str | None) -> None:  # noqa: ANN001
+        if self._event_repository is None:
+            return
+        progress_map = {
+            "sent": ("relay.accepted", "accepted", "accepted_by_gateway"),
+            "completed": ("relay.completed", "completed", "agent_run_completed"),
+            "failed": ("relay.failed", "failed", "agent_run_failed"),
+        }
+        event_type, progress_state, semantic = progress_map[task.receipt_status or task.status]
+        payload = {
+            "conversation_id": task.conversation_id,
+            "message_id": task.message_id,
+            "relay_task_id": task.relay_task_id,
+            "target_node_id": task.target_node_id,
+            "node_id": node_id,
+            "detail": detail,
+            "progress_state": progress_state,
+            "semantic": semantic,
+        }
+        self._event_repository.append_event(
+            conversation_id=task.conversation_id,
+            message_id=task.message_id,
+            event_type=event_type,
+            delivery_status=task.status,
+            payload=payload,
+        )
+        if progress_state == "completed":
+            self._event_repository.append_event(
+                conversation_id=task.conversation_id,
+                message_id=task.message_id,
+                event_type="message.delivered",
+                delivery_status="completed",
+                payload={
+                    **payload,
+                    "progress_state": "completed",
+                    "semantic": "agent_run_completed",
+                },
+            )
+            self._event_repository.update_message_delivery_status(
+                message_id=task.message_id,
+                delivery_status="completed",
+            )
+        elif progress_state == "failed":
+            self._event_repository.append_event(
+                conversation_id=task.conversation_id,
+                message_id=task.message_id,
+                event_type="conversation.notice",
+                delivery_status="failed",
+                payload={
+                    **payload,
+                    "notice_type": "action_required",
+                    "guidance": "检查目标节点连接、查看执行日志后重试；如持续失败可切换节点。",
+                },
+            )
+            self._event_repository.update_message_delivery_status(
+                message_id=task.message_id,
+                delivery_status="failed",
+            )
+
+    def _persist_report_event(self, *, payload: dict[str, object]) -> None:
+        if self._event_repository is None:
+            return
+        conversation_id = _require_text(payload.get("conversation_id"), field_name="conversation_id")
+        message_id = _require_text(payload.get("message_id"), field_name="message_id")
+        status = _require_text(payload.get("status"), field_name="status")
+        summary = _optional_text(payload.get("summary"))
+        run_id = _optional_text(payload.get("run_id"))
+        guidance = _optional_text(payload.get("guidance"))
+        progress_state = "processing" if status == "running" else ("completed" if status == "completed" else "failed")
+        semantic = "agent_run_processing" if progress_state == "processing" else (
+            "agent_run_completed" if progress_state == "completed" else "agent_run_failed"
+        )
+        self._event_repository.append_event(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type="relay.processing" if progress_state == "processing" else "relay.report",
+            delivery_status=status,
+            payload={
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "node_id": _require_text(payload.get("node_id"), field_name="node_id"),
+                "run_id": run_id,
+                "summary": summary,
+                "status": status,
+                "progress_state": progress_state,
+                "semantic": semantic,
+                "guidance": guidance,
+            },
+        )
+        if progress_state == "failed":
+            self._event_repository.append_event(
+                conversation_id=conversation_id,
+                message_id=message_id,
+                event_type="conversation.notice",
+                delivery_status="failed",
+                payload={
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "run_id": run_id,
+                    "summary": summary,
+                    "status": status,
+                    "progress_state": "failed",
+                    "semantic": "agent_run_failed",
+                    "guidance": guidance or "检查节点连接和执行日志后重试；如需要可重新发送消息。",
+                    "notice_type": "action_required",
+                },
+            )
+            self._event_repository.update_message_delivery_status(
+                message_id=message_id,
+                delivery_status="failed",
+            )
 
 
 def _decode_message(raw_message: str) -> dict[str, Any]:

@@ -136,3 +136,45 @@ def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) 
             assert node_row.status_code == 200
             assert node_row.json()[0]["status"] == "online"
             assert node_row.json()[0]["node_name"] == "MacBook"
+
+
+def test_message_post_to_disconnected_node_persists_actionable_failure_events(tmp_path: Path) -> None:
+    """Persist conversation-context failure feedback when the target node is offline."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        alice_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, alice_id)
+        client.app.state.connection.execute(
+            "INSERT INTO nodes(node_id, owner_id, node_name, status, last_heartbeat_at, agent_count, version, last_error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("node-1", None, "MacBook", "offline", "1970-01-01T00:00:00Z", 0, "", None),
+        )
+        client.app.state.connection.commit()
+
+        created = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            headers={"Idempotency-Key": "idem-http-offline"},
+            json={
+                "sender_user_id": alice_id,
+                "content": "hello gateway",
+                "target_node_id": "node-1",
+            },
+        )
+        assert created.status_code == 503
+        assert created.json()["detail"] == "target_node_id is not connected"
+
+        events = client.get(
+            f"/im/v1/conversations/{conversation_id}/events?max_events=10&timeout_seconds=0.05"
+        )
+        assert events.status_code == 200
+        parsed = [event for event in events.text.split("\n\n") if event.strip() and not event.startswith(":")]
+        payloads = []
+        for block in parsed:
+            for line in block.splitlines():
+                if line.startswith("data: "):
+                    import json
+
+                    payloads.append(json.loads(line[6:]))
+        assert any("event: relay.failed" in block for block in parsed)
+        assert any("event: conversation.notice" in block for block in parsed)
+        assert any(payload.get("progress_state") == "failed" for payload in payloads)
+        assert any(payload.get("guidance") == "检查目标节点连接状态后重试，或切换到在线节点。" for payload in payloads)

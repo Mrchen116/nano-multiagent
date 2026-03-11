@@ -310,6 +310,7 @@ class MessageRepository:
             connection: SQLite connection used for reads and writes.
         """
         self._connection = connection
+        self._events = EventRepository(connection)
 
     def create_message(
         self,
@@ -372,7 +373,7 @@ class MessageRepository:
 
         message_id = uuid4().hex
         created_at = _utc_now()
-        final_status = "completed"
+        initial_status = "sent"
         attachments_json = _encode_attachments(normalized_attachments)
         event_attachments = [_attachment_to_dict(item) for item in normalized_attachments]
         with self._connection:
@@ -396,7 +397,7 @@ class MessageRepository:
                     sender_type,
                     content,
                     attachments_json,
-                    "sent",
+                    initial_status,
                     created_at,
                 ),
             )
@@ -404,37 +405,22 @@ class MessageRepository:
                 conversation_id=conversation_id,
                 message_id=message_id,
                 event_type="message.sent",
-                delivery_status="sent",
+                delivery_status=initial_status,
                 payload={
                     "conversation_id": conversation_id,
                     "message_id": message_id,
                     "sender_user_id": sender_user_id,
                     "sender_type": sender_type,
                     "attachments": event_attachments,
+                    "progress_state": "pending",
+                    "semantic": "persisted_to_im",
                 },
-            )
-            self._connection.execute(
-                "UPDATE messages SET delivery_status = ? WHERE id = ?",
-                (final_status, message_id),
             )
             # Web IM unread_count is tracked per owner-scoped conversation in V1. Every persisted message bumps
             # the aggregate counter; read/ack semantics can later decrement it without changing this write path.
             self._connection.execute(
                 "UPDATE conversations SET last_message_at = ?, unread_count = unread_count + 1 WHERE id = ?",
                 (created_at, conversation_id),
-            )
-            self._insert_event(
-                conversation_id=conversation_id,
-                message_id=message_id,
-                event_type="message.delivered",
-                delivery_status=final_status,
-                payload={
-                    "conversation_id": conversation_id,
-                    "message_id": message_id,
-                    "sender_user_id": sender_user_id,
-                    "sender_type": sender_type,
-                    "attachments": event_attachments,
-                },
             )
         return Message(
             id=message_id,
@@ -443,7 +429,7 @@ class MessageRepository:
             sender_type=sender_type,
             content=content,
             attachments=normalized_attachments,
-            delivery_status=final_status,
+            delivery_status=initial_status,
             created_at=created_at,
         )
 
@@ -1095,6 +1081,72 @@ class EventRepository:
             connection: SQLite connection used for reads and writes.
         """
         self._connection = connection
+
+    def append_event(
+        self,
+        *,
+        conversation_id: str,
+        message_id: str | None,
+        event_type: str,
+        delivery_status: str,
+        payload: dict[str, object],
+    ) -> ConversationEvent:
+        """Persist one conversation event and return the stored row.
+
+        Args:
+            conversation_id: Conversation that should receive the event.
+            message_id: Related message when the event is message-scoped.
+            event_type: Logical SSE event name.
+            delivery_status: User-visible delivery/progress status.
+            payload: JSON-serializable event body.
+
+        Returns:
+            The stored conversation event including the generated event id.
+        """
+        created_at = _utc_now()
+        with self._connection:
+            cursor = self._connection.execute(
+                """
+                INSERT INTO conversation_events(
+                    conversation_id,
+                    message_id,
+                    event_type,
+                    delivery_status,
+                    payload_json,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    message_id,
+                    event_type,
+                    delivery_status,
+                    json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+                    created_at,
+                ),
+            )
+        return ConversationEvent(
+            event_id=int(cursor.lastrowid),
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type=event_type,
+            delivery_status=delivery_status,
+            payload_json=json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+            created_at=created_at,
+        )
+
+    def update_message_delivery_status(
+        self,
+        *,
+        message_id: str,
+        delivery_status: str,
+    ) -> None:
+        """Update the canonical delivery status stored on one message row."""
+        with self._connection:
+            self._connection.execute(
+                "UPDATE messages SET delivery_status = ? WHERE id = ?",
+                (delivery_status, message_id),
+            )
 
     def list_events(
         self,
