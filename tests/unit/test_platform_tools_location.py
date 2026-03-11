@@ -40,10 +40,10 @@ def test_platform_tools_safety_is_canonical_home() -> None:
 
 
 
-def test_platform_tool_contracts_are_canonical_home() -> None:
-    """Platform tool contracts/constants must originate from platform modules."""
-    assert ToolContext.__module__ == "agent.platform.tools.base"
-    assert ToolRegistry.__module__ == "agent.platform.tools.registry"
+def test_platform_tool_contracts_are_compatibility_facades() -> None:
+    """Platform tool contracts stay importable while canonical home lives in core."""
+    assert ToolContext.__module__ == "agent.core.tools.base"
+    assert ToolRegistry.__module__ == "agent.core.tools.registry"
     assert DEFAULT_MAX_LINES == 2000
     assert DEFAULT_MAX_BYTES == 50 * 1024
     assert DEFAULT_MAX_KILOBYTES == 50
