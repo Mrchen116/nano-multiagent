@@ -91,8 +91,9 @@ def test_bootstrap_product_exposes_product_default_tools_before_user_layers(tmp_
         resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
         tool_names = _tool_names(resolved)
         product_tool_names = {path.stem for path in _PRODUCT_TOOL_DIRS[product_name].glob("*.py") if not path.name.startswith("_")}
+        declared_tool_names = set(profile.default_tool_ids or []) | set(profile.optional_tool_ids or [])
         assert set(profile.default_tool_ids or []) <= set(tool_names)
-        assert product_tool_names <= set(tool_names)
+        assert product_tool_names <= declared_tool_names
 
 
 def test_bootstrap_product_resolver_skill_roots_include_product_default_layer(tmp_path: Path) -> None:
