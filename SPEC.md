@@ -78,11 +78,10 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 | 文档 | 路径 | 内容 |
 |---|---|---|
 | **内核设计 SPEC** | `docs/内核设计SPEC.md` | agent 包三层架构、模块归属、Runtime API、HTTP API、工具/Hook/Skill/Session/LLM 契约、硬约束、验收标准 |
-| 内核设计蓝图 | `内核设计蓝图.md` | 完整时序图、类图、HTTP 参数详情 |
-| 工具设计细化 | `内核设计细化/工具设计细化.md` | 5 工具参数、返回值、安全策略 |
-| Hook 体系细化 | `内核设计细化/Hook体系设计细化.md` | 19 事件清单、拦截/观察契约、闭包模型 |
-| Skill 体系细化 | `内核设计细化/Skill体系设计细化.md` | 自动/显式 skill 机制 |
-| 系统提示词模板 | `内核设计细化/系统提示词.md` | Runtime 填充的 prompt 模板 |
+| 工具设计细化 | `docs/内核设计细化/工具设计细化.md` | 5 工具参数、返回值、安全策略 |
+| Hook 体系细化 | `docs/内核设计细化/Hook体系设计细化.md` | 19 事件清单、拦截/观察契约、闭包模型 |
+| Skill 体系细化 | `docs/内核设计细化/Skill体系设计细化.md` | 自动/显式 skill 机制 |
+| 系统提示词模板 | `docs/内核设计细化/系统提示词.md` | Runtime 填充的 prompt 模板 |
 
 ### 应用与服务
 
@@ -91,14 +90,22 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 | **Coding CLI SPEC** | `docs/CodingCLI-SPEC.md` | coding_cli 运行模式、REPL 交互、模块结构、硬约束、验收标准 |
 | **Node Gateway SPEC** | `docs/NodeGateway-SPEC.md` | personal_assistant 进程模型、Channel、入站四步决策、Heartbeat、多 Agent 路由、硬约束、验收标准 |
 | **IM 服务 SPEC** | `docs/IM-SPEC.md` | IM 服务 Web IM、配置中心、设备绑定、节点管理、消息中继、前端、硬约束、验收标准 |
-| Agent 助手蓝图 | `Agent 助手（基于 SDK 的上层应用）蓝图.md` | IM 服务与 Agent 节点契约 |
-| Agent 节点蓝图 | `Agent节点蓝图.md` | 节点网关、Channel、heartbeat |
-| IM 服务蓝图 | `IM服务蓝图.md` | Web IM API、配置中心、中继 |
-| IM 前端蓝图 | `IM前端蓝图.md` | 前端信息架构、响应式设计 |
+| IM 前端蓝图 | `docs/IM前端蓝图.md` | 前端信息架构、响应式设计 |
 
 ### 综合
 
 | 文档 | 路径 | 内容 |
 |---|---|---|
-| 需求文档 | `需求.md` | 内核 vs 助手产品需求定义 |
-| 多产品架构调整建议 | `多产品架构调整建议.md` | 四层架构推导历史 |
+| 需求文档 | `docs/需求.md` | 内核 vs 助手产品需求定义 |
+| LLM API 联调 | `docs/可用LLM_API与联调说明.md` | 可用模型、本地代理地址、验证 curl |
+
+### 归档（历史参考，已被 SPEC 覆盖）
+
+| 文档 | 路径 |
+|---|---|
+| 内核设计蓝图 | `docs/archive/内核设计蓝图.md` |
+| 多产品架构调整建议 | `docs/archive/多产品架构调整建议.md` |
+| Agent 助手蓝图 | `docs/archive/Agent 助手（基于 SDK 的上层应用）蓝图.md` |
+| Agent 节点蓝图 | `docs/archive/Agent节点蓝图.md` |
+| IM 服务蓝图 | `docs/archive/IM服务蓝图.md` |
+| CLI 时序图 | `docs/archive/CLI到工具调用时序图.md` |
