@@ -14,7 +14,7 @@
 ## Roadpoints
 
 ### R1 默认启动路径切换到 Managed
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 无参数 REPL 启动走 Managed 模式并自动拉起本地 agent。
   - `--mode remote --base-url <url>` 继续可用，缺少 `--base-url` 仍给出 input 层错误。
@@ -27,8 +27,9 @@
   - e2e: 本 Roadpoint 暂不新增 live provider e2e，只保留后续 R2 的真实入口 smoke 作为验收证据。
 - Expected Tests:
   - `tests/unit/test_cli_main.py::test_run_cli_without_mode_defaults_repl_to_managed_lifecycle`
-  - `tests/unit/test_cli_main.py::test_run_cli_without_mode_defaults_command_path_to_managed_when_base_url_is_local`
-  - `tests/unit/test_cli_main.py::test_run_cli_default_mode_can_be_overridden_to_remote`
+  - `tests/unit/test_cli_main.py::test_run_cli_without_mode_defaults_command_path_to_managed_when_base_url_is_omitted`
+  - `tests/unit/test_cli_main.py::test_run_cli_without_mode_uses_remote_mode_when_base_url_is_supplied`
+  - `tests/unit/test_cli_main.py::test_run_cli_explicit_remote_mode_overrides_managed_default`
   - `tests/integration/test_cli_http_flow_integration.py` 中显式 remote/managed 调用回归
 - DoD:
   - Gate 全绿
@@ -36,7 +37,7 @@
   - `PROGRESS/M110-coding-cli-complete.md` 记录决策、证据、提交 hash
 
 ### R2 验收口径补齐与真实 smoke 证据固化
-- Status: TODO
+- Status: DOING
 - Acceptance:
   - `docs/CodingCLI-SPEC.md` §10 的 10 条验收标准有自动化或手工 smoke 对应关系。
   - M108 的多行粘贴与 `/exit` 清队行为纳入本 milestone 正式验收记录。
