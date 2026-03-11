@@ -50,12 +50,13 @@ def test_personal_assistant_profile_system_prompt_not_coding() -> None:
     assert "code assistant" not in prompt
 
 
-def test_personal_assistant_profile_default_tool_ids_conservative() -> None:
-    """personal_assistant must declare a conservative read/task-only tool set."""
+def test_personal_assistant_profile_default_tool_ids_include_product_message_tool() -> None:
+    """personal_assistant must expose read/task plus the product-owned send_message tool."""
     assert PERSONAL_ASSISTANT_PROFILE.default_tool_ids is not None
     tool_ids = set(PERSONAL_ASSISTANT_PROFILE.default_tool_ids)
     assert "read" in tool_ids
     assert "task" in tool_ids
+    assert "send_message" in tool_ids
     # No write/edit/bash by default.
     assert "write" not in tool_ids
     assert "edit" not in tool_ids
