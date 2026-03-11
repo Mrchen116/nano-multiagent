@@ -1,48 +1,21 @@
-"""Domain models for the independent IM service."""
+"""Legacy compatibility facade for IM domain models."""
 
-from dataclasses import dataclass
+from IM.domain.models import (
+    AgentProfile,
+    Conversation,
+    ConversationEvent,
+    Message,
+    NodeStatus,
+    RelayTask,
+    User,
+)
 
-
-@dataclass(frozen=True, slots=True)
-class User:
-    """Represent a human chat user persisted in IM storage."""
-
-    id: str
-    username: str
-    display_name: str
-    created_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class Conversation:
-    """Represent a human-to-human conversation with participants."""
-
-    id: str
-    title: str
-    participant_ids: list[str]
-    created_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class Message:
-    """Represent a single message in a conversation."""
-
-    id: str
-    conversation_id: str
-    sender_user_id: str
-    content: str
-    delivery_status: str
-    created_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class ConversationEvent:
-    """Represent a persisted conversation event for SSE replay/reconnect."""
-
-    event_id: int
-    conversation_id: str
-    message_id: str | None
-    event_type: str
-    delivery_status: str
-    payload_json: str
-    created_at: str
+__all__ = [
+    "AgentProfile",
+    "Conversation",
+    "ConversationEvent",
+    "Message",
+    "NodeStatus",
+    "RelayTask",
+    "User",
+]
