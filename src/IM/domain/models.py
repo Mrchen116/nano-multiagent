@@ -75,13 +75,19 @@ class NodeStatus:
 
 @dataclass(frozen=True, slots=True)
 class RelayTask:
-    """Represent a relay task enqueued for gateway delivery."""
+    """Represent one idempotent relay task enqueued for gateway delivery."""
 
+    relay_task_id: str
     message_id: str
+    conversation_id: str
     target_node_id: str
     payload: dict[str, object]
     idempotency_key: str
     status: str
+    created_at: str
+    updated_at: str
+    receipt_status: str | None = None
+    receipt_detail: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
