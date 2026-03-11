@@ -2800,10 +2800,10 @@
       "exit_criteria": "GET /im/v1/nodes + PATCH /im/v1/nodes/{id}/config；NodeStatus 聚合（online/offline/degraded）；GET /im/v1/metrics/usage（Token/Turn 统计）；相关测试通过",
       "status": "DONE",
       "blocked_by": [],
-      "claimed_by": "subagent-M99",
-      "claimed_at": "2026-03-11T19:34:57+08:00",
+      "claimed_by": null,
+      "claimed_at": null,
       "status_changed_at": "2026-03-11T20:00:00+08:00",
-      "updated_at": "2026-03-11T20:00:00+08:00",
+      "updated_at": "2026-03-11T19:48:12+08:00",
       "execution_mode": "parallel",
       "use_worktree": true,
       "worktree_dir": ".worktrees/M99",
@@ -2823,10 +2823,10 @@
       "exit_criteria": "channels/base.py（ChannelAdapter Protocol: name/start/send/stop）；gateway/channel_registry.py + gateway/bootstrap.py（start_channels）；gateway/inbound_pipeline.py（四步决策：Agent 路由→会话键→串行队列→出站回发）；gateway/session_keys.py（群聊/私聊键生成 + session_binding_store）；gateway/run_queue.py（同会话串行 FIFO / 跨会话并行）；gateway/outbound_router.py（按 reply_context 回发原通道）；模拟 Channel 消息可完成四步决策 + agent 调用 + 结果回发；串行/并行策略验证通过",
       "status": "DONE",
       "blocked_by": [],
-      "claimed_by": "subagent-M100",
-      "claimed_at": "2026-03-11T19:34:58+08:00",
+      "claimed_by": null,
+      "claimed_at": null,
       "status_changed_at": "2026-03-11T19:34:58+08:00",
-      "updated_at": "2026-03-11T19:34:58+08:00",
+      "updated_at": "2026-03-11T19:48:12+08:00",
       "execution_mode": "parallel",
       "use_worktree": true,
       "worktree_dir": ".worktrees/M100",
@@ -2844,28 +2844,24 @@
       "title": "Gateway Heartbeat 调度器",
       "goal": "实现 Heartbeat 调度引擎，对齐 NodeGateway-SPEC §6",
       "exit_criteria": "scheduler/heartbeat_scheduler.py 支持 cron/interval/at 三种调度模式；读取 HEARTBEAT.md 判断任务，无有效任务时安静跳过；进程重启后补跑错过的到期任务；相关测试通过",
-      "status": "BLOCKED",
-      "blocked_by": [
-        "M100"
-      ],
+      "status": "READY",
+      "blocked_by": [],
       "claimed_by": null,
       "claimed_at": null,
-      "status_changed_at": "2026-03-11T16:21:25+08:00",
-      "updated_at": "2026-03-11T16:21:25+08:00"
+      "status_changed_at": "2026-03-11T19:46:05+08:00",
+      "updated_at": "2026-03-11T19:46:05+08:00"
     },
     {
       "milestone_id": "M102",
       "title": "Gateway WebSocket Client + send_message + 上报",
       "goal": "实现 Gateway 到 IM 服务的 WebSocket 连接和 Agent 间通信工具，对齐 NodeGateway-SPEC §7/§8",
       "exit_criteria": "ws/im_connection.py（主动连接 IM、指数退避重连≤60s、断线后本地自治）；reporter/upstream_reporter.py（node.register/heartbeat/report/delivery_receipt）；channels/web_relay_adapter.py（WebIM 中继通道，接收 relay.message 下推）；products/personal_assistant/tools/send_message.py（send_message(text, to) 产品专属工具）；config/sync_client.py（可选配置同步）；Gateway 可连接 IM 服务、收发消息、Agent 间 send_message 可用；相关测试通过",
-      "status": "BLOCKED",
-      "blocked_by": [
-        "M100"
-      ],
+      "status": "READY",
+      "blocked_by": [],
       "claimed_by": null,
       "claimed_at": null,
-      "status_changed_at": "2026-03-11T16:21:33+08:00",
-      "updated_at": "2026-03-11T19:22:04+08:00"
+      "status_changed_at": "2026-03-11T19:46:05+08:00",
+      "updated_at": "2026-03-11T19:46:05+08:00"
     },
     {
       "milestone_id": "M103",
@@ -2874,13 +2870,12 @@
       "exit_criteria": "Web IM 消息完整往返（浏览器→IM→WS→Gateway→agent 内核→回发）；设备绑定端到端流程；配置同步通知；IM 离线时外部 IM 主路径自治验证；多 Agent 路由验证；群聊 @提及门控；相关 e2e 测试通过",
       "status": "BLOCKED",
       "blocked_by": [
-        "M99",
         "M102"
       ],
       "claimed_by": null,
       "claimed_at": null,
       "status_changed_at": "2026-03-11T16:21:36+08:00",
-      "updated_at": "2026-03-11T16:21:36+08:00"
+      "updated_at": "2026-03-11T19:46:05+08:00"
     },
     {
       "milestone_id": "M104",
@@ -2901,12 +2896,12 @@
       "title": "legacy root 零残留收口",
       "goal": "删除不符合 SPEC 的 src/nano_multiagent/ legacy 包根，并收口相关测试/文档/导入，恢复顶层目录零残留目标态",
       "exit_criteria": "src/ 下只保留 SPEC 规定的四个顶层包（agent/coding_cli/personal_assistant/IM）；src/nano_multiagent/ 完全删除；相关测试/文档/负向断言更新为新目标态；不得留下新的兼容并行结构；目标测试通过",
-      "status": "RUNNING",
+      "status": "DONE",
       "blocked_by": [],
-      "claimed_by": "control-tower-M105",
-      "claimed_at": "2026-03-11T19:43:12+08:00",
-      "status_changed_at": "2026-03-11T19:43:12+08:00",
-      "updated_at": "2026-03-11T19:43:12+08:00",
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T19:46:05+08:00",
+      "updated_at": "2026-03-11T19:46:05+08:00",
       "execution_mode": "parallel",
       "use_worktree": true,
       "worktree_dir": ".worktrees/M105",
@@ -2927,15 +2922,16 @@
       "title": "IM↔Gateway 真实端到端交互验收",
       "goal": "对内部 IM 服务与 Gateway 做真实端到端联调，验证消息交互闭环，并从成熟商业产品视角审视关键交互环节、补充问题清单与改进建议",
       "exit_criteria": "能以真实进程方式跑通 IM 与 Gateway 的注册/连接/消息往返/状态回执主链路；形成端到端测试资产与验收脚本；输出从成熟商业产品视角的交互审视记录，覆盖绑定、会话建立、消息发送、回执、异常反馈、状态提示等关键环节，并列出问题清单与后续改进项；相关 e2e/验收测试通过",
-      "status": "BLOCKED",
-      "blocked_by": [
-        "M99",
-        "M100"
-      ],
-      "claimed_by": null,
-      "claimed_at": null,
-      "status_changed_at": "2026-03-11T19:26:16+08:00",
-      "updated_at": "2026-03-11T19:34:05+08:00"
+      "status": "RUNNING",
+      "blocked_by": [],
+      "claimed_by": "subagent-M106",
+      "claimed_at": "2026-03-11T19:49:45+08:00",
+      "status_changed_at": "2026-03-11T19:49:45+08:00",
+      "updated_at": "2026-03-11T19:49:45+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M106",
+      "branch": "milestone/M106"
     }
   ]
 }
