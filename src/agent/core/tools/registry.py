@@ -51,19 +51,33 @@ class ToolRegistry:
             self.register(tool)
 
     def list_specs(self) -> tuple[ToolSpec, ...]:
-        """Return sorted tool specs exposed to model-facing tool calling."""
+        """Return tool specs in registration order for layer-aware callers.
 
-        specs: list[ToolSpec] = []
-        for name in sorted(self._tools):
-            tool = self._tools[name]
-            specs.append(
-                ToolSpec(
-                    name=tool.name,
-                    description=tool.description,
-                    input_schema=dict(tool.input_schema),
-                )
+        Returns:
+            Immutable tool specs preserving the effective precedence order after
+            built-ins, product tools, and higher-priority user overrides are loaded.
+        """
+
+        return tuple(
+            ToolSpec(
+                name=tool.name,
+                description=tool.description,
+                input_schema=dict(tool.input_schema),
             )
-        return tuple(specs)
+            for tool in self._tools.values()
+        )
+
+    def get(self, name: str) -> Tool | None:
+        """Return one registered tool by name.
+
+        Args:
+            name: Canonical tool identifier.
+
+        Returns:
+            The registered tool instance, or ``None`` when the name is unknown.
+        """
+
+        return self._tools.get(name)
 
     def execute(
         self,
