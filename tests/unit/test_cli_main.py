@@ -2861,6 +2861,82 @@ def test_run_cli_repl_exit_reports_remaining_inflight_messages_after_timeout(mon
     assert "Timed out waiting for in-flight messages before exit; 2 still in-flight message(s)." in text
 
 
+def test_repl_run_queue_close_can_discard_pending_messages() -> None:
+    processed: list[str] = []
+    queue = cli_commands.ReplRunQueue(process_message=lambda item: processed.append(item.text))
+
+    assert queue.enqueue(session_id="sess_cli", text="first") == 0
+    assert queue.enqueue(session_id="sess_cli", text="second") == 1
+
+    drained = queue.close(wait_for_drain=False, discard_pending=True)
+
+    assert drained is True
+    assert queue.backlog_size() == 0
+    assert processed == []
+
+
+def test_run_cli_repl_exit_discards_queued_messages_before_processing(monkeypatch) -> None:
+    from coding_cli import commands as app_commands
+
+    class _DiscardOnCloseQueue:
+        instances: list["_DiscardOnCloseQueue"] = []
+
+        def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001
+            del on_worker_error
+            self._process_message = process_message
+            self.pending: list[object] = []
+            self.closed_with: tuple[bool, bool] | None = None
+            self.processed: list[str] = []
+            self.__class__.instances.append(self)
+
+        def enqueue(self, *, session_id: str, text: str) -> int:
+            backlog_before = len(self.pending)
+            self.pending.append(app_commands.QueuedReplMessage(session_id=session_id, text=text))
+            return backlog_before
+
+        def backlog_size(self) -> int:
+            return len(self.pending)
+
+        def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
+            del timeout_seconds
+            return False
+
+        def close(self, *, wait_for_drain: bool, drain_timeout_seconds: float | None = None, discard_pending: bool = False) -> bool:
+            del drain_timeout_seconds
+            self.closed_with = (wait_for_drain, discard_pending)
+            if not discard_pending:
+                while self.pending:
+                    item = self.pending.pop(0)
+                    self.processed.append(item.text)
+                    self._process_message(item)
+                return False
+            self.pending.clear()
+            return True
+
+    manager = _ManagedServerSpy()
+    stub = _AsyncQueueingStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "first", "second", "/exit"])
+
+    monkeypatch.setattr(app_commands, "ReplRunQueue", _DiscardOnCloseQueue)
+    exit_code = run_cli(
+        ["--mode", "managed", "--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        managed_server_factory=lambda _: manager,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    queue = _DiscardOnCloseQueue.instances[-1]
+    assert queue.closed_with == (False, True)
+    assert queue.processed == []
+    send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
+    assert send_async_calls == []
+    assert manager.events == ["start", "stop"]
+    assert "Waiting for 2 in-flight message(s) before exit." not in output.getvalue()
+
+
 def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(monkeypatch) -> None:
     stub = _AsyncToolExecStreamingStubClient()
     output = io.StringIO()

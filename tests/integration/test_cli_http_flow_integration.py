@@ -1076,6 +1076,34 @@ def test_cli_repl_flow_supports_key_commands_in_both_modes(mode: str) -> None:
         assert managed_server.events == []
 
 
+def test_cli_repl_managed_exit_discards_queued_messages_and_stops_server() -> None:
+    app = create_app(runtime=_SlowFirstTurnRuntime(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+    managed_server = _ManagedServerRecorder()
+
+    def client_factory(config):
+        from coding_cli.client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "first", "second", "/exit"])
+    exit_code = run_cli(
+        ["--mode", "managed", "--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        managed_server_factory=lambda _: managed_server,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert managed_server.events == ["start", "stop"]
+    assert text.count("run=") == 1
+    assert "Waiting for 2 in-flight message(s) before exit." not in text
+    assert "cli:second" not in text
+
+
 @pytest.mark.parametrize("mode", ["managed", "remote"])
 def test_cli_llm_config_get_set_flow_supports_remote_and_managed_modes(mode: str) -> None:
     app = FastAPI()
