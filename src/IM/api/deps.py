@@ -3,9 +3,11 @@
 from fastapi import HTTPException, Request, status
 
 from IM.application.event_service import EventService
+from IM.application.relay_service import RelayService
 from IM.application.user_service import UserService
 from IM.application.web_im_service import WebIMService
 from IM.infra.repositories import ConversationRepository, EventRepository, MessageRepository, UserRepository
+from IM.ws.gateway_handler import GatewayHandler
 
 
 def get_user_service(request: Request) -> UserService:
@@ -18,12 +20,23 @@ def get_web_im_service(request: Request) -> WebIMService:
     return WebIMService(
         conversations=ConversationRepository(request.app.state.connection),
         messages=MessageRepository(request.app.state.connection),
+        relay_service=RelayService(request.app.state.connection),
     )
 
 
 def get_event_service(request: Request) -> EventService:
     """Build the event application service from app-scoped dependencies."""
     return EventService(events=EventRepository(request.app.state.connection))
+
+
+def get_relay_service(request: Request) -> RelayService:
+    """Build the relay application service from app-scoped dependencies."""
+    return RelayService(request.app.state.connection)
+
+
+def get_gateway_handler(request: Request) -> GatewayHandler:
+    """Return the singleton gateway websocket handler for the running IM app."""
+    return request.app.state.gateway_handler
 
 
 def assert_conversation_exists(request: Request, *, conversation_id: str) -> None:

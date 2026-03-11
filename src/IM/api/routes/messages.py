@@ -4,15 +4,16 @@ import asyncio
 import json
 from time import monotonic
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from IM.api.deps import assert_conversation_exists, get_event_service, get_web_im_service
+from IM.api.deps import assert_conversation_exists, get_event_service, get_gateway_handler, get_web_im_service
 from IM.application.event_service import EventService
 from IM.application.web_im_service import WebIMService
 from IM.domain.models import ConversationEvent, Message
 from IM.infra.sse import encode_sse_event_frame, encode_sse_heartbeat
+from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["messages"])
 
@@ -22,6 +23,7 @@ class CreateMessageRequest(BaseModel):
 
     sender_user_id: str = Field(min_length=1)
     content: str = Field(min_length=1)
+    target_node_id: str | None = None
 
 
 class MessageResponse(BaseModel):
@@ -94,13 +96,15 @@ def parse_event_cursor(*, after_event_id: str | None, last_event_id: str | None)
     response_model=MessageResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_message(
+async def create_message(
     conversation_id: str,
     payload: CreateMessageRequest,
     request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     service: WebIMService = Depends(get_web_im_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
 ) -> MessageResponse:
-    """Create a message in a conversation."""
+    """Create a message in a conversation and optionally relay it to one gateway."""
     assert_conversation_exists(request, conversation_id=conversation_id)
     try:
         created = service.create_message(
@@ -110,6 +114,23 @@ def create_message(
         )
     except ValueError as exc:
         raise map_message_write_error(exc) from exc
+    if payload.target_node_id is not None:
+        relay_result = service.enqueue_relay(
+            message=created,
+            target_node_id=payload.target_node_id,
+            idempotency_key=idempotency_key or f"relay:{created.id}:{payload.target_node_id}",
+            sender_user_id=payload.sender_user_id,
+        )
+        dispatched = await gateway_handler.push_relay_message(
+            relay_task_id=relay_result.relay_task.relay_task_id,
+            target_node_id=payload.target_node_id,
+            payload=relay_result.relay_task.payload,
+        )
+        if not dispatched:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="target_node_id is not connected",
+            )
     return to_message_response(created)
 
 

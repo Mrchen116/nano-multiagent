@@ -1,0 +1,2860 @@
+{
+  "_note": "Runtime file (gitignored). Update via: python3 /Users/czj/.codex/skills/tdd-control-tower/scripts/dev_tasks.py ...",
+  "version": 1,
+  "milestones": [
+    {
+      "milestone_id": "M13R",
+      "title": "细化一致性优先修复（系统提示词 + 工具契约 + Hook/Skill关键差距）",
+      "goal": "对齐 `内核设计细化/` 与现状实现的高优先级偏差，恢复设计一致性基线。",
+      "exit_criteria": "- system prompt 模板按 `内核设计细化/系统提示词.md` 落地（含工具段、guidelines、datetime、cwd 占位填充）。\n- `tools` 关键契约差距修复（至少覆盖 task 参数契约、load_skills、read 沙箱与 skills 可见性冲突）。\n- Hook 关键事件触发与 `before_agent_start.message` 契约补齐，`pytest -q` 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cacc9-a3f3-7af2-b919-c8ef8a53a781",
+      "claimed_at": "2026-03-02T12:23:51+08:00",
+      "status_changed_at": "2026-03-02T12:28:16+08:00",
+      "updated_at": "2026-03-02T12:28:16+08:00",
+      "execution_mode": "serial",
+      "use_worktree": false,
+      "worktree_dir": null,
+      "branch": "milestone/M13R",
+      "result": {
+        "solution_summary": "完成 R13R.8，补齐 session_shutdown/run_timeout 触发链路并新增内置 hook 示例 default_status；补齐 hook 关键 contract/integration/e2e 覆盖并收口文档。",
+        "tests": "pytest -q => 179 passed, 0 failed",
+        "commits": {
+          "C1": "caa9839",
+          "C2": "69f9796",
+          "C3": "182bdab",
+          "merge": "7f0d52d"
+        },
+        "new_rules": [
+          "run_timeout 与 run_error 语义分离，timeout 必须产出 stop_reason=timeout 与 error.code=run_timeout",
+          "session_shutdown 事件由应用关闭生命周期统一触发，保持 fail-open"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M14",
+      "title": "工具执行语义细化对齐（read/bash）",
+      "goal": "将 `read` 与 `bash` 的执行/返回语义补齐到《内核设计细化/工具设计细化.md》要求，消除图片读取、输出截断与 fullOutputPath 等高风险偏差。",
+      "exit_criteria": "- `read` 支持图片输入并返回 `text+image` 结构；文本截断与 offset 提示语义通过 contract/integration 验证。\n- `tool_result` 对 list content 透传语义稳定，不再破坏 `read` 图片 parts。\n- `bash` 对齐“无默认超时”与“截断落盘 + fullOutputPath”契约，并覆盖超大输出/超时/中断测试。\n- `pytest -q` 全绿，且工具相关 e2e/contract 回归通过。",
+      "status": "DONE",
+      "blocked_by": [],
+      "blocked_reason": null,
+      "claimed_by": "worker-019cacf6-9580-7941-823e-173dc0a97e92",
+      "claimed_at": "2026-03-02T13:12:52+08:00",
+      "status_changed_at": "2026-03-02T14:47:34+08:00",
+      "updated_at": "2026-03-02T14:47:34+08:00",
+      "execution_mode": "serial",
+      "use_worktree": false,
+      "worktree_dir": null,
+      "branch": "milestone/M14",
+      "result": {
+        "solution_summary": "完成 read/tool_result/bash 三段语义对齐：read 支持图片与截断 offset 提示，tool_result 对 list content 保真透传，bash 对齐无默认超时与截断落盘 fullOutputPath；补齐 contract/integration 回归。",
+        "tests": "pytest -q => 209 passed, 0 failed, 3 skipped",
+        "commits": {
+          "R14.1": {
+            "C1": "1b7f529",
+            "C2": "0afcfcf",
+            "C3": "05e5342"
+          },
+          "R14.2": {
+            "C1": "a7375cd",
+            "C2": "1961e1e",
+            "C3": "5858884"
+          },
+          "R14.3": {
+            "C1": "a8704a3",
+            "C2": "d7dd38b",
+            "C3": "b39af96"
+          },
+          "merge": "5038866",
+          "post_merge_test_stabilization": "b6274f3"
+        },
+        "new_rules": [
+          "live proxy e2e 测试默认通过 NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 显式开启，避免环境偶发服务导致门禁抖动",
+          "tool_result hook 改写必须保留 list content 原始结构，禁止字符串化破坏 image/text parts"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M15",
+      "title": "第二 Provider（anthropic）与切换验收",
+      "goal": "在不改 runtime/tool/session 核心代码前提下新增 `anthropic` 协议实现与工厂接线。",
+      "exit_criteria": "- `llm/protocols/anthropic/*` 落地并通过与 `openai_compat` 同一契约测试集。\n- provider 切换仅改配置（不改 runtime/tool/session 代码）。\n- OpenAI/Anthropic 双链路集成测试通过，`pytest -q` 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "blocked_reason": null,
+      "claimed_by": "worker-019cacc9-a401-7653-8dc3-2cf0b91a6e9d",
+      "claimed_at": "2026-03-02T12:23:51+08:00",
+      "status_changed_at": "2026-03-02T12:30:59+08:00",
+      "updated_at": "2026-03-02T12:30:59+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M15",
+      "branch": "milestone/M15",
+      "result": {
+        "solution_summary": "新增 anthropic provider 协议实现（mapper/client）并接入 llm factory/model registry；建立 OpenAI/Anthropic 共享契约测试与双链路集成/e2e 验证，provider 切换仅需配置。",
+        "tests": "pytest -q (worktree rebased on main) => 193 passed, 0 failed, 3 skipped",
+        "commits": {
+          "R15.1": {
+            "C1": "ec3f7cb",
+            "C2": "d3576f5",
+            "C3": "f26b520"
+          },
+          "R15.2": {
+            "C1": "986adf1",
+            "C2": "889b133",
+            "C3": "c53fe74"
+          },
+          "R15.3": {
+            "C1": "4a521ce",
+            "C2": "bbb0059",
+            "C3": "bba5aed"
+          },
+          "milestone_docs": "ccee67b",
+          "merge": "28411dd"
+        },
+        "new_rules": [
+          "provider 适配差异收敛在 src/nano_multiagent/llm/protocols/*，runtime/tool/session 不直接感知 provider 细节",
+          "新增 provider 时必须先复用共享契约测试集，再做工厂接线"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M16",
+      "title": "发布前硬化与回放审计验收",
+      "goal": "完成全局能力收口（capabilities/openapi/薄CLI）与稳定性硬化，达成蓝图最小验收。",
+      "exit_criteria": "- `GET /v1/capabilities` 与 `GET /v1/openapi.json` 可用且反映当前模型/工具能力。\n- CLI 保持 HTTP-only（不直连 runtime）并可完成主流程调用。\n- 回放一致性、故障注入与恢复性检查通过，关键长会话压缩/重试链路稳定。\n- 满足《内核设计蓝图.md》第 11 节最小验收项，`pytest -q` 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "blocked_reason": null,
+      "claimed_by": "worker-019cad51-0d69-7fb1-b403-e2795e30d615",
+      "claimed_at": "2026-03-02T14:51:43+08:00",
+      "status_changed_at": "2026-03-02T15:12:28+08:00",
+      "updated_at": "2026-03-02T15:12:28+08:00",
+      "execution_mode": "serial",
+      "use_worktree": false,
+      "worktree_dir": null,
+      "branch": "milestone/M16",
+      "result": {
+        "solution_summary": "完成发布前收口：新增 /v1/capabilities 与 /v1/openapi.json 能力面，落地 HTTP-only 薄 CLI + SDK 客户端链路，并补齐回放审计与压缩故障恢复的硬化测试。",
+        "tests": "pytest -q => 226 passed, 0 failed, 3 skipped",
+        "commits": {
+          "plan": "d0531e7",
+          "R16.1": {
+            "C1": "d0df8db",
+            "C2": "eeba445",
+            "C3": "912b4e2"
+          },
+          "R16.2": {
+            "C1": "e5fce92",
+            "C2": "bf1f17d",
+            "C3": "6d2eccb"
+          },
+          "R16.3": {
+            "C1": "ddbf9a3",
+            "C2": "d1b0f4c",
+            "C3": "1506f3f"
+          },
+          "merge": "1086801"
+        },
+        "new_rules": [
+          "CLI 只能通过 sdk.client 走 HTTP API，不得直连 agent.runtime",
+          "压缩失败保护要在 runtime 层显式 fail-open，避免长会话 overflow 后主流程中断"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M17",
+      "title": "交互式极简 Coding Agent CLI（含 /compact 与 /tools）",
+      "goal": "提供可持续对话的 REPL CLI，并支持会话级 /compact 与 /tools，按蓝图目录重构 cli/main.py + cli/commands.py + cli/http_client.py。",
+      "exit_criteria": "- 启动 CLI 后进入持续交互提示符，支持普通文本多轮对话。\\n- 支持 /help /new /use <session_id> /session /tools /compact /exit。\\n- 新增 HTTP API：POST /v1/sessions/{session_id}:compact 与 GET /v1/sessions/{session_id}/tools。\\n- CLI 全部通过 HTTP API 调用（无 agent.runtime 直连 import）。\\n- pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cad7f-8980-7841-844a-2c04ff86beb4",
+      "claimed_at": "2026-03-02T15:42:41+08:00",
+      "status_changed_at": "2026-03-02T16:00:19+08:00",
+      "updated_at": "2026-03-02T16:00:19+08:00",
+      "execution_mode": "serial",
+      "use_worktree": false,
+      "branch": "milestone/M17",
+      "result": {
+        "solution_summary": "落地交互式极简 Coding Agent CLI：新增 REPL 连续对话与命令系统（/help /new /use /session /tools /compact /exit），并新增会话级 HTTP API（session tools + manual compact）；CLI 目录重构为 main.py + commands.py + http_client.py。",
+        "tests": "pytest -q => 236 passed, 0 failed, 3 skipped",
+        "commits": {
+          "plan": "68ac614",
+          "R17.1": {
+            "C1": "684ed01",
+            "C2": "848b229",
+            "C3": "cf07425"
+          },
+          "R17.2": {
+            "C1": "3d35230",
+            "C2": "69baa66",
+            "C3": "7f881be"
+          },
+          "R17.3": {
+            "C1": "3cc1780",
+            "C2": "0f48d4c",
+            "C3": "d635355"
+          },
+          "merge": "ac33765"
+        },
+        "new_rules": [
+          "CLI 交互命令层与 HTTP 客户端层分离（commands/http_client），main.py 仅做入口委托",
+          "会话级 /tools 与 /compact 必须走 HTTP 路由，保持 CLI 对 runtime 的零直连"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M18",
+      "title": "交互式 CLI 易用性增强",
+      "goal": "在 M17 基础上增强交互可用性，补齐历史/错误提示/输出体验，使 CLI 可日常使用。",
+      "exit_criteria": "- 支持 /history [n] 查看最近会话消息（最简文本视图）。\\n- /tools 与 /compact 输出人类可读摘要，错误提示包含可操作建议。\\n- 支持空输入忽略、Ctrl-D 退出、命令参数错误提示。\\n- 关键交互路径 unit+integration 覆盖，pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "019cad99-45a0-7803-b128-99cda0e6cefb",
+      "claimed_at": "2026-03-02T16:10:34+08:00",
+      "status_changed_at": "2026-03-02T16:17:10+08:00",
+      "updated_at": "2026-03-02T16:17:31+08:00",
+      "execution_mode": "serial",
+      "use_worktree": false,
+      "branch": "milestone/M18",
+      "result": {
+        "solution_summary": "M18 完成交互式 CLI 易用性增强：新增 /history [n] 最近消息视图；/tools 与 /compact 改为人类可读摘要；命令参数错误与请求失败提供可执行建议；补齐空输入忽略与 EOF 退出等鲁棒性行为。",
+        "tests": "pytest -q (main): 244 passed, 0 failed, 3 skipped",
+        "commits": {
+          "plan": "d4e7319",
+          "R18.1": {
+            "C1": "b6ac8ae",
+            "C2": "a82a5c9",
+            "C3": "821d4a1"
+          },
+          "R18.2": {
+            "C1": "a5f39c2",
+            "C2": "af90901",
+            "C3": "0785333"
+          },
+          "R18.3": {
+            "C1": "1d9305d",
+            "C2": "2baa35b",
+            "C3": "ffcb041"
+          },
+          "R18.3_followup": {
+            "C1": "d475857",
+            "C2": "243a75a"
+          },
+          "merge_main": "44a5401"
+        },
+        "notes": "执行过程中发生 subagent 并行写同分支，最终以 milestone/M18 最新提交链收口并通过全量回归。"
+      }
+    },
+    {
+      "milestone_id": "M19",
+      "title": "CLI 双模式：托管API与外部API连接",
+      "goal": "为 CLI 提供两种运行模式：managed 模式可自动拉起并管理本地 API 服务；remote 模式连接已有 API 服务。",
+      "exit_criteria": "- 新增 managed 模式：CLI 启动时可自动启动本地 uvicorn API，并在退出时回收子进程。\\n- 新增 remote 模式：CLI 只连接已有 --base-url，不管理服务进程。\\n- 两种模式都支持现有 REPL 命令（/new /tools /compact /history）。\\n- 明确日志/错误提示（端口占用、启动失败、连接失败）并给出可操作建议。\\n- unit+integration 覆盖关键流程，pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "019cadd3-50d7-7102-809c-37fa1d9ca2ec",
+      "claimed_at": "2026-03-02T17:13:59+08:00",
+      "status_changed_at": "2026-03-02T17:36:55+08:00",
+      "updated_at": "2026-03-02T17:39:00+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M19",
+      "branch": "milestone/M19",
+      "result": {
+        "solution_summary": "Implemented dual CLI modes: managed (auto-start/stop local uvicorn with lifecycle checks) and remote (connect-only with strict base-url requirement), kept REPL commands compatible, and improved actionable diagnostics plus README guidance.",
+        "tests": "pytest -q: 262 passed, 3 skipped",
+        "commits": {
+          "R19.1": {
+            "C1": "cb71da7",
+            "C2": "c58db82",
+            "C3": "7ef1b9f"
+          },
+          "R19.2": {
+            "C1": "1de9b4c",
+            "C2": "d875363",
+            "C3": "9ce1fcb"
+          },
+          "R19.3": {
+            "C1": "d71a7e3",
+            "C2": "ba661ca",
+            "C3": "eba6f1c"
+          },
+          "final_docs": "2aceba5",
+          "merge_main": "d616664"
+        },
+        "push": "success: controller pushed main to origin via ssh.github.com:443"
+      }
+    },
+    {
+      "milestone_id": "M20",
+      "title": "CLI 实时事件与输出契约收口",
+      "goal": "在不改内核前提下，仅通过 CLI 层完成实时事件可视化与输出契约稳定：REPL 展示中间 tool 调用过程，单命令模式保持纯 JSON 可机读。",
+      "exit_criteria": "- REPL 默认使用 async events，逐步展示 run/tool/text 事件与工具输出预览。\\n- 单命令 send-message 输出仍为单个 JSON（不混入事件行），确保脚本可解析。\\n- /v1/llm-config 路径契约一致（CLI client 与 server 路由一致）。\\n- 新增/更新 unit+integration 覆盖上述行为，pytest -q 目标集全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cae75-28da-7912-84d1-68b01dc823ff",
+      "claimed_at": "2026-03-02T20:10:44+08:00",
+      "status_changed_at": "2026-03-02T20:29:14+08:00",
+      "updated_at": "2026-03-02T20:44:38+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M20",
+      "branch": "milestone/M20",
+      "result": {
+        "solution_summary": "CLI层完成REPL默认异步事件展示（run/tool/text+工具输出预览），并实现event_id去重+run_id过滤；单命令send-message保持纯JSON；客户端/v1/llm-config路径契约与server一致。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_sdk_client.py tests/unit/test_cli_managed_server.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py -> 58 passed, 20 warnings",
+        "commits": {
+          "plan": "753aabe",
+          "R20.1": {
+            "C1": "75057c0",
+            "C2": "2015e69",
+            "C3": "3559c0a"
+          },
+          "R20.2": {
+            "C1": "0e9efbd",
+            "C2": "cff3b49",
+            "C3": "d60c658"
+          },
+          "R20.3": {
+            "C1": "eacb4a6",
+            "C2": "8b54d56",
+            "C3": "ab29920"
+          },
+          "merge": "df7a817",
+          "merge_notes": "08db0b0先合入核心代码，df7a817补合入里程碑分支后续文档提交992a5c2"
+        }
+      }
+    },
+    {
+      "milestone_id": "M21",
+      "title": "交互输入引擎升级（行内编辑 + 历史回填）",
+      "goal": "将 CLI 输入区升级为可编辑交互模式，支持左右移动光标与上下历史回填后再编辑提交。",
+      "exit_criteria": "- REPL 输入支持 ←/→ 光标移动与行内编辑。\\n- 支持 ↑/↓ 在当前会话输入历史中导航与回填。\\n- 回填内容可再次编辑并提交，不破坏已有 /help /new /use /tools /compact /history /exit 流程。\\n- unit+integration 覆盖关键按键行为，pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "blocked_reason": null,
+      "claimed_by": "worker-019caf08-12a5-7a61-8607-8cf4f8fae071",
+      "claimed_at": "2026-03-02T22:51:25+08:00",
+      "status_changed_at": "2026-03-02T23:17:54+08:00",
+      "updated_at": "2026-03-02T23:17:54+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M21",
+      "branch": "milestone/M21",
+      "result": {
+        "solution_summary": "CLI REPL 输入引擎升级完成：新增可编辑输入（←/→+行内插入/退格）、会话级 ↑/↓ 历史回填与草稿恢复、命令与消息统一回填；并通过注入式交互 reader 保持 /help /new /use /tools /compact /history /exit 兼容及单命令 JSON 契约不变。",
+        "tests": "pytest -q -> 316 passed, 4 skipped, 174 warnings",
+        "commits": {
+          "plan": "65b118f",
+          "R21.1": {
+            "C1": "2f2d544",
+            "C2": "a928e73",
+            "C3": "97ca096"
+          },
+          "R21.2": {
+            "C1": "c539d4b",
+            "C2": "32acbb5",
+            "C3": "1411c27"
+          },
+          "R21.3": {
+            "C1": "f7c3913",
+            "C2": "cc6cab5",
+            "C3": "a51f8bf"
+          },
+          "merge": "a2f1f81"
+        },
+        "new_rules": []
+      }
+    },
+    {
+      "milestone_id": "M22",
+      "title": "上下文预算可视化（实时显示与阈值提示）",
+      "goal": "在 CLI REPL 中可视化会话上下文预算，帮助用户感知剩余空间并及时压缩。",
+      "exit_criteria": "- 每轮输出后显示预算指标（已用/上限/占比）。\\n- 提供阈值提示（建议至少 70%/85%/95%）。\\n- 与 /compact 联动，压缩后预算显示可刷新。\\n- 指标获取失败可降级，不阻断对话主流程。",
+      "status": "DONE",
+      "blocked_by": [],
+      "blocked_reason": "",
+      "claimed_by": "worker-019caf24-6cc8-7061-b170-53214ed07419",
+      "claimed_at": "2026-03-02T23:22:17+08:00",
+      "status_changed_at": "2026-03-02T23:42:44+08:00",
+      "updated_at": "2026-03-02T23:42:44+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M22",
+      "branch": "milestone/M22",
+      "result": {
+        "solution_summary": "新增会话预算API与CLI预算展示：REPL在消息输出后及/compact后显示Context budget（已用/上限/占比），按70%/85%/95%阈值给出提示；预算拉取失败fail-open并保持会话不中断；单命令send-message JSON输出契约保持不变。",
+        "tests": "pytest -q -> 319 passed, 4 skipped, 176 warnings",
+        "commits": {
+          "plan": "1273a59",
+          "R22.1": {
+            "C1": "ea70424",
+            "C2": "cc268ce",
+            "C3": "6800d14"
+          },
+          "R22.2": {
+            "C1": "c76fdb7",
+            "C2": "ef77501",
+            "C3": "ba1d2ea"
+          },
+          "merge": "42ae922"
+        },
+        "new_rules": []
+      }
+    },
+    {
+      "milestone_id": "M23",
+      "title": "交互体验收口与门禁回归",
+      "goal": "对 M21+M22 做体验与可靠性收口，形成可日常使用的交互式 Coding Agent CLI。",
+      "exit_criteria": "- 关键交互链路具备稳定回归覆盖（编辑、历史回填、预算显示、压缩后状态）。\\n- 错误提示可操作且分层清晰（输入层/网络层/运行层）。\\n- README 与 CLI 帮助文档补齐新增交互能力说明。\\n- 相关 unit+integration+contract 目标集全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "blocked_reason": "",
+      "claimed_by": "worker-019caf39-fff5-7e32-a844-7106ca2cad25",
+      "claimed_at": "2026-03-02T23:45:49+08:00",
+      "status_changed_at": "2026-03-03T00:10:23+08:00",
+      "updated_at": "2026-03-03T00:10:23+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M23",
+      "branch": "milestone/M23",
+      "result": {
+        "solution_summary": "收口CLI交互回归、错误分层与文档帮助：补编辑/历史/预算/压缩后状态门禁，新增输入/网络/运行层错误标注并保持单命令JSON兼容，完善README与--help说明。",
+        "tests": "pytest -q => 325 passed, 4 skipped",
+        "merge_commit": "c24c8ca",
+        "commits": {
+          "R23.1": {
+            "C1": "0a767ad",
+            "C2": "e2444a1",
+            "C3": "f2b0f77"
+          },
+          "R23.2": {
+            "C1": "be1146d",
+            "C2": "43fc5e9",
+            "C3": "9190b39"
+          },
+          "R23.3": {
+            "C1": "9e6dadb",
+            "C2": "1cb6bed",
+            "C3": "f4d745f"
+          }
+        }
+      }
+    },
+    {
+      "milestone_id": "M24",
+      "title": "CLI模块化重构一期（输入引擎与REPL命令分层）",
+      "goal": "将臃肿的 cli/commands.py 按稳定职责拆分，先抽离输入编辑引擎与 REPL 命令处理，保持行为完全一致。",
+      "exit_criteria": "- 从 commands.py 抽离可编辑输入与历史回填逻辑到独立模块（例如 cli/repl_input.py）。\\n- 抽离 REPL 命令路由/校验到独立模块（例如 cli/repl_commands.py）。\\n- commands.py 仅保留 run_cli 主流程编排，不再承载底层输入细节。\\n- CLI 行为保持不变，相关 unit+integration+contract 测试全绿（pytest -q）。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019caf54-ac20-7f00-b613-f310a210432a",
+      "claimed_at": "2026-03-03T00:14:55+08:00",
+      "status_changed_at": "2026-03-03T00:33:14+08:00",
+      "updated_at": "2026-03-03T00:33:14+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "branch": "milestone/M24",
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M24",
+      "result": {
+        "solution_summary": "拆分 cli/commands.py：输入编辑引擎迁移到 cli/repl_input.py，REPL 命令路由与校验迁移到 cli/repl_commands.py，run_repl 保持薄编排，行为保持一致。",
+        "tests": "pytest -q => 327 passed, 4 skipped",
+        "merge_commit": "d9d5bb1",
+        "commits": {
+          "R24.1": {
+            "C1": "e1af44f",
+            "C2": "747dac1",
+            "C3": "6e73823"
+          },
+          "R24.2": {
+            "C1": "1cafc84",
+            "C2": "f2fa5f8",
+            "C3": "260c631"
+          }
+        },
+        "new_rules": []
+      }
+    },
+    {
+      "milestone_id": "M25",
+      "title": "CLI模块化重构二期（事件渲染/预算/错误处理分层）",
+      "goal": "继续拆分 commands.py，将异步事件消费、预算展示和错误分层输出抽离成可复用模块，降低耦合。",
+      "exit_criteria": "- 抽离 async 事件消费与预览输出模块（例如 cli/repl_events.py）。\\n- 抽离预算快照与阈值提示模块（例如 cli/context_budget.py）。\\n- 抽离错误分层/建议映射模块（例如 cli/error_presenter.py），并保持单命令 JSON 错误契约稳定。\\n- commands.py 保持薄编排层，pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019caf73-79fd-72e0-ba07-19a405188d4c",
+      "claimed_at": "2026-03-03T00:48:33+08:00",
+      "status_changed_at": "2026-03-03T01:04:57+08:00",
+      "updated_at": "2026-03-03T01:04:57+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "branch": "milestone/M25",
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M25",
+      "result": {
+        "solution_summary": "拆分 repl_events/context_budget/error_presenter；commands.py 保持薄编排并维持 HTTP-only 与单命令 JSON 错误契约。",
+        "tests": "pytest -q（330 passed, 4 skipped）",
+        "commits": {
+          "R25.1": {
+            "C1": "6b0f041",
+            "C2": "d6e3338",
+            "C3": "49c54c0"
+          },
+          "R25.2": {
+            "C1": "e21e67e",
+            "C2": "4dfcc60",
+            "C3": "aa94c79"
+          },
+          "R25.3": {
+            "C1": "6200e23",
+            "C2": "2677e19",
+            "C3": "2651dcd"
+          },
+          "merge_main": "3af28c6"
+        }
+      }
+    },
+    {
+      "milestone_id": "M26",
+      "title": "CLI模块化收口（门禁回归与边界固化）",
+      "goal": "对 M24+M25 重构结果做收口：移除残留耦合、补齐文档与回归门禁，确保符合内核设计蓝图的 CLI 边界原则。",
+      "exit_criteria": "- 清理 commands.py 中冗余桥接与死代码，形成稳定入口编排层。\\n- README 与 CLI 帮助说明补齐新的模块边界与开发约定。\\n- 增加/更新 contract 与 integration 用例，验证 HTTP-only 边界与关键交互链路无回归。\\n- pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019caf84-4992-7cd3-8035-ac9737fc1031",
+      "claimed_at": "2026-03-03T01:06:56+08:00",
+      "status_changed_at": "2026-03-03T01:24:46+08:00",
+      "updated_at": "2026-03-03T01:24:46+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "branch": "milestone/M26",
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M26",
+      "result": {
+        "solution_summary": "完成CLI收口：移除commands冗余桥接暴露、补齐README/CLI帮助边界说明、新增contract+integration门禁固化HTTP-only与单命令JSON契约。",
+        "tests": "pytest -q baseline: 327 passed, 4 skipped; roadpoint gate: 330 passed, 4 skipped; post-rebase gate: 333 passed, 4 skipped.",
+        "commits": {
+          "R26.1": {
+            "C1": "60bbf7c",
+            "C2": "0236cb3",
+            "C3": "5c1a2e5"
+          },
+          "R26.2": {
+            "C1": "f47ca1c",
+            "C2": "9ae9528",
+            "C3": "158849b"
+          },
+          "R26.3": {
+            "C1": "ce7fee0",
+            "C2": "3b33675",
+            "C3": "e972739"
+          },
+          "merge": "51e3928"
+        }
+      }
+    },
+    {
+      "milestone_id": "M27",
+      "title": "CLI命令下拉选择（/触发）",
+      "goal": "在交互式 REPL 中，当用户输入 '/' 时弹出可选命令列表，并支持上下选择与回车填充命令，提升命令发现效率。",
+      "exit_criteria": "- 在可编辑输入模式下，输入 '/' 可显示命令下拉列表（至少覆盖 /help /new /use /session /tools /compact /history /exit）。\\n- 支持 ↑/↓ 在下拉列表中移动选中项，回车将选中命令填充到输入框。\\n- 命令下拉与现有行内编辑/历史回填兼容，不破坏既有 REPL 与单命令 JSON 行为。\\n- 补齐 unit+integration 回归，pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb160-cab9-7a63-9f77-75726a56cfb8",
+      "claimed_at": "2026-03-03T09:47:20+08:00",
+      "status_changed_at": "2026-03-03T10:04:44+08:00",
+      "updated_at": "2026-03-03T10:04:44+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "branch": "milestone/M27",
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M27",
+      "result": {
+        "solution_summary": "在REPL可编辑输入中新增斜杠命令下拉（/help /new /use /session /tools /compact /history /exit），支持↑/↓切换与Enter填充；并在REPL编排层接线命令候选，保持HTTP-only与单命令JSON契约稳定。",
+        "tests": "pytest -q（worktree）=337 passed, 4 skipped；pytest -q（main merge后）=337 passed, 4 skipped。",
+        "commits": {
+          "C1": "R27.1=c12d6d4; R27.2=725730e",
+          "C2": "R27.1=448ff03; R27.2=d698e30,69d1489",
+          "C3": "R27.1=b9aa906; R27.2=a546145",
+          "merge": "9ca0cfe"
+        },
+        "new_rules": []
+      }
+    },
+    {
+      "milestone_id": "M28",
+      "title": "注释补齐A：core/llm/agent（含compaction）",
+      "goal": "按 COMMENTING_GUIDE.md 对 core/llm/agent(+compaction) 模块补齐 public API docstring 与关键意图注释，使调用契约、失败语义、边界约束与蓝图一致。",
+      "exit_criteria": "1) core/llm/agent(+compaction) 的 public module/class/function/method 补齐或修正文档字符串（Google 风格，含 summary/Args/Returns/Raises/Side Effects 按需）。 2) 为蓝图中的关键约束补块注释：provider隔离、压缩切点不拆 tool-call/tool-result、runtime loop 的边界与策略。 3) 不新增复述代码式注释，避免过期描述。 4) PYTHONPATH=src pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb186-c70d-7eb1-8034-dbdd9da09574",
+      "claimed_at": "2026-03-03T10:28:55+08:00",
+      "status_changed_at": "2026-03-03T10:44:18+08:00",
+      "updated_at": "2026-03-03T10:44:18+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M28",
+      "branch": "milestone/M28",
+      "result": {
+        "solution_summary": "完成 core/llm/agent(+compaction) 公共 API docstring 补齐，并补充 provider 隔离、compaction 切点完整性、runtime loop/overflow 重试边界等关键意图注释；全过程保持行为不变。",
+        "tests": "PYTHONPATH=src pytest -q => 337 passed, 4 skipped, 182 warnings",
+        "commits": {
+          "plan": "dcf8ec2",
+          "R28.1": {
+            "C1": "1611e3e",
+            "C2": "44a6ca7",
+            "C3": "ad0d93a"
+          },
+          "R28.2": {
+            "C1": "672d60a",
+            "C2": "5dfe959",
+            "C3": "e09e184"
+          },
+          "milestone_docs": [
+            "b68d87f",
+            "f4ee011"
+          ],
+          "merge": "4dd398a"
+        }
+      }
+    },
+    {
+      "milestone_id": "M29",
+      "title": "注释补齐B：tools/hooks/skills/session",
+      "goal": "按 COMMENTING_GUIDE.md 对 tools/hooks/skills/session 模块补齐 public API docstring 与关键约束注释，覆盖安全策略、Hook fail-open、会话持久化契约等。",
+      "exit_criteria": "1) tools/hooks/skills/session 的 public API docstring 覆盖达标。 2) 为安全/并发/协议关键逻辑补注释：路径与命令策略、hook 事件分发与异常隔离、session store 边界。 3) TODO/FIXME 如出现须满足规范（issue-id + 删除条件/风险）。 4) PYTHONPATH=src pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb186-c722-7492-845a-771139c073cb",
+      "claimed_at": "2026-03-03T10:28:55+08:00",
+      "status_changed_at": "2026-03-03T10:41:46+08:00",
+      "updated_at": "2026-03-03T10:45:07+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M29",
+      "branch": "milestone/M29",
+      "result": {
+        "solution_summary": "完成 tools/hooks/skills/session 的 public API docstring 补齐，并为安全策略、hook fail-open/异常隔离、session 持久化协议边界补充关键约束注释；新增并通过 M29 注释契约检查脚本。",
+        "tests": "python3 TASKS/m29_comment_contract_check.py && PYTHONPATH=src pytest -q => 337 passed, 4 skipped",
+        "commits": {
+          "C1": "f080f24",
+          "C2": "4454e1c",
+          "C3": "29a5eb2",
+          "docs_followup": "14994e8",
+          "merge": "a0aa4e8"
+        }
+      }
+    },
+    {
+      "milestone_id": "M30",
+      "title": "注释补齐C：server/cli/sdk/observability",
+      "goal": "按 COMMENTING_GUIDE.md 对 server/cli/sdk/observability 模块补齐入口层 docstring 与协议注释，强调HTTP边界、流式事件语义与错误映射。",
+      "exit_criteria": "1) server/cli/sdk/observability 的 public 入口与 handler/docstring 完整且语义清晰。 2) 对 SSE 事件、HTTP-only 边界、鉴权/错误映射等关键点补意图注释。 3) 注释不复述代码流程，不引入行为变更。 4) PYTHONPATH=src pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb186-c741-7542-8789-06ff7bc24582",
+      "claimed_at": "2026-03-03T10:28:55+08:00",
+      "status_changed_at": "2026-03-03T10:38:29+08:00",
+      "updated_at": "2026-03-03T10:38:29+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M30",
+      "branch": "milestone/M30",
+      "result": {
+        "solution_summary": "完成 server/cli/sdk/observability 入口注释补齐：补齐 public API 与 HTTP handler docstring，明确 HTTP-only 边界、SSE 流语义、鉴权与错误映射约束；仅注释改进，无行为变更。",
+        "tests": "PYTHONPATH=src pytest -q => 337 passed, 4 skipped",
+        "commits": {
+          "C1": "701f3f3",
+          "C2": "cab2203",
+          "C3": "e78ae65",
+          "merge": "72488a7"
+        }
+      }
+    },
+    {
+      "milestone_id": "M31",
+      "title": "系统提示词工具列表隐藏input_schema",
+      "goal": "调整 system prompt 的 Available tools 展示，不再输出 input_schema，仅保留工具名与描述。",
+      "exit_criteria": "- system prompt 的 Available tools 区段不再出现 input_schema 字样。\\n- 工具调用与运行时契约不变（仅展示文案调整）。\\n- 更新相关 unit/contract/integration 测试断言并通过。\\n- pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb199-8c8a-7c13-8532-6de6a9572ad8",
+      "claimed_at": "2026-03-03T10:49:22+08:00",
+      "status_changed_at": "2026-03-03T11:05:49+08:00",
+      "updated_at": "2026-03-03T11:05:49+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "branch": "milestone/M31",
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M31",
+      "result": {
+        "solution_summary": "调整 system prompt 的 Available tools 渲染为仅输出工具名+描述，移除 input_schema 展示；同步更新 prompt 相关 unit/contract/integration 断言，保持 ToolSpec 与执行路径不变。",
+        "tests": "pytest -q（338 passed, 4 skipped）",
+        "commits": {
+          "C1": "6570943",
+          "C2": "af2b54d",
+          "C3": "6c5c497",
+          "merge": "bc92405"
+        },
+        "new_rules": []
+      }
+    },
+    {
+      "milestone_id": "M32",
+      "title": "LLM上游波动无限重试与实时事件回传",
+      "goal": "在异步run主链路为上游偶发失败引入可持续恢复能力：按 0.5s/1s/2s 指数退避、5次后冷却30s再循环，持续重试直到成功，并在重试过程中输出可消费事件，避免CLI无反馈干等。",
+      "exit_criteria": "- openai_compat/anthropic provider 请求失败时支持无限循环重试：每轮重试延迟 0.5s->1s->2s；每连续5次失败后额外等待30s并重置短退避节奏。\\n- 异步 run 在重试过程中持续产出状态事件（至少含 attempt、delay、cooldown、last_error 摘要），CLI REPL 可实时显示，不再静默等待。\\n- run 最终成功时维持既有 completed 语义；未显式取消前不得因瞬时上游错误进入 failed 终态。\\n- 补齐 unit+integration+contract（必要时e2e）回归，验证重试节奏与事件流契约；pytest -q 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb405-a9e1-7ff1-b453-cdf75e588aa6",
+      "claimed_at": "2026-03-03T22:06:43+08:00",
+      "status_changed_at": "2026-03-03T22:36:10+08:00",
+      "updated_at": "2026-03-03T22:36:10+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M32",
+      "branch": "milestone/M32",
+      "result": {
+        "solution_summary": "异步 run 对 retryable 上游错误支持无限重试（0.5/1/2s + 每5次30s冷却）并持续回传 attempt/next_delay/cooldown/last_error；CLI REPL 实时展示重试进度且保持 event_id 去重与 run_id 过滤；接管阶段修复 registry 旧契约漂移与 CLI timeout 集成阻塞。",
+        "tests": "PYTHONPATH=src pytest -q（344 passed, 4 skipped）",
+        "commits": {
+          "R32.1_C1": "d618d01",
+          "R32.1_C2": "73b1d18",
+          "R32.1_C3": "a1d2bdc",
+          "R32.2_C1": "72bf36c",
+          "R32.2_C2": "8270564",
+          "R32.2_C3": "dd0c87e",
+          "R32.3_C2": "2b181ad",
+          "R32.3_C3": "e4dd14f",
+          "R32.3_docs_followup": "dc34c9f",
+          "merge_main": "5dd4430"
+        },
+        "new_rules": []
+      }
+    },
+    {
+      "milestone_id": "M33",
+      "title": "独立IM服务骨架与SQLite持久化",
+      "goal": "在 src/IM 下创建独立 FastAPI IM 服务，不改现有 nano_multiagent 代码，实现人和人聊天的持久化基础（会话/消息/用户）与基础REST接口。",
+      "exit_criteria": "1) 新增独立服务入口 src/IM/app.py，可单独启动；2) SQLite 持久化落地并具备迁移/初始化机制；3) 提供 conversations/messages 基础增查接口并通过 unit+integration；4) 不改动 src/nano_multiagent/*；5) 目标测试全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb44b-7148-7cc1-bcec-2ffbb52c4c26",
+      "claimed_at": "2026-03-03T23:22:36+08:00",
+      "status_changed_at": "2026-03-03T23:31:58+08:00",
+      "updated_at": "2026-03-03T23:31:58+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M33",
+      "branch": "milestone/M33",
+      "result": {
+        "solution_summary": "在 src/IM 落地独立 FastAPI IM 服务与 SQLite 持久化，完成 users/conversations/messages 基础增查接口、仓储约束与服务入口初始化；全程未改 src/nano_multiagent/**。",
+        "tests": "PYTHONPATH=src pytest -q tests/im_service（10 passed）",
+        "commits": {
+          "R33.1_C1": "bbef20b",
+          "R33.1_C2": "9795d47",
+          "R33.1_C3": "2484744",
+          "R33.2_C1": "75c2371",
+          "R33.2_C2": "60ee744",
+          "R33.2_C3": "491a1d7",
+          "R33.3_C1": "5da4d71",
+          "R33.3_C2": "477deae",
+          "R33.3_C3": "ff02f29",
+          "merge_main": "b5a0e5b",
+          "docs_followup": "974dead"
+        },
+        "new_rules": []
+      }
+    },
+    {
+      "milestone_id": "M34",
+      "title": "独立IM服务人和人聊天链路与SSE事件流",
+      "goal": "在独立IM服务中完成人和人聊天完整链路：发送消息、查询历史、SSE实时事件流、送达状态与基础错误处理。",
+      "exit_criteria": "1) POST /im/v1/conversations/{id}/messages 可持久化并生成事件；2) GET /im/v1/conversations 与 messages/events 可用；3) SSE 事件流稳定（重连不崩）；4) 完成 contract+integration+e2e 入口验证；5) 不改动 src/nano_multiagent/*。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb455-d263-7633-a3b0-ff086161c2c6",
+      "claimed_at": "2026-03-03T23:33:59+08:00",
+      "status_changed_at": "2026-03-03T23:46:05+08:00",
+      "updated_at": "2026-03-03T23:46:05+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M34",
+      "branch": "milestone/M34",
+      "result": {
+        "solution_summary": "在独立 IM 服务完成了人和人聊天链路与 SSE 事件流：消息写入时持久化 message.sent/message.delivered 事件，新增 conversation events SSE 接口（支持 Last-Event-ID/after_event_id 重连、心跳与超时退出），并补齐消息/事件的 404/400 基础错误语义；全程仅改 src/IM 与 tests/im_service。",
+        "tests": "PYTHONPATH=src pytest -q tests/im_service（22 passed）",
+        "commits": {
+          "plan": "8978c51",
+          "R34.1_C1": "661f940",
+          "R34.1_C2": "f890075",
+          "R34.1_C3": "4777c85",
+          "R34.2_C1": "030d46d",
+          "R34.2_C2": "804a48d",
+          "R34.2_C3": "81f9f78",
+          "R34.3_C1": "1e8790e",
+          "R34.3_C2": "a1af04e",
+          "R34.3_C3": "e389dfb",
+          "merge_main": "34e4d82"
+        },
+        "new_rules": []
+      }
+    },
+    {
+      "milestone_id": "M35",
+      "title": "IM前端重做：P1-P7全量页面骨架与设计系统",
+      "goal": "按 IM前端蓝图在 src/IM/frontend 用 React+TS+Vite+Tailwind+Radix+Zustand+TanStack Query 重做前端，完成 P1-P7 全部页面与桌面/手机响应式骨架，Agent相关配置全部走Mock数据。",
+      "exit_criteria": "1) P1-P7 路由全落地；2) 桌面两栏+手机单栏切换可用；3) Chat/Settings 工作区可切换；4) settings 各页使用 mock 数据可读可编辑；5) 通过前端单测与构建检查；6) 不依赖 Agent 后端接口。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb444-1efe-7912-85cf-8b03445868fe",
+      "claimed_at": "2026-03-03T23:36:05+08:00",
+      "status_changed_at": "2026-03-03T23:45:10+08:00",
+      "updated_at": "2026-03-03T23:45:10+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M35",
+      "branch": "milestone/M35",
+      "result": {
+        "solution_summary": "在 src/IM/frontend 完整落地 React+TS+Vite+Tailwind+Radix+Zustand+TanStack Query 前端，交付 P1-P7 全路由、桌面两栏+手机单栏骨架、Chat/Settings 工作区切换，以及 Agents/Nodes/Policies/Account 全量 mock 可读可编辑链路；并完成 Playwright 桌面/手机真实页面验收截图。",
+        "tests": "cd src/IM/frontend && npm run test && npm run build（milestone 分支与 main 合并分支均全绿）；Playwright CLI 对 /chat、/chat/:id、/settings/agents、/settings/nodes 执行桌面+手机实测并留证。",
+        "commits": {
+          "plan": "f8e33d2",
+          "roadpoints": {
+            "R35.1": {
+              "C1": "c9ac187",
+              "C2": "e43b438",
+              "C3": "fcbb033"
+            },
+            "R35.2": {
+              "C1": "06e4f3e",
+              "C2": "a394561",
+              "C3": "cdf23c9"
+            },
+            "R35.3": {
+              "C1": "bc30711",
+              "C2": "0f08257",
+              "C3": "622e792"
+            },
+            "R35.4": {
+              "C1": "c92d74c",
+              "C2": "4ff3c86",
+              "C3": "bc9fe0c"
+            }
+          },
+          "main_merge": "ab3705f"
+        },
+        "new_rules": [
+          "移动端 Settings 导航必须提供可访问名称（aria-label=Settings Sections）并支持横向滚动，避免小屏可用性退化。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M36",
+      "title": "IM前端与独立IM服务集成（仅人和人聊天）",
+      "goal": "将前端 P1/P2 接入独立IM服务的人和人聊天接口，实现持久化会话列表、消息历史、发送与SSE流式回显；settings 保持 mock。",
+      "exit_criteria": "1) 前端 chat 页面与独立IM服务真实联调；2) 刷新后会话/消息可恢复（SQLite）；3) SSE 事件在 UI 稳定渲染并有状态反馈；4) settings 仍为mock且体验完整；5) 相关前后端测试全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb60e-fe2c-7fd2-a740-95842d02b657",
+      "claimed_at": "2026-03-04T01:05:08+08:00",
+      "status_changed_at": "2026-03-04T07:47:17+08:00",
+      "updated_at": "2026-03-04T07:47:17+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M36",
+      "branch": "milestone/M36",
+      "result": {
+        "summary": "完成 R36.3 收口：全量门禁全绿，Playwright 完成 chat 桌面+手机真实流程抽检并留存截图，补齐 TASKS/PROGRESS 回填；rebase main 后完成主干合并与推送。",
+        "tests": "PYTHONPATH=src pytest -q tests/im_service（23 passed） && cd src/IM/frontend && npm run test（13 passed） && npm run build（success）；Playwright CLI 抽检输出见 src/IM/frontend/output/playwright/。",
+        "commits": {
+          "R36.1": {
+            "C1": "8435abd",
+            "C2": "16ee8eb",
+            "C3": "790ed56"
+          },
+          "R36.2": {
+            "C1": "939af42",
+            "C2": "cdc4d06",
+            "C3": "4006d1d"
+          },
+          "R36.3": {
+            "C1": "b810984",
+            "C2": "b296d2c",
+            "C3": "0774005",
+            "rebase_gate_fix": "96f7f82"
+          },
+          "merge_main": "3cab355"
+        },
+        "new_rules": [
+          "rebase 到最新 main 后，优先对齐现行测试契约（本次为 conversation_events + message.sent/message.delivered）再做门禁复验。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M37",
+      "title": "Playwright 抽检与视觉交互打磨（第一轮）",
+      "goal": "用 Playwright skill 对 IM 前端桌面/手机关键流程做真实浏览器抽检，修复设计与交互偏差，确保符合蓝图美观与可用性。",
+      "exit_criteria": "1) 覆盖 chat 与 settings 关键路径的 Playwright 实测与截图证据；2) 修复明显视觉/响应式/交互缺陷；3) 形成第一轮验收记录；4) 前端构建与测试保持通过。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb61a-461d-7c72-a6d0-5991aeabac9c",
+      "claimed_at": "2026-03-04T07:48:08+08:00",
+      "status_changed_at": "2026-03-04T08:02:50+08:00",
+      "updated_at": "2026-03-04T08:02:50+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M37",
+      "branch": "milestone/M37",
+      "result": {
+        "solution_summary": "完成 desktop+mobile 的 chat/settings Playwright 抽检并修复两项首轮缺陷：消息区默认贴底、settings agents 移动端溢出；补充前端回归测试并完成主干集成。",
+        "tests": "cd src/IM/frontend && npm run test && npm run build（11 files/15 tests passed，build success）；Playwright 真机抽检截图：src/IM/frontend/output/playwright/M37-*.png",
+        "commits": {
+          "plan": "0412c9a",
+          "C1": "ac014c2",
+          "C2": "fcb3c59",
+          "C3": "a676c24",
+          "merge_main": "1c34b64"
+        },
+        "new_rules": "Playwright 首轮抽检固定覆盖 desktop+mobile chat/settings，并统一将截图落在 src/IM/frontend/output/playwright/ 且文件名含 milestone id。"
+      }
+    },
+    {
+      "milestone_id": "M38",
+      "title": "Playwright 回归抽检（第二轮）与交付收口",
+      "goal": "在多 Milestone 完成后再次用 Playwright 做回归抽检，确保页面正确性和美观性稳定，并完成最终文档收口。",
+      "exit_criteria": "1) 第二轮桌面+手机抽检通过；2) 关键页面无功能回归；3) 交付文档（运行说明/API与Mock边界/验收截图索引）补齐；4) main 分支保持可运行可验证。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb629-9da9-7590-ad15-c2b32c0d4a74",
+      "claimed_at": "2026-03-04T08:04:55+08:00",
+      "status_changed_at": "2026-03-04T08:18:07+08:00",
+      "updated_at": "2026-03-04T08:19:52+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M38",
+      "branch": "milestone/M38",
+      "result": {
+        "solution_summary": "完成第二轮Playwright桌面+手机回归抽检（chat/settings），新增favicon回归守卫并修复404控制台噪音，补齐运行说明/API与Mock边界/截图索引文档，并在main回填R38.4收口哈希。",
+        "tests": "PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build（通过，main复验通过）；Playwright CLI desktop+mobile 抽检通过，截图14张位于src/IM/frontend/output/playwright/。",
+        "commits": {
+          "plan": "7341252",
+          "C1": "cd4235b",
+          "C2": "b3b085d",
+          "C3": "4085581",
+          "merge_main": "6c1b9dc",
+          "docs_finalize_main": "7245df3"
+        }
+      }
+    },
+    {
+      "milestone_id": "M39",
+      "title": "Codex CLI交互与界面对标研究",
+      "goal": "研究 /Users/czj/Repos/opencode-hub/codex 的 CLI 交互模型与界面呈现，形成针对 nano_multiagent CLI 的差距清单与可落地改造建议。",
+      "exit_criteria": "- 输出 codex CLI 的交互机制（输入、运行态反馈、并发交互能力）与界面元素清单，并附关键代码定位。\\n- 输出 nano_multiagent 当前 CLI 与 codex 的差距矩阵（至少覆盖：信息密度、可读性、运行态可交互性、错误展示、非交互模式契约）。\\n- 输出可执行改造方案（仅 cli 层），明确必须新增/调整的模块与测试。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb634-473e-7773-8184-af3ff1d01e22",
+      "claimed_at": "2026-03-04T08:16:49+08:00",
+      "status_changed_at": "2026-03-04T08:25:18+08:00",
+      "updated_at": "2026-03-04T08:25:18+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M39",
+      "branch": "milestone/M39",
+      "result": {
+        "solution_summary": "完成 Codex CLI 对标研究，输出交互机制代码锚点、nano-vs-codex 差距矩阵，以及仅 CLI 层可执行的 M40 改造清单。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py => 67 passed",
+        "commits": {
+          "docs": "6c1758f"
+        },
+        "new_rules": [
+          "M40 必须保留非交互 send-message stdout 单 JSON 契约，不混入事件噪声",
+          "需区分 CLI-only 改造与需内核支持项；内核项仅记录不实施"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M40",
+      "title": "CLI交互体验重做（仅CLI层）",
+      "goal": "在不改内核前提下，重做 src/nano_multiagent/cli 的交互体验，使其从调试输出风格升级为真正可用的 coding CLI，并改善 run 进行中的可交互能力。",
+      "exit_criteria": "- 默认交互界面从原始 JSON/事件日志改为用户友好的结构化展示（状态、工具、回答、错误、用量分区清晰）。\\n- 在 agent run 进行中支持用户输入下一条需求并排队发送（不阻塞输入主循环），且保持消息顺序与会话一致性。\\n- 非交互命令模式（如 send-message）维持单 JSON 输出契约不破坏。\\n- 仅修改 src/nano_multiagent/cli/** 与对应测试；若发现必须改内核接口，先在结果中列出并等待用户确认，不直接改。\\n- 针对新交互能力补齐 unit+integration 测试并通过既有相关门禁。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb648-9952-7f13-9033-0c40de642128",
+      "claimed_at": "2026-03-04T08:38:59+08:00",
+      "status_changed_at": "2026-03-04T08:47:16+08:00",
+      "updated_at": "2026-03-04T08:48:23+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M40",
+      "branch": "milestone/M40",
+      "result": {
+        "solution_summary": "完成CLI层交互重做：REPL默认改为结构化分区输出（状态/工具/回答/错误/用量），异步run支持运行中输入排队并保持FIFO顺序；补齐同步stop_reason完成态展示与回归测试，且保持send-message单JSON契约。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py（92 passed, 38 warnings）",
+        "commits": {
+          "plan": "2a8e6ce",
+          "R1": {
+            "C1": "81ad406",
+            "C2": "5fcc73c",
+            "C3": "0611562"
+          },
+          "R2": {
+            "C1": "33ea52c",
+            "C2": "a679206",
+            "C3": "e2d25d1"
+          },
+          "R3": {
+            "C1": "c8ff0dc",
+            "C2": "499bf59",
+            "C3": "e2d25d1"
+          },
+          "docs_finalize": "199ca3f",
+          "merge_main": "feb26ea"
+        }
+      }
+    },
+    {
+      "milestone_id": "M41",
+      "title": "CLI工具执行实时可视化（started/running/chunks/exit）",
+      "goal": "在避免代码腐化前提下，为 CLI 增加工具执行实时可视化：bash started、running心跳、stdout/stderr chunk、exit code。子agent开工前必须先阅读《内核设计蓝图.md》与 LOGBOOK.md。",
+      "exit_criteria": "- REPL 在工具执行时可见 started 与 running 心跳（含耗时/状态），不再黑箱等待。\\n- 支持 stdout/stderr 实时分段展示（chunk），并在结束时展示 exit code。\\n- 非交互 send-message 单 JSON 契约保持不变。\\n- 若现有 API 无法满足 chunk/exit 实时能力，先产出最小内核改动清单并等待用户确认后再改；未经确认不得修改内核。\\n- 补齐 unit+integration+contract 回归，目标门禁全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb652-78e3-7a62-8fe7-4a646a919a57",
+      "claimed_at": "2026-03-04T09:12:47+08:00",
+      "status_changed_at": "2026-03-04T09:25:09+08:00",
+      "updated_at": "2026-03-04T09:31:16+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M41",
+      "branch": "milestone/M41",
+      "result": {
+        "solution_summary": "M41 已完成并集成到 origin/main：CLI 支持工具 started/running/chunk/exit 实时可视化。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_sse_event_contract.py tests/unit/test_sse_encoder.py => 81 passed, 44 warnings",
+        "commits": {
+          "C1": "ec8601d",
+          "C2": "1e52ee2",
+          "C3": "501804c",
+          "merge": "eeb431e",
+          "post_merge_fix": "cc01892"
+        }
+      }
+    },
+    {
+      "milestone_id": "M42",
+      "title": "CLI界面收敛：对齐Codex交互观感（独立并行修复）",
+      "goal": "在独立worktree中修复当前REPL输出乱套问题，按Codex风格收敛为紧凑、稳定、可读的交互界面；重点修正行渲染错位与状态展示信息架构。",
+      "exit_criteria": "- 修复你反馈的行错位/大段缩进异常，REPL 输出在真实终端稳定对齐。\\n- 交互界面收敛为 Codex 风格：单轮状态摘要 + 工具过程 + 答案主内容优先，不刷屏冗余字段。\\n- 运行中输入排队能力保持可用，并与新界面不冲突。\\n- 非交互 send-message 仍保持单 JSON 输出契约。\\n- 仅修改 src/nano_multiagent/cli/** 与相关测试，pytest 目标门禁全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb669-5ab7-73f1-bb18-a99086f08753",
+      "claimed_at": "2026-03-04T09:14:47+08:00",
+      "status_changed_at": "2026-03-04T09:22:26+08:00",
+      "updated_at": "2026-03-04T09:22:26+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M42",
+      "branch": "milestone/M42",
+      "result": {
+        "solution_summary": "完成CLI层界面收敛：先修复REPL并发输出错位/缩进异常，再将单轮输出改为答案优先的紧凑摘要；保留运行中输入排队与send-message单JSON契约。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py => 94 passed, 38 warnings",
+        "commits": {
+          "R1": {
+            "C1": "05f39bc",
+            "C2": "b2c53ed",
+            "C3": "79b8075"
+          },
+          "R2": {
+            "C1": "26a4694",
+            "C2": "37d2935",
+            "C3": "71d36b3"
+          },
+          "R3": {
+            "C1": "N/A",
+            "C2": "9fcedb2",
+            "C3": "f6b50d8"
+          },
+          "docs_finalize": "f6b50d8",
+          "merge_main": "f6be302"
+        }
+      }
+    },
+    {
+      "milestone_id": "M43",
+      "title": "CLI发布级界面收口（低噪声+可读状态线+命令交互收敛）",
+      "goal": "在不改内核前提下，把CLI默认交互从调试输出风格收敛为发布级界面：减少噪声、稳住信息层次、提升命令输入体验。",
+      "exit_criteria": "- 默认REPL不再输出调试标签风格的 [status]/[progress]/[tool]/[usage] 裸日志，改为更自然的人类可读状态线与工具过程摘要。\\n- / 命令提示交互不再刷屏或污染输入行，命令帮助/参数错误仍可操作。\\n- 运行中输入排队能力保持；非交互 send-message 继续保持 stdout 单JSON契约。\\n- 仅修改 src/nano_multiagent/cli/** 与CLI相关测试，目标门禁全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb6c2-9cf8-7883-9da4-8c8347b6d245",
+      "claimed_at": "2026-03-04T10:52:17+08:00",
+      "status_changed_at": "2026-03-04T11:15:21+08:00",
+      "updated_at": "2026-03-04T11:15:21+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M43",
+      "branch": "milestone/M43",
+      "result": {
+        "solution_summary": "完成 CLI 发布级界面收口：默认 REPL 输出由调试标签风格改为语义状态线（State/Tool/Usage），`/` 菜单改为行内提示并去除多行刷屏，事件渲染引入最小语义化与降噪策略（静默低价值事件、工具输出截断与聚合），同时保持运行中输入排队与 send-message 单 JSON 契约。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py => 101 passed, 40 warnings",
+        "commits": {
+          "plan": "4d423cb",
+          "R1": {
+            "C1": "ca4ec09",
+            "C2": "189acff",
+            "C3": "8e47dd1"
+          },
+          "R2": {
+            "C1": "8dbe722",
+            "C2": "6390566",
+            "C3": "9e4de5f"
+          },
+          "R3": {
+            "C1": "N/A",
+            "C2": "N/A",
+            "C3": "dd65439"
+          },
+          "merge_main": "5cc9da2"
+        },
+        "new_rules": [
+          "REPL 默认输出禁止直接暴露原始事件标签，统一走语义状态线文案。",
+          "斜杠菜单交互采用行内提示与单行重绘，避免多行菜单刷屏污染输入区。",
+          "工具过程默认降噪：静默低价值高频事件，保留关键阶段并对长输出做截断聚合。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M44",
+      "title": "CLI发布级二次收敛（会话文案化+工具过程折叠）",
+      "goal": "在M43基础上进一步去噪，把REPL主阅读流收敛为会话优先：新会话不再原始JSON直出，工具过程默认折叠为关键节点摘要。",
+      "exit_criteria": "- 新会话创建提示改为人类可读文案（不再直接输出原始JSON）。\\n- 工具过程默认只展示关键节点（start/exit/error/关键进度），低价值明细默认隐藏；长输出保持截断摘要。\\n- 保持运行中输入排队能力、run_id过滤+event_id去重、send-message单JSON契约不回归。\\n- 仅改CLI与相关测试，目标门禁全绿；需真实managed交互验收。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb6dd-0581-7d20-82a3-8a5615fd076f",
+      "claimed_at": "2026-03-04T11:21:08+08:00",
+      "status_changed_at": "2026-03-04T11:34:52+08:00",
+      "updated_at": "2026-03-04T11:34:52+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M44",
+      "branch": "milestone/M44",
+      "result": {
+        "solution_summary": "完成CLI层二次收敛：REPL会话提示改为人类文案，工具过程折叠为关键节点摘要并聚合chunk进度；保持排队、run_id过滤+event_id去重、send-message单JSON契约。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py（101 passed, 40 warnings）；managed CLI脚本化验收通过（含bash工具调用场景）。",
+        "commits": {
+          "C1": "3611048",
+          "C2": "148945e",
+          "C3": "9b6db3f"
+        }
+      }
+    },
+    {
+      "milestone_id": "M45",
+      "title": "CLI会话文案化实修（修复M44验收偏差）",
+      "goal": "修复M44中会话文案化未真正落地的问题：REPL路径下自动建会话与/new /use /session改为人类文案，彻底去除会话JSON直出。",
+      "exit_criteria": "- 真实CLI中自动建会话不再输出JSON，改为文案提示。\\n- /new /use /session 不再输出JSON，改为文案提示。\\n- 非交互命令JSON契约不变；run_id过滤+event_id去重与排队不回归。\\n- 仅改CLI与相关测试，门禁全绿，且必须提供真实managed验收片段。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb6f3-739d-7153-8467-54d706a3a14c",
+      "claimed_at": "2026-03-04T11:45:40+08:00",
+      "status_changed_at": "2026-03-04T13:42:07+08:00",
+      "updated_at": "2026-03-04T13:42:07+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M45",
+      "branch": "milestone/M45",
+      "result": {
+        "solution_summary": "修复 M44 验收偏差：REPL 会话路径彻底文案化，自动建会话与 /new /use /session 不再直出 JSON，并在 /use 后即时回显 Active session；保持非交互 send-message 单 JSON 契约、run_id/event_id 过滤去重与排队行为不回归。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py => 103 passed, 42 warnings；managed CLI 实机验收（/Users/czj/miniforge3/bin/python3，--mode managed，port 8005）通过。",
+        "commits": {
+          "plan": "9800124",
+          "R1": {
+            "C1": "153f8d2",
+            "C2": "07c1869",
+            "C3": "166d8d8"
+          },
+          "R2": {
+            "C1": "N/A",
+            "C2": "N/A",
+            "C3": "166d8d8"
+          },
+          "merge_main": "08878a0"
+        },
+        "new_rules": [
+          "会话文案化验收必须以真实 managed CLI 输出为准，不能只看测试断言。",
+          "REPL 与单命令输出契约分离：会话路径人类文案化，send-message 保持单 JSON。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M46",
+      "title": "CLI工具流去重与文案一致性收口（实跑观感修复）",
+      "goal": "修复 managed REPL 实跑中的工具事件重复、Tool 文案风格不一致与队列模式摘要重复问题，让工具过程信息层次稳定可读。",
+      "exit_criteria": "- 同一工具调用在队列模式下不再重复输出 start/exit 关键线（含无 event_id 回放场景）。\\n- 工具实时预览与最终摘要使用一致文案风格（统一 Tool: 前缀策略）。\\n- 当实时预览已输出关键工具线时，最终摘要不再重复同一信息。\\n- 仅改 src/nano_multiagent/cli/** 与相关 tests，目标门禁全绿，并附 managed CLI 实跑片段。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb786-df0d-7910-bd32-958e6da23190",
+      "claimed_at": "2026-03-04T14:26:46+08:00",
+      "status_changed_at": "2026-03-04T14:36:59+08:00",
+      "updated_at": "2026-03-04T14:44:06+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M46",
+      "branch": "milestone/M46",
+      "result": {
+        "solution_summary": "在不改内核前提下完成 M46 R4 收口：新增 live preview 语义幂等去重（run_id+name/call_id+phase）并修复 managed 场景 Tool start 重复；保留 send-message 单JSON契约与 run_id/event_id 主链路去重。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py => 106 passed, 42 warnings；managed CLI 实跑（--mode managed --base-url http://127.0.0.1:8003）快速退出路径计数: Tool start=1, started=1, exit=1。",
+        "commits": {
+          "R4": {
+            "C1": "050b29a",
+            "C2": "2a4b61f",
+            "C3": "d8cbba6"
+          },
+          "push_main": "d8cbba6"
+        }
+      }
+    },
+    {
+      "milestone_id": "M47",
+      "title": "CLI架构重整一期（二级目录骨架+兼容门面）",
+      "goal": "在不改变CLI外部行为的前提下，引入二级目录分层骨架（app/input/events/render/runtime）并建立兼容门面，降低后续并行改造冲突。",
+      "exit_criteria": "- 新增二级目录骨架并将现有模块按职责迁移到子目录（可通过facade保持旧import稳定）。\\n- CLI命令与REPL行为不回归，send-message单JSON契约保持。\\n- 仅改CLI与相关测试，目标门禁全绿。\\n- managed CLI实跑通过。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb786-df0d-7910-bd32-958e6da23190",
+      "claimed_at": "2026-03-04T14:47:33+08:00",
+      "status_changed_at": "2026-03-04T15:01:54+08:00",
+      "updated_at": "2026-03-04T15:01:54+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M47",
+      "branch": "milestone/M47",
+      "result": {
+        "solution_summary": "完成CLI架构重整一期：新增app/input/events/render/runtime二级目录并迁移对应模块，旧cli同名模块保留facade转发，保持run_cli与send-message契约及REPL行为不变。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py => 108 passed, 42 warnings；managed CLI实跑（--mode managed --base-url http://127.0.0.1:8003）输出 Tool start=1, started=1, exit=1, State completed=1。",
+        "commits": {
+          "plan": "cd4ff2f",
+          "R1": {
+            "C1": "4ab9588",
+            "C2": "8a1db00",
+            "C3": "8c4c708"
+          },
+          "R2": {
+            "C1": "258fac1",
+            "C2": "7cc0141",
+            "C3": "57d8745"
+          },
+          "R3": {
+            "C3": "d0c5dba"
+          },
+          "merge_main": "b0eca19"
+        }
+      }
+    },
+    {
+      "milestone_id": "M48",
+      "title": "输入子系统重构（二级目录+状态机+重绘闸门）",
+      "goal": "将输入层收敛到独立子模块，完善历史回填、slash菜单和重绘闸门，降低并发输出下输入抖动。",
+      "exit_criteria": "- 输入逻辑集中到 input 子目录并通过状态机管理菜单/历史。\\n- 引入 needs_redraw 闸门，减少无效重绘。\\n- 不破坏现有命令输入与队列交互。\\n- 门禁与managed实跑通过。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb786-df0d-7910-bd32-958e6da23190",
+      "claimed_at": "2026-03-04T15:03:44+08:00",
+      "status_changed_at": "2026-03-04T15:16:54+08:00",
+      "updated_at": "2026-03-04T15:16:54+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M48",
+      "branch": "milestone/M48",
+      "result": {
+        "solution_summary": "输入子系统状态机化并引入needs_redraw闸门，修复历史顶端重复上翻冗余重绘，保持CLI行为与契约不变。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py => 111 passed, 42 warnings",
+        "managed": "/new -> /history 1 -> /exit 与 工具抽检 echo M48_MANAGED 均 exit=0；Tool start/started/exit 各1",
+        "commits": {
+          "plan": "aa08533",
+          "R1_C1": "89a86b5",
+          "R1_C2": "f639af8",
+          "R2_C1": "28ac789",
+          "R2_C2": "f7453b2",
+          "R2_C3": "c39ce35",
+          "R3_C3": "6c0e67a",
+          "merge_main": "d816956"
+        }
+      }
+    },
+    {
+      "milestone_id": "M49",
+      "title": "事件语义管线重构（normalize/dedupe/view-model）",
+      "goal": "把REPL事件处理重构为可维护的语义管线，统一normalize、去重与视图模型构建，为渲染层解耦。",
+      "exit_criteria": "- 事件归一化/去重/语义视图模型分层清晰。\\n- 支持event_id与fallback语义去重窗口，避免复读。\\n- 与现有run_id过滤、event_id去重契约兼容。\\n- 门禁与managed实跑通过。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb786-df0d-7910-bd32-958e6da23190",
+      "claimed_at": "2026-03-04T15:29:56+08:00",
+      "status_changed_at": "2026-03-04T15:31:37+08:00",
+      "updated_at": "2026-03-04T15:32:38+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M49",
+      "branch": "milestone/M49",
+      "result": {
+        "solution_summary": "完成事件语义管线分层与fallback去重窗口稳态化收口；CLI外部行为与契约保持不变。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py => 113 passed, 42 warnings",
+        "managed": "/new->ping->/exit 与 /new->bash echo M49_TOOL->/exit 均 exit=0；Tool start/started/exit 各1",
+        "commits": {
+          "plan": "3f6a0ea",
+          "R1_C1": "f9dc7ba",
+          "R1_C2": "8824513",
+          "R1_C3": "8b85e84",
+          "R2_C1": "54b99b0",
+          "R2_C2": "cf4678f",
+          "R2_C3": "ff5f127",
+          "R3_C3": "7c500bf",
+          "merge_main": "58fad82"
+        }
+      }
+    },
+    {
+      "milestone_id": "M50",
+      "title": "渲染层重构（preview/final阶段状态机）",
+      "goal": "引入STREAMING/FINALIZING/FINALIZED阶段状态机，分离实时预览与最终摘要渲染，杜绝双写和复读。",
+      "exit_criteria": "- 渲染阶段状态机落地并覆盖关键回归测试。\\n- preview与summary重复信息受控。\\n- 文案风格统一，错误提示层次清晰。\\n- 门禁与managed实跑通过。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb786-df0d-7910-bd32-958e6da23190",
+      "claimed_at": "2026-03-04T15:41:30+08:00",
+      "status_changed_at": "2026-03-04T15:53:15+08:00",
+      "updated_at": "2026-03-04T15:53:15+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M50",
+      "branch": "milestone/M50",
+      "result": {
+        "solution_summary": "完成CLI渲染层阶段状态机改造：引入STREAMING/FINALIZING/FINALIZED，统一preview幂等与final摘要过滤，抑制双写复读且保持现有契约。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py => 116 passed, 42 warnings",
+        "commits": {
+          "plan": "d472946",
+          "R1_C1": "ed6435c",
+          "R1_C2": "396ae12",
+          "R1_C3": "e2a9cca",
+          "R2_C1": "7dca46b",
+          "R2_C2": "3c14eda",
+          "R2_C3": "0f7640d",
+          "R3_C3": "d4f264c",
+          "merge_main": "3fb1d79"
+        },
+        "new_rules": [
+          "CLI渲染阶段批次切换规则：run_status=completed 与工具事件同批返回时，阶段切换应在批次尾生效，避免误吞同批preview关键线。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M51",
+      "title": "工具时间线聚合与异常隔离（call_id/orphan）",
+      "goal": "增强工具执行展示的可读性与可靠性：按call_id聚合时间线，隔离orphan事件，减少跨调用串味。",
+      "exit_criteria": "- 工具事件按call_id稳定聚合。\\n- orphan end等异常事件被隔离呈现，不污染主时间线。\\n- 长输出和高频事件仍保持可读。\\n- 门禁与managed实跑通过。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb79d-5eb0-7ce1-9ec7-ed51ad8e6ffd",
+      "claimed_at": "2026-03-04T15:57:11+08:00",
+      "status_changed_at": "2026-03-04T16:12:25+08:00",
+      "updated_at": "2026-03-04T16:12:25+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M51",
+      "branch": "milestone/M51",
+      "result": {
+        "solution_summary": "完成 call_id 工具时间线聚合与 orphan 隔离：orphan exit 独立输出并计数；工具预览/摘要附加 call_id 防止同文案跨调用折叠。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py -> 112 passed, 44 warnings；managed CLI 脚本实跑通过（ping 与 bash echo M51_TOOL）。",
+        "commits": {
+          "plan": "6207576",
+          "R1": {
+            "C1": "05335b7",
+            "C2": "5e861c2",
+            "C3": "cdac447"
+          },
+          "R2": {
+            "C1": "48d1a7b",
+            "C2": "2ef2042",
+            "C3": "1f1d7ae"
+          },
+          "merge_main": "c548415"
+        },
+        "new_rules": [
+          "工具时间线文本去重边界规则（2026-03-04）：Tool 摘要层不能仅按文案去重，需保留 call_id 身份。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M52",
+      "title": "交互与脚本双通道契约固化（TTY/non-TTY）",
+      "goal": "明确并固化TTY交互通道与非交互脚本通道的输出契约边界，防止相互污染。",
+      "exit_criteria": "- 交互态与非交互态输出策略分离并有测试护栏。\\n- send-message单JSON契约持续稳定。\\n- REPL错误/状态/工具输出在TTY下保持一致可读。\\n- 门禁与managed实跑通过。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb79e-66e8-7a51-b60d-18a8aac2f762",
+      "claimed_at": "2026-03-04T15:57:11+08:00",
+      "status_changed_at": "2026-03-04T16:08:27+08:00",
+      "updated_at": "2026-03-04T16:08:27+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M52",
+      "branch": "milestone/M52",
+      "result": {
+        "milestone": "M52",
+        "branch": "milestone/M52",
+        "merge_commit": "3808801",
+        "milestone_commits": [
+          "f5b2723",
+          "47e5ebe",
+          "90ce341",
+          "cda1590"
+        ],
+        "test_gate": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py",
+        "test_result": "109 passed, 44 warnings",
+        "managed_smoke": [
+          "PYTHONPATH=src python -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8127 --token test-token health => {\"healthy\": true, \"version\": \"0.1.0\", \"node_id\": \"local-dev\"}",
+          "PYTHONPATH=src python -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8127 --token test-token create-session --title m52-managed-smoke => {\"session_id\": \"sess_a440b32aa6631a29\", \"status\": \"active\", \"created_at\": \"2026-03-04T08:08:14.511616+00:00\"}"
+        ],
+        "docs": [
+          "TASKS/M52-交互与脚本双通道契约固化（TTY-non-TTY）.md",
+          "PROGRESS/M52-交互与脚本双通道契约固化（TTY-non-TTY）.md",
+          "LOGBOOK.md"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M53",
+      "title": "CLI可靠性与性能门禁强化（长会话/高频事件）",
+      "goal": "建立商业化所需的稳定性护栏，覆盖长会话、高频事件和重绘频率场景，降低线上抖动风险。",
+      "exit_criteria": "- 新增长会话与高频事件回归集。\\n- 关键路径性能指标可观测并设置阈值。\\n- 重绘频率与事件吞吐行为有稳定基线。\\n- 门禁与managed实跑通过。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb79d-5eb0-7ce1-9ec7-ed51ad8e6ffd",
+      "claimed_at": "2026-03-04T16:21:43+08:00",
+      "status_changed_at": "2026-03-04T16:30:35+08:00",
+      "updated_at": "2026-03-04T16:30:35+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M53",
+      "branch": "milestone/M53",
+      "blocked_reason": "Reassigned to active worker after health probe.",
+      "result": {
+        "solution_summary": "完成长会话/高频事件性能门禁：在 CLI 事件管线新增 ReplPerfTracker，按批次采集 polled/consumed/preview/run_filtered/dedupe 指标，输出 sample_ready/throughput_ok/redraw_ratio_ok/stable 与 guardrail_reason，并通过 _repl_view.perf_metrics 暴露。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py -> 119 passed, 46 warnings（rebase后最终门禁）；managed --mode managed 实跑通过（ping 与高频 bash 输出场景）。",
+        "commits": {
+          "plan": "ca11a09",
+          "R1": {
+            "C1": "c0e82c5",
+            "C2": "b610317",
+            "C3": "80cc00a"
+          },
+          "R2": {
+            "C1": "be9b9b5",
+            "C2": "ccaa16d",
+            "C3": "8048d68"
+          },
+          "merge_main": "17f4b5c"
+        },
+        "new_rules": [
+          "高频事件性能门禁可解释性规则（2026-03-04）：性能快照需提供 guardrail_reason 并覆盖 throughput/redraw_ratio/sample_size 归因。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M54",
+      "title": "CLI商业化发布收口（可观测+文档+发布验收）",
+      "goal": "完成CLI前端商业化发布前收口：可观测、操作文档、发布验收流程与回滚策略。",
+      "exit_criteria": "- CLI可观测指标与故障排查手册完善。\\n- README/使用文档覆盖新架构与交互能力。\\n- 发布验收脚本与回滚流程可执行。\\n- 目标门禁全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb79e-66e8-7a51-b60d-18a8aac2f762",
+      "claimed_at": "2026-03-04T16:37:10+08:00",
+      "status_changed_at": "2026-03-04T16:44:51+08:00",
+      "updated_at": "2026-03-04T16:44:51+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M54",
+      "branch": "milestone/M54",
+      "blocked_reason": "Worker hit usage limit during M54; reassigned by controller.",
+      "result": {
+        "milestone": "M54",
+        "branch": "milestone/M54",
+        "merge_commit": "5a5a7c5",
+        "plan_commit": "c8e93db",
+        "roadpoint_commits": {
+          "R1": {
+            "C1": "8835e99",
+            "C2": "4638ce1",
+            "C3": "b4a7e5f"
+          },
+          "R2": {
+            "C1": "f54e86a",
+            "C2": [
+              "89c3598",
+              "0e9182c",
+              "947e092"
+            ],
+            "C3": "c815d57"
+          },
+          "R3": {
+            "C3": "09a8db8"
+          }
+        },
+        "test_gate": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py",
+        "test_result": "123 passed, 46 warnings",
+        "release_playbook_execute": "status=passed; executed cli_gate_tests + managed_smoke_ping",
+        "managed_smoke": [
+          "PYTHONPATH=src /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8131 --token test-token health => {\"healthy\": true, \"version\": \"0.1.0\", \"node_id\": \"local-dev\"}",
+          "PYTHONPATH=src /Users/czj/miniforge3/bin/python3 -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8131 --token test-token create-session --title m54-managed-smoke-8131 => {\"session_id\": \"sess_e8bfeeb3bdebf365\", \"status\": \"active\", \"created_at\": \"2026-03-04T08:42:08.663897+00:00\"}"
+        ],
+        "docs": [
+          "TASKS/M54-CLI商业化发布收口（可观测-文档-发布验收）.md",
+          "PROGRESS/M54-CLI商业化发布收口（可观测-文档-发布验收）.md",
+          "README.md",
+          "LOGBOOK.md"
+        ],
+        "summary": "完成CLI商业化发布收口：新增可观测归因助手、发布验收/回滚playbook、README发布手册入口，并完成门禁与managed实跑。"
+      }
+    },
+    {
+      "milestone_id": "M55",
+      "title": "Codex CLI深度研究与可迁移规则落盘（支撑M48-M52）",
+      "goal": "继续系统研究 codex CLI 在输入状态机、事件折叠、渲染调度方面的实现细节，沉淀可直接迁移到 nano CLI 的规则与风险清单。",
+      "exit_criteria": "- 补充输入状态机与popup同步、frame coalesce、orphan处理、fallback去重窗口等代码锚点。\\n- 输出可执行迁移清单（按M48-M52分配）。\\n- 研究结论落盘到PROGRESS并更新LOGBOOK可复用规则。\\n- 不改内核，仅文档与规划支撑。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-04T14:59:21+08:00",
+      "updated_at": "2026-03-04T14:59:21+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M55",
+      "branch": "milestone/M55",
+      "result": {
+        "solution_summary": "Completed Codex CLI deep research with anchors for popup sync, frame coalescing, orphan handling, and fallback dedupe window; produced actionable M48-M52 migration checklist; documented reusable rules in LOGBOOK.",
+        "tests": "N/A (docs-only milestone, no code changes)",
+        "commits": {
+          "docs": "3c52cfe",
+          "merge_main": "e84dd6a"
+        },
+        "artifacts": [
+          "TASKS/M55-Codex CLI深度研究与可迁移规则落盘（支撑M48-M52）.md",
+          "PROGRESS/M55-Codex CLI深度研究与可迁移规则落盘（支撑M48-M52）.md",
+          "LOGBOOK.md"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M56",
+      "title": "工具契约对齐-read 返回字符串格式",
+      "goal": "将 read 工具返回格式与《内核设计细化/工具设计细化.md》一致，特别是 text/image content 与截断提示字符串。",
+      "exit_criteria": "- read 文本返回改为 content parts（text），并按 spec 输出 Showing lines/offset 提示与首行超限引导。\\n- read 图片返回 text+image parts，包含 mime 与尺寸提示语义。\\n- offset 越界、limit 行为、截断边界与 details 字段契约通过 unit+contract+integration。\\n- 目标门禁通过：PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_read_contract.py tests/integration/test_tools_read_integration.py",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb80e-024d-7230-9715-10cb26f802e6",
+      "claimed_at": "2026-03-04T16:54:23+08:00",
+      "status_changed_at": "2026-03-04T16:56:24+08:00",
+      "updated_at": "2026-03-04T16:56:24+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M56",
+      "branch": "milestone/M56",
+      "blocked_reason": "",
+      "result": {
+        "solution_summary": "对齐read文本/图片返回契约：文本content改为parts并统一截断提示；图片改为text+image(data/mimeType)+尺寸语义；anthropic/openai_compat mapper兼容新image part且保留旧字段兼容。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_read_contract.py tests/integration/test_tools_read_integration.py => 30 passed",
+        "commits": {
+          "C1": "cee0939,234e256",
+          "C2": "a2d381e,8f2e610",
+          "C3": "d02f795,6d51cff",
+          "merge": "443b154"
+        }
+      }
+    },
+    {
+      "milestone_id": "M57",
+      "title": "工具契约对齐-bash 返回字符串格式",
+      "goal": "将 bash 工具输出与错误文本收口到《内核设计细化/工具设计细化.md》要求，包含尾部截断提示与 fullOutputPath 文案。",
+      "exit_criteria": "- bash 成功输出返回统一 text 字符串（合并 stdout/stderr），并在截断时追加 Showing lines/full output 提示。\\n- 非0退出、timeout、abort 错误文案与 message 结构符合 spec（错误路径可解析）。\\n- 临时文件落盘与 fullOutputPath 在截断时可追溯。\\n- 目标门禁通过：PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_bash_contract.py tests/integration/test_tools_bash_integration.py",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb7c3-485f-7f70-a08c-1768b9f41d88",
+      "claimed_at": "2026-03-04T15:47:35+08:00",
+      "status_changed_at": "2026-03-04T15:54:25+08:00",
+      "updated_at": "2026-03-04T15:56:05+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M57",
+      "branch": "milestone/M57",
+      "blocked_reason": "",
+      "result": {
+        "solution_summary": "完成 bash 工具契约收口：成功输出改为统一 content 字符串（合并 stdout/stderr），截断追加 Showing lines/Full output 文案并持久化 fullOutputPath；non-zero/timeout/abort 错误文案与 details 结构统一为可解析字段。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_bash_contract.py tests/integration/test_tools_bash_integration.py => 22 passed",
+        "commits": {
+          "C1": "ba778a5,34fb4ee",
+          "C2": "db647a8,265595c",
+          "C3": "4a40d28,7fd861f",
+          "merge": "bc1d2fd",
+          "docs_fix": "9be21f4"
+        }
+      }
+    },
+    {
+      "milestone_id": "M58",
+      "title": "工具契约对齐-edit/write 返回字符串格式",
+      "goal": "对齐 edit/write 工具的成功返回字符串与 details 结构，使 Agent 侧拿到和设计稿一致的文本反馈。",
+      "exit_criteria": "- edit 成功返回 'Successfully replaced text in {path}.'，并通过 details 暴露 diff 与 firstChangedLine。\\n- write 成功返回 'Successfully wrote {bytes} bytes to {path}'。\\n- edit 的 unique match/未命中/无变化错误语义与文档一致。\\n- 目标门禁通过：PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/integration/test_m8_agent_tool_hook_r81_integration.py",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb800-04e1-77f3-a012-1a4951e8a51d",
+      "claimed_at": "2026-03-04T16:39:00+08:00",
+      "status_changed_at": "2026-03-04T16:46:22+08:00",
+      "updated_at": "2026-03-04T16:46:22+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M58",
+      "branch": "milestone/M58",
+      "blocked_reason": "",
+      "result": {
+        "solution_summary": "对齐 edit/write 工具成功返回字符串与 details 结构：edit 返回 content+details(diff, firstChangedLine)、write 返回成功写入字节文本，并对齐 edit 未命中/非唯一/无变化错误语义；补齐同文件过期 bash timeout 单测以恢复门禁。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/integration/test_m8_agent_tool_hook_r81_integration.py -> 24 passed",
+        "commits": {
+          "C1": "c7d082e",
+          "C2": "c897076",
+          "C3": "8093b5c",
+          "merge_main": "ba1a5eb"
+        }
+      }
+    },
+    {
+      "milestone_id": "M59",
+      "title": "工具契约对齐-task 返回文本模板",
+      "goal": "将 task 工具返回从结构化对象改为设计稿约定的字符串模板（background/sync/continuation/error），并保持现有 session 续跑能力。",
+      "exit_criteria": "- task 在 run_in_background=true/false + session_id 有无四种路径均返回规范文本模板，包含 <task_metadata> session_id 块。\\n- 参数校验（load_skills、run_in_background、category/subagent_type）与 continuation 优先级保持。\\n- task 相关 unit/contract/integration/e2e 测试按新契约通过。\\n- 目标门禁通过：PYTHONPATH=src pytest -q tests/unit/test_task_tool_blocking.py tests/unit/test_task_tool_non_blocking.py tests/contract/test_task_tool_contract.py tests/integration/test_task_blocking_integration.py tests/integration/test_task_non_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py tests/e2e/test_task_tool_non_blocking_e2e.py",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb7c3-494a-7000-a7f9-d060052a6657",
+      "claimed_at": "2026-03-04T15:47:35+08:00",
+      "status_changed_at": "2026-03-04T15:49:43+08:00",
+      "updated_at": "2026-03-04T16:12:45+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M59",
+      "branch": "milestone/M59",
+      "blocked_reason": "",
+      "result": {
+        "solution_summary": "task 工具返回已对齐字符串模板：background/sync/continuation/error 四路径均输出文本并包含 <task_metadata> session_id；保持 continuation 优先级、load_skills 与 category/subagent_type 校验，并新增 run_in_background 布尔硬校验。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_task_tool_blocking.py tests/unit/test_task_tool_non_blocking.py tests/contract/test_task_tool_contract.py tests/integration/test_task_blocking_integration.py tests/integration/test_task_non_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py tests/e2e/test_task_tool_non_blocking_e2e.py -> 15 passed, 14 warnings",
+        "commits": {
+          "C1": "a3112eb",
+          "C2": "9ac2dce",
+          "C3": "fd17e02",
+          "MERGE": "1fb0eed"
+        },
+        "push_result": "success: main pushed to origin (c548415..1fb0eed)"
+      }
+    },
+    {
+      "milestone_id": "M60",
+      "title": "Session内系统提示词时间戳固定（避免KV Cache失效）",
+      "goal": "修复同一session多轮消息时系统提示词CURRENT_DATETIME每轮变化的问题，确保session内时间戳稳定不变。",
+      "exit_criteria": "- 同一session连续两次run，LLM接收到的system prompt中Current date and time行保持一致。\\n- 新session仍会得到独立时间戳（不要求跨session一致）。\\n- 仅改agent/session相关实现与测试，目标测试集全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb7d1-05cd-7071-8f8e-452a0b6d3fd9",
+      "claimed_at": "2026-03-04T15:47:40+08:00",
+      "status_changed_at": "2026-03-04T15:54:35+08:00",
+      "updated_at": "2026-03-04T15:54:35+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M60",
+      "branch": "milestone/M60",
+      "blocked_reason": "Paused by controller: current delivery scope is CLI-only; kernel/tool contract line parked.",
+      "result": {
+        "solution_summary": "Runtime uses session.created_at as session-scoped CURRENT_DATETIME source and threads it through runtime->loop->prompting so timestamp stays stable within session while remaining distinct across sessions.",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_agent_prompting.py tests/integration/test_prompt_runtime_fill_integration.py tests/integration/test_agent_runtime_integration.py tests/e2e/test_system_prompt_render_e2e.py tests/contract/test_system_prompt_contract.py (11 passed, 4 warnings)",
+        "commits": {
+          "C1": "26d2759",
+          "C2": "637d421",
+          "C3": "7959fc1"
+        }
+      }
+    },
+    {
+      "milestone_id": "M61",
+      "title": "Codex CLI研究二期：渲染状态机与工具时间线商业化映射",
+      "goal": "深挖 codex 在 streaming/finalizing/finalized 阶段门控、tool timeline 聚合/orphan 隔离、摘要去重策略，产出可直接迁移到 nano CLI 的规则与验收脚本模板（支撑 M50-M51-M53）。",
+      "exit_criteria": "- 形成代码锚点清单（含文件+行号）覆盖阶段门控、工具时间线、orphan策略。\\n- 输出 nano CLI 可执行迁移清单（按 M50/M51/M53 分配）。\\n- 在 PROGRESS 与 LOGBOOK 落盘新增规则，不改内核。\\n- 提供 managed CLI 观感验收脚本模板（命令+预期片段）。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb6dd-0581-7d20-82a3-8a5615fd076f",
+      "claimed_at": "2026-03-04T15:43:36+08:00",
+      "status_changed_at": "2026-03-04T16:10:40+08:00",
+      "updated_at": "2026-03-04T16:10:58+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M61",
+      "branch": "milestone/M61",
+      "result": {
+        "summary": "完成 M61 研究型里程碑：深挖 codex 的 STREAMING/FINALIZING/FINALIZED 阶段门控、tool timeline 聚合/orphan 隔离、summary 去重，并沉淀可直接迁移到 nano CLI 的执行清单（映射 M50/M51/M53）与 managed CLI 验收脚本模板。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py -> 119 passed, 44 warnings",
+        "commits": {
+          "plan": "d1e43f4",
+          "R1": {
+            "C1": "c97d070",
+            "C2": "22c296c",
+            "C3": "28b94b5"
+          },
+          "R2": {
+            "C1": "aada359",
+            "C2": "ef0b077",
+            "C3": "a54b1f8"
+          },
+          "R3": {
+            "C1": "079323e",
+            "C2": "03548bc",
+            "C3": "403f56e"
+          },
+          "merge_main": "742fada"
+        },
+        "artifacts": [
+          "TASKS/M61-Codex阶段门控与工具时间线研究落盘（映射M50-M51-M53）.md",
+          "PROGRESS/M61-Codex阶段门控与工具时间线研究落盘（映射M50-M51-M53）.md",
+          "LOGBOOK.md"
+        ],
+        "new_rules": [
+          "阶段门控三条件规则（commentary完成+队列空闲+task运行）",
+          "流式预览与最终摘要去重规则（阶段切换+已播报集合双保险）",
+          "事件管线分层纪律（normalize/dedupe/aggregator 与渲染层解耦）"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M62",
+      "title": "Codex CLI研究三期：TTY/non-TTY契约与交互可观测",
+      "goal": "研究 codex 的交互态与脚本态输出边界、状态行/事件折叠呈现、失败提示层次与可观测统计，给出 nano CLI 商业化发布前契约模板（支撑 M52-M54）。",
+      "exit_criteria": "- 提供 TTY/non-TTY 输出边界规则与反例。\\n- 提供错误分层与可观测指标建议（dedup_dropped/orphan/tool_timeline）。\\n- 形成 M52-M54 的测试矩阵草案并落盘。\\n- 仅文档落盘（PROGRESS/TASKS/LOGBOOK），不改内核。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb77b-ac8a-79a0-b91a-3194e92b835b",
+      "claimed_at": "2026-03-04T15:43:36+08:00",
+      "status_changed_at": "2026-03-04T15:57:54+08:00",
+      "updated_at": "2026-03-04T15:57:54+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M62",
+      "branch": "milestone/M62",
+      "result": {
+        "summary": "完成 M62 研究型里程碑：沉淀 TTY/non-TTY 输出边界、状态行/事件折叠、错误分层与可观测契约，并产出 M52/M53/M54 测试矩阵草案。",
+        "commits": {
+          "plan": "350484c",
+          "R1": {
+            "C1": "49c23d0",
+            "C2": "63017bc",
+            "C3": "4d04448"
+          },
+          "R2": {
+            "C1": "893bb84",
+            "C2": "97459b2",
+            "C3": "6a35001"
+          },
+          "R3": {
+            "C1": "1a1ec68",
+            "C2": "25d8692",
+            "C3": "c99eb7e"
+          },
+          "merge_main": "1c56011"
+        },
+        "artifacts": [
+          "TASKS/M62-Codex CLI研究三期-TTY非TTY契约与交互可观测.md",
+          "PROGRESS/M62-Codex-CLI研究三期-TTY非TTY契约与交互可观测.md",
+          "LOGBOOK.md"
+        ],
+        "new_rules": [
+          "CLI TTY/non-TTY 双通道契约规则",
+          "状态行中断白名单规则",
+          "orphan 先观测后修复规则",
+          "交互入口 TTY 护栏规则"
+        ],
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_sdk_client.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py（116 passed, 42 warnings）"
+      }
+    },
+    {
+      "milestone_id": "M63",
+      "title": "REPL命令屏障与在途消息排空一致性",
+      "goal": "修复 /history 与 /exit 在有 in-flight 消息时的等待体验：避免误报超时、确保命令屏障后状态一致，提升真实交互稳定性。",
+      "exit_criteria": "- /history 在 in-flight 结束后稳定展示，不再出现已完成却提示 timed out 的假阳性。\\n- /exit 在可配置超时内优先等待在途消息完成并收口输出；超时时也给出明确剩余任务信息。\\n- 队列状态展示统一（queued/waiting/completed）且不干扰 send-message JSON 契约。\\n- 增加 unit+integration 回归，并附 managed CLI 实跑前后对比。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb79e-66e8-7a51-b60d-18a8aac2f762",
+      "claimed_at": "2026-03-04T16:13:57+08:00",
+      "status_changed_at": "2026-03-04T16:24:28+08:00",
+      "updated_at": "2026-03-04T16:24:28+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M63",
+      "branch": "milestone/M63",
+      "result": {
+        "milestone": "M63",
+        "branch": "milestone/M63",
+        "merge_commit": "83db92b",
+        "plan_commit": "defe402",
+        "milestone_commits": {
+          "C1": "1ac385e",
+          "C2": "19eee35",
+          "C3": "6bc50f2"
+        },
+        "test_gate": "PYTHONPATH=src pytest -q tests/unit/test_cli_main.py tests/unit/test_cli_refactor_boundaries.py tests/integration/test_cli_http_flow_integration.py tests/contract/test_cli_http_only_contract.py tests/contract/test_cli_error_contract.py",
+        "test_result": "115 passed, 46 warnings",
+        "managed_smoke": [
+          "PYTHONPATH=src python -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8127 --token test-token health => {\"healthy\": true, \"version\": \"0.1.0\", \"node_id\": \"local-dev\"}",
+          "PYTHONPATH=src python -m nano_multiagent.cli.main --mode managed --base-url http://127.0.0.1:8127 --token test-token create-session --title m63-managed-smoke => {\"session_id\": \"sess_2b2ffe0431ee76b2\", \"status\": \"active\", \"created_at\": \"2026-03-04T08:23:08.526752+00:00\"}"
+        ],
+        "docs": [
+          "TASKS/M63-REPL命令屏障与在途消息排空一致性.md",
+          "PROGRESS/M63-REPL命令屏障与在途消息排空一致性.md",
+          "LOGBOOK.md"
+        ],
+        "summary": "统一REPL in-flight命令屏障，修复/history假阳性超时，/exit超时补齐remaining提示，并保持send-message JSON契约稳定。"
+      }
+    },
+    {
+      "milestone_id": "M64",
+      "title": "Codex交互对标一期：工具事件降噪与状态线收敛",
+      "goal": "对齐 codex 交互体验中的低噪声原则：消除无意义工具噪声（read offset试错/原始JSON大段输出），并修正 Progress/State 时序，让用户先看有价值信息。",
+      "exit_criteria": "- 工具结果默认输出改为人类可读摘要，不再直接打印大段JSON字符串。\\n- 对同一工具调用链中的可预期试错（如 read offset=0 后紧接成功）做折叠/降噪显示。\\n- Progress retrying 不再在 completed 之后造成视觉逆序。\\n- 提供与 codex 同题对比的 managed transcript（hi bro + 仓库用途提问）。\\n- 仅改 CLI 与 CLI tests，门禁通过。",
+      "status": "FAILED",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb83f-10fa-7442-9549-d8c6ea9cbd71",
+      "claimed_at": "2026-03-04T17:48:05+08:00",
+      "status_changed_at": "2026-03-09T23:50:47+08:00",
+      "updated_at": "2026-03-09T23:50:47+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M64",
+      "branch": "milestone/M64",
+      "blocked_reason": "reassigned: prior worker returned control summary, no code/test artifacts",
+      "result": {
+        "solution_summary": "Stale unmerged CLI branch remains superseded by later merged CLI refactors; quick review pending before optional cleanup.",
+        "tests": "not rerun; branch not revived",
+        "commits": {
+          "docs": "bdee2e5",
+          "tests": "f09a53f",
+          "feat": "4d979ce"
+        }
+      }
+    },
+    {
+      "milestone_id": "M65",
+      "title": "Codex交互对标二期：工作中状态与会话信息的层次化呈现",
+      "goal": "引入更接近 codex 的运行中状态表达（working/progress/context），减少文本滚动打断，增强会话态势可感知性。",
+      "exit_criteria": "- REPL 在运行中提供统一状态行/区块，不与最终 Assistant 文本互相打架。\\n- 关键会话信息（模型/会话/上下文预算）呈现更稳定，减少重复打印。\\n- 与 M64 兼容且不破坏 send-message JSON 契约。\\n- 仅改 CLI 与 CLI tests，门禁通过。",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M64"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-04T17:05:27+08:00",
+      "updated_at": "2026-03-04T17:05:27+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M65",
+      "branch": "milestone/M65"
+    },
+    {
+      "milestone_id": "M66",
+      "title": "Codex交互对标研究：TUI状态栏与工作中提示机制",
+      "goal": "从 codex CLI 代码与真实交互中提炼可迁移到 nano 的状态栏/working提示/事件折叠设计，输出可执行清单支撑 M65。",
+      "exit_criteria": "- 产出 codex 代码锚点（文件+职责）覆盖状态栏、working提示、事件折叠。\\n- 给出 nano 侧迁移方案与风险点（仅 CLI）。\\n- 落盘 TASKS/PROGRESS/LOGBOOK，不改内核。",
+      "status": "FAILED",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb83f-30cf-71b3-8019-dc980f81ce5f",
+      "claimed_at": "2026-03-04T17:48:05+08:00",
+      "status_changed_at": "2026-03-09T23:50:47+08:00",
+      "updated_at": "2026-03-09T23:50:47+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M66",
+      "branch": "milestone/M66",
+      "blocked_reason": "reassigned: prior worker silent/no research artifacts",
+      "result": {
+        "solution_summary": "Superseded docs-only research branch was never merged to main and has now been cleaned up at user request; no code was lost from main.",
+        "tests": "not applicable (research-only branch)",
+        "commits": {
+          "docs_only": "bd8cd35"
+        }
+      }
+    },
+    {
+      "milestone_id": "M67",
+      "title": "5个工具描述与参数文案严格对齐《工具设计细化》",
+      "goal": "一次性对齐 read/bash/edit/write/task 的 tool.description、input_schema.properties.*.description 与《内核设计细化/工具设计细化.md》保持逐项一致，避免模型误用参数。",
+      "exit_criteria": "- read/bash/edit/write/task 五个工具的 description 与 parameters 描述均与文档一致。\\n- /v1/tools 与 LLM 请求中下发的 tools schema 文案一致且可审计。\\n- 关键回归通过：tool contract + integration + e2e（至少覆盖 task 误填 session_id、category/subagent_type 互斥提示语义）。\\n- 保持现有工具行为不回归（pytest 相关门禁全绿）。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "codex-main",
+      "claimed_at": "2026-03-04T17:38:27+08:00",
+      "status_changed_at": "2026-03-04T17:39:04+08:00",
+      "updated_at": "2026-03-04T17:39:04+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M67",
+      "branch": "milestone/M67",
+      "blocked_reason": "parked: CLI-only scope, not scheduled by this control tower",
+      "result": {
+        "solution_summary": "Aligned read/bash/edit/write/task tool descriptions and parameter descriptions with 内核设计细化/工具设计细化.md, and added strict contract assertions to prevent drift in /v1/tools.",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_tools_builtins.py tests/contract/test_tools_read_contract.py tests/contract/test_tools_bash_contract.py tests/contract/test_task_tool_contract.py tests/integration/test_tools_read_integration.py tests/integration/test_tools_bash_integration.py tests/unit/test_task_tool_blocking.py tests/unit/test_task_tool_non_blocking.py tests/integration/test_task_blocking_integration.py tests/integration/test_task_non_blocking_integration.py tests/e2e/test_task_tool_blocking_e2e.py tests/e2e/test_task_tool_non_blocking_e2e.py => 53 passed, 14 warnings",
+        "commits": {
+          "plan": "d1b40da",
+          "C1": "671ea07",
+          "C2": "9084b31",
+          "C3": "e576dc8",
+          "merge": "a31a16c"
+        }
+      }
+    },
+    {
+      "milestone_id": "M68",
+      "title": "Codex对标三期：输入历史闸门与回填编辑稳定性",
+      "goal": "对齐Codex输入交互关键策略，减少Up/Down误触，提升回填后编辑可控性（CLI-only）。",
+      "exit_criteria": "- 实现历史导航闸门：仅在行首/行尾且文本匹配已回填项时接管Up/Down。;- 回填后光标定位与多行编辑行为稳定且可测试。;- 不破坏现有命令输入与send-message契约。;- 仅改CLI与测试并通过门禁。",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M64"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-04T17:37:40+08:00",
+      "updated_at": "2026-03-04T17:37:40+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M68",
+      "branch": "milestone/M68"
+    },
+    {
+      "milestone_id": "M69",
+      "title": "Codex对标四期：事件语义去重与orphan隔离",
+      "goal": "补齐缺失event_id场景下的语义去重键与orphan end隔离，避免重复和串味（CLI-only）。",
+      "exit_criteria": "- 引入按事件类型构造的fallback dedupe key（run/tool/text分型）。;- 建立orphan事件独立落位，不并入活跃组。;- 提供dedup_dropped/orphan_events统计并验证不吞真实事件。;- 仅改CLI与测试并通过门禁。",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M64"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-04T17:37:40+08:00",
+      "updated_at": "2026-03-04T17:37:40+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M69",
+      "branch": "milestone/M69"
+    },
+    {
+      "milestone_id": "M70",
+      "title": "Codex对标五期：工具时间线分层与工作中摘要",
+      "goal": "构建更稳定的工作中视图：状态线、工具时间线、最终摘要分层，减少滚屏打断（CLI-only）。",
+      "exit_criteria": "- 形成Running/Finalizing/Finalized阶段门控并与输出层解耦。;- 工具timeline折叠展示start/exit/error与有限输出窗口。;- 最终摘要不重复流式预览内容。;- 仅改CLI与测试并通过门禁。",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M65",
+        "M69"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-04T17:37:40+08:00",
+      "updated_at": "2026-03-04T17:37:40+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M70",
+      "branch": "milestone/M70"
+    },
+    {
+      "milestone_id": "M71",
+      "title": "Codex对标六期：交互可观测与调试开关",
+      "goal": "补齐CLI交互可观测性与调试控制，支持商业化上线问题定位（CLI-only）。",
+      "exit_criteria": "- 暴露关键指标：dedup_dropped/fallback_key_used/orphan_events/run_phase_switch。;- 增加低噪调试开关（默认关闭）且不污染脚本模式输出。;- 故障提示分层并给可操作建议。;- 仅改CLI与测试并通过门禁。",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M70"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-04T17:37:40+08:00",
+      "updated_at": "2026-03-04T17:37:40+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M71",
+      "branch": "milestone/M71"
+    },
+    {
+      "milestone_id": "M72",
+      "title": "Codex对标验收：交互黄金脚本与商业化门禁",
+      "goal": "建立Codex对照验收脚本与golden transcript，持续验证CLI交互质量（CLI-only）。",
+      "exit_criteria": "- 固化对照脚本（nano vs codex）覆盖常见会话、工具调用、异常重试。;- 维护golden transcript并在回归中自动比对关键片段。;- 发布前验收清单可一键执行并输出结论。;- 仅改CLI与测试并通过门禁。",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M68",
+        "M70",
+        "M71"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-04T17:37:40+08:00",
+      "updated_at": "2026-03-04T17:37:40+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M72",
+      "branch": "milestone/M72"
+    },
+    {
+      "milestone_id": "M73",
+      "title": "上游工具常量解引用并同步到文档与代码",
+      "goal": "研究工具设计细化引用的上游源文件，确认 DEFAULT_MAX_LINES 与 DEFAULT_MAX_BYTES 等真实值，回填到工具设计细化文档并同步到 nano 工具代码。",
+      "exit_criteria": "- 从上游源文件定位并确认 DEFAULT_MAX_LINES、DEFAULT_MAX_BYTES 等常量真实值，记录来源路径。; - 内核设计细化/工具设计细化.md 中相关占位符全部替换为确定值。; - nano 代码中相关工具 description 与常量实现同步为确定值，不再保留占位符。; - 增加或更新测试，确保 /v1/tools 返回文案不回退为占位符。; - 指定门禁全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "worker-019cb84e-5298-7102-aa19-12e4c65cb3da",
+      "claimed_at": "2026-03-04T18:04:57+08:00",
+      "status_changed_at": "2026-03-04T19:36:32+08:00",
+      "updated_at": "2026-03-04T19:37:43+08:00",
+      "execution_mode": "serial",
+      "use_worktree": false,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M73",
+      "branch": "milestone/M73",
+      "result": {
+        "solution_summary": "新增共享常量源并将read/bash文案与默认截断行为统一引用 DEFAULT_MAX_LINES=2000 与 DEFAULT_MAX_BYTES=50*1024；同步更新工具设计细化文档并补充来源路径，新增合同测试防止 /v1/tools 文案回退为占位符。",
+        "tests": "PYTHONPATH=src pytest -q tests/contract/test_tools_contract.py tests/contract/test_task_tool_contract.py tests/unit/test_tools_builtins.py tests/contract/test_tools_read_contract.py tests/contract/test_tools_bash_contract.py tests/integration/test_tools_read_integration.py tests/integration/test_tools_bash_integration.py => 41 passed, 8 warnings",
+        "commits": {
+          "C1": "9aa5ac0",
+          "C2": "ef60e1a",
+          "C3": "5910c7f",
+          "merge": "384a66c"
+        },
+        "notes": "milestone/M73 分支基线含历史提交 d334d5e（docs/CLI到工具调用时序图），已随 merge 一并进入 main。"
+      }
+    },
+    {
+      "milestone_id": "M74",
+      "title": "多产品架构重构一期：产品装配契约与 bootstrap 入口",
+      "goal": "为 src/nano_multiagent 引入 ProductProfile / ResolvedProductConfig 与统一 bootstrap 入口，建立后续多产品重构的总开关，同时保持当前 coding 行为默认兼容。",
+      "exit_criteria": "新增产品/装配契约与 bootstrap 解析入口；server/app 可通过显式产品配置启动；默认产品仍保持当前 coding 主链路与主要契约测试全绿；不引入 runtime 内部 product 分支扩散。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-M74-r2",
+      "claimed_at": "2026-03-09T10:47:44+08:00",
+      "status_changed_at": "2026-03-09T11:00:51+08:00",
+      "updated_at": "2026-03-09T11:01:35+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M74",
+      "branch": "milestone/M74",
+      "blocked_reason": "worker blocked by denied permissions for SKILL.md and Bash in M74 worktree",
+      "result": {
+        "solution_summary": "引入 ProductProfile/ResolvedProductConfig/bootstrap_product；server/app.py 接受显式产品配置；LOCAL_CODING_PROFILE 复现当前 coding 默认；修复了预存在的 pytest 收集错误（补 __init__.py）。",
+        "tests": "pytest -q: 480 passed, 5 pre-existing failures, 4 skipped",
+        "key_files": [
+          "src/nano_multiagent/platform/product.py",
+          "src/nano_multiagent/platform/bootstrap.py",
+          "src/nano_multiagent/platform/products/local_coding.py",
+          "src/nano_multiagent/server/app.py"
+        ],
+        "new_rules": [
+          "ProductProfile/ResolvedProductConfig 是多产品装配的总开关，不在 runtime/loop 内加 if product 分支",
+          "bootstrap_product 是 platform 层唯一装配入口"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M75",
+      "title": "多产品架构重构二期：配置目录与路径解析收口",
+      "goal": "统一 local_coding 与 personal_assistant 的全局/工作区配置目录、sessions.sqlite3 放置规则、用户扩展 roots 与兼容 skill roots 解析。",
+      "exit_criteria": "路径解析只由统一 resolver 决定；~/.nanocode、<workspace>/.nanocode、~/.nanoassistant、可选 <workspace>/.nanoassistant 生效；sessions.sqlite3 固定落产品全局目录；兼容 roots 如 ~/.codex/skills 可配置；现有 coding 行为兼容。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-M75",
+      "claimed_at": "2026-03-09T11:01:51+08:00",
+      "status_changed_at": "2026-03-09T11:18:54+08:00",
+      "updated_at": "2026-03-09T11:20:09+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M75",
+      "branch": "milestone/M75",
+      "result": {
+        "solution_summary": "扩展 ProductProfile 为路径字段；新增 ConfigResolver 统一解析 global/workspace/session/tool/hook/skill roots；SessionService/build_tool_registry/build_hook_registry/default_skill_search_roots 均接受 config_resolver 参数，None 时保持旧行为；sessions.sqlite3 强制落产品全局目录；新增 PERSONAL_ASSISTANT_PROFILE。",
+        "tests": "pytest -q: 512 passed, 5 pre-existing failures",
+        "key_files": [
+          "src/nano_multiagent/platform/config/resolver.py",
+          "src/nano_multiagent/platform/product.py",
+          "src/nano_multiagent/platform/products/local_coding.py",
+          "src/nano_multiagent/platform/products/personal_assistant.py",
+          "src/nano_multiagent/session/service.py",
+          "src/nano_multiagent/tools/loader.py",
+          "src/nano_multiagent/hooks/loader.py",
+          "src/nano_multiagent/skills/workspace.py"
+        ],
+        "new_rules": [
+          "sessions.sqlite3 架构上强制在 global_config_home，不在 workspace",
+          "compat_skill_roots 是 ProductProfile 级配置，不是 kernel 默认",
+          "所有 loader 保留 None-safe 回退以保证兼容性"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M76",
+      "title": "多产品架构重构三期：抽出 local_coding 产品默认能力",
+      "goal": "把当前 coding prompt、默认 tools/hooks、默认安全与 skill 策略从共享层抽离到 local_coding 产品定义中，明确产品出厂能力与用户扩展边界。",
+      "exit_criteria": "coding 默认 prompt 不再由共享 runtime 默认常量定义；local_coding 产品定义默认能力；配置目录 tools/hooks/skills 仅作为用户扩展；coding 主链路与 CLI 契约保持兼容。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-M76",
+      "claimed_at": "2026-03-09T11:20:09+08:00",
+      "status_changed_at": "2026-03-09T11:35:44+08:00",
+      "updated_at": "2026-03-09T11:36:29+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M76",
+      "branch": "milestone/M76",
+      "result": {
+        "solution_summary": "CODING_SYSTEM_PROMPT 迁至 local_coding；DEFAULT_SYSTEM_PROMPT 置空作兼容 alias；LOCAL_CODING_PROFILE 显式声明 default_tool_ids 与 default_hook_modules；bootstrap.py 按声明过滤 tool/hook；server/app.py 通过 ResolvedProductConfig 注入 system_prompt。",
+        "tests": "pytest -q: 520 passed, 5 pre-existing failures",
+        "key_files": [
+          "src/nano_multiagent/agent/prompting.py",
+          "src/nano_multiagent/platform/products/local_coding.py",
+          "src/nano_multiagent/platform/bootstrap.py",
+          "src/nano_multiagent/server/app.py"
+        ],
+        "new_rules": [
+          "DEFAULT_SYSTEM_PROMPT=空字符串作 backward-compat alias；CODING_SYSTEM_PROMPT 才是 coding 专属",
+          "bootstrap 按 profile.default_tool_ids/hook_modules 过滤，而非全量加载"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M77",
+      "title": "多产品架构重构四期：增加 personal_assistant 产品画像",
+      "goal": "在同一 bootstrap 路径上增加 personal_assistant 产品配置，验证多产品共用同一 core/platform 装配链路。",
+      "exit_criteria": "可通过统一 bootstrap 选择 personal_assistant；其配置目录、默认能力、compat skill roots 与 sessions.sqlite3 规则正确；不复制 runtime/server。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-M77",
+      "claimed_at": "2026-03-09T11:36:29+08:00",
+      "status_changed_at": "2026-03-09T11:45:16+08:00",
+      "updated_at": "2026-03-09T11:46:00+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M77",
+      "branch": "milestone/M77",
+      "result": {
+        "solution_summary": "完善 PERSONAL_ASSISTANT_PROFILE（read/task 工具、default_status/usage_metrics hook、IM导向 prompt、capabilities={im/heartbeat/memory}）；bootstrap_product() 无修改即支持两个产品；create_app 同一工厂无分支。",
+        "tests": "pytest -q: 548 passed, 5 pre-existing failures",
+        "key_files": [
+          "src/nano_multiagent/platform/products/personal_assistant.py"
+        ],
+        "new_rules": [
+          "bootstrap_product 通用路径无需按产品分支，profile 字段驱动即可"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M78",
+      "title": "多产品架构重构五期：core/platform 物理分层与兼容门面",
+      "goal": "在行为稳定后，物理重组 src/nano_multiagent 为 core/platform/products/apps 结构，并保留必要兼容门面。",
+      "exit_criteria": "server/session stores/loaders/safety/builtins 归位 platform；runtime/loop/session manager/registry 等归位 core；旧导入通过兼容门面暂时可用；主要测试全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-M78",
+      "claimed_at": "2026-03-09T11:46:00+08:00",
+      "status_changed_at": "2026-03-09T14:08:14+08:00",
+      "updated_at": "2026-03-09T14:08:14+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M78",
+      "branch": "milestone/M78",
+      "result": {
+        "solution_summary": "完成 platform hooks/http_api/sdk 导入表面与兼容门面；此前已完成 persistence/llm/providers/tools；新增 core-oriented boundary contract test；保持旧 server/sdk/tools/hooks/llm/session import 路径可用。",
+        "tests": "pytest -q: 568 passed, 5 pre-existing failures, 4 skipped；M78 targeted tests 26 passed",
+        "commits": [
+          "f21adff",
+          "e3b2c58",
+          "eabc1db",
+          "ca8c020",
+          "bdc9184",
+          "e5adc49",
+          "1e6616a",
+          "8a79263",
+          "bf56cf7"
+        ],
+        "new_rules": [
+          "M78 采用 re-export facade 建立 platform-owned surfaces，避免一次性物理搬移造成 import 爆炸",
+          "core-oriented boundary 用 contract test 守护，不直接依赖 platform.http_api/platform.sdk 或 fastapi"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M79",
+      "title": "多产品架构重构六期：apps 归位与 CLI 入口收口",
+      "goal": "将 CLI 等入口按 apps 语义归位，保持 HTTP-only 边界，并清理重构兼容 shim。",
+      "exit_criteria": "CLI 位于 apps/coding_cli 语义下或具备等价兼容门面；SDK/managed server 指向稳定 bootstrap/http_api 接口；不直接 import runtime internals；主要 CLI 契约测试全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-M79",
+      "claimed_at": "2026-03-09T14:08:27+08:00",
+      "status_changed_at": "2026-03-09T14:55:15+08:00",
+      "updated_at": "2026-03-09T14:55:15+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M79",
+      "branch": "milestone/M79",
+      "result": {
+        "solution_summary": "新增 nano_multiagent.apps.coding_cli 稳定 facade，收口 legacy cli 入口到 apps/application 层；将 HTTP client canonical home 固化到 sdk.client，并让 managed server 指向 nano_multiagent.platform.http_api.app:create_app，保持 HTTP-only 边界与旧导入兼容。",
+        "tests": "python3 -m pytest -q tests/unit/test_apps_coding_cli_location.py tests/unit/test_sdk_client.py tests/unit/test_cli_main.py tests/unit/test_cli_managed_server.py tests/unit/test_cli_refactor_boundaries.py tests/unit/test_platform_sdk_location.py -> 113 passed",
+        "commits": {
+          "plan": "5dc12f8",
+          "C1": "86868c4",
+          "C2": "c7ef423",
+          "C3": "4efb104",
+          "merge_main": "3c51ee5"
+        }
+      }
+    },
+    {
+      "milestone_id": "M80",
+      "title": "多产品架构重构七期：products 物理归位与 Profile 合同补齐",
+      "goal": "把产品定义从 platform/products 收口到 canonical products 层，补齐 ProductProfile 缺失字段与产品包结构，使 local_coding/personal_assistant 成为真正的产品层而非平台子目录。",
+      "exit_criteria": "存在 canonical 路径 src/nano_multiagent/products/base.py 与 src/nano_multiagent/products/{local_coding,personal_assistant}/profile.py（可附带 prompts/defaults/toolsets/hooks 骨架）；bootstrap 与测试可从新路径导入；platform.products 保留兼容 shim；ProductProfile 补齐文档要求的剩余关键字段；相关 unit/integration/contract tests 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-post-M79",
+      "claimed_at": "2026-03-09T17:24:09+08:00",
+      "status_changed_at": "2026-03-09T17:44:41+08:00",
+      "updated_at": "2026-03-09T17:44:41+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M80",
+      "branch": "milestone/M80",
+      "result": {
+        "solution_summary": "Established canonical nano_multiagent.products contracts and product packages for local_coding/personal_assistant, converted platform.product(s) into compatibility shims, and wired create_app/session service to honor product session-store paths without breaking minimal-profile fallback.",
+        "tests": "python3 -m pytest -q tests/unit/test_product_profile.py tests/unit/test_product_profiles.py tests/unit/test_local_coding_profile.py tests/unit/test_personal_assistant_profile.py tests/unit/test_platform_bootstrap.py tests/unit/test_config_resolver.py tests/unit/test_session_service_with_profile.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/unit/test_skills_workspace_with_resolver.py tests/unit/test_app_factory_with_profile.py tests/contract/test_product_profile_contract.py tests/integration/test_bootstrap_integration.py tests/integration/test_personal_assistant_bootstrap_integration.py tests/integration/test_personal_assistant_server_integration.py",
+        "commits": {
+          "C1": "32f276a",
+          "C2": "2825132",
+          "C3": "fc425f9"
+        }
+      }
+    },
+    {
+      "milestone_id": "M81",
+      "title": "多产品架构重构八期：platform 实现物理归位（session/tools/hooks/server）",
+      "goal": "将已建立的新 platform 表面从 shim 逐步转为 canonical 实现归属，重点覆盖 session persistence、tools/hooks loader/safety、HTTP API app/routes。",
+      "exit_criteria": "platform/persistence/session、platform/tools、platform/hooks、platform/http_api 下承接 canonical 实现或清晰主入口；旧 server/session/tools/hooks 路径降为兼容 shim；相关 location/contract/integration tests 更新并全绿；不引入 app/core 越层依赖。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-post-M80",
+      "claimed_at": "2026-03-09T17:46:31+08:00",
+      "status_changed_at": "2026-03-09T19:56:50+08:00",
+      "updated_at": "2026-03-09T19:56:50+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M81",
+      "branch": "milestone/M81",
+      "result": {
+        "solution_summary": "Promoted platform.persistence.session, platform.tools, platform.hooks, and platform.http_api from facades to canonical implementation homes while keeping legacy session/tools/hooks/server imports working as compatibility shims and preserving the core-vs-platform layering guard.",
+        "tests": "python3 -m pytest -q tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_config_resolver.py tests/unit/test_tool_loader_with_resolver.py tests/unit/test_hook_loader_with_resolver.py tests/integration/test_app_bootstrap.py tests/contract/test_core_no_platform_imports.py (30 passed, 4 warnings)",
+        "commits": {
+          "R1": {
+            "C1": "7520c9e",
+            "C2": "c5847ca",
+            "C3": "7980193"
+          },
+          "R2": {
+            "C1": "7309fe2",
+            "C2": "fd35288",
+            "C3": "3c26bb0"
+          },
+          "R3": {
+            "C1": "09891c5",
+            "C2": "04c6ba5",
+            "C3": "39779ef"
+          },
+          "closeout": "c4361da",
+          "merge_main": "c4361da"
+        },
+        "artifacts": [
+          "TASKS/M81-platform-physical-canonicalization.md",
+          "PROGRESS/M81-platform-physical-canonicalization.md"
+        ],
+        "new_rules": [
+          "platform/persistence/session, platform/tools, platform/hooks, and platform/http_api are canonical homes; legacy session/tools/hooks/server stay as compatibility shims",
+          "core-oriented packages must not directly import platform.http_api; they may continue to use legacy server compat paths when they need SSE types"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M82",
+      "title": "多产品架构重构九期：core 归位与共享抽象收口",
+      "goal": "把真正属于共享执行内核的实现逐步收口到 core 层，明确 agent/session/tools/hooks/skills/llm 之间的共享抽象边界，并避免产品/平台默认值回流进 core。",
+      "exit_criteria": "core 下出现更完整的 shared-kernel 归属（至少覆盖文档中高优先级共享模块的 canonical 入口）；旧共享路径保留兼容导出；新增 contract tests 防止 core 反向依赖 platform/products/apps；主要 unit/contract tests 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-post-M81",
+      "claimed_at": "2026-03-09T19:58:22+08:00",
+      "status_changed_at": "2026-03-09T23:28:48+08:00",
+      "updated_at": "2026-03-09T23:28:48+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M82",
+      "branch": "milestone/M82",
+      "result": {
+        "solution_summary": "完成 M82 shared-kernel 收口：新增 core/session、core/hooks、core/skills、core/llm canonical homes，legacy session/hooks/skills/llm 共享路径全部降为 compatibility shims，并把 core layering guard 收窄为真正覆盖 src/nano_multiagent/core/** 的反向依赖护栏。",
+        "tests": "PYTHONPATH=src python -m pytest -q tests/contract/test_core_events_contract.py tests/contract/test_core_types_contract.py tests/contract/test_core_no_platform_imports.py tests/unit/test_core_errors.py tests/unit/test_core_ids.py tests/unit/test_core_session_location.py tests/unit/test_core_hooks_location.py tests/unit/test_core_skills_location.py tests/unit/test_core_llm_location.py tests/unit/test_session_manager.py tests/unit/test_session_entries.py tests/unit/test_hooks_runner.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_agent_prompting.py tests/unit/test_llm_model_registry.py => 41 passed, 1 failed；唯一失败仍为既有基线 tests/contract/test_core_types_contract.py::test_turn_result_contract_fields_are_stable（TurnResult.usage 额外字段）",
+        "commits": {
+          "plan": "f64f8a8",
+          "R1": {
+            "C1": "4ae2bbd",
+            "C2": "926095e",
+            "C3": "61c357c"
+          },
+          "R2": {
+            "C1": "16bdf41",
+            "C2": "78b570e",
+            "C3": "b2c8ef9"
+          },
+          "R3": {
+            "C1": "002026b",
+            "C2": "dda994f",
+            "C3": "97083e9"
+          },
+          "milestone_docs": "8ca7c17",
+          "push_main": "8ca7c17"
+        },
+        "new_rules": [
+          "shared-kernel canonical ownership 必须以 core/* 为真实实现路径，legacy 共享路径只保留 compatibility shim",
+          "core layering guard 应直接扫描 src/nano_multiagent/core/**，禁止反向依赖 platform/products/apps 与 HTTP 框架",
+          "llm legacy package __init__ 在 core 归位后应保持轻量兼容包，避免从 core factory 反向导入 provider protocol 时形成循环依赖"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M83",
+      "title": "多产品架构重构十期：兼容 shim 清理与目录目标态验收",
+      "goal": "在 products/platform/core/apps 的 canonical 路径稳定后，系统清点并收缩遗留 shim，补齐目标目录树与迁移验收文档。",
+      "exit_criteria": "文档目标态目录树与代码实际目录基本对齐；仅保留必要兼容 shim 且有清单；新增 architecture acceptance tests/文档勾稽；多产品架构调整建议中的剩余高优先项已勾选或注明 deferred。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-post-M82",
+      "claimed_at": "2026-03-09T23:50:25+08:00",
+      "status_changed_at": "2026-03-10T00:09:59+08:00",
+      "updated_at": "2026-03-10T00:09:59+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M83",
+      "branch": "milestone/M83",
+      "result": {
+        "solution_summary": "Aligned final post-M82 ownership by making core.session.store the single session-store contract source, moved the shared HTTP client canonical home to platform/sdk, and added architecture acceptance coverage plus final target-state/shim-inventory documentation.",
+        "tests": "PYTHONPATH=src python3 -m pytest -q tests/unit/test_platform_llm_providers_location.py tests/unit/test_platform_sdk_location.py tests/unit/test_apps_coding_cli_location.py tests/unit/test_platform_hooks_location.py tests/unit/test_platform_http_api_location.py tests/unit/test_platform_persistence_session_location.py tests/unit/test_platform_tools_location.py tests/unit/test_core_hooks_location.py tests/unit/test_core_llm_location.py tests/unit/test_core_session_location.py tests/unit/test_core_skills_location.py tests/contract/test_core_no_platform_imports.py tests/contract/test_multi_product_architecture_acceptance.py -> 31 passed, 2 warnings",
+        "commits": {
+          "R1": {
+            "C1": "fd375fe",
+            "C2": "be2f00f",
+            "C3": "1766431"
+          },
+          "R2": {
+            "C1": "b158926",
+            "C2": "e19211c",
+            "C3": "b9f3962"
+          },
+          "merge_main": "8e5da9d"
+        }
+      }
+    },
+    {
+      "milestone_id": "M84",
+      "title": "多产品架构重构十一期：live anthropic 链路修复与真实 CLI 验收",
+      "goal": "修复 live anthropic provider 请求与 managed coding_cli 实链路在本地代理下的失败问题，使真实 send-message、live proxy e2e、live managed CLI e2e 一致恢复，并把实跑证据落盘。",
+      "exit_criteria": "tests/e2e/test_anthropic_generate_e2e.py 与 tests/e2e/test_cli_managed_live_agent_e2e.py 在启用 live 环境变量后通过；真实 coding_cli managed 模式 smoke 可完成至少一轮简单消息；TASKS/PROGRESS 记录根因、修复、回滚点与 live 命令证据。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-live-fix",
+      "claimed_at": "2026-03-10T14:19:25+08:00",
+      "status_changed_at": "2026-03-10T15:32:32+08:00",
+      "updated_at": "2026-03-10T15:32:32+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M84",
+      "branch": "milestone/M84",
+      "result": {
+        "solution_summary": "Fixed the anthropic live path by defaulting provider=anthropic to the proxy-supported codex model, aligned managed live acceptance with the stable single-command JSON contract, and closed stale shim/contract assertions so the full sweep and real managed smoke both pass.",
+        "tests": "python3 -m pytest -q -> 593 passed, 4 skipped; NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py -> 1 passed; NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py -> 1 passed",
+        "commits": {
+          "R1": {
+            "C1": "0c32df6",
+            "C2": "637de12",
+            "C3": "01db9d6"
+          },
+          "R2": {
+            "C1": "0c32df6",
+            "C2": "637de12",
+            "C3": "01db9d6"
+          },
+          "R3": {
+            "C1": "637de12",
+            "C2": "ac5f5e8",
+            "C3": "8330bd8"
+          },
+          "merge_main": "8330bd8"
+        }
+      }
+    },
+    {
+      "milestone_id": "M85",
+      "title": "多产品架构重构十二期：canonical wiring 实化与内部 legacy import 收口",
+      "goal": "让 platform/agent/runs/products 的内部 live code 改用 canonical 路径，接通 resolver/profile 驱动的真实装配，停止继续通过 legacy session/skills/server/llm 路径运行。",
+      "exit_criteria": "bootstrap/runtime/http_api/runs/core.llm 不再内部 import session.service、skills.workspace、server.sse、llm.protocols 与 platform.products；local_coding prompt ownership 回到 products；聚焦 gate 与必要 live 验证全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-cleanup",
+      "claimed_at": "2026-03-10T17:17:50+08:00",
+      "status_changed_at": "2026-03-10T21:13:13+08:00",
+      "updated_at": "2026-03-10T21:19:06+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M85",
+      "branch": "milestone/M85",
+      "result": {
+        "solution_summary": "打通 resolver/profile live wiring，收口 runtime/http_api/runs/core.llm 的 legacy imports，并把 local_coding prompt ownership 与 shared llm provider canonical home 落到位；main 已合入并推送。",
+        "tests": "/Users/czj/miniforge3/bin/python3 -m pytest -q => 601 passed, 4 skipped; NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 /Users/czj/miniforge3/bin/python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py => 1 passed; NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 /Users/czj/miniforge3/bin/python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py => 1 passed; integration worktree /Users/czj/miniforge3/bin/python3 -m pytest -q => 601 passed, 4 skipped",
+        "commits": {
+          "R85.1": {
+            "C1": "5f25146",
+            "C2": "b91a814",
+            "C3": "5b5f811"
+          },
+          "R85.2": {
+            "C1": "db9ac1b",
+            "C2": "5c3901a",
+            "C3": "808a41d"
+          },
+          "R85.3": {
+            "C1": "12f5dcd",
+            "C2": "9c00283",
+            "C3": "5775a8d"
+          }
+        },
+        "main_merge_commit": "9c00283",
+        "milestone_head": "5775a8d"
+      }
+    },
+    {
+      "milestone_id": "M86",
+      "title": "多产品架构重构十三期：apps/platform 真实实现物理归位",
+      "goal": "把 apps/coding_cli、platform/llm/providers 及相关 canonical 目录变成真实实现归属地，把剩余 substantive code 从 cli/llm/session/hooks/tools legacy 树迁走。",
+      "exit_criteria": "apps/coding_cli 持有真实 CLI 实现，platform/llm/providers 持有真实 provider 实现，canonical 与 legacy 不再双份持有 substantive code，聚焦 gate 与 live 验证全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-cleanup",
+      "claimed_at": "2026-03-10T23:00:44+08:00",
+      "status_changed_at": "2026-03-11T00:08:11+08:00",
+      "updated_at": "2026-03-11T00:08:11+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M86",
+      "branch": "milestone/M86",
+      "result": {
+        "solution_summary": "Canonicalized apps/platform ownership so apps/coding_cli and platform/* homes now carry the real CLI, provider, session, hook, and tool implementations while legacy cli/llm/session/hooks/tools paths are thin compatibility aliases.",
+        "tests": "Focused ownership suites 18 passed; broader affected suites 116 passed; full suite 605 passed, 4 skipped; live Anthropic E2E 1 passed; live managed CLI E2E 1 passed.",
+        "commits": {
+          "C1": "53bb96862b01",
+          "C2": "1ba2f76c672d",
+          "C3": "15cb919d3706"
+        }
+      }
+    },
+    {
+      "milestone_id": "M87",
+      "title": "多产品架构重构十四期：legacy shim 截肢与最小兼容面验收",
+      "goal": "删除低价值 legacy families，收缩 surviving compat surface 到真正有外部价值的最小集合，并重写 acceptance 合同。",
+      "exit_criteria": "大部分 legacy shim 被删除或收缩为极薄 external compat，acceptance contract 改为最小 legacy surface，full suite 与 live tests 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-cleanup",
+      "claimed_at": "2026-03-11T00:24:00+08:00",
+      "status_changed_at": "2026-03-11T01:05:24+08:00",
+      "updated_at": "2026-03-11T01:05:24+08:00",
+      "execution_mode": "serial",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M87",
+      "branch": "milestone/M87",
+      "result": {
+        "solution_summary": "删除低价值 server/cli legacy shim 家族，收缩 surviving compatibility surface 到 server package root、server.app 与少数 CLI 入口，并以 M87 acceptance/doc contract 固化最小兼容面。",
+        "tests": "python3 -m pytest -q; NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py; NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py",
+        "commits": {
+          "C1": "75a7781",
+          "C2": "6881ff7",
+          "C3": "62ba336"
+        }
+      }
+    },
+    {
+      "milestone_id": "M88",
+      "title": "零残留 canonicalization：删除剩余 legacy package roots",
+      "goal": "删除 src/nano_multiagent 下剩余 cli/server/session/hooks/skills/llm/tools/sdk legacy package roots，改用纯 canonical imports/entrypoints，并让 tests/docs/acceptance contract 全面转向 core/platform/products/apps。",
+      "exit_criteria": "src/nano_multiagent 下不再存在 cli/server/session/hooks/skills/llm/tools/sdk 目录；源码/tests/docs 不再 import 或引用这些 legacy roots；full suite 与相关 live tests 全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-cleanup",
+      "claimed_at": "2026-03-11T03:06:15+08:00",
+      "status_changed_at": "2026-03-11T03:57:46+08:00",
+      "updated_at": "2026-03-11T03:57:46+08:00",
+      "result": {
+        "solution_summary": "删除 cli/server/session/hooks/skills/llm/tools/sdk 八个 legacy package roots，统一 source/tests/docs 到 canonical imports，并修复 core llm factory 边界。",
+        "tests": "python3 -m pytest -q; NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py; NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py",
+        "commits": {
+          "C1": "fc32839",
+          "C2": "fb6e2cf",
+          "C3": "2db35e9"
+        }
+      }
+    },
+    {
+      "milestone_id": "M89",
+      "title": "core 物理收口：agent/runs/observability 归并",
+      "goal": "将 src/nano_multiagent 顶层剩余的 agent、runs、observability 物理归并到 core/ 下，对齐《多产品架构调整建议.md》最终目标目录树。",
+      "exit_criteria": "src/nano_multiagent 顶层仅剩 core/platform/products/apps；agent/runs/observability 的实现迁入 core/agent、core/runs、core/observability；tests/docs/contracts 全面更新且全绿。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "tower-main-cleanup",
+      "claimed_at": "2026-03-11T09:12:58+08:00",
+      "status_changed_at": "2026-03-11T10:05:27+08:00",
+      "updated_at": "2026-03-11T10:05:27+08:00",
+      "result": {
+        "solution_summary": "完成 M89：将顶层 agent/runs/observability 物理归并到 core 下，收口 source/tests/docs/contracts 到 canonical core paths，并通过 focused/full/live 验证。",
+        "tests": "python3 -m pytest -q => 606 passed, 4 skipped, 246 warnings; NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py => 1 passed; NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py => 1 passed",
+        "commits": {
+          "plan": "91d61d6",
+          "R89.1": {
+            "C1": "a2a5c12"
+          },
+          "R89.2": {
+            "C2": "c13b6d1"
+          },
+          "R89.3": {
+            "C3": "4d31cb9"
+          },
+          "milestone_docs": "654eb83",
+          "merge": "27c5b01"
+        }
+      }
+    },
+    {
+      "milestone_id": "M90",
+      "title": "Agent 内核包重命名",
+      "goal": "将 src/nano_multiagent/ 重命名为 src/agent/，对齐 SPEC §3 顶层结构",
+      "exit_criteria": "src/agent/ 包含 core/、platform/、products/，原 src/nano_multiagent/ 彻底删除；pyproject.toml 包发现配置更新；所有源码和测试中 nano_multiagent.* import 替换为 agent.*；pytest -q 全绿，无 nano_multiagent 残留 import",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T16:58:12+08:00",
+      "updated_at": "2026-03-11T16:58:12+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M90",
+      "branch": "milestone/M90",
+      "result": {
+        "solution_summary": "完成内核根包从 src/nano_multiagent 到 src/agent 的 canonical 重命名，并将 CLI 实现迁移到 src/coding_cli/coding_cli，对齐 SPEC 顶层结构。源码、测试与打包配置已切换到 agent.* / coding_cli.*，旧 nano_multiagent 根包已删除。",
+        "tests": "cd /Users/czj/Repos/nano-multiagent/.worktrees/M90 && PYTHONPATH=src pytest -q -> 612 passed, 4 skipped, 246 warnings",
+        "commits": [
+          "dcbe921",
+          "ede19bf",
+          "d98e52d",
+          "7995160"
+        ],
+        "new_rules": [
+          "大范围 canonical path 替换后，必须立即复查 forbidden snippets、legacy doc snippets 与 find_spec(None) 零残留。",
+          "顶层包重命名时要同步更新 contract/location tests、打包发现配置和 CLI 物理落位，避免只改 import 不改结构。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M91",
+      "title": "CLI 独立包提取 + core/tools 层级修正",
+      "goal": "将 CLI 提取为独立包 src/coding_cli/；将 Tool 接口/Registry 抽象从 platform 提取到 core 层，对齐内核设计SPEC §2/§6 与 CodingCLI-SPEC §6",
+      "exit_criteria": "CLI 代码必须直接落在 src/coding_cli/ 下（如 main.py、commands.py、client.py、input/、events/、render/、runtime/），禁止出现 src/coding_cli/coding_cli/ 二级嵌套；core/tools/base.py（Tool 接口）和 core/tools/registry.py（ToolRegistry 抽象）存在；platform/tools/ 保留实现，依赖 core/tools/ 接口；pytest -q 全绿",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T17:38:24+08:00",
+      "updated_at": "2026-03-11T17:38:24+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M91",
+      "branch": "milestone/M91",
+      "result": {
+        "solution_summary": "完成 CLI 独立包提取与 core.tools 抽象下沉；CLI 目录已纠偏为 docs/CodingCLI-SPEC.md 要求的 src/coding_cli/* 顶层结构，删除错误的 src/coding_cli/coding_cli/；同时保留并整合 M92 的四层加载能力。",
+        "tests": "cd /Users/czj/Repos/nano-multiagent/.worktrees/M91 && PYTHONPATH=src pytest -q -> 629 passed, 4 skipped, 246 warnings",
+        "commits": [
+          "6ad782b",
+          "44685fc",
+          "3dc56e3",
+          "36b87b7",
+          "a7ed3a3"
+        ],
+        "new_rules": [
+          "当 package canonical path 与 SPEC 不一致时，必须优先修正目录落位本身，不能用兼容壳层掩盖错误结构。",
+          "集成多 milestone 时，registry 内部可以保留分层注册顺序，但对外 capabilities 展示若有稳定排序契约，需在出口层单独排序。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M92",
+      "title": "Product 目录结构对齐",
+      "goal": "为两个产品建立完整的 tools/、hooks/、skills/ 目录结构，对齐内核设计SPEC §2 products 节",
+      "exit_criteria": "products/local_coding/ 和 products/personal_assistant/ 均包含 tools/、hooks/、skills/ 子目录；现有 hooks.py 迁移为 hooks/ 模块；四层加载路径（内核内置→产品默认→用户全局→工作区）可验证；pytest -q 全绿",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T17:20:07+08:00",
+      "updated_at": "2026-03-11T17:21:33+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M92",
+      "branch": "milestone/M92",
+      "result": {
+        "solution_summary": "为 local_coding 与 personal_assistant 建立 tools/hooks/skills 目录，迁移 hooks.py 为 hooks 包入口，并让 bootstrap/loader/discovery 支持 内核内置→产品默认→用户全局→工作区 四层加载与覆盖；同时清理 README 与 legacy nano_multiagent 包残留以恢复全量门禁。",
+        "tests": "cd /Users/czj/Repos/nano-multiagent/.worktrees/M92 && PYTHONPATH=src pytest -q",
+        "commits": {
+          "C1": "1d3854b",
+          "C2": "f6911f1",
+          "C3": "7716e30"
+        }
+      }
+    },
+    {
+      "milestone_id": "M93",
+      "title": "架构审视检查点",
+      "goal": "逐条验证 SPEC 架构要求，确认 Phase 1 成果，动态调整后续 milestone",
+      "exit_criteria": "SPEC §3 顶层结构验证通过：src/agent/、src/coding_cli/、src/personal_assistant/（占位）、src/IM/；内核设计SPEC §13 依赖方向验证通过（core 不 import platform/products）；core/tools/ 接口层存在且被 platform 正确实现；产品目录结构符合 SPEC；输出架构审视报告，确认或调整 Phase 2/3 milestone",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T17:58:56+08:00",
+      "updated_at": "2026-03-11T17:58:56+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M93",
+      "branch": "milestone/M93",
+      "result": {
+        "solution_summary": "完成 M93 架构审视并落盘到 TASKS/PROGRESS。结论：Phase 1 的核心方向判断成立，M94 继续承担 IM 分层迁移，M98 继续承担补齐 src/personal_assistant 顶层包/骨架；M93 作为 review-only checkpoint 可在保留既有基线失败的前提下验收。",
+        "tests": "控制塔验收基线：cd /Users/czj/Repos/nano-multiagent && PYTHONPATH=src pytest -q -> 6 failed, 623 passed, 4 skipped；M93 worktree 局部重跑：PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M93/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M93/tests -> 4 failed, 625 passed, 4 skipped。",
+        "commits": {
+          "C1": "N/A",
+          "C2": "N/A",
+          "C3": "4fbf787"
+        },
+        "new_rules": [
+          "架构审视类 milestone 可作为 review-only checkpoint 验收，但必须显式区分控制塔验证基线与局部重跑观测，禁止把局部差异误写成已修复。",
+          "继续派发后续 milestone 时，子 agent 仍需先读 SPEC.md 与对应模块 SPEC。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M94",
+      "title": "IM 分层架构迁移",
+      "goal": "将 IM 后端从扁平结构迁移为分层架构，对齐 IM-SPEC §9",
+      "exit_criteria": "src/IM/ 包含 api/routes/、application/、domain/、infra/、ws/ 目录；现有代码迁移到正确层级（models→domain、repositories→infra、路由→api/routes）；domain models 扩展：User(owner_id)、AgentProfile(profile_version)、Conversation(type/owner_id/is_pinned/is_muted/unread_count/last_message_at)、Message(sender_type/attachments)、NodeStatus、RelayTask；现有 IM 测试不退化，PYTHONPATH=src pytest -q tests/im_service 全绿",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T19:01:42+08:00",
+      "updated_at": "2026-03-11T19:04:27+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M94",
+      "branch": "milestone/M94",
+      "result": {
+        "solution_summary": "IM 后端已迁移为 api/application/domain/infra/ws 分层结构，app.py 改为装配入口，domain 扩展了 M94 要求的 IM-SPEC 字段并完成 SQLite schema 迁移。",
+        "tests": "cd /Users/czj/Repos/nano-multiagent/.worktrees/M94 && PYTHONPATH=src pytest -q tests/im_service",
+        "commits": {
+          "C1": "33ab421",
+          "C2": "bf33f58",
+          "C3": "82b68d0"
+        }
+      }
+    },
+    {
+      "milestone_id": "M95",
+      "title": "IM Web IM API 扩展",
+      "goal": "对齐 IM-SPEC §5 Web IM 端点，支持完整的会话和消息管理",
+      "exit_criteria": "PATCH /im/v1/conversations/{id}（置顶/免打扰/标题）；Conversation type(direct/group) + owner_id 数据隔离；Message sender_type(user/agent/system) + attachments[]；未读数 + last_message_at + 分页历史；相关 contract/integration/e2e 测试通过",
+      "status": "RUNNING",
+      "blocked_by": [],
+      "claimed_by": "subagent-M95",
+      "claimed_at": "2026-03-11T19:07:30+08:00",
+      "status_changed_at": "2026-03-11T19:07:14+08:00",
+      "updated_at": "2026-03-11T19:07:30+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M95",
+      "branch": "milestone/M95"
+    },
+    {
+      "milestone_id": "M96",
+      "title": "IM Agent 配置 + 用户/设备绑定",
+      "goal": "实现 Agent 配置管理和用户/设备绑定 API，对齐 IM-SPEC §2(P1) 和 §5",
+      "exit_criteria": "GET/PATCH /im/v1/agents/{id}/config（profile_version 乐观锁冲突检测）；GET /im/v1/agents Agent 列表；GET/PATCH /im/v1/me + POST /im/v1/bind 设备绑定流程；配置变更仅对新会话生效；相关测试通过",
+      "status": "RUNNING",
+      "blocked_by": [],
+      "claimed_by": "subagent-M96",
+      "claimed_at": "2026-03-11T19:07:30+08:00",
+      "status_changed_at": "2026-03-11T19:07:30+08:00",
+      "updated_at": "2026-03-11T19:07:30+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M96",
+      "branch": "milestone/M96"
+    },
+    {
+      "milestone_id": "M97",
+      "title": "IM WebSocket Server + 消息中继",
+      "goal": "实现 IM 服务端 WebSocket 和消息中继，对齐 IM-SPEC §4",
+      "exit_criteria": "ws/gateway_handler.py 管理 Gateway WebSocket 连接；上行协议：node.register / node.heartbeat / node.report / node.delivery_receipt；下行协议：relay.message / config.sync / heartbeat.trigger；application/relay_service.py + RelayTask 幂等中继（idempotency_key）；WebSocket 连接管理 + 消息协议契约测试通过",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T20:15:00+08:00",
+      "updated_at": "2026-03-11T20:15:00+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M97",
+      "branch": "milestone/M97",
+      "result": {
+        "solution_summary": "实现 IM Gateway WebSocket 服务端、上行/下行协议处理，以及基于 idempotency_key 的 RelayService/RelayTask 消息中继闭环。",
+        "tests": [
+          "cd /Users/czj/Repos/nano-multiagent/.worktrees/M97 && PYTHONPATH=src pytest -q tests/im_service"
+        ],
+        "test_result": "33 passed",
+        "completed_at": "2026-03-11T20:15:00+08:00"
+      }
+    },
+    {
+      "milestone_id": "M98",
+      "title": "Gateway 骨架 + 配置 + 内核客户端",
+      "goal": "创建 src/personal_assistant/ 包（补齐 SPEC §3 顶层占位），实现进程入口、配置加载和 agent 内核 HTTP 客户端",
+      "exit_criteria": "src/personal_assistant/ 作为独立 Python 包存在并满足 SPEC §3 顶层结构；main.py 进程入口（启动 agent 内核子进程、轮询 /v1/health、退出时 terminate→kill）；config/local_store.py（YAML 配置加载）；client/kernel_api_client.py（封装 agent HTTP API 子集：health/sessions/messages:async/events/runs/cancel）；可启动进程、加载配置、调通 /v1/health 探活；相关测试通过",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T19:00:36+08:00",
+      "updated_at": "2026-03-11T19:02:15+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M98",
+      "branch": "milestone/M98",
+      "result": {
+        "solution_summary": "新增 src/personal_assistant/ 包，完成 YAML 配置加载、agent 内核 HTTP client 子集，以及 Gateway 入口的子进程探活/退出生命周期骨架。",
+        "tests": "PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M98/src pytest -q tests/unit/personal_assistant tests/contract/test_personal_assistant_package_contract.py tests/contract/test_personal_assistant_kernel_client_contract.py tests/contract/test_personal_assistant_main_contract.py tests/e2e/test_personal_assistant_main_e2e.py；全量 pytest 仍受既有基线失败 tests/contract/test_multi_product_architecture_acceptance.py::test_architecture_docs_describe_zero_residue_target_state 影响",
+        "commits": {
+          "C1": "235c324,b44e412,f109c97",
+          "C2": "3619785,48b9895,d61d8ae",
+          "C3": "8195e42"
+        }
+      }
+    },
+    {
+      "milestone_id": "M99",
+      "title": "IM 节点管理 + 统计",
+      "goal": "实现节点状态聚合和使用统计 API，对齐 IM-SPEC §5",
+      "exit_criteria": "GET /im/v1/nodes + PATCH /im/v1/nodes/{id}/config；NodeStatus 聚合（online/offline/degraded）；GET /im/v1/metrics/usage（Token/Turn 统计）；相关测试通过",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M95",
+        "M97"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T16:21:13+08:00",
+      "updated_at": "2026-03-11T16:21:13+08:00"
+    },
+    {
+      "milestone_id": "M100",
+      "title": "Gateway Channel 系统 + 入站四步流水线",
+      "goal": "实现 Channel 适配器框架和入站消息四步决策流水线，对齐 NodeGateway-SPEC §3/§4",
+      "exit_criteria": "channels/base.py（ChannelAdapter Protocol: name/start/send/stop）；gateway/channel_registry.py + gateway/bootstrap.py（start_channels）；gateway/inbound_pipeline.py（四步决策：Agent 路由→会话键→串行队列→出站回发）；gateway/session_keys.py（群聊/私聊键生成 + session_binding_store）；gateway/run_queue.py（同会话串行 FIFO / 跨会话并行）；gateway/outbound_router.py（按 reply_context 回发原通道）；模拟 Channel 消息可完成四步决策 + agent 调用 + 结果回发；串行/并行策略验证通过",
+      "status": "READY",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T19:00:36+08:00",
+      "updated_at": "2026-03-11T19:00:36+08:00"
+    },
+    {
+      "milestone_id": "M101",
+      "title": "Gateway Heartbeat 调度器",
+      "goal": "实现 Heartbeat 调度引擎，对齐 NodeGateway-SPEC §6",
+      "exit_criteria": "scheduler/heartbeat_scheduler.py 支持 cron/interval/at 三种调度模式；读取 HEARTBEAT.md 判断任务，无有效任务时安静跳过；进程重启后补跑错过的到期任务；相关测试通过",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M100"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T16:21:25+08:00",
+      "updated_at": "2026-03-11T16:21:25+08:00"
+    },
+    {
+      "milestone_id": "M102",
+      "title": "Gateway WebSocket Client + send_message + 上报",
+      "goal": "实现 Gateway 到 IM 服务的 WebSocket 连接和 Agent 间通信工具，对齐 NodeGateway-SPEC §7/§8",
+      "exit_criteria": "ws/im_connection.py（主动连接 IM、指数退避重连≤60s、断线后本地自治）；reporter/upstream_reporter.py（node.register/heartbeat/report/delivery_receipt）；channels/web_relay_adapter.py（WebIM 中继通道，接收 relay.message 下推）；products/personal_assistant/tools/send_message.py（send_message(text, to) 产品专属工具）；config/sync_client.py（可选配置同步）；Gateway 可连接 IM 服务、收发消息、Agent 间 send_message 可用；相关测试通过",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M100",
+        "M97"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T16:21:33+08:00",
+      "updated_at": "2026-03-11T16:21:33+08:00"
+    },
+    {
+      "milestone_id": "M103",
+      "title": "IM ↔ Gateway 端到端集成",
+      "goal": "验证 IM 服务与 Node Gateway 的完整交互链路",
+      "exit_criteria": "Web IM 消息完整往返（浏览器→IM→WS→Gateway→agent 内核→回发）；设备绑定端到端流程；配置同步通知；IM 离线时外部 IM 主路径自治验证；多 Agent 路由验证；群聊 @提及门控；相关 e2e 测试通过",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M99",
+        "M102"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T16:21:36+08:00",
+      "updated_at": "2026-03-11T16:21:36+08:00"
+    },
+    {
+      "milestone_id": "M104",
+      "title": "全系统验收",
+      "goal": "逐条验证所有 SPEC 文档的验收标准和硬约束",
+      "exit_criteria": "SPEC §5 四包零 Python import 依赖验证；内核设计SPEC §15 全部 10 条验收标准；CodingCLI-SPEC §10 全部 10 条验收标准；NodeGateway-SPEC §16 全部 10 条验收标准；IM-SPEC §12 全部 10 条验收标准；产品 profile 完整装配验证（local_coding + personal_assistant）；pytest -q 全绿",
+      "status": "BLOCKED",
+      "blocked_by": [
+        "M103"
+      ],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T16:21:40+08:00",
+      "updated_at": "2026-03-11T16:21:40+08:00"
+    }
+  ]
+}

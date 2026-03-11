@@ -56,6 +56,22 @@ CREATE TABLE IF NOT EXISTS conversation_events (
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS relay_tasks (
+    relay_task_id TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    target_node_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL,
+    receipt_status TEXT,
+    receipt_detail TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+);
 """
 
 
@@ -91,6 +107,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _migrate_users_owner_id(connection)
     _migrate_conversations_metadata(connection)
     _migrate_messages_metadata(connection)
+    _migrate_relay_tasks(connection)
     connection.commit()
 
 
@@ -174,3 +191,50 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE messages ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'completed'"
         )
+
+
+def _migrate_relay_tasks(connection: sqlite3.Connection) -> None:
+    """Backfill relay task storage introduced by IM-SPEC §4."""
+    tables = {
+        row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    if "relay_tasks" not in tables:
+        connection.execute(
+            """
+            CREATE TABLE relay_tasks (
+                relay_task_id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                target_node_id TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL,
+                receipt_status TEXT,
+                receipt_detail TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            )
+            """
+        )
+        return
+    rows = connection.execute("PRAGMA table_info(relay_tasks)").fetchall()
+    column_names = {row["name"] for row in rows}
+    if "conversation_id" not in column_names:
+        connection.execute("ALTER TABLE relay_tasks ADD COLUMN conversation_id TEXT")
+        connection.execute(
+            """
+            UPDATE relay_tasks
+            SET conversation_id = (
+                SELECT conversation_id
+                FROM messages
+                WHERE messages.id = relay_tasks.message_id
+            )
+            WHERE conversation_id IS NULL OR conversation_id = ''
+            """
+        )
+    if "receipt_status" not in column_names:
+        connection.execute("ALTER TABLE relay_tasks ADD COLUMN receipt_status TEXT")
+    if "receipt_detail" not in column_names:
+        connection.execute("ALTER TABLE relay_tasks ADD COLUMN receipt_detail TEXT")
