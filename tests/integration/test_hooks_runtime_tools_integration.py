@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.runtime import AgentRuntime
 from nano_multiagent.core.errors import ToolError
 from nano_multiagent.core.hooks.context import HookContext
 from nano_multiagent.platform.hooks.loader import load_hooks_from_directories

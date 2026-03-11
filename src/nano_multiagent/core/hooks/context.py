@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from nano_multiagent.observability.logger import log_debug, log_error, log_info, log_warn
-from nano_multiagent.observability.tracing import current_trace_id
+from nano_multiagent.core.observability.logger import log_debug, log_error, log_info, log_warn
+from nano_multiagent.core.observability.tracing import current_trace_id
 
 LogSink = Callable[[str, str, Mapping[str, Any]], None]
 

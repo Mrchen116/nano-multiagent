@@ -10,8 +10,8 @@ from fastapi import FastAPI
 from nano_multiagent.apps.coding_cli.input import repl_commands, repl_input
 from nano_multiagent.apps.coding_cli import commands as cli_commands
 from nano_multiagent.apps.coding_cli.client import ServerClient
-from nano_multiagent.agent.runtime import AgentRuntime
-from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
+from nano_multiagent.core.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.compaction.types import CompactionReason, CompactionResult
 from nano_multiagent.apps.coding_cli.main import run_cli
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult

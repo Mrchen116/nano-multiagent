@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
+from nano_multiagent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from nano_multiagent.products.base import ProductProfile
 from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
 from nano_multiagent.platform.http_api.app import create_app

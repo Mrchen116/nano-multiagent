@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
-from nano_multiagent.runs.registry import RunRecord, RunsRegistry
+from nano_multiagent.core.runs.registry import RunRecord, RunsRegistry
 
 from ..auth import require_bearer_auth
 from ..deps import APIError, get_runs_registry

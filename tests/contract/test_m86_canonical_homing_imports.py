@@ -1,4 +1,4 @@
-"""Import guard for M88 canonical homes after legacy root deletion."""
+"""Import guard for M89 canonical homes after core physical closure."""
 
 from pathlib import Path
 
@@ -18,30 +18,61 @@ DIRECTORY_GUARDS = {
         "nano_multiagent.tools",
     ),
     "platform/tools": ("nano_multiagent.tools",),
+    "core/agent": (
+        "nano_multiagent.agent",
+        "nano_multiagent.runs",
+        "nano_multiagent.observability",
+        "nano_multiagent.platform",
+    ),
+    "core/observability": ("nano_multiagent.observability",),
+    "core/runs": (
+        "nano_multiagent.runs",
+        "nano_multiagent.observability",
+        "nano_multiagent.platform",
+    ),
     "core/skills": ("nano_multiagent.skills",),
 }
 
 FILE_GUARDS = {
-    "agent/loop.py": ("nano_multiagent.tools",),
-    "agent/runtime.py": (
-        "nano_multiagent.skills",
+    "core/agent/loop.py": (
+        "nano_multiagent.agent",
         "nano_multiagent.tools",
     ),
-    "agent/prompting.py": ("nano_multiagent.tools",),
-    "core/hooks/context.py": ("nano_multiagent.hooks",),
+    "core/agent/runtime.py": (
+        "nano_multiagent.agent",
+        "nano_multiagent.skills",
+        "nano_multiagent.tools",
+        "nano_multiagent.platform",
+    ),
+    "core/agent/prompting.py": (
+        "nano_multiagent.agent",
+        "nano_multiagent.tools",
+    ),
+    "core/hooks/context.py": (
+        "nano_multiagent.hooks",
+        "nano_multiagent.observability",
+    ),
     "core/llm/factory.py": ("nano_multiagent.llm",),
+    "core/runs/registry.py": (
+        "nano_multiagent.runs",
+        "nano_multiagent.observability",
+        "nano_multiagent.platform",
+    ),
     "products/base.py": ("nano_multiagent.tools",),
 }
 
 REMOVED_ROOTS = (
+    "agent",
     "cli",
+    "hooks",
+    "llm",
+    "observability",
+    "runs",
+    "sdk",
     "server",
     "session",
-    "hooks",
     "skills",
-    "llm",
     "tools",
-    "sdk",
 )
 
 

@@ -2,7 +2,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.runtime import AgentRuntime
 from nano_multiagent.core.hooks.context import HookContext
 from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from nano_multiagent.platform.http_api.app import create_app

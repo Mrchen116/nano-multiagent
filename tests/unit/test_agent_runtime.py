@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.runtime import AgentRuntime
 from nano_multiagent.core.hooks.registry import HookRegistry
 from nano_multiagent.core.hooks.runner import HookRunner
 from nano_multiagent.core.llm.interfaces import (

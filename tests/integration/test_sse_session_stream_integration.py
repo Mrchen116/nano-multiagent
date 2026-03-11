@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.runtime import AgentRuntime
 from nano_multiagent.platform.hooks.loader import build_hook_registry
 from nano_multiagent.core.hooks.runner import HookRunner
 from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage

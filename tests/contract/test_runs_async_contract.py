@@ -118,7 +118,7 @@ def test_get_run_not_found_uses_unified_error_shape() -> None:
 
 def test_session_sse_run_status_contract_includes_retry_progress_fields(monkeypatch) -> None:
     monkeypatch.setattr(
-        "nano_multiagent.runs.registry._wait_with_cancel",
+        "nano_multiagent.core.runs.registry._wait_with_cancel",
         lambda _event, _seconds: False,
     )
     client = TestClient(create_app(runtime=_RetryThenSuccessRuntime(fail_times=2)))

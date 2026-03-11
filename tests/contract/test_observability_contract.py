@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from nano_multiagent.observability.logger import capture_logs
+from nano_multiagent.core.observability.logger import capture_logs
 from nano_multiagent.platform.http_api.app import create_app
 
 
