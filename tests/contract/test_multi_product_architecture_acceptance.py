@@ -53,6 +53,8 @@ EXPECTED_EXISTING_PATHS = (
     "core/skills/formatter.py",
     "core/skills/registry.py",
     "core/types.py",
+    "core/tools/base.py",
+    "core/tools/registry.py",
     "platform/bootstrap.py",
     "platform/config/resolver.py",
     "platform/hooks/builtins/bash_risk_gate.py",
