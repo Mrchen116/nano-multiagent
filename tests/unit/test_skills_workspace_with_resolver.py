@@ -77,3 +77,29 @@ def test_default_skill_search_roots_no_duplicates_with_resolver(tmp_path: Path) 
     roots = default_skill_search_roots(workspace_root=tmp_path, config_resolver=resolver)
     count = sum(1 for r in roots if r == global_home.resolve() / "skills")
     assert count == 1
+
+
+def test_default_skill_search_roots_include_product_root_before_user_layers(tmp_path: Path) -> None:
+    resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
+    product_root = tmp_path / "products" / "sample" / "skills"
+    roots = default_skill_search_roots(
+        workspace_root=tmp_path,
+        config_resolver=resolver,
+        product_skill_root=product_root,
+    )
+
+    assert roots[0] == product_root.resolve()
+    assert roots[1] == tmp_path / ".testprod" / "skills"
+    assert roots[2] == (tmp_path / ".global" / "skills").resolve()
+
+
+def test_default_skill_search_roots_deduplicate_product_root(tmp_path: Path) -> None:
+    resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
+    product_root = tmp_path / ".global" / "skills"
+    roots = default_skill_search_roots(
+        workspace_root=tmp_path,
+        config_resolver=resolver,
+        product_skill_root=product_root,
+    )
+
+    assert roots.count(product_root.resolve()) == 1

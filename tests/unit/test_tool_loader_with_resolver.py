@@ -115,3 +115,105 @@ def test_build_tool_registry_with_resolver_does_not_load_nano_tools(tmp_path: Pa
     registry = build_tool_registry(repo_root=tmp_path, config_resolver=resolver)
     tool_names = [spec.name for spec in registry.list_specs()]
     assert "legacy_nano_tool" not in tool_names
+
+
+def test_build_tool_registry_allows_workspace_override_of_global_tool(tmp_path: Path) -> None:
+    workspace_dir = tmp_path / ".testprod" / "tools"
+    global_dir = tmp_path / ".global" / "tools"
+    workspace_dir.mkdir(parents=True)
+    global_dir.mkdir(parents=True)
+    (global_dir / "shared_tool.py").write_text(
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "GlobalSharedTool")
+    )
+    (workspace_dir / "shared_tool.py").write_text(
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "WorkspaceSharedTool")
+    )
+
+    resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
+    registry = build_tool_registry(repo_root=tmp_path, config_resolver=resolver)
+
+    tool_names = [spec.name for spec in registry.list_specs()]
+    assert tool_names.count("shared_tool") == 1
+    tool = registry.get("shared_tool")
+    assert type(tool).__name__ == "WorkspaceSharedTool"
+
+
+def test_build_tool_registry_includes_product_root_between_builtin_and_user_layers(tmp_path: Path) -> None:
+    product_dir = tmp_path / "products" / "sample" / "tools"
+    product_dir.mkdir(parents=True)
+    (product_dir / "product_tool.py").write_text(
+        _TOOL_CODE.replace("resolver_test_tool", "product_tool").replace("ResolverTool", "ProductTool")
+    )
+
+    resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
+    registry = build_tool_registry(
+        repo_root=tmp_path,
+        config_resolver=resolver,
+        product_tool_dir=product_dir,
+    )
+
+    tool_names = [spec.name for spec in registry.list_specs()]
+    assert "read" in tool_names
+    assert "product_tool" in tool_names
+    assert tool_names.index("read") < tool_names.index("product_tool")
+
+
+def test_build_tool_registry_workspace_overrides_product_tool(tmp_path: Path) -> None:
+    product_dir = tmp_path / "products" / "sample" / "tools"
+    product_dir.mkdir(parents=True)
+    (product_dir / "shared_tool.py").write_text(
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "ProductSharedTool")
+    )
+    workspace_dir = tmp_path / ".testprod" / "tools"
+    workspace_dir.mkdir(parents=True)
+    (workspace_dir / "shared_tool.py").write_text(
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "WorkspaceSharedTool")
+    )
+
+    resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
+    registry = build_tool_registry(
+        repo_root=tmp_path,
+        config_resolver=resolver,
+        product_tool_dir=product_dir,
+    )
+
+    tool = registry.get("shared_tool")
+    assert type(tool).__name__ == "WorkspaceSharedTool"
+    assert len([spec for spec in registry.list_specs() if spec.name == "shared_tool"]) == 1
+
+
+def test_build_tool_registry_global_overrides_product_tool_when_workspace_missing(tmp_path: Path) -> None:
+    product_dir = tmp_path / "products" / "sample" / "tools"
+    product_dir.mkdir(parents=True)
+    (product_dir / "shared_tool.py").write_text(
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "ProductSharedTool")
+    )
+    global_dir = tmp_path / ".global" / "tools"
+    global_dir.mkdir(parents=True)
+    (global_dir / "shared_tool.py").write_text(
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "GlobalSharedTool")
+    )
+
+    resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
+    registry = build_tool_registry(
+        repo_root=tmp_path,
+        config_resolver=resolver,
+        product_tool_dir=product_dir,
+    )
+
+    tool = registry.get("shared_tool")
+    assert type(tool).__name__ == "GlobalSharedTool"
+    assert len([spec for spec in registry.list_specs() if spec.name == "shared_tool"]) == 1
+
+
+def test_build_tool_registry_product_root_is_optional(tmp_path: Path) -> None:
+    resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
+    registry = build_tool_registry(
+        repo_root=tmp_path,
+        config_resolver=resolver,
+        product_tool_dir=tmp_path / "missing-product-tools",
+    )
+
+    tool_names = [spec.name for spec in registry.list_specs()]
+    assert "read" in tool_names
+    assert "resolver_test_tool" not in tool_names

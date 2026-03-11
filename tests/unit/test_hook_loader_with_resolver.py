@@ -90,3 +90,63 @@ def test_build_hook_registry_with_resolver_does_not_load_nano_hooks(tmp_path: Pa
         if h.source == "workspace":
             assert h.file_path is not None
             assert str(h.file_path).startswith(str(tmp_path / ".testprod"))
+
+
+def test_build_hook_registry_includes_product_root_between_builtin_and_user_layers(tmp_path: Path) -> None:
+    product_dir = tmp_path / "products" / "sample" / "hooks"
+    product_dir.mkdir(parents=True)
+    (product_dir / "product_hook.py").write_text(_HOOK_CODE)
+
+    resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
+    registry = build_hook_registry(
+        repo_root=tmp_path,
+        config_resolver=resolver,
+        product_hook_dir=product_dir,
+    )
+
+    hooks = registry.handlers_for("turn_start")
+    assert any(h.file_path == product_dir / "product_hook.py" for h in hooks if h.file_path is not None)
+
+
+def test_build_hook_registry_workspace_overrides_product_hook_module(tmp_path: Path) -> None:
+    product_dir = tmp_path / "products" / "sample" / "hooks"
+    product_dir.mkdir(parents=True)
+    (product_dir / "shared_hook.py").write_text(_HOOK_CODE)
+    workspace_dir = tmp_path / ".testprod" / "hooks"
+    workspace_dir.mkdir(parents=True)
+    (workspace_dir / "shared_hook.py").write_text(_HOOK_CODE)
+
+    resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
+    registry = build_hook_registry(
+        repo_root=tmp_path,
+        config_resolver=resolver,
+        product_hook_dir=product_dir,
+    )
+
+    shared_hooks = [
+        h for h in registry.handlers_for("turn_start") if h.file_path is not None and h.file_path.name == "shared_hook.py"
+    ]
+    assert len(shared_hooks) == 1
+    assert shared_hooks[0].file_path == workspace_dir / "shared_hook.py"
+
+
+def test_build_hook_registry_global_overrides_product_hook_when_workspace_missing(tmp_path: Path) -> None:
+    product_dir = tmp_path / "products" / "sample" / "hooks"
+    product_dir.mkdir(parents=True)
+    (product_dir / "shared_hook.py").write_text(_HOOK_CODE)
+    global_dir = tmp_path / ".global" / "hooks"
+    global_dir.mkdir(parents=True)
+    (global_dir / "shared_hook.py").write_text(_HOOK_CODE)
+
+    resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
+    registry = build_hook_registry(
+        repo_root=tmp_path,
+        config_resolver=resolver,
+        product_hook_dir=product_dir,
+    )
+
+    shared_hooks = [
+        h for h in registry.handlers_for("turn_start") if h.file_path is not None and h.file_path.name == "shared_hook.py"
+    ]
+    assert len(shared_hooks) == 1
+    assert shared_hooks[0].file_path == global_dir / "shared_hook.py"
