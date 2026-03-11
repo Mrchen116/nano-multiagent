@@ -407,12 +407,20 @@ def _run_repl(
                 active_session_id = command_result.active_session_id
                 if command_result.should_exit:
                     if run_queue is not None:
-                        _wait_for_inflight_messages(
-                            run_queue=run_queue,
-                            emit_block=_emit_external_repl_block,
-                            before_action="exit",
-                            timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS,
-                        )
+                        has_active_work = getattr(run_queue, "has_active_work", None)
+                        queue_has_active_work = bool(has_active_work()) if callable(has_active_work) else False
+                        backlog_size = run_queue.backlog_size()
+                        queue_has_pending_backlog = backlog_size > (1 if queue_has_active_work else 0)
+                        if not queue_has_active_work and queue_has_pending_backlog:
+                            queue_has_active_work = True
+                        close_kwargs = {
+                            "wait_for_drain": queue_has_active_work,
+                            "drain_timeout_seconds": _REPL_DRAIN_TIMEOUT_SECONDS,
+                        }
+                        if queue_has_pending_backlog:
+                            close_kwargs["discard_pending"] = True
+                        run_queue.close(**close_kwargs)
+                        run_queue = None
                     return 0
                 if command_result.handled:
                     continue

@@ -18,12 +18,12 @@
 - Next: 写 `/exit` 清队红测，确保退出先止收止派再关闭 managed 子进程
 
 ### R2 退出语义：/exit 立即止收止派并清队
-- Context:
-- Decision:
-- Rationale:
+- Context: `/exit` 旧语义会把“是否退出”绑定到 backlog 自然排空，导致退出卡住；而直接 close 整个队列又会误伤当前 FIFO 头部尚未开始但应视作 active candidate 的收尾，造成单条消息输出丢失。
+- Decision: 退出路径改为只在 `/exit` 上调用 `run_queue.close(..., discard_pending=True)`，并在 `ReplRunQueue.close` 中区分“当前 active”与“FIFO 头部 active candidate”：若 worker 尚未抢到第一项但退出已发生，则保留队首、仅丢弃其后的 queued backlog；非 `/exit` barrier 仍保持原有 wait-for-drain 语义。
+- Rationale: 这样既满足 SPEC 的“退出时清理队列、managed 模式关闭子进程”，又保住当前正在收尾或已经获得执行权的 run，不把 `/exit` 扩散成普通命令/历史回放的全局语义改变。
 - Evidence:
-  - Tests: `PYTHONPATH=src python3 -m pytest tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py -q`
-  - Entry: 待补充
-- Rollback:
-- Commits: C1=, C2=, C3=
-- Next: 在 R1 后补红测验证 `/exit` 清队与 managed stop
+  - Tests: `PYTHONPATH=src python3 -m pytest tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py -q` => `113 passed`
+  - Entry: `/new -> first -> second -> /exit` 时，仅保留 first 的收尾输出，second 不再继续派发；managed 模式仍触发 stop。
+- Rollback: `2b17b52`（R2 红测提交）
+- Commits: C1=`2b17b52`, C2=待补, C3=待补
+- Next: 更新 dev-tasks/merge 回 main，并清理 `.worktrees/M108`

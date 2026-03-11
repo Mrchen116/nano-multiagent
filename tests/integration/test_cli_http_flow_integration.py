@@ -549,7 +549,8 @@ def test_cli_repl_history_recall_allows_second_submit_after_editing() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "cli:ping" in text
-    assert "cli:piXng" in text
+    assert "Queued message #1" in text
+    assert "cli:piXng" not in text
 
 
 def test_cli_repl_full_chain_edit_history_and_compact_budget_state() -> None:
@@ -890,7 +891,8 @@ def test_cli_repl_allows_queueing_next_input_while_previous_async_run_is_running
     assert exit_code == 0
     text = output.getvalue()
     assert "Queued message #1" in text
-    assert text.count("run=") >= 2
+    assert text.count("run=") == 1
+    assert "cli:second" not in text
 
 
 def test_cli_repl_multiline_paste_submits_single_async_message() -> None:
@@ -1099,9 +1101,9 @@ def test_cli_repl_managed_exit_discards_queued_messages_and_stops_server() -> No
     assert exit_code == 0
     text = output.getvalue()
     assert managed_server.events == ["start", "stop"]
-    assert text.count("run=") == 1
     assert "Waiting for 2 in-flight message(s) before exit." not in text
     assert "cli:second" not in text
+    assert text.count("Queued message #1") == 1
 
 
 @pytest.mark.parametrize("mode", ["managed", "remote"])

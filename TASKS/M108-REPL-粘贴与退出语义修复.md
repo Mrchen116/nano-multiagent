@@ -42,7 +42,7 @@
   - PROGRESS 记录决策/证据/哈希
 
 ### R2 退出语义：/exit 立即止收止派并清队
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `/exit` 一旦执行，REPL 不再等待 backlog 自然排空才允许退出。
   - `/exit` 后不再派发队列中尚未开始的消息，队列被清空。
