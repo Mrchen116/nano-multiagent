@@ -104,10 +104,11 @@ class RunsRegistry:
             updated_at=now,
             trace_id=resolved_trace_id,
         )
+        self._persist_run_status_entry(record)
         with self._lock:
             self._runs[run_id] = record
             self._cancel_events[run_id] = Event()
-        self._append_run_status_event(record)
+        self._publish_run_status_event(record)
         log_info(
             "run_submitted",
             run_id=run_id,
@@ -250,8 +251,9 @@ class RunsRegistry:
                 cooldown=cooldown,
                 last_error=last_error,
             )
+            self._persist_run_status_entry(updated)
             self._runs[run_id] = updated
-        self._append_run_status_event(updated)
+        self._publish_run_status_event(updated)
         return updated
 
     def _is_cancelled(self, run_id: str) -> bool:
@@ -410,7 +412,7 @@ class RunsRegistry:
                 error=item.error,
             )
 
-    def _append_run_status_event(self, record: RunRecord) -> None:
+    def _persist_run_status_entry(self, record: RunRecord) -> None:
         status_data = _run_status_data(record)
         self._session_manager.append_run_status(
             record.session_id,
@@ -421,6 +423,9 @@ class RunsRegistry:
             error=record.error,
             data=status_data,
         )
+
+    def _publish_run_status_event(self, record: RunRecord) -> None:
+        status_data = _run_status_data(record)
         if self._event_hub is None:
             return
         payload: dict[str, Any] = {
