@@ -3,6 +3,7 @@
 - 约定：本文件只记录可复用的经验（坑/风险/预防规则/操作手册），不记录每个 Roadpoint 的实现思路与过程性决策。
 - Roadpoint 的方案、证据、回滚点与提交哈希请写到：`PROGRESS/<milestone_id>-<简述>.md`。
 - 迁移：历史工作记录已归档到 `PROGRESS/legacy-logbook-work-notes.md`。
+- 商业产品视角持续批判规则（2026-03-11）：除功能/架构 milestone 外，要适时增加“真实端到端联调 + 交互审视”类 milestone，不只验证链路是否能跑通，还要从成熟商业产品视角持续批判现有成果，覆盖绑定、会话建立、消息发送、回执、异常反馈、状态提示等关键环节，输出问题清单与后续改进项。该审视不是一次性验收，后续阶段也应重复执行。
 - Hook 加载断言规则：涉及 `load_hooks_from_directories` 的测试不要写死“已加载模块总数”，应断言关键模块（source/file_path/event）存在，避免内置 hook 增减引发脆弱回归。
 - Tool-calling 蓝图与实现错位（“有 tool-calling 设计，但运行仍像单次文本”）的根因：只验证了普通文本 happy path，没有在 CLI/HTTP 真实入口上验证“LLM 首轮返回 tool_call 后必须继续执行工具并二次请求模型”。设计层写了 loop，不代表接线层（runtime-loop-tool registry）真的打通。
 - 早期可检测信号：
@@ -40,6 +41,7 @@
 - 事件管线分层纪律（2026-03-04）：去重与时序修正必须在 `normalize/dedupe/aggregator` 层完成；渲染层只消费稳定 view-model，不承载补排序或兜底去重逻辑。
 - 工具时间线文本去重边界规则（2026-03-04）：`Tool` 摘要层不能仅按文案字符串去重；对同名同输出但不同调用必须保留 `call_id` 身份（例如追加 ` [call_id=...]`），否则会把合法并行/串行调用折叠成一条，造成跨调用串味与排障信息丢失。
 - REPL 命令屏障二次复检规则（2026-03-04，M63）：`wait_for_drain` 返回 timeout 时，命令入口必须立即再检查一次 backlog；若已为 0，应按“已排空”继续执行（尤其 `/history`），禁止直接判定超时并跳过。`/exit` 超时提示必须包含 remaining in-flight 数量，避免误导。
+- REPL `/exit` 队列截断规则（2026-03-11，M108）：退出语义必须先“止收止派”再清 backlog，但只能丢弃尚未开始的 queued tail；若 worker 尚未抢到队首，FIFO 头部也要视作当前 active candidate 保留下来完成收尾，禁止把整条队列一起清空导致当前回合输出丢失。
 - 高频事件性能门禁可解释性规则（2026-03-04）：性能快照除 `sample_ready/throughput_ok/redraw_ratio_ok/stable` 外，必须提供统一机读归因字段（如 `guardrail_reason`），至少覆盖 `throughput/redraw_ratio/sample_size`；否则门禁失败难以自动归因与告警分流。
 - 发布脚本解释器一致性规则（2026-03-04，M54）：发布验收脚本中任何 `python -m ...` 子步骤必须复用当前解释器（`sys.executable` 或等价注入），禁止写死系统 `python3` 或用户绝对路径；否则会在多 Python 环境下出现“门禁通过但实跑缺依赖”的漂移故障。
 - 工具常量单一真源规则（2026-03-04，M73）：涉及 tool description 的默认限制值（如 `DEFAULT_MAX_LINES/DEFAULT_MAX_BYTES`）必须集中在共享常量模块，并由“文案+默认行为”共同引用；禁止一处改字符串、另一处保留旧行为导致漂移。

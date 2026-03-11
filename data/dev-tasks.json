@@ -2844,52 +2844,89 @@
       "title": "Gateway Heartbeat 调度器",
       "goal": "实现 Heartbeat 调度引擎，对齐 NodeGateway-SPEC §6",
       "exit_criteria": "scheduler/heartbeat_scheduler.py 支持 cron/interval/at 三种调度模式；读取 HEARTBEAT.md 判断任务，无有效任务时安静跳过；进程重启后补跑错过的到期任务；相关测试通过",
-      "status": "READY",
+      "status": "DONE",
       "blocked_by": [],
-      "claimed_by": null,
-      "claimed_at": null,
-      "status_changed_at": "2026-03-11T19:46:05+08:00",
-      "updated_at": "2026-03-11T19:46:05+08:00"
+      "claimed_by": "subagent-M101",
+      "claimed_at": "2026-03-11T19:57:00+08:00",
+      "status_changed_at": "2026-03-11T20:00:00+08:00",
+      "updated_at": "2026-03-11T20:00:00+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M101",
+      "branch": "milestone/M101",
+      "result": {
+        "solution_summary": "新增 Gateway heartbeat scheduler，支持 cron/interval/at 三种模式；读取各 agent workspace 的 HEARTBEAT.md，在无有效任务时静默跳过，并通过本地状态持久化支持重启后的 missed-run catch-up。",
+        "tests": "pytest -q tests/unit/personal_assistant/test_heartbeat_scheduler.py && pytest -q tests/unit/personal_assistant => 23 passed, 0 failed",
+        "commits": {
+          "milestone": "3f1a2ac",
+          "merge_main": "93ac38c"
+        },
+        "new_rules": []
+      }
     },
     {
       "milestone_id": "M102",
       "title": "Gateway WebSocket Client + send_message + 上报",
       "goal": "实现 Gateway 到 IM 服务的 WebSocket 连接和 Agent 间通信工具，对齐 NodeGateway-SPEC §7/§8",
       "exit_criteria": "ws/im_connection.py（主动连接 IM、指数退避重连≤60s、断线后本地自治）；reporter/upstream_reporter.py（node.register/heartbeat/report/delivery_receipt）；channels/web_relay_adapter.py（WebIM 中继通道，接收 relay.message 下推）；products/personal_assistant/tools/send_message.py（send_message(text, to) 产品专属工具）；config/sync_client.py（可选配置同步）；Gateway 可连接 IM 服务、收发消息、Agent 间 send_message 可用；相关测试通过",
-      "status": "READY",
+      "status": "DONE",
       "blocked_by": [],
       "claimed_by": null,
       "claimed_at": null,
-      "status_changed_at": "2026-03-11T19:46:05+08:00",
-      "updated_at": "2026-03-11T19:46:05+08:00"
+      "status_changed_at": "2026-03-11T20:17:15+08:00",
+      "updated_at": "2026-03-11T20:18:29+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M102",
+      "branch": "milestone/M102",
+      "result": {
+        "solution_summary": "交付 Gateway→IM websocket 边界、上报与 relay 接入，并将 personal_assistant 的 send_message 改为产品工具路径接线到默认 toolset。",
+        "tests": "PYTHONPATH=.worktrees/M102/src pytest -q .worktrees/M102/tests/unit/personal_assistant/test_m102_gateway_im_connection.py .worktrees/M102/tests/unit/test_personal_assistant_profile.py .worktrees/M102/tests/unit/test_platform_bootstrap.py => 28 passed",
+        "commits": {
+          "milestone": "f2019a8",
+          "docs": "6a2a438",
+          "merge_main": "b03581ad47f09b0f7f748bdd8e8498c6476eb9b9"
+        },
+        "new_rules": []
+      }
     },
     {
       "milestone_id": "M103",
       "title": "IM ↔ Gateway 端到端集成",
       "goal": "验证 IM 服务与 Node Gateway 的完整交互链路",
       "exit_criteria": "Web IM 消息完整往返（浏览器→IM→WS→Gateway→agent 内核→回发）；设备绑定端到端流程；配置同步通知；IM 离线时外部 IM 主路径自治验证；多 Agent 路由验证；群聊 @提及门控；相关 e2e 测试通过",
-      "status": "BLOCKED",
-      "blocked_by": [
-        "M102"
-      ],
+      "status": "DONE",
+      "blocked_by": [],
       "claimed_by": null,
       "claimed_at": null,
-      "status_changed_at": "2026-03-11T16:21:36+08:00",
-      "updated_at": "2026-03-11T19:46:05+08:00"
+      "status_changed_at": "2026-03-11T20:38:25+08:00",
+      "updated_at": "2026-03-11T20:38:25+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M103",
+      "branch": "milestone/M103",
+      "result": {
+        "solution_summary": "补齐 browserless IM↔Gateway↔kernel roundtrip、设备绑定/配置同步、IM 离线自治、多 Agent 路由与群聊 @mention gate 的端到端集成验证，并在 Gateway pipeline 增加群聊门控。",
+        "tests": "PYTHONPATH=.worktrees/M103/src pytest -q .worktrees/M103/tests/im_service .worktrees/M103/tests/unit/personal_assistant .worktrees/M103/tests/integration/test_personal_assistant_bootstrap_integration.py .worktrees/M103/tests/integration/test_personal_assistant_server_integration.py .worktrees/M103/tests/e2e/test_personal_assistant_main_e2e.py => 102 passed",
+        "commits": {
+          "milestone": "98f9972",
+          "docs": "dfc05a1",
+          "merge_main": "122b4e5adb6670655d24ec40221d27fa1f3456c6"
+        },
+        "new_rules": []
+      }
     },
     {
       "milestone_id": "M104",
       "title": "全系统验收",
       "goal": "逐条验证所有 SPEC 文档的验收标准和硬约束",
       "exit_criteria": "SPEC §5 四包零 Python import 依赖验证；内核设计SPEC §15 全部 10 条验收标准；CodingCLI-SPEC §10 全部 10 条验收标准；NodeGateway-SPEC §16 全部 10 条验收标准；IM-SPEC §12 全部 10 条验收标准；产品 profile 完整装配验证（local_coding + personal_assistant）；pytest -q 全绿",
-      "status": "BLOCKED",
-      "blocked_by": [
-        "M103"
-      ],
+      "status": "READY",
+      "blocked_by": [],
       "claimed_by": null,
       "claimed_at": null,
-      "status_changed_at": "2026-03-11T16:21:40+08:00",
-      "updated_at": "2026-03-11T16:21:40+08:00"
+      "status_changed_at": "2026-03-11T21:10:04+08:00",
+      "updated_at": "2026-03-11T21:10:04+08:00"
     },
     {
       "milestone_id": "M105",
@@ -2920,16 +2957,119 @@
       "title": "IM↔Gateway 真实端到端交互验收",
       "goal": "对内部 IM 服务与 Gateway 做真实端到端联调，验证消息交互闭环，并从成熟商业产品视角审视关键交互环节、补充问题清单与改进建议",
       "exit_criteria": "能以真实进程方式跑通 IM 与 Gateway 的注册/连接/消息往返/状态回执主链路；形成端到端测试资产与验收脚本；输出从成熟商业产品视角的交互审视记录，覆盖绑定、会话建立、消息发送、回执、异常反馈、状态提示等关键环节，并列出问题清单与后续改进项；相关 e2e/验收测试通过",
-      "status": "RUNNING",
+      "status": "DONE",
       "blocked_by": [],
-      "claimed_by": "subagent-M106",
-      "claimed_at": "2026-03-11T19:49:45+08:00",
-      "status_changed_at": "2026-03-11T19:49:45+08:00",
-      "updated_at": "2026-03-11T19:49:45+08:00",
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T20:50:51+08:00",
+      "updated_at": "2026-03-11T20:50:51+08:00",
       "execution_mode": "parallel",
       "use_worktree": true,
       "worktree_dir": ".worktrees/M106",
-      "branch": "milestone/M106"
+      "branch": "milestone/M106",
+      "result": {
+        "solution_summary": "新增 IM↔Gateway 真实验收测试与 acceptance 脚本，固化绑定、注册心跳、relay roundtrip、delivery_receipt、node.report 链路证据，并补充成熟产品视角批判记录。",
+        "tests": "PYTHONPATH=.worktrees/M106/src pytest -q .worktrees/M106/tests/acceptance/test_im_gateway_real_acceptance.py .worktrees/M106/tests/im_service/integration/test_gateway_websocket_api.py .worktrees/M106/tests/unit/personal_assistant/test_gateway_pipeline.py => 10 passed; PYTHONPATH=.worktrees/M106/src python .worktrees/M106/scripts/acceptance/run_m106_acceptance.py => 2 passed",
+        "commits": {
+          "milestone": "199dc08",
+          "docs": "252aa4a",
+          "merge_main": "f3e2f69504c12407e8ac94a557cb58295cd23a52"
+        },
+        "new_rules": []
+      }
+    },
+    {
+      "milestone_id": "M107",
+      "title": "Coding CLI 中文输入光标宽度修复",
+      "goal": "修复 coding_cli 在输入中文 prompt 时左右方向键移动与光标位置不按字符语义对齐的问题",
+      "exit_criteria": "在包含中文/中英混排 prompt 的输入框中，左右方向键每按一次都按一个用户可感知字符移动；光标渲染位置与编辑行为一致；补充对应单元/集成测试；相关 focused tests 通过",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T20:27:53+08:00",
+      "updated_at": "2026-03-11T20:27:53+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M107",
+      "branch": "milestone/M107",
+      "result": {
+        "solution_summary": "修复 coding_cli 中文/中英混排输入时的显示宽度计算，保持左右键按字符移动，同时让终端光标回退列数按可见宽度对齐。",
+        "tests": "PYTHONPATH=.worktrees/M107/src pytest -q .worktrees/M107/tests/unit/test_cli_main.py -k \"repl_input or cjk\" => 16 passed, 67 deselected",
+        "commits": {
+          "plan": "e4e95da",
+          "test": "b9ed0e0",
+          "fix": "9b5835c",
+          "docs": "dca04cc",
+          "merge_main": "317a22a87e4387c15fa71b04ffa6363071bb7a03"
+        },
+        "new_rules": []
+      }
+    },
+    {
+      "milestone_id": "M108",
+      "title": "Coding CLI REPL 粘贴与退出语义修复",
+      "goal": "按 CodingCLI-SPEC 修复 managed 模式下 REPL 多行粘贴被拆成多条请求，以及 /exit 无法立即结束且仍继续处理已排队消息的问题。",
+      "exit_criteria": "- 在 managed 模式 REPL 中，粘贴多行文本应作为一次用户输入提交，不得拆成多条独立请求。\\n- 执行 /exit 后应立即停止接受与派发后续排队输入，清理 REPL 队列，并按 SPEC 关闭 managed agent 子进程。\\n- 补充覆盖多行粘贴与退出清队行为的 focused tests，相关命令通过。\\n- 实现符合 docs/CodingCLI-SPEC.md 的 REPL 生命周期与退出约束。",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "subagent-M108",
+      "claimed_at": "2026-03-11T20:41:08+08:00",
+      "status_changed_at": "2026-03-11T23:59:00+08:00",
+      "updated_at": "2026-03-11T23:59:00+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M108",
+      "branch": "milestone/M108",
+      "result": {
+        "solution_summary": "完成 REPL 多行粘贴聚合与 /exit 收口：退出时立即止收止派，只保留当前 active/队首 active-candidate 的收尾，丢弃其后的 queued backlog，并保持 managed stop 生命周期。",
+        "tests": "PYTHONPATH=src python3 -m pytest tests/unit/test_cli_main.py tests/integration/test_cli_http_flow_integration.py -q => 113 passed, 0 failed",
+        "commits": {
+          "R1": {
+            "plan": "4c4959c",
+            "test": "5ce6fb2",
+            "fix": "1c96feb",
+            "docs": "d5652c2"
+          },
+          "R2": {
+            "test": "2b17b52",
+            "fix": "待补",
+            "docs": "待补"
+          },
+          "merge_main": "待补"
+        },
+        "new_rules": [
+          "REPL /exit 只能丢弃 queued tail，不能误清当前 active 或 FIFO 头部 active-candidate。"
+        ]
+      }
+    },
+    {
+      "milestone_id": "M109",
+      "title": "IM/Gateway 用户可见状态与失败反馈收口",
+      "goal": "修复 M106 暴露的产品缺口：让 relay receipt/report 进入 conversation SSE 与用户可见状态流，并收口消息状态语义与失败反馈",
+      "exit_criteria": "将 node.delivery_receipt(node.report) 桥接到 /im/v1/conversations/{id}/events 或等价 conversation SSE；补充消息级状态流（至少覆盖已接单/处理中/完成/失败中的等价阶段）；修正或补充 message.delivered 语义避免与真实处理进度混淆；为节点未连接/执行失败提供会话内可见失败反馈与建议；补充 focused integration/acceptance tests；相关测试通过",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T21:10:04+08:00",
+      "updated_at": "2026-03-11T21:10:04+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M109",
+      "branch": "milestone/M109",
+      "result": {
+        "solution_summary": "Bridge node.delivery_receipt/node.report into conversation SSE, delay message.delivered until real completion, add relay accepted/processing/completed/failed states, and persist actionable failure notices for disconnected-node cases.",
+        "tests": "PYTHONPATH=src pytest -q tests/acceptance/test_im_gateway_real_acceptance.py tests/im_service/integration/test_gateway_websocket_api.py -> 5 passed",
+        "commits": {
+          "milestone": "6227ef6352b6ce950076782c235c148f183faa77"
+        },
+        "new_rules": [
+          "Do not emit message.delivered at message creation time; only persist it after real completion.",
+          "Persist gateway progress into conversation SSE so users can see accepted/processing/completed/failed states in context.",
+          "When relay dispatch fails, write actionable failure guidance into conversation events instead of only returning transport-layer errors."
+        ]
+      }
     }
   ]
 }
