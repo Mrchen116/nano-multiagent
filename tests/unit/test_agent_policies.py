@@ -1,6 +1,6 @@
 import pytest
 
-from nano_multiagent.agent.policies import AgentPolicies
+from nano_multiagent.core.agent.policies import AgentPolicies
 from nano_multiagent.core.errors import PolicyViolation
 
 

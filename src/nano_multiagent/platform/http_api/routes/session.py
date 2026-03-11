@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from nano_multiagent.agent.compaction.types import CompactionSettings
+from nano_multiagent.core.agent.compaction.types import CompactionSettings
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.hooks.registry import HookRegistry
 from nano_multiagent.core.session.models import Session
@@ -17,7 +17,7 @@ from nano_multiagent.platform.hooks.session_usage import get_session_usage_snaps
 from nano_multiagent.platform.http_api.sse import EventStreamHub, StreamEvent, encode_sse_event
 from nano_multiagent.platform.persistence.session.service import SessionService
 from nano_multiagent.platform.tools.registry import ToolRegistry
-from nano_multiagent.runs.registry import RunsRegistry
+from nano_multiagent.core.runs.registry import RunsRegistry
 
 from ..auth import require_bearer_auth
 from ..deps import (

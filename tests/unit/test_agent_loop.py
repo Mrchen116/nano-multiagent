@@ -1,6 +1,6 @@
-from nano_multiagent.agent.loop import AgentLoop
-from nano_multiagent.agent.policies import AgentPolicies
-from nano_multiagent.agent.state import AgentState, InputPart
+from nano_multiagent.core.agent.loop import AgentLoop
+from nano_multiagent.core.agent.policies import AgentPolicies
+from nano_multiagent.core.agent.state import AgentState, InputPart
 from nano_multiagent.core.types import TokenUsage, ToolSpec
 from nano_multiagent.core.hooks.context import HookContext
 from nano_multiagent.core.hooks.registry import HookRegistry

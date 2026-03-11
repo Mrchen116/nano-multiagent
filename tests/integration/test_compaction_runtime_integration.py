@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from nano_multiagent.agent.compaction.types import CompactionReason, CompactionSettings
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.compaction.types import CompactionReason, CompactionSettings
+from nano_multiagent.core.agent.runtime import AgentRuntime
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.hooks.registry import HookRegistry
 from nano_multiagent.core.hooks.runner import HookRunner

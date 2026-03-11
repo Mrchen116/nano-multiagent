@@ -31,7 +31,7 @@ class _RetryThenSuccessRuntime:
 
 def test_cli_repl_http_chain_surfaces_retry_progress_events(monkeypatch) -> None:
     monkeypatch.setattr(
-        "nano_multiagent.runs.registry._wait_with_cancel",
+        "nano_multiagent.core.runs.registry._wait_with_cancel",
         lambda _event, _seconds: False,
     )
     app = create_app(runtime=_RetryThenSuccessRuntime(fail_times=2), auth_token="test-token")

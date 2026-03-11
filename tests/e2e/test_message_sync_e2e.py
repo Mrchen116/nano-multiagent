@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from nano_multiagent.agent.compaction.types import CompactionReason, CompactionResult
+from nano_multiagent.core.agent.compaction.types import CompactionReason, CompactionResult
 from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.platform.http_api.app import create_app
 

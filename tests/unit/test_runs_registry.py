@@ -5,7 +5,7 @@ from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TokenUsage, TurnResult
 from nano_multiagent.core.hooks.registry import HookRegistry
 from nano_multiagent.core.hooks.runner import HookRunner
-from nano_multiagent.runs.registry import RunStatus, RunsRegistry
+from nano_multiagent.core.runs.registry import RunStatus, RunsRegistry
 from nano_multiagent.core.session.manager import SessionManager
 from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
@@ -250,7 +250,7 @@ def test_runs_registry_retries_retryable_model_errors_and_resets_backoff_after_c
 ) -> None:
     sleep_calls: list[float] = []
     monkeypatch.setattr(
-        "nano_multiagent.runs.registry._wait_with_cancel",
+        "nano_multiagent.core.runs.registry._wait_with_cancel",
         lambda _event, seconds: sleep_calls.append(seconds) or False,
     )
 

@@ -1,5 +1,5 @@
-from nano_multiagent.agent.compaction.planner import CompactionPlanner
-from nano_multiagent.agent.compaction.types import CompactionReason
+from nano_multiagent.core.agent.compaction.planner import CompactionPlanner
+from nano_multiagent.core.agent.compaction.types import CompactionReason
 from nano_multiagent.core.session.entries import SessionEntry, SessionEntryKind
 
 

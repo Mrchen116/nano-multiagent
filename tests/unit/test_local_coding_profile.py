@@ -1,6 +1,6 @@
 """Unit tests: LOCAL_CODING_PROFILE matches current coding defaults."""
 
-from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
+from nano_multiagent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from nano_multiagent.products.base import ProductProfile
 from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
 

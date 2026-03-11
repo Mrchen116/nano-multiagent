@@ -9,13 +9,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from nano_multiagent import __version__
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.runtime import AgentRuntime
 from nano_multiagent.core.ids import make_event_id
 from nano_multiagent.core.hooks.context import HookContext
 from nano_multiagent.core.hooks.registry import HookRegistry
 from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
-from nano_multiagent.observability.logger import log_error
-from nano_multiagent.observability.tracing import bind_correlation
+from nano_multiagent.core.observability.logger import log_error
+from nano_multiagent.core.observability.tracing import bind_correlation
 from nano_multiagent.platform.hooks.loader import build_hook_registry
 from nano_multiagent.platform.hooks.session_events import set_session_event_publisher_factory
 from nano_multiagent.platform.http_api.sse import EventStreamHub
@@ -23,7 +23,7 @@ from nano_multiagent.platform.persistence.session.base import SessionStore
 from nano_multiagent.platform.persistence.session.service import SessionService
 from nano_multiagent.platform.tools.loader import build_tool_registry
 from nano_multiagent.platform.tools.registry import ToolRegistry
-from nano_multiagent.runs.registry import RunsRegistry
+from nano_multiagent.core.runs.registry import RunsRegistry
 
 if TYPE_CHECKING:
     from nano_multiagent.products.base import ProductProfile

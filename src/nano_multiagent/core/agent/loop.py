@@ -3,7 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 
 from nano_multiagent.core.ids import make_message_id, make_tool_call_id
 from nano_multiagent.core.types import Message, TokenUsage, ToolCall, ToolResult, ToolSpec, TurnResult
@@ -11,11 +11,24 @@ from nano_multiagent.core.hooks.context import HookContext
 from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
 from nano_multiagent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
 from nano_multiagent.core.skills.registry import SkillMetadata
-from nano_multiagent.platform.tools.registry import ToolRegistry
 
 from .policies import AgentPolicies
 from .prompting import build_prompt_messages
 from .state import AgentState
+
+
+class ToolRegistryLike(Protocol):
+    def list_specs(self) -> tuple[ToolSpec, ...]:
+        ...
+
+    def execute(
+        self,
+        name: str,
+        args: Mapping[str, Any],
+        *,
+        hook_context: HookContext | None = None,
+    ) -> Mapping[str, Any]:
+        ...
 
 
 class AgentLoop:
@@ -31,7 +44,7 @@ class AgentLoop:
         hook_runner: HookRunner | None = None,
         available_skills: tuple[SkillMetadata, ...] = (),
         available_tools: tuple[ToolSpec, ...] | None = None,
-        tool_registry: ToolRegistry | None = None,
+        tool_registry: ToolRegistryLike | None = None,
         current_working_directory: Path | None = None,
     ) -> None:
         self._llm_client = llm_client
@@ -44,7 +57,7 @@ class AgentLoop:
         self._tool_registry = tool_registry
         self._current_working_directory = current_working_directory
 
-    def bind_tool_registry(self, tool_registry: ToolRegistry | None) -> None:
+    def bind_tool_registry(self, tool_registry: ToolRegistryLike | None) -> None:
         """Hot-swap tool registry used by subsequent turns."""
 
         self._tool_registry = tool_registry

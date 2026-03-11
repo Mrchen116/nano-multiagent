@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.runtime import AgentRuntime
 from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from nano_multiagent.core.session.entries import SessionEntryKind
 from nano_multiagent.core.session.manager import SessionManager
