@@ -30,7 +30,7 @@ im_service:
 说明：
 - 省略 `agents[].workspace_root` 时，默认使用 `~/nano-assistant/workspace/<agent_id>/`，并在首次加载配置时自动创建目录。
 - `kernel.base_url` 属于 gateway 内部默认值，面向用户的最小配置无需填写。
-- 完整启动步骤见 `/Users/czj/Repos/nano-multiagent/.worktrees/M115/docs/operator-runbook.md`。
+- 完整启动步骤见 `docs/operator-runbook.md`。
 
 ## IM Frontend
 

@@ -20,7 +20,7 @@
   - Tests: `PYTHONPATH=src pytest -q tests/unit/personal_assistant tests/e2e/test_personal_assistant_main_e2e.py tests/e2e/test_m112_real_process_roundtrip_e2e.py`
   - Entry: `test_run_gateway_e2e_starts_runtime_with_loaded_config` 已通过真实入口 `run_gateway()` 断言缺省配置会解析并创建 `~/nano-assistant/workspace/assistant-a`。
 - Rollback: 9c70def
-- Commits: C1=9c70def, C2=6fcc2c6, C3=待补
+- Commits: C1=9c70def, C2=6fcc2c6（含 R1 文档落盘）, C3=无单独提交
 - Next: R2 收口 `kernel.base_url` 用户配置口径与文档示例。
 
 ## 里程碑收口备注
@@ -35,5 +35,5 @@
   - Tests: `PYTHONPATH=src pytest -q tests/unit/personal_assistant tests/e2e/test_personal_assistant_main_e2e.py tests/e2e/test_m112_real_process_roundtrip_e2e.py`
   - Entry: smoke 配置与 `run_gateway()` e2e 均在未填写 `kernel.base_url` 时通过，证明用户最小配置无需暴露该字段。
 - Rollback: 6fcc2c6
-- Commits: C1=未单独提交（现有实现已满足，直接以测试/文档收口）, C2=c4b187f, C3=待补
+- Commits: C1=无单独提交（现有实现已满足，直接以测试/文档收口）, C2=c4b187f, C3=9b29e8f
 - Next: 全部 Roadpoint 已完成，等待主 agent 验收/后续集成。
