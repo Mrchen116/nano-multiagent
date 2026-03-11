@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 from pathlib import Path
 
@@ -84,7 +85,7 @@ class _FakeIMManager:
     def __init__(self, events: list[str], *, fail_connect: bool = False) -> None:
         self._events = events
         self._fail_connect = fail_connect
-        self._closed = threading.Event()
+        self._closed = asyncio.Event()
 
     async def connect_once(self) -> None:
         self._events.append("im.connect")
@@ -92,7 +93,7 @@ class _FakeIMManager:
             raise RuntimeError("im offline")
 
     async def run_forever(self) -> None:
-        self._closed.wait(timeout=1.0)
+        await self._closed.wait()
 
     async def close(self) -> None:
         self._events.append("im.close")

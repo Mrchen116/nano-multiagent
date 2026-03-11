@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 from pathlib import Path
 
@@ -49,13 +50,13 @@ class _FakeHeartbeatRunner:
 class _FakeIMManager:
     def __init__(self, events: list[str]) -> None:
         self._events = events
-        self._closed = threading.Event()
+        self._closed = asyncio.Event()
 
     async def connect_once(self) -> None:
         self._events.append("im.connect")
 
     async def run_forever(self) -> None:
-        self._closed.wait(timeout=1.0)
+        await self._closed.wait()
 
     async def close(self) -> None:
         self._events.append("im.close")
