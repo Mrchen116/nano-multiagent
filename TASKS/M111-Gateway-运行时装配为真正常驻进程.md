@@ -11,7 +11,7 @@
 - use_worktree: true
 - worktree_dir: `/Users/czj/Repos/nano-multiagent/.worktrees/M111`
 - branch: `milestone/M111`
-- 测试门禁命令: `PYTHONPATH=src pytest -q tests/contract/test_personal_assistant_main_contract.py tests/integration/test_personal_assistant_bootstrap_integration.py tests/integration/test_personal_assistant_server_integration.py tests/e2e/test_personal_assistant_main_e2e.py`
+- 测试门禁命令: `PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M111/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/contract/test_personal_assistant_main_contract.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/integration/test_personal_assistant_bootstrap_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/integration/test_personal_assistant_server_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/e2e/test_personal_assistant_main_e2e.py`
 - 基线结果: `18 passed`；当前门禁已全绿，因此后续必须新增覆盖并保持门禁无回归。
 - 允许改动范围: `src/personal_assistant/**`、`tests/**personal_assistant*.py`、`tests/contract/test_personal_assistant_main_contract.py`、`TASKS/**`、`PROGRESS/**`、`LOGBOOK.md`、共享 `data/dev-tasks.json`
 - 禁止改动范围: `src/coding_cli/**`、与本次 Gateway runtime assembly 无关的广泛 IM 特性扩展
@@ -41,12 +41,12 @@
   - `tests/contract/test_personal_assistant_main_contract.py`
   - `tests/e2e/test_personal_assistant_main_e2e.py`
 - DoD:
-  - `PYTHONPATH=src pytest -q tests/contract/test_personal_assistant_main_contract.py tests/integration/test_personal_assistant_bootstrap_integration.py tests/integration/test_personal_assistant_server_integration.py tests/e2e/test_personal_assistant_main_e2e.py` 全绿
+  - `PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M111/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/contract/test_personal_assistant_main_contract.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/integration/test_personal_assistant_bootstrap_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/integration/test_personal_assistant_server_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M111/tests/e2e/test_personal_assistant_main_e2e.py` 全绿
   - 完成 C1/C2/C3
   - `PROGRESS` 记录启动/关闭顺序证据、回滚点、提交哈希
 
 ### R2 Readiness / shutdown 回归与操作员 smoke 证据
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 至少存在一条可验证 readiness/shutdown 的集成或 e2e 测试，覆盖常驻进程 ready 前后状态
   - 提供 operator-facing smoke script 或等价脚本化证据，证明本地配置可驱动启动、保持常驻、再优雅关闭
@@ -65,3 +65,4 @@
   - 测试门禁命令全绿
   - 完成 C1/C2/C3
   - `PROGRESS` 记录 smoke 命令、ready/shutdown 证据、回滚点、提交哈希
+  - smoke 命令：`PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M111/src python -m personal_assistant.smoke_runtime --config <node-config.yaml> --ready-timeout 20 --steady-seconds 0.2 --shutdown-timeout 10`
