@@ -1757,6 +1757,17 @@ def test_repl_input_engine_slash_menu_does_not_render_multiline_panel() -> None:
     assert "Commands ↓ " not in output.getvalue()
 
 
+def test_read_interactive_line_groups_multiline_paste_into_single_submission() -> None:
+    typed = repl_input.read_interactive_line(
+        prompt="nano> ",
+        history=(),
+        key_reader=_iter_keys(["f", "i", "r", "s", "t", "\n", "s", "e", "c", "o", "n", "d", "\n"]),
+        out=io.StringIO(),
+    )
+
+    assert typed == "first\nsecond"
+
+
 def test_repl_input_external_output_replays_prompt_without_layout_break() -> None:
     output = io.StringIO()
 
@@ -2732,6 +2743,32 @@ def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress(
         ("send_message_async", {"session_id": "sess_cli", "text": "first"}),
         ("send_message_async", {"session_id": "sess_cli", "text": "second"}),
     ]
+
+
+def test_run_cli_repl_async_multiline_paste_submits_single_message() -> None:
+    stub = _AsyncQueueingStubClient()
+    output = io.StringIO()
+    scripted_reader = _ScriptedReplInputReader(
+        [
+            ["/", "\x1b[B", "\n", "\n"],
+            ["f", "i", "r", "s", "t", "\n", "s", "e", "c", "o", "n", "d", "\n"],
+            ["/", "\x1b[A", "\n", "\n"],
+        ]
+    )
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
+    assert send_async_calls == [
+        ("send_message_async", {"session_id": "sess_cli", "text": "first\nsecond"}),
+    ]
+    assert "Queued message #1" not in output.getvalue()
 
 
 def test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_drained(monkeypatch) -> None:

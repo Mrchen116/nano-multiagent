@@ -893,6 +893,37 @@ def test_cli_repl_allows_queueing_next_input_while_previous_async_run_is_running
     assert text.count("run=") >= 2
 
 
+def test_cli_repl_multiline_paste_submits_single_async_message() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from coding_cli.client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    scripted_reader = _ScriptedReplInputReader(
+        [
+            ["/", "\x1b[B", "\n", "\n"],
+            ["f", "i", "r", "s", "t", "\n", "s", "e", "c", "o", "n", "d", "\n"],
+            ["/", "\x1b[A", "\n", "\n"],
+        ]
+    )
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "cli:first\nsecond" in text
+    assert "Queued message #1" not in text
+    assert text.count("run=") == 1
+
+
 def test_cli_repl_history_wait_barrier_ignores_false_timeout_after_drain(monkeypatch) -> None:
     from coding_cli import commands as app_commands
 
