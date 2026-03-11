@@ -25,7 +25,7 @@ from personal_assistant.config.local_store import ChannelConfig, HeartbeatConfig
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from personal_assistant.gateway.inbound_pipeline import InboundPipeline, RelayLifecycleUpdate
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -409,14 +409,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     process_manager = GatewayProcessManager(config=config.kernel, kernel_client=kernel_client)
     channel_registry = _build_channel_registry(config.channels)
     outbound_router = OutboundRouter(channel_registry)
-    pipeline = InboundPipeline(
-        kernel_client=kernel_client,
-        agents=config.agents,
-        outbound_router=outbound_router,
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-    )
-    inbound_dispatcher = _InboundDispatcher(pipeline)
     heartbeat_runner = PollingHeartbeatRunner(
         scheduler=HeartbeatScheduler(
             agents=config.agents,
@@ -425,11 +417,35 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         ),
         config=config.heartbeat,
     )
-    im_connection_manager = _build_im_connection_manager(
-        config=config,
-        channel_registry=channel_registry,
-        heartbeat_runner=heartbeat_runner,
+    reporter: UpstreamReporter | None = None
+    im_connection_manager: IMConnectionManager | None = None
+    if config.im_service is not None:
+        relay_adapter = channel_registry.get("web_relay")
+        if not isinstance(relay_adapter, WebRelayAdapter):
+            raise ValueError("im_service requires enabled web_relay channel")
+        reporter = UpstreamReporter(
+            node=config.node,
+            agents=config.agents,
+            send_frame=lambda _message_type, _payload: None,
+        )
+        im_connection_manager = _build_im_connection_manager(
+            config=config,
+            relay_adapter=relay_adapter,
+            reporter=reporter,
+            heartbeat_runner=heartbeat_runner,
+        )
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=config.agents,
+        outbound_router=outbound_router,
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        relay_lifecycle_callback=_build_relay_lifecycle_callback(
+            reporter=reporter,
+            im_connection_manager_factory=lambda: im_connection_manager,
+        ),
     )
+    inbound_dispatcher = _InboundDispatcher(pipeline)
     return GatewayRuntime(
         config,
         process_manager,
@@ -480,20 +496,13 @@ def _build_channel_registry(channels: tuple[ChannelConfig, ...]) -> ChannelRegis
 def _build_im_connection_manager(
     *,
     config: LocalConfig,
-    channel_registry: ChannelRegistry,
+    relay_adapter: WebRelayAdapter,
+    reporter: UpstreamReporter,
     heartbeat_runner: PollingHeartbeatRunner,
-) -> IMConnectionManager | None:
+) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
-        return None
-    relay_adapter = channel_registry.get("web_relay")
-    if not isinstance(relay_adapter, WebRelayAdapter):
-        raise ValueError("im_service requires enabled web_relay channel")
-    reporter = UpstreamReporter(
-        node=config.node,
-        agents=config.agents,
-        send_frame=lambda _message_type, _payload: None,
-    )
+        raise ValueError("im_service configuration is required")
     return IMConnectionManager(
         config=IMConnectionConfig(url=im_service.url, token=im_service.token),
         reporter=reporter,
@@ -502,6 +511,70 @@ def _build_im_connection_manager(
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
         connect=_connect_websocket,
     )
+
+
+def _build_relay_lifecycle_callback(
+    *,
+    reporter: UpstreamReporter | None,
+    im_connection_manager_factory: Callable[[], IMConnectionManager | None],
+):
+    async def _callback(message: InboundMessage, update: RelayLifecycleUpdate) -> None:
+        if reporter is None:
+            return
+        relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
+        if relay_task_id is None:
+            return
+        manager = im_connection_manager_factory()
+        if manager is None or not manager.connected:
+            return
+        if update.phase == "accepted":
+            payload = reporter.send_delivery_receipt(
+                relay_task_id=relay_task_id,
+                delivery_status="sent",
+                detail=f"run_id={update.run_id}" if update.run_id is not None else None,
+            )
+            await manager.send_json("node.delivery_receipt", payload)
+            return
+        if update.phase == "running":
+            message_id = _metadata_text(message.metadata, key="message_id")
+            if message_id is None or update.run_id is None:
+                return
+            payload = reporter.send_report(
+                run_id=update.run_id,
+                status="running",
+                agent_id=update.agent_id,
+                session_key=update.session_key,
+                conversation_id=message.external_chat_id,
+                message_id=message_id,
+                summary=update.reply_text,
+            )
+            await manager.send_json("node.report", payload)
+            return
+        if update.phase == "completed":
+            payload = reporter.send_delivery_receipt(
+                relay_task_id=relay_task_id,
+                delivery_status="completed",
+                detail=update.reply_text,
+            )
+            await manager.send_json("node.delivery_receipt", payload)
+            return
+        if update.phase == "failed":
+            payload = reporter.send_delivery_receipt(
+                relay_task_id=relay_task_id,
+                delivery_status="failed",
+                detail=update.error,
+            )
+            await manager.send_json("node.delivery_receipt", payload)
+
+    return _callback
+
+
+def _metadata_text(metadata: Mapping[str, object], *, key: str) -> str | None:
+    value = metadata.get(key)
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def _default_heartbeat_state_path(config: LocalConfig) -> Path:

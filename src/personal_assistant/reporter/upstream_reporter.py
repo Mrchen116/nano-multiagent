@@ -114,7 +114,10 @@ class UpstreamReporter:
         status: str,
         agent_id: str | None = None,
         session_key: str | None = None,
+        conversation_id: str | None = None,
+        message_id: str | None = None,
         summary: str | None = None,
+        guidance: str | None = None,
         detail: Mapping[str, Any] | None = None,
     ) -> dict[str, object]:
         """Send one ``node.report`` execution report frame."""
@@ -128,8 +131,14 @@ class UpstreamReporter:
             payload["agent_id"] = agent_id
         if session_key is not None:
             payload["session_key"] = session_key
+        if conversation_id is not None:
+            payload["conversation_id"] = conversation_id
+        if message_id is not None:
+            payload["message_id"] = message_id
         if summary is not None:
             payload["summary"] = summary
+        if guidance is not None:
+            payload["guidance"] = guidance
         if detail is not None:
             payload["detail"] = dict(detail)
         self._send_frame("node.report", payload)
