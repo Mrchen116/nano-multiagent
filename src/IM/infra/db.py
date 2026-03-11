@@ -8,12 +8,19 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'group',
+    owner_id TEXT NOT NULL DEFAULT '',
+    is_pinned INTEGER NOT NULL DEFAULT 0,
+    is_muted INTEGER NOT NULL DEFAULT 0,
+    unread_count INTEGER NOT NULL DEFAULT 0,
+    last_message_at TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -29,7 +36,9 @@ CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     sender_user_id TEXT NOT NULL,
+    sender_type TEXT NOT NULL DEFAULT 'user',
     content TEXT NOT NULL,
+    attachments_json TEXT NOT NULL DEFAULT '[]',
     delivery_status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
@@ -79,14 +88,88 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
         Executes DDL statements and commits the transaction.
     """
     connection.executescript(_SCHEMA_SQL)
-    _migrate_messages_delivery_status(connection)
+    _migrate_users_owner_id(connection)
+    _migrate_conversations_metadata(connection)
+    _migrate_messages_metadata(connection)
     connection.commit()
 
 
-def _migrate_messages_delivery_status(connection: sqlite3.Connection) -> None:
-    """Backfill delivery_status column for databases created before M34."""
+def _migrate_users_owner_id(connection: sqlite3.Connection) -> None:
+    """Backfill owner_id for user rows created before the layered migration."""
+    rows = connection.execute("PRAGMA table_info(users)").fetchall()
+    column_names = {row["name"] for row in rows}
+    if "owner_id" not in column_names:
+        connection.execute("ALTER TABLE users ADD COLUMN owner_id TEXT")
+        connection.execute("UPDATE users SET owner_id = id WHERE owner_id IS NULL OR owner_id = ''")
+        connection.execute("UPDATE users SET owner_id = id WHERE owner_id IS NULL OR owner_id = ''")
+
+
+def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
+    """Backfill conversation metadata columns introduced by IM-SPEC §6."""
+    rows = connection.execute("PRAGMA table_info(conversations)").fetchall()
+    column_names = {row["name"] for row in rows}
+    if "type" not in column_names:
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN type TEXT NOT NULL DEFAULT 'group'"
+        )
+    if "owner_id" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''")
+        connection.execute(
+            """
+            UPDATE conversations
+            SET owner_id = COALESCE(
+                (
+                    SELECT users.owner_id
+                    FROM conversation_participants
+                    JOIN users ON users.id = conversation_participants.user_id
+                    WHERE conversation_participants.conversation_id = conversations.id
+                    ORDER BY conversation_participants.rowid
+                    LIMIT 1
+                ),
+                ''
+            )
+            WHERE owner_id = ''
+            """
+        )
+    if "is_pinned" not in column_names:
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0"
+        )
+    if "is_muted" not in column_names:
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN is_muted INTEGER NOT NULL DEFAULT 0"
+        )
+    if "unread_count" not in column_names:
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0"
+        )
+    if "last_message_at" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN last_message_at TEXT")
+        connection.execute(
+            """
+            UPDATE conversations
+            SET last_message_at = (
+                SELECT MAX(messages.created_at)
+                FROM messages
+                WHERE messages.conversation_id = conversations.id
+            )
+            WHERE last_message_at IS NULL
+            """
+        )
+
+
+def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
+    """Backfill message metadata columns introduced by IM-SPEC §6."""
     rows = connection.execute("PRAGMA table_info(messages)").fetchall()
     column_names = {row["name"] for row in rows}
+    if "sender_type" not in column_names:
+        connection.execute(
+            "ALTER TABLE messages ADD COLUMN sender_type TEXT NOT NULL DEFAULT 'user'"
+        )
+    if "attachments_json" not in column_names:
+        connection.execute(
+            "ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'"
+        )
     if "delivery_status" not in column_names:
         connection.execute(
             "ALTER TABLE messages ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'completed'"
