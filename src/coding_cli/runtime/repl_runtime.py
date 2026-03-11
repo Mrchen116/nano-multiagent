@@ -1,7 +1,7 @@
 """Background queue runner for REPL async message dispatch."""
 
 from dataclasses import dataclass
-from queue import Queue
+from queue import Empty, Queue
 from threading import Lock, Thread
 import time
 from typing import Callable
@@ -52,22 +52,66 @@ class ReplRunQueue:
         with self._state_lock:
             return self._queue.qsize() + (1 if self._active else 0)
 
-    def close(self, *, wait_for_drain: bool, drain_timeout_seconds: float | None = None) -> bool:
-        """Close worker and optionally wait for queued messages.
+    def close(
+        self,
+        *,
+        wait_for_drain: bool,
+        drain_timeout_seconds: float | None = None,
+        discard_pending: bool = False,
+    ) -> bool:
+        """Close worker and optionally wait for or discard queued messages.
 
         Returns:
-            True when queue drained before shutdown sentinel, False when timeout reached.
+            True when shutdown finished without leftover backlog, False when timeout hit
+            while waiting for active work.
         """
+        preserve_head = False
         with self._state_lock:
             if self._closed:
                 return True
+            preserve_head = wait_for_drain and not self._active and self._queue.qsize() > 0
             self._closed = True
+        if discard_pending:
+            self._discard_pending_items(preserve_head=preserve_head)
         drained = True
         if wait_for_drain:
             drained = self.wait_for_drain(timeout_seconds=drain_timeout_seconds)
         self._queue.put(None)
-        self._worker.join(timeout=drain_timeout_seconds)
+        if wait_for_drain or discard_pending:
+            self._worker.join(timeout=drain_timeout_seconds)
         return drained
+
+    def discard_pending(self) -> int:
+        """Drop queued messages that have not started processing yet and return count."""
+        return self._discard_pending_items(preserve_head=False)
+
+    def has_active_work(self) -> bool:
+        """Return whether a worker is currently processing one message."""
+        with self._state_lock:
+            return self._active
+
+    def _discard_pending_items(self, *, preserve_head: bool) -> int:
+        discarded = 0
+        buffered: list[QueuedReplMessage | None] = []
+        preserved_head = not preserve_head
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except Empty:
+                break
+            if item is None:
+                buffered.append(item)
+                self._queue.task_done()
+                continue
+            if not preserved_head:
+                buffered.append(item)
+                preserved_head = True
+            else:
+                discarded += 1
+            self._queue.task_done()
+        for item in buffered:
+            self._queue.put(item)
+        return discarded
 
     def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
         """Wait until active/queued work is drained.

@@ -1,5 +1,6 @@
 import io
 import json
+import threading
 import time
 
 from coding_cli import commands as cli_commands
@@ -1757,6 +1758,17 @@ def test_repl_input_engine_slash_menu_does_not_render_multiline_panel() -> None:
     assert "Commands ↓ " not in output.getvalue()
 
 
+def test_read_interactive_line_groups_multiline_paste_into_single_submission() -> None:
+    typed = repl_input.read_interactive_line(
+        prompt="nano> ",
+        history=(),
+        key_reader=_iter_keys(["f", "i", "r", "s", "t", "\nsecond\n" ]),
+        out=io.StringIO(),
+    )
+
+    assert typed == "first\nsecond"
+
+
 def test_repl_input_external_output_replays_prompt_without_layout_break() -> None:
     output = io.StringIO()
 
@@ -2730,8 +2742,35 @@ def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress(
     send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
     assert send_async_calls == [
         ("send_message_async", {"session_id": "sess_cli", "text": "first"}),
-        ("send_message_async", {"session_id": "sess_cli", "text": "second"}),
     ]
+    assert "run=run_queue_1" in text
+    assert "run=run_queue_2" not in text
+
+
+def test_run_cli_repl_async_multiline_paste_submits_single_message() -> None:
+    stub = _AsyncQueueingStubClient()
+    output = io.StringIO()
+    scripted_reader = _ScriptedReplInputReader(
+        [
+            ["/", "\x1b[B", "\n", "\n"],
+            ["f", "i", "r", "s", "t", "\nsecond\n"],
+            ["/", "\x1b[A", "\n", "\n"],
+        ]
+    )
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
+    assert send_async_calls == [
+        ("send_message_async", {"session_id": "sess_cli", "text": "first\nsecond"}),
+    ]
+    assert "Queued message #1" not in output.getvalue()
 
 
 def test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_drained(monkeypatch) -> None:
@@ -2803,8 +2842,14 @@ def test_run_cli_repl_exit_reports_remaining_inflight_messages_after_timeout(mon
             del timeout_seconds
             return False
 
-        def close(self, *, wait_for_drain: bool, drain_timeout_seconds: float | None = None) -> bool:
-            del wait_for_drain, drain_timeout_seconds
+        def close(
+            self,
+            *,
+            wait_for_drain: bool,
+            drain_timeout_seconds: float | None = None,
+            discard_pending: bool = False,
+        ) -> bool:
+            del wait_for_drain, drain_timeout_seconds, discard_pending
             return True
 
     output = io.StringIO()
@@ -2820,8 +2865,94 @@ def test_run_cli_repl_exit_reports_remaining_inflight_messages_after_timeout(mon
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Waiting for 2 in-flight message(s) before exit." in text
-    assert "Timed out waiting for in-flight messages before exit; 2 still in-flight message(s)." in text
+    assert "Queued message #1" in text
+    assert "Waiting for 2 in-flight message(s) before exit." not in text
+    assert "Timed out waiting for in-flight messages before exit; 2 still in-flight message(s)." not in text
+
+
+def test_repl_run_queue_close_can_discard_pending_messages() -> None:
+    processed: list[str] = []
+    active_started = threading.Event()
+    release_active = threading.Event()
+
+    def _process(item):  # noqa: ANN001
+        if item.text == "first":
+            active_started.set()
+            release_active.wait(timeout=1.0)
+        processed.append(item.text)
+
+    queue = cli_commands.ReplRunQueue(process_message=_process)
+
+    assert queue.enqueue(session_id="sess_cli", text="first") == 0
+    assert active_started.wait(timeout=1.0) is True
+    assert queue.enqueue(session_id="sess_cli", text="second") >= 1
+
+    release_active.set()
+    drained = queue.close(wait_for_drain=True, drain_timeout_seconds=1.0, discard_pending=True)
+
+    assert drained is True
+    assert queue.backlog_size() == 0
+    assert processed == ["first"]
+
+
+def test_run_cli_repl_exit_discards_queued_messages_before_processing(monkeypatch) -> None:
+    from coding_cli import commands as app_commands
+
+    class _DiscardOnCloseQueue:
+        instances: list["_DiscardOnCloseQueue"] = []
+
+        def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001
+            del process_message, on_worker_error
+            self.closed_with: tuple[bool, bool, float | None] | None = None
+            self.has_active = True
+            self.__class__.instances.append(self)
+
+        def enqueue(self, *, session_id: str, text: str) -> int:
+            del session_id, text
+            return 1
+
+        def backlog_size(self) -> int:
+            return 2
+
+        def has_active_work(self) -> bool:
+            return self.has_active
+
+        def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
+            del timeout_seconds
+            return True
+
+        def close(
+            self,
+            *,
+            wait_for_drain: bool,
+            drain_timeout_seconds: float | None = None,
+            discard_pending: bool = False,
+        ) -> bool:
+            self.closed_with = (wait_for_drain, discard_pending, drain_timeout_seconds)
+            self.has_active = False
+            return True
+
+    manager = _ManagedServerSpy()
+    stub = _AsyncQueueingStubClient()
+    output = io.StringIO()
+    inputs = iter(["/new", "first", "second", "/exit"])
+
+    monkeypatch.setattr(app_commands, "ReplRunQueue", _DiscardOnCloseQueue)
+    exit_code = run_cli(
+        ["--mode", "managed", "--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        managed_server_factory=lambda _: manager,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    queue = _DiscardOnCloseQueue.instances[-1]
+    assert queue.closed_with == (True, True, 5.0)
+    send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
+    assert send_async_calls == []
+    assert manager.events == ["start", "stop"]
+    assert "Waiting for 2 in-flight message(s) before exit." not in output.getvalue()
 
 
 def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(monkeypatch) -> None:

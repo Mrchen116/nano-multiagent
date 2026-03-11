@@ -126,8 +126,23 @@ def _read_terminal_key(stdin: TextIO) -> str | None:
     first = stdin.read(1)
     if first == "":
         return None
-    if first != "\x1b":
+    if first not in {"\x1b", "\n", "\r"}:
         return first
+    if first in {"\n", "\r"}:
+        second = stdin.read(1)
+        if second == "":
+            return first
+        if second not in {"\n", "\r"}:
+            return second
+        pasted = ["\n", second]
+        while True:
+            chunk = stdin.read(1)
+            if chunk == "":
+                break
+            pasted.append(chunk)
+            if chunk in {"\n", "\r"}:
+                break
+        return "".join(pasted)
     second = stdin.read(1)
     if second == "":
         return first
@@ -137,6 +152,41 @@ def _read_terminal_key(stdin: TextIO) -> str | None:
     if third == "":
         return f"{first}{second}"
     return f"{first}{second}{third}"
+
+
+def _split_pasted_key(key: str) -> tuple[str, ...]:
+    if len(key) <= 1:
+        return (key,)
+    if "\n" not in key and "\r" not in key:
+        return (key,)
+    normalized = key.replace("\r\n", "\n").replace("\r", "\n")
+    return tuple(normalized)
+
+
+def _is_pasted_newline_token(key: str) -> bool:
+    return len(key) > 1 and ("\n" in key or "\r" in key)
+
+
+def _apply_pasted_text(*, state: _InputState, key: str) -> _InputStep:
+    next_chars = list(state.chars)
+    insert_at = state.cursor
+    for token in _split_pasted_key(key):
+        next_chars.insert(insert_at, token)
+        insert_at += 1
+    return _InputStep(
+        state=_next_input_state(
+            state,
+            chars=tuple(next_chars),
+            cursor=insert_at,
+            history_index=None if state.history_index is not None else _KEEP_STATE,
+            command_menu_index_seed=None,
+        ),
+        needs_redraw=True,
+    )
+
+
+def _normalize_submitted_text(chars: Sequence[str]) -> str:
+    return "".join(chars).rstrip("\n")
 
 
 def read_interactive_line_from_terminal(
@@ -167,8 +217,23 @@ def read_interactive_line(
     command_suggestions: Sequence[str] = (),
     line_break: str = "\n",
 ) -> str:
-    """Read/edit one line with history and slash-command menu support."""
+    """Read/edit one logical input, keeping multiline paste as one submission.
+
+    Args:
+        prompt: Prompt prefix rendered for the active REPL session.
+        history: Per-session history candidates available to arrow navigation.
+        key_reader: Raw key supplier that returns one decoded terminal token at a time.
+        out: Terminal-like stream used for redraws.
+        command_suggestions: Slash commands shown in the inline suggestion menu.
+        line_break: Physical line break written when the logical input is submitted.
+
+    Returns:
+        One logical user submission. When terminal paste injects embedded newlines,
+        they are preserved inside the returned string instead of being split into
+        multiple submissions.
+    """
     state = _initial_input_state(history=history, command_items=command_suggestions)
+    pending_paste_submit = False
     try:
         render_interactive_line(
             out=out,
@@ -181,8 +246,19 @@ def read_interactive_line(
         while True:
             key = key_reader()
             if key is None:
+                if pending_paste_submit:
+                    out.write(line_break)
+                    return _normalize_submitted_text(state.chars)
                 raise EOFError()
-            step = _apply_input_key(state=state, key=key)
+            if pending_paste_submit and key in _KEY_ENTER:
+                out.write(line_break)
+                return _normalize_submitted_text(state.chars)
+            pending_paste_submit = False
+            if _is_pasted_newline_token(key):
+                step = _apply_pasted_text(state=state, key=key)
+                pending_paste_submit = True
+            else:
+                step = _apply_input_key(state=state, key=key)
             state = step.state
             if step.raises_keyboard_interrupt:
                 raise KeyboardInterrupt()
@@ -233,7 +309,21 @@ def _apply_input_key(*, state: _InputState, key: str) -> _InputStep:
                 ),
                 needs_redraw=True,
             )
-        return _InputStep(state=state, needs_redraw=False, final_line="".join(state.chars))
+        if state.chars:
+            next_chars = list(state.chars)
+            next_chars.insert(state.cursor, "\n")
+            return _InputStep(
+                state=_next_input_state(
+                    state,
+                    chars=tuple(next_chars),
+                    cursor=state.cursor + 1,
+                    history_index=None if state.history_index is not None else _KEEP_STATE,
+                    command_menu_index_seed=None,
+                ),
+                needs_redraw=True,
+                final_line="".join(state.chars),
+            )
+        return _InputStep(state=state, needs_redraw=False, final_line="")
     if key == "\x03":
         return _InputStep(state=state, needs_redraw=False, raises_keyboard_interrupt=True)
     if key == "\x04":

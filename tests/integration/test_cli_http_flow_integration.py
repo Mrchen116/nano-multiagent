@@ -549,7 +549,8 @@ def test_cli_repl_history_recall_allows_second_submit_after_editing() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "cli:ping" in text
-    assert "cli:piXng" in text
+    assert "Queued message #1" in text
+    assert "cli:piXng" not in text
 
 
 def test_cli_repl_full_chain_edit_history_and_compact_budget_state() -> None:
@@ -890,7 +891,39 @@ def test_cli_repl_allows_queueing_next_input_while_previous_async_run_is_running
     assert exit_code == 0
     text = output.getvalue()
     assert "Queued message #1" in text
-    assert text.count("run=") >= 2
+    assert text.count("run=") == 1
+    assert "cli:second" not in text
+
+
+def test_cli_repl_multiline_paste_submits_single_async_message() -> None:
+    app = create_app(runtime=_RuntimeStub(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+
+    def client_factory(config):
+        from coding_cli.client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    scripted_reader = _ScriptedReplInputReader(
+        [
+            ["/", "\x1b[B", "\n", "\n"],
+            ["f", "i", "r", "s", "t", "\nsecond\n"],
+            ["/", "\x1b[A", "\n", "\n"],
+        ]
+    )
+    exit_code = run_cli(
+        ["--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        repl_input_reader_factory=lambda: scripted_reader,
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "cli:first\nsecond" in text
+    assert "Queued message #1" not in text
+    assert text.count("run=") == 1
 
 
 def test_cli_repl_history_wait_barrier_ignores_false_timeout_after_drain(monkeypatch) -> None:
@@ -1043,6 +1076,34 @@ def test_cli_repl_flow_supports_key_commands_in_both_modes(mode: str) -> None:
         assert managed_server.events == ["start", "stop"]
     else:
         assert managed_server.events == []
+
+
+def test_cli_repl_managed_exit_discards_queued_messages_and_stops_server() -> None:
+    app = create_app(runtime=_SlowFirstTurnRuntime(), auth_token="test-token")
+    transport = httpx.ASGITransport(app=app)
+    managed_server = _ManagedServerRecorder()
+
+    def client_factory(config):
+        from coding_cli.client import ServerClient
+
+        return ServerClient(config=config, transport=transport)
+
+    output = io.StringIO()
+    inputs = iter(["/new", "first", "second", "/exit"])
+    exit_code = run_cli(
+        ["--mode", "managed", "--base-url", "http://testserver", "--token", "test-token"],
+        stdout=output,
+        client_factory=client_factory,
+        managed_server_factory=lambda _: managed_server,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert managed_server.events == ["start", "stop"]
+    assert "Waiting for 2 in-flight message(s) before exit." not in text
+    assert "cli:second" not in text
+    assert text.count("Queued message #1") == 1
 
 
 @pytest.mark.parametrize("mode", ["managed", "remote"])
