@@ -1,5 +1,4 @@
 """E2E tests for human chat chain including SSE reconnect."""
-
 import json
 from pathlib import Path
 
@@ -43,12 +42,17 @@ def test_human_chat_chain_and_sse_reconnect(tmp_path: Path) -> None:
         alice_id = _create_user(client, "alice")
         bob_id = _create_user(client, "bob")
 
-        conversation_resp = client.post(
+        first_conversation = client.post(
             "/im/v1/conversations",
-            json={"title": "chat", "participant_ids": [alice_id, bob_id]},
+            json={"title": "chat-alice", "participant_ids": [alice_id]},
         )
-        assert conversation_resp.status_code == 201
-        conversation_id = conversation_resp.json()["id"]
+        second_conversation = client.post(
+            "/im/v1/conversations",
+            json={"title": "chat-bob", "participant_ids": [bob_id]},
+        )
+        assert first_conversation.status_code == 201
+        assert second_conversation.status_code == 201
+        conversation_id = first_conversation.json()["id"]
 
         first_msg = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
@@ -56,7 +60,12 @@ def test_human_chat_chain_and_sse_reconnect(tmp_path: Path) -> None:
         )
         second_msg = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": bob_id, "content": "second"},
+            json={
+                "sender_user_id": alice_id,
+                "sender_type": "agent",
+                "content": "second",
+                "attachments": [{"url": "file:///tmp/second.txt", "file_name": "second.txt"}],
+            },
         )
         assert first_msg.status_code == 201
         assert second_msg.status_code == 201
@@ -72,7 +81,7 @@ def test_human_chat_chain_and_sse_reconnect(tmp_path: Path) -> None:
 
         third_msg = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": alice_id, "content": "third"},
+            json={"sender_user_id": alice_id, "sender_type": "system", "content": "third"},
         )
         assert third_msg.status_code == 201
         third_message_id = third_msg.json()["id"]
@@ -86,3 +95,4 @@ def test_human_chat_chain_and_sse_reconnect(tmp_path: Path) -> None:
         assert len(incremental_events) == 2
         assert {event["data"]["message_id"] for event in incremental_events} == {third_message_id}
         assert {event["event"] for event in incremental_events} == {"message.sent", "message.delivered"}
+        assert incremental_events[0]["data"]["sender_type"] == "system"

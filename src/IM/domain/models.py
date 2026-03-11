@@ -4,6 +4,15 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)
+class Attachment:
+    """Represent one attachment reference stored with a message."""
+
+    url: str
+    content_type: str | None = None
+    file_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class User:
     """Represent a human chat user persisted in IM storage."""
 
@@ -57,7 +66,7 @@ class Message:
     sender_user_id: str
     sender_type: str
     content: str
-    attachments: list[str] = field(default_factory=list)
+    attachments: list[Attachment] = field(default_factory=list)
     delivery_status: str = "completed"
     created_at: str = ""
 
@@ -78,13 +87,19 @@ class NodeStatus:
 
 @dataclass(frozen=True, slots=True)
 class RelayTask:
-    """Represent a relay task enqueued for gateway delivery."""
+    """Represent one idempotent relay task enqueued for gateway delivery."""
 
+    relay_task_id: str
     message_id: str
+    conversation_id: str
     target_node_id: str
     payload: dict[str, object]
     idempotency_key: str
     status: str
+    created_at: str
+    updated_at: str
+    receipt_status: str | None = None
+    receipt_detail: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

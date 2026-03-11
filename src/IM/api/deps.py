@@ -5,21 +5,121 @@ from fastapi import HTTPException, Request, status
 from IM.application.bind_service import BindService
 from IM.application.config_service import ConfigService
 from IM.application.event_service import EventService
+from IM.application.relay_service import RelayService
 from IM.application.user_service import UserService
 from IM.application.web_im_service import WebIMService
 from IM.infra.repositories import AgentProfileRepository, BindRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, UserRepository
+from IM.ws.gateway_handler import GatewayHandler
+
+
+class _ConfigEnabledConversationRepository(ConversationRepository):
+    """Enable M96 config profile snapshots without forking the canonical repository."""
+
+    def _resolve_config_profile_version(self, *, owner_id: str, participant_ids: list[str]) -> int | None:
+        if not participant_ids:
+            return None
+        rows = self._connection.execute(
+            f"SELECT profile_version FROM agent_profiles WHERE agent_id IN ({','.join('?' for _ in participant_ids)}) ORDER BY rowid LIMIT 1",  # noqa: S608
+            tuple(participant_ids),
+        ).fetchall()
+        if not rows:
+            return None
+        return int(rows[0]["profile_version"])
+
+    def get_conversation(self, *, conversation_id: str):  # type: ignore[override]
+        row = self._connection.execute(
+            """
+            SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
+            FROM conversations
+            WHERE id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_conversation(row)
+
+    def update_conversation(
+        self,
+        *,
+        conversation_id: str,
+        title: str | None,
+        is_pinned: bool | None,
+        is_muted: bool | None,
+    ):
+        existing = self.get_conversation(conversation_id=conversation_id)
+        if existing is None:
+            raise ValueError("conversation_id not found")
+        next_title = existing.title if title is None else title.strip()
+        if not next_title:
+            raise ValueError("title must be non-empty")
+        next_is_pinned = existing.is_pinned if is_pinned is None else is_pinned
+        next_is_muted = existing.is_muted if is_muted is None else is_muted
+        with self._connection:
+            self._connection.execute(
+                """
+                UPDATE conversations
+                SET title = ?, is_pinned = ?, is_muted = ?
+                WHERE id = ?
+                """,
+                (next_title, int(next_is_pinned), int(next_is_muted), conversation_id),
+            )
+        updated = self.get_conversation(conversation_id=conversation_id)
+        assert updated is not None
+        return updated
+
+    def list_conversations(self):  # type: ignore[override]
+        rows = self._connection.execute(
+            """
+            SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
+            FROM conversations
+            ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
+            """
+        ).fetchall()
+        return [self._row_to_conversation(row) for row in rows]
+
+
+def _build_conversation_repository(request: Request) -> ConversationRepository:
+    """Return the canonical conversation repository with M96 snapshot behavior enabled."""
+    return _ConfigEnabledConversationRepository(request.app.state.connection)
+
+
+def _build_message_repository(request: Request) -> MessageRepository:
+    """Return the canonical message repository for the running IM app."""
+    return MessageRepository(request.app.state.connection)
+
+
+def _build_user_repository(request: Request) -> UserRepository:
+    """Return the canonical user repository for the running IM app."""
+    return UserRepository(request.app.state.connection)
+
+
+def _build_profile_repository(request: Request) -> AgentProfileRepository:
+    """Return the canonical agent profile repository for the running IM app."""
+    return AgentProfileRepository(request.app.state.connection)
+
+
+def _build_node_repository(request: Request) -> NodeRepository:
+    """Return the canonical node repository for the running IM app."""
+    return NodeRepository(request.app.state.connection)
+
+
+def _build_bind_repository(request: Request) -> BindRepository:
+    """Return the canonical bind repository for the running IM app."""
+    return BindRepository(request.app.state.connection)
 
 
 def get_user_service(request: Request) -> UserService:
     """Build the user application service from app-scoped dependencies."""
-    return UserService(users=UserRepository(request.app.state.connection))
+    return UserService(users=_build_user_repository(request))
 
 
 def get_web_im_service(request: Request) -> WebIMService:
     """Build the Web IM application service from app-scoped dependencies."""
     return WebIMService(
-        conversations=ConversationRepository(request.app.state.connection),
-        messages=MessageRepository(request.app.state.connection),
+        conversations=_build_conversation_repository(request),
+        messages=_build_message_repository(request),
+        relay_service=RelayService(request.app.state.connection),
     )
 
 
@@ -30,18 +130,28 @@ def get_event_service(request: Request) -> EventService:
 
 def get_config_service(request: Request) -> ConfigService:
     """Build the agent config application service from app-scoped dependencies."""
-    return ConfigService(profiles=AgentProfileRepository(request.app.state.connection))
+    return ConfigService(profiles=_build_profile_repository(request))
 
 
 def get_bind_service(request: Request) -> BindService:
     """Build the account and bind application service from app-scoped dependencies."""
     return BindService(
-        users=UserRepository(request.app.state.connection),
-        nodes=NodeRepository(request.app.state.connection),
-        binds=BindRepository(request.app.state.connection),
-        profiles=AgentProfileRepository(request.app.state.connection),
+        users=_build_user_repository(request),
+        nodes=_build_node_repository(request),
+        binds=_build_bind_repository(request),
+        profiles=_build_profile_repository(request),
         bind_base_url="https://im.local/bind/confirm",
     )
+
+
+def get_relay_service(request: Request) -> RelayService:
+    """Build the relay application service from app-scoped dependencies."""
+    return RelayService(request.app.state.connection)
+
+
+def get_gateway_handler(request: Request) -> GatewayHandler:
+    """Return the singleton gateway websocket handler for the running IM app."""
+    return request.app.state.gateway_handler
 
 
 def assert_conversation_exists(request: Request, *, conversation_id: str) -> None:

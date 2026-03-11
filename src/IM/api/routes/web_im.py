@@ -1,5 +1,4 @@
 """Conversation routes for IM HTTP APIs."""
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -17,6 +16,14 @@ class CreateConversationRequest(BaseModel):
     participant_ids: list[str] = Field(min_length=1)
 
 
+class UpdateConversationRequest(BaseModel):
+    """Request payload for updating conversation metadata."""
+
+    title: str | None = None
+    is_pinned: bool | None = None
+    is_muted: bool | None = None
+
+
 class ConversationResponse(BaseModel):
     """Serialized conversation object returned by API endpoints."""
 
@@ -31,6 +38,12 @@ class ConversationResponse(BaseModel):
     last_message_at: str | None
     config_profile_version: int | None
     created_at: str
+
+
+class ListConversationsResponse(BaseModel):
+    """Envelope returned when listing conversations."""
+
+    items: list[ConversationResponse]
 
 
 def to_conversation_response(conversation: Conversation) -> ConversationResponse:
@@ -70,9 +83,44 @@ def create_conversation(
     return to_conversation_response(created)
 
 
-@router.get("/im/v1/conversations", response_model=list[ConversationResponse])
+@router.get("/im/v1/conversations", response_model=ListConversationsResponse)
 def list_conversations(
     service: WebIMService = Depends(get_web_im_service),
-) -> list[ConversationResponse]:
+) -> ListConversationsResponse:
     """List all conversations with participant membership."""
-    return [to_conversation_response(item) for item in service.list_conversations()]
+    return ListConversationsResponse(
+        items=[to_conversation_response(item) for item in service.list_conversations()]
+    )
+
+
+@router.get("/im/v1/conversations/{conversation_id}", response_model=ConversationResponse)
+def get_conversation(
+    conversation_id: str,
+    service: WebIMService = Depends(get_web_im_service),
+) -> ConversationResponse:
+    """Return one conversation snapshot."""
+    conversation = service.get_conversation(conversation_id=conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="conversation_id not found")
+    return to_conversation_response(conversation)
+
+
+@router.patch("/im/v1/conversations/{conversation_id}", response_model=ConversationResponse)
+def update_conversation(
+    conversation_id: str,
+    payload: UpdateConversationRequest,
+    service: WebIMService = Depends(get_web_im_service),
+) -> ConversationResponse:
+    """Update mutable conversation metadata."""
+    try:
+        updated = service.update_conversation(
+            conversation_id=conversation_id,
+            title=payload.title,
+            is_pinned=payload.is_pinned,
+            is_muted=payload.is_muted,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        http_status = status.HTTP_404_NOT_FOUND if detail == "conversation_id not found" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=http_status, detail=detail) from exc
+    return to_conversation_response(updated)

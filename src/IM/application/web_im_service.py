@@ -1,6 +1,7 @@
 """Application service for IM conversations and messages."""
 
-from IM.domain.models import Conversation, Message
+from IM.application.relay_service import RelayEnqueueResult, RelayService
+from IM.domain.models import Attachment, Conversation, Message
 from IM.infra.repositories import ConversationRepository, MessageRepository
 
 
@@ -12,19 +13,42 @@ class WebIMService:
         *,
         conversations: ConversationRepository,
         messages: MessageRepository,
+        relay_service: RelayService | None = None,
     ) -> None:
         """Bind service to repositories used by Web IM routes.
 
         Args:
             conversations: Repository for conversation reads and writes.
             messages: Repository for message reads and writes.
+            relay_service: Optional relay task service used by M97 websocket flow.
         """
         self._conversations = conversations
         self._messages = messages
+        self._relay_service = relay_service
 
     def create_conversation(self, *, title: str, participant_ids: list[str]) -> Conversation:
         """Create one conversation with validated participants."""
         return self._conversations.create_conversation(title=title, participant_ids=participant_ids)
+
+    def get_conversation(self, *, conversation_id: str) -> Conversation | None:
+        """Load one conversation snapshot by identifier."""
+        return self._conversations.get_conversation(conversation_id=conversation_id)
+
+    def update_conversation(
+        self,
+        *,
+        conversation_id: str,
+        title: str | None,
+        is_pinned: bool | None,
+        is_muted: bool | None,
+    ) -> Conversation:
+        """Update mutable conversation metadata."""
+        return self._conversations.update_conversation(
+            conversation_id=conversation_id,
+            title=title,
+            is_pinned=is_pinned,
+            is_muted=is_muted,
+        )
 
     def list_conversations(self) -> list[Conversation]:
         """List conversations visible in the current storage scope."""
@@ -36,14 +60,50 @@ class WebIMService:
         conversation_id: str,
         sender_user_id: str,
         content: str,
+        sender_type: str = "user",
+        attachments: list[Attachment] | None = None,
     ) -> Message:
         """Create one message inside a conversation."""
         return self._messages.create_message(
             conversation_id=conversation_id,
             sender_user_id=sender_user_id,
             content=content,
+            sender_type=sender_type,
+            attachments=attachments,
         )
 
-    def list_messages(self, *, conversation_id: str) -> list[Message]:
+    def list_messages(
+        self,
+        *,
+        conversation_id: str,
+        limit: int = 50,
+        before_message_id: str | None = None,
+    ) -> list[Message]:
         """List messages for one conversation in storage order."""
-        return self._messages.list_messages(conversation_id=conversation_id)
+        return self._messages.list_messages(
+            conversation_id=conversation_id,
+            limit=limit,
+            before_message_id=before_message_id,
+        )
+
+    def enqueue_relay(
+        self,
+        *,
+        message: Message,
+        target_node_id: str,
+        idempotency_key: str,
+        sender_user_id: str,
+    ) -> RelayEnqueueResult:
+        """Create or reuse one relay task for a persisted IM message.
+
+        Raises:
+            RuntimeError: When the app was built without relay support.
+        """
+        if self._relay_service is None:
+            raise RuntimeError("relay_service is not configured")
+        return self._relay_service.enqueue_message_relay(
+            message=message,
+            target_node_id=target_node_id,
+            idempotency_key=idempotency_key,
+            sender_user_id=sender_user_id,
+        )

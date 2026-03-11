@@ -4,14 +4,16 @@ from contextlib import asynccontextmanager
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 
 from IM.api.routes.account import router as account_router
 from IM.api.routes.agents import router as agent_router
 from IM.api.routes.messages import router as message_router
 from IM.api.routes.users import router as user_router
 from IM.api.routes.web_im import router as web_im_router
+from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
+from IM.ws.gateway_handler import GatewayHandler
 
 
 def create_app(*, db_path: Path | None = None) -> FastAPI:
@@ -34,6 +36,9 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
         connection = connect(resolved_db_path)
         initialize_schema(connection)
         app_instance.state.connection = connection
+        app_instance.state.gateway_handler = GatewayHandler(
+            relay_service=RelayService(connection)
+        )
         try:
             yield
         finally:
@@ -45,6 +50,21 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(web_im_router)
     app.include_router(message_router)
+
+    @app.websocket("/im/ws/gateway")
+    async def gateway_websocket(websocket: WebSocket) -> None:
+        """Serve the Gateway websocket protocol used by IM relay delivery."""
+        try:
+            await app.state.gateway_handler.serve(websocket)
+        except ValueError as exc:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "payload": {"code": "invalid_message", "message": str(exc)},
+                }
+            )
+            await websocket.close(code=1003)
+
     return app
 
 

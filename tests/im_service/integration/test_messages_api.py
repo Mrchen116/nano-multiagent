@@ -1,5 +1,4 @@
 """Integration tests for conversation messages APIs."""
-
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -48,7 +47,7 @@ def test_messages_roundtrip_and_order(tmp_path: Path) -> None:
 
         listed = client.get(f"/im/v1/conversations/{conversation_id}/messages")
         assert listed.status_code == 200
-        payload = listed.json()
+        payload = listed.json()["items"]
 
         assert [item["content"] for item in payload] == ["hello", "world"]
 
@@ -69,7 +68,64 @@ def test_messages_are_isolated_by_conversation(tmp_path: Path) -> None:
 
         second_list = client.get(f"/im/v1/conversations/{second_conversation}/messages")
         assert second_list.status_code == 200
-        assert second_list.json() == []
+        assert second_list.json()["items"] == []
+        assert second_list.json()["next_before_message_id"] is None
+
+
+def test_messages_support_sender_type_attachments_and_pagination(tmp_path: Path) -> None:
+    """Expose rich message fields and cursor pagination for Web IM history."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        user_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, user_id, "chat")
+
+        user_message = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": user_id, "sender_type": "user", "content": "m1"},
+        )
+        agent_message = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={
+                "sender_user_id": user_id,
+                "sender_type": "agent",
+                "content": "m2",
+                "attachments": [
+                    {
+                        "url": "file:///tmp/result.txt",
+                        "content_type": "text/plain",
+                        "file_name": "result.txt",
+                    }
+                ],
+            },
+        )
+        system_message = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": user_id, "sender_type": "system", "content": "m3"},
+        )
+
+        assert user_message.status_code == 201
+        assert agent_message.status_code == 201
+        assert system_message.status_code == 201
+        assert agent_message.json()["attachments"][0]["url"] == "file:///tmp/result.txt"
+
+        first_page = client.get(f"/im/v1/conversations/{conversation_id}/messages?limit=2")
+        assert first_page.status_code == 200
+        first_items = first_page.json()["items"]
+        assert [item["content"] for item in first_items] == ["m2", "m3"]
+        assert first_page.json()["next_before_message_id"] == first_items[0]["id"]
+
+        second_page = client.get(
+            f"/im/v1/conversations/{conversation_id}/messages?limit=2&before_message_id={first_items[0]['id']}"
+        )
+        assert second_page.status_code == 200
+        second_items = second_page.json()["items"]
+        assert [item["content"] for item in second_items] == ["m1"]
+        assert second_page.json()["next_before_message_id"] is None
+
+        conversation = client.get(f"/im/v1/conversations/{conversation_id}")
+        assert conversation.status_code == 200
+        assert conversation.json()["unread_count"] == 3
+        assert conversation.json()["last_message_at"] == system_message.json()["created_at"]
 
 
 def test_sse_events_roundtrip_for_sent_message(tmp_path: Path) -> None:
@@ -77,19 +133,16 @@ def test_sse_events_roundtrip_for_sent_message(tmp_path: Path) -> None:
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         sender_id = _create_user(client, "alice")
-        receiver_id = _create_user(client, "bob")
         conversation_id = _create_conversation(client, sender_id, "chat")
-
-        add_participant = client.post(
-            "/im/v1/conversations",
-            json={"title": "chat-2", "participant_ids": [sender_id, receiver_id]},
-        )
-        assert add_participant.status_code == 201
-        conversation_id = add_participant.json()["id"]
 
         sent = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": sender_id, "content": "hello stream"},
+            json={
+                "sender_user_id": sender_id,
+                "sender_type": "agent",
+                "content": "hello stream",
+                "attachments": [{"url": "https://example.com/file.png", "content_type": "image/png"}],
+            },
         )
         assert sent.status_code == 201
 
@@ -102,4 +155,6 @@ def test_sse_events_roundtrip_for_sent_message(tmp_path: Path) -> None:
 
         assert "event: message.sent" in body
         assert "event: message.delivered" in body
-        assert "\"conversation_id\"" in body
+        assert '"conversation_id"' in body
+        assert '"sender_type":"agent"' in body
+        assert '"attachments":[{"url":"https://example.com/file.png"' in body
