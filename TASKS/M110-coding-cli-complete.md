@@ -37,7 +37,7 @@
   - `PROGRESS/M110-coding-cli-complete.md` 记录决策、证据、提交 hash
 
 ### R2 验收口径补齐与真实 smoke 证据固化
-- Status: DOING
+- Status: DONE
 - Acceptance:
   - `docs/CodingCLI-SPEC.md` §10 的 10 条验收标准有自动化或手工 smoke 对应关系。
   - M108 的多行粘贴与 `/exit` 清队行为纳入本 milestone 正式验收记录。
