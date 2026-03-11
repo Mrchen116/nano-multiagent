@@ -4,6 +4,15 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)
+class Attachment:
+    """Represent one attachment reference stored with a message."""
+
+    url: str
+    content_type: str | None = None
+    file_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class User:
     """Represent a human chat user persisted in IM storage."""
 
@@ -54,7 +63,7 @@ class Message:
     sender_user_id: str
     sender_type: str
     content: str
-    attachments: list[str] = field(default_factory=list)
+    attachments: list[Attachment] = field(default_factory=list)
     delivery_status: str = "completed"
     created_at: str = ""
 
