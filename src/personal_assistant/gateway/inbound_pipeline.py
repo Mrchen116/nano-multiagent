@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Any, Mapping
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.client.kernel_api_client import KernelApiClient
@@ -51,6 +51,11 @@ class InboundPipeline:
         session_store: Local session binding store used to persist key → kernel session.
         channel_bindings: Optional ``channel:chat`` default-agent bindings.
         default_agent_id: Node-level fallback agent used when no explicit/bound agent matches.
+
+    Notes:
+        Group-chat traffic honors the NodeGateway-SPEC @mention gate before any kernel
+        session or run is created. Only direct chats, explicit mentions, replies to the
+        agent, or control-command triggers are allowed to proceed.
     """
 
     def __init__(
@@ -72,10 +77,17 @@ class InboundPipeline:
         self._channel_bindings = dict(channel_bindings or {})
         self._default_agent_id = default_agent_id or (agents[0].agent_id if agents else None)
 
-    async def handle_inbound(self, message: InboundMessage) -> PipelineResult:
-        """Process one inbound message through route, session, queue, and reply steps."""
+    async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
+        """Process one inbound message through route, session, queue, and reply steps.
+
+        Returns:
+            The observable pipeline result when the message is allowed to run, or
+            ``None`` when group-chat mention gating suppresses execution.
+        """
 
         agent_id = self._resolve_agent(message)
+        if not self._should_process(message, agent_id=agent_id):
+            return None
         session_key = build_session_key(message, agent_id=agent_id)
 
         async def _run() -> PipelineResult:
@@ -128,6 +140,30 @@ class InboundPipeline:
             kernel_session_id=kernel_session_id,
             reply_context=build_reply_context(message),
         )
+
+    @staticmethod
+    def _should_process(message: InboundMessage, *, agent_id: str) -> bool:
+        """Apply the group-chat @mention gate before kernel execution.
+
+        Notes:
+            The gateway keeps this gate at the routing boundary so ignored group chatter
+            never allocates kernel sessions or queue slots. Channels may provide either
+            structured metadata or plain-text `@agent` mentions; both are accepted here.
+        """
+
+        if not message.is_group:
+            return True
+        metadata = dict(message.metadata)
+        mentioned = metadata.get("mentioned_agent_ids")
+        if isinstance(mentioned, list) and agent_id in mentioned:
+            return True
+        reply_to_agent_id = metadata.get("reply_to_agent_id")
+        if isinstance(reply_to_agent_id, str) and reply_to_agent_id.strip() == agent_id:
+            return True
+        trigger = metadata.get("trigger")
+        if isinstance(trigger, str) and trigger.strip() in {"command", "mention", "reply"}:
+            return True
+        return f"@{agent_id}" in message.text
 
     def _require_known_agent(self, agent_id: str) -> str:
         if agent_id not in self._agents:

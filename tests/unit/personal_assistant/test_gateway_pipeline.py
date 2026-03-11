@@ -192,10 +192,11 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
     asyncio.run(bound_pipeline.handle_inbound(
         InboundMessage(
             channel_name="web",
-            text="bound",
+            text="@agent-b bound",
             external_user_id="user-2",
             external_chat_id="chat-2",
             is_group=True,
+            metadata={"mentioned_agent_ids": ["agent-b"], "trigger": "mention"},
         )
     ))
 

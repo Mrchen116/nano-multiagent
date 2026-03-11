@@ -31,14 +31,14 @@ def test_create_app_with_personal_assistant_profile_returns_fastapi() -> None:
     assert isinstance(app, FastAPI)
 
 
-def test_personal_assistant_capabilities_returns_only_read_and_task() -> None:
-    """GET /v1/capabilities for personal_assistant must only list read and task tools."""
+def test_personal_assistant_capabilities_returns_send_message_subset() -> None:
+    """GET /v1/capabilities for personal_assistant must list read, task, and send_message."""
     app = create_app(product_profile=PERSONAL_ASSISTANT_PROFILE, auth_token="test-token")
     client = TestClient(app)
     response = client.get("/v1/capabilities", headers=_auth_headers("pa-cap-1"))
     assert response.status_code == 200
     tool_names = {item["name"] for item in response.json()["tools"]}
-    assert tool_names == {"read", "task"}
+    assert tool_names == {"read", "task", "send_message"}
 
 
 def test_personal_assistant_capabilities_excludes_write_edit_bash() -> None:
