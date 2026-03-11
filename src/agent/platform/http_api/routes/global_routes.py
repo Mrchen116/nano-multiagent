@@ -172,7 +172,7 @@ def build_capabilities_payload(
             "description": spec.description,
             "input_schema": dict(spec.input_schema),
         }
-        for spec in tool_registry.list_specs()
+        for spec in sorted(tool_registry.list_specs(), key=lambda spec: spec.name)
     ]
 
     return {
