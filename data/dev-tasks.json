@@ -2720,10 +2720,10 @@
       "exit_criteria": "GET/PATCH /im/v1/agents/{id}/config（profile_version 乐观锁冲突检测）；GET /im/v1/agents Agent 列表；GET/PATCH /im/v1/me + POST /im/v1/bind 设备绑定流程；配置变更仅对新会话生效；相关测试通过",
       "status": "DONE",
       "blocked_by": [],
-      "claimed_by": "subagent-M96",
-      "claimed_at": "2026-03-11T19:25:32+08:00",
+      "claimed_by": null,
+      "claimed_at": null,
       "status_changed_at": "2026-03-11T20:45:00+08:00",
-      "updated_at": "2026-03-11T20:45:00+08:00",
+      "updated_at": "2026-03-11T19:34:05+08:00",
       "execution_mode": "parallel",
       "use_worktree": true,
       "worktree_dir": ".worktrees/M96",
@@ -2798,24 +2798,39 @@
       "title": "IM 节点管理 + 统计",
       "goal": "实现节点状态聚合和使用统计 API，对齐 IM-SPEC §5",
       "exit_criteria": "GET /im/v1/nodes + PATCH /im/v1/nodes/{id}/config；NodeStatus 聚合（online/offline/degraded）；GET /im/v1/metrics/usage（Token/Turn 统计）；相关测试通过",
-      "status": "READY",
+      "status": "RUNNING",
       "blocked_by": [],
-      "claimed_by": null,
-      "claimed_at": null,
-      "status_changed_at": "2026-03-11T19:22:04+08:00",
-      "updated_at": "2026-03-11T19:22:04+08:00"
+      "claimed_by": "subagent-M99",
+      "claimed_at": "2026-03-11T19:34:57+08:00",
+      "status_changed_at": "2026-03-11T19:34:57+08:00",
+      "updated_at": "2026-03-11T19:34:57+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M99",
+      "branch": "milestone/M99"
     },
     {
       "milestone_id": "M100",
       "title": "Gateway Channel 系统 + 入站四步流水线",
       "goal": "实现 Channel 适配器框架和入站消息四步决策流水线，对齐 NodeGateway-SPEC §3/§4",
       "exit_criteria": "channels/base.py（ChannelAdapter Protocol: name/start/send/stop）；gateway/channel_registry.py + gateway/bootstrap.py（start_channels）；gateway/inbound_pipeline.py（四步决策：Agent 路由→会话键→串行队列→出站回发）；gateway/session_keys.py（群聊/私聊键生成 + session_binding_store）；gateway/run_queue.py（同会话串行 FIFO / 跨会话并行）；gateway/outbound_router.py（按 reply_context 回发原通道）；模拟 Channel 消息可完成四步决策 + agent 调用 + 结果回发；串行/并行策略验证通过",
-      "status": "READY",
+      "status": "DONE",
       "blocked_by": [],
-      "claimed_by": null,
-      "claimed_at": null,
-      "status_changed_at": "2026-03-11T19:00:36+08:00",
-      "updated_at": "2026-03-11T19:00:36+08:00"
+      "claimed_by": "subagent-M100",
+      "claimed_at": "2026-03-11T19:34:58+08:00",
+      "status_changed_at": "2026-03-11T19:34:58+08:00",
+      "updated_at": "2026-03-11T19:34:58+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M100",
+      "branch": "milestone/M100",
+      "result": {
+        "solution_summary": "Implemented gateway channel adapters, inbound four-step pipeline, session bindings, per-session FIFO queue, outbound reply routing, and milestone validation tests.",
+        "tests": "python -m pytest -q tests => 674 passed, 4 skipped",
+        "commits": {
+          "milestone": "ff70c5c"
+        }
+      }
     },
     {
       "milestone_id": "M101",
@@ -2879,14 +2894,26 @@
       "title": "legacy root 零残留收口",
       "goal": "删除不符合 SPEC 的 src/nano_multiagent/ legacy 包根，并收口相关测试/文档/导入，恢复顶层目录零残留目标态",
       "exit_criteria": "src/ 下只保留 SPEC 规定的四个顶层包（agent/coding_cli/personal_assistant/IM）；src/nano_multiagent/ 完全删除；相关测试/文档/负向断言更新为新目标态；不得留下新的兼容并行结构；目标测试通过",
-      "status": "BLOCKED",
-      "blocked_by": [
-        "M96"
-      ],
-      "claimed_by": null,
-      "claimed_at": null,
-      "status_changed_at": "2026-03-11T19:27:29+08:00",
-      "updated_at": "2026-03-11T19:27:29+08:00"
+      "status": "RUNNING",
+      "blocked_by": [],
+      "claimed_by": "control-tower-M105",
+      "claimed_at": "2026-03-11T19:43:12+08:00",
+      "status_changed_at": "2026-03-11T19:43:12+08:00",
+      "updated_at": "2026-03-11T19:43:12+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": ".worktrees/M105",
+      "branch": "milestone/M105",
+      "result": {
+        "solution_summary": "确认 M105 目标态已在当前代码基线满足：src 仅保留四个 SPEC 顶层包，src/nano_multiagent 已物理删除，nano_multiagent 不可导入；本次补齐了 M105 的 TASKS/PROGRESS 文档并记录预检与复检证据。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_core_agent_location.py tests/contract/test_multi_product_architecture_acceptance.py -> 5 passed",
+        "commits": {
+          "milestone_docs_and_board": "TBD"
+        },
+        "new_rules": [
+          "legacy root 零残留收口时，必须同时复查 forbidden snippets、find_spec 负向断言与 src 顶层目录期望，不能只看物理目录。"
+        ]
+      }
     },
     {
       "milestone_id": "M106",
@@ -2895,14 +2922,13 @@
       "exit_criteria": "能以真实进程方式跑通 IM 与 Gateway 的注册/连接/消息往返/状态回执主链路；形成端到端测试资产与验收脚本；输出从成熟商业产品视角的交互审视记录，覆盖绑定、会话建立、消息发送、回执、异常反馈、状态提示等关键环节，并列出问题清单与后续改进项；相关 e2e/验收测试通过",
       "status": "BLOCKED",
       "blocked_by": [
-        "M96",
         "M99",
         "M100"
       ],
       "claimed_by": null,
       "claimed_at": null,
       "status_changed_at": "2026-03-11T19:26:16+08:00",
-      "updated_at": "2026-03-11T19:26:16+08:00"
+      "updated_at": "2026-03-11T19:34:05+08:00"
     }
   ]
 }
