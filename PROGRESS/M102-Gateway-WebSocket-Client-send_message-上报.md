@@ -35,9 +35,9 @@
   - Entry: `test_im_connection_connects_registers_and_handles_downstream_frames`、`test_im_connection_retries_with_exponential_backoff_until_cap`、`test_send_message_tool_dispatches_via_gateway_boundary` 与 profile/toolset 断言均通过。
 - Rollback:
   - 若需回退，回到本里程碑开始前的 `milestone/M102` 头部稳定点。
-- Commits: C1=N/A（延续已有部分实现后直接收口）, C2=TBD, C3=TBD
+- Commits: C1=N/A（延续已有部分实现后直接收口）, C2=`f2019a8`, C3=未拆分（本次按用户要求直接提交收口）
 - Next:
-  - 提交本次收口改动并补录 commit hash。
+  - 若后续补完整进程编排，可在 M103+ 接入 bootstrap/lifecycle，并保持当前产品工具归属不回流到 gateway 包。
 
 ## 当前产品/交互风险观察
 - Gateway 入口 `main.py` 仍是 M98/M100 级别 skeleton，尚未把 channel runtime、IM connection manager、scheduler 组装进统一常驻生命周期；本 milestone 会先补核心模块与测试，但完整进程编排仍存在后续整合工作。
