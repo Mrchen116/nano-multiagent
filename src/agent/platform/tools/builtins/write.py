@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any, Mapping
 
-from agent.platform.tools.base import ToolContext
+from agent.core.tools.base import ToolContext
 
 
 class WriteTool:
