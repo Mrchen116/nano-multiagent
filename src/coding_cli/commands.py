@@ -498,7 +498,7 @@ def _send_message_from_repl(
 def _resolve_mode(raw_mode: str | None, *, arg_base_url: str | None = None) -> str:
     env_mode = os.getenv("NANO_MULTIAGENT_CLI_MODE")
     if raw_mode is None and env_mode is None:
-        if arg_base_url is None and os.getenv("NANO_MULTIAGENT_API_BASE_URL") is None:
+        if arg_base_url is None:
             return "managed"
         return _DEFAULT_CLI_MODE
     value = raw_mode or env_mode or _DEFAULT_CLI_MODE
@@ -515,8 +515,11 @@ def _resolve_base_url(*, mode: str, arg_base_url: str | None, env_config: Server
         if not isinstance(value, str) or not value.strip():
             raise ValueError("remote mode requires --base-url or NANO_MULTIAGENT_API_BASE_URL")
         return value.strip()
-    value = arg_base_url or env_base_url or env_config.base_url
-    return value.strip()
+    if isinstance(arg_base_url, str) and arg_base_url.strip():
+        return arg_base_url.strip()
+    # Keep the no-arg front-door on the built-in managed localhost instead of
+    # letting generic API env vars silently turn startup into a remote flow.
+    return ServerClientConfig().base_url
 
 
 def _resolve_timeout_seconds(*, mode: str, arg_timeout_seconds: float | None, env_config: ServerClientConfig) -> float:
