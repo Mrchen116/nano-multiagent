@@ -1,6 +1,7 @@
 """Interactive terminal input helpers used by CLI REPL."""
 
 import sys
+import unicodedata
 from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import RLock
@@ -454,7 +455,7 @@ def _render_interactive_line_locked(
         inline_hint = f"  ({command_items[selected_command_index]})"
     out.write(f"\r{prompt}{line}{inline_hint}\x1b[K")
     out.write("\x1b[J")
-    tail_size = len(line) - cursor + len(inline_hint)
+    tail_size = _display_width(line[cursor:]) + _display_width(inline_hint)
     if tail_size > 0:
         out.write(f"\x1b[{tail_size}D")
     flush = getattr(out, "flush", None)
@@ -497,6 +498,19 @@ def _clear_interactive_line_locked(*, out: TextIO) -> None:
 def _normalize_terminal_multiline_text(text: str) -> str:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     return normalized.replace("\n", "\r\n")
+
+
+def _display_width(text: str) -> int:
+    """Return terminal column width for mixed-width printable text."""
+    width = 0
+    for char in text:
+        if unicodedata.combining(char):
+            continue
+        if unicodedata.east_asian_width(char) in {"F", "W"}:
+            width += 2
+            continue
+        width += 1
+    return width
 
 
 def _sync_command_menu_selection(

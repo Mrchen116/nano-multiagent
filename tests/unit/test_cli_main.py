@@ -1808,7 +1808,7 @@ def test_repl_input_render_uses_display_width_for_mixed_text_cursor_position() -
         out=output,
         prompt="nano> ",
         chars=list("你a好"),
-        cursor=2,
+        cursor=1,
     )
 
     text = output.getvalue()
