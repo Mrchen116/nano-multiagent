@@ -10,8 +10,7 @@ from coding_cli.main import run_cli as app_main_run_cli
 from coding_cli.managed_server import ManagedServerConfig as AppsManagedServerConfig
 from coding_cli.managed_server import ManagedServerError as AppsManagedServerError
 from coding_cli.managed_server import ManagedServerProcess as AppsManagedServerProcess
-from agent.platform.sdk.client import ServerClient as PlatformSDKServerClient
-from agent.platform.sdk.client import ServerClientConfig as PlatformSDKServerClientConfig
+from coding_cli import client as coding_cli_client
 
 
 
@@ -22,17 +21,19 @@ def test_apps_coding_cli_commands_surface_matches_stable_entrypoints() -> None:
 
 
 
-def test_apps_coding_cli_client_surface_matches_platform_sdk() -> None:
-    assert AppsServerClient is PlatformSDKServerClient
-    assert AppsServerClientConfig is PlatformSDKServerClientConfig
+def test_apps_coding_cli_client_surface_stays_on_package_owned_module() -> None:
+    assert AppsServerClient is coding_cli_client.ServerClient
+    assert AppsServerClientConfig is coding_cli_client.ServerClientConfig
+    assert AppsServerClient.__module__ == "coding_cli.client"
+    assert AppsServerClientConfig.__module__ == "coding_cli.client"
 
 
 
 def test_apps_coding_cli_package_root_exports_stable_application_surface() -> None:
     assert coding_cli_app.build_parser is app_commands.build_parser
     assert coding_cli_app.run_cli is app_commands.run_cli
-    assert coding_cli_app.ServerClient is PlatformSDKServerClient
-    assert coding_cli_app.ServerClientConfig is PlatformSDKServerClientConfig
+    assert coding_cli_app.ServerClient is coding_cli_client.ServerClient
+    assert coding_cli_app.ServerClientConfig is coding_cli_client.ServerClientConfig
     assert coding_cli_app.ManagedServerConfig is AppsManagedServerConfig
     assert coding_cli_app.ManagedServerError is AppsManagedServerError
     assert coding_cli_app.ManagedServerProcess is AppsManagedServerProcess

@@ -13,7 +13,7 @@
 
 **Acceptance**:
 - `default_system_prompt` 为非空字符串（个人助手人格，非 coding）
-- `default_tool_ids = ["read", "task"]`（保守集，无 write/edit/bash）
+- `default_tool_ids = ["read", "task"]`（保守集，无 write/edit/bash；`send_message` 为 optional）
 - `default_hook_modules = ["default_status", "usage_metrics"]`（无 bash_risk_gate）
 - `capabilities = {"im": True, "heartbeat": True, "memory": True}`
 - `compat_skill_roots = []`（已是空列表，保持）
@@ -38,7 +38,7 @@
 **Acceptance**:
 - `bootstrap_product(PERSONAL_ASSISTANT_PROFILE, repo_root)` 返回 `ResolvedProductConfig`
 - `resolved_system_prompt` 非空且包含个人助手语义
-- `tool_registry` 只含 `{"read", "task"}`（不含 write/edit/bash）
+- `tool_registry` 只含 `{"read", "task"}`（不含 write/edit/bash；`send_message` 仍作为 optional tool 被产品识别）
 - `hook_registry` 不含 `bash_risk_gate`，但包含 `default_status` 和 `usage_metrics`
 - `ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE)` 路径正确（global_config_home/session_db_path）
 - LOCAL_CODING_PROFILE 回归不受影响
@@ -62,7 +62,7 @@
 
 **Acceptance**:
 - `create_app(product_profile=PERSONAL_ASSISTANT_PROFILE)` 成功返回 FastAPI app
-- GET /v1/capabilities 返回 tools 只含 `read` 和 `task`（不含 write/edit/bash）
+- GET /v1/capabilities 返回 tools 只含 `read` 和 `task`（不含 write/edit/bash；不默认暴露 `send_message`）
 - POST /v1/sessions 端点可工作（sessions 路由正确）
 - LOCAL_CODING_PROFILE 创建的 app /v1/capabilities 仍返回 5 个 coding 工具（回归）
 - 代码中无 `if product == ...` 或 `if product_id == ...` 分支（确认门禁）
