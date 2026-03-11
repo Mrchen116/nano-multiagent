@@ -2900,21 +2900,19 @@
       "blocked_by": [],
       "claimed_by": null,
       "claimed_at": null,
-      "status_changed_at": "2026-03-11T19:46:05+08:00",
-      "updated_at": "2026-03-11T19:46:05+08:00",
+      "status_changed_at": "2026-03-11T20:30:00+08:00",
+      "updated_at": "2026-03-11T20:30:00+08:00",
       "execution_mode": "parallel",
       "use_worktree": true,
       "worktree_dir": ".worktrees/M105",
       "branch": "milestone/M105",
       "result": {
-        "solution_summary": "确认 M105 目标态已在当前代码基线满足：src 仅保留四个 SPEC 顶层包，src/nano_multiagent 已物理删除，nano_multiagent 不可导入；本次补齐了 M105 的 TASKS/PROGRESS 文档并记录预检与复检证据。",
-        "tests": "PYTHONPATH=src pytest -q tests/unit/test_core_agent_location.py tests/contract/test_multi_product_architecture_acceptance.py -> 5 passed",
+        "solution_summary": "补做 M105 docs-only closeout：记录 main 曾短暂保留 src/nano_multiagent 本地残留、后由 control tower 在 main 上移除，并以 legacy-root negative checks 重新验证完成收口。",
+        "tests": "PYTHONPATH=src pytest -q tests/unit/test_core_agent_location.py tests/contract/test_multi_product_architecture_acceptance.py => 5 passed",
         "commits": {
-          "milestone_docs_and_board": "TBD"
-        },
-        "new_rules": [
-          "legacy root 零残留收口时，必须同时复查 forbidden snippets、find_spec 负向断言与 src 顶层目录期望，不能只看物理目录。"
-        ]
+          "follow_up_docs": "ca3dafe",
+          "merge": "8c1a7f3"
+        }
       }
     },
     {
