@@ -24,6 +24,7 @@ class UserResponse(BaseModel):
     username: str
     display_name: str
     owner_id: str
+    owned_node_ids: list[str]
     created_at: str
 
 
@@ -34,6 +35,7 @@ def to_user_response(user: User) -> UserResponse:
         username=user.username,
         display_name=user.display_name,
         owner_id=user.owner_id,
+        owned_node_ids=user.owned_node_ids,
         created_at=user.created_at,
     )
 

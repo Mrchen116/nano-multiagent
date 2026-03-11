@@ -29,6 +29,7 @@ class ConversationResponse(BaseModel):
     is_muted: bool
     unread_count: int
     last_message_at: str | None
+    config_profile_version: int | None
     created_at: str
 
 
@@ -44,6 +45,7 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
         is_muted=conversation.is_muted,
         unread_count=conversation.unread_count,
         last_message_at=conversation.last_message_at,
+        config_profile_version=conversation.config_profile_version,
         created_at=conversation.created_at,
     )
 

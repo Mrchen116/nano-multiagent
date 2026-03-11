@@ -21,7 +21,46 @@ CREATE TABLE IF NOT EXISTS conversations (
     is_muted INTEGER NOT NULL DEFAULT 0,
     unread_count INTEGER NOT NULL DEFAULT 0,
     last_message_at TEXT,
+    config_profile_version INTEGER,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_profiles (
+    agent_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    node_id TEXT,
+    display_name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT NOT NULL,
+    skills_json TEXT NOT NULL DEFAULT '[]',
+    tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
+    group_reply_policy TEXT NOT NULL DEFAULT 'manual',
+    default_model TEXT,
+    profile_version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS nodes (
+    node_id TEXT PRIMARY KEY,
+    owner_id TEXT,
+    node_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'offline',
+    last_heartbeat_at TEXT NOT NULL DEFAULT '',
+    agent_count INTEGER NOT NULL DEFAULT 0,
+    version TEXT NOT NULL DEFAULT '',
+    last_error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS bind_requests (
+    bind_id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL,
+    user_id TEXT,
+    status TEXT NOT NULL,
+    bind_token TEXT NOT NULL UNIQUE,
+    bind_url TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    confirmed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS conversation_participants (
@@ -91,6 +130,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _migrate_users_owner_id(connection)
     _migrate_conversations_metadata(connection)
     _migrate_messages_metadata(connection)
+    _migrate_agent_profile_tables(connection)
     connection.commit()
 
 
@@ -156,6 +196,8 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
             WHERE last_message_at IS NULL
             """
         )
+    if "config_profile_version" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN config_profile_version INTEGER")
 
 
 def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
@@ -174,3 +216,18 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE messages ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'completed'"
         )
+
+
+def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
+    """Backfill newer IM tables and columns needed by M96 APIs."""
+    agent_rows = connection.execute("PRAGMA table_info(agent_profiles)").fetchall()
+    agent_column_names = {row["name"] for row in agent_rows}
+    if agent_rows and "description" not in agent_column_names:
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN description TEXT NOT NULL DEFAULT ''"
+        )
+
+    node_rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
+    node_column_names = {row["name"] for row in node_rows}
+    if node_rows and "owner_id" not in node_column_names:
+        connection.execute("ALTER TABLE nodes ADD COLUMN owner_id TEXT")
