@@ -182,7 +182,7 @@ def run_cli(
     mode = _DEFAULT_CLI_MODE
 
     try:
-        mode = _resolve_mode(args.mode)
+        mode = _resolve_mode(args.mode, arg_base_url=args.base_url)
         managed_llm_overrides = _resolve_managed_llm_overrides(args=args, mode=mode)
         env_config = ServerClientConfig.from_env()
         base_url = _resolve_base_url(mode=mode, arg_base_url=args.base_url, env_config=env_config)
@@ -495,8 +495,13 @@ def _send_message_from_repl(
     )
 
 
-def _resolve_mode(raw_mode: str | None) -> str:
-    value = raw_mode or os.getenv("NANO_MULTIAGENT_CLI_MODE") or _DEFAULT_CLI_MODE
+def _resolve_mode(raw_mode: str | None, *, arg_base_url: str | None = None) -> str:
+    env_mode = os.getenv("NANO_MULTIAGENT_CLI_MODE")
+    if raw_mode is None and env_mode is None:
+        if arg_base_url is None and os.getenv("NANO_MULTIAGENT_API_BASE_URL") is None:
+            return "managed"
+        return _DEFAULT_CLI_MODE
+    value = raw_mode or env_mode or _DEFAULT_CLI_MODE
     lowered = value.strip().lower()
     if lowered not in {"managed", "remote"}:
         raise ValueError(f"unsupported --mode: {value}")

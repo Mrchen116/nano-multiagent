@@ -3077,16 +3077,16 @@ def test_run_cli_without_mode_defaults_repl_to_managed_lifecycle() -> None:
     assert exit_code == 0
     assert manager.config_base_url == "http://127.0.0.1:8000"
     assert manager.events == ["start", "stop"]
-    assert "bye" in output.getvalue()
+    assert output.getvalue() == ""
 
 
-def test_run_cli_without_mode_defaults_command_path_to_managed_for_local_base_url() -> None:
+def test_run_cli_without_mode_defaults_command_path_to_managed_when_base_url_is_omitted() -> None:
     stub = _StubClient()
     output = io.StringIO()
     manager = _ManagedServerSpy()
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8116", "--token", "test-token", "health"],
+        ["--token", "test-token", "health"],
         stdout=output,
         client_factory=lambda _: stub,
         managed_server_factory=lambda config: manager.bind(config),
@@ -3094,8 +3094,23 @@ def test_run_cli_without_mode_defaults_command_path_to_managed_for_local_base_ur
 
     assert exit_code == 0
     assert json.loads(output.getvalue()) == {"healthy": True}
-    assert manager.config_base_url == "http://127.0.0.1:8116"
+    assert manager.config_base_url == "http://127.0.0.1:8000"
     assert manager.events == ["start", "stop"]
+
+
+def test_run_cli_without_mode_uses_remote_mode_when_base_url_is_supplied() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8116", "--token", "test-token", "health"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        managed_server_factory=lambda _: (_ for _ in ()).throw(AssertionError("should not start")),
+    )
+
+    assert exit_code == 0
+    assert json.loads(output.getvalue()) == {"healthy": True}
 
 
 def test_run_cli_explicit_remote_mode_overrides_managed_default() -> None:
