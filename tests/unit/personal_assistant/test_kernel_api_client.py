@@ -1,0 +1,89 @@
+import httpx
+import pytest
+
+from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
+
+
+class _SSETransport(httpx.BaseTransport):
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer secret-token"
+        assert request.headers["x-request-id"] == "req-fixed"
+        return httpx.Response(
+            200,
+            text="id: evt-1\nevent: run.update\ndata: {\"status\": \"running\"}\n\nid: evt-2\ndata: {\"status\": \"completed\"}\n\n",
+        )
+
+
+class _JSONTransport(httpx.BaseTransport):
+    def __init__(self) -> None:
+        self.requests: list[httpx.Request] = []
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if request.url.path == "/v1/health":
+            return httpx.Response(200, json={"healthy": True, "version": "0.1.0", "node_id": "local"})
+        if request.url.path == "/v1/sessions" and request.method == "POST":
+            return httpx.Response(201, json={"session_id": "sess-1", "status": "idle", "created_at": "now"})
+        if request.url.path == "/v1/sessions/sess-1/messages:async":
+            return httpx.Response(202, json={"run_id": "run-1", "session_id": "sess-1", "status": "queued"})
+        if request.url.path == "/v1/runs/run-1":
+            return httpx.Response(200, json={"run_id": "run-1", "session_id": "sess-1", "status": "running", "created_at": "a", "updated_at": "b"})
+        if request.url.path == "/v1/runs/run-1/cancel":
+            return httpx.Response(200, json={"run_id": "run-1", "session_id": "sess-1", "status": "cancelled", "created_at": "a", "updated_at": "c"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+
+def test_kernel_api_client_calls_required_http_subset() -> None:
+    transport = _JSONTransport()
+    client = KernelApiClient(
+        config=KernelApiClientConfig(base_url="http://kernel.local", token="secret-token", request_id="req-fixed"),
+        transport=transport,
+    )
+
+    assert client.health()["healthy"] is True
+    assert client.create_session(workspace_root="/tmp/agent-a", product_id="personal_assistant")["session_id"] == "sess-1"
+    assert client.send_message_async(session_id="sess-1", text="hello")["run_id"] == "run-1"
+    assert client.get_run(run_id="run-1")["status"] == "running"
+    assert client.cancel_run(run_id="run-1")["status"] == "cancelled"
+
+    create_request = next(request for request in transport.requests if request.url.path == "/v1/sessions")
+    async_request = next(request for request in transport.requests if request.url.path.endswith("messages:async"))
+    assert create_request.headers["authorization"] == "Bearer secret-token"
+    assert create_request.headers["x-request-id"] == "req-fixed"
+    assert b'"workspace_root":"/tmp/agent-a"' in create_request.content
+    assert b'"product_id":"personal_assistant"' in create_request.content
+    assert b'"parts":[{"type":"text","text":"hello"}]' in async_request.content
+
+
+def test_kernel_api_client_parses_sse_events() -> None:
+    client = KernelApiClient(
+        config=KernelApiClientConfig(base_url="http://kernel.local", token="secret-token", request_id="req-fixed"),
+        transport=_SSETransport(),
+    )
+
+    events = client.stream_session_events(session_id="sess-1", max_events=2, timeout_seconds=0.1)
+
+    assert events == [
+        {"id": "evt-1", "event": "run.update", "data": {"status": "running"}},
+        {"id": "evt-2", "event": "message", "data": {"status": "completed"}},
+    ]
+
+
+def test_kernel_api_client_maps_error_payload_to_exception() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": {"code": "session_not_found", "message": "missing", "retryable": False, "trace_id": "trace-1"}})
+
+    client = KernelApiClient(
+        config=KernelApiClientConfig(base_url="http://kernel.local", token="secret-token"),
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(RuntimeError, match="session_not_found"):
+        client.create_session(workspace_root="/tmp/agent-a", product_id="personal_assistant")
+
+
+def test_kernel_api_client_requires_token_for_authenticated_calls() -> None:
+    client = KernelApiClient(config=KernelApiClientConfig(base_url="http://kernel.local", token=None))
+
+    with pytest.raises(ValueError, match="missing API token"):
+        client.create_session(workspace_root="/tmp/agent-a", product_id="personal_assistant")
