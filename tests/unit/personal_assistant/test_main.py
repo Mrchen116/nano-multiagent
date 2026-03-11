@@ -8,7 +8,15 @@ import pytest
 
 from personal_assistant.config.local_store import HeartbeatConfig, KernelConfig, LocalConfig, NodeConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.main import GatewayProcessManager, GatewayRuntime, RuntimeFactories, run_gateway
+from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+from personal_assistant.main import (
+    GatewayProcessManager,
+    GatewayRuntime,
+    RuntimeFactories,
+    _build_relay_lifecycle_callback,
+    run_gateway,
+)
+from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 
 
 class _FakeKernelClient:
@@ -86,6 +94,8 @@ class _FakeIMManager:
         self._events = events
         self._fail_connect = fail_connect
         self._closed = asyncio.Event()
+        self.connected = True
+        self.sent_frames: list[tuple[str, dict[str, object]]] = []
 
     async def connect_once(self) -> None:
         self._events.append("im.connect")
@@ -97,7 +107,11 @@ class _FakeIMManager:
 
     async def close(self) -> None:
         self._events.append("im.close")
+        self.connected = False
         self._closed.set()
+
+    async def send_json(self, message_type: str, payload: dict[str, object]) -> None:
+        self.sent_frames.append((message_type, payload))
 
 
 def _build_config(tmp_path: Path) -> LocalConfig:
@@ -237,6 +251,56 @@ def test_gateway_runtime_cleans_up_reverse_order_when_im_start_fails(tmp_path: P
         "channel.stop:web_relay",
         "kernel.stop",
     ]
+
+
+def test_relay_lifecycle_callback_sends_receipts_and_report_to_im() -> None:
+    reporter = UpstreamReporter(node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None)
+    manager = _FakeIMManager([])
+    callback = _build_relay_lifecycle_callback(
+        reporter=reporter,
+        im_connection_manager_factory=lambda: manager,
+    )
+    message = type("_Message", (), {})()
+    message.external_chat_id = "conv-1"
+    message.metadata = {"relay_task_id": "relay-1", "message_id": "msg-1"}
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(phase="accepted", agent_id="agent-a", session_key="web:user:agent-a", run_id="run-1"),
+        )
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="running",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-1",
+                reply_text="hello from agent",
+            ),
+        )
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="completed",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-1",
+                reply_text="hello from agent",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert [item[0] for item in manager.sent_frames] == [
+        "node.delivery_receipt",
+        "node.report",
+        "node.delivery_receipt",
+    ]
+    assert manager.sent_frames[0][1]["delivery_status"] == "sent"
+    assert manager.sent_frames[1][1]["conversation_id"] == "conv-1"
+    assert manager.sent_frames[1][1]["message_id"] == "msg-1"
+    assert manager.sent_frames[2][1]["detail"] == "hello from agent"
 
 
 def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:

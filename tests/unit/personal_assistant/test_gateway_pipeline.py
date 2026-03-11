@@ -37,26 +37,49 @@ class _FakeKernelClient:
     def __init__(self) -> None:
         self.create_session_calls: list[dict[str, str | None]] = []
         self.send_calls: list[dict[str, str]] = []
-        self.run_states: dict[str, dict[str, str]] = {}
+        self.run_states: dict[str, list[dict[str, str]] | dict[str, str]] = {}
+        self.session_events: dict[str, list[list[dict[str, object]]]] = {}
         self._session_index = 0
         self._run_index = 0
+        self._get_run_calls: dict[str, int] = {}
+        self._stream_calls: dict[str, int] = {}
 
     def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None):
         self._session_index += 1
+        session_id = f"sess-{self._session_index}"
         self.create_session_calls.append(
             {"workspace_root": workspace_root, "product_id": product_id, "title": title}
         )
-        return {"session_id": f"sess-{self._session_index}"}
+        self.session_events.setdefault(session_id, [])
+        return {"session_id": session_id}
 
     def send_message_async(self, *, session_id: str, text: str):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         self.send_calls.append({"session_id": session_id, "text": text, "run_id": run_id})
-        self.run_states[run_id] = {"run_id": run_id, "output_text": f"reply:{text}"}
+        self.run_states.setdefault(run_id, {"run_id": run_id, "status": "completed", "output_text": f"reply:{text}"})
+        self.session_events.setdefault(session_id, [])
         return {"run_id": run_id}
 
+    def stream_session_events(self, *, session_id: str, max_events: int = 20, timeout_seconds: float = 0.25):
+        del max_events
+        del timeout_seconds
+        batches = self.session_events.get(session_id, [])
+        index = self._stream_calls.get(session_id, 0)
+        self._stream_calls[session_id] = index + 1
+        if index >= len(batches):
+            return []
+        return batches[index]
+
     def get_run(self, *, run_id: str):
-        return self.run_states[run_id]
+        payload = self.run_states[run_id]
+        if isinstance(payload, list):
+            index = self._get_run_calls.get(run_id, 0)
+            self._get_run_calls[run_id] = index + 1
+            if index >= len(payload):
+                return payload[-1]
+            return payload[index]
+        return payload
 
 
 def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
@@ -152,6 +175,106 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(tmp_pat
         }
     ]
     assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "ping", "run_id": "run-1"}]
+
+
+def test_inbound_pipeline_emits_relay_lifecycle_updates_for_web_relay_messages(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    seen: list[tuple[str, str | None, str | None]] = []
+
+    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+        seen.append((update.phase, update.run_id, message.metadata.get("message_id")))
+
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        relay_lifecycle_callback=_capture,
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="ping",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert seen == [
+        ("accepted", "run-1", "msg-1"),
+        ("running", "run-1", "msg-1"),
+        ("completed", "run-1", "msg-1"),
+    ]
+
+
+def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapshot_has_no_output_text(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    seen: list[tuple[str, str | None, str | None, str | None]] = []
+
+    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+        seen.append((update.phase, update.run_id, message.metadata.get("message_id"), update.reply_text))
+
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        relay_lifecycle_callback=_capture,
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="ping",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    )
+    kernel_client.session_events["sess-1"] = [
+        [
+            {"id": "evt-old", "event": "text_delta", "data": {"run_id": "run-old", "delta": "ignore me"}},
+            {"id": "evt-1", "event": "text_delta", "data": {"run_id": "run-1", "delta": "Hello"}},
+        ],
+        [
+            {"id": "evt-1", "event": "text_delta", "data": {"run_id": "run-1", "delta": "Hello"}},
+            {"id": "evt-2", "event": "text_delta", "data": {"run_id": "run-1", "delta": " world"}},
+        ],
+    ]
+    kernel_client.run_states["run-1"] = [
+        {"run_id": "run-1", "status": "running"},
+        {"run_id": "run-1", "status": "completed", "error": None},
+    ]
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "Hello world"
+    assert channel.sent == [
+        OutboundMessage(
+            channel_name="web_relay",
+            text="Hello world",
+            target_chat_id="conv-1",
+            thread_id=None,
+            metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+        )
+    ]
+    assert seen == [
+        ("accepted", "run-1", "msg-1", None),
+        ("running", "run-1", "msg-1", "Hello world"),
+        ("completed", "run-1", "msg-1", "Hello world"),
+    ]
 
 
 def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_default(tmp_path: Path) -> None:
