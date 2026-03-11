@@ -14,6 +14,7 @@ _DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
 _DEFAULT_STARTUP_TIMEOUT_SECONDS = 15.0
 _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.25
+_DEFAULT_HEARTBEAT_TICK_INTERVAL_SECONDS = 30.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +101,17 @@ class KernelConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class HeartbeatConfig:
+    """Describe local heartbeat scheduler lifecycle settings.
+
+    Args:
+        tick_interval_seconds: Delay between scheduler tick passes while the gateway is running.
+    """
+
+    tick_interval_seconds: float = _DEFAULT_HEARTBEAT_TICK_INTERVAL_SECONDS
+
+
+@dataclass(frozen=True, slots=True)
 class LocalConfig:
     """Represent the full local gateway configuration document.
 
@@ -108,6 +120,7 @@ class LocalConfig:
         agents: Agent workspace definitions managed by this gateway.
         channels: Configured inbound/outbound channel adapters.
         kernel: Local kernel process and HTTP connectivity settings.
+        heartbeat: Local heartbeat scheduler polling settings.
         im_service: Optional upstream IM service configuration.
         source_path: Absolute file path used to load the config.
     """
@@ -116,6 +129,7 @@ class LocalConfig:
     agents: tuple[AgentWorkspaceConfig, ...]
     channels: tuple[ChannelConfig, ...]
     kernel: KernelConfig
+    heartbeat: HeartbeatConfig
     im_service: IMServiceConfig | None
     source_path: Path
 
@@ -151,12 +165,14 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
     agents = _parse_agents(raw.get("agents"))
     channels = _parse_channels(raw.get("channels"))
     kernel = _parse_kernel(raw.get("kernel"))
+    heartbeat = _parse_heartbeat(raw.get("heartbeat"))
     im_service = _parse_im_service(raw.get("im_service"))
     return LocalConfig(
         node=node,
         agents=agents,
         channels=channels,
         kernel=kernel,
+        heartbeat=heartbeat,
         im_service=im_service,
         source_path=source_path,
     )
@@ -250,6 +266,18 @@ def _parse_kernel(payload: Any) -> KernelConfig:
         shutdown_grace_seconds=shutdown_grace_seconds,
         health_poll_interval_seconds=health_poll_interval_seconds,
     )
+
+
+def _parse_heartbeat(payload: Any) -> HeartbeatConfig:
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValueError("heartbeat must be a mapping")
+    tick_interval_seconds = _positive_number(
+        payload.get("tick_interval_seconds", _DEFAULT_HEARTBEAT_TICK_INTERVAL_SECONDS),
+        field_name="heartbeat.tick_interval_seconds",
+    )
+    return HeartbeatConfig(tick_interval_seconds=tick_interval_seconds)
 
 
 def _parse_im_service(payload: Any) -> IMServiceConfig | None:
