@@ -48,4 +48,4 @@ curl -sS -i http://127.0.0.1:4000/v1/messages \
 - 协议与接口说明优先看：`/Users/czj/Repos/LLM_PROXY/README.md`
 
 ## 备注
-- `gpt-4.1-mini` 在当前 Codex(ChatGPT 账号)通道下会返回 400，不建议用于本地联调。
+- 如果codexOAuth用不了，可以用moonshot:kimi-k2.5
