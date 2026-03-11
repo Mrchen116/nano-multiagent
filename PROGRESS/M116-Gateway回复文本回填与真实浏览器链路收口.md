@@ -20,5 +20,5 @@
   - Tests: `cd /Users/czj/Repos/nano-multiagent/.worktrees/M116 && python -m pytest tests/unit/personal_assistant/test_gateway_pipeline.py tests/unit/personal_assistant/test_m103_gateway_im_integration.py tests/im_service/integration/test_m103_im_gateway_e2e.py tests/acceptance/test_im_gateway_real_acceptance.py tests/e2e/test_m112_real_process_roundtrip_e2e.py tests/unit/personal_assistant/test_main.py tests/unit/personal_assistant/test_kernel_api_client.py -q 2>&1 | tail -120` → `34 passed, 14 warnings`。
   - Entry: `tests/acceptance/test_im_gateway_real_acceptance.py` 继续断言 `relay.completed.detail == "assistant:hello from web im"`、`message.delivered.progress_state == "completed"`；`tests/e2e/test_m112_real_process_roundtrip_e2e.py` 保持真实进程 roundtrip 全绿。
 - Rollback: 29f906f
-- Commits: C1=29f906f, C2=7971767, C3=当前提交
+- Commits: C1=29f906f, C2=7971767, C3=3285b93
 - Next: 全部 Roadpoint 已完成，等待主 agent 验收/后续集成。
