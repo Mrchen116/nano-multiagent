@@ -33,12 +33,13 @@ def test_bootstrap_personal_assistant_resolved_system_prompt_non_empty(tmp_path:
     assert len(resolved.resolved_system_prompt.strip()) > 0
 
 
-def test_bootstrap_personal_assistant_tool_registry_includes_send_message(tmp_path: Path) -> None:
-    """personal_assistant bootstrap must expose read, task, and send_message."""
+def test_bootstrap_personal_assistant_tool_registry_keeps_send_message_opt_in(tmp_path: Path) -> None:
+    """personal_assistant bootstrap must only expose default tools by default."""
     resolved = bootstrap_product(profile=PERSONAL_ASSISTANT_PROFILE, repo_root=tmp_path)
     assert resolved.tool_registry is not None
     tool_names = {spec.name for spec in resolved.tool_registry.list_specs()}
-    assert tool_names == {"read", "task", "send_message"}
+    assert tool_names == {"read", "task"}
+    assert PERSONAL_ASSISTANT_PROFILE.optional_tool_ids == ["send_message"]
 
 
 def test_bootstrap_personal_assistant_hook_registry_no_bash_risk_gate(tmp_path: Path) -> None:
