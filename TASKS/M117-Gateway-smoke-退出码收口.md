@@ -20,21 +20,29 @@
 ## Roadpoints
 
 ### R1 关闭信号语义收口
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 为 gateway 入口补足“收到 SIGTERM 后走 graceful shutdown 并返回 exit code 0”的回归测试。
   - 修复真实入口关闭路径，使 smoke runtime 输出 `SHUTDOWN exit_code=0`。
   - 保持现有 READY/RUNNING/SHUTDOWN 观测语义不变，不通过放宽测试掩盖异常退出。
 - Tests Plan:
-  - unit: 补充 `personal_assistant.main` 入口上的 SIGTERM 处理语义测试，快速定位退出码漂移的根因。
+  - unit: 通过 `tests/unit/personal_assistant/test_local_store.py` 新增端口推导回归，收口 `kernel.command` 与 `kernel.base_url` 漂移。
   - e2e: 复用现有 `tests/e2e/test_personal_assistant_main_e2e.py` smoke 脚本验证 READY/RUNNING/SHUTDOWN 与退出码收口。
-  - contract/integration: 本次不新增；问题集中在入口信号关闭语义，现有 gateway runtime 单测已覆盖进程内关闭顺序。
+  - contract/integration: 本次不新增；问题根因在本地配置装载与入口就绪探测地址错位，现有 gateway runtime 单测已覆盖进程内关闭顺序。
 - Expected Tests:
-  - `tests/unit/personal_assistant/test_main.py::<新增 SIGTERM 入口回归测试>`
+  - `tests/unit/personal_assistant/test_local_store.py::test_load_local_config_derives_kernel_base_url_from_local_command_port`
   - `tests/e2e/test_personal_assistant_main_e2e.py::test_smoke_runtime_script_reports_ready_running_and_shutdown`
   - `tests/e2e/test_personal_assistant_main_e2e.py::test_smoke_runtime_script_keeps_gateway_alive_after_ready`
-  - `cd /Users/czj/Repos/nano-multiagent && python -m pytest tests/e2e/test_personal_assistant_main_e2e.py tests/unit/personal_assistant/test_main.py -q 2>&1 | tail -120`
+  - `cd /Users/czj/Repos/nano-multiagent/.worktrees/M117 && python -m pytest tests/e2e/test_personal_assistant_main_e2e.py tests/unit/personal_assistant/test_main.py tests/unit/personal_assistant/test_local_store.py -q`
 - DoD:
-  - `test_command` 全绿。
+  - `test_command` 对应 smoke/gateway 套件全绿。
   - C1/C2/C3 齐全。
   - `PROGRESS/M117-Gateway-smoke-退出码收口.md` 写清决策、证据、回滚点与提交哈希。
+
+## 验证
+- `cd /Users/czj/Repos/nano-multiagent/.worktrees/M117 && python -m pytest tests/e2e/test_personal_assistant_main_e2e.py tests/unit/personal_assistant/test_main.py -q 2>&1 | tail -120` → `11 passed in 4.88s`
+- `cd /Users/czj/Repos/nano-multiagent/.worktrees/M117 && python -m pytest tests/unit/personal_assistant/test_local_store.py -q 2>&1 | tail -120` → `7 passed in 0.07s`
+- `cd /Users/czj/Repos/nano-multiagent/.worktrees/M117 && python -m pytest tests/e2e/test_personal_assistant_main_e2e.py tests/unit/personal_assistant/test_main.py tests/unit/personal_assistant/test_local_store.py -q` → `18 passed in 4.60s`
+
+## 进行中
+- 待做：C3 文档提交。
