@@ -154,6 +154,7 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 - `coding_cli` 和 `personal_assistant` 通过 HTTP 调用同机 agent，禁止直接 import
 - `IM` 不直接调用 agent，只与用户和 `personal_assistant` 交互
 - 四个包之间无 Python import 依赖，各自独立部署
+- 验收口径：`src/agent/`、`src/coding_cli/`、`src/personal_assistant/`、`src/IM/` 源码不得 import 其它顶层包；相关断言由 `tests/contract/test_cli_http_only_contract.py` 自动执行
 
 ---
 
