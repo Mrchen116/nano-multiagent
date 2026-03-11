@@ -12,7 +12,7 @@ from .tracing import current_correlation
 LogSink = Callable[[str, str, dict[str, Any]], None]
 
 _REQUIRED_CORRELATION_FIELDS = ("session_id", "turn_id", "tool_call_id", "trace_id")
-_logger = logging.getLogger("nano_multiagent.observability")
+_logger = logging.getLogger("nano_multiagent.core.observability")
 _sink_lock = Lock()
 _sink: LogSink | None = None
 

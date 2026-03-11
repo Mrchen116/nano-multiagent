@@ -2,9 +2,9 @@
 
 from fastapi import Request
 
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.runtime import AgentRuntime
 from nano_multiagent.core.hooks.registry import HookRegistry
-from nano_multiagent.runs.registry import RunsRegistry
+from nano_multiagent.core.runs.registry import RunsRegistry
 from nano_multiagent.platform.http_api.sse import EventStreamHub
 from nano_multiagent.platform.persistence.session.service import SessionService
 from nano_multiagent.platform.tools.registry import ToolRegistry

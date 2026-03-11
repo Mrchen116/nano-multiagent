@@ -1,4 +1,4 @@
-from nano_multiagent.agent.runtime import _is_context_overflow_error
+from nano_multiagent.core.agent.runtime import _is_context_overflow_error
 from nano_multiagent.core.errors import ModelError
 
 

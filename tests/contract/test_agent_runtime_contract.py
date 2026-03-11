@@ -1,6 +1,6 @@
 from dataclasses import fields
 
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.runtime import AgentRuntime
 from nano_multiagent.core.session.entries import SessionEntry, new_turn_appended_entry
 
 

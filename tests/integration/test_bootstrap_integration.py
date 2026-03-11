@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from nano_multiagent.agent.prompting import CODING_SYSTEM_PROMPT
+from nano_multiagent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from nano_multiagent.platform.bootstrap import bootstrap_product
 from nano_multiagent.products.base import ProductProfile
 from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE

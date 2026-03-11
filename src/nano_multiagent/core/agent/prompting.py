@@ -8,16 +8,42 @@ from nano_multiagent.core.types import Message
 from nano_multiagent.core.llm.interfaces import LLMMessage, LLMToolCall
 from nano_multiagent.core.skills.formatter import format_available_skills_section
 from nano_multiagent.core.skills.registry import SkillMetadata
-from nano_multiagent.products.local_coding.prompts import LOCAL_CODING_SYSTEM_PROMPT
-from nano_multiagent.platform.tools.builtins import builtin_tools
 
-# Compatibility alias: the local_coding product now owns the canonical prompt text.
+LOCAL_CODING_SYSTEM_PROMPT = """You are an expert coding assistant operating inside a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
+
+Available tools:
+<RUNTIME_FILL:AVAILABLE_TOOLS>
+
+In addition to the tools above, you may have access to other custom tools depending on the project.
+
+Guidelines:
+- Use bash for file operations like ls, rg, find
+- Use read to examine files before editing. You must use this tool instead of cat or sed.
+- Use edit for precise changes (old text must match exactly)
+- Use write only for new files or complete rewrites
+- When summarizing your actions, output plain text directly - do NOT use cat or bash to display what you did
+- Be concise in your responses
+- Show file paths clearly when working with files
+
+<RUNTIME_FILL:SKILLS_SECTION>
+
+Current date and time: <RUNTIME_FILL:CURRENT_DATETIME>
+Current working directory: <RUNTIME_FILL:CURRENT_WORKING_DIRECTORY>"""
+
 CODING_SYSTEM_PROMPT = LOCAL_CODING_SYSTEM_PROMPT
 
 # Generic fallback: empty string signals "product must inject its own prompt".
 # Retained as named export to avoid breaking any existing imports; callers that
 # relied on the old coding-specific text must migrate to CODING_SYSTEM_PROMPT.
 DEFAULT_SYSTEM_PROMPT = ""
+
+_DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
+    ToolSpec(name="read", description="Read the contents of a file.", input_schema={}),
+    ToolSpec(name="write", description="Write content to a file.", input_schema={}),
+    ToolSpec(name="edit", description="Edit a file by replacing exact text.", input_schema={}),
+    ToolSpec(name="bash", description="Execute a bash command in the current working directory.", input_schema={}),
+    ToolSpec(name="task", description="Spawn agent tasks for delegated work.", input_schema={}),
+)
 
 
 def build_prompt_messages(
@@ -136,16 +162,7 @@ def _resolve_prompt_timestamp(current_datetime: datetime | str | None) -> str:
 
 
 def _default_tool_specs() -> tuple[ToolSpec, ...]:
-    specs: list[ToolSpec] = []
-    for tool in builtin_tools():
-        specs.append(
-            ToolSpec(
-                name=str(tool.name),
-                description=str(tool.description),
-                input_schema=dict(tool.input_schema),
-            )
-        )
-    return tuple(specs)
+    return _DEFAULT_TOOL_SPECS
 
 
 def _format_available_tools(tools: Sequence[ToolSpec]) -> str:

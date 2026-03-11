@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from nano_multiagent.agent.runtime import AgentRuntime
+from nano_multiagent.core.agent.runtime import AgentRuntime
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.types import Message, TurnResult
 from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
@@ -102,7 +102,7 @@ def test_async_run_status_entries_persist_in_sqlite_store(tmp_path: Path) -> Non
 def test_async_run_persists_retry_metadata_during_retryable_failures(tmp_path: Path, monkeypatch) -> None:
     sleep_calls: list[float] = []
     monkeypatch.setattr(
-        "nano_multiagent.runs.registry._wait_with_cancel",
+        "nano_multiagent.core.runs.registry._wait_with_cancel",
         lambda _event, seconds: sleep_calls.append(seconds) or False,
     )
 

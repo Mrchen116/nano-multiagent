@@ -1,7 +1,7 @@
 from dataclasses import fields
 
-from nano_multiagent.agent.policies import AgentPolicies
-from nano_multiagent.agent.state import AgentState, InputPart
+from nano_multiagent.core.agent.policies import AgentPolicies
+from nano_multiagent.core.agent.state import AgentState, InputPart
 
 
 def test_input_part_fields_are_stable() -> None:

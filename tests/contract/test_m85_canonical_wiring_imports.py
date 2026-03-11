@@ -1,4 +1,4 @@
-"""Import guard for M88 canonical wiring after zero-residue cleanup."""
+"""Import guard for M89 core wiring after agent/runs/observability closure."""
 
 from pathlib import Path
 
@@ -7,18 +7,48 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src" / "nano_multiagent"
 
 FORBIDDEN_IMPORTS = {
-    "agent/loop.py": ("nano_multiagent.tools.registry",),
-    "agent/runtime.py": (
-        "nano_multiagent.skills.workspace",
+    "core/agent/loop.py": (
+        "nano_multiagent.agent",
         "nano_multiagent.tools.registry",
     ),
-    "agent/prompting.py": ("nano_multiagent.tools.builtins",),
+    "core/agent/runtime.py": (
+        "nano_multiagent.agent",
+        "nano_multiagent.skills.workspace",
+        "nano_multiagent.tools.registry",
+        "nano_multiagent.platform",
+    ),
+    "core/agent/prompting.py": (
+        "nano_multiagent.agent",
+        "nano_multiagent.tools.builtins",
+    ),
+    "core/runs/registry.py": (
+        "nano_multiagent.runs",
+        "nano_multiagent.observability",
+        "nano_multiagent.platform",
+    ),
+    "core/observability/logger.py": ("nano_multiagent.observability",),
+    "core/observability/tracing.py": ("nano_multiagent.observability",),
     "core/llm/factory.py": (
         "nano_multiagent.llm.protocols",
         "nano_multiagent.llm.providers",
         "nano_multiagent.llm.translator",
     ),
     "products/base.py": ("nano_multiagent.tools.registry",),
+    "platform/http_api/app.py": (
+        "nano_multiagent.agent",
+        "nano_multiagent.runs",
+        "nano_multiagent.observability",
+    ),
+    "platform/http_api/deps.py": (
+        "nano_multiagent.agent",
+        "nano_multiagent.runs",
+    ),
+    "platform/http_api/routes/session.py": (
+        "nano_multiagent.agent",
+        "nano_multiagent.runs",
+    ),
+    "platform/http_api/routes/run.py": ("nano_multiagent.runs",),
+    "platform/tools/registry.py": ("nano_multiagent.observability",),
     "platform/hooks/builtins/usage_metrics.py": ("nano_multiagent.hooks.session_usage",),
     "platform/hooks/builtins/bash_risk_gate.py": ("nano_multiagent.tools.safety",),
     "apps/coding_cli/__init__.py": ("nano_multiagent.cli",),

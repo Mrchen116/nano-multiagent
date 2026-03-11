@@ -3,35 +3,41 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
 
 from nano_multiagent.core.errors import ModelError
 from nano_multiagent.core.ids import make_message_id, make_turn_id
 from nano_multiagent.core.types import Message, ToolCall, ToolResult, TurnResult
 from nano_multiagent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
-from nano_multiagent.platform.hooks.session_events import get_session_event_publisher
 from nano_multiagent.core.llm.factory import LLMFactoryConfig, create_llm_client
 from nano_multiagent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from nano_multiagent.core.session.entries import SessionEntry
 from nano_multiagent.core.session.manager import SessionManager
 from nano_multiagent.core.session.models import Session
 from nano_multiagent.core.skills import SkillMetadata, resolve_available_skills
+from nano_multiagent.core.skills.discovery import SkillRootResolver
 
 from .compaction.applier import CompactionApplier
 from .compaction.planner import CompactionPlanner
 from .compaction.policy import should_compact
 from .compaction.summarizer import CompactionSummarizer
 from .compaction.types import CompactionReason, CompactionResult, CompactionSettings
-from .loop import AgentLoop
+from .loop import AgentLoop, ToolRegistryLike
 from .policies import AgentPolicies
 from .skill_commands import rewrite_skill_command
 from .state import AgentState, InputPart, parse_input_parts, render_user_text
 
 if TYPE_CHECKING:
     from nano_multiagent.core.hooks.registry import HookRegistry
-    from nano_multiagent.platform.config.resolver import ConfigResolver
-    from nano_multiagent.platform.tools.registry import ToolRegistry
+
+
+class ConfigResolverLike(SkillRootResolver, Protocol):
+    def user_tool_roots(self) -> tuple[Path, ...]:
+        ...
+
+    def user_hook_roots(self) -> tuple[Path, ...]:
+        ...
 
 
 class AgentRuntime:
@@ -48,9 +54,9 @@ class AgentRuntime:
         repo_root: Path | None = None,
         available_skills: Sequence[SkillMetadata] | None = None,
         compaction_settings: CompactionSettings | None = None,
-        tool_registry: "ToolRegistry | None" = None,
+        tool_registry: ToolRegistryLike | None = None,
         system_prompt: str | None = None,
-        config_resolver: "ConfigResolver | None" = None,
+        config_resolver: ConfigResolverLike | None = None,
     ) -> None:
         env_llm_config = LLMFactoryConfig.from_env()
         self._llm_config = LLMFactoryConfig(
@@ -352,7 +358,7 @@ class AgentRuntime:
         )
         return self._llm_config
 
-    def bind_tool_registry(self, tool_registry: "ToolRegistry | None") -> None:
+    def bind_tool_registry(self, tool_registry: ToolRegistryLike | None) -> None:
         """Bind or unbind runtime tool registry."""
 
         self._loop.bind_tool_registry(tool_registry)
@@ -364,7 +370,7 @@ class AgentRuntime:
         return self._hook_runner
 
     @property
-    def config_resolver(self) -> "ConfigResolver | None":
+    def config_resolver(self) -> ConfigResolverLike | None:
         """Expose the resolver used for product-owned workspace/global paths."""
 
         return self._config_resolver
@@ -460,7 +466,7 @@ class AgentRuntime:
     ) -> HookContext:
         session_event_publisher = None
         if self._hook_runner is not None:
-            session_event_publisher = get_session_event_publisher(
+            session_event_publisher = _resolve_session_event_publisher(
                 registry=self._hook_runner.registry,
                 session_id=session_id,
             )
@@ -691,6 +697,19 @@ class AgentRuntime:
                 "tool_call_id": tool_result.call_id,
             },
         )
+
+
+_SESSION_EVENT_PUBLISHER_FACTORY_STATE_KEY = "session_event_publisher_factory"
+
+
+def _resolve_session_event_publisher(*, registry: "HookRegistry", session_id: str):
+    factory = registry.get_extension_state(_SESSION_EVENT_PUBLISHER_FACTORY_STATE_KEY)
+    if not callable(factory):
+        return None
+    publisher = factory(session_id)
+    if not callable(publisher):
+        return None
+    return publisher
 
 
 def _serialize_input_parts(parts: Sequence[InputPart]) -> tuple[dict[str, Any], ...]:

@@ -14,10 +14,8 @@ from nano_multiagent.core.ids import make_run_id
 from nano_multiagent.core.types import TokenUsage, TurnResult
 from nano_multiagent.core.hooks.context import HookContext
 from nano_multiagent.core.hooks.runner import HookExecution, HookRunner
-from nano_multiagent.platform.hooks.session_events import get_session_event_publisher
-from nano_multiagent.observability.logger import log_error, log_info
-from nano_multiagent.observability.tracing import bind_correlation, current_trace_id
-from nano_multiagent.platform.http_api.sse import EventStreamHub
+from nano_multiagent.core.observability.logger import log_error, log_info
+from nano_multiagent.core.observability.tracing import bind_correlation, current_trace_id
 from nano_multiagent.core.session.manager import SessionManager
 
 
@@ -59,13 +57,18 @@ class RuntimeRunner(Protocol):
         ...
 
 
+class EventHubLike(Protocol):
+    def publish(self, *, event: str, session_id: str, data: dict[str, Any]) -> object:
+        ...
+
+
 class RunsRegistry:
     def __init__(
         self,
         *,
         runtime: RuntimeRunner,
         session_manager: SessionManager,
-        event_hub: EventStreamHub | None = None,
+        event_hub: EventHubLike | None = None,
         hook_runner: HookRunner | None = None,
         max_workers: int = 4,
     ) -> None:
@@ -557,6 +560,9 @@ def _run_status_data(record: RunRecord) -> dict[str, Any]:
     return payload
 
 
+_SESSION_EVENT_PUBLISHER_FACTORY_STATE_KEY = "session_event_publisher_factory"
+
+
 def _resolve_session_event_publisher(
     *,
     hook_runner: HookRunner | None,
@@ -564,7 +570,10 @@ def _resolve_session_event_publisher(
 ):
     if hook_runner is None:
         return None
-    return get_session_event_publisher(
-        registry=hook_runner.registry,
-        session_id=session_id,
-    )
+    factory = hook_runner.registry.get_extension_state(_SESSION_EVENT_PUBLISHER_FACTORY_STATE_KEY)
+    if not callable(factory):
+        return None
+    publisher = factory(session_id)
+    if not callable(publisher):
+        return None
+    return publisher
