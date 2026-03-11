@@ -6,6 +6,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
 
+from IM.api.routes.account import router as account_router
+from IM.api.routes.agents import router as agent_router
 from IM.api.routes.messages import router as message_router
 from IM.api.routes.users import router as user_router
 from IM.api.routes.web_im import router as web_im_router
@@ -44,6 +46,8 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
 
     app = FastAPI(title="Independent IM Service", version="0.1.0", lifespan=lifespan)
     app.include_router(user_router)
+    app.include_router(account_router)
+    app.include_router(agent_router)
     app.include_router(web_im_router)
     app.include_router(message_router)
 

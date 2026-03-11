@@ -20,7 +20,8 @@ class User:
     username: str
     display_name: str
     owner_id: str
-    created_at: str
+    owned_node_ids: list[str] = field(default_factory=list)
+    created_at: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +31,8 @@ class AgentProfile:
     agent_id: str
     owner_id: str
     display_name: str
-    system_prompt: str
+    description: str = ""
+    system_prompt: str = ""
     skills: list[str] = field(default_factory=list)
     tool_allowlist: list[str] = field(default_factory=list)
     group_reply_policy: str = "manual"
@@ -51,6 +53,7 @@ class Conversation:
     is_muted: bool
     unread_count: int
     last_message_at: str | None
+    config_profile_version: int | None
     created_at: str
 
 
@@ -97,6 +100,20 @@ class RelayTask:
     updated_at: str
     receipt_status: str | None = None
     receipt_detail: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceBindRequest:
+    """Represent one device bind request across start and confirm steps."""
+
+    bind_id: str
+    node_id: str
+    user_id: str | None
+    status: str
+    bind_token: str
+    bind_url: str
+    created_at: str
+    confirmed_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
