@@ -24,7 +24,7 @@
 ## Roadpoints
 
 ### R1 运行时装配与优雅生命周期
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `GatewayRuntime` 不再 start 后立即 stop，而是保持常驻直到收到退出信号/停止请求
   - 启动顺序符合 `docs/NodeGateway-SPEC.md:45-52`：load config → start kernel and probe health → start channels → start heartbeat scheduler → optional IM websocket → ready
