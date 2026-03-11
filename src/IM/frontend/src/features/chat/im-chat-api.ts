@@ -4,6 +4,7 @@ interface ImUser {
   id: string;
   username: string;
   display_name: string;
+  owned_node_ids?: string[];
 }
 
 interface ImConversation {
@@ -17,7 +18,18 @@ interface ImMessage {
   conversation_id: string;
   sender_user_id: string;
   content: string;
+  delivery_status?: string;
   created_at: string;
+}
+
+interface ItemsEnvelope<T> {
+  items: T[];
+}
+
+interface CreateMessagePayload {
+  sender_user_id: string;
+  content: string;
+  target_node_id?: string;
 }
 
 interface ParsedPayload {
@@ -34,7 +46,7 @@ const SELF_USERNAME = "you";
 const PEER_USERNAME = "peer";
 const DEFAULT_CONVERSATION_TITLE = "You & Teammate";
 
-let bootstrapPromise: Promise<{ selfUserId: string }> | null = null;
+let bootstrapPromise: Promise<{ selfUserId: string; targetNodeId: string | null }> | null = null;
 
 function getApiBaseUrl() {
   return (import.meta.env.VITE_IM_API_BASE_URL ?? "").replace(/\/$/, "");
@@ -58,6 +70,35 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+export function normalizeItemsEnvelope<T>(payload: ItemsEnvelope<T> | T[]): T[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
+export function pickPrimaryOwnedNodeId(user: { owned_node_ids?: string[] | null }): string | null {
+  if (!Array.isArray(user.owned_node_ids) || user.owned_node_ids.length === 0) {
+    return null;
+  }
+  return typeof user.owned_node_ids[0] === "string" && user.owned_node_ids[0].length > 0 ? user.owned_node_ids[0] : null;
+}
+
+export function buildCreateMessageRequest(input: {
+  selfUserId: string;
+  content: string;
+  targetNodeId: string | null;
+}): CreateMessagePayload {
+  const payload: CreateMessagePayload = {
+    sender_user_id: input.selfUserId,
+    content: input.content
+  };
+  if (input.targetNodeId) {
+    payload.target_node_id = input.targetNodeId;
+  }
+  return payload;
+}
+
 async function listUsersRaw() {
   return requestJson<ImUser[]>("/im/v1/users");
 }
@@ -70,7 +111,8 @@ async function createUserRaw(payload: { username: string; display_name: string }
 }
 
 async function listConversationsRaw() {
-  return requestJson<ImConversation[]>("/im/v1/conversations");
+  const payload = await requestJson<ItemsEnvelope<ImConversation> | ImConversation[]>("/im/v1/conversations");
+  return normalizeItemsEnvelope(payload);
 }
 
 async function createConversationRaw(payload: { title: string; participant_ids: string[] }) {
@@ -81,7 +123,8 @@ async function createConversationRaw(payload: { title: string; participant_ids: 
 }
 
 async function listMessagesRaw(conversationId: string) {
-  return requestJson<ImMessage[]>(`/im/v1/conversations/${conversationId}/messages`);
+  const payload = await requestJson<ItemsEnvelope<ImMessage> | ImMessage[]>(`/im/v1/conversations/${conversationId}/messages`);
+  return normalizeItemsEnvelope(payload);
 }
 
 async function ensureUser(username: string, displayName: string): Promise<ImUser> {
@@ -114,7 +157,7 @@ async function ensureBootstrap() {
           participant_ids: [self.id, peer.id]
         });
       }
-      return { selfUserId: self.id };
+      return { selfUserId: self.id, targetNodeId: pickPrimaryOwnedNodeId(self) };
     })();
   }
   return bootstrapPromise;
@@ -135,7 +178,13 @@ function toChatMessage(input: {
     is_mine: isMine,
     content: input.message.content,
     created_at: input.message.created_at,
-    delivery_status: input.defaultStatus
+    delivery_status:
+      input.message.delivery_status === "sent" ||
+      input.message.delivery_status === "running" ||
+      input.message.delivery_status === "completed" ||
+      input.message.delivery_status === "failed"
+        ? input.message.delivery_status
+        : input.defaultStatus
   };
 }
 
@@ -211,11 +260,17 @@ export async function getConversation(conversationId: string): Promise<Conversat
 }
 
 export async function sendMessage(input: { conversationId: string; content: string }): Promise<ChatMessage> {
-  const { selfUserId } = await ensureBootstrap();
+  const { selfUserId, targetNodeId } = await ensureBootstrap();
   const [created, userById] = await Promise.all([
     requestJson<ImMessage>(`/im/v1/conversations/${input.conversationId}/messages`, {
       method: "POST",
-      body: JSON.stringify({ sender_user_id: selfUserId, content: input.content })
+      body: JSON.stringify(
+        buildCreateMessageRequest({
+          selfUserId,
+          content: input.content,
+          targetNodeId
+        })
+      )
     }),
     loadUserMap()
   ]);
@@ -252,7 +307,19 @@ export function streamConversationEvents(input: {
   }
 
   const source = new window.EventSource(withBase(`/im/v1/conversations/${input.conversationId}/events`));
-  const eventTypes = ["message_created", "text_delta", "turn_end", "message_status"];
+  const eventTypes = [
+    "message.sent",
+    "message.delivered",
+    "relay.accepted",
+    "relay.processing",
+    "relay.completed",
+    "relay.failed",
+    "conversation.notice",
+    "message_created",
+    "text_delta",
+    "turn_end",
+    "message_status"
+  ];
   const listeners = eventTypes.map((eventType) => {
     const handler = (event: Event) => {
       const messageEvent = event as MessageEvent<string>;

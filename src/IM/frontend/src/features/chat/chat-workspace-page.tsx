@@ -40,6 +40,38 @@ function updateConversationList(
   return items.map((item) => (item.conversation_id === conversationId ? { ...item, ...patch } : item));
 }
 
+export function toRelayAgentMessage(event: {
+  eventType: string;
+  payload: Record<string, unknown>;
+}): ChatMessage | null {
+  const messageId = toStringValue(event.payload.message_id);
+  if (!messageId) {
+    return null;
+  }
+  const content =
+    toStringValue(event.payload.summary) ??
+    toStringValue(event.payload.detail) ??
+    toStringValue(event.payload.content);
+  if (!content) {
+    return null;
+  }
+  const status =
+    event.eventType === "relay.processing"
+      ? "running"
+      : event.eventType === "relay.failed"
+        ? "failed"
+        : "completed";
+  return {
+    message_id: `${messageId}:agent`,
+    sender_type: "agent",
+    sender_name: toStringValue(event.payload.node_id) ?? "Agent",
+    is_mine: false,
+    content,
+    created_at: toStringValue(event.payload.created_at) ?? new Date().toISOString(),
+    delivery_status: status
+  };
+}
+
 export function ChatWorkspacePage() {
   const { conversationId } = useParams();
   const isMobile = useIsMobile();
@@ -65,6 +97,69 @@ export function ChatWorkspacePage() {
       onEvent: (event) => {
         const messageId = toStringValue(event.payload.message_id);
         if (!messageId) {
+          return;
+        }
+
+        if (event.eventType === "message.sent") {
+          const createdAt = toStringValue(event.payload.created_at) ?? new Date().toISOString();
+          const content = toStringValue(event.payload.content) ?? "";
+          const sender = toStringValue(event.payload.sender_user_id) ?? "peer";
+          const deliveryStatus = toStatus(event.payload.delivery_status) ?? "sent";
+          const nextMessage: ChatMessage = {
+            message_id: messageId,
+            sender_type: "user",
+            sender_name: sender,
+            content,
+            created_at: createdAt,
+            is_mine: false,
+            delivery_status: deliveryStatus
+          };
+          queryClient.setQueryData<ConversationDetail | null>(
+            ["chat", "conversation", conversationId],
+            (previous) => {
+              if (!previous) {
+                return null;
+              }
+              return {
+                ...previous,
+                messages: upsertMessage(previous.messages, nextMessage)
+              };
+            }
+          );
+          return;
+        }
+
+        if (
+          event.eventType === "relay.processing" ||
+          event.eventType === "relay.completed" ||
+          event.eventType === "relay.failed" ||
+          event.eventType === "message.delivered"
+        ) {
+          const nextMessage = toRelayAgentMessage({
+            eventType: event.eventType,
+            payload: event.payload as Record<string, unknown>
+          });
+          if (!nextMessage) {
+            return;
+          }
+          queryClient.setQueryData<ConversationDetail | null>(
+            ["chat", "conversation", conversationId],
+            (previous) => {
+              if (!previous) {
+                return null;
+              }
+              return {
+                ...previous,
+                messages: upsertMessage(previous.messages, nextMessage)
+              };
+            }
+          );
+          queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
+            updateConversationList(previous, conversationId, {
+              last_message_preview: nextMessage.content,
+              last_message_at: nextMessage.created_at
+            })
+          );
           return;
         }
 
@@ -151,7 +246,7 @@ export function ChatWorkspacePage() {
           return;
         }
 
-        if (event.eventType === "turn_end" || event.eventType === "message_status") {
+        if (event.eventType === "turn_end" || event.eventType === "message_status" || event.eventType === "conversation.notice") {
           const status = toStatus(event.payload.status) ?? "completed";
           const content = toStringValue(event.payload.content);
           queryClient.setQueryData<ConversationDetail | null>(

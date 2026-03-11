@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 
 from IM.api.routes.account import router as account_router
 from IM.api.routes.agents import router as agent_router
@@ -50,6 +51,13 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
             connection.close()
 
     app = FastAPI(title="Independent IM Service", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.include_router(user_router)
     app.include_router(account_router)
     app.include_router(agent_router)
