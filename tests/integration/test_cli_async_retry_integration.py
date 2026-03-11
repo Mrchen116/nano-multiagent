@@ -2,7 +2,7 @@ import io
 
 import httpx
 
-from coding_cli.coding_cli.main import run_cli
+from coding_cli.main import run_cli
 from agent.core.errors import ModelError
 from agent.core.types import Message, TurnResult
 from agent.platform.http_api.app import create_app

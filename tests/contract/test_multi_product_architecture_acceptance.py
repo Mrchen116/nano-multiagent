@@ -168,7 +168,7 @@ def test_final_target_tree_paths_exist_and_legacy_roots_are_removed() -> None:
     for relative_path in EXPECTED_EXISTING_PATHS:
         assert (SRC_ROOT / relative_path).exists(), f"missing target-state path: {relative_path}"
 
-    coding_cli_root = PROJECT_ROOT / "src" / "coding_cli" / "coding_cli"
+    coding_cli_root = PROJECT_ROOT / "src" / "coding_cli"
     for relative_path in EXPECTED_TOP_LEVEL_CODING_CLI_PATHS:
         assert (coding_cli_root / relative_path).exists(), f"missing top-level coding_cli path: {relative_path}"
 

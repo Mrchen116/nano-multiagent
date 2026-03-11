@@ -44,23 +44,46 @@
   - PROGRESS 记录抽象下沉方案、兼容处理与回滚点
 
 ## R3 提取顶层 coding_cli 独立包并清除 legacy nano_multiagent 残留
-- 状态：DONE
+- 状态：DONE（纠偏后）
 - Acceptance:
-  - `src/coding_cli/` 作为独立 Python 包存在，CLI 代码不嵌套在 `src/agent/` 内。
-  - 现有 CLI canonical import 指向 `coding_cli.coding_cli.*`。
+  - `src/coding_cli/` 作为独立 Python 包存在，CLI 代码直接位于该目录。
+  - `src/coding_cli/coding_cli/` 不存在，不保留兼容壳层。
+  - 现有 CLI canonical import 指向 `coding_cli.*`，不再指向 `coding_cli.coding_cli.*`。
   - README/SPEC/CLI SPEC 示例改到新路径，不再引用 `nano_multiagent.*`。
   - `src/nano_multiagent/` legacy root 被移除，相关测试与导入全部转向目标态。
 - Tests Plan:
-  - unit：补 CLI canonical surface、legacy root removal 与旧模块不可 import 断言。
-  - contract：补 target-state file tree 与文档 snippet 断言。
+  - unit：补 CLI canonical surface、legacy root removal 与旧模块不可 import 断言，并锁定 `coding_cli.commands`/`coding_cli.main`/`coding_cli.managed_server` 为 canonical module。
+  - contract：补 target-state file tree 与文档 snippet 断言，强制 `src/coding_cli/` 直接承载 CLI 结构。
   - integration：依赖既有 CLI/HTTP 集成测试验证迁移后入口仍可工作。
   - e2e：依赖既有 CLI e2e/contract 门禁，不额外新增新入口脚本测试。
 - Expected Tests:
   - `tests/unit/test_apps_coding_cli_location.py`
-  - `tests/unit/test_core_agent_location.py`
+  - `tests/unit/test_cli_main.py`
+  - `tests/unit/test_cli_refactor_boundaries.py`
   - `tests/contract/test_multi_product_architecture_acceptance.py`
   - 全量 `pytest -q`
 - DoD:
   - `PYTHONPATH=src pytest -q` 全绿
   - 完成 C1/C2/C3
-  - PROGRESS 记录包迁移方案、兼容边界与回滚点
+  - PROGRESS 记录为何打回、如何纠偏、证据与回滚点
+
+## R3.1 M91 纠偏：按 CodingCLI-SPEC §6 消除二级嵌套
+- 状态：DONE
+- Acceptance:
+  - 先将 canonical path 测试改为以 `src/coding_cli/*` 为准。
+  - `main.py`、`commands.py`、`client.py`、`managed_server.py`、`input/`、`events/`、`render/`、`runtime/` 直接位于 `src/coding_cli/`。
+  - 全仓不再出现 `coding_cli.coding_cli.*` 引用。
+  - `agent.core.tools` / `platform.tools` 既有正确实现保持不变。
+- Tests Plan:
+  - unit：先改位置测试与 CLI 边界测试的 canonical module 断言。
+  - contract：修正 target-tree 断言到 `src/coding_cli/`，防止未来回流到二级嵌套。
+  - integration：复用现有 CLI integration 回归验证 HTTP 主链路未受影响。
+  - e2e：复用现有 managed CLI e2e。
+- Expected Tests:
+  - `tests/unit/test_apps_coding_cli_location.py`
+  - `tests/contract/test_multi_product_architecture_acceptance.py`
+  - 全量 `pytest -q`
+- DoD:
+  - `src/coding_cli/coding_cli/` 不存在
+  - `PYTHONPATH=src pytest -q` 全绿
+  - PROGRESS 写清打回原因、修正路径、证据与稳定提交

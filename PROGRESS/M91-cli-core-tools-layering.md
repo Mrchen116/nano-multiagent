@@ -50,22 +50,53 @@
   - `44685fc test(R1): 锁定 core.tools 与零残留目标态（先红）`
 - Commits: C1=`44685fc`, C2=`42d3913`, C3=`8d1f2b7`
 - Next:
-  - 进入 R3，删除 `src/nano_multiagent/` legacy root，并把 README/CLI 入口文案全部切到 `coding_cli.coding_cli` 与 `agent.*`。
+  - 进入 R3，删除 `src/nano_multiagent/` legacy root，并把 README/CLI 入口文案全部切到 `coding_cli` 与 `agent.*`。
 
 ### R3 提取顶层 coding_cli 独立包并清除 legacy nano_multiagent 残留
 - Context:
   - M90 后仍保留整棵 `src/nano_multiagent/` 旧根包；README 也仍使用 `nano_multiagent.platform` 与 `nano_multiagent.apps.coding_cli` 示例。
+  - 上一执行者进一步把 CLI 落成 `src/coding_cli/coding_cli/`，与 `docs/CodingCLI-SPEC.md` §6 明确要求的 `src/coding_cli/*` 直接承载结构冲突。
 - Decision:
   - 删除 `src/nano_multiagent/` 全量 legacy root。
-  - 保持 `src/coding_cli/coding_cli/` 作为 CLI 独立包入口，README 全部改到 `agent.platform.http_api.app` 与 `coding_cli.coding_cli.*`。
-  - 同步更新平台位置测试，使其接受 platform tool contract 作为 facade、canonical home 位于 core。
+  - 打回 `src/coding_cli/coding_cli/` 方案，不保留兼容壳层；把 CLI 模块平移到 `src/coding_cli/`，并全量替换 `coding_cli.coding_cli.*` 为 `coding_cli.*`。
+  - 同步更新 unit/contract/doc 断言，使 canonical path 只接受 `src/coding_cli/*`。
 - Rationale:
-  - 彻底移除 legacy root 才能满足零残留门禁与 `find_spec("nano_multiagent") is None` 的验收要求。
+  - 彻底移除 legacy root 才能满足零残留门禁与 `find_spec("nano_multiagent") is None` 的验收要求；同时必须按 SPEC 直接修正目录结构，避免继续累积错误 canonical path。
 - Evidence:
   - Tests: `cd /Users/czj/Repos/nano-multiagent/.worktrees/M91 && PYTHONPATH=src pytest -q`
-  - Entry: 最终全量测试 `613 passed, 4 skipped`；重点迁移测试 `tests/unit/test_apps_coding_cli_location.py`、`tests/unit/test_core_agent_location.py`、`tests/unit/test_core_tools_location.py`、`tests/contract/test_multi_product_architecture_acceptance.py` 全部通过。
+  - Entry: 最终全量测试 `613 passed, 4 skipped`；重点迁移测试 `tests/unit/test_apps_coding_cli_location.py`、`tests/unit/test_cli_main.py`、`tests/unit/test_cli_refactor_boundaries.py`、`tests/contract/test_multi_product_architecture_acceptance.py` 全部通过。
+  - Paths:
+    - `src/coding_cli/main.py`
+    - `src/coding_cli/commands.py`
+    - `src/coding_cli/client.py`
+    - `src/coding_cli/managed_server.py`
+    - `src/coding_cli/input/`
+    - `src/coding_cli/events/`
+    - `src/coding_cli/render/`
+    - `src/coding_cli/runtime/`
+    - `src/coding_cli/coding_cli/` 已删除
 - Rollback:
   - `42d3913 feat(R2): 下沉 core.tools 抽象并保留 platform 实现（全绿）`
-- Commits: C1=`44685fc`, C2=`984c31b`, C3=`8d1f2b7`
+- Commits: C1=`81007dc`, C2=, C3=
 - Next:
   - 进入 Milestone 集成：rebase main、复跑全量测试、合并回 main、更新 `data/dev-tasks.json`。
+
+### R3.1 M91 纠偏：按 CodingCLI-SPEC §6 消除二级嵌套
+- Context:
+  - 验收要求明确禁止 `src/coding_cli/coding_cli/` 二级嵌套；而现状测试与源码都已把错误路径当作 canonical，属于“门禁与 SPEC 一起漂移”。
+- Decision:
+  - 先改位置测试与 contract 断言到顶层 `coding_cli.*`，再把现有 CLI 文件整体平移到 `src/coding_cli/`，最后删除 `src/coding_cli/coding_cli/`。
+- Rationale:
+  - 这是最小风险路径：保留已验证通过的 CLI 行为，仅修正 canonical path 与目录落点，不回退已正确的 `agent.core.tools` 分层成果。
+- Evidence:
+  - Tests: `cd /Users/czj/Repos/nano-multiagent/.worktrees/M91 && PYTHONPATH=src pytest -q`
+  - Entry:
+    - `tests/unit/test_apps_coding_cli_location.py` 改为断言 `coding_cli.commands` / `coding_cli.main` / `coding_cli.managed_server`
+    - `tests/contract/test_multi_product_architecture_acceptance.py` 改为检查 `src/coding_cli/` 顶层 tree
+    - 全仓 `coding_cli.coding_cli` 搜索结果为 0
+    - `src/coding_cli/coding_cli/` 已删除
+- Rollback:
+  - `81007dc test(R3.1): 锁定 coding_cli 顶层 canonical path（先红）`
+- Commits: C1=`81007dc`, C2=待补, C3=待补
+- Next:
+  - 提交代码迁移与文档证据；随后视需要与最新 `main` 对齐完成 Milestone 集成。

@@ -1,10 +1,10 @@
 import inspect
 from pathlib import Path
 
-from coding_cli.coding_cli.input import repl_commands as cli_repl_commands
-from coding_cli.coding_cli import commands as cli_commands
+from coding_cli.input import repl_commands as cli_repl_commands
+from coding_cli import commands as cli_commands
 from agent.platform.sdk import client as cli_http_client
-from coding_cli.coding_cli import main as cli_main
+from coding_cli import main as cli_main
 from agent.platform.sdk import client as sdk_client
 
 

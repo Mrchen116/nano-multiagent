@@ -1,7 +1,7 @@
 import io
 import json
 
-from coding_cli.coding_cli.main import run_cli
+from coding_cli.main import run_cli
 
 
 class _ConnectionRefusedOnHealthClient:
