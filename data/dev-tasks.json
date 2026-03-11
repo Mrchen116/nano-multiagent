@@ -2695,16 +2695,23 @@
       "title": "IM Web IM API 扩展",
       "goal": "对齐 IM-SPEC §5 Web IM 端点，支持完整的会话和消息管理",
       "exit_criteria": "PATCH /im/v1/conversations/{id}（置顶/免打扰/标题）；Conversation type(direct/group) + owner_id 数据隔离；Message sender_type(user/agent/system) + attachments[]；未读数 + last_message_at + 分页历史；相关 contract/integration/e2e 测试通过",
-      "status": "RUNNING",
+      "status": "DONE",
       "blocked_by": [],
-      "claimed_by": "subagent-M95",
-      "claimed_at": "2026-03-11T19:07:30+08:00",
-      "status_changed_at": "2026-03-11T19:07:14+08:00",
-      "updated_at": "2026-03-11T19:07:30+08:00",
+      "claimed_by": null,
+      "claimed_at": null,
+      "status_changed_at": "2026-03-11T19:20:00+08:00",
+      "updated_at": "2026-03-11T19:20:00+08:00",
       "execution_mode": "parallel",
       "use_worktree": true,
       "worktree_dir": ".worktrees/M95",
-      "branch": "milestone/M95"
+      "branch": "milestone/M95",
+      "result": {
+        "solution_summary": "Web IM conversation APIs now support detail/update endpoints, rich message sender and attachment fields, paginated history, and unread/last_message metadata with contract/integration/e2e coverage.",
+        "tests": "cd /Users/czj/Repos/nano-multiagent/.worktrees/M95 && PYTHONPATH=src pytest -q tests/im_service",
+        "commits": {
+          "C1": "175b8b6"
+        }
+      }
     },
     {
       "milestone_id": "M96",
