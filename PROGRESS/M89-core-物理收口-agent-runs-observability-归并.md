@@ -26,9 +26,9 @@
   - Entry: focused red batch 成功暴露 M89 缺口，证明 contract 已先于实现收口到目标态。
 - Rollback:
   - 最近稳定点：`91d61d6`
-- Commits: C1=`a2a5c12`, C2=`c13b6d1`, C3=`TBD`
+- Commits: C1=`a2a5c12`, C2=`c13b6d1`, C3=`4d31cb9`
 - Next:
-  - 执行全量与 live 验证，并在文档中固化最终证据。
+  - 已完成。继续推进 Milestone 级 main 集成与派工板更新。
 
 ### R89.2 迁移实现并收口 canonical imports
 - Context:
@@ -42,9 +42,9 @@
   - Entry: `ls src/nano_multiagent` 仅剩 `__init__.py/__pycache__/apps/core/platform/products`，focused M89 contract/location tests `14 passed`。
 - Rollback:
   - 最近稳定点：`a2a5c12`
-- Commits: C1=`a2a5c12`, C2=`c13b6d1`, C3=`TBD`
+- Commits: C1=`a2a5c12`, C2=`c13b6d1`, C3=`4d31cb9`
 - Next:
-  - 回写文档证据，固定 M89 验收章节并准备全量/ live 验证。
+  - 已完成。等待 Milestone 级全量验证与 main 集成。
 
 ### R89.3 full sweep、live 验证、main 集成与清理
 - Context:
@@ -58,6 +58,6 @@
   - Entry: `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py` → `1 passed`；`NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py` → `1 passed`。
 - Rollback:
   - 最近稳定点：`c13b6d1`
-- Commits: C1=`a2a5c12`, C2=`c13b6d1`, C3=`TBD`
+- Commits: C1=`a2a5c12`, C2=`c13b6d1`, C3=`4d31cb9`
 - Next:
-  - 提交文档证据后执行 main 集成、board 更新与 worktree 清理。
+  - 执行 main 集成、board 更新与 worktree 清理。
