@@ -22,12 +22,13 @@
 - Rationale:
   - 只有先把 contract 改红，才能避免在旧顶层 root 假设上继续修补，确保后续实现严格对齐最终目录树。
 - Evidence:
-  - Tests: `TBD`
+  - Tests: `/Users/czj/miniforge3/bin/python3 -m pytest -q tests/contract/test_multi_product_architecture_acceptance.py tests/contract/test_m85_canonical_wiring_imports.py tests/contract/test_m86_canonical_homing_imports.py tests/contract/test_core_no_platform_imports.py tests/unit/test_core_agent_location.py tests/unit/test_core_runs_location.py tests/unit/test_core_observability_location.py` → `3 errors during collection`（`nano_multiagent.core.agent|runs|observability` 尚未实现）
+  - Entry: focused red batch 成功暴露 M89 缺口，证明 contract 已先于实现收口到目标态。
 - Rollback:
-  - 最近稳定点：`028eeed`
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - 最近稳定点：`91d61d6`
+- Commits: C1=`a2a5c12`, C2=`c13b6d1`, C3=`TBD`
 - Next:
-  - 改写 M89 目标态门禁并执行 focused red。
+  - 执行全量与 live 验证，并在文档中固化最终证据。
 
 ### R89.2 迁移实现并收口 canonical imports
 - Context:
@@ -37,12 +38,13 @@
 - Rationale:
   - 仅做路径迁移不足以满足 `core` layering guard；实现与依赖边界需要一次性收口。
 - Evidence:
-  - Tests: `TBD`
+  - Tests: `/Users/czj/miniforge3/bin/python3 -m pytest -q tests/unit/test_agent_state.py tests/unit/test_agent_policies.py tests/unit/test_agent_prompting.py tests/unit/test_agent_loop.py tests/unit/test_agent_runtime.py tests/unit/test_agent_runtime_hooks.py tests/unit/test_agent_runtime_compaction_guardrails.py tests/unit/test_compaction_planner.py tests/unit/test_runs_registry.py tests/unit/test_run_cancel.py tests/unit/test_observability_fields.py tests/contract/test_agent_state_contract.py tests/contract/test_agent_runtime_contract.py tests/contract/test_compaction_contract.py tests/contract/test_observability_contract.py tests/contract/test_runs_async_contract.py tests/contract/test_skill_commands_contract.py tests/contract/test_system_prompt_contract.py tests/integration/test_agent_runtime_integration.py tests/integration/test_runs_store_integration.py tests/integration/test_trace_log_correlation_integration.py tests/integration/test_prompt_runtime_fill_integration.py tests/e2e/test_agent_runtime_e2e.py tests/e2e/test_observability_chain_e2e.py tests/e2e/test_system_prompt_render_e2e.py` → `72 passed, 1 skipped`
+  - Entry: `ls src/nano_multiagent` 仅剩 `__init__.py/__pycache__/apps/core/platform/products`，focused M89 contract/location tests `14 passed`。
 - Rollback:
-  - 最近稳定点：`TBD`
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - 最近稳定点：`a2a5c12`
+- Commits: C1=`a2a5c12`, C2=`c13b6d1`, C3=`TBD`
 - Next:
-  - 完成迁移、focused green 与文档同步。
+  - 回写文档证据，固定 M89 验收章节并准备全量/ live 验证。
 
 ### R89.3 full sweep、live 验证、main 集成与清理
 - Context:
@@ -52,9 +54,10 @@
 - Rationale:
   - 先固化证据与回滚点，避免 main 集成后再补文档导致哈希、命令和结论漂移。
 - Evidence:
-  - Tests: `TBD`
+  - Tests: `python3 -m pytest -q` → `606 passed, 4 skipped, 246 warnings`
+  - Entry: `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 python3 -m pytest -q tests/e2e/test_anthropic_generate_e2e.py` → `1 passed`；`NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 NANO_MULTIAGENT_RUN_LIVE_CLI_E2E=1 python3 -m pytest -q tests/e2e/test_cli_managed_live_agent_e2e.py` → `1 passed`。
 - Rollback:
-  - 最近稳定点：`TBD`
-- Commits: C1=`TBD`, C2=`TBD`, C3=`TBD`
+  - 最近稳定点：`c13b6d1`
+- Commits: C1=`a2a5c12`, C2=`c13b6d1`, C3=`TBD`
 - Next:
-  - 执行 full sweep / live / merge / board / cleanup。
+  - 提交文档证据后执行 main 集成、board 更新与 worktree 清理。

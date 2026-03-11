@@ -15,7 +15,7 @@
 - Worktree: `/Users/czj/Repos/nano-multiagent/.nano_multiagent/worktrees/M89`
 
 ## R89.1 core target-state contract 先红
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 将 architecture acceptance / import guards / location tests 改写为 M89 目标态：顶层只能剩 `core/platform/products/apps`，canonical home 需包含 `core/agent`、`core/runs`、`core/observability`。
   - 新增或改写 focused tests，明确 legacy `nano_multiagent.agent|runs|observability` 必须物理移除且不可 import。
@@ -31,7 +31,7 @@
   - C1 为真实 commit hash
 
 ## R89.2 迁移实现并收口 canonical imports
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 物理迁移 `core/agent/`、`core/runs/`、`core/observability/` 到 `core/` 下。
   - source / tests / docs / contracts 全量改到 canonical core paths。
@@ -47,7 +47,7 @@
   - C2 为真实 commit hash
 
 ## R89.3 full sweep、live 验证、main 集成与清理
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `python3 -m pytest -q` 全绿。
   - milestone-relevant live tests 全绿，或明确记录不支持/阻塞。
