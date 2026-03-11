@@ -20,8 +20,9 @@
   - Tests: `PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M103/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/im_service/integration/test_m103_im_gateway_e2e.py /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/integration/test_personal_assistant_bootstrap_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/integration/test_personal_assistant_server_integration.py`
   - Entry: `test_web_im_message_roundtrip_browserless` 证明 `POST /im/v1/conversations/{id}/messages` 生成 `relay.message`，Gateway 接收后创建 kernel session、发起 run，并把回复回送到 `web_relay` 出站消息。
 - Rollback: 首选回退到本 milestone 开始前的分支头（计划提交后、实现前稳定点）。
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
-- Next: 补设备绑定/config sync 与群聊门控/离线自治证据。
+- Commits: C1=`6a2a438ccb2c808d1bb1b6f44fc8836a5d73ee65` (`docs(M102): 补录网关收口提交证据`), C2=`b03581ad47f09b0f7f748bdd8e8498c6476eb9b9` (`Merge milestone/M102 into main`), C3=`98f9972e509220e785c3942517669c41895f80ab` (`feat(M103): 打通IM与Gateway端到端集成验证`)
+- Final evidence: `test_web_im_message_roundtrip_browserless` 与 `test_multi_agent_routing_prefers_explicit_then_binding_then_default` 已随 `98f9972e509220e785c3942517669c41895f80ab` 落地，并在收口门禁 `102 passed` 中覆盖。
+- Next: 已完成。
 
 ### R2 设备绑定 + 配置同步通知端到端
 - Context: M96 已验证绑定 API、M97 已验证 `config.sync` 推送，但缺少把“节点/Agent owner 变更”与“配置更新后通知已连接 Gateway”放在同一 milestone 下的集成证据。
@@ -31,8 +32,9 @@
   - Tests: `PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M103/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/im_service/integration/test_m103_im_gateway_e2e.py`
   - Entry: 绑定测试覆盖 `POST /im/v1/bind(start)` → `POST /im/v1/bind(confirm)` → `GET /im/v1/me` / `GET /im/v1/agents/{id}/config`；config sync 测试覆盖 `PATCH /im/v1/agents/{id}/config` 后由 `GatewayHandler.push_config_sync()` 下推给在线节点。
 - Rollback: 首选回退到完成 R1 后的稳定点。
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
-- Next: 补群聊 @mention gate 与 IM 离线本地自治验证。
+- Commits: C1=`6a2a438ccb2c808d1bb1b6f44fc8836a5d73ee65` (`docs(M102): 补录网关收口提交证据`), C2=`b03581ad47f09b0f7f748bdd8e8498c6476eb9b9` (`Merge milestone/M102 into main`), C3=`98f9972e509220e785c3942517669c41895f80ab` (`feat(M103): 打通IM与Gateway端到端集成验证`)
+- Final evidence: `test_device_binding_end_to_end_updates_node_and_agent_owner` 与 `test_agent_config_sync_notifies_connected_gateway` 已在 `98f9972e509220e785c3942517669c41895f80ab` 中固定，验证绑定后 owner 同步与在线 Gateway 收到 `config.sync`。
+- Next: 已完成。
 
 ### R3 IM 离线自治 + 群聊 @mention 门控
 - Context: NodeGateway-SPEC 要求群聊未 @提及时不触发 Agent，且 IM 离线不影响外部 IM 主路径；现有 `InboundPipeline` 会直接处理所有群聊消息，没有门控，离线自治也缺 focused regression tests。
@@ -42,15 +44,17 @@
   - Tests: `PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M103/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/unit/personal_assistant/test_m103_gateway_im_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/unit/personal_assistant/test_gateway_pipeline.py`
   - Entry: `test_group_message_without_mention_is_ignored` 断言 kernel 完全未被调用；`test_local_channel_keeps_working_without_im_connection` 断言仅靠本地 channel + pipeline 也能完成消息执行与回发。
 - Rollback: 首选回退到完成 R2 后的稳定点。
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
-- Next: 收口全文档、记录门禁结果并提交。
+- Commits: C1=`6a2a438ccb2c808d1bb1b6f44fc8836a5d73ee65` (`docs(M102): 补录网关收口提交证据`), C2=`b03581ad47f09b0f7f748bdd8e8498c6476eb9b9` (`Merge milestone/M102 into main`), C3=`98f9972e509220e785c3942517669c41895f80ab` (`feat(M103): 打通IM与Gateway端到端集成验证`)
+- Final evidence: `test_group_message_without_mention_is_ignored`、`test_group_message_with_mention_or_reply_runs` 与 `test_gateway_local_channel_keeps_working_when_im_offline` 已在 focused red/green 与最终门禁通过，证明 mention gate 与 IM 离线自治同时成立。
+- Next: 已完成。
 
 ## 验证
 - Focused red/green 子集：`PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M103/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/im_service/integration/test_m103_im_gateway_e2e.py /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/unit/personal_assistant/test_m103_gateway_im_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/integration/test_personal_assistant_bootstrap_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/integration/test_personal_assistant_server_integration.py` → `22 passed`
 - 收口门禁：`PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M103/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/im_service /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/unit/personal_assistant /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/integration/test_personal_assistant_bootstrap_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/integration/test_personal_assistant_server_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M103/tests/e2e/test_personal_assistant_main_e2e.py` → `102 passed`
 
-## 进行中
-- 待补：提交哈希回填到 `Commits` 字段，并在 milestone/M103 上创建 git commit。
+## 收尾结论
+- 文档证据已回填：所有 `Commits` 字段均为真实哈希，R1/R2/R3 均补齐 final evidence，且已移除 pending/TODO 占位。
+- 下一步仅需把本次 docs-only 跟进提交到 `milestone/M103`。
 
 ## 结果摘要
 - 已完成 M103 范围内的 browserless IM↔Gateway↔kernel roundtrip、设备绑定端到端、config sync 通知、IM 离线本地自治、多 Agent 路由证据与群聊 @mention gate。

@@ -30,7 +30,7 @@
 ## Roadpoints
 
 ### R1 Web IM ↔ Gateway ↔ kernel 消息往返与多 Agent 路由
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 浏览器侧发消息后，IM 持久化并通过 WS 下推 `relay.message`。
   - Gateway 经 `WebRelayAdapter` + `InboundPipeline` 调用 kernel，并把回复回送到 Web IM 通道。
@@ -50,7 +50,7 @@
   - `PROGRESS/M103-*.md` 记录证据与回滚点。
 
 ### R2 设备绑定 + 配置同步通知端到端
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 设备绑定 start/confirm 完整打通，节点 owner 与 node-local agents 自动归属当前用户。
   - Agent 配置更新后可向已连接 Gateway 下推 `config.sync`，Gateway 记录最新版本/触发 fetch hook。
@@ -67,7 +67,7 @@
   - 门禁命令全绿。
 
 ### R3 IM 离线自治 + 群聊 @mention 门控
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - IM websocket 不可用时，Gateway 本地外部/本地通道主路径仍可处理消息，不依赖 IM 在线。
   - 群聊未 @提及时不触发 kernel；@提及、回复 Agent、或控制命令时才放行。
@@ -84,7 +84,7 @@
   - 先红后绿，门禁全绿，PROGRESS 记清边界。
 
 ### 收尾
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 更新 `TASKS/M103-*.md`、`PROGRESS/M103-*.md`，补齐测试证据、回滚点、提交哈希。
   - 在 `milestone/M103` 上提交本 milestone 变更。
