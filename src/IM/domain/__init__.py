@@ -1,4 +1,4 @@
-"""Legacy compatibility facade for IM domain models."""
+"""Domain layer for the IM service."""
 
 from IM.domain.models import (
     AgentProfile,
