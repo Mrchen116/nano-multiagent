@@ -1,6 +1,6 @@
-from nano_multiagent.core.session.entries import SessionEntryKind, new_session_created_entry
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.core.session.store import LoadedSession, SessionStore
+from agent.core.session.entries import SessionEntryKind, new_session_created_entry
+from agent.core.session.manager import SessionManager
+from agent.core.session.store import LoadedSession, SessionStore
 
 
 class RecordingSessionStore(SessionStore):

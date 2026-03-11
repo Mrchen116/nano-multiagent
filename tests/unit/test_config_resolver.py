@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from nano_multiagent.platform.config.resolver import ConfigResolver
-from nano_multiagent.products.base import ProductProfile
+from agent.platform.config.resolver import ConfigResolver
+from agent.products.base import ProductProfile
 
 
 def _make_profile(

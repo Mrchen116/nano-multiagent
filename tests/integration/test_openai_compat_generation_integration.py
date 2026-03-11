@@ -2,8 +2,8 @@ from typing import Any
 
 import httpx
 
-from nano_multiagent.core.llm.factory import LLMFactoryConfig, create_llm_client
-from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.llm.factory import LLMFactoryConfig, create_llm_client
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 
 
 def test_factory_openai_compat_generation_wires_translator_and_header() -> None:

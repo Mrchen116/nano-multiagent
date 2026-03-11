@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.platform.tools.base import ToolContext
-from nano_multiagent.platform.tools.builtins.task import TaskTool
+from agent.core.types import Message, TurnResult
+from agent.platform.tools.base import ToolContext
+from agent.platform.tools.builtins.task import TaskTool
 
 
 @dataclass(frozen=True, slots=True)

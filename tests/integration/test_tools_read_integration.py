@@ -2,16 +2,16 @@ from pathlib import Path
 import base64
 import json
 
-from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
-from nano_multiagent.platform.llm.providers.anthropic.mapper import AnthropicMapper
-from nano_multiagent.platform.llm.providers.openai_compat.mapper import OpenAICompatMapper
-from nano_multiagent.core.hooks.context import HookContext
-from nano_multiagent.core.hooks.registry import HookRegistry
-from nano_multiagent.core.hooks.runner import HookRunner
-from nano_multiagent.platform.tools.base import ToolContext
-from nano_multiagent.platform.tools.builtins.read import ReadTool
-from nano_multiagent.platform.tools.registry import ToolRegistry
-from nano_multiagent.platform.tools.safety import ToolSafetyConfig
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.platform.llm.providers.anthropic.mapper import AnthropicMapper
+from agent.platform.llm.providers.openai_compat.mapper import OpenAICompatMapper
+from agent.core.hooks.context import HookContext
+from agent.core.hooks.registry import HookRegistry
+from agent.core.hooks.runner import HookRunner
+from agent.platform.tools.base import ToolContext
+from agent.platform.tools.builtins.read import ReadTool
+from agent.platform.tools.registry import ToolRegistry
+from agent.platform.tools.safety import ToolSafetyConfig
 
 
 def test_registry_executes_read_image_and_keeps_part_structure(tmp_path: Path) -> None:

@@ -1,4 +1,4 @@
-from nano_multiagent.core.hooks.types import (
+from agent.core.hooks.types import (
     ALL_HOOK_EVENTS,
     INTERCEPT_EVENTS,
     OBSERVE_EVENTS,

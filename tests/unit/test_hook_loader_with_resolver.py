@@ -6,9 +6,9 @@ ConfigResolver is provided, and falls back to .nano/hooks otherwise.
 
 from pathlib import Path
 
-from nano_multiagent.platform.hooks.loader import build_hook_registry
-from nano_multiagent.platform.config.resolver import ConfigResolver
-from nano_multiagent.products.base import ProductProfile
+from agent.platform.hooks.loader import build_hook_registry
+from agent.platform.config.resolver import ConfigResolver
+from agent.products.base import ProductProfile
 
 
 _HOOK_CODE = """

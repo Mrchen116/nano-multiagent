@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from nano_multiagent.apps.coding_cli.main import run_cli
+from coding_cli.coding_cli.main import run_cli
 
 
 def _llm_proxy_available() -> bool:

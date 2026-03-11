@@ -1,13 +1,13 @@
 import time
 from pathlib import Path
 
-from nano_multiagent.core.errors import ModelError
-from nano_multiagent.core.types import Message, TokenUsage, TurnResult
-from nano_multiagent.core.hooks.registry import HookRegistry
-from nano_multiagent.core.hooks.runner import HookRunner
-from nano_multiagent.core.runs.registry import RunStatus, RunsRegistry
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.errors import ModelError
+from agent.core.types import Message, TokenUsage, TurnResult
+from agent.core.hooks.registry import HookRegistry
+from agent.core.hooks.runner import HookRunner
+from agent.core.runs.registry import RunStatus, RunsRegistry
+from agent.core.session.manager import SessionManager
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class _RuntimeStub:
@@ -250,7 +250,7 @@ def test_runs_registry_retries_retryable_model_errors_and_resets_backoff_after_c
 ) -> None:
     sleep_calls: list[float] = []
     monkeypatch.setattr(
-        "nano_multiagent.core.runs.registry._wait_with_cancel",
+        "agent.core.runs.registry._wait_with_cancel",
         lambda _event, seconds: sleep_calls.append(seconds) or False,
     )
 

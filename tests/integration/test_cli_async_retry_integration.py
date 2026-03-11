@@ -2,10 +2,10 @@ import io
 
 import httpx
 
-from nano_multiagent.apps.coding_cli.main import run_cli
-from nano_multiagent.core.errors import ModelError
-from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.platform.http_api.app import create_app
+from coding_cli.coding_cli.main import run_cli
+from agent.core.errors import ModelError
+from agent.core.types import Message, TurnResult
+from agent.platform.http_api.app import create_app
 
 
 class _RetryThenSuccessRuntime:
@@ -31,14 +31,14 @@ class _RetryThenSuccessRuntime:
 
 def test_cli_repl_http_chain_surfaces_retry_progress_events(monkeypatch) -> None:
     monkeypatch.setattr(
-        "nano_multiagent.core.runs.registry._wait_with_cancel",
+        "agent.core.runs.registry._wait_with_cancel",
         lambda _event, _seconds: False,
     )
     app = create_app(runtime=_RetryThenSuccessRuntime(fail_times=2), auth_token="test-token")
     transport = httpx.ASGITransport(app=app)
 
     def client_factory(config):
-        from nano_multiagent.platform.sdk.client import ServerClient
+        from agent.platform.sdk.client import ServerClient
 
         return ServerClient(config=config, transport=transport)
 

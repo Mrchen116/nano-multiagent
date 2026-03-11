@@ -2,11 +2,11 @@
 
 from dataclasses import fields, is_dataclass
 
-from nano_multiagent.platform.product import (
+from agent.platform.product import (
     ProductProfile as LegacyProductProfile,
     ResolvedProductConfig as LegacyResolvedProductConfig,
 )
-from nano_multiagent.products.base import ProductProfile, ResolvedProductConfig
+from agent.products.base import ProductProfile, ResolvedProductConfig
 
 
 def test_product_profile_is_dataclass() -> None:

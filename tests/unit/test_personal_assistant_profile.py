@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from nano_multiagent.products.base import ProductProfile
-from nano_multiagent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
+from agent.products.base import ProductProfile
+from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 
 
 def test_personal_assistant_profile_is_product_profile() -> None:

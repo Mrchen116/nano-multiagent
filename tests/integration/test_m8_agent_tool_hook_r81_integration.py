@@ -2,16 +2,16 @@ from pathlib import Path
 
 import pytest
 
-from nano_multiagent.core.agent.runtime import AgentRuntime
-from nano_multiagent.core.errors import ToolError
-from nano_multiagent.core.hooks.context import HookContext
-from nano_multiagent.core.hooks.registry import HookRegistry
-from nano_multiagent.core.hooks.runner import HookRunner
-from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.core.session.store import LoadedSession, SessionStore
-from nano_multiagent.platform.tools.base import ToolContext
-from nano_multiagent.platform.tools.registry import ToolRegistry
+from agent.core.agent.runtime import AgentRuntime
+from agent.core.errors import ToolError
+from agent.core.hooks.context import HookContext
+from agent.core.hooks.registry import HookRegistry
+from agent.core.hooks.runner import HookRunner
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.session.manager import SessionManager
+from agent.core.session.store import LoadedSession, SessionStore
+from agent.platform.tools.base import ToolContext
+from agent.platform.tools.registry import ToolRegistry
 
 
 class InMemorySessionStore(SessionStore):

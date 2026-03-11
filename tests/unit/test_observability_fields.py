@@ -1,5 +1,5 @@
-from nano_multiagent.core.observability.logger import capture_logs, log_info
-from nano_multiagent.core.observability.tracing import bind_correlation
+from agent.core.observability.logger import capture_logs, log_info
+from agent.core.observability.tracing import bind_correlation
 
 
 REQUIRED = {"session_id", "turn_id", "tool_call_id", "trace_id"}

@@ -1,6 +1,6 @@
 import pytest
 
-from nano_multiagent.core.agent.state import parse_input_parts, render_user_text
+from agent.core.agent.state import parse_input_parts, render_user_text
 
 
 def test_parse_input_parts_supports_text_and_image() -> None:

@@ -4,14 +4,14 @@ from pathlib import Path
 
 import httpx
 
-import nano_multiagent.core.agent.prompting as prompting_module
-import nano_multiagent.core.session.manager as session_manager_module
-from nano_multiagent.core.agent.prompting import CODING_SYSTEM_PROMPT
-from nano_multiagent.core.agent.runtime import AgentRuntime
-from nano_multiagent.core.llm.factory import LLMFactoryConfig, create_llm_client
-from nano_multiagent.core.session.entries import SessionEntryKind
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+import agent.core.agent.prompting as prompting_module
+import agent.core.session.manager as session_manager_module
+from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
+from agent.core.agent.runtime import AgentRuntime
+from agent.core.llm.factory import LLMFactoryConfig, create_llm_client
+from agent.core.session.entries import SessionEntryKind
+from agent.core.session.manager import SessionManager
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 def _extract_prompt_timestamp(prompt: str) -> str:

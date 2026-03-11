@@ -1,4 +1,4 @@
-from nano_multiagent.core.llm.model_registry import (
+from agent.core.llm.model_registry import (
     get_default_base_url,
     get_default_model,
     resolve_model_metadata,

@@ -1,4 +1,4 @@
-from nano_multiagent.core.errors import ModelError, PolicyViolation, ToolError
+from agent.core.errors import ModelError, PolicyViolation, ToolError
 
 
 def test_model_error_is_typed_and_retryable() -> None:

@@ -7,11 +7,11 @@ the runtime or server.
 
 from pathlib import Path
 
-from nano_multiagent.platform.bootstrap import bootstrap_product
-from nano_multiagent.platform.config.resolver import ConfigResolver
-from nano_multiagent.products.base import ResolvedProductConfig
-from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
-from nano_multiagent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
+from agent.platform.bootstrap import bootstrap_product
+from agent.platform.config.resolver import ConfigResolver
+from agent.products.base import ResolvedProductConfig
+from agent.products.local_coding import LOCAL_CODING_PROFILE
+from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 
 
 def test_bootstrap_personal_assistant_returns_resolved_config(tmp_path: Path) -> None:

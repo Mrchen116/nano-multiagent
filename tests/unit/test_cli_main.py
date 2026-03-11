@@ -2,13 +2,13 @@ import io
 import json
 import time
 
-from nano_multiagent.apps.coding_cli import commands as cli_commands
-from nano_multiagent.apps.coding_cli.input import repl_commands, repl_input
-from nano_multiagent.apps.coding_cli.main import run_cli
+from coding_cli.coding_cli import commands as cli_commands
+from coding_cli.coding_cli.input import repl_commands, repl_input
+from coding_cli.coding_cli.main import run_cli
 
 
 def test_cli_commands_surface_matches_app_commands_module() -> None:
-    import nano_multiagent.apps.coding_cli.commands as app_commands
+    import coding_cli.coding_cli.commands as app_commands
 
     assert cli_commands.build_parser is app_commands.build_parser
     assert cli_commands.run_cli is app_commands.run_cli
@@ -16,27 +16,27 @@ def test_cli_commands_surface_matches_app_commands_module() -> None:
 
 
 def test_cli_internal_modules_live_under_apps_coding_cli_subpackages() -> None:
-    from nano_multiagent.apps.coding_cli.events import repl_events as layered_events
-    from nano_multiagent.apps.coding_cli.input import repl_commands as layered_repl_commands
-    from nano_multiagent.apps.coding_cli.input import repl_input as layered_repl_input
-    from nano_multiagent.apps.coding_cli.render import context_budget as layered_context_budget
-    from nano_multiagent.apps.coding_cli.render import error_presenter as layered_error_presenter
-    from nano_multiagent.apps.coding_cli.render import repl_render as layered_repl_render
-    from nano_multiagent.apps.coding_cli.render import turn_usage as layered_turn_usage
-    from nano_multiagent.apps.coding_cli.runtime import repl_runtime as layered_repl_runtime
+    from coding_cli.coding_cli.events import repl_events as layered_events
+    from coding_cli.coding_cli.input import repl_commands as layered_repl_commands
+    from coding_cli.coding_cli.input import repl_input as layered_repl_input
+    from coding_cli.coding_cli.render import context_budget as layered_context_budget
+    from coding_cli.coding_cli.render import error_presenter as layered_error_presenter
+    from coding_cli.coding_cli.render import repl_render as layered_repl_render
+    from coding_cli.coding_cli.render import turn_usage as layered_turn_usage
+    from coding_cli.coding_cli.runtime import repl_runtime as layered_repl_runtime
 
-    assert layered_events.consume_async_run_events.__module__ == "nano_multiagent.apps.coding_cli.events.repl_events"
-    assert layered_repl_input.emit_external_text.__module__ == "nano_multiagent.apps.coding_cli.input.repl_input"
+    assert layered_events.consume_async_run_events.__module__ == "coding_cli.coding_cli.events.repl_events"
+    assert layered_repl_input.emit_external_text.__module__ == "coding_cli.coding_cli.input.repl_input"
     assert layered_repl_commands.REPL_COMMANDS
-    assert layered_repl_render.print_repl_turn_summary.__module__ == "nano_multiagent.apps.coding_cli.render.repl_render"
-    assert layered_repl_runtime.ReplRunQueue.__module__ == "nano_multiagent.apps.coding_cli.runtime.repl_runtime"
-    assert layered_context_budget.print_context_budget_snapshot.__module__ == "nano_multiagent.apps.coding_cli.render.context_budget"
-    assert layered_error_presenter.error_layer_for_exception.__module__ == "nano_multiagent.apps.coding_cli.render.error_presenter"
-    assert layered_turn_usage.extract_turn_usage_metrics.__module__ == "nano_multiagent.apps.coding_cli.render.turn_usage"
+    assert layered_repl_render.print_repl_turn_summary.__module__ == "coding_cli.coding_cli.render.repl_render"
+    assert layered_repl_runtime.ReplRunQueue.__module__ == "coding_cli.coding_cli.runtime.repl_runtime"
+    assert layered_context_budget.print_context_budget_snapshot.__module__ == "coding_cli.coding_cli.render.context_budget"
+    assert layered_error_presenter.error_layer_for_exception.__module__ == "coding_cli.coding_cli.render.error_presenter"
+    assert layered_turn_usage.extract_turn_usage_metrics.__module__ == "coding_cli.coding_cli.render.turn_usage"
 
 
 def test_cli_event_pipeline_layer_exposes_normalize_dedupe_and_view_model() -> None:
-    from nano_multiagent.apps.coding_cli.events import event_pipeline
+    from coding_cli.coding_cli.events import event_pipeline
 
     assert hasattr(event_pipeline, "NormalizedSessionEvent")
     assert hasattr(event_pipeline, "EventDedupeWindow")
@@ -46,8 +46,8 @@ def test_cli_event_pipeline_layer_exposes_normalize_dedupe_and_view_model() -> N
 
 
 def test_consume_async_run_events_fallback_dedupe_window_evicts_old_semantic_keys() -> None:
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import EventDedupeWindow
-    from nano_multiagent.apps.coding_cli.events.repl_events import consume_async_run_events
+    from coding_cli.coding_cli.events.event_pipeline import EventDedupeWindow
+    from coding_cli.coding_cli.events.repl_events import consume_async_run_events
 
     out = io.StringIO()
     dedupe_window = EventDedupeWindow(max_event_ids=8, max_runs=1, max_fallback_keys_per_run=2)
@@ -78,8 +78,8 @@ def test_consume_async_run_events_fallback_dedupe_window_evicts_old_semantic_key
 
 
 def test_cli_render_phase_machine_transitions_and_guards() -> None:
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplRenderPhase
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplRenderPhaseMachine
+    from coding_cli.coding_cli.events.event_pipeline import ReplRenderPhase
+    from coding_cli.coding_cli.events.event_pipeline import ReplRenderPhaseMachine
 
     machine = ReplRenderPhaseMachine()
     assert machine.phase is ReplRenderPhase.STREAMING
@@ -95,10 +95,10 @@ def test_cli_render_phase_machine_transitions_and_guards() -> None:
 
 
 def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import EventDedupeWindow
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplRenderPhase
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplRenderPhaseMachine
-    from nano_multiagent.apps.coding_cli.events.repl_events import consume_async_run_events
+    from coding_cli.coding_cli.events.event_pipeline import EventDedupeWindow
+    from coding_cli.coding_cli.events.event_pipeline import ReplRenderPhase
+    from coding_cli.coding_cli.events.event_pipeline import ReplRenderPhaseMachine
+    from coding_cli.coding_cli.events.repl_events import consume_async_run_events
 
     out = io.StringIO()
     preview_lines: list[str] = []
@@ -152,7 +152,7 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
 
 
 def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summary() -> None:
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplRenderPhaseMachine
+    from coding_cli.coding_cli.events.event_pipeline import ReplRenderPhaseMachine
 
     machine = ReplRenderPhaseMachine()
     preview_identity = "run_target|bash|call_1|start"
@@ -169,8 +169,8 @@ def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summar
 
 
 def test_build_repl_view_model_isolates_orphan_exec_exit_from_active_call_timeline() -> None:
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import build_repl_view_model
-    from nano_multiagent.apps.coding_cli.events.repl_events import _event_preview_line
+    from coding_cli.coding_cli.events.event_pipeline import build_repl_view_model
+    from coding_cli.coding_cli.events.repl_events import _event_preview_line
 
     model = build_repl_view_model(
         events=[
@@ -188,9 +188,9 @@ def test_build_repl_view_model_isolates_orphan_exec_exit_from_active_call_timeli
 
 
 def test_consume_async_run_events_high_frequency_batch_records_perf_baseline() -> None:
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import EventDedupeWindow
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplPerfTracker
-    from nano_multiagent.apps.coding_cli.events.repl_events import consume_async_run_events
+    from coding_cli.coding_cli.events.event_pipeline import EventDedupeWindow
+    from coding_cli.coding_cli.events.event_pipeline import ReplPerfTracker
+    from coding_cli.coding_cli.events.repl_events import consume_async_run_events
 
     out = io.StringIO()
     preview_lines: list[str] = []
@@ -237,9 +237,9 @@ def test_consume_async_run_events_high_frequency_batch_records_perf_baseline() -
 
 
 def test_consume_async_run_events_long_session_batches_keep_perf_guardrails_stable() -> None:
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import EventDedupeWindow
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplPerfTracker
-    from nano_multiagent.apps.coding_cli.events.repl_events import consume_async_run_events
+    from coding_cli.coding_cli.events.event_pipeline import EventDedupeWindow
+    from coding_cli.coding_cli.events.event_pipeline import ReplPerfTracker
+    from coding_cli.coding_cli.events.repl_events import consume_async_run_events
 
     out = io.StringIO()
     tracker = ReplPerfTracker()
@@ -293,9 +293,9 @@ def test_consume_async_run_events_long_session_batches_keep_perf_guardrails_stab
 
 
 def test_consume_async_run_events_perf_snapshot_marks_unstable_with_guardrail_reason() -> None:
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import EventDedupeWindow
-    from nano_multiagent.apps.coding_cli.events.event_pipeline import ReplPerfTracker
-    from nano_multiagent.apps.coding_cli.events.repl_events import consume_async_run_events
+    from coding_cli.coding_cli.events.event_pipeline import EventDedupeWindow
+    from coding_cli.coding_cli.events.event_pipeline import ReplPerfTracker
+    from coding_cli.coding_cli.events.repl_events import consume_async_run_events
 
     out = io.StringIO()
     tracker = ReplPerfTracker(min_sample_events=10, min_throughput_ratio=0.8)
@@ -328,7 +328,7 @@ def test_consume_async_run_events_perf_snapshot_marks_unstable_with_guardrail_re
 
 
 def test_send_message_with_async_events_exposes_perf_metrics_snapshot() -> None:
-    from nano_multiagent.apps.coding_cli.events.repl_events import send_message_with_async_events
+    from coding_cli.coding_cli.events.repl_events import send_message_with_async_events
 
     payload = send_message_with_async_events(
         out=io.StringIO(),
@@ -1805,7 +1805,7 @@ def test_repl_input_engine_supports_crlf_line_break_for_terminal_mode() -> None:
 
 
 def test_repl_input_state_machine_reports_needs_redraw_for_noop_and_mutating_keys() -> None:
-    from nano_multiagent.apps.coding_cli.input import repl_input as layered_repl_input
+    from coding_cli.coding_cli.input import repl_input as layered_repl_input
 
     state = layered_repl_input._initial_input_state(history=(), command_items=repl_commands.REPL_COMMANDS)
 
@@ -1822,7 +1822,7 @@ def test_repl_input_state_machine_reports_needs_redraw_for_noop_and_mutating_key
 
 
 def test_repl_input_engine_skips_redundant_redraw_for_noop_keys(monkeypatch) -> None:
-    from nano_multiagent.apps.coding_cli.input import repl_input as layered_repl_input
+    from coding_cli.coding_cli.input import repl_input as layered_repl_input
 
     output = io.StringIO()
     render_calls: list[tuple[str, str, int]] = []
@@ -1855,7 +1855,7 @@ def test_repl_input_engine_skips_redundant_redraw_for_noop_keys(monkeypatch) -> 
 
 
 def test_repl_input_state_machine_skips_redraw_when_history_up_hits_top_boundary() -> None:
-    from nano_multiagent.apps.coding_cli.input import repl_input as layered_repl_input
+    from coding_cli.coding_cli.input import repl_input as layered_repl_input
 
     state = layered_repl_input._initial_input_state(history=("first",), command_items=repl_commands.REPL_COMMANDS)
 
@@ -2339,7 +2339,7 @@ def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
     assert "assistant: (empty)" in text
     assert "send failed: timed out" in text
     assert "layer=network" in text
-    assert "nano_multiagent_api_timeout_seconds" in text
+    assert "agent_api_timeout_seconds" in text
 
 
 def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
@@ -2692,7 +2692,7 @@ def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress(
 
 
 def test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_drained(monkeypatch) -> None:
-    from nano_multiagent.apps.coding_cli import commands as app_commands
+    from coding_cli.coding_cli import commands as app_commands
 
     class _FalseTimeoutAfterDrainQueue:
         def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001
@@ -2740,7 +2740,7 @@ def test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_d
 
 
 def test_run_cli_repl_exit_reports_remaining_inflight_messages_after_timeout(monkeypatch) -> None:
-    from nano_multiagent.apps.coding_cli import commands as app_commands
+    from coding_cli.coding_cli import commands as app_commands
 
     class _NeverDrainQueue:
         def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001

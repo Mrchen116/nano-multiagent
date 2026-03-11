@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from nano_multiagent.core.session.entries import SessionEntry, SessionEntryKind
-from nano_multiagent.platform.persistence.session.jsonl_store import JsonlSessionStore
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.session.entries import SessionEntry, SessionEntryKind
+from agent.platform.persistence.session.jsonl_store import JsonlSessionStore
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 def test_sqlite_store_persists_events_and_snapshot_across_reopen(tmp_path: Path) -> None:

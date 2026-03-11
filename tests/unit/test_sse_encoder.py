@@ -1,6 +1,6 @@
 import json
 
-from nano_multiagent.platform.http_api.sse import encode_sse_event
+from agent.platform.http_api.sse import encode_sse_event
 
 
 def test_encode_sse_event_includes_id_event_and_data_lines() -> None:

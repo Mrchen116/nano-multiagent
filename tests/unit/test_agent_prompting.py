@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from nano_multiagent.core.agent.prompting import CODING_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT, build_prompt_messages
-from nano_multiagent.core.types import Message
-from nano_multiagent.core.types import ToolSpec
-from nano_multiagent.core.skills.registry import SkillMetadata
+from agent.core.agent.prompting import CODING_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT, build_prompt_messages
+from agent.core.types import Message
+from agent.core.types import ToolSpec
+from agent.core.skills.registry import SkillMetadata
 
 
 def test_default_system_prompt_is_generic_fallback() -> None:

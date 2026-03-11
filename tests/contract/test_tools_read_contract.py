@@ -3,10 +3,10 @@ import base64
 
 import pytest
 
-from nano_multiagent.core.errors import ToolError
-from nano_multiagent.platform.tools.base import ToolContext
-from nano_multiagent.platform.tools.builtins.read import ReadTool
-from nano_multiagent.platform.tools.safety import ToolSafetyConfig
+from agent.core.errors import ToolError
+from agent.platform.tools.base import ToolContext
+from agent.platform.tools.builtins.read import ReadTool
+from agent.platform.tools.safety import ToolSafetyConfig
 
 
 def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolContext:

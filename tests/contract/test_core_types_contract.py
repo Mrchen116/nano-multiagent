@@ -1,6 +1,6 @@
 from dataclasses import fields
 
-from nano_multiagent.core.types import Message, ToolCall, ToolResult, ToolSpec, TurnResult
+from agent.core.types import Message, ToolCall, ToolResult, ToolSpec, TurnResult
 
 
 def test_message_contract_fields_are_stable() -> None:

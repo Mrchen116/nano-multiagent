@@ -1,14 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from nano_multiagent.core.types import Message, TokenUsage, TurnResult
-from nano_multiagent.platform.hooks.session_usage import (
+from agent.core.types import Message, TokenUsage, TurnResult
+from agent.platform.hooks.session_usage import (
     SessionUsageSnapshot,
     set_session_usage_snapshot_reader,
 )
-from nano_multiagent.platform.http_api.app import create_app
-from nano_multiagent.platform.http_api.deps import APIError
-from nano_multiagent.platform.http_api.routes.session import _CONTEXT_BUDGET_MAX_TOKENS, _to_message_response
+from agent.platform.http_api.app import create_app
+from agent.platform.http_api.deps import APIError
+from agent.platform.http_api.routes.session import _CONTEXT_BUDGET_MAX_TOKENS, _to_message_response
 
 
 def test_server_session_shim_reexports_context_budget_constant() -> None:

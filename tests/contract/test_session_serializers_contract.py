@@ -1,5 +1,5 @@
-from nano_multiagent.core.session.entries import CompactionEntry, SessionEntry, SessionEntryKind
-from nano_multiagent.platform.persistence.session.serializers import (
+from agent.core.session.entries import CompactionEntry, SessionEntry, SessionEntryKind
+from agent.platform.persistence.session.serializers import (
     ENTRY_SERIALIZATION_VERSION,
     deserialize_entry,
     serialize_entry,

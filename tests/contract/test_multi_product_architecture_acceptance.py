@@ -13,17 +13,11 @@ KERNEL_SPEC = PROJECT_ROOT / "docs" / "内核设计SPEC.md"
 
 EXPECTED_TARGET_TREE_LINES = (
     "src/",
-    "├── agent/                        # Agent 内核（对外只暴露 HTTP API）",
-    "├── coding_cli/                   # 本地编码 CLI 应用",
-    "├── personal_assistant/           # 个人助手 Node Gateway",
     "└── IM/                           # IM 前后端（独立服务）",
-    "src/agent/",
-    "├── core/        # 执行内核（纯逻辑，无 IO）",
-    "├── platform/    # 集成层（接外部环境）",
-    "└── products/    # 产品 profile（装配方案）",
 )
 
 EXPECTED_EXISTING_PATHS = (
+    "__init__.py",
     "core/agent/__init__.py",
     "core/agent/loop.py",
     "core/agent/policies.py",
@@ -101,20 +95,18 @@ EXPECTED_EXISTING_PATHS = (
     "products/base.py",
     "products/local_coding/profile.py",
     "products/personal_assistant/profile.py",
-    "apps/coding_cli/client.py",
-    "apps/coding_cli/commands.py",
-    "apps/coding_cli/main.py",
-    "apps/coding_cli/managed_server.py",
-    "apps/coding_cli/release_observability.py",
-    "apps/coding_cli/release_playbook.py",
 )
 
-REMOVED_LEGACY_ROOTS = (
-    "apps",
-    "core",
-    "platform",
-    "products",
+EXPECTED_TOP_LEVEL_CODING_CLI_PATHS = (
+    "client.py",
+    "commands.py",
+    "main.py",
+    "managed_server.py",
+    "release_observability.py",
+    "release_playbook.py",
 )
+
+REMOVED_LEGACY_ROOTS = ("apps",)
 
 LEGACY_MODULE_ROOTS = ("nano_multiagent",)
 LEGACY_DOC_SNIPPETS = (
@@ -124,15 +116,27 @@ LEGACY_DOC_SNIPPETS = (
     "nano_multiagent.products",
     "python3 -m nano_multiagent",
 )
-REQUIRED_DOC_SNIPPETS = (
-    "src/agent/",
+TOP_LEVEL_REQUIRED_DOC_SNIPPETS = (
     "├── agent/                        # Agent 内核（对外只暴露 HTTP API）",
+    "├── coding_cli/                   # 本地编码 CLI 应用",
+    "├── personal_assistant/           # 个人助手 Node Gateway",
+)
+KERNEL_REQUIRED_DOC_SNIPPETS = (
+    "src/agent/",
     "core/        # 执行内核（纯逻辑，无 IO）",
     "platform/    # 集成层（接外部环境）",
     "products/    # 产品 profile（装配方案）",
-    "core 不依赖 `platform` / `products`。",
-    "顶层结构",
+    "依赖方向：`platform → products + core`（禁止反向）。`core` 不依赖 `platform` / `products`。",
 )
+ARCHITECTURE_REQUIRED_DOC_SNIPPETS = (
+    "顶层结构",
+    "### agent — 执行内核",
+)
+END_TO_END_DOCS = {
+    "architecture": ARCHITECTURE_REQUIRED_DOC_SNIPPETS + TOP_LEVEL_REQUIRED_DOC_SNIPPETS,
+    "kernel_spec": KERNEL_REQUIRED_DOC_SNIPPETS,
+}
+
 
 
 def test_architecture_docs_describe_zero_residue_target_state() -> None:
@@ -144,10 +148,13 @@ def test_architecture_docs_describe_zero_residue_target_state() -> None:
     }
 
     architecture_doc = docs["architecture"]
-    for snippet in REQUIRED_DOC_SNIPPETS:
-        assert snippet in architecture_doc, f"missing architecture acceptance snippet: {snippet}"
     for line in EXPECTED_TARGET_TREE_LINES:
         assert line in architecture_doc, f"target tree line missing from architecture doc: {line}"
+
+    for doc_name, required_snippets in END_TO_END_DOCS.items():
+        content = docs[doc_name]
+        for snippet in required_snippets:
+            assert snippet in content, f"{doc_name} missing required snippet: {snippet}"
 
     for doc_name, content in docs.items():
         for snippet in LEGACY_DOC_SNIPPETS:
@@ -158,6 +165,10 @@ def test_architecture_docs_describe_zero_residue_target_state() -> None:
 def test_final_target_tree_paths_exist_and_legacy_roots_are_removed() -> None:
     for relative_path in EXPECTED_EXISTING_PATHS:
         assert (SRC_ROOT / relative_path).exists(), f"missing target-state path: {relative_path}"
+
+    coding_cli_root = PROJECT_ROOT / "src" / "coding_cli" / "coding_cli"
+    for relative_path in EXPECTED_TOP_LEVEL_CODING_CLI_PATHS:
+        assert (coding_cli_root / relative_path).exists(), f"missing top-level coding_cli path: {relative_path}"
 
     for root_name in REMOVED_LEGACY_ROOTS:
         assert not (SRC_ROOT / root_name).exists(), f"legacy nested root should be removed in M90: {root_name}"

@@ -47,5 +47,5 @@ def test_core_agent_is_canonical_home() -> None:
     assert render_user_text.__module__ == "agent.core.agent.state"
 
 
-def test_legacy_agent_root_is_removed() -> None:
+def test_legacy_nano_multiagent_root_is_removed() -> None:
     assert find_spec("nano_multiagent") is None

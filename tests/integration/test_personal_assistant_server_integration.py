@@ -13,9 +13,9 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
-from nano_multiagent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
-from nano_multiagent.platform.http_api.app import create_app
+from agent.products.local_coding import LOCAL_CODING_PROFILE
+from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
+from agent.platform.http_api.app import create_app
 
 
 def _auth_headers(request_id: str = "test-req-1") -> dict[str, str]:

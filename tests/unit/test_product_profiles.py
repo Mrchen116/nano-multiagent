@@ -1,27 +1,27 @@
 """Unit tests for canonical product profile packages and path fields.
 
 Verifies that LOCAL_CODING_PROFILE and PERSONAL_ASSISTANT_PROFILE live under
-`nano_multiagent.products.*` and declare the expected package-level defaults.
+`agent.products.*` and declare the expected package-level defaults.
 """
 
 from pathlib import Path
 
-from nano_multiagent.platform.products.local_coding import (
+from agent.platform.products.local_coding import (
     LOCAL_CODING_PROFILE as LEGACY_LOCAL_CODING_PROFILE,
 )
-from nano_multiagent.platform.products.personal_assistant import (
+from agent.platform.products.personal_assistant import (
     PERSONAL_ASSISTANT_PROFILE as LEGACY_PERSONAL_ASSISTANT_PROFILE,
 )
-from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
-from nano_multiagent.products.local_coding import defaults as local_coding_defaults
-from nano_multiagent.products.local_coding import hooks as local_coding_hooks
-from nano_multiagent.products.local_coding import prompts as local_coding_prompts
-from nano_multiagent.products.local_coding import toolsets as local_coding_toolsets
-from nano_multiagent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
-from nano_multiagent.products.personal_assistant import defaults as personal_assistant_defaults
-from nano_multiagent.products.personal_assistant import hooks as personal_assistant_hooks
-from nano_multiagent.products.personal_assistant import prompts as personal_assistant_prompts
-from nano_multiagent.products.personal_assistant import toolsets as personal_assistant_toolsets
+from agent.products.local_coding import LOCAL_CODING_PROFILE
+from agent.products.local_coding import defaults as local_coding_defaults
+from agent.products.local_coding import hooks as local_coding_hooks
+from agent.products.local_coding import prompts as local_coding_prompts
+from agent.products.local_coding import toolsets as local_coding_toolsets
+from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
+from agent.products.personal_assistant import defaults as personal_assistant_defaults
+from agent.products.personal_assistant import hooks as personal_assistant_hooks
+from agent.products.personal_assistant import prompts as personal_assistant_prompts
+from agent.products.personal_assistant import toolsets as personal_assistant_toolsets
 
 
 def test_local_coding_profile_global_config_home() -> None:

@@ -3,14 +3,14 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from nano_multiagent.core.agent.runtime import AgentRuntime
-from nano_multiagent.core.errors import ModelError
-from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
-from nano_multiagent.platform.http_api.app import create_app
-from nano_multiagent.core.session.entries import SessionEntryKind
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.agent.runtime import AgentRuntime
+from agent.core.errors import ModelError
+from agent.core.types import Message, TurnResult
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.platform.http_api.app import create_app
+from agent.core.session.entries import SessionEntryKind
+from agent.core.session.manager import SessionManager
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class _EchoLLM:
@@ -102,7 +102,7 @@ def test_async_run_status_entries_persist_in_sqlite_store(tmp_path: Path) -> Non
 def test_async_run_persists_retry_metadata_during_retryable_failures(tmp_path: Path, monkeypatch) -> None:
     sleep_calls: list[float] = []
     monkeypatch.setattr(
-        "nano_multiagent.core.runs.registry._wait_with_cancel",
+        "agent.core.runs.registry._wait_with_cancel",
         lambda _event, seconds: sleep_calls.append(seconds) or False,
     )
 

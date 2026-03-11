@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nano_multiagent.products.base import ProductProfile
-from nano_multiagent.platform.persistence.session.service import SessionService
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.products.base import ProductProfile
+from agent.platform.persistence.session.service import SessionService
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 def _make_profile(global_home: str = "~/.testservice") -> ProductProfile:
@@ -41,7 +41,7 @@ def test_session_service_falls_back_to_default_when_no_profile(tmp_path: Path) -
     """SessionService without profile uses the legacy default path."""
     legacy_path = tmp_path / "sessions.sqlite3"
     with patch(
-        "nano_multiagent.platform.persistence.session.service._default_sqlite_store_path",
+        "agent.platform.persistence.session.service._default_sqlite_store_path",
         return_value=legacy_path,
     ):
         svc = SessionService()

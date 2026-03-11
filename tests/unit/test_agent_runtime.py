@@ -1,19 +1,19 @@
 from pathlib import Path
 
-from nano_multiagent.core.agent.runtime import AgentRuntime
-from nano_multiagent.core.hooks.registry import HookRegistry
-from nano_multiagent.core.hooks.runner import HookRunner
-from nano_multiagent.core.llm.interfaces import (
+from agent.core.agent.runtime import AgentRuntime
+from agent.core.hooks.registry import HookRegistry
+from agent.core.hooks.runner import HookRunner
+from agent.core.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
     LLMMessage,
     LLMToolCall,
 )
-from nano_multiagent.core.session.entries import SessionEntryKind
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.core.session.store import LoadedSession, SessionStore
-from nano_multiagent.platform.tools.base import ToolContext
-from nano_multiagent.platform.tools.registry import ToolRegistry
+from agent.core.session.entries import SessionEntryKind
+from agent.core.session.manager import SessionManager
+from agent.core.session.store import LoadedSession, SessionStore
+from agent.platform.tools.base import ToolContext
+from agent.platform.tools.registry import ToolRegistry
 
 
 class InMemorySessionStore(SessionStore):

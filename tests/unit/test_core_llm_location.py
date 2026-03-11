@@ -2,7 +2,7 @@
 
 from importlib.util import find_spec
 
-from nano_multiagent.core.llm import (
+from agent.core.llm import (
     DEFAULT_PROVIDER,
     LLMClient,
     LLMFactoryConfig,
@@ -18,20 +18,20 @@ from nano_multiagent.core.llm import (
     list_supported_providers,
     resolve_model_metadata,
 )
-from nano_multiagent.core.llm.factory import LLMFactoryConfig as CoreLLMFactoryConfig
-from nano_multiagent.core.llm.factory import create_llm_client as CoreCreateLLMClient
-from nano_multiagent.core.llm.interfaces import LLMClient as CoreLLMClient
-from nano_multiagent.core.llm.interfaces import LLMGenerateRequest as CoreLLMGenerateRequest
-from nano_multiagent.core.llm.interfaces import LLMGenerateResponse as CoreLLMGenerateResponse
-from nano_multiagent.core.llm.interfaces import LLMMessage as CoreLLMMessage
-from nano_multiagent.core.llm.interfaces import LLMToolCall as CoreLLMToolCall
-from nano_multiagent.core.llm.model_registry import DEFAULT_PROVIDER as CoreDefaultProvider
-from nano_multiagent.core.llm.model_registry import ModelMetadata as CoreModelMetadata
-from nano_multiagent.core.llm.model_registry import get_default_base_url as CoreGetDefaultBaseUrl
-from nano_multiagent.core.llm.model_registry import get_default_model as CoreGetDefaultModel
-from nano_multiagent.core.llm.model_registry import list_provider_models as CoreListProviderModels
-from nano_multiagent.core.llm.model_registry import list_supported_providers as CoreListSupportedProviders
-from nano_multiagent.core.llm.model_registry import resolve_model_metadata as CoreResolveModelMetadata
+from agent.core.llm.factory import LLMFactoryConfig as CoreLLMFactoryConfig
+from agent.core.llm.factory import create_llm_client as CoreCreateLLMClient
+from agent.core.llm.interfaces import LLMClient as CoreLLMClient
+from agent.core.llm.interfaces import LLMGenerateRequest as CoreLLMGenerateRequest
+from agent.core.llm.interfaces import LLMGenerateResponse as CoreLLMGenerateResponse
+from agent.core.llm.interfaces import LLMMessage as CoreLLMMessage
+from agent.core.llm.interfaces import LLMToolCall as CoreLLMToolCall
+from agent.core.llm.model_registry import DEFAULT_PROVIDER as CoreDefaultProvider
+from agent.core.llm.model_registry import ModelMetadata as CoreModelMetadata
+from agent.core.llm.model_registry import get_default_base_url as CoreGetDefaultBaseUrl
+from agent.core.llm.model_registry import get_default_model as CoreGetDefaultModel
+from agent.core.llm.model_registry import list_provider_models as CoreListProviderModels
+from agent.core.llm.model_registry import list_supported_providers as CoreListSupportedProviders
+from agent.core.llm.model_registry import resolve_model_metadata as CoreResolveModelMetadata
 
 
 
@@ -52,21 +52,21 @@ def test_core_llm_is_canonical_home() -> None:
     assert resolve_model_metadata is CoreResolveModelMetadata
     assert DEFAULT_PROVIDER == CoreDefaultProvider
 
-    assert LLMClient.__module__ == "nano_multiagent.core.llm.interfaces"
-    assert LLMGenerateRequest.__module__ == "nano_multiagent.core.llm.interfaces"
-    assert LLMGenerateResponse.__module__ == "nano_multiagent.core.llm.interfaces"
-    assert LLMMessage.__module__ == "nano_multiagent.core.llm.interfaces"
-    assert LLMToolCall.__module__ == "nano_multiagent.core.llm.interfaces"
-    assert LLMFactoryConfig.__module__ == "nano_multiagent.core.llm.factory"
-    assert ModelMetadata.__module__ == "nano_multiagent.core.llm.model_registry"
-    assert create_llm_client.__module__ == "nano_multiagent.core.llm.factory"
-    assert get_default_model.__module__ == "nano_multiagent.core.llm.model_registry"
-    assert get_default_base_url.__module__ == "nano_multiagent.core.llm.model_registry"
-    assert list_supported_providers.__module__ == "nano_multiagent.core.llm.model_registry"
-    assert list_provider_models.__module__ == "nano_multiagent.core.llm.model_registry"
-    assert resolve_model_metadata.__module__ == "nano_multiagent.core.llm.model_registry"
+    assert LLMClient.__module__ == "agent.core.llm.interfaces"
+    assert LLMGenerateRequest.__module__ == "agent.core.llm.interfaces"
+    assert LLMGenerateResponse.__module__ == "agent.core.llm.interfaces"
+    assert LLMMessage.__module__ == "agent.core.llm.interfaces"
+    assert LLMToolCall.__module__ == "agent.core.llm.interfaces"
+    assert LLMFactoryConfig.__module__ == "agent.core.llm.factory"
+    assert ModelMetadata.__module__ == "agent.core.llm.model_registry"
+    assert create_llm_client.__module__ == "agent.core.llm.factory"
+    assert get_default_model.__module__ == "agent.core.llm.model_registry"
+    assert get_default_base_url.__module__ == "agent.core.llm.model_registry"
+    assert list_supported_providers.__module__ == "agent.core.llm.model_registry"
+    assert list_provider_models.__module__ == "agent.core.llm.model_registry"
+    assert resolve_model_metadata.__module__ == "agent.core.llm.model_registry"
 
 
 
 def test_legacy_llm_root_is_removed() -> None:
-    assert find_spec("nano_multiagent.llm") is None
+    assert find_spec("agent.llm") is None

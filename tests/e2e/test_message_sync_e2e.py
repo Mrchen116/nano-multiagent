@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
-from nano_multiagent.core.agent.compaction.types import CompactionReason, CompactionResult
-from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.platform.http_api.app import create_app
+from agent.core.agent.compaction.types import CompactionReason, CompactionResult
+from agent.core.types import Message, TurnResult
+from agent.platform.http_api.app import create_app
 
 
 class RecordingRuntime:

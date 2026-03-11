@@ -1,5 +1,5 @@
-from nano_multiagent.core.agent.runtime import _is_context_overflow_error
-from nano_multiagent.core.errors import ModelError
+from agent.core.agent.runtime import _is_context_overflow_error
+from agent.core.errors import ModelError
 
 
 def test_overflow_detector_accepts_http_413_with_token_marker() -> None:

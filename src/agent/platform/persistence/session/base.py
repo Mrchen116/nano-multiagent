@@ -1,0 +1,5 @@
+"""Compatibility shim re-exporting the canonical core session store contract."""
+
+from agent.core.session.store import LoadedSession, SessionStore
+
+__all__ = ["LoadedSession", "SessionStore"]

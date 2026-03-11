@@ -3,10 +3,10 @@ import os
 import httpx
 import pytest
 
-from nano_multiagent.core.agent.runtime import AgentRuntime
-from nano_multiagent.core.llm.factory import create_llm_client
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.agent.runtime import AgentRuntime
+from agent.core.llm.factory import create_llm_client
+from agent.core.session.manager import SessionManager
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 def _llm_proxy_available() -> bool:

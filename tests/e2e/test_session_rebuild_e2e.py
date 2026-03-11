@@ -2,8 +2,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from nano_multiagent.platform.http_api.app import create_app
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.http_api.app import create_app
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 def test_create_session_survives_app_rebuild(tmp_path: Path) -> None:

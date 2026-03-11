@@ -3,13 +3,13 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from nano_multiagent.core.agent.runtime import AgentRuntime
-from nano_multiagent.core.hooks.registry import HookRegistry
-from nano_multiagent.core.hooks.runner import HookRunner
-from nano_multiagent.core.llm.interfaces import LLMGenerateRequest
-from nano_multiagent.platform.http_api.app import create_app
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.agent.runtime import AgentRuntime
+from agent.core.hooks.registry import HookRegistry
+from agent.core.hooks.runner import HookRunner
+from agent.core.llm.interfaces import LLMGenerateRequest
+from agent.platform.http_api.app import create_app
+from agent.core.session.manager import SessionManager
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class _TimeoutLLM:

@@ -1,4 +1,4 @@
-from nano_multiagent.platform.tools.builtins import builtin_tools
+from agent.platform.tools.builtins import builtin_tools
 
 
 def _task_schema() -> dict[str, object]:

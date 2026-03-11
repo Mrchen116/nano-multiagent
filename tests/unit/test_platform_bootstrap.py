@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-from nano_multiagent.platform.bootstrap import bootstrap_product
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
-from nano_multiagent.products.base import ProductProfile, ResolvedProductConfig
+from agent.platform.bootstrap import bootstrap_product
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.products.base import ProductProfile, ResolvedProductConfig
 
 
 def test_bootstrap_product_returns_resolved_config(tmp_path: Path) -> None:

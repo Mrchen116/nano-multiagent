@@ -2,9 +2,9 @@ import time
 
 from fastapi.testclient import TestClient
 
-from nano_multiagent.core.errors import ModelError
-from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.platform.http_api.app import create_app
+from agent.core.errors import ModelError
+from agent.core.types import Message, TurnResult
+from agent.platform.http_api.app import create_app
 
 
 class _RuntimeStub:
@@ -118,7 +118,7 @@ def test_get_run_not_found_uses_unified_error_shape() -> None:
 
 def test_session_sse_run_status_contract_includes_retry_progress_fields(monkeypatch) -> None:
     monkeypatch.setattr(
-        "nano_multiagent.core.runs.registry._wait_with_cancel",
+        "agent.core.runs.registry._wait_with_cancel",
         lambda _event, _seconds: False,
     )
     client = TestClient(create_app(runtime=_RetryThenSuccessRuntime(fail_times=2)))

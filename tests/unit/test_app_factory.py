@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
-from nano_multiagent.platform.hooks.session_events import get_session_event_publisher
-from nano_multiagent.platform.http_api.app import create_app
+from agent.platform.hooks.session_events import get_session_event_publisher
+from agent.platform.http_api.app import create_app
 
 
 def test_create_app_returns_fastapi_instance() -> None:

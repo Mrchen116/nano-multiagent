@@ -2,19 +2,19 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from nano_multiagent.core.agent.runtime import AgentRuntime
-from nano_multiagent.core.llm.interfaces import (
+from agent.core.agent.runtime import AgentRuntime
+from agent.core.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
     LLMMessage,
     LLMToolCall,
 )
-from nano_multiagent.platform.http_api.app import create_app
-from nano_multiagent.core.session.entries import SessionEntryKind
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
-from nano_multiagent.platform.tools.base import ToolContext
-from nano_multiagent.platform.tools.registry import ToolRegistry
+from agent.platform.http_api.app import create_app
+from agent.core.session.entries import SessionEntryKind
+from agent.core.session.manager import SessionManager
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.tools.base import ToolContext
+from agent.platform.tools.registry import ToolRegistry
 
 
 class EchoLLMClient:

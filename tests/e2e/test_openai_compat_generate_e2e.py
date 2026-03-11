@@ -3,8 +3,8 @@ import os
 import httpx
 import pytest
 
-from nano_multiagent.core.llm.factory import create_llm_client
-from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.llm.factory import create_llm_client
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 
 
 def _llm_proxy_available() -> bool:

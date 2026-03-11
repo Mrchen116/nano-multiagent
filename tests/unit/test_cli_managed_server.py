@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from nano_multiagent.apps.coding_cli.managed_server import ManagedServerConfig, ManagedServerError, ManagedServerProcess
+from coding_cli.coding_cli.managed_server import ManagedServerConfig, ManagedServerError, ManagedServerProcess
 
 
 class _FakeProcess:
@@ -45,7 +45,7 @@ def test_managed_server_rejects_non_local_base_url() -> None:
 
 
 def test_managed_server_reports_port_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("nano_multiagent.apps.coding_cli.managed_server._is_port_in_use", lambda host, port: True)
+    monkeypatch.setattr("coding_cli.coding_cli.managed_server._is_port_in_use", lambda host, port: True)
     popen_called = False
 
     def _popen(*args, **kwargs):
@@ -65,7 +65,7 @@ def test_managed_server_reports_port_conflict(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_managed_server_start_and_stop_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("nano_multiagent.apps.coding_cli.managed_server._is_port_in_use", lambda host, port: False)
+    monkeypatch.setattr("coding_cli.coding_cli.managed_server._is_port_in_use", lambda host, port: False)
     process = _FakeProcess()
 
     manager = ManagedServerProcess(
@@ -82,7 +82,7 @@ def test_managed_server_start_and_stop_lifecycle(monkeypatch: pytest.MonkeyPatch
 
 
 def test_managed_server_uses_platform_http_api_entrypoint(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("nano_multiagent.apps.coding_cli.managed_server._is_port_in_use", lambda host, port: False)
+    monkeypatch.setattr("coding_cli.coding_cli.managed_server._is_port_in_use", lambda host, port: False)
     process = _FakeProcess()
     captured_command: list[str] = []
 
@@ -100,11 +100,11 @@ def test_managed_server_uses_platform_http_api_entrypoint(monkeypatch: pytest.Mo
     manager.start()
     manager.stop()
 
-    assert "nano_multiagent.platform.http_api.app:create_app" in captured_command
+    assert "agent.platform.http_api.app:create_app" in captured_command
 
 
 def test_managed_server_reports_startup_timeout_with_suggestion(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("nano_multiagent.apps.coding_cli.managed_server._is_port_in_use", lambda host, port: False)
+    monkeypatch.setattr("coding_cli.coding_cli.managed_server._is_port_in_use", lambda host, port: False)
     process = _FakeProcess()
     times = iter([0.0, 0.05, 0.2])
 
@@ -129,7 +129,7 @@ def test_managed_server_reports_startup_timeout_with_suggestion(monkeypatch: pyt
 
 
 def test_managed_server_reports_startup_exit_with_suggestion(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("nano_multiagent.apps.coding_cli.managed_server._is_port_in_use", lambda host, port: False)
+    monkeypatch.setattr("coding_cli.coding_cli.managed_server._is_port_in_use", lambda host, port: False)
     process = _ExitedProcess()
 
     manager = ManagedServerProcess(
@@ -145,7 +145,7 @@ def test_managed_server_reports_startup_exit_with_suggestion(monkeypatch: pytest
 
 
 def test_managed_server_injects_llm_env_into_managed_process(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("nano_multiagent.apps.coding_cli.managed_server._is_port_in_use", lambda host, port: False)
+    monkeypatch.setattr("coding_cli.coding_cli.managed_server._is_port_in_use", lambda host, port: False)
     process = _FakeProcess()
     captured_env: dict[str, str] = {}
 

@@ -2,11 +2,11 @@ import io
 import json
 import subprocess
 
-from nano_multiagent.apps.coding_cli.events import repl_events
-from nano_multiagent.apps.coding_cli.input import repl_commands, repl_input
-from nano_multiagent.apps.coding_cli.render import context_budget, error_presenter
-from nano_multiagent.apps.coding_cli import commands as cli_commands
-from nano_multiagent.apps.coding_cli.main import run_cli
+from coding_cli.coding_cli.events import repl_events
+from coding_cli.coding_cli.input import repl_commands, repl_input
+from coding_cli.coding_cli.render import context_budget, error_presenter
+from coding_cli.coding_cli import commands as cli_commands
+from coding_cli.coding_cli.main import run_cli
 
 
 class _ExitOnlyStubClient:
@@ -81,9 +81,9 @@ def test_run_repl_passes_supported_commands_to_apps_input_reader(monkeypatch) ->
 
 
 def test_cli_release_observability_is_thin_compat_shim() -> None:
-    from nano_multiagent.apps.coding_cli.release_observability import build_guardrail_hints as apps_build_guardrail_hints
-    from nano_multiagent.apps.coding_cli.release_observability import summarize_perf_metrics as apps_summarize_perf_metrics
-    from nano_multiagent.apps.coding_cli.release_observability import build_guardrail_hints, summarize_perf_metrics
+    from coding_cli.coding_cli.release_observability import build_guardrail_hints as apps_build_guardrail_hints
+    from coding_cli.coding_cli.release_observability import summarize_perf_metrics as apps_summarize_perf_metrics
+    from coding_cli.coding_cli.release_observability import build_guardrail_hints, summarize_perf_metrics
 
     assert build_guardrail_hints is apps_build_guardrail_hints
     assert summarize_perf_metrics is apps_summarize_perf_metrics
@@ -130,8 +130,8 @@ def test_cli_release_observability_is_thin_compat_shim() -> None:
 
 
 def test_cli_release_playbook_is_thin_compat_shim() -> None:
-    from nano_multiagent.apps.coding_cli.release_playbook import build_release_playbook_report as apps_build_release_playbook_report
-    from nano_multiagent.apps.coding_cli.release_playbook import build_release_playbook_report
+    from coding_cli.coding_cli.release_playbook import build_release_playbook_report as apps_build_release_playbook_report
+    from coding_cli.coding_cli.release_playbook import build_release_playbook_report
 
     assert build_release_playbook_report is apps_build_release_playbook_report
 
@@ -148,7 +148,7 @@ def test_cli_release_playbook_is_thin_compat_shim() -> None:
 
 
 def test_cli_release_playbook_execute_runs_steps_and_collects_status() -> None:
-    from nano_multiagent.apps.coding_cli.release_playbook import build_release_playbook_report
+    from coding_cli.coding_cli.release_playbook import build_release_playbook_report
 
     calls: list[str] = []
 

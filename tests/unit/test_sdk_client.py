@@ -2,11 +2,11 @@ import json
 
 import httpx
 
-from nano_multiagent.platform.sdk.client import ServerClient, ServerClientConfig, _should_trust_env
-from nano_multiagent.platform.sdk.client import ServerClient as PlatformServerClient
-from nano_multiagent.platform.sdk.client import ServerClientConfig as PlatformServerClientConfig
-from nano_multiagent.platform.sdk.client import ServerClient as LegacySDKServerClient
-from nano_multiagent.platform.sdk.client import ServerClientConfig as LegacySDKServerClientConfig
+from agent.platform.sdk.client import ServerClient, ServerClientConfig, _should_trust_env
+from agent.platform.sdk.client import ServerClient as PlatformServerClient
+from agent.platform.sdk.client import ServerClientConfig as PlatformServerClientConfig
+from agent.platform.sdk.client import ServerClient as LegacySDKServerClient
+from agent.platform.sdk.client import ServerClientConfig as LegacySDKServerClientConfig
 
 
 def test_server_client_config_from_env_overrides(monkeypatch) -> None:

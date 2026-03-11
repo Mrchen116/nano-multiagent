@@ -2,11 +2,11 @@ import time
 from threading import Event
 from pathlib import Path
 
-from nano_multiagent.core.errors import ModelError
-from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.core.runs.registry import RunStatus, RunsRegistry
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.errors import ModelError
+from agent.core.types import Message, TurnResult
+from agent.core.runs.registry import RunStatus, RunsRegistry
+from agent.core.session.manager import SessionManager
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class _BlockingRuntime:

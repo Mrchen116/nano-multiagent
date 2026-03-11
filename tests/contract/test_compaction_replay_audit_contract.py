@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from nano_multiagent.core.session.entries import CompactionEntry
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.session.entries import CompactionEntry
+from agent.core.session.manager import SessionManager
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 def test_compaction_replay_audit_contract(tmp_path: Path) -> None:

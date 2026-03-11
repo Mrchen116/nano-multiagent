@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from nano_multiagent.core.errors import ToolError
-from nano_multiagent.platform.tools.safety import ToolSafety, ToolSafetyConfig, load_tool_safety_config
+from agent.core.errors import ToolError
+from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig, load_tool_safety_config
 
 
 def test_default_policy_allows_command_v_probe(tmp_path: Path) -> None:

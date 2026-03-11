@@ -2,11 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from nano_multiagent.core.errors import ToolError
-from nano_multiagent.platform.tools.base import ToolContext
-from nano_multiagent.platform.tools.builtins.bash import BashTool
-from nano_multiagent.platform.tools.registry import ToolRegistry
-from nano_multiagent.platform.tools.safety import ToolSafetyConfig
+from agent.core.errors import ToolError
+from agent.platform.tools.base import ToolContext
+from agent.platform.tools.builtins.bash import BashTool
+from agent.platform.tools.registry import ToolRegistry
+from agent.platform.tools.safety import ToolSafetyConfig
 
 
 def test_registry_executes_bash_with_truncation_and_persisted_output(tmp_path: Path) -> None:

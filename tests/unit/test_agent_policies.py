@@ -1,7 +1,7 @@
 import pytest
 
-from nano_multiagent.core.agent.policies import AgentPolicies
-from nano_multiagent.core.errors import PolicyViolation
+from agent.core.agent.policies import AgentPolicies
+from agent.core.errors import PolicyViolation
 
 
 def test_ensure_turn_allowed_raises_when_turn_budget_exceeded() -> None:

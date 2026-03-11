@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from nano_multiagent.core.errors import ModelError
-from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
-from nano_multiagent.platform.llm.providers.anthropic.mapper import AnthropicMapper
+from agent.core.errors import ModelError
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.platform.llm.providers.anthropic.mapper import AnthropicMapper
 
 
 def _request(*, messages: tuple[LLMMessage, ...], max_tokens: int | None = None) -> LLMGenerateRequest:

@@ -1,4 +1,4 @@
-from nano_multiagent.core.events import RuntimeEventType
+from agent.core.events import RuntimeEventType
 
 
 def test_runtime_event_types_are_stable() -> None:

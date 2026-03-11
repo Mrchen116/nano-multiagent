@@ -4,11 +4,11 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from nano_multiagent.core.agent.prompting import CODING_SYSTEM_PROMPT
-from nano_multiagent.products.base import ProductProfile
-from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
-from nano_multiagent.platform.http_api.app import create_app
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
+from agent.products.base import ProductProfile
+from agent.products.local_coding import LOCAL_CODING_PROFILE
+from agent.platform.http_api.app import create_app
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 def _make_profile(global_home: Path) -> ProductProfile:

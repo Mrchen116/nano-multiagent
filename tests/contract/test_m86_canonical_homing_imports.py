@@ -8,57 +8,57 @@ SRC_ROOT = PROJECT_ROOT / "src" / "agent"
 
 DIRECTORY_GUARDS = {
     "apps/coding_cli": (
-        "nano_multiagent.cli",
-        "nano_multiagent.sdk",
+        "agent.cli",
+        "agent.sdk",
     ),
-    "platform/llm/providers": ("nano_multiagent.llm",),
-    "platform/persistence/session": ("nano_multiagent.session",),
+    "platform/llm/providers": ("agent.llm",),
+    "platform/persistence/session": ("agent.session",),
     "platform/hooks": (
-        "nano_multiagent.hooks",
-        "nano_multiagent.tools",
+        "agent.hooks",
+        "agent.tools",
     ),
-    "platform/tools": ("nano_multiagent.tools",),
+    "platform/tools": ("agent.tools",),
     "core/agent": (
-        "nano_multiagent.agent",
-        "nano_multiagent.runs",
-        "nano_multiagent.observability",
-        "nano_multiagent.platform",
+        "agent.agent",
+        "agent.runs",
+        "agent.observability",
+        "agent.platform",
     ),
-    "core/observability": ("nano_multiagent.observability",),
+    "core/observability": ("agent.observability",),
     "core/runs": (
-        "nano_multiagent.runs",
-        "nano_multiagent.observability",
-        "nano_multiagent.platform",
+        "agent.runs",
+        "agent.observability",
+        "agent.platform",
     ),
-    "core/skills": ("nano_multiagent.skills",),
+    "core/skills": ("agent.skills",),
 }
 
 FILE_GUARDS = {
     "core/agent/loop.py": (
-        "nano_multiagent.agent",
-        "nano_multiagent.tools",
+        "agent.agent",
+        "agent.tools",
     ),
     "core/agent/runtime.py": (
-        "nano_multiagent.agent",
-        "nano_multiagent.skills",
-        "nano_multiagent.tools",
-        "nano_multiagent.platform",
+        "agent.agent",
+        "agent.skills",
+        "agent.tools",
+        "agent.platform",
     ),
     "core/agent/prompting.py": (
-        "nano_multiagent.agent",
-        "nano_multiagent.tools",
+        "agent.agent",
+        "agent.tools",
     ),
     "core/hooks/context.py": (
-        "nano_multiagent.hooks",
-        "nano_multiagent.observability",
+        "agent.hooks",
+        "agent.observability",
     ),
-    "core/llm/factory.py": ("nano_multiagent.llm",),
+    "core/llm/factory.py": ("agent.llm",),
     "core/runs/registry.py": (
-        "nano_multiagent.runs",
-        "nano_multiagent.observability",
-        "nano_multiagent.platform",
+        "agent.runs",
+        "agent.observability",
+        "agent.platform",
     ),
-    "products/base.py": ("nano_multiagent.tools",),
+    "products/base.py": ("agent.tools",),
 }
 
 REMOVED_ROOTS = (

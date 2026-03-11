@@ -1,8 +1,8 @@
 """Unit tests: LOCAL_CODING_PROFILE matches current coding defaults."""
 
-from nano_multiagent.core.agent.prompting import CODING_SYSTEM_PROMPT
-from nano_multiagent.products.base import ProductProfile
-from nano_multiagent.products.local_coding import LOCAL_CODING_PROFILE
+from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
+from agent.products.base import ProductProfile
+from agent.products.local_coding import LOCAL_CODING_PROFILE
 
 
 def test_local_coding_profile_is_product_profile() -> None:

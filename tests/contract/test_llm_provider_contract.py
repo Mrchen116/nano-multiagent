@@ -7,13 +7,13 @@ from typing import Any, Callable
 import httpx
 import pytest
 
-from nano_multiagent.core.types import ToolSpec
-from nano_multiagent.core.errors import ModelError
-from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
-from nano_multiagent.platform.llm.providers.anthropic import AnthropicClient, AnthropicMapper
-from nano_multiagent.platform.llm.providers.openai_compat import OpenAICompatClient, OpenAICompatMapper
-from nano_multiagent.platform.llm.providers.anthropic.client import _should_trust_env as anthropic_should_trust_env
-from nano_multiagent.platform.llm.providers.openai_compat.client import _should_trust_env as openai_should_trust_env
+from agent.core.types import ToolSpec
+from agent.core.errors import ModelError
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
+from agent.platform.llm.providers.anthropic import AnthropicClient, AnthropicMapper
+from agent.platform.llm.providers.openai_compat import OpenAICompatClient, OpenAICompatMapper
+from agent.platform.llm.providers.anthropic.client import _should_trust_env as anthropic_should_trust_env
+from agent.platform.llm.providers.openai_compat.client import _should_trust_env as openai_should_trust_env
 
 
 @dataclass(frozen=True, slots=True)

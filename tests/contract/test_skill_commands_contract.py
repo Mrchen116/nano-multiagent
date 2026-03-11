@@ -1,4 +1,4 @@
-from nano_multiagent.core.agent.skill_commands import rewrite_skill_command
+from agent.core.agent.skill_commands import rewrite_skill_command
 
 
 def test_skill_command_rewrite_contract_without_user_args() -> None:

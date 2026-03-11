@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from nano_multiagent.core.agent.runtime import AgentRuntime
-from nano_multiagent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
-from nano_multiagent.core.session.entries import SessionEntryKind
-from nano_multiagent.core.session.manager import SessionManager
-from nano_multiagent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.agent.runtime import AgentRuntime
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.session.entries import SessionEntryKind
+from agent.core.session.manager import SessionManager
+from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class EchoLLMClient:

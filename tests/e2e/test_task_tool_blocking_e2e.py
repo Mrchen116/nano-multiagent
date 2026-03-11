@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
-from nano_multiagent.core.types import Message, TurnResult
-from nano_multiagent.core.hooks.context import HookContext
-from nano_multiagent.platform.http_api.app import create_app
+from agent.core.types import Message, TurnResult
+from agent.core.hooks.context import HookContext
+from agent.platform.http_api.app import create_app
 
 
 def _auth_headers(request_id: str) -> dict[str, str]:

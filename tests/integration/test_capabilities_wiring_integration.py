@@ -2,9 +2,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from nano_multiagent.platform.http_api.app import create_app
-from nano_multiagent.platform.tools.base import ToolContext
-from nano_multiagent.platform.tools.registry import ToolRegistry
+from agent.platform.http_api.app import create_app
+from agent.platform.tools.base import ToolContext
+from agent.platform.tools.registry import ToolRegistry
 
 
 class _CustomPingTool:

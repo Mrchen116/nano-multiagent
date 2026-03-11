@@ -1,6 +1,6 @@
 """Unit tests: canonical ProductProfile and ResolvedProductConfig instantiation."""
 
-from nano_multiagent.products.base import ProductProfile, ResolvedProductConfig
+from agent.products.base import ProductProfile, ResolvedProductConfig
 
 
 def test_product_profile_instantiation_with_defaults() -> None:

@@ -4,13 +4,13 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SRC_ROOT = PROJECT_ROOT / "src" / "nano_multiagent"
+SRC_ROOT = PROJECT_ROOT / "src" / "agent"
 CORE_ROOT = SRC_ROOT / "core"
 
 FORBIDDEN_SNIPPETS = [
-    "nano_multiagent.platform",
-    "nano_multiagent.products",
-    "nano_multiagent.apps",
+    "agent.platform",
+    "agent.products",
+    "agent.apps",
     "fastapi",
     "starlette",
 ]

@@ -1,4 +1,4 @@
-from nano_multiagent.platform.http_api.app import create_app
+from agent.platform.http_api.app import create_app
 
 
 def test_app_exposes_health_route() -> None:

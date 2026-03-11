@@ -1,4 +1,4 @@
-from nano_multiagent.core.agent.prompting import CODING_SYSTEM_PROMPT, build_prompt_messages
+from agent.core.agent.prompting import CODING_SYSTEM_PROMPT, build_prompt_messages
 
 
 def test_system_prompt_contract_matches_runtime_template_sections() -> None:

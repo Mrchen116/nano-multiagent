@@ -1,6 +1,6 @@
-from nano_multiagent.core.agent.compaction.planner import CompactionPlanner
-from nano_multiagent.core.agent.compaction.types import CompactionReason
-from nano_multiagent.core.session.entries import SessionEntry, SessionEntryKind
+from agent.core.agent.compaction.planner import CompactionPlanner
+from agent.core.agent.compaction.types import CompactionReason
+from agent.core.session.entries import SessionEntry, SessionEntryKind
 
 
 def _turn_entry(

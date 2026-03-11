@@ -1,11 +1,11 @@
 from dataclasses import fields
 
-from nano_multiagent.core.agent.compaction.types import (
+from agent.core.agent.compaction.types import (
     CompactionReason,
     CompactionResult,
     CompactionSettings,
 )
-from nano_multiagent.core.agent.runtime import AgentRuntime
+from agent.core.agent.runtime import AgentRuntime
 
 
 def test_compaction_reason_values_contract() -> None:
