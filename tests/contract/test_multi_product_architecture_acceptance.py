@@ -1,48 +1,26 @@
-"""Architecture acceptance for the M89 core-closure target state."""
+"""Architecture acceptance for the M90 agent package rename target state."""
 
 from importlib.util import find_spec
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SRC_ROOT = PROJECT_ROOT / "src" / "nano_multiagent"
-ARCHITECTURE_DOC = PROJECT_ROOT / "多产品架构调整建议.md"
+SRC_ROOT = PROJECT_ROOT / "src" / "agent"
+ARCHITECTURE_DOC = PROJECT_ROOT / "SPEC.md"
 README = PROJECT_ROOT / "README.md"
 CODING_CLI_SPEC = PROJECT_ROOT / "docs" / "CodingCLI-SPEC.md"
 KERNEL_SPEC = PROJECT_ROOT / "docs" / "内核设计SPEC.md"
 
 EXPECTED_TARGET_TREE_LINES = (
     "src/",
-    "├── nano_multiagent/",
-    "│   ├── core/",
-    "│   │   ├── agent/",
-    "│   │   ├── errors.py",
-    "│   │   ├── events.py",
-    "│   │   ├── hooks/",
-    "│   │   ├── ids.py",
-    "│   │   ├── llm/",
-    "│   │   ├── observability/",
-    "│   │   ├── runs/",
-    "│   │   ├── session/",
-    "│   │   ├── skills/",
-    "│   │   └── types.py",
-    "│   ├── platform/",
-    "│   │   ├── bootstrap.py",
-    "│   │   ├── config/",
-    "│   │   ├── hooks/",
-    "│   │   ├── http_api/",
-    "│   │   ├── llm/providers/",
-    "│   │   ├── persistence/session/",
-    "│   │   ├── product.py",
-    "│   │   ├── products/",
-    "│   │   ├── sdk/",
-    "│   │   └── tools/",
-    "│   ├── products/",
-    "│   │   ├── base.py",
-    "│   │   ├── local_coding/",
-    "│   │   └── personal_assistant/",
-    "│   └── apps/",
-    "│       └── coding_cli/",
+    "├── agent/                        # Agent 内核（对外只暴露 HTTP API）",
+    "├── coding_cli/                   # 本地编码 CLI 应用",
+    "├── personal_assistant/           # 个人助手 Node Gateway",
+    "└── IM/                           # IM 前后端（独立服务）",
+    "src/agent/",
+    "├── core/        # 执行内核（纯逻辑，无 IO）",
+    "├── platform/    # 集成层（接外部环境）",
+    "└── products/    # 产品 profile（装配方案）",
 )
 
 EXPECTED_EXISTING_PATHS = (
@@ -132,34 +110,28 @@ EXPECTED_EXISTING_PATHS = (
 )
 
 REMOVED_LEGACY_ROOTS = (
-    "agent",
-    "cli",
-    "hooks",
-    "llm",
-    "observability",
-    "runs",
-    "sdk",
-    "server",
-    "session",
-    "skills",
-    "tools",
+    "apps",
+    "core",
+    "platform",
+    "products",
 )
 
-LEGACY_MODULE_ROOTS = tuple(f"nano_multiagent.{name}" for name in REMOVED_LEGACY_ROOTS)
-LEGACY_DOC_SNIPPETS = LEGACY_MODULE_ROOTS + (
-    "uvicorn nano_multiagent.server.app:app --reload",
-    "python3 -m nano_multiagent.cli.main",
+LEGACY_MODULE_ROOTS = ("nano_multiagent",)
+LEGACY_DOC_SNIPPETS = (
+    "src/nano_multiagent",
+    "nano_multiagent.core",
+    "nano_multiagent.platform",
+    "nano_multiagent.products",
+    "python3 -m nano_multiagent",
 )
 REQUIRED_DOC_SNIPPETS = (
-    "## 十一、M89 core 物理收口验收",
-    "src/nano_multiagent 顶层仅剩 core/platform/products/apps",
-    "core/agent",
-    "core/runs",
-    "core/observability",
-    "tests/contract/test_multi_product_architecture_acceptance.py",
-    "tests/unit/test_core_agent_location.py",
-    "tests/unit/test_core_runs_location.py",
-    "tests/unit/test_core_observability_location.py",
+    "src/agent/",
+    "├── agent/                        # Agent 内核（对外只暴露 HTTP API）",
+    "core/        # 执行内核（纯逻辑，无 IO）",
+    "platform/    # 集成层（接外部环境）",
+    "products/    # 产品 profile（装配方案）",
+    "core 不依赖 `platform` / `products`。",
+    "顶层结构",
 )
 
 
@@ -188,7 +160,7 @@ def test_final_target_tree_paths_exist_and_legacy_roots_are_removed() -> None:
         assert (SRC_ROOT / relative_path).exists(), f"missing target-state path: {relative_path}"
 
     for root_name in REMOVED_LEGACY_ROOTS:
-        assert not (SRC_ROOT / root_name).exists(), f"legacy root should be removed in M89: {root_name}"
+        assert not (SRC_ROOT / root_name).exists(), f"legacy nested root should be removed in M90: {root_name}"
 
 
 
