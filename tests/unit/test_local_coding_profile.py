@@ -1,8 +1,12 @@
 """Unit tests: LOCAL_CODING_PROFILE matches current coding defaults."""
 
+from pathlib import Path
+
 from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.products.base import ProductProfile
 from agent.products.local_coding import LOCAL_CODING_PROFILE
+
+_PRODUCT_ROOT = Path(__file__).resolve().parents[2] / "src" / "agent" / "products" / "local_coding"
 
 
 def test_local_coding_profile_is_product_profile() -> None:
@@ -52,3 +56,9 @@ def test_local_coding_profile_layout_contracts_present() -> None:
     assert LOCAL_CODING_PROFILE.optional_tool_ids == []
     assert LOCAL_CODING_PROFILE.memory_layout == {"kind": "workspace_scoped"}
     assert LOCAL_CODING_PROFILE.heartbeat_layout == {"transport": "runtime_events"}
+
+
+def test_local_coding_product_directory_contains_extension_roots() -> None:
+    assert (_PRODUCT_ROOT / "tools").is_dir()
+    assert (_PRODUCT_ROOT / "hooks").is_dir()
+    assert (_PRODUCT_ROOT / "skills").is_dir()

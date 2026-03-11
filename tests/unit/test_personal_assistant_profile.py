@@ -5,6 +5,8 @@ from pathlib import Path
 from agent.products.base import ProductProfile
 from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 
+_PRODUCT_ROOT = Path(__file__).resolve().parents[2] / "src" / "agent" / "products" / "personal_assistant"
+
 
 def test_personal_assistant_profile_is_product_profile() -> None:
     assert isinstance(PERSONAL_ASSISTANT_PROFILE, ProductProfile)
@@ -81,3 +83,9 @@ def test_personal_assistant_profile_layout_contracts_present() -> None:
     assert PERSONAL_ASSISTANT_PROFILE.optional_tool_ids == []
     assert PERSONAL_ASSISTANT_PROFILE.memory_layout == {"kind": "personal_memory"}
     assert PERSONAL_ASSISTANT_PROFILE.heartbeat_layout == {"transport": "assistant_presence"}
+
+
+def test_personal_assistant_product_directory_contains_extension_roots() -> None:
+    assert (_PRODUCT_ROOT / "tools").is_dir()
+    assert (_PRODUCT_ROOT / "hooks").is_dir()
+    assert (_PRODUCT_ROOT / "skills").is_dir()
