@@ -1,7 +1,7 @@
 # M91 CLI 独立包提取 + core/tools 层级修正
 
 ## R1 零残留门禁补齐与迁移红测
-- 状态：TODO
+- 状态：DONE
 - Acceptance:
   - 以测试锁定 `nano_multiagent` legacy root 不可 import。
   - 以测试锁定 README/架构文档不再引用 legacy `nano_multiagent.*` 路径。
@@ -23,7 +23,7 @@
   - PROGRESS 记录红测范围、证据与回滚点
 
 ## R2 提取 core.tools 抽象并让 platform.tools 仅保留实现
-- 状态：TODO
+- 状态：DONE
 - Acceptance:
   - `src/agent/core/tools/base.py` 提供 Tool 接口与 ToolContext canonical 定义。
   - `src/agent/core/tools/registry.py` 提供 ToolRegistry canonical 定义。
@@ -44,7 +44,7 @@
   - PROGRESS 记录抽象下沉方案、兼容处理与回滚点
 
 ## R3 提取顶层 coding_cli 独立包并清除 legacy nano_multiagent 残留
-- 状态：TODO
+- 状态：DONE
 - Acceptance:
   - `src/coding_cli/` 作为独立 Python 包存在，CLI 代码不嵌套在 `src/agent/` 内。
   - 现有 CLI canonical import 指向 `coding_cli.coding_cli.*`。
