@@ -320,6 +320,7 @@ class MessageRepository:
         content: str,
         sender_type: str = "user",
         attachments: list[Attachment] | None = None,
+        auto_complete_delivery: bool = True,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -329,6 +330,9 @@ class MessageRepository:
             content: Plain text body of the message.
             sender_type: Sender kind; must be user, agent, or system.
             attachments: Attachment descriptors stored alongside the message.
+            auto_complete_delivery: When True, local-only writes synchronously close delivery to completed
+                and persist both message.sent and message.delivered. Relay-backed writes pass False so
+                gateway receipts remain the single source of truth for completion.
 
         Returns:
             Created message entity.
@@ -374,8 +378,18 @@ class MessageRepository:
         message_id = uuid4().hex
         created_at = _utc_now()
         initial_status = "sent"
+        final_status = "completed" if auto_complete_delivery else initial_status
         attachments_json = _encode_attachments(normalized_attachments)
         event_attachments = [_attachment_to_dict(item) for item in normalized_attachments]
+        sent_payload = {
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "sender_user_id": sender_user_id,
+            "sender_type": sender_type,
+            "attachments": event_attachments,
+            "progress_state": "pending",
+            "semantic": "persisted_to_im",
+        }
         with self._connection:
             self._connection.execute(
                 """
@@ -406,16 +420,24 @@ class MessageRepository:
                 message_id=message_id,
                 event_type="message.sent",
                 delivery_status=initial_status,
-                payload={
-                    "conversation_id": conversation_id,
-                    "message_id": message_id,
-                    "sender_user_id": sender_user_id,
-                    "sender_type": sender_type,
-                    "attachments": event_attachments,
-                    "progress_state": "pending",
-                    "semantic": "persisted_to_im",
-                },
+                payload=sent_payload,
             )
+            if auto_complete_delivery:
+                self._insert_event(
+                    conversation_id=conversation_id,
+                    message_id=message_id,
+                    event_type="message.delivered",
+                    delivery_status="completed",
+                    payload={
+                        **sent_payload,
+                        "progress_state": "completed",
+                        "semantic": "message_history_ready",
+                    },
+                )
+                self._connection.execute(
+                    "UPDATE messages SET delivery_status = ? WHERE id = ?",
+                    (final_status, message_id),
+                )
             # Web IM unread_count is tracked per owner-scoped conversation in V1. Every persisted message bumps
             # the aggregate counter; read/ack semantics can later decrement it without changing this write path.
             self._connection.execute(
@@ -429,7 +451,7 @@ class MessageRepository:
             sender_type=sender_type,
             content=content,
             attachments=normalized_attachments,
-            delivery_status=initial_status,
+            delivery_status=final_status,
             created_at=created_at,
         )
 

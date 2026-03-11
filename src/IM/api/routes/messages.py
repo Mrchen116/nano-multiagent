@@ -151,6 +151,7 @@ async def create_message(
                 )
                 for item in payload.attachments
             ],
+            auto_complete_delivery=payload.target_node_id is None,
         )
     except ValueError as exc:
         raise map_message_write_error(exc) from exc

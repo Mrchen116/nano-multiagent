@@ -66,14 +66,29 @@ class WebIMService:
         content: str,
         sender_type: str = "user",
         attachments: list[Attachment] | None = None,
+        auto_complete_delivery: bool = True,
     ) -> Message:
-        """Create one message inside a conversation."""
+        """Create one message inside a conversation.
+
+        Args:
+            conversation_id: Target conversation identifier.
+            sender_user_id: Sender user identifier.
+            content: Plain text body of the message.
+            sender_type: Sender kind; must be user, agent, or system.
+            attachments: Attachment descriptors stored alongside the message.
+            auto_complete_delivery: Whether this write can synchronously close to completed. Relay-backed
+                writes pass False so gateway receipts remain the source of truth for final completion.
+
+        Returns:
+            Created message snapshot.
+        """
         created = self._messages.create_message(
             conversation_id=conversation_id,
             sender_user_id=sender_user_id,
             content=content,
             sender_type=sender_type,
             attachments=attachments,
+            auto_complete_delivery=auto_complete_delivery,
         )
         if self._metrics_service is not None:
             conversation = self._conversations.get_conversation(conversation_id=conversation_id)
