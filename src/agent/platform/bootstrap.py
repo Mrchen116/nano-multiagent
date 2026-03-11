@@ -12,6 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.core.hooks.registry import HookRegistry
+from agent.core.skills.discovery import default_skill_search_roots
+from agent.core.skills.registry import SkillRegistry
 from agent.platform.config.resolver import ConfigResolver
 from agent.platform.hooks.loader import build_hook_registry
 from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
@@ -19,6 +21,10 @@ from agent.platform.tools.loader import build_tool_registry
 from agent.platform.tools.registry import ToolRegistry
 
 from agent.products.base import ProductProfile, ResolvedProductConfig
+
+
+def _product_root(profile: ProductProfile) -> Path:
+    return Path(__file__).resolve().parents[1] / "products" / profile.product_id
 
 
 def bootstrap_product(
@@ -58,9 +64,12 @@ def bootstrap_product(
     # Build hook registry.  When default_hook_modules is declared, only the
     # specified module stems (e.g. "bash_risk_gate") are retained; otherwise
     # all built-in hooks are loaded (None = platform default "load all").
+    product_root = _product_root(profile)
+
     full_hook_registry = build_hook_registry(
         repo_root=resolved_root,
         config_resolver=config_resolver,
+        product_hook_dir=product_root / "hooks",
     )
     if profile.default_hook_modules is not None:
         hook_registry = _filter_hook_registry(full_hook_registry, profile.default_hook_modules)
@@ -75,6 +84,7 @@ def bootstrap_product(
         hook_runner=None,
         runtime=None,
         config_resolver=config_resolver,
+        product_tool_dir=product_root / "tools",
     )
     if profile.default_tool_ids is not None:
         tool_registry = _filter_tool_registry(full_tool_registry, profile.default_tool_ids)
@@ -85,6 +95,14 @@ def bootstrap_product(
     if config_resolver is not None:
         session_store = SQLiteSessionStore(db_path=config_resolver.session_db_path())
 
+    skill_registry = SkillRegistry(
+        search_roots=default_skill_search_roots(
+            workspace_root=resolved_root,
+            config_resolver=config_resolver,
+            product_skill_root=product_root / "skills",
+        )
+    )
+
     return ResolvedProductConfig(
         product_id=profile.product_id,
         resolved_system_prompt=resolved_system_prompt,
@@ -92,6 +110,7 @@ def bootstrap_product(
         hook_registry=hook_registry,
         session_store=session_store,
         config_resolver=config_resolver,
+        skill_registry=skill_registry,
     )
 
 

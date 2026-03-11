@@ -25,6 +25,7 @@ def build_tool_registry(
     hook_runner: HookRunner | None = None,
     runtime: Any | None = None,
     config_resolver: ConfigResolver | None = None,
+    product_tool_dir: Path | None = None,
 ) -> ToolRegistry:
     """Build a tool registry containing built-ins and user-provided tool plugins.
 
@@ -37,6 +38,8 @@ def build_tool_registry(
             ``config_resolver.user_tool_roots()`` instead of the legacy
             ``<repo_root>/.nano/tools`` path.  When absent, falls back to the
             legacy location for backward compatibility.
+        product_tool_dir: Optional product-owned tool directory loaded after
+            built-ins and before user global/workspace layers.
 
     Returns:
         Wired ToolRegistry with built-ins and any discovered user tools loaded.
@@ -49,10 +52,13 @@ def build_tool_registry(
     registry = ToolRegistry(context=context, hook_runner=hook_runner)
     register_builtin_tools(registry, runtime=runtime)
 
+    if product_tool_dir is not None:
+        _load_tools_from_single_dir(tool_root=product_tool_dir, registry=registry, replace=True)
+
     if config_resolver is not None:
         # Load from resolver-specified roots; legacy .nano/tools is NOT searched.
-        for tool_root in config_resolver.user_tool_roots():
-            _load_tools_from_single_dir(tool_root=tool_root, registry=registry)
+        for tool_root in reversed(config_resolver.user_tool_roots()):
+            _load_tools_from_single_dir(tool_root=tool_root, registry=registry, replace=True)
     else:
         load_tools_from_directory(repo_root=repo_root, registry=registry)
 
@@ -81,7 +87,7 @@ def discover_tool_files(repo_root: Path) -> tuple[Path, ...]:
     return tuple(sorted(files))
 
 
-def _load_tools_from_single_dir(*, tool_root: Path, registry: ToolRegistry) -> tuple[str, ...]:
+def _load_tools_from_single_dir(*, tool_root: Path, registry: ToolRegistry, replace: bool = False) -> tuple[str, ...]:
     """Import tool modules from a single directory and register discovered tools.
 
     Args:
@@ -101,7 +107,7 @@ def _load_tools_from_single_dir(*, tool_root: Path, registry: ToolRegistry) -> t
             continue
         module = _import_module_from_path(file_path)
         for tool in _extract_tools(module, file_path=file_path):
-            registry.register(tool)
+            registry.register(tool, replace=replace)
             loaded_names.append(tool.name)
     return tuple(loaded_names)
 

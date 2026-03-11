@@ -27,15 +27,41 @@ class ToolRegistry:
 
         return self._context
 
-    def register(self, tool: Tool) -> None:
-        """Register one tool, rejecting empty or duplicate names."""
+    def register(self, tool: Tool, *, replace: bool = False) -> None:
+        """Register one tool, optionally replacing an earlier layer.
+
+        Args:
+            tool: Tool object exposing the canonical name/description/schema/run contract.
+            replace: When ``True``, a same-name tool from a higher-priority layer
+                replaces the previously registered one. When ``False``, duplicates
+                are rejected to preserve legacy strictness for direct callers.
+        """
 
         name = str(getattr(tool, "name", "")).strip()
         if not name:
             raise ValueError("tool name is required")
-        if name in self._tools:
+        if name in self._tools and not replace:
             raise ValueError(f"tool already registered: {name}")
         self._tools[name] = tool
+
+    def get(self, name: str) -> Tool:
+        """Return a registered tool by name.
+
+        Raises:
+            KeyError: When the tool name has not been registered.
+        """
+
+        return self._tools[name]
+
+    def has(self, name: str) -> bool:
+        """Return whether a tool name is currently registered."""
+
+        return name in self._tools
+
+    def unregister(self, name: str) -> None:
+        """Remove a registered tool name if present."""
+
+        self._tools.pop(name, None)
 
     def register_many(self, tools: list[Tool] | tuple[Tool, ...]) -> None:
         """Register a sequence of tools in order."""

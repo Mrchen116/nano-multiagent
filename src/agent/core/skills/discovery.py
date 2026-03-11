@@ -20,11 +20,20 @@ def default_skill_search_roots(
     *,
     workspace_root: Path,
     config_resolver: SkillRootResolver | None = None,
+    product_skill_root: Path | None = None,
 ) -> tuple[Path, ...]:
     """Return skill search roots in precedence order with duplicates removed."""
 
     if config_resolver is not None:
-        return config_resolver.user_skill_roots()
+        roots = list(config_resolver.user_skill_roots())
+        if product_skill_root is not None:
+            product_root = product_skill_root.expanduser().resolve()
+            roots = [product_root, *roots]
+        unique_roots: list[Path] = []
+        for candidate in roots:
+            if candidate not in unique_roots:
+                unique_roots.append(candidate)
+        return tuple(unique_roots)
 
     codex_home = Path(os.getenv("CODEX_HOME", "~/.codex")).expanduser().resolve()
     workspace = workspace_root.expanduser().resolve()

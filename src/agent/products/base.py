@@ -103,6 +103,7 @@ class ResolvedProductConfig:
     hook_registry: "HookRegistry | None"
     session_store: "SessionStore | None"
     config_resolver: "ConfigResolver | None" = None
+    skill_registry: object | None = None
 
 
 __all__ = ["ProductProfile", "ResolvedProductConfig"]
