@@ -1790,6 +1790,49 @@ def test_repl_input_external_multiline_output_uses_terminal_safe_line_endings() 
     assert text.count("nano> ping") >= 2
 
 
+def test_repl_input_engine_supports_cjk_cursor_movement_for_visible_characters() -> None:
+    typed = repl_input.read_interactive_line(
+        prompt="nano> ",
+        history=(),
+        key_reader=_iter_keys(["你", "好", "世", "界", "\x1b[D", "\x1b[D", "A", "\n"]),
+        out=io.StringIO(),
+    )
+
+    assert typed == "你好A世界"
+
+
+def test_repl_input_render_uses_display_width_for_mixed_text_cursor_position() -> None:
+    output = io.StringIO()
+
+    repl_input.render_interactive_line(
+        out=output,
+        prompt="nano> ",
+        chars=list("你a好"),
+        cursor=1,
+    )
+
+    text = output.getvalue()
+    assert "\x1b[2D" not in text
+    assert "\x1b[3D" in text
+
+
+def test_repl_input_render_uses_display_width_for_cjk_inline_hint_cursor_position() -> None:
+    output = io.StringIO()
+
+    repl_input.render_interactive_line(
+        out=output,
+        prompt="nano> ",
+        chars=list("你/"),
+        cursor=1,
+        command_items=repl_commands.REPL_COMMANDS,
+        selected_command_index=0,
+    )
+
+    text = output.getvalue()
+    expected_tail_columns = 1 + len("  (/help)")
+    assert f"\x1b[{expected_tail_columns}D" in text
+
+
 def test_repl_input_engine_supports_crlf_line_break_for_terminal_mode() -> None:
     output = io.StringIO()
     typed = repl_input.read_interactive_line(
