@@ -12,7 +12,88 @@ nano-multiagent 是一个 Python 多模型 Agent 框架，由四个独立可部�
 
 ---
 
-## 2. 顶层结构
+## 2. 架构总览
+
+```
+        ┌───────────┐     ┌──────────────────┐
+        │  Browser   │     │   External IMs    │
+        │  (Web IM)  │     │  飞书│QQ│TG│Slack │
+        └─────┬─────┘     └────────┬─────────┘
+              │ HTTPS/SSE           │ Bot SDK / Webhook
+              ▼                     │
+┌─────────────────────────────────┐ │
+│  IM Service (src/IM/)           │ │
+│  可选中心服务，多用户数据隔离   │ │
+│                                 │ │
+│  HTTP API  /im/v1/*             │ │
+│    conversations│messages│SSE   │ │
+│    agents config│nodes│bind│me  │ │
+│                                 │ │
+│  WebSocket Server               │ │
+│    上行: register│hb│report     │ │
+│    下行: relay│config│trigger   │ │
+│                                 │ │
+│  Domain: User│AgentProfile      │ │
+│    Conversation│Message         │ │
+│    NodeStatus│RelayTask         │ │
+│                                 │ │
+│  Frontend: React+TS+Vite       │ │
+└──────────────┬──────────────────┘ │
+               │ WebSocket              │
+               │ (Gateway 主动发起)     │
+               ▼                        ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                USER MACHINE (每台部署机器)                        │
+│                                                                  │
+│  ┌─ Node Gateway (src/personal_assistant/) ───────────────────┐ │
+│  │                                                             │ │
+│  │  Channels (嵌入式适配器，进程内插件)                         │ │
+│  │    WebIM Relay (P0) │ 飞书 (P1) │ QQ│TG│Slack (P2)         │ │
+│  │         │                                                   │ │
+│  │         ▼                                                   │ │
+│  │  Inbound Pipeline (四步决策)                                 │ │
+│  │    1.Agent路由 → 2.会话键 → 3.串行队列 → 4.出站回发         │ │
+│  │                                                             │ │
+│  │  Heartbeat Scheduler (cron / interval / at)                 │ │
+│  │  send_message(text, to) — Agent 间通信工具                  │ │
+│  │  WebSocket Client → IM Service (可选)                       │ │
+│  └──────────────────────────┬──────────────────────────────────┘ │
+│                              │ HTTP (localhost)                   │
+│                              ▼                                   │
+│  ┌─ Agent Kernel (src/agent/) ─────────────────────────────────┐ │
+│  │                                                              │ │
+│  │  HTTP API  /v1/*                                             │ │
+│  │    sessions│messages│events(SSE)│runs│tools│hooks            │ │
+│  │                                                              │ │
+│  │  Core     AgentRuntime → AgentLoop (state machine)          │ │
+│  │           ToolRegistry│HookRunner│SkillRegistry│Compaction  │ │
+│  │           SessionManager│LLMClient (abstract)               │──→ LLM API
+│  │                                                              │ │
+│  │  Platform LLM Providers (OpenAI-compat / Anthropic)         │ │
+│  │           Built-in: read│write│edit│bash│task                │ │
+│  │           Persistence (SQLite)│Safety│Bootstrap              │ │
+│  │                                                              │ │
+│  │  Products local_coding│personal_assistant                   │ │
+│  │           (ProductProfile + tools + hooks + skills)          │ │
+│  └──────────────────────────▲──────────────────────────────────┘ │
+│                              │ HTTP (localhost)                   │
+│  ┌─ Coding CLI (src/coding_cli/) ──────────────────────────────┐ │
+│  │  Terminal REPL│Managed mode (auto-start kernel)│Single cmd  │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  ┌─ Agent Workspaces ─────────────────────────────────────────┐  │
+│  │  agent-A/                       agent-B/                    │  │
+│  │  ├── MEMORY.md                  ├── MEMORY.md               │  │
+│  │  ├── HEARTBEAT.md               ├── HEARTBEAT.md            │  │
+│  │  └── .nano-assistant/           └── .nano-assistant/        │  │
+│  │      tools/│hooks/│skills/          tools/│hooks/│skills/   │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. 顶层结构
 
 ```text
 src/
@@ -20,13 +101,18 @@ src/
 ├── coding_cli/                   # 本地编码 CLI 应用
 ├── personal_assistant/           # 个人助手 Node Gateway
 └── IM/                           # IM 前后端（独立服务）
-    ├── service/
-    └── frontend/
+    ├── app.py                   # 后端服务入口
+    ├── api/                     # HTTP 路由
+    ├── ws/                      # WebSocket 连接管理
+    ├── application/             # 业务服务
+    ├── domain/                  # 领域模型
+    ├── infra/                   # 基础设施
+    └── frontend/                # Web IM 前端
 ```
 
 ---
 
-## 3. 各包职责与边界
+## 4. 各包职责与边界
 
 ### agent — 执行内核
 
@@ -56,7 +142,7 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 ---
 
-## 4. 依赖方向
+## 5. 依赖方向
 
 ```
 用户 ──→ IM（Web IM）──→ personal_assistant ──HTTP──→ agent
@@ -71,7 +157,7 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 ---
 
-## 5. 文档索引
+## 6. 文档索引
 
 ### 内核（agent）
 

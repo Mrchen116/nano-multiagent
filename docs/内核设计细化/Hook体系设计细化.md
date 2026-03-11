@@ -10,11 +10,14 @@
 
 ### 2.1 模块约定
 - 每个 Hook 文件导出 `setup(hooks: HookAPI)`。
-- 由 `hooks.loader` 在启动时从“双源目录”自动扫描加载，`hooks.registry` 保存事件处理器映射。
+- 由 `platform/hooks/loader.py` 在启动时按四层来源扫描加载，`core/hooks/registry.py` 保存事件处理器映射。
 - Hook 初始化一次后常驻进程；其闭包变量在进程生命周期内有效。
-- 双源目录（默认）：
-  - 全局内置 Hook：`<nano_multiagent_repo>/src/nano_multiagent/hooks/builtins/`
-  - 工作目录 Hook：`<repo_root>/.nano/hooks/`
+- 四层加载来源（优先级从低到高）：
+  1. 内核内置：`src/agent/platform/hooks/builtins/`
+  2. 产品默认：`src/agent/products/<product>/hooks/` + profile 筛选
+  3. 用户全局：`<global_config_home>/hooks/`（如 `~/.nanocode/hooks/`）
+  4. 工作区：`<workspace>/<workspace_config_dirname>/hooks/`（如 `<repo>/.nanocode/hooks/`）
+- 同名事件下，高优先级层的 handler 后执行，便于本地覆盖内置行为。
 - Hook 文件新增/修改/删除后默认需重启服务生效（首版不做运行时热重载）。
 
 ### 2.2 Handler 签名（建议）
@@ -38,25 +41,33 @@ class HookAPI:
 - `priority`：数值越小越先执行；同优先级按注册顺序。
 - `timeout_ms`：单 handler 超时保护。
 
-### 2.3 目录约定（全局 + 工作目录）
+### 2.3 目录示例
 
 ```text
-<nano_multiagent_repo>/src/nano_multiagent/hooks/builtins/
+# 第 1 层：内核内置
+src/agent/platform/hooks/builtins/
 ├─ __init__.py
 ├─ base_guard.py
 └─ default_status.py
 
-<repo_root>/.nano/hooks/
-├─ README.md
-├─ guard_tools_local.py
-├─ status_line_local.py
-└─ summarize_errors_local.py
+# 第 2 层：产品默认（以 local_coding 为例）
+src/agent/products/local_coding/hooks/
+├─ bash_risk_gate.py
+└─ realtime_stream.py
+
+# 第 3 层：用户全局（以 nanocode 产品为例）
+~/.nanocode/hooks/
+└─ my_custom_guard.py
+
+# 第 4 层：工作区
+<workspace>/.nanocode/hooks/
+└─ project_specific.py
 ```
 
 - 任何符合命名约定的 `*.py` 文件都可作为 Hook 模块加载。
-- 加载顺序：先全局内置目录，再工作目录；每个目录内部按文件名升序，模块内按 `hooks.on()` 注册顺序。
-- 同优先级下工作目录 Hook 后执行，便于本地覆盖内置行为。
-- 若需要精确控制优先级，使用 `hooks.on(..., priority=...)`。
+- 四层按序加载，每层内部按文件名升序，模块内按 `hooks.on()` 注册顺序。
+- 同优先级下高层 Hook 后执行，便于本地覆盖内置行为。
+- 若需要精确控制执行顺序，使用 `hooks.on(..., priority=...)` 参数。
 
 ## 3. 事件清单（首版）
 
@@ -205,4 +216,4 @@ def setup(hooks):
   - 返回：事件清单、事件类型（observe/intercept）、返回值契约摘要。
 - `GET /v1/hooks`
   - 返回：当前加载 Hook 列表（模块名、路径、来源 `source=builtin|workspace`、订阅事件、priority、timeout_ms）。
-- 说明：仅查询，不支持注册/更新/卸载；Hook 管理通过双源目录（`<nano_multiagent_repo>/src/nano_multiagent/hooks/builtins/` + `<repo_root>/.nano/hooks/`）+ 重启生效。
+- 说明：仅查询，不支持注册/更新/卸载；Hook 管理通过四层来源目录（内核内置 → 产品默认 → 用户全局 → 工作区）+ 重启生效。`source` 字段标识来源层（`builtin` / `product` / `global` / `workspace`）。

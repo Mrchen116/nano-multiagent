@@ -13,7 +13,7 @@
 
 **不做什么**：不实现 Agent Loop，不直接调用 LLM，不管理会话持久化（由 agent 内核负责），不做全局用户/组织管理（由 IM 服务负责），不提供终端 CLI 交互（由 coding_cli 负责）。
 
-**边界**：通过 HTTP 调用同机 `agent` 内核，禁止直接 import agent 内部模块。与 `IM` 服务通过 HTTP 交互（可选，IM 离线时本地自治）。
+**边界**：通过 HTTP 调用同机 `agent` 内核，禁止直接 import agent 内部模块。与 `IM` 服务通过 WebSocket 交互（可选，IM 离线时本地自治）。
 
 **体验准则**：Node Gateway 的配置与运维体验应对标成熟商业 AI Agent Gateway（如 OpenClaw Gateway）的简洁性与自治能力；默认配置必须做到最小化手动干预，偏离时需有明确理由。
 
@@ -205,14 +205,14 @@ send_message(text: str, to: str)
 每个 Agent 在 session 启动时，通过 `before_agent_start` hook 在系统提示词后追加通信上下文：
 
 - 当前所在会话（session ID、会话类型、参与者）
-- 可通信的 Agent 列表（同团队内的配置级 Agent，含 ID、名称、职责摘要）
+- 可通信的 Agent 列表（同一用户归属的配置级 Agent，含 ID、名称、职责摘要）
 - 可通信的群聊列表（该 Agent 已加入的群聊）
 
 这样 Agent 知道"我能和谁说话"以及"我现在在哪个会话里"，可以自主决策发起协同。
 
 **约束**：
 
-- 仅同团队 Agent 支持相互发现和通信
+- 仅同一用户归属的 Agent 支持相互发现和通信
 - `task` 临时子 Agent 不具备 `send_message` 能力，不参与 Agent 间通信
 - Agent 间通信仅依赖 IM 消息路由，不额外设计专有通信信道
 
@@ -305,7 +305,7 @@ Gateway 采用本地配置文件驱动（如 `~/.nano-assistant/config.yaml`）�
 | 默认工具 | `read` `write` `edit` `bash` `task` |
 | 默认 hook | `default_status` `realtime_stream` `usage_metrics` |
 | Session 存储 | `~/.nano-assistant/sessions.sqlite3` |
-| System prompt | 个人助手（带群聊行为说明和 heartbeat 上下文） |
+| System prompt | 个人助手（带 heartbeat 上下文） |
 
 各 Agent 的个性化（记忆、heartbeat、自定义工具/hook/skill）通过各自 workspace 目录下的文件实现，遵循内核四层加载顺序：内核内置 → 产品默认 → 用户全局（`~/.nano-assistant/`） → workspace（`<agent_workspace>/.nano-assistant/`）。
 
@@ -337,11 +337,8 @@ src/personal_assistant/
 │   └── sync_client.py       # IM 服务配置同步（可选）
 ├── reporter/
 │   └── upstream_reporter.py # IM 服务上报（可选）
-└── api/
-    └── routes/
-        ├── relay.py         # IM 服务中继入口
-        ├── heartbeat.py     # 手动触发入口
-        └── health.py        # 健康检查
+└── ws/
+    └── im_connection.py     # IM 服务 WebSocket 连接管理（上行/下行消息处理）
 ```
 
 ### 模块职责边界
@@ -350,7 +347,7 @@ src/personal_assistant/
 - `channels/` 只做"平台协议 ↔ 内部消息"转换，不做业务决策
 - `scheduler/` 只做定时调度，不做 Agent 执行
 - `client/` 是唯一的 agent 内核 HTTP 出口
-- `api/` 只接受 IM 服务的入站请求，不做路由决策
+- `ws/` 管理与 IM 服务的 WebSocket 连接，处理上行/下行消息
 
 ---
 

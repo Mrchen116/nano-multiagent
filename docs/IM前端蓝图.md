@@ -17,11 +17,11 @@
 
 ## 3. 权限模型（V1）
 
-V1 采用单用户 owner 模型：
+V1 采用个人 owner 模型：
 
-1. 不区分“管理员/普通用户”。
-2. 用户就是自己所有 Agent 节点的管理员。
-3. 前端不引入团队 RBAC（避免过度设计）。
+1. 每个用户是自己所有 Agent 节点的 owner，用户之间数据隔离。
+2. 不区分”管理员/普通用户”角色。
+3. 不引入团队 / 组织 RBAC（避免过度设计）。
 
 ## 4. 配置功能放置（先明确归属）
 
@@ -59,8 +59,7 @@ V1 采用单用户 owner 模型：
 1. `/settings/agents`：Agent 列表与配置版本
 2. `/settings/agents/:id`：单 Agent 配置编辑（prompt/skills/群聊规则）
 3. `/settings/nodes`：节点状态与中心配置编辑
-4. `/settings/policies`：全局策略（限流、默认模型、审计策略）
-5. `/settings/account`：账号与节点归属信息
+4. `/settings/account`：账号与节点归属信息
 
 ## 7. 视觉与交互基线
 
@@ -121,7 +120,6 @@ src/IM/frontend/
 │  ├─ features/settings/
 │  │  ├─ agents/
 │  │  ├─ nodes/
-│  │  ├─ policies/
 │  │  └─ account/
 │  ├─ services/
 │  └─ styles/
@@ -137,8 +135,7 @@ src/IM/frontend/
 | `P3` | `/settings/agents` | 桌面/手机 | Agent 配置列表与版本查看 | 节点所有者（用户自己） |
 | `P4` | `/settings/agents/:agentId` | 桌面/手机 | 单 Agent 配置编辑 | 节点所有者（用户自己） |
 | `P5` | `/settings/nodes` | 桌面/手机 | 节点状态查看与中心配置编辑 | 节点所有者（用户自己） |
-| `P6` | `/settings/policies` | 桌面/手机 | 全局策略配置 | 节点所有者（用户自己） |
-| `P7` | `/settings/account` | 桌面/手机 | 账号与节点归属信息 | 节点所有者（用户自己） |
+| `P6` | `/settings/account` | 桌面/手机 | 账号与节点归属信息 | 节点所有者（用户自己） |
 
 ## 13. 每页字段清单
 
@@ -212,18 +209,7 @@ src/IM/frontend/
 | `report_enabled` | boolean | 否 | 同上 | 是否启用上报（可改） |
 | `last_error` | string | 否 | `GET /im/v1/nodes` | 最近错误摘要 |
 
-### 13.6 `P6 /settings/policies`（全局策略页）
-
-| 字段 | 类型 | 必填 | 来源 | 说明 |
-|---|---|---|---|---|
-| `default_model` | string | 否 | `GET/PATCH /im/v1/policies` | 默认模型 |
-| `max_turn_per_run` | integer | 否 | 同上 | 单次运行最大轮次 |
-| `max_attachment_size_mb` | integer | 否 | 同上 | 附件大小限制 |
-| `retention_days` | integer | 否 | 同上 | 会话保留天数 |
-| `audit_level` | enum(off/basic/strict) | 否 | 同上 | 审计级别 |
-| `rate_limit_per_min` | integer | 否 | 同上 | 每分钟限制 |
-
-### 13.7 `P7 /settings/account`（账号与归属页）
+### 13.6 `P6 /settings/account`（账号与归属页）
 
 | 字段 | 类型 | 必填 | 来源 | 说明 |
 |---|---|---|---|---|
@@ -249,7 +235,7 @@ src/IM/frontend/
    - `conversations/messages/events`
    - `agents config`
    - `nodes config/status`
-   - `policies/account`
+   - `account`
 2. SSE 事件字典统一：
    - 事件名（`text_delta/tool_start/tool_end/turn_end/error`）
    - 字段必填项（`run_id/turn_id/message_id/status`）

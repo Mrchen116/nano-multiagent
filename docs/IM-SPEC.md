@@ -58,11 +58,11 @@
 
 ## 3. 权限模型
 
-V1 采用**单用户 owner 模型**：
+V1 采用**个人 owner 模型**：
 
-- 不区分"管理员/普通用户"
-- 用户即自己所有 Agent 节点的管理员
-- 不引入团队 RBAC（避免过度设计）
+- 每个用户是自己所有 Agent 节点的 owner，用户之间数据隔离
+- 不区分"管理员/普通用户"角色
+- 不引入团队 / 组织 RBAC（避免过度设计）
 
 ---
 
@@ -155,10 +155,10 @@ Gateway 断线后自动重连（指数退避），重连后重新注册。断线
 | 模型 | 核心字段 | 说明 |
 |---|---|---|
 | `User` | `user_id`, `display_name`, `owned_node_ids`, `created_at` | 单用户 owner |
-| `AgentProfile` | `agent_id`, `display_name`, `system_prompt`, `skills[]`, `tool_allowlist[]`, `group_reply_policy`, `default_model`, `profile_version` | 配置变更仅对新会话生效 |
-| `Conversation` | `conversation_id`, `type`(direct/group), `participants[]`, `title`, `is_pinned`, `is_muted`, `unread_count`, `last_message_at` | 会话容器 |
-| `Message` | `message_id`, `conversation_id`, `sender_type`(user/agent/system), `sender_id`, `content`, `attachments[]`, `created_at`, `delivery_status` | 消息 |
-| `NodeStatus` | `node_id`, `node_name`, `status`(online/offline/degraded), `last_heartbeat_at`, `agent_count`, `version`, `last_error` | 节点运行态 |
+| `AgentProfile` | `agent_id`, `owner_id`, `display_name`, `system_prompt`, `skills[]`, `tool_allowlist[]`, `group_reply_policy`, `default_model`, `profile_version` | 配置变更仅对新会话生效；`owner_id` 关联所属用户 |
+| `Conversation` | `conversation_id`, `owner_id`, `type`(direct/group), `participants[]`, `title`, `is_pinned`, `is_muted`, `unread_count`, `last_message_at` | 会话容器；`owner_id` 用于用户间数据隔离 |
+| `Message` | `message_id`, `conversation_id`, `sender_type`(user/agent/system), `sender_id`, `content`, `attachments[]`, `created_at`, `delivery_status` | 消息（通过 conversation 间接关联 owner） |
+| `NodeStatus` | `node_id`, `owner_id`, `node_name`, `status`(online/offline/degraded), `last_heartbeat_at`, `agent_count`, `version`, `last_error` | 节点运行态；`owner_id` 关联所属用户 |
 | `RelayTask` | `message_id`, `target_node_id`, `payload`, `idempotency_key`, `status` | 消息中继任务 |
 
 ---
@@ -173,7 +173,7 @@ Gateway 断线后自动重连（指数退避），重连后重新注册。断线
   ▼
 IM 服务
   │ 持久化消息 → 创建 RelayTask
-  │ POST /node/v1/relay/messages（中继到 Node Gateway）
+  │ 通过 WebSocket 下推 relay.message 到 Node Gateway
   ▼
 Node Gateway
   │ WebIM Channel 接收 → 四步决策 → POST /v1/sessions/{id}/messages:async

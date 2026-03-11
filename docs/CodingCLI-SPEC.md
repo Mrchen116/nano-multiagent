@@ -178,7 +178,7 @@ src/coding_cli/
 ├── main.py              # 进程入口
 ├── commands.py          # REPL / 单命令编排
 ├── managed_server.py    # Managed 模式进程管理
-├── client.py            # HTTP client（复用 agent/platform/sdk/client）
+├── client.py            # HTTP client（API 契约对齐 agent HTTP API）
 ├── input/
 │   ├── repl_input.py    # 终端输入引擎（行编辑、历史、命令菜单）
 │   └── repl_commands.py # 斜杠命令路由与参数校验
