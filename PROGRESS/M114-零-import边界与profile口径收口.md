@@ -41,5 +41,5 @@
   - Tests: `python -m pytest /Users/czj/Repos/nano-multiagent/.worktrees/M114/tests/integration/test_cli_http_flow_integration.py -q` → `26 passed`
   - Entry: `inspect.getsource(coding_cli.client)` 不再出现 `agent.`；AST 扫描四个顶层包源码时无跨包 import 违规。
 - Rollback: `50a627b`（R2 红灯测试）
-- Commits: C1=`50a627b`, C2=`2cbb873`, C3=`待填`
+- Commits: C1=`50a627b`, C2=`2cbb873`, C3=`1dd7f9f`
 - Next: Milestone 已满足 exit criteria，可交回主 agent 做后续集成/状态更新。
