@@ -1,5 +1,4 @@
 """Integration tests for end-to-end human chat API chain."""
-
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -46,11 +45,16 @@ def test_human_chat_roundtrip_with_history_and_conversation_list(tmp_path: Path)
 
         conversations_resp = client.get("/im/v1/conversations")
         assert conversations_resp.status_code == 200
-        conversations = conversations_resp.json()
+        conversations = conversations_resp.json()["items"]
         assert any(item["id"] == conversation_id for item in conversations)
 
         messages_resp = client.get(f"/im/v1/conversations/{conversation_id}/messages")
         assert messages_resp.status_code == 200
-        messages = messages_resp.json()
+        messages = messages_resp.json()["items"]
         assert [item["content"] for item in messages] == ["hello", "hi"]
         assert [item["delivery_status"] for item in messages] == ["completed", "completed"]
+
+        conversation_detail = client.get(f"/im/v1/conversations/{conversation_id}")
+        assert conversation_detail.status_code == 200
+        assert conversation_detail.json()["unread_count"] == 2
+        assert conversation_detail.json()["type"] == "direct"

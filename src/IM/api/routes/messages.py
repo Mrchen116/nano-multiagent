@@ -1,5 +1,4 @@
 """Message and event routes for IM HTTP APIs."""
-
 import asyncio
 import json
 from time import monotonic
@@ -11,17 +10,27 @@ from pydantic import BaseModel, Field
 from IM.api.deps import assert_conversation_exists, get_event_service, get_web_im_service
 from IM.application.event_service import EventService
 from IM.application.web_im_service import WebIMService
-from IM.domain.models import ConversationEvent, Message
+from IM.domain.models import Attachment, ConversationEvent, Message
 from IM.infra.sse import encode_sse_event_frame, encode_sse_heartbeat
 
 router = APIRouter(tags=["messages"])
+
+
+class AttachmentPayload(BaseModel):
+    """Serialized attachment payload accepted and returned by the API."""
+
+    url: str = Field(min_length=1)
+    content_type: str | None = None
+    file_name: str | None = None
 
 
 class CreateMessageRequest(BaseModel):
     """Request payload for creating a message."""
 
     sender_user_id: str = Field(min_length=1)
+    sender_type: str = Field(default="user")
     content: str = Field(min_length=1)
+    attachments: list[AttachmentPayload] = Field(default_factory=list)
 
 
 class MessageResponse(BaseModel):
@@ -32,9 +41,24 @@ class MessageResponse(BaseModel):
     sender_user_id: str
     sender_type: str
     content: str
-    attachments: list[str]
+    attachments: list[AttachmentPayload]
     delivery_status: str
     created_at: str
+
+
+class ListMessagesResponse(BaseModel):
+    """Envelope returned when listing paginated messages."""
+
+    items: list[MessageResponse]
+    next_before_message_id: str | None
+
+    def __iter__(self):
+        """Preserve legacy list-like iteration for older tests and callers."""
+        return iter(self.items)
+
+    def __len__(self) -> int:
+        """Preserve legacy len() semantics for older tests and callers."""
+        return len(self.items)
 
 
 def to_message_response(message: Message) -> MessageResponse:
@@ -45,7 +69,14 @@ def to_message_response(message: Message) -> MessageResponse:
         sender_user_id=message.sender_user_id,
         sender_type=message.sender_type,
         content=message.content,
-        attachments=message.attachments,
+        attachments=[
+            AttachmentPayload(
+                url=item.url,
+                content_type=item.content_type,
+                file_name=item.file_name,
+            )
+            for item in message.attachments
+        ],
         delivery_status=message.delivery_status,
         created_at=message.created_at,
     )
@@ -106,7 +137,16 @@ def create_message(
         created = service.create_message(
             conversation_id=conversation_id,
             sender_user_id=payload.sender_user_id,
+            sender_type=payload.sender_type,
             content=payload.content,
+            attachments=[
+                Attachment(
+                    url=item.url,
+                    content_type=item.content_type,
+                    file_name=item.file_name,
+                )
+                for item in payload.attachments
+            ],
         )
     except ValueError as exc:
         raise map_message_write_error(exc) from exc
@@ -115,19 +155,32 @@ def create_message(
 
 @router.get(
     "/im/v1/conversations/{conversation_id}/messages",
-    response_model=list[MessageResponse],
+    response_model=ListMessagesResponse,
 )
 def list_messages(
     conversation_id: str,
     request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    before_message_id: str | None = Query(default=None),
     service: WebIMService = Depends(get_web_im_service),
-) -> list[MessageResponse]:
+) -> ListMessagesResponse:
     """List messages for one conversation in insertion order."""
     assert_conversation_exists(request, conversation_id=conversation_id)
-    return [
-        to_message_response(item)
-        for item in service.list_messages(conversation_id=conversation_id)
-    ]
+    try:
+        items = service.list_messages(
+            conversation_id=conversation_id,
+            limit=limit,
+            before_message_id=before_message_id,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        http_status = status.HTTP_404_NOT_FOUND if detail == "before_message_id not found" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=http_status, detail=detail) from exc
+    next_before_message_id = items[0].id if len(items) == limit else None
+    return ListMessagesResponse(
+        items=[to_message_response(item) for item in items],
+        next_before_message_id=next_before_message_id,
+    )
 
 
 @router.get("/im/v1/conversations/{conversation_id}/events")
@@ -185,6 +238,10 @@ async def stream_conversation_events(
 def map_message_write_error(exc: ValueError) -> HTTPException:
     """Map repository write failures to stable HTTP status codes."""
     detail = str(exc)
-    if detail in {"conversation_id not found", "sender_user_id not found"}:
+    if detail in {
+        "conversation_id not found",
+        "sender_user_id not found",
+        "before_message_id not found",
+    }:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)

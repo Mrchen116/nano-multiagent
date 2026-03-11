@@ -5,7 +5,7 @@ import json
 import sqlite3
 from uuid import uuid4
 
-from IM.domain.models import Conversation, ConversationEvent, Message, User
+from IM.domain.models import Attachment, Conversation, ConversationEvent, Message, User
 
 
 class UserRepository:
@@ -97,7 +97,7 @@ class ConversationRepository:
             Created conversation entity.
 
         Raises:
-            ValueError: When participant list is empty or references missing users.
+            ValueError: When participant list is empty, references missing users, or mixes owners.
         """
         normalized_participants = list(dict.fromkeys(participant_ids))
         if not normalized_participants:
@@ -113,9 +113,10 @@ class ConversationRepository:
         if len(existing_rows) != len(normalized_participants):
             raise ValueError("participant_ids contains unknown users")
 
+        owner_ids = {str(row["owner_id"]) for row in existing_rows}
         conversation_id = uuid4().hex
         created_at = _utc_now()
-        owner_id = existing_rows[0]["owner_id"]
+        owner_id = uuid4().hex if len(owner_ids) > 1 else next(iter(owner_ids))
         conversation_type = "direct" if len(normalized_participants) == 2 else "group"
         with self._connection:
             self._connection.execute(
@@ -161,45 +162,88 @@ class ConversationRepository:
             created_at=created_at,
         )
 
+    def get_conversation(self, *, conversation_id: str) -> Conversation | None:
+        """Load one conversation with participants."""
+        row = self._connection.execute(
+            """
+            SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, created_at
+            FROM conversations
+            WHERE id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_conversation(row)
+
+    def update_conversation(
+        self,
+        *,
+        conversation_id: str,
+        title: str | None,
+        is_pinned: bool | None,
+        is_muted: bool | None,
+    ) -> Conversation:
+        """Update mutable conversation metadata and return the new snapshot."""
+        existing = self.get_conversation(conversation_id=conversation_id)
+        if existing is None:
+            raise ValueError("conversation_id not found")
+        next_title = existing.title if title is None else title.strip()
+        if not next_title:
+            raise ValueError("title must be non-empty")
+        next_is_pinned = existing.is_pinned if is_pinned is None else is_pinned
+        next_is_muted = existing.is_muted if is_muted is None else is_muted
+        with self._connection:
+            self._connection.execute(
+                """
+                UPDATE conversations
+                SET title = ?, is_pinned = ?, is_muted = ?
+                WHERE id = ?
+                """,
+                (next_title, int(next_is_pinned), int(next_is_muted), conversation_id),
+            )
+        updated = self.get_conversation(conversation_id=conversation_id)
+        assert updated is not None
+        return updated
+
     def list_conversations(self) -> list[Conversation]:
         """List conversations with participant IDs.
 
         Returns:
-            Conversations ordered by creation time.
+            Conversations ordered by pinned-first then last activity then creation time.
         """
         conversation_rows = self._connection.execute(
             """
             SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, created_at
             FROM conversations
-            ORDER BY created_at, rowid
+            ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
             """
         ).fetchall()
-        results: list[Conversation] = []
-        for row in conversation_rows:
-            participant_rows = self._connection.execute(
-                """
-                SELECT user_id
-                FROM conversation_participants
-                WHERE conversation_id = ?
-                ORDER BY rowid
-                """,
-                (row["id"],),
-            ).fetchall()
-            results.append(
-                Conversation(
-                    id=row["id"],
-                    title=row["title"],
-                    participant_ids=[item["user_id"] for item in participant_rows],
-                    type=row["type"],
-                    owner_id=row["owner_id"],
-                    is_pinned=bool(row["is_pinned"]),
-                    is_muted=bool(row["is_muted"]),
-                    unread_count=int(row["unread_count"]),
-                    last_message_at=row["last_message_at"],
-                    created_at=row["created_at"],
-                )
-            )
-        return results
+        return [self._row_to_conversation(row) for row in conversation_rows]
+
+    def _row_to_conversation(self, row: sqlite3.Row) -> Conversation:
+        """Convert one conversation row into a domain model with participants."""
+        participant_rows = self._connection.execute(
+            """
+            SELECT user_id
+            FROM conversation_participants
+            WHERE conversation_id = ?
+            ORDER BY rowid
+            """,
+            (row["id"],),
+        ).fetchall()
+        return Conversation(
+            id=row["id"],
+            title=row["title"],
+            participant_ids=[item["user_id"] for item in participant_rows],
+            type=row["type"],
+            owner_id=row["owner_id"],
+            is_pinned=bool(row["is_pinned"]),
+            is_muted=bool(row["is_muted"]),
+            unread_count=int(row["unread_count"]),
+            last_message_at=row["last_message_at"],
+            created_at=row["created_at"],
+        )
 
 
 class MessageRepository:
@@ -219,6 +263,8 @@ class MessageRepository:
         conversation_id: str,
         sender_user_id: str,
         content: str,
+        sender_type: str = "user",
+        attachments: list[Attachment] | None = None,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -226,16 +272,22 @@ class MessageRepository:
             conversation_id: Target conversation identifier.
             sender_user_id: Sender user identifier.
             content: Plain text body of the message.
+            sender_type: Sender kind; must be user, agent, or system.
+            attachments: Attachment descriptors stored alongside the message.
 
         Returns:
             Created message entity.
 
         Raises:
-            ValueError: When conversation/sender is missing or sender not in conversation.
+            ValueError: When conversation/sender is missing, owner scope mismatches, sender type is invalid,
+                or sender is not a participant for user-originated messages.
         """
         if not content.strip():
             raise ValueError("content must be non-empty")
+        if sender_type not in {"user", "agent", "system"}:
+            raise ValueError("sender_type must be one of: user, agent, system")
 
+        normalized_attachments = _normalize_attachments(attachments)
         conversation_exists = self._connection.execute(
             "SELECT owner_id FROM conversations WHERE id = ?",
             (conversation_id,),
@@ -249,17 +301,6 @@ class MessageRepository:
         ).fetchone()
         if sender_exists is None:
             raise ValueError("sender_user_id not found")
-
-        if not conversation_exists["owner_id"]:
-            self._connection.execute(
-                "UPDATE conversations SET owner_id = ? WHERE id = ?",
-                (sender_exists["owner_id"], conversation_id),
-            )
-            conversation_exists = self._connection.execute(
-                "SELECT owner_id FROM conversations WHERE id = ?",
-                (conversation_id,),
-            ).fetchone()
-
         participant_exists = self._connection.execute(
             """
             SELECT 1
@@ -268,14 +309,18 @@ class MessageRepository:
             """,
             (conversation_id, sender_user_id),
         ).fetchone()
-        if participant_exists is None:
+        if participant_exists is None and str(sender_exists["owner_id"]) != str(conversation_exists["owner_id"]):
+            raise ValueError("sender_user_id is outside conversation owner scope")
+
+
+        if sender_type == "user" and participant_exists is None:
             raise ValueError("sender_user_id is not a participant of conversation")
 
         message_id = uuid4().hex
         created_at = _utc_now()
         final_status = "completed"
-        sender_type = "user"
-        attachments_json = json.dumps([], ensure_ascii=True, separators=(",", ":"))
+        attachments_json = _encode_attachments(normalized_attachments)
+        event_attachments = [_attachment_to_dict(item) for item in normalized_attachments]
         with self._connection:
             self._connection.execute(
                 """
@@ -311,15 +356,17 @@ class MessageRepository:
                     "message_id": message_id,
                     "sender_user_id": sender_user_id,
                     "sender_type": sender_type,
-                    "attachments": [],
+                    "attachments": event_attachments,
                 },
             )
             self._connection.execute(
                 "UPDATE messages SET delivery_status = ? WHERE id = ?",
                 (final_status, message_id),
             )
+            # Web IM unread_count is tracked per owner-scoped conversation in V1. Every persisted message bumps
+            # the aggregate counter; read/ack semantics can later decrement it without changing this write path.
             self._connection.execute(
-                "UPDATE conversations SET last_message_at = ? WHERE id = ?",
+                "UPDATE conversations SET last_message_at = ?, unread_count = unread_count + 1 WHERE id = ?",
                 (created_at, conversation_id),
             )
             self._insert_event(
@@ -332,7 +379,7 @@ class MessageRepository:
                     "message_id": message_id,
                     "sender_user_id": sender_user_id,
                     "sender_type": sender_type,
-                    "attachments": [],
+                    "attachments": event_attachments,
                 },
             )
         return Message(
@@ -341,29 +388,52 @@ class MessageRepository:
             sender_user_id=sender_user_id,
             sender_type=sender_type,
             content=content,
-            attachments=[],
+            attachments=normalized_attachments,
             delivery_status=final_status,
             created_at=created_at,
         )
 
-    def list_messages(self, *, conversation_id: str) -> list[Message]:
+    def list_messages(
+        self,
+        *,
+        conversation_id: str,
+        limit: int = 50,
+        before_message_id: str | None = None,
+    ) -> list[Message]:
         """List messages for a conversation in insertion order.
 
         Args:
             conversation_id: Target conversation identifier.
+            limit: Maximum number of recent messages to return.
+            before_message_id: Exclusive cursor; return messages older than this message.
 
         Returns:
-            Messages ordered by creation sequence.
+            Messages ordered from oldest to newest within the selected page.
         """
+        bounded_limit = max(1, min(limit, 200))
+        params: list[object] = [conversation_id]
+        cursor_clause = ""
+        if before_message_id is not None:
+            cursor_row = self._connection.execute(
+                "SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?",
+                (before_message_id, conversation_id),
+            ).fetchone()
+            if cursor_row is None:
+                raise ValueError("before_message_id not found")
+            cursor_clause = " AND rowid < ?"
+            params.append(int(cursor_row["rowid"]))
+        params.append(bounded_limit)
         rows = self._connection.execute(
-            """
+            f"""
             SELECT id, conversation_id, sender_user_id, sender_type, content, attachments_json, delivery_status, created_at
             FROM messages
-            WHERE conversation_id = ?
-            ORDER BY rowid
+            WHERE conversation_id = ?{cursor_clause}
+            ORDER BY rowid DESC
+            LIMIT ?
             """,
-            (conversation_id,),
+            tuple(params),
         ).fetchall()
+        ordered_rows = list(reversed(rows))
         return [
             Message(
                 id=row["id"],
@@ -375,7 +445,7 @@ class MessageRepository:
                 delivery_status=row["delivery_status"],
                 created_at=row["created_at"],
             )
-            for row in rows
+            for row in ordered_rows
         ]
 
     def _insert_event(
@@ -465,7 +535,43 @@ class EventRepository:
         ]
 
 
-def _decode_attachments(raw_value: str) -> list[str]:
+def _attachment_to_dict(attachment: Attachment) -> dict[str, object]:
+    """Convert one attachment dataclass to persisted/event payload shape."""
+    payload: dict[str, object] = {"url": attachment.url}
+    if attachment.content_type is not None:
+        payload["content_type"] = attachment.content_type
+    if attachment.file_name is not None:
+        payload["file_name"] = attachment.file_name
+    return payload
+
+
+def _normalize_attachments(attachments: list[Attachment] | None) -> list[Attachment]:
+    """Validate and normalize attachment payloads before persistence."""
+    normalized = attachments or []
+    results: list[Attachment] = []
+    for item in normalized:
+        url = item.url.strip()
+        if not url:
+            raise ValueError("attachments[].url must be non-empty")
+        content_type = item.content_type.strip() if item.content_type else None
+        file_name = item.file_name.strip() if item.file_name else None
+        results.append(
+            Attachment(
+                url=url,
+                content_type=content_type or None,
+                file_name=file_name or None,
+            )
+        )
+    return results
+
+
+def _encode_attachments(attachments: list[Attachment]) -> str:
+    """Encode attachments JSON with stable field ordering."""
+    payload = [_attachment_to_dict(item) for item in attachments]
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+
+
+def _decode_attachments(raw_value: str) -> list[Attachment]:
     """Decode attachments JSON into a stable list shape."""
     try:
         decoded = json.loads(raw_value)
@@ -473,7 +579,23 @@ def _decode_attachments(raw_value: str) -> list[str]:
         return []
     if not isinstance(decoded, list):
         return []
-    return [str(item) for item in decoded]
+    results: list[Attachment] = []
+    for item in decoded:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url", "")).strip()
+        if not url:
+            continue
+        content_type = item.get("content_type")
+        file_name = item.get("file_name")
+        results.append(
+            Attachment(
+                url=url,
+                content_type=str(content_type) if content_type not in {None, ""} else None,
+                file_name=str(file_name) if file_name not in {None, ""} else None,
+            )
+        )
+    return results
 
 
 def _utc_now() -> str:
