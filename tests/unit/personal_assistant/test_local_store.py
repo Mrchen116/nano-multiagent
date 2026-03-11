@@ -5,6 +5,49 @@ import pytest
 from personal_assistant.config.local_store import load_local_config
 
 
+def test_load_local_config_defaults_workspace_root_to_user_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = tmp_path / "node-config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    expected_root = home_dir / "nano-assistant" / "workspace" / "assistant-a"
+    assert config.agents[0].workspace_root == expected_root.resolve()
+    assert expected_root.is_dir() is True
+
+
+def test_load_local_config_keeps_explicit_workspace_root_requirement(tmp_path: Path) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    explicit_root = tmp_path / "agents" / "assistant-a"
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {explicit_root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="workspace_root does not exist"):
+        load_local_config(config_path)
+
+
 def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> None:
     config_path = tmp_path / "node-config.yaml"
     workspace_root = tmp_path / "agents" / "assistant-a"
