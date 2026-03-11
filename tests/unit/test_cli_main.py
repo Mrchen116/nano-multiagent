@@ -3060,6 +3060,59 @@ def test_run_cli_managed_mode_starts_and_stops_local_server() -> None:
     assert manager.events == ["start", "stop"]
 
 
+def test_run_cli_without_mode_defaults_repl_to_managed_lifecycle() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    inputs = iter(["/exit"])
+    manager = _ManagedServerSpy()
+
+    exit_code = run_cli(
+        ["--token", "test-token"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+        managed_server_factory=lambda config: manager.bind(config),
+    )
+
+    assert exit_code == 0
+    assert manager.config_base_url == "http://127.0.0.1:8000"
+    assert manager.events == ["start", "stop"]
+    assert "bye" in output.getvalue()
+
+
+def test_run_cli_without_mode_defaults_command_path_to_managed_for_local_base_url() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+    manager = _ManagedServerSpy()
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8116", "--token", "test-token", "health"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        managed_server_factory=lambda config: manager.bind(config),
+    )
+
+    assert exit_code == 0
+    assert json.loads(output.getvalue()) == {"healthy": True}
+    assert manager.config_base_url == "http://127.0.0.1:8116"
+    assert manager.events == ["start", "stop"]
+
+
+def test_run_cli_explicit_remote_mode_overrides_managed_default() -> None:
+    stub = _StubClient()
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        ["--mode", "remote", "--base-url", "http://127.0.0.1:8112", "--token", "test-token", "health"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        managed_server_factory=lambda _: (_ for _ in ()).throw(AssertionError("should not start")),
+    )
+
+    assert exit_code == 0
+    assert json.loads(output.getvalue()) == {"healthy": True}
+
+
 def test_run_cli_remote_mode_does_not_start_local_server() -> None:
     stub = _StubClient()
     output = io.StringIO()
