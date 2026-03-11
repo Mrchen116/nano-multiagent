@@ -1,4 +1,4 @@
-"""Architecture acceptance for the M88 zero-residue target state."""
+"""Architecture acceptance for the M89 core-closure target state."""
 
 from importlib.util import find_spec
 from pathlib import Path
@@ -15,11 +15,14 @@ EXPECTED_TARGET_TREE_LINES = (
     "src/",
     "├── nano_multiagent/",
     "│   ├── core/",
+    "│   │   ├── agent/",
     "│   │   ├── errors.py",
     "│   │   ├── events.py",
     "│   │   ├── hooks/",
     "│   │   ├── ids.py",
     "│   │   ├── llm/",
+    "│   │   ├── observability/",
+    "│   │   ├── runs/",
     "│   │   ├── session/",
     "│   │   ├── skills/",
     "│   │   └── types.py",
@@ -43,6 +46,18 @@ EXPECTED_TARGET_TREE_LINES = (
 )
 
 EXPECTED_EXISTING_PATHS = (
+    "core/agent/__init__.py",
+    "core/agent/loop.py",
+    "core/agent/policies.py",
+    "core/agent/prompting.py",
+    "core/agent/runtime.py",
+    "core/agent/skill_commands.py",
+    "core/agent/state.py",
+    "core/agent/compaction/applier.py",
+    "core/agent/compaction/planner.py",
+    "core/agent/compaction/policy.py",
+    "core/agent/compaction/summarizer.py",
+    "core/agent/compaction/types.py",
     "core/errors.py",
     "core/events.py",
     "core/hooks/context.py",
@@ -53,6 +68,11 @@ EXPECTED_EXISTING_PATHS = (
     "core/llm/factory.py",
     "core/llm/interfaces.py",
     "core/llm/model_registry.py",
+    "core/observability/__init__.py",
+    "core/observability/logger.py",
+    "core/observability/tracing.py",
+    "core/runs/__init__.py",
+    "core/runs/registry.py",
     "core/session/entries.py",
     "core/session/manager.py",
     "core/session/models.py",
@@ -112,14 +132,17 @@ EXPECTED_EXISTING_PATHS = (
 )
 
 REMOVED_LEGACY_ROOTS = (
+    "agent",
     "cli",
+    "hooks",
+    "llm",
+    "observability",
+    "runs",
+    "sdk",
     "server",
     "session",
-    "hooks",
     "skills",
-    "llm",
     "tools",
-    "sdk",
 )
 
 LEGACY_MODULE_ROOTS = tuple(f"nano_multiagent.{name}" for name in REMOVED_LEGACY_ROOTS)
@@ -128,13 +151,15 @@ LEGACY_DOC_SNIPPETS = LEGACY_MODULE_ROOTS + (
     "python3 -m nano_multiagent.cli.main",
 )
 REQUIRED_DOC_SNIPPETS = (
-    "## 十、M88 零残留 canonicalization 验收",
-    "legacy package roots 已物理删除",
-    "nano_multiagent.platform.http_api.app:app",
-    "python3 -m nano_multiagent.apps.coding_cli.main",
+    "## 十一、M89 core 物理收口验收",
+    "src/nano_multiagent 顶层仅剩 core/platform/products/apps",
+    "core/agent",
+    "core/runs",
+    "core/observability",
     "tests/contract/test_multi_product_architecture_acceptance.py",
-    "tests/unit/test_platform_http_api_location.py",
-    "tests/unit/test_apps_coding_cli_location.py",
+    "tests/unit/test_core_agent_location.py",
+    "tests/unit/test_core_runs_location.py",
+    "tests/unit/test_core_observability_location.py",
 )
 
 
@@ -163,7 +188,7 @@ def test_final_target_tree_paths_exist_and_legacy_roots_are_removed() -> None:
         assert (SRC_ROOT / relative_path).exists(), f"missing target-state path: {relative_path}"
 
     for root_name in REMOVED_LEGACY_ROOTS:
-        assert not (SRC_ROOT / root_name).exists(), f"legacy root should be removed in M88: {root_name}"
+        assert not (SRC_ROOT / root_name).exists(), f"legacy root should be removed in M89: {root_name}"
 
 
 
