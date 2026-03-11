@@ -28,7 +28,7 @@
   - Tests: `python -m pytest /Users/czj/Repos/nano-multiagent/.worktrees/M114/tests/unit/test_product_profiles.py /Users/czj/Repos/nano-multiagent/.worktrees/M114/tests/unit/test_personal_assistant_profile.py /Users/czj/Repos/nano-multiagent/.worktrees/M114/tests/integration/test_personal_assistant_bootstrap_integration.py /Users/czj/Repos/nano-multiagent/.worktrees/M114/tests/integration/test_personal_assistant_server_integration.py -q` → `42 passed`
   - Entry: `bootstrap_product(PERSONAL_ASSISTANT_PROFILE)` 与 `create_app(product_profile=PERSONAL_ASSISTANT_PROFILE)` 默认只暴露 `read/task`，`send_message` 不再进入默认 registry/capabilities。
 - Rollback: `da9b574`（R1 红灯测试）
-- Commits: C1=`da9b574`, C2=`ccfe080`, C3=`待填`
+- Commits: C1=`da9b574`, C2=`ccfe080`, C3=`4005c50`
 - Next: R2 收口 `coding_cli` 对 `agent` 的直接 import，并把 SPEC §5 自动化验收落地。
 
 ### R2 收口 coding_cli ↔ agent 零-import 边界，并把 SPEC §5 验收规则落成自动化断言
@@ -38,6 +38,7 @@
 - Evidence:
   - Tests: `python -m pytest /Users/czj/Repos/nano-multiagent/.worktrees/M114/tests/unit/test_apps_coding_cli_location.py /Users/czj/Repos/nano-multiagent/.worktrees/M114/tests/contract/test_cli_http_only_contract.py -q` → `12 passed`
   - Tests: `cd /Users/czj/Repos/nano-multiagent/.worktrees/M114 && python -m pytest tests/unit/test_product_profiles.py tests/contract/test_cli_http_only_contract.py -q 2>&1 | tail -80` → `19 passed`
+  - Tests: `python -m pytest /Users/czj/Repos/nano-multiagent/.worktrees/M114/tests/integration/test_cli_http_flow_integration.py -q` → `26 passed`
   - Entry: `inspect.getsource(coding_cli.client)` 不再出现 `agent.`；AST 扫描四个顶层包源码时无跨包 import 违规。
 - Rollback: `50a627b`（R2 红灯测试）
 - Commits: C1=`50a627b`, C2=`2cbb873`, C3=`待填`
