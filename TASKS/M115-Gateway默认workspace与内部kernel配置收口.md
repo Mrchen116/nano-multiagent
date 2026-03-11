@@ -49,4 +49,4 @@
   - `tests/e2e/test_personal_assistant_main_e2e.py`
   - `tests/e2e/test_m112_real_process_roundtrip_e2e.py`
 - **DoD**: `PYTHONPATH=src pytest -q tests/unit/personal_assistant tests/e2e/test_personal_assistant_main_e2e.py tests/e2e/test_m112_real_process_roundtrip_e2e.py` 全绿 + C1/C2/C3 齐全 + PROGRESS 写清决策/证据/哈希
-- **Status**: TODO
+- **Status**: DONE

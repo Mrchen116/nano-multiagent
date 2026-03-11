@@ -27,30 +27,30 @@ def _pythonpath_env() -> dict[str, str]:
     return env
 
 
-def _write_smoke_config(config_path: Path, workspace_root: Path, *, port: int) -> None:
+def _write_smoke_config(config_path: Path, workspace_root: Path | None = None, *, port: int) -> None:
     command = f"{sys.executable} -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port {port}"
-    config_path.write_text(
-        "\n".join(
-            [
-                "node:",
-                "  node_id: node-smoke",
-                "agents:",
-                "  - agent_id: assistant-a",
-                f"    workspace_root: {workspace_root}",
-                "channels:",
-                "  - name: web_relay",
-                "heartbeat:",
-                "  tick_interval_seconds: 0.05",
-                "kernel:",
-                f"  base_url: http://127.0.0.1:{port}",
-                f"  command: {command}",
-                "  startup_timeout_seconds: 10",
-                "  health_poll_interval_seconds: 0.05",
-                "  shutdown_grace_seconds: 3",
-            ]
-        ),
-        encoding="utf-8",
+    lines = [
+        "node:",
+        "  node_id: node-smoke",
+        "agents:",
+        "  - agent_id: assistant-a",
+    ]
+    if workspace_root is not None:
+        lines.append(f"    workspace_root: {workspace_root}")
+    lines.extend(
+        [
+            "channels:",
+            "  - name: web_relay",
+            "heartbeat:",
+            "  tick_interval_seconds: 0.05",
+            "kernel:",
+            f"  command: {command}",
+            "  startup_timeout_seconds: 10",
+            "  health_poll_interval_seconds: 0.05",
+            "  shutdown_grace_seconds: 3",
+        ]
     )
+    config_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _smoke_command(config_path: Path) -> list[str]:
@@ -79,11 +79,11 @@ def _run_smoke(config_path: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_smoke_runtime_script_reports_ready_running_and_shutdown(tmp_path: Path) -> None:
-    workspace_root = tmp_path / "agent-a"
-    workspace_root.mkdir()
+def test_smoke_runtime_script_reports_ready_running_and_shutdown(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
     config_path = tmp_path / "node-config.yaml"
-    _write_smoke_config(config_path, workspace_root, port=_pick_free_port())
+    _write_smoke_config(config_path, port=_pick_free_port())
 
     completed = _run_smoke(config_path)
 
@@ -91,13 +91,14 @@ def test_smoke_runtime_script_reports_ready_running_and_shutdown(tmp_path: Path)
     assert "READY pid=" in completed.stdout
     assert "RUNNING steady_seconds=0.2" in completed.stdout
     assert "SHUTDOWN exit_code=0" in completed.stdout
+    assert (home_dir / "nano-assistant" / "workspace" / "assistant-a").is_dir() is True
 
 
-def test_smoke_runtime_script_keeps_gateway_alive_after_ready(tmp_path: Path) -> None:
-    workspace_root = tmp_path / "agent-a"
-    workspace_root.mkdir()
+def test_smoke_runtime_script_keeps_gateway_alive_after_ready(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
     config_path = tmp_path / "node-config.yaml"
-    _write_smoke_config(config_path, workspace_root, port=_pick_free_port())
+    _write_smoke_config(config_path, port=_pick_free_port())
 
     completed = _run_smoke(config_path)
 
@@ -105,6 +106,7 @@ def test_smoke_runtime_script_keeps_gateway_alive_after_ready(tmp_path: Path) ->
     assert "RUNNING steady_seconds=0.2 alive=true" in completed.stdout
     assert "READY pid=" in completed.stdout
     assert "SHUTDOWN exit_code=0" in completed.stdout
+    assert (home_dir / "nano-assistant" / "workspace" / "assistant-a").is_dir() is True
 
 
 class _FakeProcessManager:

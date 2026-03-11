@@ -8,6 +8,30 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+## Gateway quick start
+
+最小 `personal_assistant` gateway 配置示例：
+
+```yaml
+node:
+  node_id: my-macbook
+
+agents:
+  - agent_id: assistant
+    # workspace_root: ~/nano-assistant/workspace/assistant
+
+kernel:
+  command: "python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000"
+
+im_service:
+  url: http://127.0.0.1:8011
+```
+
+说明：
+- 省略 `agents[].workspace_root` 时，默认使用 `~/nano-assistant/workspace/<agent_id>/`，并在首次加载配置时自动创建目录。
+- `kernel.base_url` 属于 gateway 内部默认值，面向用户的最小配置无需填写。
+- 完整启动步骤见 `/Users/czj/Repos/nano-multiagent/.worktrees/M115/docs/operator-runbook.md`。
+
 ## IM Frontend
 
 - 运行说明、API/Mock 边界、M38 验收截图索引见：`src/IM/frontend/README.md`

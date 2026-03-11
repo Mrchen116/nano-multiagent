@@ -65,7 +65,7 @@ node:
 
 agents:
   - agent_id: assistant
-    workspace_root: /path/to/agent/workspace
+    # workspace_root: ~/nano-assistant/workspace/assistant
     title: My Assistant
 
 channels:
@@ -73,7 +73,6 @@ channels:
     enabled: true
 
 kernel:
-  base_url: http://127.0.0.1:8000
   # token: <与内核的 NANO_MULTIAGENT_API_TOKEN 一致>
   command: "python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000"
   startup_timeout_seconds: 15
@@ -89,7 +88,9 @@ im_service:
 ```
 
 注意：
-- `workspace_root` 必须是已存在的目录
+- 省略 `workspace_root` 时，Gateway 默认使用 `~/nano-assistant/workspace/<agent_id>/`，并在首次加载配置时自动创建目录
+- 如果显式填写 `workspace_root`，该目录必须已存在
+- `kernel.base_url` 属于内部实现细节；面向用户的最小配置可省略，默认指向本机 `http://127.0.0.1:8000`
 - 如果 kernel 已经在外部启动，可以省略 `kernel.command` 并手动启动
 - `im_service` 块可选，省略则 Gateway 以本地自治模式运行（外部 IM channel 仍可用）
 

@@ -62,6 +62,8 @@ def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> No
                 f"    workspace_root: {workspace_root}",
                 "channels:",
                 "  - name: web_relay",
+                "kernel:",
+                "  base_url: http://127.0.0.1:8100",
             ]
         ),
         encoding="utf-8",
@@ -70,12 +72,38 @@ def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> No
     config = load_local_config(config_path)
 
     assert config.node.node_id == "node-local"
-    assert config.kernel.base_url == "http://127.0.0.1:8000"
+    assert config.kernel.base_url == "http://127.0.0.1:8100"
     assert config.kernel.health_path == "/v1/health"
     assert config.kernel.startup_timeout_seconds == 15.0
     assert config.agents[0].workspace_root == workspace_root
     assert config.channels[0].enabled is True
     assert config.im_service is None
+
+
+def test_load_local_config_uses_internal_kernel_base_url_default(tmp_path: Path) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+                "kernel:",
+                "  command: python -m agent.platform.http_api.app",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert config.kernel.base_url == "http://127.0.0.1:8000"
+    assert config.kernel.command == "python -m agent.platform.http_api.app"
+    assert config.agents[0].workspace_root == workspace_root
 
 
 def test_load_local_config_rejects_missing_agents(tmp_path: Path) -> None:
