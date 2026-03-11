@@ -41,6 +41,27 @@ def test_create_message_persists_delivery_events_in_order(tmp_path: Path) -> Non
     assert listed_events[0].event_id < listed_events[1].event_id
 
 
+def test_create_message_can_defer_delivery_until_gateway_receipt(tmp_path: Path) -> None:
+    """Allow relay paths to persist only message.sent before gateway completion."""
+    users, conversations, messages, events = _build_repositories(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(title="chat", participant_ids=[alice.id])
+
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="hello",
+        auto_complete_delivery=False,
+    )
+
+    listed_events = events.list_events(conversation_id=conversation.id)
+
+    assert created.delivery_status == "sent"
+    assert [item.event_type for item in listed_events] == ["message.sent"]
+    assert [item.delivery_status for item in listed_events] == ["sent"]
+    assert listed_events[0].message_id == created.id
+
+
 def test_list_events_supports_after_event_id_cursor(tmp_path: Path) -> None:
     """Read only events newer than a given event id cursor."""
     users, conversations, messages, events = _build_repositories(tmp_path)
