@@ -23,15 +23,15 @@
 - Next: 进入 R2，补 agent HTTP 子集客户端与 SSE 解析。
 
 ### R2 内核 HTTP 客户端
-- Context:
-- Decision:
-- Rationale:
+- Context: NodeGateway-SPEC §9 要求 Gateway 只通过 HTTP 调用 agent 内核的 health/sessions/messages:async/events/runs/cancel 子集；仓库虽已有 SDK client，但 M98 需要 personal_assistant 自己的最小边界与契约测试。
+- Decision: 新增 `client/kernel_api_client.py`，提供 `KernelApiClientConfig` 与 6 个子集方法；统一注入 bearer token / request id / timeout，错误响应映射为带 `code/message/trace_id` 的 `RuntimeError`，并内置 SSE 文本解析。
+- Rationale: 保持 personal_assistant 边界最小而明确，避免直接复用 CLI/SDK 更宽的接口集；同时保留和现有 server HTTP 契约一致的请求/响应语义。
 - Evidence:
-  - Tests:
-  - Entry:
-- Rollback:
-- Commits: C1=, C2=, C3=
-- Next:
+  - Tests: `PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M98/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M98/tests/unit/personal_assistant/test_kernel_api_client.py /Users/czj/Repos/nano-multiagent/.worktrees/M98/tests/contract/test_personal_assistant_kernel_client_contract.py`；`PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M98/src pytest -q`（仅保留既有基线失败 `test_architecture_docs_describe_zero_residue_target_state`）
+  - Entry: `KernelApiClient` 已能用 `httpx.MockTransport` 打通 create_session → messages:async → get_run/cancel_run，并把 `/events` SSE 解析为结构化列表。
+- Rollback: b44e41296d372f590ad53d29fa6f05577ef979fe
+- Commits: C1=b44e412, C2=
+- Next: 进入 R3，补 main.py 生命周期编排与最小入口 e2e。
 
 ### R3 进程入口与内核子进程生命周期
 - Context:

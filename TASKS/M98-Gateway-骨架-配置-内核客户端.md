@@ -39,7 +39,7 @@
   - PROGRESS 写清配置结构、默认值与证据
 
 ### R2 内核 HTTP 客户端
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `client/kernel_api_client.py` 存在并封装 `/v1/health`、`/v1/sessions`、`/v1/sessions/{id}/messages:async`、`/v1/sessions/{id}/events`、`/v1/runs/{id}`、`/v1/runs/{id}/cancel`
   - 支持 bearer token、request id、timeout 配置
