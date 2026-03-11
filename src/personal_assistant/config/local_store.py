@@ -197,13 +197,17 @@ def _parse_agents(payload: Any) -> tuple[AgentWorkspaceConfig, ...]:
         if not isinstance(item, dict):
             raise ValueError(f"agents[{index}] must be a mapping")
         agent_id = _require_non_empty_string(item.get("agent_id"), field_name=f"agents[{index}].agent_id")
-        workspace_text = _require_non_empty_string(
-            item.get("workspace_root"),
-            field_name=f"agents[{index}].workspace_root",
-        )
-        workspace_root = Path(workspace_text).expanduser().resolve()
-        if not workspace_root.exists():
-            raise ValueError(f"workspace_root does not exist: {workspace_root}")
+        workspace_text = _optional_string(item.get("workspace_root"), field_name=f"agents[{index}].workspace_root")
+        if workspace_text is None:
+            workspace_root = Path("~/nano-assistant/workspace").expanduser() / agent_id
+            # Default workspaces are gateway-managed local state, so config loading
+            # creates them on demand instead of forcing operators to pre-seed paths.
+            workspace_root.mkdir(parents=True, exist_ok=True)
+        else:
+            workspace_root = Path(workspace_text).expanduser()
+            if not workspace_root.exists():
+                raise ValueError(f"workspace_root does not exist: {workspace_root.resolve()}")
+        workspace_root = workspace_root.resolve()
         title = _optional_string(item.get("title"), field_name=f"agents[{index}].title")
         agents.append(
             AgentWorkspaceConfig(agent_id=agent_id, workspace_root=workspace_root, title=title)
