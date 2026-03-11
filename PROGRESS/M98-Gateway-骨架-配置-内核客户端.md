@@ -34,12 +34,12 @@
 - Next: 进入 R3，补 main.py 生命周期编排与最小入口 e2e。
 
 ### R3 进程入口与内核子进程生命周期
-- Context:
-- Decision:
-- Rationale:
+- Context: M98 需要 `main.py` 证明 Gateway 能加载配置、启动 agent 内核子进程、轮询 `/v1/health`，并在退出时执行 terminate→kill；但不能提前落地 M100+ 的 channel / scheduler 常驻行为。
+- Decision: 新增 `personal_assistant.main`，拆成 `GatewayProcessManager`（子进程与探活）、`GatewayRuntime`（最小运行骨架）、`run_gateway()` / `main()`（入口）；通过可注入 factories/process_factory/clock 让生命周期逻辑可单测和 e2e 验证。
+- Rationale: 先把进程管理和配置接线做成可替换边界，既满足 M98 骨架验收，也为后续 M100+ 扩展留出稳定插槽；测试中无需真实长驻服务即可覆盖 terminate→kill 分支。
 - Evidence:
-  - Tests:
-  - Entry:
-- Rollback:
-- Commits: C1=, C2=, C3=
-- Next:
+  - Tests: `PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M98/src pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M98/tests/unit/personal_assistant /Users/czj/Repos/nano-multiagent/.worktrees/M98/tests/contract/test_personal_assistant_package_contract.py /Users/czj/Repos/nano-multiagent/.worktrees/M98/tests/contract/test_personal_assistant_kernel_client_contract.py /Users/czj/Repos/nano-multiagent/.worktrees/M98/tests/contract/test_personal_assistant_main_contract.py /Users/czj/Repos/nano-multiagent/.worktrees/M98/tests/e2e/test_personal_assistant_main_e2e.py`；`PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/M98/src pytest -q`（仅保留既有基线失败 `test_architecture_docs_describe_zero_residue_target_state`）
+  - Entry: `run_gateway()` 已能从 YAML 加载配置，构造 runtime，并在 fake kernel client/process 下验证健康轮询与 terminate→kill 关闭序列。
+- Rollback: f109c97f01f0f3d6a285f4dce4451c070b6c36dc
+- Commits: C1=f109c97, C2=
+- Next: Milestone 代码已达 M98 scope，进入收尾文档提交与集成。

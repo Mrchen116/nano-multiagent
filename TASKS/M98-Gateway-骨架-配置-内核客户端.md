@@ -60,7 +60,7 @@
   - PROGRESS 写清 HTTP 边界与错误语义
 
 ### R3 进程入口与内核子进程生命周期
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `main.py` 作为 Node Gateway 入口存在
   - 可加载本地配置并构造 kernel client
