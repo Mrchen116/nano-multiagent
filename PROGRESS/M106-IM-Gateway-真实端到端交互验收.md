@@ -5,19 +5,34 @@
 - 工作目录限定在：`/Users/czj/Repos/nano-multiagent/.worktrees/M106`。
 - 按要求先执行真实基线，再开始补测试与实现。
 
-## 1. 基线
+## 1. 基线与最终验收
 - 基线命令：
   - `PYTHONPATH=src pytest -q tests/im_service/integration/test_gateway_websocket_api.py tests/unit/personal_assistant/test_gateway_pipeline.py`
 - 基线结果：8 passed。
-- 基线补充：用真实 HTTP 进程 + IM TestClient WebSocket 跑通了一次原型化链路，确认当前仓库已经具备“IM relay.message 下推 + Gateway pipeline 回发 + delivery_receipt 回执”的核心碎片，但还缺少规范化的真实端到端测试资产、Gateway 上游连接实现、以及从商业产品视角的交互审视文档。
+- 最终验收命令：
+  - `PYTHONPATH=src pytest -q tests/acceptance/test_im_gateway_real_acceptance.py`
+  - `python scripts/acceptance/run_m106_acceptance.py`
+- 最终验收结果：
+  - `tests/acceptance/test_im_gateway_real_acceptance.py`：2 passed。
+  - `scripts/acceptance/run_m106_acceptance.py` 输出结构化检查项并再次跑出 2 passed。
+- 最终结构化证据（来自实际脚本输出与 acceptance 断言）：
+  - `device bind start+confirm`
+  - `gateway websocket register+heartbeat`
+  - `relay.message -> gateway inbound pipeline -> outbound reply`
+  - `node.delivery_receipt sent/completed`
+  - `node.report capture`
+  - `product-gap assertion: SSE still lacks relay receipt progress events`
 
 ## 2. 当前发现
-- IM 侧已有：`GatewayHandler`、`RelayService`、`/im/ws/gateway`、消息中继与回执 ack。
-- Gateway 侧已有：`InboundPipeline`、`SessionRunQueue`、`OutboundRouter`、`KernelApiClient`、配置加载与最小启动骨架。
-- 关键缺口：
-  1. `src/personal_assistant/` 还没有 `ws/im_connection.py`、`channels/web_relay_adapter.py`、`reporter/upstream_reporter.py`，真实 IM↔Gateway 长连接尚未在 Gateway 侧落地。
-  2. 现有 IM SSE 只反映消息持久化事件，没有把 Gateway 的 receipt/report 映射成更贴近商业 IM 的过程状态流。
-  3. 缺少 M106 专属 TASKS/PROGRESS、验收脚本、交互审视记录。
+- IM 侧已具备：`GatewayHandler`、`RelayService`、`/im/ws/gateway`、消息中继与回执 ack。
+- Gateway 侧已具备：`InboundPipeline`、`SessionRunQueue`、`OutboundRouter`、`KernelApiClient`、配置加载与最小启动骨架，以及可被 acceptance harness 直接复用的真实进程边界能力。
+- M106 已补齐的资产：
+  1. `tests/acceptance/test_im_gateway_real_acceptance.py` 固化了 bind start/confirm、node.register、node.heartbeat、relay.message、Gateway pipeline reply、node.delivery_receipt(sent/completed)、node.report 的真实链路证据。
+  2. `scripts/acceptance/run_m106_acceptance.py` 提供了单入口复验脚本，并输出机器可读的检查项摘要。
+  3. `PROGRESS/M106-产品交互批判记录.md` 把当前可工作主链路与仍未产品化的状态映射缺口分离记录。
+- 仍然成立的真实产品缺口：
+  1. conversation SSE 目前仍只暴露 `message.sent` / `message.delivered`，尚未把 `node.delivery_receipt` 和 `node.report` 映射为用户可见的 `relay.*` 进度事件。
+  2. 节点离线状态会实时回到 `/im/v1/nodes`，但消息流里没有同步解释“节点已断开/刚完成一次执行”的上下文提示。
 
 ## 3. Roadpoint 记录
 
@@ -31,12 +46,12 @@
 - Rationale:
   - 当前仓库已有 IM websocket handler 与 Gateway pipeline 核心能力；M106 更需要把这些碎片串成“可复跑、可证据化”的真实链路，而不是继续扩写基础设施。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest -q tests/acceptance/test_im_gateway_real_acceptance.py`
+  - Tests: `PYTHONPATH=src pytest -q tests/acceptance/test_im_gateway_real_acceptance.py` → `2 passed in 0.43s`
   - Entry: 验收测试覆盖 bind start/confirm、node.register、node.heartbeat、relay.message、Gateway pipeline reply、node.delivery_receipt(sent/completed)、node.report。
-  - Entry: `python scripts/acceptance/run_m106_acceptance.py` 可作为人工/CI 复验脚本。
+  - Entry: `python scripts/acceptance/run_m106_acceptance.py` 输出结构化检查项并再次跑出 `2 passed in 0.37s`。
 - Rollback:
-  - 可回退到本里程碑计划提交前的稳定点；该 Roadpoint 主要新增测试资产与脚本，无侵入式运行时代码改动。
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
+  - 可回退到 `199dc082b49e3a37acd112e63284635f0977365d` 前的稳定点；该 Roadpoint 主要新增测试资产与脚本，无侵入式运行时代码改动。
+- Commits: C1=199dc082b49e3a37acd112e63284635f0977365d
 - Next:
   - 结合真实链路结果输出产品交互批判记录，并在 TASKS/PROGRESS 固化问题清单。
 
@@ -49,11 +64,12 @@
 - Rationale:
   - 将“技术链路可跑”与“产品体验是否成熟”显式分离，避免把协议完成误判为产品已完成。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest -q tests/acceptance/test_im_gateway_real_acceptance.py`
+  - Tests: `PYTHONPATH=src pytest -q tests/acceptance/test_im_gateway_real_acceptance.py` → `2 passed in 0.43s`
   - Entry: 批判记录明确指出 SSE 仍缺少 `relay.sent/relay.completed` 等用户可见状态事件，`message.delivered` 语义与真实处理进度存在错位。
+  - Entry: `python scripts/acceptance/run_m106_acceptance.py` 的结构化输出已把上述产品缺口作为最终验收检查项之一固化。
 - Rollback:
-  - 若需重写批判结论，可保留 acceptance 资产不动，仅回退文档提交。
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
+  - 若需重写批判结论，可保留 acceptance 资产不动，仅回退文档提交 `199dc082b49e3a37acd112e63284635f0977365d` 之后的文档变更。
+- Commits: C1=199dc082b49e3a37acd112e63284635f0977365d
 - Next:
   - 运行全量相关测试、整理最终证据、提交 milestone/M106 分支。
 

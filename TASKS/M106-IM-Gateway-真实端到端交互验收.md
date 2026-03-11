@@ -15,7 +15,7 @@
 - [x] 复用现有 IM WebSocket + Gateway pipeline 组件，形成真实验收 harness（不扩展到 M104）
 - [x] 让验收脚本覆盖注册 / 连接 / 消息往返 / 状态回执主链路
 - [x] 输出商业产品视角交互审视与问题清单
-- [ ] 更新 PROGRESS 与 board 状态，完成后合并回 main
+- [x] 更新 PROGRESS 与 board 状态，完成后合并回 main
 
 ## Roadpoints
 
