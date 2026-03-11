@@ -1,7 +1,7 @@
 # M92 Product 目录结构对齐
 
 ## R92.1 产品目录目标态与 profile/hook 默认声明对齐
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `products/local_coding/` 包含 `tools/`、`hooks/`、`skills/` 子目录
   - `products/personal_assistant/` 包含 `tools/`、`hooks/`、`skills/` 子目录
@@ -23,7 +23,7 @@
   - PROGRESS 记录决策/证据/回滚点/提交哈希
 
 ## R92.2 四层 tools/hooks/skills 加载路径可验证
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - tools 加载可验证“内核内置 → 产品默认 → 用户全局 → 工作区”顺序/覆盖
   - hooks 加载可验证“内核内置 → 产品默认 → 用户全局 → 工作区”顺序/覆盖
