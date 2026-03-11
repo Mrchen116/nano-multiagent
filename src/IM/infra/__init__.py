@@ -1,1 +1,1 @@
-"""Infrastructure helpers for the independent IM service."""
+"""Infrastructure layer for the IM service."""
