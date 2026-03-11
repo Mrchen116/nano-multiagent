@@ -329,6 +329,18 @@ def _validate_args(*, name: str, args: Mapping[str, Any], schema: Mapping[str, A
 
     missing = [field for field in required if field not in normalized]
     if missing:
+        if "load_skills" in missing:
+            raise ToolError(
+                "missing required argument: load_skills",
+                tool_name=name,
+                details={"missing": missing},
+            )
+        if len(missing) == 1:
+            raise ToolError(
+                f"missing required argument: {missing[0]}",
+                tool_name=name,
+                details={"missing": missing},
+            )
         raise ToolError(
             "missing required tool args",
             tool_name=name,

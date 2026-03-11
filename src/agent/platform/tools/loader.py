@@ -9,11 +9,16 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from agent.core.hooks.runner import HookRunner
-from agent.core.tools.base import Tool, ToolContext
+from agent.core.tools.base import (
+    Tool,
+    ToolContext,
+    set_tool_safety_config_factory,
+    set_tool_safety_factory,
+)
 from agent.core.tools.registry import ToolRegistry
 
 from .builtins import register_builtin_tools
-from .safety import load_tool_safety_config
+from .safety import ToolSafety, ToolSafetyConfig, load_tool_safety_config
 
 if TYPE_CHECKING:
     from agent.platform.config.resolver import ConfigResolver
@@ -42,6 +47,8 @@ def build_tool_registry(
         Wired ToolRegistry with built-ins and any discovered user tools loaded.
     """
 
+    set_tool_safety_factory(ToolSafety)
+    set_tool_safety_config_factory(ToolSafetyConfig)
     context = ToolContext.create(
         repo_root=repo_root,
         safety_config=load_tool_safety_config(repo_root=repo_root),

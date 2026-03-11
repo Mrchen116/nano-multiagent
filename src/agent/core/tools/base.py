@@ -4,7 +4,43 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
-from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+from .safety_types import (
+    ToolSafetyConfigFactory,
+    ToolSafetyConfigLike,
+    ToolSafetyFactory,
+    ToolSafetyLike,
+)
+
+_TOOL_SAFETY_FACTORY: ToolSafetyFactory | None = None
+_TOOL_SAFETY_CONFIG_FACTORY: ToolSafetyConfigFactory | None = None
+
+
+def set_tool_safety_factory(factory: ToolSafetyFactory) -> None:
+    """Register the platform-owned tool safety constructor for ToolContext."""
+
+    global _TOOL_SAFETY_FACTORY
+    _TOOL_SAFETY_FACTORY = factory
+
+
+def set_tool_safety_config_factory(factory: ToolSafetyConfigFactory) -> None:
+    """Register the platform-owned default safety config constructor."""
+
+    global _TOOL_SAFETY_CONFIG_FACTORY
+    _TOOL_SAFETY_CONFIG_FACTORY = factory
+
+
+def _require_tool_safety_factory() -> ToolSafetyFactory:
+    factory = _TOOL_SAFETY_FACTORY
+    if factory is None:
+        raise RuntimeError("tool safety factory is not configured")
+    return factory
+
+
+def _build_default_tool_safety_config() -> ToolSafetyConfigLike:
+    factory = _TOOL_SAFETY_CONFIG_FACTORY
+    if factory is None:
+        raise RuntimeError("tool safety config factory is not configured")
+    return factory()
 
 
 @runtime_checkable
@@ -25,7 +61,7 @@ class ToolContext:
 
     repo_root: Path
     cwd: Path
-    safety: ToolSafety
+    safety: ToolSafetyLike
     session_id: str | None = None
     tool_call_id: str | None = None
     safety_overrides: Mapping[str, Any] = field(default_factory=dict)
@@ -37,13 +73,14 @@ class ToolContext:
         *,
         repo_root: Path,
         cwd: Path | None = None,
-        safety_config: ToolSafetyConfig | None = None,
+        safety_config: ToolSafetyConfigLike | None = None,
     ) -> "ToolContext":
         """Build a context rooted at the resolved repository sandbox."""
 
         resolved_root = repo_root.expanduser().resolve()
         resolved_cwd = (cwd or resolved_root).expanduser().resolve()
-        safety = ToolSafety(repo_root=resolved_root, config=safety_config or ToolSafetyConfig())
+        effective_config = safety_config if safety_config is not None else _build_default_tool_safety_config()
+        safety = _require_tool_safety_factory()(repo_root=resolved_root, config=effective_config)
         return cls(repo_root=resolved_root, cwd=resolved_cwd, safety=safety)
 
     def with_session(
