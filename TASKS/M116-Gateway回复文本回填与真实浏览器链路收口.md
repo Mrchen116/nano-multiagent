@@ -33,4 +33,4 @@
   - `tests/acceptance/test_im_gateway_real_acceptance.py`
   - `tests/e2e/test_m112_real_process_roundtrip_e2e.py`
 - **DoD**: `cd /Users/czj/Repos/nano-multiagent && python -m pytest tests/unit/personal_assistant/test_gateway_pipeline.py tests/unit/personal_assistant/test_m103_gateway_im_integration.py tests/im_service/integration/test_m103_im_gateway_e2e.py tests/acceptance/test_im_gateway_real_acceptance.py tests/e2e/test_m112_real_process_roundtrip_e2e.py tests/unit/personal_assistant/test_main.py tests/unit/personal_assistant/test_kernel_api_client.py -q 2>&1 | tail -120` 全绿 + 形成可追溯的 C1/C2/C3 提交 + PROGRESS 记录决策/证据/哈希。
-- **Status**: TODO
+- **Status**: DONE
