@@ -2,6 +2,9 @@
 
 from pathlib import Path
 
+from IM.api.routes import messages as message_routes
+from IM.api.routes import users as user_routes
+from IM.api.routes import web_im
 from IM.app import create_app
 
 
@@ -12,3 +15,12 @@ def test_create_app_registers_im_routes(tmp_path: Path) -> None:
 
     assert "/im/v1/users" in route_paths
     assert "/im/v1/conversations" in route_paths
+
+
+def test_create_app_uses_layered_route_modules(tmp_path: Path) -> None:
+    """Register routes from api.routes modules instead of inline handlers."""
+    app = create_app(db_path=tmp_path / "im.db")
+
+    assert any(route.endpoint is user_routes.create_user for route in app.routes)
+    assert any(route.endpoint is web_im.create_conversation for route in app.routes)
+    assert any(route.endpoint is message_routes.create_message for route in app.routes)
