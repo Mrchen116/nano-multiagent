@@ -127,9 +127,11 @@ describe("chat workspace page", () => {
       initialEntries: ["/chat/conv-1"]
     });
 
-    expect(await screen.findByText("Bind this Gateway before sending messages from Web IM.")).toBeInTheDocument();
+    expect(await screen.findByText("Chat unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Bind this Gateway to continue. Web IM disables the composer until one of your Gateway nodes is connected.")).toBeInTheDocument();
+    expect(screen.getByText("Next: Open bind flow")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-    expect(screen.getByPlaceholderText("Bind this Gateway to enable chat")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Bind this Gateway to continue")).toBeDisabled();
   });
 
   it("shows a product-grade send blocker when the bound node is offline", async () => {
@@ -161,10 +163,12 @@ describe("chat workspace page", () => {
       initialEntries: ["/chat/conv-1"]
     });
 
+    expect(await screen.findByText("Chat unavailable")).toBeInTheDocument();
     expect(
-      await screen.findByText("The current bound node is offline. Bring the Gateway online or bind an online node, then retry.")
+      screen.getByText("Your bound Gateway is offline. Bring that node online or bind another online node to re-enable chat.")
     ).toBeInTheDocument();
+    expect(screen.getByText("Next: Bring Gateway online")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-    expect(screen.getByPlaceholderText("Bring the Gateway online to enable chat")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Gateway offline — chat disabled")).toBeDisabled();
   });
 });

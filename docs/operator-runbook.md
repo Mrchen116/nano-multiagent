@@ -110,12 +110,14 @@ Gateway 默认启动顺序：
 
 1. 打开 `http://127.0.0.1:8011/`。
 2. 浏览器会落到 `/chat`。
-3. Web IM 会自动准备本地 `You` 用户、默认 starter conversation，以及一个可用的目标节点。
-4. 进入默认对话后直接发送消息。
+3. Web IM 会自动准备本地 `You` 用户与默认 starter conversation，并根据当前绑定/在线状态决定 composer 是否可用。
+4. 若页面显示 `Chat unavailable`，先按卡片中的下一步完成绑定或恢复在线节点；只有 composer 恢复可输入后再发送消息。
 
 说明：
 - 正常用户主链路不需要先手工创建用户、会话或调用 `message` API。
-- 如果当前没有在线 relay 节点，发送消息时会提示没有可用节点；先确认 Gateway 已启动且节点在线。
+- 未绑定时，composer 会预先禁用，并显示统一的 `Chat unavailable` 卡片，要求先完成 Gateway 绑定。
+- 已绑定但节点离线时，composer 同样预先禁用，并显示同一套 `Chat unavailable` 卡片，要求 bring the node online or bind another online node。
+- 若提交瞬间节点变为 unavailable，页面会保留草稿并在发送区显示同样的 `Chat unavailable` 失败提示；用户不需要依赖终端日志理解状态。
 
 消息主链路：
 

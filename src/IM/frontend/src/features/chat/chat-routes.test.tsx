@@ -11,8 +11,9 @@ describe("chat routes", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/chat/conv-kernel-ops"] });
 
     expect(await screen.findByRole("heading", { name: "Kernel Ops Crew" })).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Bring the Gateway online to enable chat")).toBeDisabled();
-    expect(screen.getByText("The current bound node is offline. Bring the Gateway online or bind an online node, then retry.")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Gateway offline — chat disabled")).toBeDisabled();
+    expect(screen.getByText("Chat unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Your bound Gateway is offline. Bring that node online or bind another online node to re-enable chat.")).toBeInTheDocument();
     expect(screen.getByText("sent")).toBeInTheDocument();
   });
 
