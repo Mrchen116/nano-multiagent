@@ -208,6 +208,108 @@ def test_main_foreground_flag_keeps_process_attached_until_sigterm(tmp_path: Pat
     assert process.returncode == 0
 
 
+def test_main_stop_command_stops_background_gateway(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = tmp_path / "node-config.yaml"
+    port = _pick_free_port()
+    _write_smoke_config(config_path, port=port)
+
+    started = subprocess.run(
+        _main_command(config_path),
+        env=_pythonpath_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert started.returncode == 0, started.stderr
+    health_url = f"http://127.0.0.1:{port}/v1/health"
+    _wait_for_health(health_url)
+
+    stopped = subprocess.run(
+        _main_command(config_path, "stop"),
+        env=_pythonpath_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+
+    assert stopped.returncode == 0, stopped.stderr
+    assert "STOPPED pid=" in stopped.stdout
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() <= deadline:
+        try:
+            httpx.get(health_url, timeout=0.5, trust_env=False)
+        except Exception:  # noqa: BLE001
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError(f"gateway still healthy after stop: {health_url}")
+
+
+def test_main_stop_command_reports_stale_runtime_state_after_process_is_gone(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = tmp_path / "node-config.yaml"
+    port = _pick_free_port()
+    _write_smoke_config(config_path, port=port)
+
+    started = subprocess.run(
+        _main_command(config_path),
+        env=_pythonpath_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert started.returncode == 0, started.stderr
+    pid = _parse_started_pid(started.stdout)
+    _wait_for_health(f"http://127.0.0.1:{port}/v1/health")
+    _terminate_background_pid(pid)
+
+    stopped = subprocess.run(
+        _main_command(config_path, "stop"),
+        env=_pythonpath_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+
+    assert stopped.returncode == 0, stopped.stderr
+    assert "STALE pid=" in stopped.stdout
+    assert (config_path.parent / ".gateway-state.json").exists() is False
+
+
+def test_main_stop_command_reports_not_running_without_state_file(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = tmp_path / "node-config.yaml"
+    _write_smoke_config(config_path, port=_pick_free_port())
+
+    stopped = subprocess.run(
+        _main_command(config_path, "stop"),
+        env=_pythonpath_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+
+    assert stopped.returncode == 0, stopped.stderr
+    assert "NOT RUNNING" in stopped.stdout
+    assert str(config_path.parent / ".gateway-state.json") in stopped.stdout
+    assert "kill" not in stopped.stdout.lower()
+    assert "pid=" not in stopped.stdout
+
+
+from personal_assistant.config.local_store import load_local_config
+from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.main import GatewayRuntime, run_gateway
+
+
 class _FakeProcessManager:
     def __init__(self, events: list[str]) -> None:
         self._events = events
