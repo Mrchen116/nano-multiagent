@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
 import { ConversationList } from "./components/conversation-list";
 import { MessagePane } from "./components/message-pane";
-import { getConversation, listConversations, sendMessage, streamConversationEvents } from "./chat-api";
+import { getChatStarter, getConversation, listConversations, sendMessage, streamConversationEvents } from "./chat-api";
 import { ChatMessage, ConversationDetail, ConversationSummary } from "./types";
 
 function toStatus(value: unknown): ChatMessage["delivery_status"] | undefined {
@@ -80,6 +80,11 @@ export function ChatWorkspacePage() {
   const conversationsQuery = useQuery({
     queryKey: ["chat", "conversations"],
     queryFn: listConversations
+  });
+
+  const starterQuery = useQuery({
+    queryKey: ["chat", "starter"],
+    queryFn: getChatStarter
   });
 
   const detailQuery = useQuery({
@@ -311,11 +316,12 @@ export function ChatWorkspacePage() {
     }
   });
 
-  if (conversationsQuery.isLoading) {
+  if (conversationsQuery.isLoading || starterQuery.isLoading) {
     return <section className="im-card flex w-full items-center justify-center">Loading chat...</section>;
   }
 
   const conversations = conversationsQuery.data ?? [];
+  const starter = starterQuery.data ?? null;
   const detail = (detailQuery.data ?? null) as ConversationDetail | null;
 
   if (isMobile && conversationId) {
@@ -323,9 +329,10 @@ export function ChatWorkspacePage() {
       <div className="w-full">
         <MessagePane
           detail={detail}
+          starter={starter}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
-          onSend={(content) => sendMutation.mutate(content)}
+          onSend={(content) => sendMutation.mutateAsync(content)}
         />
       </div>
     );
@@ -333,13 +340,25 @@ export function ChatWorkspacePage() {
 
   return (
     <section className="grid w-full min-h-0 gap-4 lg:grid-cols-[360px_1fr]">
-      <ConversationList items={conversations} activeId={conversationId} compact={isMobile} />
+      <div className="flex min-h-0 flex-col gap-4">
+        {isMobile && !conversationId && starter && (
+          <MessagePane
+            detail={null}
+            starter={starter}
+            isMobile={isMobile}
+            isSending={false}
+            onSend={async () => undefined}
+          />
+        )}
+        <ConversationList items={conversations} activeId={conversationId} compact={isMobile} />
+      </div>
       {!isMobile && (
         <MessagePane
           detail={detail}
+          starter={starter}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
-          onSend={(content) => sendMutation.mutate(content)}
+          onSend={(content) => sendMutation.mutateAsync(content)}
         />
       )}
     </section>

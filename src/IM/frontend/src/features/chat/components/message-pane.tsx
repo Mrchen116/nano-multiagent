@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { ChatMessage, ConversationDetail } from "../types";
+import { ChatMessage, ChatStarter, ConversationDetail } from "../types";
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const mine = message.is_mine ?? message.sender_type === "user";
@@ -23,11 +23,47 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   );
 }
 
+function DefaultAgentStarterCard({ starter }: { starter: ChatStarter }) {
+  return (
+    <section className="im-card flex h-full min-h-[420px] flex-col justify-center gap-4 px-6 py-6 text-slate-700">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Default chat</p>
+        <h2 className="im-title mt-2 text-2xl font-bold">{starter.title}</h2>
+        <p className="mt-3 text-sm text-slate-600">{starter.description}</p>
+      </div>
+      <dl className="grid gap-2 text-sm text-slate-500">
+        <div className="flex items-center gap-2">
+          <dt className="font-semibold text-slate-700">Agent</dt>
+          <dd>{starter.agentName}</dd>
+        </div>
+        {starter.nodeLabel && (
+          <div className="flex items-center gap-2">
+            <dt className="font-semibold text-slate-700">Node</dt>
+            <dd>{starter.nodeLabel}</dd>
+          </div>
+        )}
+        {starter.statusLabel && (
+          <div className="flex items-center gap-2">
+            <dt className="font-semibold text-slate-700">Status</dt>
+            <dd>{starter.statusLabel}</dd>
+          </div>
+        )}
+      </dl>
+      <div>
+        <Link to={starter.actionHref} className="im-btn im-btn-primary inline-flex" aria-label={starter.actionLabel}>
+          {starter.actionLabel}
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 export function MessagePane(props: {
   detail: ConversationDetail | null;
+  starter?: ChatStarter | null;
   isMobile: boolean;
   isSending: boolean;
-  onSend: (content: string) => void;
+  onSend: (content: string) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState("");
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -44,6 +80,9 @@ export function MessagePane(props: {
   }, [props.detail, props.detail?.messages.length]);
 
   if (!props.detail) {
+    if (props.starter) {
+      return <DefaultAgentStarterCard starter={props.starter} />;
+    }
     return (
       <section className="im-card hidden h-full min-h-[420px] items-center justify-center text-slate-500 lg:flex">
         Select a conversation
@@ -51,14 +90,18 @@ export function MessagePane(props: {
     );
   }
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
     if (!text) {
       return;
     }
-    props.onSend(text);
-    setDraft("");
+    try {
+      await props.onSend(text);
+      setDraft("");
+    } catch {
+      // Preserve the draft so the user can retry after reading the failure feedback.
+    }
   };
 
   return (

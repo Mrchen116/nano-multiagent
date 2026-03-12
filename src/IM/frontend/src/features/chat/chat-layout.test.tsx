@@ -11,8 +11,7 @@ describe("chat layout", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
-    expect(screen.getByText("OpsBot handles the default IM replies for this workspace.")).
-      toBeInTheDocument();
+    expect(screen.getByText("OpsBot handles the default IM replies for this workspace.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Agent · OpsBot" })).toBeInTheDocument();
     expect(screen.queryByText("Select a conversation")).not.toBeInTheDocument();
   });
