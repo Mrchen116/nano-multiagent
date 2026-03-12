@@ -46,15 +46,20 @@ interface BootstrapState {
 
 export interface SendAvailability {
   canSend: boolean;
+  state: "unbound" | "offline" | "available";
   helperText: string | null;
   placeholder: string;
 }
 
-const SEND_DISABLED_UNBOUND_HELPER = "Bind this Gateway before sending messages from Web IM.";
-const SEND_DISABLED_UNBOUND_PLACEHOLDER = "Bind this Gateway to enable chat";
-const SEND_DISABLED_OFFLINE_HELPER = "The current bound node is offline. Bring the Gateway online or bind an online node, then retry.";
-const SEND_DISABLED_OFFLINE_PLACEHOLDER = "Bring the Gateway online to enable chat";
+const FAILURE_PANEL_TITLE = "Chat unavailable";
+const SEND_DISABLED_UNBOUND_HELPER = "Bind this Gateway to continue. Web IM disables the composer until one of your Gateway nodes is connected.";
+const SEND_DISABLED_UNBOUND_PLACEHOLDER = "Bind this Gateway to continue";
+const SEND_DISABLED_OFFLINE_HELPER = "Your bound Gateway is offline. Bring that node online or bind another online node to re-enable chat.";
+const SEND_DISABLED_OFFLINE_PLACEHOLDER = "Gateway offline — chat disabled";
 const SEND_ENABLED_PLACEHOLDER = "Type message";
+const SEND_FAILURE_RETRY_ACTION = "Connect an online node and retry.";
+const SEND_FAILURE_UNAVAILABLE_HELPER = `${FAILURE_PANEL_TITLE}. No online relay node is available for this chat. ${SEND_FAILURE_RETRY_ACTION}`;
+const SEND_FAILURE_UNAVAILABLE_PLACEHOLDER = "No online relay node available";
 
 export function resolveSendAvailability(input: {
   targetNodeId: string | null;
@@ -63,6 +68,7 @@ export function resolveSendAvailability(input: {
   if (!input.targetNodeId) {
     return {
       canSend: false,
+      state: "unbound",
       helperText: SEND_DISABLED_UNBOUND_HELPER,
       placeholder: SEND_DISABLED_UNBOUND_PLACEHOLDER
     };
@@ -70,12 +76,14 @@ export function resolveSendAvailability(input: {
   if (input.nodeStatus !== "online") {
     return {
       canSend: false,
+      state: "offline",
       helperText: SEND_DISABLED_OFFLINE_HELPER,
       placeholder: SEND_DISABLED_OFFLINE_PLACEHOLDER
     };
   }
   return {
     canSend: true,
+    state: "available",
     helperText: null,
     placeholder: SEND_ENABLED_PLACEHOLDER
   };
@@ -87,6 +95,10 @@ export function isNodeReadyForSend(input: { targetNodeId: string | null; nodeSta
 
 export function getSendAvailabilityMessages() {
   return {
+    failureTitle: FAILURE_PANEL_TITLE,
+    retryAction: SEND_FAILURE_RETRY_ACTION,
+    unavailableHelperText: SEND_FAILURE_UNAVAILABLE_HELPER,
+    unavailablePlaceholder: SEND_FAILURE_UNAVAILABLE_PLACEHOLDER,
     unboundHelperText: SEND_DISABLED_UNBOUND_HELPER,
     unboundPlaceholder: SEND_DISABLED_UNBOUND_PLACEHOLDER,
     offlineHelperText: SEND_DISABLED_OFFLINE_HELPER,
@@ -565,7 +577,7 @@ export async function getConversation(conversationId: string): Promise<Conversat
 export async function sendMessage(input: { conversationId: string; content: string }): Promise<ChatMessage> {
   const { selfUserId, targetNodeId, targetNodeStatus } = await ensureBootstrap();
   if (!isNodeReadyForSend({ targetNodeId, nodeStatus: targetNodeStatus })) {
-    throw new Error("No relay node is available. Connect an online node and retry.");
+    throw new Error(SEND_FAILURE_UNAVAILABLE_HELPER);
   }
   const [created, userById] = await Promise.all([
     requestJson<ImMessage>(`/im/v1/conversations/${input.conversationId}/messages`, {

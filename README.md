@@ -66,6 +66,9 @@ PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
 
 - 打开 `http://127.0.0.1:8011/`。IM host 会提供 Web IM 壳，并在浏览器里落到 `/chat`。
 - Web IM 会自动准备本地 `You` 用户和默认 starter conversation；正常用户不需要手工创建用户、会话或拼 `message` API。
+- 如果未绑定，composer 会直接禁用，并显示统一的 `Chat unavailable` 卡片，提示先完成 Gateway 绑定。
+- 如果已绑定但 Gateway 离线，composer 仍会保持禁用，并显示同一套 `Chat unavailable` 卡片，明确要求 bring the node online or bind another online node。
+- 如果页面已可发送但目标节点在提交瞬间不可用，发送区会保留草稿，并显示同样的 `Chat unavailable` 失败提示；用户无需查看终端日志即可理解问题。
 - 如果刚完成绑定，刷新 `/` 或重新打开 `/chat` 即可开始聊天。
 
 更完整的启动、状态说明与调试附录见 `docs/operator-runbook.md`。前端开发模式、Mock/真实 IM 边界见 `src/IM/frontend/README.md`。

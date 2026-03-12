@@ -340,9 +340,7 @@ export function ChatWorkspacePage() {
           starter={null}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
-          canSend={sendAvailability.canSend}
-          helperText={sendAvailability.helperText}
-          sendPlaceholder={sendAvailability.placeholder}
+          sendAvailability={sendAvailability}
           onSend={(content) => sendMutation.mutateAsync(content)}
         />
       </div>
@@ -358,8 +356,7 @@ export function ChatWorkspacePage() {
             starter={starter}
             isMobile={isMobile}
             isSending={false}
-            canSend={false}
-            helperText={null}
+            sendAvailability={sendAvailability}
             onSend={async () => undefined}
           />
         )}
@@ -371,9 +368,7 @@ export function ChatWorkspacePage() {
           starter={conversationId ? null : starter}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
-          canSend={sendAvailability.canSend}
-          helperText={sendAvailability.helperText}
-          sendPlaceholder={sendAvailability.placeholder}
+          sendAvailability={sendAvailability}
           onSend={(content) => sendMutation.mutateAsync(content)}
         />
       )}

@@ -2,8 +2,10 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ChatMessage, ChatStarter, ConversationDetail } from "../types";
+import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
 
-const RELAY_UNAVAILABLE_MESSAGE = "No relay node is available. Connect an online node and retry.";
+const SEND_AVAILABILITY_MESSAGES = getSendAvailabilityMessages();
+const RELAY_UNAVAILABLE_MESSAGE = SEND_AVAILABILITY_MESSAGES.unavailableHelperText;
 
 function toErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -12,7 +14,53 @@ function toErrorMessage(error: unknown) {
     }
     return error.message;
   }
-  return "Message send failed. Retry when the relay node is available.";
+  return RELAY_UNAVAILABLE_MESSAGE;
+}
+
+function getFailureAppearance(sendAvailability: SendAvailability) {
+  if (sendAvailability.state === "unbound") {
+    return {
+      title: SEND_AVAILABILITY_MESSAGES.failureTitle,
+      actionLabel: "Open bind flow",
+      helperText: sendAvailability.helperText
+    };
+  }
+  if (sendAvailability.state === "offline") {
+    return {
+      title: SEND_AVAILABILITY_MESSAGES.failureTitle,
+      actionLabel: "Bring Gateway online",
+      helperText: sendAvailability.helperText
+    };
+  }
+  return {
+    title: SEND_AVAILABILITY_MESSAGES.failureTitle,
+    actionLabel: "Retry delivery",
+    helperText: RELAY_UNAVAILABLE_MESSAGE
+  };
+}
+
+function FailureStateBanner({ sendAvailability }: { sendAvailability: SendAvailability }) {
+  if (sendAvailability.canSend || !sendAvailability.helperText) {
+    return null;
+  }
+  const appearance = getFailureAppearance(sendAvailability);
+  return (
+    <div role="alert" className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <p className="font-semibold text-amber-950">{appearance.title}</p>
+      <p className="mt-1">{appearance.helperText}</p>
+      <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">Next: {appearance.actionLabel}</p>
+    </div>
+  );
+}
+
+function SendErrorBanner({ message }: { message: string }) {
+  return (
+    <div role="alert" className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+      <p className="font-semibold text-rose-900">{SEND_AVAILABILITY_MESSAGES.failureTitle}</p>
+      <p className="mt-1">{message}</p>
+      <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700">Next: Retry delivery</p>
+    </div>
+  );
 }
 
 function MessageBubble({ message }: { message: ChatMessage }) {
@@ -79,9 +127,7 @@ export function MessagePane(props: {
   starter?: ChatStarter | null;
   isMobile: boolean;
   isSending: boolean;
-  canSend: boolean;
-  helperText: string | null;
-  sendPlaceholder?: string;
+  sendAvailability: SendAvailability;
   onSend: (content: string) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState("");
@@ -113,7 +159,7 @@ export function MessagePane(props: {
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text || !props.canSend) {
+    if (!text || !props.sendAvailability.canSend) {
       return;
     }
     setSendError(null);
@@ -156,24 +202,20 @@ export function MessagePane(props: {
         </div>
       </div>
       <form className="border-t border-[var(--im-border)] p-3" onSubmit={onSubmit}>
-        {props.helperText && <p className="mb-2 text-xs text-amber-700">{props.helperText}</p>}
-        {sendError && (
-          <p role="alert" className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            {sendError}
-          </p>
-        )}
+        <FailureStateBanner sendAvailability={props.sendAvailability} />
+        {sendError && <SendErrorBanner message={sendError} />}
         <div className="flex items-center gap-2">
           <button type="button" className="im-btn im-btn-muted" aria-label="Attachment picker">
             +
           </button>
           <input
             className="im-input"
-            placeholder={props.sendPlaceholder ?? (props.canSend ? "Type message" : "Bind this Gateway to enable chat")}
+            placeholder={props.sendAvailability.placeholder}
             value={draft}
-            disabled={!props.canSend}
+            disabled={!props.sendAvailability.canSend}
             onChange={(event) => setDraft(event.target.value)}
           />
-          <button type="submit" className="im-btn im-btn-primary" disabled={props.isSending || !props.canSend}>
+          <button type="submit" className="im-btn im-btn-primary" disabled={props.isSending || !props.sendAvailability.canSend}>
             Send
           </button>
         </div>

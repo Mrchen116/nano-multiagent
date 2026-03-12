@@ -59,16 +59,19 @@ describe("im chat api helpers", () => {
   it("classifies send readiness for bound, offline, and unbound states", () => {
     expect(resolveSendAvailability({ targetNodeId: null, nodeStatus: null })).toEqual({
       canSend: false,
-      helperText: "Bind this Gateway before sending messages from Web IM.",
-      placeholder: "Bind this Gateway to enable chat"
+      state: "unbound",
+      helperText: "Bind this Gateway to continue. Web IM disables the composer until one of your Gateway nodes is connected.",
+      placeholder: "Bind this Gateway to continue"
     });
     expect(resolveSendAvailability({ targetNodeId: "node-offline", nodeStatus: "offline" })).toEqual({
       canSend: false,
-      helperText: "The current bound node is offline. Bring the Gateway online or bind an online node, then retry.",
-      placeholder: "Bring the Gateway online to enable chat"
+      state: "offline",
+      helperText: "Your bound Gateway is offline. Bring that node online or bind another online node to re-enable chat.",
+      placeholder: "Gateway offline — chat disabled"
     });
     expect(resolveSendAvailability({ targetNodeId: "node-online", nodeStatus: "online" })).toEqual({
       canSend: true,
+      state: "available",
       helperText: null,
       placeholder: "Type message"
     });
