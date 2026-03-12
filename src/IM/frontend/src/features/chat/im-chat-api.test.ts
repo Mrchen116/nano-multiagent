@@ -7,7 +7,8 @@ import {
   normalizeItemsEnvelope,
   parseImStreamEvent,
   pickDefaultNodeForSend,
-  pickPrimaryOwnedNodeId
+  pickPrimaryOwnedNodeId,
+  resolveSendAvailability
 } from "./im-chat-api";
 
 describe("im chat api helpers", () => {
@@ -53,6 +54,24 @@ describe("im chat api helpers", () => {
       ])
     ).toMatchObject({ node_id: "node-offline", status: "offline" });
     expect(buildStarterConversationTitle("OpsBot")).toBe("Agent · OpsBot");
+  });
+
+  it("classifies send readiness for bound, offline, and unbound states", () => {
+    expect(resolveSendAvailability({ targetNodeId: null, nodeStatus: null })).toEqual({
+      canSend: false,
+      helperText: "Bind this Gateway before sending messages from Web IM.",
+      placeholder: "Bind this Gateway to enable chat"
+    });
+    expect(resolveSendAvailability({ targetNodeId: "node-offline", nodeStatus: "offline" })).toEqual({
+      canSend: false,
+      helperText: "The current bound node is offline. Bring the Gateway online or bind an online node, then retry.",
+      placeholder: "Bring the Gateway online to enable chat"
+    });
+    expect(resolveSendAvailability({ targetNodeId: "node-online", nodeStatus: "online" })).toEqual({
+      canSend: true,
+      helperText: null,
+      placeholder: "Type message"
+    });
   });
 
   it("reuses the legacy peer username when no agent profile exists", () => {

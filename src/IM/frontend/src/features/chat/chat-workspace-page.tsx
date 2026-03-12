@@ -10,6 +10,7 @@ import {
   getChatStarter,
   getConversation,
   listConversations,
+  resolveSendAvailability,
   sendMessage,
   streamConversationEvents
 } from "./chat-api";
@@ -326,8 +327,10 @@ export function ChatWorkspacePage() {
   const starter = starterQuery.data ?? null;
   const detail = (detailQuery.data ?? null) as ConversationDetail | null;
   const bootstrap = bootstrapQuery.data ?? null;
-  const hasBoundNode = Boolean(bootstrap?.targetNodeId);
-  const helperText = hasBoundNode ? null : "Bind this Gateway before sending messages from Web IM.";
+  const sendAvailability = resolveSendAvailability({
+    targetNodeId: bootstrap?.targetNodeId ?? null,
+    nodeStatus: bootstrap?.targetNodeStatus ?? null
+  });
 
   if (isMobile && conversationId) {
     return (
@@ -337,8 +340,9 @@ export function ChatWorkspacePage() {
           starter={null}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
-          canSend={hasBoundNode}
-          helperText={helperText}
+          canSend={sendAvailability.canSend}
+          helperText={sendAvailability.helperText}
+          sendPlaceholder={sendAvailability.placeholder}
           onSend={(content) => sendMutation.mutateAsync(content)}
         />
       </div>
@@ -367,8 +371,9 @@ export function ChatWorkspacePage() {
           starter={conversationId ? null : starter}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
-          canSend={hasBoundNode}
-          helperText={helperText}
+          canSend={sendAvailability.canSend}
+          helperText={sendAvailability.helperText}
+          sendPlaceholder={sendAvailability.placeholder}
           onSend={(content) => sendMutation.mutateAsync(content)}
         />
       )}

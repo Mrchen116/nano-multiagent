@@ -18,7 +18,15 @@ function renderMessagePane(input?: { onSend?: (content: string) => Promise<unkno
 
   return render(
     <MemoryRouter>
-      <MessagePane detail={detail} isMobile={false} isSending={false} canSend helperText={null} onSend={onSend} />
+      <MessagePane
+        detail={detail}
+        isMobile={false}
+        isSending={false}
+        canSend
+        helperText={null}
+        sendPlaceholder="Type message"
+        onSend={onSend}
+      />
     </MemoryRouter>
   );
 }

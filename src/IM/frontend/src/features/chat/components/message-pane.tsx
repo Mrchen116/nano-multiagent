@@ -77,6 +77,7 @@ export function MessagePane(props: {
   isSending: boolean;
   canSend: boolean;
   helperText: string | null;
+  sendPlaceholder?: string;
   onSend: (content: string) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState("");
@@ -151,7 +152,7 @@ export function MessagePane(props: {
           </button>
           <input
             className="im-input"
-            placeholder={props.canSend ? "Type message" : "Bind this Gateway to enable chat"}
+            placeholder={props.sendPlaceholder ?? (props.canSend ? "Type message" : "Bind this Gateway to enable chat")}
             value={draft}
             disabled={!props.canSend}
             onChange={(event) => setDraft(event.target.value)}

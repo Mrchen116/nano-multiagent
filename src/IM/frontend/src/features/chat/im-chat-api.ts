@@ -38,8 +38,113 @@ interface ImNode {
 interface BootstrapState {
   selfUserId: string;
   targetNodeId: string | null;
+  targetNodeStatus: string | null;
   starter: ChatStarter;
   starterConversationId: string | null;
+}
+
+export interface SendAvailability {
+  canSend: boolean;
+  helperText: string | null;
+  placeholder: string;
+}
+
+const SEND_DISABLED_UNBOUND_HELPER = "Bind this Gateway before sending messages from Web IM.";
+const SEND_DISABLED_UNBOUND_PLACEHOLDER = "Bind this Gateway to enable chat";
+const SEND_DISABLED_OFFLINE_HELPER = "The current bound node is offline. Bring the Gateway online or bind an online node, then retry.";
+const SEND_DISABLED_OFFLINE_PLACEHOLDER = "Bring the Gateway online to enable chat";
+const SEND_ENABLED_PLACEHOLDER = "Type message";
+
+export function resolveSendAvailability(input: {
+  targetNodeId: string | null;
+  nodeStatus: string | null;
+}): SendAvailability {
+  if (!input.targetNodeId) {
+    return {
+      canSend: false,
+      helperText: SEND_DISABLED_UNBOUND_HELPER,
+      placeholder: SEND_DISABLED_UNBOUND_PLACEHOLDER
+    };
+  }
+  if (input.nodeStatus !== "online") {
+    return {
+      canSend: false,
+      helperText: SEND_DISABLED_OFFLINE_HELPER,
+      placeholder: SEND_DISABLED_OFFLINE_PLACEHOLDER
+    };
+  }
+  return {
+    canSend: true,
+    helperText: null,
+    placeholder: SEND_ENABLED_PLACEHOLDER
+  };
+}
+
+export function isNodeReadyForSend(input: { targetNodeId: string | null; nodeStatus: string | null }) {
+  return resolveSendAvailability(input).canSend;
+}
+
+export function getSendAvailabilityMessages() {
+  return {
+    unboundHelperText: SEND_DISABLED_UNBOUND_HELPER,
+    unboundPlaceholder: SEND_DISABLED_UNBOUND_PLACEHOLDER,
+    offlineHelperText: SEND_DISABLED_OFFLINE_HELPER,
+    offlinePlaceholder: SEND_DISABLED_OFFLINE_PLACEHOLDER,
+    enabledPlaceholder: SEND_ENABLED_PLACEHOLDER
+  };
+}
+
+function toNodeStatus(node: Pick<ImNode, "status"> | null) {
+  return node?.status ?? null;
+}
+
+function selectTargetNode(input: {
+  nodes: ImNode[];
+  ownedNodeId: string | null;
+}) {
+  const preferred = pickDefaultNodeForSend(input.nodes);
+  if (preferred) {
+    return preferred;
+  }
+  if (!input.ownedNodeId) {
+    return null;
+  }
+  return input.nodes.find((item) => item.node_id === input.ownedNodeId) ?? null;
+}
+
+function resolveTargetNode(input: {
+  nodes: ImNode[];
+  ownedNodeId: string | null;
+}) {
+  const selected = selectTargetNode(input);
+  if (selected) {
+    return selected;
+  }
+  if (!input.ownedNodeId) {
+    return null;
+  }
+  return {
+    node_id: input.ownedNodeId,
+    node_name: input.ownedNodeId,
+    status: "offline",
+    relay_enabled: false
+  };
+}
+
+function toBootstrapNodeState(input: {
+  targetNode: ImNode | null;
+}) {
+  return {
+    targetNodeId: input.targetNode?.node_id ?? null,
+    targetNodeStatus: toNodeStatus(input.targetNode)
+  };
+}
+
+export interface ChatBootstrapState {
+  selfUserId: string;
+  targetNodeId: string | null;
+  targetNodeStatus: string | null;
+  initialConversationId: string | null;
 }
 
 interface ItemsEnvelope<T> {
@@ -60,12 +165,6 @@ export interface ParsedImStreamEvent {
   eventType: string;
   payload: ParsedPayload;
   eventId?: number;
-}
-
-export interface ChatBootstrapState {
-  selfUserId: string;
-  targetNodeId: string | null;
-  initialConversationId: string | null;
 }
 
 const SELF_USERNAME = "you";
@@ -285,19 +384,12 @@ async function ensureBootstrap(): Promise<BootstrapState> {
           participant_ids: [self.id, starterPeer.id]
         }));
       const ownedNodeId = pickPrimaryOwnedNodeId(self);
-      const targetNode =
-        pickDefaultNodeForSend(nodes) ??
-        (ownedNodeId
-          ? {
-              node_id: ownedNodeId,
-              node_name: ownedNodeId,
-              status: "unknown",
-              relay_enabled: true
-            }
-          : null);
+      const targetNode = resolveTargetNode({ nodes, ownedNodeId });
+      const bootstrapNodeState = toBootstrapNodeState({ targetNode });
       return {
         selfUserId: self.id,
-        targetNodeId: targetNode?.node_id ?? null,
+        targetNodeId: bootstrapNodeState.targetNodeId,
+        targetNodeStatus: bootstrapNodeState.targetNodeStatus,
         starterConversationId: starterConversation.id,
         starter: {
           title: starterTitle,
@@ -323,6 +415,7 @@ export async function getChatBootstrapState(): Promise<ChatBootstrapState> {
   return {
     selfUserId: bootstrap.selfUserId,
     targetNodeId: bootstrap.targetNodeId,
+    targetNodeStatus: bootstrap.targetNodeStatus,
     initialConversationId: bootstrap.starterConversationId
   };
 }
@@ -445,8 +538,8 @@ export async function getConversation(conversationId: string): Promise<Conversat
 }
 
 export async function sendMessage(input: { conversationId: string; content: string }): Promise<ChatMessage> {
-  const { selfUserId, targetNodeId } = await ensureBootstrap();
-  if (!targetNodeId) {
+  const { selfUserId, targetNodeId, targetNodeStatus } = await ensureBootstrap();
+  if (!isNodeReadyForSend({ targetNodeId, nodeStatus: targetNodeStatus })) {
     throw new Error("No relay node is available. Connect an online node and retry.");
   }
   const [created, userById] = await Promise.all([

@@ -485,7 +485,7 @@ def test_gateway_runtime_opens_browser_bind_flow_for_unowned_node(tmp_path: Path
         rt_thread = threading.Thread(target=lambda: outcome.setdefault("exit_code", runtime.run_forever()), daemon=True)
         rt_thread.start()
         assert runtime.wait_until_ready(timeout=10.0) is True
-        assert opened_urls and opened_urls[0].startswith("http://127.0.0.1:4173/bind/confirm?token=")
+        assert opened_urls and opened_urls[0].startswith("http://127.0.0.1:8011/bind/confirm?token=")
 
         confirm_resp = httpx.post(
             f"{im_base}/im/v1/bind",
