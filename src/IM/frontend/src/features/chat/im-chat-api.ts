@@ -1,4 +1,4 @@
-import { ChatMessage, ChatStarter, ConversationDetail, ConversationSummary } from "./types";
+import { ChatMessage, ChatOwnershipSummary, ChatStarter, ConversationDetail, ConversationSummary } from "./types";
 
 interface ImUser {
   id: string;
@@ -39,6 +39,7 @@ interface BootstrapState {
   selfUserId: string;
   targetNodeId: string | null;
   targetNodeStatus: string | null;
+  ownership: ChatOwnershipSummary;
   starter: ChatStarter;
   starterConversationId: string | null;
 }
@@ -133,10 +134,23 @@ function resolveTargetNode(input: {
 
 function toBootstrapNodeState(input: {
   targetNode: ImNode | null;
+  starterAgentName: string;
 }) {
+  const nodeId = input.targetNode?.node_id ?? null;
+  const nodeLabel = input.targetNode?.node_name ?? nodeId;
+  const nodeStatus = toNodeStatus(input.targetNode);
   return {
-    targetNodeId: input.targetNode?.node_id ?? null,
-    targetNodeStatus: toNodeStatus(input.targetNode)
+    targetNodeId: nodeId,
+    targetNodeStatus: nodeStatus,
+    ownership: {
+      nodeId,
+      nodeLabel,
+      nodeStatus,
+      agentLabel: input.starterAgentName,
+      ownershipLabel: nodeLabel
+        ? `Using ${input.starterAgentName} on ${nodeLabel}${nodeStatus ? ` (${nodeStatus})` : ""}`
+        : `No bound node is selected for ${input.starterAgentName}`
+    }
   };
 }
 
@@ -145,6 +159,7 @@ export interface ChatBootstrapState {
   targetNodeId: string | null;
   targetNodeStatus: string | null;
   initialConversationId: string | null;
+  ownership: ChatOwnershipSummary;
 }
 
 interface ItemsEnvelope<T> {
@@ -383,22 +398,24 @@ async function ensureBootstrap(): Promise<BootstrapState> {
           title: starterTitle,
           participant_ids: [self.id, starterPeer.id]
         }));
+      const agentName = starterAgent.display_name || DEFAULT_AGENT_NAME;
       const ownedNodeId = pickPrimaryOwnedNodeId(self);
       const targetNode = resolveTargetNode({ nodes, ownedNodeId });
-      const bootstrapNodeState = toBootstrapNodeState({ targetNode });
+      const bootstrapNodeState = toBootstrapNodeState({ targetNode, starterAgentName: agentName });
       return {
         selfUserId: self.id,
         targetNodeId: bootstrapNodeState.targetNodeId,
         targetNodeStatus: bootstrapNodeState.targetNodeStatus,
+        ownership: bootstrapNodeState.ownership,
         starterConversationId: starterConversation.id,
         starter: {
           title: starterTitle,
           actionLabel: `Open ${starterTitle}`,
           actionHref: `/chat/${starterConversation.id}`,
-          agentName: starterAgent.display_name || DEFAULT_AGENT_NAME,
+          agentName,
           description: buildStarterDescription(starterAgent),
-          nodeLabel: targetNode?.node_name ?? targetNode?.node_id,
-          statusLabel: targetNode?.status
+          nodeLabel: bootstrapNodeState.ownership.nodeLabel ?? undefined,
+          statusLabel: bootstrapNodeState.ownership.ownershipLabel ?? undefined
         }
       };
     })();
@@ -416,7 +433,8 @@ export async function getChatBootstrapState(): Promise<ChatBootstrapState> {
     selfUserId: bootstrap.selfUserId,
     targetNodeId: bootstrap.targetNodeId,
     targetNodeStatus: bootstrap.targetNodeStatus,
-    initialConversationId: bootstrap.starterConversationId
+    initialConversationId: bootstrap.starterConversationId,
+    ownership: bootstrap.ownership
   };
 }
 
@@ -451,6 +469,7 @@ function toConversationSummary(input: {
   userById: Map<string, ImUser>;
   selfUserId: string;
   starterTitle: string;
+  ownership: ChatOwnershipSummary;
 }): ConversationSummary {
   const latest = input.messages.at(-1);
   const unreadCount = input.messages.filter((item) => item.sender_user_id !== input.selfUserId).length;
@@ -462,7 +481,11 @@ function toConversationSummary(input: {
     unread_count: unreadCount,
     participants: input.conversation.participant_ids.map(
       (participantId) => input.userById.get(participantId)?.display_name ?? participantId
-    )
+    ),
+    node_label: input.ownership.nodeLabel ?? undefined,
+    node_status: input.ownership.nodeStatus ?? undefined,
+    agent_label: input.ownership.agentLabel ?? undefined,
+    ownership_label: input.ownership.ownershipLabel ?? undefined
   };
 }
 
@@ -491,7 +514,7 @@ export async function getChatStarter(): Promise<ChatStarter> {
 }
 
 export async function listConversations(): Promise<ConversationSummary[]> {
-  const { selfUserId, starter } = await ensureBootstrap();
+  const { selfUserId, starter, ownership } = await ensureBootstrap();
   const [conversations, userById] = await Promise.all([listConversationsRaw(), loadUserMap()]);
   const messagesByConversation = await Promise.all(
     conversations.map(async (item) => ({
@@ -506,7 +529,8 @@ export async function listConversations(): Promise<ConversationSummary[]> {
         messages: item.messages,
         userById,
         selfUserId,
-        starterTitle: starter.title
+        starterTitle: starter.title,
+        ownership
       })
     )
     .sort((left, right) => (right.last_message_at ?? "").localeCompare(left.last_message_at ?? ""));
@@ -526,6 +550,7 @@ export async function getConversation(conversationId: string): Promise<Conversat
   return {
     conversation_id: conversation.id,
     title: resolveConversationTitle({ conversation, starterTitle: starter.title }),
+    ownership_label: starter.statusLabel,
     messages: messages.map((message) =>
       toChatMessage({
         message,
