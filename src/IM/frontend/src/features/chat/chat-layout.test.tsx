@@ -8,14 +8,18 @@ const getConversation = vi.fn();
 const sendMessage = vi.fn();
 const streamConversationEvents = vi.fn((_: unknown) => () => undefined);
 
-vi.mock("./chat-api", () => ({
-  getChatBootstrapState: () => getChatBootstrapState(),
-  getChatStarter: () => getChatStarter(),
-  listConversations: () => listConversations(),
-  getConversation: (conversationId: string) => getConversation(conversationId),
-  sendMessage: (input: { conversationId: string; content: string }) => sendMessage(input),
-  streamConversationEvents: (input: unknown) => streamConversationEvents(input)
-}));
+vi.mock("./chat-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./chat-api")>();
+  return {
+    ...actual,
+    getChatBootstrapState: () => getChatBootstrapState(),
+    getChatStarter: () => getChatStarter(),
+    listConversations: () => listConversations(),
+    getConversation: (conversationId: string) => getConversation(conversationId),
+    sendMessage: (input: { conversationId: string; content: string }) => sendMessage(input),
+    streamConversationEvents: (input: unknown) => streamConversationEvents(input)
+  };
+});
 
 import { appRoutes } from "../../app/router";
 import { renderRouter } from "../../test/render-router";
@@ -25,7 +29,15 @@ describe("chat layout", () => {
     getChatBootstrapState.mockResolvedValue({
       selfUserId: "user-1",
       targetNodeId: "node-1",
-      initialConversationId: "conv-kernel-ops"
+      targetNodeStatus: "online",
+      initialConversationId: "conv-kernel-ops",
+      ownership: {
+        nodeId: "node-1",
+        nodeLabel: "node-app-01",
+        nodeStatus: "online",
+        agentLabel: "OpsBot",
+        ownershipLabel: "Using OpsBot on node-app-01 (online)"
+      }
     });
     getChatStarter.mockResolvedValue({
       title: "Agent · OpsBot",
@@ -34,7 +46,7 @@ describe("chat layout", () => {
       agentName: "OpsBot",
       description: "OpsBot handles the default IM replies for this workspace.",
       nodeLabel: "node-app-01",
-      statusLabel: "online"
+      statusLabel: "Using OpsBot on node-app-01 (online)"
     });
     listConversations.mockResolvedValue([
       {
@@ -49,6 +61,7 @@ describe("chat layout", () => {
     getConversation.mockResolvedValue({
       conversation_id: "conv-kernel-ops",
       title: "Kernel Ops Crew",
+      ownership_label: "Using OpsBot on node-app-01 (online)",
       messages: [
         {
           message_id: "m-1",

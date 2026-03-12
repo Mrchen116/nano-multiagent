@@ -56,7 +56,7 @@ function DefaultAgentStarterCard({ starter }: { starter: ChatStarter }) {
         )}
         {starter.statusLabel && (
           <div className="flex items-center gap-2">
-            <dt className="font-semibold text-slate-700">Status</dt>
+            <dt className="font-semibold text-slate-700">Current route</dt>
             <dd>{starter.statusLabel}</dd>
           </div>
         )}
@@ -130,7 +130,12 @@ export function MessagePane(props: {
             Back
           </Link>
         )}
-        <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
+        <div className="min-w-0">
+          <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
+          {props.detail.ownership_label && (
+            <p className="mt-1 text-xs text-slate-500">{props.detail.ownership_label}</p>
+          )}
+        </div>
       </div>
       <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4">
         <div data-testid="message-list-stack" className="flex min-h-full flex-col justify-end">

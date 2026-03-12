@@ -9,6 +9,18 @@ export interface ConversationSummary {
   participants: string[];
   is_pinned?: boolean;
   is_muted?: boolean;
+  node_label?: string;
+  node_status?: string;
+  agent_label?: string;
+  ownership_label?: string;
+}
+
+export interface ChatOwnershipSummary {
+  nodeId: string | null;
+  nodeLabel: string | null;
+  nodeStatus: string | null;
+  agentLabel: string | null;
+  ownershipLabel: string | null;
 }
 
 export interface ChatMessage {
@@ -25,6 +37,7 @@ export interface ConversationDetail {
   conversation_id: string;
   title: string;
   messages: ChatMessage[];
+  ownership_label?: string;
 }
 
 export interface ChatStarter {

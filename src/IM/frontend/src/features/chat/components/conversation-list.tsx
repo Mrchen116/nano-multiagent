@@ -48,6 +48,11 @@ export function ConversationList(props: {
                 </span>
               )}
             </div>
+            {(item.ownership_label || item.agent_label) && (
+              <p className="mt-1 line-clamp-1 text-[11px] text-slate-500">
+                {item.ownership_label ?? item.agent_label}
+              </p>
+            )}
           </Link>
         ))}
       </div>
