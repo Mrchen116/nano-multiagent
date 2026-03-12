@@ -3070,6 +3070,22 @@
           "When relay dispatch fails, write actionable failure guidance into conversation events instead of only returning transport-layer errors."
         ]
       }
+    },
+    {
+      "milestone_id": "M119",
+      "title": "IM 默认聊天体验收口",
+      "goal": "按 IM-SPEC 收口默认 Web IM 产品体验：用户能直接看到可聊的 Agent 语义与会话入口，发送消息稳定完成一次真实往返，失败时给出明确反馈，不再出现只能看到模糊会话且发送报 500 的体验。",
+      "exit_criteria": "1) /chat 默认视图能明确展示 Agent/会话语义，而不是仅有模糊的 You & Teammate；2) 用户能从默认入口直接进入至少一个可用 Agent 会话并成功发送消息；3) 浏览器实际发送链路不再出现 500，若节点不可达则前端展示明确失败反馈；4) Playwright 复验覆盖会话可见性、发送成功/失败反馈与主链路可用性；5) 产出 TASKS/PROGRESS 记录差距、方案、证据与回滚点。",
+      "status": "RUNNING",
+      "blocked_by": [],
+      "claimed_by": "control-tower-main",
+      "claimed_at": "2026-03-12T10:41:02+08:00",
+      "status_changed_at": "2026-03-12T10:41:02+08:00",
+      "updated_at": "2026-03-12T10:41:02+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.claude/worktrees/agent-a875e700/.claude/worktrees/agent-a1293136/.claude/worktrees/agent-a61f9cf7/.claude/worktrees/agent-a3621a5f/.claude/worktrees/agent-a7dd372c/.claude/worktrees/M118/.worktrees/M119",
+      "branch": "milestone/M119"
     }
   ]
 }

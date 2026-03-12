@@ -28,7 +28,7 @@
   - `tests/unit/personal_assistant/test_main.py`
   - `tests/e2e/test_personal_assistant_main_e2e.py`
 - **DoD**: 相关 `main` / e2e 套件全绿 + C1/C2/C3 齐全 + `PROGRESS` 写清后台化取舍、证据与回滚点。
-- **Status**: TODO
+- **Status**: DONE
 
 ### R2 内核默认内聚与未绑定自动浏览器绑定
 - **Acceptance**:
@@ -49,7 +49,7 @@
   - `tests/im_service/integration/test_account_binding_api.py`
   - `tests/e2e/test_m112_real_process_roundtrip_e2e.py`
 - **DoD**: 相关 Gateway + IM 测试全绿 + C1/C2/C3 齐全 + `PROGRESS` 写清 bind 触发边界、浏览器策略与回滚点。
-- **Status**: TODO
+- **Status**: DONE
 
 ### R3 Web IM 绑定页与绑定后直聊闭环
 - **Acceptance**:
@@ -69,4 +69,4 @@
   - `src/IM/frontend/src/app/router.test.tsx`
   - `tests/e2e/test_m112_real_process_roundtrip_e2e.py`
 - **DoD**: Python/前端门禁全绿 + 必要真实入口验证完成 + C1/C2/C3 齐全 + `PROGRESS` 写清路由/用户态选择/证据与回滚点。
-- **Status**: TODO
+- **Status**: DONE
