@@ -646,3 +646,58 @@ def test_main_surfaces_next_step_for_gateway_startup_error(
         "ERROR node-local did not appear in IM bootstrap\n"
         "NEXT Verify /im/v1/nodes on the configured IM API and rerun gateway.\n"
     )
+
+
+def test_launch_gateway_in_background_writes_runtime_state_file(tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    process = _FakeProcess(wait_result=0, pid=2468)
+
+    launch_gateway_in_background(
+        config_path=config.source_path,
+        load_config=lambda _path: config,
+        spawn_process=lambda _argv, _log_path: process,
+        wait_for_ready=lambda _child, _config, _timeout: None,
+    )
+
+    state_path = tmp_path / ".gateway-state.json"
+    assert state_path.exists() is True
+    assert "2468" in state_path.read_text(encoding="utf-8")
+    assert str(config.source_path) in state_path.read_text(encoding="utf-8")
+
+
+def test_main_stop_command_stops_background_gateway(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    def _stop_background(*, config_path: str) -> str:
+        seen["config_path"] = config_path
+        return "STOPPED pid=999"
+
+    monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop_background)
+
+    exit_code = main(["stop", "--config", str(tmp_path / "node-config.yaml")])
+
+    assert exit_code == 0
+    assert seen == {"config_path": str(tmp_path / "node-config.yaml")}
+    assert capsys.readouterr().out == "STOPPED pid=999\n"
+
+
+def test_main_stop_command_reports_not_running(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    monkeypatch.setattr("personal_assistant.main.stop_gateway", lambda **_kwargs: "NOT RUNNING config=node-config.yaml")
+
+    exit_code = main(["stop", "--config", str(tmp_path / "node-config.yaml")])
+
+    assert exit_code == 0
+    assert capsys.readouterr().out == "NOT RUNNING config=node-config.yaml\n"
+
+
+def test_main_stop_command_reports_stale_runtime_state(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr("personal_assistant.main.stop_gateway", lambda **_kwargs: "STALE pid=999 state=.gateway-state.json")
+
+    exit_code = main(["stop", "--config", str(tmp_path / "node-config.yaml")])
+
+    assert exit_code == 0
+    assert capsys.readouterr().out == "STALE pid=999 state=.gateway-state.json\n"

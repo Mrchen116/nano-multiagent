@@ -79,17 +79,34 @@ cd <repo>
 PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
 ```
 
+默认命令会后台启动 Gateway，并立即返回：
+
+```text
+STARTED pid=<pid> health_url=http://127.0.0.1:8000/v1/health log=<config目录>/gateway.log
+```
+
 Gateway 默认启动顺序：
 1. 读取本地配置。
 2. 启动并探活本地 kernel。
 3. 启动已配置 channel。
 4. 连接 IM WebSocket 并注册节点。
 5. 检查节点是否已绑定；必要时给出绑定下一步。
-6. 保持常驻，等待 Web IM 消息。
+6. 保持后台运行，等待 Web IM 消息。
+
+停止当前配置对应的后台 Gateway：
+
+```bash
+PYTHONPATH=src python -m personal_assistant.main stop --config ./node-config.yaml
+```
+
+Gateway stop 反馈语义：
+- `STOPPED pid=... state=...`：已找到当前后台 Gateway，并完成关闭；若优雅等待超时会额外带 `forced=true`。
+- `NOT RUNNING config=... state=...`：当前配置目录没有运行态文件，说明这一路径下没有可关闭的后台 Gateway。
+- `STALE pid=... state=...`：运行态文件存在，但 pid 已失效；CLI 会自动清理陈旧状态，然后你可以直接重新 start。
 
 Gateway ready 信号：
-- 如果终端打印 `ACTION ...` / `NEXT ...` 并打开绑定页，说明 Gateway 已完成启动并进入“等你绑定”的状态。
-- 如果终端保持常驻，且不再反复报错退出，说明 Gateway 已进入等待 Web IM 消息的状态。
+- 默认路径下，终端会先返回 `STARTED ...`；后续 readiness/绑定反馈写入 `gateway.log`，并可能自动打开绑定页。
+- 若你改用 `--foreground` 调试路径，终端会保持常驻，并直接看到 `ACTION ...` / `NEXT ...`。
 - 如果你使用 smoke 脚本，看到 `READY` / `RUNNING` / `SHUTDOWN exit_code=0` 就表示默认生命周期闭环正常。
 
 ## 4. 观察未绑定 / 已绑定行为
