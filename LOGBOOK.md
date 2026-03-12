@@ -4,6 +4,7 @@
 - Roadpoint 的方案、证据、回滚点与提交哈希请写到：`PROGRESS/<milestone_id>-<简述>.md`。
 - 迁移：历史工作记录已归档到 `PROGRESS/legacy-logbook-work-notes.md`。
 - 商业产品视角持续批判规则（2026-03-11）：除功能/架构 milestone 外，要适时增加“真实端到端联调 + 交互审视”类 milestone，不只验证链路是否能跑通，还要从成熟商业产品视角持续批判现有成果，覆盖绑定、会话建立、消息发送、回执、异常反馈、状态提示等关键环节，输出问题清单与后续改进项。该审视不是一次性验收，后续阶段也应重复执行。
+- 本地入口排障优先级规则（2026-03-12，M122）：当真实入口行为与当前源码明显矛盾（例如代码/独立实例返回 200，但固定端口持续 404）时，先用 `lsof/ps` 确认端口上实际运行的是哪个 worktree/进程；本地长期残留的旧 worktree dev server 会制造“源码已修好、入口仍坏”的假象。
 - Hook 加载断言规则：涉及 `load_hooks_from_directories` 的测试不要写死“已加载模块总数”，应断言关键模块（source/file_path/event）存在，避免内置 hook 增减引发脆弱回归。
 - Tool-calling 蓝图与实现错位（“有 tool-calling 设计，但运行仍像单次文本”）的根因：只验证了普通文本 happy path，没有在 CLI/HTTP 真实入口上验证“LLM 首轮返回 tool_call 后必须继续执行工具并二次请求模型”。设计层写了 loop，不代表接线层（runtime-loop-tool registry）真的打通。
 - 早期可检测信号：

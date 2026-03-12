@@ -4,8 +4,10 @@ from contextlib import asynccontextmanager
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from IM.api.routes.account import router as account_router
 from IM.api.routes.agents import router as agent_router
@@ -20,11 +22,87 @@ from IM.infra.repositories import EventRepository, NodeRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 
-def create_app(*, db_path: Path | None = None) -> FastAPI:
+def _resolve_frontend_dist_dir(frontend_dist_dir: Path | None) -> Path:
+    """Return the built Web IM asset directory for the running IM service."""
+    if frontend_dist_dir is not None:
+        return frontend_dist_dir
+    return Path(os.getenv("IM_FRONTEND_DIST_DIR", Path(__file__).resolve().parent / "frontend" / "dist"))
+
+
+def _build_frontend_redirect_url(request: Request, *, frontend_dev_base_url: str) -> str:
+    """Preserve path/query when redirecting entry traffic to the frontend dev server."""
+    target = f"{frontend_dev_base_url.rstrip('/')}{request.url.path}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    return target
+
+
+def _install_frontend_entrypoints(
+    app: FastAPI,
+    *,
+    frontend_dist_dir: Path,
+    frontend_dev_base_url: str,
+) -> None:
+    """Expose discoverable Web IM entry routes on the IM service host."""
+    index_html_path = frontend_dist_dir / "index.html"
+    favicon_path = frontend_dist_dir / "favicon.svg"
+    assets_dir = frontend_dist_dir / "assets"
+    serve_built_frontend = index_html_path.is_file()
+
+    def frontend_entry_response(request: Request):
+        if serve_built_frontend:
+            return FileResponse(index_html_path)
+        return RedirectResponse(
+            url=_build_frontend_redirect_url(request, frontend_dev_base_url=frontend_dev_base_url),
+            status_code=307,
+        )
+
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="im-frontend-assets")
+
+    if favicon_path.is_file():
+        @app.get("/favicon.svg", include_in_schema=False)
+        async def frontend_favicon() -> FileResponse:
+            """Serve the built frontend favicon from the IM service host."""
+            return FileResponse(favicon_path)
+
+    @app.get("/", include_in_schema=False)
+    async def frontend_root(request: Request):
+        """Serve or forward the discoverable Web IM root entry."""
+        return frontend_entry_response(request)
+
+    @app.get("/chat", include_in_schema=False)
+    @app.get("/chat/{conversation_path:path}", include_in_schema=False)
+    async def frontend_chat_entry(request: Request, conversation_path: str = ""):
+        """Serve or forward the Web IM chat shell for SPA routes."""
+        del conversation_path
+        return frontend_entry_response(request)
+
+    @app.get("/settings", include_in_schema=False)
+    @app.get("/settings/{settings_path:path}", include_in_schema=False)
+    async def frontend_settings_entry(request: Request, settings_path: str = ""):
+        """Serve or forward the Web IM settings shell for SPA routes."""
+        del settings_path
+        return frontend_entry_response(request)
+
+    @app.get("/bind/confirm", include_in_schema=False)
+    async def frontend_bind_confirm_entry(request: Request):
+        """Serve or forward the bind confirmation shell on the IM host."""
+        return frontend_entry_response(request)
+
+
+def create_app(
+    *,
+    db_path: Path | None = None,
+    frontend_dist_dir: Path | None = None,
+    frontend_dev_base_url: str | None = None,
+) -> FastAPI:
     """Build a standalone IM FastAPI application.
 
     Args:
         db_path: Optional SQLite file path used by the IM service.
+        frontend_dist_dir: Optional built frontend asset directory served on the IM host.
+        frontend_dev_base_url: Optional fallback dev-server base URL used when built assets are absent.
 
     Returns:
         FastAPI app with initialized storage and IM routes.
@@ -33,6 +111,8 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
         Creates the SQLite file if missing and initializes schema at startup.
     """
     resolved_db_path = db_path or Path(os.getenv("IM_DB_PATH", "data/im_service.sqlite3"))
+    resolved_frontend_dist_dir = _resolve_frontend_dist_dir(frontend_dist_dir)
+    resolved_frontend_dev_base_url = frontend_dev_base_url or os.getenv("IM_FRONTEND_DEV_BASE_URL", "http://127.0.0.1:4173")
 
     @asynccontextmanager
     async def lifespan(app_instance: FastAPI):
@@ -65,6 +145,11 @@ def create_app(*, db_path: Path | None = None) -> FastAPI:
     app.include_router(message_router)
     app.include_router(nodes_router)
     app.include_router(metrics_router)
+    _install_frontend_entrypoints(
+        app,
+        frontend_dist_dir=resolved_frontend_dist_dir,
+        frontend_dev_base_url=resolved_frontend_dev_base_url,
+    )
 
     @app.websocket("/im/ws/gateway")
     async def gateway_websocket(websocket: WebSocket) -> None:

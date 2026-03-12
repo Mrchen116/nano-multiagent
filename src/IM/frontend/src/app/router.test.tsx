@@ -1,5 +1,7 @@
 import { screen } from "@testing-library/react";
+import { isValidElement } from "react";
 import { beforeEach, vi } from "vitest";
+import { Navigate } from "react-router-dom";
 
 const getChatBootstrapState = vi.fn();
 const getChatStarter = vi.fn();
@@ -62,10 +64,27 @@ describe("app routes", () => {
     expect(screen.getByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
   });
 
+  it("declares the root entry redirect to /chat", () => {
+    const rootIndexRoute = appRoutes[0]?.children?.find((route) => route.index);
+
+    expect(rootIndexRoute).toBeDefined();
+    expect(isValidElement(rootIndexRoute?.element)).toBe(true);
+    expect(rootIndexRoute?.element.type).toBe(Navigate);
+    expect(rootIndexRoute?.element.props.to).toBe("/chat");
+    expect(rootIndexRoute?.element.props.replace).toBe(true);
+  });
+
   it("renders the bind confirmation route", async () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/bind/confirm?token=test-token"] });
 
     expect(await screen.findByText("Bind this Gateway")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue to chat" })).toBeEnabled();
+  });
+
+  it("renders the settings agents entry", async () => {
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
+
+    expect(await screen.findByRole("heading", { name: "Agents" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Settings Sections" })).toBeInTheDocument();
   });
 });
