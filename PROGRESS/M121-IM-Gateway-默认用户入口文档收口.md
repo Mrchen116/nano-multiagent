@@ -23,14 +23,14 @@
 - Rationale:
   - 这能直接回应 M120 的 blocking 问题，同时不改任何实现；正常用户先完成主链路，operator API 再下沉到附录/排障即可。
 - Evidence:
-  - Tests: `cd src/IM/frontend && npm run build` 当前基线失败于 `tsc: command not found`，需在收口后重试
+  - Tests: `cd src/IM/frontend && npm run build` 当前基线失败于 `tsc: command not found`，说明先要解决 worktree 依赖复用问题，才能做最终门禁
   - Entry: `src/IM/app.py` 与 `tests/im_service/unit/test_app_factory.py` 已固定 IM host `/`、`/chat`、`/bind/confirm` 在 dist 存在时直接服务 Web IM 壳
   - Entry: `PROGRESS/M123-Gateway-默认启动与绑定反馈收口.md` 已记录 Gateway 对未绑定/bootstrap failure 输出 `NEXT ...` 并写回 `/im/v1/nodes.last_error`
 - Rollback:
-  - 待计划提交后补充
+  - `74a6594`（计划提交）
 - Commits: C1=<pending>, C2=<pending>, C3=<pending>
 - Next:
-  - 更新三份文档，确保入口 URL、Gateway 命令、未绑定/已绑定行为口径一致
+  - 提交 Red 基线后，更新 `README.md` 与 `docs/operator-runbook.md`
 
 ### R2 前端 README 与附录降级对齐
 - Context:
@@ -45,7 +45,7 @@
   - Tests: `tests/acceptance/test_im_gateway_real_acceptance.py`、`tests/im_service/integration/test_account_binding_api.py`、`tests/unit/personal_assistant/test_main.py` 共同证明“绑定完成后 `owned_node_ids` 建立”“Gateway 未绑定时会打开 bind URL”“已绑定节点不会再次打开浏览器”
   - Entry: `PROGRESS/M122-Web-IM-默认入口恢复可达.md` 已记录 IM-hosted 入口在浏览器中会从 `/` 落到 `/chat`
 - Rollback:
-  - 待计划提交后补充
+  - `74a6594`（计划提交）
 - Commits: C1=<pending>, C2=<pending>, C3=<pending>
 - Next:
-  - 完成计划提交，然后进入文档改写与一致性复核
+  - 在 README/runbook 收口后，再处理 `src/IM/frontend/README.md` 与最终一致性复核
