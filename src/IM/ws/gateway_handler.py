@@ -107,12 +107,16 @@ class GatewayHandler:
             connection = self._connections.get(target_node_id)
         if connection is None:
             return False
-        await connection.websocket.send_json(
-            {
-                "type": "relay.message",
-                "payload": {**payload, "relay_task_id": relay_task_id},
-            }
-        )
+        try:
+            await connection.websocket.send_json(
+                {
+                    "type": "relay.message",
+                    "payload": {**payload, "relay_task_id": relay_task_id},
+                }
+            )
+        except (RuntimeError, WebSocketDisconnect):
+            await self.disconnect(node_id=target_node_id)
+            return False
         self._relay_service.mark_dispatched(relay_task_id=relay_task_id)
         return True
 

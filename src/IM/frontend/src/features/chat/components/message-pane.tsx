@@ -3,8 +3,16 @@ import { Link } from "react-router-dom";
 
 import { ChatMessage, ChatStarter, ConversationDetail } from "../types";
 
+const RELAY_UNAVAILABLE_MESSAGE = "No relay node is available. Connect an online node and retry.";
+
 function toErrorMessage(error: unknown) {
-  return error instanceof Error && error.message ? error.message : "Message send failed. Retry when the relay node is available.";
+  if (error instanceof Error && error.message) {
+    if (error.message.includes("target_node_id is not connected")) {
+      return RELAY_UNAVAILABLE_MESSAGE;
+    }
+    return error.message;
+  }
+  return "Message send failed. Retry when the relay node is available.";
 }
 
 function MessageBubble({ message }: { message: ChatMessage }) {

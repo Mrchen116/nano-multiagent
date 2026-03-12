@@ -16,6 +16,11 @@ class StubWebSocket:
         self.sent_json.append(payload)
 
 
+class FailingWebSocket(StubWebSocket):
+    async def send_json(self, payload: dict[str, object]) -> None:
+        raise RuntimeError("socket closed")
+
+
 def _build_handler(tmp_path: Path) -> GatewayHandler:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
@@ -95,4 +100,28 @@ def test_disconnect_removes_active_connection(tmp_path: Path) -> None:
 
     assert asyncio.run(handler.is_connected(node_id="node-1")) is True
     asyncio.run(handler.disconnect(node_id="node-1"))
+    assert asyncio.run(handler.is_connected(node_id="node-1")) is False
+
+
+def test_push_relay_message_returns_false_when_socket_send_fails(tmp_path: Path) -> None:
+    """Treat broken websocket deliveries like disconnected nodes instead of bubbling 500s."""
+    handler = _build_handler(tmp_path)
+    websocket = FailingWebSocket()
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+        )
+    )
+
+    delivered = asyncio.run(
+        handler.push_relay_message(
+            relay_task_id="relay-1",
+            target_node_id="node-1",
+            payload={"message": {"content": "hello"}},
+        )
+    )
+
+    assert delivered is False
     assert asyncio.run(handler.is_connected(node_id="node-1")) is False

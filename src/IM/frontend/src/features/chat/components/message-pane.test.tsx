@@ -39,6 +39,22 @@ describe("message pane", () => {
     expect(screen.getByDisplayValue("ping the agent")).toBeInTheDocument();
   });
 
+  it("normalizes raw relay 503 errors into a user-facing relay availability hint", async () => {
+    const user = userEvent.setup();
+    const onSend = vi
+      .fn()
+      .mockRejectedValue(new Error("POST /im/v1/conversations/conv-kernel-ops/messages failed: 503 (target_node_id is not connected)"));
+
+    renderMessagePane({ onSend });
+
+    const composer = screen.getByPlaceholderText("Type message");
+    await user.type(composer, "retry the relay path");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(SEND_FAILURE_MESSAGE);
+    expect(screen.getByDisplayValue("retry the relay path")).toBeInTheDocument();
+  });
+
   it("clears failure feedback after a successful retry", async () => {
     const user = userEvent.setup();
     const onSend = vi
