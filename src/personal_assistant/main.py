@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
+import os
 import shlex
 import signal
 import subprocess
@@ -13,7 +15,7 @@ import time
 import webbrowser
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -147,6 +149,23 @@ class BackgroundLaunchResult:
     pid: int
     health_url: str
     log_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayRuntimeState:
+    """Persist the operator-facing metadata needed to locate one background gateway.
+
+    Args:
+        pid: Background gateway process id launched for this config.
+        config_path: Absolute config path used for that process.
+        health_url: Health endpoint associated with the launched gateway.
+        log_path: Log file receiving the detached process output.
+    """
+
+    pid: int
+    config_path: str
+    health_url: str
+    log_path: str
 
 
 class _IMBootstrapClient:
@@ -652,11 +671,55 @@ def launch_gateway_in_background(
     except Exception:
         _stop_background_process(process, timeout_seconds=config.kernel.shutdown_grace_seconds)
         raise
-    return BackgroundLaunchResult(
+    result = BackgroundLaunchResult(
         pid=process.pid,
         health_url=f"{config.kernel.base_url}{config.kernel.health_path}",
         log_path=log_path,
     )
+    _write_gateway_state(config, result)
+    return result
+
+
+def stop_gateway(
+    *,
+    config_path: str | Path,
+    load_config: Callable[[str | Path], LocalConfig] = load_local_config,
+) -> str:
+    """Stop the background gateway associated with one config path.
+
+    Args:
+        config_path: Operator-provided config path used to resolve the runtime state file.
+        load_config: Config loader used to derive the state file and shutdown timing.
+
+    Returns:
+        One operator-facing status line describing stop success, not-running, or stale state.
+
+    Side Effects:
+        Sends SIGTERM and possibly SIGKILL to the background gateway process and removes stale state.
+    """
+
+    config = load_config(config_path)
+    state_path = _gateway_state_path(config)
+    state = _read_gateway_state(state_path)
+    if state is None:
+        return f"NOT RUNNING config={config.source_path.name} state={state_path}"
+    if not _pid_is_running(state.pid):
+        _remove_gateway_state(state_path)
+        return f"STALE pid={state.pid} state={state_path}"
+    try:
+        os.kill(state.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        _remove_gateway_state(state_path)
+        return f"STALE pid={state.pid} state={state_path}"
+    deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
+    while time.monotonic() <= deadline:
+        if not _pid_is_running(state.pid):
+            _remove_gateway_state(state_path)
+            return f"STOPPED pid={state.pid} state={state_path}"
+        time.sleep(config.kernel.health_poll_interval_seconds)
+    os.kill(state.pid, signal.SIGKILL)
+    _remove_gateway_state(state_path)
+    return f"STOPPED pid={state.pid} state={state_path} forced=true"
 
 
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
@@ -736,15 +799,27 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
 def main(argv: list[str] | None = None) -> int:
     """Parse CLI arguments and execute the gateway process entry."""
 
-    parser = argparse.ArgumentParser(description="Run personal assistant gateway runtime")
-    parser.add_argument("--config", required=True, help="Path to local node-config.yaml")
-    parser.add_argument(
-        "--foreground",
-        action="store_true",
-        help="Keep the gateway attached to the current terminal for debugging and smoke tests",
-    )
-    args = parser.parse_args(argv)
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] == "stop":
+        parser = argparse.ArgumentParser(description="Stop personal assistant gateway runtime")
+        parser.add_argument("stop", nargs="?")
+        parser.add_argument("--config", required=True, help="Path to local node-config.yaml")
+        args = parser.parse_args(argv)
+        command = "stop"
+    else:
+        parser = argparse.ArgumentParser(description="Run personal assistant gateway runtime")
+        parser.add_argument("--config", required=True, help="Path to local node-config.yaml")
+        parser.add_argument(
+            "--foreground",
+            action="store_true",
+            help="Keep the gateway attached to the current terminal for debugging and smoke tests",
+        )
+        args = parser.parse_args(argv)
+        command = "start"
     try:
+        if command == "stop":
+            print(stop_gateway(config_path=args.config))
+            return 0
         if args.foreground:
             return run_gateway(config_path=args.config)
         result = launch_gateway_in_background(config_path=args.config)
@@ -881,6 +956,45 @@ def _default_heartbeat_state_path(config: LocalConfig) -> Path:
 
 def _default_gateway_log_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "gateway.log"
+
+
+def _gateway_state_path(config: LocalConfig) -> Path:
+    return config.source_path.parent / ".gateway-state.json"
+
+
+def _write_gateway_state(config: LocalConfig, result: BackgroundLaunchResult) -> None:
+    state = GatewayRuntimeState(
+        pid=result.pid,
+        config_path=str(Path(config.source_path).resolve()),
+        health_url=result.health_url,
+        log_path=str(result.log_path),
+    )
+    _gateway_state_path(config).write_text(json.dumps(asdict(state), indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _read_gateway_state(state_path: Path) -> GatewayRuntimeState | None:
+    if not state_path.exists():
+        return None
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    return GatewayRuntimeState(
+        pid=int(payload["pid"]),
+        config_path=str(payload["config_path"]),
+        health_url=str(payload["health_url"]),
+        log_path=str(payload["log_path"]),
+    )
+
+
+def _remove_gateway_state(state_path: Path) -> None:
+    with suppress(FileNotFoundError):
+        state_path.unlink()
+
+
+def _pid_is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def _im_http_headers(token: str | None) -> dict[str, str]:
