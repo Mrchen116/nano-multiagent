@@ -163,6 +163,39 @@ def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) 
             assert node_row.json()[0]["node_name"] == "MacBook"
 
 
+def test_gateway_websocket_exposes_actionable_last_error_in_node_board(tmp_path: Path) -> None:
+    """Persist actionable startup guidance so `/im/v1/nodes` can surface it to operators."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {"node_id": "node-1", "node_name": "MacBook", "version": "1.0.0", "agents": ["agent-a"], "capabilities": {}},
+                }
+            )
+            websocket.receive_json()
+            websocket.send_json(
+                {
+                    "type": "node.heartbeat",
+                    "payload": {
+                        "node_id": "node-1",
+                        "status": "online",
+                        "agent_count": 1,
+                        "last_error": "Gateway bootstrap failed. Next: open /im/v1/nodes and verify the node is visible.",
+                    },
+                }
+            )
+            websocket.receive_json()
+
+            node_row = client.get("/im/v1/nodes")
+            assert node_row.status_code == 200
+            assert node_row.json()[0]["status"] == "degraded"
+            assert node_row.json()[0]["last_error"] == (
+                "Gateway bootstrap failed. Next: open /im/v1/nodes and verify the node is visible."
+            )
+
+
 def test_message_post_to_disconnected_node_persists_actionable_failure_events(tmp_path: Path) -> None:
     """Persist conversation-context failure feedback when the target node is offline."""
     app = create_app(db_path=tmp_path / "im.db")

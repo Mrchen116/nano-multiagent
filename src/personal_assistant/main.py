@@ -25,7 +25,14 @@ from websockets.asyncio.client import ClientConnection
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
-from personal_assistant.config.local_store import ChannelConfig, HeartbeatConfig, KernelConfig, LocalConfig, load_local_config
+from personal_assistant.config.local_store import (
+    ChannelConfig,
+    HeartbeatConfig,
+    KernelConfig,
+    LocalConfig,
+    load_local_config,
+    resolve_kernel_token,
+)
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -46,6 +53,33 @@ Monotonic = Callable[[], float]
 Sleep = Callable[[float], None]
 AsyncConnect = Callable[[str, Mapping[str, str]], Awaitable[ClientConnection]]
 SignalHandlerInstaller = Callable[[], Callable[[], None]]
+BootstrapClientFactory = Callable[[str], httpx.Client]
+FeedbackSink = Callable[[str, str, str | None], None]
+_DEFAULT_LOCAL_IM_API_PORT = 8011
+
+
+class GatewayStartupError(RuntimeError):
+    """Represent one actionable startup failure shown to gateway operators.
+
+    Args:
+        summary: Human-readable failure summary.
+        next_step: Optional concrete remediation step shown alongside the error.
+    """
+
+    def __init__(self, *, summary: str, next_step: str | None = None) -> None:
+        cleaned_summary = summary.strip()
+        cleaned_next_step = next_step.strip() if isinstance(next_step, str) and next_step.strip() else None
+        super().__init__(cleaned_summary)
+        self.summary = cleaned_summary
+        self.next_step = cleaned_next_step
+
+
+def _emit_gateway_feedback(level: str, summary: str, next_step: str | None = None) -> None:
+    """Print one operator-facing gateway feedback line to stderr."""
+
+    print(f"{level} {summary}", file=sys.stderr)
+    if next_step is not None:
+        print(f"NEXT {next_step}", file=sys.stderr)
 
 
 class GatewayRuntimeLike(Protocol):
@@ -134,18 +168,23 @@ class _IMBootstrapClient:
         base_url: str,
         token: str | None,
         client: httpx.Client | None = None,
+        client_factory: BootstrapClientFactory | None = None,
         browser_opener: BrowserOpener = webbrowser.open,
+        feedback_sink: FeedbackSink = _emit_gateway_feedback,
         timeout_seconds: float = 5.0,
         monotonic: Monotonic = time.monotonic,
         sleep: Sleep = time.sleep,
     ) -> None:
-        self._client = client or httpx.Client(
-            base_url=base_url,
-            headers=_im_http_headers(token),
-            timeout=timeout_seconds,
-            trust_env=False,
-        )
+        self._base_urls = _im_bootstrap_base_urls(base_url)
+        self._base_headers = _im_http_headers(token)
+        self._timeout_seconds = timeout_seconds
+        self._client_factory = client_factory
+        self._clients: dict[str, httpx.Client] = {}
+        self._base_url = self._base_urls[0]
+        if client is not None:
+            self._clients[self._base_url] = client
         self._browser_opener = browser_opener
+        self._feedback_sink = feedback_sink
         self._monotonic = monotonic
         self._sleep = sleep
 
@@ -162,37 +201,58 @@ class _IMBootstrapClient:
             RuntimeError: When IM bootstrap APIs do not expose the registered node.
         """
 
-        owner_id = self._wait_for_owner(node_id=node_id)
+        owner_id, resolved_base_url = self._wait_for_owner(node_id=node_id)
         if owner_id:
             return None
-        response = self._client.post("/im/v1/bind", json={"action": "start", "node_id": node_id})
-        response.raise_for_status()
+        client = self._get_client(resolved_base_url)
+        try:
+            response = client.post("/im/v1/bind", json={"action": "start", "node_id": node_id})
+            response.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            raise GatewayStartupError(
+                summary=f"node {node_id} could not start IM binding",
+                next_step=f"Verify {resolved_base_url}/im/v1/bind is reachable, then rerun gateway.",
+            ) from exc
         payload = response.json()
         bind_url = _require_text(payload.get("bind_url"), field_name="bind_url")
         self._browser_opener(bind_url, new=2, autoraise=True)
+        self._feedback_sink(
+            "ACTION",
+            f"node {node_id} is waiting for IM binding",
+            f"Open {bind_url} to finish binding this node.",
+        )
         return bind_url
 
     def close(self) -> None:
         """Release the owned HTTP client."""
 
-        self._client.close()
+        seen_ids: set[int] = set()
+        for client in self._clients.values():
+            client_id = id(client)
+            if client_id in seen_ids:
+                continue
+            seen_ids.add(client_id)
+            client.close()
 
-    def _wait_for_owner(self, *, node_id: str) -> str:
+    def _wait_for_owner(self, *, node_id: str) -> tuple[str, str]:
         deadline = self._monotonic() + 5.0
         last_error: Exception | None = None
         while self._monotonic() <= deadline:
-            try:
-                return self._get_owner_id(node_id=node_id)
-            except Exception as exc:  # noqa: BLE001
-                last_error = exc
-                self._sleep(0.1)
+            for base_url in self._base_urls:
+                try:
+                    return self._get_owner_id(node_id=node_id, base_url=base_url), base_url
+                except Exception as exc:  # noqa: BLE001
+                    last_error = exc
+            self._sleep(0.1)
+        checked_urls = ", ".join(f"{base_url}/im/v1/nodes" for base_url in self._base_urls)
         message = f"node {node_id} did not appear in IM bootstrap"
+        next_step = f"Verify the IM node API is reachable at {checked_urls} and rerun gateway."
         if last_error is not None:
-            raise RuntimeError(message) from last_error
-        raise RuntimeError(message)
+            raise GatewayStartupError(summary=message, next_step=next_step) from last_error
+        raise GatewayStartupError(summary=message, next_step=next_step)
 
-    def _get_owner_id(self, *, node_id: str) -> str:
-        response = self._client.get("/im/v1/nodes")
+    def _get_owner_id(self, *, node_id: str, base_url: str) -> str:
+        response = self._get_client(base_url).get("/im/v1/nodes")
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, list):
@@ -205,6 +265,22 @@ class _IMBootstrapClient:
             owner_id = item.get("owner_id")
             return owner_id.strip() if isinstance(owner_id, str) else ""
         raise RuntimeError(f"node {node_id} not found")
+
+    def _get_client(self, base_url: str) -> httpx.Client:
+        client = self._clients.get(base_url)
+        if client is not None:
+            return client
+        if self._client_factory is not None:
+            client = self._client_factory(base_url)
+        else:
+            client = httpx.Client(
+                base_url=base_url,
+                headers=self._base_headers,
+                timeout=self._timeout_seconds,
+                trust_env=False,
+            )
+        self._clients[base_url] = client
+        return client
 
 
 class GatewayProcessManager:
@@ -416,6 +492,7 @@ class GatewayRuntime:
         on_inbound: Callable[[InboundMessage], None] | None = None,
         post_im_connect: Callable[[], None] | None = None,
         resource_closers: tuple[Callable[[], None], ...] = (),
+        feedback_sink: FeedbackSink = _emit_gateway_feedback,
     ) -> None:
         self._config = config
         self._process_manager = process_manager
@@ -425,6 +502,7 @@ class GatewayRuntime:
         self._on_inbound = on_inbound or (lambda _message: None)
         self._post_im_connect = post_im_connect
         self._resource_closers = resource_closers
+        self._feedback_sink = feedback_sink
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
 
@@ -469,7 +547,11 @@ class GatewayRuntime:
                 await self._im_connection_manager.connect_once()
                 im_connected = True
                 if self._post_im_connect is not None:
-                    await asyncio.to_thread(self._post_im_connect)
+                    try:
+                        await asyncio.to_thread(self._post_im_connect)
+                    except GatewayStartupError as exc:
+                        await self._publish_startup_failure(exc)
+                        raise
                 im_task = asyncio.create_task(self._im_connection_manager.run_forever(), name="personal-assistant-im")
             self._ready_event.set()
             await asyncio.to_thread(self._shutdown_requested.wait)
@@ -491,6 +573,23 @@ class GatewayRuntime:
             self._process_manager.stop_kernel_process()
             for closer in self._resource_closers:
                 closer()
+
+    async def _publish_startup_failure(self, exc: GatewayStartupError) -> None:
+        self._feedback_sink("ERROR", exc.summary, exc.next_step)
+        manager = self._im_connection_manager
+        if manager is None or not manager.connected:
+            return
+        last_error = exc.summary if exc.next_step is None else f"{exc.summary} Next: {exc.next_step}"
+        payload = {
+            "node_id": self._config.node.node_id,
+            "status": "degraded",
+            "agent_count": len(self._config.agents),
+            "last_error": last_error,
+        }
+        try:
+            await manager.send_json("node.heartbeat", payload)
+        except Exception:  # noqa: BLE001
+            return
 
 
 def run_gateway(
@@ -563,10 +662,11 @@ def launch_gateway_in_background(
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
     """Construct the default long-running gateway runtime from parsed local config."""
 
+    kernel_token = resolve_kernel_token(config.kernel.token)
     kernel_client = KernelApiClient(
         config=KernelApiClientConfig(
             base_url=config.kernel.base_url,
-            token=config.kernel.token,
+            token=kernel_token,
             request_id=config.kernel.request_id,
             timeout_seconds=config.kernel.timeout_seconds,
         )
@@ -650,6 +750,9 @@ def main(argv: list[str] | None = None) -> int:
         result = launch_gateway_in_background(config_path=args.config)
         print(f"STARTED pid={result.pid} health_url={result.health_url} log={result.log_path}")
         return 0
+    except GatewayStartupError as exc:
+        _emit_gateway_feedback("ERROR", exc.summary, exc.next_step)
+        return 1
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR {exc}", file=sys.stderr)
         return 1
@@ -798,6 +901,23 @@ def _im_http_base_url(url: str) -> str:
     if parsed.scheme == "wss":
         return f"https://{parsed.netloc}{parsed.path}".rstrip("/")
     raise ValueError("IM URL must use http(s) or ws(s)")
+
+
+def _im_bootstrap_base_urls(url: str) -> tuple[str, ...]:
+    primary = _im_http_base_url(url)
+    parsed = urlparse(primary)
+    candidates = [primary]
+    hostname = (parsed.hostname or "").strip().lower()
+    if hostname in {"127.0.0.1", "localhost"} and parsed.port != _DEFAULT_LOCAL_IM_API_PORT:
+        fallback_path = parsed.path.rstrip("/")
+        fallback = f"{parsed.scheme}://{hostname}:{_DEFAULT_LOCAL_IM_API_PORT}{fallback_path}"
+        candidates.append(fallback.rstrip("/"))
+    unique: list[str] = []
+    for candidate in candidates:
+        normalized = candidate.rstrip("/")
+        if normalized and normalized not in unique:
+            unique.append(normalized)
+    return tuple(unique)
 
 
 def _background_gateway_argv(config_path: Path) -> list[str]:

@@ -8,15 +8,24 @@ from pathlib import Path
 import httpx
 import pytest
 
-from personal_assistant.config.local_store import HeartbeatConfig, KernelConfig, LocalConfig, NodeConfig
+from personal_assistant.config.local_store import (
+    DEFAULT_LOCAL_KERNEL_TOKEN,
+    AgentWorkspaceConfig,
+    HeartbeatConfig,
+    KernelConfig,
+    LocalConfig,
+    NodeConfig,
+)
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
 from personal_assistant.main import (
     BackgroundLaunchResult,
     GatewayProcessManager,
+    GatewayStartupError,
     GatewayRuntime,
     RuntimeFactories,
     _IMBootstrapClient,
+    build_runtime,
     _build_relay_lifecycle_callback,
     launch_gateway_in_background,
     main,
@@ -341,6 +350,43 @@ def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
     assert seen == {"config": config, "ran": True}
 
 
+def test_build_runtime_defaults_local_kernel_token_when_config_omits_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace_root = tmp_path / "agent-a"
+    workspace_root.mkdir()
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-local"),
+        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        channels=(),
+        kernel=KernelConfig(
+            token=None,
+            command="python -m agent.platform.http_api.app",
+            startup_timeout_seconds=0.2,
+            health_poll_interval_seconds=0.0,
+            shutdown_grace_seconds=0.1,
+        ),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=tmp_path / "node-config.yaml",
+    )
+    seen: dict[str, object] = {}
+
+    class _RecordingKernelClient:
+        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
+            del transport
+            seen["kernel_config"] = config
+
+        def close(self) -> None:
+            seen["closed"] = True
+
+    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _RecordingKernelClient)
+
+    runtime = build_runtime(config)
+
+    assert isinstance(runtime, GatewayRuntime)
+    kernel_config = seen["kernel_config"]
+    assert kernel_config.token == DEFAULT_LOCAL_KERNEL_TOKEN
+
+
 def test_im_bootstrap_client_opens_browser_for_unbound_node() -> None:
     opened: list[tuple[str, int, bool]] = []
 
@@ -386,6 +432,80 @@ def test_im_bootstrap_client_skips_browser_for_bound_node() -> None:
 
     assert bind_url is None
     assert calls == ["GET /im/v1/nodes"]
+
+
+def test_im_bootstrap_client_falls_back_to_local_im_api_port_when_primary_bootstrap_host_has_no_node() -> None:
+    opened: list[str] = []
+
+    def _client_factory(base_url: str) -> httpx.Client:
+        def _handler(request: httpx.Request) -> httpx.Response:
+            if base_url == "http://127.0.0.1:8021" and request.method == "GET" and request.url.path == "/im/v1/nodes":
+                return httpx.Response(200, json=[])
+            if base_url == "http://127.0.0.1:8011" and request.method == "GET" and request.url.path == "/im/v1/nodes":
+                return httpx.Response(200, json=[{"node_id": "node-local", "owner_id": ""}])
+            if base_url == "http://127.0.0.1:8011" and request.method == "POST" and request.url.path == "/im/v1/bind":
+                return httpx.Response(201, json={"bind_url": "http://127.0.0.1:4173/bind/confirm?token=fallback"})
+            raise AssertionError(f"unexpected request: {base_url} {request.method} {request.url}")
+
+        return httpx.Client(base_url=base_url, transport=httpx.MockTransport(_handler), trust_env=False)
+
+    bootstrap = _IMBootstrapClient(
+        base_url="http://127.0.0.1:8021",
+        token=None,
+        client_factory=_client_factory,
+        browser_opener=lambda url, new=0, autoraise=True: opened.append(url) or True,
+        monotonic=lambda: 0.0,
+        sleep=lambda _seconds: None,
+    )
+
+    bind_url = bootstrap.ensure_node_binding(node_id="node-local")
+
+    assert bind_url == "http://127.0.0.1:4173/bind/confirm?token=fallback"
+    assert opened == ["http://127.0.0.1:4173/bind/confirm?token=fallback"]
+
+
+def test_gateway_runtime_reports_actionable_bootstrap_failure_to_im(tmp_path: Path) -> None:
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-local"),
+        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=tmp_path),),
+        channels=(),
+        kernel=KernelConfig(command="python -m agent.platform.http_api.app"),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=tmp_path / "node-config.yaml",
+    )
+    events: list[str] = []
+    manager = _FakeIMManager(events)
+    runtime = GatewayRuntime(
+        config,
+        _FakeProcessManager(events),
+        heartbeat_runner=_FakeHeartbeatRunner(events),
+        im_connection_manager=manager,
+        post_im_connect=lambda: (_ for _ in ()).throw(
+            GatewayStartupError(
+                summary="node-local did not appear in IM bootstrap",
+                next_step="Verify /im/v1/nodes on the configured IM API and rerun gateway.",
+            )
+        ),
+    )
+
+    with pytest.raises(GatewayStartupError, match="node-local did not appear in IM bootstrap"):
+        runtime.run_forever()
+
+    assert manager.sent_frames == [
+        (
+            "node.heartbeat",
+            {
+                "node_id": "node-local",
+                "status": "degraded",
+                "agent_count": 1,
+                "last_error": (
+                    "node-local did not appear in IM bootstrap Next: Verify /im/v1/nodes on the configured IM API "
+                    "and rerun gateway."
+                ),
+            },
+        )
+    ]
 
 
 def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_ready(tmp_path: Path) -> None:
@@ -502,3 +622,27 @@ def test_main_returns_non_zero_when_background_launch_fails(
 
     assert exit_code == 1
     assert capsys.readouterr().err == "ERROR gateway failed\n"
+
+
+def test_main_surfaces_next_step_for_gateway_startup_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "personal_assistant.main.launch_gateway_in_background",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            GatewayStartupError(
+                summary="node-local did not appear in IM bootstrap",
+                next_step="Verify /im/v1/nodes on the configured IM API and rerun gateway.",
+            )
+        ),
+    )
+
+    exit_code = main(["--config", str(tmp_path / "node-config.yaml")])
+
+    assert exit_code == 1
+    assert capsys.readouterr().err == (
+        "ERROR node-local did not appear in IM bootstrap\n"
+        "NEXT Verify /im/v1/nodes on the configured IM API and rerun gateway.\n"
+    )

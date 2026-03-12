@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 import shlex
 from typing import Any
@@ -12,6 +13,7 @@ import yaml
 _DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
 _DEFAULT_KERNEL_ENTRYPOINT = "python -m agent.platform.http_api.app"
 _DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
+DEFAULT_LOCAL_KERNEL_TOKEN = "nano-local-gateway"
 _DEFAULT_STARTUP_TIMEOUT_SECONDS = 15.0
 _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.25
@@ -179,6 +181,26 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
     )
 
 
+def resolve_kernel_token(token: str | None) -> str:
+    """Return the effective bearer token used for local kernel HTTP calls.
+
+    Args:
+        token: Explicit token configured in `node-config.yaml`.
+
+    Returns:
+        Explicit token when provided, otherwise the shared process token from
+        `NANO_MULTIAGENT_API_TOKEN`, and finally a stable local default that
+        satisfies the kernel's bearer-header requirement for loopback startup.
+    """
+
+    if isinstance(token, str) and token.strip():
+        return token.strip()
+    env_token = os.getenv("NANO_MULTIAGENT_API_TOKEN", "").strip()
+    if env_token:
+        return env_token
+    return DEFAULT_LOCAL_KERNEL_TOKEN
+
+
 def _parse_node_config(payload: Any) -> NodeConfig:
     if not isinstance(payload, dict):
         raise ValueError("node must be a mapping")
@@ -245,7 +267,7 @@ def _parse_kernel(payload: Any) -> KernelConfig:
     command = _optional_string(payload.get("command"), field_name="kernel.command") or _DEFAULT_KERNEL_ENTRYPOINT
     explicit_base_url = _optional_string(payload.get("base_url"), field_name="kernel.base_url")
     base_url = explicit_base_url or _derive_kernel_base_url(command) or _DEFAULT_KERNEL_BASE_URL
-    token = _optional_string(payload.get("token"), field_name="kernel.token")
+    token = resolve_kernel_token(_optional_string(payload.get("token"), field_name="kernel.token"))
     request_id = _optional_string(payload.get("request_id"), field_name="kernel.request_id")
     health_path = _optional_string(payload.get("health_path"), field_name="kernel.health_path") or _DEFAULT_KERNEL_HEALTH_PATH
     timeout_seconds = _positive_number(payload.get("timeout_seconds", 10.0), field_name="kernel.timeout_seconds")
