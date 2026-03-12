@@ -8,9 +8,23 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-## Gateway quick start
+## Start Here: Gateway -> Bind -> Web IM
 
-最小 `personal_assistant` gateway 配置示例：
+默认用户路径只需要一条链路：启动 IM 服务，启动 Gateway，按需完成绑定，然后打开 Web IM 发起聊天。
+
+### 1. 启动 IM 服务
+
+```bash
+cd <repo>
+PYTHONPATH=src python -m uvicorn IM.app:app \
+  --host 127.0.0.1 --port 8011
+```
+
+默认 Web IM 入口：
+- `http://127.0.0.1:8011/`：推荐入口
+- `http://127.0.0.1:8011/chat`：直接进入聊天页
+
+### 2. 准备最小 Gateway 配置
 
 ```yaml
 node:
@@ -18,7 +32,11 @@ node:
 
 agents:
   - agent_id: assistant
-    # workspace_root: ~/nano-assistant/workspace/assistant
+    title: My Assistant
+
+channels:
+  - name: web_relay
+    enabled: true
 
 kernel:
   command: "python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000"
@@ -28,24 +46,29 @@ im_service:
 ```
 
 说明：
+- 默认本地路径不需要手工填写 `kernel.token`；Gateway 会补齐本地 kernel bearer token。
 - 省略 `agents[].workspace_root` 时，默认使用 `~/nano-assistant/workspace/<agent_id>/`，并在首次加载配置时自动创建目录。
-- `kernel.base_url` 属于 gateway 内部默认值，面向用户的最小配置无需填写。
-- 完整启动步骤见 `docs/operator-runbook.md`。
+- `kernel.base_url` 属于 Gateway 内部默认值，面向用户的最小配置无需填写。
 
-## IM Frontend
-
-- 运行说明、API/Mock 边界、M38 验收截图索引见：`src/IM/frontend/README.md`
+### 3. 启动 Gateway
 
 ```bash
-export NANO_MULTIAGENT_API_TOKEN=test-token
-uvicorn agent.platform.http_api.app:app --reload
+cd <repo>
+PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
 ```
 
-If you are not using editable install, run server with:
+启动后的预期行为：
+- 未绑定节点：Gateway 会输出 `ACTION ...` / `NEXT ...`，并尝试打开绑定页；默认绑定页位于 `http://127.0.0.1:8011/bind/confirm?token=...`。
+- 已绑定节点：Gateway 不再要求绑定，保持常驻，等待 Web IM 消息。
+- 启动失败或 IM bootstrap 失败：Gateway 会输出明确的 `NEXT ...`；同样的可执行提示会回写到 IM 节点板 `last_error`。
 
-```bash
-PYTHONPATH=src uvicorn agent.platform.http_api.app:app --reload
-```
+### 4. 进入 Web IM 并发起聊天
+
+- 打开 `http://127.0.0.1:8011/`。IM host 会提供 Web IM 壳，并在浏览器里落到 `/chat`。
+- Web IM 会自动准备本地 `You` 用户和默认 starter conversation；正常用户不需要手工创建用户、会话或拼 `message` API。
+- 如果刚完成绑定，刷新 `/` 或重新打开 `/chat` 即可开始聊天。
+
+更完整的启动、状态说明与调试附录见 `docs/operator-runbook.md`。前端开发模式、Mock/真实 IM 边界见 `src/IM/frontend/README.md`。
 
 ## CLI
 
