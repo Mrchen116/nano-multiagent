@@ -160,7 +160,7 @@ function toBootstrapNodeState(input: {
       nodeStatus,
       agentLabel: input.starterAgentName,
       ownershipLabel: nodeLabel
-        ? `Using ${input.starterAgentName} on ${nodeLabel}${nodeStatus ? ` (${nodeStatus})` : ""}`
+        ? `Using ${input.starterAgentName} on ${nodeLabel}${nodeStatus ? ` (${nodeStatus}${nodeStatus === "online" ? " and ready to chat" : ""})` : ""}`
         : `No bound node is selected for ${input.starterAgentName}`
     }
   };

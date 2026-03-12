@@ -36,7 +36,7 @@ describe("chat layout", () => {
         nodeLabel: "node-app-01",
         nodeStatus: "online",
         agentLabel: "OpsBot",
-        ownershipLabel: "Using OpsBot on node-app-01 (online)"
+        ownershipLabel: "Using OpsBot on node-app-01 (online and ready to chat)"
       }
     });
     getChatStarter.mockResolvedValue({
@@ -46,7 +46,7 @@ describe("chat layout", () => {
       agentName: "OpsBot",
       description: "OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
       nodeLabel: "node-app-01",
-      statusLabel: "Using OpsBot on node-app-01 (online)"
+      statusLabel: "Online and ready to chat via OpsBot on node-app-01"
     });
     listConversations.mockResolvedValue([
       {
@@ -67,7 +67,7 @@ describe("chat layout", () => {
       kind_label: "Group chat",
       target_label: "OpsBot + Alex",
       discoverability_hint: "Use this thread when you want multiple participants working together.",
-      ownership_label: "Using OpsBot on node-app-01 (online)",
+      ownership_label: "Using OpsBot on node-app-01 (online and ready to chat)",
       messages: [
         {
           message_id: "m-1",
@@ -102,6 +102,8 @@ describe("chat layout", () => {
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
     expect(screen.getByText("OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
     expect(screen.getByText("Need a different target?")).toBeInTheDocument();
+    expect(screen.getByText("Gateway status")).toBeInTheDocument();
+    expect(screen.getByText("Online and ready to chat via OpsBot on node-app-01")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Agent · OpsBot" })).toBeInTheDocument();
     expect(screen.queryByText("Select a conversation")).not.toBeInTheDocument();
   });

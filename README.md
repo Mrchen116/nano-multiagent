@@ -8,9 +8,14 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-## Start Here: Gateway -> Bind -> Web IM
+## Start Here: 先启动 IM，再启动 Gateway，然后打开聊天
 
-默认用户路径只需要一条链路：启动 IM 服务，启动 Gateway，按需完成绑定，然后打开 Web IM 发起聊天。
+默认用户路径只需要一条链路：先启动 IM 服务，再启动 Gateway；如果浏览器出现绑定页就完成绑定；最后回到 Web IM 发起第一条聊天消息。
+
+首次启动时，你只需要关心三件事：
+- IM 是否已经可打开：浏览器访问 `http://127.0.0.1:8011/` 能进入聊天入口。
+- Gateway 是否已经 ready：终端出现绑定下一步，或保持常驻等待消息。
+- 接下来该做什么：未绑定就完成绑定；已绑定就直接聊天。
 
 ### 1. 启动 IM 服务
 
@@ -23,6 +28,10 @@ PYTHONPATH=src python -m uvicorn IM.app:app \
 默认 Web IM 入口：
 - `http://127.0.0.1:8011/`：推荐入口
 - `http://127.0.0.1:8011/chat`：直接进入聊天页
+
+你会看到的 ready 信号：
+- 打开 `http://127.0.0.1:8011/` 时，页面会进入 Web IM，而不是要求你先知道前端 dev server。
+- 如果仓内已带 `src/IM/frontend/dist`，IM host 会直接服务 `/`、`/chat`、`/settings/*`、`/bind/confirm`。
 
 ### 2. 准备最小 Gateway 配置
 
@@ -62,6 +71,11 @@ PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
 - 已绑定节点：Gateway 不再要求绑定，保持常驻，等待 Web IM 消息。
 - 启动失败或 IM bootstrap 失败：Gateway 会输出明确的 `NEXT ...`；同样的可执行提示会回写到 IM 节点板 `last_error`。
 
+你会看到的 ready 信号：
+- 如果终端打印了绑定提示或浏览器自动打开绑定页，说明 Gateway 已经连上 IM，并且正在等你完成下一步。
+- 如果终端没有再退出，并保持常驻等待消息，说明 Gateway 已进入可接收 Web IM 消息的状态。
+- 如果终端打印 `ERROR ...` / `NEXT ...`，不要先翻代码；直接按 `NEXT` 的动作处理即可。
+
 ### 4. 进入 Web IM 并发起聊天
 
 - 打开 `http://127.0.0.1:8011/`。IM host 会提供 Web IM 壳，并在浏览器里落到 `/chat`。
@@ -70,6 +84,11 @@ PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
 - 如果已绑定但 Gateway 离线，composer 仍会保持禁用，并显示同一套 `Chat unavailable` 卡片，明确要求 bring the node online or bind another online node。
 - 如果页面已可发送但目标节点在提交瞬间不可用，发送区会保留草稿，并显示同样的 `Chat unavailable` 失败提示；用户无需查看终端日志即可理解问题。
 - 如果刚完成绑定，刷新 `/` 或重新打开 `/chat` 即可开始聊天。
+
+到这里你只需要按页面提示判断下一步：
+- 看到可输入的 composer：可以直接发第一条消息。
+- 看到 `Chat unavailable` + `Next: Open bind flow`：先完成绑定。
+- 看到 `Chat unavailable` + `Next: Bring Gateway online`：先把 Gateway 恢复到在线状态。
 
 更完整的启动、状态说明与调试附录见 `docs/operator-runbook.md`。前端开发模式、Mock/真实 IM 边界见 `src/IM/frontend/README.md`。
 
