@@ -1,42 +1,16 @@
-# Operator Runbook: IM + Gateway + Agent Kernel
+# Operator Runbook: IM + Gateway + Web IM
 
-本文档描述如何在同一台机器上启动完整的 IM 服务 + Node Gateway + Agent 内核三进程系统。
+本文档只围绕默认用户路径：在同一台机器上启动 IM 服务和 Gateway，让正常用户从 Web IM 入口完成绑定并发起第一条聊天消息。
 
-> 所有步骤已在 M112 里程碑中被真实执行验证。
+> 历史 operator-only API 验证命令保留在附录；默认主链路不需要手工拼 `bind` / `message` curl。
 
 ## 前置条件
 
-1. Python 3.11+，已安装项目依赖（`pip install -e ".[dev]"`）
-2. 项目源码目录：`<repo>/src` 需在 PYTHONPATH 中
-3. 无需外部 LLM API key 即可启动基础设施（LLM 仅在 agent 处理消息时需要）
+1. Python 3.11+，并已执行 `pip install -e ".[dev]"`。
+2. 在仓库根目录运行命令，或显式带上 `PYTHONPATH=src`。
+3. 基础设施启动不需要外部 LLM API key；只有 agent 真正生成回复时才需要上游 LLM 配置。
 
-## 1. 启动 Agent 内核
-
-Agent 内核是 FastAPI HTTP 服务，提供 session/run/health 等 API。
-
-```bash
-cd <repo>
-PYTHONPATH=src python -m uvicorn agent.platform.http_api.app:app \
-  --host 127.0.0.1 --port 8000
-```
-
-验证：
-
-```bash
-curl -s http://127.0.0.1:8000/v1/health | python -m json.tool
-# 应返回 {"healthy": true, ...}
-```
-
-环境变量（可选）：
-- `NANO_MULTIAGENT_API_TOKEN`: API 认证令牌（设置后所有请求需携带 `Authorization: Bearer <token>`）
-- `NANO_MULTIAGENT_LLM_PROVIDER`: LLM 提供商（`openai_compat` 或 `anthropic`）
-- `NANO_MULTIAGENT_LLM_BASE_URL`: LLM API 地址
-- `NANO_MULTIAGENT_LLM_API_KEY`: LLM API 密钥
-- `NANO_MULTIAGENT_LLM_MODEL`: 模型名称
-
-## 2. 启动 IM 服务
-
-IM 服务是独立的 FastAPI 应用，提供 Web IM API 和 Gateway WebSocket 端点。
+## 1. 启动 IM 服务
 
 ```bash
 cd <repo>
@@ -44,36 +18,32 @@ PYTHONPATH=src python -m uvicorn IM.app:app \
   --host 127.0.0.1 --port 8011
 ```
 
-验证：
+默认 Web IM URL：
+- `http://127.0.0.1:8011/`
+- `http://127.0.0.1:8011/chat`
 
-```bash
-curl -s http://127.0.0.1:8011/docs | head -5
-# 应返回 HTML（FastAPI Swagger UI）
-```
+当前行为说明：
+- 仓内已交付 `src/IM/frontend/dist` 时，IM host 会直接服务 `/`、`/chat`、`/settings/*`、`/bind/confirm`。
+- 正常用户默认走 IM host，不需要先知道前端 dev server `4173`。
 
-环境变量（可选）：
-- `IM_DB_PATH`: SQLite 数据库路径（默认 `data/im_service.sqlite3`）
-
-## 3. 准备 Gateway 配置
+## 2. 准备最小 Gateway 配置
 
 创建 `node-config.yaml`：
 
 ```yaml
 node:
   node_id: my-macbook
-  # user_id: <绑定后自动关联>
 
 agents:
   - agent_id: assistant
-    # workspace_root: ~/nano-assistant/workspace/assistant
     title: My Assistant
+    # workspace_root: ~/nano-assistant/workspace/assistant
 
 channels:
   - name: web_relay
     enabled: true
 
 kernel:
-  # token: <与内核的 NANO_MULTIAGENT_API_TOKEN 一致>
   command: "python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000"
   startup_timeout_seconds: 15
   health_poll_interval_seconds: 0.25
@@ -84,141 +54,166 @@ heartbeat:
 
 im_service:
   url: http://127.0.0.1:8011
-  # token: <可选认证令牌>
 ```
 
-注意：
-- 省略 `workspace_root` 时，Gateway 默认使用 `~/nano-assistant/workspace/<agent_id>/`，并在首次加载配置时自动创建目录
-- 如果显式填写 `workspace_root`，该目录必须已存在
-- `kernel.base_url` 属于内部实现细节；面向用户的最小配置可省略，默认指向本机 `http://127.0.0.1:8000`
-- 如果 kernel 已经在外部启动，可以省略 `kernel.command` 并手动启动
-- `im_service` 块可选，省略则 Gateway 以本地自治模式运行（外部 IM channel 仍可用）
+说明：
+- 默认本地路径不需要填写 `kernel.token`；Gateway 会自动补齐本地 kernel bearer token。
+- 省略 `agents[].workspace_root` 时，Gateway 默认使用 `~/nano-assistant/workspace/<agent_id>/`，并在首次加载配置时自动创建目录。
+- `kernel.base_url` 属于内部实现细节，最小配置无需填写。
+- `im_service.url` 指向 IM 服务后，Gateway 才会把节点接到 Web IM 的 relay 链路上。
 
-## 4. 启动 Node Gateway
+## 3. 启动 Gateway
 
 ```bash
 cd <repo>
-PYTHONPATH=src python -m personal_assistant.main --config /path/to/node-config.yaml
+PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
 ```
 
-Gateway 启动顺序（符合 NodeGateway-SPEC §2）：
-1. 加载本地配置
-2. 启动/探活 agent 内核（轮询 `/v1/health`）
-3. 启动所有已配置 channel 适配器
-4. 启动 heartbeat 调度器
-5. 如配置了 IM 服务地址，主动建立 WebSocket 连接并注册节点
-6. 进入就绪状态，保持常驻
+Gateway 默认启动顺序：
+1. 读取本地配置。
+2. 启动并探活本地 kernel。
+3. 启动已配置 channel。
+4. 连接 IM WebSocket 并注册节点。
+5. 检查节点是否已绑定；必要时给出绑定下一步。
+6. 保持常驻，等待 Web IM 消息。
 
-关闭（Ctrl+C 或 SIGTERM）顺序（符合 NodeGateway-SPEC §2）：
-1. 停止 heartbeat 调度器
-2. 停止所有 channel 适配器
-3. 断开 IM WebSocket 连接
-4. 关闭 agent 内核子进程
-5. 清理资源退出
+## 4. 观察未绑定 / 已绑定行为
 
-## 5. 验证消息往返
+### 未绑定节点
 
-### 5.1 创建用户和会话
+预期现象：
+- Gateway 终端输出 `ACTION ...` 与 `NEXT ...`。
+- Gateway 会尝试打开绑定页；默认绑定 URL 形如 `http://127.0.0.1:8011/bind/confirm?token=...`。
+- 浏览器进入绑定确认页后，确认绑定即可把当前用户与该节点关联起来。
 
-```bash
-# 创建用户
-curl -s -X POST http://127.0.0.1:8011/im/v1/users \
-  -H "Content-Type: application/json" \
-  -d '{"username": "operator", "display_name": "Operator"}' | python -m json.tool
+如果浏览器没有自动打开：
+- 直接复制 Gateway 终端里打印的 `NEXT Open ...` 链接到浏览器。
 
-# 记下返回的 user id，创建会话
-curl -s -X POST http://127.0.0.1:8011/im/v1/conversations \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Test Chat", "participant_ids": ["<user_id>"]}' | python -m json.tool
+### 已绑定节点
+
+预期现象：
+- Gateway 不会再次要求绑定，也不会重复打开浏览器。
+- 终端保持常驻，等待 Web IM 消息。
+- 打开 `http://127.0.0.1:8011/` 或 `http://127.0.0.1:8011/chat` 即可进入聊天应用。
+
+### 启动失败 / Bootstrap 失败
+
+预期现象：
+- Gateway 不应只留下 Python 异常；会输出 `NEXT ...` 指出下一步。
+- 同样的可执行提示会回写到 IM 节点板 `last_error`。
+
+推荐查看：
+- Gateway 当前终端输出。
+- `http://127.0.0.1:8011/im/v1/nodes` 中对应节点的 `status` / `last_error`。
+
+## 5. 进入 Web IM 并发送第一条消息
+
+1. 打开 `http://127.0.0.1:8011/`。
+2. 浏览器会落到 `/chat`。
+3. Web IM 会自动准备本地 `You` 用户、默认 starter conversation，以及一个可用的目标节点。
+4. 进入默认对话后直接发送消息。
+
+说明：
+- 正常用户主链路不需要先手工创建用户、会话或调用 `message` API。
+- 如果当前没有在线 relay 节点，发送消息时会提示没有可用节点；先确认 Gateway 已启动且节点在线。
+
+消息主链路：
+
+```text
+Browser / Web IM -> IM HTTP API -> IM WebSocket relay.message -> Gateway -> Kernel -> Gateway -> Web IM
 ```
 
-### 5.2 发送消息
+## 6. 日常检查
 
-```bash
-curl -s -X POST http://127.0.0.1:8011/im/v1/conversations/<conversation_id>/messages \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: test-1" \
-  -d '{"sender_user_id": "<user_id>", "content": "Hello Agent", "target_node_id": "my-macbook"}' \
-  | python -m json.tool
-```
-
-消息流转路径：
-```
-Browser HTTP → IM 服务 → WebSocket relay.message → Gateway → InboundPipeline → Kernel HTTP → Agent 执行 → 回复 → OutboundRouter → Web IM
-```
-
-### 5.3 检查节点状态
+查看节点状态：
 
 ```bash
 curl -s http://127.0.0.1:8011/im/v1/nodes | python -m json.tool
-# 应显示 gateway 节点 status=online
 ```
 
-## 6. Smoke 测试脚本
+预期：
+- 已启动且已连上 IM 的节点显示为 `online`。
+- 若启动失败但节点板仍可见，会带上 actionable `last_error`。
 
-项目内置了 smoke 测试脚本，可自动验证 Gateway 启动/常驻/关闭生命周期：
+运行 smoke 脚本验证 Gateway 生命周期：
 
 ```bash
 PYTHONPATH=src python -m personal_assistant.smoke_runtime \
-  --config /path/to/node-config.yaml \
+  --config ./node-config.yaml \
   --ready-timeout 20 \
   --steady-seconds 0.5 \
   --shutdown-timeout 10
 ```
 
 预期输出：
-```
+
+```text
 READY pid=<pid> url=http://127.0.0.1:8000/v1/health
 RUNNING steady_seconds=0.5 alive=true
 SHUTDOWN exit_code=0
 ```
 
-## 7. 设备绑定
+## 7. 故障排查
+
+| 现象 | 可能原因 | 建议动作 |
+|---|---|---|
+| 打开 `http://127.0.0.1:8011/` 仍不是 Web IM | IM 服务未启动，或你连到的不是当前仓库实例 | 先确认 IM 服务进程和端口，再确认 `src/IM/frontend/dist` 已随仓库提供 |
+| Gateway 启动后立刻退出 | kernel 健康检查失败或 IM bootstrap 失败 | 看终端里的 `NEXT ...`，再核对 `http://127.0.0.1:8011/im/v1/nodes` 的 `last_error` |
+| 未绑定时没有完成关联 | 绑定页未打开或未确认 | 从终端复制 `NEXT Open ...` 链接，完成绑定后刷新 `/chat` |
+| Web IM 能打开但发消息时报无可用节点 | Gateway 未连上 IM，或节点还未 `online` | 先看 Gateway 是否常驻，再看 `/im/v1/nodes` 是否已有在线节点 |
+| 401 Unauthorized | 你改成了自定义 kernel token，但 Gateway/Kernel 不一致 | 对齐 `kernel.token` 与 kernel 进程实际使用的 token；默认本地路径无需手工设置 |
+| `workspace_root does not exist` | 显式配置了不存在的目录 | 创建该目录，或删掉配置让 Gateway 使用默认路径 |
+
+## 8. 调试附录：API 路径
+
+下面的 HTTP API 只用于调试或脚本化验证，不是正常用户默认主链路。
+
+### 8.1 手工检查绑定状态
 
 ```bash
-# 发起绑定
+curl -s http://127.0.0.1:8011/im/v1/nodes | python -m json.tool
+curl -s "http://127.0.0.1:8011/im/v1/me?user_id=<user_id>" | python -m json.tool
+```
+
+### 8.2 手工发起 / 确认绑定
+
+```bash
 curl -s -X POST http://127.0.0.1:8011/im/v1/bind \
   -H "Content-Type: application/json" \
   -d '{"action": "start", "node_id": "my-macbook"}' | python -m json.tool
 
-# 确认绑定（使用返回的 bind_id）
 curl -s -X POST http://127.0.0.1:8011/im/v1/bind \
   -H "Content-Type: application/json" \
   -d '{"action": "confirm", "bind_id": "<bind_id>", "user_id": "<user_id>"}' | python -m json.tool
-
-# 验证归属
-curl -s "http://127.0.0.1:8011/im/v1/me?user_id=<user_id>" | python -m json.tool
-# owned_node_ids 应包含 my-macbook
 ```
 
-## 8. 故障排查
+### 8.3 手工创建会话并发消息
 
-| 现象 | 可能原因 | 排查步骤 |
-|---|---|---|
-| Gateway 启动后立即退出 | 内核健康检查超时 | 确认内核进程已启动且 `/v1/health` 返回 `{"healthy": true}` |
-| WebSocket 连接失败 | IM 服务未启动或端口不匹配 | 确认 IM 服务在 `im_service.url` 所指端口监听 |
-| 消息发送后无回复 | 无 LLM API key | 设置 `NANO_MULTIAGENT_LLM_API_KEY` 环境变量 |
-| 节点显示 offline | Gateway 未连接或已断开 | 检查 Gateway 进程是否存活；检查 IM 服务日志 |
-| 401 Unauthorized | Token 不匹配 | 确认 Gateway config 的 `kernel.token` 与内核的 `NANO_MULTIAGENT_API_TOKEN` 一致 |
-| `workspace_root does not exist` | 配置路径不存在 | 创建 `workspace_root` 指向的目录 |
+```bash
+curl -s -X POST http://127.0.0.1:8011/im/v1/users \
+  -H "Content-Type: application/json" \
+  -d '{"username": "operator", "display_name": "Operator"}' | python -m json.tool
 
-## 9. IM 离线降级
+curl -s -X POST http://127.0.0.1:8011/im/v1/conversations \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Test Chat", "participant_ids": ["<user_id>"]}' | python -m json.tool
 
-IM 服务离线时，Gateway 以本地自治模式运行：
-- 外部 IM channel（如 QQ/飞书）通过本地 channel 适配器直接工作，不受 IM 影响
-- Heartbeat 调度完全在本地，不依赖 IM
-- WebSocket 断开后 Gateway 自动指数退避重连（最长 60 秒间隔）
-- 重连后自动重新注册节点
+curl -s -X POST http://127.0.0.1:8011/im/v1/conversations/<conversation_id>/messages \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: debug-1" \
+  -d '{"sender_user_id": "<user_id>", "content": "Hello Agent", "target_node_id": "my-macbook"}' \
+  | python -m json.tool
+```
 
-## 10. 自动化验收测试
+## 9. 自动化验收测试
 
-完整的真实进程联调验收测试：
+真实进程联调验收测试入口：
 
 ```bash
 cd <repo>
 PYTHONPATH=src python -m pytest tests/e2e/test_m112_real_process_roundtrip_e2e.py -v
 ```
 
-覆盖的 SPEC 验收条目：
-- NodeGateway-SPEC §16: 1(channel启动), 2(四步决策), 4(回发原目标), 5(IM离线降级), 6(heartbeat)
-- IM-SPEC §12: 1(消息往返), 3(设备绑定), 5(节点状态), 9(离线降级), 10(幂等)
+覆盖的核心验收面：
+- NodeGateway-SPEC §16：channel 启动、四步决策、回发原目标、heartbeat、IM 离线降级。
+- IM-SPEC §12：消息往返、设备绑定、节点状态、离线降级、幂等。

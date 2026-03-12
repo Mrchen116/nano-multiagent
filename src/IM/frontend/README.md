@@ -1,8 +1,28 @@
-# IM Frontend 运行与验收说明（M38）
+# IM Frontend 默认入口与开发说明
 
-## 1. 本地运行
+## 1. 默认用户入口
 
-### 1.1 Mock 模式（默认回归方式）
+正常用户默认从 IM host 进入 Web IM，而不是直接访问前端 dev server。
+
+推荐入口：
+- `http://127.0.0.1:8011/`
+- `http://127.0.0.1:8011/chat`
+
+当前默认行为：
+- 当仓内 `src/IM/frontend/dist` 存在时，IM 服务会直接提供 `/`、`/chat`、`/settings/*`、`/bind/confirm` 的前端壳。
+- 打开 `http://127.0.0.1:8011/` 后，浏览器会落到 `/chat`。
+- Web IM 会自动准备本地 `You` 用户和默认 starter conversation；正常用户不需要先手工创建用户、会话或调用消息 API。
+
+绑定相关行为：
+- 未绑定节点时，Gateway 会输出 `ACTION ...` / `NEXT ...`，并尝试打开绑定页。
+- 默认绑定页位于 `http://127.0.0.1:8011/bind/confirm?token=...`。
+- 绑定完成后刷新 `/` 或重新打开 `/chat`，即可继续聊天。
+
+## 2. 前端开发模式
+
+`127.0.0.1:4173` 只用于前端开发或回归，不是默认用户入口。
+
+### 2.1 Mock 模式
 
 ```bash
 cd src/IM/frontend
@@ -12,28 +32,42 @@ VITE_CHAT_API_MODE=mock npm run dev -- --host 127.0.0.1 --port 4173
 
 访问：`http://127.0.0.1:4173/chat`
 
-### 1.2 真实 IM 服务模式（仅 Chat 路径）
+### 2.2 真实 IM 服务 + Vite 开发模式
 
 终端 A（启动 IM 服务）：
 
 ```bash
-PYTHONPATH=src uvicorn IM.app:create_app --factory --host 127.0.0.1 --port 8001
+PYTHONPATH=src python -m uvicorn IM.app:app --host 127.0.0.1 --port 8001
 ```
 
-终端 B（启动前端）：
+终端 B（启动前端 dev server）：
 
 ```bash
 cd src/IM/frontend
 VITE_IM_API_BASE_URL=http://127.0.0.1:8001 VITE_CHAT_API_MODE=im npm run dev -- --host 127.0.0.1 --port 4173
 ```
 
-## 2. 门禁命令
+说明：
+- 这条路径只用于前端开发、Mock/真实 API 切换和页面调试。
+- 如果 IM host 没有可用 `dist`，它才会把 `/`、`/chat`、`/bind/confirm` 重定向到配置的前端 dev server。
+
+## 3. 构建与门禁
+
+默认构建命令：
+
+```bash
+cd src/IM/frontend
+npm install
+npm run build
+```
+
+前端/IM 联合回归门禁：
 
 ```bash
 PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build
 ```
 
-## 3. API 与 Mock 边界
+## 4. API 与 Mock 边界
 
 | 模块 | 当前数据源 | 切换方式 | 边界说明 |
 |---|---|---|---|
@@ -42,7 +76,7 @@ PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test 
 | Vitest | mock | 自动 | 测试运行时 `import.meta.env.MODE === "test"`，chat 自动走 mock |
 | Playwright 回归（M38） | mock | 启动前端时设置 `VITE_CHAT_API_MODE=mock` | 避免回归时受外部服务可用性干扰，专注 UI/交互稳定性 |
 
-## 4. 第二轮验收截图索引（2026-03-04）
+## 5. 第二轮验收截图索引（2026-03-04）
 
 截图目录：`src/IM/frontend/output/playwright/`
 
