@@ -3,6 +3,7 @@ import { screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderRouter } from "../../test/render-router";
+import { resolveSendAvailability } from "./im-chat-api";
 import { ChatWorkspacePage, toRelayAgentMessage } from "./chat-workspace-page";
 
 const getChatBootstrapState = vi.fn();
@@ -21,6 +22,7 @@ vi.mock("./chat-api", () => ({
   getChatStarter: () => getChatStarter(),
   listConversations: () => listConversations(),
   getConversation: (conversationId: string) => getConversation(conversationId),
+  resolveSendAvailability,
   sendMessage: (input: { conversationId: string; content: string }) => sendMessage(input),
   streamConversationEvents: (input: {
     conversationId: string;
@@ -114,5 +116,33 @@ describe("chat workspace page", () => {
     expect(await screen.findByText("Bind this Gateway before sending messages from Web IM.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
     expect(screen.getByPlaceholderText("Bind this Gateway to enable chat")).toBeDisabled();
+  });
+
+  it("shows a product-grade send blocker when the bound node is offline", async () => {
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      targetNodeId: "node-offline",
+      initialConversationId: "conv-1"
+    });
+    getChatStarter.mockResolvedValue({
+      title: "Agent · OpsBot",
+      actionLabel: "Open Agent · OpsBot",
+      actionHref: "/chat/conv-1",
+      agentName: "OpsBot",
+      description: "OpsBot handles the default IM replies for this workspace.",
+      nodeLabel: "Offline Node",
+      statusLabel: "offline"
+    });
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(
+      await screen.findByText("The current bound node is offline. Bring the Gateway online or bind an online node, then retry.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByPlaceholderText("Bring the Gateway online to enable chat")).toBeDisabled();
   });
 });

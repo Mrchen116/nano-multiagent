@@ -12,6 +12,7 @@
 - 当仓内 `src/IM/frontend/dist` 存在时，IM 服务会直接提供 `/`、`/chat`、`/settings/*`、`/bind/confirm` 的前端壳。
 - 打开 `http://127.0.0.1:8011/` 后，浏览器会落到 `/chat`。
 - Web IM 会自动准备本地 `You` 用户和默认 starter conversation；正常用户不需要先手工创建用户、会话或调用消息 API。
+- 若已绑定的目标节点当前不在线，聊天输入区会直接禁用，并显示“Bring the Gateway online or bind an online node, then retry.” 这类可执行反馈，而不是停留在可输入但不可达的半连通状态。
 
 绑定相关行为：
 - 未绑定节点时，Gateway 会输出 `ACTION ...` / `NEXT ...`，并尝试打开绑定页。

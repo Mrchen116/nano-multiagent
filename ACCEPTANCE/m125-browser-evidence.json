@@ -1,0 +1,10 @@
+{
+  "home_url": "http://127.0.0.1:8011/chat",
+  "conversation_url": "http://127.0.0.1:8011/chat/3f6d7a93d24a4f8d9da87c94798d02fc",
+  "send_disabled_before_click": false,
+  "final_text": "Nano IM Workspace\n\nP1-P7 Skeleton\n\nChat\nSettings\nConversations\n\nAgent · OpsBot\n\n22:50\n\nHello from M125 browser acceptance\n\nYou · OpsBot\nAgent · OpsBot\n\nYou\n\nHello from M125 browser acceptance\n\nCOMPLETED\n\n77c52d0d36224bb697ce399e288555d7\n\nSENT\n\n+\nSend",
+  "message_sent_present": true,
+  "reply_present": false,
+  "completed_present": true,
+  "node_present": false
+}
