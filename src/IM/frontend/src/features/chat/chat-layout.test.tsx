@@ -4,24 +4,28 @@ import { appRoutes } from "../../app/router";
 import { renderRouter } from "../../test/render-router";
 
 describe("chat layout", () => {
-  it("shows desktop two-panel frame on /chat", async () => {
+  it("shows a default agent starter on desktop /chat", async () => {
     window.innerWidth = 1280;
     window.dispatchEvent(new Event("resize"));
 
     renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
-    expect(screen.getByText("Select a conversation")).toBeInTheDocument();
+    expect(screen.getByText("OpsBot handles the default IM replies for this workspace.")).
+      toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Agent · OpsBot" })).toBeInTheDocument();
+    expect(screen.queryByText("Select a conversation")).not.toBeInTheDocument();
   });
 
-  it("shows single panel list on mobile /chat", async () => {
+  it("shows the default agent starter on mobile /chat", async () => {
     window.innerWidth = 375;
     window.dispatchEvent(new Event("resize"));
 
     renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
-    expect(screen.queryByText("Select a conversation")).not.toBeInTheDocument();
+    expect(screen.getByText("OpsBot handles the default IM replies for this workspace.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Agent · OpsBot" })).toBeInTheDocument();
   });
 
   it("anchors desktop conversation messages to the bottom", async () => {
