@@ -1,5 +1,5 @@
 import { screen } from "@testing-library/react";
-import { isValidElement } from "react";
+import { isValidElement, type ReactElement } from "react";
 import { beforeEach, vi } from "vitest";
 import { Navigate } from "react-router-dom";
 
@@ -66,12 +66,18 @@ describe("app routes", () => {
 
   it("declares the root entry redirect to /chat", () => {
     const rootIndexRoute = appRoutes[0]?.children?.find((route) => route.index);
+    const rootElement = rootIndexRoute?.element;
 
     expect(rootIndexRoute).toBeDefined();
-    expect(isValidElement(rootIndexRoute?.element)).toBe(true);
-    expect(rootIndexRoute?.element.type).toBe(Navigate);
-    expect(rootIndexRoute?.element.props.to).toBe("/chat");
-    expect(rootIndexRoute?.element.props.replace).toBe(true);
+    expect(isValidElement(rootElement)).toBe(true);
+    if (!isValidElement(rootElement)) {
+      throw new Error("root index route must render a Navigate element");
+    }
+    const navigateElement = rootElement as ReactElement<{ replace?: boolean; to: string }>;
+
+    expect(navigateElement.type).toBe(Navigate);
+    expect(navigateElement.props.to).toBe("/chat");
+    expect(navigateElement.props.replace).toBe(true);
   });
 
   it("renders the bind confirmation route", async () => {
