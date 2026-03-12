@@ -8,7 +8,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-from personal_assistant.config.local_store import HeartbeatConfig, KernelConfig, LocalConfig, NodeConfig
+from personal_assistant.config.local_store import (
+    DEFAULT_LOCAL_KERNEL_TOKEN,
+    AgentWorkspaceConfig,
+    HeartbeatConfig,
+    KernelConfig,
+    LocalConfig,
+    NodeConfig,
+)
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
 from personal_assistant.main import (
@@ -17,6 +24,7 @@ from personal_assistant.main import (
     GatewayRuntime,
     RuntimeFactories,
     _IMBootstrapClient,
+    build_runtime,
     _build_relay_lifecycle_callback,
     launch_gateway_in_background,
     main,
@@ -339,6 +347,43 @@ def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert seen == {"config": config, "ran": True}
+
+
+def test_build_runtime_defaults_local_kernel_token_when_config_omits_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace_root = tmp_path / "agent-a"
+    workspace_root.mkdir()
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-local"),
+        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        channels=(),
+        kernel=KernelConfig(
+            token=None,
+            command="python -m agent.platform.http_api.app",
+            startup_timeout_seconds=0.2,
+            health_poll_interval_seconds=0.0,
+            shutdown_grace_seconds=0.1,
+        ),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=tmp_path / "node-config.yaml",
+    )
+    seen: dict[str, object] = {}
+
+    class _RecordingKernelClient:
+        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
+            del transport
+            seen["kernel_config"] = config
+
+        def close(self) -> None:
+            seen["closed"] = True
+
+    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _RecordingKernelClient)
+
+    runtime = build_runtime(config)
+
+    assert isinstance(runtime, GatewayRuntime)
+    kernel_config = seen["kernel_config"]
+    assert kernel_config.token == DEFAULT_LOCAL_KERNEL_TOKEN
 
 
 def test_im_bootstrap_client_opens_browser_for_unbound_node() -> None:

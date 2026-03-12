@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.config.local_store import load_local_config
+from personal_assistant.config.local_store import DEFAULT_LOCAL_KERNEL_TOKEN, load_local_config
 
 
 def test_load_local_config_defaults_workspace_root_to_user_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -128,6 +128,29 @@ def test_load_local_config_defaults_kernel_command_to_real_http_app_entrypoint(t
     assert config.kernel.command == "python -m agent.platform.http_api.app"
     assert config.kernel.base_url == "http://127.0.0.1:8000"
     assert config.agents[0].workspace_root == workspace_root
+
+
+def test_load_local_config_defaults_kernel_token_for_local_gateway(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    monkeypatch.delenv("NANO_MULTIAGENT_API_TOKEN", raising=False)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert config.kernel.token == DEFAULT_LOCAL_KERNEL_TOKEN
 
 
 def test_load_local_config_derives_kernel_base_url_from_local_command_port(tmp_path: Path) -> None:
