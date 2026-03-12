@@ -1,5 +1,7 @@
 export type SenderType = "user" | "agent" | "system";
 
+export type ConversationKind = "direct-agent" | "direct-user" | "group" | "agent-network" | "system";
+
 export interface ConversationSummary {
   conversation_id: string;
   title: string;
@@ -13,6 +15,10 @@ export interface ConversationSummary {
   node_status?: string;
   agent_label?: string;
   ownership_label?: string;
+  kind?: ConversationKind;
+  kind_label?: string;
+  target_label?: string;
+  discoverability_hint?: string;
 }
 
 export interface ChatOwnershipSummary {
@@ -21,6 +27,14 @@ export interface ChatOwnershipSummary {
   nodeStatus: string | null;
   agentLabel: string | null;
   ownershipLabel: string | null;
+}
+
+export interface ChatBootstrapState {
+  selfUserId: string;
+  targetNodeId: string | null;
+  targetNodeStatus: string | null;
+  initialConversationId: string | null;
+  ownership: ChatOwnershipSummary;
 }
 
 export interface ChatMessage {
@@ -38,6 +52,9 @@ export interface ConversationDetail {
   title: string;
   messages: ChatMessage[];
   ownership_label?: string;
+  kind_label?: string;
+  target_label?: string;
+  discoverability_hint?: string;
 }
 
 export interface ChatStarter {

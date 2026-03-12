@@ -11,7 +11,11 @@ const conversations: ConversationSummary[] = [
     unread_count: 3,
     participants: ["You", "OpsBot", "Alex"],
     is_pinned: true,
-    is_muted: false
+    is_muted: false,
+    kind: "group",
+    kind_label: "Group chat",
+    target_label: "OpsBot + Alex",
+    discoverability_hint: "Collaborate with multiple teammates and agents in one thread."
   },
   {
     conversation_id: "conv-agent-design",
@@ -21,7 +25,11 @@ const conversations: ConversationSummary[] = [
     unread_count: 0,
     participants: ["You", "DesignBot"],
     is_pinned: false,
-    is_muted: false
+    is_muted: false,
+    kind: "direct-agent",
+    kind_label: "Direct agent chat",
+    target_label: "DesignBot",
+    discoverability_hint: "Message this agent directly for design questions."
   },
   {
     conversation_id: "conv-platform-alerts",
@@ -31,18 +39,36 @@ const conversations: ConversationSummary[] = [
     unread_count: 7,
     participants: ["System", "You"],
     is_pinned: false,
-    is_muted: true
+    is_muted: true,
+    kind: "system",
+    kind_label: "System feed",
+    target_label: "Platform monitoring",
+    discoverability_hint: "Operational notices land here so they stay separate from direct chats."
+  },
+  {
+    conversation_id: "conv-agent-network",
+    title: "OpsBot ↔ ReviewBot",
+    last_message_preview: "ReviewBot will inspect the rollout checklist next.",
+    last_message_at: "2026-03-03T19:42:00+08:00",
+    unread_count: 0,
+    participants: ["OpsBot", "ReviewBot"],
+    is_pinned: false,
+    is_muted: false,
+    kind: "agent-network",
+    kind_label: "Agent-to-agent chat",
+    target_label: "OpsBot and ReviewBot",
+    discoverability_hint: "Read how your agents coordinate before they report back to you."
   }
 ];
 
 const DEFAULT_STARTER: ChatStarter = {
   title: "Agent · OpsBot",
   actionLabel: "Open Agent · OpsBot",
-  actionHref: "/chat/conv-kernel-ops",
+  actionHref: "/chat/conv-agent-design",
   agentName: "OpsBot",
-  description: "OpsBot handles the default IM replies for this workspace.",
+  description: "OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
   nodeLabel: "node-app-01",
-  statusLabel: "online"
+  statusLabel: "Using OpsBot on node-app-01 (online)"
 };
 
 const details = new Map<string, ConversationDetail>([
@@ -51,6 +77,9 @@ const details = new Map<string, ConversationDetail>([
     {
       conversation_id: "conv-kernel-ops",
       title: "Kernel Ops Crew",
+      kind_label: "Group chat",
+      target_label: "OpsBot + Alex",
+      discoverability_hint: "Use this thread when you want multiple participants working together.",
       messages: [
         {
           message_id: "m-1",
@@ -77,6 +106,9 @@ const details = new Map<string, ConversationDetail>([
     {
       conversation_id: "conv-agent-design",
       title: "Agent Design Desk",
+      kind_label: "Direct agent chat",
+      target_label: "DesignBot",
+      discoverability_hint: "This is a one-to-one conversation with an available agent.",
       messages: [
         {
           message_id: "m-3",
@@ -94,6 +126,9 @@ const details = new Map<string, ConversationDetail>([
     {
       conversation_id: "conv-platform-alerts",
       title: "Platform Alerts",
+      kind_label: "System feed",
+      target_label: "Platform monitoring",
+      discoverability_hint: "System notices stay here so they do not get mixed into your direct chats.",
       messages: [
         {
           message_id: "m-4",
@@ -102,6 +137,34 @@ const details = new Map<string, ConversationDetail>([
           content: "node-app-07 status -> degraded",
           created_at: "2026-03-03T20:02:00+08:00",
           delivery_status: "running"
+        }
+      ]
+    }
+  ],
+  [
+    "conv-agent-network",
+    {
+      conversation_id: "conv-agent-network",
+      title: "OpsBot ↔ ReviewBot",
+      kind_label: "Agent-to-agent chat",
+      target_label: "OpsBot and ReviewBot",
+      discoverability_hint: "You can inspect agent collaboration threads here before acting on the result.",
+      messages: [
+        {
+          message_id: "m-5",
+          sender_type: "agent",
+          sender_name: "OpsBot",
+          content: "I finished the rollout draft and need a second pass.",
+          created_at: "2026-03-03T19:39:00+08:00",
+          delivery_status: "completed"
+        },
+        {
+          message_id: "m-6",
+          sender_type: "agent",
+          sender_name: "ReviewBot",
+          content: "ReviewBot will inspect the rollout checklist next.",
+          created_at: "2026-03-03T19:42:00+08:00",
+          delivery_status: "completed"
         }
       ]
     }

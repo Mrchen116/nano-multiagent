@@ -46,7 +46,7 @@ describe("app routes", () => {
       actionLabel: "Open Agent · OpsBot",
       actionHref: "/chat/conv-1",
       agentName: "OpsBot",
-      description: "OpsBot handles the default IM replies for this workspace.",
+      description: "OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
       nodeLabel: "node-1",
       statusLabel: "Using OpsBot on node-1 (online)"
     });
@@ -57,12 +57,18 @@ describe("app routes", () => {
         last_message_preview: "",
         last_message_at: null,
         unread_count: 0,
-        participants: ["You", "Teammate"]
+        participants: ["You", "Teammate"],
+        kind_label: "Direct agent chat",
+        target_label: "Teammate",
+        discoverability_hint: "This is a one-to-one conversation with an available target."
       }
     ]);
     getConversation.mockResolvedValue({
       conversation_id: "conv-1",
       title: "You & Teammate",
+      kind_label: "Direct agent chat",
+      target_label: "Teammate",
+      discoverability_hint: "This is a one-to-one conversation with an available target.",
       ownership_label: "Using OpsBot on node-1 (online)",
       messages: []
     });

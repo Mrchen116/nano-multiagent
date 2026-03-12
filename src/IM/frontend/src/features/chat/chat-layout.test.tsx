@@ -44,7 +44,7 @@ describe("chat layout", () => {
       actionLabel: "Open Agent · OpsBot",
       actionHref: "/chat/conv-kernel-ops",
       agentName: "OpsBot",
-      description: "OpsBot handles the default IM replies for this workspace.",
+      description: "OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
       nodeLabel: "node-app-01",
       statusLabel: "Using OpsBot on node-app-01 (online)"
     });
@@ -55,12 +55,18 @@ describe("chat layout", () => {
         last_message_preview: "Retry policy was bumped to 30s cooldown.",
         last_message_at: "2026-03-03T22:35:00+08:00",
         unread_count: 3,
-        participants: ["You", "OpsBot"]
+        participants: ["You", "OpsBot"],
+        kind_label: "Group chat",
+        target_label: "OpsBot + Alex",
+        discoverability_hint: "Collaborate with multiple teammates and agents in one thread."
       }
     ]);
     getConversation.mockResolvedValue({
       conversation_id: "conv-kernel-ops",
       title: "Kernel Ops Crew",
+      kind_label: "Group chat",
+      target_label: "OpsBot + Alex",
+      discoverability_hint: "Use this thread when you want multiple participants working together.",
       ownership_label: "Using OpsBot on node-app-01 (online)",
       messages: [
         {
@@ -94,7 +100,8 @@ describe("chat layout", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
-    expect(screen.getByText("OpsBot handles the default IM replies for this workspace.")).toBeInTheDocument();
+    expect(screen.getByText("OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
+    expect(screen.getByText("Need a different target?")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Agent · OpsBot" })).toBeInTheDocument();
     expect(screen.queryByText("Select a conversation")).not.toBeInTheDocument();
   });
@@ -117,7 +124,7 @@ describe("chat layout", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
-    expect(screen.getByText("OpsBot handles the default IM replies for this workspace.")).toBeInTheDocument();
+    expect(screen.getByText("OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Agent · OpsBot" })).toBeInTheDocument();
   });
 
