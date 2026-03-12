@@ -61,6 +61,10 @@ function DefaultAgentStarterCard({ starter }: { starter: ChatStarter }) {
           </div>
         )}
       </dl>
+      <div className="rounded-2xl border border-[var(--im-border)] bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        <p className="font-semibold text-slate-800">Need a different target?</p>
+        <p className="mt-1">Use the conversation list to open other direct agent chats, agent-to-agent threads, or group chats.</p>
+      </div>
       <div>
         <Link to={starter.actionHref} className="im-btn im-btn-primary inline-flex" aria-label={starter.actionLabel}>
           {starter.actionLabel}
@@ -131,7 +135,14 @@ export function MessagePane(props: {
           </Link>
         )}
         <div className="min-w-0">
+          {props.detail.kind_label && (
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{props.detail.kind_label}</p>
+          )}
           <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
+          {props.detail.target_label && <p className="mt-1 text-xs text-slate-600">Target: {props.detail.target_label}</p>}
+          {props.detail.discoverability_hint && (
+            <p className="mt-1 text-xs text-slate-500">{props.detail.discoverability_hint}</p>
+          )}
           {props.detail.ownership_label && (
             <p className="mt-1 text-xs text-slate-500">{props.detail.ownership_label}</p>
           )}

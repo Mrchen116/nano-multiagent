@@ -14,7 +14,7 @@ import {
   sendMessage,
   streamConversationEvents
 } from "./chat-api";
-import { ChatMessage, ConversationDetail, ConversationSummary } from "./types";
+import { ChatBootstrapState, ChatMessage, ConversationDetail, ConversationSummary } from "./types";
 
 function toStatus(value: unknown): ChatMessage["delivery_status"] | undefined {
   if (value === "sent" || value === "running" || value === "completed" || value === "failed") {
@@ -85,9 +85,9 @@ export function ChatWorkspacePage() {
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
 
-  const bootstrapQuery = useQuery({
+  const bootstrapQuery = useQuery<ChatBootstrapState>({
     queryKey: ["chat", "bootstrap"],
-    queryFn: getChatBootstrapState
+    queryFn: async () => (await getChatBootstrapState()) as ChatBootstrapState
   });
 
   const conversationsQuery = useQuery({

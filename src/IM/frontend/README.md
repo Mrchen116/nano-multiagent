@@ -12,12 +12,14 @@
 - 当仓内 `src/IM/frontend/dist` 存在时，IM 服务会直接提供 `/`、`/chat`、`/settings/*`、`/bind/confirm` 的前端壳。
 - 打开 `http://127.0.0.1:8011/` 后，浏览器会落到 `/chat`。
 - Web IM 会自动准备本地 `You` 用户和默认 starter conversation；正常用户不需要先手工创建用户、会话或调用消息 API。
+- 会话列表不再只表现为单一 demo chat：列表会明确区分 direct agent chat、agent-to-agent chat、group chat、system feed，并显示 target/用途提示，帮助普通用户理解当前有哪些可聊天对象。
 - 若已绑定的目标节点当前不在线，聊天输入区会直接禁用，并显示“Bring the Gateway online or bind an online node, then retry.” 这类可执行反馈，而不是停留在可输入但不可达的半连通状态。
 
 绑定相关行为：
 - 未绑定节点时，Gateway 会输出 `ACTION ...` / `NEXT ...`，并尝试打开绑定页。
 - 默认绑定页位于 `http://127.0.0.1:8011/bind/confirm?token=...`。
 - 绑定完成后刷新 `/` 或重新打开 `/chat`，即可继续聊天。
+- 打开 `/chat` 后，左侧会话列表会说明不同会话类型：direct agent chat 表示你可直接发消息给某个 agent；agent-to-agent chat 表示可查看 agent 协作线程；group chat 表示多人/多 agent 共享线程。
 
 ## 2. 前端开发模式
 
