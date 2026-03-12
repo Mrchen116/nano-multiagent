@@ -15,7 +15,7 @@
 ## Roadpoints
 
 ### R1 停止契约与状态文件
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 新增 stop 用户命令的单元/入口测试，先证明当前缺失能力。
   - 后台启动会写入与配置路径绑定的运行态元数据，供 stop 定位当前 Gateway。
@@ -33,7 +33,7 @@
   - Red -> C1 -> Green/Refactor -> `test_command` 全绿 -> C2 -> TASKS/PROGRESS 更新 -> C3
 
 ### R2 真实 CLI 停止入口与文档
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 真实 CLI 默认后台启动后，可用显式 stop 命令关闭同一配置对应的 Gateway。
   - stop 对成功关闭、未运行、陈旧状态给出可读反馈，且不要求用户记忆 pid。
