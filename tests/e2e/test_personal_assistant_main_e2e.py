@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+import signal
 import socket
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
+
+import httpx
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -79,6 +84,50 @@ def _run_smoke(config_path: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _main_command(config_path: Path, *extra_args: str) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "personal_assistant.main",
+        "--config",
+        str(config_path),
+        *extra_args,
+    ]
+
+
+def _parse_started_pid(stdout: str) -> int:
+    match = re.search(r"STARTED pid=(\d+)", stdout)
+    if match is None:
+        raise AssertionError(f"missing background startup line: {stdout}")
+    return int(match.group(1))
+
+
+def _wait_for_health(url: str, *, timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() <= deadline:
+        try:
+            response = httpx.get(url, timeout=1.0, trust_env=False)
+            payload = response.json()
+            if response.status_code == 200 and isinstance(payload, dict) and bool(payload.get("healthy")):
+                return
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(0.05)
+    raise RuntimeError(f"timed out waiting for {url}")
+
+
+def _terminate_background_pid(pid: int, *, timeout: float = 10.0) -> None:
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() <= deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.05)
+    os.kill(pid, signal.SIGKILL)
+
+
 def test_smoke_runtime_script_reports_ready_running_and_shutdown(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     home_dir = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home_dir))
@@ -107,6 +156,56 @@ def test_smoke_runtime_script_keeps_gateway_alive_after_ready(tmp_path: Path, mo
     assert "READY pid=" in completed.stdout
     assert "SHUTDOWN exit_code=0" in completed.stdout
     assert (home_dir / "nano-assistant" / "workspace" / "assistant-a").is_dir() is True
+
+
+def test_main_default_command_returns_after_background_start(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = tmp_path / "node-config.yaml"
+    port = _pick_free_port()
+    _write_smoke_config(config_path, port=port)
+
+    completed = subprocess.run(
+        _main_command(config_path),
+        env=_pythonpath_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    pid = _parse_started_pid(completed.stdout)
+    health_url = f"http://127.0.0.1:{port}/v1/health"
+    try:
+        _wait_for_health(health_url)
+    finally:
+        _terminate_background_pid(pid)
+
+
+def test_main_foreground_flag_keeps_process_attached_until_sigterm(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = tmp_path / "node-config.yaml"
+    port = _pick_free_port()
+    _write_smoke_config(config_path, port=port)
+
+    process = subprocess.Popen(
+        _main_command(config_path, "--foreground"),
+        env=_pythonpath_env(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    health_url = f"http://127.0.0.1:{port}/v1/health"
+    try:
+        _wait_for_health(health_url)
+        assert process.poll() is None
+    finally:
+        process.terminate()
+        process.wait(timeout=10)
+
+    assert process.returncode == 0
 
 
 class _FakeProcessManager:

@@ -1,27 +1,77 @@
 import { screen } from "@testing-library/react";
+import { beforeEach, vi } from "vitest";
+
+const getChatBootstrapState = vi.fn();
+const listConversations = vi.fn();
+const getConversation = vi.fn();
+const sendMessage = vi.fn();
+const streamConversationEvents = vi.fn((_: unknown) => () => undefined);
+
+vi.mock("./chat-api", () => ({
+  getChatBootstrapState: () => getChatBootstrapState(),
+  listConversations: () => listConversations(),
+  getConversation: (conversationId: string) => getConversation(conversationId),
+  sendMessage: (input: { conversationId: string; content: string }) => sendMessage(input),
+  streamConversationEvents: (input: unknown) => streamConversationEvents(input)
+}));
 
 import { appRoutes } from "../../app/router";
 import { renderRouter } from "../../test/render-router";
 
 describe("chat layout", () => {
-  it("shows desktop two-panel frame on /chat", async () => {
+  beforeEach(() => {
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      targetNodeId: "node-1",
+      initialConversationId: "conv-kernel-ops"
+    });
+    listConversations.mockResolvedValue([
+      {
+        conversation_id: "conv-kernel-ops",
+        title: "Kernel Ops Crew",
+        last_message_preview: "Retry policy was bumped to 30s cooldown.",
+        last_message_at: "2026-03-03T22:35:00+08:00",
+        unread_count: 3,
+        participants: ["You", "OpsBot"]
+      }
+    ]);
+    getConversation.mockResolvedValue({
+      conversation_id: "conv-kernel-ops",
+      title: "Kernel Ops Crew",
+      messages: [
+        {
+          message_id: "m-1",
+          sender_type: "agent",
+          sender_name: "OpsBot",
+          content: "CI is green after the retry-loop fix.",
+          created_at: "2026-03-03T22:31:00+08:00",
+          delivery_status: "completed"
+        }
+      ]
+    });
+    sendMessage.mockResolvedValue({});
+    streamConversationEvents.mockReturnValue(() => undefined);
+  });
+
+  it("shows desktop two-panel frame on a conversation route", async () => {
     window.innerWidth = 1280;
     window.dispatchEvent(new Event("resize"));
 
-    renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
+    renderRouter({ routes: appRoutes, initialEntries: ["/chat/conv-kernel-ops"] });
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
-    expect(screen.getByText("Select a conversation")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Kernel Ops Crew" })).toBeInTheDocument();
   });
 
-  it("shows single panel list on mobile /chat", async () => {
+  it("shows single panel conversation view on mobile", async () => {
     window.innerWidth = 375;
     window.dispatchEvent(new Event("resize"));
 
-    renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
+    renderRouter({ routes: appRoutes, initialEntries: ["/chat/conv-kernel-ops"] });
 
-    expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
-    expect(screen.queryByText("Select a conversation")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Kernel Ops Crew" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Conversations" })).not.toBeInTheDocument();
   });
 
   it("anchors desktop conversation messages to the bottom", async () => {

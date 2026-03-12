@@ -1,11 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 import { useEffect } from "react";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
 import { ConversationList } from "./components/conversation-list";
 import { MessagePane } from "./components/message-pane";
-import { getConversation, listConversations, sendMessage, streamConversationEvents } from "./chat-api";
+import {
+  getChatBootstrapState,
+  getConversation,
+  listConversations,
+  sendMessage,
+  streamConversationEvents
+} from "./chat-api";
 import { ChatMessage, ConversationDetail, ConversationSummary } from "./types";
 
 function toStatus(value: unknown): ChatMessage["delivery_status"] | undefined {
@@ -76,6 +82,11 @@ export function ChatWorkspacePage() {
   const { conversationId } = useParams();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
+
+  const bootstrapQuery = useQuery({
+    queryKey: ["chat", "bootstrap"],
+    queryFn: getChatBootstrapState
+  });
 
   const conversationsQuery = useQuery({
     queryKey: ["chat", "conversations"],
@@ -311,12 +322,18 @@ export function ChatWorkspacePage() {
     }
   });
 
-  if (conversationsQuery.isLoading) {
+  if (bootstrapQuery.isLoading || conversationsQuery.isLoading) {
     return <section className="im-card flex w-full items-center justify-center">Loading chat...</section>;
   }
 
   const conversations = conversationsQuery.data ?? [];
   const detail = (detailQuery.data ?? null) as ConversationDetail | null;
+  const bootstrap = bootstrapQuery.data ?? null;
+  const hasBoundNode = Boolean(bootstrap?.targetNodeId);
+
+  if (!conversationId && bootstrap?.initialConversationId) {
+    return <Navigate to={`/chat/${bootstrap.initialConversationId}`} replace />;
+  }
 
   if (isMobile && conversationId) {
     return (
@@ -325,6 +342,8 @@ export function ChatWorkspacePage() {
           detail={detail}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
+          canSend={hasBoundNode}
+          helperText={hasBoundNode ? null : "Bind this Gateway before sending messages from Web IM."}
           onSend={(content) => sendMutation.mutate(content)}
         />
       </div>
@@ -339,6 +358,8 @@ export function ChatWorkspacePage() {
           detail={detail}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
+          canSend={hasBoundNode}
+          helperText={hasBoundNode ? null : "Bind this Gateway before sending messages from Web IM."}
           onSend={(content) => sendMutation.mutate(content)}
         />
       )}

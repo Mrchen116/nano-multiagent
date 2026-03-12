@@ -49,11 +49,11 @@ def test_me_roundtrip_and_bind_flow(tmp_path: Path) -> None:
         assert start_resp.status_code == 201
         start_body = start_resp.json()
         assert start_body["status"] == "pending"
-        assert start_body["bind_url"].startswith("https://im.local/bind/confirm?token=")
+        assert start_body["bind_url"].startswith("http://127.0.0.1:4173/bind/confirm?token=")
 
         confirm_resp = client.post(
             "/im/v1/bind",
-            json={"action": "confirm", "bind_id": start_body["bind_id"], "user_id": owner.id},
+            json={"action": "confirm", "bind_token": start_body["bind_url"].split("token=", 1)[1], "user_id": owner.id},
         )
         assert confirm_resp.status_code == 201
         assert confirm_resp.json()["status"] == "confirmed"

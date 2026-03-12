@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 
 _DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
-_DEFAULT_KERNEL_ENTRYPOINT = "python -m agent.server"
+_DEFAULT_KERNEL_ENTRYPOINT = "python -m agent.platform.http_api.app"
 _DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
 _DEFAULT_STARTUP_TIMEOUT_SECONDS = 15.0
 _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0

@@ -20,9 +20,12 @@ const chatApiMode = resolveChatApiMode({
 });
 const useMockApi = chatApiMode === "mock";
 
+export const getChatBootstrapState = useMockApi ? mockApi.getChatBootstrapState : imApi.getChatBootstrapState;
+export const confirmBindToken = useMockApi ? mockApi.confirmBindToken : imApi.confirmBindToken;
 export const listConversations = useMockApi ? mockApi.listConversations : imApi.listConversations;
 export const getConversation = useMockApi ? mockApi.getConversation : imApi.getConversation;
 export const sendMessage = useMockApi ? mockApi.sendMessage : imApi.sendMessage;
 export const streamConversationEvents = useMockApi
   ? mockApi.streamConversationEvents
   : imApi.streamConversationEvents;
+export const resetChatBootstrapState = useMockApi ? mockApi.resetChatBootstrapState : imApi.resetChatBootstrapState;

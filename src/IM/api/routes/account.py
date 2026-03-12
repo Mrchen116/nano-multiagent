@@ -58,6 +58,7 @@ class BindRequestEnvelope(BaseModel):
     action: str = Field(pattern="^(start|confirm)$")
     node_id: str | None = None
     bind_id: str | None = None
+    bind_token: str | None = None
     user_id: str | None = None
 
 
@@ -123,16 +124,16 @@ def bind_device(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="node_id is required for start")
             bind = service.start_bind(node_id=payload.node_id)
             return to_bind_response(bind)
-        if not payload.bind_id or not payload.user_id:
+        if (not payload.bind_id and not payload.bind_token) or not payload.user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="bind_id and user_id are required for confirm",
+                detail="bind_id or bind_token and user_id are required for confirm",
             )
-        bind = service.confirm_bind(bind_id=payload.bind_id, user_id=payload.user_id)
+        bind = service.confirm_bind(bind_id=payload.bind_id, bind_token=payload.bind_token, user_id=payload.user_id)
         return to_bind_response(bind)
     except ValueError as exc:
         detail = str(exc)
         status_code = status.HTTP_400_BAD_REQUEST
-        if detail in {"node_id not found", "user_id not found", "bind_id not found"}:
+        if detail in {"node_id not found", "user_id not found", "bind_id not found", "bind_token not found"}:
             status_code = status.HTTP_404_NOT_FOUND
         raise HTTPException(status_code=status_code, detail=detail) from exc

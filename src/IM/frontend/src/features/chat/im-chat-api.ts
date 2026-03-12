@@ -42,11 +42,17 @@ export interface ParsedImStreamEvent {
   eventId?: number;
 }
 
+export interface ChatBootstrapState {
+  selfUserId: string;
+  targetNodeId: string | null;
+  initialConversationId: string | null;
+}
+
 const SELF_USERNAME = "you";
 const PEER_USERNAME = "peer";
 const DEFAULT_CONVERSATION_TITLE = "You & Teammate";
 
-let bootstrapPromise: Promise<{ selfUserId: string; targetNodeId: string | null }> | null = null;
+let bootstrapPromise: Promise<ChatBootstrapState> | null = null;
 
 function getApiBaseUrl() {
   return (import.meta.env.VITE_IM_API_BASE_URL ?? "").replace(/\/$/, "");
@@ -145,22 +151,39 @@ async function ensureUser(username: string, displayName: string): Promise<ImUser
   }
 }
 
-async function ensureBootstrap() {
+async function ensureSelfUser() {
+  return ensureUser(SELF_USERNAME, "You");
+}
+
+async function ensureBootstrap(): Promise<ChatBootstrapState> {
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
       const self = await ensureUser(SELF_USERNAME, "You");
       const peer = await ensureUser(PEER_USERNAME, "Teammate");
-      const conversations = await listConversationsRaw();
+      let conversations = await listConversationsRaw();
       if (conversations.length === 0) {
-        await createConversationRaw({
+        const created = await createConversationRaw({
           title: DEFAULT_CONVERSATION_TITLE,
           participant_ids: [self.id, peer.id]
         });
+        conversations = [created];
       }
-      return { selfUserId: self.id, targetNodeId: pickPrimaryOwnedNodeId(self) };
+      return {
+        selfUserId: self.id,
+        targetNodeId: pickPrimaryOwnedNodeId(self),
+        initialConversationId: conversations[0]?.id ?? null
+      };
     })();
   }
   return bootstrapPromise;
+}
+
+export function resetChatBootstrapState() {
+  bootstrapPromise = null;
+}
+
+export async function getChatBootstrapState(): Promise<ChatBootstrapState> {
+  return ensureBootstrap();
 }
 
 function toChatMessage(input: {
@@ -213,6 +236,20 @@ async function loadUserMap() {
   return new Map(users.map((item) => [item.id, item]));
 }
 
+export async function confirmBindToken(bindToken: string) {
+  const self = await ensureSelfUser();
+  const response = await requestJson<{ node_id: string }>("/im/v1/bind", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "confirm",
+      bind_token: bindToken,
+      user_id: self.id
+    })
+  });
+  resetChatBootstrapState();
+  return response;
+}
+
 export async function listConversations(): Promise<ConversationSummary[]> {
   const { selfUserId } = await ensureBootstrap();
   const [conversations, userById] = await Promise.all([listConversationsRaw(), loadUserMap()]);
@@ -261,6 +298,9 @@ export async function getConversation(conversationId: string): Promise<Conversat
 
 export async function sendMessage(input: { conversationId: string; content: string }): Promise<ChatMessage> {
   const { selfUserId, targetNodeId } = await ensureBootstrap();
+  if (!targetNodeId) {
+    throw new Error("No bound node available. Complete device binding first.");
+  }
   const [created, userById] = await Promise.all([
     requestJson<ImMessage>(`/im/v1/conversations/${input.conversationId}/messages`, {
       method: "POST",

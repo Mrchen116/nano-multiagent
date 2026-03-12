@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import threading
 from pathlib import Path
 
+import httpx
 import pytest
 
 from personal_assistant.config.local_store import HeartbeatConfig, KernelConfig, LocalConfig, NodeConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
 from personal_assistant.main import (
+    BackgroundLaunchResult,
     GatewayProcessManager,
     GatewayRuntime,
     RuntimeFactories,
+    _IMBootstrapClient,
     _build_relay_lifecycle_callback,
+    launch_gateway_in_background,
+    main,
     run_gateway,
 )
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
@@ -33,11 +39,16 @@ class _FakeKernelClient:
 
 
 class _FakeProcess:
-    def __init__(self, wait_result: int | TimeoutError) -> None:
+    def __init__(self, wait_result: int | TimeoutError, *, pid: int = 4321, poll_result: int | None = None) -> None:
         self.wait_result = wait_result
+        self.pid = pid
+        self.poll_result = poll_result
         self.terminate_called = 0
         self.kill_called = 0
         self.wait_calls: list[float] = []
+
+    def poll(self) -> int | None:
+        return self.poll_result
 
     def terminate(self) -> None:
         self.terminate_called += 1
@@ -197,6 +208,7 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
         channel_registry=ChannelRegistry([_FakeChannel(events)]),
         heartbeat_runner=_FakeHeartbeatRunner(events),
         im_connection_manager=_FakeIMManager(events),
+        post_im_connect=lambda: events.append("im.bootstrap"),
     )
     outcome: dict[str, int] = {}
     thread = threading.Thread(target=lambda: outcome.setdefault("exit_code", runtime.run_forever()), daemon=True)
@@ -205,11 +217,12 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
 
     assert runtime.wait_until_ready(timeout=1.0) is True
     assert thread.is_alive() is True
-    assert events[:4] == [
+    assert events[:5] == [
         "kernel.start",
         "channel.start:web_relay",
         "heartbeat.start",
         "im.connect",
+        "im.bootstrap",
     ]
 
     runtime.request_shutdown()
@@ -221,6 +234,7 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
         "channel.start:web_relay",
         "heartbeat.start",
         "im.connect",
+        "im.bootstrap",
         "heartbeat.stop",
         "channel.stop:web_relay",
         "im.close",
@@ -325,3 +339,166 @@ def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert seen == {"config": config, "ran": True}
+
+
+def test_im_bootstrap_client_opens_browser_for_unbound_node() -> None:
+    opened: list[tuple[str, int, bool]] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/im/v1/nodes":
+            return httpx.Response(200, json=[{"node_id": "node-local", "owner_id": ""}])
+        if request.method == "POST" and request.url.path == "/im/v1/bind":
+            return httpx.Response(201, json={"bind_url": "http://127.0.0.1:4173/bind/confirm?token=t-1"})
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
+    bootstrap = _IMBootstrapClient(
+        base_url="http://im.local",
+        token=None,
+        client=client,
+        browser_opener=lambda url, new=0, autoraise=True: opened.append((url, new, autoraise)) or True,
+    )
+
+    bind_url = bootstrap.ensure_node_binding(node_id="node-local")
+
+    assert bind_url == "http://127.0.0.1:4173/bind/confirm?token=t-1"
+    assert opened == [("http://127.0.0.1:4173/bind/confirm?token=t-1", 2, True)]
+
+
+def test_im_bootstrap_client_skips_browser_for_bound_node() -> None:
+    calls: list[str] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        calls.append(f"{request.method} {request.url.path}")
+        if request.method == "GET" and request.url.path == "/im/v1/nodes":
+            return httpx.Response(200, json=[{"node_id": "node-local", "owner_id": "owner-1"}])
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
+    bootstrap = _IMBootstrapClient(
+        base_url="http://im.local",
+        token=None,
+        client=client,
+        browser_opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("browser should not open")),
+    )
+
+    bind_url = bootstrap.ensure_node_binding(node_id="node-local")
+
+    assert bind_url is None
+    assert calls == ["GET /im/v1/nodes"]
+
+
+def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_ready(tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    process = _FakeProcess(wait_result=0, pid=2468)
+    seen: dict[str, object] = {}
+
+    def _spawn_process(argv: list[str], log_path: Path) -> _FakeProcess:
+        seen["spawn"] = (argv, log_path)
+        return process
+
+    def _wait_for_ready(child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float) -> None:
+        seen["wait"] = (child, loaded_config, timeout_seconds)
+
+    result = launch_gateway_in_background(
+        config_path=config.source_path,
+        load_config=lambda path: config if path == config.source_path else None,
+        spawn_process=_spawn_process,
+        wait_for_ready=_wait_for_ready,
+    )
+
+    assert result == BackgroundLaunchResult(
+        pid=2468,
+        health_url=f"{config.kernel.base_url}{config.kernel.health_path}",
+        log_path=config.source_path.parent / "gateway.log",
+    )
+    assert seen["spawn"] == (
+        [
+            sys.executable,
+            "-m",
+            "personal_assistant.main",
+            "--config",
+            str(config.source_path),
+            "--foreground",
+        ],
+        config.source_path.parent / "gateway.log",
+    )
+    assert seen["wait"] == (process, config, config.kernel.startup_timeout_seconds)
+
+
+def test_launch_gateway_in_background_stops_child_when_ready_wait_fails(tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    process = _FakeProcess(wait_result=0)
+
+    with pytest.raises(RuntimeError, match="not ready"):
+        launch_gateway_in_background(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+            spawn_process=lambda _argv, _log_path: process,
+            wait_for_ready=lambda _child, _config, _timeout: (_ for _ in ()).throw(RuntimeError("not ready")),
+        )
+
+    assert process.terminate_called == 1
+
+
+def test_main_defaults_to_background_launch(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+    result = BackgroundLaunchResult(
+        pid=999,
+        health_url="http://127.0.0.1:8100/v1/health",
+        log_path=tmp_path / "gateway.log",
+    )
+
+    def _launch_background(*, config_path: str) -> BackgroundLaunchResult:
+        seen["background"] = config_path
+        return result
+
+    monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _launch_background)
+    monkeypatch.setattr(
+        "personal_assistant.main.run_gateway",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("foreground path should not run")),
+    )
+
+    exit_code = main(["--config", str(tmp_path / "node-config.yaml")])
+
+    assert exit_code == 0
+    assert seen == {"background": str(tmp_path / "node-config.yaml")}
+    assert capsys.readouterr().out == (
+        "STARTED pid=999 health_url=http://127.0.0.1:8100/v1/health log="
+        f"{tmp_path / 'gateway.log'}\n"
+    )
+
+
+def test_main_runs_gateway_in_foreground_when_requested(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    def _run_gateway(*, config_path: str, factories=None) -> int:  # noqa: ANN001
+        seen["foreground"] = (config_path, factories)
+        return 0
+
+    monkeypatch.setattr("personal_assistant.main.run_gateway", _run_gateway)
+    monkeypatch.setattr(
+        "personal_assistant.main.launch_gateway_in_background",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("background path should not run")),
+    )
+
+    exit_code = main(["--config", str(tmp_path / "node-config.yaml"), "--foreground"])
+
+    assert exit_code == 0
+    assert seen == {"foreground": (str(tmp_path / "node-config.yaml"), None)}
+
+
+def test_main_returns_non_zero_when_background_launch_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "personal_assistant.main.launch_gateway_in_background",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("gateway failed")),
+    )
+
+    exit_code = main(["--config", str(tmp_path / "node-config.yaml")])
+
+    assert exit_code == 1
+    assert capsys.readouterr().err == "ERROR gateway failed\n"

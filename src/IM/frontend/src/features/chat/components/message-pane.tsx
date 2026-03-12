@@ -27,6 +27,8 @@ export function MessagePane(props: {
   detail: ConversationDetail | null;
   isMobile: boolean;
   isSending: boolean;
+  canSend: boolean;
+  helperText: string | null;
   onSend: (content: string) => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -54,7 +56,7 @@ export function MessagePane(props: {
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
-    if (!text) {
+    if (!text || !props.canSend) {
       return;
     }
     props.onSend(text);
@@ -79,17 +81,19 @@ export function MessagePane(props: {
         </div>
       </div>
       <form className="border-t border-[var(--im-border)] p-3" onSubmit={onSubmit}>
+        {props.helperText && <p className="mb-2 text-xs text-amber-700">{props.helperText}</p>}
         <div className="flex items-center gap-2">
           <button type="button" className="im-btn im-btn-muted" aria-label="Attachment picker">
             +
           </button>
           <input
             className="im-input"
-            placeholder="Type message"
+            placeholder={props.canSend ? "Type message" : "Bind this Gateway to enable chat"}
             value={draft}
+            disabled={!props.canSend}
             onChange={(event) => setDraft(event.target.value)}
           />
-          <button type="submit" className="im-btn im-btn-primary" disabled={props.isSending}>
+          <button type="submit" className="im-btn im-btn-primary" disabled={props.isSending || !props.canSend}>
             Send
           </button>
         </div>
