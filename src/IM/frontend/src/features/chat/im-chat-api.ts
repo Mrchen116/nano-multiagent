@@ -138,6 +138,10 @@ export function buildStarterConversationTitle(agentName: string): string {
   return `Agent · ${agentName}`;
 }
 
+export function buildStarterPeerUsername(agentId: string): string {
+  return agentId === PEER_USERNAME ? PEER_USERNAME : `${AGENT_USERNAME_PREFIX}${agentId}`;
+}
+
 export function buildCreateMessageRequest(input: {
   selfUserId: string;
   content: string;
@@ -254,7 +258,7 @@ async function ensureBootstrap() {
       const [self, agents, nodes] = await Promise.all([ensureUser(SELF_USERNAME, "You"), listAgentsRaw(), listNodesRaw()]);
       const starterAgent = pickStarterAgent(agents);
       const starterPeer = await ensureUser(
-        `${AGENT_USERNAME_PREFIX}${starterAgent.agent_id}`,
+        buildStarterPeerUsername(starterAgent.agent_id),
         starterAgent.display_name || DEFAULT_AGENT_NAME
       );
       const starterTitle = buildStarterConversationTitle(starterAgent.display_name || DEFAULT_AGENT_NAME);

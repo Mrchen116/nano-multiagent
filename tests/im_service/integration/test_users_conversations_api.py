@@ -129,3 +129,24 @@ def test_conversations_reject_unknown_participants(tmp_path: Path) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "participant_ids contains unknown users"
+
+
+def test_users_reject_duplicate_username_without_500(tmp_path: Path) -> None:
+    """Return a client error when the username already exists instead of bubbling a 500."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        first = client.post(
+            "/im/v1/users",
+            json={"username": "peer", "display_name": "Teammate"},
+        )
+        duplicate = client.post(
+            "/im/v1/users",
+            json={"username": "peer", "display_name": "OpsBot"},
+        )
+        users = client.get("/im/v1/users")
+
+        assert first.status_code == 201
+        assert duplicate.status_code == 400
+        assert duplicate.json()["detail"] == "username already exists"
+        assert users.status_code == 200
+        assert [item["display_name"] for item in users.json()] == ["Teammate"]

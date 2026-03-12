@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCreateMessageRequest,
   buildStarterConversationTitle,
+  buildStarterPeerUsername,
   normalizeItemsEnvelope,
   parseImStreamEvent,
   pickDefaultNodeForSend,
@@ -52,6 +53,11 @@ describe("im chat api helpers", () => {
       ])
     ).toMatchObject({ node_id: "node-offline", status: "offline" });
     expect(buildStarterConversationTitle("OpsBot")).toBe("Agent · OpsBot");
+  });
+
+  it("reuses the legacy peer username when no agent profile exists", () => {
+    expect(buildStarterPeerUsername("agent-1")).toBe("agent:agent-1");
+    expect(buildStarterPeerUsername("peer")).toBe("peer");
   });
 });
 

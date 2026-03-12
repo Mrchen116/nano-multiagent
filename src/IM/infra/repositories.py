@@ -8,6 +8,22 @@ from uuid import uuid4
 from IM.domain.models import AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, UsageMetric, User
 
 
+class UserAlreadyExistsError(ValueError):
+    """Raise when creating a user with a username that already exists."""
+
+
+class RepositoryConstraintError(ValueError):
+    """Raise when SQLite integrity constraints need API-safe translation."""
+
+
+def _raise_constraint_error(error: sqlite3.IntegrityError) -> None:
+    """Translate SQLite integrity failures into stable ValueError subclasses."""
+    detail = str(error)
+    if "users.username" in detail:
+        raise UserAlreadyExistsError("username already exists") from error
+    raise RepositoryConstraintError(detail) from error
+
+
 class UserRepository:
     """Persist and query chat users."""
 
@@ -38,14 +54,17 @@ class UserRepository:
         user_id = uuid4().hex
         created_at = _utc_now()
         owner_id = user_id
-        with self._connection:
-            self._connection.execute(
-                """
-                INSERT INTO users(id, username, display_name, owner_id, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (user_id, username, display_name, owner_id, created_at),
-            )
+        try:
+            with self._connection:
+                self._connection.execute(
+                    """
+                    INSERT INTO users(id, username, display_name, owner_id, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (user_id, username, display_name, owner_id, created_at),
+                )
+        except sqlite3.IntegrityError as error:
+            _raise_constraint_error(error)
         return User(
             id=user_id,
             username=username,
