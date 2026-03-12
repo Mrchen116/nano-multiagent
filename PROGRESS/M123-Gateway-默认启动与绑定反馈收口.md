@@ -16,14 +16,21 @@
 
 ### R1 默认启动路径与 kernel 认证对齐
 - Context:
+  - 默认 `node-config.yaml` 未声明 `kernel.token`，但 agent HTTP `/v1/sessions`、`/v1/runs/*` 路由仍要求 bearer header，导致正常本地 Gateway 首次处理消息时抛 `missing API token for kernel client`。
+  - 该断点不应暴露给默认用户路径；即使用户没显式配置 token，本地 managed kernel 也应该与 Gateway 默认协同。
 - Decision:
+  - 在 `local_store.py` 新增 `DEFAULT_LOCAL_KERNEL_TOKEN` 与 `resolve_kernel_token()`：优先用显式 `kernel.token`，其次复用环境变量 `NANO_MULTIAGENT_API_TOKEN`，最后回退到稳定本地默认 token。
+  - 在 `_parse_kernel()` 与 `build_runtime()` 都使用该解析逻辑，避免 YAML 加载路径与手工构造 `LocalConfig` 路径出现 token 漏传。
 - Rationale:
+  - agent HTTP 服务在未设置固定 `auth_token` 时依然要求 bearer header 存在，因此 Gateway 需要“默认带 token”而不是把缺失 token 变成用户心智负担。
+  - 双层收口能覆盖真实默认入口与测试/手工构造配置两条路径，避免只修 YAML happy path。
 - Evidence:
-  - Tests:
-  - Entry:
-- Rollback:
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
-- Next: 先补 Red 测试，锁定“默认本地启动不应要求隐藏 token”与“失败提示需给出下一步”。
+  - Tests: `PYTHONPATH=src pytest -q tests/unit/personal_assistant/test_local_store.py::test_load_local_config_defaults_kernel_token_for_local_gateway tests/unit/personal_assistant/test_main.py::test_build_runtime_defaults_local_kernel_token_when_config_omits_it` -> `2 passed`
+  - Tests: `PYTHONPATH=src pytest -q tests/acceptance/test_im_gateway_real_acceptance.py tests/e2e/test_m112_real_process_roundtrip_e2e.py tests/im_service/integration/test_gateway_websocket_api.py tests/unit/personal_assistant` -> 仅保留既有 7 个 sandbox 端口绑定失败，无新增回归
+  - Entry: 默认本地配置省略 `kernel.token` 时，Gateway runtime 构造出的 `KernelApiClient` 已携带稳定 bearer token，不再在首次 authenticated kernel call 前直接因 token 缺失中断。
+- Rollback: 67bc6c6b601c9270e319551b55df59b2850d5d8f
+- Commits: C1=67bc6c6, C2=29fe2bf, C3=<pending>
+- Next: 进入 R2，处理 IM bootstrap 节点不可见、未绑定提示与用户可执行反馈。
 
 ### R2 节点可见性与未绑定反馈
 - Context:

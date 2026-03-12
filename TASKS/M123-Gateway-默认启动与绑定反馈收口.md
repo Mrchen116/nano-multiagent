@@ -26,7 +26,7 @@
 ## Roadpoints
 
 ### R1 默认启动路径与 kernel 认证对齐
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - Gateway 默认启动路径与当前默认 `node-config.yaml` / managed kernel 约定一致，正常本地用户不会在首条路径上撞到 `missing API token for kernel client`
   - 默认配置或启动接线不再要求用户理解隐藏 token/bootstrap 细节
