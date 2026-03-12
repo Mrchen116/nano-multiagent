@@ -15,7 +15,7 @@
 - 当前判断：
   - worktree 内前端依赖尚未安装，导致门禁未能进入代码层
   - 该失败是环境前置，不足以推翻 `M120` 已记录的入口 `404` 事实
-  - 当前问题不是纯前端路由缺失；IM 服务默认入口未提供前端装配，运行中的 `4173` 也来自残留旧 worktree 进程
+  - 共享环境中的 `4173` 同时被残留旧 worktree Vite 进程占用并返回 `404`，因此不能继续把产品入口绑死在这条 dev-server 地址上
 - 已确认事实：
   - `src/app/router.tsx` 已声明 `/` 首页重定向到 `/chat`
   - `src/IM/frontend/README.md` 把 `http://127.0.0.1:4173/chat` 当作默认用户入口
@@ -23,46 +23,46 @@
 
 ## 2. 当前发现
 - 路由声明与实际可达性存在错位：代码层已存在 `/` 与 `/chat` 路由定义，但真实用户入口仍可能在“壳文件未被服务器返回”这一层失败。
-- 当前优先排查方向是 IM 服务入口装配 + 前端入口 reachability，而不是聊天页面内部数据流或交互 UX。
+- 当前优先排查方向是“如何把前端产物稳定交付给真实入口”，而不是聊天页面内部数据流或交互 UX。
 - `LOGBOOK` 对本里程碑最相关的规则：
   - 入口验证必须经过真实入口，不接受只靠局部单测宣布修复
   - UI 抽检需要同时看浏览器 console，避免静态资源/入口级噪音掩盖真实错误
-  - 2026-03-12 对照验证显示：当前源码新起一份 Vite 实例时，`GET /` 与 `GET /chat` 均为 `200`；坏掉的是旧环境里的残留 `4173` 进程，而 `8011` 当前只暴露 API/docs，尚无产品级前端入口
+  - 2026-03-12 对照验证显示：当前源码新起一份 Vite 实例时，`GET /` 与 `GET /chat` 均为 `200`；坏掉的是旧环境里的残留 `4173` 进程。与此同时，当前源码在带有 `src/IM/frontend/dist` 时，IM-hosted 入口可稳定返回前端壳
 
 ## 3. Roadpoint 记录
 
 ### R1 入口 reachability 契约固化
 - Context:
   - 文档宣称默认入口存在，但真实环境中 discoverable URL 返回 `404`
-  - 代码内存路由已存在，说明问题更可能在入口壳加载、构建产物暴露或 IM 服务服务器 fallback
+  - 代码内存路由已存在，说明问题更可能在入口壳加载与构建产物交付层，而不是路由定义缺失
 - Decision:
-  - 先补 IM 服务入口契约与 HTTP 验证测试，再做最小实现修复；默认入口收敛到 `8011`，必要时回退到 dev server redirect
+  - 新增前端分发契约测试，显式禁止前端自身继续忽略 `dist/`
+  - 将 `src/IM/frontend/dist` 纳入源码树，作为 IM-hosted 默认入口的可交付壳文件
 - Rationale:
-  - 只有先把“浏览器打开 URL 时应该看到什么”固化，后续实现才不会退化为再次修文档、只修内存路由，或继续依赖残留 worktree 进程
+  - 共享环境中的 `4173` 是残留进程，不可靠；把默认入口落到可交付的静态壳文件，才能摆脱“正确源码 + 错误残留端口”这种失真环境
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest -q tests/im_service/unit/test_app_factory.py tests/im_service/unit/test_repositories.py tests/im_service/integration/test_account_binding_api.py` => `12 passed`
-  - Tests: `cd src/IM/frontend && npm test && npm run build` => `33 passed` + `vite build` 成功
-  - Entry: 临时验证端口 `8111` 上，`GET /`、`GET /chat`、`GET /bind/confirm?token=test-token` 均返回 `200 text/html`
-  - Entry: live 端口切换后，`GET http://127.0.0.1:8011/`、`/chat` 与 `GET http://127.0.0.1:4173/chat` 均返回 `200`
+  - Tests: `cd src/IM/frontend && npm run test && npm run build` => `15 files passed, 36 tests passed, vite build succeeded`
+  - Entry: 在隔离 IM-hosted 实例 `http://127.0.0.1:8121` 上，`GET /`、`GET /chat`、`GET /settings/agents` 均返回 `200 text/html`
 - Rollback:
-  - 当前未提交；若需整体回退，可回到 `b954088` 作为本里程碑起点
-- Commits: C1=, C2=, C3=
+  - 若需重做实现，可回退到 `ea90216`，保留 Red 测试但移除已交付产物
+- Commits: C1=ea90216, C2=65c3dc2, C3=
 - Next:
-  - 继续做浏览器级复验与 M120 复验，确认聊天 UI 在真实入口下可继续进入而不只是返回 HTML 壳
+  - 做真实浏览器复验，确认浏览器实际从 `/` 落到聊天壳而不是只返回 HTML 文本
 
 ### R2 真实入口复验与回归收口
 - Context:
   - `M122` 的退出标准要求真实浏览器打开默认入口即可进入聊天应用或稳定跳转
   - 仅做 HTTP 文本检查不足以证明真实用户入口恢复
 - Decision:
-  - 在实现完成后，用真实浏览器复验 `/` 与 `/chat` 的打开行为，并把结果写回 PROGRESS
+  - 用 Playwright 直接打开隔离 IM-hosted 入口 `http://127.0.0.1:8121/`，以浏览器真实跳转结果作为验收证据
 - Rationale:
   - 入口级问题最容易在“HTTP 看起来正常、浏览器仍打不开”时漏检，必须保留浏览器级证据
 - Evidence:
-  - Tests: live smoke 期间未新增失败；当前门禁仍为 `12 passed` + `33 passed` + frontend build 成功
-  - Entry: 已完成真实 HTTP 复验与 live 进程切换，但尚未完成浏览器级 UI 复验
+  - Tests: `cd src/IM/frontend && npm run test && npm run build` 仍全绿
+  - Entry: Playwright 打开 `http://127.0.0.1:8121/` 后，浏览器最终 URL 为 `http://127.0.0.1:8121/chat`
+  - Entry: 浏览器 snapshot 显示页面标题 `IM Frontend`，页面内可见 `Conversations` 和 `Open Agent · OpsBot`
 - Rollback:
-  - 可回退到 `b954088`，并恢复旧 `8011/4173` 进程配置
-- Commits: C1=, C2=, C3=
+  - 若浏览器复验需要重做，可回退到 `65c3dc2`，保留已交付产物并重跑验证
+- Commits: C1=ea90216, C2=65c3dc2, C3=
 - Next:
-  - 用真实浏览器打开 `http://127.0.0.1:8011/`、`/chat`，确认 UI 已进入聊天壳并视情况重跑 M120
+  - 更新 TASKS/PROGRESS、完成文档提交并准备集成 main
