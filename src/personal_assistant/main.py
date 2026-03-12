@@ -800,22 +800,20 @@ def main(argv: list[str] | None = None) -> int:
     """Parse CLI arguments and execute the gateway process entry."""
 
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv and argv[0] == "stop":
-        parser = argparse.ArgumentParser(description="Stop personal assistant gateway runtime")
-        parser.add_argument("stop", nargs="?")
-        parser.add_argument("--config", required=True, help="Path to local node-config.yaml")
-        args = parser.parse_args(argv)
-        command = "stop"
-    else:
-        parser = argparse.ArgumentParser(description="Run personal assistant gateway runtime")
-        parser.add_argument("--config", required=True, help="Path to local node-config.yaml")
-        parser.add_argument(
-            "--foreground",
-            action="store_true",
-            help="Keep the gateway attached to the current terminal for debugging and smoke tests",
-        )
-        args = parser.parse_args(argv)
-        command = "start"
+    parser = argparse.ArgumentParser(description="Run personal assistant gateway runtime")
+    parser.add_argument("--config", help="Path to local node-config.yaml for the default start command")
+    parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Keep the gateway attached to the current terminal for debugging and smoke tests",
+    )
+    subparsers = parser.add_subparsers(dest="command")
+    stop_parser = subparsers.add_parser("stop", help="Stop the current background gateway for one config")
+    stop_parser.add_argument("--config", required=True, help="Path to local node-config.yaml")
+    args = parser.parse_args(argv)
+    command = args.command or "start"
+    if command == "start" and not args.config:
+        parser.error("the following arguments are required: --config")
     try:
         if command == "stop":
             print(stop_gateway(config_path=args.config))

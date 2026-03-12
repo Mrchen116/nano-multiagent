@@ -66,14 +66,31 @@ cd <repo>
 PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
 ```
 
+默认命令会把 Gateway 放到后台，并立即返回：
+
+```text
+STARTED pid=<pid> health_url=http://127.0.0.1:8000/v1/health log=<config目录>/gateway.log
+```
+
 启动后的预期行为：
-- 未绑定节点：Gateway 会输出 `ACTION ...` / `NEXT ...`，并尝试打开绑定页；默认绑定页位于 `http://127.0.0.1:8011/bind/confirm?token=...`。
-- 已绑定节点：Gateway 不再要求绑定，保持常驻，等待 Web IM 消息。
-- 启动失败或 IM bootstrap 失败：Gateway 会输出明确的 `NEXT ...`；同样的可执行提示会回写到 IM 节点板 `last_error`。
+- 未绑定节点：Gateway 会把 `ACTION ...` / `NEXT ...` 写入 `gateway.log`，并尝试打开绑定页；默认绑定页位于 `http://127.0.0.1:8011/bind/confirm?token=...`。
+- 已绑定节点：Gateway 保持后台运行，等待 Web IM 消息。
+- 启动失败或 IM bootstrap 失败：Gateway 会输出明确的 `ERROR ...` / `NEXT ...`；同样的可执行提示会回写到 IM 节点板 `last_error`。
+
+停止当前配置对应的后台 Gateway：
+
+```bash
+PYTHONPATH=src python -m personal_assistant.main stop --config ./node-config.yaml
+```
+
+stop 反馈语义：
+- `STOPPED ...`：当前配置对应的后台 Gateway 已关闭；若优雅等待超时会额外显示 `forced=true`。
+- `NOT RUNNING ...`：当前配置目录没有可用运行态记录，可直接重新 start。
+- `STALE ...`：记录里的 pid 已失效；CLI 会自动清掉陈旧状态文件，然后你可以重新 start。
 
 你会看到的 ready 信号：
-- 如果终端打印了绑定提示或浏览器自动打开绑定页，说明 Gateway 已经连上 IM，并且正在等你完成下一步。
-- 如果终端没有再退出，并保持常驻等待消息，说明 Gateway 已进入可接收 Web IM 消息的状态。
+- 默认路径下，终端先打印 `STARTED ...` 并返回；随后可查看 `gateway.log` 或 Web IM/绑定页确认 Gateway 已 ready。
+- 若使用 `--foreground` 调试路径，终端会保持常驻，并直接显示 `ACTION ...` / `NEXT ...`。
 - 如果终端打印 `ERROR ...` / `NEXT ...`，不要先翻代码；直接按 `NEXT` 的动作处理即可。
 
 ### 4. 进入 Web IM 并发起聊天

@@ -85,6 +85,16 @@ def _run_smoke(config_path: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _main_command(config_path: Path, *extra_args: str) -> list[str]:
+    if extra_args and extra_args[0] == "stop":
+        return [
+            sys.executable,
+            "-m",
+            "personal_assistant.main",
+            "stop",
+            "--config",
+            str(config_path),
+            *extra_args[1:],
+        ]
     return [
         sys.executable,
         "-m",
