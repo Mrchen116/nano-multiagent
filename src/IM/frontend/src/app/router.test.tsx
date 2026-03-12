@@ -2,6 +2,7 @@ import { screen } from "@testing-library/react";
 import { beforeEach, vi } from "vitest";
 
 const getChatBootstrapState = vi.fn();
+const getChatStarter = vi.fn();
 const listConversations = vi.fn();
 const getConversation = vi.fn();
 const sendMessage = vi.fn();
@@ -9,6 +10,7 @@ const streamConversationEvents = vi.fn((_: unknown) => () => undefined);
 
 vi.mock("../features/chat/chat-api", () => ({
   getChatBootstrapState: () => getChatBootstrapState(),
+  getChatStarter: () => getChatStarter(),
   listConversations: () => listConversations(),
   getConversation: (conversationId: string) => getConversation(conversationId),
   sendMessage: (input: { conversationId: string; content: string }) => sendMessage(input),
@@ -24,6 +26,15 @@ describe("app routes", () => {
       selfUserId: "user-1",
       targetNodeId: "node-1",
       initialConversationId: "conv-1"
+    });
+    getChatStarter.mockResolvedValue({
+      title: "Agent · OpsBot",
+      actionLabel: "Open Agent · OpsBot",
+      actionHref: "/chat/conv-1",
+      agentName: "OpsBot",
+      description: "OpsBot handles the default IM replies for this workspace.",
+      nodeLabel: "node-1",
+      statusLabel: "online"
     });
     listConversations.mockResolvedValue([
       {

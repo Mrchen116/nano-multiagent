@@ -26,3 +26,13 @@ export interface ConversationDetail {
   title: string;
   messages: ChatMessage[];
 }
+
+export interface ChatStarter {
+  title: string;
+  actionLabel: string;
+  actionHref: string;
+  agentName: string;
+  description: string;
+  nodeLabel?: string;
+  statusLabel?: string;
+}

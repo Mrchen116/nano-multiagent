@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Navigate, useParams } from "react-router-dom";
 import { useEffect } from "react";
+import { useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
 import { ConversationList } from "./components/conversation-list";
 import { MessagePane } from "./components/message-pane";
 import {
   getChatBootstrapState,
+  getChatStarter,
   getConversation,
   listConversations,
   sendMessage,
@@ -93,6 +94,11 @@ export function ChatWorkspacePage() {
     queryFn: listConversations
   });
 
+  const starterQuery = useQuery({
+    queryKey: ["chat", "starter"],
+    queryFn: getChatStarter
+  });
+
   const detailQuery = useQuery({
     enabled: Boolean(conversationId),
     queryKey: ["chat", "conversation", conversationId],
@@ -125,18 +131,15 @@ export function ChatWorkspacePage() {
             is_mine: false,
             delivery_status: deliveryStatus
           };
-          queryClient.setQueryData<ConversationDetail | null>(
-            ["chat", "conversation", conversationId],
-            (previous) => {
-              if (!previous) {
-                return null;
-              }
-              return {
-                ...previous,
-                messages: upsertMessage(previous.messages, nextMessage)
-              };
+          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
+            if (!previous) {
+              return null;
             }
-          );
+            return {
+              ...previous,
+              messages: upsertMessage(previous.messages, nextMessage)
+            };
+          });
           return;
         }
 
@@ -153,18 +156,15 @@ export function ChatWorkspacePage() {
           if (!nextMessage) {
             return;
           }
-          queryClient.setQueryData<ConversationDetail | null>(
-            ["chat", "conversation", conversationId],
-            (previous) => {
-              if (!previous) {
-                return null;
-              }
-              return {
-                ...previous,
-                messages: upsertMessage(previous.messages, nextMessage)
-              };
+          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
+            if (!previous) {
+              return null;
             }
-          );
+            return {
+              ...previous,
+              messages: upsertMessage(previous.messages, nextMessage)
+            };
+          });
           queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
             updateConversationList(previous, conversationId, {
               last_message_preview: nextMessage.content,
@@ -188,18 +188,15 @@ export function ChatWorkspacePage() {
             is_mine: false,
             delivery_status: deliveryStatus
           };
-          queryClient.setQueryData<ConversationDetail | null>(
-            ["chat", "conversation", conversationId],
-            (previous) => {
-              if (!previous) {
-                return null;
-              }
-              return {
-                ...previous,
-                messages: upsertMessage(previous.messages, nextMessage)
-              };
+          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
+            if (!previous) {
+              return null;
             }
-          );
+            return {
+              ...previous,
+              messages: upsertMessage(previous.messages, nextMessage)
+            };
+          });
           if (content) {
             queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
               updateConversationList(previous, conversationId, {
@@ -216,34 +213,31 @@ export function ChatWorkspacePage() {
           if (!delta) {
             return;
           }
-          queryClient.setQueryData<ConversationDetail | null>(
-            ["chat", "conversation", conversationId],
-            (previous) => {
-              if (!previous) {
-                return null;
-              }
-              const exists = previous.messages.find((item) => item.message_id === messageId);
-              const nextMessage: ChatMessage = exists
-                ? {
-                    ...exists,
-                    content: `${exists.content}${delta}`,
-                    delivery_status: "running"
-                  }
-                : {
-                    message_id: messageId,
-                    sender_type: "user",
-                    sender_name: toStringValue(event.payload.sender_user_id) ?? "peer",
-                    content: delta,
-                    created_at: new Date().toISOString(),
-                    is_mine: false,
-                    delivery_status: "running"
-                  };
-              return {
-                ...previous,
-                messages: upsertMessage(previous.messages, nextMessage)
-              };
+          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
+            if (!previous) {
+              return null;
             }
-          );
+            const exists = previous.messages.find((item) => item.message_id === messageId);
+            const nextMessage: ChatMessage = exists
+              ? {
+                  ...exists,
+                  content: `${exists.content}${delta}`,
+                  delivery_status: "running"
+                }
+              : {
+                  message_id: messageId,
+                  sender_type: "user",
+                  sender_name: toStringValue(event.payload.sender_user_id) ?? "peer",
+                  content: delta,
+                  created_at: new Date().toISOString(),
+                  is_mine: false,
+                  delivery_status: "running"
+                };
+            return {
+              ...previous,
+              messages: upsertMessage(previous.messages, nextMessage)
+            };
+          });
           queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) => {
             const active = previous?.find((item) => item.conversation_id === conversationId);
             if (!active) {
@@ -260,27 +254,24 @@ export function ChatWorkspacePage() {
         if (event.eventType === "turn_end" || event.eventType === "message_status" || event.eventType === "conversation.notice") {
           const status = toStatus(event.payload.status) ?? "completed";
           const content = toStringValue(event.payload.content);
-          queryClient.setQueryData<ConversationDetail | null>(
-            ["chat", "conversation", conversationId],
-            (previous) => {
-              if (!previous) {
-                return null;
-              }
-              const existing = previous.messages.find((item) => item.message_id === messageId);
-              if (!existing) {
-                return previous;
-              }
-              const nextMessage: ChatMessage = {
-                ...existing,
-                content: content ?? existing.content,
-                delivery_status: status
-              };
-              return {
-                ...previous,
-                messages: upsertMessage(previous.messages, nextMessage)
-              };
+          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
+            if (!previous) {
+              return null;
             }
-          );
+            const existing = previous.messages.find((item) => item.message_id === messageId);
+            if (!existing) {
+              return previous;
+            }
+            const nextMessage: ChatMessage = {
+              ...existing,
+              content: content ?? existing.content,
+              delivery_status: status
+            };
+            return {
+              ...previous,
+              messages: upsertMessage(previous.messages, nextMessage)
+            };
+          });
           if (content) {
             queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
               updateConversationList(previous, conversationId, {
@@ -322,29 +313,33 @@ export function ChatWorkspacePage() {
     }
   });
 
-  if (bootstrapQuery.isLoading || conversationsQuery.isLoading) {
+  if (
+    bootstrapQuery.isLoading ||
+    conversationsQuery.isLoading ||
+    starterQuery.isLoading ||
+    (Boolean(conversationId) && detailQuery.isLoading)
+  ) {
     return <section className="im-card flex w-full items-center justify-center">Loading chat...</section>;
   }
 
   const conversations = conversationsQuery.data ?? [];
+  const starter = starterQuery.data ?? null;
   const detail = (detailQuery.data ?? null) as ConversationDetail | null;
   const bootstrap = bootstrapQuery.data ?? null;
   const hasBoundNode = Boolean(bootstrap?.targetNodeId);
-
-  if (!conversationId && bootstrap?.initialConversationId) {
-    return <Navigate to={`/chat/${bootstrap.initialConversationId}`} replace />;
-  }
+  const helperText = hasBoundNode ? null : "Bind this Gateway before sending messages from Web IM.";
 
   if (isMobile && conversationId) {
     return (
       <div className="w-full">
         <MessagePane
           detail={detail}
+          starter={null}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
           canSend={hasBoundNode}
-          helperText={hasBoundNode ? null : "Bind this Gateway before sending messages from Web IM."}
-          onSend={(content) => sendMutation.mutate(content)}
+          helperText={helperText}
+          onSend={(content) => sendMutation.mutateAsync(content)}
         />
       </div>
     );
@@ -352,15 +347,29 @@ export function ChatWorkspacePage() {
 
   return (
     <section className="grid w-full min-h-0 gap-4 lg:grid-cols-[360px_1fr]">
-      <ConversationList items={conversations} activeId={conversationId} compact={isMobile} />
+      <div className="flex min-h-0 flex-col gap-4">
+        {isMobile && !conversationId && starter && (
+          <MessagePane
+            detail={null}
+            starter={starter}
+            isMobile={isMobile}
+            isSending={false}
+            canSend={false}
+            helperText={null}
+            onSend={async () => undefined}
+          />
+        )}
+        <ConversationList items={conversations} activeId={conversationId} compact={isMobile} />
+      </div>
       {!isMobile && (
         <MessagePane
           detail={detail}
+          starter={conversationId ? null : starter}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
           canSend={hasBoundNode}
-          helperText={hasBoundNode ? null : "Bind this Gateway before sending messages from Web IM."}
-          onSend={(content) => sendMutation.mutate(content)}
+          helperText={helperText}
+          onSend={(content) => sendMutation.mutateAsync(content)}
         />
       )}
     </section>

@@ -6,6 +6,7 @@ import { renderRouter } from "../../test/render-router";
 import { ChatWorkspacePage, toRelayAgentMessage } from "./chat-workspace-page";
 
 const getChatBootstrapState = vi.fn();
+const getChatStarter = vi.fn();
 const listConversations = vi.fn();
 const getConversation = vi.fn();
 const sendMessage = vi.fn();
@@ -17,6 +18,7 @@ vi.mock("../../hooks/use-is-mobile", () => ({
 
 vi.mock("./chat-api", () => ({
   getChatBootstrapState: () => getChatBootstrapState(),
+  getChatStarter: () => getChatStarter(),
   listConversations: () => listConversations(),
   getConversation: (conversationId: string) => getConversation(conversationId),
   sendMessage: (input: { conversationId: string; content: string }) => sendMessage(input),
@@ -74,6 +76,15 @@ describe("chat workspace page", () => {
       selfUserId: "user-1",
       targetNodeId: null,
       initialConversationId: "conv-1"
+    });
+    getChatStarter.mockResolvedValue({
+      title: "Agent · OpsBot",
+      actionLabel: "Open Agent · OpsBot",
+      actionHref: "/chat/conv-1",
+      agentName: "OpsBot",
+      description: "OpsBot handles the default IM replies for this workspace.",
+      nodeLabel: "node-1",
+      statusLabel: "online"
     });
     listConversations.mockResolvedValue([
       {

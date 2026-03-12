@@ -1,10 +1,12 @@
 """Integration tests for IM gateway websocket and relay delivery."""
 
+import asyncio
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from IM.ws.gateway_handler import GatewayConnection
 
 
 def _create_user(client: TestClient, username: str) -> str:
@@ -23,6 +25,29 @@ def _create_conversation(client: TestClient, participant_id: str) -> str:
     )
     assert response.status_code == 201
     return response.json()["id"]
+
+
+class FailingGatewaySocket:
+    async def send_json(self, payload: dict[str, object]) -> None:
+        raise RuntimeError("socket closed")
+
+
+async def _register_failing_gateway(app, *, node_id: str) -> None:  # noqa: ANN001
+    await app.state.gateway_handler.handle_message(
+        websocket=FailingGatewaySocket(),
+        message_type="node.register",
+        payload={
+            "node_id": node_id,
+            "node_name": node_id,
+            "version": "1.0.0",
+            "agents": ["agent-a"],
+            "capabilities": {"relay": True},
+        },
+    )
+
+
+async def _snapshot_gateway(app, *, node_id: str) -> GatewayConnection | None:  # noqa: ANN001
+    return await app.state.gateway_handler.snapshot_connection(node_id=node_id)
 
 
 def test_gateway_websocket_registers_and_receives_relay_messages(tmp_path: Path) -> None:
@@ -178,3 +203,33 @@ def test_message_post_to_disconnected_node_persists_actionable_failure_events(tm
         assert any("event: conversation.notice" in block for block in parsed)
         assert any(payload.get("progress_state") == "failed" for payload in payloads)
         assert any(payload.get("guidance") == "检查目标节点连接状态后重试，或切换到在线节点。" for payload in payloads)
+
+
+def test_message_post_with_broken_gateway_socket_returns_503_instead_of_500(tmp_path: Path) -> None:
+    """Degrade broken websocket pushes into actionable 503 feedback instead of Internal Server Error."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        alice_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, alice_id)
+        asyncio.run(_register_failing_gateway(app, node_id="node-1"))
+
+        created = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            headers={"Idempotency-Key": "idem-http-broken-socket"},
+            json={
+                "sender_user_id": alice_id,
+                "content": "hello broken gateway",
+                "target_node_id": "node-1",
+            },
+        )
+
+        assert created.status_code == 503
+        assert created.json()["detail"] == "target_node_id is not connected"
+        assert asyncio.run(_snapshot_gateway(app, node_id="node-1")) is None
+
+        events = client.get(
+            f"/im/v1/conversations/{conversation_id}/events?max_events=10&timeout_seconds=0.05"
+        )
+        assert events.status_code == 200
+        assert "event: relay.failed" in events.text
+        assert "event: conversation.notice" in events.text

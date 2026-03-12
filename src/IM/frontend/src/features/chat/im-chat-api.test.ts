@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCreateMessageRequest,
+  buildStarterConversationTitle,
+  buildStarterPeerUsername,
   normalizeItemsEnvelope,
   parseImStreamEvent,
+  pickDefaultNodeForSend,
   pickPrimaryOwnedNodeId
 } from "./im-chat-api";
 
@@ -31,6 +34,30 @@ describe("im chat api helpers", () => {
       sender_user_id: "u-self",
       content: "hello"
     });
+  });
+
+  it("prefers an online relay-enabled node for default sends", () => {
+    expect(
+      pickDefaultNodeForSend([
+        { node_id: "node-offline", node_name: "Offline", status: "offline", relay_enabled: true },
+        { node_id: "node-online", node_name: "Online", status: "online", relay_enabled: true }
+      ])
+    ).toMatchObject({ node_id: "node-online", status: "online" });
+  });
+
+  it("falls back to the first relay-enabled node when nothing is online", () => {
+    expect(
+      pickDefaultNodeForSend([
+        { node_id: "node-offline", node_name: "Offline", status: "offline", relay_enabled: true },
+        { node_id: "node-disabled", node_name: "Disabled", status: "online", relay_enabled: false }
+      ])
+    ).toMatchObject({ node_id: "node-offline", status: "offline" });
+    expect(buildStarterConversationTitle("OpsBot")).toBe("Agent · OpsBot");
+  });
+
+  it("reuses the legacy peer username when no agent profile exists", () => {
+    expect(buildStarterPeerUsername("agent-1")).toBe("agent:agent-1");
+    expect(buildStarterPeerUsername("peer")).toBe("peer");
   });
 });
 

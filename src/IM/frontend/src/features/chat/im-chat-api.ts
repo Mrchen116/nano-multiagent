@@ -1,4 +1,4 @@
-import { ChatMessage, ConversationDetail, ConversationSummary } from "./types";
+import { ChatMessage, ChatStarter, ConversationDetail, ConversationSummary } from "./types";
 
 interface ImUser {
   id: string;
@@ -20,6 +20,26 @@ interface ImMessage {
   content: string;
   delivery_status?: string;
   created_at: string;
+}
+
+interface ImAgent {
+  agent_id: string;
+  display_name: string;
+  description: string;
+}
+
+interface ImNode {
+  node_id: string;
+  node_name: string;
+  status: string;
+  relay_enabled: boolean;
+}
+
+interface BootstrapState {
+  selfUserId: string;
+  targetNodeId: string | null;
+  starter: ChatStarter;
+  starterConversationId: string | null;
 }
 
 interface ItemsEnvelope<T> {
@@ -51,8 +71,11 @@ export interface ChatBootstrapState {
 const SELF_USERNAME = "you";
 const PEER_USERNAME = "peer";
 const DEFAULT_CONVERSATION_TITLE = "You & Teammate";
+const AGENT_USERNAME_PREFIX = "agent:";
+const DEFAULT_AGENT_NAME = "OpsBot";
+const DEFAULT_AGENT_DESCRIPTION = "OpsBot handles the default IM replies for this workspace.";
 
-let bootstrapPromise: Promise<ChatBootstrapState> | null = null;
+let bootstrapPromise: Promise<BootstrapState> | null = null;
 
 function getApiBaseUrl() {
   return (import.meta.env.VITE_IM_API_BASE_URL ?? "").replace(/\/$/, "");
@@ -60,6 +83,18 @@ function getApiBaseUrl() {
 
 function withBase(path: string) {
   return `${getApiBaseUrl()}${path}`;
+}
+
+class ChatRequestError extends Error {
+  status: number;
+  detail: string;
+
+  constructor(input: { status: number; detail: string; method: string; path: string }) {
+    super(`${input.method} ${input.path} failed: ${input.status} (${input.detail})`);
+    this.name = "ChatRequestError";
+    this.status = input.status;
+    this.detail = input.detail;
+  }
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -71,7 +106,18 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     }
   });
   if (!response.ok) {
-    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${response.status}`);
+    const method = init?.method ?? "GET";
+    let detail = response.statusText || "request failed";
+    const rawBody = await response.text();
+    if (rawBody) {
+      try {
+        const parsed = JSON.parse(rawBody) as { detail?: string };
+        detail = typeof parsed.detail === "string" && parsed.detail.length > 0 ? parsed.detail : rawBody;
+      } catch {
+        detail = rawBody;
+      }
+    }
+    throw new ChatRequestError({ status: response.status, detail, method, path });
   }
   return (await response.json()) as T;
 }
@@ -88,6 +134,18 @@ export function pickPrimaryOwnedNodeId(user: { owned_node_ids?: string[] | null 
     return null;
   }
   return typeof user.owned_node_ids[0] === "string" && user.owned_node_ids[0].length > 0 ? user.owned_node_ids[0] : null;
+}
+
+export function pickDefaultNodeForSend(nodes: Array<Pick<ImNode, "node_id" | "status" | "relay_enabled" | "node_name">>) {
+  return nodes.find((item) => item.relay_enabled && item.status === "online") ?? nodes.find((item) => item.relay_enabled) ?? null;
+}
+
+export function buildStarterConversationTitle(agentName: string): string {
+  return `Agent · ${agentName}`;
+}
+
+export function buildStarterPeerUsername(agentId: string): string {
+  return agentId === PEER_USERNAME ? PEER_USERNAME : `${AGENT_USERNAME_PREFIX}${agentId}`;
 }
 
 export function buildCreateMessageRequest(input: {
@@ -119,6 +177,14 @@ async function createUserRaw(payload: { username: string; display_name: string }
 async function listConversationsRaw() {
   const payload = await requestJson<ItemsEnvelope<ImConversation> | ImConversation[]>("/im/v1/conversations");
   return normalizeItemsEnvelope(payload);
+}
+
+async function listAgentsRaw() {
+  return requestJson<ImAgent[]>("/im/v1/agents");
+}
+
+async function listNodesRaw() {
+  return requestJson<ImNode[]>("/im/v1/nodes");
 }
 
 async function createConversationRaw(payload: { title: string; participant_ids: string[] }) {
@@ -155,23 +221,93 @@ async function ensureSelfUser() {
   return ensureUser(SELF_USERNAME, "You");
 }
 
-async function ensureBootstrap(): Promise<ChatBootstrapState> {
+function pickStarterAgent(agents: ImAgent[]): ImAgent {
+  return (
+    agents.find((item) => item.display_name.trim().length > 0) ?? {
+      agent_id: PEER_USERNAME,
+      display_name: DEFAULT_AGENT_NAME,
+      description: DEFAULT_AGENT_DESCRIPTION
+    }
+  );
+}
+
+function buildStarterDescription(agent: ImAgent): string {
+  return agent.description.trim() || `${agent.display_name} handles the default IM replies for this workspace.`;
+}
+
+function resolveConversationTitle(input: { conversation: ImConversation; starterTitle: string }): string {
+  const normalized = input.conversation.title.trim();
+  if (!normalized || normalized === DEFAULT_CONVERSATION_TITLE) {
+    return input.starterTitle;
+  }
+  return normalized;
+}
+
+function findStarterConversation(input: {
+  conversations: ImConversation[];
+  selfUserId: string;
+  peerUserId: string;
+  starterTitle: string;
+}): ImConversation | null {
+  return (
+    input.conversations.find(
+      (item) =>
+        item.participant_ids.length === 2 &&
+        item.participant_ids.includes(input.selfUserId) &&
+        item.participant_ids.includes(input.peerUserId)
+    ) ??
+    input.conversations.find((item) => item.title === input.starterTitle) ??
+    input.conversations[0] ??
+    null
+  );
+}
+
+async function ensureBootstrap(): Promise<BootstrapState> {
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
-      const self = await ensureUser(SELF_USERNAME, "You");
-      const peer = await ensureUser(PEER_USERNAME, "Teammate");
-      let conversations = await listConversationsRaw();
-      if (conversations.length === 0) {
-        const created = await createConversationRaw({
-          title: DEFAULT_CONVERSATION_TITLE,
-          participant_ids: [self.id, peer.id]
-        });
-        conversations = [created];
-      }
+      const [self, agents, nodes] = await Promise.all([ensureUser(SELF_USERNAME, "You"), listAgentsRaw(), listNodesRaw()]);
+      const starterAgent = pickStarterAgent(agents);
+      const starterPeer = await ensureUser(
+        buildStarterPeerUsername(starterAgent.agent_id),
+        starterAgent.display_name || DEFAULT_AGENT_NAME
+      );
+      const starterTitle = buildStarterConversationTitle(starterAgent.display_name || DEFAULT_AGENT_NAME);
+      const existingConversations = await listConversationsRaw();
+      const starterConversation =
+        findStarterConversation({
+          conversations: existingConversations,
+          selfUserId: self.id,
+          peerUserId: starterPeer.id,
+          starterTitle
+        }) ??
+        (await createConversationRaw({
+          title: starterTitle,
+          participant_ids: [self.id, starterPeer.id]
+        }));
+      const ownedNodeId = pickPrimaryOwnedNodeId(self);
+      const targetNode =
+        pickDefaultNodeForSend(nodes) ??
+        (ownedNodeId
+          ? {
+              node_id: ownedNodeId,
+              node_name: ownedNodeId,
+              status: "unknown",
+              relay_enabled: true
+            }
+          : null);
       return {
         selfUserId: self.id,
-        targetNodeId: pickPrimaryOwnedNodeId(self),
-        initialConversationId: conversations[0]?.id ?? null
+        targetNodeId: targetNode?.node_id ?? null,
+        starterConversationId: starterConversation.id,
+        starter: {
+          title: starterTitle,
+          actionLabel: `Open ${starterTitle}`,
+          actionHref: `/chat/${starterConversation.id}`,
+          agentName: starterAgent.display_name || DEFAULT_AGENT_NAME,
+          description: buildStarterDescription(starterAgent),
+          nodeLabel: targetNode?.node_name ?? targetNode?.node_id,
+          statusLabel: targetNode?.status
+        }
       };
     })();
   }
@@ -183,7 +319,12 @@ export function resetChatBootstrapState() {
 }
 
 export async function getChatBootstrapState(): Promise<ChatBootstrapState> {
-  return ensureBootstrap();
+  const bootstrap = await ensureBootstrap();
+  return {
+    selfUserId: bootstrap.selfUserId,
+    targetNodeId: bootstrap.targetNodeId,
+    initialConversationId: bootstrap.starterConversationId
+  };
 }
 
 function toChatMessage(input: {
@@ -216,12 +357,13 @@ function toConversationSummary(input: {
   messages: ImMessage[];
   userById: Map<string, ImUser>;
   selfUserId: string;
+  starterTitle: string;
 }): ConversationSummary {
   const latest = input.messages.at(-1);
   const unreadCount = input.messages.filter((item) => item.sender_user_id !== input.selfUserId).length;
   return {
     conversation_id: input.conversation.id,
-    title: input.conversation.title,
+    title: resolveConversationTitle({ conversation: input.conversation, starterTitle: input.starterTitle }),
     last_message_preview: latest?.content ?? "",
     last_message_at: latest?.created_at,
     unread_count: unreadCount,
@@ -250,8 +392,13 @@ export async function confirmBindToken(bindToken: string) {
   return response;
 }
 
+export async function getChatStarter(): Promise<ChatStarter> {
+  const { starter } = await ensureBootstrap();
+  return starter;
+}
+
 export async function listConversations(): Promise<ConversationSummary[]> {
-  const { selfUserId } = await ensureBootstrap();
+  const { selfUserId, starter } = await ensureBootstrap();
   const [conversations, userById] = await Promise.all([listConversationsRaw(), loadUserMap()]);
   const messagesByConversation = await Promise.all(
     conversations.map(async (item) => ({
@@ -265,14 +412,15 @@ export async function listConversations(): Promise<ConversationSummary[]> {
         conversation: item.conversation,
         messages: item.messages,
         userById,
-        selfUserId
+        selfUserId,
+        starterTitle: starter.title
       })
     )
     .sort((left, right) => (right.last_message_at ?? "").localeCompare(left.last_message_at ?? ""));
 }
 
 export async function getConversation(conversationId: string): Promise<ConversationDetail | null> {
-  const { selfUserId } = await ensureBootstrap();
+  const { selfUserId, starter } = await ensureBootstrap();
   const [conversations, userById, messages] = await Promise.all([
     listConversationsRaw(),
     loadUserMap(),
@@ -284,7 +432,7 @@ export async function getConversation(conversationId: string): Promise<Conversat
   }
   return {
     conversation_id: conversation.id,
-    title: conversation.title,
+    title: resolveConversationTitle({ conversation, starterTitle: starter.title }),
     messages: messages.map((message) =>
       toChatMessage({
         message,
@@ -299,7 +447,7 @@ export async function getConversation(conversationId: string): Promise<Conversat
 export async function sendMessage(input: { conversationId: string; content: string }): Promise<ChatMessage> {
   const { selfUserId, targetNodeId } = await ensureBootstrap();
   if (!targetNodeId) {
-    throw new Error("No bound node available. Complete device binding first.");
+    throw new Error("No relay node is available. Connect an online node and retry.");
   }
   const [created, userById] = await Promise.all([
     requestJson<ImMessage>(`/im/v1/conversations/${input.conversationId}/messages`, {

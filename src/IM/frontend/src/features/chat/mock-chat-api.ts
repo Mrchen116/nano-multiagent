@@ -1,4 +1,4 @@
-import { ChatMessage, ConversationDetail, ConversationSummary } from "./types";
+import { ChatMessage, ChatStarter, ConversationDetail, ConversationSummary } from "./types";
 
 const wait = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -34,6 +34,16 @@ const conversations: ConversationSummary[] = [
     is_muted: true
   }
 ];
+
+const DEFAULT_STARTER: ChatStarter = {
+  title: "Agent · OpsBot",
+  actionLabel: "Open Agent · OpsBot",
+  actionHref: "/chat/conv-kernel-ops",
+  agentName: "OpsBot",
+  description: "OpsBot handles the default IM replies for this workspace.",
+  nodeLabel: "node-app-01",
+  statusLabel: "online"
+};
 
 const details = new Map<string, ConversationDetail>([
   [
@@ -114,6 +124,11 @@ export async function confirmBindToken(_: string) {
 
 export function resetChatBootstrapState() {
   return undefined;
+}
+
+export async function getChatStarter(): Promise<ChatStarter> {
+  await wait();
+  return { ...DEFAULT_STARTER };
 }
 
 export async function listConversations() {

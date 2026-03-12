@@ -1,7 +1,19 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { ChatMessage, ConversationDetail } from "../types";
+import { ChatMessage, ChatStarter, ConversationDetail } from "../types";
+
+const RELAY_UNAVAILABLE_MESSAGE = "No relay node is available. Connect an online node and retry.";
+
+function toErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    if (error.message.includes("target_node_id is not connected")) {
+      return RELAY_UNAVAILABLE_MESSAGE;
+    }
+    return error.message;
+  }
+  return "Message send failed. Retry when the relay node is available.";
+}
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const mine = message.is_mine ?? message.sender_type === "user";
@@ -23,15 +35,52 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   );
 }
 
+function DefaultAgentStarterCard({ starter }: { starter: ChatStarter }) {
+  return (
+    <section className="im-card flex h-full min-h-[420px] flex-col justify-center gap-4 px-6 py-6 text-slate-700">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Default chat</p>
+        <h2 className="im-title mt-2 text-2xl font-bold">{starter.title}</h2>
+        <p className="mt-3 text-sm text-slate-600">{starter.description}</p>
+      </div>
+      <dl className="grid gap-2 text-sm text-slate-500">
+        <div className="flex items-center gap-2">
+          <dt className="font-semibold text-slate-700">Agent</dt>
+          <dd>{starter.agentName}</dd>
+        </div>
+        {starter.nodeLabel && (
+          <div className="flex items-center gap-2">
+            <dt className="font-semibold text-slate-700">Node</dt>
+            <dd>{starter.nodeLabel}</dd>
+          </div>
+        )}
+        {starter.statusLabel && (
+          <div className="flex items-center gap-2">
+            <dt className="font-semibold text-slate-700">Status</dt>
+            <dd>{starter.statusLabel}</dd>
+          </div>
+        )}
+      </dl>
+      <div>
+        <Link to={starter.actionHref} className="im-btn im-btn-primary inline-flex" aria-label={starter.actionLabel}>
+          {starter.actionLabel}
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 export function MessagePane(props: {
   detail: ConversationDetail | null;
+  starter?: ChatStarter | null;
   isMobile: boolean;
   isSending: boolean;
   canSend: boolean;
   helperText: string | null;
-  onSend: (content: string) => void;
+  onSend: (content: string) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -46,6 +95,9 @@ export function MessagePane(props: {
   }, [props.detail, props.detail?.messages.length]);
 
   if (!props.detail) {
+    if (props.starter) {
+      return <DefaultAgentStarterCard starter={props.starter} />;
+    }
     return (
       <section className="im-card hidden h-full min-h-[420px] items-center justify-center text-slate-500 lg:flex">
         Select a conversation
@@ -53,14 +105,20 @@ export function MessagePane(props: {
     );
   }
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
     if (!text || !props.canSend) {
       return;
     }
-    props.onSend(text);
-    setDraft("");
+    setSendError(null);
+    try {
+      await props.onSend(text);
+      setDraft("");
+    } catch (error) {
+      setSendError(toErrorMessage(error));
+      // Preserve the draft so the user can retry after reading the failure feedback.
+    }
   };
 
   return (
@@ -82,6 +140,11 @@ export function MessagePane(props: {
       </div>
       <form className="border-t border-[var(--im-border)] p-3" onSubmit={onSubmit}>
         {props.helperText && <p className="mb-2 text-xs text-amber-700">{props.helperText}</p>}
+        {sendError && (
+          <p role="alert" className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {sendError}
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <button type="button" className="im-btn im-btn-muted" aria-label="Attachment picker">
             +
