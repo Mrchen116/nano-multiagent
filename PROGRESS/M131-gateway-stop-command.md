@@ -19,9 +19,11 @@
   - Entry: `main(["stop", "--config", ...])` 已输出 stop 反馈；后台启动会落 `.gateway-state.json`。
 - Rollback:
   - `45fed26`（R1 红测）
-- Commits: C1=`45fed26`, C2=`92ab1dd`, C3=<pending>
+- Commits: C1=`45fed26`, C2=`92ab1dd`, C3=`71d9799`
 - Next:
-  - 用真实 `python -m personal_assistant.main stop --config ...` 打通 e2e，并补 README/runbook。
+  - 已完成；后续仅保留整体 milestone 集成与主仓更新。
+
+<!-- R1 docs evidence landed together with milestone docs commit to保持三提交约束且避免碎片化文档提交。 -->
 
 ### R2 真实 CLI 停止入口与文档
 - Context:
@@ -36,9 +38,9 @@
   - Entry: 真实 e2e 已验证 background start -> `stop --config` 成功关闭；进程缺失时返回 `STALE`，无状态文件时返回 `NOT RUNNING`。
 - Rollback:
   - `92ab1dd`（R1 C2）
-- Commits: C1=`3227a53`, C2=<pending>, C3=<pending>
+- Commits: C1=`3227a53`, C2=`b629ed4`, C3=`71d9799`
 - Next:
-  - 提交 R2 实现/文档，并补最终 docs commit。
+  - 进入整体 milestone 集成：rebase main、回主仓 merge、更新 dev-tasks.json、清理 worktree。
 
 ### R2 真实 CLI 停止入口与文档
 - Context:
