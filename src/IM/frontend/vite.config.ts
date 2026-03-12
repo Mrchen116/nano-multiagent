@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/im": {
-        target: "http://127.0.0.1:8011",
+        target: "http://127.0.0.1:8021",
         changeOrigin: true
       }
     }
