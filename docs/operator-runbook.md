@@ -2,6 +2,12 @@
 
 本文档只围绕默认用户路径：在同一台机器上启动 IM 服务和 Gateway，让正常用户从 Web IM 入口完成绑定并发起第一条聊天消息。
 
+先记住默认顺序：
+1. 启动 IM 服务。
+2. 启动 Gateway。
+3. 如果浏览器出现绑定页，就完成绑定。
+4. 打开 Web IM，确认聊天输入区可用后发送第一条消息。
+
 > 历史 operator-only API 验证命令保留在附录；默认主链路不需要手工拼 `bind` / `message` curl。
 
 ## 前置条件
@@ -25,6 +31,10 @@ PYTHONPATH=src python -m uvicorn IM.app:app \
 当前行为说明：
 - 仓内已交付 `src/IM/frontend/dist` 时，IM host 会直接服务 `/`、`/chat`、`/settings/*`、`/bind/confirm`。
 - 正常用户默认走 IM host，不需要先知道前端 dev server `4173`。
+
+IM ready 信号：
+- 打开 `http://127.0.0.1:8011/` 时能进入 Web IM 入口，说明 IM host 已经 ready。
+- 如果你能打开绑定确认页 `http://127.0.0.1:8011/bind/confirm?token=...`，也说明 IM 的默认入口链路已可用。
 
 ## 2. 准备最小 Gateway 配置
 
@@ -77,6 +87,11 @@ Gateway 默认启动顺序：
 5. 检查节点是否已绑定；必要时给出绑定下一步。
 6. 保持常驻，等待 Web IM 消息。
 
+Gateway ready 信号：
+- 如果终端打印 `ACTION ...` / `NEXT ...` 并打开绑定页，说明 Gateway 已完成启动并进入“等你绑定”的状态。
+- 如果终端保持常驻，且不再反复报错退出，说明 Gateway 已进入等待 Web IM 消息的状态。
+- 如果你使用 smoke 脚本，看到 `READY` / `RUNNING` / `SHUTDOWN exit_code=0` 就表示默认生命周期闭环正常。
+
 ## 4. 观察未绑定 / 已绑定行为
 
 ### 未绑定节点
@@ -85,6 +100,7 @@ Gateway 默认启动顺序：
 - Gateway 终端输出 `ACTION ...` 与 `NEXT ...`。
 - Gateway 会尝试打开绑定页；默认绑定 URL 形如 `http://127.0.0.1:8011/bind/confirm?token=...`。
 - 浏览器进入绑定确认页后，确认绑定即可把当前用户与该节点关联起来。
+- Web IM 聊天输入区会保持禁用，并显示 `Chat unavailable`，直到绑定完成。
 
 如果浏览器没有自动打开：
 - 直接复制 Gateway 终端里打印的 `NEXT Open ...` 链接到浏览器。
@@ -95,6 +111,7 @@ Gateway 默认启动顺序：
 - Gateway 不会再次要求绑定，也不会重复打开浏览器。
 - 终端保持常驻，等待 Web IM 消息。
 - 打开 `http://127.0.0.1:8011/` 或 `http://127.0.0.1:8011/chat` 即可进入聊天应用。
+- Web IM 输入区恢复可用后，就可以直接发送第一条消息。
 
 ### 启动失败 / Bootstrap 失败
 

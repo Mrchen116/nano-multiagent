@@ -104,7 +104,7 @@ function DefaultAgentStarterCard({ starter }: { starter: ChatStarter }) {
         )}
         {starter.statusLabel && (
           <div className="flex items-center gap-2">
-            <dt className="font-semibold text-slate-700">Current route</dt>
+            <dt className="font-semibold text-slate-700">Gateway status</dt>
             <dd>{starter.statusLabel}</dd>
           </div>
         )}

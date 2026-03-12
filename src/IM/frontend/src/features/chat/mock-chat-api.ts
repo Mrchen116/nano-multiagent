@@ -68,7 +68,7 @@ const DEFAULT_STARTER: ChatStarter = {
   agentName: "OpsBot",
   description: "OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
   nodeLabel: "node-app-01",
-  statusLabel: "Using OpsBot on node-app-01 (online)"
+  statusLabel: "Online and ready to chat via OpsBot on node-app-01"
 };
 
 const details = new Map<string, ConversationDetail>([

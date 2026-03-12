@@ -3119,6 +3119,29 @@
           "frontend_build": "vite build passed"
         }
       }
+    },
+    {
+      "milestone_id": "M129",
+      "title": "首次启动与默认路径产品化收口",
+      "goal": "reduce operator-centric onboarding so a normal user can understand startup order, ready signals, and next actions on the default IM/Gateway path.",
+      "exit_criteria": "- the default start-here path is clearer and uses less operator-centric terminology;\\n- users can tell when IM/Gateway are ready and what to do next;\\n- docs match the real startup path;\\n- product acceptance no longer treats excessive infra detail as normal-user prerequisite knowledge.",
+      "status": "DONE",
+      "blocked_by": [],
+      "claimed_by": "M129-execution-worker",
+      "claimed_at": "2026-03-13T00:33:59+08:00",
+      "status_changed_at": "2026-03-13T00:33:59+08:00",
+      "updated_at": "2026-03-13T00:33:59+08:00",
+      "execution_mode": "parallel",
+      "use_worktree": true,
+      "worktree_dir": "/Users/czj/Repos/nano-multiagent/.worktrees/M129",
+      "branch": "milestone/M129",
+      "result": {
+        "solution_summary": "收口首次启动默认路径：README/runbook 明确 IM→Gateway→绑定→聊天顺序与 ready signals，Web IM 默认页改为 Gateway status / ready to chat 文案，并补齐 M129 acceptance 证据。",
+        "tests": "python3 -m pytest -q tests/unit/personal_assistant/test_main.py tests/e2e/test_personal_assistant_main_e2e.py tests/acceptance/test_im_gateway_real_acceptance.py tests/im_service/integration/test_account_binding_api.py tests/im_service/integration/test_gateway_websocket_api.py => 33 passed in 4.93s; cd src/IM/frontend && npm run test -- --run src/features/chat/components/message-pane.test.tsx src/features/chat/chat-workspace-page.test.ts src/features/chat/chat-layout.test.tsx && npm run build => 13 passed, build ok",
+        "evidence": [
+          "ACCEPTANCE/M129-startup-default-path-productization.md"
+        ]
+      }
     }
   ]
 }
