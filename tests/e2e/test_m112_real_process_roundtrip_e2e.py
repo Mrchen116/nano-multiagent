@@ -366,6 +366,146 @@ def test_gateway_runtime_connects_to_real_im_service(tmp_path: Path) -> None:
         im_server.stop()
 
 
+def test_gateway_runtime_opens_browser_bind_flow_for_unowned_node(tmp_path: Path) -> None:
+    """Start the runtime against real IM and verify bind bootstrap opens the browser URL."""
+    im_port = _pick_free_port()
+    kernel_port = _pick_free_port()
+    im_db_path = tmp_path / "im.db"
+    im_server = _IMServer(im_port, im_db_path)
+    kernel_server = _KernelServer(kernel_port)
+    im_server.start()
+    kernel_server.start()
+
+    try:
+        from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
+        from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
+        from personal_assistant.config.local_store import (
+            AgentWorkspaceConfig,
+            ChannelConfig,
+            HeartbeatConfig,
+            IMServiceConfig,
+            KernelConfig,
+            LocalConfig,
+            NodeConfig,
+        )
+        from personal_assistant.config.sync_client import ConfigSyncClient
+        from personal_assistant.gateway.channel_registry import ChannelRegistry
+        from personal_assistant.main import _IMBootstrapClient, GatewayProcessManager, GatewayRuntime, PollingHeartbeatRunner
+        from personal_assistant.reporter.upstream_reporter import UpstreamReporter
+        from personal_assistant.scheduler.heartbeat_scheduler import HeartbeatScheduler, HeartbeatSchedulerStateStore
+        from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
+
+        im_base = im_server.base_url
+        kernel_base = kernel_server.base_url
+        workspace = tmp_path / "agent-bind"
+        workspace.mkdir()
+        config_path = tmp_path / "node-config.yaml"
+        config_path.write_text("placeholder", encoding="utf-8")
+        local_config = LocalConfig(
+            node=NodeConfig(node_id="node-bind"),
+            agents=(AgentWorkspaceConfig(agent_id="agent-bind", workspace_root=workspace),),
+            channels=(ChannelConfig(name="web_relay", enabled=True),),
+            kernel=KernelConfig(
+                base_url=kernel_base,
+                token=KERNEL_TOKEN,
+                command="echo noop",
+                startup_timeout_seconds=5.0,
+                health_poll_interval_seconds=0.1,
+            ),
+            heartbeat=HeartbeatConfig(tick_interval_seconds=60.0),
+            im_service=IMServiceConfig(url=im_base),
+            source_path=config_path,
+        )
+        kernel_client = KernelApiClient(
+            config=KernelApiClientConfig(base_url=kernel_base, token=KERNEL_TOKEN, timeout_seconds=5.0)
+        )
+        process_manager = GatewayProcessManager(config=local_config.kernel, kernel_client=kernel_client)
+        process_manager.process = type("FakeProc", (), {
+            "poll": lambda self: None,
+            "terminate": lambda self: None,
+            "wait": lambda self, **kw: 0,
+            "kill": lambda self: None,
+            "pid": 10001,
+        })()
+        relay_adapter = WebRelayAdapter()
+        channel_registry = ChannelRegistry((relay_adapter,))
+        heartbeat_runner = PollingHeartbeatRunner(
+            scheduler=HeartbeatScheduler(
+                agents=local_config.agents,
+                kernel_client=kernel_client,
+                state_store=HeartbeatSchedulerStateStore(tmp_path / "hb-bind.json"),
+            ),
+            config=local_config.heartbeat,
+        )
+
+        class _NodeStub:
+            node_id = "node-bind"
+            user_id = None
+
+        reporter = UpstreamReporter(
+            node=_NodeStub(),
+            agents=local_config.agents,
+            send_frame=lambda _t, _p: None,
+        )
+
+        async def _real_ws_connect(url: str, headers: dict[str, str]) -> Any:
+            return await websockets.connect(url, additional_headers=dict(headers))
+
+        im_manager = IMConnectionManager(
+            config=IMConnectionConfig(url=im_base),
+            reporter=reporter,
+            relay_adapter=relay_adapter,
+            sync_client=ConfigSyncClient(),
+            heartbeat_trigger=lambda _a, _r: heartbeat_runner.request_tick(),
+            connect=_real_ws_connect,
+        )
+        opened_urls: list[str] = []
+        bootstrap_client = _IMBootstrapClient(
+            base_url=im_base,
+            token=None,
+            browser_opener=lambda url, new=0, autoraise=True: opened_urls.append(url) or True,
+        )
+        runtime = GatewayRuntime(
+            local_config,
+            process_manager,
+            channel_registry=channel_registry,
+            heartbeat_runner=heartbeat_runner,
+            im_connection_manager=im_manager,
+            post_im_connect=lambda: bootstrap_client.ensure_node_binding(node_id="node-bind"),
+            resource_closers=(kernel_client.close, bootstrap_client.close),
+        )
+        owner_resp = httpx.post(
+            f"{im_base}/im/v1/users",
+            json={"username": "you", "display_name": "You"},
+            timeout=5.0,
+        )
+        assert owner_resp.status_code == 201
+        owner_id = owner_resp.json()["id"]
+        outcome: dict[str, int] = {}
+        rt_thread = threading.Thread(target=lambda: outcome.setdefault("exit_code", runtime.run_forever()), daemon=True)
+        rt_thread.start()
+        assert runtime.wait_until_ready(timeout=10.0) is True
+        assert opened_urls and opened_urls[0].startswith("http://127.0.0.1:4173/bind/confirm?token=")
+
+        confirm_resp = httpx.post(
+            f"{im_base}/im/v1/bind",
+            json={"action": "confirm", "bind_token": opened_urls[0].split("token=", 1)[1], "user_id": owner_id},
+            timeout=5.0,
+        )
+        assert confirm_resp.status_code == 201
+        me_resp = httpx.get(f"{im_base}/im/v1/me?user_id={owner_id}", timeout=5.0)
+        assert me_resp.status_code == 200
+        assert me_resp.json()["owned_node_ids"] == ["node-bind"]
+
+        runtime.request_shutdown()
+        rt_thread.join(timeout=5.0)
+        assert outcome.get("exit_code") == 0
+
+    finally:
+        kernel_server.stop()
+        im_server.stop()
+
+
 def test_full_gateway_runtime_processes_relay_message(tmp_path: Path) -> None:
     """Start GatewayRuntime connected to real IM service and verify relay processing.
 

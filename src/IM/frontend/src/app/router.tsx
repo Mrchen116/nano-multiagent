@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate, RouteObject } from "react-router-dom";
 
 import { App } from "./App";
+import { BindConfirmPage } from "../features/chat/bind-confirm-page";
 import { ChatWorkspacePage } from "../features/chat/chat-workspace-page";
 import { AccountPage } from "../features/settings/account/account-page";
 import { AgentDetailPage } from "../features/settings/agents/agent-detail-page";
@@ -15,6 +16,7 @@ export const appRoutes: RouteObject[] = [
     element: <App />,
     children: [
       { index: true, element: <Navigate to="/chat" replace /> },
+      { path: "bind/confirm", element: <BindConfirmPage /> },
       { path: "chat", element: <ChatWorkspacePage /> },
       { path: "chat/:conversationId", element: <ChatWorkspacePage /> },
       {

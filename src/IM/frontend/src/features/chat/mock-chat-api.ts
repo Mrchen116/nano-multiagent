@@ -98,6 +98,24 @@ const details = new Map<string, ConversationDetail>([
   ]
 ]);
 
+export async function getChatBootstrapState() {
+  await wait();
+  return {
+    selfUserId: "mock-you",
+    targetNodeId: "mock-node-1",
+    initialConversationId: conversations[0]?.conversation_id ?? null
+  };
+}
+
+export async function confirmBindToken(_: string) {
+  await wait(40);
+  return { node_id: "mock-node-1" };
+}
+
+export function resetChatBootstrapState() {
+  return undefined;
+}
+
 export async function listConversations() {
   await wait();
   return [...conversations].sort((a, b) => Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned)));

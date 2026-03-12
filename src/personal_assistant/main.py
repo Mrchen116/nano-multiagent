@@ -7,14 +7,18 @@ import asyncio
 import shlex
 import signal
 import subprocess
+import sys
 import threading
 import time
+import webbrowser
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
+import httpx
 import websockets
 from websockets.asyncio.client import ClientConnection
 
@@ -36,6 +40,8 @@ from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnection
 
 ProcessLike = subprocess.Popen[Any]
 ProcessFactory = Callable[[str], ProcessLike]
+BackgroundProcessFactory = Callable[[list[str], Path], ProcessLike]
+ReadyWaiter = Callable[[ProcessLike, LocalConfig, float], None]
 Monotonic = Callable[[], float]
 Sleep = Callable[[float], None]
 AsyncConnect = Callable[[str, Mapping[str, str]], Awaitable[ClientConnection]]
@@ -72,6 +78,13 @@ class IMConnectionManagerLike(Protocol):
         """Close the websocket and stop reconnect attempts."""
 
 
+class BrowserOpener(Protocol):
+    """Describe the minimal browser-launch interface needed by bind bootstrap."""
+
+    def __call__(self, url: str, new: int = 0, autoraise: bool = True) -> bool:
+        """Open one browser URL and report whether a handler accepted the request."""
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeFactories:
     """Collect replaceable construction hooks used by the gateway entry.
@@ -85,6 +98,113 @@ class RuntimeFactories:
     load_config: Callable[[str | Path], LocalConfig] = load_local_config
     build_runtime: Callable[[LocalConfig], GatewayRuntimeLike] | None = None
     install_signal_handlers: SignalHandlerInstaller | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BackgroundLaunchResult:
+    """Describe the operator-facing result of a successful background launch.
+
+    Args:
+        pid: Process id of the detached foreground child now hosting the gateway runtime.
+        health_url: Ready-check URL operators can probe during follow-up troubleshooting.
+        log_path: File receiving the detached child stdout/stderr stream.
+    """
+
+    pid: int
+    health_url: str
+    log_path: Path
+
+
+class _IMBootstrapClient:
+    """Query IM ownership state and launch browser binding when a node is unbound.
+
+    Args:
+        base_url: HTTP base URL used for IM account and node APIs.
+        token: Optional bearer token forwarded to IM HTTP APIs.
+        client: Optional preconfigured HTTP client used by tests.
+        browser_opener: Function used to open the operator browser on pending bind URLs.
+        timeout_seconds: HTTP timeout used for node/bind bootstrap calls.
+        monotonic: Monotonic clock source used for short startup polling windows.
+        sleep: Sleep function used between node-visibility retries.
+    """
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        token: str | None,
+        client: httpx.Client | None = None,
+        browser_opener: BrowserOpener = webbrowser.open,
+        timeout_seconds: float = 5.0,
+        monotonic: Monotonic = time.monotonic,
+        sleep: Sleep = time.sleep,
+    ) -> None:
+        self._client = client or httpx.Client(
+            base_url=base_url,
+            headers=_im_http_headers(token),
+            timeout=timeout_seconds,
+            trust_env=False,
+        )
+        self._browser_opener = browser_opener
+        self._monotonic = monotonic
+        self._sleep = sleep
+
+    def ensure_node_binding(self, *, node_id: str) -> str | None:
+        """Open the bind URL when the upstream node still has no owner.
+
+        Args:
+            node_id: Gateway node id that was just registered over IM websocket.
+
+        Returns:
+            The opened bind URL for unbound nodes, or `None` when the node is already owned.
+
+        Raises:
+            RuntimeError: When IM bootstrap APIs do not expose the registered node.
+        """
+
+        owner_id = self._wait_for_owner(node_id=node_id)
+        if owner_id:
+            return None
+        response = self._client.post("/im/v1/bind", json={"action": "start", "node_id": node_id})
+        response.raise_for_status()
+        payload = response.json()
+        bind_url = _require_text(payload.get("bind_url"), field_name="bind_url")
+        self._browser_opener(bind_url, new=2, autoraise=True)
+        return bind_url
+
+    def close(self) -> None:
+        """Release the owned HTTP client."""
+
+        self._client.close()
+
+    def _wait_for_owner(self, *, node_id: str) -> str:
+        deadline = self._monotonic() + 5.0
+        last_error: Exception | None = None
+        while self._monotonic() <= deadline:
+            try:
+                return self._get_owner_id(node_id=node_id)
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                self._sleep(0.1)
+        message = f"node {node_id} did not appear in IM bootstrap"
+        if last_error is not None:
+            raise RuntimeError(message) from last_error
+        raise RuntimeError(message)
+
+    def _get_owner_id(self, *, node_id: str) -> str:
+        response = self._client.get("/im/v1/nodes")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise RuntimeError("nodes response must be a list")
+        for item in payload:
+            if not isinstance(item, Mapping):
+                continue
+            if _require_text(item.get("node_id"), field_name="node_id") != node_id:
+                continue
+            owner_id = item.get("owner_id")
+            return owner_id.strip() if isinstance(owner_id, str) else ""
+        raise RuntimeError(f"node {node_id} not found")
 
 
 class GatewayProcessManager:
@@ -147,7 +267,7 @@ class GatewayProcessManager:
         process.terminate()
         try:
             process.wait(timeout=self._config.shutdown_grace_seconds)
-        except TimeoutError:
+        except (TimeoutError, subprocess.TimeoutExpired):
             process.kill()
         finally:
             self.process = None
@@ -281,6 +401,7 @@ class GatewayRuntime:
         heartbeat_runner: Background heartbeat loop wrapper.
         im_connection_manager: Optional IM websocket connector.
         on_inbound: Shared synchronous inbound callback given to channel adapters.
+        post_im_connect: Optional synchronous hook invoked after IM connect/register succeeds.
         resource_closers: Additional cleanup callables invoked after runtime shutdown.
     """
 
@@ -293,6 +414,7 @@ class GatewayRuntime:
         heartbeat_runner: HeartbeatRunner | None = None,
         im_connection_manager: IMConnectionManagerLike | None = None,
         on_inbound: Callable[[InboundMessage], None] | None = None,
+        post_im_connect: Callable[[], None] | None = None,
         resource_closers: tuple[Callable[[], None], ...] = (),
     ) -> None:
         self._config = config
@@ -301,6 +423,7 @@ class GatewayRuntime:
         self._heartbeat_runner = heartbeat_runner
         self._im_connection_manager = im_connection_manager
         self._on_inbound = on_inbound or (lambda _message: None)
+        self._post_im_connect = post_im_connect
         self._resource_closers = resource_closers
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
@@ -345,6 +468,8 @@ class GatewayRuntime:
             if self._im_connection_manager is not None:
                 await self._im_connection_manager.connect_once()
                 im_connected = True
+                if self._post_im_connect is not None:
+                    await asyncio.to_thread(self._post_im_connect)
                 im_task = asyncio.create_task(self._im_connection_manager.run_forever(), name="personal-assistant-im")
             self._ready_event.set()
             await asyncio.to_thread(self._shutdown_requested.wait)
@@ -395,6 +520,46 @@ def run_gateway(
         restore()
 
 
+def launch_gateway_in_background(
+    *,
+    config_path: str | Path,
+    load_config: Callable[[str | Path], LocalConfig] = load_local_config,
+    spawn_process: BackgroundProcessFactory | None = None,
+    wait_for_ready: ReadyWaiter | None = None,
+) -> BackgroundLaunchResult:
+    """Start the gateway in a detached child and wait until it is ready.
+
+    Args:
+        config_path: Operator-provided config path forwarded to the detached child.
+        load_config: Config loader used to resolve health-check details before spawning.
+        spawn_process: Optional detached-child launcher override used by tests.
+        wait_for_ready: Optional readiness waiter override used by tests.
+
+    Returns:
+        Detached process metadata once the child reaches ready state.
+
+    Raises:
+        RuntimeError: When the detached child exits or never becomes ready.
+    """
+
+    config = load_config(config_path)
+    log_path = _default_gateway_log_path(config)
+    argv = _background_gateway_argv(config.source_path)
+    launcher = spawn_process or _spawn_background_gateway_process
+    ready_waiter = wait_for_ready or _wait_for_gateway_ready
+    process = launcher(argv, log_path)
+    try:
+        ready_waiter(process, config, config.kernel.startup_timeout_seconds)
+    except Exception:
+        _stop_background_process(process, timeout_seconds=config.kernel.shutdown_grace_seconds)
+        raise
+    return BackgroundLaunchResult(
+        pid=process.pid,
+        health_url=f"{config.kernel.base_url}{config.kernel.health_path}",
+        log_path=log_path,
+    )
+
+
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
     """Construct the default long-running gateway runtime from parsed local config."""
 
@@ -419,6 +584,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
+    im_bootstrap_client: _IMBootstrapClient | None = None
+    post_im_connect: Callable[[], None] | None = None
     if config.im_service is not None:
         relay_adapter = channel_registry.get("web_relay")
         if not isinstance(relay_adapter, WebRelayAdapter):
@@ -434,6 +601,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             reporter=reporter,
             heartbeat_runner=heartbeat_runner,
         )
+        im_bootstrap_client = _IMBootstrapClient(
+            base_url=_im_http_base_url(config.im_service.url),
+            token=config.im_service.token,
+        )
+        post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(node_id=config.node.node_id)
     pipeline = InboundPipeline(
         kernel_client=kernel_client,
         agents=config.agents,
@@ -446,6 +618,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         ),
     )
     inbound_dispatcher = _InboundDispatcher(pipeline)
+    closers: list[Callable[[], None]] = [kernel_client.close]
+    if im_bootstrap_client is not None:
+        closers.append(im_bootstrap_client.close)
     return GatewayRuntime(
         config,
         process_manager,
@@ -453,7 +628,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         heartbeat_runner=heartbeat_runner,
         im_connection_manager=im_connection_manager,
         on_inbound=inbound_dispatcher,
-        resource_closers=(kernel_client.close,),
+        post_im_connect=post_im_connect,
+        resource_closers=tuple(closers),
     )
 
 
@@ -462,8 +638,21 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="Run personal assistant gateway runtime")
     parser.add_argument("--config", required=True, help="Path to local node-config.yaml")
+    parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="Keep the gateway attached to the current terminal for debugging and smoke tests",
+    )
     args = parser.parse_args(argv)
-    return run_gateway(config_path=args.config)
+    try:
+        if args.foreground:
+            return run_gateway(config_path=args.config)
+        result = launch_gateway_in_background(config_path=args.config)
+        print(f"STARTED pid={result.pid} health_url={result.health_url} log={result.log_path}")
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"ERROR {exc}", file=sys.stderr)
+        return 1
 
 
 def _coerce_factories(factories: RuntimeFactories | Mapping[str, Any] | None) -> RuntimeFactories:
@@ -577,8 +766,97 @@ def _metadata_text(metadata: Mapping[str, object], *, key: str) -> str | None:
     return stripped or None
 
 
+def _require_text(value: object, *, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError(f"{field_name} must be a non-empty string")
+    return value.strip()
+
+
 def _default_heartbeat_state_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "heartbeat-state.json"
+
+
+def _default_gateway_log_path(config: LocalConfig) -> Path:
+    return config.source_path.parent / "gateway.log"
+
+
+def _im_http_headers(token: str | None) -> dict[str, str]:
+    headers = {"User-Agent": "nano-multiagent-gateway-bootstrap"}
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _im_http_base_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme == "http":
+        return f"http://{parsed.netloc}{parsed.path}".rstrip("/")
+    if parsed.scheme == "https":
+        return f"https://{parsed.netloc}{parsed.path}".rstrip("/")
+    if parsed.scheme == "ws":
+        return f"http://{parsed.netloc}{parsed.path}".rstrip("/")
+    if parsed.scheme == "wss":
+        return f"https://{parsed.netloc}{parsed.path}".rstrip("/")
+    raise ValueError("IM URL must use http(s) or ws(s)")
+
+
+def _background_gateway_argv(config_path: Path) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "personal_assistant.main",
+        "--config",
+        str(config_path),
+        "--foreground",
+    ]
+
+
+def _spawn_background_gateway_process(argv: list[str], log_path: Path) -> ProcessLike:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("ab") as log_file:
+        return subprocess.Popen(
+            argv,
+            stdout=log_file,
+            stderr=log_file,
+            start_new_session=True,
+            close_fds=True,
+        )
+
+
+def _wait_for_gateway_ready(process: ProcessLike, config: LocalConfig, timeout_seconds: float) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    last_error: Exception | None = None
+    while time.monotonic() <= deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"gateway exited before ready with return code {process.poll()}")
+        try:
+            response = httpx.get(
+                f"{config.kernel.base_url}{config.kernel.health_path}",
+                timeout=1.0,
+                trust_env=False,
+            )
+            payload = response.json()
+            if isinstance(payload, dict) and bool(payload.get("healthy")):
+                return
+            last_error = RuntimeError(f"unexpected health payload: {payload}")
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+        time.sleep(config.kernel.health_poll_interval_seconds)
+    if last_error is not None:
+        raise RuntimeError("timed out waiting for gateway readiness") from last_error
+    raise RuntimeError("timed out waiting for gateway readiness")
+
+
+def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=timeout_seconds)
+    except (TimeoutError, subprocess.TimeoutExpired):
+        process.kill()
+        with suppress(TimeoutError, subprocess.TimeoutExpired):
+            process.wait(timeout=timeout_seconds)
 
 
 def _install_default_signal_handlers(runtime: GatewayRuntimeLike) -> SignalHandlerInstaller:

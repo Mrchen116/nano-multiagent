@@ -51,4 +51,4 @@ def test_bind_contract_requires_action_specific_fields(tmp_path: Path) -> None:
 
         confirm_response = client.post("/im/v1/bind", json={"action": "confirm", "bind_id": "b1"})
         assert confirm_response.status_code == 400
-        assert confirm_response.json() == {"detail": "bind_id and user_id are required for confirm"}
+        assert confirm_response.json() == {"detail": "bind_id or bind_token and user_id are required for confirm"}

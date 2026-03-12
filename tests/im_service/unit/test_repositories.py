@@ -181,11 +181,11 @@ def test_user_nodes_and_bind_roundtrip(tmp_path: Path) -> None:
     )
     profiles._connection.commit()
 
-    bind = binds.create_bind_request(node_id="node-1", bind_base_url="https://im.local/bind/confirm")
+    bind = binds.create_bind_request(node_id="node-1", bind_base_url="http://127.0.0.1:4173/bind/confirm")
     assert bind.status == "pending"
-    assert bind.bind_url.startswith("https://im.local/bind/confirm?token=")
+    assert bind.bind_url.startswith("http://127.0.0.1:4173/bind/confirm?token=")
 
-    confirmed = binds.confirm_bind_request(bind_id=bind.bind_id, user_id=owner.id)
+    confirmed = binds.confirm_bind_request(bind_token=bind.bind_token, user_id=owner.id)
     nodes.assign_owner(node_id="node-1", owner_id=owner.owner_id)
     profiles.reassign_owner_by_node(node_id="node-1", owner_id=owner.owner_id)
 

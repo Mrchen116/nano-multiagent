@@ -1,5 +1,7 @@
 """Dependency helpers for IM API routes."""
 
+import os
+
 from fastapi import HTTPException, Request, status
 
 from IM.application.bind_service import BindService
@@ -153,7 +155,7 @@ def get_bind_service(request: Request) -> BindService:
         nodes=_build_node_repository(request),
         binds=_build_bind_repository(request),
         profiles=_build_profile_repository(request),
-        bind_base_url="https://im.local/bind/confirm",
+        bind_base_url=os.getenv("IM_BIND_BASE_URL", "http://127.0.0.1:4173/bind/confirm"),
     )
 
 

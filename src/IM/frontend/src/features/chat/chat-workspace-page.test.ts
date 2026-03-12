@@ -1,6 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { toRelayAgentMessage } from "./chat-workspace-page";
+import { renderRouter } from "../../test/render-router";
+import { ChatWorkspacePage, toRelayAgentMessage } from "./chat-workspace-page";
+
+const getChatBootstrapState = vi.fn();
+const listConversations = vi.fn();
+const getConversation = vi.fn();
+const sendMessage = vi.fn();
+const streamConversationEvents = vi.fn((_: unknown) => () => undefined);
+
+vi.mock("../../hooks/use-is-mobile", () => ({
+  useIsMobile: () => false
+}));
+
+vi.mock("./chat-api", () => ({
+  getChatBootstrapState: () => getChatBootstrapState(),
+  listConversations: () => listConversations(),
+  getConversation: (conversationId: string) => getConversation(conversationId),
+  sendMessage: (input: { conversationId: string; content: string }) => sendMessage(input),
+  streamConversationEvents: (input: {
+    conversationId: string;
+    onEvent: (event: unknown) => void;
+    onError?: (error: Error) => void;
+  }) => streamConversationEvents(input)
+}));
 
 describe("chat workspace relay event mapping", () => {
   it("converts relay.processing into a synthetic running agent message", () => {
@@ -40,5 +65,43 @@ describe("chat workspace relay event mapping", () => {
       content: "done",
       delivery_status: "completed"
     });
+  });
+});
+
+describe("chat workspace page", () => {
+  beforeEach(() => {
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      targetNodeId: null,
+      initialConversationId: "conv-1"
+    });
+    listConversations.mockResolvedValue([
+      {
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        last_message_preview: "",
+        last_message_at: null,
+        unread_count: 0,
+        participants: ["You", "Teammate"]
+      }
+    ]);
+    getConversation.mockResolvedValue({
+      conversation_id: "conv-1",
+      title: "You & Teammate",
+      messages: []
+    });
+    sendMessage.mockResolvedValue({});
+    streamConversationEvents.mockReturnValue(() => undefined);
+  });
+
+  it("blocks sending when no node is bound yet", async () => {
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByText("Bind this Gateway before sending messages from Web IM.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByPlaceholderText("Bind this Gateway to enable chat")).toBeDisabled();
   });
 });

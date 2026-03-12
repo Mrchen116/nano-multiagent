@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
 
     config = load_local_config(args.config)
     process = subprocess.Popen(
-        [sys.executable, "-m", "personal_assistant.main", "--config", str(config.source_path)],
+        [sys.executable, "-m", "personal_assistant.main", "--config", str(config.source_path), "--foreground"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
