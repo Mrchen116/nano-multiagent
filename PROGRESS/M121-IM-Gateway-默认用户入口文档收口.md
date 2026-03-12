@@ -23,14 +23,15 @@
 - Rationale:
   - 这能直接回应 M120 的 blocking 问题，同时不改任何实现；正常用户先完成主链路，operator API 再下沉到附录/排障即可。
 - Evidence:
-  - Tests: `cd src/IM/frontend && npm run build` 当前基线失败于 `tsc: command not found`，说明先要解决 worktree 依赖复用问题，才能做最终门禁
+  - Tests: 先 red=`cd src/IM/frontend && npm run build` -> `sh: tsc: command not found`；后续复用主仓 `node_modules` 做本地验证，green=`cd src/IM/frontend && npm run build`
   - Entry: `src/IM/app.py` 与 `tests/im_service/unit/test_app_factory.py` 已固定 IM host `/`、`/chat`、`/bind/confirm` 在 dist 存在时直接服务 Web IM 壳
   - Entry: `PROGRESS/M123-Gateway-默认启动与绑定反馈收口.md` 已记录 Gateway 对未绑定/bootstrap failure 输出 `NEXT ...` 并写回 `/im/v1/nodes.last_error`
+  - Docs: `README.md`、`docs/operator-runbook.md` 已统一为 `http://127.0.0.1:8011/` start-here，并把 curl/API 路径下沉为调试附录
 - Rollback:
   - `74a6594`（计划提交）
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
+- Commits: C1=4c1843b, C2=498da40, C3=<pending>
 - Next:
-  - 提交 Red 基线后，更新 `README.md` 与 `docs/operator-runbook.md`
+  - 收尾 `src/IM/frontend/README.md` 与 TASKS/PROGRESS 最终状态
 
 ### R2 前端 README 与附录降级对齐
 - Context:
@@ -44,8 +45,9 @@
 - Evidence:
   - Tests: `tests/acceptance/test_im_gateway_real_acceptance.py`、`tests/im_service/integration/test_account_binding_api.py`、`tests/unit/personal_assistant/test_main.py` 共同证明“绑定完成后 `owned_node_ids` 建立”“Gateway 未绑定时会打开 bind URL”“已绑定节点不会再次打开浏览器”
   - Entry: `PROGRESS/M122-Web-IM-默认入口恢复可达.md` 已记录 IM-hosted 入口在浏览器中会从 `/` 落到 `/chat`
+  - Docs: `src/IM/frontend/README.md` 已明确 `127.0.0.1:4173` 只用于开发；默认用户入口改为 IM host `/`、`/chat`、`/bind/confirm`
 - Rollback:
   - `74a6594`（计划提交）
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
+- Commits: C1=4c1843b, C2=498da40, C3=<pending>
 - Next:
-  - 在 README/runbook 收口后，再处理 `src/IM/frontend/README.md` 与最终一致性复核
+  - 记录最终门禁结果、提交链和 main 集成结果

@@ -51,7 +51,7 @@
   - 主链路不再依赖隐藏 curl 知识
   - `PROGRESS` 写清证据、边界与回滚点
   - 完成 C1/C2/C3
-- 状态: DOING
+- 状态: DONE
 
 ### R2 前端 README 与附录降级对齐
 - Acceptance:
@@ -72,7 +72,7 @@
   - curl/API 仅保留为调试或附录
   - `PROGRESS` 已记录最终主线与残余风险
   - 完成 C1/C2/C3
-- 状态: TODO
+- 状态: DONE
 
 ## 产出清单
 - `TASKS/M121-IM-Gateway-默认用户入口文档收口.md`
