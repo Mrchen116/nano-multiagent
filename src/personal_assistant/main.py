@@ -25,7 +25,14 @@ from websockets.asyncio.client import ClientConnection
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
-from personal_assistant.config.local_store import ChannelConfig, HeartbeatConfig, KernelConfig, LocalConfig, load_local_config
+from personal_assistant.config.local_store import (
+    ChannelConfig,
+    HeartbeatConfig,
+    KernelConfig,
+    LocalConfig,
+    load_local_config,
+    resolve_kernel_token,
+)
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -563,10 +570,11 @@ def launch_gateway_in_background(
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
     """Construct the default long-running gateway runtime from parsed local config."""
 
+    kernel_token = resolve_kernel_token(config.kernel.token)
     kernel_client = KernelApiClient(
         config=KernelApiClientConfig(
             base_url=config.kernel.base_url,
-            token=config.kernel.token,
+            token=kernel_token,
             request_id=config.kernel.request_id,
             timeout_seconds=config.kernel.timeout_seconds,
         )
