@@ -3,6 +3,10 @@ import { Link } from "react-router-dom";
 
 import { ChatMessage, ChatStarter, ConversationDetail } from "../types";
 
+function toErrorMessage(error: unknown) {
+  return error instanceof Error && error.message ? error.message : "Message send failed. Retry when the relay node is available.";
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const mine = message.is_mine ?? message.sender_type === "user";
   return (
@@ -66,6 +70,7 @@ export function MessagePane(props: {
   onSend: (content: string) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -96,10 +101,12 @@ export function MessagePane(props: {
     if (!text) {
       return;
     }
+    setSendError(null);
     try {
       await props.onSend(text);
       setDraft("");
-    } catch {
+    } catch (error) {
+      setSendError(toErrorMessage(error));
       // Preserve the draft so the user can retry after reading the failure feedback.
     }
   };
@@ -122,6 +129,11 @@ export function MessagePane(props: {
         </div>
       </div>
       <form className="border-t border-[var(--im-border)] p-3" onSubmit={onSubmit}>
+        {sendError && (
+          <p role="alert" className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {sendError}
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <button type="button" className="im-btn im-btn-muted" aria-label="Attachment picker">
             +
