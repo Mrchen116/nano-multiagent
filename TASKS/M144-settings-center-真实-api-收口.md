@@ -24,7 +24,7 @@
 ## Roadpoints
 
 ### R1 Nodes / Account 真实 API 接线与持久化
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `/settings/nodes` 不再 import `mock-settings-api.ts`，改走真实 `/im/v1/nodes` 与 `PATCH /im/v1/nodes/{id}/config`
   - `/settings/account` 不再 import mock，改走真实 account API，并能持久化显示名/默认入口节点
@@ -48,7 +48,7 @@
   - 完成 C1/C2/C3
 
 ### R2 Policies 真实 IM API 落地
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - IM 服务新增稳定的 policies HTTP API，并带持久化存储
   - `/settings/policies` 改走真实 GET/PATCH，而不是本地 mock state
@@ -70,7 +70,7 @@
   - 完成 C1/C2/C3
 
 ### R3 验收报告与合流
-- Status: TODO
+- Status: DONE（已完成验收，main 合流因主仓工作区非干净状态而未执行）
 - Acceptance:
   - 形成 `ACCEPTANCE/M144-acceptance.md`，记录真实 API / 真实浏览器证据与复验结论
   - 明确列出 test_command 与实际执行结果
