@@ -117,7 +117,7 @@ def test_channel_registry_and_bootstrap_manage_adapter_lifecycle() -> None:
     assert channel_b.stopped == 1
 
 
-def test_build_session_key_uses_chat_id_for_groups_and_user_id_for_direct_messages() -> None:
+def test_build_session_key_uses_chat_id_for_groups_and_direct_messages() -> None:
     group_message = InboundMessage(
         channel_name="web",
         text="hello group",
@@ -134,7 +134,7 @@ def test_build_session_key_uses_chat_id_for_groups_and_user_id_for_direct_messag
     )
 
     assert build_session_key(group_message, agent_id="agent-a") == "web:chat-1:agent-a"
-    assert build_session_key(direct_message, agent_id="agent-a") == "web:user-1:agent-a"
+    assert build_session_key(direct_message, agent_id="agent-a") == "web:chat-1:agent-a"
 
 
 def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(tmp_path: Path) -> None:
@@ -161,7 +161,7 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(tmp_pat
     result = asyncio.run(pipeline.handle_inbound(inbound))
 
     assert result.agent_id == "agent-a"
-    assert result.session_key == "web:user-1:agent-a"
+    assert result.session_key == "web:chat-1:agent-a"
     assert result.kernel_session_id == "sess-1"
     assert result.run_id == "run-1"
     assert result.reply_text == "reply:ping"
@@ -473,7 +473,7 @@ def test_inbound_pipeline_reuses_existing_session_binding_per_session_key(tmp_pa
 
 
 
-def test_register_agent_resets_existing_sessions_for_profile_refresh(tmp_path: Path) -> None:
+def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_for_new_conversations(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
@@ -487,16 +487,21 @@ def test_register_agent_resets_existing_sessions_for_profile_refresh(tmp_path: P
         session_store=store,
         default_agent_id="agent-a",
     )
-    inbound = InboundMessage(
+    old_conversation = InboundMessage(
         channel_name="web",
-        text="hello",
+        text="hello old",
         external_user_id="user-1",
         external_chat_id="chat-1",
         is_group=False,
         agent_id="agent-a",
+        metadata={
+            "conversation_id": "chat-1",
+            "config_profile_version": 1,
+            "system_prompt": "You are Agent A v1.",
+        },
     )
 
-    first = asyncio.run(pipeline.handle_inbound(inbound))
+    first = asyncio.run(pipeline.handle_inbound(old_conversation))
 
     refreshed_workspace = tmp_path / "agent-a-v2"
     refreshed_workspace.mkdir()
@@ -504,15 +509,74 @@ def test_register_agent_resets_existing_sessions_for_profile_refresh(tmp_path: P
         AgentWorkspaceConfig(agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2")
     )
 
-    second = asyncio.run(pipeline.handle_inbound(inbound))
+    second_old = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web",
+                text="hello old again",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+                agent_id="agent-a",
+                metadata={
+                    "conversation_id": "chat-1",
+                    "config_profile_version": 2,
+                    "system_prompt": "You are Agent A v2.",
+                },
+            )
+        )
+    )
+    new_conversation = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web",
+                text="hello new",
+                external_user_id="user-1",
+                external_chat_id="chat-2",
+                is_group=False,
+                agent_id="agent-a",
+                metadata={
+                    "conversation_id": "chat-2",
+                    "config_profile_version": 2,
+                    "system_prompt": "You are Agent A v2.",
+                },
+            )
+        )
+    )
 
     assert first is not None
-    assert second is not None
+    assert second_old is not None
+    assert new_conversation is not None
     assert first.kernel_session_id == "sess-1"
-    assert second.kernel_session_id == "sess-2"
+    assert second_old.kernel_session_id == "sess-1"
+    assert new_conversation.kernel_session_id == "sess-2"
     assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [
         str(agents[0].workspace_root),
         str(refreshed_workspace),
+    ]
+    assert kernel_client.create_session_calls == [
+        {
+            "workspace_root": str(agents[0].workspace_root),
+            "product_id": "personal_assistant",
+            "title": "Agent A",
+            "metadata": {
+                "agent_id": "agent-a",
+                "conversation_id": "chat-1",
+                "config_profile_version": 1,
+                "system_prompt": "You are Agent A v1.",
+            },
+        },
+        {
+            "workspace_root": str(refreshed_workspace),
+            "product_id": "personal_assistant",
+            "title": "Agent A v2",
+            "metadata": {
+                "agent_id": "agent-a",
+                "conversation_id": "chat-2",
+                "config_profile_version": 2,
+                "system_prompt": "You are Agent A v2.",
+            },
+        },
     ]
 
 

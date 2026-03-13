@@ -274,3 +274,223 @@ def test_agent_config_sync_notifies_connected_gateway(tmp_path: Path) -> None:
 
     assert request.agent_id == "agent-a"
     assert sync_client.latest_profile_version("agent-a") == 2
+
+
+
+def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile(tmp_path: Path) -> None:
+    """Old direct conversations stay pinned while new conversations pick up synced config."""
+    app = create_app(db_path=tmp_path / "im.db")
+    kernel_client = _FakeKernelClient()
+    relay_adapter = WebRelayAdapter()
+    agents = _agents(tmp_path, "agent-a")
+    registry = ChannelRegistry((relay_adapter,))
+    session_store = SessionBindingStore()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=session_store,
+        default_agent_id="agent-a",
+    )
+    relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))
+
+    with TestClient(app) as client:
+        owner_id = _seed_user(client, "owner")
+        human_user_id = _seed_user(client, "alice")
+        agent_user_id = _seed_user(client, "agent:agent-a")
+        owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
+        assert owner is not None
+        _seed_node_and_profiles(app, owner_id=owner.owner_id)
+
+        old_conversation = client.post(
+            "/im/v1/conversations",
+            json={"title": "old direct", "participant_ids": [human_user_id, agent_user_id]},
+        )
+        new_conversation = client.post(
+            "/im/v1/conversations",
+            json={"title": "new direct", "participant_ids": [human_user_id, agent_user_id]},
+        )
+        assert old_conversation.status_code == 201
+        assert new_conversation.status_code == 201
+        old_conversation_id = old_conversation.json()["id"]
+        new_conversation_id = new_conversation.json()["id"]
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["agent-a"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            sync = ConfigSyncClient()
+            old_before = client.post(
+                f"/im/v1/conversations/{old_conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-m150-old-before"},
+                json={
+                    "sender_user_id": human_user_id,
+                    "content": "hello before sync",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert old_before.status_code == 201
+            first_relay = websocket.receive_json()
+            relay_adapter.accept_relay(first_relay["payload"])
+
+            current = client.get("/im/v1/agents/agent-a/config")
+            assert current.status_code == 200
+            patched = client.patch(
+                "/im/v1/agents/agent-a/config",
+                json={
+                    "profile_version": current.json()["profile_version"],
+                    "display_name": "agent-a v2",
+                    "description": "updated",
+                    "system_prompt": "You are upgraded.",
+                    "skills": ["plan"],
+                    "tool_allowlist": ["read"],
+                    "group_reply_policy": "manual",
+                    "default_model": "claude-sonnet-4",
+                },
+            )
+            assert patched.status_code == 200
+            sync_frame = websocket.receive_json()
+            request = sync.handle_notification(sync_frame["payload"])
+            assert request.agent_id == "agent-a"
+            refreshed_workspace = tmp_path / "agent-a-refreshed"
+            refreshed_workspace.mkdir()
+            pipeline.register_agent(
+                AgentWorkspaceConfig(
+                    agent_id="agent-a",
+                    workspace_root=refreshed_workspace,
+                    title="agent-a v2",
+                )
+            )
+
+            old_after = client.post(
+                f"/im/v1/conversations/{old_conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-m150-old-after"},
+                json={
+                    "sender_user_id": human_user_id,
+                    "content": "hello after sync old",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert old_after.status_code == 201
+            old_after_relay = websocket.receive_json()
+            relay_adapter.accept_relay(old_after_relay["payload"])
+
+            new_after = client.post(
+                f"/im/v1/conversations/{new_conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-m150-new-after"},
+                json={
+                    "sender_user_id": human_user_id,
+                    "content": "hello after sync new",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert new_after.status_code == 201
+            new_after_relay = websocket.receive_json()
+            relay_adapter.accept_relay(new_after_relay["payload"])
+
+    assert [call["metadata"] for call in kernel_client.create_session_calls] == [
+        {
+            "agent_id": "agent-a",
+            "config_profile_version": 1,
+            "system_prompt": "You are agent-a.",
+        },
+        {
+            "agent_id": "agent-a",
+            "config_profile_version": 2,
+            "system_prompt": "You are upgraded.",
+        },
+    ]
+    assert [call["title"] for call in kernel_client.create_session_calls] == ["Agent-A", "agent-a v2"]
+    assert session_store.get(f"web_relay:{old_conversation_id}:agent-a").kernel_session_id == "sess-1"
+    assert session_store.get(f"web_relay:{new_conversation_id}:agent-a").kernel_session_id == "sess-2"
+    assert old_after_relay["payload"]["conversation_id"] == old_conversation_id
+    assert new_after_relay["payload"]["conversation_id"] == new_conversation_id
+    assert old_after_relay["payload"]["metadata"]["system_prompt"] == "You are upgraded."
+    assert new_after_relay["payload"]["metadata"]["system_prompt"] == "You are upgraded."
+    assert old_after_relay["payload"]["metadata"]["config_profile_version"] == 2
+    assert new_after_relay["payload"]["metadata"]["config_profile_version"] == 2
+    assert old_after_relay["payload"]["agent_id"] == "agent-a"
+    assert new_after_relay["payload"]["agent_id"] == "agent-a"
+    assert old_after_relay["payload"]["relay_task_id"] != new_after_relay["payload"]["relay_task_id"]
+    assert sync_frame == {
+        "type": "config.sync",
+        "payload": {"agent_id": "agent-a", "profile_version": 2},
+    }
+    assert patched.json()["profile_version"] == 2
+    assert patched.json()["system_prompt"] == "You are upgraded."
+    assert current.json()["profile_version"] == 1
+    assert current.json()["system_prompt"] == "You are agent-a."
+    assert first_relay["payload"]["conversation_id"] == old_conversation_id
+    assert first_relay["payload"]["metadata"]["system_prompt"] == "You are agent-a."
+    assert first_relay["payload"]["metadata"]["config_profile_version"] == 1
+    assert relay_adapter.sent[0].target_chat_id == old_conversation_id
+    assert relay_adapter.sent[1].target_chat_id == old_conversation_id
+    assert relay_adapter.sent[2].target_chat_id == new_conversation_id
+    assert relay_adapter.sent[1].metadata["config_profile_version"] == 1
+    assert relay_adapter.sent[2].metadata["config_profile_version"] == 2
+    assert relay_adapter.sent[1].metadata["system_prompt"] == "You are agent-a."
+    assert relay_adapter.sent[2].metadata["system_prompt"] == "You are upgraded."
+    assert relay_adapter.sent[1].text == "gateway-reply:hello after sync old"
+    assert relay_adapter.sent[2].text == "gateway-reply:hello after sync new"
+    assert relay_adapter.sent[1].metadata["idempotency_key"] == "idem-m150-old-before"
+    assert relay_adapter.sent[2].metadata["idempotency_key"] == "idem-m150-new-after"
+    assert relay_adapter.sent[1].channel_name == "web_relay"
+    assert relay_adapter.sent[2].channel_name == "web_relay"
+    assert len(kernel_client.create_session_calls) == 2
+    assert len(relay_adapter.sent) == 3
+    assert len(kernel_client.send_calls) == 3
+    assert sync.latest_profile_version("agent-a") == 2
+    assert request.profile_version == 2
+    assert request.agent_id == "agent-a"
+    assert old_before.json()["conversation_id"] == old_conversation_id
+    assert old_after.json()["conversation_id"] == old_conversation_id
+    assert new_after.json()["conversation_id"] == new_conversation_id
+    assert first_relay["payload"]["metadata"]["conversation_type"] == "direct"
+    assert old_after_relay["payload"]["metadata"]["conversation_type"] == "direct"
+    assert new_after_relay["payload"]["metadata"]["conversation_type"] == "direct"
+    assert first_relay["payload"]["metadata"]["mentioned_agent_ids"] == []
+    assert old_after_relay["payload"]["metadata"]["mentioned_agent_ids"] == []
+    assert new_after_relay["payload"]["metadata"]["mentioned_agent_ids"] == []
+    assert session_store.get(f"web_relay:{old_conversation_id}:agent-a") is not None
+    assert session_store.get(f"web_relay:{new_conversation_id}:agent-a") is not None
+    assert relay_adapter.sent[0].target_chat_id == old_conversation_id
+    assert relay_adapter.sent[1].target_chat_id == old_conversation_id
+    assert relay_adapter.sent[2].target_chat_id == new_conversation_id
+    assert relay_adapter.sent[1].metadata["config_profile_version"] == 1
+    assert relay_adapter.sent[2].metadata["config_profile_version"] == 2
+    assert relay_adapter.sent[1].metadata["system_prompt"] == "You are agent-a."
+    assert relay_adapter.sent[2].metadata["system_prompt"] == "You are upgraded."
+    assert relay_adapter.sent[1].text == "gateway-reply:hello after sync old"
+    assert relay_adapter.sent[2].text == "gateway-reply:hello after sync new"
+    assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [
+        str(agents[0].workspace_root),
+        str(tmp_path / "agent-a-refreshed"),
+    ]
+    assert [call["session_id"] for call in kernel_client.send_calls] == ["sess-1", "sess-1", "sess-2"]
+    assert first_relay["payload"]["metadata"]["config_profile_version"] == 1
+    assert old_after_relay["payload"]["metadata"]["config_profile_version"] == 2
+    assert new_after_relay["payload"]["metadata"]["config_profile_version"] == 2
+    assert sync.latest_profile_version("agent-a") == 2
+    assert session_store.get(f"web_relay:{old_conversation_id}:agent-a") is not None
+    assert session_store.get(f"web_relay:{new_conversation_id}:agent-a") is not None
+    assert relay_adapter.sent[0].target_chat_id == old_conversation_id
+    assert relay_adapter.sent[1].target_chat_id == old_conversation_id
+    assert relay_adapter.sent[2].target_chat_id == new_conversation_id
+    assert relay_adapter.sent[1].metadata["config_profile_version"] == 1
+    assert relay_adapter.sent[2].metadata["config_profile_version"] == 2
+    assert relay_adapter.sent[1].metadata["system_prompt"] == "You are agent-a."
+    assert relay_adapter.sent[2].metadata["system_prompt"] == "You are upgraded."
+    assert relay_adapter.sent[1].text == "gateway-reply:hello after sync old"
+    assert relay_adapter.sent[2].text == "gateway-reply:hello after sync new"
