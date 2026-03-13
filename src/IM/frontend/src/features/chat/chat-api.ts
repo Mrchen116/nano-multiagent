@@ -26,6 +26,8 @@ export const getChatStarter = useMockApi ? mockApi.getChatStarter : imApi.getCha
 export const listConversations = useMockApi ? mockApi.listConversations : imApi.listConversations;
 export const getConversation = useMockApi ? mockApi.getConversation : imApi.getConversation;
 export const sendMessage = useMockApi ? mockApi.sendMessage : imApi.sendMessage;
+export const uploadAttachment = useMockApi ? mockApi.uploadAttachment : imApi.uploadAttachment;
+export const getUsageMetrics = useMockApi ? mockApi.getUsageMetrics : imApi.getUsageMetrics;
 export const resolveSendAvailability = imApi.resolveSendAvailability;
 export const streamConversationEvents = useMockApi
   ? mockApi.streamConversationEvents

@@ -1,4 +1,4 @@
-import { ChatMessage, ChatStarter, ConversationDetail, ConversationSummary } from "./types";
+import { ChatAttachment, ChatMessage, ChatStarter, ConversationDetail, ConversationSummary, UsageMetricRow } from "./types";
 
 const wait = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -205,7 +205,58 @@ export async function getConversation(conversationId: string) {
   return found ? { ...found, messages: [...found.messages] } : null;
 }
 
-export async function sendMessage(input: { conversationId: string; content: string }) {
+export async function uploadAttachment(file: File): Promise<ChatAttachment> {
+  await wait(40);
+  return {
+    url: `http://localhost:8011/im/uploads/mock-${file.name}`,
+    file_name: file.name,
+    content_type: file.type || "application/octet-stream"
+  };
+}
+
+export async function getUsageMetrics(input: { ownerId?: string; conversationId?: string; agentId?: string } = {}) {
+  await wait(40);
+  const rows: UsageMetricRow[] = [
+    {
+      scope: "conversation",
+      scope_id: "conv-kernel-ops",
+      owner_id: "mock-you",
+      conversation_id: "conv-kernel-ops",
+      agent_id: null,
+      turns: 4,
+      prompt_tokens: 14,
+      completion_tokens: 10,
+      total_tokens: 24,
+      last_used_at: "2026-03-03T22:35:00+08:00"
+    },
+    {
+      scope: "conversation",
+      scope_id: "conv-agent-design",
+      owner_id: "mock-you",
+      conversation_id: "conv-agent-design",
+      agent_id: null,
+      turns: 2,
+      prompt_tokens: 6,
+      completion_tokens: 5,
+      total_tokens: 11,
+      last_used_at: "2026-03-03T21:18:00+08:00"
+    }
+  ];
+  return rows.filter((item) => {
+    if (input.conversationId && item.conversation_id !== input.conversationId) {
+      return false;
+    }
+    if (input.ownerId && item.owner_id !== input.ownerId) {
+      return false;
+    }
+    if (input.agentId && item.agent_id !== input.agentId) {
+      return false;
+    }
+    return true;
+  });
+}
+
+export async function sendMessage(input: { conversationId: string; content: string; attachments?: ChatAttachment[] }) {
   await wait(60);
   const conversation = details.get(input.conversationId);
   if (!conversation) {
@@ -219,6 +270,7 @@ export async function sendMessage(input: { conversationId: string; content: stri
     sender_name: "You",
     is_mine: true,
     content: input.content,
+    attachments: input.attachments ?? [],
     created_at: timestamp,
     delivery_status: "sent"
   };
@@ -226,7 +278,7 @@ export async function sendMessage(input: { conversationId: string; content: stri
 
   const summary = conversations.find((item) => item.conversation_id === input.conversationId);
   if (summary) {
-    summary.last_message_preview = input.content;
+    summary.last_message_preview = input.content || input.attachments?.[0]?.file_name || "Attachment";
     summary.last_message_at = timestamp;
   }
 

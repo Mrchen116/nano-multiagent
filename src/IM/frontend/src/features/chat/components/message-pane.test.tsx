@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
 import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
-import { ConversationDetail } from "../types";
+import { ChatAttachment, ConversationDetail, UsageTotals } from "../types";
 import { MessagePane } from "./message-pane";
 
 const SEND_FAILURE_MESSAGE = "Chat unavailable. No online relay node is available for this chat. Connect an online node and retry.";
@@ -13,10 +13,26 @@ const DEFAULT_SEND_AVAILABILITY = {
   helperText: null,
   placeholder: getSendAvailabilityMessages().enabledPlaceholder
 };
+const DEFAULT_USAGE: { conversation: UsageTotals; workspace: UsageTotals } = {
+  conversation: {
+    turns: 2,
+    promptTokens: 8,
+    completionTokens: 5,
+    totalTokens: 13
+  },
+  workspace: {
+    turns: 7,
+    promptTokens: 21,
+    completionTokens: 12,
+    totalTokens: 33
+  }
+};
 
 function renderMessagePane(input?: {
-  onSend?: (content: string) => Promise<unknown>;
+  onSend?: (payload: { content: string; attachments: ChatAttachment[] }) => Promise<unknown>;
+  onUploadAttachment?: (file: File) => Promise<ChatAttachment>;
   sendAvailability?: SendAvailability;
+  usage?: { conversation: UsageTotals; workspace: UsageTotals };
 }) {
   const detail: ConversationDetail = {
     conversation_id: "conv-kernel-ops",
@@ -25,11 +41,26 @@ function renderMessagePane(input?: {
   };
 
   const onSend = input?.onSend ?? (async () => undefined);
+  const onUploadAttachment = input?.onUploadAttachment ??
+    (async (file: File) => ({
+      url: `http://im.test/im/uploads/${file.name}`,
+      file_name: file.name,
+      content_type: file.type || "application/octet-stream"
+    }));
   const sendAvailability = input?.sendAvailability ?? DEFAULT_SEND_AVAILABILITY;
+  const usage = input?.usage ?? DEFAULT_USAGE;
 
   return render(
     <MemoryRouter>
-      <MessagePane detail={detail} isMobile={false} isSending={false} sendAvailability={sendAvailability} onSend={onSend} />
+      <MessagePane
+        detail={detail}
+        isMobile={false}
+        isSending={false}
+        sendAvailability={sendAvailability}
+        usage={usage}
+        onSend={onSend}
+        onUploadAttachment={onUploadAttachment}
+      />
     </MemoryRouter>
   );
 }
@@ -45,7 +76,7 @@ describe("message pane", () => {
     await user.type(composer, "ping the agent");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("ping the agent");
+    expect(onSend).toHaveBeenCalledWith({ content: "ping the agent", attachments: [] });
     expect(await screen.findByRole("alert")).toHaveTextContent(SEND_FAILURE_MESSAGE);
     expect(screen.getByDisplayValue("ping the agent")).toBeInTheDocument();
   });
@@ -109,5 +140,38 @@ describe("message pane", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
     expect(composer).toHaveValue("");
+  });
+
+  it("uploads attachments from the composer and sends them with the message", async () => {
+    const user = userEvent.setup();
+    const uploadedAttachment: ChatAttachment = {
+      url: "http://im.test/im/uploads/uploaded-demo.txt",
+      file_name: "demo.txt",
+      content_type: "text/plain"
+    };
+    const onUploadAttachment = vi.fn().mockResolvedValue(uploadedAttachment);
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    renderMessagePane({ onSend, onUploadAttachment });
+
+    await user.upload(
+      screen.getByLabelText("Attachment picker"),
+      new File(["demo attachment"], "demo.txt", { type: "text/plain" })
+    );
+
+    expect(onUploadAttachment).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("demo.txt")).toBeInTheDocument();
+
+    const composer = screen.getByPlaceholderText("Type message");
+    await user.type(composer, "see uploaded file");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith({
+      content: "see uploaded file",
+      attachments: [uploadedAttachment]
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("demo.txt")).not.toBeInTheDocument();
+    });
   });
 });

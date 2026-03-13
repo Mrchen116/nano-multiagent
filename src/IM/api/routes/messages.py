@@ -1,7 +1,9 @@
 """Message and event routes for IM HTTP APIs."""
 import asyncio
 import json
+from pathlib import Path
 from time import monotonic
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -30,7 +32,7 @@ class CreateMessageRequest(BaseModel):
 
     sender_user_id: str = Field(min_length=1)
     sender_type: str = Field(default="user")
-    content: str = Field(min_length=1)
+    content: str = Field(default="")
     attachments: list[AttachmentPayload] = Field(default_factory=list)
     target_node_id: str | None = None
 
@@ -102,6 +104,20 @@ def to_event_payload(event: ConversationEvent) -> dict[str, object]:
     }
 
 
+def _sanitize_upload_file_name(file_name: str) -> str:
+    """Collapse user-provided upload names to a safe basename."""
+    safe_name = Path(file_name.strip()).name
+    if not safe_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file_name must be non-empty")
+    return safe_name
+
+
+def _resolve_upload_content_type(request: Request) -> str:
+    """Pick the content type stored alongside one uploaded attachment."""
+    raw_content_type = request.headers.get("Content-Type", "application/octet-stream")
+    return raw_content_type.split(";", 1)[0].strip() or "application/octet-stream"
+
+
 def parse_event_cursor(*, after_event_id: str | None, last_event_id: str | None) -> int:
     """Parse reconnect cursor from query/header with stable 400 semantics."""
     raw_value = after_event_id if after_event_id is not None else last_event_id
@@ -120,6 +136,23 @@ def parse_event_cursor(*, after_event_id: str | None, last_event_id: str | None)
             detail="after_event_id must be >= 0",
         )
     return cursor
+
+
+@router.post("/im/v1/uploads", response_model=AttachmentPayload, status_code=status.HTTP_201_CREATED)
+async def create_upload(request: Request, file_name: str = Query(min_length=1)) -> AttachmentPayload:
+    """Persist one raw upload body and return the IM-hosted attachment descriptor."""
+    safe_name = _sanitize_upload_file_name(file_name)
+    suffix = Path(safe_name).suffix
+    stored_name = f"{uuid4().hex}{suffix}"
+    upload_dir = Path(request.app.state.upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    body = await request.body()
+    (upload_dir / stored_name).write_bytes(body)
+    return AttachmentPayload(
+        url=f"{str(request.base_url).rstrip('/')}/im/uploads/{stored_name}",
+        content_type=_resolve_upload_content_type(request),
+        file_name=safe_name,
+    )
 
 
 @router.post(

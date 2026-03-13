@@ -1,4 +1,12 @@
-import { ChatMessage, ChatOwnershipSummary, ChatStarter, ConversationDetail, ConversationSummary } from "./types";
+import {
+  ChatAttachment,
+  ChatMessage,
+  ChatOwnershipSummary,
+  ChatStarter,
+  ConversationDetail,
+  ConversationSummary,
+  UsageMetricRow
+} from "./types";
 
 interface ImUser {
   id: string;
@@ -17,7 +25,9 @@ interface ImMessage {
   id: string;
   conversation_id: string;
   sender_user_id: string;
+  sender_type?: string;
   content: string;
+  attachments?: ChatAttachment[];
   delivery_status?: string;
   created_at: string;
 }
@@ -181,6 +191,7 @@ interface ItemsEnvelope<T> {
 interface CreateMessagePayload {
   sender_user_id: string;
   content: string;
+  attachments?: ChatAttachment[];
   target_node_id?: string;
 }
 
@@ -248,6 +259,29 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function requestUpload(path: string, input: {
+  body: Blob;
+  contentType: string;
+}): Promise<ChatAttachment> {
+  const response = await fetch(withBase(path), {
+    method: "POST",
+    body: input.body,
+    headers: {
+      "Content-Type": input.contentType || "application/octet-stream"
+    }
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ChatRequestError({
+      status: response.status,
+      detail: detail || response.statusText || "request failed",
+      method: "POST",
+      path
+    });
+  }
+  return (await response.json()) as ChatAttachment;
+}
+
 export function normalizeItemsEnvelope<T>(payload: ItemsEnvelope<T> | T[]): T[] {
   if (Array.isArray(payload)) {
     return payload;
@@ -277,12 +311,16 @@ export function buildStarterPeerUsername(agentId: string): string {
 export function buildCreateMessageRequest(input: {
   selfUserId: string;
   content: string;
+  attachments?: ChatAttachment[];
   targetNodeId: string | null;
 }): CreateMessagePayload {
   const payload: CreateMessagePayload = {
     sender_user_id: input.selfUserId,
     content: input.content
   };
+  if (input.attachments && input.attachments.length > 0) {
+    payload.attachments = input.attachments;
+  }
   if (input.targetNodeId) {
     payload.target_node_id = input.targetNodeId;
   }
@@ -323,6 +361,29 @@ async function createConversationRaw(payload: { title: string; participant_ids: 
 async function listMessagesRaw(conversationId: string) {
   const payload = await requestJson<ItemsEnvelope<ImMessage> | ImMessage[]>(`/im/v1/conversations/${conversationId}/messages`);
   return normalizeItemsEnvelope(payload);
+}
+
+export async function uploadAttachment(file: File): Promise<ChatAttachment> {
+  const fileName = file.name.trim() || "upload.bin";
+  return requestUpload(`/im/v1/uploads?file_name=${encodeURIComponent(fileName)}`, {
+    body: file,
+    contentType: file.type || "application/octet-stream"
+  });
+}
+
+export async function getUsageMetrics(input: { ownerId?: string; conversationId?: string; agentId?: string } = {}) {
+  const params = new URLSearchParams();
+  if (input.ownerId) {
+    params.set("owner_id", input.ownerId);
+  }
+  if (input.conversationId) {
+    params.set("conversation_id", input.conversationId);
+  }
+  if (input.agentId) {
+    params.set("agent_id", input.agentId);
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  return requestJson<UsageMetricRow[]>(`/im/v1/metrics/usage${suffix}`);
 }
 
 async function ensureUser(username: string, displayName: string): Promise<ImUser> {
@@ -460,10 +521,12 @@ function toChatMessage(input: {
   const isMine = input.message.sender_user_id === input.selfUserId;
   return {
     message_id: input.message.id,
-    sender_type: "user",
+    sender_type:
+      input.message.sender_type === "agent" || input.message.sender_type === "system" ? input.message.sender_type : "user",
     sender_name: sender?.display_name ?? input.message.sender_user_id,
     is_mine: isMine,
     content: input.message.content,
+    attachments: input.message.attachments ?? [],
     created_at: input.message.created_at,
     delivery_status:
       input.message.delivery_status === "sent" ||
@@ -574,7 +637,11 @@ export async function getConversation(conversationId: string): Promise<Conversat
   };
 }
 
-export async function sendMessage(input: { conversationId: string; content: string }): Promise<ChatMessage> {
+export async function sendMessage(input: {
+  conversationId: string;
+  content: string;
+  attachments?: ChatAttachment[];
+}): Promise<ChatMessage> {
   const { selfUserId, targetNodeId, targetNodeStatus } = await ensureBootstrap();
   if (!isNodeReadyForSend({ targetNodeId, nodeStatus: targetNodeStatus })) {
     throw new Error(SEND_FAILURE_UNAVAILABLE_HELPER);
@@ -586,6 +653,7 @@ export async function sendMessage(input: { conversationId: string; content: stri
         buildCreateMessageRequest({
           selfUserId,
           content: input.content,
+          attachments: input.attachments,
           targetNodeId
         })
       )

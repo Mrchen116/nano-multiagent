@@ -37,6 +37,16 @@ def _build_frontend_redirect_url(request: Request, *, frontend_dev_base_url: str
     return target
 
 
+def _resolve_upload_dir(*, upload_dir: Path | None, db_path: Path) -> Path:
+    """Return the directory used for IM-hosted attachment uploads."""
+    if upload_dir is not None:
+        return upload_dir
+    configured = os.getenv("IM_UPLOAD_DIR")
+    if configured:
+        return Path(configured)
+    return db_path.parent / "uploads"
+
+
 def _install_frontend_entrypoints(
     app: FastAPI,
     *,
@@ -96,6 +106,7 @@ def create_app(
     db_path: Path | None = None,
     frontend_dist_dir: Path | None = None,
     frontend_dev_base_url: str | None = None,
+    upload_dir: Path | None = None,
 ) -> FastAPI:
     """Build a standalone IM FastAPI application.
 
@@ -103,6 +114,7 @@ def create_app(
         db_path: Optional SQLite file path used by the IM service.
         frontend_dist_dir: Optional built frontend asset directory served on the IM host.
         frontend_dev_base_url: Optional fallback dev-server base URL used when built assets are absent.
+        upload_dir: Optional directory where IM-hosted attachment uploads are stored.
 
     Returns:
         FastAPI app with initialized storage and IM routes.
@@ -113,6 +125,8 @@ def create_app(
     resolved_db_path = db_path or Path(os.getenv("IM_DB_PATH", "data/im_service.sqlite3"))
     resolved_frontend_dist_dir = _resolve_frontend_dist_dir(frontend_dist_dir)
     resolved_frontend_dev_base_url = frontend_dev_base_url or os.getenv("IM_FRONTEND_DEV_BASE_URL", "http://127.0.0.1:4173")
+    resolved_upload_dir = _resolve_upload_dir(upload_dir=upload_dir, db_path=resolved_db_path)
+    resolved_upload_dir.mkdir(parents=True, exist_ok=True)
 
     @asynccontextmanager
     async def lifespan(app_instance: FastAPI):
@@ -120,6 +134,7 @@ def create_app(
         connection = connect(resolved_db_path)
         initialize_schema(connection)
         app_instance.state.connection = connection
+        app_instance.state.upload_dir = resolved_upload_dir
         app_instance.state.gateway_handler = GatewayHandler(
             relay_service=RelayService(connection),
             node_repository=NodeRepository(connection),
@@ -131,6 +146,7 @@ def create_app(
             connection.close()
 
     app = FastAPI(title="Independent IM Service", version="0.1.0", lifespan=lifespan)
+    app.state.upload_dir = resolved_upload_dir
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
@@ -138,6 +154,7 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.mount("/im/uploads", StaticFiles(directory=resolved_upload_dir), name="im-uploads")
     app.include_router(user_router)
     app.include_router(account_router)
     app.include_router(agent_router)
