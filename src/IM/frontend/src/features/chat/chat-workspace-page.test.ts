@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderRouter } from "../../test/render-router";
 import { resolveSendAvailability } from "./im-chat-api";
-import { ChatWorkspacePage, toRelayAgentMessage } from "./chat-workspace-page";
+import { buildUsageView, ChatWorkspacePage, shouldRefreshUsageForEvent, toRelayAgentMessage } from "./chat-workspace-page";
 
 const getChatBootstrapState = vi.fn();
 const getChatStarter = vi.fn();
@@ -35,6 +35,102 @@ vi.mock("./chat-api", () => ({
     onError?: (error: Error) => void;
   }) => streamConversationEvents(input)
 }));
+
+describe("chat workspace usage helpers", () => {
+  it("builds conversation, workspace, and per-agent usage without double counting", () => {
+    expect(
+      buildUsageView({
+        conversationRows: [
+          {
+            scope: "conversation",
+            scope_id: "conv-1",
+            owner_id: "owner-1",
+            conversation_id: "conv-1",
+            agent_id: null,
+            turns: 1,
+            prompt_tokens: 11,
+            completion_tokens: 7,
+            total_tokens: 18,
+            last_used_at: "2026-03-13T00:00:00Z"
+          },
+          {
+            scope: "agent",
+            scope_id: "agent-alpha",
+            owner_id: "owner-1",
+            conversation_id: "conv-1",
+            agent_id: "agent-alpha",
+            turns: 1,
+            prompt_tokens: 11,
+            completion_tokens: 7,
+            total_tokens: 18,
+            last_used_at: "2026-03-13T00:00:01Z"
+          }
+        ],
+        workspaceRows: [
+          {
+            scope: "owner",
+            scope_id: "owner-1",
+            owner_id: "owner-1",
+            conversation_id: null,
+            agent_id: null,
+            turns: 3,
+            prompt_tokens: 21,
+            completion_tokens: 13,
+            total_tokens: 34,
+            last_used_at: "2026-03-13T00:00:02Z"
+          },
+          {
+            scope: "conversation",
+            scope_id: "conv-1",
+            owner_id: "owner-1",
+            conversation_id: "conv-1",
+            agent_id: null,
+            turns: 1,
+            prompt_tokens: 11,
+            completion_tokens: 7,
+            total_tokens: 18,
+            last_used_at: "2026-03-13T00:00:03Z"
+          }
+        ]
+      })
+    ).toEqual({
+      conversation: {
+        turns: 1,
+        promptTokens: 11,
+        completionTokens: 7,
+        totalTokens: 18
+      },
+      workspace: {
+        turns: 3,
+        promptTokens: 21,
+        completionTokens: 13,
+        totalTokens: 34
+      },
+      agents: [
+        {
+          agentId: "agent-alpha",
+          label: "agent-alpha",
+          totals: {
+            turns: 1,
+            promptTokens: 11,
+            completionTokens: 7,
+            totalTokens: 18
+          }
+        }
+      ]
+    });
+  });
+
+  it("refreshes usage only for events that can change visible totals", () => {
+    expect(shouldRefreshUsageForEvent("message.sent")).toBe(true);
+    expect(shouldRefreshUsageForEvent("relay.report")).toBe(true);
+    expect(shouldRefreshUsageForEvent("message.delivered")).toBe(true);
+    expect(shouldRefreshUsageForEvent("turn_end")).toBe(true);
+    expect(shouldRefreshUsageForEvent("message_status")).toBe(true);
+    expect(shouldRefreshUsageForEvent("relay.processing")).toBe(false);
+    expect(shouldRefreshUsageForEvent("conversation.notice")).toBe(false);
+  });
+});
 
 describe("chat workspace relay event mapping", () => {
   it("converts relay.processing into a synthetic running agent message", () => {
@@ -92,6 +188,7 @@ describe("chat workspace page", () => {
   beforeEach(() => {
     getChatBootstrapState.mockResolvedValue({
       selfUserId: "user-1",
+      ownerId: "owner-1",
       targetNodeId: null,
       targetNodeStatus: null,
       initialConversationId: "conv-1",
@@ -139,7 +236,7 @@ describe("chat workspace page", () => {
           {
             scope: "conversation",
             scope_id: "conv-1",
-            owner_id: "user-1",
+            owner_id: "owner-1",
             conversation_id: "conv-1",
             agent_id: null,
             turns: 3,
@@ -147,15 +244,39 @@ describe("chat workspace page", () => {
             completion_tokens: 7,
             total_tokens: 18,
             last_used_at: "2026-03-12T00:00:00Z"
+          },
+          {
+            scope: "agent",
+            scope_id: "agent-alpha",
+            owner_id: "owner-1",
+            conversation_id: "conv-1",
+            agent_id: "agent-alpha",
+            turns: 3,
+            prompt_tokens: 11,
+            completion_tokens: 7,
+            total_tokens: 18,
+            last_used_at: "2026-03-12T00:00:00Z"
+          },
+          {
+            scope: "agent",
+            scope_id: "agent-beta",
+            owner_id: "owner-1",
+            conversation_id: "conv-1",
+            agent_id: "agent-beta",
+            turns: 1,
+            prompt_tokens: 5,
+            completion_tokens: 9,
+            total_tokens: 14,
+            last_used_at: "2026-03-12T00:05:00Z"
           }
         ];
       }
-      if (input.ownerId === "user-1") {
+      if (input.ownerId === "owner-1") {
         return [
           {
             scope: "owner",
-            scope_id: "user-1",
-            owner_id: "user-1",
+            scope_id: "owner-1",
+            owner_id: "owner-1",
             conversation_id: null,
             agent_id: null,
             turns: 8,
@@ -163,6 +284,18 @@ describe("chat workspace page", () => {
             completion_tokens: 18,
             total_tokens: 44,
             last_used_at: "2026-03-12T01:00:00Z"
+          },
+          {
+            scope: "conversation",
+            scope_id: "conv-1",
+            owner_id: "owner-1",
+            conversation_id: "conv-1",
+            agent_id: null,
+            turns: 3,
+            prompt_tokens: 11,
+            completion_tokens: 7,
+            total_tokens: 18,
+            last_used_at: "2026-03-12T00:00:00Z"
           }
         ];
       }
@@ -193,6 +326,7 @@ describe("chat workspace page", () => {
   it("shows a product-grade send blocker when the bound node is offline", async () => {
     getChatBootstrapState.mockResolvedValue({
       selfUserId: "user-1",
+      ownerId: "owner-1",
       targetNodeId: "node-offline",
       targetNodeStatus: "offline",
       initialConversationId: "conv-1",
@@ -244,6 +378,7 @@ describe("chat workspace page", () => {
   it("shows real conversation and workspace token-turn usage for the active chat", async () => {
     getChatBootstrapState.mockResolvedValue({
       selfUserId: "user-1",
+      ownerId: "owner-1",
       targetNodeId: "node-online",
       targetNodeStatus: "online",
       initialConversationId: "conv-1",
@@ -263,11 +398,20 @@ describe("chat workspace page", () => {
 
     expect(await screen.findByText("This chat")).toBeInTheDocument();
     expect(screen.getByText("Workspace total")).toBeInTheDocument();
-    expect(screen.getByText("3 turns")).toBeInTheDocument();
-    expect(screen.getByText("18 tokens")).toBeInTheDocument();
+    expect(screen.getAllByText("3 turns")).toHaveLength(2);
+    expect(screen.getAllByText("18 tokens")).toHaveLength(2);
     expect(await screen.findByText("8 turns")).toBeInTheDocument();
     expect(screen.getByText("44 tokens")).toBeInTheDocument();
+    const agentAlphaTab = screen.getByRole("tab", { name: "agent-alpha" });
+    const agentBetaTab = screen.getByRole("tab", { name: "agent-beta" });
+    expect(agentAlphaTab).toBeInTheDocument();
+    expect(agentBetaTab).toBeInTheDocument();
+    expect(agentAlphaTab).toHaveAttribute("aria-selected", "true");
+    await userEvent.click(agentBetaTab);
+    expect(agentBetaTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Agent · agent-beta")).toBeInTheDocument();
+    expect(screen.getByText("Completion 9")).toBeInTheDocument();
     expect(getUsageMetrics).toHaveBeenCalledWith({ conversationId: "conv-1" });
-    expect(getUsageMetrics).toHaveBeenCalledWith({ ownerId: "user-1" });
+    expect(getUsageMetrics).toHaveBeenCalledWith({ ownerId: "owner-1" });
   });
 });
