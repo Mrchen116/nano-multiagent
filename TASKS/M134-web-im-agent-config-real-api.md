@@ -64,6 +64,6 @@
   - `PYTHONPATH=src pytest -q tests/im_service`
   - `cd src/IM/frontend && npm run test && npm run build`
 - DoD:
-  - 浏览器真实入口证据可回传。
+  - 浏览器真实入口证据可回传（本轮已通过 Playwright CLI 直接验证 IM host `/settings/agents` 读写）。
   - 全量门禁命令全绿。
   - 完成 C1/C2/C3，并在 PROGRESS 记录入口证据、回滚点、下一步。

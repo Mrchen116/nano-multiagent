@@ -33,12 +33,12 @@
 - Next: 收口 R3 真实入口证据与最终提交。
 
 ### R3 真实入口浏览器验证与记录收口
-- Context: 当前仓内没有现成 Playwright 依赖，但已有真实入口 runbook、M125 浏览器验收记录与 M112/M103 真实 HTTP/WS 入口测试可复用。
-- Decision: 以现有真实入口文档与已存在浏览器验收资产作为浏览器/等价真实入口证据，并完成本轮自动化门禁与 TASKS/PROGRESS 收口。
-- Rationale: 在不额外引入新 e2e 框架和不扩大依赖面的前提下，仍可给出 `/settings/*` 所在真实 IM host 入口、绑定页入口，以及浏览器已能通过同一入口完成真实链路操作的可追溯证据；本轮新增自动化则覆盖 settings PATCH 与会话版本约束。
+- Context: 当前仓内没有现成 Playwright 测试文件，但已有真实入口 runbook、M125 浏览器验收记录与 M112/M103 真实 HTTP/WS 入口测试可复用；本轮再补一条直接针对 `/settings/agents` 的真实浏览器操作证据。
+- Decision: 继续保留既有 runbook/真实进程证据，同时使用 Playwright CLI 直接打开 IM host 上的 `/settings/agents` 与 `/settings/agents/assistant`，完成一次真实读取与保存。
+- Rationale: 这样不需要引入新的 repo 内 e2e 测试工程，也能补上用户要求的“真实浏览器直接操作 settings 页”证据，且目标明确落在真实 IM host、真实 `/im/v1/agents` 与真实 `PATCH /im/v1/agents/{id}/config` 链路上。
 - Evidence:
   - Tests: `cd /Users/czj/Repos/nano-multiagent/.worktrees/M134 && PYTHONPATH=src pytest -q tests/im_service`; `cd /Users/czj/Repos/nano-multiagent/.worktrees/M134/src/IM/frontend && npm run test && npm run build`
-  - Entry: `/Users/czj/Repos/nano-multiagent/.worktrees/M134/docs/operator-runbook.md` 明确真实入口 `http://127.0.0.1:8011/`、`/chat`、`/settings/*`、`/bind/confirm`; `/Users/czj/Repos/nano-multiagent/.worktrees/M134/ACCEPTANCE/m125-browser-evidence.json` 记录真实浏览器经 IM host 完成页面进入与消息发送；`/Users/czj/Repos/nano-multiagent/.worktrees/M134/tests/e2e/test_m112_real_process_roundtrip_e2e.py` 与 `/Users/czj/Repos/nano-multiagent/.worktrees/M134/tests/im_service/integration/test_m103_im_gateway_e2e.py` 提供等价真实入口的 HTTP/WS 进程级证据。
+  - Entry: `/Users/czj/Repos/nano-multiagent/.worktrees/M134/docs/operator-runbook.md` 明确真实入口 `http://127.0.0.1:8011/`、`/chat`、`/settings/*`、`/bind/confirm`; `/Users/czj/Repos/nano-multiagent/.worktrees/M134/ACCEPTANCE/m125-browser-evidence.json` 记录既有 IM host 浏览器证据；本轮新增 Playwright CLI 真实操作 `http://127.0.0.1:8013/settings/agents` 与 `/settings/agents/assistant`，页面可见 `1 items`、`My Assistant`、`Agent Detail`、`Profile Version: 1 -> 2`，并通过真实浏览器点击 `Save Agent` 后由 `GET /im/v1/agents/assistant/config` 读回 `description="Browser verification agent updated via real settings page"`、`system_prompt="You are My Assistant. Browser settings save verified."`、`profile_version=2`；`/Users/czj/Repos/nano-multiagent/.worktrees/M134/tests/e2e/test_m112_real_process_roundtrip_e2e.py` 与 `/Users/czj/Repos/nano-multiagent/.worktrees/M134/tests/im_service/integration/test_m103_im_gateway_e2e.py` 继续提供等价真实入口的 HTTP/WS 进程级证据。
 - Rollback: 待本次提交生成
 - Commits: C1=3960df4, C2=3971f92, C3=
-- Next: 如需严格补“真实浏览器直接操作 settings 页”的新证据，仍需后续引入或复用浏览器自动化依赖；本轮 blocker 仅剩该证据形式未新增。
+- Next: 收口本次浏览器证据并完成最终提交/合并。
