@@ -86,7 +86,7 @@ def test_apply_delivery_receipt_updates_task_status(tmp_path: Path) -> None:
 
 
 def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_path: Path) -> None:
-    """Group relay payloads must snapshot the addressed agent instead of the first participant."""
+    """Group relay payloads must snapshot the addressed agent even when the mention includes punctuation."""
     relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
     agent_a_user = users.create_user(username="agent:agent-a", display_name="Agent A")
@@ -120,7 +120,7 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_pa
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
-        content="@agent-b please reply in thread",
+        content="@agent-b, please reply in thread",
     )
 
     created = relay_service.enqueue_message_relay(
