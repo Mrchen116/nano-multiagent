@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from typing import Any
 from typing import Literal
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
@@ -31,7 +32,8 @@ class PipelineResult:
         kernel_session_id: Kernel session bound to the message.
         run_id: Async kernel run id created for the message.
         reply_text: Final reply text selected for outbound routing.
-        outbound: Normalized outbound payload returned by the outbound router.
+        outbound: Normalized outbound payload returned by the outbound router, or ``None``
+            when group-chat NO_REPLY suppresses user-visible delivery.
     """
 
     agent_id: str
@@ -39,7 +41,7 @@ class PipelineResult:
     kernel_session_id: str
     run_id: str
     reply_text: str
-    outbound: OutboundMessage
+    outbound: OutboundMessage | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +54,7 @@ class RelayLifecycleUpdate:
     run_id: str | None = None
     reply_text: str | None = None
     error: str | None = None
+    detail: Mapping[str, Any] | None = None
 
 
 RelayLifecycleCallback = Callable[[InboundMessage, RelayLifecycleUpdate], Awaitable[None]]
@@ -147,7 +150,12 @@ class InboundPipeline:
                         reply_text=reply_text,
                     ),
                 )
-                outbound = self._outbound_router.send_text(text=reply_text, reply_context=binding.reply_context)
+                outbound: OutboundMessage | None = None
+                lifecycle_detail: Mapping[str, Any] | None = None
+                if not self._should_suppress_no_reply(message, reply_text=reply_text):
+                    outbound = self._outbound_router.send_text(text=reply_text, reply_context=binding.reply_context)
+                else:
+                    lifecycle_detail = {"suppressed_by": "no_reply_token"}
                 result = PipelineResult(
                     agent_id=agent_id,
                     session_key=session_key,
@@ -164,6 +172,7 @@ class InboundPipeline:
                         session_key=session_key,
                         run_id=run_id or None,
                         reply_text=reply_text,
+                        detail=lifecycle_detail,
                     ),
                 )
                 return result
@@ -250,6 +259,14 @@ class InboundPipeline:
         if isinstance(trigger, str) and trigger.strip() in {"command", "mention", "reply"}:
             return True
         return f"@{agent_id}" in message.text
+
+    @staticmethod
+    def _is_no_reply_token(text: str) -> bool:
+        return text.strip() == "NO_REPLY"
+
+    @classmethod
+    def _should_suppress_no_reply(cls, message: InboundMessage, *, reply_text: str) -> bool:
+        return message.is_group and cls._is_no_reply_token(reply_text)
 
     def _require_known_agent(self, agent_id: str) -> str:
         if agent_id not in self._agents:

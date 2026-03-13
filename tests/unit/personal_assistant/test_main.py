@@ -371,6 +371,58 @@ def test_relay_lifecycle_callback_sends_receipts_and_report_to_im() -> None:
     assert manager.sent_frames[2][1]["detail"] == "hello from agent"
 
 
+def test_build_relay_lifecycle_callback_marks_no_reply_suppression_in_completed_receipt() -> None:
+    sent_frames: list[tuple[str, dict[str, object]]] = []
+
+    class _Reporter:
+        def send_delivery_receipt(self, *, relay_task_id: str, delivery_status: str, detail: str | None = None):
+            return {
+                "relay_task_id": relay_task_id,
+                "delivery_status": delivery_status,
+                "detail": detail,
+            }
+
+    class _Manager:
+        connected = True
+
+        async def send_json(self, message_type: str, payload: dict[str, object]) -> None:
+            sent_frames.append((message_type, payload))
+
+    callback = _build_relay_lifecycle_callback(
+        reporter=_Reporter(),
+        im_connection_manager_factory=lambda: _Manager(),
+    )
+    message = type("_Message", (), {})()
+    message.external_chat_id = "conv-1"
+    message.metadata = {"relay_task_id": "relay-1", "message_id": "msg-1"}
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="completed",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-1",
+                reply_text="NO_REPLY",
+                detail={"suppressed_by": "no_reply_token"},
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert sent_frames == [
+        (
+            "node.delivery_receipt",
+            {
+                "relay_task_id": "relay-1",
+                "delivery_status": "completed",
+                "detail": "NO_REPLY | suppressed_by=no_reply_token",
+            },
+        )
+    ]
+
+
 def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
     config = _build_config(tmp_path)
     seen: dict[str, object] = {}
