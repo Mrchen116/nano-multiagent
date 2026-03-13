@@ -40,6 +40,7 @@ class RelayService:
         target_node_id: str,
         idempotency_key: str,
         sender_user_id: str,
+        conversation_type: str | None = None,
     ) -> RelayEnqueueResult:
         """Create or return an existing relay task for one IM message.
 
@@ -48,6 +49,8 @@ class RelayService:
             target_node_id: Gateway node that should receive the relay.
             idempotency_key: Stable retry key for the logical relay request.
             sender_user_id: Human sender identifier copied into the relay payload.
+            conversation_type: Conversation kind copied into relay metadata so gateway mention gating
+                can distinguish group chats from direct chats.
 
         Returns:
             RelayEnqueueResult with the canonical task and whether it was newly created.
@@ -66,9 +69,14 @@ class RelayService:
 
         created_at = _utc_now()
         relay_task_id = uuid4().hex
+        mentioned_agent_ids = sorted({token[1:] for token in message.content.split() if token.startswith("@") and len(token) > 1})
         payload = {
             "idempotency_key": idempotency_key,
             "conversation_id": message.conversation_id,
+            "metadata": {
+                "conversation_type": conversation_type,
+                "mentioned_agent_ids": mentioned_agent_ids,
+            },
             "message": {
                 "id": message.id,
                 "conversation_id": message.conversation_id,

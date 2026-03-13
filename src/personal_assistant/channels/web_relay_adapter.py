@@ -72,12 +72,13 @@ class WebRelayAdapter:
         if callback is None:
             raise RuntimeError("web relay adapter is not started")
         envelope = _parse_relay_payload(payload)
+        conversation_type = envelope.metadata.get("conversation_type")
         inbound = InboundMessage(
             channel_name=self.name,
             text=envelope.content,
             external_user_id=envelope.sender_user_id,
             external_chat_id=envelope.conversation_id,
-            is_group=bool(envelope.metadata.get("conversation_type") == "group"),
+            is_group=conversation_type == "group",
             agent_id=envelope.agent_id,
             thread_id=_optional_text(envelope.metadata.get("thread_id")),
             metadata={

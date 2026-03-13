@@ -15,14 +15,24 @@ export function ConversationList(props: {
   items: ConversationSummary[];
   activeId?: string;
   compact?: boolean;
+  onCreateGroupChat?: () => void;
 }) {
   return (
     <div className="im-card flex h-full min-h-[420px] flex-col overflow-hidden">
       <div className="border-b border-[var(--im-border)] px-4 py-3">
-        <h1 className="im-title text-xl font-bold">Conversations</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Discover direct agent chats, shared group threads, and agent-to-agent coordination from one list.
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="im-title text-xl font-bold">Conversations</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Discover direct agent chats, shared group threads, and agent-to-agent coordination from one list.
+            </p>
+          </div>
+          {props.onCreateGroupChat && (
+            <button type="button" className="im-btn im-btn-primary" onClick={props.onCreateGroupChat}>
+              Create group chat
+            </button>
+          )}
+        </div>
       </div>
       <div className="border-b border-[var(--im-border)] bg-slate-50 px-4 py-3 text-xs text-slate-600">
         <ul className="grid gap-1">
