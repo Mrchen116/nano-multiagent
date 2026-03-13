@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -99,6 +100,26 @@ class _FakeChannel:
 
 
 class _FakeHeartbeatRunner:
+    def __init__(self, events: list[str], *, report_payloads: list[dict[str, object]] | None = None) -> None:
+        self._events = events
+        self.report_payloads = list(report_payloads or [])
+
+    async def start(self) -> None:
+        self._events.append("heartbeat.start")
+
+    async def close(self) -> None:
+        self._events.append("heartbeat.stop")
+
+    def request_tick(self) -> None:
+        self._events.append("heartbeat.tick")
+
+    def build_product_reports(self) -> list[dict[str, object]]:
+        payloads = list(self.report_payloads)
+        self.report_payloads.clear()
+        return payloads
+
+
+class _FakeHeartbeatRunnerMissingProductHook:
     def __init__(self, events: list[str]) -> None:
         self._events = events
 
@@ -107,6 +128,30 @@ class _FakeHeartbeatRunner:
 
     async def close(self) -> None:
         self._events.append("heartbeat.stop")
+
+    def request_tick(self) -> None:
+        self._events.append("heartbeat.tick")
+
+
+class _FakeHeartbeatRunnerMinimal:
+    def __init__(self, events: list[str], *, report_payloads: list[dict[str, object]] | None = None) -> None:
+        self._delegate = _FakeHeartbeatRunner(events, report_payloads=report_payloads)
+
+    async def start(self) -> None:
+        await self._delegate.start()
+
+    async def close(self) -> None:
+        await self._delegate.close()
+
+    def request_tick(self) -> None:
+        self._delegate.request_tick()
+
+    def build_product_reports(self) -> list[dict[str, object]]:
+        return self._delegate.build_product_reports()
+
+
+class _FakeHeartbeatRunnerMain(_FakeHeartbeatRunner):
+    pass
 
 
 class _FakeIMManager:
@@ -462,6 +507,89 @@ def test_im_bootstrap_client_falls_back_to_local_im_api_port_when_primary_bootst
 
     assert bind_url == "http://127.0.0.1:4173/bind/confirm?token=fallback"
     assert opened == ["http://127.0.0.1:4173/bind/confirm?token=fallback"]
+
+
+def test_build_heartbeat_product_reports_maps_runs_to_main_agent_im_payloads() -> None:
+    from personal_assistant.scheduler.heartbeat_scheduler import HeartbeatRunRecord, HeartbeatTickSummary
+    from personal_assistant.main import _build_heartbeat_product_reports
+
+    payloads = _build_heartbeat_product_reports(
+        HeartbeatTickSummary(
+            triggered_runs=(
+                HeartbeatRunRecord(
+                    agent_id="agent-a",
+                    due_at=datetime(2026, 3, 13, 9, 0, tzinfo=UTC),
+                    run_id="heartbeat-run-1",
+                    session_id="session-heartbeat-1",
+                ),
+            ),
+            skipped_agents=(),
+        )
+    )
+
+    assert payloads == [
+        {
+            "run_id": "heartbeat-run-1",
+            "status": "completed",
+            "agent_id": "agent-a",
+            "session_key": "agent-a::heartbeat",
+            "conversation_id": "heartbeat:agent-a",
+            "message_id": "heartbeat-run-1",
+            "summary": "Heartbeat complete for main agent agent-a at 2026-03-13T09:00:00+00:00.",
+            "guidance": "Open your main agent thread in Web IM to review the latest heartbeat result.",
+        }
+    ]
+
+
+
+def test_gateway_runtime_publishes_heartbeat_product_reports_to_im(tmp_path: Path) -> None:
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-local"),
+        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=tmp_path),),
+        channels=(),
+        kernel=KernelConfig(command="python -m agent.platform.http_api.app"),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=tmp_path / "node-config.yaml",
+    )
+    events: list[str] = []
+    manager = _FakeIMManager(events)
+    heartbeat_runner = _FakeHeartbeatRunner(
+        events,
+        report_payloads=[
+            {
+                "run_id": "heartbeat-run-1",
+                "status": "completed",
+                "agent_id": "agent-a",
+                "summary": "Heartbeat complete: synced 3 tasks back to your main agent.",
+                "conversation_id": "conv-main-agent",
+                "message_id": "msg-heartbeat-1",
+                "session_key": "agent-a::heartbeat",
+            }
+        ],
+    )
+    runtime = GatewayRuntime(
+        config,
+        _FakeProcessManager(events),
+        heartbeat_runner=heartbeat_runner,
+        im_connection_manager=manager,
+    )
+
+    thread = threading.Thread(target=runtime.run_forever)
+    thread.start()
+    assert runtime.wait_until_ready(timeout=1.0) is True
+    runtime.request_shutdown()
+    thread.join(timeout=2.0)
+
+    assert ("node.report", {
+        "run_id": "heartbeat-run-1",
+        "status": "completed",
+        "agent_id": "agent-a",
+        "summary": "Heartbeat complete: synced 3 tasks back to your main agent.",
+        "conversation_id": "conv-main-agent",
+        "message_id": "msg-heartbeat-1",
+        "session_key": "agent-a::heartbeat",
+    }) in manager.sent_frames
 
 
 def test_gateway_runtime_reports_actionable_bootstrap_failure_to_im(tmp_path: Path) -> None:

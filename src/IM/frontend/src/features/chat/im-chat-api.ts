@@ -158,6 +158,7 @@ function toBootstrapNodeState(input: {
   targetNode: ImNode | null;
   starterAgentName: string;
 }) {
+  const agentName = sanitizeMainAgentName(input.starterAgentName);
   const nodeId = input.targetNode?.node_id ?? null;
   const nodeLabel = input.targetNode?.node_name ?? nodeId;
   const nodeStatus = toNodeStatus(input.targetNode);
@@ -168,10 +169,8 @@ function toBootstrapNodeState(input: {
       nodeId,
       nodeLabel,
       nodeStatus,
-      agentLabel: input.starterAgentName,
-      ownershipLabel: nodeLabel
-        ? `Using ${input.starterAgentName} on ${nodeLabel}${nodeStatus ? ` (${nodeStatus}${nodeStatus === "online" ? " and ready to chat" : ""})` : ""}`
-        : `No bound node is selected for ${input.starterAgentName}`
+      agentLabel: agentName,
+      ownershipLabel: buildMainAgentOwnershipLabel(agentName, nodeLabel, nodeStatus)
     }
   };
 }
@@ -210,7 +209,67 @@ const PEER_USERNAME = "peer";
 const DEFAULT_CONVERSATION_TITLE = "You & Teammate";
 const AGENT_USERNAME_PREFIX = "agent:";
 const DEFAULT_AGENT_NAME = "OpsBot";
-const DEFAULT_AGENT_DESCRIPTION = "OpsBot handles the default IM replies for this workspace.";
+const DEFAULT_AGENT_DESCRIPTION = "OpsBot is your main agent and default IM entry for this workspace.";
+const MAIN_AGENT_PREFIX = "主 Agent · ";
+const MAIN_AGENT_SESSION_LABEL = "主 Agent 会话";
+const MAIN_AGENT_ENTRY_HINT = "这是你与主 Agent 的默认产品入口。";
+const DIRECT_AGENT_SESSION_LABEL = "Direct agent chat";
+const DIRECT_AGENT_DISCOVERABILITY_HINT = "This is a one-to-one conversation with an available target.";
+const MAIN_AGENT_DISCOVERABILITY_HINT = "Use this thread when you want to talk to your main agent acting as your delegate.";
+const MAIN_AGENT_TARGET_LABEL = "你的主 Agent";
+const MAIN_AGENT_LIST_HINT = "This is the user-visible product entry where your main agent receives intent and routes follow-up work.";
+const MAIN_AGENT_OWNERSHIP_PREFIX = "Using your main agent";
+const MAIN_AGENT_STATUS_SUFFIX = " and ready to chat";
+const MAIN_AGENT_DEFAULT_DESCRIPTION_SUFFIX = "is your main agent and default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.";
+const MAIN_AGENT_IDENTITY_ALIASES = ["main agent", "主 agent", "主agent", "your delegate", "替身"];
+
+function sanitizeMainAgentName(agentName: string): string {
+  const trimmed = agentName.trim();
+  if (!trimmed) {
+    return DEFAULT_AGENT_NAME;
+  }
+  return trimmed
+    .replace(/^主\s*Agent\s*/i, "")
+    .replace(/^main\s+agent\s*/i, "")
+    .trim() || DEFAULT_AGENT_NAME;
+}
+
+function isMainAgentStarterTitle(title: string): boolean {
+  return title.startsWith(MAIN_AGENT_PREFIX);
+}
+
+function buildMainAgentOwnershipLabel(agentName: string, nodeLabel: string | null, nodeStatus: string | null): string {
+  if (!nodeLabel) {
+    return `No bound node is selected for ${agentName}`;
+  }
+  const status = nodeStatus ? ` (${nodeStatus}${nodeStatus === "online" ? MAIN_AGENT_STATUS_SUFFIX : ""})` : "";
+  return `${MAIN_AGENT_OWNERSHIP_PREFIX} ${agentName} on ${nodeLabel}${status}`;
+}
+
+function toConversationSemantics(input: {
+  title: string;
+  ownershipLabel?: string | null;
+}): Pick<ConversationSummary, "kind_label" | "target_label" | "discoverability_hint" | "ownership_label"> &
+  Pick<ConversationDetail, "kind_label" | "target_label" | "discoverability_hint" | "ownership_label"> {
+  if (isMainAgentStarterTitle(input.title)) {
+    return {
+      kind_label: MAIN_AGENT_SESSION_LABEL,
+      target_label: MAIN_AGENT_TARGET_LABEL,
+      discoverability_hint: MAIN_AGENT_DISCOVERABILITY_HINT,
+      ownership_label: input.ownershipLabel ?? MAIN_AGENT_ENTRY_HINT
+    };
+  }
+  return {
+    kind_label: DIRECT_AGENT_SESSION_LABEL,
+    target_label: undefined,
+    discoverability_hint: DIRECT_AGENT_DISCOVERABILITY_HINT,
+    ownership_label: input.ownershipLabel ?? undefined
+  };
+}
+
+function buildListDiscoverabilityHint(title: string, fallback: string): string {
+  return isMainAgentStarterTitle(title) ? MAIN_AGENT_LIST_HINT : fallback;
+}
 
 let bootstrapPromise: Promise<BootstrapState> | null = null;
 
@@ -301,7 +360,7 @@ export function pickDefaultNodeForSend(nodes: Array<Pick<ImNode, "node_id" | "st
 }
 
 export function buildStarterConversationTitle(agentName: string): string {
-  return `Agent · ${agentName}`;
+  return `${MAIN_AGENT_PREFIX}${sanitizeMainAgentName(agentName)}`;
 }
 
 export function buildStarterPeerUsername(agentId: string): string {
@@ -419,7 +478,8 @@ function pickStarterAgent(agents: ImAgent[]): ImAgent {
 }
 
 function buildStarterDescription(agent: ImAgent): string {
-  return agent.description.trim() || `${agent.display_name} handles the default IM replies for this workspace.`;
+  const normalizedName = sanitizeMainAgentName(agent.display_name);
+  return agent.description.trim() || `${normalizedName} ${MAIN_AGENT_DEFAULT_DESCRIPTION_SUFFIX}`;
 }
 
 function resolveConversationTitle(input: { conversation: ImConversation; starterTitle: string }): string {
@@ -548,9 +608,11 @@ function toConversationSummary(input: {
 }): ConversationSummary {
   const latest = input.messages.at(-1);
   const unreadCount = input.messages.filter((item) => item.sender_user_id !== input.selfUserId).length;
+  const resolvedTitle = resolveConversationTitle({ conversation: input.conversation, starterTitle: input.starterTitle });
+  const semantics = toConversationSemantics({ title: resolvedTitle, ownershipLabel: input.ownership.ownershipLabel });
   return {
     conversation_id: input.conversation.id,
-    title: resolveConversationTitle({ conversation: input.conversation, starterTitle: input.starterTitle }),
+    title: resolvedTitle,
     last_message_preview: latest?.content ?? "",
     last_message_at: latest?.created_at,
     unread_count: unreadCount,
@@ -560,7 +622,10 @@ function toConversationSummary(input: {
     node_label: input.ownership.nodeLabel ?? undefined,
     node_status: input.ownership.nodeStatus ?? undefined,
     agent_label: input.ownership.agentLabel ?? undefined,
-    ownership_label: input.ownership.ownershipLabel ?? undefined
+    ownership_label: semantics.ownership_label,
+    kind_label: semantics.kind_label,
+    target_label: semantics.target_label,
+    discoverability_hint: buildListDiscoverabilityHint(resolvedTitle, semantics.discoverability_hint ?? "")
   };
 }
 
@@ -622,10 +687,15 @@ export async function getConversation(conversationId: string): Promise<Conversat
   if (!conversation) {
     return null;
   }
+  const resolvedTitle = resolveConversationTitle({ conversation, starterTitle: starter.title });
+  const semantics = toConversationSemantics({ title: resolvedTitle, ownershipLabel: starter.statusLabel });
   return {
     conversation_id: conversation.id,
-    title: resolveConversationTitle({ conversation, starterTitle: starter.title }),
-    ownership_label: starter.statusLabel,
+    title: resolvedTitle,
+    kind_label: semantics.kind_label,
+    target_label: semantics.target_label,
+    discoverability_hint: semantics.discoverability_hint,
+    ownership_label: semantics.ownership_label,
     messages: messages.map((message) =>
       toChatMessage({
         message,

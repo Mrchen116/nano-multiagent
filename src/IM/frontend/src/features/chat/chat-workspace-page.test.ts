@@ -78,6 +78,17 @@ describe("chat workspace relay event mapping", () => {
 });
 
 describe("chat workspace page", () => {
+  it("shows the main-agent semantics on the default starter entry", async () => {
+    renderRouter({
+      routes: [{ path: "/chat", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat"]
+    });
+
+    expect(await screen.findByText("主 Agent · OpsBot")).toBeInTheDocument();
+    expect(screen.getByText("OpsBot is your main agent and default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
+    expect(screen.getByText("Using your main agent OpsBot on node-1 (online)")).toBeInTheDocument();
+  });
+
   beforeEach(() => {
     getChatBootstrapState.mockResolvedValue({
       selfUserId: "user-1",
@@ -93,13 +104,13 @@ describe("chat workspace page", () => {
       }
     });
     getChatStarter.mockResolvedValue({
-      title: "Agent · OpsBot",
-      actionLabel: "Open Agent · OpsBot",
+      title: "主 Agent · OpsBot",
+      actionLabel: "Open 主 Agent · OpsBot",
       actionHref: "/chat/conv-1",
       agentName: "OpsBot",
-      description: "OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
+      description: "OpsBot is your main agent and default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
       nodeLabel: "node-1",
-      statusLabel: "Using OpsBot on node-1 (online)"
+      statusLabel: "Using your main agent OpsBot on node-1 (online)"
     });
     listConversations.mockResolvedValue([
       {
@@ -194,11 +205,11 @@ describe("chat workspace page", () => {
       }
     });
     getChatStarter.mockResolvedValue({
-      title: "Agent · OpsBot",
-      actionLabel: "Open Agent · OpsBot",
+      title: "主 Agent · OpsBot",
+      actionLabel: "Open 主 Agent · OpsBot",
       actionHref: "/chat/conv-1",
       agentName: "OpsBot",
-      description: "OpsBot handles the default IM replies for this workspace.",
+      description: "OpsBot is your main agent and default IM entry for this workspace.",
       nodeLabel: "Offline Node",
       statusLabel: "offline"
     });
