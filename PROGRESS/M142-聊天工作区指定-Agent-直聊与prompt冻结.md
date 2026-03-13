@@ -24,6 +24,6 @@
 - Commits:
   - C1: `34c3915 test(M142): lock workspace direct chat and prompt snapshot path`
   - C2: `5685036 feat(M142): add workspace direct chats with frozen prompt sessions`
-  - C3: pending
+  - C3: `23c1e65 docs(M142): record direct-chat and frozen-prompt acceptance handoff`
 - Next:
   - 交给主 agent 继续执行真实浏览器 / 真实进程 acceptance，验证“旧会话不漂移，新会话吃新 prompt”的产品证据。

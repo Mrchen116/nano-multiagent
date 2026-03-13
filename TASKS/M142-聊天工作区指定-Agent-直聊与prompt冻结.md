@@ -50,4 +50,4 @@
 - Rollback:
   - 删除 M142 文档并回退到未留痕状态。
 - Commits:
-  - pending
+  - `23c1e65 docs(M142): record direct-chat and frozen-prompt acceptance handoff`
