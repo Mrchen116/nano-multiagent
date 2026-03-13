@@ -234,7 +234,7 @@ export async function createDirectConversation(input: { agentId: string }) {
       conversation_id: conversationId,
       title,
       last_message_preview: "",
-      last_message_at: null,
+      last_message_at: undefined,
       unread_count: 0,
       participants: ["You", title],
       is_pinned: false,

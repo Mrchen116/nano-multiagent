@@ -76,10 +76,12 @@ describe("app routes", () => {
     streamConversationEvents.mockReturnValue(() => undefined);
   });
 
-  it("renders the chat conversation route", async () => {
+  it("renders the chat conversation route with production workspace copy", async () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/chat/conv-1"] });
 
     expect(await screen.findByText("Conversations")).toBeInTheDocument();
+    expect(screen.getByText("A production-ready inbox for operator, agent, and group conversations.")).toBeInTheDocument();
+    expect(screen.queryByText("P1-P7 Skeleton")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
   });
 
