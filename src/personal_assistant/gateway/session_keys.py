@@ -44,6 +44,14 @@ class SessionBindingStore:
         self._bindings[session_key] = binding
         return binding
 
+    def drop_agent(self, agent_id: str) -> None:
+        """Remove all session bindings that belong to one routed agent id."""
+
+        suffix = f":{agent_id}"
+        for session_key in tuple(self._bindings):
+            if session_key.endswith(suffix):
+                self._bindings.pop(session_key, None)
+
 
 session_binding_store = SessionBindingStore()
 

@@ -141,9 +141,15 @@ def get_event_service(request: Request) -> EventService:
 
 def get_config_service(request: Request) -> ConfigService:
     """Build the agent config application service from app-scoped dependencies."""
+    gateway_handler = get_gateway_handler(request)
     return ConfigService(
         profiles=_build_profile_repository(request),
         nodes=_build_node_repository(request),
+        config_sync_notifier=lambda node_id, agent_id, profile_version: gateway_handler.push_config_sync(
+            target_node_id=node_id,
+            agent_id=agent_id,
+            profile_version=profile_version,
+        ),
     )
 
 
