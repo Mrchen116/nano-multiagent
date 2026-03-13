@@ -55,6 +55,11 @@ export interface ChatMessage {
   delivery_status?: "sent" | "running" | "completed" | "failed";
 }
 
+export interface MentionCandidate {
+  agentId: string;
+  label: string;
+}
+
 export interface ConversationDetail {
   conversation_id: string;
   title: string;
@@ -63,6 +68,7 @@ export interface ConversationDetail {
   kind_label?: string;
   target_label?: string;
   discoverability_hint?: string;
+  mention_candidates?: MentionCandidate[];
 }
 
 export interface ChatStarter {
