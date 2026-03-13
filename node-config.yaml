@@ -1,0 +1,16 @@
+node:
+  node_id: m135-node
+
+agents:
+  - agent_id: assistant
+    title: My Assistant
+
+channels:
+  - name: web_relay
+    enabled: true
+
+kernel:
+  command: "python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000"
+
+im_service:
+  url: http://127.0.0.1:8011

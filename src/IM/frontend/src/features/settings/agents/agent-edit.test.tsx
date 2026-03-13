@@ -29,7 +29,9 @@ describe("agent edit page", () => {
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
             default_model: "gpt-5.2-codex",
-            profile_version: 12
+            profile_version: 12,
+            bound_nodes: ["node-1"],
+            updated_at: "2026-03-13T10:00:00Z"
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
@@ -46,7 +48,9 @@ describe("agent edit page", () => {
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
             default_model: "gpt-5.2-codex",
-            profile_version: 13
+            profile_version: 13,
+            bound_nodes: ["node-1"],
+            updated_at: "2026-03-13T10:01:00Z"
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
@@ -78,7 +82,9 @@ describe("agent edit page", () => {
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
             default_model: "gpt-5.2-codex",
-            profile_version: 13
+            profile_version: 13,
+            bound_nodes: ["node-1"],
+            updated_at: "2026-03-13T10:01:00Z"
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )
@@ -131,7 +137,9 @@ describe("agent edit page", () => {
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
             default_model: "gpt-5.2-codex",
-            profile_version: 12
+            profile_version: 12,
+            bound_nodes: ["node-1"],
+            updated_at: "2026-03-13T10:00:00Z"
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         )

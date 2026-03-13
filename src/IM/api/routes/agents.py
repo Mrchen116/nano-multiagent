@@ -24,6 +24,23 @@ class AgentConfigResponse(BaseModel):
     group_reply_policy: str
     default_model: str | None
     profile_version: int
+    bound_nodes: list[str] = Field(default_factory=list)
+    updated_at: str | None = None
+
+
+class CreateAgentRequest(BaseModel):
+    """Request payload for creating one agent profile."""
+
+    agent_id: str = Field(min_length=1)
+    owner_id: str = ""
+    display_name: str = Field(min_length=1)
+    description: str = ""
+    system_prompt: str = ""
+    skills: list[str] = Field(default_factory=list)
+    tool_allowlist: list[str] = Field(default_factory=list)
+    group_reply_policy: str = Field(min_length=1)
+    default_model: str | None = None
+    node_id: str | None = None
 
 
 class UpdateAgentConfigRequest(BaseModel):
@@ -48,9 +65,11 @@ class AgentSummaryResponse(BaseModel):
     description: str
     profile_version: int
     default_model: str | None
+    bound_nodes: list[str] = Field(default_factory=list)
+    updated_at: str | None = None
 
 
-def to_agent_config_response(profile: AgentProfile) -> AgentConfigResponse:
+def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -> AgentConfigResponse:
     """Convert a domain profile to the config response model."""
     return AgentConfigResponse(
         agent_id=profile.agent_id,
@@ -63,10 +82,12 @@ def to_agent_config_response(profile: AgentProfile) -> AgentConfigResponse:
         group_reply_policy=profile.group_reply_policy,
         default_model=profile.default_model,
         profile_version=profile.profile_version,
+        bound_nodes=service.list_bound_nodes(agent_id=profile.agent_id),
+        updated_at=service.get_updated_at(agent_id=profile.agent_id),
     )
 
 
-def to_agent_summary_response(profile: AgentProfile) -> AgentSummaryResponse:
+def to_agent_summary_response(profile: AgentProfile, *, service: ConfigService) -> AgentSummaryResponse:
     """Convert a domain profile to a compact agent list item."""
     return AgentSummaryResponse(
         agent_id=profile.agent_id,
@@ -75,13 +96,41 @@ def to_agent_summary_response(profile: AgentProfile) -> AgentSummaryResponse:
         description=profile.description,
         profile_version=profile.profile_version,
         default_model=profile.default_model,
+        bound_nodes=service.list_bound_nodes(agent_id=profile.agent_id),
+        updated_at=service.get_updated_at(agent_id=profile.agent_id),
     )
+
+
+@router.post("/im/v1/agents", response_model=AgentConfigResponse, status_code=status.HTTP_201_CREATED)
+def create_agent(
+    payload: CreateAgentRequest,
+    service: ConfigService = Depends(get_config_service),
+) -> AgentConfigResponse:
+    """Create one agent profile bound to an optional node."""
+    try:
+        created = service.create_profile(
+            agent_id=payload.agent_id,
+            owner_id=payload.owner_id,
+            display_name=payload.display_name,
+            description=payload.description,
+            system_prompt=payload.system_prompt,
+            skills=payload.skills,
+            tool_allowlist=payload.tool_allowlist,
+            group_reply_policy=payload.group_reply_policy,
+            default_model=payload.default_model,
+            node_id=payload.node_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return to_agent_config_response(created, service=service)
 
 
 @router.get("/im/v1/agents", response_model=list[AgentSummaryResponse])
 def list_agents(service: ConfigService = Depends(get_config_service)) -> list[AgentSummaryResponse]:
     """List all configured agents."""
-    return [to_agent_summary_response(item) for item in service.list_profiles()]
+    return [to_agent_summary_response(item, service=service) for item in service.list_profiles()]
 
 
 @router.get("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)
@@ -93,7 +142,7 @@ def get_agent_config(
     profile = service.get_profile(agent_id=agent_id)
     if profile is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
-    return to_agent_config_response(profile)
+    return to_agent_config_response(profile, service=service)
 
 
 @router.patch("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)
@@ -119,4 +168,4 @@ def update_agent_config(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return to_agent_config_response(updated)
+    return to_agent_config_response(updated, service=service)

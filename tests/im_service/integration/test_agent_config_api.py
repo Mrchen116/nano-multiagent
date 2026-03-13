@@ -37,6 +37,8 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
                 "description": "initial",
                 "profile_version": 1,
                 "default_model": "gpt-4.1",
+                "bound_nodes": [],
+                "updated_at": list_resp.json()[0]["updated_at"],
             }
         ]
 

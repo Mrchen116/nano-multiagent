@@ -580,6 +580,27 @@ class AgentProfileRepository:
         ).fetchall()
         return [self._row_to_profile(row) for row in rows]
 
+    def list_bound_nodes(self, *, agent_id: str) -> list[str]:
+        """Return the bound node ids for one agent profile."""
+        row = self._connection.execute(
+            "SELECT node_id FROM agent_profiles WHERE agent_id = ?",
+            (agent_id,),
+        ).fetchone()
+        if row is None or row["node_id"] in (None, ""):
+            return []
+        return [str(row["node_id"])]
+
+    def get_updated_at(self, *, agent_id: str) -> str | None:
+        """Return the last update timestamp for one agent profile."""
+        row = self._connection.execute(
+            "SELECT updated_at FROM agent_profiles WHERE agent_id = ?",
+            (agent_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        value = row["updated_at"]
+        return str(value) if value is not None else None
+
     def get_profile(self, *, agent_id: str) -> AgentProfile | None:
         """Return one agent profile, or None when it does not exist."""
         row = self._connection.execute(

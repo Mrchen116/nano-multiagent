@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 const navItems = [
   { to: "/settings/agents", label: "Agents" },
@@ -8,6 +8,9 @@ const navItems = [
 ];
 
 export function SettingsPageShell() {
+  const location = useLocation();
+  const isAgentSubpage = location.pathname.startsWith("/settings/agents/");
+
   return (
     <section className="grid w-full gap-4 lg:grid-cols-[240px_1fr]">
       <aside className="im-card p-3">
@@ -20,10 +23,13 @@ export function SettingsPageShell() {
             <NavLink
               key={item.to}
               to={item.to}
+              end={item.to === "/settings/agents" && !isAgentSubpage}
               className={({ isActive }) =>
                 [
                   "rounded-lg px-3 py-2 text-sm font-semibold whitespace-nowrap",
-                  isActive ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                  isActive || (item.to === "/settings/agents" && isAgentSubpage)
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 hover:bg-slate-100"
                 ].join(" ")
               }
             >
