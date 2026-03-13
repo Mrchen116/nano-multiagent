@@ -12,6 +12,13 @@ from IM.domain.models import Message, RelayTask
 
 
 @dataclass(frozen=True, slots=True)
+class _RelayAgentSnapshot:
+    agent_id: str | None
+    profile_version: int | None
+    system_prompt: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class RelayEnqueueResult:
     """Describe the outcome of enqueueing one relay task."""
 
@@ -70,13 +77,19 @@ class RelayService:
         created_at = _utc_now()
         relay_task_id = uuid4().hex
         mentioned_agent_ids = sorted({token[1:] for token in message.content.split() if token.startswith("@") and len(token) > 1})
+        agent_snapshot = self._resolve_agent_snapshot(conversation_id=message.conversation_id)
+        metadata = {
+            "conversation_type": conversation_type,
+            "mentioned_agent_ids": mentioned_agent_ids,
+        }
+        if agent_snapshot.profile_version is not None:
+            metadata["config_profile_version"] = agent_snapshot.profile_version
+        if agent_snapshot.system_prompt:
+            metadata["system_prompt"] = agent_snapshot.system_prompt
         payload = {
             "idempotency_key": idempotency_key,
             "conversation_id": message.conversation_id,
-            "metadata": {
-                "conversation_type": conversation_type,
-                "mentioned_agent_ids": mentioned_agent_ids,
-            },
+            "metadata": metadata,
             "message": {
                 "id": message.id,
                 "conversation_id": message.conversation_id,
@@ -87,6 +100,8 @@ class RelayService:
                 "created_at": message.created_at,
             },
         }
+        if agent_snapshot.agent_id:
+            payload["agent_id"] = agent_snapshot.agent_id
         payload_json = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
         with self._connection:
             try:
@@ -128,6 +143,56 @@ class RelayService:
         created = self.get_task_by_idempotency_key(idempotency_key=idempotency_key)
         assert created is not None
         return RelayEnqueueResult(relay_task=created, created=True)
+
+    def _resolve_agent_snapshot(self, *, conversation_id: str) -> _RelayAgentSnapshot:
+        conversation_row = self._connection.execute(
+            "SELECT config_profile_version FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        conversation_profile_version = None
+        if conversation_row is not None and conversation_row["config_profile_version"] is not None:
+            conversation_profile_version = int(conversation_row["config_profile_version"])
+
+        participant_rows = self._connection.execute(
+            """
+            SELECT cp.user_id, u.username
+            FROM conversation_participants cp
+            JOIN users u ON u.id = cp.user_id
+            WHERE cp.conversation_id = ?
+            ORDER BY cp.rowid
+            """,
+            (conversation_id,),
+        ).fetchall()
+        for row in participant_rows:
+            direct_agent_id = str(row["user_id"])
+            profile = self._profile_row(agent_id=direct_agent_id)
+            if profile is not None:
+                return _RelayAgentSnapshot(
+                    agent_id=direct_agent_id,
+                    profile_version=conversation_profile_version if conversation_profile_version is not None else int(profile["profile_version"]),
+                    system_prompt=str(profile["system_prompt"]),
+                )
+            username = str(row["username"])
+            if not username.startswith("agent:"):
+                continue
+            alias_agent_id = username[len("agent:") :].strip()
+            if not alias_agent_id:
+                continue
+            profile = self._profile_row(agent_id=alias_agent_id)
+            if profile is None:
+                continue
+            return _RelayAgentSnapshot(
+                agent_id=alias_agent_id,
+                profile_version=conversation_profile_version if conversation_profile_version is not None else int(profile["profile_version"]),
+                system_prompt=str(profile["system_prompt"]),
+            )
+        return _RelayAgentSnapshot(agent_id=None, profile_version=conversation_profile_version, system_prompt=None)
+
+    def _profile_row(self, *, agent_id: str) -> sqlite3.Row | None:
+        return self._connection.execute(
+            "SELECT agent_id, profile_version, system_prompt FROM agent_profiles WHERE agent_id = ?",
+            (agent_id,),
+        ).fetchone()
 
     def get_task_by_idempotency_key(self, *, idempotency_key: str) -> RelayTask | None:
         """Return the canonical relay task for one idempotency key if present."""

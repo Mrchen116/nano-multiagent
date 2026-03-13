@@ -61,6 +61,13 @@ const conversations: ConversationSummary[] = [
   }
 ];
 
+interface DiscoverableAgent {
+  agent_id: string;
+  display_name: string;
+  description: string;
+  existing_conversation_id: string | null;
+}
+
 const DEFAULT_STARTER: ChatStarter = {
   title: "Agent · OpsBot",
   actionLabel: "Open Agent · OpsBot",
@@ -70,6 +77,15 @@ const DEFAULT_STARTER: ChatStarter = {
   nodeLabel: "node-app-01",
   statusLabel: "Online and ready to chat via OpsBot on node-app-01"
 };
+
+const discoverableAgents: DiscoverableAgent[] = [
+  {
+    agent_id: "agent-new",
+    display_name: "Agent New",
+    description: "runtime-created helper",
+    existing_conversation_id: null
+  }
+];
 
 const details = new Map<string, ConversationDetail>([
   [
@@ -197,6 +213,47 @@ export async function getChatStarter(): Promise<ChatStarter> {
 export async function listConversations() {
   await wait();
   return [...conversations].sort((a, b) => Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned)));
+}
+
+export async function listDiscoverableAgents() {
+  await wait(40);
+  return discoverableAgents.map((item) => ({ ...item }));
+}
+
+export async function createDirectConversation(input: { agentId: string }) {
+  await wait(60);
+  const existing = discoverableAgents.find((item) => item.agent_id === input.agentId)?.existing_conversation_id;
+  if (existing) {
+    return { conversation_id: existing };
+  }
+  const agent = discoverableAgents.find((item) => item.agent_id === input.agentId);
+  const conversationId = `conv-${input.agentId}`;
+  if (!details.has(conversationId)) {
+    const title = agent?.display_name ?? input.agentId;
+    conversations.unshift({
+      conversation_id: conversationId,
+      title,
+      last_message_preview: "",
+      last_message_at: null,
+      unread_count: 0,
+      participants: ["You", title],
+      is_pinned: false,
+      is_muted: false,
+      kind: "direct-agent",
+      kind_label: "Direct agent chat",
+      target_label: title,
+      discoverability_hint: "This is a one-to-one conversation with an available target."
+    });
+    details.set(conversationId, {
+      conversation_id: conversationId,
+      title,
+      kind_label: "Direct agent chat",
+      target_label: title,
+      discoverability_hint: "This is a one-to-one conversation with an available target.",
+      messages: []
+    });
+  }
+  return { conversation_id: conversationId };
 }
 
 export async function getConversation(conversationId: string) {

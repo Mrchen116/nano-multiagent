@@ -43,7 +43,12 @@ class SessionManager:
             data=extra_data,
         )
         self._store.append_event(session_id, event)
-        session = Session(session_id=session_id, status="active", created_at=created_at)
+        session = Session(
+            session_id=session_id,
+            status="active",
+            created_at=created_at,
+            metadata=dict(metadata or {}),
+        )
         self._store.save_snapshot(session_id, self._to_snapshot(session))
         return session
 
@@ -214,10 +219,14 @@ class SessionManager:
         if "session_id" not in snapshot or "created_at" not in snapshot:
             return None
         status = str(snapshot.get("status", "active"))
+        metadata = snapshot.get("metadata")
+        if not isinstance(metadata, Mapping):
+            metadata = {}
         return Session(
             session_id=str(snapshot["session_id"]),
             status=status,
             created_at=str(snapshot["created_at"]),
+            metadata=dict(metadata),
         )
 
     def _apply_event(self, session: Session | None, entry: SessionEntry | CompactionEntry) -> Session | None:
@@ -226,10 +235,14 @@ class SessionManager:
 
         if entry.kind is SessionEntryKind.SESSION_CREATED:
             status = str(entry.data.get("status", "active"))
+            metadata = entry.data.get("metadata")
+            if not isinstance(metadata, Mapping):
+                metadata = {}
             return Session(
                 session_id=entry.session_id,
                 status=status,
                 created_at=entry.created_at,
+                metadata=dict(metadata),
             )
         if entry.kind is SessionEntryKind.SESSION_ARCHIVED and session is not None:
             return replace(session, status="archived")
@@ -240,6 +253,7 @@ class SessionManager:
             "session_id": session.session_id,
             "status": session.status,
             "created_at": session.created_at,
+            "metadata": dict(session.metadata),
         }
 
     def _message_from_turn_event(self, entry: SessionEntry) -> Message | None:

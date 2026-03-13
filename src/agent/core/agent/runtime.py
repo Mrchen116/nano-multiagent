@@ -140,6 +140,9 @@ class AgentRuntime:
         if session is None:
             raise ValueError(f"session does not exist: {session_id}")
         session_created_at = session.created_at
+        frozen_system_prompt = session.metadata.get("system_prompt") if isinstance(session.metadata, Mapping) else None
+        if not isinstance(frozen_system_prompt, str) or not frozen_system_prompt.strip():
+            frozen_system_prompt = None
 
         input_parts = parse_input_parts(parts)
         user_text = render_user_text(input_parts)
@@ -186,8 +189,10 @@ class AgentRuntime:
         if not user_text:
             raise ValueError("empty input parts are not allowed")
         system_prompt_override = before_payload.get("system_prompt")
-        if not isinstance(system_prompt_override, str):
-            system_prompt_override = None
+        use_frozen_system_prompt = False
+        if not isinstance(system_prompt_override, str) or not system_prompt_override.strip():
+            system_prompt_override = frozen_system_prompt
+            use_frozen_system_prompt = frozen_system_prompt is not None
 
         self._dispatch_observe(
             "agent_start",
@@ -227,6 +232,7 @@ class AgentRuntime:
                 user_text=user_text,
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
+                available_skills_override=() if use_frozen_system_prompt else None,
                 llm_session_id=llm_session_id,
                 session_created_at=session_created_at,
             )
@@ -248,6 +254,7 @@ class AgentRuntime:
                 user_text=user_text,
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
+                available_skills_override=() if use_frozen_system_prompt else None,
                 llm_session_id=llm_session_id,
                 session_created_at=session_created_at,
             )
@@ -517,6 +524,7 @@ class AgentRuntime:
         user_text: str,
         hook_ctx: HookContext,
         system_prompt_override: str | None,
+        available_skills_override: tuple[SkillMetadata, ...] | None,
         llm_session_id: str | None,
         session_created_at: str,
     ) -> TurnResult:
@@ -531,6 +539,7 @@ class AgentRuntime:
             ),
             hook_ctx=hook_ctx,
             system_prompt_override=system_prompt_override,
+            available_skills_override=available_skills_override,
             llm_session_id=llm_session_id,
             session_created_at=session_created_at,
         )

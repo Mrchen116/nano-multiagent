@@ -226,6 +226,7 @@ class InboundPipeline:
             workspace_root=str(agent.workspace_root),
             product_id="personal_assistant",
             title=agent.title,
+            metadata=self._build_session_metadata(message, agent_id=agent_id),
         )
         kernel_session_id = str(response.get("session_id", "")).strip()
         if not kernel_session_id:
@@ -235,6 +236,24 @@ class InboundPipeline:
             kernel_session_id=kernel_session_id,
             reply_context=build_reply_context(message),
         )
+
+    @staticmethod
+    def _build_session_metadata(message: InboundMessage, *, agent_id: str) -> dict[str, object] | None:
+        metadata = dict(message.metadata)
+        session_metadata: dict[str, object] = {}
+        conversation_id = metadata.get("conversation_id")
+        if isinstance(conversation_id, str) and conversation_id.strip():
+            session_metadata["conversation_id"] = conversation_id.strip()
+        profile_version = metadata.get("config_profile_version")
+        if isinstance(profile_version, int):
+            session_metadata["config_profile_version"] = profile_version
+        system_prompt = metadata.get("system_prompt")
+        if isinstance(system_prompt, str) and system_prompt.strip():
+            session_metadata["system_prompt"] = system_prompt
+        if not session_metadata:
+            return None
+        session_metadata["agent_id"] = agent_id
+        return session_metadata
 
     @staticmethod
     def _should_process(message: InboundMessage, *, agent_id: str) -> bool:
