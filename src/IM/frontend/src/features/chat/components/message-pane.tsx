@@ -1,7 +1,16 @@
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { ChatAttachment, ChatMessage, ChatStarter, ChatUsageView, ConversationDetail, UsageAgentView, UsageTotals } from "../types";
+import {
+  ChatAttachment,
+  ChatMessage,
+  ChatStarter,
+  ChatUsageView,
+  ConversationDetail,
+  MentionCandidate,
+  UsageAgentView,
+  UsageTotals
+} from "../types";
 import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
 
 const SEND_AVAILABILITY_MESSAGES = getSendAvailabilityMessages();
@@ -179,6 +188,28 @@ function UsageStrip(props: { usage: ChatUsageView }) {
   );
 }
 
+const STABLE_MENTION_PREFIX = "@agent:";
+
+function formatMention(agentId: string) {
+  return `${STABLE_MENTION_PREFIX}${agentId}`;
+}
+
+function getMentionQuery(draft: string): { start: number; query: string } | null {
+  const match = /(?:^|\s)@([^\s@]*)$/.exec(draft);
+  if (!match || typeof match.index !== "number") {
+    return null;
+  }
+  const start = match.index + match[0].lastIndexOf("@");
+  return {
+    start,
+    query: match[1] ?? ""
+  };
+}
+
+function buildMentionCandidates(detail: ConversationDetail | null): MentionCandidate[] {
+  return detail?.mention_candidates ?? [];
+}
+
 function PendingAttachments(props: {
   attachments: ChatAttachment[];
   isUploading: boolean;
@@ -256,8 +287,26 @@ export function MessagePane(props: {
   const [sendError, setSendError] = useState<string | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const mentionCandidates = useMemo(() => buildMentionCandidates(props.detail), [props.detail]);
+  const mentionQuery = useMemo(() => getMentionQuery(draft), [draft]);
+  const filteredMentionCandidates = useMemo(() => {
+    if (!mentionQuery || mentionCandidates.length === 0) {
+      return [];
+    }
+    const normalizedQuery = mentionQuery.query.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return mentionCandidates;
+    }
+    return mentionCandidates.filter((candidate) => {
+      const stableMention = formatMention(candidate.agentId).toLowerCase();
+      return candidate.label.toLowerCase().includes(normalizedQuery) || stableMention.includes(normalizedQuery);
+    });
+  }, [mentionCandidates, mentionQuery]);
+  const isMentionMenuOpen = props.detail?.kind_label === "Group chat" && filteredMentionCandidates.length > 0 && Boolean(mentionQuery);
 
   useEffect(() => {
     if (!props.detail) {
@@ -269,6 +318,14 @@ export function MessagePane(props: {
     }
     node.scrollTop = node.scrollHeight;
   }, [props.detail, props.detail?.messages.length]);
+
+  useEffect(() => {
+    if (!isMentionMenuOpen) {
+      setActiveMentionIndex(0);
+      return;
+    }
+    setActiveMentionIndex((current) => Math.min(current, filteredMentionCandidates.length - 1));
+  }, [filteredMentionCandidates.length, isMentionMenuOpen]);
 
   if (!props.detail) {
     if (props.starter) {
@@ -301,10 +358,45 @@ export function MessagePane(props: {
     }
   };
 
+  const selectMention = (candidate: MentionCandidate) => {
+    if (!mentionQuery) {
+      return;
+    }
+    const prefix = draft.slice(0, mentionQuery.start);
+    const suffix = draft.slice(mentionQuery.start + mentionQuery.query.length + 1);
+    const mention = `${formatMention(candidate.agentId)} `;
+    setDraft(`${prefix}${mention}${suffix}`);
+    setActiveMentionIndex(0);
+    setSendError(null);
+  };
+
+  const onComposerKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!isMentionMenuOpen) {
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveMentionIndex((current) => (current + 1) % filteredMentionCandidates.length);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveMentionIndex((current) => (current - 1 + filteredMentionCandidates.length) % filteredMentionCandidates.length);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const candidate = filteredMentionCandidates[activeMentionIndex];
+      if (candidate) {
+        selectMention(candidate);
+      }
+    }
+  };
+
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const text = draft.trim();
-    if ((!text && pendingAttachments.length === 0) || !props.sendAvailability.canSend || isUploading) {
+    if ((!text && pendingAttachments.length === 0) || !props.sendAvailability.canSend || isUploading || isMentionMenuOpen) {
       return;
     }
     setSendError(null);
@@ -352,7 +444,7 @@ export function MessagePane(props: {
         <FailureStateBanner sendAvailability={props.sendAvailability} />
         {sendError && <SendErrorBanner message={sendError} />}
         <PendingAttachments attachments={pendingAttachments} isUploading={isUploading} />
-        <div className="flex items-center gap-2">
+        <div className="relative flex items-center gap-2">
           <label className="im-btn im-btn-muted cursor-pointer">
             <span aria-hidden="true">+</span>
             <span className="sr-only">Attachment picker</span>
@@ -364,13 +456,50 @@ export function MessagePane(props: {
               onChange={onPickAttachment}
             />
           </label>
-          <input
-            className="im-input"
-            placeholder={props.sendAvailability.placeholder}
-            value={draft}
-            disabled={!props.sendAvailability.canSend}
-            onChange={(event) => setDraft(event.target.value)}
-          />
+          <div className="relative flex-1">
+            <input
+              className="im-input w-full"
+              placeholder={props.sendAvailability.placeholder}
+              value={draft}
+              disabled={!props.sendAvailability.canSend}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={onComposerKeyDown}
+              aria-expanded={isMentionMenuOpen}
+              aria-controls={isMentionMenuOpen ? "mention-candidate-list" : undefined}
+              aria-autocomplete={props.detail.kind_label === "Group chat" ? "list" : undefined}
+            />
+            {isMentionMenuOpen && (
+              <div
+                id="mention-candidate-list"
+                role="listbox"
+                aria-label="Mention candidates"
+                className="absolute bottom-full left-0 z-10 mb-2 w-full rounded-2xl border border-[var(--im-border)] bg-white p-2 shadow-lg"
+              >
+                {filteredMentionCandidates.map((candidate, index) => {
+                  const isActive = index === activeMentionIndex;
+                  return (
+                    <button
+                      key={candidate.agentId}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      className={[
+                        "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm",
+                        isActive ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
+                      ].join(" ")}
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        selectMention(candidate);
+                      }}
+                    >
+                      <span className="font-medium">{candidate.label}</span>
+                      <span className={isActive ? "text-slate-200" : "text-slate-400"}>{formatMention(candidate.agentId)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           <button
             type="submit"
             className="im-btn im-btn-primary"

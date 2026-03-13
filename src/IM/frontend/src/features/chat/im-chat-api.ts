@@ -5,6 +5,7 @@ import {
   ChatStarter,
   ConversationDetail,
   ConversationSummary,
+  MentionCandidate,
   UsageMetricRow
 } from "./types";
 
@@ -22,6 +23,41 @@ interface ImConversation {
   participant_ids: string[];
   type: string;
   owner_id: string;
+}
+
+function isAgentUsername(username: string) {
+  return username.startsWith(AGENT_USERNAME_PREFIX);
+}
+
+function toMentionLabel(user: ImUser) {
+  return user.display_name.trim() || user.username;
+}
+
+function toMentionCandidates(input: {
+  conversation: ImConversation;
+  userById: Map<string, ImUser>;
+  selfUserId: string;
+}): MentionCandidate[] {
+  if (input.conversation.type !== "group") {
+    return [];
+  }
+  const seenAgentIds = new Set<string>();
+  return input.conversation.participant_ids
+    .filter((participantId) => participantId !== input.selfUserId)
+    .map((participantId) => input.userById.get(participantId))
+    .filter((participant): participant is ImUser => Boolean(participant && isAgentUsername(participant.username)))
+    .map((participant) => ({
+      agentId: participant.username.slice(AGENT_USERNAME_PREFIX.length),
+      label: toMentionLabel(participant)
+    }))
+    .filter((participant) => participant.agentId.length > 0)
+    .filter((participant) => {
+      if (seenAgentIds.has(participant.agentId)) {
+        return false;
+      }
+      seenAgentIds.add(participant.agentId);
+      return true;
+    });
 }
 
 interface ImMessage {
@@ -818,6 +854,11 @@ export async function getConversation(conversationId: string): Promise<Conversat
     target_label: semantics.target_label,
     discoverability_hint: semantics.discoverability_hint,
     ownership_label: semantics.ownership_label,
+    mention_candidates: toMentionCandidates({
+      conversation,
+      userById,
+      selfUserId
+    }),
     messages: messages.map((message) =>
       toChatMessage({
         message,

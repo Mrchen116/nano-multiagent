@@ -243,6 +243,7 @@ describe("chat workspace page", () => {
           kind_label: "Direct agent chat",
           target_label: "Agent New",
           discoverability_hint: "This is a one-to-one conversation with an available target.",
+          mention_candidates: [],
           messages: []
         };
       }
@@ -252,6 +253,7 @@ describe("chat workspace page", () => {
         kind_label: "Direct agent chat",
         target_label: "Teammate",
         discoverability_hint: "This is a one-to-one conversation with an available target.",
+        mention_candidates: [],
         messages: []
       };
     });
@@ -421,6 +423,45 @@ describe("chat workspace page", () => {
     expect(getConversation).toHaveBeenCalledWith("conv-agent-new");
     expect(screen.queryByText("Available agents")).not.toBeInTheDocument();
     expect(screen.getByText("Target: Agent New")).toBeInTheDocument();
+  });
+
+  it("exposes group-chat mention candidates from agent participants only", async () => {
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "node-online",
+      targetNodeStatus: "online",
+      initialConversationId: "conv-group",
+      ownership: {
+        nodeId: "node-online",
+        nodeLabel: "Online Node",
+        nodeStatus: "online",
+        agentLabel: "OpsBot",
+        ownershipLabel: "Using OpsBot on Online Node (online)"
+      }
+    });
+    getConversation.mockResolvedValueOnce({
+      conversation_id: "conv-group",
+      title: "Kernel Ops Crew",
+      kind_label: "Group chat",
+      target_label: "Multiple participants",
+      discoverability_hint: "Shared thread",
+      mention_candidates: [
+        { agentId: "ops-bot", label: "OpsBot" },
+        { agentId: "review-bot", label: "ReviewBot" }
+      ],
+      messages: []
+    });
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-group"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "Kernel Ops Crew" })).toBeInTheDocument();
+    await userEvent.type(screen.getByPlaceholderText("Type message"), "@");
+    expect(screen.getByRole("option", { name: /OpsBot/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /ReviewBot/i })).toBeInTheDocument();
   });
 
   it("shows real conversation and workspace token-turn usage for the active chat", async () => {

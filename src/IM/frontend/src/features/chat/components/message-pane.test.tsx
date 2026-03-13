@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
 import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
-import { ChatAttachment, ChatUsageView, ConversationDetail, UsageTotals } from "../types";
+import { ChatAttachment, ChatUsageView, ConversationDetail, MentionCandidate } from "../types";
 import { MessagePane } from "./message-pane";
 
 const SEND_FAILURE_MESSAGE = "Chat unavailable. No online relay node is available for this chat. Connect an online node and retry.";
@@ -34,8 +34,9 @@ function renderMessagePane(input?: {
   onUploadAttachment?: (file: File) => Promise<ChatAttachment>;
   sendAvailability?: SendAvailability;
   usage?: ChatUsageView;
+  detail?: ConversationDetail;
 }) {
-  const detail: ConversationDetail = {
+  const detail: ConversationDetail = input?.detail ?? {
     conversation_id: "conv-kernel-ops",
     title: "Kernel Ops Crew",
     kind_label: "主 Agent 会话",
@@ -116,6 +117,66 @@ describe("message pane", () => {
     expect(screen.getByRole("tab", { name: "Agent Beta" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Agent · Agent Beta")).toBeInTheDocument();
     expect(screen.getByText("Completion 9")).toBeInTheDocument();
+  });
+
+  it("shows group-chat mention candidates and inserts the stable agent id form with keyboard selection", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    const mentionCandidates: MentionCandidate[] = [
+      { agentId: "agent-alpha", label: "Agent Alpha" },
+      { agentId: "agent-beta", label: "Agent Beta" }
+    ];
+
+    renderMessagePane({
+      onSend,
+      detail: {
+        conversation_id: "conv-group",
+        title: "Kernel Ops Crew",
+        kind_label: "Group chat",
+        target_label: "Multiple participants",
+        discoverability_hint: "Shared thread",
+        messages: [],
+        mention_candidates: mentionCandidates
+      }
+    });
+
+    const composer = screen.getByPlaceholderText("Type message");
+    await user.type(composer, "@a");
+
+    expect(screen.getByRole("listbox", { name: "Mention candidates" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Agent Alpha/i })).toHaveAttribute("aria-selected", "true");
+
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(composer).toHaveValue("@agent:agent-beta ");
+    expect(screen.queryByRole("listbox", { name: "Mention candidates" })).not.toBeInTheDocument();
+
+    await user.type(composer, "please investigate");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith({
+      content: "@agent:agent-beta please investigate",
+      attachments: []
+    });
+  });
+
+  it("does not open mention candidates for direct chat composers", async () => {
+    const user = userEvent.setup();
+
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-direct",
+        title: "Agent Alpha",
+        kind_label: "Direct agent chat",
+        target_label: "Agent Alpha",
+        messages: [],
+        mention_candidates: [{ agentId: "agent-alpha", label: "Agent Alpha" }]
+      }
+    });
+
+    await user.type(screen.getByPlaceholderText("Type message"), "@a");
+
+    expect(screen.queryByRole("listbox", { name: "Mention candidates" })).not.toBeInTheDocument();
   });
 
   it("preserves the draft and shows explicit failure feedback when send fails", async () => {
