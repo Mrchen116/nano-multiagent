@@ -140,5 +140,12 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
             json={"title": "second", "participant_ids": [owner.id, "agent-1"]},
         )
         assert second_conv.status_code == 201
+
+        first_conv_after_patch = client.get(f"/im/v1/conversations/{first_conv.json()['id']}")
+        second_conv_after_patch = client.get(f"/im/v1/conversations/{second_conv.json()['id']}")
+        assert first_conv_after_patch.status_code == 200
+        assert second_conv_after_patch.status_code == 200
         assert first_conv.json()["config_profile_version"] == 1
+        assert first_conv_after_patch.json()["config_profile_version"] == 1
         assert second_conv.json()["config_profile_version"] == 2
+        assert second_conv_after_patch.json()["config_profile_version"] == 2

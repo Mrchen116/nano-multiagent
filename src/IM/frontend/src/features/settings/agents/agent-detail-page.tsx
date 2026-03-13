@@ -3,7 +3,7 @@ import * as Label from "@radix-ui/react-label";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
-import { AgentProfile, getAgent, updateAgent } from "../mock-settings-api";
+import { AgentConfig, getAgentConfig, updateAgentConfig } from "./im-agent-config-api";
 
 function splitList(value: string) {
   return value
@@ -15,28 +15,26 @@ function splitList(value: string) {
 export function AgentDetailPage() {
   const { agentId = "" } = useParams();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<AgentProfile | null>(null);
+  const [draft, setDraft] = useState<AgentConfig | null>(null);
   const [saved, setSaved] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ["settings", "agents", agentId],
-    queryFn: () => getAgent(agentId)
+    queryFn: () => getAgentConfig(agentId)
   });
 
   useEffect(() => {
     if (query.data) {
       setDraft(query.data);
+      setErrorMessage(null);
     }
   }, [query.data]);
 
   const mutation = useMutation({
-    mutationFn: (next: AgentProfile) =>
-      updateAgent(agentId, {
-        ...next,
-        skills_allowlist: next.skills_allowlist,
-        tool_allowlist: next.tool_allowlist
-      }),
+    mutationFn: (next: AgentConfig) => updateAgentConfig(agentId, next),
     onSuccess: async (updated) => {
+      setErrorMessage(null);
       setSaved(true);
       if (updated) {
         setDraft(updated);
@@ -44,6 +42,10 @@ export function AgentDetailPage() {
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents", agentId] });
       setTimeout(() => setSaved(false), 1200);
+    },
+    onError: (error) => {
+      setSaved(false);
+      setErrorMessage(error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Save failed");
     }
   });
 
@@ -97,8 +99,8 @@ export function AgentDetailPage() {
           <input
             id="skills-allowlist"
             className="im-input"
-            value={draft.skills_allowlist.join(", ")}
-            onChange={(event) => setDraft({ ...draft, skills_allowlist: splitList(event.target.value) })}
+            value={draft.skills.join(", ")}
+            onChange={(event) => setDraft({ ...draft, skills: splitList(event.target.value) })}
           />
         </div>
         <div className="grid gap-1">
@@ -120,7 +122,7 @@ export function AgentDetailPage() {
             className="im-input"
             value={draft.group_reply_policy}
             onChange={(event) =>
-              setDraft({ ...draft, group_reply_policy: event.target.value as AgentProfile["group_reply_policy"] })
+              setDraft({ ...draft, group_reply_policy: event.target.value as AgentConfig["group_reply_policy"] })
             }
           >
             <option value="ALWAYS">ALWAYS</option>
@@ -139,9 +141,12 @@ export function AgentDetailPage() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-slate-500">Profile Version: {draft.profile_version}</p>
-        {saved && <p className="text-xs font-bold text-emerald-700">Saved</p>}
+        <div className="flex items-center gap-3">
+          {errorMessage && <p className="text-xs font-bold text-rose-700">{errorMessage}</p>}
+          {saved && <p className="text-xs font-bold text-emerald-700">Saved</p>}
+        </div>
       </div>
 
       <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending}>

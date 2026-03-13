@@ -2,13 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
-import { listAgents } from "../mock-settings-api";
+import { listAgentSummaries } from "./im-agent-config-api";
 
 export function AgentsListPage() {
   const isMobile = useIsMobile();
   const query = useQuery({
     queryKey: ["settings", "agents"],
-    queryFn: listAgents
+    queryFn: listAgentSummaries
   });
 
   if (query.isLoading) {
@@ -35,8 +35,8 @@ export function AgentsListPage() {
                   {agent.profile_version}
                 </span>
               </div>
-              <p className="mt-2 text-xs text-slate-600">Bound nodes: {agent.bound_nodes.join(", ")}</p>
-              <p className="mt-1 text-xs text-slate-500">Updated: {new Date(agent.updated_at).toLocaleString()}</p>
+              <p className="mt-2 text-xs text-slate-600">Bound nodes: {(agent.bound_nodes ?? []).join(", ") || "—"}</p>
+              <p className="mt-1 text-xs text-slate-500">Updated: {agent.updated_at ? new Date(agent.updated_at).toLocaleString() : "—"}</p>
             </article>
           ))}
         </div>
@@ -60,8 +60,8 @@ export function AgentsListPage() {
                     </Link>
                   </td>
                   <td className="py-2">{agent.profile_version}</td>
-                  <td className="py-2">{agent.bound_nodes.join(", ")}</td>
-                  <td className="py-2 text-xs text-slate-500">{new Date(agent.updated_at).toLocaleString()}</td>
+                  <td className="py-2">{(agent.bound_nodes ?? []).join(", ") || "—"}</td>
+                  <td className="py-2 text-xs text-slate-500">{agent.updated_at ? new Date(agent.updated_at).toLocaleString() : "—"}</td>
                 </tr>
               ))}
             </tbody>
