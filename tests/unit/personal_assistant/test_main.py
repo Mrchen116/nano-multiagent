@@ -26,6 +26,7 @@ from personal_assistant.main import (
     GatewayRuntime,
     RuntimeFactories,
     _IMBootstrapClient,
+    _IMConfigSyncClient,
     build_runtime,
     _build_relay_lifecycle_callback,
     launch_gateway_in_background,
@@ -567,6 +568,46 @@ def test_im_bootstrap_client_falls_back_to_local_im_api_port_when_primary_bootst
 
     assert bind_url == "http://127.0.0.1:4173/bind/confirm?token=fallback"
     assert opened == ["http://127.0.0.1:4173/bind/confirm?token=fallback"]
+
+
+
+def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_version(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    seen: list[tuple[str, str | None]] = []
+    sleeps: list[float] = []
+    responses = iter(
+        [
+            httpx.Response(404, json={"detail": "agent_id not found"}),
+            httpx.Response(200, json={"agent_id": "agent-live", "display_name": "Agent Live", "profile_version": 1}),
+            httpx.Response(200, json={"agent_id": "agent-live", "display_name": "Agent Live v2", "profile_version": 2}),
+        ]
+    )
+
+    class _Pipeline:
+        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
+            seen.append((agent.agent_id, str(agent.workspace_root)))
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/im/v1/agents/agent-live/config"
+        return next(responses)
+
+    client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=_Pipeline(),
+        workspace_root_factory=lambda _agent_id: workspace_root,
+        client=client,
+        monotonic=lambda: 0.0,
+        sleep=lambda seconds: sleeps.append(seconds),
+    )
+
+    sync.sync_agent(agent_id="agent-live", profile_version=2)
+
+    assert seen == [("agent-live", str(workspace_root))]
+    assert sleeps == [0.1, 0.1]
+    assert workspace_root.is_dir()
 
 
 def test_build_heartbeat_product_reports_maps_runs_to_main_agent_im_payloads() -> None:
