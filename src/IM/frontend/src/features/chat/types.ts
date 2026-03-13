@@ -37,6 +37,12 @@ export interface ChatBootstrapState {
   ownership: ChatOwnershipSummary;
 }
 
+export interface ChatAttachment {
+  url: string;
+  content_type?: string;
+  file_name?: string;
+}
+
 export interface ChatMessage {
   message_id: string;
   sender_type: SenderType;
@@ -44,6 +50,7 @@ export interface ChatMessage {
   is_mine?: boolean;
   content: string;
   created_at: string;
+  attachments?: ChatAttachment[];
   delivery_status?: "sent" | "running" | "completed" | "failed";
 }
 
@@ -65,4 +72,24 @@ export interface ChatStarter {
   description: string;
   nodeLabel?: string;
   statusLabel?: string;
+}
+
+export interface UsageMetricRow {
+  scope: string;
+  scope_id: string | null;
+  owner_id: string | null;
+  conversation_id: string | null;
+  agent_id: string | null;
+  turns: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  last_used_at: string | null;
+}
+
+export interface UsageTotals {
+  turns: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }

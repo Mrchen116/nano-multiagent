@@ -93,8 +93,9 @@ class WebIMService:
         if self._metrics_service is not None:
             conversation = self._conversations.get_conversation(conversation_id=conversation_id)
             owner_id = conversation.owner_id if conversation is not None else None
-            prompt_tokens = max(1, len(content.split()))
-            completion_tokens = 0 if sender_type == "user" else max(1, len(content.split()))
+            token_count = len(content.split())
+            prompt_tokens = token_count if sender_type == "user" else 0
+            completion_tokens = token_count if sender_type != "user" else 0
             self._metrics_service.record_usage(
                 owner_id=owner_id,
                 conversation_id=conversation_id,

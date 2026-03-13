@@ -158,3 +158,40 @@ def test_sse_events_roundtrip_for_sent_message(tmp_path: Path) -> None:
         assert '"conversation_id"' in body
         assert '"sender_type":"agent"' in body
         assert '"attachments":[{"url":"https://example.com/file.png"' in body
+
+
+def test_uploads_expose_im_hosted_paths_for_message_attachments(tmp_path: Path) -> None:
+    """Accept raw file uploads and return IM-hosted URLs usable by Web IM messages."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        user_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, user_id, "chat")
+
+        uploaded = client.post(
+            "/im/v1/uploads?file_name=demo.txt",
+            content=b"demo attachment body",
+            headers={"Content-Type": "text/plain"},
+        )
+
+        assert uploaded.status_code == 201
+        attachment = uploaded.json()
+        assert attachment["file_name"] == "demo.txt"
+        assert attachment["content_type"] == "text/plain"
+        assert attachment["url"].startswith("http://testserver/im/uploads/")
+
+        download = client.get(attachment["url"].removeprefix("http://testserver"))
+        assert download.status_code == 200
+        assert download.content == b"demo attachment body"
+
+        created = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={
+                "sender_user_id": user_id,
+                "content": "",
+                "attachments": [attachment],
+            },
+        )
+
+        assert created.status_code == 201
+        assert created.json()["content"] == ""
+        assert created.json()["attachments"] == [attachment]

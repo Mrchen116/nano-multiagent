@@ -9,12 +9,14 @@ import {
   getChatBootstrapState,
   getChatStarter,
   getConversation,
+  getUsageMetrics,
   listConversations,
   resolveSendAvailability,
   sendMessage,
-  streamConversationEvents
+  streamConversationEvents,
+  uploadAttachment
 } from "./chat-api";
-import { ChatBootstrapState, ChatMessage, ConversationDetail, ConversationSummary } from "./types";
+import { ChatAttachment, ChatBootstrapState, ChatMessage, ConversationDetail, ConversationSummary, UsageMetricRow, UsageTotals } from "./types";
 
 function toStatus(value: unknown): ChatMessage["delivery_status"] | undefined {
   if (value === "sent" || value === "running" || value === "completed" || value === "failed") {
@@ -25,6 +27,33 @@ function toStatus(value: unknown): ChatMessage["delivery_status"] | undefined {
 
 function toStringValue(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function isChatAttachment(value: ChatAttachment | null): value is ChatAttachment {
+  return value !== null;
+}
+
+function toAttachments(value: unknown): ChatAttachment[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item): ChatAttachment | null => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const attachment = item as Record<string, unknown>;
+      const url = toStringValue(attachment.url);
+      if (!url) {
+        return null;
+      }
+      return {
+        url,
+        file_name: toStringValue(attachment.file_name) ?? undefined,
+        content_type: toStringValue(attachment.content_type) ?? undefined
+      };
+    })
+    .filter(isChatAttachment);
 }
 
 function upsertMessage(messages: ChatMessage[], message: ChatMessage) {
@@ -46,6 +75,23 @@ function updateConversationList(
     return items;
   }
   return items.map((item) => (item.conversation_id === conversationId ? { ...item, ...patch } : item));
+}
+
+function toUsageTotals(rows: UsageMetricRow[] | undefined): UsageTotals {
+  return (rows ?? []).reduce<UsageTotals>(
+    (totals, row) => ({
+      turns: totals.turns + row.turns,
+      promptTokens: totals.promptTokens + row.prompt_tokens,
+      completionTokens: totals.completionTokens + row.completion_tokens,
+      totalTokens: totals.totalTokens + row.total_tokens
+    }),
+    {
+      turns: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0
+    }
+  );
 }
 
 export function toRelayAgentMessage(event: {
@@ -106,6 +152,21 @@ export function ChatWorkspacePage() {
     queryFn: () => getConversation(conversationId!)
   });
 
+  const conversationUsageQuery = useQuery({
+    enabled: Boolean(conversationId),
+    queryKey: ["chat", "usage", "conversation", conversationId],
+    queryFn: () => getUsageMetrics({ conversationId: conversationId! })
+  });
+
+  const workspaceUsageQuery = useQuery({
+    enabled: Boolean(bootstrapQuery.data?.selfUserId),
+    queryKey: ["chat", "usage", "workspace", bootstrapQuery.data?.selfUserId],
+    queryFn: async () => {
+      const rows = await getUsageMetrics({ ownerId: bootstrapQuery.data!.selfUserId });
+      return rows.filter((row) => row.owner_id === bootstrapQuery.data!.selfUserId);
+    }
+  });
+
   useEffect(() => {
     if (!conversationId) {
       return;
@@ -128,6 +189,7 @@ export function ChatWorkspacePage() {
             sender_type: "user",
             sender_name: sender,
             content,
+            attachments: toAttachments(event.payload.attachments),
             created_at: createdAt,
             is_mine: false,
             delivery_status: deliveryStatus
@@ -185,6 +247,7 @@ export function ChatWorkspacePage() {
             sender_type: "user",
             sender_name: sender,
             content,
+            attachments: toAttachments(event.payload.attachments),
             created_at: createdAt,
             is_mine: false,
             delivery_status: deliveryStatus
@@ -287,7 +350,8 @@ export function ChatWorkspacePage() {
   }, [conversationId, queryClient]);
 
   const sendMutation = useMutation({
-    mutationFn: (content: string) => sendMessage({ conversationId: conversationId!, content }),
+    mutationFn: (payload: { content: string; attachments: ChatAttachment[] }) =>
+      sendMessage({ conversationId: conversationId!, content: payload.content, attachments: payload.attachments }),
     onSuccess: (message) => {
       if (!conversationId) {
         return;
@@ -307,7 +371,7 @@ export function ChatWorkspacePage() {
       });
       queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
         updateConversationList(previous, conversationId, {
-          last_message_preview: message.content,
+          last_message_preview: message.content || message.attachments?.[0]?.file_name || "Attachment",
           last_message_at: message.created_at
         })
       );
@@ -327,6 +391,10 @@ export function ChatWorkspacePage() {
   const starter = starterQuery.data ?? null;
   const detail = (detailQuery.data ?? null) as ConversationDetail | null;
   const bootstrap = bootstrapQuery.data ?? null;
+  const usage = {
+    conversation: toUsageTotals(conversationUsageQuery.data),
+    workspace: toUsageTotals(workspaceUsageQuery.data)
+  };
   const sendAvailability = resolveSendAvailability({
     targetNodeId: bootstrap?.targetNodeId ?? null,
     nodeStatus: bootstrap?.targetNodeStatus ?? null
@@ -341,7 +409,9 @@ export function ChatWorkspacePage() {
           isMobile={isMobile}
           isSending={sendMutation.isPending}
           sendAvailability={sendAvailability}
-          onSend={(content) => sendMutation.mutateAsync(content)}
+          usage={usage}
+          onSend={(payload) => sendMutation.mutateAsync(payload)}
+          onUploadAttachment={uploadAttachment}
         />
       </div>
     );
@@ -357,7 +427,9 @@ export function ChatWorkspacePage() {
             isMobile={isMobile}
             isSending={false}
             sendAvailability={sendAvailability}
+            usage={usage}
             onSend={async () => undefined}
+            onUploadAttachment={uploadAttachment}
           />
         )}
         <ConversationList items={conversations} activeId={conversationId} compact={isMobile} />
@@ -369,7 +441,9 @@ export function ChatWorkspacePage() {
           isMobile={isMobile}
           isSending={sendMutation.isPending}
           sendAvailability={sendAvailability}
-          onSend={(content) => sendMutation.mutateAsync(content)}
+          usage={usage}
+          onSend={(payload) => sendMutation.mutateAsync(payload)}
+          onUploadAttachment={uploadAttachment}
         />
       )}
     </section>

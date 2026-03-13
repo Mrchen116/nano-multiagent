@@ -360,12 +360,11 @@ class MessageRepository:
             ValueError: When conversation/sender is missing, owner scope mismatches, sender type is invalid,
                 or sender is not a participant for user-originated messages.
         """
-        if not content.strip():
-            raise ValueError("content must be non-empty")
+        normalized_attachments = _normalize_attachments(attachments)
+        if not content.strip() and not normalized_attachments:
+            raise ValueError("message must include content or attachments")
         if sender_type not in {"user", "agent", "system"}:
             raise ValueError("sender_type must be one of: user, agent, system")
-
-        normalized_attachments = _normalize_attachments(attachments)
         conversation_exists = self._connection.execute(
             "SELECT owner_id FROM conversations WHERE id = ?",
             (conversation_id,),
