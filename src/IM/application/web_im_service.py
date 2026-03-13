@@ -90,12 +90,20 @@ class WebIMService:
             attachments=attachments,
             auto_complete_delivery=auto_complete_delivery,
         )
-        if self._metrics_service is not None:
+        if self._metrics_service is not None and auto_complete_delivery:
             conversation = self._conversations.get_conversation(conversation_id=conversation_id)
             owner_id = conversation.owner_id if conversation is not None else None
             token_count = len(content.split())
             prompt_tokens = token_count if sender_type == "user" else 0
             completion_tokens = token_count if sender_type != "user" else 0
+            self._metrics_service.record_usage(
+                owner_id=owner_id,
+                conversation_id=None,
+                agent_id=None,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                turns=1,
+            )
             self._metrics_service.record_usage(
                 owner_id=owner_id,
                 conversation_id=conversation_id,

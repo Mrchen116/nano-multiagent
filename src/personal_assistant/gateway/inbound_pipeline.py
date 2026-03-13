@@ -55,6 +55,7 @@ class RelayLifecycleUpdate:
     reply_text: str | None = None
     error: str | None = None
     detail: Mapping[str, Any] | None = None
+    usage: Mapping[str, int] | None = None
 
 
 RelayLifecycleCallback = Callable[[InboundMessage, RelayLifecycleUpdate], Awaitable[None]]
@@ -173,6 +174,7 @@ class InboundPipeline:
                         run_id=run_id or None,
                         reply_text=reply_text,
                         detail=lifecycle_detail,
+                        usage=self._extract_usage(run_state),
                     ),
                 )
                 return result
@@ -388,3 +390,21 @@ class InboundPipeline:
         if isinstance(error, str) and error.strip():
             return error.strip()
         return ""
+
+    @staticmethod
+    def _extract_usage(run_state: Mapping[str, object]) -> Mapping[str, int] | None:
+        usage = run_state.get("usage")
+        if not isinstance(usage, Mapping):
+            return None
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        total_tokens = usage.get("total_tokens")
+        if not isinstance(prompt_tokens, int) or not isinstance(completion_tokens, int):
+            return None
+        if not isinstance(total_tokens, int):
+            total_tokens = prompt_tokens + completion_tokens
+        return {
+            "prompt_tokens": max(prompt_tokens, 0),
+            "completion_tokens": max(completion_tokens, 0),
+            "total_tokens": max(total_tokens, 0),
+        }

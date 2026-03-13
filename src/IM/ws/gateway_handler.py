@@ -9,8 +9,9 @@ from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
-from IM.infra.repositories import EventRepository, NodeRepository
+from IM.infra.repositories import ConversationRepository, EventRepository, NodeRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,10 +44,14 @@ class GatewayHandler:
         relay_service: RelayService,
         node_repository: NodeRepository | None = None,
         event_repository: EventRepository | None = None,
+        metrics_service: MetricsService | None = None,
+        conversation_repository: ConversationRepository | None = None,
     ) -> None:
         self._relay_service = relay_service
         self._node_repository = node_repository
         self._event_repository = event_repository
+        self._metrics_service = metrics_service
+        self._conversation_repository = conversation_repository
         self._lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
         self._reports: list[dict[str, object]] = []
@@ -204,6 +209,7 @@ class GatewayHandler:
             connection.reports.append(payload)
             self._reports.append(payload)
         self._persist_report_event(payload=payload)
+        self._persist_report_usage(payload=payload)
         return {"type": "ack", "payload": {"message_type": "node.report", "node_id": node_id}}
 
     async def _handle_delivery_receipt(self, *, payload: dict[str, object]) -> dict[str, object]:
@@ -397,6 +403,44 @@ class GatewayHandler:
                 delivery_status="failed",
             )
 
+    def _persist_report_usage(self, *, payload: dict[str, object]) -> None:
+        if self._metrics_service is None or self._conversation_repository is None:
+            return
+        if _optional_text(payload.get("status")) != "completed":
+            return
+        conversation_id = _optional_text(payload.get("conversation_id"))
+        usage = _optional_usage(payload.get("usage"))
+        if conversation_id is None or usage is None:
+            return
+        conversation = self._conversation_repository.get_conversation(conversation_id=conversation_id)
+        owner_id = conversation.owner_id if conversation is not None else None
+        self._metrics_service.record_usage(
+            owner_id=owner_id,
+            conversation_id=None,
+            agent_id=None,
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+            turns=1,
+        )
+        self._metrics_service.record_usage(
+            owner_id=owner_id,
+            conversation_id=conversation_id,
+            agent_id=None,
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+            turns=1,
+        )
+        agent_id = _optional_text(payload.get("agent_id"))
+        if agent_id is not None:
+            self._metrics_service.record_usage(
+                owner_id=owner_id,
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+                prompt_tokens=usage["prompt_tokens"],
+                completion_tokens=usage["completion_tokens"],
+                turns=1,
+            )
+
 
 def _decode_message(raw_message: str) -> dict[str, Any]:
     try:
@@ -447,6 +491,24 @@ def _optional_int(value: object) -> int | None:
     if not isinstance(value, int):
         raise ValueError("optional integer fields must be integers when provided")
     return value
+
+
+def _optional_usage(value: object) -> dict[str, int] | None:
+    if value is None:
+        return None
+    payload = _require_dict(value, field_name="usage")
+    prompt_tokens = _optional_int(payload.get("prompt_tokens"))
+    completion_tokens = _optional_int(payload.get("completion_tokens"))
+    if prompt_tokens is None or completion_tokens is None:
+        return None
+    total_tokens = _optional_int(payload.get("total_tokens"))
+    if total_tokens is None:
+        total_tokens = prompt_tokens + completion_tokens
+    return {
+        "prompt_tokens": max(prompt_tokens, 0),
+        "completion_tokens": max(completion_tokens, 0),
+        "total_tokens": max(total_tokens, 0),
+    }
 
 
 def _not_registered_error(*, node_id: str) -> dict[str, object]:

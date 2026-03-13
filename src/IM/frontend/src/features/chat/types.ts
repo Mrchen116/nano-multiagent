@@ -31,6 +31,7 @@ export interface ChatOwnershipSummary {
 
 export interface ChatBootstrapState {
   selfUserId: string;
+  ownerId: string;
   targetNodeId: string | null;
   targetNodeStatus: string | null;
   initialConversationId: string | null;
@@ -92,4 +93,16 @@ export interface UsageTotals {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+}
+
+export interface UsageAgentView {
+  agentId: string;
+  label: string;
+  totals: UsageTotals;
+}
+
+export interface ChatUsageView {
+  conversation: UsageTotals;
+  workspace: UsageTotals;
+  agents: UsageAgentView[];
 }
