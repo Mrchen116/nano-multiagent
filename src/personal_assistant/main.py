@@ -966,10 +966,15 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.report", payload)
             return
         if update.phase == "completed":
+            receipt_detail = update.reply_text
+            if update.detail is not None:
+                detail_parts = [receipt_detail] if receipt_detail is not None else []
+                detail_parts.extend(f"{key}={value}" for key, value in update.detail.items())
+                receipt_detail = " | ".join(detail_parts)
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
                 delivery_status="completed",
-                detail=update.reply_text,
+                detail=receipt_detail,
             )
             await manager.send_json("node.delivery_receipt", payload)
             return

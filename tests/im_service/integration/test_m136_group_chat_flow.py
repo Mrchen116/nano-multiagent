@@ -26,6 +26,7 @@ class _FakeKernelClient:
         self.create_session_calls: list[dict[str, str | None]] = []
         self.send_calls: list[dict[str, str]] = []
         self.run_states: dict[str, dict[str, str]] = {}
+        self.default_output_text = "reply:{text}"
         self._session_index = 0
         self._run_index = 0
 
@@ -41,7 +42,7 @@ class _FakeKernelClient:
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         self.send_calls.append({"session_id": session_id, "text": text, "run_id": run_id})
-        self.run_states[run_id] = {"run_id": run_id, "output_text": f"reply:{text}"}
+        self.run_states[run_id] = {"run_id": run_id, "output_text": self.default_output_text.format(text=text)}
         return {"run_id": run_id}
 
     def get_run(self, *, run_id: str):
@@ -89,6 +90,85 @@ def _agents(tmp_path: Path, *agent_ids: str) -> tuple[AgentWorkspaceConfig, ...]
             AgentWorkspaceConfig(agent_id=agent_id, workspace_root=workspace_root, title=agent_id.title())
         )
     return tuple(agents)
+
+
+def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Path) -> None:
+    """A mentioned group relay that returns NO_REPLY must complete without outbound chat text."""
+
+    app = create_app(db_path=tmp_path / "im.db")
+    kernel_client = _FakeKernelClient()
+    kernel_client.default_output_text = "NO_REPLY"
+    relay_adapter = WebRelayAdapter()
+    agents = _agents(tmp_path, "agent-a")
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))
+
+    with TestClient(app) as client:
+        user_id = _seed_user(client, "alice")
+        agent_a_user_id = _seed_user(client, "agent:agent-a")
+        _seed_node_and_profiles(app, agent_ids=("agent-a",))
+
+        conversation = client.post(
+            "/im/v1/conversations",
+            json={
+                "title": "Quiet Group",
+                "participant_ids": [user_id, agent_a_user_id],
+            },
+        )
+        assert conversation.status_code == 201
+        conversation_id = conversation.json()["id"]
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["agent-a"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            posted = client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-group-no-reply"},
+                json={
+                    "sender_user_id": user_id,
+                    "content": "@agent-a stay quiet",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert posted.status_code == 201
+            relay_frame = websocket.receive_json()
+            relay_adapter.accept_relay(
+                {
+                    **relay_frame["payload"],
+                    "is_group": True,
+                    "mentioned_agent_ids": ["agent-a"],
+                }
+            )
+
+            receipt_frame = websocket.receive_json()
+            completed_frame = websocket.receive_json()
+
+    assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "@agent-a stay quiet", "run_id": "run-1"}]
+    assert relay_adapter.sent == []
+    assert receipt_frame["type"] == "node.delivery_receipt"
+    assert receipt_frame["payload"]["delivery_status"] == "sent"
+    assert completed_frame["type"] == "node.delivery_receipt"
+    assert completed_frame["payload"]["delivery_status"] == "completed"
+    assert completed_frame["payload"]["detail"] == "NO_REPLY | suppressed_by=no_reply_token"
 
 
 def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_path: Path) -> None:

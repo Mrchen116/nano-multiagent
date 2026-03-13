@@ -34,6 +34,7 @@ class _FakeKernelClient:
         self.create_session_calls: list[dict[str, str | None]] = []
         self.send_calls: list[dict[str, str]] = []
         self.run_states: dict[str, dict[str, str]] = {}
+        self.default_output_text = "reply:{text}"
         self._session_index = 0
         self._run_index = 0
 
@@ -48,7 +49,7 @@ class _FakeKernelClient:
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         self.send_calls.append({"session_id": session_id, "text": text, "run_id": run_id})
-        self.run_states[run_id] = {"run_id": run_id, "output_text": f"reply:{text}"}
+        self.run_states[run_id] = {"run_id": run_id, "output_text": self.default_output_text.format(text=text)}
         return {"run_id": run_id}
 
     def get_run(self, *, run_id: str):
@@ -130,6 +131,39 @@ def test_group_message_with_mention_or_reply_runs(tmp_path: Path) -> None:
     assert second is not None
     assert [call["text"] for call in kernel.send_calls] == ["@agent-a hello", "follow-up"]
     assert [item.text for item in channel.sent] == ["reply:@agent-a hello", "reply:follow-up"]
+
+
+def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Path) -> None:
+    """Mentioned group traffic that returns NO_REPLY must stay silent."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    kernel = _FakeKernelClient()
+    kernel.default_output_text = "NO_REPLY"
+    pipeline = InboundPipeline(
+        kernel_client=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a stay quiet",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        metadata={"mentioned_agent_ids": ["agent-a"], "trigger": "mention"},
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "NO_REPLY"
+    assert result.outbound is None
+    assert kernel.send_calls == [{"session_id": "sess-1", "text": "@agent-a stay quiet", "run_id": "run-1"}]
+    assert channel.sent == []
 
 
 def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> None:
