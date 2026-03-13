@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderRouter } from "../../test/render-router";
@@ -170,5 +171,18 @@ describe("chat workspace page", () => {
     expect(screen.getByText("Next: Bring Gateway online")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
     expect(screen.getByPlaceholderText("Gateway offline — chat disabled")).toBeDisabled();
+  });
+
+  it("shows a real group-chat creation entry from the main chat workspace", async () => {
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create group chat" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Create group chat" }));
+    expect(screen.getByText("Select participants")).toBeInTheDocument();
   });
 });

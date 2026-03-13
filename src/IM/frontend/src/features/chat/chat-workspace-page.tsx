@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
@@ -84,6 +84,7 @@ export function ChatWorkspacePage() {
   const { conversationId } = useParams();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
+  const [isCreatingGroupChat, setIsCreatingGroupChat] = useState(false);
 
   const bootstrapQuery = useQuery<ChatBootstrapState>({
     queryKey: ["chat", "bootstrap"],
@@ -347,6 +348,23 @@ export function ChatWorkspacePage() {
     );
   }
 
+  const groupChatPanel = isCreatingGroupChat ? (
+    <section className="im-card rounded-2xl border border-[var(--im-border)] bg-slate-50 px-4 py-4 text-sm text-slate-700">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Group chat</p>
+          <h2 className="im-title mt-1 text-lg font-bold">Select participants</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Create a shared thread with multiple agents or teammates, then enter the conversation from the list.
+          </p>
+        </div>
+        <button type="button" className="im-btn im-btn-muted" onClick={() => setIsCreatingGroupChat(false)}>
+          Cancel
+        </button>
+      </div>
+    </section>
+  ) : null;
+
   return (
     <section className="grid w-full min-h-0 gap-4 lg:grid-cols-[360px_1fr]">
       <div className="flex min-h-0 flex-col gap-4">
@@ -360,7 +378,13 @@ export function ChatWorkspacePage() {
             onSend={async () => undefined}
           />
         )}
-        <ConversationList items={conversations} activeId={conversationId} compact={isMobile} />
+        {groupChatPanel}
+        <ConversationList
+          items={conversations}
+          activeId={conversationId}
+          compact={isMobile}
+          onCreateGroupChat={() => setIsCreatingGroupChat(true)}
+        />
       </div>
       {!isMobile && (
         <MessagePane

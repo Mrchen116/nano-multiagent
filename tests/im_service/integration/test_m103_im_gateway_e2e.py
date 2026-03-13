@@ -111,10 +111,11 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
 
     with TestClient(app) as client:
         user_id = _seed_user(client, "alice")
+        agent_user_id = _seed_user(client, "agent:agent-a")
         _seed_node_and_profiles(app, agent_ids=("agent-a",))
         conversation = client.post(
             "/im/v1/conversations",
-            json={"title": "web-chat", "participant_ids": [user_id]},
+            json={"title": "web-chat", "participant_ids": [user_id, agent_user_id]},
         )
         assert conversation.status_code == 201
         conversation_id = conversation.json()["id"]
@@ -158,6 +159,10 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
     assert kernel_client.send_calls == [
         {"session_id": "sess-1", "text": "hello gateway", "run_id": "run-1"}
     ]
+    assert relay_frame["payload"]["metadata"] == {
+        "conversation_type": "direct",
+        "mentioned_agent_ids": [],
+    }
     assert relay_adapter.sent == [
         OutboundMessage(
             channel_name="web_relay",
@@ -167,6 +172,8 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
             metadata={
                 "relay_task_id": relay_frame["payload"]["relay_task_id"],
                 "idempotency_key": "idem-m103-roundtrip",
+                "conversation_type": "direct",
+                "mentioned_agent_ids": [],
             },
         )
     ]

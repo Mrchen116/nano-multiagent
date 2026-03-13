@@ -134,9 +134,11 @@ class WebIMService:
         """
         if self._relay_service is None:
             raise RuntimeError("relay_service is not configured")
+        conversation = self._conversations.get_conversation(conversation_id=message.conversation_id)
         return self._relay_service.enqueue_message_relay(
             message=message,
             target_node_id=target_node_id,
             idempotency_key=idempotency_key,
             sender_user_id=sender_user_id,
+            conversation_type=conversation.type if conversation is not None else None,
         )
