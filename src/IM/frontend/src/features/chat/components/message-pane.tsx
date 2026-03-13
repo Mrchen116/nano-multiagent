@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, Dispatch, FormEvent, KeyboardEvent, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -62,14 +62,148 @@ function FailureStateBanner({ sendAvailability }: { sendAvailability: SendAvaila
   );
 }
 
-function SendErrorBanner({ message }: { message: string }) {
+function SendErrorBanner(props: { message: string; onRetry: () => void; isRetrying: boolean }) {
   return (
     <div role="alert" className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-      <p className="font-semibold text-rose-900">{SEND_AVAILABILITY_MESSAGES.failureTitle}</p>
-      <p className="mt-1">{message}</p>
-      <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700">Next: Retry delivery</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold text-rose-900">{SEND_AVAILABILITY_MESSAGES.failureTitle}</p>
+          <p className="mt-1">{props.message}</p>
+          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700">Next: Retry delivery</p>
+        </div>
+        <button type="button" className="im-btn im-btn-muted" onClick={props.onRetry} disabled={props.isRetrying}>
+          Retry send
+        </button>
+      </div>
     </div>
   );
+}
+
+function UploadErrorBanner(props: {
+  message: string;
+  fileName: string;
+  onRetry: () => void;
+  isRetrying: boolean;
+}) {
+  return (
+    <div role="alert" className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold text-amber-950">Attachment upload failed</p>
+          <p className="mt-1">{props.message}</p>
+          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">Next: Retry upload</p>
+        </div>
+        <button type="button" className="im-btn im-btn-muted" onClick={props.onRetry} disabled={props.isRetrying}>
+          {`Retry upload ${props.fileName}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function toUploadErrorMessage(fileName: string, error: unknown) {
+  if (error instanceof Error && error.message) {
+    return `Couldn't upload ${fileName}. ${error.message}`;
+  }
+  return `Couldn't upload ${fileName}. Try again.`;
+}
+
+function toDeliveryStatusLabel(status: ChatMessage["delivery_status"]) {
+  switch (status) {
+    case "sent":
+      return "Sent";
+    case "running":
+      return "Agent working";
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed to send";
+    default:
+      return null;
+  }
+}
+
+interface FailedUploadState {
+  file: File;
+  message: string;
+}
+
+function removeAttachmentAt(attachments: ChatAttachment[], indexToRemove: number) {
+  return attachments.filter((_, index) => index !== indexToRemove);
+}
+
+function canSubmitMessage(input: {
+  draft: string;
+  attachments: ChatAttachment[];
+  canSend: boolean;
+  isUploading: boolean;
+  isMentionMenuOpen: boolean;
+  isSending: boolean;
+}) {
+  return !((!input.draft.trim() && input.attachments.length === 0) || !input.canSend || input.isUploading || input.isMentionMenuOpen || input.isSending);
+}
+
+function isTextAreaElement(target: EventTarget | null): target is HTMLTextAreaElement {
+  return target instanceof HTMLTextAreaElement;
+}
+
+function requestSubmitFromTarget(target: EventTarget | null) {
+  if (!isTextAreaElement(target)) {
+    return;
+  }
+  target.form?.requestSubmit();
+}
+
+function retrySubmitFromForm(form: HTMLFormElement | null) {
+  form?.requestSubmit();
+}
+
+function retryUploadAction(retry: () => void) {
+  retry();
+}
+
+function retrySendAction(retry: () => void) {
+  retry();
+}
+
+function submitOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+  if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+    return false;
+  }
+  event.preventDefault();
+  requestSubmitFromTarget(event.currentTarget);
+  return true;
+}
+
+function removePendingAttachmentAction(input: {
+  index: number;
+  attachments: ChatAttachment[];
+  setPendingAttachments: Dispatch<SetStateAction<ChatAttachment[]>>;
+}) {
+  input.setPendingAttachments(removeAttachmentAt(input.attachments, input.index));
+}
+
+function retryPendingUpload(input: {
+  failedUpload: FailedUploadState | null;
+  uploadFile: (file: File) => Promise<void>;
+}) {
+  if (!input.failedUpload) {
+    return Promise.resolve();
+  }
+  return input.uploadFile(input.failedUpload.file);
+}
+
+function PendingStatusHint(props: { canSend: boolean; isUploading: boolean; hasAttachments: boolean }) {
+  if (props.isUploading) {
+    return <p className="mt-2 text-xs text-slate-500">Attachment upload in progress. Send unlocks when the upload finishes.</p>;
+  }
+  if (props.hasAttachments) {
+    return <p className="mt-2 text-xs text-slate-500">Attachments stay in the draft until you send or remove them.</p>;
+  }
+  if (!props.canSend) {
+    return null;
+  }
+  return <p className="mt-2 text-xs text-slate-500">Press Enter to send. Press Shift+Enter for a new line.</p>;
 }
 
 function AttachmentLinks({ attachments, muted = false }: { attachments: ChatAttachment[]; muted?: boolean }) {
@@ -97,6 +231,7 @@ function AttachmentLinks({ attachments, muted = false }: { attachments: ChatAtta
 function MessageBubble({ message }: { message: ChatMessage }) {
   const mine = message.is_mine ?? message.sender_type === "user";
   const attachments = message.attachments ?? [];
+  const deliveryStatusLabel = toDeliveryStatusLabel(message.delivery_status);
   return (
     <div className={`mb-3 flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
@@ -108,9 +243,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         <p className="text-[11px] opacity-75">{message.sender_name ?? message.sender_type}</p>
         {message.content ? <p className="mt-1 whitespace-pre-wrap">{message.content}</p> : null}
         <AttachmentLinks attachments={attachments} muted={mine} />
-        {message.delivery_status && (
-          <p className="mt-1 text-[10px] uppercase tracking-wide opacity-70">{message.delivery_status}</p>
-        )}
+        {deliveryStatusLabel && <p className="mt-1 text-[10px] font-semibold tracking-wide opacity-70">{deliveryStatusLabel}</p>}
       </div>
     </div>
   );
@@ -213,20 +346,32 @@ function buildMentionCandidates(detail: ConversationDetail | null): MentionCandi
 function PendingAttachments(props: {
   attachments: ChatAttachment[];
   isUploading: boolean;
+  onRemove: (index: number) => void;
 }) {
   if (props.attachments.length === 0 && !props.isUploading) {
     return null;
   }
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2">
-      {props.attachments.map((attachment) => (
-        <span
-          key={`${attachment.url}:${attachment.file_name ?? "pending"}`}
-          className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600"
-        >
-          {attachment.file_name ?? attachment.url}
-        </span>
-      ))}
+      {props.attachments.map((attachment, index) => {
+        const label = attachment.file_name ?? attachment.url;
+        return (
+          <span
+            key={`${attachment.url}:${attachment.file_name ?? "pending"}:${index}`}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600"
+          >
+            <span>{label}</span>
+            <button
+              type="button"
+              className="rounded-full px-1 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
+              aria-label={`Remove attachment ${label}`}
+              onClick={() => props.onRemove(index)}
+            >
+              ×
+            </button>
+          </span>
+        );
+      })}
       {props.isUploading && (
         <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">Uploading…</span>
       )}
@@ -310,10 +455,12 @@ export function MessagePane(props: {
 }) {
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
+  const [failedUpload, setFailedUpload] = useState<FailedUploadState | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const mentionCandidates = useMemo(() => buildMentionCandidates(props.detail), [props.detail]);
@@ -359,24 +506,32 @@ export function MessagePane(props: {
     return <EmptyWorkspaceState />;
   }
 
-  const onPickAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
+  const uploadFile = async (file: File) => {
     setSendError(null);
+    setFailedUpload(null);
     setIsUploading(true);
     try {
       const uploaded = await props.onUploadAttachment(file);
       setPendingAttachments((current) => [...current, uploaded]);
     } catch (error) {
-      setSendError(toErrorMessage(error));
+      setFailedUpload({
+        file,
+        message: toUploadErrorMessage(file.name || "attachment", error)
+      });
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     }
+  };
+
+  const onPickAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    await uploadFile(file);
   };
 
   const selectMention = (candidate: MentionCandidate) => {
@@ -391,33 +546,42 @@ export function MessagePane(props: {
     setSendError(null);
   };
 
-  const onComposerKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (!isMentionMenuOpen) {
-      return;
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActiveMentionIndex((current) => (current + 1) % filteredMentionCandidates.length);
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveMentionIndex((current) => (current - 1 + filteredMentionCandidates.length) % filteredMentionCandidates.length);
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      const candidate = filteredMentionCandidates[activeMentionIndex];
-      if (candidate) {
-        selectMention(candidate);
+  const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isMentionMenuOpen) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveMentionIndex((current) => (current + 1) % filteredMentionCandidates.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveMentionIndex((current) => (current - 1 + filteredMentionCandidates.length) % filteredMentionCandidates.length);
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const candidate = filteredMentionCandidates[activeMentionIndex];
+        if (candidate) {
+          selectMention(candidate);
+        }
+        return;
       }
     }
+    submitOnEnter(event);
   };
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const submitDraft = async () => {
     const text = draft.trim();
-    if ((!text && pendingAttachments.length === 0) || !props.sendAvailability.canSend || isUploading || isMentionMenuOpen) {
+    if (
+      !canSubmitMessage({
+        draft: text,
+        attachments: pendingAttachments,
+        canSend: props.sendAvailability.canSend,
+        isUploading,
+        isMentionMenuOpen,
+        isSending: props.isSending
+      })
+    ) {
       return;
     }
     setSendError(null);
@@ -425,10 +589,16 @@ export function MessagePane(props: {
       await props.onSend({ content: text, attachments: pendingAttachments });
       setDraft("");
       setPendingAttachments([]);
+      setFailedUpload(null);
     } catch (error) {
       setSendError(toErrorMessage(error));
       // Preserve the draft and uploaded attachments so the user can retry after reading the failure feedback.
     }
+  };
+
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await submitDraft();
   };
 
   return (
@@ -463,11 +633,23 @@ export function MessagePane(props: {
           )}
         </div>
       </div>
-      <form className="border-t border-[var(--im-border)] p-3" onSubmit={onSubmit}>
+      <form ref={formRef} className="border-t border-[var(--im-border)] p-3" onSubmit={onSubmit}>
         <FailureStateBanner sendAvailability={props.sendAvailability} />
-        {sendError && <SendErrorBanner message={sendError} />}
-        <PendingAttachments attachments={pendingAttachments} isUploading={isUploading} />
-        <div className="relative flex items-center gap-2">
+        {failedUpload && (
+          <UploadErrorBanner
+            message={failedUpload.message}
+            fileName={failedUpload.file.name || "attachment"}
+            onRetry={() => retryUploadAction(() => void retryPendingUpload({ failedUpload, uploadFile }))}
+            isRetrying={isUploading}
+          />
+        )}
+        {sendError && <SendErrorBanner message={sendError} onRetry={() => retrySendAction(() => retrySubmitFromForm(formRef.current))} isRetrying={props.isSending} />}
+        <PendingAttachments
+          attachments={pendingAttachments}
+          isUploading={isUploading}
+          onRemove={(index) => removePendingAttachmentAction({ index, attachments: pendingAttachments, setPendingAttachments })}
+        />
+        <div className="relative flex items-end gap-2">
           <label className="im-btn im-btn-muted cursor-pointer">
             <span aria-hidden="true">+</span>
             <span className="sr-only">Attachment picker</span>
@@ -480,10 +662,11 @@ export function MessagePane(props: {
             />
           </label>
           <div className="relative flex-1">
-            <input
-              className="im-input w-full"
+            <textarea
+              className="im-input min-h-24 max-h-56 w-full resize-y"
               placeholder={props.sendAvailability.placeholder}
               value={draft}
+              rows={3}
               disabled={!props.sendAvailability.canSend}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={onComposerKeyDown}
@@ -522,6 +705,11 @@ export function MessagePane(props: {
                 })}
               </div>
             )}
+            <PendingStatusHint
+              canSend={props.sendAvailability.canSend}
+              isUploading={isUploading}
+              hasAttachments={pendingAttachments.length > 0}
+            />
           </div>
           <button
             type="submit"
