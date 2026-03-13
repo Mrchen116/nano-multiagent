@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { AccountProfile, getAccount, listNodes, updateAccount } from "../mock-settings-api";
+import { AccountProfile, getAccount, listNodes, updateAccount } from "../im-settings-api";
 
 export function AccountPage() {
   const queryClient = useQueryClient();
@@ -23,7 +23,11 @@ export function AccountPage() {
   }, [accountQuery.data]);
 
   const mutation = useMutation({
-    mutationFn: (next: AccountProfile) => updateAccount(next),
+    mutationFn: (next: AccountProfile) =>
+      updateAccount({
+        display_name: next.display_name,
+        default_entry_node_id: next.default_entry_node_id
+      }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["settings", "account"] });
     }
@@ -45,7 +49,7 @@ export function AccountPage() {
 
       <label className="grid gap-1 text-xs font-semibold text-slate-600">
         User ID
-        <input className="im-input" value={draft.user_id} disabled />
+        <input className="im-input" value={draft.user_id || draft.id} disabled />
       </label>
 
       <label className="grid gap-1 text-xs font-semibold text-slate-600">
@@ -61,18 +65,24 @@ export function AccountPage() {
         Default Entry Node
         <select
           className="im-input"
-          value={draft.default_entry_node_id}
-          onChange={(event) => setDraft({ ...draft, default_entry_node_id: event.target.value })}
+          value={draft.default_entry_node_id ?? ""}
+          onChange={(event) =>
+            setDraft({ ...draft, default_entry_node_id: event.target.value.length > 0 ? event.target.value : null })
+          }
         >
-          {(nodesQuery.data ?? []).map((node) => (
-            <option key={node.node_id} value={node.node_id}>
-              {node.node_id}
-            </option>
-          ))}
+          <option value="">Select one node</option>
+          {(nodesQuery.data ?? [])
+            .filter((node) => draft.owned_node_ids.includes(node.node_id))
+            .map((node) => (
+              <option key={node.node_id} value={node.node_id}>
+                {node.alias || node.node_name} ({node.status})
+              </option>
+            ))}
         </select>
       </label>
 
-      <p className="text-xs text-slate-500">Owned Nodes: {draft.owned_node_ids.join(", ")}</p>
+      <p className="text-xs text-slate-500">Owned Nodes: {draft.owned_node_ids.join(", ") || "none"}</p>
+      <p className="text-xs text-slate-500">Created At: {draft.created_at || "-"}</p>
 
       <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending}>
         Save Account

@@ -9,7 +9,18 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
     owner_id TEXT NOT NULL,
+    default_entry_node_id TEXT,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings_policies (
+    singleton_key TEXT PRIMARY KEY,
+    default_model TEXT NOT NULL,
+    max_turn_per_run INTEGER NOT NULL,
+    max_attachment_size_mb INTEGER NOT NULL,
+    retention_days INTEGER NOT NULL,
+    audit_level TEXT NOT NULL,
+    rate_limit_per_min INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -165,17 +176,22 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _migrate_nodes_metadata(connection)
     _migrate_relay_tasks(connection)
     _migrate_usage_metrics(connection)
+    _migrate_settings_policies(connection)
     connection.commit()
 
 
 def _migrate_users_owner_id(connection: sqlite3.Connection) -> None:
-    """Backfill owner_id for user rows created before the layered migration."""
+    """Backfill user ownership and default entry metadata for older schemas."""
     rows = connection.execute("PRAGMA table_info(users)").fetchall()
     column_names = {row["name"] for row in rows}
     if "owner_id" not in column_names:
         connection.execute("ALTER TABLE users ADD COLUMN owner_id TEXT")
         connection.execute("UPDATE users SET owner_id = id WHERE owner_id IS NULL OR owner_id = ''")
         connection.execute("UPDATE users SET owner_id = id WHERE owner_id IS NULL OR owner_id = ''")
+    if "default_entry_node_id" not in column_names:
+        connection.execute("ALTER TABLE users ADD COLUMN default_entry_node_id TEXT")
+
+
 
 
 def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
@@ -347,4 +363,42 @@ def _migrate_usage_metrics(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         )
         """
+    )
+
+
+DEFAULT_SETTINGS_POLICIES = {
+    "singleton_key": "default",
+    "default_model": "gpt-5.2-codex",
+    "max_turn_per_run": 14,
+    "max_attachment_size_mb": 15,
+    "retention_days": 30,
+    "audit_level": "basic",
+    "rate_limit_per_min": 45,
+}
+
+
+def _migrate_settings_policies(connection: sqlite3.Connection) -> None:
+    """Ensure the singleton settings-policy row exists for settings center APIs."""
+    connection.execute(
+        """
+        INSERT INTO settings_policies(
+            singleton_key,
+            default_model,
+            max_turn_per_run,
+            max_attachment_size_mb,
+            retention_days,
+            audit_level,
+            rate_limit_per_min
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(singleton_key) DO NOTHING
+        """,
+        (
+            DEFAULT_SETTINGS_POLICIES["singleton_key"],
+            DEFAULT_SETTINGS_POLICIES["default_model"],
+            DEFAULT_SETTINGS_POLICIES["max_turn_per_run"],
+            DEFAULT_SETTINGS_POLICIES["max_attachment_size_mb"],
+            DEFAULT_SETTINGS_POLICIES["retention_days"],
+            DEFAULT_SETTINGS_POLICIES["audit_level"],
+            DEFAULT_SETTINGS_POLICIES["rate_limit_per_min"],
+        ),
     )

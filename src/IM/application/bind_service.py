@@ -27,9 +27,13 @@ class BindService:
         """Return the current user snapshot for account APIs."""
         return self._users.get_user(user_id=user_id)
 
-    def update_me(self, *, user_id: str, display_name: str) -> User:
+    def update_me(self, *, user_id: str, display_name: str, default_entry_node_id: str | None) -> User:
         """Update mutable current-user settings."""
-        return self._users.update_user(user_id=user_id, display_name=display_name)
+        return self._users.update_user(
+            user_id=user_id,
+            display_name=display_name,
+            default_entry_node_id=default_entry_node_id,
+        )
 
     def start_bind(self, *, node_id: str) -> DeviceBindRequest:
         """Create one pending bind request and browser URL for a node."""
@@ -45,4 +49,5 @@ class BindService:
         bind = self._binds.confirm_bind_request(bind_id=bind_id, bind_token=bind_token, user_id=user_id)
         self._nodes.assign_owner(node_id=bind.node_id, owner_id=user.owner_id)
         self._profiles.reassign_owner_by_node(node_id=bind.node_id, owner_id=user.owner_id)
+        self._users.ensure_default_entry_node(user_id=user_id, node_id=bind.node_id)
         return bind

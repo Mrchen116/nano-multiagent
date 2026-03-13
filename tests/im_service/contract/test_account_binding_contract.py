@@ -21,12 +21,16 @@ def test_me_and_bind_contract_shapes(tmp_path: Path) -> None:
         assert me_response.status_code == 200
         assert set(me_response.json()) == {
             "id",
+            "user_id",
             "username",
             "display_name",
             "owner_id",
             "owned_node_ids",
+            "default_entry_node_id",
             "created_at",
         }
+        assert me_response.json()["user_id"] == owner.id
+        assert me_response.json()["default_entry_node_id"] is None
 
         bind_response = client.post("/im/v1/bind", json={"action": "start", "node_id": "node-1"})
         assert bind_response.status_code == 201

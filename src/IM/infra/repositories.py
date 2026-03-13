@@ -5,7 +5,8 @@ import json
 import sqlite3
 from uuid import uuid4
 
-from IM.domain.models import AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, UsageMetric, User
+from IM.domain.models import AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, SettingsPolicy, UsageMetric, User
+from IM.infra.db import DEFAULT_SETTINGS_POLICIES
 
 
 class UserAlreadyExistsError(ValueError):
@@ -58,10 +59,10 @@ class UserRepository:
             with self._connection:
                 self._connection.execute(
                     """
-                    INSERT INTO users(id, username, display_name, owner_id, created_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO users(id, username, display_name, owner_id, default_entry_node_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
-                    (user_id, username, display_name, owner_id, created_at),
+                    (user_id, username, display_name, owner_id, None, created_at),
                 )
         except sqlite3.IntegrityError as error:
             _raise_constraint_error(error)
@@ -71,6 +72,7 @@ class UserRepository:
             display_name=display_name,
             owner_id=owner_id,
             owned_node_ids=[],
+            default_entry_node_id=None,
             created_at=created_at,
         )
 
@@ -81,28 +83,36 @@ class UserRepository:
             Users ordered by creation timestamp and insertion order.
         """
         rows = self._connection.execute(
-            "SELECT id, username, display_name, owner_id, created_at FROM users ORDER BY created_at, rowid"
+            "SELECT id, username, display_name, owner_id, default_entry_node_id, created_at FROM users ORDER BY created_at, rowid"
         ).fetchall()
         return [self._row_to_user(row) for row in rows]
 
     def get_user(self, *, user_id: str) -> User | None:
         """Return one user with owned node ids, or None when missing."""
         row = self._connection.execute(
-            "SELECT id, username, display_name, owner_id, created_at FROM users WHERE id = ?",
+            "SELECT id, username, display_name, owner_id, default_entry_node_id, created_at FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         if row is None:
             return None
         return self._row_to_user(row)
 
-    def update_user(self, *, user_id: str, display_name: str) -> User:
+    def update_user(self, *, user_id: str, display_name: str, default_entry_node_id: str | None) -> User:
         """Update mutable user settings and return the latest snapshot."""
         if not display_name.strip():
             raise ValueError("display_name must be non-empty")
+        user = self.get_user(user_id=user_id)
+        if user is None:
+            raise ValueError("user_id not found")
+        next_default_entry_node_id = default_entry_node_id
+        if next_default_entry_node_id is not None:
+            next_default_entry_node_id = next_default_entry_node_id.strip() or None
+            if next_default_entry_node_id and next_default_entry_node_id not in user.owned_node_ids:
+                raise ValueError("default_entry_node_id not owned by user")
         with self._connection:
             cursor = self._connection.execute(
-                "UPDATE users SET display_name = ? WHERE id = ?",
-                (display_name, user_id),
+                "UPDATE users SET display_name = ?, default_entry_node_id = ? WHERE id = ?",
+                (display_name, next_default_entry_node_id, user_id),
             )
         if cursor.rowcount == 0:
             raise ValueError("user_id not found")
@@ -110,20 +120,150 @@ class UserRepository:
         assert user is not None
         return user
 
+    def ensure_default_entry_node(self, *, user_id: str, node_id: str) -> User:
+        """Set a user's default entry node when it is missing or no longer owned."""
+        user = self.get_user(user_id=user_id)
+        if user is None:
+            raise ValueError("user_id not found")
+        if user.default_entry_node_id in user.owned_node_ids:
+            return user
+        with self._connection:
+            self._connection.execute(
+                "UPDATE users SET default_entry_node_id = ? WHERE id = ?",
+                (node_id, user_id),
+            )
+        updated = self.get_user(user_id=user_id)
+        assert updated is not None
+        return updated
+
     def _row_to_user(self, row: sqlite3.Row) -> User:
         """Convert one user row to a domain user including owned nodes."""
         node_rows = self._connection.execute(
             "SELECT node_id FROM nodes WHERE owner_id = ? ORDER BY rowid",
             (row["owner_id"],),
         ).fetchall()
+        owned_node_ids = [item["node_id"] for item in node_rows]
+        default_entry_node_id = row["default_entry_node_id"]
+        if default_entry_node_id not in owned_node_ids:
+            default_entry_node_id = owned_node_ids[0] if owned_node_ids else None
         return User(
             id=row["id"],
             username=row["username"],
             display_name=row["display_name"],
             owner_id=row["owner_id"],
-            owned_node_ids=[item["node_id"] for item in node_rows],
+            owned_node_ids=owned_node_ids,
+            default_entry_node_id=default_entry_node_id,
             created_at=row["created_at"],
         )
+
+
+class SettingsPolicyRepository:
+    """Persist and query the singleton settings-policy document."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self._connection = connection
+
+    def get_policies(self) -> SettingsPolicy:
+        """Return the singleton settings-policy row."""
+        row = self._connection.execute(
+            """
+            SELECT default_model, max_turn_per_run, max_attachment_size_mb, retention_days, audit_level, rate_limit_per_min
+            FROM settings_policies
+            WHERE singleton_key = 'default'
+            """
+        ).fetchone()
+        if row is None:
+            row = self._reseed_default_policy_row()
+        return SettingsPolicy(
+            default_model=str(row["default_model"]),
+            max_turn_per_run=int(row["max_turn_per_run"]),
+            max_attachment_size_mb=int(row["max_attachment_size_mb"]),
+            retention_days=int(row["retention_days"]),
+            audit_level=str(row["audit_level"]),
+            rate_limit_per_min=int(row["rate_limit_per_min"]),
+        )
+
+    def _reseed_default_policy_row(self) -> sqlite3.Row:
+        """Recreate the singleton settings-policy row for older runtime databases."""
+        with self._connection:
+            self._connection.execute(
+                """
+                INSERT INTO settings_policies(
+                    singleton_key,
+                    default_model,
+                    max_turn_per_run,
+                    max_attachment_size_mb,
+                    retention_days,
+                    audit_level,
+                    rate_limit_per_min
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(singleton_key) DO NOTHING
+                """,
+                (
+                    DEFAULT_SETTINGS_POLICIES["singleton_key"],
+                    DEFAULT_SETTINGS_POLICIES["default_model"],
+                    DEFAULT_SETTINGS_POLICIES["max_turn_per_run"],
+                    DEFAULT_SETTINGS_POLICIES["max_attachment_size_mb"],
+                    DEFAULT_SETTINGS_POLICIES["retention_days"],
+                    DEFAULT_SETTINGS_POLICIES["audit_level"],
+                    DEFAULT_SETTINGS_POLICIES["rate_limit_per_min"],
+                ),
+            )
+        row = self._connection.execute(
+            """
+            SELECT default_model, max_turn_per_run, max_attachment_size_mb, retention_days, audit_level, rate_limit_per_min
+            FROM settings_policies
+            WHERE singleton_key = 'default'
+            """
+        ).fetchone()
+        assert row is not None
+        return row
+
+    def update_policies(
+        self,
+        *,
+        default_model: str,
+        max_turn_per_run: int,
+        max_attachment_size_mb: int,
+        retention_days: int,
+        audit_level: str,
+        rate_limit_per_min: int,
+    ) -> SettingsPolicy:
+        """Update the singleton settings-policy row and return the new snapshot."""
+        if not default_model.strip():
+            raise ValueError("default_model must be non-empty")
+        if max_turn_per_run < 1:
+            raise ValueError("max_turn_per_run must be >= 1")
+        if max_attachment_size_mb < 1:
+            raise ValueError("max_attachment_size_mb must be >= 1")
+        if retention_days < 1:
+            raise ValueError("retention_days must be >= 1")
+        if rate_limit_per_min < 1:
+            raise ValueError("rate_limit_per_min must be >= 1")
+        if audit_level not in {"off", "basic", "strict"}:
+            raise ValueError("audit_level must be one of off/basic/strict")
+        with self._connection:
+            self._connection.execute(
+                """
+                UPDATE settings_policies
+                SET default_model = ?,
+                    max_turn_per_run = ?,
+                    max_attachment_size_mb = ?,
+                    retention_days = ?,
+                    audit_level = ?,
+                    rate_limit_per_min = ?
+                WHERE singleton_key = 'default'
+                """,
+                (
+                    default_model,
+                    max_turn_per_run,
+                    max_attachment_size_mb,
+                    retention_days,
+                    audit_level,
+                    rate_limit_per_min,
+                ),
+            )
+        return self.get_policies()
 
 
 class AgentProfileVersionConflictError(ValueError):

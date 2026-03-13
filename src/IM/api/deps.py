@@ -9,10 +9,11 @@ from IM.application.config_service import ConfigService
 from IM.application.event_service import EventService
 from IM.application.metrics_service import MetricsService
 from IM.application.node_service import NodeService
+from IM.application.policy_service import PolicyService
 from IM.application.relay_service import RelayService
 from IM.application.user_service import UserService
 from IM.application.web_im_service import WebIMService
-from IM.infra.repositories import AgentProfileRepository, BindRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, UsageMetricsRepository, UserRepository
+from IM.infra.repositories import AgentProfileRepository, BindRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, SettingsPolicyRepository, UsageMetricsRepository, UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -113,6 +114,11 @@ def _build_bind_repository(request: Request) -> BindRepository:
     return BindRepository(request.app.state.connection)
 
 
+def _build_settings_policy_repository(request: Request) -> SettingsPolicyRepository:
+    """Return the singleton settings-policy repository for the running IM app."""
+    return SettingsPolicyRepository(request.app.state.connection)
+
+
 def get_user_service(request: Request) -> UserService:
     """Build the user application service from app-scoped dependencies."""
     return UserService(users=_build_user_repository(request))
@@ -144,6 +150,11 @@ def get_config_service(request: Request) -> ConfigService:
 def get_node_service(request: Request) -> NodeService:
     """Build the node board application service from app-scoped dependencies."""
     return NodeService(nodes=_build_node_repository(request))
+
+
+def get_policy_service(request: Request) -> PolicyService:
+    """Build the settings-policy application service from app-scoped dependencies."""
+    return PolicyService(policies=_build_settings_policy_repository(request))
 
 
 def get_metrics_service(request: Request) -> MetricsService:

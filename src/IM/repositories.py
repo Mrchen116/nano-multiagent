@@ -13,6 +13,7 @@ from IM.infra.repositories import (
     EventRepository,
     MessageRepository,
     NodeRepository,
+    SettingsPolicyRepository,
     UserRepository,
 )
 
@@ -24,6 +25,7 @@ __all__ = [
     "EventRepository",
     "MessageRepository",
     "NodeRepository",
+    "SettingsPolicyRepository",
     "UserRepository",
 ]
 

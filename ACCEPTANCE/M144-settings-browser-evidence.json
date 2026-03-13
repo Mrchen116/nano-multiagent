@@ -1,0 +1,101 @@
+{
+  "base_url": "http://127.0.0.1:8011",
+  "browser": "Google Chrome via DevTools Protocol",
+  "nodes_page": {
+    "url": "http://127.0.0.1:8011/settings/nodes",
+    "visible_before": "Nano IM Workspace\n\nP1-P7 Skeleton\n\nChat\nSettings\n\nSettings\n\nAgents\nNodes\nPolicies\nAccount\nNodes\n\nmy-macbook\n\nlive name: my-macbook\n\nstatus: online\n\nagents: 1\n\nAlias my-macbook\nLive Snapshot\n\nHeartbeat: 2026-03-13T06:17:23.695032Z\n\nVersion: -\n\nLast Error: -\n\nRelay Enabled\nReport Enabled\nSave my-macbook\n\nm135-node\n\nlive name: m135-node\n\nstatus: online\n\nagents: 1\n\nAlias m135-node\nLive Snapshot\n\nHeartbeat: 2026-03-13T06:17:23.292493Z\n\nVersion: -\n\nLast Error: -\n\nRelay Enabled\nReport Enabled\nSave m135-node",
+    "api_before": {
+      "node_id": "m135-node",
+      "owner_id": "a8bfe84fc16244fd9a73916cab2a1c39",
+      "node_name": "m135-node",
+      "status": "online",
+      "last_heartbeat_at": "2026-03-13T06:17:23.292493Z",
+      "agent_count": 1,
+      "version": "",
+      "relay_enabled": true,
+      "reporting_enabled": true,
+      "alias": "m135-node-baseline",
+      "last_error": null
+    },
+    "saved_alias": "m135-node-m144-final",
+    "reloaded_alias": "m135-node-m144-final",
+    "api_after": {
+      "node_id": "m135-node",
+      "owner_id": "a8bfe84fc16244fd9a73916cab2a1c39",
+      "node_name": "m135-node",
+      "status": "online",
+      "last_heartbeat_at": "2026-03-13T06:17:23.292493Z",
+      "agent_count": 1,
+      "version": "",
+      "relay_enabled": true,
+      "reporting_enabled": true,
+      "alias": "m135-node-m144-final",
+      "last_error": null
+    },
+    "screenshot": "/Users/czj/Repos/nano-multiagent/.worktrees/M144/ACCEPTANCE/M144-settings-nodes.png"
+  },
+  "account_page": {
+    "url": "http://127.0.0.1:8011/settings/account",
+    "visible_before": "Nano IM Workspace\n\nP1-P7 Skeleton\n\nChat\nSettings\n\nSettings\n\nAgents\nNodes\nPolicies\nAccount\nAccount\nUser ID\nDisplay Name\nDefault Entry Node\nSelect one node\nm135-node-m144-final (online)\n\nOwned Nodes: m135-node\n\nCreated At: 2026-03-13T06:17:14.743454Z\n\nSave Account",
+    "api_before": {
+      "id": "a8bfe84fc16244fd9a73916cab2a1c39",
+      "user_id": "a8bfe84fc16244fd9a73916cab2a1c39",
+      "username": "you",
+      "display_name": "You Baseline",
+      "owner_id": "a8bfe84fc16244fd9a73916cab2a1c39",
+      "owned_node_ids": [
+        "m135-node"
+      ],
+      "default_entry_node_id": "m135-node",
+      "created_at": "2026-03-13T06:17:14.743454Z"
+    },
+    "api_after": {
+      "id": "a8bfe84fc16244fd9a73916cab2a1c39",
+      "user_id": "a8bfe84fc16244fd9a73916cab2a1c39",
+      "username": "you",
+      "display_name": "You Ops M144 Final",
+      "owner_id": "a8bfe84fc16244fd9a73916cab2a1c39",
+      "owned_node_ids": [
+        "m135-node"
+      ],
+      "default_entry_node_id": "m135-node",
+      "created_at": "2026-03-13T06:17:14.743454Z"
+    },
+    "reloaded_form": {
+      "display_name": "You Ops M144 Final",
+      "default_entry_node_id": "m135-node",
+      "body_text": "Nano IM Workspace\n\nP1-P7 Skeleton\n\nChat\nSettings\n\nSettings\n\nAgents\nNodes\nPolicies\nAccount\nAccount\nUser ID\nDisplay Name\nDefault Entry Node\nSelect one node\nm135-node-m144-final (online)\n\nOwned Nodes: m135-node\n\nCreated At: 2026-03-13T06:17:14.743454Z\n\nSave Account"
+    },
+    "screenshot": "/Users/czj/Repos/nano-multiagent/.worktrees/M144/ACCEPTANCE/M144-settings-account.png"
+  },
+  "policies_page": {
+    "url": "http://127.0.0.1:8011/settings/policies",
+    "visible_before": "Nano IM Workspace\n\nP1-P7 Skeleton\n\nChat\nSettings\n\nSettings\n\nAgents\nNodes\nPolicies\nAccount\nPolicies\nDefault Model\nAudit Level\noff\nbasic\nstrict\nMax Turn Per Run\nRate Limit / Min\nMax Attachment Size (MB)\nRetention Days\nSave Policies",
+    "api_before": {
+      "default_model": "baseline-model",
+      "max_turn_per_run": 17,
+      "max_attachment_size_mb": 20,
+      "retention_days": 35,
+      "audit_level": "basic",
+      "rate_limit_per_min": 55
+    },
+    "api_after": {
+      "default_model": "gpt-5.4-settings-final",
+      "max_turn_per_run": 23,
+      "max_attachment_size_mb": 36,
+      "retention_days": 52,
+      "audit_level": "strict",
+      "rate_limit_per_min": 111
+    },
+    "reloaded_form": {
+      "default_model": "gpt-5.4-settings-final",
+      "audit_level": "strict",
+      "max_turn_per_run": "23",
+      "rate_limit_per_min": "111",
+      "max_attachment_size_mb": "36",
+      "retention_days": "52",
+      "body_text": "Nano IM Workspace\n\nP1-P7 Skeleton\n\nChat\nSettings\n\nSettings\n\nAgents\nNodes\nPolicies\nAccount\nPolicies\nDefault Model\nAudit Level\noff\nbasic\nstrict\nMax Turn Per Run\nRate Limit / Min\nMax Attachment Size (MB)\nRetention Days\nSave Policies"
+    },
+    "screenshot": "/Users/czj/Repos/nano-multiagent/.worktrees/M144/ACCEPTANCE/M144-settings-policies.png"
+  }
+}

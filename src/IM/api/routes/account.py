@@ -14,10 +14,12 @@ class MeResponse(BaseModel):
     """Serialized current-user object for account APIs."""
 
     id: str
+    user_id: str
     username: str
     display_name: str
     owner_id: str
     owned_node_ids: list[str]
+    default_entry_node_id: str | None
     created_at: str
 
 
@@ -25,6 +27,7 @@ class UpdateMeRequest(BaseModel):
     """Request payload for updating current-user settings."""
 
     display_name: str = Field(min_length=1)
+    default_entry_node_id: str | None = None
 
 
 class StartBindRequest(BaseModel):
@@ -66,10 +69,12 @@ def to_me_response(user: User) -> MeResponse:
     """Convert a domain user to the account response model."""
     return MeResponse(
         id=user.id,
+        user_id=user.id,
         username=user.username,
         display_name=user.display_name,
         owner_id=user.owner_id,
         owned_node_ids=user.owned_node_ids,
+        default_entry_node_id=user.default_entry_node_id,
         created_at=user.created_at,
     )
 
@@ -104,7 +109,11 @@ def update_me(
 ) -> MeResponse:
     """Update the current user's mutable settings."""
     try:
-        user = service.update_me(user_id=user_id, display_name=payload.display_name)
+        user = service.update_me(
+            user_id=user_id,
+            display_name=payload.display_name,
+            default_entry_node_id=payload.default_entry_node_id,
+        )
     except ValueError as exc:
         detail = str(exc)
         status_code = status.HTTP_404_NOT_FOUND if detail == "user_id not found" else status.HTTP_400_BAD_REQUEST
