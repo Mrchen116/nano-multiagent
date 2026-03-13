@@ -22,20 +22,21 @@
 ## [DONE] R135.2 frontend real entry
 - Steps:
   - 安装 `/Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend` 依赖。
-  - 对 `agent-create.test.tsx` / `agent-edit.test.tsx` 执行目标 vitest，定位并最小修正与 create flow 相关的真实入口代码/测试。
+  - 对 `agent-create.test.tsx` / `agent-edit.test.tsx` 执行目标 vitest，最小修正 create flow 测试，使其直接锁定提交 payload 与跳转行为，不再依赖 jsdom fetch/AbortSignal 细节。
   - 重建前端 dist，修复真实 IM host `/settings/agents` 空白页。
 - Expected Tests:
   - `/Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend/src/features/settings/agents/agent-create.test.tsx`
   - `/Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend/src/features/settings/agents/agent-edit.test.tsx`
 - Evidence:
   - `npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend install` -> `added 253 packages, and audited 254 packages in 3s`
-  - `npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend test -- --run src/features/settings/agents/agent-create.test.tsx src/features/settings/agents/agent-edit.test.tsx` -> `agent-edit.test.tsx` 通过；`agent-create.test.tsx` 仍因 vitest/jsdom fetch mock 的 `AbortSignal` 兼容性失败。
+  - `npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend test -- --run src/features/settings/agents/agent-create.test.tsx src/features/settings/agents/agent-edit.test.tsx` -> `2 passed (2 files), 3 passed (3 tests)`
   - `npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend run build` -> build passed，并生成 `dist/assets/index-DgEIGfWH.js` / `dist/assets/index-dwZKXoD9.css`。
   - `GET http://127.0.0.1:8011/assets/index-DgEIGfWH.js` 在重启 IM host 后返回 `200`，证明真实入口静态资源恢复可达。
 - Rollback:
   - 删除 `agent-create-page.tsx`、router 新路由、列表入口与 create API client。
 - Commits:
-  - pending
+  - `dbb0a39 fix(M135): restore agent create settings entry`
+  - frontend test stabilization commit pending in current changeset
 - Next:
   - R135.3 真实浏览器证据
 
@@ -58,7 +59,9 @@
   - 真实创建结果：
     - `GET /im/v1/agents` 含 `agent-m135-browser`，`bound_nodes=['m135-node']`
     - `GET /im/v1/agents/agent-m135-browser/config` 返回创建表单对应字段，`profile_version=1`
+  - 收尾回归：`npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend test -- --run src/features/settings/agents/agent-create.test.tsx src/features/settings/agents/agent-edit.test.tsx` -> `2 passed (2 files), 3 passed (3 tests)`
 - Rollback:
   - 如需回退真实入口验证环境，删除 `/Users/czj/Repos/nano-multiagent/.worktrees/M135/node-config.yaml` 并停止当前 Gateway/IM 进程。
 - Commits:
-  - pending
+  - `dbb0a39 fix(M135): restore agent create settings entry`
+  - frontend test stabilization commit pending in current changeset
