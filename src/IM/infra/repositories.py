@@ -6,6 +6,7 @@ import sqlite3
 from uuid import uuid4
 
 from IM.domain.models import AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, SettingsPolicy, UsageMetric, User
+from IM.infra.db import DEFAULT_SETTINGS_POLICIES
 
 
 class UserAlreadyExistsError(ValueError):
@@ -171,7 +172,8 @@ class SettingsPolicyRepository:
             WHERE singleton_key = 'default'
             """
         ).fetchone()
-        assert row is not None
+        if row is None:
+            row = self._reseed_default_policy_row()
         return SettingsPolicy(
             default_model=str(row["default_model"]),
             max_turn_per_run=int(row["max_turn_per_run"]),
@@ -180,6 +182,42 @@ class SettingsPolicyRepository:
             audit_level=str(row["audit_level"]),
             rate_limit_per_min=int(row["rate_limit_per_min"]),
         )
+
+    def _reseed_default_policy_row(self) -> sqlite3.Row:
+        """Recreate the singleton settings-policy row for older runtime databases."""
+        with self._connection:
+            self._connection.execute(
+                """
+                INSERT INTO settings_policies(
+                    singleton_key,
+                    default_model,
+                    max_turn_per_run,
+                    max_attachment_size_mb,
+                    retention_days,
+                    audit_level,
+                    rate_limit_per_min
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(singleton_key) DO NOTHING
+                """,
+                (
+                    DEFAULT_SETTINGS_POLICIES["singleton_key"],
+                    DEFAULT_SETTINGS_POLICIES["default_model"],
+                    DEFAULT_SETTINGS_POLICIES["max_turn_per_run"],
+                    DEFAULT_SETTINGS_POLICIES["max_attachment_size_mb"],
+                    DEFAULT_SETTINGS_POLICIES["retention_days"],
+                    DEFAULT_SETTINGS_POLICIES["audit_level"],
+                    DEFAULT_SETTINGS_POLICIES["rate_limit_per_min"],
+                ),
+            )
+        row = self._connection.execute(
+            """
+            SELECT default_model, max_turn_per_run, max_attachment_size_mb, retention_days, audit_level, rate_limit_per_min
+            FROM settings_policies
+            WHERE singleton_key = 'default'
+            """
+        ).fetchone()
+        assert row is not None
+        return row
 
     def update_policies(
         self,
