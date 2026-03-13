@@ -151,9 +151,15 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
     Side Effects:
         Creates parent directories if missing and enables foreign key checks.
+
+    Notes:
+        FastAPI serves some IM reads in worker threads while sharing one app-scoped
+        connection. Disable sqlite3's per-connection statement cache so concurrent
+        parameter binding cannot leak across threads and trigger InterfaceError or
+        stale row reads on the shared handle.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(str(db_path), check_same_thread=False)
+    connection = sqlite3.connect(str(db_path), check_same_thread=False, cached_statements=0)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
