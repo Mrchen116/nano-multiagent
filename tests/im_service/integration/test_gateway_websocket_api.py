@@ -238,6 +238,65 @@ def test_message_post_to_disconnected_node_persists_actionable_failure_events(tm
         assert any(payload.get("guidance") == "检查目标节点连接状态后重试，或切换到在线节点。" for payload in payloads)
 
 
+def test_gateway_websocket_persists_heartbeat_report_into_conversation_events(tmp_path: Path) -> None:
+    """Persist heartbeat-style node.report payloads into IM events users can read."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        agent_id = _create_user(client, "agent-a")
+        conversation_id = client.post(
+            "/im/v1/conversations",
+            json={"title": "主 Agent · OpsBot", "participant_ids": [agent_id]},
+        ).json()["id"]
+        created = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": agent_id, "content": "heartbeat placeholder", "sender_type": "agent"},
+        )
+        assert created.status_code == 201
+        message_id = created.json()["id"]
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "Gateway Node",
+                        "version": "1.0.0",
+                        "agents": ["agent-a"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            websocket.send_json(
+                {
+                    "type": "node.report",
+                    "payload": {
+                        "node_id": "node-1",
+                        "run_id": "heartbeat-run-1",
+                        "status": "completed",
+                        "agent_id": "agent-a",
+                        "conversation_id": conversation_id,
+                        "message_id": message_id,
+                        "summary": "Heartbeat complete for main agent agent-a at 2026-03-13T09:00:00+00:00.",
+                        "guidance": "Open your main agent thread in Web IM to review the latest heartbeat result.",
+                    },
+                }
+            )
+            report_ack = websocket.receive_json()
+
+        events = client.get(
+            f"/im/v1/conversations/{conversation_id}/events?max_events=10&timeout_seconds=0.05"
+        )
+        assert report_ack == {"type": "ack", "payload": {"message_type": "node.report", "node_id": "node-1"}}
+        assert events.status_code == 200
+        assert "event: relay.report" in events.text
+        assert "agent_run_completed" in events.text
+        assert "Open your main agent thread in Web IM to review the latest heartbeat result." in events.text
+
+
+
 def test_message_post_with_broken_gateway_socket_returns_503_instead_of_500(tmp_path: Path) -> None:
     """Degrade broken websocket pushes into actionable 503 feedback instead of Internal Server Error."""
     app = create_app(db_path=tmp_path / "im.db")

@@ -53,7 +53,8 @@ describe("im chat api helpers", () => {
         { node_id: "node-disabled", node_name: "Disabled", status: "online", relay_enabled: false }
       ])
     ).toMatchObject({ node_id: "node-offline", status: "offline" });
-    expect(buildStarterConversationTitle("OpsBot")).toBe("Agent · OpsBot");
+    expect(buildStarterConversationTitle("OpsBot")).toBe("主 Agent · OpsBot");
+    expect(buildStarterConversationTitle("主 Agent OpsBot")).toBe("主 Agent · OpsBot");
   });
 
   it("classifies send readiness for bound, offline, and unbound states", () => {

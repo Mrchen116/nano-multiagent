@@ -21,6 +21,8 @@ function renderMessagePane(input?: {
   const detail: ConversationDetail = {
     conversation_id: "conv-kernel-ops",
     title: "Kernel Ops Crew",
+    kind_label: "主 Agent 会话",
+    ownership_label: "这是你与主 Agent 的默认产品入口。",
     messages: []
   };
 
@@ -35,6 +37,13 @@ function renderMessagePane(input?: {
 }
 
 describe("message pane", () => {
+  it("shows main-agent session semantics in the header", () => {
+    renderMessagePane();
+
+    expect(screen.getByText("主 Agent 会话")).toBeInTheDocument();
+    expect(screen.getByText("这是你与主 Agent 的默认产品入口。")).toBeInTheDocument();
+  });
+
   it("preserves the draft and shows explicit failure feedback when send fails", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValue(new Error(SEND_FAILURE_MESSAGE));
