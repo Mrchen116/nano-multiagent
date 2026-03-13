@@ -3,7 +3,7 @@ import * as Label from "@radix-ui/react-label";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
-import { AgentProfile, getAgent, updateAgent } from "../mock-settings-api";
+import { AgentConfig, getAgentConfig, updateAgentConfig } from "./im-agent-config-api";
 
 function splitList(value: string) {
   return value
@@ -15,12 +15,12 @@ function splitList(value: string) {
 export function AgentDetailPage() {
   const { agentId = "" } = useParams();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<AgentProfile | null>(null);
+  const [draft, setDraft] = useState<AgentConfig | null>(null);
   const [saved, setSaved] = useState(false);
 
   const query = useQuery({
     queryKey: ["settings", "agents", agentId],
-    queryFn: () => getAgent(agentId)
+    queryFn: () => getAgentConfig(agentId)
   });
 
   useEffect(() => {
@@ -30,12 +30,7 @@ export function AgentDetailPage() {
   }, [query.data]);
 
   const mutation = useMutation({
-    mutationFn: (next: AgentProfile) =>
-      updateAgent(agentId, {
-        ...next,
-        skills_allowlist: next.skills_allowlist,
-        tool_allowlist: next.tool_allowlist
-      }),
+    mutationFn: (next: AgentConfig) => updateAgentConfig(agentId, next),
     onSuccess: async (updated) => {
       setSaved(true);
       if (updated) {
@@ -120,7 +115,7 @@ export function AgentDetailPage() {
             className="im-input"
             value={draft.group_reply_policy}
             onChange={(event) =>
-              setDraft({ ...draft, group_reply_policy: event.target.value as AgentProfile["group_reply_policy"] })
+              setDraft({ ...draft, group_reply_policy: event.target.value as AgentConfig["group_reply_policy"] })
             }
           >
             <option value="ALWAYS">ALWAYS</option>

@@ -2,13 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
-import { listAgents } from "../mock-settings-api";
+import { listAgentSummaries } from "./im-agent-config-api";
 
 export function AgentsListPage() {
   const isMobile = useIsMobile();
   const query = useQuery({
     queryKey: ["settings", "agents"],
-    queryFn: listAgents
+    queryFn: listAgentSummaries
   });
 
   if (query.isLoading) {
