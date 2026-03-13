@@ -37,10 +37,11 @@ def test_me_roundtrip_and_bind_flow(tmp_path: Path) -> None:
         me_resp = client.get(f"/im/v1/me?user_id={owner.id}")
         assert me_resp.status_code == 200
         assert me_resp.json()["owned_node_ids"] == []
+        assert me_resp.json()["default_entry_node_id"] is None
 
         patch_resp = client.patch(
             f"/im/v1/me?user_id={owner.id}",
-            json={"display_name": "Alice Cooper"},
+            json={"display_name": "Alice Cooper", "default_entry_node_id": None},
         )
         assert patch_resp.status_code == 200
         assert patch_resp.json()["display_name"] == "Alice Cooper"
@@ -62,6 +63,14 @@ def test_me_roundtrip_and_bind_flow(tmp_path: Path) -> None:
         me_after_resp = client.get(f"/im/v1/me?user_id={owner.id}")
         assert me_after_resp.status_code == 200
         assert me_after_resp.json()["owned_node_ids"] == ["node-1"]
+        assert me_after_resp.json()["default_entry_node_id"] == "node-1"
+
+        default_entry_resp = client.patch(
+            f"/im/v1/me?user_id={owner.id}",
+            json={"display_name": "Alice Cooper", "default_entry_node_id": "node-1"},
+        )
+        assert default_entry_resp.status_code == 200
+        assert default_entry_resp.json()["default_entry_node_id"] == "node-1"
 
         profile_resp = client.get("/im/v1/agents/agent-1/config")
         assert profile_resp.status_code == 200
