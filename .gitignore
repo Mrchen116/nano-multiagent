@@ -209,7 +209,6 @@ __marimo__/
 # TDD Control Tower (runtime)
 data/dev-tasks.json
 data/dev-tasks.json.tmp
-data/locks
 data/locks/
 
 # Playwright
