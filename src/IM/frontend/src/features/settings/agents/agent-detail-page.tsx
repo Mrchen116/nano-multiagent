@@ -17,6 +17,7 @@ export function AgentDetailPage() {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<AgentConfig | null>(null);
   const [saved, setSaved] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ["settings", "agents", agentId],
@@ -26,12 +27,14 @@ export function AgentDetailPage() {
   useEffect(() => {
     if (query.data) {
       setDraft(query.data);
+      setErrorMessage(null);
     }
   }, [query.data]);
 
   const mutation = useMutation({
     mutationFn: (next: AgentConfig) => updateAgentConfig(agentId, next),
     onSuccess: async (updated) => {
+      setErrorMessage(null);
       setSaved(true);
       if (updated) {
         setDraft(updated);
@@ -39,6 +42,10 @@ export function AgentDetailPage() {
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents", agentId] });
       setTimeout(() => setSaved(false), 1200);
+    },
+    onError: (error) => {
+      setSaved(false);
+      setErrorMessage(error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Save failed");
     }
   });
 
@@ -134,9 +141,12 @@ export function AgentDetailPage() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-slate-500">Profile Version: {draft.profile_version}</p>
-        {saved && <p className="text-xs font-bold text-emerald-700">Saved</p>}
+        <div className="flex items-center gap-3">
+          {errorMessage && <p className="text-xs font-bold text-rose-700">{errorMessage}</p>}
+          {saved && <p className="text-xs font-bold text-emerald-700">Saved</p>}
+        </div>
       </div>
 
       <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending}>

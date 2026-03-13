@@ -115,4 +115,45 @@ describe("agent edit page", () => {
       })
     );
   });
+
+  it("surfaces real 409 conflict detail without overwriting the current version label", async () => {
+    const user = userEvent.setup();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            agent_id: "agent-core-1",
+            owner_id: "owner-1",
+            display_name: "Core Planner",
+            description: "Milestone execution coordinator",
+            system_prompt: "You are the planning core for IM and SDK tasks.",
+            skills: ["tdd-execution-worker", "playwright"],
+            tool_allowlist: ["bash", "read_file"],
+            group_reply_policy: "MENTION",
+            default_model: "gpt-5.2-codex",
+            profile_version: 12
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: "profile_version conflict" }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+
+    renderRouter({
+      routes: appRoutes,
+      initialEntries: ["/settings/agents/agent-core-1"]
+    });
+
+    const input = await screen.findByLabelText("Display Name");
+    await user.clear(input);
+    await user.type(input, "Core Planner X");
+    await user.click(screen.getByRole("button", { name: "Save Agent" }));
+
+    expect(await screen.findByText("409 (profile_version conflict)")).toBeInTheDocument();
+    expect(screen.getByText("Profile Version: 12")).toBeInTheDocument();
+  });
 });

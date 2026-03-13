@@ -28,7 +28,7 @@
   - 完成 C1/C2/C3，并在 PROGRESS 记录证据、提交哈希、回滚点。
 
 ## R2 设置页真实 API 写链路与新会话生效约束
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `/settings/agents/:agentId` 保存走真实 `PATCH /im/v1/agents/{id}/config`，携带 `profile_version` 乐观锁。
   - 成功保存后页面显示最新 `profile_version` 与保存反馈。
@@ -49,7 +49,7 @@
   - 完成 C1/C2/C3，并在 PROGRESS 记录真实配置约束证据。
 
 ## R3 真实入口浏览器验证与记录收口
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 通过真实浏览器验证 `/settings/agents` 可读、Agent 详情可写。
   - 记录真实 system prompt 修改后新会话生效、旧会话不漂移的入口证据。
