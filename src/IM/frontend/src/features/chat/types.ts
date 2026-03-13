@@ -60,6 +60,13 @@ export interface MentionCandidate {
   label: string;
 }
 
+export interface GroupChatParticipantOption {
+  user_id: string;
+  label: string;
+  kind: "agent" | "teammate";
+  description?: string;
+}
+
 export interface ConversationDetail {
   conversation_id: string;
   title: string;

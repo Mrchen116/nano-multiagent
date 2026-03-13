@@ -5,6 +5,7 @@ import {
   ChatStarter,
   ConversationDetail,
   ConversationSummary,
+  GroupChatParticipantOption,
   MentionCandidate,
   UsageMetricRow
 } from "./types";
@@ -82,6 +83,40 @@ export interface DiscoverableAgent {
   display_name: string;
   description: string;
   existing_conversation_id: string | null;
+}
+
+function compareParticipantOptions(left: GroupChatParticipantOption, right: GroupChatParticipantOption) {
+  if (left.kind !== right.kind) {
+    return left.kind === "agent" ? -1 : 1;
+  }
+  return left.label.localeCompare(right.label);
+}
+
+function toGroupParticipantOption(input: {
+  user: ImUser;
+  selfUserId: string;
+  agentById: Map<string, ImAgent>;
+}): GroupChatParticipantOption | null {
+  if (input.user.id === input.selfUserId) {
+    return null;
+  }
+  const label = input.user.display_name.trim() || input.user.username;
+  if (isAgentUsername(input.user.username)) {
+    const agentId = input.user.username.slice(AGENT_USERNAME_PREFIX.length);
+    const agent = input.agentById.get(agentId);
+    return {
+      user_id: input.user.id,
+      label,
+      kind: "agent",
+      description: agent?.description?.trim() || "Configured agent available for shared group chat."
+    };
+  }
+  return {
+    user_id: input.user.id,
+    label,
+    kind: "teammate",
+    description: "Workspace teammate available for shared chat."
+  };
 }
 
 interface ImNode {
@@ -447,6 +482,20 @@ export function buildStarterConversationTitle(agentName: string): string {
   return `${MAIN_AGENT_PREFIX}${sanitizeMainAgentName(agentName)}`;
 }
 
+export function buildGroupConversationTitle(labels: string[]): string {
+  const normalizedLabels = Array.from(new Set(labels.map((item) => item.trim()).filter((item) => item.length > 0)));
+  if (normalizedLabels.length === 0) {
+    return "New group chat";
+  }
+  if (normalizedLabels.length === 1) {
+    return `${normalizedLabels[0]} group`;
+  }
+  if (normalizedLabels.length === 2) {
+    return `${normalizedLabels[0]} + ${normalizedLabels[1]}`;
+  }
+  return `${normalizedLabels[0]} + ${normalizedLabels[1]} +${normalizedLabels.length - 2}`;
+}
+
 export function buildStarterPeerUsername(agentId: string): string {
   return agentId === PEER_USERNAME ? PEER_USERNAME : `${AGENT_USERNAME_PREFIX}${agentId}`;
 }
@@ -806,6 +855,26 @@ export async function listDiscoverableAgents(): Promise<DiscoverableAgent[]> {
   });
 }
 
+export async function listDiscoverableGroupParticipants(): Promise<GroupChatParticipantOption[]> {
+  const { selfUserId } = await ensureBootstrap();
+  const agents = await listAgentsRaw();
+  await Promise.all(
+    agents.map((agent) => ensureUser(buildStarterPeerUsername(agent.agent_id), agent.display_name || agent.agent_id))
+  );
+  const users = await listUsersRaw();
+  const agentById = new Map(agents.map((agent) => [agent.agent_id, agent]));
+  return users
+    .map((user) =>
+      toGroupParticipantOption({
+        user,
+        selfUserId,
+        agentById
+      })
+    )
+    .filter((item): item is GroupChatParticipantOption => Boolean(item))
+    .sort(compareParticipantOptions);
+}
+
 export async function createDirectConversation(input: { agentId: string }): Promise<{ conversation_id: string }> {
   const { selfUserId } = await ensureBootstrap();
   const agents = await listAgentsRaw();
@@ -826,6 +895,25 @@ export async function createDirectConversation(input: { agentId: string }): Prom
   const created = await createConversationRaw({
     title: agent.display_name || agent.agent_id,
     participant_ids: [selfUserId, peer.id]
+  });
+  return { conversation_id: created.id };
+}
+
+export async function createGroupConversation(input: { participantIds: string[] }): Promise<{ conversation_id: string }> {
+  const { selfUserId } = await ensureBootstrap();
+  const participantIds = Array.from(
+    new Set(input.participantIds.filter((participantId) => participantId && participantId !== selfUserId))
+  );
+  if (participantIds.length < 2) {
+    throw new Error("select at least two participants to create a group chat");
+  }
+  const userById = await loadUserMap();
+  const title = buildGroupConversationTitle(
+    participantIds.map((participantId) => userById.get(participantId)?.display_name ?? participantId)
+  );
+  const created = await createConversationRaw({
+    title,
+    participant_ids: [selfUserId, ...participantIds]
   });
   return { conversation_id: created.id };
 }

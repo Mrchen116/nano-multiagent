@@ -25,7 +25,11 @@ export const confirmBindToken = useMockApi ? mockApi.confirmBindToken : imApi.co
 export const getChatStarter = useMockApi ? mockApi.getChatStarter : imApi.getChatStarter;
 export const listConversations = useMockApi ? mockApi.listConversations : imApi.listConversations;
 export const listDiscoverableAgents = useMockApi ? mockApi.listDiscoverableAgents : imApi.listDiscoverableAgents;
+export const listDiscoverableGroupParticipants = useMockApi
+  ? mockApi.listDiscoverableGroupParticipants
+  : imApi.listDiscoverableGroupParticipants;
 export const createDirectConversation = useMockApi ? mockApi.createDirectConversation : imApi.createDirectConversation;
+export const createGroupConversation = useMockApi ? mockApi.createGroupConversation : imApi.createGroupConversation;
 export const getConversation = useMockApi ? mockApi.getConversation : imApi.getConversation;
 export const sendMessage = useMockApi ? mockApi.sendMessage : imApi.sendMessage;
 export const uploadAttachment = useMockApi ? mockApi.uploadAttachment : imApi.uploadAttachment;

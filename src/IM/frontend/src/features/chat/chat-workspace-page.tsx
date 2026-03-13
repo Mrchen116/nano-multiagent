@@ -7,18 +7,30 @@ import { ConversationList } from "./components/conversation-list";
 import { MessagePane } from "./components/message-pane";
 import {
   createDirectConversation,
+  createGroupConversation,
   getChatBootstrapState,
   getChatStarter,
   getConversation,
   getUsageMetrics,
   listConversations,
   listDiscoverableAgents,
+  listDiscoverableGroupParticipants,
   resolveSendAvailability,
   sendMessage,
   streamConversationEvents,
   uploadAttachment
 } from "./chat-api";
-import { ChatAttachment, ChatBootstrapState, ChatMessage, ChatUsageView, ConversationDetail, ConversationSummary, UsageAgentView, UsageMetricRow, UsageTotals } from "./types";
+import {
+  ChatAttachment,
+  ChatBootstrapState,
+  ChatMessage,
+  ChatUsageView,
+  ConversationDetail,
+  ConversationSummary,
+  UsageAgentView,
+  UsageMetricRow,
+  UsageTotals
+} from "./types";
 
 function toStatus(value: unknown): ChatMessage["delivery_status"] | undefined {
   if (value === "sent" || value === "running" || value === "completed" || value === "failed") {
@@ -290,6 +302,7 @@ export function ChatWorkspacePage() {
   const queryClient = useQueryClient();
   const [isCreatingGroupChat, setIsCreatingGroupChat] = useState(false);
   const [isCreatingDirectChat, setIsCreatingDirectChat] = useState(false);
+  const [selectedGroupParticipantIds, setSelectedGroupParticipantIds] = useState<string[]>([]);
 
   const bootstrapQuery = useQuery<ChatBootstrapState>({
     queryKey: ["chat", "bootstrap"],
@@ -310,6 +323,12 @@ export function ChatWorkspacePage() {
     enabled: isCreatingDirectChat,
     queryKey: ["chat", "discoverable-agents"],
     queryFn: listDiscoverableAgents
+  });
+
+  const discoverableGroupParticipantsQuery = useQuery({
+    enabled: isCreatingGroupChat,
+    queryKey: ["chat", "discoverable-group-participants"],
+    queryFn: listDiscoverableGroupParticipants
   });
 
   const detailQuery = useQuery({
@@ -578,6 +597,41 @@ export function ChatWorkspacePage() {
     }
   });
 
+  const createGroupConversationMutation = useMutation({
+    mutationFn: (payload: { participantIds: string[]; participantLabels: string[] }) =>
+      createGroupConversation({ participantIds: payload.participantIds }),
+    onSuccess: async ({ conversation_id }, variables) => {
+      const detail = await getConversation(conversation_id);
+      queryClient.setQueryData(["chat", "conversation", conversation_id], detail);
+      if (detail) {
+        queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) => {
+          const existing = previous ?? [];
+          if (existing.some((item) => item.conversation_id === conversation_id)) {
+            return existing;
+          }
+          return [
+            {
+              conversation_id,
+              title: detail.title,
+              last_message_preview: detail.messages.at(-1)?.content ?? "",
+              last_message_at: detail.messages.at(-1)?.created_at,
+              unread_count: 0,
+              participants: ["You", ...variables.participantLabels],
+              kind_label: detail.kind_label,
+              target_label: detail.target_label,
+              discoverability_hint: detail.discoverability_hint
+            },
+            ...existing
+          ];
+        });
+      }
+      setSelectedGroupParticipantIds([]);
+      setIsCreatingGroupChat(false);
+      navigate(`/chat/${conversation_id}`);
+      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    }
+  });
+
   const sendMutation = useMutation({
     mutationFn: (payload: { content: string; attachments: ChatAttachment[] }) =>
       sendMessage({ conversationId: conversationId!, content: payload.content, attachments: payload.attachments }),
@@ -629,6 +683,10 @@ export function ChatWorkspacePage() {
     targetNodeId: bootstrap?.targetNodeId ?? null,
     nodeStatus: bootstrap?.targetNodeStatus ?? null
   });
+  const groupParticipantOptions = discoverableGroupParticipantsQuery.data ?? [];
+  const selectedGroupParticipants = groupParticipantOptions.filter((item) => selectedGroupParticipantIds.includes(item.user_id));
+  const remainingParticipantsNeeded = Math.max(0, 2 - selectedGroupParticipants.length);
+  const canCreateGroupChat = remainingParticipantsNeeded === 0 && !createGroupConversationMutation.isPending;
 
   if (isMobile && conversationId) {
     return (
@@ -693,8 +751,102 @@ export function ChatWorkspacePage() {
             Create a shared thread with multiple agents or teammates, then enter the conversation from the list.
           </p>
         </div>
-        <button type="button" className="im-btn im-btn-muted" onClick={() => setIsCreatingGroupChat(false)}>
+        <button
+          type="button"
+          className="im-btn im-btn-muted"
+          onClick={() => {
+            setSelectedGroupParticipantIds([]);
+            setIsCreatingGroupChat(false);
+          }}
+        >
           Cancel
+        </button>
+      </div>
+      <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600">
+        <p className="font-semibold text-slate-900">Selected participants</p>
+        <p className="mt-1">
+          {selectedGroupParticipants.length === 0
+            ? "No participants selected yet. Pick at least two people or agents to create a real group chat."
+            : `${selectedGroupParticipants.length} participant${selectedGroupParticipants.length === 1 ? "" : "s"} selected.`}
+        </p>
+        {selectedGroupParticipants.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {selectedGroupParticipants.map((participant) => (
+              <span key={participant.user_id} className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700">
+                {participant.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="mt-4">
+        {discoverableGroupParticipantsQuery.isLoading ? (
+          <div className="rounded-2xl border border-[var(--im-border)] bg-white px-4 py-6 text-center text-sm text-slate-500">
+            Loading available participants...
+          </div>
+        ) : groupParticipantOptions.length === 0 ? (
+          <div className="rounded-2xl border border-[var(--im-border)] bg-white px-4 py-6 text-center text-sm text-slate-500">
+            No available participants yet. Add a teammate or configure another agent to start a shared thread.
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {groupParticipantOptions.map((participant) => {
+              const checked = selectedGroupParticipantIds.includes(participant.user_id);
+              return (
+                <label
+                  key={participant.user_id}
+                  className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition ${
+                    checked ? "border-[#9bd2d6] bg-[#eef8f8]" : "border-[var(--im-border)] bg-white hover:border-slate-300"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-700"
+                    checked={checked}
+                    onChange={() => {
+                      setSelectedGroupParticipantIds((previous) =>
+                        previous.includes(participant.user_id)
+                          ? previous.filter((item) => item !== participant.user_id)
+                          : [...previous, participant.user_id]
+                      );
+                    }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-slate-900">{participant.label}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        {participant.kind === "agent" ? "Agent" : "Teammate"}
+                      </span>
+                      {checked && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Selected</span>
+                      )}
+                    </div>
+                    {participant.description && <p className="mt-1 text-xs text-slate-500">{participant.description}</p>}
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <div className="mt-4 flex flex-col gap-3 border-t border-[var(--im-border)] pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-slate-500">
+          {remainingParticipantsNeeded > 0
+            ? `Select ${remainingParticipantsNeeded} more participant${remainingParticipantsNeeded === 1 ? "" : "s"} to create a group chat.`
+            : `Ready to create a group chat with ${selectedGroupParticipants.length} selected participants plus you.`}
+        </p>
+        <button
+          type="button"
+          className="im-btn im-btn-primary"
+          disabled={!canCreateGroupChat}
+          onClick={() =>
+            createGroupConversationMutation.mutate({
+              participantIds: selectedGroupParticipants.map((item) => item.user_id),
+              participantLabels: selectedGroupParticipants.map((item) => item.label)
+            })
+          }
+        >
+          {createGroupConversationMutation.isPending ? "Creating group chat..." : "Create selected group chat"}
         </button>
       </div>
     </section>
@@ -722,11 +874,13 @@ export function ChatWorkspacePage() {
           activeId={conversationId}
           compact={isMobile}
           onCreateDirectChat={() => {
+            setSelectedGroupParticipantIds([]);
             setIsCreatingGroupChat(false);
             setIsCreatingDirectChat(true);
           }}
           onCreateGroupChat={() => {
             setIsCreatingDirectChat(false);
+            setSelectedGroupParticipantIds([]);
             setIsCreatingGroupChat(true);
           }}
         />
