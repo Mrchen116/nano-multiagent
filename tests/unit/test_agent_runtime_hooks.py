@@ -167,6 +167,27 @@ def test_before_agent_start_message_override_affects_runtime_main_flow() -> None
     assert user_event.data["content"] == "before:ping"
 
 
+def test_session_metadata_system_prompt_is_used_for_every_turn() -> None:
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    session = manager.create_session(metadata={"system_prompt": "You are the prompt frozen for this chat."})
+    llm = EchoLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm,
+        model="mock-model",
+        repo_root=Path.cwd(),
+    )
+
+    first = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    second = runtime.run(session.session_id, [{"type": "text", "text": "pong"}], stream=False)
+
+    assert first.messages[0].content == "ack:ping"
+    assert second.messages[0].content == "ack:pong"
+    assert llm.requests[0].messages[0].content == "You are the prompt frozen for this chat."
+    assert llm.requests[1].messages[0].content == "You are the prompt frozen for this chat."
+
+
 def test_input_handled_short_circuits_runtime_flow() -> None:
     registry = HookRegistry()
 

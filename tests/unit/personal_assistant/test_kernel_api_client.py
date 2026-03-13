@@ -55,6 +55,35 @@ def test_kernel_api_client_calls_required_http_subset() -> None:
     assert b'"parts":[{"type":"text","text":"hello"}]' in async_request.content
 
 
+def test_kernel_api_client_forwards_session_metadata_when_creating_sessions() -> None:
+    transport = _JSONTransport()
+    client = KernelApiClient(
+        config=KernelApiClientConfig(base_url="http://kernel.local", token="secret-token", request_id="req-fixed"),
+        transport=transport,
+    )
+
+    created = client.create_session(
+        workspace_root="/tmp/agent-a",
+        product_id="personal_assistant",
+        title="Agent A",
+        metadata={
+            "agent_id": "agent-a",
+            "conversation_id": "conv-1",
+            "config_profile_version": 2,
+            "system_prompt": "You are Agent A v2.",
+        },
+    )
+
+    assert created["session_id"] == "sess-1"
+    create_request = next(request for request in transport.requests if request.url.path == "/v1/sessions")
+    assert b'"title":"Agent A"' in create_request.content
+    assert b'"metadata":{' in create_request.content
+    assert b'"agent_id":"agent-a"' in create_request.content
+    assert b'"conversation_id":"conv-1"' in create_request.content
+    assert b'"config_profile_version":2' in create_request.content
+    assert b'"system_prompt":"You are Agent A v2."' in create_request.content
+
+
 def test_kernel_api_client_parses_sse_events() -> None:
     client = KernelApiClient(
         config=KernelApiClientConfig(base_url="http://kernel.local", token="secret-token", request_id="req-fixed"),

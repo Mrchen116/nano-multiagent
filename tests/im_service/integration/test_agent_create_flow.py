@@ -94,6 +94,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path
         assert relay_frame["payload"]["relay_task_id"]
         assert relay_frame["payload"]["idempotency_key"] == "idem-agent-create"
         assert relay_frame["payload"]["conversation_id"] == conversation.json()["id"]
+        assert relay_frame["payload"]["agent_id"] == agent_user.id
         assert relay_frame["payload"]["message"]["id"] == created_message.json()["id"]
         assert relay_frame["payload"]["message"]["sender_user_id"] == human_user.id
         assert relay_frame["payload"]["message"]["content"] == "hello new agent"
@@ -105,6 +106,8 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path
         assert relay_frame["payload"]["metadata"] == {
             "conversation_type": "direct",
             "mentioned_agent_ids": [],
+            "config_profile_version": 1,
+            "system_prompt": "You are Agent New.",
         }
         relay_task = app.state.connection.execute(
             "SELECT target_node_id FROM relay_tasks WHERE relay_task_id = ?",
