@@ -227,7 +227,7 @@ def test_device_binding_end_to_end_updates_node_and_agent_owner(tmp_path: Path) 
 
 
 def test_agent_config_sync_notifies_connected_gateway(tmp_path: Path) -> None:
-    """Push config.sync after a profile update and let the gateway record the version."""
+    """Push config.sync automatically after a profile update."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         owner_id = _seed_user(client, "owner")
@@ -265,14 +265,6 @@ def test_agent_config_sync_notifies_connected_gateway(tmp_path: Path) -> None:
                 },
             )
             assert patched.status_code == 200
-            pushed = asyncio.run(
-                app.state.gateway_handler.push_config_sync(
-                    target_node_id="node-1",
-                    agent_id="agent-a",
-                    profile_version=patched.json()["profile_version"],
-                )
-            )
-            assert pushed is True
             frame = websocket.receive_json()
             assert frame == {
                 "type": "config.sync",

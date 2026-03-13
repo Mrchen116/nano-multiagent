@@ -472,6 +472,50 @@ def test_inbound_pipeline_reuses_existing_session_binding_per_session_key(tmp_pa
     assert [call["run_id"] for call in kernel_client.send_calls] == ["run-1", "run-2"]
 
 
+
+def test_register_agent_resets_existing_sessions_for_profile_refresh(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    store = SessionBindingStore()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=(agents[0],),
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=store,
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web",
+        text="hello",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+        agent_id="agent-a",
+    )
+
+    first = asyncio.run(pipeline.handle_inbound(inbound))
+
+    refreshed_workspace = tmp_path / "agent-a-v2"
+    refreshed_workspace.mkdir()
+    pipeline.register_agent(
+        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2")
+    )
+
+    second = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert first is not None
+    assert second is not None
+    assert first.kernel_session_id == "sess-1"
+    assert second.kernel_session_id == "sess-2"
+    assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [
+        str(agents[0].workspace_root),
+        str(refreshed_workspace),
+    ]
+
+
 def test_session_run_queue_serializes_same_session_and_allows_cross_session_parallelism() -> None:
     queue = SessionRunQueue()
     events: list[str] = []

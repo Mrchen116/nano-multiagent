@@ -1,16 +1,28 @@
 """Application service for IM agent configuration APIs."""
 
+import asyncio
+from collections.abc import Callable
+
 from IM.domain.models import AgentProfile
 from IM.infra.repositories import AgentProfileRepository, NodeRepository
+
+ConfigSyncNotifier = Callable[[str, str, int], object]
 
 
 class ConfigService:
     """Coordinate agent profile reads, creation, and optimistic-lock updates."""
 
-    def __init__(self, *, profiles: AgentProfileRepository, nodes: NodeRepository | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        profiles: AgentProfileRepository,
+        nodes: NodeRepository | None = None,
+        config_sync_notifier: ConfigSyncNotifier | None = None,
+    ) -> None:
         """Bind service to the agent profile and optional node repositories."""
         self._profiles = profiles
         self._nodes = nodes
+        self._config_sync_notifier = config_sync_notifier
 
     def create_profile(
         self,
@@ -51,7 +63,9 @@ class ConfigService:
             self._profiles._connection.commit()
             rebound = self._profiles.get_profile(agent_id=agent_id)
             assert rebound is not None
+            self._notify_config_sync(agent_id=agent_id, profile_version=rebound.profile_version)
             return rebound
+        self._notify_config_sync(agent_id=agent_id, profile_version=created.profile_version)
         return created
 
     def list_profiles(self) -> list[AgentProfile]:
@@ -84,7 +98,7 @@ class ConfigService:
         default_model: str | None,
     ) -> AgentProfile:
         """Update one agent profile using profile_version optimistic locking."""
-        return self._profiles.update_profile(
+        updated = self._profiles.update_profile(
             agent_id=agent_id,
             profile_version=profile_version,
             display_name=display_name,
@@ -95,3 +109,14 @@ class ConfigService:
             group_reply_policy=group_reply_policy,
             default_model=default_model,
         )
+        self._notify_config_sync(agent_id=agent_id, profile_version=updated.profile_version)
+        return updated
+
+    def _notify_config_sync(self, *, agent_id: str, profile_version: int) -> None:
+        notifier = self._config_sync_notifier
+        if notifier is None:
+            return
+        for node_id in self.list_bound_nodes(agent_id=agent_id):
+            result = notifier(node_id, agent_id, profile_version)
+            if asyncio.iscoroutine(result):
+                asyncio.run(result)

@@ -28,6 +28,7 @@ from personal_assistant.channels.base import InboundMessage
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
 from personal_assistant.config.local_store import (
+    AgentWorkspaceConfig,
     ChannelConfig,
     HeartbeatConfig,
     KernelConfig,
@@ -179,6 +180,96 @@ class GatewayRuntimeState:
     config_path: str
     health_url: str
     log_path: str
+
+
+class _IMConfigSyncClient:
+    """Fetch IM agent config snapshots and extend the live gateway agent registry."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        token: str | None,
+        pipeline: InboundPipeline,
+        workspace_root_factory: Callable[[str], Path] | None = None,
+        client: httpx.Client | None = None,
+        client_factory: BootstrapClientFactory | None = None,
+        timeout_seconds: float = 5.0,
+        retry_interval_seconds: float = 0.1,
+        max_attempts: int = 50,
+        monotonic: Monotonic = time.monotonic,
+        sleep: Sleep = time.sleep,
+    ) -> None:
+        self._base_url = _im_http_base_url(base_url)
+        self._base_headers = _im_http_headers(token)
+        self._timeout_seconds = timeout_seconds
+        self._retry_interval_seconds = retry_interval_seconds
+        self._max_attempts = max(max_attempts, 1)
+        self._pipeline = pipeline
+        self._workspace_root_factory = workspace_root_factory or self._default_workspace_root
+        self._client_factory = client_factory
+        self._client = client
+        self._monotonic = monotonic
+        self._sleep = sleep
+
+    def sync_agent(self, *, agent_id: str, profile_version: int) -> None:
+        deadline = self._monotonic() + self._timeout_seconds
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                payload = self._fetch_agent_config(agent_id=agent_id)
+                resolved_profile_version = int(payload.get("profile_version", 0))
+                if resolved_profile_version < profile_version:
+                    raise RuntimeError(
+                        f"agent {agent_id} config stale: expected >= {profile_version}, got {resolved_profile_version}"
+                    )
+                workspace_root = self._workspace_root_factory(agent_id)
+                workspace_root.mkdir(parents=True, exist_ok=True)
+                self._pipeline.register_agent(
+                    AgentWorkspaceConfig(
+                        agent_id=agent_id,
+                        workspace_root=workspace_root,
+                        title=str(payload.get("display_name") or agent_id),
+                    )
+                )
+                return
+            except (httpx.HTTPError, RuntimeError, ValueError):
+                if attempt >= self._max_attempts or self._monotonic() >= deadline:
+                    raise
+                self._sleep(self._retry_interval_seconds)
+
+    def close(self) -> None:
+        client = self._client
+        if client is not None:
+            client.close()
+            self._client = None
+
+    def _fetch_agent_config(self, *, agent_id: str) -> dict[str, object]:
+        response = self._get_client().get(f"/im/v1/agents/{agent_id}/config")
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("agent config response must be an object")
+        return payload
+
+    def _get_client(self) -> httpx.Client:
+        if self._client is not None:
+            return self._client
+        if self._client_factory is not None:
+            self._client = self._client_factory(self._base_url)
+        else:
+            self._client = httpx.Client(
+                base_url=self._base_url,
+                headers=self._base_headers,
+                timeout=self._timeout_seconds,
+                trust_env=False,
+            )
+        return self._client
+
+    @staticmethod
+    def _default_workspace_root(agent_id: str) -> Path:
+        return Path("~/nano-assistant/workspace").expanduser() / agent_id
 
 
 class _IMBootstrapClient:
@@ -798,7 +889,15 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
     im_bootstrap_client: _IMBootstrapClient | None = None
+    im_config_sync_client: _IMConfigSyncClient | None = None
     post_im_connect: Callable[[], None] | None = None
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=config.agents,
+        outbound_router=outbound_router,
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+    )
     if config.im_service is not None:
         relay_adapter = channel_registry.get("web_relay")
         if not isinstance(relay_adapter, WebRelayAdapter):
@@ -808,32 +907,33 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             agents=config.agents,
             send_frame=lambda _message_type, _payload: None,
         )
+        im_config_sync_client = _IMConfigSyncClient(
+            base_url=config.im_service.url,
+            token=config.im_service.token,
+            pipeline=pipeline,
+        )
         im_connection_manager = _build_im_connection_manager(
             config=config,
             relay_adapter=relay_adapter,
             reporter=reporter,
             heartbeat_runner=heartbeat_runner,
+            sync_client=ConfigSyncClient(fetcher=im_config_sync_client.sync_agent),
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
             token=config.im_service.token,
         )
         post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(node_id=config.node.node_id)
-    pipeline = InboundPipeline(
-        kernel_client=kernel_client,
-        agents=config.agents,
-        outbound_router=outbound_router,
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        relay_lifecycle_callback=_build_relay_lifecycle_callback(
-            reporter=reporter,
-            im_connection_manager_factory=lambda: im_connection_manager,
-        ),
+    pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
+        reporter=reporter,
+        im_connection_manager_factory=lambda: im_connection_manager,
     )
     inbound_dispatcher = _InboundDispatcher(pipeline)
     closers: list[Callable[[], None]] = [kernel_client.close]
     if im_bootstrap_client is not None:
         closers.append(im_bootstrap_client.close)
+    if im_config_sync_client is not None:
+        closers.append(im_config_sync_client.close)
     return GatewayRuntime(
         config,
         process_manager,
@@ -914,6 +1014,7 @@ def _build_im_connection_manager(
     relay_adapter: WebRelayAdapter,
     reporter: UpstreamReporter,
     heartbeat_runner: PollingHeartbeatRunner,
+    sync_client: ConfigSyncClient | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -922,7 +1023,7 @@ def _build_im_connection_manager(
         config=IMConnectionConfig(url=im_service.url, token=im_service.token),
         reporter=reporter,
         relay_adapter=relay_adapter,
-        sync_client=ConfigSyncClient(),
+        sync_client=sync_client,
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
         connect=_connect_websocket,
     )

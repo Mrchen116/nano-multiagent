@@ -1,0 +1,92 @@
+# M148 修复 live acceptance 暴露的 IM 接口与动态同步残留问题
+
+## 启动记录
+- 已阅读：`LOGBOOK.md`、`COMMENTING_GUIDE.md`、`/Users/czj/.codex/skills/tdd-execution-worker/SKILL.md`。
+- 已阅读强制材料：
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M147/PROGRESS/M147-live-agent-dynamic-sync.md`
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M147/TASKS/M147-live-agent-dynamic-sync.md`
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M104/ACCEPTANCE/m104-runtime/gateway.log`
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M104/ACCEPTANCE/m104-runtime/im.log`
+- 当前处境：M148，`execution_mode=parallel`，`use_worktree=true`，worktree=`/Users/czj/Repos/nano-multiagent/.worktrees/M148`，branch=`milestone/M148`。
+- 计划测试门禁：`PYTHONPATH=src pytest -q tests/im_service/unit/test_db_init.py tests/unit/personal_assistant/test_gateway_pipeline.py tests/unit/personal_assistant/test_main.py tests/unit/personal_assistant/test_m102_gateway_im_connection.py tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_m103_im_gateway_e2e.py`
+- 基线结果：旧 M147 定向门禁 `39 passed in 0.57s`；真实 acceptance 证据显示 IM 共享 SQLite 连接在并发参数化查询上抖动，且动态同步路径对瞬时 config fetch 失败与既有 session prompt 刷新都没有兜住。
+
+### R1 IM 并发读接口 sqlite 稳定性收口
+- Context:
+  - 真实 `im.log` 已明确在 `assert_conversation_exists(...)` 与 `get_profile(...)` 路径上出现 `sqlite3.InterfaceError: bad parameter or other API misuse`。
+  - 相关 IM API 都共享一个 `check_same_thread=False` 的 app-scoped SQLite 连接，正好落在 FastAPI worker thread 并发读路径上。
+- Decision:
+  - 先补跨线程参数化查询红测，再将共享连接的 sqlite statement cache 关闭为 `cached_statements=0`。
+- Rationale:
+  - 真实问题不是 schema/SQL 语义错误，而是共享连接的并发参数绑定抖动；修复点应该放在连接初始化处，覆盖 `/messages`、`/events`、`/agents/:id/config` 的共同底座。
+- Evidence:
+  - Tests:
+    - `tests/im_service/unit/test_db_init.py::test_connect_supports_cross_thread_parameterized_reads_without_interface_errors`
+    - `PYTHONPATH=src pytest -q tests/im_service/unit/test_db_init.py tests/unit/personal_assistant/test_gateway_pipeline.py tests/unit/personal_assistant/test_main.py tests/unit/personal_assistant/test_m102_gateway_im_connection.py tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_m103_im_gateway_e2e.py`
+    - 结果：`50 passed in 0.95s`
+  - Entry:
+    - `src/IM/infra/db.py`
+    - `tests/im_service/unit/test_db_init.py`
+- Rollback:
+  - 若后续证明不是 statement cache 抖动，可只回退 `cached_statements=0` 这一个连接参数，不影响 schema 与上层 API。
+- Commits: C1=`a6f4869`，C2=`07ec4d4`，C3=在本 milestone 文档交接中补齐。
+- Next:
+  - 进入 R2，修动态同步缺口与已存在 session 的 prompt 刷新。
+
+### R2 动态同步残留：瞬时配置抖动重试 + 已有会话切换到新 profile
+- Context:
+  - R2 红测暴露当前 M148 分支实际上缺失了 M147 文档中描述的关键实现：
+    - IM `ConfigService` 未在 create/update 后通知在线节点。
+    - `deps.get_config_service()` 未接入 `gateway_handler.push_config_sync(...)`。
+    - Gateway 缺少 `_IMConfigSyncClient`，`InboundPipeline` 也没有 live `register_agent(...)`。
+  - 真实 `gateway.log` 的 `LookupError: unknown agent_id: agent-m146-live` 与 relay 卡在 `dispatched`，正符合“在线节点已连接，但 Gateway 本地 agent registry 与旧 session 没被刷新”的失败形态。
+- Decision:
+  - 恢复 IM 侧 config.sync 推送。
+  - 新增 Gateway `_IMConfigSyncClient`，对短暂 404、旧 profile_version 与异常响应执行同一同步流程内重试。
+  - 在 `InboundPipeline.register_agent(...)` 中替换 live agent 配置并清理该 agent 的旧 session binding，确保下一条消息创建新的 kernel session。
+- Rationale:
+  - 仅仅 late-register agent 不够；如果旧 session binding 继续复用，更新后的 prompt/version 仍然不会生效。
+  - 真实时序下 create/update 后立刻 fetch config 会撞上短暂 404 或旧版本，因此必须在 Gateway 端兜底重试，而不是把同步成功寄托给下一次人工重试或重启。
+- Evidence:
+  - Tests:
+    - `tests/unit/personal_assistant/test_gateway_pipeline.py::test_register_agent_resets_existing_sessions_for_profile_refresh`
+    - `tests/unit/personal_assistant/test_main.py::test_im_config_sync_client_retries_until_live_agent_config_reaches_target_version`
+    - `tests/im_service/integration/test_agent_create_flow.py::test_create_agent_pushes_config_sync_to_connected_gateway`
+    - `tests/im_service/integration/test_m103_im_gateway_e2e.py::test_agent_config_sync_notifies_connected_gateway`
+    - `PYTHONPATH=src pytest -q tests/im_service/unit/test_db_init.py tests/unit/personal_assistant/test_gateway_pipeline.py tests/unit/personal_assistant/test_main.py tests/unit/personal_assistant/test_m102_gateway_im_connection.py tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_m103_im_gateway_e2e.py`
+    - 结果：`50 passed in 0.95s`
+  - Entry:
+    - `src/IM/application/config_service.py`
+    - `src/IM/api/deps.py`
+    - `src/personal_assistant/main.py`
+    - `src/personal_assistant/gateway/inbound_pipeline.py`
+    - `src/personal_assistant/gateway/session_keys.py`
+- Rollback:
+  - 若 live acceptance 发现重试策略副作用过大，可单独回退 `_IMConfigSyncClient` 的 retry 逻辑而保留 IM push 与 session refresh 基础设施。
+- Commits: C1=`c75b737`，C2=`23e3298`，C3=在本 milestone 文档交接中补齐。
+- Next:
+  - 进入 R3，整理 acceptance handoff，并把未完成的真实浏览器复验、merge/main、cleanup 诚实标注出来。
+
+### R3 证据文档与 live acceptance 交接
+- Context:
+  - 本 subagent 能完成代码与自动化门禁，但用户要求的最终退出条件包含真实浏览器、真实在线栈与 merge/main；这些不能虚报为已完成。
+- Decision:
+  - 更新 `TASKS/`、`PROGRESS/`，并新增 `ACCEPTANCE/M148-acceptance.md` 记录自动化证据、live rerun 入口与未完成项。
+- Rationale:
+  - M148 的关键不是“测试绿了”，而是让主 agent 能直接拿这些证据去复验真实 acceptance 栈，并快速判断还剩什么风险。
+- Evidence:
+  - Tests:
+    - `PYTHONPATH=src pytest -q tests/im_service/unit/test_db_init.py tests/unit/personal_assistant/test_gateway_pipeline.py tests/unit/personal_assistant/test_main.py tests/unit/personal_assistant/test_m102_gateway_im_connection.py tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_m103_im_gateway_e2e.py`
+    - 结果：`50 passed in 0.95s`
+  - Entry:
+    - `TASKS/M148-live-acceptance-im-sync-residuals.md`
+    - `PROGRESS/M148-live-acceptance-im-sync-residuals.md`
+    - `ACCEPTANCE/M148-acceptance.md`
+- Rollback:
+  - 文档层无运行时回滚需求；若后续 live 证据与当前判断冲突，应直接追加修正而非覆盖历史记录。
+- Commits: C1=`bff75b6`，C2=`23e3298`，C3=待本次文档提交生成。
+- Next:
+  - 待主 agent 在真实浏览器与真实 acceptance 栈中复验：
+    - `Agent M146 Live` prompt 更新到 v2 后无需重启即可回复 `LIVE_AGENT_V2`。
+    - relay task 从 `dispatched` 进入 `completed`。
+  - 本 subagent 尚未完成：真实浏览器验收、merge 到 `main`、worktree cleanup。
