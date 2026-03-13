@@ -21,7 +21,20 @@ class User:
     display_name: str
     owner_id: str
     owned_node_ids: list[str] = field(default_factory=list)
+    default_entry_node_id: str | None = None
     created_at: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsPolicy:
+    """Represent the singleton settings-policy document for the IM control center."""
+
+    default_model: str
+    max_turn_per_run: int
+    max_attachment_size_mb: int
+    retention_days: int
+    audit_level: str
+    rate_limit_per_min: int
 
 
 @dataclass(frozen=True, slots=True)

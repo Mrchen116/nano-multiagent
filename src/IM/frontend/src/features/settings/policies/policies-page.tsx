@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { PolicyProfile, getPolicies, updatePolicies } from "../mock-settings-api";
+import { PolicyProfile, getPolicies, updatePolicies } from "../im-settings-api";
 
 export function PoliciesPage() {
   const queryClient = useQueryClient();
@@ -78,6 +78,26 @@ export function PoliciesPage() {
           type="number"
           value={draft.rate_limit_per_min}
           onChange={(event) => setDraft({ ...draft, rate_limit_per_min: Number(event.target.value) })}
+        />
+      </label>
+
+      <label className="grid gap-1 text-xs font-semibold text-slate-600">
+        Max Attachment Size (MB)
+        <input
+          className="im-input"
+          type="number"
+          value={draft.max_attachment_size_mb}
+          onChange={(event) => setDraft({ ...draft, max_attachment_size_mb: Number(event.target.value) })}
+        />
+      </label>
+
+      <label className="grid gap-1 text-xs font-semibold text-slate-600">
+        Retention Days
+        <input
+          className="im-input"
+          type="number"
+          value={draft.retention_days}
+          onChange={(event) => setDraft({ ...draft, retention_days: Number(event.target.value) })}
         />
       </label>
 

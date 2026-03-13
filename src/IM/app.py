@@ -14,6 +14,7 @@ from IM.api.routes.agents import router as agent_router
 from IM.api.routes.messages import router as message_router
 from IM.api.routes.metrics import router as metrics_router
 from IM.api.routes.nodes import router as nodes_router
+from IM.api.routes.policies import router as policies_router
 from IM.api.routes.users import router as user_router
 from IM.api.routes.web_im import router as web_im_router
 from IM.application.relay_service import RelayService
@@ -161,6 +162,7 @@ def create_app(
     app.include_router(web_im_router)
     app.include_router(message_router)
     app.include_router(nodes_router)
+    app.include_router(policies_router)
     app.include_router(metrics_router)
     _install_frontend_entrypoints(
         app,

@@ -1,0 +1,140 @@
+import { normalizeItemsEnvelope } from "../chat/im-chat-api";
+
+export interface NodeSettingsProfile {
+  node_id: string;
+  owner_id: string;
+  node_name: string;
+  status: "online" | "offline" | "degraded" | string;
+  last_heartbeat_at: string;
+  agent_count: number;
+  version: string;
+  relay_enabled: boolean;
+  reporting_enabled: boolean;
+  alias: string | null;
+  last_error: string | null;
+}
+
+export interface AccountProfile {
+  id: string;
+  user_id: string;
+  username: string;
+  display_name: string;
+  owner_id: string;
+  owned_node_ids: string[];
+  default_entry_node_id: string | null;
+  created_at: string;
+}
+
+export interface PolicyProfile {
+  default_model: string;
+  max_turn_per_run: number;
+  max_attachment_size_mb: number;
+  retention_days: number;
+  audit_level: "off" | "basic" | "strict";
+  rate_limit_per_min: number;
+}
+
+interface ImUserSummary {
+  id: string;
+  username: string;
+  display_name: string;
+}
+
+function getApiBaseUrl() {
+  return (import.meta.env.VITE_IM_API_BASE_URL ?? "").replace(/\/$/, "");
+}
+
+function withBase(path: string) {
+  return `${getApiBaseUrl()}${path}`;
+}
+
+class SettingsRequestError extends Error {
+  status: number;
+  detail: string;
+
+  constructor(input: { status: number; detail: string; method: string; path: string }) {
+    super(`${input.method} ${input.path} failed: ${input.status} (${input.detail})`);
+    this.name = "SettingsRequestError";
+    this.status = input.status;
+    this.detail = input.detail;
+  }
+}
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(withBase(path), {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {})
+    }
+  });
+  if (!response.ok) {
+    const method = init?.method ?? "GET";
+    let detail = response.statusText || "request failed";
+    const rawBody = await response.text();
+    if (rawBody) {
+      try {
+        const parsed = JSON.parse(rawBody) as { detail?: string };
+        detail = typeof parsed.detail === "string" && parsed.detail.length > 0 ? parsed.detail : rawBody;
+      } catch {
+        detail = rawBody;
+      }
+    }
+    throw new SettingsRequestError({ status: response.status, detail, method, path });
+  }
+  return (await response.json()) as T;
+}
+
+async function listUsers() {
+  const payload = await requestJson<{ items: ImUserSummary[] } | ImUserSummary[]>("/im/v1/users");
+  return normalizeItemsEnvelope(payload);
+}
+
+async function resolveCurrentUserId() {
+  const users = await listUsers();
+  return users.find((item) => item.username === "you")?.id ?? users[0]?.id ?? null;
+}
+
+export async function listNodes() {
+  return requestJson<NodeSettingsProfile[]>("/im/v1/nodes");
+}
+
+export async function updateNode(nodeId: string, patch: Pick<NodeSettingsProfile, "alias" | "relay_enabled" | "reporting_enabled">) {
+  return requestJson<NodeSettingsProfile>(`/im/v1/nodes/${nodeId}/config`, {
+    method: "PATCH",
+    body: JSON.stringify(patch)
+  });
+}
+
+export async function getAccount() {
+  const userId = await resolveCurrentUserId();
+  if (!userId) {
+    throw new Error("no IM user available for account settings");
+  }
+  return requestJson<AccountProfile>(`/im/v1/me?user_id=${encodeURIComponent(userId)}`);
+}
+
+export async function updateAccount(next: Pick<AccountProfile, "display_name" | "default_entry_node_id">) {
+  const userId = await resolveCurrentUserId();
+  if (!userId) {
+    throw new Error("no IM user available for account settings");
+  }
+  return requestJson<AccountProfile>(`/im/v1/me?user_id=${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      display_name: next.display_name,
+      default_entry_node_id: next.default_entry_node_id
+    })
+  });
+}
+
+export async function getPolicies() {
+  return requestJson<PolicyProfile>("/im/v1/policies");
+}
+
+export async function updatePolicies(next: PolicyProfile) {
+  return requestJson<PolicyProfile>("/im/v1/policies", {
+    method: "PATCH",
+    body: JSON.stringify(next)
+  });
+}
