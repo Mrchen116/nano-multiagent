@@ -52,5 +52,5 @@
     - `git diff --stat e445aeb...HEAD` 显示 M152 只包含 mention picker 相关前端改动与本次补充文档。
 - Rollback:
   - 若本次文档表述有误，只需回退本 follow-up docs commit；不影响 `2667bfd` 的功能实现。
-- Commits: inherited=`2667bfdc1688846d54457c7370cc2108fa0a420a`, docs=this docs commit
+- Commits: inherited=`2667bfdc1688846d54457c7370cc2108fa0a420a`, docs=`121e331fbc37ed833fe6c02245fd9f4226ef4927`
 - Next: 创建 docs commit，回填最终 hash，并再次确认 branch clean。

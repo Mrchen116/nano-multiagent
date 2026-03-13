@@ -62,4 +62,4 @@
 
 ## Commit Plan / Result
 - Inherited implementation: `2667bfdc1688846d54457c7370cc2108fa0a420a` `feat(M152): add group chat mention picker UX`
-- Follow-up docs commit: this docs commit（最终 hash 见 git 历史与交接报告）
+- Follow-up docs commit: `121e331fbc37ed833fe6c02245fd9f4226ef4927` `docs(M152): 补齐 mention picker 交接证据`
