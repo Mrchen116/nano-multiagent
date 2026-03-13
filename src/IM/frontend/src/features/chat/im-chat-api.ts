@@ -38,6 +38,13 @@ interface ImAgent {
   description: string;
 }
 
+export interface DiscoverableAgent {
+  agent_id: string;
+  display_name: string;
+  description: string;
+  existing_conversation_id: string | null;
+}
+
 interface ImNode {
   node_id: string;
   node_name: string;
@@ -490,11 +497,10 @@ function resolveConversationTitle(input: { conversation: ImConversation; starter
   return normalized;
 }
 
-function findStarterConversation(input: {
+function findDirectConversation(input: {
   conversations: ImConversation[];
   selfUserId: string;
   peerUserId: string;
-  starterTitle: string;
 }): ImConversation | null {
   return (
     input.conversations.find(
@@ -502,7 +508,22 @@ function findStarterConversation(input: {
         item.participant_ids.length === 2 &&
         item.participant_ids.includes(input.selfUserId) &&
         item.participant_ids.includes(input.peerUserId)
-    ) ??
+    ) ?? null
+  );
+}
+
+function findStarterConversation(input: {
+  conversations: ImConversation[];
+  selfUserId: string;
+  peerUserId: string;
+  starterTitle: string;
+}): ImConversation | null {
+  return (
+    findDirectConversation({
+      conversations: input.conversations,
+      selfUserId: input.selfUserId,
+      peerUserId: input.peerUserId
+    }) ??
     input.conversations.find((item) => item.title === input.starterTitle) ??
     input.conversations[0] ??
     null
@@ -674,6 +695,52 @@ export async function listConversations(): Promise<ConversationSummary[]> {
       })
     )
     .sort((left, right) => (right.last_message_at ?? "").localeCompare(left.last_message_at ?? ""));
+}
+
+export async function listDiscoverableAgents(): Promise<DiscoverableAgent[]> {
+  const { selfUserId } = await ensureBootstrap();
+  const [agents, users, conversations] = await Promise.all([listAgentsRaw(), listUsersRaw(), listConversationsRaw()]);
+  const usersByUsername = new Map(users.map((item) => [item.username, item]));
+  return agents.map((agent) => {
+    const peer = usersByUsername.get(buildStarterPeerUsername(agent.agent_id));
+    const existingConversation = peer
+      ? findDirectConversation({
+          conversations,
+          selfUserId,
+          peerUserId: peer.id
+        })
+      : null;
+    return {
+      agent_id: agent.agent_id,
+      display_name: agent.display_name,
+      description: agent.description,
+      existing_conversation_id: existingConversation?.id ?? null
+    };
+  });
+}
+
+export async function createDirectConversation(input: { agentId: string }): Promise<{ conversation_id: string }> {
+  const { selfUserId } = await ensureBootstrap();
+  const agents = await listAgentsRaw();
+  const agent = agents.find((item) => item.agent_id === input.agentId);
+  if (!agent) {
+    throw new Error(`agent not found: ${input.agentId}`);
+  }
+  const peer = await ensureUser(buildStarterPeerUsername(agent.agent_id), agent.display_name || agent.agent_id);
+  const conversations = await listConversationsRaw();
+  const existing = findDirectConversation({
+    conversations,
+    selfUserId,
+    peerUserId: peer.id
+  });
+  if (existing) {
+    return { conversation_id: existing.id };
+  }
+  const created = await createConversationRaw({
+    title: agent.display_name || agent.agent_id,
+    participant_ids: [selfUserId, peer.id]
+  });
+  return { conversation_id: created.id };
 }
 
 export async function getConversation(conversationId: string): Promise<ConversationDetail | null> {

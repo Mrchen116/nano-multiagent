@@ -68,13 +68,21 @@ class KernelApiClient:
 
         return self._request("GET", "/v1/health", require_auth=False)
 
-    def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, Any]:
+    def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Create one kernel session bound to an agent workspace.
 
         Args:
             workspace_root: Absolute workspace root that the kernel binds to the session.
             product_id: Product profile identifier, expected to be `personal_assistant`.
             title: Optional operator-facing session title.
+            metadata: Optional session metadata persisted by the kernel for later turns.
         """
 
         payload: dict[str, Any] = {
@@ -83,6 +91,8 @@ class KernelApiClient:
         }
         if title is not None:
             payload["title"] = _require_non_empty_string(title, field_name="title")
+        if metadata is not None:
+            payload["metadata"] = dict(metadata)
         return self._request("POST", "/v1/sessions", json=payload, require_auth=True)
 
     def send_message_async(self, *, session_id: str, text: str) -> dict[str, Any]:

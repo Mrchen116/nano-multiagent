@@ -10,6 +10,8 @@ import { ChatWorkspacePage, toRelayAgentMessage } from "./chat-workspace-page";
 const getChatBootstrapState = vi.fn();
 const getChatStarter = vi.fn();
 const listConversations = vi.fn();
+const listDiscoverableAgents = vi.fn();
+const createDirectConversation = vi.fn();
 const getConversation = vi.fn();
 const sendMessage = vi.fn();
 const uploadAttachment = vi.fn();
@@ -24,6 +26,8 @@ vi.mock("./chat-api", () => ({
   getChatBootstrapState: () => getChatBootstrapState(),
   getChatStarter: () => getChatStarter(),
   listConversations: () => listConversations(),
+  listDiscoverableAgents: () => listDiscoverableAgents(),
+  createDirectConversation: (input: { agentId: string }) => createDirectConversation(input),
   getConversation: (conversationId: string) => getConversation(conversationId),
   getUsageMetrics: (input: { ownerId?: string; conversationId?: string }) => getUsageMetrics(input),
   uploadAttachment: (file: File) => uploadAttachment(file),
@@ -125,13 +129,34 @@ describe("chat workspace page", () => {
         discoverability_hint: "This is a one-to-one conversation with an available target."
       }
     ]);
-    getConversation.mockResolvedValue({
-      conversation_id: "conv-1",
-      title: "You & Teammate",
-      kind_label: "Direct agent chat",
-      target_label: "Teammate",
-      discoverability_hint: "This is a one-to-one conversation with an available target.",
-      messages: []
+    listDiscoverableAgents.mockResolvedValue([
+      {
+        agent_id: "agent-new",
+        display_name: "Agent New",
+        description: "runtime-created helper",
+        existing_conversation_id: null
+      }
+    ]);
+    createDirectConversation.mockResolvedValue({ conversation_id: "conv-agent-new" });
+    getConversation.mockImplementation(async (conversationId: string) => {
+      if (conversationId === "conv-agent-new") {
+        return {
+          conversation_id: "conv-agent-new",
+          title: "Agent New",
+          kind_label: "Direct agent chat",
+          target_label: "Agent New",
+          discoverability_hint: "This is a one-to-one conversation with an available target.",
+          messages: []
+        };
+      }
+      return {
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        kind_label: "Direct agent chat",
+        target_label: "Teammate",
+        discoverability_hint: "This is a one-to-one conversation with an available target.",
+        messages: []
+      };
     });
     getUsageMetrics.mockImplementation(async (input: { ownerId?: string; conversationId?: string }) => {
       if (input.conversationId === "conv-1") {
@@ -239,6 +264,29 @@ describe("chat workspace page", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Create group chat" }));
     expect(screen.getByText("Select participants")).toBeInTheDocument();
+  });
+
+  it("lets users discover an agent and open a fresh direct chat from the workspace", async () => {
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New direct chat" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "New direct chat" }));
+    expect(await screen.findByText("Available agents")).toBeInTheDocument();
+    expect(screen.getByText("Agent New")).toBeInTheDocument();
+    expect(screen.getByText("runtime-created helper")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Chat with Agent New" }));
+
+    expect(createDirectConversation).toHaveBeenCalledWith({ agentId: "agent-new" });
+    expect(await screen.findByText("Agent New")).toBeInTheDocument();
+    expect(getConversation).toHaveBeenCalledWith("conv-agent-new");
+    expect(screen.queryByText("Available agents")).not.toBeInTheDocument();
+    expect(screen.getByText("Target: Agent New")).toBeInTheDocument();
   });
 
   it("shows real conversation and workspace token-turn usage for the active chat", async () => {

@@ -74,6 +74,7 @@ class AgentLoop:
         *,
         hook_ctx: HookContext | None = None,
         system_prompt_override: str | None = None,
+        available_skills_override: tuple[SkillMetadata, ...] | None = None,
         llm_session_id: str | None = None,
         session_created_at: str | None = None,
     ) -> TurnResult:
@@ -115,12 +116,13 @@ class AgentLoop:
         self._policies.ensure_turn_allowed(turn_count=state.turn_count)
 
         active_tools = self._active_tool_specs()
+        active_skills = self._available_skills if available_skills_override is None else available_skills_override
         llm_messages = list(
             build_prompt_messages(
                 history_messages=self._policies.truncate_history(state.history_messages),
                 user_text=state.user_text,
                 system_prompt=system_prompt_override or self._system_prompt,
-                available_skills=self._available_skills,
+                available_skills=active_skills,
                 available_tools=active_tools,
                 current_datetime=session_created_at,
                 current_working_directory=self._current_working_directory,

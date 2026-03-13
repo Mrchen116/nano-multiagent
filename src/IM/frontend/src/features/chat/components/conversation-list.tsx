@@ -15,6 +15,7 @@ export function ConversationList(props: {
   items: ConversationSummary[];
   activeId?: string;
   compact?: boolean;
+  onCreateDirectChat?: () => void;
   onCreateGroupChat?: () => void;
 }) {
   return (
@@ -27,11 +28,18 @@ export function ConversationList(props: {
               Discover direct agent chats, shared group threads, and agent-to-agent coordination from one list.
             </p>
           </div>
-          {props.onCreateGroupChat && (
-            <button type="button" className="im-btn im-btn-primary" onClick={props.onCreateGroupChat}>
-              Create group chat
-            </button>
-          )}
+          <div className="flex flex-col gap-2">
+            {props.onCreateDirectChat && (
+              <button type="button" className="im-btn im-btn-primary" onClick={props.onCreateDirectChat}>
+                New direct chat
+              </button>
+            )}
+            {props.onCreateGroupChat && (
+              <button type="button" className="im-btn im-btn-primary" onClick={props.onCreateGroupChat}>
+                Create group chat
+              </button>
+            )}
+          </div>
         </div>
       </div>
       <div className="border-b border-[var(--im-border)] bg-slate-50 px-4 py-3 text-xs text-slate-600">

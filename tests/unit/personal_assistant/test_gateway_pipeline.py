@@ -35,7 +35,7 @@ class _FakeChannel:
 
 class _FakeKernelClient:
     def __init__(self) -> None:
-        self.create_session_calls: list[dict[str, str | None]] = []
+        self.create_session_calls: list[dict[str, object | None]] = []
         self.send_calls: list[dict[str, str]] = []
         self.run_states: dict[str, list[dict[str, str]] | dict[str, str]] = {}
         self.session_events: dict[str, list[list[dict[str, object]]]] = {}
@@ -44,11 +44,18 @@ class _FakeKernelClient:
         self._get_run_calls: dict[str, int] = {}
         self._stream_calls: dict[str, int] = {}
 
-    def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None):
+    def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ):
         self._session_index += 1
         session_id = f"sess-{self._session_index}"
         self.create_session_calls.append(
-            {"workspace_root": workspace_root, "product_id": product_id, "title": title}
+            {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
         )
         self.session_events.setdefault(session_id, [])
         return {"session_id": session_id}
@@ -172,9 +179,54 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(tmp_pat
             "workspace_root": str(agents[0].workspace_root),
             "product_id": "personal_assistant",
             "title": "Agent A",
+            "metadata": None,
         }
     ]
     assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "ping", "run_id": "run-1"}]
+
+
+def test_inbound_pipeline_passes_frozen_prompt_metadata_when_creating_new_kernel_sessions(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="ping",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+        agent_id="agent-b",
+        metadata={
+            "conversation_id": "conv-1",
+            "config_profile_version": 2,
+            "system_prompt": "You are Agent B v2.",
+        },
+    )
+
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert kernel_client.create_session_calls == [
+        {
+            "workspace_root": str(agents[1].workspace_root),
+            "product_id": "personal_assistant",
+            "title": "Agent B",
+            "metadata": {
+                "agent_id": "agent-b",
+                "conversation_id": "conv-1",
+                "config_profile_version": 2,
+                "system_prompt": "You are Agent B v2.",
+            },
+        }
+    ]
 
 
 def test_inbound_pipeline_emits_relay_lifecycle_updates_for_web_relay_messages(tmp_path: Path) -> None:
