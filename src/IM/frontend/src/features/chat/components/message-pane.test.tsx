@@ -244,7 +244,7 @@ describe("message pane", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(SEND_FAILURE_MESSAGE);
 
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.click(screen.getByRole("button", { name: "Retry send" }));
 
     await waitFor(() => {
       expect(onSend).toHaveBeenCalledTimes(2);
@@ -253,6 +253,26 @@ describe("message pane", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
     expect(composer).toHaveValue("");
+  });
+
+  it("supports multiline drafts with Shift+Enter and sends on Enter", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    renderMessagePane({ onSend });
+
+    const composer = screen.getByPlaceholderText("Type message");
+    await user.type(composer, "line one");
+    await user.keyboard("{Shift>}{Enter}{/Shift}line two");
+
+    expect(composer).toHaveValue("line one\nline two");
+
+    await user.keyboard("{Enter}");
+
+    expect(onSend).toHaveBeenCalledWith({
+      content: "line one\nline two",
+      attachments: []
+    });
   });
 
   it("uploads attachments from the composer and sends them with the message", async () => {
@@ -286,5 +306,118 @@ describe("message pane", () => {
     await waitFor(() => {
       expect(screen.queryByText("demo.txt")).not.toBeInTheDocument();
     });
+  });
+
+  it("lets users remove uploaded attachments before sending", async () => {
+    const user = userEvent.setup();
+    const uploadedAttachment: ChatAttachment = {
+      url: "http://im.test/im/uploads/uploaded-demo.txt",
+      file_name: "demo.txt",
+      content_type: "text/plain"
+    };
+    const onUploadAttachment = vi.fn().mockResolvedValue(uploadedAttachment);
+    const onSend = vi.fn().mockResolvedValue(undefined);
+
+    renderMessagePane({ onSend, onUploadAttachment });
+
+    await user.upload(
+      screen.getByLabelText("Attachment picker"),
+      new File(["demo attachment"], "demo.txt", { type: "text/plain" })
+    );
+
+    expect(await screen.findByText("demo.txt")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove attachment demo.txt" }));
+
+    expect(screen.queryByText("demo.txt")).not.toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("Type message"), "send without file");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith({
+      content: "send without file",
+      attachments: []
+    });
+  });
+
+  it("shows upload failure feedback and lets users retry the same file", async () => {
+    const user = userEvent.setup();
+    const uploadedAttachment: ChatAttachment = {
+      url: "http://im.test/im/uploads/uploaded-retry.txt",
+      file_name: "retry.txt",
+      content_type: "text/plain"
+    };
+    const onUploadAttachment = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("upload unavailable"))
+      .mockResolvedValueOnce(uploadedAttachment);
+
+    renderMessagePane({ onUploadAttachment });
+
+    await user.upload(
+      screen.getByLabelText("Attachment picker"),
+      new File(["retry attachment"], "retry.txt", { type: "text/plain" })
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't upload retry.txt.");
+    expect(screen.getByRole("button", { name: "Retry upload retry.txt" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry upload retry.txt" }));
+
+    await waitFor(() => {
+      expect(onUploadAttachment).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByText("retry.txt")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry upload retry.txt" })).not.toBeInTheDocument();
+  });
+
+  it("renders readable message status labels", () => {
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-status",
+        title: "Status thread",
+        messages: [
+          {
+            message_id: "msg-sent",
+            sender_type: "user",
+            sender_name: "You",
+            is_mine: true,
+            content: "sent message",
+            created_at: "2026-03-14T00:00:00Z",
+            delivery_status: "sent"
+          },
+          {
+            message_id: "msg-running",
+            sender_type: "agent",
+            sender_name: "OpsBot",
+            content: "running message",
+            created_at: "2026-03-14T00:01:00Z",
+            delivery_status: "running"
+          },
+          {
+            message_id: "msg-completed",
+            sender_type: "agent",
+            sender_name: "OpsBot",
+            content: "completed message",
+            created_at: "2026-03-14T00:02:00Z",
+            delivery_status: "completed"
+          },
+          {
+            message_id: "msg-failed",
+            sender_type: "user",
+            sender_name: "You",
+            is_mine: true,
+            content: "failed message",
+            created_at: "2026-03-14T00:03:00Z",
+            delivery_status: "failed"
+          }
+        ]
+      }
+    });
+
+    expect(screen.getByText("Sent")).toBeInTheDocument();
+    expect(screen.getByText("Agent working")).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByText("Failed to send")).toBeInTheDocument();
   });
 });
