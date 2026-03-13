@@ -1,4 +1,13 @@
-import { ChatAttachment, ChatMessage, ChatStarter, ConversationDetail, ConversationSummary, UsageMetricRow } from "./types";
+import {
+  ChatAttachment,
+  ChatMessage,
+  ChatStarter,
+  ConversationDetail,
+  ConversationSummary,
+  GroupChatParticipantOption,
+  UsageMetricRow
+} from "./types";
+import { buildGroupConversationTitle } from "./im-chat-api";
 
 const wait = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -84,6 +93,27 @@ const discoverableAgents: DiscoverableAgent[] = [
     display_name: "Agent New",
     description: "runtime-created helper",
     existing_conversation_id: null
+  }
+];
+
+const groupParticipants: GroupChatParticipantOption[] = [
+  {
+    user_id: "mock-agent-ops",
+    label: "OpsBot",
+    kind: "agent",
+    description: "Primary runtime agent"
+  },
+  {
+    user_id: "mock-agent-new",
+    label: "Agent New",
+    kind: "agent",
+    description: "runtime-created helper"
+  },
+  {
+    user_id: "mock-teammate-alex",
+    label: "Alex",
+    kind: "teammate",
+    description: "Human teammate"
   }
 ];
 
@@ -220,6 +250,11 @@ export async function listDiscoverableAgents() {
   return discoverableAgents.map((item) => ({ ...item }));
 }
 
+export async function listDiscoverableGroupParticipants() {
+  await wait(40);
+  return groupParticipants.map((item) => ({ ...item }));
+}
+
 export async function createDirectConversation(input: { agentId: string }) {
   await wait(60);
   const existing = discoverableAgents.find((item) => item.agent_id === input.agentId)?.existing_conversation_id;
@@ -253,6 +288,39 @@ export async function createDirectConversation(input: { agentId: string }) {
       messages: []
     });
   }
+  return { conversation_id: conversationId };
+}
+
+export async function createGroupConversation(input: { participantIds: string[] }) {
+  await wait(60);
+  const selected = groupParticipants.filter((item) => input.participantIds.includes(item.user_id));
+  if (selected.length < 2) {
+    throw new Error("select at least two participants to create a group chat");
+  }
+  const conversationId = `conv-group-${Date.now()}`;
+  const title = buildGroupConversationTitle(selected.map((item) => item.label));
+  conversations.unshift({
+    conversation_id: conversationId,
+    title,
+    last_message_preview: "",
+    last_message_at: undefined,
+    unread_count: 0,
+    participants: ["You", ...selected.map((item) => item.label)],
+    is_pinned: false,
+    is_muted: false,
+    kind: "group",
+    kind_label: "Group chat",
+    target_label: "Multiple participants",
+    discoverability_hint: "Use this thread when you want multiple participants working together."
+  });
+  details.set(conversationId, {
+    conversation_id: conversationId,
+    title,
+    kind_label: "Group chat",
+    target_label: "Multiple participants",
+    discoverability_hint: "Use this thread when you want multiple participants working together.",
+    messages: []
+  });
   return { conversation_id: conversationId };
 }
 

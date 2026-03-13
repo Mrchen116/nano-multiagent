@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCreateMessageRequest,
+  buildGroupConversationTitle,
   buildStarterConversationTitle,
   buildStarterPeerUsername,
   normalizeItemsEnvelope,
@@ -81,6 +82,13 @@ describe("im chat api helpers", () => {
   it("reuses the legacy peer username when no agent profile exists", () => {
     expect(buildStarterPeerUsername("agent-1")).toBe("agent:agent-1");
     expect(buildStarterPeerUsername("peer")).toBe("peer");
+  });
+
+  it("builds stable group chat titles from selected participant labels", () => {
+    expect(buildGroupConversationTitle([])).toBe("New group chat");
+    expect(buildGroupConversationTitle(["OpsBot"])).toBe("OpsBot group");
+    expect(buildGroupConversationTitle(["OpsBot", "Alex"])).toBe("OpsBot + Alex");
+    expect(buildGroupConversationTitle(["OpsBot", "Alex", "Agent New"])).toBe("OpsBot + Alex +1");
   });
 });
 

@@ -11,7 +11,9 @@ const getChatBootstrapState = vi.fn();
 const getChatStarter = vi.fn();
 const listConversations = vi.fn();
 const listDiscoverableAgents = vi.fn();
+const listDiscoverableGroupParticipants = vi.fn();
 const createDirectConversation = vi.fn();
+const createGroupConversation = vi.fn();
 const getConversation = vi.fn();
 const sendMessage = vi.fn();
 const uploadAttachment = vi.fn();
@@ -27,7 +29,9 @@ vi.mock("./chat-api", () => ({
   getChatStarter: () => getChatStarter(),
   listConversations: () => listConversations(),
   listDiscoverableAgents: () => listDiscoverableAgents(),
+  listDiscoverableGroupParticipants: () => listDiscoverableGroupParticipants(),
   createDirectConversation: (input: { agentId: string }) => createDirectConversation(input),
+  createGroupConversation: (input: { participantIds: string[] }) => createGroupConversation(input),
   getConversation: (conversationId: string) => getConversation(conversationId),
   getUsageMetrics: (input: { ownerId?: string; conversationId?: string }) => getUsageMetrics(input),
   uploadAttachment: (file: File) => uploadAttachment(file),
@@ -244,7 +248,28 @@ describe("chat workspace page", () => {
         existing_conversation_id: null
       }
     ]);
+    listDiscoverableGroupParticipants.mockResolvedValue([
+      {
+        user_id: "agent-ops-user",
+        label: "OpsBot",
+        kind: "agent",
+        description: "Primary runtime agent"
+      },
+      {
+        user_id: "agent-new-user",
+        label: "Agent New",
+        kind: "agent",
+        description: "runtime-created helper"
+      },
+      {
+        user_id: "teammate-alex",
+        label: "Alex",
+        kind: "teammate",
+        description: "Human teammate"
+      }
+    ]);
     createDirectConversation.mockResolvedValue({ conversation_id: "conv-agent-new" });
+    createGroupConversation.mockResolvedValue({ conversation_id: "conv-group-new" });
     getConversation.mockImplementation(async (conversationId: string) => {
       if (conversationId === "conv-agent-new") {
         return {
@@ -254,6 +279,20 @@ describe("chat workspace page", () => {
           target_label: "Agent New",
           discoverability_hint: "This is a one-to-one conversation with an available target.",
           mention_candidates: [],
+          messages: []
+        };
+      }
+      if (conversationId === "conv-group-new") {
+        return {
+          conversation_id: "conv-group-new",
+          title: "OpsBot + Alex",
+          kind_label: "Group chat",
+          target_label: "Multiple participants",
+          discoverability_hint: "Use this thread when you want multiple participants working together.",
+          mention_candidates: [
+            { agentId: "ops-bot", label: "OpsBot" },
+            { agentId: "agent-new", label: "Agent New" }
+          ],
           messages: []
         };
       }
@@ -399,17 +438,77 @@ describe("chat workspace page", () => {
     expect(screen.getByPlaceholderText("Gateway offline — chat disabled")).toBeDisabled();
   });
 
-  it("shows a real group-chat creation entry from the main chat workspace", async () => {
+  it("shows selectable participants, selected state, and a disabled create affordance for group chat creation", async () => {
+    const user = userEvent.setup();
+
     renderRouter({
       routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
       initialEntries: ["/chat/conv-1"]
     });
 
     expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create group chat" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create group chat" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Create group chat" }));
-    expect(screen.getByText("Select participants")).toBeInTheDocument();
+    expect(await screen.findByText("Select participants")).toBeInTheDocument();
+    expect(screen.getByText("OpsBot")).toBeInTheDocument();
+    expect(screen.getByText("Agent New")).toBeInTheDocument();
+    expect(screen.getByText("Alex")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create selected group chat" })).toBeDisabled();
+    expect(screen.getByText("No participants selected yet. Pick at least two people or agents to create a real group chat.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: /OpsBot/i }));
+    expect(screen.getByRole("checkbox", { name: /OpsBot/i })).toBeChecked();
+    expect(screen.getAllByText("Selected").length).toBeGreaterThan(0);
+    expect(screen.getByText("1 participant selected.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create selected group chat" })).toBeDisabled();
+
+    await user.click(screen.getByRole("checkbox", { name: /Alex/i }));
+    expect(screen.getByRole("button", { name: "Create selected group chat" })).toBeEnabled();
+    expect(screen.getByText("Ready to create a group chat with 2 selected participants plus you.")).toBeInTheDocument();
+  });
+
+  it("shows loading and no-available-participants states in the group creation panel", async () => {
+    const user = userEvent.setup();
+    const deferredParticipants = createDeferred<
+      Array<{ user_id: string; label: string; kind: "agent" | "teammate"; description?: string }>
+    >();
+    listDiscoverableGroupParticipants.mockReturnValueOnce(deferredParticipants.promise);
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create group chat" }));
+
+    expect(screen.getByText("Loading available participants...")).toBeInTheDocument();
+
+    deferredParticipants.resolve([]);
+
+    expect(await screen.findByText("No available participants yet. Add a teammate or configure another agent to start a shared thread.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create selected group chat" })).toBeDisabled();
+  });
+
+  it("creates a group chat from selected participants and navigates into the new thread", async () => {
+    const user = userEvent.setup();
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create group chat" }));
+    await user.click(screen.getByRole("checkbox", { name: /OpsBot/i }));
+    await user.click(screen.getByRole("checkbox", { name: /Alex/i }));
+    await user.click(screen.getByRole("button", { name: "Create selected group chat" }));
+
+    expect(createGroupConversation).toHaveBeenCalledWith({ participantIds: ["agent-ops-user", "teammate-alex"] });
+    expect(await screen.findByRole("heading", { name: "OpsBot + Alex" })).toBeInTheDocument();
+    expect(getConversation).toHaveBeenCalledWith("conv-group-new");
+    expect(screen.queryByText("Select participants")).not.toBeInTheDocument();
+    expect(screen.getByText("Target: Multiple participants")).toBeInTheDocument();
   });
 
   it("lets users discover an agent and open a fresh direct chat from the workspace", async () => {
