@@ -35,7 +35,7 @@
 ## Roadpoints
 
 ### R1 IM 并发读接口 sqlite 稳定性收口
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 共享 SQLite 连接在跨线程参数化查询下不再触发 `sqlite3.InterfaceError`
   - `conversations/:id/messages`、`conversations/:id/events`、`agents/:id/config` 所依赖的底层连接配置可覆盖真实并发路径
@@ -55,7 +55,7 @@
   - 完成 C1/C2/C3
 
 ### R2 动态同步残留：瞬时配置抖动重试 + 已有会话切换到新 profile
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `config.sync` 遇到短暂 404/5xx 或 profile 未达目标版本时，Gateway 会在同一次同步流程内重试拉取，而不是丢失更新
   - 已在线 agent 收到新 profile 后，不需要重启即可在下一条消息上建立新 kernel session，吃到新 prompt/version
@@ -77,7 +77,7 @@
   - 完成 C1/C2/C3
 
 ### R3 证据文档与 live acceptance 交接
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `PROGRESS` 记录每个 Roadpoint 的 Context / Decision / Evidence / Rollback / Commits
   - 产出 `ACCEPTANCE/M148-acceptance.md`，明确本次代码级证据、需主 agent 执行的 live browser 复验步骤、以及 merge/main 状态
