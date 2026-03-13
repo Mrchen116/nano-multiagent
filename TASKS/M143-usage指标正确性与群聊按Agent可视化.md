@@ -1,0 +1,91 @@
+# M143 Tasks - Usage 指标正确性与群聊按 Agent 可视化
+
+- Milestone: M143
+- Title: Usage 指标正确性与群聊按 Agent 可视化
+- Goal: 修正真实路径中的 this chat/workspace total/completion tokens 统计，并补齐群聊按 Agent 视角的使用量展示。
+- execution_mode: parallel
+- use_worktree: true
+- worktree_dir: `/Users/czj/Repos/nano-multiagent/.worktrees/M143`
+- branch: `milestone/M143`
+- test_command: `python3 -m pytest /Users/czj/Repos/nano-multiagent/.worktrees/M143/tests/im_service/unit/test_nodes_metrics_repositories.py /Users/czj/Repos/nano-multiagent/.worktrees/M143/tests/im_service/unit/test_gateway_handler.py /Users/czj/Repos/nano-multiagent/.worktrees/M143/tests/unit/personal_assistant/test_main.py /Users/czj/Repos/nano-multiagent/.worktrees/M143/tests/im_service/integration/test_nodes_metrics_api.py /Users/czj/Repos/nano-multiagent/.worktrees/M143/tests/im_service/integration/test_m136_group_chat_flow.py && npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M143/src/IM/frontend test -- --run src/features/chat/chat-workspace-page.test.ts src/features/chat/components/message-pane.test.tsx`
+- allowed_scope:
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M143/src/IM/**`
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M143/src/personal_assistant/**`
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M143/tests/**`
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M143/TASKS/**`
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M143/PROGRESS/**`
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M143/ACCEPTANCE/**`
+- forbidden_scope:
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M143/data/dev-tasks.json`
+  - 新建额外 worktree
+  - 与 M143 无关的 CLI / kernel / docs 大范围改动
+- prevention_rules:
+  - 先红后绿，最小改动。
+  - relay 真链路的 usage 只能以真实 run usage 为准，不能继续把“用户输入词数”冒充 completion。
+  - workspace 聚合必须按 owner_id 取数，不能把 self user id 当 owner id。
+  - 群聊按 Agent 展示必须来自真实 usage row，而不是前端硬编码推导。
+  - 浏览器/入口证据需结合真实链路事件，不接受仅 unit mock 结论。
+- dev_tasks_path: `/Users/czj/Repos/nano-multiagent/data/dev-tasks.json`
+
+## R1 锁定 owner/workspace 与真实 completion usage 缺口
+- Status: TODO
+- Acceptance:
+  - relay-backed 用户发言不再预先写入伪 usage。
+  - gateway 完成真实 run 后，IM 能按 owner/conversation/agent 写入 usage。
+  - real completion 发生时 completion tokens 大于 0 不再卡死。
+  - workspace owner 聚合与 conversation 聚合可同时读到正确值。
+- Tests Plan:
+  - unit: 选；覆盖 usage repository / gateway handler / relay callback 的边界。
+  - contract: 不选；本次不改 API 字段契约主形状。
+  - integration: 选；覆盖 metrics API 在 relay 真链路后的聚合结果。
+  - e2e: 选；用现有 IM↔Gateway 真链路 acceptance 作为入口侧证据。
+- Expected Tests:
+  - `tests/im_service/unit/test_nodes_metrics_repositories.py::test_usage_metrics_repository_groups_by_scope`
+  - `tests/im_service/unit/test_gateway_handler.py::<新增 relay usage 记录用例>`
+  - `tests/unit/personal_assistant/test_main.py::<新增 completed report usage 用例>`
+  - `tests/im_service/integration/test_nodes_metrics_api.py::<新增 relay real usage 聚合用例>`
+- DoD:
+  - `test_command` 全绿。
+  - 完成 C1/C2/C3。
+  - PROGRESS 写清 owner_id 与真实 completion usage 的决策、证据、回滚点、提交哈希。
+
+## R2 前端修正 This chat / Workspace total 实时值
+- Status: TODO
+- Acceptance:
+  - workspace total 改按 owner_id 聚合，不再保持 0。
+  - 当前会话 usage 与 workspace total 在发送/完成后会刷新。
+  - completion tokens 在真实 completion 后可见非 0 值。
+  - 展示仍保持最小 UI 改动。
+- Tests Plan:
+  - unit: 不选；前端行为以组件测试覆盖即可。
+  - contract: 不选；不新增前端 API 合同。
+  - integration: 不选；前端已有 vitest 组件入口足够。
+  - e2e: 选；通过真实链路证据 + 前端页面可见断言收口。
+- Expected Tests:
+  - `src/IM/frontend/src/features/chat/chat-workspace-page.test.ts`
+  - `src/IM/frontend/src/features/chat/components/message-pane.test.tsx`
+- DoD:
+  - `test_command` 全绿。
+  - 完成 C1/C2/C3。
+  - PROGRESS 写清 owner_id 来源、实时刷新触发点、证据与提交哈希。
+
+## R3 群聊按 Agent usage 展示与验收收口
+- Status: TODO
+- Acceptance:
+  - 群聊页面能看到按 Agent 维度 usage。
+  - Agent usage 来自真实 usage row，至少展示 turn / total / prompt / completion。
+  - 留下 ACCEPTANCE 报告与复验结论。
+  - 若可安全集成，则 milestone 分支最终 rebase/merge 回 main。
+- Tests Plan:
+  - unit: 选；组件展示条件与标签映射。
+  - contract: 不选；不新增接口字段。
+  - integration: 选；群聊 usage API / 真链路记录 Agent usage。
+  - e2e: 选；真实链路 acceptance + browser-visible 证据说明。
+- Expected Tests:
+  - `src/IM/frontend/src/features/chat/chat-workspace-page.test.ts::<新增 group usage 视图用例>`
+  - `tests/im_service/integration/test_m136_group_chat_flow.py::<新增 group usage 聚合用例>`
+  - `tests/acceptance/test_im_gateway_real_acceptance.py` 或新增 M143 acceptance 证据脚本/文档
+- DoD:
+  - `test_command` 全绿。
+  - 完成 C1/C2/C3。
+  - PROGRESS 写清群聊按 Agent 展示方案、证据、回滚点、提交哈希。
