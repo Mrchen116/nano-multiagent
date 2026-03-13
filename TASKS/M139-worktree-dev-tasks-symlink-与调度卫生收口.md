@@ -22,7 +22,7 @@
 ## Roadpoints
 
 ### R1 红测与共享路径契约固化
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 新增最小测试证明 milestone worktree board 文件必须是指向主仓共享文件的 symlink。
   - 测试覆盖“已有普通文件需迁移为 symlink”的场景。
@@ -42,7 +42,7 @@
   - PROGRESS 记录红测失败点、实现决策、证据与回滚点。
 
 ### R2 最小实现与调度卫生收口
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - worktree 准备逻辑会把 `data/dev-tasks.json` 迁移为指向主仓共享文件的 symlink。
   - 必要时同步收口共享锁目录，避免旧 worktree 读写分叉。
