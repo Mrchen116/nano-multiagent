@@ -290,9 +290,8 @@ class InboundPipeline:
         return message.is_group and cls._is_no_reply_token(reply_text)
 
     def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-        """Add or replace one live agent workspace binding and refresh its sessions."""
+        """Add or replace one live agent workspace binding for future sessions."""
         self._agents[agent.agent_id] = agent
-        self._session_store.drop_agent(agent.agent_id)
         if self._default_agent_id is None:
             self._default_agent_id = agent.agent_id
 

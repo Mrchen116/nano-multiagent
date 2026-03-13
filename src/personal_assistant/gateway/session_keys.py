@@ -64,13 +64,12 @@ def build_session_key(message: InboundMessage, *, agent_id: str) -> str:
         agent_id: Routed agent id chosen in pipeline step 1.
 
     Returns:
-        Group-chat key ``{channel}:{external_chat_id}:{agent_id}`` or private-chat
-        key ``{channel}:{external_user_id}:{agent_id}`` per NodeGateway-SPEC §4.2.
+        Conversation-scoped key ``{channel}:{external_chat_id}:{agent_id}`` for both
+        group and direct chats so already-started direct conversations keep their
+        original kernel session after later agent config updates.
     """
 
-    if message.is_group:
-        return f"{message.channel_name}:{message.external_chat_id}:{agent_id}"
-    return f"{message.channel_name}:{message.external_user_id}:{agent_id}"
+    return f"{message.channel_name}:{message.external_chat_id}:{agent_id}"
 
 
 def build_reply_context(message: InboundMessage) -> ReplyContext:
