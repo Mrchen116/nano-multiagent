@@ -92,8 +92,8 @@ export function AgentDetailPage() {
           <input
             id="skills-allowlist"
             className="im-input"
-            value={draft.skills_allowlist.join(", ")}
-            onChange={(event) => setDraft({ ...draft, skills_allowlist: splitList(event.target.value) })}
+            value={draft.skills.join(", ")}
+            onChange={(event) => setDraft({ ...draft, skills: splitList(event.target.value) })}
           />
         </div>
         <div className="grid gap-1">

@@ -7,6 +7,8 @@ export interface AgentSummary {
   description: string;
   profile_version: number;
   default_model: string | null;
+  bound_nodes?: string[];
+  updated_at?: string | null;
 }
 
 export interface AgentConfig {
@@ -20,6 +22,8 @@ export interface AgentConfig {
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
   profile_version: number;
+  bound_nodes?: string[];
+  updated_at?: string | null;
 }
 
 function getApiBaseUrl() {
