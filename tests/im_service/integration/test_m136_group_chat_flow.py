@@ -23,18 +23,25 @@ class _FakeKernelClient:
     """Record gateway calls and synthesize agent-tagged replies."""
 
     def __init__(self) -> None:
-        self.create_session_calls: list[dict[str, str | None]] = []
+        self.create_session_calls: list[dict[str, object | None]] = []
         self.send_calls: list[dict[str, str]] = []
         self.run_states: dict[str, dict[str, str]] = {}
         self.default_output_text = "reply:{text}"
         self._session_index = 0
         self._run_index = 0
 
-    def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None):
+    def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ):
         self._session_index += 1
         session_id = f"sess-{self._session_index}"
         self.create_session_calls.append(
-            {"workspace_root": workspace_root, "product_id": product_id, "title": title}
+            {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
         )
         return {"session_id": session_id}
 
@@ -172,7 +179,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
 
 
 def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_path: Path) -> None:
-    """Create a real group conversation and route explicit mentions to different agents."""
+    """Create a real group conversation and keep each explicit mention pinned to its addressed agent."""
 
     app = create_app(db_path=tmp_path / "im.db")
     kernel_client = _FakeKernelClient()
@@ -231,7 +238,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
                 headers={"Idempotency-Key": "idem-group-a"},
                 json={
                     "sender_user_id": user_id,
-                    "content": "@agent-a please inspect rollout",
+                    "content": "@agent-a, please inspect rollout",
                     "target_node_id": "node-1",
                 },
             )
@@ -250,7 +257,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
                 headers={"Idempotency-Key": "idem-group-b"},
                 json={
                     "sender_user_id": user_id,
-                    "content": "@agent-b review the result",
+                    "content": "@agent-b, review the result",
                     "target_node_id": "node-1",
                 },
             )
@@ -265,22 +272,40 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
             )
 
     assert [call["title"] for call in kernel_client.create_session_calls] == ["Agent-A", "Agent-B"]
-    assert [call["text"] for call in kernel_client.send_calls] == [
-        "@agent-a please inspect rollout",
-        "@agent-b review the result",
+    assert [call["metadata"] for call in kernel_client.create_session_calls] == [
+        {
+            "agent_id": "agent-a",
+            "config_profile_version": 1,
+            "system_prompt": "You are agent-a.",
+        },
+        {
+            "agent_id": "agent-b",
+            "config_profile_version": 1,
+            "system_prompt": "You are agent-b.",
+        },
     ]
+    assert [call["text"] for call in kernel_client.send_calls] == [
+        "@agent-a, please inspect rollout",
+        "@agent-b, review the result",
+    ]
+    assert first_frame["payload"]["agent_id"] == "agent-a"
     assert first_frame["payload"]["metadata"] == {
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
+        "config_profile_version": 1,
+        "system_prompt": "You are agent-a.",
     }
+    assert second_frame["payload"]["agent_id"] == "agent-b"
     assert second_frame["payload"]["metadata"] == {
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-b"],
+        "config_profile_version": 1,
+        "system_prompt": "You are agent-b.",
     }
     assert relay_adapter.sent == [
         OutboundMessage(
             channel_name="web_relay",
-            text="reply:@agent-a please inspect rollout",
+            text="reply:@agent-a, please inspect rollout",
             target_chat_id=conversation_id,
             thread_id=None,
             metadata={
@@ -288,11 +313,13 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
                 "idempotency_key": "idem-group-a",
                 "conversation_type": "group",
                 "mentioned_agent_ids": ["agent-a"],
+                "config_profile_version": 1,
+                "system_prompt": "You are agent-a.",
             },
         ),
         OutboundMessage(
             channel_name="web_relay",
-            text="reply:@agent-b review the result",
+            text="reply:@agent-b, review the result",
             target_chat_id=conversation_id,
             thread_id=None,
             metadata={
@@ -300,6 +327,8 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
                 "idempotency_key": "idem-group-b",
                 "conversation_type": "group",
                 "mentioned_agent_ids": ["agent-b"],
+                "config_profile_version": 1,
+                "system_prompt": "You are agent-b.",
             },
         ),
     ]
