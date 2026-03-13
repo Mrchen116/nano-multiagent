@@ -27,6 +27,66 @@ function toStatus(value: unknown): ChatMessage["delivery_status"] | undefined {
   return undefined;
 }
 
+function toSenderType(value: unknown): ChatMessage["sender_type"] | undefined {
+  if (value === "user" || value === "agent" || value === "system") {
+    return value;
+  }
+  return undefined;
+}
+
+function toSenderName(input: {
+  senderUserId: string | null;
+  senderType: ChatMessage["sender_type"];
+  selfUserId: string | undefined;
+  fallback: string;
+}) {
+  if (input.senderUserId && input.selfUserId && input.senderUserId === input.selfUserId) {
+    return "You";
+  }
+  if (input.senderUserId) {
+    return input.senderUserId;
+  }
+  if (input.senderType === "agent") {
+    return "Agent";
+  }
+  if (input.senderType === "system") {
+    return "System";
+  }
+  return input.fallback;
+}
+
+function buildStreamMessage(input: {
+  payload: Record<string, unknown>;
+  selfUserId: string | undefined;
+  fallbackSenderType: ChatMessage["sender_type"];
+  fallbackStatus: ChatMessage["delivery_status"];
+  fallbackSenderName: string;
+  createdAt?: string;
+  content: string;
+}): ChatMessage | null {
+  const messageId = toStringValue(input.payload.message_id);
+  if (!messageId) {
+    return null;
+  }
+  const senderUserId = toStringValue(input.payload.sender_user_id);
+  const senderType = toSenderType(input.payload.sender_type) ?? input.fallbackSenderType;
+  return {
+    message_id: messageId,
+    sender_type: senderType,
+    sender_name: toSenderName({
+      senderUserId,
+      senderType,
+      selfUserId: input.selfUserId,
+      fallback: input.fallbackSenderName
+    }),
+    content: input.content,
+    attachments: toAttachments(input.payload.attachments),
+    created_at: input.createdAt ?? toStringValue(input.payload.created_at) ?? new Date().toISOString(),
+    is_mine: senderUserId !== null && input.selfUserId !== undefined ? senderUserId === input.selfUserId : undefined,
+    delivery_status: toStatus(input.payload.delivery_status) ?? input.fallbackStatus
+  };
+}
+
 function toStringValue(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
@@ -139,6 +199,9 @@ export function toRelayAgentMessage(event: {
   eventType: string;
   payload: Record<string, unknown>;
 }): ChatMessage | null {
+  if (toSenderType(event.payload.sender_type)) {
+    return null;
+  }
   const messageId = toStringValue(event.payload.message_id);
   if (!messageId) {
     return null;
@@ -214,6 +277,7 @@ export function ChatWorkspacePage() {
     queryFn: () => getUsageMetrics({ ownerId: bootstrapQuery.data!.ownerId })
   });
   const ownerId = bootstrapQuery.data?.ownerId;
+  const selfUserId = bootstrapQuery.data?.selfUserId;
 
   useEffect(() => {
     if (!conversationId) {
@@ -230,18 +294,18 @@ export function ChatWorkspacePage() {
         if (event.eventType === "message.sent") {
           const createdAt = toStringValue(event.payload.created_at) ?? new Date().toISOString();
           const content = toStringValue(event.payload.content) ?? "";
-          const sender = toStringValue(event.payload.sender_user_id) ?? "peer";
-          const deliveryStatus = toStatus(event.payload.delivery_status) ?? "sent";
-          const nextMessage: ChatMessage = {
-            message_id: messageId,
-            sender_type: "user",
-            sender_name: sender,
-            content,
-            attachments: toAttachments(event.payload.attachments),
-            created_at: createdAt,
-            is_mine: false,
-            delivery_status: deliveryStatus
-          };
+          const nextMessage = buildStreamMessage({
+            payload: event.payload as Record<string, unknown>,
+            selfUserId,
+            fallbackSenderType: "user",
+            fallbackStatus: "sent",
+            fallbackSenderName: "Participant",
+            createdAt,
+            content
+          });
+          if (!nextMessage) {
+            return;
+          }
           queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
             if (!previous) {
               return null;
@@ -249,6 +313,40 @@ export function ChatWorkspacePage() {
             return {
               ...previous,
               messages: upsertMessage(previous.messages, nextMessage)
+            };
+          });
+          refreshUsageQueries({ conversationId, ownerId, queryClient });
+          return;
+        }
+
+        if (event.eventType === "message.delivered" && toSenderType(event.payload.sender_type)) {
+          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
+            if (!previous) {
+              return null;
+            }
+            const existing = previous.messages.find((item) => item.message_id === messageId);
+            if (!existing) {
+              return previous;
+            }
+            const deliveredMessage = buildStreamMessage({
+              payload: event.payload as Record<string, unknown>,
+              selfUserId,
+              fallbackSenderType: existing.sender_type,
+              fallbackStatus: "completed",
+              fallbackSenderName: existing.sender_name ?? "Participant",
+              createdAt: existing.created_at,
+              content: toStringValue(event.payload.content) ?? existing.content
+            });
+            if (!deliveredMessage) {
+              return previous;
+            }
+            return {
+              ...previous,
+              messages: upsertMessage(previous.messages, {
+                ...existing,
+                ...deliveredMessage,
+                delivery_status: "completed"
+              })
             };
           });
           refreshUsageQueries({ conversationId, ownerId, queryClient });
@@ -293,18 +391,18 @@ export function ChatWorkspacePage() {
         if (event.eventType === "message_created") {
           const createdAt = toStringValue(event.payload.created_at) ?? new Date().toISOString();
           const content = toStringValue(event.payload.content) ?? "";
-          const sender = toStringValue(event.payload.sender_user_id) ?? "peer";
-          const deliveryStatus = toStatus(event.payload.delivery_status) ?? "running";
-          const nextMessage: ChatMessage = {
-            message_id: messageId,
-            sender_type: "user",
-            sender_name: sender,
-            content,
-            attachments: toAttachments(event.payload.attachments),
-            created_at: createdAt,
-            is_mine: false,
-            delivery_status: deliveryStatus
-          };
+          const nextMessage = buildStreamMessage({
+            payload: event.payload as Record<string, unknown>,
+            selfUserId,
+            fallbackSenderType: "user",
+            fallbackStatus: "running",
+            fallbackSenderName: "Participant",
+            createdAt,
+            content
+          });
+          if (!nextMessage) {
+            return;
+          }
           queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
             if (!previous) {
               return null;
@@ -334,22 +432,27 @@ export function ChatWorkspacePage() {
             if (!previous) {
               return null;
             }
-            const exists = previous.messages.find((item) => item.message_id === messageId);
-            const nextMessage: ChatMessage = exists
+            const existing = previous.messages.find((item) => item.message_id === messageId);
+            const seededMessage = buildStreamMessage({
+              payload: event.payload as Record<string, unknown>,
+              selfUserId,
+              fallbackSenderType: existing?.sender_type ?? "user",
+              fallbackStatus: "running",
+              fallbackSenderName: existing?.sender_name ?? "Participant",
+              content: `${existing?.content ?? ""}${delta}`
+            });
+            if (!seededMessage) {
+              return previous;
+            }
+            const nextMessage: ChatMessage = existing
               ? {
-                  ...exists,
-                  content: `${exists.content}${delta}`,
+                  ...existing,
+                  ...seededMessage,
+                  attachments: existing.attachments,
+                  content: `${existing.content}${delta}`,
                   delivery_status: "running"
                 }
-              : {
-                  message_id: messageId,
-                  sender_type: "user",
-                  sender_name: toStringValue(event.payload.sender_user_id) ?? "peer",
-                  content: delta,
-                  created_at: new Date().toISOString(),
-                  is_mine: false,
-                  delivery_status: "running"
-                };
+              : seededMessage;
             return {
               ...previous,
               messages: upsertMessage(previous.messages, nextMessage)
@@ -403,7 +506,7 @@ export function ChatWorkspacePage() {
         }
       }
     });
-  }, [conversationId, ownerId, queryClient]);
+  }, [conversationId, ownerId, queryClient, selfUserId]);
 
   const createDirectConversationMutation = useMutation({
     mutationFn: (payload: { agentId: string }) => createDirectConversation(payload),

@@ -14,10 +14,11 @@ export function App() {
 
   return (
     <div className="mx-auto flex min-h-screen max-w-[1280px] flex-col gap-4 px-4 py-4 lg:px-6">
-      <header className="im-card flex items-center justify-between px-4 py-3">
+      <header className="im-card flex items-center justify-between gap-4 px-4 py-3">
         <div>
-          <p className="im-title text-lg font-bold">Nano IM Workspace</p>
-          <p className="text-xs text-slate-500">P1-P7 Skeleton</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Nano Multiagent</p>
+          <p className="im-title mt-1 text-lg font-bold">Nano IM Workspace</p>
+          <p className="mt-1 text-sm text-slate-500">A production-ready inbox for operator, agent, and group conversations.</p>
         </div>
         <WorkspaceTabs />
       </header>

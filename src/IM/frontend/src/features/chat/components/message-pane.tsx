@@ -240,7 +240,7 @@ function DefaultAgentStarterCard({ starter }: { starter: ChatStarter }) {
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Default chat</p>
         <h2 className="im-title mt-2 text-2xl font-bold">{starter.title}</h2>
-        <p className="mt-3 text-sm text-slate-600">{starter.description}</p>
+        <p className="mt-3 max-w-2xl text-sm text-slate-600">{starter.description}</p>
       </div>
       <dl className="grid gap-2 text-sm text-slate-500">
         <div className="flex items-center gap-2">
@@ -270,6 +270,31 @@ function DefaultAgentStarterCard({ starter }: { starter: ChatStarter }) {
         </Link>
       </div>
     </section>
+  );
+}
+
+function EmptyWorkspaceState() {
+  return (
+    <section className="im-card hidden h-full min-h-[420px] items-center justify-center px-6 py-6 lg:flex">
+      <div className="max-w-md text-center text-slate-600">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Workspace ready</p>
+        <h2 className="im-title mt-2 text-2xl font-bold text-slate-900">Open a conversation to review context and reply</h2>
+        <p className="mt-3 text-sm">
+          Pick a thread from the conversation list to inspect history, compare usage, and continue the discussion without losing context.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function EmptyThreadState() {
+  return (
+    <div className="flex min-h-full items-center justify-center py-10">
+      <div className="max-w-sm text-center text-slate-500">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">No messages yet</p>
+        <p className="mt-2 text-sm">This conversation is ready for the first message. Replies and status updates will appear here.</p>
+      </div>
+    </div>
   );
 }
 
@@ -331,11 +356,7 @@ export function MessagePane(props: {
     if (props.starter) {
       return <DefaultAgentStarterCard starter={props.starter} />;
     }
-    return (
-      <section className="im-card hidden h-full min-h-[420px] items-center justify-center text-slate-500 lg:flex">
-        Select a conversation
-      </section>
-    );
+    return <EmptyWorkspaceState />;
   }
 
   const onPickAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -435,9 +456,11 @@ export function MessagePane(props: {
       <UsageStrip usage={props.usage} />
       <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4">
         <div data-testid="message-list-stack" className="flex min-h-full flex-col justify-end">
-          {props.detail.messages.map((message) => (
-            <MessageBubble key={message.message_id} message={message} />
-          ))}
+          {props.detail.messages.length === 0 ? (
+            <EmptyThreadState />
+          ) : (
+            props.detail.messages.map((message) => <MessageBubble key={message.message_id} message={message} />)
+          )}
         </div>
       </div>
       <form className="border-t border-[var(--im-border)] p-3" onSubmit={onSubmit}>

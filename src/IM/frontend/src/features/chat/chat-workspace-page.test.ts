@@ -464,6 +464,63 @@ describe("chat workspace page", () => {
     expect(screen.getByRole("option", { name: /ReviewBot/i })).toBeInTheDocument();
   });
 
+  it("keeps optimistic self messages on the local side after SSE reconciliation", async () => {
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "node-online",
+      targetNodeStatus: "online",
+      initialConversationId: "conv-1",
+      ownership: {
+        nodeId: "node-online",
+        nodeLabel: "Online Node",
+        nodeStatus: "online",
+        agentLabel: "OpsBot",
+        ownershipLabel: "Using OpsBot on Online Node (online)"
+      }
+    });
+    sendMessage.mockResolvedValue({
+      message_id: "msg-self",
+      sender_type: "user",
+      sender_name: "You",
+      is_mine: true,
+      content: "I will handle this update.",
+      created_at: "2026-03-13T10:00:00Z",
+      delivery_status: "sent",
+      attachments: []
+    });
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+
+    await userEvent.type(screen.getByPlaceholderText("Type message"), "I will handle this update.");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    const streamInput = streamConversationEvents.mock.calls.at(-1)?.[0] as
+      | { onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void }
+      | undefined;
+    expect(streamInput).toBeDefined();
+    streamInput?.onEvent({
+      eventType: "message.sent",
+      payload: {
+        message_id: "msg-self",
+        sender_user_id: "user-1",
+        sender_type: "user",
+        content: "I will handle this update.",
+        created_at: "2026-03-13T10:00:00Z",
+        delivery_status: "sent"
+      }
+    });
+
+    expect(await screen.findByText("You")).toBeInTheDocument();
+    expect(screen.getByText("I will handle this update.", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
+    expect(screen.queryByText("user-1")).not.toBeInTheDocument();
+  });
+
   it("shows real conversation and workspace token-turn usage for the active chat", async () => {
     getChatBootstrapState.mockResolvedValue({
       selfUserId: "user-1",
