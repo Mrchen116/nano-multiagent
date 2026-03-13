@@ -267,6 +267,49 @@ def test_inbound_pipeline_emits_relay_lifecycle_updates_for_web_relay_messages(t
     ]
 
 
+def test_inbound_pipeline_emits_real_usage_in_completed_relay_update(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    seen: list[object] = []
+
+    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+        del message
+        if update.phase == "completed":
+            seen.append(update.usage)
+
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        relay_lifecycle_callback=_capture,
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="ping",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    )
+    kernel_client.run_states["run-1"] = {
+        "run_id": "run-1",
+        "status": "completed",
+        "output_text": "reply:ping",
+        "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+    }
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert seen == [{"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18}]
+
+
+
 def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapshot_has_no_output_text(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")

@@ -18,7 +18,7 @@ import {
   streamConversationEvents,
   uploadAttachment
 } from "./chat-api";
-import { ChatAttachment, ChatBootstrapState, ChatMessage, ConversationDetail, ConversationSummary, UsageMetricRow, UsageTotals } from "./types";
+import { ChatAttachment, ChatBootstrapState, ChatMessage, ChatUsageView, ConversationDetail, ConversationSummary, UsageAgentView, UsageMetricRow, UsageTotals } from "./types";
 
 function toStatus(value: unknown): ChatMessage["delivery_status"] | undefined {
   if (value === "sent" || value === "running" || value === "completed" || value === "failed") {
@@ -79,7 +79,7 @@ function updateConversationList(
   return items.map((item) => (item.conversation_id === conversationId ? { ...item, ...patch } : item));
 }
 
-function toUsageTotals(rows: UsageMetricRow[] | undefined): UsageTotals {
+export function toUsageTotals(rows: UsageMetricRow[] | undefined): UsageTotals {
   return (rows ?? []).reduce<UsageTotals>(
     (totals, row) => ({
       turns: totals.turns + row.turns,
@@ -94,6 +94,45 @@ function toUsageTotals(rows: UsageMetricRow[] | undefined): UsageTotals {
       totalTokens: 0
     }
   );
+}
+
+function rowsForScope(rows: UsageMetricRow[] | undefined, scope: string) {
+  return (rows ?? []).filter((row) => row.scope === scope);
+}
+
+export function buildUsageView(input: {
+  conversationRows: UsageMetricRow[] | undefined;
+  workspaceRows: UsageMetricRow[] | undefined;
+}): ChatUsageView {
+  const conversationRows = rowsForScope(input.conversationRows, "conversation");
+  const workspaceRows = rowsForScope(input.workspaceRows, "owner");
+  const agents = rowsForScope(input.conversationRows, "agent").map<UsageAgentView>((row) => ({
+    agentId: row.agent_id ?? "unknown-agent",
+    label: row.agent_id ?? "Unknown agent",
+    totals: toUsageTotals([row])
+  }));
+  return {
+    conversation: toUsageTotals(conversationRows),
+    workspace: toUsageTotals(workspaceRows),
+    agents
+  };
+}
+
+export function shouldRefreshUsageForEvent(eventType: string) {
+  return ["message.sent", "relay.report", "message.delivered", "turn_end", "message_status"].includes(eventType);
+}
+
+function refreshUsageQueries(input: {
+  conversationId: string | undefined;
+  ownerId: string | undefined;
+  queryClient: ReturnType<typeof useQueryClient>;
+}) {
+  if (input.conversationId) {
+    input.queryClient.invalidateQueries({ queryKey: ["chat", "usage", "conversation", input.conversationId] });
+  }
+  if (input.ownerId) {
+    input.queryClient.invalidateQueries({ queryKey: ["chat", "usage", "workspace", input.ownerId] });
+  }
 }
 
 export function toRelayAgentMessage(event: {
@@ -170,13 +209,11 @@ export function ChatWorkspacePage() {
   });
 
   const workspaceUsageQuery = useQuery({
-    enabled: Boolean(bootstrapQuery.data?.selfUserId),
-    queryKey: ["chat", "usage", "workspace", bootstrapQuery.data?.selfUserId],
-    queryFn: async () => {
-      const rows = await getUsageMetrics({ ownerId: bootstrapQuery.data!.selfUserId });
-      return rows.filter((row) => row.owner_id === bootstrapQuery.data!.selfUserId);
-    }
+    enabled: Boolean(bootstrapQuery.data?.ownerId),
+    queryKey: ["chat", "usage", "workspace", bootstrapQuery.data?.ownerId],
+    queryFn: () => getUsageMetrics({ ownerId: bootstrapQuery.data!.ownerId })
   });
+  const ownerId = bootstrapQuery.data?.ownerId;
 
   useEffect(() => {
     if (!conversationId) {
@@ -214,11 +251,13 @@ export function ChatWorkspacePage() {
               messages: upsertMessage(previous.messages, nextMessage)
             };
           });
+          refreshUsageQueries({ conversationId, ownerId, queryClient });
           return;
         }
 
         if (
           event.eventType === "relay.processing" ||
+          event.eventType === "relay.report" ||
           event.eventType === "relay.completed" ||
           event.eventType === "relay.failed" ||
           event.eventType === "message.delivered"
@@ -245,6 +284,9 @@ export function ChatWorkspacePage() {
               last_message_at: nextMessage.created_at
             })
           );
+          if (shouldRefreshUsageForEvent(event.eventType)) {
+            refreshUsageQueries({ conversationId, ownerId, queryClient });
+          }
           return;
         }
 
@@ -355,10 +397,13 @@ export function ChatWorkspacePage() {
               })
             );
           }
+          if (shouldRefreshUsageForEvent(event.eventType)) {
+            refreshUsageQueries({ conversationId, ownerId, queryClient });
+          }
         }
       }
     });
-  }, [conversationId, queryClient]);
+  }, [conversationId, ownerId, queryClient]);
 
   const createDirectConversationMutation = useMutation({
     mutationFn: (payload: { agentId: string }) => createDirectConversation(payload),
@@ -422,6 +467,7 @@ export function ChatWorkspacePage() {
           last_message_at: message.created_at
         })
       );
+      refreshUsageQueries({ conversationId, ownerId, queryClient });
     }
   });
 
@@ -438,10 +484,10 @@ export function ChatWorkspacePage() {
   const starter = starterQuery.data ?? null;
   const detail = (detailQuery.data ?? null) as ConversationDetail | null;
   const bootstrap = bootstrapQuery.data ?? null;
-  const usage = {
-    conversation: toUsageTotals(conversationUsageQuery.data),
-    workspace: toUsageTotals(workspaceUsageQuery.data)
-  };
+  const usage = buildUsageView({
+    conversationRows: conversationUsageQuery.data,
+    workspaceRows: workspaceUsageQuery.data
+  });
   const sendAvailability = resolveSendAvailability({
     targetNodeId: bootstrap?.targetNodeId ?? null,
     nodeStatus: bootstrap?.targetNodeStatus ?? null

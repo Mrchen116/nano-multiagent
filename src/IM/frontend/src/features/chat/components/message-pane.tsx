@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { ChatAttachment, ChatMessage, ChatStarter, ConversationDetail, UsageTotals } from "../types";
+import { ChatAttachment, ChatMessage, ChatStarter, ChatUsageView, ConversationDetail, UsageAgentView, UsageTotals } from "../types";
 import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
 
 const SEND_AVAILABILITY_MESSAGES = getSendAvailabilityMessages();
@@ -121,11 +121,60 @@ function UsageCard(props: { label: string; totals: UsageTotals }) {
   );
 }
 
-function UsageStrip(props: { usage: { conversation: UsageTotals; workspace: UsageTotals } }) {
+function AgentUsagePanel(props: { agents: UsageAgentView[] }) {
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(props.agents[0]?.agentId ?? null);
+
+  useEffect(() => {
+    if (!props.agents.some((agent) => agent.agentId === activeAgentId)) {
+      setActiveAgentId(props.agents[0]?.agentId ?? null);
+    }
+  }, [activeAgentId, props.agents]);
+
+  if (props.agents.length === 0) {
+    return null;
+  }
+
+  const activeAgent = props.agents.find((agent) => agent.agentId === activeAgentId) ?? props.agents[0];
   return (
-    <div className="grid gap-2 border-b border-[var(--im-border)] px-4 py-3 md:grid-cols-2">
-      <UsageCard label="This chat" totals={props.usage.conversation} />
-      <UsageCard label="Workspace total" totals={props.usage.workspace} />
+    <div className="mt-2 rounded-2xl border border-[var(--im-border)] bg-white px-3 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">By agent</p>
+      <div className="mt-2 flex flex-wrap gap-2" role="tablist" aria-label="Agent usage views">
+        {props.agents.map((agent) => {
+          const selected = agent.agentId === activeAgent.agentId;
+          return (
+            <button
+              key={agent.agentId}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              className={[
+                "rounded-full border px-3 py-1 text-xs font-semibold",
+                selected
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-slate-50 text-slate-600"
+              ].join(" ")}
+              onClick={() => setActiveAgentId(agent.agentId)}
+            >
+              {agent.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-3">
+        <UsageCard label={`Agent · ${activeAgent.label}`} totals={activeAgent.totals} />
+      </div>
+    </div>
+  );
+}
+
+function UsageStrip(props: { usage: ChatUsageView }) {
+  return (
+    <div className="border-b border-[var(--im-border)] px-4 py-3">
+      <div className="grid gap-2 md:grid-cols-2">
+        <UsageCard label="This chat" totals={props.usage.conversation} />
+        <UsageCard label="Workspace total" totals={props.usage.workspace} />
+      </div>
+      <AgentUsagePanel agents={props.usage.agents} />
     </div>
   );
 }
@@ -199,7 +248,7 @@ export function MessagePane(props: {
   isMobile: boolean;
   isSending: boolean;
   sendAvailability: SendAvailability;
-  usage: { conversation: UsageTotals; workspace: UsageTotals };
+  usage: ChatUsageView;
   onSend: (payload: { content: string; attachments: ChatAttachment[] }) => Promise<unknown>;
   onUploadAttachment: (file: File) => Promise<ChatAttachment>;
 }) {

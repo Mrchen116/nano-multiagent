@@ -11,6 +11,11 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+!/src/IM/frontend/dist/
+!/src/IM/frontend/dist/index.html
+!/src/IM/frontend/dist/favicon.svg
+!/src/IM/frontend/dist/assets/
+!/src/IM/frontend/dist/assets/*
 downloads/
 eggs/
 .eggs/

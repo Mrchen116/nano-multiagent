@@ -12,6 +12,7 @@ interface ImUser {
   id: string;
   username: string;
   display_name: string;
+  owner_id: string;
   owned_node_ids?: string[];
 }
 
@@ -19,6 +20,8 @@ interface ImConversation {
   id: string;
   title: string;
   participant_ids: string[];
+  type: string;
+  owner_id: string;
 }
 
 interface ImMessage {
@@ -54,6 +57,7 @@ interface ImNode {
 
 interface BootstrapState {
   selfUserId: string;
+  ownerId: string;
   targetNodeId: string | null;
   targetNodeStatus: string | null;
   ownership: ChatOwnershipSummary;
@@ -184,6 +188,7 @@ function toBootstrapNodeState(input: {
 
 export interface ChatBootstrapState {
   selfUserId: string;
+  ownerId: string;
   targetNodeId: string | null;
   targetNodeStatus: string | null;
   initialConversationId: string | null;
@@ -221,7 +226,17 @@ const MAIN_AGENT_PREFIX = "主 Agent · ";
 const MAIN_AGENT_SESSION_LABEL = "主 Agent 会话";
 const MAIN_AGENT_ENTRY_HINT = "这是你与主 Agent 的默认产品入口。";
 const DIRECT_AGENT_SESSION_LABEL = "Direct agent chat";
+const GROUP_CHAT_SESSION_LABEL = "Group chat";
 const DIRECT_AGENT_DISCOVERABILITY_HINT = "This is a one-to-one conversation with an available target.";
+const GROUP_CHAT_DISCOVERABILITY_HINT = "This is a shared thread where you can compare usage by agent while the group conversation stays in one timeline.";
+const GROUP_CHAT_TARGET_LABEL = "Multiple participants";
+const GROUP_CHAT_LIST_HINT = "Use this shared thread for multi-party coordination across people and agents.";
+const GROUP_CHAT_ENTRY_HINT = "Shared thread with multiple participants, including agent-specific usage views.";
+const AGENT_NETWORK_SESSION_LABEL = "Agent-to-agent chat";
+const AGENT_NETWORK_DISCOVERABILITY_HINT = "This is a read-only coordination thread between agents.";
+const AGENT_NETWORK_TARGET_LABEL = "Agents only";
+const AGENT_NETWORK_LIST_HINT = "Use this thread to inspect coordination between agents.";
+const AGENT_NETWORK_ENTRY_HINT = "Read-only coordination thread between agents.";
 const MAIN_AGENT_DISCOVERABILITY_HINT = "Use this thread when you want to talk to your main agent acting as your delegate.";
 const MAIN_AGENT_TARGET_LABEL = "你的主 Agent";
 const MAIN_AGENT_LIST_HINT = "This is the user-visible product entry where your main agent receives intent and routes follow-up work.";
@@ -255,6 +270,7 @@ function buildMainAgentOwnershipLabel(agentName: string, nodeLabel: string | nul
 
 function toConversationSemantics(input: {
   title: string;
+  conversationType?: string;
   ownershipLabel?: string | null;
 }): Pick<ConversationSummary, "kind_label" | "target_label" | "discoverability_hint" | "ownership_label"> &
   Pick<ConversationDetail, "kind_label" | "target_label" | "discoverability_hint" | "ownership_label"> {
@@ -266,6 +282,22 @@ function toConversationSemantics(input: {
       ownership_label: input.ownershipLabel ?? MAIN_AGENT_ENTRY_HINT
     };
   }
+  if (input.conversationType === "group") {
+    return {
+      kind_label: GROUP_CHAT_SESSION_LABEL,
+      target_label: GROUP_CHAT_TARGET_LABEL,
+      discoverability_hint: GROUP_CHAT_DISCOVERABILITY_HINT,
+      ownership_label: input.ownershipLabel ?? GROUP_CHAT_ENTRY_HINT
+    };
+  }
+  if (input.conversationType === "agent-network") {
+    return {
+      kind_label: AGENT_NETWORK_SESSION_LABEL,
+      target_label: AGENT_NETWORK_TARGET_LABEL,
+      discoverability_hint: AGENT_NETWORK_DISCOVERABILITY_HINT,
+      ownership_label: input.ownershipLabel ?? AGENT_NETWORK_ENTRY_HINT
+    };
+  }
   return {
     kind_label: DIRECT_AGENT_SESSION_LABEL,
     target_label: undefined,
@@ -274,8 +306,17 @@ function toConversationSemantics(input: {
   };
 }
 
-function buildListDiscoverabilityHint(title: string, fallback: string): string {
-  return isMainAgentStarterTitle(title) ? MAIN_AGENT_LIST_HINT : fallback;
+function buildListDiscoverabilityHint(input: { title: string; conversationType?: string; fallback: string }): string {
+  if (isMainAgentStarterTitle(input.title)) {
+    return MAIN_AGENT_LIST_HINT;
+  }
+  if (input.conversationType === "group") {
+    return GROUP_CHAT_LIST_HINT;
+  }
+  if (input.conversationType === "agent-network") {
+    return AGENT_NETWORK_LIST_HINT;
+  }
+  return input.fallback;
 }
 
 let bootstrapPromise: Promise<BootstrapState> | null = null;
@@ -558,6 +599,7 @@ async function ensureBootstrap(): Promise<BootstrapState> {
       const bootstrapNodeState = toBootstrapNodeState({ targetNode, starterAgentName: agentName });
       return {
         selfUserId: self.id,
+        ownerId: self.owner_id,
         targetNodeId: bootstrapNodeState.targetNodeId,
         targetNodeStatus: bootstrapNodeState.targetNodeStatus,
         ownership: bootstrapNodeState.ownership,
@@ -585,6 +627,7 @@ export async function getChatBootstrapState(): Promise<ChatBootstrapState> {
   const bootstrap = await ensureBootstrap();
   return {
     selfUserId: bootstrap.selfUserId,
+    ownerId: bootstrap.ownerId,
     targetNodeId: bootstrap.targetNodeId,
     targetNodeStatus: bootstrap.targetNodeStatus,
     initialConversationId: bootstrap.starterConversationId,
@@ -630,7 +673,11 @@ function toConversationSummary(input: {
   const latest = input.messages.at(-1);
   const unreadCount = input.messages.filter((item) => item.sender_user_id !== input.selfUserId).length;
   const resolvedTitle = resolveConversationTitle({ conversation: input.conversation, starterTitle: input.starterTitle });
-  const semantics = toConversationSemantics({ title: resolvedTitle, ownershipLabel: input.ownership.ownershipLabel });
+  const semantics = toConversationSemantics({
+    title: resolvedTitle,
+    conversationType: input.conversation.type,
+    ownershipLabel: input.ownership.ownershipLabel
+  });
   return {
     conversation_id: input.conversation.id,
     title: resolvedTitle,
@@ -646,7 +693,11 @@ function toConversationSummary(input: {
     ownership_label: semantics.ownership_label,
     kind_label: semantics.kind_label,
     target_label: semantics.target_label,
-    discoverability_hint: buildListDiscoverabilityHint(resolvedTitle, semantics.discoverability_hint ?? "")
+    discoverability_hint: buildListDiscoverabilityHint({
+      title: resolvedTitle,
+      conversationType: input.conversation.type,
+      fallback: semantics.discoverability_hint ?? ""
+    })
   };
 }
 
@@ -755,7 +806,11 @@ export async function getConversation(conversationId: string): Promise<Conversat
     return null;
   }
   const resolvedTitle = resolveConversationTitle({ conversation, starterTitle: starter.title });
-  const semantics = toConversationSemantics({ title: resolvedTitle, ownershipLabel: starter.statusLabel });
+  const semantics = toConversationSemantics({
+    title: resolvedTitle,
+    conversationType: conversation.type,
+    ownershipLabel: starter.statusLabel
+  });
   return {
     conversation_id: conversation.id,
     title: resolvedTitle,

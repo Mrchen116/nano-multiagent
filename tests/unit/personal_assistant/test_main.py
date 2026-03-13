@@ -321,7 +321,7 @@ def test_gateway_runtime_cleans_up_reverse_order_when_im_start_fails(tmp_path: P
     ]
 
 
-def test_relay_lifecycle_callback_sends_receipts_and_report_to_im() -> None:
+def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> None:
     reporter = UpstreamReporter(node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None)
     manager = _FakeIMManager([])
     callback = _build_relay_lifecycle_callback(
@@ -355,6 +355,7 @@ def test_relay_lifecycle_callback_sends_receipts_and_report_to_im() -> None:
                 session_key="web:user:agent-a",
                 run_id="run-1",
                 reply_text="hello from agent",
+                usage={"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
             ),
         )
 
@@ -363,12 +364,19 @@ def test_relay_lifecycle_callback_sends_receipts_and_report_to_im() -> None:
     assert [item[0] for item in manager.sent_frames] == [
         "node.delivery_receipt",
         "node.report",
+        "node.report",
         "node.delivery_receipt",
     ]
     assert manager.sent_frames[0][1]["delivery_status"] == "sent"
     assert manager.sent_frames[1][1]["conversation_id"] == "conv-1"
     assert manager.sent_frames[1][1]["message_id"] == "msg-1"
-    assert manager.sent_frames[2][1]["detail"] == "hello from agent"
+    assert manager.sent_frames[2][1]["status"] == "completed"
+    assert manager.sent_frames[2][1]["usage"] == {
+        "prompt_tokens": 11,
+        "completion_tokens": 7,
+        "total_tokens": 18,
+    }
+    assert manager.sent_frames[3][1]["detail"] == "hello from agent"
 
 
 def test_build_relay_lifecycle_callback_marks_no_reply_suppression_in_completed_receipt() -> None:

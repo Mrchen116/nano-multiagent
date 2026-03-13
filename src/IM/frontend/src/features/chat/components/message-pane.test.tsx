@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
 import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
-import { ChatAttachment, ConversationDetail, UsageTotals } from "../types";
+import { ChatAttachment, ChatUsageView, ConversationDetail, UsageTotals } from "../types";
 import { MessagePane } from "./message-pane";
 
 const SEND_FAILURE_MESSAGE = "Chat unavailable. No online relay node is available for this chat. Connect an online node and retry.";
@@ -13,7 +13,7 @@ const DEFAULT_SEND_AVAILABILITY = {
   helperText: null,
   placeholder: getSendAvailabilityMessages().enabledPlaceholder
 };
-const DEFAULT_USAGE: { conversation: UsageTotals; workspace: UsageTotals } = {
+const DEFAULT_USAGE: ChatUsageView = {
   conversation: {
     turns: 2,
     promptTokens: 8,
@@ -25,14 +25,15 @@ const DEFAULT_USAGE: { conversation: UsageTotals; workspace: UsageTotals } = {
     promptTokens: 21,
     completionTokens: 12,
     totalTokens: 33
-  }
+  },
+  agents: []
 };
 
 function renderMessagePane(input?: {
   onSend?: (payload: { content: string; attachments: ChatAttachment[] }) => Promise<unknown>;
   onUploadAttachment?: (file: File) => Promise<ChatAttachment>;
   sendAvailability?: SendAvailability;
-  usage?: { conversation: UsageTotals; workspace: UsageTotals };
+  usage?: ChatUsageView;
 }) {
   const detail: ConversationDetail = {
     conversation_id: "conv-kernel-ops",
@@ -73,6 +74,48 @@ describe("message pane", () => {
 
     expect(screen.getByText("主 Agent 会话")).toBeInTheDocument();
     expect(screen.getByText("这是你与主 Agent 的默认产品入口。")).toBeInTheDocument();
+  });
+
+  it("shows per-agent usage tabs and switches the active agent totals", async () => {
+    const user = userEvent.setup();
+
+    renderMessagePane({
+      usage: {
+        ...DEFAULT_USAGE,
+        agents: [
+          {
+            agentId: "agent-alpha",
+            label: "Agent Alpha",
+            totals: {
+              turns: 1,
+              promptTokens: 11,
+              completionTokens: 7,
+              totalTokens: 18
+            }
+          },
+          {
+            agentId: "agent-beta",
+            label: "Agent Beta",
+            totals: {
+              turns: 2,
+              promptTokens: 5,
+              completionTokens: 9,
+              totalTokens: 14
+            }
+          }
+        ]
+      }
+    });
+
+    expect(screen.getByRole("tab", { name: "Agent Alpha" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Agent · Agent Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Completion 7")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Agent Beta" }));
+
+    expect(screen.getByRole("tab", { name: "Agent Beta" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Agent · Agent Beta")).toBeInTheDocument();
+    expect(screen.getByText("Completion 9")).toBeInTheDocument();
   });
 
   it("preserves the draft and shows explicit failure feedback when send fails", async () => {

@@ -119,6 +119,7 @@ class UpstreamReporter:
         summary: str | None = None,
         guidance: str | None = None,
         detail: Mapping[str, Any] | None = None,
+        usage: Mapping[str, int] | None = None,
     ) -> dict[str, object]:
         """Send one ``node.report`` execution report frame."""
 
@@ -141,6 +142,8 @@ class UpstreamReporter:
             payload["guidance"] = guidance
         if detail is not None:
             payload["detail"] = dict(detail)
+        if usage is not None:
+            payload["usage"] = dict(usage)
         self._send_frame("node.report", payload)
         return payload
 

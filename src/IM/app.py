@@ -17,9 +17,10 @@ from IM.api.routes.nodes import router as nodes_router
 from IM.api.routes.policies import router as policies_router
 from IM.api.routes.users import router as user_router
 from IM.api.routes.web_im import router as web_im_router
+from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import EventRepository, NodeRepository
+from IM.infra.repositories import ConversationRepository, EventRepository, NodeRepository, UsageMetricsRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -140,6 +141,8 @@ def create_app(
             relay_service=RelayService(connection),
             node_repository=NodeRepository(connection),
             event_repository=EventRepository(connection),
+            metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+            conversation_repository=ConversationRepository(connection),
         )
         try:
             yield

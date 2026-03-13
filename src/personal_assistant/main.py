@@ -966,6 +966,21 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.report", payload)
             return
         if update.phase == "completed":
+            message_id = _metadata_text(message.metadata, key="message_id")
+            send_report = getattr(reporter, "send_report", None)
+            if callable(send_report) and message_id is not None and update.run_id is not None:
+                payload = send_report(
+                    run_id=update.run_id,
+                    status="completed",
+                    agent_id=update.agent_id,
+                    session_key=update.session_key,
+                    conversation_id=message.external_chat_id,
+                    message_id=message_id,
+                    summary=update.reply_text,
+                    detail=update.detail,
+                    usage=update.usage,
+                )
+                await manager.send_json("node.report", payload)
             receipt_detail = update.reply_text
             if update.detail is not None:
                 detail_parts = [receipt_detail] if receipt_detail is not None else []
