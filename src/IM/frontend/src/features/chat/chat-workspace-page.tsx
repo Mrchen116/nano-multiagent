@@ -123,9 +123,62 @@ function upsertMessage(messages: ChatMessage[], message: ChatMessage) {
   if (existingIndex === -1) {
     return [...messages, message];
   }
+  const existing = messages[existingIndex];
   const next = [...messages];
-  next[existingIndex] = { ...next[existingIndex], ...message };
+  next[existingIndex] = {
+    ...existing,
+    ...message,
+    content:
+      message.content.length >= existing.content.length || existing.content.length === 0 ? message.content : existing.content,
+    attachments: message.attachments && message.attachments.length > 0 ? message.attachments : existing.attachments
+  };
   return next;
+}
+
+export function mergeMessages(baseMessages: ChatMessage[] | undefined, incomingMessages: ChatMessage[] | undefined) {
+  return (incomingMessages ?? []).reduce<ChatMessage[]>((messages, message) => upsertMessage(messages, message), [...(baseMessages ?? [])]);
+}
+
+function createConversationPlaceholder(conversationId: string, messages: ChatMessage[] = []): ConversationDetail {
+  return {
+    conversation_id: conversationId,
+    title: "Conversation",
+    mention_candidates: [],
+    messages
+  };
+}
+
+export function mergeConversationDetail(
+  detail: ConversationDetail | null | undefined,
+  cachedDetail: ConversationDetail | null | undefined
+): ConversationDetail | null {
+  if (!detail && !cachedDetail) {
+    return null;
+  }
+  if (!detail) {
+    return cachedDetail ?? null;
+  }
+  if (!cachedDetail) {
+    return detail;
+  }
+  return {
+    ...cachedDetail,
+    ...detail,
+    mention_candidates: detail.mention_candidates ?? cachedDetail.mention_candidates,
+    messages: mergeMessages(detail.messages, cachedDetail.messages)
+  };
+}
+
+function upsertConversationMessage(
+  detail: ConversationDetail | null | undefined,
+  conversationId: string,
+  message: ChatMessage
+): ConversationDetail {
+  const base = detail ?? createConversationPlaceholder(conversationId);
+  return {
+    ...base,
+    messages: upsertMessage(base.messages, message)
+  };
 }
 
 function updateConversationList(
@@ -262,7 +315,13 @@ export function ChatWorkspacePage() {
   const detailQuery = useQuery({
     enabled: Boolean(conversationId),
     queryKey: ["chat", "conversation", conversationId],
-    queryFn: () => getConversation(conversationId!)
+    queryFn: async () => {
+      const detail = await getConversation(conversationId!);
+      return mergeConversationDetail(
+        detail,
+        queryClient.getQueryData<ConversationDetail | null>(["chat", "conversation", conversationId])
+      );
+    }
   });
 
   const conversationUsageQuery = useQuery({
@@ -306,43 +365,32 @@ export function ChatWorkspacePage() {
           if (!nextMessage) {
             return;
           }
-          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
-            if (!previous) {
-              return null;
-            }
-            return {
-              ...previous,
-              messages: upsertMessage(previous.messages, nextMessage)
-            };
-          });
+          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) =>
+            upsertConversationMessage(previous, conversationId, nextMessage)
+          );
           refreshUsageQueries({ conversationId, ownerId, queryClient });
           return;
         }
 
         if (event.eventType === "message.delivered" && toSenderType(event.payload.sender_type)) {
           queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
-            if (!previous) {
-              return null;
-            }
-            const existing = previous.messages.find((item) => item.message_id === messageId);
-            if (!existing) {
-              return previous;
-            }
+            const base = previous ?? createConversationPlaceholder(conversationId);
+            const existing = base.messages.find((item) => item.message_id === messageId);
             const deliveredMessage = buildStreamMessage({
               payload: event.payload as Record<string, unknown>,
               selfUserId,
-              fallbackSenderType: existing.sender_type,
+              fallbackSenderType: existing?.sender_type ?? "user",
               fallbackStatus: "completed",
-              fallbackSenderName: existing.sender_name ?? "Participant",
-              createdAt: existing.created_at,
-              content: toStringValue(event.payload.content) ?? existing.content
+              fallbackSenderName: existing?.sender_name ?? "Participant",
+              createdAt: existing?.created_at,
+              content: toStringValue(event.payload.content) ?? existing?.content ?? ""
             });
             if (!deliveredMessage) {
-              return previous;
+              return previous ?? base;
             }
             return {
-              ...previous,
-              messages: upsertMessage(previous.messages, {
+              ...base,
+              messages: upsertMessage(base.messages, {
                 ...existing,
                 ...deliveredMessage,
                 delivery_status: "completed"
@@ -367,15 +415,9 @@ export function ChatWorkspacePage() {
           if (!nextMessage) {
             return;
           }
-          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
-            if (!previous) {
-              return null;
-            }
-            return {
-              ...previous,
-              messages: upsertMessage(previous.messages, nextMessage)
-            };
-          });
+          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) =>
+            upsertConversationMessage(previous, conversationId, nextMessage)
+          );
           queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
             updateConversationList(previous, conversationId, {
               last_message_preview: nextMessage.content,
@@ -403,15 +445,9 @@ export function ChatWorkspacePage() {
           if (!nextMessage) {
             return;
           }
-          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
-            if (!previous) {
-              return null;
-            }
-            return {
-              ...previous,
-              messages: upsertMessage(previous.messages, nextMessage)
-            };
-          });
+          queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) =>
+            upsertConversationMessage(previous, conversationId, nextMessage)
+          );
           if (content) {
             queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
               updateConversationList(previous, conversationId, {
@@ -429,10 +465,8 @@ export function ChatWorkspacePage() {
             return;
           }
           queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) => {
-            if (!previous) {
-              return null;
-            }
-            const existing = previous.messages.find((item) => item.message_id === messageId);
+            const base = previous ?? createConversationPlaceholder(conversationId);
+            const existing = base.messages.find((item) => item.message_id === messageId);
             const seededMessage = buildStreamMessage({
               payload: event.payload as Record<string, unknown>,
               selfUserId,
@@ -442,7 +476,7 @@ export function ChatWorkspacePage() {
               content: `${existing?.content ?? ""}${delta}`
             });
             if (!seededMessage) {
-              return previous;
+              return previous ?? base;
             }
             const nextMessage: ChatMessage = existing
               ? {
@@ -454,8 +488,8 @@ export function ChatWorkspacePage() {
                 }
               : seededMessage;
             return {
-              ...previous,
-              messages: upsertMessage(previous.messages, nextMessage)
+              ...base,
+              messages: upsertMessage(base.messages, nextMessage)
             };
           });
           queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) => {

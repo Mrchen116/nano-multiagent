@@ -1,5 +1,5 @@
 import { createElement } from "react";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,6 +39,16 @@ vi.mock("./chat-api", () => ({
     onError?: (error: Error) => void;
   }) => streamConversationEvents(input)
 }));
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 describe("chat workspace usage helpers", () => {
   it("builds conversation, workspace, and per-agent usage without double counting", () => {
@@ -462,6 +472,94 @@ describe("chat workspace page", () => {
     await userEvent.type(screen.getByPlaceholderText("Type message"), "@");
     expect(screen.getByRole("option", { name: /OpsBot/i })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /ReviewBot/i })).toBeInTheDocument();
+  });
+
+  it("reconciles replayed agent events that arrive before history loading completes", async () => {
+    const deferredConversation = createDeferred<{
+      conversation_id: string;
+      title: string;
+      kind_label: string;
+      target_label: string;
+      discoverability_hint: string;
+      mention_candidates: [];
+      messages: Array<{
+        message_id: string;
+        sender_type: "user";
+        sender_name: string;
+        is_mine: true;
+        content: string;
+        created_at: string;
+        delivery_status: "sent";
+        attachments: [];
+      }>;
+    }>();
+
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "node-online",
+      targetNodeStatus: "online",
+      initialConversationId: "conv-1",
+      ownership: {
+        nodeId: "node-online",
+        nodeLabel: "Online Node",
+        nodeStatus: "online",
+        agentLabel: "OpsBot",
+        ownershipLabel: "Using OpsBot on Online Node (online)"
+      }
+    });
+    getConversation.mockImplementationOnce(async () => deferredConversation.promise);
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    await waitFor(() => {
+      expect(streamConversationEvents).toHaveBeenCalled();
+    });
+
+    const streamInput = streamConversationEvents.mock.calls.at(-1)?.[0] as
+      | { onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void }
+      | undefined;
+    expect(streamInput).toBeDefined();
+
+    streamInput?.onEvent({
+      eventType: "relay.processing",
+      payload: {
+        message_id: "msg-history",
+        node_id: "node-demo",
+        summary: "Agent is preparing the response",
+        created_at: "2026-03-13T10:00:01Z"
+      }
+    });
+
+    deferredConversation.resolve({
+      conversation_id: "conv-1",
+      title: "You & Teammate",
+      kind_label: "Direct agent chat",
+      target_label: "Teammate",
+      discoverability_hint: "This is a one-to-one conversation with an available target.",
+      mention_candidates: [],
+      messages: [
+        {
+          message_id: "msg-history",
+          sender_type: "user",
+          sender_name: "You",
+          is_mine: true,
+          content: "Need a full update",
+          created_at: "2026-03-13T10:00:00Z",
+          delivery_status: "sent",
+          attachments: []
+        }
+      ]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    expect(screen.getByText("Need a full update", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
+    expect(screen.getByText("Agent is preparing the response", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
+    expect(screen.getByText("You")).toBeInTheDocument();
+    expect(screen.getByText("node-demo")).toBeInTheDocument();
   });
 
   it("keeps optimistic self messages on the local side after SSE reconciliation", async () => {
