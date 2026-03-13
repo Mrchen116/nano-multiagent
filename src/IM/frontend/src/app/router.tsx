@@ -4,6 +4,7 @@ import { App } from "./App";
 import { BindConfirmPage } from "../features/chat/bind-confirm-page";
 import { ChatWorkspacePage } from "../features/chat/chat-workspace-page";
 import { AccountPage } from "../features/settings/account/account-page";
+import { AgentCreatePage } from "../features/settings/agents/agent-create-page";
 import { AgentDetailPage } from "../features/settings/agents/agent-detail-page";
 import { AgentsListPage } from "../features/settings/agents/agents-list-page";
 import { NodesPage } from "../features/settings/nodes/nodes-page";
@@ -29,11 +30,20 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "agents",
-            element: <AgentsListPage />
-          },
-          {
-            path: "agents/:agentId",
-            element: <AgentDetailPage />
+            children: [
+              {
+                index: true,
+                element: <AgentsListPage />
+              },
+              {
+                path: "new",
+                element: <AgentCreatePage />
+              },
+              {
+                path: ":agentId",
+                element: <AgentDetailPage />
+              }
+            ]
           },
           {
             path: "nodes",

@@ -21,7 +21,8 @@ export function AgentDetailPage() {
 
   const query = useQuery({
     queryKey: ["settings", "agents", agentId],
-    queryFn: () => getAgentConfig(agentId)
+    queryFn: () => getAgentConfig(agentId),
+    staleTime: 30_000
   });
 
   useEffect(() => {

@@ -135,7 +135,10 @@ def get_event_service(request: Request) -> EventService:
 
 def get_config_service(request: Request) -> ConfigService:
     """Build the agent config application service from app-scoped dependencies."""
-    return ConfigService(profiles=_build_profile_repository(request))
+    return ConfigService(
+        profiles=_build_profile_repository(request),
+        nodes=_build_node_repository(request),
+    )
 
 
 def get_node_service(request: Request) -> NodeService:

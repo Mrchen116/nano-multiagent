@@ -1,0 +1,37 @@
+# M135 Agent 新增进展
+
+## 2026-03-13
+- Done:
+  - 读取 `/Users/czj/Repos/nano-multiagent/docs/需求.md`、`/Users/czj/Repos/nano-multiagent/docs/IM-SPEC.md`、`/Users/czj/Repos/nano-multiagent/docs/NodeGateway-SPEC.md` 后，在 canonical worktree `/Users/czj/Repos/nano-multiagent/.worktrees/M135` 持续推进 M135。
+  - 先补红测：新增 `/Users/czj/Repos/nano-multiagent/.worktrees/M135/tests/im_service/contract/test_agent_create_contract.py` 与 `/Users/czj/Repos/nano-multiagent/.worktrees/M135/tests/im_service/integration/test_agent_create_flow.py`，锁定“创建 agent + 节点绑定 + relay 主路径”。
+  - 最小实现后端创建链路：`POST /im/v1/agents`、ConfigService create path、agent list/detail 返回 `bound_nodes/updated_at`。
+  - 增加前端真实入口代码：`/Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend/src/features/settings/agents/agent-create-page.tsx`，并在列表页加 `New Agent` 入口、router 加 `/settings/agents/new`、API client 加 `createAgent/listNodes`。
+  - 安装前端依赖：`npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend install`。
+  - 真实产品入口补绿：重建 `/Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend/dist`，重启 IM host 后用真实浏览器走通 `/settings/agents -> New Agent -> Create Agent`，创建 `agent-m135-browser` 并落到 detail 页。
+- Evidence:
+  - 后端目标测试：`pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M135/tests/im_service/contract/test_agent_create_contract.py /Users/czj/Repos/nano-multiagent/.worktrees/M135/tests/im_service/integration/test_agent_create_flow.py /Users/czj/Repos/nano-multiagent/.worktrees/M135/tests/im_service/contract/test_agent_config_contract.py /Users/czj/Repos/nano-multiagent/.worktrees/M135/tests/im_service/integration/test_agent_config_api.py` -> `5 passed in 0.38s`
+  - 前端依赖恢复：`npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend install` -> `added 253 packages, and audited 254 packages in 3s`
+  - 前端目标测试当前结果：`npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M135/src/IM/frontend test -- --run src/features/settings/agents/agent-create.test.tsx src/features/settings/agents/agent-edit.test.tsx` -> `agent-edit.test.tsx` 通过，但 `agent-create.test.tsx` 仍失败；现象为测试环境里 create 页提交后未稳定跳到 detail 页，并伴随 `RequestInit: Expected signal ("AbortSignal {}") to be an instance of AbortSignal.`，属于 vitest/jsdom fetch mock 兼容性问题，不影响真实产品入口。
+  - 真实浏览器入口命令：
+    - `PYTHONPATH="/Users/czj/Repos/nano-multiagent/.worktrees/M135/src" python3 -m uvicorn IM.app:app --host 127.0.0.1 --port 8011`
+    - `PYTHONPATH="/Users/czj/Repos/nano-multiagent/.worktrees/M135/src" python3 -m personal_assistant.main --config "/Users/czj/Repos/nano-multiagent/.worktrees/M135/node-config.yaml"`
+    - `python3 - <<'PY' ... urllib.request.urlopen('http://127.0.0.1:8011/assets/index-DgEIGfWH.js') ... PY` -> `200`
+    - `python3 - <<'PY' ... urllib.request.urlopen('http://127.0.0.1:8011/im/v1/nodes') ... PY` -> 节点 `m135-node` 状态 `online`
+    - `python3 - <<'PY' ... Playwright headless ... PY` ->
+      - `list_heading=Agents`
+      - `new_agent_visible=True`
+      - `create_url=http://127.0.0.1:8011/settings/agents/new`
+      - `detail_url=http://127.0.0.1:8011/settings/agents/agent-m135-browser`
+      - `detail_heading=Agent Detail`
+      - `profile_version=Profile Version: 1`
+  - 真实数据证据：
+    - `GET http://127.0.0.1:8011/im/v1/agents` 返回 `{'agent_id': 'agent-m135-browser', 'owner_id': '', 'display_name': 'Agent M135 Browser', 'description': 'created from real settings browser flow', 'profile_version': 1, 'default_model': 'claude-sonnet-4', 'bound_nodes': ['m135-node'], 'updated_at': '2026-03-13T02:52:41.317272Z'}`
+    - `GET http://127.0.0.1:8011/im/v1/agents/agent-m135-browser/config` 返回 `{"agent_id": "agent-m135-browser", "owner_id": "", "display_name": "Agent M135 Browser", "description": "created from real settings browser flow", "system_prompt": "You are Agent M135 Browser.", "skills": ["plan"], "tool_allowlist": ["read"], "group_reply_policy": "MENTION", "default_model": "claude-sonnet-4", "profile_version": 1, "bound_nodes": ["m135-node"], "updated_at": "2026-03-13T02:52:41.317272Z"}`
+  - 额外发现并修复的真实入口 blocker：旧的 `dist/index.html` 指向已不存在的 `/assets/index-A0W7Nr0Q.js` / `/assets/index-DcindJa2.css`，导致真实 `/settings/agents` 页面空白；执行 `npm run build` 并重启 IM host 后恢复。
+- Rollback:
+  - 若需回退，删除 `POST /im/v1/agents`、`agent-create-page.tsx`、router 新路由与 API client 新增 create/listNodes，即可恢复到 M134 的只读 agent settings 状态。
+  - 若仅回退本次真实入口环境修正，可移除 `/Users/czj/Repos/nano-multiagent/.worktrees/M135/node-config.yaml` 与新构建的 `src/IM/frontend/dist/assets/`。
+- Commits:
+  - pending
+- Next:
+  - 仅剩前端 `agent-create.test.tsx` 的 vitest/jsdom 兼容性红点需要单独收口；真实产品入口已绿。

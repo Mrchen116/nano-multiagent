@@ -40,6 +40,8 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "group_reply_policy",
             "default_model",
             "profile_version",
+            "bound_nodes",
+            "updated_at",
         }
 
         conflict = client.patch(

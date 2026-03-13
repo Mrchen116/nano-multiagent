@@ -19,9 +19,14 @@ export function AgentsListPage() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="im-title text-xl font-bold">Agents</h2>
-        <span className="text-xs text-slate-500">{agents.length} items</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">{agents.length} items</span>
+          <Link className="im-btn im-btn-primary" to="/settings/agents/new">
+            New Agent
+          </Link>
+        </div>
       </div>
       {isMobile ? (
         <div className="grid gap-3">

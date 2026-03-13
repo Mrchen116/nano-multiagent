@@ -26,6 +26,19 @@ export interface AgentConfig {
   updated_at?: string | null;
 }
 
+export interface CreateAgentRequest {
+  agent_id: string;
+  owner_id: string;
+  display_name: string;
+  description: string;
+  system_prompt: string;
+  skills: string[];
+  tool_allowlist: string[];
+  group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
+  default_model: string | null;
+  node_id?: string | null;
+}
+
 function getApiBaseUrl() {
   return (import.meta.env.VITE_IM_API_BASE_URL ?? "").replace(/\/$/, "");
 }
@@ -78,6 +91,17 @@ export async function listAgentSummaries() {
 
 export async function getAgentConfig(agentId: string) {
   return requestJson<AgentConfig>(`/im/v1/agents/${agentId}/config`);
+}
+
+export async function createAgent(next: CreateAgentRequest) {
+  return requestJson<AgentConfig>("/im/v1/agents", {
+    method: "POST",
+    body: JSON.stringify(next)
+  });
+}
+
+export async function listNodes() {
+  return requestJson<Array<{ node_id: string; owner_id: string; node_name: string; status: string; last_heartbeat_at: string; agent_count: number; version: string }>>("/im/v1/nodes");
 }
 
 export async function updateAgentConfig(agentId: string, next: AgentConfig) {
