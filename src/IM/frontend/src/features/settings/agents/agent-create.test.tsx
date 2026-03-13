@@ -90,6 +90,11 @@ describe("agent create page", () => {
     await user.type(screen.getByLabelText("Tool Allowlist"), "read");
     await user.selectOptions(screen.getByLabelText("Node"), "node-1");
     await user.type(screen.getByLabelText("Default Model"), "claude-sonnet-4");
+
+    expect(screen.getByText("MacBook")).toBeInTheDocument();
+    expect(screen.getByText("Assigned agents")).toBeInTheDocument();
+    expect(screen.getByText("online")).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: "Create Agent" }));
 
     await waitFor(() => {
@@ -110,5 +115,39 @@ describe("agent create page", () => {
     await waitFor(() => {
       expect(apiMocks.navigateMock).toHaveBeenCalledWith("/settings/agents/agent-new");
     });
+  });
+
+  it("blocks submission and explains required fields", async () => {
+    const user = userEvent.setup();
+
+    apiMocks.listNodesMock.mockResolvedValue([]);
+
+    renderCreatePage();
+
+    await screen.findByRole("heading", { name: "New Agent" });
+    await user.click(screen.getByRole("button", { name: "Create Agent" }));
+
+    expect(screen.getByText("Agent ID is required.")).toBeInTheDocument();
+    expect(screen.getByText("Display name is required.")).toBeInTheDocument();
+    expect(screen.getByText("System prompt is required.")).toBeInTheDocument();
+    expect(screen.getByText("Complete the required fields before creating this agent.")).toBeInTheDocument();
+    expect(apiMocks.createAgentMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces API errors without leaving the form", async () => {
+    const user = userEvent.setup();
+
+    apiMocks.listNodesMock.mockResolvedValue([]);
+    apiMocks.createAgentMock.mockRejectedValue(new Error("POST /im/v1/agents failed: 409 (agent already exists)"));
+
+    renderCreatePage();
+
+    await user.type(await screen.findByLabelText("Agent ID"), "agent-new");
+    await user.type(screen.getByLabelText("Display Name"), "Agent New");
+    await user.type(screen.getByLabelText("System Prompt"), "You are Agent New.");
+    await user.click(screen.getByRole("button", { name: "Create Agent" }));
+
+    expect(await screen.findByText("409 (agent already exists)")).toBeInTheDocument();
+    expect(apiMocks.navigateMock).not.toHaveBeenCalled();
   });
 });
