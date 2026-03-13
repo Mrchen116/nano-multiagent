@@ -30,7 +30,15 @@ class _FakeKernelClient:
         self._session_index = 0
         self._run_index = 0
 
-    def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None):
+    def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ):
+        del metadata
         self._session_index += 1
         session_id = f"sess-{self._session_index}"
         self.create_session_calls.append(
@@ -172,7 +180,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
 
 
 def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_path: Path) -> None:
-    """Create a real group conversation and route explicit mentions to different agents."""
+    """Create a real group conversation and keep explicit mentions pinned to the addressed agent."""
 
     app = create_app(db_path=tmp_path / "im.db")
     kernel_client = _FakeKernelClient()
@@ -264,7 +272,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
                 }
             )
 
-    assert [call["title"] for call in kernel_client.create_session_calls] == ["Agent-A", "Agent-B"]
+    assert [call["title"] for call in kernel_client.create_session_calls] == ["Agent-B", "Agent-B"]
     assert [call["text"] for call in kernel_client.send_calls] == [
         "@agent-a please inspect rollout",
         "@agent-b review the result",

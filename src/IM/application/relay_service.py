@@ -76,8 +76,11 @@ class RelayService:
 
         created_at = _utc_now()
         relay_task_id = uuid4().hex
-        mentioned_agent_ids = sorted({token[1:] for token in message.content.split() if token.startswith("@") and len(token) > 1})
-        agent_snapshot = self._resolve_agent_snapshot(conversation_id=message.conversation_id)
+        mentioned_agent_ids = self._extract_mentioned_agent_ids(message.content)
+        agent_snapshot = self._resolve_agent_snapshot(
+            conversation_id=message.conversation_id,
+            mentioned_agent_ids=mentioned_agent_ids,
+        )
         metadata = {
             "conversation_type": conversation_type,
             "mentioned_agent_ids": mentioned_agent_ids,
@@ -144,7 +147,18 @@ class RelayService:
         assert created is not None
         return RelayEnqueueResult(relay_task=created, created=True)
 
-    def _resolve_agent_snapshot(self, *, conversation_id: str) -> _RelayAgentSnapshot:
+    @staticmethod
+    def _extract_mentioned_agent_ids(content: str) -> list[str]:
+        mentioned: set[str] = set()
+        for token in content.split():
+            if not token.startswith("@") or len(token) <= 1:
+                continue
+            candidate = token[1:].strip(".,!?:;)]}\"'”’")
+            if candidate:
+                mentioned.add(candidate)
+        return sorted(mentioned)
+
+    def _resolve_agent_snapshot(self, *, conversation_id: str, mentioned_agent_ids: list[str]) -> _RelayAgentSnapshot:
         conversation_row = self._connection.execute(
             "SELECT config_profile_version FROM conversations WHERE id = ?",
             (conversation_id,),
@@ -163,30 +177,39 @@ class RelayService:
             """,
             (conversation_id,),
         ).fetchall()
+        participant_agent_ids: list[str] = []
         for row in participant_rows:
             direct_agent_id = str(row["user_id"])
-            profile = self._profile_row(agent_id=direct_agent_id)
-            if profile is not None:
-                return _RelayAgentSnapshot(
-                    agent_id=direct_agent_id,
-                    profile_version=conversation_profile_version if conversation_profile_version is not None else int(profile["profile_version"]),
-                    system_prompt=str(profile["system_prompt"]),
-                )
+            if self._profile_row(agent_id=direct_agent_id) is not None:
+                participant_agent_ids.append(direct_agent_id)
+                continue
             username = str(row["username"])
             if not username.startswith("agent:"):
                 continue
             alias_agent_id = username[len("agent:") :].strip()
             if not alias_agent_id:
                 continue
-            profile = self._profile_row(agent_id=alias_agent_id)
-            if profile is None:
+            if self._profile_row(agent_id=alias_agent_id) is None:
                 continue
-            return _RelayAgentSnapshot(
-                agent_id=alias_agent_id,
-                profile_version=conversation_profile_version if conversation_profile_version is not None else int(profile["profile_version"]),
-                system_prompt=str(profile["system_prompt"]),
-            )
-        return _RelayAgentSnapshot(agent_id=None, profile_version=conversation_profile_version, system_prompt=None)
+            participant_agent_ids.append(alias_agent_id)
+
+        selected_agent_id: str | None = None
+        for mentioned_agent_id in mentioned_agent_ids:
+            if mentioned_agent_id in participant_agent_ids:
+                selected_agent_id = mentioned_agent_id
+                break
+        if selected_agent_id is None and participant_agent_ids:
+            selected_agent_id = participant_agent_ids[0]
+        if selected_agent_id is None:
+            return _RelayAgentSnapshot(agent_id=None, profile_version=conversation_profile_version, system_prompt=None)
+        profile = self._profile_row(agent_id=selected_agent_id)
+        if profile is None:
+            return _RelayAgentSnapshot(agent_id=None, profile_version=conversation_profile_version, system_prompt=None)
+        return _RelayAgentSnapshot(
+            agent_id=selected_agent_id,
+            profile_version=conversation_profile_version if conversation_profile_version is not None else int(profile["profile_version"]),
+            system_prompt=str(profile["system_prompt"]),
+        )
 
     def _profile_row(self, *, agent_id: str) -> sqlite3.Row | None:
         return self._connection.execute(
