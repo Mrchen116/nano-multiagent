@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,11 +24,86 @@ from IM.infra.repositories import ConversationRepository, EventRepository, NodeR
 from IM.ws.gateway_handler import GatewayHandler
 
 
-def _resolve_frontend_dist_dir(frontend_dist_dir: Path | None) -> Path:
-    """Return the built Web IM asset directory for the running IM service."""
+def _normalize_runtime_path(path: Path) -> Path:
+    """Return a stable absolute path snapshot for runtime lookups."""
+    return path.expanduser().resolve(strict=False)
+
+
+def _discover_repo_root(start_dir: Path) -> Path | None:
+    """Resolve the canonical repository root for a main checkout or git worktree."""
+    current = start_dir
+    while True:
+        dot_git_path = current / ".git"
+        if dot_git_path.is_dir():
+            return current
+        if dot_git_path.is_file():
+            gitdir_line = dot_git_path.read_text(encoding="utf-8").strip()
+            if not gitdir_line.startswith("gitdir:"):
+                return current
+            gitdir_value = gitdir_line.partition(":")[2].strip()
+            gitdir_path = Path(gitdir_value)
+            if not gitdir_path.is_absolute():
+                gitdir_path = current / gitdir_path
+            gitdir_path = gitdir_path.resolve(strict=False)
+            if gitdir_path.name == ".git":
+                return gitdir_path.parent
+            for parent in gitdir_path.parents:
+                if parent.name == ".git":
+                    return parent.parent
+            return None
+        if current.parent == current:
+            return None
+        current = current.parent
+
+
+def _resolve_frontend_dist_candidates(frontend_dist_dir: Path | None) -> tuple[Path, ...]:
+    """Return ordered frontend dist candidates for runtime serving and fallback."""
+    source_root = Path(__file__).resolve().parents[2]
+    module_frontend_dist_dir = Path(__file__).resolve().parent / "frontend" / "dist"
+    repo_root = _discover_repo_root(source_root)
+
+    candidate_paths: list[Path] = []
     if frontend_dist_dir is not None:
-        return frontend_dist_dir
-    return Path(os.getenv("IM_FRONTEND_DIST_DIR", Path(__file__).resolve().parent / "frontend" / "dist"))
+        candidate_paths.append(frontend_dist_dir)
+    configured_frontend_dist = os.getenv("IM_FRONTEND_DIST_DIR")
+    if configured_frontend_dist:
+        candidate_paths.append(Path(configured_frontend_dist))
+    candidate_paths.append(module_frontend_dist_dir)
+    if repo_root is not None:
+        candidate_paths.append(repo_root / "src" / "IM" / "frontend" / "dist")
+
+    deduped_paths: list[Path] = []
+    seen_paths: set[str] = set()
+    for candidate_path in candidate_paths:
+        normalized_candidate_path = _normalize_runtime_path(candidate_path)
+        normalized_key = str(normalized_candidate_path)
+        if normalized_key in seen_paths:
+            continue
+        seen_paths.add(normalized_key)
+        deduped_paths.append(normalized_candidate_path)
+    return tuple(deduped_paths)
+
+
+def _resolve_frontend_dist_dir(frontend_dist_dir: Path | None) -> Path:
+    """Return the primary built Web IM asset directory for the running IM service."""
+    return _resolve_frontend_dist_candidates(frontend_dist_dir)[0]
+
+
+def _resolve_frontend_file(frontend_dist_dirs: tuple[Path, ...], relative_path: Path) -> Path | None:
+    """Return the first available frontend file across runtime dist candidates."""
+    for frontend_dist_dir in frontend_dist_dirs:
+        candidate_path = frontend_dist_dir / relative_path
+        if candidate_path.is_file():
+            return candidate_path
+    return None
+
+
+def _resolve_frontend_asset_file(frontend_dist_dirs: tuple[Path, ...], asset_path: str) -> Path | None:
+    """Return the first available frontend asset file while rejecting path traversal."""
+    requested_asset_path = Path(asset_path)
+    if requested_asset_path.is_absolute() or ".." in requested_asset_path.parts:
+        return None
+    return _resolve_frontend_file(frontend_dist_dirs, Path("assets") / requested_asset_path)
 
 
 def _build_frontend_redirect_url(request: Request, *, frontend_dev_base_url: str) -> str:
@@ -52,31 +127,35 @@ def _resolve_upload_dir(*, upload_dir: Path | None, db_path: Path) -> Path:
 def _install_frontend_entrypoints(
     app: FastAPI,
     *,
-    frontend_dist_dir: Path,
+    frontend_dist_dirs: tuple[Path, ...],
     frontend_dev_base_url: str,
 ) -> None:
     """Expose discoverable Web IM entry routes on the IM service host."""
-    index_html_path = frontend_dist_dir / "index.html"
-    favicon_path = frontend_dist_dir / "favicon.svg"
-    assets_dir = frontend_dist_dir / "assets"
-    serve_built_frontend = index_html_path.is_file()
 
     def frontend_entry_response(request: Request):
-        if serve_built_frontend:
+        index_html_path = _resolve_frontend_file(frontend_dist_dirs, Path("index.html"))
+        if index_html_path is not None:
             return FileResponse(index_html_path)
         return RedirectResponse(
             url=_build_frontend_redirect_url(request, frontend_dev_base_url=frontend_dev_base_url),
             status_code=307,
         )
 
-    if assets_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="im-frontend-assets")
+    @app.get("/assets/{asset_path:path}", include_in_schema=False)
+    async def frontend_asset(asset_path: str) -> FileResponse:
+        """Serve the first available built frontend asset across runtime dist candidates."""
+        asset_file_path = _resolve_frontend_asset_file(frontend_dist_dirs, asset_path)
+        if asset_file_path is None:
+            raise HTTPException(status_code=404, detail="frontend asset not found")
+        return FileResponse(asset_file_path)
 
-    if favicon_path.is_file():
-        @app.get("/favicon.svg", include_in_schema=False)
-        async def frontend_favicon() -> FileResponse:
-            """Serve the built frontend favicon from the IM service host."""
-            return FileResponse(favicon_path)
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def frontend_favicon() -> FileResponse:
+        """Serve the built frontend favicon from the IM service host."""
+        favicon_path = _resolve_frontend_file(frontend_dist_dirs, Path("favicon.svg"))
+        if favicon_path is None:
+            raise HTTPException(status_code=404, detail="frontend favicon not found")
+        return FileResponse(favicon_path)
 
     @app.get("/", include_in_schema=False)
     async def frontend_root(request: Request):
@@ -125,7 +204,7 @@ def create_app(
         Creates the SQLite file if missing and initializes schema at startup.
     """
     resolved_db_path = db_path or Path(os.getenv("IM_DB_PATH", "data/im_service.sqlite3"))
-    resolved_frontend_dist_dir = _resolve_frontend_dist_dir(frontend_dist_dir)
+    resolved_frontend_dist_dirs = _resolve_frontend_dist_candidates(frontend_dist_dir)
     resolved_frontend_dev_base_url = frontend_dev_base_url or os.getenv("IM_FRONTEND_DEV_BASE_URL", "http://127.0.0.1:4173")
     resolved_upload_dir = _resolve_upload_dir(upload_dir=upload_dir, db_path=resolved_db_path)
     resolved_upload_dir.mkdir(parents=True, exist_ok=True)
@@ -151,6 +230,7 @@ def create_app(
 
     app = FastAPI(title="Independent IM Service", version="0.1.0", lifespan=lifespan)
     app.state.upload_dir = resolved_upload_dir
+    app.state.frontend_dist_dirs = resolved_frontend_dist_dirs
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
@@ -169,7 +249,7 @@ def create_app(
     app.include_router(metrics_router)
     _install_frontend_entrypoints(
         app,
-        frontend_dist_dir=resolved_frontend_dist_dir,
+        frontend_dist_dirs=resolved_frontend_dist_dirs,
         frontend_dev_base_url=resolved_frontend_dev_base_url,
     )
 

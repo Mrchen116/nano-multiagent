@@ -1,5 +1,6 @@
 """Unit tests for IM FastAPI application factory."""
 
+import shutil
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -7,7 +8,22 @@ from fastapi.testclient import TestClient
 from IM.api.routes import messages as message_routes
 from IM.api.routes import users as user_routes
 from IM.api.routes import web_im
-from IM.app import create_app
+from IM.app import _resolve_frontend_dist_candidates, create_app
+
+
+def test_resolve_frontend_dist_candidates_keeps_repo_dist_as_runtime_fallback(tmp_path: Path, monkeypatch) -> None:
+    """Keep the current repo dist in the lookup chain even when a stale worktree path is configured."""
+    explicit_stale_dir = tmp_path / "missing-explicit-dist"
+    env_stale_dir = tmp_path / "missing-env-dist"
+    monkeypatch.setenv("IM_FRONTEND_DIST_DIR", str(env_stale_dir))
+
+    candidates = _resolve_frontend_dist_candidates(explicit_stale_dir)
+
+    assert candidates[0] == explicit_stale_dir.resolve(strict=False)
+    assert candidates[1] == env_stale_dir.resolve(strict=False)
+    assert any(candidate.name == "dist" and candidate.is_absolute() for candidate in candidates[2:])
+    assert any(str(candidate).endswith("/src/IM/frontend/dist") for candidate in candidates[2:])
+
 
 
 def test_create_app_registers_im_routes(tmp_path: Path) -> None:
@@ -23,9 +39,9 @@ def test_create_app_uses_layered_route_modules(tmp_path: Path) -> None:
     """Register routes from api.routes modules instead of inline handlers."""
     app = create_app(db_path=tmp_path / "im.db")
 
-    assert any(route.endpoint is user_routes.create_user for route in app.routes)
-    assert any(route.endpoint is web_im.create_conversation for route in app.routes)
-    assert any(route.endpoint is message_routes.create_message for route in app.routes)
+    assert any(getattr(route, "endpoint", None) is user_routes.create_user for route in app.routes)
+    assert any(getattr(route, "endpoint", None) is web_im.create_conversation for route in app.routes)
+    assert any(getattr(route, "endpoint", None) is message_routes.create_message for route in app.routes)
 
 
 def test_create_app_allows_local_browser_origins_for_real_im_frontend(tmp_path: Path) -> None:
@@ -46,11 +62,17 @@ def test_create_app_allows_local_browser_origins_for_real_im_frontend(tmp_path: 
     assert "GET" in response.headers["access-control-allow-methods"]
 
 
-def test_create_app_redirects_frontend_routes_to_dev_server_when_dist_is_missing(tmp_path: Path) -> None:
+def test_create_app_redirects_frontend_routes_to_dev_server_when_dist_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     """Redirect discoverable Web IM routes to the configured dev server when no build exists."""
+    missing_dist_dir = tmp_path / "missing-dist"
+    monkeypatch.setattr("IM.app._resolve_frontend_dist_candidates", lambda frontend_dist_dir: (missing_dist_dir,))
+
     app = create_app(
         db_path=tmp_path / "im.db",
-        frontend_dist_dir=tmp_path / "missing-dist",
+        frontend_dist_dir=missing_dist_dir,
         frontend_dev_base_url="http://127.0.0.1:4173",
     )
 
@@ -70,12 +92,59 @@ def test_create_app_redirects_frontend_routes_to_dev_server_when_dist_is_missing
     assert bind_response.headers["location"] == "http://127.0.0.1:4173/bind/confirm?token=test-token"
 
 
+def test_create_app_falls_back_to_secondary_frontend_dist_when_primary_worktree_dist_disappears(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Serve the next valid frontend build when the original worktree dist is removed after startup."""
+    stale_dist_dir = tmp_path / "stale-dist"
+    stale_dist_dir.mkdir()
+    (stale_dist_dir / "index.html").write_text("<!doctype html><title>stale shell</title>", encoding="utf-8")
+
+    fallback_dist_dir = tmp_path / "fallback-dist"
+    fallback_assets_dir = fallback_dist_dir / "assets"
+    fallback_assets_dir.mkdir(parents=True)
+    (fallback_dist_dir / "index.html").write_text("<!doctype html><title>fallback shell</title>", encoding="utf-8")
+    (fallback_dist_dir / "favicon.svg").write_text("<svg>fallback</svg>", encoding="utf-8")
+    (fallback_assets_dir / "app.js").write_text("console.log('fallback asset');", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "IM.app._resolve_frontend_dist_candidates",
+        lambda frontend_dist_dir: (stale_dist_dir, fallback_dist_dir),
+    )
+
+    app = create_app(
+        db_path=tmp_path / "im.db",
+        frontend_dist_dir=stale_dist_dir,
+        frontend_dev_base_url="http://127.0.0.1:4173",
+    )
+
+    shutil.rmtree(stale_dist_dir)
+
+    with TestClient(app) as client:
+        root_response = client.get("/")
+        chat_response = client.get("/chat")
+        favicon_response = client.get("/favicon.svg")
+        asset_response = client.get("/assets/app.js")
+
+    assert root_response.status_code == 200
+    assert root_response.text == "<!doctype html><title>fallback shell</title>"
+    assert chat_response.status_code == 200
+    assert chat_response.text == "<!doctype html><title>fallback shell</title>"
+    assert favicon_response.status_code == 200
+    assert favicon_response.text == "<svg>fallback</svg>"
+    assert asset_response.status_code == 200
+    assert asset_response.text == "console.log('fallback asset');"
+
+
 def test_create_app_serves_built_frontend_shell_on_im_routes(tmp_path: Path) -> None:
     """Serve the built SPA shell from the IM service host when dist assets exist."""
     dist_dir = tmp_path / "dist"
-    dist_dir.mkdir()
+    assets_dir = dist_dir / "assets"
+    assets_dir.mkdir(parents=True)
     (dist_dir / "index.html").write_text("<!doctype html><title>IM shell</title>", encoding="utf-8")
     (dist_dir / "favicon.svg").write_text("<svg></svg>", encoding="utf-8")
+    (assets_dir / "app.js").write_text("console.log('IM shell');", encoding="utf-8")
 
     app = create_app(
         db_path=tmp_path / "im.db",
@@ -89,6 +158,7 @@ def test_create_app_serves_built_frontend_shell_on_im_routes(tmp_path: Path) -> 
         settings_response = client.get("/settings/agents")
         bind_response = client.get("/bind/confirm?token=test-token")
         favicon_response = client.get("/favicon.svg")
+        asset_response = client.get("/assets/app.js")
 
     assert root_response.status_code == 200
     assert root_response.text == "<!doctype html><title>IM shell</title>"
@@ -100,3 +170,5 @@ def test_create_app_serves_built_frontend_shell_on_im_routes(tmp_path: Path) -> 
     assert bind_response.text == "<!doctype html><title>IM shell</title>"
     assert favicon_response.status_code == 200
     assert favicon_response.text == "<svg></svg>"
+    assert asset_response.status_code == 200
+    assert asset_response.text == "console.log('IM shell');"
