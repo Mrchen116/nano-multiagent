@@ -16,6 +16,9 @@ _SHARED_RUNTIME_PATHS: tuple[tuple[str, bool], ...] = (
     ("data/dev-tasks.json", False),
     ("data/locks", True),
 )
+_WORKTREE_LOCAL_RUNTIME_DIRS: tuple[str, ...] = (
+    "data",
+)
 
 
 def prepare_shared_runtime_files(*, repo_root: Path, worktree_dir: Path) -> None:
@@ -37,6 +40,9 @@ def prepare_shared_runtime_files(*, repo_root: Path, worktree_dir: Path) -> None
 
     resolved_repo_root = repo_root.expanduser().resolve()
     resolved_worktree_dir = worktree_dir.expanduser().resolve()
+    for relative_dir in _WORKTREE_LOCAL_RUNTIME_DIRS:
+        (resolved_worktree_dir / relative_dir).mkdir(parents=True, exist_ok=True)
+
     for relative_path, target_is_directory in _SHARED_RUNTIME_PATHS:
         shared_path = resolved_repo_root / relative_path
         worktree_path = resolved_worktree_dir / relative_path

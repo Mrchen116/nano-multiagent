@@ -1,8 +1,15 @@
 """Agent configuration routes for IM HTTP APIs."""
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from agent.core.skills.discovery import default_skill_search_roots
+from agent.core.skills.registry import SkillRegistry
+from agent.platform.config.resolver import ConfigResolver
+from agent.platform.tools.loader import build_tool_registry
+from agent.products.personal_assistant.profile import PERSONAL_ASSISTANT_PROFILE
 from IM.api.deps import get_config_service
 from IM.application.config_service import ConfigService
 from IM.domain.models import AgentProfile
@@ -75,6 +82,84 @@ class AgentSummaryResponse(BaseModel):
     updated_at: str | None = None
 
 
+class AllowlistOptionResponse(BaseModel):
+    """One selectable allowlist option exposed to the IM settings UI."""
+
+    name: str
+    description: str = ""
+
+
+class AgentAllowlistOptionsResponse(BaseModel):
+    """Selectable skills and tools currently available to the running system."""
+
+    skills: list[AllowlistOptionResponse] = Field(default_factory=list)
+    tools: list[AllowlistOptionResponse] = Field(default_factory=list)
+
+
+def _discover_repo_root(start_dir: Path) -> Path | None:
+    """Resolve the canonical repository root for the running checkout or worktree."""
+    current = start_dir.expanduser().resolve(strict=False)
+    while True:
+        dot_git_path = current / ".git"
+        if dot_git_path.is_dir():
+            return current
+        if dot_git_path.is_file():
+            return current
+        if current.parent == current:
+            return None
+        current = current.parent
+
+
+def _resolve_repo_root() -> Path:
+    """Return the repository root used for skill/tool discovery."""
+    fallback = Path(__file__).resolve().parents[4]
+    return _discover_repo_root(Path(__file__).resolve()) or fallback
+
+
+def _product_source_root() -> Path:
+    """Return the personal_assistant product source directory."""
+    return Path(__file__).resolve().parents[3] / "agent" / "products" / "personal_assistant"
+
+
+def _build_allowlist_config_resolver(*, repo_root: Path) -> ConfigResolver:
+    """Build the product-aware config resolver used by allowlist option discovery."""
+    return ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=repo_root)
+
+
+def _list_available_skill_options() -> list[AllowlistOptionResponse]:
+    """List current selectable skills for the agent settings UI."""
+    repo_root = _resolve_repo_root()
+    product_root = _product_source_root()
+    config_resolver = _build_allowlist_config_resolver(repo_root=repo_root)
+    registry = SkillRegistry(
+        search_roots=default_skill_search_roots(
+            workspace_root=repo_root,
+            config_resolver=config_resolver,
+            product_skill_root=product_root / "skills",
+        )
+    )
+    return [
+        AllowlistOptionResponse(name=skill.name, description=skill.description)
+        for skill in registry.list_skills(refresh=True)
+    ]
+
+
+def _list_available_tool_options() -> list[AllowlistOptionResponse]:
+    """List current selectable tools for the agent settings UI."""
+    repo_root = _resolve_repo_root()
+    product_root = _product_source_root()
+    config_resolver = _build_allowlist_config_resolver(repo_root=repo_root)
+    registry = build_tool_registry(
+        repo_root=repo_root,
+        config_resolver=config_resolver,
+        product_tool_dir=product_root / "tools",
+    )
+    return [
+        AllowlistOptionResponse(name=spec.name, description=spec.description)
+        for spec in sorted(registry.list_specs(), key=lambda spec: spec.name)
+    ]
+
+
 def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -> AgentConfigResponse:
     """Convert a domain profile to the config response model."""
     return AgentConfigResponse(
@@ -143,6 +228,15 @@ def create_agent(
 def list_agents(service: ConfigService = Depends(get_config_service)) -> list[AgentSummaryResponse]:
     """List runtime-selectable agents for the current IM workspace."""
     return [to_agent_summary_response(item, service=service) for item in service.list_runtime_selectable_profiles()]
+
+
+@router.get("/im/v1/agents/allowlist-options", response_model=AgentAllowlistOptionsResponse)
+def get_agent_allowlist_options() -> AgentAllowlistOptionsResponse:
+    """Return current selectable skills and tools for agent allowlist fields."""
+    return AgentAllowlistOptionsResponse(
+        skills=_list_available_skill_options(),
+        tools=_list_available_tool_options(),
+    )
 
 
 @router.get("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)

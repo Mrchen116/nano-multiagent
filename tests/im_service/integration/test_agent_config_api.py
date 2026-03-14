@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from IM.api.routes import agents as agent_routes
 from IM.app import create_app
 from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
 
@@ -289,3 +290,37 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
         assert first_conv_after_patch.json()["config_profile_version"] == 1
         assert second_conv.json()["config_profile_version"] == 2
         assert second_conv_after_patch.json()["config_profile_version"] == 2
+
+
+def test_agent_allowlist_options_returns_current_selectable_items(tmp_path: Path, monkeypatch) -> None:
+    """Expose current skill/tool options so the settings UI can render selectors."""
+    monkeypatch.setattr(
+        agent_routes,
+        "_list_available_skill_options",
+        lambda: [
+            agent_routes.AllowlistOptionResponse(name="plan", description="Plan work"),
+            agent_routes.AllowlistOptionResponse(name="playwright", description="Drive browser checks"),
+        ],
+    )
+    monkeypatch.setattr(
+        agent_routes,
+        "_list_available_tool_options",
+        lambda: [
+            agent_routes.AllowlistOptionResponse(name="read", description="Read files"),
+            agent_routes.AllowlistOptionResponse(name="bash", description="Run shell commands"),
+        ],
+    )
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        response = client.get("/im/v1/agents/allowlist-options")
+
+    assert response.status_code == 200
+    assert response.json()["skills"] == [
+        {"name": "plan", "description": "Plan work"},
+        {"name": "playwright", "description": "Drive browser checks"},
+    ]
+    assert response.json()["tools"] == [
+        {"name": "read", "description": "Read files"},
+        {"name": "bash", "description": "Run shell commands"},
+    ]

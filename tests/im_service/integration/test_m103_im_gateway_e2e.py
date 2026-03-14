@@ -281,6 +281,7 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
             metadata={
                 "relay_task_id": relay_frame["payload"]["relay_task_id"],
                 "idempotency_key": "idem-m103-roundtrip",
+                "message_id": relay_frame["payload"]["message"]["id"],
                 "conversation_type": "direct",
                 "mentioned_agent_ids": [],
                 "config_profile_version": 1,
@@ -605,6 +606,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     assert relay_adapter.sent[0].metadata == {
         "relay_task_id": first_relay["payload"]["relay_task_id"],
         "idempotency_key": "idem-m150-old-before",
+        "message_id": first_relay["payload"]["message"]["id"],
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
@@ -613,6 +615,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     assert relay_adapter.sent[1].metadata == {
         "relay_task_id": old_after_relay["payload"]["relay_task_id"],
         "idempotency_key": "idem-m150-old-after",
+        "message_id": old_after_relay["payload"]["message"]["id"],
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
@@ -621,6 +624,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     assert relay_adapter.sent[2].metadata == {
         "relay_task_id": new_after_relay["payload"]["relay_task_id"],
         "idempotency_key": "idem-m150-new-after",
+        "message_id": new_after_relay["payload"]["message"]["id"],
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 2,

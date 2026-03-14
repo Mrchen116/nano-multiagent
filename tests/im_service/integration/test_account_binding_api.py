@@ -51,7 +51,7 @@ def test_me_roundtrip_and_bind_flow(tmp_path: Path) -> None:
         assert start_resp.status_code == 201
         start_body = start_resp.json()
         assert start_body["status"] == "pending"
-        assert start_body["bind_url"].startswith("http://127.0.0.1:8011/bind/confirm?token=")
+        assert start_body["bind_url"].startswith("http://testserver/bind/confirm?token=")
 
         confirm_resp = client.post(
             "/im/v1/bind",

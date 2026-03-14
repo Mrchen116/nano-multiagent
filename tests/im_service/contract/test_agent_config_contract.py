@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from IM.api.routes import agents as agent_routes
 from IM.app import create_app
 from IM.repositories import AgentProfileRepository, UserRepository
 
@@ -64,3 +65,27 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
         )
         assert conflict.status_code == 409
         assert conflict.json() == {"detail": "profile_version conflict"}
+
+
+def test_agent_allowlist_options_contract_shape(tmp_path: Path, monkeypatch) -> None:
+    """Expose stable selectable skill/tool option envelopes for settings UI."""
+    monkeypatch.setattr(
+        agent_routes,
+        "_list_available_skill_options",
+        lambda: [agent_routes.AllowlistOptionResponse(name="plan", description="Plan work")],
+    )
+    monkeypatch.setattr(
+        agent_routes,
+        "_list_available_tool_options",
+        lambda: [agent_routes.AllowlistOptionResponse(name="read", description="Read files")],
+    )
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        response = client.get("/im/v1/agents/allowlist-options")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "skills": [{"name": "plan", "description": "Plan work"}],
+        "tools": [{"name": "read", "description": "Read files"}],
+    }

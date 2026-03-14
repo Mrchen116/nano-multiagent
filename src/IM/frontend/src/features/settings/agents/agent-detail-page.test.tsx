@@ -6,6 +6,7 @@ import { afterEach, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   getAgentConfigMock: vi.fn(),
+  getAgentAllowlistOptionsMock: vi.fn(),
   listNodesMock: vi.fn(),
   updateAgentConfigMock: vi.fn(),
   createDirectConversationMock: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("../../chat/chat-api", () => ({
 
 vi.mock("./im-agent-config-api", () => ({
   getAgentConfig: apiMocks.getAgentConfigMock,
+  getAgentAllowlistOptions: apiMocks.getAgentAllowlistOptionsMock,
   listNodes: apiMocks.listNodesMock,
   updateAgentConfig: apiMocks.updateAgentConfigMock
 }));
@@ -51,6 +53,7 @@ function renderDetailPage() {
 
 afterEach(() => {
   apiMocks.getAgentConfigMock.mockReset();
+  apiMocks.getAgentAllowlistOptionsMock.mockReset();
   apiMocks.listNodesMock.mockReset();
   apiMocks.updateAgentConfigMock.mockReset();
   apiMocks.createDirectConversationMock.mockReset();
@@ -88,6 +91,10 @@ describe("agent detail page", () => {
         version: "1.0.0"
       }
     ]);
+    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({
+      skills: [{ name: "tdd-execution-worker", description: "Execute TDD tasks" }],
+      tools: [{ name: "read", description: "Read files" }]
+    });
     apiMocks.updateAgentConfigMock.mockResolvedValue(undefined);
     apiMocks.createDirectConversationMock.mockResolvedValue({ conversation_id: "conv-agent-core-1" });
 

@@ -30,6 +30,16 @@ export interface AgentConfig {
   updated_at?: string | null;
 }
 
+export interface AgentAllowlistOption {
+  name: string;
+  description: string;
+}
+
+export interface AgentAllowlistOptions {
+  skills: AgentAllowlistOption[];
+  tools: AgentAllowlistOption[];
+}
+
 export interface CreateAgentRequest {
   agent_id: string;
   owner_id: string;
@@ -108,6 +118,10 @@ export async function listAgentSummaries() {
 
 export async function getAgentConfig(agentId: string) {
   return requestJson<AgentConfig>(`/im/v1/agents/${agentId}/config`);
+}
+
+export async function getAgentAllowlistOptions() {
+  return requestJson<AgentAllowlistOptions>("/im/v1/agents/allowlist-options");
 }
 
 export async function createAgent(next: CreateAgentRequest) {

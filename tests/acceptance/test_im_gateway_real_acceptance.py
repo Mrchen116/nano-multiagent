@@ -79,10 +79,22 @@ class StubKernelClient:
         self._session_index = 0
         self._run_index = 0
 
-    def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, str]:
+    def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, str]:
         self._session_index += 1
         self.create_session_calls.append(
-            {"workspace_root": workspace_root, "product_id": product_id, "title": title}
+            {
+                "workspace_root": workspace_root,
+                "product_id": product_id,
+                "title": title,
+                "metadata": metadata,
+            }
         )
         return {"session_id": f"sess-{self._session_index}"}
 
@@ -318,7 +330,7 @@ def test_im_gateway_acceptance_covers_bind_connect_roundtrip_and_receipts(tmp_pa
     harness = GatewayAcceptanceHarness(tmp_path)
     result = harness.run_roundtrip()
 
-    assert result["bind_url"].startswith("http://127.0.0.1:8011/bind/confirm?token=")
+    assert result["bind_url"].startswith("http://testserver/bind/confirm?token=")
     assert result["register_ack"] == {
         "type": "ack",
         "payload": {"message_type": "node.register", "node_id": "node-1"},
