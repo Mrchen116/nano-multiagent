@@ -56,3 +56,25 @@ def test_prepare_shared_runtime_files_is_idempotent_for_existing_symlink(tmp_pat
     assert local_board.resolve() == shared_board.resolve()
     assert local_locks.is_symlink()
     assert local_locks.resolve() == shared_locks.resolve()
+
+
+def test_prepare_shared_runtime_files_recreates_worktree_local_data_dir_for_private_runtime_files(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_data = repo_root / "data"
+    repo_data.mkdir(parents=True)
+    shared_board = repo_data / "dev-tasks.json"
+    shared_board.write_text('{"board":"shared"}\n', encoding="utf-8")
+    shared_locks = repo_data / "locks"
+    shared_locks.mkdir()
+
+    worktree_dir = repo_root / ".worktrees" / "M175"
+
+    prepare_shared_runtime_files(repo_root=repo_root, worktree_dir=worktree_dir)
+
+    worktree_data = worktree_dir / "data"
+    assert worktree_data.is_dir()
+    assert not worktree_data.is_symlink()
+    assert (worktree_data / "dev-tasks.json").is_symlink()
+    assert (worktree_data / "dev-tasks.json").resolve() == shared_board.resolve()
+    assert (worktree_data / "locks").is_symlink()
+    assert (worktree_data / "locks").resolve() == shared_locks.resolve()
