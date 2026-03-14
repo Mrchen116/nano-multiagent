@@ -53,6 +53,8 @@ export interface ChatMessage {
   created_at: string;
   attachments?: ChatAttachment[];
   delivery_status?: "sent" | "running" | "completed" | "failed";
+  recovery_action_label?: string;
+  recovery_hint?: string;
 }
 
 export interface MentionCandidate {

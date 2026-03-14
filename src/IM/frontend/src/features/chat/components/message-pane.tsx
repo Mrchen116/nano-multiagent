@@ -108,16 +108,33 @@ function toUploadErrorMessage(fileName: string, error: unknown) {
   return `Couldn't upload ${fileName}. Try again.`;
 }
 
-function toDeliveryStatusLabel(status: ChatMessage["delivery_status"]) {
-  switch (status) {
+function toDeliveryStatusCopy(message: ChatMessage) {
+  switch (message.delivery_status) {
     case "sent":
-      return "Sent";
+      return {
+        label: message.is_mine ? "Sent to relay" : "Delivered",
+        hint: message.is_mine ? "Your message left this device and is waiting for agent work." : null
+      };
     case "running":
-      return "Agent working";
+      return {
+        label: "Agent is working",
+        hint: "The relay accepted your request and the agent is still processing it."
+      };
     case "completed":
-      return "Completed";
+      return {
+        label: message.sender_type === "agent" ? "Agent replied" : "Delivered",
+        hint: message.sender_type === "agent" ? "The latest agent response finished successfully." : null
+      };
     case "failed":
-      return "Failed to send";
+      return {
+        label: message.sender_type === "agent" ? "Agent couldn't finish" : "Didn't send",
+        hint:
+          message.recovery_hint ??
+          (message.sender_type === "agent"
+            ? "The agent stopped before finishing this turn. Retry the request to ask the agent again."
+            : "The message did not reach the relay. Retry after the connection is back."),
+        actionLabel: message.recovery_action_label ?? "Retry"
+      };
     default:
       return null;
   }
@@ -231,7 +248,7 @@ function AttachmentLinks({ attachments, muted = false }: { attachments: ChatAtta
 function MessageBubble({ message }: { message: ChatMessage }) {
   const mine = message.is_mine ?? message.sender_type === "user";
   const attachments = message.attachments ?? [];
-  const deliveryStatusLabel = toDeliveryStatusLabel(message.delivery_status);
+  const deliveryStatus = toDeliveryStatusCopy(message);
   return (
     <div className={`mb-3 flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
@@ -243,7 +260,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         <p className="text-[11px] opacity-75">{message.sender_name ?? message.sender_type}</p>
         {message.content ? <p className="mt-1 whitespace-pre-wrap">{message.content}</p> : null}
         <AttachmentLinks attachments={attachments} muted={mine} />
-        {deliveryStatusLabel && <p className="mt-1 text-[10px] font-semibold tracking-wide opacity-70">{deliveryStatusLabel}</p>}
+        {deliveryStatus && (
+          <div className="mt-2 rounded-xl border border-black/10 bg-black/5 px-2 py-1 text-[10px] leading-4">
+            <p className="font-semibold tracking-wide opacity-80">{deliveryStatus.label}</p>
+            {deliveryStatus.hint ? <p className="mt-1 opacity-75">{deliveryStatus.hint}</p> : null}
+            {deliveryStatus.actionLabel ? <p className="mt-1 font-semibold opacity-80">Recovery: {deliveryStatus.actionLabel}</p> : null}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -37,6 +37,22 @@ function toStatus(value: unknown): ChatMessage["delivery_status"] | undefined {
   return undefined;
 }
 
+function toRecoveryActionLabel(status: ChatMessage["delivery_status"], senderType: ChatMessage["sender_type"]) {
+  if (status !== "failed") {
+    return undefined;
+  }
+  return senderType === "agent" ? "Retry request" : "Retry send";
+}
+
+function toRecoveryHint(input: { status: ChatMessage["delivery_status"]; senderType: ChatMessage["sender_type"] }) {
+  if (input.status !== "failed") {
+    return undefined;
+  }
+  return input.senderType === "agent"
+    ? "The agent stopped before finishing this turn. Retry the request to ask the agent again."
+    : "The message did not reach the relay. Retry after the connection is back.";
+}
+
 function toSenderType(value: unknown): ChatMessage["sender_type"] | undefined {
   if (value === "user" || value === "agent" || value === "system") {
     return value;
@@ -80,6 +96,7 @@ function buildStreamMessage(input: {
   }
   const senderUserId = toStringValue(input.payload.sender_user_id);
   const senderType = toSenderType(input.payload.sender_type) ?? input.fallbackSenderType;
+  const deliveryStatus = toStatus(input.payload.delivery_status) ?? input.fallbackStatus;
   return {
     message_id: messageId,
     sender_type: senderType,
@@ -93,7 +110,9 @@ function buildStreamMessage(input: {
     attachments: toAttachments(input.payload.attachments),
     created_at: input.createdAt ?? toStringValue(input.payload.created_at) ?? new Date().toISOString(),
     is_mine: senderUserId !== null && input.selfUserId !== undefined ? senderUserId === input.selfUserId : undefined,
-    delivery_status: toStatus(input.payload.delivery_status) ?? input.fallbackStatus
+    delivery_status: deliveryStatus,
+    recovery_action_label: toRecoveryActionLabel(deliveryStatus, senderType),
+    recovery_hint: toRecoveryHint({ status: deliveryStatus, senderType })
   };
 }
 
@@ -314,7 +333,9 @@ export function toRelayAgentMessage(event: {
     is_mine: false,
     content,
     created_at: toStringValue(event.payload.created_at) ?? new Date().toISOString(),
-    delivery_status: status
+    delivery_status: status,
+    recovery_action_label: toRecoveryActionLabel(status, "agent"),
+    recovery_hint: toRecoveryHint({ status, senderType: "agent" })
   };
 }
 
@@ -556,7 +577,9 @@ export function ChatWorkspacePage() {
             const nextMessage: ChatMessage = {
               ...existing,
               content: content ?? existing.content,
-              delivery_status: status
+              delivery_status: status,
+              recovery_action_label: toRecoveryActionLabel(status, existing.sender_type),
+              recovery_hint: toRecoveryHint({ status, senderType: existing.sender_type })
             };
             return {
               ...previous,

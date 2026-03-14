@@ -371,7 +371,7 @@ describe("message pane", () => {
     expect(screen.queryByRole("button", { name: "Retry upload retry.txt" })).not.toBeInTheDocument();
   });
 
-  it("renders readable message status labels", () => {
+  it("renders understandable message status and recovery copy", () => {
     renderMessagePane({
       detail: {
         conversation_id: "conv-status",
@@ -410,14 +410,31 @@ describe("message pane", () => {
             content: "failed message",
             created_at: "2026-03-14T00:03:00Z",
             delivery_status: "failed"
+          },
+          {
+            message_id: "msg-agent-failed",
+            sender_type: "agent",
+            sender_name: "OpsBot",
+            content: "agent failed message",
+            created_at: "2026-03-14T00:04:00Z",
+            delivery_status: "failed",
+            recovery_action_label: "Retry request",
+            recovery_hint: "The agent stopped before finishing this turn. Retry the request to ask the agent again."
           }
         ]
       }
     });
 
-    expect(screen.getByText("Sent")).toBeInTheDocument();
-    expect(screen.getByText("Agent working")).toBeInTheDocument();
-    expect(screen.getByText("Completed")).toBeInTheDocument();
-    expect(screen.getByText("Failed to send")).toBeInTheDocument();
+    expect(screen.getByText("Sent to relay")).toBeInTheDocument();
+    expect(screen.getByText("Your message left this device and is waiting for agent work.")).toBeInTheDocument();
+    expect(screen.getByText("Agent is working")).toBeInTheDocument();
+    expect(screen.getByText("The relay accepted your request and the agent is still processing it.")).toBeInTheDocument();
+    expect(screen.getByText("Agent replied")).toBeInTheDocument();
+    expect(screen.getByText("The latest agent response finished successfully.")).toBeInTheDocument();
+    expect(screen.getByText("Didn't send")).toBeInTheDocument();
+    expect(screen.getByText("The message did not reach the relay. Retry after the connection is back.")).toBeInTheDocument();
+    expect(screen.getByText("Agent couldn't finish")).toBeInTheDocument();
+    expect(screen.getByText("The agent stopped before finishing this turn. Retry the request to ask the agent again.")).toBeInTheDocument();
+    expect(screen.getByText("Recovery: Retry request")).toBeInTheDocument();
   });
 });

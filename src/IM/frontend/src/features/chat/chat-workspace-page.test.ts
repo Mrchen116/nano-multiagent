@@ -265,6 +265,25 @@ describe("chat workspace usage helpers", () => {
 });
 
 describe("chat workspace relay event mapping", () => {
+  it("adds recovery guidance when relay failure becomes an agent failure bubble", () => {
+    expect(
+      toRelayAgentMessage({
+        eventType: "relay.failed",
+        payload: {
+          message_id: "msg-2",
+          detail: "agent execution aborted"
+        }
+      })
+    ).toMatchObject({
+      message_id: "msg-2:agent",
+      sender_type: "agent",
+      content: "agent execution aborted",
+      delivery_status: "failed",
+      recovery_action_label: "Retry request",
+      recovery_hint: "The agent stopped before finishing this turn. Retry the request to ask the agent again."
+    });
+  });
+
   it("converts relay.processing into a synthetic running agent message", () => {
     expect(
       toRelayAgentMessage({
@@ -283,7 +302,9 @@ describe("chat workspace relay event mapping", () => {
       is_mine: false,
       content: "working on it",
       created_at: "2026-03-12T00:00:00Z",
-      delivery_status: "running"
+      delivery_status: "running",
+      recovery_action_label: undefined,
+      recovery_hint: undefined
     });
   });
 
@@ -300,7 +321,9 @@ describe("chat workspace relay event mapping", () => {
       message_id: "msg-1:agent",
       sender_type: "agent",
       content: "done",
-      delivery_status: "completed"
+      delivery_status: "completed",
+      recovery_action_label: undefined,
+      recovery_hint: undefined
     });
   });
 });
