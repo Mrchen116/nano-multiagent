@@ -37,3 +37,8 @@
 - 新建 Agent：System Prompt 会自动填入标准模板。
 - 编辑已有 Agent：继续显示并保留已有值，不会被默认模板覆盖。
 - 用户可覆盖模板并提交，现有创建/保存链路维持可用。
+
+## 收口状态
+- 实现提交：`c8c0ee4528da03e72caa0a0f30670992a78a003d`
+- 记录提交：`ecfa6abd1129855faaab14a36edc8fc69d147a19`
+- main merge / push / milestone worktree 清理结果以本次执行完成报告为准。

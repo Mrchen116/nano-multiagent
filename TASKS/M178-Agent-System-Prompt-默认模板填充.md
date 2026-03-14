@@ -48,4 +48,7 @@
 
 ## 收尾
 - Status: DONE
-- 待执行：提交、merge main、push、清理 worktree。
+- 里程碑实现提交：`c8c0ee4528da03e72caa0a0f30670992a78a003d`
+- 里程碑记录提交：`ecfa6abd1129855faaab14a36edc8fc69d147a19`
+- 备注：`data/dev-tasks.json` 按要求未由本 worker 修改状态。
+- merge / push / worktree 清理结果以本次执行完成报告为准。
