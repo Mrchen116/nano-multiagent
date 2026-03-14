@@ -80,6 +80,7 @@ def _seed_node_and_profiles(app, *, owner_id: str = "", agent_ids: tuple[str, ..
             tool_allowlist=[],
             group_reply_policy="manual",
             default_model=None,
+            workspace_root=None,
         )
         app.state.connection.execute(
             "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",

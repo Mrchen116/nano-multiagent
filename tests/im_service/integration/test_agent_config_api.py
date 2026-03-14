@@ -25,6 +25,7 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
             tool_allowlist=["read"],
             group_reply_policy="manual",
             default_model="gpt-4.1",
+            workspace_root=None,
         )
 
         list_resp = client.get("/im/v1/agents")
@@ -37,15 +38,19 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
                 "description": "initial",
                 "profile_version": 1,
                 "default_model": "gpt-4.1",
+                "workspace_root": list_resp.json()[0]["workspace_root"],
+                "workspace_is_default": True,
                 "bound_nodes": [],
                 "updated_at": list_resp.json()[0]["updated_at"],
             }
         ]
+        assert list_resp.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
 
         get_resp = client.get(f"/im/v1/agents/{seeded.agent_id}/config")
         assert get_resp.status_code == 200
         assert get_resp.json()["profile_version"] == 1
         assert get_resp.json()["skills"] == ["plan"]
+        assert get_resp.json()["workspace_is_default"] is True
 
         patch_resp = client.patch(
             f"/im/v1/agents/{seeded.agent_id}/config",
@@ -58,6 +63,7 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
                 "tool_allowlist": ["read", "edit"],
                 "group_reply_policy": "auto",
                 "default_model": "claude-sonnet-4",
+                "workspace_root": "/srv/agents/alpha",
             },
         )
         assert patch_resp.status_code == 200
@@ -65,6 +71,8 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
         assert body["display_name"] == "Alpha v2"
         assert body["profile_version"] == 2
         assert body["group_reply_policy"] == "auto"
+        assert body["workspace_root"] == "/srv/agents/alpha"
+        assert body["workspace_is_default"] is False
 
         conflict_resp = client.patch(
             f"/im/v1/agents/{seeded.agent_id}/config",
@@ -77,6 +85,7 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
                 "tool_allowlist": [],
                 "group_reply_policy": "manual",
                 "default_model": None,
+                "workspace_root": None,
             },
         )
         assert conflict_resp.status_code == 409
@@ -100,6 +109,7 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
             tool_allowlist=[],
             group_reply_policy="manual",
             default_model=None,
+            workspace_root=None,
         )
 
         first_conv = client.post(
@@ -133,6 +143,7 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
                 "tool_allowlist": [],
                 "group_reply_policy": "manual",
                 "default_model": None,
+                "workspace_root": None,
             },
         )
         assert patch_resp.status_code == 200

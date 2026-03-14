@@ -28,6 +28,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
                 "tool_allowlist": ["read"],
                 "group_reply_policy": "MENTION",
                 "default_model": "claude-sonnet-4",
+                "workspace_root": "/srv/agents/agent-1",
                 "node_id": "node-1",
             },
         )
@@ -42,11 +43,15 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             "tool_allowlist",
             "group_reply_policy",
             "default_model",
+            "workspace_root",
+            "workspace_is_default",
             "profile_version",
             "bound_nodes",
             "updated_at",
         }
         assert created.json()["bound_nodes"] == ["node-1"]
+        assert created.json()["workspace_root"] == "/srv/agents/agent-1"
+        assert created.json()["workspace_is_default"] is False
         assert isinstance(created.json()["updated_at"], str)
         assert created.json()["profile_version"] == 1
 
@@ -84,3 +89,21 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
         )
         assert missing_node.status_code == 404
         assert missing_node.json() == {"detail": "node_id not found"}
+
+        invalid_workspace = client.post(
+            "/im/v1/agents",
+            json={
+                "agent_id": "agent-3",
+                "owner_id": owner.owner_id,
+                "display_name": "Gamma",
+                "description": "bad path",
+                "system_prompt": "You are Gamma.",
+                "skills": [],
+                "tool_allowlist": [],
+                "group_reply_policy": "MENTION",
+                "default_model": None,
+                "workspace_root": "relative/path",
+            },
+        )
+        assert invalid_workspace.status_code == 422
+        assert invalid_workspace.json() == {"detail": "workspace_root must be an absolute path or start with ~/"}

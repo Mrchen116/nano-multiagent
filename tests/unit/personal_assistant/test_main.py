@@ -572,14 +572,30 @@ def test_im_bootstrap_client_falls_back_to_local_im_api_port_when_primary_bootst
 
 
 def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_version(tmp_path: Path) -> None:
-    workspace_root = tmp_path / "workspace"
+    workspace_root = tmp_path / "workspace-from-im"
     seen: list[tuple[str, str | None]] = []
     sleeps: list[float] = []
     responses = iter(
         [
             httpx.Response(404, json={"detail": "agent_id not found"}),
-            httpx.Response(200, json={"agent_id": "agent-live", "display_name": "Agent Live", "profile_version": 1}),
-            httpx.Response(200, json={"agent_id": "agent-live", "display_name": "Agent Live v2", "profile_version": 2}),
+            httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent-live",
+                    "display_name": "Agent Live",
+                    "profile_version": 1,
+                    "workspace_root": str(workspace_root),
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent-live",
+                    "display_name": "Agent Live v2",
+                    "profile_version": 2,
+                    "workspace_root": str(workspace_root),
+                },
+            ),
         ]
     )
 
@@ -597,7 +613,6 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
         base_url="http://im.local",
         token=None,
         pipeline=_Pipeline(),
-        workspace_root_factory=lambda _agent_id: workspace_root,
         client=client,
         monotonic=lambda: 0.0,
         sleep=lambda seconds: sleeps.append(seconds),
