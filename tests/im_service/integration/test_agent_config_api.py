@@ -293,7 +293,7 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
 
 
 def test_agent_allowlist_options_returns_current_selectable_items(tmp_path: Path, monkeypatch) -> None:
-    """Expose current skill/tool options so the settings UI can render selectors."""
+    """Expose current skill/tool/model options so the settings UI can render selectors."""
     monkeypatch.setattr(
         agent_routes,
         "_list_available_skill_options",
@@ -310,6 +310,8 @@ def test_agent_allowlist_options_returns_current_selectable_items(tmp_path: Path
             agent_routes.AllowlistOptionResponse(name="bash", description="Run shell commands"),
         ],
     )
+    monkeypatch.setattr(agent_routes, "_list_available_models", lambda: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"])
+    monkeypatch.setattr(agent_routes, "_platform_default_model", lambda: "codexOAuth:gpt-5.2-codex")
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -324,3 +326,5 @@ def test_agent_allowlist_options_returns_current_selectable_items(tmp_path: Path
         {"name": "read", "description": "Read files"},
         {"name": "bash", "description": "Run shell commands"},
     ]
+    assert response.json()["model_options"] == ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"]
+    assert response.json()["platform_default_model"] == "codexOAuth:gpt-5.2-codex"

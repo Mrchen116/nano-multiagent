@@ -81,6 +81,18 @@ function nodeStatusClasses(status: string) {
   }
 }
 
+function resolveModelOptions(modelOptions: string[] | undefined, currentModel: string | null) {
+  const resolved = Array.from(new Set((modelOptions ?? []).map((value) => value.trim()).filter(Boolean)));
+  if (currentModel && !resolved.includes(currentModel)) {
+    resolved.unshift(currentModel);
+  }
+  return resolved;
+}
+
+function platformDefaultLabel(model: string | null | undefined) {
+  return model ? `Platform default (${model})` : "Platform default";
+}
+
 const EMPTY_DRAFT: CreateAgentFormState = {
   agent_id: "",
   owner_id: "",
@@ -134,6 +146,11 @@ export function AgentCreatePage() {
     () => `~/nano-assistant/workspace/${normalizedDraft.agent_id || "<agent-id>"}`,
     [normalizedDraft.agent_id]
   );
+  const availableModels = useMemo(
+    () => resolveModelOptions(allowlistOptionsQuery.data?.model_options, draft.default_model),
+    [allowlistOptionsQuery.data?.model_options, draft.default_model]
+  );
+  const platformDefaultModel = allowlistOptionsQuery.data?.platform_default_model ?? null;
   const nodes = nodesQuery.data ?? [];
   const selectedNode = nodes.find((node) => node.node_id === draft.node_id) ?? null;
   const nodeErrorDetail =
@@ -318,6 +335,7 @@ export function AgentCreatePage() {
               isLoading={allowlistOptionsQuery.isLoading}
               errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
               onRetry={() => void allowlistOptionsQuery.refetch()}
+              showDescriptions={false}
               helpText="Choose from the tools the running system currently exposes. Use the smallest safe surface area for production workflows."
               emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
               onChange={(toolAllowlist) => {
@@ -352,19 +370,27 @@ export function AgentCreatePage() {
             </div>
             <div className="grid gap-1">
               <Label.Root htmlFor="default-model">Default Model</Label.Root>
-              <input
+              <select
                 id="default-model"
                 className="im-input"
                 value={draft.default_model ?? ""}
                 aria-describedby="default-model-help"
+                disabled={allowlistOptionsQuery.isLoading && availableModels.length === 0}
                 onChange={(event) => {
                   setCreatedAgentId(null);
                   setErrorMessage(null);
                   setDraft({ ...draft, default_model: event.target.value || null });
                 }}
-              />
+              >
+                <option value="">{platformDefaultLabel(platformDefaultModel)}</option>
+                {availableModels.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
               <p id="default-model-help" className="text-xs text-slate-500">
-                Optional. Set a business-approved model override, or leave blank to follow the platform default.
+                Choose from the models the current runtime exposes. Leave this on {platformDefaultLabel(platformDefaultModel)} to inherit the platform setting.
               </p>
             </div>
           </div>

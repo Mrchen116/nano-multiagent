@@ -16,6 +16,7 @@ interface AllowlistSelectorProps {
   isLoading?: boolean;
   errorMessage?: string | null;
   onRetry?: () => void;
+  showDescriptions?: boolean;
   onChange: (next: string[]) => void;
 }
 
@@ -51,6 +52,7 @@ export function AllowlistSelector({
   isLoading = false,
   errorMessage,
   onRetry,
+  showDescriptions = true,
   onChange
 }: AllowlistSelectorProps) {
   const normalizedSelected = useMemo(() => normalizeAllowlist(selected), [selected]);
@@ -122,7 +124,9 @@ export function AllowlistSelector({
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Unavailable now</span>
                         ) : null}
                       </div>
-                      <p className="text-xs text-slate-500">{option.description || "No description provided."}</p>
+                      {showDescriptions || option.unavailable ? (
+                        <p className="text-xs text-slate-500">{option.description || "No description provided."}</p>
+                      ) : null}
                     </div>
                   </div>
                 </label>
