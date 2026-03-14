@@ -80,7 +80,8 @@ describe("agent edit page", () => {
               { name: "bash", description: "Run shell commands" },
               { name: "read_file", description: "Read files" },
               { name: "task", description: "Dispatch a subtask" }
-            ]
+            ],
+            default_system_prompt: "You are the personal_assistant default template."
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );

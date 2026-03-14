@@ -30,7 +30,7 @@ vi.mock("./im-agent-config-api", () => ({
   createAgent: apiMocks.createAgentMock
 }));
 
-import { AgentCreatePage, DEFAULT_AGENT_SYSTEM_PROMPT } from "./agent-create-page";
+import { AgentCreatePage } from "./agent-create-page";
 
 function renderCreatePage() {
   const queryClient = new QueryClient({
@@ -79,7 +79,8 @@ describe("agent create page", () => {
       tools: [
         { name: "read", description: "Read files" },
         { name: "bash", description: "Run shell commands" }
-      ]
+      ],
+      default_system_prompt: "You are the personal_assistant default template."
     });
     apiMocks.createAgentMock.mockResolvedValue({
       agent_id: "agent-new",
@@ -103,10 +104,10 @@ describe("agent create page", () => {
 
     expect(await screen.findByRole("heading", { name: "New Agent" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Back to Agents" })).toHaveAttribute("href", "/settings/agents");
-    expect(screen.getByLabelText("System Prompt")).toHaveValue(DEFAULT_AGENT_SYSTEM_PROMPT);
-    expect(
-      screen.getByText("We prefill a standard template for role, goals, guardrails, and tone. Edit it before saving so it matches this agent.")
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the personal_assistant default template.");
+    });
+    expect(screen.getByText("We prefill the personal_assistant product template here. Edit it before saving so it matches this agent.")).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Agent ID"), "agent-new");
     await user.type(screen.getByLabelText("Display Name"), "Agent New");
@@ -161,7 +162,7 @@ describe("agent create page", () => {
     const user = userEvent.setup();
 
     apiMocks.listNodesMock.mockResolvedValue([]);
-    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({ skills: [], tools: [] });
+    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({ skills: [], tools: [], default_system_prompt: "" });
 
     renderCreatePage();
 
@@ -180,7 +181,7 @@ describe("agent create page", () => {
     const user = userEvent.setup();
 
     apiMocks.listNodesMock.mockResolvedValue([]);
-    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({ skills: [], tools: [] });
+    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({ skills: [], tools: [], default_system_prompt: "" });
     apiMocks.createAgentMock.mockRejectedValue(new Error("POST /im/v1/agents failed: 409 (agent already exists)"));
 
     renderCreatePage();

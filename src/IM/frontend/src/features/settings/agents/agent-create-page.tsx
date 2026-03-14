@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { createDirectConversation } from "../../chat/chat-api";
@@ -81,29 +81,12 @@ function nodeStatusClasses(status: string) {
   }
 }
 
-export const DEFAULT_AGENT_SYSTEM_PROMPT = `Role
-- You are [describe the agent's role].
-- Your primary users are [operators / PMs / customers].
-
-Goals
-- Help the user achieve [primary outcome].
-- Prioritize correctness, clarity, and safe execution.
-
-Guardrails
-- Do not invent facts, progress, or approvals.
-- If context is missing, say what is missing and ask the smallest necessary follow-up.
-- Stay within the configured skills, tools, and workspace boundaries.
-
-Response style
-- Keep answers concise, structured, and action-oriented.
-- When there are tradeoffs, recommend the safest default and explain why briefly.`;
-
 const EMPTY_DRAFT: CreateAgentFormState = {
   agent_id: "",
   owner_id: "",
   display_name: "",
   description: "",
-  system_prompt: DEFAULT_AGENT_SYSTEM_PROMPT,
+  system_prompt: "",
   skills: [],
   tool_allowlist: [],
   group_reply_policy: "MENTION",
@@ -130,6 +113,19 @@ export function AgentCreatePage() {
     queryFn: getAgentAllowlistOptions,
     staleTime: 30_000
   });
+
+  useEffect(() => {
+    const defaultSystemPrompt = allowlistOptionsQuery.data?.default_system_prompt?.trim() ?? "";
+    if (!defaultSystemPrompt) {
+      return;
+    }
+    setDraft((current) => {
+      if (current.system_prompt.trim().length > 0) {
+        return current;
+      }
+      return { ...current, system_prompt: defaultSystemPrompt };
+    });
+  }, [allowlistOptionsQuery.data?.default_system_prompt]);
 
   const normalizedDraft = useMemo(() => normalizeDraft(draft), [draft]);
   const validationErrors = useMemo(() => validateDraft(normalizedDraft), [normalizedDraft]);
@@ -292,7 +288,7 @@ export function AgentCreatePage() {
               }}
             />
             <p id="system-prompt-help" className="text-xs text-slate-500">
-              We prefill a standard template for role, goals, guardrails, and tone. Edit it before saving so it matches this agent.
+              We prefill the personal_assistant product template here. Edit it before saving so it matches this agent.
             </p>
             {shouldShowError("system_prompt") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.system_prompt}</p> : null}
           </div>

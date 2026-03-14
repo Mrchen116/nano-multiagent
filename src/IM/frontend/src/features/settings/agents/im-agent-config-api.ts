@@ -38,6 +38,7 @@ export interface AgentAllowlistOption {
 export interface AgentAllowlistOptions {
   skills: AgentAllowlistOption[];
   tools: AgentAllowlistOption[];
+  default_system_prompt: string;
 }
 
 export interface CreateAgentRequest {

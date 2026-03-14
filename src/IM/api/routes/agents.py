@@ -90,10 +90,11 @@ class AllowlistOptionResponse(BaseModel):
 
 
 class AgentAllowlistOptionsResponse(BaseModel):
-    """Selectable skills and tools currently available to the running system."""
+    """Selectable skills, tools, and product-owned defaults for the settings UI."""
 
     skills: list[AllowlistOptionResponse] = Field(default_factory=list)
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
+    default_system_prompt: str = ""
 
 
 def _discover_repo_root(start_dir: Path) -> Path | None:
@@ -232,10 +233,11 @@ def list_agents(service: ConfigService = Depends(get_config_service)) -> list[Ag
 
 @router.get("/im/v1/agents/allowlist-options", response_model=AgentAllowlistOptionsResponse)
 def get_agent_allowlist_options() -> AgentAllowlistOptionsResponse:
-    """Return current selectable skills and tools for agent allowlist fields."""
+    """Return current selectable skills, tools, and product-owned defaults for agent settings."""
     return AgentAllowlistOptionsResponse(
         skills=_list_available_skill_options(),
         tools=_list_available_tool_options(),
+        default_system_prompt=PERSONAL_ASSISTANT_PROFILE.default_system_prompt or "",
     )
 
 

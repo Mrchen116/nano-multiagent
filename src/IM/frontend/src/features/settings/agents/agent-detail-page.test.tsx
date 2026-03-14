@@ -93,7 +93,8 @@ describe("agent detail page", () => {
     ]);
     apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({
       skills: [{ name: "tdd-execution-worker", description: "Execute TDD tasks" }],
-      tools: [{ name: "read", description: "Read files" }]
+      tools: [{ name: "read", description: "Read files" }],
+      default_system_prompt: "You are the personal_assistant default template."
     });
     apiMocks.updateAgentConfigMock.mockResolvedValue(undefined);
     apiMocks.createDirectConversationMock.mockResolvedValue({ conversation_id: "conv-agent-core-1" });

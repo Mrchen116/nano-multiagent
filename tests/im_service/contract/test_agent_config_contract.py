@@ -88,4 +88,5 @@ def test_agent_allowlist_options_contract_shape(tmp_path: Path, monkeypatch) -> 
     assert response.json() == {
         "skills": [{"name": "plan", "description": "Plan work"}],
         "tools": [{"name": "read", "description": "Read files"}],
+        "default_system_prompt": agent_routes.PERSONAL_ASSISTANT_PROFILE.default_system_prompt,
     }
