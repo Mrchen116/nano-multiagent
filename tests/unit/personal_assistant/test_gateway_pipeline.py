@@ -229,6 +229,44 @@ def test_inbound_pipeline_passes_frozen_prompt_metadata_when_creating_new_kernel
     ]
 
 
+def test_inbound_pipeline_emits_running_and_completed_relay_lifecycle_reports_when_message_id_is_present(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    seen: list[tuple[str, str | None, str | None]] = []
+
+    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+        seen.append((update.phase, update.run_id, message.metadata.get("message_id")))
+
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        relay_lifecycle_callback=_capture,
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="ping",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert seen == [
+        ("accepted", "run-1", "msg-1"),
+        ("running", "run-1", "msg-1"),
+        ("completed", "run-1", "msg-1"),
+    ]
+
+
 def test_inbound_pipeline_emits_relay_lifecycle_updates_for_web_relay_messages(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")

@@ -79,10 +79,22 @@ class StubKernelClient:
         self._session_index = 0
         self._run_index = 0
 
-    def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, str]:
+    def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, str]:
         self._session_index += 1
         self.create_session_calls.append(
-            {"workspace_root": workspace_root, "product_id": product_id, "title": title}
+            {
+                "workspace_root": workspace_root,
+                "product_id": product_id,
+                "title": title,
+                "metadata": metadata,
+            }
         )
         return {"session_id": f"sess-{self._session_index}"}
 

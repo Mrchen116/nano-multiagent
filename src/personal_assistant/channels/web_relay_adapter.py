@@ -73,6 +73,11 @@ class WebRelayAdapter:
             raise RuntimeError("web relay adapter is not started")
         envelope = _parse_relay_payload(payload)
         conversation_type = envelope.metadata.get("conversation_type")
+        message_id = _optional_text(payload.get("message_id"))
+        if message_id is None:
+            message = payload.get("message")
+            if isinstance(message, Mapping):
+                message_id = _optional_text(message.get("id"))
         inbound = InboundMessage(
             channel_name=self.name,
             text=envelope.content,
@@ -84,6 +89,7 @@ class WebRelayAdapter:
             metadata={
                 "relay_task_id": envelope.relay_task_id,
                 "idempotency_key": envelope.idempotency_key,
+                "message_id": message_id,
                 **dict(envelope.metadata),
             },
         )
