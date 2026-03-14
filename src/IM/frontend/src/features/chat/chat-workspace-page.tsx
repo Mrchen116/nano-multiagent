@@ -346,13 +346,15 @@ export function ChatWorkspacePage() {
   const conversationUsageQuery = useQuery({
     enabled: Boolean(conversationId),
     queryKey: ["chat", "usage", "conversation", conversationId],
-    queryFn: () => getUsageMetrics({ conversationId: conversationId! })
+    queryFn: () => getUsageMetrics({ conversationId: conversationId! }),
+    refetchOnMount: "always"
   });
 
   const workspaceUsageQuery = useQuery({
     enabled: Boolean(bootstrapQuery.data?.ownerId),
-    queryKey: ["chat", "usage", "workspace", bootstrapQuery.data?.ownerId],
-    queryFn: () => getUsageMetrics({ ownerId: bootstrapQuery.data!.ownerId })
+    queryKey: ["chat", "usage", "workspace", bootstrapQuery.data?.ownerId, conversationId ?? "workspace-home"],
+    queryFn: () => getUsageMetrics({ ownerId: bootstrapQuery.data!.ownerId }),
+    refetchOnMount: "always"
   });
   const ownerId = bootstrapQuery.data?.ownerId;
   const selfUserId = bootstrapQuery.data?.selfUserId;
