@@ -330,7 +330,7 @@ def test_im_gateway_acceptance_covers_bind_connect_roundtrip_and_receipts(tmp_pa
     harness = GatewayAcceptanceHarness(tmp_path)
     result = harness.run_roundtrip()
 
-    assert result["bind_url"].startswith("http://127.0.0.1:8011/bind/confirm?token=")
+    assert result["bind_url"].startswith("http://testserver/bind/confirm?token=")
     assert result["register_ack"] == {
         "type": "ack",
         "payload": {"message_type": "node.register", "node_id": "node-1"},

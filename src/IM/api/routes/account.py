@@ -1,6 +1,8 @@
 """Account and device binding routes for IM HTTP APIs."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from IM.api.deps import get_bind_service
@@ -79,14 +81,21 @@ def to_me_response(user: User) -> MeResponse:
     )
 
 
-def to_bind_response(bind: DeviceBindRequest) -> BindResponse:
+def _resolve_bind_url(bind_url: str, *, request: Request) -> str:
+    """Rebase one stored bind URL onto the current IM host while preserving query params."""
+    parsed = urlsplit(bind_url)
+    query = urlencode(parse_qsl(parsed.query, keep_blank_values=True))
+    return urlunsplit((request.url.scheme, request.url.netloc, parsed.path, query, parsed.fragment))
+
+
+def to_bind_response(bind: DeviceBindRequest, *, request: Request) -> BindResponse:
     """Convert a domain bind request to the API response model."""
     return BindResponse(
         bind_id=bind.bind_id,
         node_id=bind.node_id,
         user_id=bind.user_id,
         status=bind.status,
-        bind_url=bind.bind_url,
+        bind_url=_resolve_bind_url(bind.bind_url, request=request),
         created_at=bind.created_at,
         confirmed_at=bind.confirmed_at,
     )
@@ -124,6 +133,7 @@ def update_me(
 @router.post("/im/v1/bind", response_model=BindResponse, status_code=status.HTTP_201_CREATED)
 def bind_device(
     payload: BindRequestEnvelope,
+    request: Request,
     service: BindService = Depends(get_bind_service),
 ) -> BindResponse:
     """Start or confirm a device binding request."""
@@ -132,14 +142,14 @@ def bind_device(
             if not payload.node_id:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="node_id is required for start")
             bind = service.start_bind(node_id=payload.node_id)
-            return to_bind_response(bind)
+            return to_bind_response(bind, request=request)
         if (not payload.bind_id and not payload.bind_token) or not payload.user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="bind_id or bind_token and user_id are required for confirm",
             )
         bind = service.confirm_bind(bind_id=payload.bind_id, bind_token=payload.bind_token, user_id=payload.user_id)
-        return to_bind_response(bind)
+        return to_bind_response(bind, request=request)
     except ValueError as exc:
         detail = str(exc)
         status_code = status.HTTP_400_BAD_REQUEST
