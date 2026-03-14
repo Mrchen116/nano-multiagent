@@ -53,7 +53,7 @@ export function ConversationList(props: {
               </span>
             </div>
             <p className="mt-1 text-sm text-slate-500">
-              Keep direct chats, shared threads, and agent coordination in one production inbox.
+              Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.
             </p>
           </div>
           <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
@@ -81,7 +81,7 @@ export function ConversationList(props: {
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">No conversations yet</p>
               <h2 className="im-title mt-2 text-lg font-bold text-slate-900">Open an agent chat or create a shared thread</h2>
               <p className="mt-2 text-sm text-slate-500">
-                Agent chats launched from Settings and new group threads will appear here with participant context, latest activity, and unread updates.
+                Agent chats launched from Settings reopen each agent's stable direct thread here, and new group threads appear with participant context, latest activity, and unread updates.
               </p>
             </div>
           </div>

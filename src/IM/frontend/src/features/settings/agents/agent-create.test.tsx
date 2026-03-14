@@ -7,6 +7,7 @@ import { afterEach, vi } from "vitest";
 const apiMocks = vi.hoisted(() => ({
   listNodesMock: vi.fn(),
   createAgentMock: vi.fn(),
+  createDirectConversationMock: vi.fn(),
   navigateMock: vi.fn()
 }));
 
@@ -17,6 +18,10 @@ vi.mock("react-router-dom", async () => {
     useNavigate: () => apiMocks.navigateMock
   };
 });
+
+vi.mock("../../chat/chat-api", () => ({
+  createDirectConversation: apiMocks.createDirectConversationMock
+}));
 
 vi.mock("./im-agent-config-api", () => ({
   listNodes: apiMocks.listNodesMock,
@@ -44,11 +49,12 @@ function renderCreatePage() {
 afterEach(() => {
   apiMocks.listNodesMock.mockReset();
   apiMocks.createAgentMock.mockReset();
+  apiMocks.createDirectConversationMock.mockReset();
   apiMocks.navigateMock.mockReset();
 });
 
 describe("agent create page", () => {
-  it("creates a new agent and redirects to its detail page", async () => {
+  it("creates a new agent, redirects to detail, and exposes a reusable direct-chat follow-up", async () => {
     const user = userEvent.setup();
 
     apiMocks.listNodesMock.mockResolvedValue([
@@ -78,6 +84,7 @@ describe("agent create page", () => {
       bound_nodes: ["node-1"],
       updated_at: "2026-03-13T10:00:00Z"
     });
+    apiMocks.createDirectConversationMock.mockResolvedValue({ conversation_id: "conv-agent-new" });
 
     renderCreatePage();
 
@@ -117,8 +124,18 @@ describe("agent create page", () => {
       });
     });
 
+    expect(await screen.findByText("Agent created. Open its dedicated direct chat now or keep editing in Settings.")).toBeInTheDocument();
+    expect(screen.getByText("Each agent keeps one stable reusable direct chat window. Reopen this same thread anytime instead of starting a new direct chat.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open direct chat" }));
+
     await waitFor(() => {
-      expect(apiMocks.navigateMock).toHaveBeenCalledWith("/settings/agents/agent-new");
+      expect(apiMocks.createDirectConversationMock).toHaveBeenCalledWith({ agentId: "agent-new" });
+    });
+
+    await waitFor(() => {
+      expect(apiMocks.navigateMock).toHaveBeenNthCalledWith(1, "/settings/agents/agent-new");
+      expect(apiMocks.navigateMock).toHaveBeenNthCalledWith(2, "/chat/conv-agent-new");
     });
   });
 

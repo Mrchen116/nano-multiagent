@@ -3,6 +3,7 @@ import * as Label from "@radix-ui/react-label";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { createDirectConversation } from "../../chat/chat-api";
 import { createAgent, CreateAgentRequest, listNodes } from "./im-agent-config-api";
 
 type CreateAgentFormState = CreateAgentRequest & {
@@ -101,6 +102,7 @@ export function AgentCreatePage() {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<CreateAgentFormState>(EMPTY_DRAFT);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [createdAgentId, setCreatedAgentId] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
@@ -131,13 +133,26 @@ export function AgentCreatePage() {
     },
     onSuccess: async (created) => {
       setErrorMessage(null);
+      setCreatedAgentId(created.agent_id);
       queryClient.setQueryData(["settings", "agents", created.agent_id], created);
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "nodes"] });
       await navigate(`/settings/agents/${created.agent_id}`);
     },
     onError: (error) => {
+      setCreatedAgentId(null);
       setErrorMessage(error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Create failed");
+    }
+  });
+  const openDirectChatMutation = useMutation({
+    mutationFn: (agentId: string) => createDirectConversation({ agentId }),
+    onSuccess: async ({ conversation_id }) => {
+      setErrorMessage(null);
+      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+      navigate(`/chat/${conversation_id}`);
+    },
+    onError: (error) => {
+      setErrorMessage(error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Open direct chat failed");
     }
   });
 
@@ -186,7 +201,11 @@ export function AgentCreatePage() {
                 aria-invalid={Boolean(shouldShowError("agent_id"))}
                 aria-describedby="agent-id-help"
                 onBlur={() => markTouched("agent_id")}
-                onChange={(event) => setDraft({ ...draft, agent_id: event.target.value })}
+                onChange={(event) => {
+                  setCreatedAgentId(null);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, agent_id: event.target.value });
+                }}
               />
               <p id="agent-id-help" className="text-xs text-slate-500">
                 Stable slug used in URLs and runtime routing. Example: `agent-sales-assist`.
@@ -202,7 +221,11 @@ export function AgentCreatePage() {
                 aria-invalid={Boolean(shouldShowError("display_name"))}
                 aria-describedby="display-name-help"
                 onBlur={() => markTouched("display_name")}
-                onChange={(event) => setDraft({ ...draft, display_name: event.target.value })}
+                onChange={(event) => {
+                  setCreatedAgentId(null);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, display_name: event.target.value });
+                }}
               />
               <p id="display-name-help" className="text-xs text-slate-500">
                 Human-friendly name shown to operators and PMs in Settings.
@@ -218,7 +241,11 @@ export function AgentCreatePage() {
               className="im-input"
               value={draft.description}
               aria-describedby="description-help"
-              onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+              onChange={(event) => {
+                setCreatedAgentId(null);
+                setErrorMessage(null);
+                setDraft({ ...draft, description: event.target.value });
+              }}
             />
             <p id="description-help" className="text-xs text-slate-500">
               Explain the business role in one sentence so the next reviewer understands when to use this agent.
@@ -234,7 +261,11 @@ export function AgentCreatePage() {
               aria-invalid={Boolean(shouldShowError("system_prompt"))}
               aria-describedby="system-prompt-help"
               onBlur={() => markTouched("system_prompt")}
-              onChange={(event) => setDraft({ ...draft, system_prompt: event.target.value })}
+              onChange={(event) => {
+                setCreatedAgentId(null);
+                setErrorMessage(null);
+                setDraft({ ...draft, system_prompt: event.target.value });
+              }}
             />
             <p id="system-prompt-help" className="text-xs text-slate-500">
               Capture role, guardrails, and preferred tone. This is the primary behavior contract for the agent.
@@ -250,7 +281,11 @@ export function AgentCreatePage() {
                 className="im-input"
                 value={draft.skills.join(", ")}
                 aria-describedby="skills-help"
-                onChange={(event) => setDraft({ ...draft, skills: splitList(event.target.value) })}
+                onChange={(event) => {
+                  setCreatedAgentId(null);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, skills: splitList(event.target.value) });
+                }}
               />
               <p id="skills-help" className="text-xs text-slate-500">
                 Comma-separated. Leave blank if the agent should inherit platform defaults.
@@ -263,7 +298,11 @@ export function AgentCreatePage() {
                 className="im-input"
                 value={draft.tool_allowlist.join(", ")}
                 aria-describedby="tools-help"
-                onChange={(event) => setDraft({ ...draft, tool_allowlist: splitList(event.target.value) })}
+                onChange={(event) => {
+                  setCreatedAgentId(null);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, tool_allowlist: splitList(event.target.value) });
+                }}
               />
               <p id="tools-help" className="text-xs text-slate-500">
                 Comma-separated. Use the smallest safe surface area for production workflows.
@@ -279,7 +318,11 @@ export function AgentCreatePage() {
                 className="im-input"
                 aria-describedby="group-reply-policy-help"
                 value={draft.group_reply_policy}
-                onChange={(event) => setDraft({ ...draft, group_reply_policy: event.target.value })}
+                onChange={(event) => {
+                  setCreatedAgentId(null);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, group_reply_policy: event.target.value });
+                }}
               >
                 <option value="ALWAYS">ALWAYS</option>
                 <option value="MENTION">MENTION</option>
@@ -296,7 +339,11 @@ export function AgentCreatePage() {
                 className="im-input"
                 value={draft.default_model ?? ""}
                 aria-describedby="default-model-help"
-                onChange={(event) => setDraft({ ...draft, default_model: event.target.value || null })}
+                onChange={(event) => {
+                  setCreatedAgentId(null);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, default_model: event.target.value || null });
+                }}
               />
               <p id="default-model-help" className="text-xs text-slate-500">
                 Optional. Set a business-approved model override, or leave blank to follow the platform default.
@@ -348,7 +395,11 @@ export function AgentCreatePage() {
               className="im-input"
               value={draft.node_id ?? ""}
               disabled={nodesQuery.isLoading && nodes.length === 0}
-              onChange={(event) => setDraft({ ...draft, node_id: event.target.value || null })}
+              onChange={(event) => {
+                setCreatedAgentId(null);
+                setErrorMessage(null);
+                setDraft({ ...draft, node_id: event.target.value || null });
+              }}
             >
               <option value="">Unbound</option>
               {nodes.map((node) => (
@@ -407,11 +458,30 @@ export function AgentCreatePage() {
         <div aria-live="polite" className="space-y-1 text-xs">
           {hasSubmitted && hasValidationErrors ? <p className="font-semibold text-rose-700">Complete the required fields before creating this agent.</p> : null}
           {errorMessage ? <p className="font-semibold text-rose-700">{errorMessage}</p> : null}
-          {!errorMessage && !hasValidationErrors ? <p className="text-slate-500">Create a new runtime agent profile without leaving Settings.</p> : null}
+          {createdAgentId ? (
+            <>
+              <p className="font-semibold text-emerald-700">Agent created. Open its dedicated direct chat now or keep editing in Settings.</p>
+              <p className="text-slate-500">Each agent keeps one stable reusable direct chat window. Reopen this same thread anytime instead of starting a new direct chat.</p>
+            </>
+          ) : !errorMessage && !hasValidationErrors ? (
+            <p className="text-slate-500">Create a new runtime agent profile without leaving Settings.</p>
+          ) : null}
         </div>
-        <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending}>
-          {mutation.isPending ? "Creating Agent…" : "Create Agent"}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {createdAgentId ? (
+            <button
+              className="im-btn im-btn-muted w-fit"
+              type="button"
+              disabled={openDirectChatMutation.isPending}
+              onClick={() => openDirectChatMutation.mutate(createdAgentId)}
+            >
+              {openDirectChatMutation.isPending ? "Opening direct chat…" : "Open direct chat"}
+            </button>
+          ) : null}
+          <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending}>
+            {mutation.isPending ? "Creating Agent…" : "Create Agent"}
+          </button>
+        </div>
       </div>
     </form>
   );

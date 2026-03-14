@@ -409,6 +409,13 @@ export function AgentDetailPage() {
             <p className="text-sm text-slate-600">Keep an eye on versioning, last update time, and node placement while editing behavior.</p>
           </div>
 
+          <section className="rounded-2xl border border-[var(--im-border)] bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Start chatting now</p>
+            <p className="mt-2 text-sm text-slate-700">Open this agent's dedicated direct chat as soon as creation or edits are done.</p>
+            <p className="mt-2 text-xs text-slate-500">This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.</p>
+            <p className="mt-2 text-xs text-slate-500">Existing messages stay in the same conversation. New behavior applies in that same thread after you save changes.</p>
+          </section>
+
           <dl className="grid gap-2 text-sm text-slate-600">
             <div className="flex items-center justify-between gap-3">
               <dt>Profile Version</dt>
