@@ -82,7 +82,7 @@ const DEFAULT_STARTER: ChatStarter = {
   actionLabel: "Open Agent · OpsBot",
   actionHref: "/chat/conv-agent-design",
   agentName: "OpsBot",
-  description: "OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
+  description: "OpsBot is your default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.",
   nodeLabel: "node-app-01",
   statusLabel: "Online and ready to chat via OpsBot on node-app-01"
 };
