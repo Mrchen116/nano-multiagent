@@ -33,8 +33,8 @@
 - `/Users/czj/Repos/nano-multiagent/.worktrees/M174/TASKS/M174-修复-canonical-runtime-节点绑定未完成导致直聊无回复.md`
 
 ## Commit
-- Pending
+- `7e6cdd3` `fix(M174): rebase bind URLs onto the active IM host`
 
 ## Merge readiness
-- Code and focused regression coverage are in place.
-- Final commit hash still pending, so merge readiness is not final until commit is created.
+- Ready to merge.
+- Focused binding regressions are green, and the startup-path evidence now explains both how binding state is established and why canonical runtime previously stayed stuck before direct-chat replies could resume.
