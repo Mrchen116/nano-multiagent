@@ -15,7 +15,22 @@
 ## Tests
 - `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/unit/personal_assistant/test_m102_gateway_im_connection.py` -> 6 passed
 - `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/unit/personal_assistant/test_gateway_pipeline.py` -> 13 passed
+- `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/acceptance/test_im_gateway_real_acceptance.py` -> 2 passed
+- `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/unit/personal_assistant/test_m102_gateway_im_connection.py /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/unit/personal_assistant/test_gateway_pipeline.py /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/acceptance/test_im_gateway_real_acceptance.py` -> 21 passed
 
-## Remaining
-- 仍需补一条 fresh canonical runtime 最小验证，直接证明 direct-chat 真实回复、`relay_tasks` 与 `conversation_events` 完成闭环。
-- 仍未生成 commit。
+## Fresh canonical runtime verification
+- 通过 `PYTHONPATH="/Users/czj/Repos/nano-multiagent/.worktrees/M172/src:/Users/czj/Repos/nano-multiagent/.worktrees/M172" python - <<'PY' ... GatewayAcceptanceHarness.run_roundtrip() ... PY` 在全新临时目录跑了一次 canonical acceptance harness。
+- 实际输出证据：
+  - `reply_text= assistant:hello from web im`
+  - `adapter_outbound= ['assistant:hello from web im']`
+  - `relay_status= {'status': 'completed', 'receipt_status': 'completed', 'receipt_detail': 'assistant:hello from web im'}`
+  - `event_names= ['message.sent', 'relay.accepted', 'relay.processing', 'relay.completed', 'message.delivered']`
+  - `reports=[{'node_id': 'node-1', 'run_id': 'run-1', 'conversation_id': '<fresh-conversation-id>', 'message_id': '<fresh-message-id>', 'summary': 'assistant:hello from web im', 'status': 'running'}]`
+- 该验证直接证明 fresh canonical runtime 下：直聊消息进入 relay 后，绑定 agent 产生真实 reply，`relay_tasks` 终态为 completed，`conversation_events` 包含 accepted/processing/completed/delivered 闭环事件。
+
+## Commit
+- `61fa30e` `fix(M172): preserve direct-chat message ids through relay pipeline`
+
+## Merge readiness
+- Ready to merge.
+- Exit criteria 1/2/3/4/5 已满足：修复不依赖启动后手工 patch，直聊回复恢复，`relay_tasks` / `conversation_events` 有完成证据，M149 可在该基础上继续验证旧/新 prompt snapshot 行为。
