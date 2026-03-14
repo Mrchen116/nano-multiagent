@@ -80,7 +80,7 @@ describe("app routes", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/chat/conv-1"] });
 
     expect(await screen.findByText("Conversations")).toBeInTheDocument();
-    expect(screen.getByText("A production-ready inbox for operator, agent, and group conversations.")).toBeInTheDocument();
+    expect(screen.getByText("Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.")).toBeInTheDocument();
     expect(screen.queryByText("P1-P7 Skeleton")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
   });

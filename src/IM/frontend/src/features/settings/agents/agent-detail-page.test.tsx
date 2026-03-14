@@ -92,6 +92,9 @@ describe("agent detail page", () => {
     renderDetailPage();
 
     expect(await screen.findByRole("heading", { name: "Agent Detail" })).toBeInTheDocument();
+    expect(screen.getByText("Open this agent's dedicated direct chat as soon as creation or edits are done.")).toBeInTheDocument();
+    expect(screen.getByText("This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.")).toBeInTheDocument();
+    expect(screen.getByText("Existing messages stay in the same conversation. New behavior applies in that same thread after you save changes.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open direct chat" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Open direct chat" }));

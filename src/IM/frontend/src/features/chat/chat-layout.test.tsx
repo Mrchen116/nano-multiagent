@@ -101,6 +101,7 @@ describe("chat layout", () => {
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
     expect(screen.getByText("OpsBot is your default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
+    expect(screen.getByText("Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.")).toBeInTheDocument();
     expect(screen.getByText("Need a different target?")).toBeInTheDocument();
     expect(screen.getByText("Gateway status")).toBeInTheDocument();
     expect(screen.getByText("Online and ready to chat via OpsBot on node-app-01")).toBeInTheDocument();

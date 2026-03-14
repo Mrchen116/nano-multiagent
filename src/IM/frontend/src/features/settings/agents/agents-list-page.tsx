@@ -94,6 +94,10 @@ export function AgentsListPage() {
                 <span className="rounded-full bg-[#dceef0] px-2 py-0.5 text-xs font-semibold text-slate-700">v{agent.profile_version}</span>
               </div>
               <p className="mt-3 text-sm text-slate-600">{agent.description || "No description yet."}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span className="rounded-full bg-[#eef8f8] px-2 py-1 text-teal-700">Stable direct chat</span>
+                <span>Open the agent to continue in its reusable direct thread.</span>
+              </div>
               <dl className="mt-3 grid gap-2 text-xs text-slate-500">
                 <div className="flex items-center justify-between gap-3">
                   <dt>Default model</dt>
@@ -133,6 +137,7 @@ export function AgentsListPage() {
                       </Link>
                       <p className="text-xs text-slate-500">{agent.agent_id}</p>
                       <p className="text-xs text-slate-600">{agent.description || "No description yet."}</p>
+                      <p className="text-xs text-teal-700">Open detail to continue in the same reusable direct chat.</p>
                     </div>
                   </td>
                   <td className="px-4 py-3">v{agent.profile_version}</td>
