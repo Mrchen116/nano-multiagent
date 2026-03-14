@@ -5,6 +5,10 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { createAgent, CreateAgentRequest, listNodes } from "./im-agent-config-api";
 
+type CreateAgentFormState = CreateAgentRequest & {
+  workspace_root_input: string;
+};
+
 function splitList(value: string) {
   return value
     .split(",")
@@ -16,7 +20,7 @@ function normalizeText(value: string) {
   return value.trim();
 }
 
-function normalizeDraft(draft: CreateAgentRequest): CreateAgentRequest {
+function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
   return {
     ...draft,
     agent_id: normalizeText(draft.agent_id),
@@ -26,12 +30,13 @@ function normalizeDraft(draft: CreateAgentRequest): CreateAgentRequest {
     skills: splitList(draft.skills.join(",")),
     tool_allowlist: splitList(draft.tool_allowlist.join(",")),
     default_model: normalizeText(draft.default_model ?? "") || null,
+    workspace_root_input: draft.workspace_root_input.trim(),
     node_id: draft.node_id || null
   };
 }
 
-function validateDraft(draft: CreateAgentRequest) {
-  const errors: Partial<Record<"agent_id" | "display_name" | "system_prompt", string>> = {};
+function validateDraft(draft: CreateAgentFormState) {
+  const errors: Partial<Record<"agent_id" | "display_name" | "system_prompt" | "workspace_root_input", string>> = {};
 
   if (!draft.agent_id) {
     errors.agent_id = "Agent ID is required.";
@@ -45,6 +50,10 @@ function validateDraft(draft: CreateAgentRequest) {
 
   if (!draft.system_prompt) {
     errors.system_prompt = "System prompt is required.";
+  }
+
+  if (draft.workspace_root_input && !draft.workspace_root_input.startsWith("/") && !draft.workspace_root_input.startsWith("~/")) {
+    errors.workspace_root_input = "Workspace path must be absolute or start with ~/.";
   }
 
   return errors;
@@ -73,7 +82,7 @@ function nodeStatusClasses(status: string) {
   }
 }
 
-const EMPTY_DRAFT: CreateAgentRequest = {
+const EMPTY_DRAFT: CreateAgentFormState = {
   agent_id: "",
   owner_id: "",
   display_name: "",
@@ -83,13 +92,14 @@ const EMPTY_DRAFT: CreateAgentRequest = {
   tool_allowlist: [],
   group_reply_policy: "MENTION",
   default_model: null,
+  workspace_root_input: "",
   node_id: null
 };
 
 export function AgentCreatePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<CreateAgentRequest>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<CreateAgentFormState>(EMPTY_DRAFT);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -102,13 +112,23 @@ export function AgentCreatePage() {
   const normalizedDraft = useMemo(() => normalizeDraft(draft), [draft]);
   const validationErrors = useMemo(() => validateDraft(normalizedDraft), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
+  const managedWorkspacePreview = useMemo(
+    () => `~/nano-assistant/workspace/${normalizedDraft.agent_id || "<agent-id>"}`,
+    [normalizedDraft.agent_id]
+  );
   const nodes = nodesQuery.data ?? [];
   const selectedNode = nodes.find((node) => node.node_id === draft.node_id) ?? null;
   const nodeErrorDetail =
     nodesQuery.error instanceof Error ? nodesQuery.error.message.split(" failed: ").at(-1) ?? nodesQuery.error.message : "Unable to load nodes.";
 
   const mutation = useMutation({
-    mutationFn: (next: CreateAgentRequest) => createAgent(next),
+    mutationFn: (next: CreateAgentFormState) => {
+      const { workspace_root_input, ...rest } = next;
+      return createAgent({
+        ...rest,
+        workspace_root: workspace_root_input || null
+      });
+    },
     onSuccess: async (created) => {
       setErrorMessage(null);
       queryClient.setQueryData(["settings", "agents", created.agent_id], created);
@@ -121,11 +141,11 @@ export function AgentCreatePage() {
     }
   });
 
-  function markTouched(field: "agent_id" | "display_name" | "system_prompt") {
+  function markTouched(field: "agent_id" | "display_name" | "system_prompt" | "workspace_root_input") {
     setTouched((current) => ({ ...current, [field]: true }));
   }
 
-  function shouldShowError(field: "agent_id" | "display_name" | "system_prompt") {
+  function shouldShowError(field: "agent_id" | "display_name" | "system_prompt" | "workspace_root_input") {
     return (hasSubmitted || touched[field]) && validationErrors[field];
   }
 
@@ -283,9 +303,39 @@ export function AgentCreatePage() {
               </p>
             </div>
           </div>
+
+          <div className="grid gap-1">
+            <Label.Root htmlFor="workspace-root">Workspace Path Setting</Label.Root>
+            <input
+              id="workspace-root"
+              className="im-input"
+              value={draft.workspace_root_input}
+              aria-invalid={Boolean(shouldShowError("workspace_root_input"))}
+              aria-describedby="workspace-root-help"
+              placeholder="Leave blank to use the managed default workspace"
+              onBlur={() => markTouched("workspace_root_input")}
+              onChange={(event) => setDraft({ ...draft, workspace_root_input: event.target.value })}
+            />
+            <p id="workspace-root-help" className="text-xs text-slate-500">
+              Editable setting. Use an absolute path or `~/...`. Leave blank to let the gateway create the managed default workspace for this agent.
+            </p>
+            {shouldShowError("workspace_root_input") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.workspace_root_input}</p> : null}
+          </div>
         </div>
 
         <aside className="grid gap-3 rounded-2xl border border-[var(--im-border)] bg-white/75 p-4">
+          <section className="grid gap-2 rounded-xl border border-[var(--im-border)] bg-slate-50 p-3">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Current workspace preview</p>
+              <p className="break-all font-mono text-sm text-slate-900">
+                {normalizedDraft.workspace_root_input || managedWorkspacePreview}
+              </p>
+              <p className="text-xs text-slate-500">
+                Read-only preview. Leave the editable workspace field blank to use the managed default shown here.
+              </p>
+            </div>
+          </section>
+
           <div className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Node binding</p>
             <p className="text-sm text-slate-600">Bind now if you want immediate runtime placement, or leave unbound and assign later.</p>

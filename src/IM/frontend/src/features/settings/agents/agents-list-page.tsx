@@ -20,6 +20,10 @@ function formatBoundNodes(boundNodes?: string[]) {
   return boundNodes.join(", ");
 }
 
+function workspaceSourceLabel(isDefault: boolean | undefined) {
+  return isDefault ? "Managed default" : "Custom path";
+}
+
 export function AgentsListPage() {
   const isMobile = useIsMobile();
   const query = useQuery({
@@ -36,7 +40,7 @@ export function AgentsListPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <h2 className="im-title text-xl font-bold">Agents</h2>
-          <p className="text-sm text-slate-500">Review prompts, models, and node bindings before opening any detail page.</p>
+          <p className="text-sm text-slate-500">Review prompts, models, node bindings, and each agent workspace path before opening any detail page.</p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-slate-500">{query.isLoading ? "Loading…" : `${agents.length} agent${agents.length === 1 ? "" : "s"}`}</span>
@@ -100,6 +104,14 @@ export function AgentsListPage() {
                   <dd className="text-right text-slate-700">{agent.default_model || "Auto"}</dd>
                 </div>
                 <div className="flex items-center justify-between gap-3">
+                  <dt>Workspace mode</dt>
+                  <dd className="text-right text-slate-700">{workspaceSourceLabel(agent.workspace_is_default)}</dd>
+                </div>
+                <div className="grid gap-1">
+                  <dt>Workspace path</dt>
+                  <dd className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-3">
                   <dt>Bound nodes</dt>
                   <dd className="text-right text-slate-700">{formatBoundNodes(agent.bound_nodes)}</dd>
                 </div>
@@ -108,17 +120,23 @@ export function AgentsListPage() {
                   <dd className="text-right text-slate-700">{formatUpdatedAt(agent.updated_at)}</dd>
                 </div>
               </dl>
+              <div className="mt-3">
+                <Link className="text-sm font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}#workspace-settings`}>
+                  Workspace settings
+                </Link>
+              </div>
             </article>
           ))}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-[var(--im-border)] bg-white/80">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full min-w-[980px] text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="px-4 py-3">Agent</th>
                 <th className="px-4 py-3">Version</th>
                 <th className="px-4 py-3">Default Model</th>
+                <th className="px-4 py-3">Workspace</th>
                 <th className="px-4 py-3">Bound Nodes</th>
                 <th className="px-4 py-3">Updated</th>
               </tr>
@@ -137,6 +155,15 @@ export function AgentsListPage() {
                   </td>
                   <td className="px-4 py-3">v{agent.profile_version}</td>
                   <td className="px-4 py-3">{agent.default_model || "Auto"}</td>
+                  <td className="px-4 py-3">
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold text-slate-600">{workspaceSourceLabel(agent.workspace_is_default)}</p>
+                      <p className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</p>
+                      <Link className="text-xs font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}#workspace-settings`}>
+                        Workspace settings
+                      </Link>
+                    </div>
+                  </td>
                   <td className="px-4 py-3">{formatBoundNodes(agent.bound_nodes)}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">{formatUpdatedAt(agent.updated_at)}</td>
                 </tr>

@@ -16,7 +16,22 @@ afterEach(() => {
 describe("agent edit page", () => {
   it("loads agent form, shows bound node status, and saves edited display name via IM config APIs", async () => {
     const user = userEvent.setup();
-    let currentConfig = {
+    let currentConfig: {
+      agent_id: string;
+      owner_id: string;
+      display_name: string;
+      description: string;
+      system_prompt: string;
+      skills: string[];
+      tool_allowlist: string[];
+      group_reply_policy: string;
+      default_model: string | null;
+      workspace_root: string;
+      workspace_is_default: boolean;
+      profile_version: number;
+      bound_nodes: string[];
+      updated_at: string;
+    } = {
       agent_id: "agent-core-1",
       owner_id: "owner-1",
       display_name: "Core Planner",
@@ -26,6 +41,8 @@ describe("agent edit page", () => {
       tool_allowlist: ["bash", "read_file"],
       group_reply_policy: "MENTION",
       default_model: "gpt-5.2-codex",
+      workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
+      workspace_is_default: true,
       profile_version: 12,
       bound_nodes: ["node-1"],
       updated_at: "2026-03-13T10:00:00Z"
@@ -61,11 +78,14 @@ describe("agent edit page", () => {
           tool_allowlist: string[];
           group_reply_policy: string;
           default_model: string;
+          workspace_root: string | null;
         };
 
         currentConfig = {
           ...currentConfig,
           ...payload,
+          workspace_root: payload.workspace_root ?? "/Users/demo/nano-assistant/workspace/agent-core-1",
+          workspace_is_default: payload.workspace_root == null,
           profile_version: 13,
           updated_at: "2026-03-13T10:01:00Z"
         };
@@ -101,10 +121,12 @@ describe("agent edit page", () => {
     const input = await screen.findByLabelText("Display Name");
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
+    expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "No Changes to Save" })).toBeDisabled();
 
     await user.clear(input);
     await user.type(input, "Core Planner X");
+    await user.type(screen.getByLabelText("Workspace Path Setting"), "/custom/agent-core-1");
     await user.click(screen.getByRole("button", { name: "Save Agent" }));
 
     expect(await screen.findByText("Saved")).toBeInTheDocument();
@@ -123,7 +145,8 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
-            default_model: "gpt-5.2-codex"
+            default_model: "gpt-5.2-codex",
+            workspace_root: "/custom/agent-core-1"
           })
         })
       );
@@ -155,6 +178,8 @@ describe("agent edit page", () => {
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
             default_model: "gpt-5.2-codex",
+            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
+            workspace_is_default: true,
             profile_version: 12,
             bound_nodes: [],
             updated_at: "2026-03-13T10:00:00Z"
@@ -212,6 +237,8 @@ describe("agent edit page", () => {
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
             default_model: "gpt-5.2-codex",
+            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
+            workspace_is_default: true,
             profile_version: 12,
             bound_nodes: ["node-1"],
             updated_at: "2026-03-13T10:00:00Z"

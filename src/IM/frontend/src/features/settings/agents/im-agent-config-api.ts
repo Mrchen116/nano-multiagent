@@ -7,6 +7,8 @@ export interface AgentSummary {
   description: string;
   profile_version: number;
   default_model: string | null;
+  workspace_root: string;
+  workspace_is_default: boolean;
   bound_nodes?: string[];
   updated_at?: string | null;
 }
@@ -21,6 +23,8 @@ export interface AgentConfig {
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
+  workspace_root: string;
+  workspace_is_default: boolean;
   profile_version: number;
   bound_nodes?: string[];
   updated_at?: string | null;
@@ -36,7 +40,20 @@ export interface CreateAgentRequest {
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
+  workspace_root?: string | null;
   node_id?: string | null;
+}
+
+export interface UpdateAgentConfigRequest {
+  profile_version: number;
+  display_name: string;
+  description: string;
+  system_prompt: string;
+  skills: string[];
+  tool_allowlist: string[];
+  group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
+  default_model: string | null;
+  workspace_root?: string | null;
 }
 
 function getApiBaseUrl() {
@@ -104,7 +121,7 @@ export async function listNodes() {
   return requestJson<Array<{ node_id: string; owner_id: string; node_name: string; status: string; last_heartbeat_at: string; agent_count: number; version: string }>>("/im/v1/nodes");
 }
 
-export async function updateAgentConfig(agentId: string, next: AgentConfig) {
+export async function updateAgentConfig(agentId: string, next: UpdateAgentConfigRequest) {
   return requestJson<AgentConfig>(`/im/v1/agents/${agentId}/config`, {
     method: "PATCH",
     body: JSON.stringify({
@@ -115,7 +132,8 @@ export async function updateAgentConfig(agentId: string, next: AgentConfig) {
       skills: next.skills,
       tool_allowlist: next.tool_allowlist,
       group_reply_policy: next.group_reply_policy,
-      default_model: next.default_model
+      default_model: next.default_model,
+      workspace_root: next.workspace_root
     })
   });
 }
