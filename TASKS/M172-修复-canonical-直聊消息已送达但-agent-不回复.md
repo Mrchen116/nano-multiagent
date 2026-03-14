@@ -6,6 +6,7 @@
 - [x] 修复 canonical relay adapter，确保 direct-chat relay.message 把原消息 id 透传到 gateway pipeline 元数据。
 - [x] 回归 gateway adapter / pipeline 单测，确认 accepted/running/completed 生命周期仍成立。
 - [x] 追加 fresh canonical runtime 最小验证，证明 direct-chat 可触发 agent reply 且事件链路完成。
+- [x] 对齐 M176 分支上的直聊回归断言，确保 integration tests 接受已恢复的 `message_id` 透传事实。
 - [x] 整理 PROGRESS、提交记录与 merge readiness。
 
 ## Final status
