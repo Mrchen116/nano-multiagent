@@ -118,5 +118,16 @@
   - `/Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/im_service/integration/test_agent_config_api.py`
   - `/Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/im_service/integration/test_m103_im_gateway_e2e.py`
   - `/Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/e2e/test_m112_real_process_roundtrip_e2e.py`
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M171/ACCEPTANCE/M171-node-config.yaml`
   - `/Users/czj/Repos/nano-multiagent/.worktrees/M171/TASKS/M171-修复 canonical 运行态 agent 列表为空导致群聊无法创建.md`
   - `/Users/czj/Repos/nano-multiagent/.worktrees/M171/PROGRESS/M171-修复 canonical 运行态 agent 列表为空导致群聊无法创建.md`
+
+## Merge readiness
+- 当前状态：READY
+- 原因：已具备后端、real-process、前端、真实浏览器四层证据，且 isolated runtime 下已经真实看到参与者、完成建群。
+- 里程碑 exit criteria 对应关系：
+  1. canonical fresh runtime 中 `/im/v1/agents` 返回可选 agent：已由 fresh runtime 筛选逻辑、gateway 集成测试、real-process 测试锁定。
+  2. 浏览器 `Create group chat` 面板出现真实可选参与者：已由 `chat-workspace-page.test.ts` 与 Playwright 真实浏览器输出共同锁定。
+  3. fresh runtime 成功创建群聊：已由 gateway 集成测试、real-process 测试、Playwright 真实浏览器建群共同锁定。
+  4. 证据能说明 agent 列表来源正确：已由 repository/API 测试、real-process、真实浏览器路径共同证明来源于 runtime materialization。
+  5. 合并后解除 M170 的主要前置阻塞：当前结论成立。
