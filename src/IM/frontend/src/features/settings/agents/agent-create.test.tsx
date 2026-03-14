@@ -30,7 +30,7 @@ vi.mock("./im-agent-config-api", () => ({
   createAgent: apiMocks.createAgentMock
 }));
 
-import { AgentCreatePage } from "./agent-create-page";
+import { AgentCreatePage, DEFAULT_AGENT_SYSTEM_PROMPT } from "./agent-create-page";
 
 function renderCreatePage() {
   const queryClient = new QueryClient({
@@ -103,10 +103,15 @@ describe("agent create page", () => {
 
     expect(await screen.findByRole("heading", { name: "New Agent" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Back to Agents" })).toHaveAttribute("href", "/settings/agents");
+    expect(screen.getByLabelText("System Prompt")).toHaveValue(DEFAULT_AGENT_SYSTEM_PROMPT);
+    expect(
+      screen.getByText("We prefill a standard template for role, goals, guardrails, and tone. Edit it before saving so it matches this agent.")
+    ).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Agent ID"), "agent-new");
     await user.type(screen.getByLabelText("Display Name"), "Agent New");
     await user.type(screen.getByLabelText("Description"), "runtime-created helper");
+    await user.clear(screen.getByLabelText("System Prompt"));
     await user.type(screen.getByLabelText("System Prompt"), "You are Agent New.");
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /read/i }));
@@ -161,6 +166,7 @@ describe("agent create page", () => {
     renderCreatePage();
 
     await screen.findByRole("heading", { name: "New Agent" });
+    await user.clear(screen.getByLabelText("System Prompt"));
     await user.click(screen.getByRole("button", { name: "Create Agent" }));
 
     expect(screen.getByText("Agent ID is required.")).toBeInTheDocument();
@@ -181,6 +187,7 @@ describe("agent create page", () => {
 
     await user.type(await screen.findByLabelText("Agent ID"), "agent-new");
     await user.type(screen.getByLabelText("Display Name"), "Agent New");
+    await user.clear(screen.getByLabelText("System Prompt"));
     await user.type(screen.getByLabelText("System Prompt"), "You are Agent New.");
     await user.click(screen.getByRole("button", { name: "Create Agent" }));
 

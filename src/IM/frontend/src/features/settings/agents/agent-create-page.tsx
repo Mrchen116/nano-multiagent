@@ -81,12 +81,29 @@ function nodeStatusClasses(status: string) {
   }
 }
 
+export const DEFAULT_AGENT_SYSTEM_PROMPT = `Role
+- You are [describe the agent's role].
+- Your primary users are [operators / PMs / customers].
+
+Goals
+- Help the user achieve [primary outcome].
+- Prioritize correctness, clarity, and safe execution.
+
+Guardrails
+- Do not invent facts, progress, or approvals.
+- If context is missing, say what is missing and ask the smallest necessary follow-up.
+- Stay within the configured skills, tools, and workspace boundaries.
+
+Response style
+- Keep answers concise, structured, and action-oriented.
+- When there are tradeoffs, recommend the safest default and explain why briefly.`;
+
 const EMPTY_DRAFT: CreateAgentFormState = {
   agent_id: "",
   owner_id: "",
   display_name: "",
   description: "",
-  system_prompt: "",
+  system_prompt: DEFAULT_AGENT_SYSTEM_PROMPT,
   skills: [],
   tool_allowlist: [],
   group_reply_policy: "MENTION",
@@ -275,7 +292,7 @@ export function AgentCreatePage() {
               }}
             />
             <p id="system-prompt-help" className="text-xs text-slate-500">
-              Capture role, guardrails, and preferred tone. This is the primary behavior contract for the agent.
+              We prefill a standard template for role, goals, guardrails, and tone. Edit it before saving so it matches this agent.
             </p>
             {shouldShowError("system_prompt") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.system_prompt}</p> : null}
           </div>
