@@ -22,6 +22,7 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.main import (
     BackgroundLaunchResult,
     GatewayProcessManager,
@@ -639,6 +640,55 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     assert (workspace_root / "MEMORY.md").read_text(encoding="utf-8").strip()
     assert (workspace_root / "HEARTBEAT.md").read_text(encoding="utf-8").strip()
 
+
+
+def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profile_refresh(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir(parents=True)
+
+    class _Pipeline:
+        def __init__(self) -> None:
+            self.registered: list[tuple[str, str]] = []
+            self._session_store = SessionBindingStore()
+            self._session_store.bind(
+                session_key="web:conv-1:agent-live",
+                kernel_session_id="sess-old",
+                reply_context=type("_ReplyContext", (), {"channel_name": "web_relay", "target_chat_id": "conv-1", "thread_id": None, "metadata": {}})(),
+            )
+            self._session_store.bind(
+                session_key="web:conv-2:agent-other",
+                kernel_session_id="sess-other",
+                reply_context=type("_ReplyContext", (), {"channel_name": "web_relay", "target_chat_id": "conv-2", "thread_id": None, "metadata": {}})(),
+            )
+
+        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
+            self.registered.append((agent.agent_id, str(agent.workspace_root)))
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/im/v1/agents/agent-live/config"
+        return httpx.Response(
+            200,
+            json={"agent_id": "agent-live", "display_name": "Agent Live", "profile_version": 2},
+        )
+
+    pipeline = _Pipeline()
+    client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        workspace_root_factory=lambda _agent_id: workspace_root,
+        client=client,
+        monotonic=lambda: 0.0,
+        sleep=lambda _seconds: None,
+    )
+
+    sync.sync_agent(agent_id="agent-live", profile_version=2)
+
+    assert pipeline.registered == [("agent-live", str(workspace_root))]
+    assert pipeline._session_store.get("web:conv-1:agent-live") is None
+    assert pipeline._session_store.get("web:conv-2:agent-other") is not None
 
 
 def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(tmp_path: Path) -> None:

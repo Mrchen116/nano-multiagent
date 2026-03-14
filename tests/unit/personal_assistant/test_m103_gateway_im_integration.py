@@ -31,17 +31,24 @@ class _FakeChannel:
 
 class _FakeKernelClient:
     def __init__(self) -> None:
-        self.create_session_calls: list[dict[str, str | None]] = []
+        self.create_session_calls: list[dict[str, object | None]] = []
         self.send_calls: list[dict[str, str]] = []
         self.run_states: dict[str, dict[str, str]] = {}
         self.default_output_text = "reply:{text}"
         self._session_index = 0
         self._run_index = 0
 
-    def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None):
+    def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ):
         self._session_index += 1
         self.create_session_calls.append(
-            {"workspace_root": workspace_root, "product_id": product_id, "title": title}
+            {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
         )
         return {"session_id": f"sess-{self._session_index}"}
 
@@ -164,6 +171,48 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
     assert result.outbound is None
     assert kernel.send_calls == [{"session_id": "sess-1", "text": "@agent-a stay quiet", "run_id": "run-1"}]
     assert channel.sent == []
+
+
+def test_register_agent_refresh_drops_old_session_binding_and_recreates_session(tmp_path: Path) -> None:
+    """Refreshing one agent config must force later messages onto a new kernel session."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    kernel = _FakeKernelClient()
+    session_store = SessionBindingStore()
+    pipeline = InboundPipeline(
+        kernel_client=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=session_store,
+        default_agent_id="agent-a",
+    )
+
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="first turn",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+    )
+    refreshed_workspace = tmp_path / "agent-a-v2"
+    refreshed_workspace.mkdir()
+
+    first = asyncio.run(pipeline.handle_inbound(inbound))
+    pipeline.register_agent(
+        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2")
+    )
+    session_store.drop_agent("agent-a")
+    second = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert first is not None
+    assert second is not None
+    assert [call["session_id"] for call in kernel.send_calls] == ["sess-1", "sess-2"]
+    assert [call["workspace_root"] for call in kernel.create_session_calls] == [
+        str(tmp_path / "agent-a"),
+        str(refreshed_workspace),
+    ]
+
 
 
 def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> None:
