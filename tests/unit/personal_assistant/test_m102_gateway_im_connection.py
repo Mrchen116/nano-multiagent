@@ -76,6 +76,7 @@ def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
             "idempotency_key": "idem-1",
             "agent_id": "agent-a",
             "message": {
+                "id": "msg-1",
                 "sender_user_id": "user-1",
                 "conversation_id": "conv-1",
                 "content": "hello gateway",
@@ -89,6 +90,7 @@ def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
     assert inbound.external_chat_id == "conv-1"
     assert inbound.is_group is True
     assert inbound.metadata["relay_task_id"] == "relay-1"
+    assert inbound.metadata["message_id"] == "msg-1"
 
     adapter.send(
         OutboundMessage(
@@ -127,6 +129,7 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(tmp_path
                         "relay_task_id": "relay-1",
                         "idempotency_key": "idem-1",
                         "message": {
+                            "id": "msg-1",
                             "sender_user_id": "user-1",
                             "conversation_id": "conv-1",
                             "content": "hello",
@@ -171,6 +174,7 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(tmp_path
         )
     ]
     assert inbound_seen[0].text == "hello"
+    assert inbound_seen[0].metadata["message_id"] == "msg-1"
     assert sync_client.latest_profile_version("agent-a") == 5
     assert heartbeat_seen == [("agent-a", "manual")]
 
