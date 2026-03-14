@@ -1294,4 +1294,42 @@ describe("chat workspace page", () => {
       expect(screen.getByText("72 tokens")).toBeInTheDocument();
     });
   });
+
+  it("invalidates stale bootstrap identity after bind confirmation state is carried into chat", async () => {
+    getChatBootstrapState
+      .mockResolvedValueOnce({
+        selfUserId: "user-stale",
+        ownerId: "owner-stale",
+        targetNodeId: "node-1",
+        targetNodeStatus: "online",
+        initialConversationId: "conv-1",
+        ownership: {
+          ownershipLabel: "Owned by you",
+          nodeLabel: "MacBook"
+        }
+      })
+      .mockResolvedValueOnce({
+        selfUserId: "user-fresh",
+        ownerId: "owner-fresh",
+        targetNodeId: "node-1",
+        targetNodeStatus: "online",
+        initialConversationId: "conv-1",
+        ownership: {
+          ownershipLabel: "Owned by you",
+          nodeLabel: "MacBook"
+        }
+      });
+
+    const { queryClient } = renderWorkspaceWithPersistentClient({
+      initialEntries: [{ pathname: "/chat/conv-1", state: { boundSelfUserId: "user-fresh" } } as unknown as string],
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }]
+    });
+
+    await waitFor(() => {
+      expect(getChatBootstrapState.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+    await waitFor(() => {
+      expect(queryClient.getQueryData(["chat", "bootstrap"])).toMatchObject({ selfUserId: "user-fresh" });
+    });
+  });
 });

@@ -12,7 +12,8 @@ import {
   pickDefaultNodeForSend,
   pickPrimaryOwnedNodeId,
   resetChatBootstrapState,
-  resolveSendAvailability
+  resolveSendAvailability,
+  confirmBindToken
 } from "./im-chat-api";
 
 afterEach(() => {
@@ -132,6 +133,48 @@ describe("im chat api helpers", () => {
         ]
       })
     ).toMatchObject({ id: "conv-older" });
+  });
+
+  it("returns the confirmed self user id so the browser can invalidate stale chat bootstrap state", async () => {
+    let usersResponse = [
+      {
+        id: "user-self",
+        username: "you",
+        display_name: "You",
+        owner_id: "owner-1",
+        owned_node_ids: ["node-1"],
+        created_at: "2026-03-14T00:00:00Z"
+      }
+    ];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/users" && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify(usersResponse), { status: 200 });
+      }
+      if (url === "/im/v1/bind" && init?.method === "POST") {
+        return new Response(JSON.stringify({ node_id: "node-1" }), { status: 201 });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(confirmBindToken("bind-token-1")).resolves.toEqual({
+      node_id: "node-1",
+      self_user_id: "user-self"
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/im/v1/bind",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          action: "confirm",
+          bind_token: "bind-token-1",
+          user_id: "user-self"
+        })
+      })
+    );
   });
 
   it("derives selectable group participants from runtime agents after bootstrap creates aliases", async () => {

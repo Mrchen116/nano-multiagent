@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
 import { ConversationList } from "./components/conversation-list";
@@ -341,6 +341,7 @@ export function toRelayAgentMessage(event: {
 
 export function ChatWorkspacePage() {
   const { conversationId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
@@ -395,6 +396,10 @@ export function ChatWorkspacePage() {
   });
   const ownerId = bootstrapQuery.data?.ownerId;
   const selfUserId = bootstrapQuery.data?.selfUserId;
+  const boundSelfUserId =
+    location.state && typeof location.state === "object" && "boundSelfUserId" in location.state
+      ? toStringValue((location.state as { boundSelfUserId?: unknown }).boundSelfUserId)
+      : null;
 
   useEffect(() => {
     if (!conversationId) {
@@ -666,6 +671,19 @@ export function ChatWorkspacePage() {
       refreshUsageQueries({ conversationId, ownerId, queryClient });
     }
   });
+
+  useEffect(() => {
+    if (!boundSelfUserId || !selfUserId || boundSelfUserId === selfUserId || bootstrapQuery.isLoading) {
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: ["chat", "bootstrap"] });
+    void queryClient.invalidateQueries({ queryKey: ["chat", "starter"] });
+    void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    if (conversationId) {
+      queryClient.removeQueries({ queryKey: ["chat", "conversation", conversationId], exact: true });
+    }
+    navigate(location.pathname, { replace: true, state: null });
+  }, [boundSelfUserId, bootstrapQuery.isLoading, conversationId, location.pathname, navigate, queryClient, selfUserId]);
 
   if (
     bootstrapQuery.isLoading ||

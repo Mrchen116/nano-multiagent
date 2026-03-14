@@ -820,7 +820,10 @@ export async function confirmBindToken(bindToken: string) {
     })
   });
   resetChatBootstrapState();
-  return response;
+  return {
+    ...response,
+    self_user_id: self.id
+  };
 }
 
 export async function getChatStarter(): Promise<ChatStarter> {
