@@ -193,6 +193,57 @@ def test_main_default_command_returns_after_background_start(tmp_path: Path, mon
         _terminate_background_pid(pid)
 
 
+def test_main_background_start_uses_repo_root_node_config_multiple_agents(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = REPO_ROOT / "node-config.yaml"
+    original = config_path.read_text(encoding="utf-8")
+    port = _pick_free_port()
+    command = f"{sys.executable} -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port {port}"
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: canonical-node",
+                "agents:",
+                "  - agent_id: Alpha",
+                "    title: Alpha",
+                "  - agent_id: Beta",
+                "    title: Beta",
+                "channels:",
+                "  - name: web_relay",
+                "    enabled: true",
+                "kernel:",
+                f"  command: {command}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        completed = subprocess.run(
+            _main_command(config_path),
+            env=_pythonpath_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+        assert completed.returncode == 0, completed.stderr
+        pid = _parse_started_pid(completed.stdout)
+        health_url = f"http://127.0.0.1:{port}/v1/health"
+        try:
+            _wait_for_health(health_url)
+            loaded = load_local_config(config_path)
+            assert [agent.agent_id for agent in loaded.agents] == ["Alpha", "Beta"]
+            assert (home_dir / "nano-assistant" / "workspace" / "Alpha").is_dir() is True
+            assert (home_dir / "nano-assistant" / "workspace" / "Beta").is_dir() is True
+        finally:
+            _terminate_background_pid(pid)
+    finally:
+        config_path.write_text(original, encoding="utf-8")
+
+
 def test_main_foreground_flag_keeps_process_attached_until_sigterm(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     home_dir = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home_dir))
@@ -423,6 +474,7 @@ class _FakeIMManager:
     def __init__(self, events: list[str]) -> None:
         self._events = events
         self._closed = asyncio.Event()
+        self.connected = True
 
     async def connect_once(self) -> None:
         self._events.append("im.connect")
@@ -432,6 +484,7 @@ class _FakeIMManager:
 
     async def close(self) -> None:
         self._events.append("im.close")
+        self.connected = False
         self._closed.set()
 
 
@@ -483,6 +536,7 @@ class _FakeIMManager:
     def __init__(self, events: list[str]) -> None:
         self._events = events
         self._closed = asyncio.Event()
+        self.connected = True
 
     async def connect_once(self) -> None:
         self._events.append("im.connect")
@@ -492,6 +546,7 @@ class _FakeIMManager:
 
     async def close(self) -> None:
         self._events.append("im.close")
+        self.connected = False
         self._closed.set()
 
 
