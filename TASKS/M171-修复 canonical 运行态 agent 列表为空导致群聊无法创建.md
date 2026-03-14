@@ -27,6 +27,7 @@
 - 修正后端 runtime-selectable agent 的筛选逻辑，使 ownerless fresh runtime agent 可见。
 - 保留已 bind runtime 的 owner 隔离语义，避免跨 owner 污染。
 - 补齐 fresh runtime API / 群聊创建 / real-process 三层回归测试。
+- 补齐 isolated runtime 的真实浏览器建群证据。
 - 更新本 milestone 的 TASKS 与 PROGRESS。
 
 ## 非目标
@@ -59,21 +60,24 @@
 - DoD:
   - 集成层和前端层都能说明 Create group chat 面板有真实候选来源。
 
-### R3. 提供 real-process fresh runtime 证据并完成收口
+### R3. 提供 real-process 与真实浏览器证据并完成收口
 - Status: DONE
 - Acceptance:
   - real HTTP/WS 入口证明 fresh runtime 的 `/im/v1/agents` 不为空。
-  - real HTTP 入口可成功创建包含真实 agent alias 的 group conversation。
+  - real browser `Create group chat` 面板出现真实可选参与者。
+  - real browser 可成功创建包含真实 agent alias 的 group conversation。
   - TASKS/PROGRESS 写明根因、验证命令、证据、回滚点、提交计划。
 - Tests Plan:
   - `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/e2e/test_m112_real_process_roundtrip_e2e.py -k "fresh_runtime_agents_list_and_group_creation_before_bind" -q`
+  - `python <playwright script against http://127.0.0.1:19011/bind/confirm?...>`
 - DoD:
   - milestone 可提交、可 merge main、可 push、可清理 worktree。
 
 ## 当前结果
 - 已修复 `list_runtime_selectable_profiles()`：fresh unbound runtime 的 ownerless agent 现在会返回给 `/im/v1/agents`。
-- 已新增 3 组回归：repository/API 筛选、gateway fresh runtime 群聊创建、real-process fresh runtime HTTP/WS 证据。
+- 已新增 4 组门禁：repository/API 筛选、gateway fresh runtime 群聊创建、real-process fresh runtime HTTP/WS 证据、isolated runtime 真实浏览器建群证据。
 - 已验证前端群聊候选与 `Create group chat` 面板测试继续通过，说明浏览器侧可见真实候选的前置数据源已恢复。
+- 已在 isolated runtime `http://127.0.0.1:19011` 真实完成：bind → 打开 `Create group chat` → 看到两个 runtime agent 候选 → 成功创建 `assistant-a + assistant-b` 群聊。
 
 ## 回滚点
 - 若需要回滚本 milestone，只需撤回：
@@ -85,9 +89,9 @@
   - `/Users/czj/Repos/nano-multiagent/.worktrees/M171/PROGRESS/M171-修复 canonical 运行态 agent 列表为空导致群聊无法创建.md`
 
 ## 验证命令
-- `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/im_service/integration/test_agent_config_api.py /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/im_service/integration/test_m103_im_gateway_e2e.py -q`
-- `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/e2e/test_m112_real_process_roundtrip_e2e.py -k "fresh_runtime_agents_list_and_group_creation_before_bind" -q`
+- `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/im_service/integration/test_agent_config_api.py /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/im_service/integration/test_m103_im_gateway_e2e.py /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/e2e/test_m112_real_process_roundtrip_e2e.py -k "agents_list_includes_fresh_runtime_profiles_before_bind or gateway_registration_materializes_runtime_agents_before_and_after_bind or fresh_runtime_agents_can_back_group_creation_before_bind or real_process_fresh_runtime_agents_list_and_group_creation_before_bind"`
 - `npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M171/src/IM/frontend test -- --run src/features/chat/im-chat-api.test.ts src/features/chat/chat-workspace-page.test.ts`
+- `python <playwright script against http://127.0.0.1:19011/bind/confirm?...>`
 
 ## 提交计划
 - C1: 代码 + 测试 + milestone 记录收口提交

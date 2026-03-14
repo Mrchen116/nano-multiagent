@@ -15,10 +15,11 @@
 1. 不新增后端 API，直接修正 runtime-selectable 筛选语义。
 2. fresh runtime 场景允许“node owner 为空且 agent owner 为空”的绑定 profile 出现。
 3. 已 bind 场景保持原有隔离：`node.owner_id != ''` 时，仅允许同 owner 或空 owner 的 profile 暂时出现，等待 bind reassignment 收敛。
-4. 用三层证据封堵回归：
+4. 用四层证据封堵回归：
    - 集成 API：fresh runtime list 语义；
    - Gateway 集成：fresh runtime 能驱动 group conversation create；
-   - real-process：真实 HTTP/WS 下 `/im/v1/agents` 非空且可建群。
+   - real-process：真实 HTTP/WS 下 `/im/v1/agents` 非空且可建群；
+   - real browser：isolated runtime 中真实面板出现候选并完成建群。
 
 ## 进度
 
@@ -64,26 +65,47 @@
   - `/Users/czj/Repos/nano-multiagent/.worktrees/M171/src/IM/frontend/src/features/chat/chat-workspace-page.test.ts`
 - Status: DONE
 
+### R4 在 isolated runtime 上完成真实浏览器复验
+- Context:
+  - 之前的阻塞不是代码问题，而是本机外部进程抢占 `8000/18011/19011` 等端口，导致无法证明当前浏览器所连实例属于本次 M171 独占 runtime。
+- Decision:
+  - 先检查空闲端口，确认 `18071` 与 `19011` 可用。
+  - 将 `/Users/czj/Repos/nano-multiagent/.worktrees/M171/ACCEPTANCE/M171-node-config.yaml` 的 kernel 端口改为 `18071`。
+  - 用 `IM_DB_PATH=/Users/czj/Repos/nano-multiagent/.worktrees/M171/ACCEPTANCE/m171-runtime.sqlite3` 启动 isolated IM。
+  - 用 Playwright 真实打开 `http://127.0.0.1:19011/bind/confirm?token=...`，点击 `Continue to chat`，进入 `Create group chat` 面板，选择两个真实 agent 并创建群聊。
+- Rationale:
+  - 这样能把“真实浏览器连接到正确 fresh runtime”的不确定性降到最低，拿到可信产品证据。
+- Evidence:
+  - `/Users/czj/Repos/nano-multiagent/.worktrees/M171/ACCEPTANCE/M171-node-config.yaml`
+  - 浏览器脚本输出：`CHECKBOX_COUNT 2`、`CHECKBOX_LABELS ["assistant-aAgent\\n\\nRuntime agent advertised by m171-node.", "assistant-bAgent\\n\\nRuntime agent advertised by m171-node."]`
+  - 真实 API 输出：
+    - bind 前 `/im/v1/agents == []`，同时 `/im/v1/nodes` 显示 `agent_count=2`
+    - bind 后 `/im/v1/agents` 返回 `assistant-a` 与 `assistant-b`
+    - `/im/v1/conversations` 出现 `type="group"` 的 `assistant-a + assistant-b` 会话，`conversation_id=ae6710fc84f840ed98550987e3033141`
+- Status: DONE
+
 ## 测试结果
-- `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/im_service/integration/test_agent_config_api.py /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/im_service/integration/test_m103_im_gateway_e2e.py -q`
-  - 结果：`10 passed in 0.64s`
-- `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/e2e/test_m112_real_process_roundtrip_e2e.py -k "fresh_runtime_agents_list_and_group_creation_before_bind" -q`
-  - 结果：`1 passed, 8 deselected in 0.66s`
+- `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/im_service/integration/test_agent_config_api.py /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/im_service/integration/test_m103_im_gateway_e2e.py /Users/czj/Repos/nano-multiagent/.worktrees/M171/tests/e2e/test_m112_real_process_roundtrip_e2e.py -k "agents_list_includes_fresh_runtime_profiles_before_bind or gateway_registration_materializes_runtime_agents_before_and_after_bind or fresh_runtime_agents_can_back_group_creation_before_bind or real_process_fresh_runtime_agents_list_and_group_creation_before_bind"`
+  - 结果：`4 passed, 15 deselected in 0.94s`
   - 备注：存在 `websockets` / `uvicorn` 上游 deprecation warnings，不影响本次功能结论。
 - `npm --prefix /Users/czj/Repos/nano-multiagent/.worktrees/M171/src/IM/frontend test -- --run src/features/chat/im-chat-api.test.ts src/features/chat/chat-workspace-page.test.ts`
   - 结果：`2 passed files / 34 passed tests`
+- isolated runtime 真实浏览器：
+  - 结果：PASS
+  - 关键输出：`CHECKBOX_COUNT 2`，并成功进入 `/chat/ae6710fc84f840ed98550987e3033141`
 
 ## 验收证据摘要
 1. fresh runtime agent 列表恢复：
    - `test_agents_list_includes_fresh_runtime_profiles_before_bind()` 证明 node 未 bind 且 owner 为空时，`/im/v1/agents` 返回 `agent-fresh`，而 stale cross-owner profile 继续被过滤。
 2. browser Create group chat 面板候选来源恢复：
-   - `im-chat-api.test.ts` 继续锁定 `/im/v1/agents` → alias user → group participant option 的转换；
-   - `chat-workspace-page.test.ts` 继续锁定点击 `Create group chat` 后可见真实候选、可选择、可触发创建。
+   - `im-chat-api.test.ts` 锁定 `/im/v1/agents` → alias user → group participant option 的转换；
+   - `chat-workspace-page.test.ts` 锁定点击 `Create group chat` 后可见真实候选、可选择、可触发创建。
 3. fresh runtime 可成功创建群聊：
    - `test_fresh_runtime_agents_can_back_group_creation_before_bind()` 证明 gateway fresh register 后即可创建包含两个真实 agent alias 的 group conversation；
-   - `test_real_process_fresh_runtime_agents_list_and_group_creation_before_bind()` 在真实 uvicorn/http/ws 入口下再次证明相同链路。
+   - `test_real_process_fresh_runtime_agents_list_and_group_creation_before_bind()` 在真实 uvicorn/http/ws 入口下再次证明相同链路；
+   - isolated Playwright 真实浏览器复验已经在 `/chat/ae6710fc84f840ed98550987e3033141` 成功创建群聊。
 4. agent 列表来源正确：
-   - real-process 测试直接覆盖 `node.register` 写入 `nodes` + `agent_profiles` 后，再从真实 `/im/v1/agents` 读取到 fresh runtime agent；来源链路闭合。
+   - real-process 与真实浏览器都证明列表来自 `node.register` materialize 的 runtime profiles，而不是静态 profile seed。
 
 ## 当前结论
 - M171 主缺陷已修复：canonical fresh runtime 下 `/im/v1/agents` 不再错误返回空数组。
