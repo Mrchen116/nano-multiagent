@@ -2,8 +2,10 @@ node:
   node_id: m135-node
 
 agents:
-  - agent_id: assistant
-    title: My Assistant
+  - agent_id: Alpha
+    title: Alpha
+  - agent_id: Beta
+    title: Beta
 
 channels:
   - name: web_relay

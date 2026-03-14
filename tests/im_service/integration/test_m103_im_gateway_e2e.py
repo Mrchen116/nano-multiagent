@@ -151,7 +151,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                         "node_id": "node-1",
                         "node_name": "MacBook",
                         "version": "1.0.0",
-                        "agents": ["assistant-a", "assistant-b"],
+                        "agents": ["Alpha", "Beta"],
                         "capabilities": {"relay": True},
                     },
                 }
@@ -160,7 +160,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
 
             before_bind = client.get("/im/v1/agents")
             assert before_bind.status_code == 200
-            assert [item["agent_id"] for item in before_bind.json()] == ["assistant-a", "assistant-b"]
+            assert [item["agent_id"] for item in before_bind.json()] == ["Alpha", "Beta"]
             assert [item["bound_nodes"] for item in before_bind.json()] == [["node-1"], ["node-1"]]
             assert [item["owner_id"] for item in before_bind.json()] == ["", ""]
 
@@ -178,7 +178,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
 
             listed = client.get("/im/v1/agents")
             assert listed.status_code == 200
-            assert [item["agent_id"] for item in listed.json()] == ["assistant-a", "assistant-b"]
+            assert [item["agent_id"] for item in listed.json()] == ["Alpha", "Beta"]
             assert [item["bound_nodes"] for item in listed.json()] == [["node-1"], ["node-1"]]
             assert [item["owner_id"] for item in listed.json()] == [user.json()["owner_id"], user.json()["owner_id"]]
 
@@ -245,7 +245,7 @@ def test_fresh_runtime_agents_can_back_group_creation_before_bind(tmp_path: Path
                         "node_id": "node-1",
                         "node_name": "MacBook",
                         "version": "1.0.0",
-                        "agents": ["assistant-a", "assistant-b"],
+                        "agents": ["Alpha", "Beta"],
                         "capabilities": {"relay": True},
                     },
                 }
@@ -254,10 +254,10 @@ def test_fresh_runtime_agents_can_back_group_creation_before_bind(tmp_path: Path
 
             listed = client.get("/im/v1/agents")
             assert listed.status_code == 200
-            assert [item["agent_id"] for item in listed.json()] == ["assistant-a", "assistant-b"]
+            assert [item["agent_id"] for item in listed.json()] == ["Alpha", "Beta"]
 
-            agent_a_user = client.post("/im/v1/users", json={"username": "agent:assistant-a", "display_name": "Assistant A"})
-            agent_b_user = client.post("/im/v1/users", json={"username": "agent:assistant-b", "display_name": "Assistant B"})
+            agent_a_user = client.post("/im/v1/users", json={"username": "agent:Alpha", "display_name": "Alpha"})
+            agent_b_user = client.post("/im/v1/users", json={"username": "agent:Beta", "display_name": "Beta"})
             assert agent_a_user.status_code == 201
             assert agent_b_user.status_code == 201
 
