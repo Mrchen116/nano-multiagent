@@ -93,7 +93,7 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
 
 
 def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
-    """Snapshot profile_version on new conversations without mutating existing ones."""
+    """Snapshot alias-backed direct conversations so old threads stay old and new threads pick up updates."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
@@ -112,22 +112,11 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
             workspace_root=None,
         )
 
-        first_conv = client.post(
-            "/im/v1/conversations",
-            json={"title": "first", "participant_ids": [owner.id, "agent-1"]},
-        )
-        assert first_conv.status_code == 400
-
-        # Reuse the same owner_id by creating an agent-shaped participant id via SQLite seed.
-        app.state.connection.execute(
-            "INSERT INTO users(id, username, display_name, owner_id, created_at) VALUES (?, ?, ?, ?, ?)",
-            ("agent-1", "agent-1", "Alpha", owner.owner_id, "2026-03-11T00:00:00Z"),
-        )
-        app.state.connection.commit()
+        agent_participant = users.create_user(username="agent:agent-1", display_name="Alpha Alias")
 
         first_conv = client.post(
             "/im/v1/conversations",
-            json={"title": "first", "participant_ids": [owner.id, "agent-1"]},
+            json={"title": "first", "participant_ids": [owner.id, agent_participant.id]},
         )
         assert first_conv.status_code == 201
         assert first_conv.json()["config_profile_version"] == 1
@@ -150,7 +139,7 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
 
         second_conv = client.post(
             "/im/v1/conversations",
-            json={"title": "second", "participant_ids": [owner.id, "agent-1"]},
+            json={"title": "second", "participant_ids": [owner.id, agent_participant.id]},
         )
         assert second_conv.status_code == 201
 
