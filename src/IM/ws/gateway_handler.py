@@ -11,7 +11,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
-from IM.infra.repositories import ConversationRepository, EventRepository, NodeRepository
+from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, NodeRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,12 +175,32 @@ class GatewayHandler:
         async with self._lock:
             self._connections[node_id] = connection
         if self._node_repository is not None:
-            self._node_repository.record_gateway_registration(
+            node = self._node_repository.record_gateway_registration(
                 node_id=node_id,
                 node_name=node_name,
                 version=version,
                 agent_count=len(agents),
             )
+            profile_repository = AgentProfileRepository(self._node_repository._connection)
+            for agent_id in agents:
+                existing = profile_repository.get_profile(agent_id=agent_id)
+                profile_repository.upsert_profile(
+                    agent_id=agent_id,
+                    owner_id=node.owner_id,
+                    display_name=existing.display_name if existing is not None else agent_id,
+                    description=existing.description if existing is not None else f"Runtime agent advertised by {node_name}.",
+                    system_prompt=existing.system_prompt if existing is not None else f"You are {agent_id}.",
+                    skills=existing.skills if existing is not None else [],
+                    tool_allowlist=existing.tool_allowlist if existing is not None else [],
+                    group_reply_policy=existing.group_reply_policy if existing is not None else "MENTION",
+                    default_model=existing.default_model if existing is not None else None,
+                    workspace_root=existing.workspace_root if existing is not None else None,
+                )
+                self._node_repository._connection.execute(
+                    "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+                    (node_id, agent_id),
+                )
+            self._node_repository._connection.commit()
         return {"type": "ack", "payload": {"message_type": "node.register", "node_id": node_id}}
 
     async def _handle_heartbeat(self, *, payload: dict[str, object]) -> dict[str, object]:

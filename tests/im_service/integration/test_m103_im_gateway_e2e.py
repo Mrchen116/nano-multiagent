@@ -101,6 +101,52 @@ def _agents(tmp_path: Path, *agent_ids: str) -> tuple[AgentWorkspaceConfig, ...]
     return tuple(agents)
 
 
+def test_gateway_registration_materializes_runtime_agents_after_bind(tmp_path: Path) -> None:
+    """Gateway-advertised agents should become selectable after a fresh node bind."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        user = client.post("/im/v1/users", json={"username": "you", "display_name": "You"})
+        assert user.status_code == 201
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["assistant-a", "assistant-b"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            before_bind = client.get("/im/v1/agents")
+            assert before_bind.status_code == 200
+            assert before_bind.json() == []
+
+            bind_start = client.post("/im/v1/bind", json={"action": "start", "node_id": "node-1"})
+            assert bind_start.status_code == 201
+            bind_confirm = client.post(
+                "/im/v1/bind",
+                json={
+                    "action": "confirm",
+                    "bind_id": bind_start.json()["bind_id"],
+                    "user_id": user.json()["id"],
+                },
+            )
+            assert bind_confirm.status_code == 201
+
+            listed = client.get("/im/v1/agents")
+            assert listed.status_code == 200
+            assert [item["agent_id"] for item in listed.json()] == ["assistant-a", "assistant-b"]
+            assert [item["bound_nodes"] for item in listed.json()] == [["node-1"], ["node-1"]]
+            assert [item["owner_id"] for item in listed.json()] == [user.json()["owner_id"], user.json()["owner_id"]]
+
+
+
 def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
     """Send a Web IM message through IM websocket, gateway pipeline, and reply channel."""
     app = create_app(db_path=tmp_path / "im.db")

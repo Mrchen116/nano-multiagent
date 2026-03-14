@@ -783,6 +783,30 @@ class AgentProfileRepository:
         ).fetchall()
         return [self._row_to_profile(row) for row in rows]
 
+    def list_runtime_selectable_profiles(self) -> list[AgentProfile]:
+        """List profiles that are actually selectable in the current IM runtime.
+
+        A profile is selectable when it is bound to a node and either belongs to the
+        same owner as that node or has not yet been reassigned to any owner. This keeps
+        stale, unbound, or cross-owner config rows from surfacing in fresh canonical
+        runtimes where the browser needs real participants it can immediately use.
+        """
+        rows = self._connection.execute(
+            """
+            SELECT ap.agent_id, ap.owner_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
+                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version
+            FROM agent_profiles ap
+            JOIN nodes n ON n.node_id = ap.node_id
+            WHERE ap.node_id IS NOT NULL
+              AND ap.node_id != ''
+              AND n.owner_id IS NOT NULL
+              AND n.owner_id != ''
+              AND (ap.owner_id = '' OR ap.owner_id = n.owner_id)
+            ORDER BY ap.created_at, ap.rowid
+            """
+        ).fetchall()
+        return [self._row_to_profile(row) for row in rows]
+
     def list_bound_nodes(self, *, agent_id: str) -> list[str]:
         """Return the bound node ids for one agent profile."""
         row = self._connection.execute(

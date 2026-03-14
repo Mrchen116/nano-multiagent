@@ -141,8 +141,8 @@ def create_agent(
 
 @router.get("/im/v1/agents", response_model=list[AgentSummaryResponse])
 def list_agents(service: ConfigService = Depends(get_config_service)) -> list[AgentSummaryResponse]:
-    """List all configured agents."""
-    return [to_agent_summary_response(item, service=service) for item in service.list_profiles()]
+    """List runtime-selectable agents for the current IM workspace."""
+    return [to_agent_summary_response(item, service=service) for item in service.list_runtime_selectable_profiles()]
 
 
 @router.get("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)

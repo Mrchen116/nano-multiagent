@@ -77,6 +77,10 @@ class ConfigService:
         """List all agent profiles in storage order."""
         return self._profiles.list_profiles()
 
+    def list_runtime_selectable_profiles(self) -> list[AgentProfile]:
+        """List agent profiles that are selectable in the current runtime."""
+        return self._profiles.list_runtime_selectable_profiles()
+
     def list_bound_nodes(self, *, agent_id: str) -> list[str]:
         """Return the bound node ids for one agent."""
         return self._profiles.list_bound_nodes(agent_id=agent_id)

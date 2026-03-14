@@ -1,17 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildCreateMessageRequest,
   buildGroupConversationTitle,
   buildStarterConversationTitle,
   buildStarterPeerUsername,
+  listDiscoverableGroupParticipants,
   normalizeItemsEnvelope,
   parseImStreamEvent,
   pickCanonicalDirectConversation,
   pickDefaultNodeForSend,
   pickPrimaryOwnedNodeId,
+  resetChatBootstrapState,
   resolveSendAvailability
 } from "./im-chat-api";
+
+afterEach(() => {
+  resetChatBootstrapState();
+  vi.restoreAllMocks();
+});
 
 describe("im chat api helpers", () => {
   it("normalizes pagination envelopes from real IM APIs", () => {
@@ -125,6 +132,94 @@ describe("im chat api helpers", () => {
         ]
       })
     ).toMatchObject({ id: "conv-older" });
+  });
+
+  it("derives selectable group participants from runtime agents after bootstrap creates aliases", async () => {
+    let usersResponse = [
+      {
+        id: "user-self",
+        username: "you",
+        display_name: "You",
+        owner_id: "owner-1",
+        owned_node_ids: ["node-1"],
+        created_at: "2026-03-14T00:00:00Z"
+      }
+    ];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/users" && (!init?.method || init.method === "GET")) {
+        return new Response(JSON.stringify(usersResponse), { status: 200 });
+      }
+      if (url === "/im/v1/users" && init?.method === "POST") {
+        const payload = JSON.parse(String(init.body));
+        const created = {
+          id: `${payload.username}-id`,
+          username: payload.username,
+          display_name: payload.display_name,
+          owner_id: payload.username === "you" ? "owner-1" : `${payload.username}-id`,
+          owned_node_ids: [],
+          created_at: "2026-03-14T00:00:01Z"
+        };
+        usersResponse = [...usersResponse, created];
+        return new Response(JSON.stringify(created), { status: 201 });
+      }
+      if (url === "/im/v1/agents") {
+        return new Response(
+          JSON.stringify([
+            {
+              agent_id: "agent-a",
+              display_name: "Agent A",
+              description: "runtime selectable"
+            },
+            {
+              agent_id: "agent-b",
+              display_name: "Agent B",
+              description: "runtime selectable"
+            }
+          ]),
+          { status: 200 }
+        );
+      }
+      if (url === "/im/v1/nodes") {
+        return new Response(
+          JSON.stringify([
+            { node_id: "node-1", node_name: "MacBook", status: "online", relay_enabled: true, owner_id: "owner-1" }
+          ]),
+          { status: 200 }
+        );
+      }
+      if (url === "/im/v1/conversations") {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.startsWith("/im/v1/conversations/") && url.endsWith("/messages")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const participants = await listDiscoverableGroupParticipants();
+
+    expect(participants).toEqual([
+      {
+        user_id: "agent:agent-a-id",
+        label: "Agent A",
+        kind: "agent",
+        description: "runtime selectable"
+      },
+      {
+        user_id: "agent:agent-b-id",
+        label: "Agent B",
+        kind: "agent",
+        description: "runtime selectable"
+      }
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/im/v1/users",
+      expect.objectContaining({ method: "POST" })
+    );
   });
 });
 

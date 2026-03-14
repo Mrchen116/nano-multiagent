@@ -5,16 +5,23 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.repositories import AgentProfileRepository, UserRepository
+from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
 
 
 def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
-    """List, read, and optimistically update agent configs through HTTP APIs."""
+    """List runtime-selectable agents, then read and optimistically update one config."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
         owner = users.create_user(username="owner", display_name="Owner")
         profiles = AgentProfileRepository(app.state.connection)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1",
+            node_name="MacBook",
+            status="online",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
         seeded = profiles.upsert_profile(
             agent_id="agent-1",
             owner_id=owner.owner_id,
@@ -27,6 +34,8 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
             default_model="gpt-4.1",
             workspace_root=None,
         )
+        app.state.connection.execute("UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?", ("node-1", "agent-1"))
+        app.state.connection.commit()
 
         list_resp = client.get("/im/v1/agents")
         assert list_resp.status_code == 200
@@ -40,7 +49,7 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
                 "default_model": "gpt-4.1",
                 "workspace_root": list_resp.json()[0]["workspace_root"],
                 "workspace_is_default": True,
-                "bound_nodes": [],
+                "bound_nodes": ["node-1"],
                 "updated_at": list_resp.json()[0]["updated_at"],
             }
         ]
@@ -90,6 +99,71 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
         )
         assert conflict_resp.status_code == 409
         assert conflict_resp.json()["detail"] == "profile_version conflict"
+
+
+def test_agents_list_hides_unbound_and_cross_owner_profiles(tmp_path: Path) -> None:
+    """Only bound profiles in the current runtime ownership scope should be selectable."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        users = UserRepository(app.state.connection)
+        owner = users.create_user(username="owner", display_name="Owner")
+        other_owner = users.create_user(username="other", display_name="Other")
+        profiles = AgentProfileRepository(app.state.connection)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1",
+            node_name="MacBook",
+            status="online",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+
+        profiles.upsert_profile(
+            agent_id="agent-selectable",
+            owner_id=owner.owner_id,
+            display_name="Selectable",
+            description="bound to runtime owner",
+            system_prompt="You are Selectable.",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+        profiles.upsert_profile(
+            agent_id="agent-unbound",
+            owner_id=owner.owner_id,
+            display_name="Unbound",
+            description="not bound to any node",
+            system_prompt="You are Unbound.",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+        profiles.upsert_profile(
+            agent_id="agent-cross-owner",
+            owner_id=other_owner.owner_id,
+            display_name="Cross Owner",
+            description="bound to someone else",
+            system_prompt="You are Cross Owner.",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id IN (?, ?)",
+            ("node-1", "agent-selectable", "agent-cross-owner"),
+        )
+        app.state.connection.commit()
+
+        response = client.get("/im/v1/agents")
+        assert response.status_code == 200
+        assert [item["agent_id"] for item in response.json()] == ["agent-selectable"]
+        assert response.json()[0]["bound_nodes"] == ["node-1"]
+
 
 
 def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
