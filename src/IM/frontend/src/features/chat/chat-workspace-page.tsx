@@ -130,10 +130,23 @@ function toAttachments(value: unknown): ChatAttachment[] {
     .filter(isChatAttachment);
 }
 
+export function sortMessagesChronologically(messages: ChatMessage[] | undefined) {
+  return [...(messages ?? [])]
+    .map((message, index) => ({ message, index }))
+    .sort((left, right) => {
+      const createdAtOrder = left.message.created_at.localeCompare(right.message.created_at);
+      if (createdAtOrder !== 0) {
+        return createdAtOrder;
+      }
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
+}
+
 function upsertMessage(messages: ChatMessage[], message: ChatMessage) {
   const existingIndex = messages.findIndex((item) => item.message_id === message.message_id);
   if (existingIndex === -1) {
-    return [...messages, message];
+    return sortMessagesChronologically([...messages, message]);
   }
   const existing = messages[existingIndex];
   const next = [...messages];
@@ -144,11 +157,23 @@ function upsertMessage(messages: ChatMessage[], message: ChatMessage) {
       message.content.length >= existing.content.length || existing.content.length === 0 ? message.content : existing.content,
     attachments: message.attachments && message.attachments.length > 0 ? message.attachments : existing.attachments
   };
-  return next;
+  return sortMessagesChronologically(next);
 }
 
 export function mergeMessages(baseMessages: ChatMessage[] | undefined, incomingMessages: ChatMessage[] | undefined) {
-  return (incomingMessages ?? []).reduce<ChatMessage[]>((messages, message) => upsertMessage(messages, message), [...(baseMessages ?? [])]);
+  return sortMessagesChronologically(
+    (incomingMessages ?? []).reduce<ChatMessage[]>((messages, message) => upsertMessage(messages, message), [...(baseMessages ?? [])])
+  );
+}
+
+export function normalizeConversationDetail(detail: ConversationDetail | null | undefined): ConversationDetail | null {
+  if (!detail) {
+    return null;
+  }
+  return {
+    ...detail,
+    messages: sortMessagesChronologically(detail.messages)
+  };
 }
 
 function createConversationPlaceholder(conversationId: string, messages: ChatMessage[] = []): ConversationDetail {
@@ -156,7 +181,7 @@ function createConversationPlaceholder(conversationId: string, messages: ChatMes
     conversation_id: conversationId,
     title: "Conversation",
     mention_candidates: [],
-    messages
+    messages: sortMessagesChronologically(messages)
   };
 }
 
@@ -168,17 +193,17 @@ export function mergeConversationDetail(
     return null;
   }
   if (!detail) {
-    return cachedDetail ?? null;
+    return normalizeConversationDetail(cachedDetail);
   }
   if (!cachedDetail) {
-    return detail;
+    return normalizeConversationDetail(detail);
   }
-  return {
+  return normalizeConversationDetail({
     ...cachedDetail,
     ...detail,
     mention_candidates: detail.mention_candidates ?? cachedDetail.mention_candidates,
     messages: mergeMessages(detail.messages, cachedDetail.messages)
-  };
+  });
 }
 
 function upsertConversationMessage(
