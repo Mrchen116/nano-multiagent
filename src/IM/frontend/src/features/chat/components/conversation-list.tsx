@@ -39,7 +39,6 @@ export function ConversationList(props: {
   items: ConversationSummary[];
   activeId?: string;
   compact?: boolean;
-  onCreateDirectChat?: () => void;
   onCreateGroupChat?: () => void;
 }) {
   return (
@@ -58,11 +57,6 @@ export function ConversationList(props: {
             </p>
           </div>
           <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-            {props.onCreateDirectChat && (
-              <button type="button" className="im-btn im-btn-primary" onClick={props.onCreateDirectChat}>
-                New direct chat
-              </button>
-            )}
             {props.onCreateGroupChat && (
               <button type="button" className="im-btn im-btn-muted" onClick={props.onCreateGroupChat}>
                 Create group chat
@@ -85,9 +79,9 @@ export function ConversationList(props: {
           <div className="flex h-full min-h-[260px] items-center justify-center px-6 py-8 text-center">
             <div className="max-w-sm">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">No conversations yet</p>
-              <h2 className="im-title mt-2 text-lg font-bold text-slate-900">Start a direct chat or open a shared thread</h2>
+              <h2 className="im-title mt-2 text-lg font-bold text-slate-900">Open an agent chat or create a shared thread</h2>
               <p className="mt-2 text-sm text-slate-500">
-                New conversations will appear here with participant context, latest activity, and unread updates.
+                Agent chats launched from Settings and new group threads will appear here with participant context, latest activity, and unread updates.
               </p>
             </div>
           </div>

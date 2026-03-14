@@ -7,6 +7,7 @@ import {
   buildStarterPeerUsername,
   normalizeItemsEnvelope,
   parseImStreamEvent,
+  pickCanonicalDirectConversation,
   pickDefaultNodeForSend,
   pickPrimaryOwnedNodeId,
   resolveSendAvailability
@@ -89,6 +90,41 @@ describe("im chat api helpers", () => {
     expect(buildGroupConversationTitle(["OpsBot"])).toBe("OpsBot group");
     expect(buildGroupConversationTitle(["OpsBot", "Alex"])).toBe("OpsBot + Alex");
     expect(buildGroupConversationTitle(["OpsBot", "Alex", "Agent New"])).toBe("OpsBot + Alex +1");
+  });
+
+  it("reuses the oldest matching direct thread as the canonical agent chat", () => {
+    expect(
+      pickCanonicalDirectConversation({
+        selfUserId: "user-self",
+        peerUserId: "agent-user",
+        conversations: [
+          {
+            id: "conv-newer",
+            title: "Agent New",
+            participant_ids: ["user-self", "agent-user"],
+            type: "direct",
+            owner_id: "owner-1",
+            created_at: "2026-03-13T10:00:00Z"
+          },
+          {
+            id: "conv-group",
+            title: "Ignore group",
+            participant_ids: ["user-self", "agent-user", "teammate-1"],
+            type: "group",
+            owner_id: "owner-1",
+            created_at: "2026-03-11T10:00:00Z"
+          },
+          {
+            id: "conv-older",
+            title: "Agent New",
+            participant_ids: ["user-self", "agent-user"],
+            type: "direct",
+            owner_id: "owner-1",
+            created_at: "2026-03-12T10:00:00Z"
+          }
+        ]
+      })
+    ).toMatchObject({ id: "conv-older" });
   });
 });
 

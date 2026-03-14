@@ -407,7 +407,7 @@ function DefaultAgentStarterCard({ starter }: { starter: ChatStarter }) {
       </dl>
       <div className="rounded-2xl border border-[var(--im-border)] bg-slate-50 px-4 py-3 text-sm text-slate-600">
         <p className="font-semibold text-slate-800">Need a different target?</p>
-        <p className="mt-1">Use the conversation list to open other direct agent chats, agent-to-agent threads, or group chats.</p>
+        <p className="mt-1">Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.</p>
       </div>
       <div>
         <Link to={starter.actionHref} className="im-btn im-btn-primary inline-flex" aria-label={starter.actionLabel}>

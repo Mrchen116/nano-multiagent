@@ -44,7 +44,7 @@ describe("chat layout", () => {
       actionLabel: "Open Agent · OpsBot",
       actionHref: "/chat/conv-kernel-ops",
       agentName: "OpsBot",
-      description: "OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
+      description: "OpsBot is your default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.",
       nodeLabel: "node-app-01",
       statusLabel: "Online and ready to chat via OpsBot on node-app-01"
     });
@@ -100,7 +100,7 @@ describe("chat layout", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
-    expect(screen.getByText("OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
+    expect(screen.getByText("OpsBot is your default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
     expect(screen.getByText("Need a different target?")).toBeInTheDocument();
     expect(screen.getByText("Gateway status")).toBeInTheDocument();
     expect(screen.getByText("Online and ready to chat via OpsBot on node-app-01")).toBeInTheDocument();
@@ -126,7 +126,7 @@ describe("chat layout", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
-    expect(screen.getByText("OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
+    expect(screen.getByText("OpsBot is your default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Agent · OpsBot" })).toBeInTheDocument();
   });
 

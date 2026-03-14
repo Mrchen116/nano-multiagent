@@ -46,7 +46,7 @@ describe("app routes", () => {
       actionLabel: "Open Agent · OpsBot",
       actionHref: "/chat/conv-1",
       agentName: "OpsBot",
-      description: "OpsBot is your default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
+      description: "OpsBot is your default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.",
       nodeLabel: "node-1",
       statusLabel: "Using OpsBot on node-1 (online)"
     });

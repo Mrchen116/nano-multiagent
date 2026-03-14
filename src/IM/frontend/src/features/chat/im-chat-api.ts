@@ -24,6 +24,7 @@ interface ImConversation {
   participant_ids: string[];
   type: string;
   owner_id: string;
+  created_at?: string;
 }
 
 function isAgentUsername(username: string) {
@@ -313,7 +314,7 @@ const MAIN_AGENT_TARGET_LABEL = "你的主 Agent";
 const MAIN_AGENT_LIST_HINT = "This is the user-visible product entry where your main agent receives intent and routes follow-up work.";
 const MAIN_AGENT_OWNERSHIP_PREFIX = "Using your main agent";
 const MAIN_AGENT_STATUS_SUFFIX = " and ready to chat";
-const MAIN_AGENT_DEFAULT_DESCRIPTION_SUFFIX = "is your main agent and default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.";
+const MAIN_AGENT_DEFAULT_DESCRIPTION_SUFFIX = "is your main agent and default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.";
 const MAIN_AGENT_IDENTITY_ALIASES = ["main agent", "主 agent", "主agent", "your delegate", "替身"];
 
 function sanitizeMainAgentName(agentName: string): string {
@@ -623,19 +624,36 @@ function resolveConversationTitle(input: { conversation: ImConversation; starter
   return normalized;
 }
 
-function findDirectConversation(input: {
+function compareConversationCreation(left: ImConversation, right: ImConversation) {
+  const leftCreatedAt = Date.parse(left.created_at ?? "");
+  const rightCreatedAt = Date.parse(right.created_at ?? "");
+  const leftHasTimestamp = Number.isFinite(leftCreatedAt);
+  const rightHasTimestamp = Number.isFinite(rightCreatedAt);
+  if (leftHasTimestamp && rightHasTimestamp && leftCreatedAt !== rightCreatedAt) {
+    return leftCreatedAt - rightCreatedAt;
+  }
+  if (leftHasTimestamp !== rightHasTimestamp) {
+    return leftHasTimestamp ? -1 : 1;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+export function pickCanonicalDirectConversation(input: {
   conversations: ImConversation[];
   selfUserId: string;
   peerUserId: string;
 }): ImConversation | null {
-  return (
-    input.conversations.find(
-      (item) =>
-        item.participant_ids.length === 2 &&
-        item.participant_ids.includes(input.selfUserId) &&
-        item.participant_ids.includes(input.peerUserId)
-    ) ?? null
+  const matches = input.conversations.filter(
+    (item) =>
+      item.type !== "group" &&
+      item.participant_ids.length === 2 &&
+      item.participant_ids.includes(input.selfUserId) &&
+      item.participant_ids.includes(input.peerUserId)
   );
+  if (matches.length === 0) {
+    return null;
+  }
+  return [...matches].sort(compareConversationCreation)[0] ?? null;
 }
 
 function findStarterConversation(input: {
@@ -645,7 +663,7 @@ function findStarterConversation(input: {
   starterTitle: string;
 }): ImConversation | null {
   return (
-    findDirectConversation({
+    pickCanonicalDirectConversation({
       conversations: input.conversations,
       selfUserId: input.selfUserId,
       peerUserId: input.peerUserId
@@ -840,7 +858,7 @@ export async function listDiscoverableAgents(): Promise<DiscoverableAgent[]> {
   return agents.map((agent) => {
     const peer = usersByUsername.get(buildStarterPeerUsername(agent.agent_id));
     const existingConversation = peer
-      ? findDirectConversation({
+      ? pickCanonicalDirectConversation({
           conversations,
           selfUserId,
           peerUserId: peer.id
@@ -884,7 +902,7 @@ export async function createDirectConversation(input: { agentId: string }): Prom
   }
   const peer = await ensureUser(buildStarterPeerUsername(agent.agent_id), agent.display_name || agent.agent_id);
   const conversations = await listConversationsRaw();
-  const existing = findDirectConversation({
+  const existing = pickCanonicalDirectConversation({
     conversations,
     selfUserId,
     peerUserId: peer.id

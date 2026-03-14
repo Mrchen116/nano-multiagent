@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
+import { createDirectConversation } from "../../chat/chat-api";
 import { AgentConfig, getAgentConfig, listNodes, updateAgentConfig } from "./im-agent-config-api";
 
 function splitList(value: string) {
@@ -76,6 +77,7 @@ function formatUpdatedAt(value?: string | null) {
 
 export function AgentDetailPage() {
   const { agentId = "" } = useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<AgentConfig | null>(null);
   const [saved, setSaved] = useState(false);
@@ -126,6 +128,17 @@ export function AgentDetailPage() {
     onError: (error) => {
       setSaved(false);
       setErrorMessage(error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Save failed");
+    }
+  });
+  const openDirectChatMutation = useMutation({
+    mutationFn: () => createDirectConversation({ agentId }),
+    onSuccess: async ({ conversation_id }) => {
+      setErrorMessage(null);
+      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+      navigate(`/chat/${conversation_id}`);
+    },
+    onError: (error) => {
+      setErrorMessage(error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Open direct chat failed");
     }
   });
 
@@ -403,9 +416,19 @@ export function AgentDetailPage() {
           {!errorMessage && !mutation.isPending && !isDirty && !saved ? <p className="text-slate-500">All changes saved.</p> : null}
         </div>
 
-        <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending || !isDirty}>
-          {mutation.isPending ? "Saving…" : isDirty ? "Save Agent" : "No Changes to Save"}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className="im-btn im-btn-muted w-fit"
+            type="button"
+            disabled={openDirectChatMutation.isPending}
+            onClick={() => openDirectChatMutation.mutate()}
+          >
+            {openDirectChatMutation.isPending ? "Opening direct chat…" : "Open direct chat"}
+          </button>
+          <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending || !isDirty}>
+            {mutation.isPending ? "Saving…" : isDirty ? "Save Agent" : "No Changes to Save"}
+          </button>
+        </div>
       </div>
     </form>
   );

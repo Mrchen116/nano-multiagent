@@ -10,9 +10,7 @@ import { buildUsageView, ChatWorkspacePage, shouldRefreshUsageForEvent, toRelayA
 const getChatBootstrapState = vi.fn();
 const getChatStarter = vi.fn();
 const listConversations = vi.fn();
-const listDiscoverableAgents = vi.fn();
 const listDiscoverableGroupParticipants = vi.fn();
-const createDirectConversation = vi.fn();
 const createGroupConversation = vi.fn();
 const getConversation = vi.fn();
 const sendMessage = vi.fn();
@@ -28,9 +26,7 @@ vi.mock("./chat-api", () => ({
   getChatBootstrapState: () => getChatBootstrapState(),
   getChatStarter: () => getChatStarter(),
   listConversations: () => listConversations(),
-  listDiscoverableAgents: () => listDiscoverableAgents(),
   listDiscoverableGroupParticipants: () => listDiscoverableGroupParticipants(),
-  createDirectConversation: (input: { agentId: string }) => createDirectConversation(input),
   createGroupConversation: (input: { participantIds: string[] }) => createGroupConversation(input),
   getConversation: (conversationId: string) => getConversation(conversationId),
   getUsageMetrics: (input: { ownerId?: string; conversationId?: string }) => getUsageMetrics(input),
@@ -199,7 +195,7 @@ describe("chat workspace page", () => {
     });
 
     expect(await screen.findByText("主 Agent · OpsBot")).toBeInTheDocument();
-    expect(screen.getByText("OpsBot is your main agent and default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
+    expect(screen.getByText("OpsBot is your main agent and default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
     expect(screen.getByText("Using your main agent OpsBot on node-1 (online)")).toBeInTheDocument();
   });
 
@@ -223,7 +219,7 @@ describe("chat workspace page", () => {
       actionLabel: "Open 主 Agent · OpsBot",
       actionHref: "/chat/conv-1",
       agentName: "OpsBot",
-      description: "OpsBot is your main agent and default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
+      description: "OpsBot is your main agent and default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.",
       nodeLabel: "node-1",
       statusLabel: "Using your main agent OpsBot on node-1 (online)"
     });
@@ -238,14 +234,6 @@ describe("chat workspace page", () => {
         kind_label: "Direct agent chat",
         target_label: "Teammate",
         discoverability_hint: "This is a one-to-one conversation with an available target."
-      }
-    ]);
-    listDiscoverableAgents.mockResolvedValue([
-      {
-        agent_id: "agent-new",
-        display_name: "Agent New",
-        description: "runtime-created helper",
-        existing_conversation_id: null
       }
     ]);
     listDiscoverableGroupParticipants.mockResolvedValue([
@@ -268,20 +256,8 @@ describe("chat workspace page", () => {
         description: "Human teammate"
       }
     ]);
-    createDirectConversation.mockResolvedValue({ conversation_id: "conv-agent-new" });
     createGroupConversation.mockResolvedValue({ conversation_id: "conv-group-new" });
     getConversation.mockImplementation(async (conversationId: string) => {
-      if (conversationId === "conv-agent-new") {
-        return {
-          conversation_id: "conv-agent-new",
-          title: "Agent New",
-          kind_label: "Direct agent chat",
-          target_label: "Agent New",
-          discoverability_hint: "This is a one-to-one conversation with an available target.",
-          mention_candidates: [],
-          messages: []
-        };
-      }
       if (conversationId === "conv-group-new") {
         return {
           conversation_id: "conv-group-new",
@@ -511,27 +487,17 @@ describe("chat workspace page", () => {
     expect(screen.getByText("Target: Multiple participants")).toBeInTheDocument();
   });
 
-  it("lets users discover an agent and open a fresh direct chat from the workspace", async () => {
+  it("removes the new direct chat CTA while keeping group chat creation available", async () => {
     renderRouter({
       routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
       initialEntries: ["/chat/conv-1"]
     });
 
     expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "New direct chat" })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "New direct chat" }));
-    expect(await screen.findByText("Available agents")).toBeInTheDocument();
-    expect(screen.getByText("Agent New")).toBeInTheDocument();
-    expect(screen.getByText("runtime-created helper")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Chat with Agent New" }));
-
-    expect(createDirectConversation).toHaveBeenCalledWith({ agentId: "agent-new" });
-    expect(await screen.findByText("Agent New")).toBeInTheDocument();
-    expect(getConversation).toHaveBeenCalledWith("conv-agent-new");
-    expect(screen.queryByText("Available agents")).not.toBeInTheDocument();
-    expect(screen.getByText("Target: Agent New")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New direct chat" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create group chat" })).toBeInTheDocument();
+    expect(screen.getByText("Keep direct chats, shared threads, and agent coordination in one production inbox.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /You & Teammate/i })).toBeInTheDocument();
   });
 
   it("exposes group-chat mention candidates from agent participants only", async () => {

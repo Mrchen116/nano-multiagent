@@ -6,14 +6,12 @@ import { useIsMobile } from "../../hooks/use-is-mobile";
 import { ConversationList } from "./components/conversation-list";
 import { MessagePane } from "./components/message-pane";
 import {
-  createDirectConversation,
   createGroupConversation,
   getChatBootstrapState,
   getChatStarter,
   getConversation,
   getUsageMetrics,
   listConversations,
-  listDiscoverableAgents,
   listDiscoverableGroupParticipants,
   resolveSendAvailability,
   sendMessage,
@@ -301,7 +299,6 @@ export function ChatWorkspacePage() {
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const [isCreatingGroupChat, setIsCreatingGroupChat] = useState(false);
-  const [isCreatingDirectChat, setIsCreatingDirectChat] = useState(false);
   const [selectedGroupParticipantIds, setSelectedGroupParticipantIds] = useState<string[]>([]);
 
   const bootstrapQuery = useQuery<ChatBootstrapState>({
@@ -317,12 +314,6 @@ export function ChatWorkspacePage() {
   const starterQuery = useQuery({
     queryKey: ["chat", "starter"],
     queryFn: getChatStarter
-  });
-
-  const discoverableAgentsQuery = useQuery({
-    enabled: isCreatingDirectChat,
-    queryKey: ["chat", "discoverable-agents"],
-    queryFn: listDiscoverableAgents
   });
 
   const discoverableGroupParticipantsQuery = useQuery({
@@ -561,42 +552,6 @@ export function ChatWorkspacePage() {
     });
   }, [conversationId, ownerId, queryClient, selfUserId]);
 
-  const createDirectConversationMutation = useMutation({
-    mutationFn: (payload: { agentId: string }) => createDirectConversation(payload),
-    onSuccess: async ({ conversation_id }) => {
-      const detail = await getConversation(conversation_id);
-      queryClient.setQueryData(["chat", "conversation", conversation_id], detail);
-      if (conversationId) {
-        queryClient.setQueryData(["chat", "conversation", conversationId], detail);
-      }
-      if (detail) {
-        queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) => {
-          const existing = previous ?? [];
-          if (existing.some((item) => item.conversation_id === conversation_id)) {
-            return existing;
-          }
-          return [
-            {
-              conversation_id,
-              title: detail.title,
-              last_message_preview: detail.messages.at(-1)?.content ?? "",
-              last_message_at: detail.messages.at(-1)?.created_at,
-              unread_count: 0,
-              participants: detail.target_label ? [detail.target_label] : [],
-              kind_label: detail.kind_label,
-              target_label: detail.target_label,
-              discoverability_hint: detail.discoverability_hint
-            },
-            ...existing
-          ];
-        });
-      }
-      setIsCreatingDirectChat(false);
-      navigate(`/chat/${conversation_id}`);
-      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
-    }
-  });
-
   const createGroupConversationMutation = useMutation({
     mutationFn: (payload: { participantIds: string[]; participantLabels: string[] }) =>
       createGroupConversation({ participantIds: payload.participantIds }),
@@ -704,42 +659,6 @@ export function ChatWorkspacePage() {
       </div>
     );
   }
-
-  const directChatPanel = isCreatingDirectChat ? (
-    <section className="im-card rounded-2xl border border-[var(--im-border)] bg-slate-50 px-4 py-4 text-sm text-slate-700">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Direct chat</p>
-          <h2 className="im-title mt-1 text-lg font-bold">Available agents</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Open a fresh one-to-one conversation with a configured agent from the workspace.
-          </p>
-        </div>
-        <button type="button" className="im-btn im-btn-muted" onClick={() => setIsCreatingDirectChat(false)}>
-          Cancel
-        </button>
-      </div>
-      <div className="mt-4 grid gap-3">
-        {(discoverableAgentsQuery.data ?? []).map((agent) => (
-          <article key={agent.agent_id} className="rounded-xl border border-[var(--im-border)] bg-white px-4 py-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="font-semibold text-slate-900">{agent.display_name}</h3>
-                <p className="mt-1 text-xs text-slate-500">{agent.description}</p>
-              </div>
-              <button
-                type="button"
-                className="im-btn im-btn-primary"
-                onClick={() => createDirectConversationMutation.mutate(agent.agent_id ? { agentId: agent.agent_id } : { agentId: "" })}
-              >
-                {agent.existing_conversation_id ? `Open ${agent.display_name}` : `Chat with ${agent.display_name}`}
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  ) : null;
 
   const groupChatPanel = isCreatingGroupChat ? (
     <section className="im-card rounded-2xl border border-[var(--im-border)] bg-slate-50 px-4 py-4 text-sm text-slate-700">
@@ -867,19 +786,12 @@ export function ChatWorkspacePage() {
             onUploadAttachment={uploadAttachment}
           />
         )}
-        {directChatPanel}
         {groupChatPanel}
         <ConversationList
           items={conversations}
           activeId={conversationId}
           compact={isMobile}
-          onCreateDirectChat={() => {
-            setSelectedGroupParticipantIds([]);
-            setIsCreatingGroupChat(false);
-            setIsCreatingDirectChat(true);
-          }}
           onCreateGroupChat={() => {
-            setIsCreatingDirectChat(false);
             setSelectedGroupParticipantIds([]);
             setIsCreatingGroupChat(true);
           }}
