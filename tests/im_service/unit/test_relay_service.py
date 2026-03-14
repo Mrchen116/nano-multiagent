@@ -138,3 +138,67 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_pa
         "config_profile_version": 1,
         "system_prompt": "You are agent-b.",
     }
+
+
+def test_enqueue_message_relay_normalizes_typed_and_picker_mentions_to_the_same_agent(tmp_path: Path) -> None:
+    """Typed and picker mention tokens must converge on the same addressed agent id."""
+    relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    agent_a_user = users.create_user(username="agent:agent-a", display_name="Agent A")
+    agent_b_user = users.create_user(username="agent:agent-b", display_name="Agent B")
+    profiles.upsert_profile(
+        agent_id="agent-a",
+        owner_id=alice.owner_id,
+        display_name="Agent A",
+        description="profile a",
+        system_prompt="You are agent-a.",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+    )
+    profiles.upsert_profile(
+        agent_id="agent-b",
+        owner_id=alice.owner_id,
+        display_name="Agent B",
+        description="profile b",
+        system_prompt="You are agent-b.",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+    )
+    conversation = conversations.create_conversation(
+        title="group",
+        participant_ids=[alice.id, agent_a_user.id, agent_b_user.id],
+    )
+    typed = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="@agent-b please review the typed mention",
+    )
+    picker = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="@agent:agent-b please review the picker mention",
+    )
+
+    typed_relay = relay_service.enqueue_message_relay(
+        message=typed,
+        target_node_id="node-1",
+        idempotency_key="idem-mentioned-agent-typed",
+        sender_user_id=alice.id,
+        conversation_type="group",
+    )
+    picker_relay = relay_service.enqueue_message_relay(
+        message=picker,
+        target_node_id="node-1",
+        idempotency_key="idem-mentioned-agent-picker",
+        sender_user_id=alice.id,
+        conversation_type="group",
+    )
+
+    assert typed_relay.relay_task.payload["agent_id"] == "agent-b"
+    assert picker_relay.relay_task.payload["agent_id"] == "agent-b"
+    assert typed_relay.relay_task.payload["metadata"]["mentioned_agent_ids"] == ["agent-b"]
+    assert picker_relay.relay_task.payload["metadata"]["mentioned_agent_ids"] == ["agent-b"]
