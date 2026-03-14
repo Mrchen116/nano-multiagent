@@ -225,7 +225,12 @@ class _IMConfigSyncClient:
                     raise RuntimeError(
                         f"agent {agent_id} config stale: expected >= {profile_version}, got {resolved_profile_version}"
                     )
-                workspace_root = ensure_workspace_defaults(self._workspace_root_factory(agent_id))
+                workspace_root_text = payload.get("workspace_root")
+                if isinstance(workspace_root_text, str) and workspace_root_text.strip():
+                    workspace_root = Path(workspace_root_text).expanduser().resolve()
+                else:
+                    workspace_root = self._workspace_root_factory(agent_id)
+                workspace_root = ensure_workspace_defaults(workspace_root)
                 self._pipeline.register_agent(
                     AgentWorkspaceConfig(
                         agent_id=agent_id,

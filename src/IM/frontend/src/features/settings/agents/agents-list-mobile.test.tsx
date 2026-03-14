@@ -33,6 +33,8 @@ describe("agents list page", () => {
             description: "Milestone execution coordinator",
             profile_version: 12,
             default_model: "gpt-5.2-codex",
+            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
+            workspace_is_default: true,
             bound_nodes: ["node-app-01"],
             updated_at: "2026-03-13T10:00:00Z"
           }
@@ -51,6 +53,9 @@ describe("agents list page", () => {
     expect(await screen.findByText("Core Planner")).toBeInTheDocument();
     expect(screen.getByText("Milestone execution coordinator")).toBeInTheDocument();
     expect(screen.getByText("gpt-5.2-codex")).toBeInTheDocument();
+    expect(screen.getByText("Managed default")).toBeInTheDocument();
+    expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Workspace settings" })).toHaveAttribute("href", "/settings/agents/agent-core-1#workspace-settings");
     expect(screen.getByText("node-app-01")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/im/v1/agents", expect.any(Object));
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
@@ -93,6 +98,8 @@ describe("agents list page", () => {
             description: "Milestone execution coordinator",
             profile_version: 12,
             default_model: "gpt-5.2-codex",
+            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
+            workspace_is_default: true,
             bound_nodes: [],
             updated_at: "2026-03-13T10:00:00Z"
           }

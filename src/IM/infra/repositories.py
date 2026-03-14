@@ -713,7 +713,7 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT agent_id, owner_id, display_name, description, system_prompt, skills_json,
-                   tool_allowlist_json, group_reply_policy, default_model, profile_version
+                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version
             FROM agent_profiles
             ORDER BY created_at, rowid
             """
@@ -746,7 +746,7 @@ class AgentProfileRepository:
         row = self._connection.execute(
             """
             SELECT agent_id, owner_id, display_name, description, system_prompt, skills_json,
-                   tool_allowlist_json, group_reply_policy, default_model, profile_version
+                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version
             FROM agent_profiles
             WHERE agent_id = ?
             """,
@@ -768,6 +768,7 @@ class AgentProfileRepository:
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
+        workspace_root: str | None,
     ) -> AgentProfile:
         """Create or replace one seed profile without optimistic locking."""
         created_at = _utc_now()
@@ -779,8 +780,8 @@ class AgentProfileRepository:
                 INSERT INTO agent_profiles(
                     agent_id, owner_id, display_name, description, system_prompt,
                     skills_json, tool_allowlist_json, group_reply_policy,
-                    default_model, profile_version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    default_model, workspace_root, profile_version, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     display_name = excluded.display_name,
@@ -790,6 +791,7 @@ class AgentProfileRepository:
                     tool_allowlist_json = excluded.tool_allowlist_json,
                     group_reply_policy = excluded.group_reply_policy,
                     default_model = excluded.default_model,
+                    workspace_root = excluded.workspace_root,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -802,6 +804,7 @@ class AgentProfileRepository:
                     tool_allowlist_json,
                     group_reply_policy,
                     default_model,
+                    workspace_root,
                     1,
                     created_at,
                     created_at,
@@ -823,6 +826,7 @@ class AgentProfileRepository:
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
+        workspace_root: str | None,
     ) -> AgentProfile:
         """Update a profile with optimistic locking on profile_version."""
         current = self.get_profile(agent_id=agent_id)
@@ -843,6 +847,7 @@ class AgentProfileRepository:
                     tool_allowlist_json = ?,
                     group_reply_policy = ?,
                     default_model = ?,
+                    workspace_root = ?,
                     profile_version = ?,
                     updated_at = ?
                 WHERE agent_id = ?
@@ -855,6 +860,7 @@ class AgentProfileRepository:
                     _encode_json_list(tool_allowlist),
                     group_reply_policy,
                     default_model,
+                    workspace_root,
                     next_version,
                     updated_at,
                     agent_id,
@@ -884,6 +890,7 @@ class AgentProfileRepository:
             tool_allowlist=_decode_string_list(row["tool_allowlist_json"]),
             group_reply_policy=row["group_reply_policy"],
             default_model=row["default_model"],
+            workspace_root=row["workspace_root"],
             profile_version=int(row["profile_version"]),
         )
 

@@ -123,6 +123,7 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         tool_allowlist=["read"],
         group_reply_policy="manual",
         default_model=None,
+        workspace_root=None,
     )
 
     created_conversation = conversations.create_conversation(
@@ -141,9 +142,11 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         tool_allowlist=["read", "edit"],
         group_reply_policy="auto",
         default_model="claude-sonnet-4",
+        workspace_root="/srv/agents/alpha",
     )
     assert updated.profile_version == 2
     assert updated.group_reply_policy == "auto"
+    assert updated.workspace_root == "/srv/agents/alpha"
 
     with pytest.raises(AgentProfileVersionConflictError):
         profiles.update_profile(
@@ -156,6 +159,7 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
             tool_allowlist=[],
             group_reply_policy="manual",
             default_model=None,
+            workspace_root=None,
         )
 
 
@@ -174,6 +178,7 @@ def test_user_nodes_and_bind_roundtrip(tmp_path: Path) -> None:
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
+        workspace_root=None,
     )
     profiles._connection.execute(
         "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",

@@ -27,6 +27,7 @@ def test_me_roundtrip_and_bind_flow(tmp_path: Path) -> None:
             tool_allowlist=[],
             group_reply_policy="manual",
             default_model=None,
+            workspace_root=None,
         )
         app.state.connection.execute(
             "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",

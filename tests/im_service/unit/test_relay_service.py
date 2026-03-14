@@ -101,6 +101,7 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_pa
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
+        workspace_root=None,
     )
     profiles.upsert_profile(
         agent_id="agent-b",
@@ -112,6 +113,7 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_pa
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
+        workspace_root=None,
     )
     conversation = conversations.create_conversation(
         title="group",

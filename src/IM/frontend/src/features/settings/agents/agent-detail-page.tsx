@@ -6,6 +6,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { createDirectConversation } from "../../chat/chat-api";
 import { AgentConfig, getAgentConfig, listNodes, updateAgentConfig } from "./im-agent-config-api";
 
+type AgentConfigFormState = AgentConfig & {
+  workspace_root_input: string;
+};
+
 function splitList(value: string) {
   return value
     .split(",")
@@ -17,7 +21,14 @@ function normalizeText(value: string) {
   return value.trim();
 }
 
-function normalizeAgentConfig(config: AgentConfig): AgentConfig {
+function toFormState(config: AgentConfig): AgentConfigFormState {
+  return {
+    ...config,
+    workspace_root_input: config.workspace_is_default ? "" : config.workspace_root
+  };
+}
+
+function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormState {
   return {
     ...config,
     display_name: normalizeText(config.display_name),
@@ -26,12 +37,13 @@ function normalizeAgentConfig(config: AgentConfig): AgentConfig {
     skills: splitList(config.skills.join(",")),
     tool_allowlist: splitList(config.tool_allowlist.join(",")),
     default_model: normalizeText(config.default_model ?? "") || null,
+    workspace_root_input: config.workspace_root_input.trim(),
     bound_nodes: config.bound_nodes ?? []
   };
 }
 
-function validateDraft(draft: AgentConfig) {
-  const errors: Partial<Record<"display_name" | "system_prompt", string>> = {};
+function validateDraft(draft: AgentConfigFormState) {
+  const errors: Partial<Record<"display_name" | "system_prompt" | "workspace_root_input", string>> = {};
 
   if (!draft.display_name) {
     errors.display_name = "Display name is required.";
@@ -39,6 +51,10 @@ function validateDraft(draft: AgentConfig) {
 
   if (!draft.system_prompt) {
     errors.system_prompt = "System prompt is required.";
+  }
+
+  if (draft.workspace_root_input && !draft.workspace_root_input.startsWith("/") && !draft.workspace_root_input.startsWith("~/")) {
+    errors.workspace_root_input = "Workspace path must be absolute or start with ~/.";
   }
 
   return errors;
@@ -79,7 +95,7 @@ export function AgentDetailPage() {
   const { agentId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<AgentConfig | null>(null);
+  const [draft, setDraft] = useState<AgentConfigFormState | null>(null);
   const [saved, setSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
@@ -97,13 +113,13 @@ export function AgentDetailPage() {
 
   useEffect(() => {
     if (query.data) {
-      setDraft(query.data);
+      setDraft(toFormState(query.data));
       setErrorMessage(null);
     }
   }, [query.data]);
 
   const normalizedDraft = useMemo(() => (draft ? normalizeAgentConfig(draft) : null), [draft]);
-  const normalizedServerState = useMemo(() => (query.data ? normalizeAgentConfig(query.data) : null), [query.data]);
+  const normalizedServerState = useMemo(() => (query.data ? normalizeAgentConfig(toFormState(query.data)) : null), [query.data]);
   const validationErrors = useMemo(() => (normalizedDraft ? validateDraft(normalizedDraft) : {}), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
   const isDirty = normalizedDraft && normalizedServerState ? JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedServerState) : false;
@@ -113,13 +129,19 @@ export function AgentDetailPage() {
     nodesQuery.error instanceof Error ? nodesQuery.error.message.split(" failed: ").at(-1) ?? nodesQuery.error.message : "Unable to load node status.";
 
   const mutation = useMutation({
-    mutationFn: (next: AgentConfig) => updateAgentConfig(agentId, next),
+    mutationFn: (next: AgentConfigFormState) => {
+      const { workspace_root_input, workspace_is_default: _workspaceIsDefault, bound_nodes: _boundNodes, updated_at: _updatedAt, owner_id: _ownerId, agent_id: _agentId, workspace_root: _workspaceRoot, ...payload } = next;
+      return updateAgentConfig(agentId, {
+        ...payload,
+        workspace_root: workspace_root_input || null
+      });
+    },
     onSuccess: async (updated) => {
       setErrorMessage(null);
       setSaved(true);
       setHasAttemptedSave(false);
       if (updated) {
-        setDraft(updated);
+        setDraft(toFormState(updated));
       }
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents", agentId] });
@@ -142,11 +164,11 @@ export function AgentDetailPage() {
     }
   });
 
-  function markTouched(field: "display_name" | "system_prompt") {
+  function markTouched(field: "display_name" | "system_prompt" | "workspace_root_input") {
     setTouched((current) => ({ ...current, [field]: true }));
   }
 
-  function shouldShowError(field: "display_name" | "system_prompt") {
+  function shouldShowError(field: "display_name" | "system_prompt" | "workspace_root_input") {
     return (hasAttemptedSave || touched[field]) && validationErrors[field];
   }
 
@@ -211,6 +233,40 @@ export function AgentDetailPage() {
               <input id="owner-id" className="im-input bg-slate-50 text-slate-500" value={draft.owner_id || "—"} disabled />
             </div>
           </div>
+
+          <section id="workspace-settings" className="grid gap-3 rounded-2xl border border-[var(--im-border)] bg-slate-50/80 p-4">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Current workspace</p>
+              <p className="break-all font-mono text-sm text-slate-900">{draft.workspace_root}</p>
+              <p className="text-xs text-slate-500">
+                {draft.workspace_is_default
+                  ? "Read-only runtime path. This agent is currently using the managed default workspace."
+                  : "Read-only runtime path. This agent is currently using a custom workspace override."}
+              </p>
+            </div>
+
+            <div className="grid gap-1">
+              <Label.Root htmlFor="workspace-root">Workspace Path Setting</Label.Root>
+              <input
+                id="workspace-root"
+                className="im-input"
+                value={draft.workspace_root_input}
+                aria-invalid={Boolean(shouldShowError("workspace_root_input"))}
+                aria-describedby="workspace-root-help"
+                placeholder="Leave blank to use the managed default workspace"
+                onBlur={() => markTouched("workspace_root_input")}
+                onChange={(event) => {
+                  setSaved(false);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, workspace_root_input: event.target.value });
+                }}
+              />
+              <p id="workspace-root-help" className="text-xs text-slate-500">
+                Editable setting. Enter an absolute path or `~/...`. Leave blank to keep the managed default path for this agent.
+              </p>
+              {shouldShowError("workspace_root_input") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.workspace_root_input}</p> : null}
+            </div>
+          </section>
 
           <div className="grid gap-1">
             <Label.Root htmlFor="display-name">Display Name</Label.Root>

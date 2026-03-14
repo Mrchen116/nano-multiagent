@@ -2,11 +2,14 @@
 
 import asyncio
 from collections.abc import Callable
+from pathlib import Path
 
 from IM.domain.models import AgentProfile
 from IM.infra.repositories import AgentProfileRepository, NodeRepository
 
 ConfigSyncNotifier = Callable[[str, str, int], object]
+
+_DEFAULT_WORKSPACE_ROOT = Path("~/nano-assistant/workspace").expanduser()
 
 
 class ConfigService:
@@ -36,6 +39,7 @@ class ConfigService:
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
+        workspace_root: str | None,
         node_id: str | None,
     ) -> AgentProfile:
         """Create one agent profile and optionally bind it to a known node."""
@@ -54,6 +58,7 @@ class ConfigService:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
+            workspace_root=self.normalize_workspace_root(workspace_root=workspace_root),
         )
         if node_id is not None:
             self._profiles._connection.execute(
@@ -96,8 +101,11 @@ class ConfigService:
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
+        workspace_root: str | None,
     ) -> AgentProfile:
         """Update one agent profile using profile_version optimistic locking."""
+        if self._profiles.get_profile(agent_id=agent_id) is None:
+            raise LookupError("agent_id not found")
         updated = self._profiles.update_profile(
             agent_id=agent_id,
             profile_version=profile_version,
@@ -108,9 +116,33 @@ class ConfigService:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
+            workspace_root=self.normalize_workspace_root(workspace_root=workspace_root),
         )
         self._notify_config_sync(agent_id=agent_id, profile_version=updated.profile_version)
         return updated
+
+    def workspace_root_for_profile(self, profile: AgentProfile) -> str:
+        """Return the effective workspace root used by runtime sync and UI."""
+        if profile.workspace_root:
+            return str(Path(profile.workspace_root).expanduser().resolve())
+        return str((_DEFAULT_WORKSPACE_ROOT / profile.agent_id).resolve())
+
+    @staticmethod
+    def normalize_workspace_root(*, workspace_root: str | None) -> str | None:
+        """Normalize one optional workspace override for storage.
+
+        Blank values mean "use managed default". Non-blank values must be
+        absolute after ``expanduser()`` so operators always see a stable path.
+        """
+        if workspace_root is None:
+            return None
+        normalized = workspace_root.strip()
+        if not normalized:
+            return None
+        path = Path(normalized).expanduser()
+        if not path.is_absolute():
+            raise ValueError("workspace_root must be an absolute path or start with ~/")
+        return str(path.resolve())
 
     def _notify_config_sync(self, *, agent_id: str, profile_version: int) -> None:
         notifier = self._config_sync_notifier

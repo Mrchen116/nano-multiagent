@@ -72,6 +72,8 @@ describe("agent create page", () => {
       tool_allowlist: ["read"],
       group_reply_policy: "MENTION",
       default_model: "claude-sonnet-4",
+      workspace_root: "/tmp/agent-new-workspace",
+      workspace_is_default: false,
       profile_version: 1,
       bound_nodes: ["node-1"],
       updated_at: "2026-03-13T10:00:00Z"
@@ -90,8 +92,10 @@ describe("agent create page", () => {
     await user.type(screen.getByLabelText("Tool Allowlist"), "read");
     await user.selectOptions(screen.getByLabelText("Node"), "node-1");
     await user.type(screen.getByLabelText("Default Model"), "claude-sonnet-4");
+    await user.type(screen.getByLabelText("Workspace Path Setting"), "/tmp/agent-new-workspace");
 
     expect(screen.getByText("MacBook")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/agent-new-workspace")).toBeInTheDocument();
     expect(screen.getByText("Assigned agents")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
 
@@ -108,6 +112,7 @@ describe("agent create page", () => {
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
         default_model: "claude-sonnet-4",
+        workspace_root: "/tmp/agent-new-workspace",
         node_id: "node-1"
       });
     });

@@ -23,6 +23,8 @@ class AgentConfigResponse(BaseModel):
     tool_allowlist: list[str]
     group_reply_policy: str
     default_model: str | None
+    workspace_root: str
+    workspace_is_default: bool
     profile_version: int
     bound_nodes: list[str] = Field(default_factory=list)
     updated_at: str | None = None
@@ -40,6 +42,7 @@ class CreateAgentRequest(BaseModel):
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
+    workspace_root: str | None = None
     node_id: str | None = None
 
 
@@ -54,6 +57,7 @@ class UpdateAgentConfigRequest(BaseModel):
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
+    workspace_root: str | None = None
 
 
 class AgentSummaryResponse(BaseModel):
@@ -65,6 +69,8 @@ class AgentSummaryResponse(BaseModel):
     description: str
     profile_version: int
     default_model: str | None
+    workspace_root: str
+    workspace_is_default: bool
     bound_nodes: list[str] = Field(default_factory=list)
     updated_at: str | None = None
 
@@ -81,6 +87,8 @@ def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -
         tool_allowlist=profile.tool_allowlist,
         group_reply_policy=profile.group_reply_policy,
         default_model=profile.default_model,
+        workspace_root=service.workspace_root_for_profile(profile),
+        workspace_is_default=profile.workspace_root is None,
         profile_version=profile.profile_version,
         bound_nodes=service.list_bound_nodes(agent_id=profile.agent_id),
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
@@ -96,6 +104,8 @@ def to_agent_summary_response(profile: AgentProfile, *, service: ConfigService) 
         description=profile.description,
         profile_version=profile.profile_version,
         default_model=profile.default_model,
+        workspace_root=service.workspace_root_for_profile(profile),
+        workspace_is_default=profile.workspace_root is None,
         bound_nodes=service.list_bound_nodes(agent_id=profile.agent_id),
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
     )
@@ -118,12 +128,14 @@ def create_agent(
             tool_allowlist=payload.tool_allowlist,
             group_reply_policy=payload.group_reply_policy,
             default_model=payload.default_model,
+            workspace_root=payload.workspace_root,
             node_id=payload.node_id,
         )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        status_code = status.HTTP_409_CONFLICT if str(exc) == "agent_id already exists" else status.HTTP_422_UNPROCESSABLE_ENTITY
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return to_agent_config_response(created, service=service)
 
 
@@ -163,9 +175,12 @@ def update_agent_config(
             tool_allowlist=payload.tool_allowlist,
             group_reply_policy=payload.group_reply_policy,
             default_model=payload.default_model,
+            workspace_root=payload.workspace_root,
         )
     except AgentProfileVersionConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except ValueError as exc:
+    except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return to_agent_config_response(updated, service=service)

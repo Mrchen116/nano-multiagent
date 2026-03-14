@@ -25,6 +25,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             tool_allowlist=["read"],
             group_reply_policy="manual",
             default_model=None,
+            workspace_root=None,
         )
 
         response = client.get("/im/v1/agents/agent-1/config")
@@ -39,10 +40,14 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "tool_allowlist",
             "group_reply_policy",
             "default_model",
+            "workspace_root",
+            "workspace_is_default",
             "profile_version",
             "bound_nodes",
             "updated_at",
         }
+        assert response.json()["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
+        assert response.json()["workspace_is_default"] is True
 
         conflict = client.patch(
             "/im/v1/agents/agent-1/config",

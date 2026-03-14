@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
     group_reply_policy TEXT NOT NULL DEFAULT 'manual',
     default_model TEXT,
+    workspace_root TEXT,
     profile_version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -282,6 +283,8 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE agent_profiles ADD COLUMN description TEXT NOT NULL DEFAULT ''"
         )
+    if agent_rows and "workspace_root" not in agent_column_names:
+        connection.execute("ALTER TABLE agent_profiles ADD COLUMN workspace_root TEXT")
 
     node_rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
     node_column_names = {row["name"] for row in node_rows}
