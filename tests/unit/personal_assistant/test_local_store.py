@@ -26,6 +26,62 @@ def test_load_local_config_defaults_workspace_root_to_user_workspace(tmp_path: P
     expected_root = home_dir / "nano-assistant" / "workspace" / "assistant-a"
     assert config.agents[0].workspace_root == expected_root.resolve()
     assert expected_root.is_dir() is True
+    assert (expected_root / "MEMORY.md").is_file() is True
+    assert (expected_root / "HEARTBEAT.md").is_file() is True
+    assert (expected_root / "MEMORY.md").read_text(encoding="utf-8").strip()
+    assert (expected_root / "HEARTBEAT.md").read_text(encoding="utf-8").strip()
+
+
+def test_load_local_config_backfills_default_workspace_files_for_explicit_root(tmp_path: Path) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert config.agents[0].workspace_root == workspace_root
+    assert (workspace_root / "MEMORY.md").is_file() is True
+    assert (workspace_root / "HEARTBEAT.md").is_file() is True
+
+
+
+def test_load_local_config_does_not_overwrite_existing_workspace_files(tmp_path: Path) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    memory_path = workspace_root / "MEMORY.md"
+    heartbeat_path = workspace_root / "HEARTBEAT.md"
+    memory_path.write_text("existing memory\n", encoding="utf-8")
+    heartbeat_path.write_text("interval: 1h\n\n- Existing heartbeat\n", encoding="utf-8")
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    load_local_config(config_path)
+
+    assert memory_path.read_text(encoding="utf-8") == "existing memory\n"
+    assert heartbeat_path.read_text(encoding="utf-8") == "interval: 1h\n\n- Existing heartbeat\n"
 
 
 def test_load_local_config_keeps_explicit_workspace_root_requirement(tmp_path: Path) -> None:
