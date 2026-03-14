@@ -1127,11 +1127,15 @@ def _build_relay_lifecycle_callback(
                     usage=update.usage,
                 )
                 await manager.send_json("node.report", payload)
-            receipt_detail = update.reply_text
+            suppression_detail = None
             if update.detail is not None:
-                detail_parts = [receipt_detail] if receipt_detail is not None else []
-                detail_parts.extend(f"{key}={value}" for key, value in update.detail.items())
-                receipt_detail = " | ".join(detail_parts)
+                detail_parts = [f"{key}={value}" for key, value in update.detail.items()]
+                suppression_detail = " | ".join(detail_parts) if detail_parts else None
+            receipt_detail = update.reply_text
+            if suppression_detail is not None:
+                receipt_detail = suppression_detail if InboundPipeline._is_no_reply_token(update.reply_text or "") else (
+                    " | ".join([part for part in [receipt_detail, suppression_detail] if part]) or None
+                )
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
                 delivery_status="completed",

@@ -176,7 +176,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
     assert receipt_frame["payload"]["delivery_status"] == "sent"
     assert completed_frame["type"] == "node.delivery_receipt"
     assert completed_frame["payload"]["delivery_status"] == "completed"
-    assert completed_frame["payload"]["detail"] == "NO_REPLY | suppressed_by=no_reply_token"
+    assert completed_frame["payload"]["detail"] == "suppressed_by=no_reply_token"
 
 
 def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_path: Path) -> None:

@@ -429,7 +429,7 @@ def test_build_relay_lifecycle_callback_marks_no_reply_suppression_in_completed_
             {
                 "relay_task_id": "relay-1",
                 "delivery_status": "completed",
-                "detail": "NO_REPLY | suppressed_by=no_reply_token",
+                "detail": "suppressed_by=no_reply_token",
             },
         )
     ]

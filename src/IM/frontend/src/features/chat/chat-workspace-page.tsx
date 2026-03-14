@@ -313,9 +313,16 @@ export function toRelayAgentMessage(event: {
   if (!messageId) {
     return null;
   }
+  const detail = toStringValue(event.payload.detail);
+  if (
+    event.eventType === "relay.completed" &&
+    detail?.includes("suppressed_by=no_reply_token")
+  ) {
+    return null;
+  }
   const content =
     toStringValue(event.payload.summary) ??
-    toStringValue(event.payload.detail) ??
+    detail ??
     toStringValue(event.payload.content);
   if (!content) {
     return null;
