@@ -85,9 +85,9 @@
     - 修复：收紧 `currentConfig` 类型并在 PATCH mock 中将 `null` 回填为默认路径字符串
     - 复跑结果：`vite build` 成功，产出 `dist/assets/index-M82Qcduf.css` 与 `dist/assets/index-Dw2Ti_Tx.js`
 - Commits:
-  - C1=`<pending>`
-  - C2=`<pending>`
-  - C3=`<pending>`
+  - C1=`ab231f2` docs(M161): record workspace settings roadmap
+  - C2=`4776b43` feat(M161): persist and sync agent workspace settings
+  - C3=`a2cb015` feat(M161): show and edit workspace paths in agent settings
 
 ## 当前结论
 - Agent 列表页和详情页现在都能直接看到每个 Agent 的当前 workspace 路径。
@@ -98,7 +98,9 @@
 - 本变更合入 `main` 后，应把 Agent 设置页 workspace 可见性与可配置性纳入 M146 / M104 产品复验，确认真实 IM 绑定后的 Agent 工作目录展示与保存行为一致。
 
 ## Commits
-- 待在提交后回填。
+- `ab231f2` docs(M161): record workspace settings roadmap
+- `4776b43` feat(M161): persist and sync agent workspace settings
+- `a2cb015` feat(M161): show and edit workspace paths in agent settings
 
 ## 回滚点
 - 若需回滚本 milestone，撤回以下文件即可：
