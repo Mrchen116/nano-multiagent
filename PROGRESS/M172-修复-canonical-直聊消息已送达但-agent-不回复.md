@@ -17,6 +17,7 @@
 - `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/unit/personal_assistant/test_gateway_pipeline.py` -> 13 passed
 - `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/acceptance/test_im_gateway_real_acceptance.py` -> 2 passed
 - `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/unit/personal_assistant/test_m102_gateway_im_connection.py /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/unit/personal_assistant/test_gateway_pipeline.py /Users/czj/Repos/nano-multiagent/.worktrees/M172/tests/acceptance/test_im_gateway_real_acceptance.py` -> 21 passed
+- `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M176/tests/unit/personal_assistant/test_m102_gateway_im_connection.py /Users/czj/Repos/nano-multiagent/.worktrees/M176/tests/unit/personal_assistant/test_gateway_pipeline.py /Users/czj/Repos/nano-multiagent/.worktrees/M176/tests/unit/personal_assistant/test_main.py /Users/czj/Repos/nano-multiagent/.worktrees/M176/tests/acceptance/test_im_gateway_real_acceptance.py /Users/czj/Repos/nano-multiagent/.worktrees/M176/tests/im_service/integration/test_m103_im_gateway_e2e.py` -> 52 passed
 
 ## Fresh canonical runtime verification
 - 通过 `PYTHONPATH="/Users/czj/Repos/nano-multiagent/.worktrees/M172/src:/Users/czj/Repos/nano-multiagent/.worktrees/M172" python - <<'PY' ... GatewayAcceptanceHarness.run_roundtrip() ... PY` 在全新临时目录跑了一次 canonical acceptance harness。
