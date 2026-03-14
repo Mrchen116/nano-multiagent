@@ -101,8 +101,8 @@ def _agents(tmp_path: Path, *agent_ids: str) -> tuple[AgentWorkspaceConfig, ...]
     return tuple(agents)
 
 
-def test_gateway_registration_materializes_runtime_agents_after_bind(tmp_path: Path) -> None:
-    """Gateway-advertised agents should become selectable after a fresh node bind."""
+def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(tmp_path: Path) -> None:
+    """Gateway-advertised agents should be selectable in fresh runtime and reassigned after bind."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         user = client.post("/im/v1/users", json={"username": "you", "display_name": "You"})
@@ -125,7 +125,9 @@ def test_gateway_registration_materializes_runtime_agents_after_bind(tmp_path: P
 
             before_bind = client.get("/im/v1/agents")
             assert before_bind.status_code == 200
-            assert before_bind.json() == []
+            assert [item["agent_id"] for item in before_bind.json()] == ["assistant-a", "assistant-b"]
+            assert [item["bound_nodes"] for item in before_bind.json()] == [["node-1"], ["node-1"]]
+            assert [item["owner_id"] for item in before_bind.json()] == ["", ""]
 
             bind_start = client.post("/im/v1/bind", json={"action": "start", "node_id": "node-1"})
             assert bind_start.status_code == 201
@@ -144,6 +146,50 @@ def test_gateway_registration_materializes_runtime_agents_after_bind(tmp_path: P
             assert [item["agent_id"] for item in listed.json()] == ["assistant-a", "assistant-b"]
             assert [item["bound_nodes"] for item in listed.json()] == [["node-1"], ["node-1"]]
             assert [item["owner_id"] for item in listed.json()] == [user.json()["owner_id"], user.json()["owner_id"]]
+
+
+
+def test_fresh_runtime_agents_can_back_group_creation_before_bind(tmp_path: Path) -> None:
+    """A fresh gateway runtime should expose agents early enough for real group creation."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        user_id = _seed_user(client, "alice")
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["assistant-a", "assistant-b"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            listed = client.get("/im/v1/agents")
+            assert listed.status_code == 200
+            assert [item["agent_id"] for item in listed.json()] == ["assistant-a", "assistant-b"]
+
+            agent_a_user = client.post("/im/v1/users", json={"username": "agent:assistant-a", "display_name": "Assistant A"})
+            agent_b_user = client.post("/im/v1/users", json={"username": "agent:assistant-b", "display_name": "Assistant B"})
+            assert agent_a_user.status_code == 201
+            assert agent_b_user.status_code == 201
+
+            created = client.post(
+                "/im/v1/conversations",
+                json={
+                    "title": "Fresh Runtime Group",
+                    "participant_ids": [user_id, agent_a_user.json()["id"], agent_b_user.json()["id"]],
+                },
+            )
+            assert created.status_code == 201
+            body = created.json()
+            assert body["type"] == "group"
+            assert set(body["participant_ids"]) == {user_id, agent_a_user.json()["id"], agent_b_user.json()["id"]}
 
 
 

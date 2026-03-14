@@ -910,6 +910,75 @@ def test_spec_node_gateway_s16_heartbeat_and_im_degradation(tmp_path: Path) -> N
     stop_channels(registry)
 
 
+def test_real_process_fresh_runtime_agents_list_and_group_creation_before_bind(tmp_path: Path) -> None:
+    """Fresh runtime agents should appear over real HTTP and support group creation before bind."""
+    im_port = _pick_free_port()
+    im_server = _IMServer(im_port, tmp_path / "im.db")
+    im_server.start()
+
+    try:
+        im_base = im_server.base_url
+        user_resp = httpx.post(
+            f"{im_base}/im/v1/users",
+            json={"username": "fresh-user", "display_name": "Fresh User"},
+            timeout=5.0,
+        )
+        assert user_resp.status_code == 201
+        user_id = user_resp.json()["id"]
+
+        async def _exercise_runtime() -> None:
+            ws_url = f"ws://127.0.0.1:{im_port}/im/ws/gateway"
+            async with websockets.connect(ws_url) as ws:
+                await ws.send(json.dumps({
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-fresh",
+                        "node_name": "Fresh Machine",
+                        "version": "1.0.0",
+                        "agents": ["agent-fresh-a", "agent-fresh-b"],
+                        "capabilities": {"relay": True},
+                    },
+                }))
+                ack = json.loads(await ws.recv())
+                assert ack["type"] == "ack"
+
+                agents_resp = httpx.get(f"{im_base}/im/v1/agents", timeout=5.0)
+                assert agents_resp.status_code == 200
+                assert [item["agent_id"] for item in agents_resp.json()] == ["agent-fresh-a", "agent-fresh-b"]
+                assert [item["owner_id"] for item in agents_resp.json()] == ["", ""]
+                assert [item["bound_nodes"] for item in agents_resp.json()] == [["node-fresh"], ["node-fresh"]]
+
+                agent_a_user = httpx.post(
+                    f"{im_base}/im/v1/users",
+                    json={"username": "agent:agent-fresh-a", "display_name": "Fresh Agent A"},
+                    timeout=5.0,
+                )
+                agent_b_user = httpx.post(
+                    f"{im_base}/im/v1/users",
+                    json={"username": "agent:agent-fresh-b", "display_name": "Fresh Agent B"},
+                    timeout=5.0,
+                )
+                assert agent_a_user.status_code == 201
+                assert agent_b_user.status_code == 201
+
+                created = httpx.post(
+                    f"{im_base}/im/v1/conversations",
+                    json={
+                        "title": "Fresh Runtime Group",
+                        "participant_ids": [user_id, agent_a_user.json()["id"], agent_b_user.json()["id"]],
+                    },
+                    timeout=5.0,
+                )
+                assert created.status_code == 201
+                assert created.json()["type"] == "group"
+                assert set(created.json()["participant_ids"]) == {user_id, agent_a_user.json()["id"], agent_b_user.json()["id"]}
+
+        asyncio.run(_exercise_runtime())
+    finally:
+        im_server.stop()
+
+
+
 def test_spec_im_s12_items_1_3_5_9_10(tmp_path: Path) -> None:
     """Verify IM-SPEC §12 items 1,3,5,9,10 over real HTTP.
 

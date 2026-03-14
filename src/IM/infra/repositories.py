@@ -786,10 +786,11 @@ class AgentProfileRepository:
     def list_runtime_selectable_profiles(self) -> list[AgentProfile]:
         """List profiles that are actually selectable in the current IM runtime.
 
-        A profile is selectable when it is bound to a node and either belongs to the
-        same owner as that node or has not yet been reassigned to any owner. This keeps
-        stale, unbound, or cross-owner config rows from surfacing in fresh canonical
-        runtimes where the browser needs real participants it can immediately use.
+        A profile is selectable when it is bound to a node and its ownership matches
+        the current runtime state for that node. Fresh canonical runtimes advertise
+        agents before any bind exists, so ownerless node/profile pairs must still be
+        visible. Once a node is bound, only same-owner profiles (or freshly advertised
+        blank-owner rows waiting to be reassigned) should remain selectable.
         """
         rows = self._connection.execute(
             """
@@ -799,9 +800,10 @@ class AgentProfileRepository:
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
               AND ap.node_id != ''
-              AND n.owner_id IS NOT NULL
-              AND n.owner_id != ''
-              AND (ap.owner_id = '' OR ap.owner_id = n.owner_id)
+              AND (
+                    (COALESCE(n.owner_id, '') = '' AND ap.owner_id = '')
+                 OR (COALESCE(n.owner_id, '') != '' AND (ap.owner_id = '' OR ap.owner_id = n.owner_id))
+              )
             ORDER BY ap.created_at, ap.rowid
             """
         ).fetchall()

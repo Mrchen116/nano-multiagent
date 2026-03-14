@@ -166,6 +166,70 @@ def test_agents_list_hides_unbound_and_cross_owner_profiles(tmp_path: Path) -> N
 
 
 
+def test_agents_list_includes_fresh_runtime_profiles_before_bind(tmp_path: Path) -> None:
+    """Fresh gateway runtimes should expose ownerless bound agents before bind confirmation."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        users = UserRepository(app.state.connection)
+        other_owner = users.create_user(username="other", display_name="Other")
+        profiles = AgentProfileRepository(app.state.connection)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-fresh",
+            node_name="Fresh Runtime",
+            status="online",
+            version="1.0.0",
+        )
+
+        profiles.upsert_profile(
+            agent_id="agent-fresh",
+            owner_id="",
+            display_name="Fresh Agent",
+            description="advertised by an unbound runtime",
+            system_prompt="You are Fresh Agent.",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+        profiles.upsert_profile(
+            agent_id="agent-stale-cross-owner",
+            owner_id=other_owner.owner_id,
+            display_name="Stale Cross Owner",
+            description="stale profile attached to an unbound node",
+            system_prompt="You are Stale Cross Owner.",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id IN (?, ?)",
+            ("node-fresh", "agent-fresh", "agent-stale-cross-owner"),
+        )
+        app.state.connection.commit()
+
+        response = client.get("/im/v1/agents")
+        assert response.status_code == 200
+        assert response.json() == [
+            {
+                "agent_id": "agent-fresh",
+                "owner_id": "",
+                "display_name": "Fresh Agent",
+                "description": "advertised by an unbound runtime",
+                "profile_version": 1,
+                "default_model": None,
+                "workspace_root": response.json()[0]["workspace_root"],
+                "workspace_is_default": True,
+                "bound_nodes": ["node-fresh"],
+                "updated_at": response.json()[0]["updated_at"],
+            }
+        ]
+        assert response.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-fresh")
+
+
+
 def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
     """Snapshot alias-backed direct conversations so old threads stay old and new threads pick up updates."""
     app = create_app(db_path=tmp_path / "im.db")
