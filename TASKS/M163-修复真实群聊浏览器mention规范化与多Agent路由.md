@@ -40,7 +40,7 @@
 ## Roadpoints
 
 ### R1. 收口 IM relay mention 规范化
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 手打 `@agent-x` 与 picker `@agent:agent-x` 进入 relay payload 后都规范为同一个 `mentioned_agent_ids=["agent-x"]`。
   - relay payload 的 `agent_id` 与被点名 Agent 一致，不再因为未规范化 token 回退到首个参与 Agent。
@@ -50,7 +50,7 @@
   - relay service 有稳定的 mention 归一 helper，并用单测锁定 typed / picker 两种形式。
 
 ### R2. 收口群聊 Gateway 多 Agent 路由与 NO_REPLY 语义
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 群聊里 mention 语义优先于漂移的显式 `agent_id`。
   - 同一线程里连续点名不同 Agent 时，各自命中正确会话与回复。
@@ -62,7 +62,7 @@
   - Gateway 群聊路由与 NO_REPLY 行为有聚焦回归保护。
 
 ### R3. 验证、文档与收口
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 记录聚焦验证命令、结果、提交哈希与回滚边界。
   - worktree 可干净提交，并给出是否 ready to merge 的判断。
@@ -75,7 +75,8 @@
   - PROGRESS 写清根因、修复点、验证结果与后续的 M141 合并后复验要求。
 
 ## 当前结果
-- 待执行。
+- 已完成 relay mention 规范化：手打 `@agent-x` 与 picker `@agent:agent-x` 现在都会落成同一个 `mentioned_agent_ids=["agent-x"]`。
+- 已完成群聊 Gateway 路由收口代码与测试补齐，待最终验证记录与文档收口。
 
 ## 回滚点
 - 若需回滚本 milestone，预计只需撤回：
