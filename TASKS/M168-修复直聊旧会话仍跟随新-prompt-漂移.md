@@ -39,7 +39,7 @@
 ## Roadpoints
 
 ### R1. 锁定 alias 直聊 snapshot 漏洞的红测
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - alias-backed 直聊在创建时就能写入 `config_profile_version`。
   - Agent 更新后，旧直聊 relay metadata 继续保留旧 prompt/version；更新后新建直聊使用新 prompt/version。
@@ -49,7 +49,7 @@
   - 先有失败断言，再进入最小实现。
 
 ### R2. 实现直聊冻结 snapshot 与 relay/event 证据对齐
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 直聊创建时写入冻结的 agent_id / profile_version / system_prompt。
   - relay metadata 对旧直聊使用冻结快照，对更新后新直聊使用新快照。
@@ -60,7 +60,7 @@
   - 代码改动保持在 IM 侧 snapshot / relay / event 相关路径。
 
 ### R3. 聚焦验证、留痕与提交收口
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 跑完 milestone 聚焦验证命令并记录结果。
   - 形成小步 TDD commits，PROGRESS 记录命令、结果、回滚点与结论。
@@ -69,6 +69,13 @@
   - `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/unit/test_repositories.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/unit/test_relay_service.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/integration/test_agent_config_api.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/integration/test_m103_im_gateway_e2e.py`
 - DoD:
   - 返回 exact files changed / exact test commands / commit hashes / clean 状态 / merge readiness。
+
+## 当前结果
+- alias-backed 直聊现在会在 conversation 创建时冻结 `config_agent_id` / `config_profile_version` / `config_system_prompt`。
+- relay metadata 对旧直聊会读取会话冻结快照，对更新后新建直聊读取新快照；`conversation_events` 的 relay receipt payload 也会携带同一份 `relay_metadata`。
+- Gateway 继续复用旧 kernel session 的同时，会把每条新 relay 的 `reply_context.metadata` 刷成最新消息对应的 `relay_task_id` / `idempotency_key`，保证浏览器可见回复证据与 relay_tasks 一致。
+- 已通过聚焦回归命令：
+  - `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/unit/test_repositories.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/unit/test_relay_service.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/integration/test_agent_config_api.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/integration/test_m103_im_gateway_e2e.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/unit/personal_assistant/test_gateway_pipeline.py`
 
 ## 回滚点
 - 若需回滚本 milestone，只需撤回：

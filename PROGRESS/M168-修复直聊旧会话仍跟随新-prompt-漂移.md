@@ -19,24 +19,45 @@
 ## 进度
 
 ### R1 锁定 alias 直聊 snapshot 漏洞的红测
-- Status: TODO
-- Notes:
-  - 待补 repository / relay / API / E2E 聚焦断言，锁定真实 alias 参与者场景。
+- Status: DONE
+- Decision:
+  - 新增 alias-backed repository / relay / API / E2E 断言，直接覆盖真实 `agent:<id>` 参与者场景。
+- Evidence:
+  - `tests/im_service/unit/test_repositories.py`
+  - `tests/im_service/unit/test_relay_service.py`
+  - `tests/im_service/integration/test_agent_config_api.py`
+  - `tests/im_service/integration/test_m103_im_gateway_e2e.py`
 
 ### R2 实现直聊冻结 snapshot 与 relay/event 证据对齐
-- Status: TODO
-- Notes:
-  - 待实现 conversations 冻结快照持久化、relay snapshot 读取与 receipt event metadata 回填。
+- Status: DONE
+- Decision:
+  - 在 `conversations` 表新增 `config_agent_id` / `config_system_prompt`，创建直聊时与 `config_profile_version` 一起冻结。
+  - repository 解析 participant 时同时识别真实 agent user id 与 `agent:<id>` alias user。
+  - relay 直聊优先读取会话冻结快照；receipt events 回填 `agent_id`、`idempotency_key` 与 `relay_metadata`。
+  - Gateway 复用旧 session 时刷新 reply_context，使旧会话后续回复仍绑定新的 relay task/idempotency_key。
+- Evidence:
+  - `src/IM/infra/db.py`
+  - `src/IM/infra/repositories.py`
+  - `src/IM/application/relay_service.py`
+  - `src/IM/ws/gateway_handler.py`
+  - `src/personal_assistant/gateway/inbound_pipeline.py`
 
 ### R3 聚焦验证、留痕与提交收口
-- Status: TODO
-- Planned commands:
-  - `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/unit/test_repositories.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/unit/test_relay_service.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/integration/test_agent_config_api.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/integration/test_m103_im_gateway_e2e.py`
+- Status: DONE
+- Tests:
+  - `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/unit/test_repositories.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/unit/test_relay_service.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/integration/test_agent_config_api.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/im_service/integration/test_m103_im_gateway_e2e.py /Users/czj/Repos/nano-multiagent/.worktrees/M168/tests/unit/personal_assistant/test_gateway_pipeline.py`
+    - 结果：`27 passed in 0.58s`
+- Verification notes:
+  - `test_direct_conversation_with_agent_alias_freezes_prompt_snapshot` 锁定 alias 参与者创建时的 conversation-bound snapshot。
+  - `test_direct_conversation_relay_keeps_old_snapshot_while_new_conversation_uses_updated_profile` 锁定旧直聊 relay metadata 冻结、新直聊走新配置。
+  - `test_profile_updates_only_affect_new_conversations` 与 `test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile` 一起覆盖 API / relay_tasks / conversation_events / 浏览器可见回复三方证据分叉。
+  - `test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_for_new_conversations` 额外锁定 Gateway 复用旧 session 时刷新 reply metadata 的行为。
 - Commits:
-  - C1=`<pending>` 任务拆解与留痕
-  - C2=`<pending>` 红测 + 实现
-  - C3=`<pending>` 验证与文档收口
+  - C1=`f4aa713` `docs(M168): outline direct-chat prompt drift repair plan`
+  - C2=`<pending>` 直聊 snapshot / relay / event / gateway 修复
+  - C3=`<pending>` 文档状态与验证收口
 
 ## 当前结论
-- 当前主线缺口不是单纯“旧会话 session key 漂移”，而是 alias-backed 直聊在 IM 持久化层没有拿到真正的 conversation-bound snapshot，后续 relay 只能回查最新 profile。
-- 若按该根因修复，旧直聊、新直聊与 relay/event 证据应能同时稳定分叉到旧/新配置。
+- 当前主线缺口已定位并修复：真实 alias-backed 直聊现在会在 IM 持久化层冻结 `config_agent_id` / `config_profile_version` / `config_system_prompt`，relay 不再为旧直聊回查最新 prompt。
+- 旧直聊继续复用旧 kernel session，并在后续回复中带上最新 relay task / idempotency 证据；新直聊会创建新 kernel session 并命中新 workspace/title 与新 prompt。
+- 自动化已同时证明 relay_tasks metadata、conversation_events receipt payload 与浏览器可见回复 metadata 在旧/新直聊分叉上保持一致，可作为 M149 重跑前的聚焦回归门禁。
