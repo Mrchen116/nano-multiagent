@@ -15,7 +15,7 @@
 - `cd /Users/czj/Repos/nano-multiagent/.worktrees/M176/src/IM/frontend && npm test -- --run src/features/chat/chat-workspace-page.test.ts` -> `22 passed`
 
 ## Commit
-- 待补充。
+- `0c5529c` `test(M176): guard direct-chat reply hydration after relay completion`
 
 ## Merge readiness
 - Focused regression 与 relay acceptance 已绿，可进入提交流程。
