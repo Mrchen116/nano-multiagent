@@ -100,6 +100,7 @@ def test_direct_conversation_relay_keeps_old_snapshot_while_new_conversation_use
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
+        workspace_root=None,
     )
     old_conversation = conversations.create_conversation(
         title="old direct",
@@ -116,6 +117,7 @@ def test_direct_conversation_relay_keeps_old_snapshot_while_new_conversation_use
         tool_allowlist=["read"],
         group_reply_policy="manual",
         default_model="claude-sonnet-4",
+        workspace_root=None,
     )
     new_conversation = conversations.create_conversation(
         title="new direct",

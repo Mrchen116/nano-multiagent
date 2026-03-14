@@ -178,6 +178,7 @@ def test_direct_conversation_with_agent_alias_freezes_prompt_snapshot(tmp_path: 
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
+        workspace_root=None,
     )
 
     created = conversations.create_conversation(
