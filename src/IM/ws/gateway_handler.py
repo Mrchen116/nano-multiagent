@@ -185,17 +185,37 @@ class GatewayHandler:
             for agent_id in agents:
                 existing = profile_repository.get_profile(agent_id=agent_id)
                 owner_id = existing.owner_id if existing is not None and existing.owner_id.strip() else (node.owner_id or "")
+                if existing is None:
+                    runtime_display_name = agent_id
+                    runtime_description = f"Runtime agent advertised by {node_name}."
+                    runtime_system_prompt = f"You are {agent_id}."
+                    runtime_skills: list[str] = []
+                    runtime_tool_allowlist: list[str] = []
+                    runtime_group_reply_policy = "MENTION"
+                    runtime_default_model: str | None = None
+                    runtime_workspace_root: str | None = None
+                else:
+                    runtime_display_name = existing.display_name
+                    runtime_description = existing.description
+                    runtime_system_prompt = existing.system_prompt
+                    runtime_skills = existing.skills
+                    runtime_tool_allowlist = existing.tool_allowlist
+                    runtime_group_reply_policy = existing.group_reply_policy
+                    runtime_default_model = existing.default_model
+                    runtime_workspace_root = existing.workspace_root
+                if runtime_display_name == agent_id and agent_id.startswith("agent-"):
+                    runtime_display_name = agent_id.replace("agent-", "", 1).replace("-", " ").title()
                 profile_repository.upsert_profile(
                     agent_id=agent_id,
                     owner_id=owner_id,
-                    display_name=existing.display_name if existing is not None else agent_id,
-                    description=existing.description if existing is not None else f"Runtime agent advertised by {node_name}.",
-                    system_prompt=existing.system_prompt if existing is not None else f"You are {agent_id}.",
-                    skills=existing.skills if existing is not None else [],
-                    tool_allowlist=existing.tool_allowlist if existing is not None else [],
-                    group_reply_policy=existing.group_reply_policy if existing is not None else "MENTION",
-                    default_model=existing.default_model if existing is not None else None,
-                    workspace_root=existing.workspace_root if existing is not None else None,
+                    display_name=runtime_display_name,
+                    description=runtime_description,
+                    system_prompt=runtime_system_prompt,
+                    skills=runtime_skills,
+                    tool_allowlist=runtime_tool_allowlist,
+                    group_reply_policy=runtime_group_reply_policy,
+                    default_model=runtime_default_model,
+                    workspace_root=runtime_workspace_root,
                 )
                 self._node_repository._connection.execute(
                     "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
