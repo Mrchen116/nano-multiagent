@@ -48,4 +48,7 @@
 
 ## 收尾
 - Status: DONE
-- 待执行：提交、merge main、push、清理 worktree。
+- 已完成：提交、merge 到 `main`、push、清理 milestone worktree。
+- 提交：`c8c0ee4528da03e72caa0a0f30670992a78a003d`
+- merge commit：`a8fb6c7`
+- 备注：`data/dev-tasks.json` 按要求未由本 worker 修改状态。
