@@ -179,7 +179,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
 
 
 def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_path: Path) -> None:
-    """Create a real group conversation and keep each explicit mention pinned to its addressed agent."""
+    """Create a real group conversation and keep typed plus picker mentions pinned to their addressed agents."""
 
     app = create_app(db_path=tmp_path / "im.db")
     kernel_client = _FakeKernelClient()
@@ -257,7 +257,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
                 headers={"Idempotency-Key": "idem-group-b"},
                 json={
                     "sender_user_id": user_id,
-                    "content": "@agent-b, review the result",
+                    "content": "@agent:agent-b review the result",
                     "target_node_id": "node-1",
                 },
             )
@@ -286,7 +286,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
     ]
     assert [call["text"] for call in kernel_client.send_calls] == [
         "@agent-a, please inspect rollout",
-        "@agent-b, review the result",
+        "@agent:agent-b review the result",
     ]
     assert first_frame["payload"]["agent_id"] == "agent-a"
     assert first_frame["payload"]["metadata"] == {
@@ -319,7 +319,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
         ),
         OutboundMessage(
             channel_name="web_relay",
-            text="reply:@agent-b, review the result",
+            text="reply:@agent:agent-b review the result",
             target_chat_id=conversation_id,
             thread_id=None,
             metadata={
