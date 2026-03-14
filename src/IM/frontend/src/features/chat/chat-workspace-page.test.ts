@@ -1,8 +1,8 @@
+import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createElement } from "react";
-import { RouterProvider, createMemoryRouter } from "react-router-dom";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderRouter } from "../../test/render-router";
@@ -14,6 +14,7 @@ import {
   shouldRefreshUsageForEvent,
   toRelayAgentMessage
 } from "./chat-workspace-page";
+import { UsageMetricRow } from "./types";
 
 const getChatBootstrapState = vi.fn();
 const getChatStarter = vi.fn();
@@ -87,6 +88,84 @@ function renderWorkspaceRouter(initialEntries: string[] = ["/chat/conv-1"]) {
 
 function getRenderedMessageContents(container: HTMLElement) {
   return Array.from(container.querySelectorAll(".whitespace-pre-wrap")).map((node) => node.textContent);
+}
+
+function createConversationUsageRow(input: {
+  conversationId: string;
+  ownerId?: string;
+  turns: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens?: number;
+}): UsageMetricRow {
+  return {
+    scope: "conversation",
+    scope_id: input.conversationId,
+    owner_id: input.ownerId ?? "owner-1",
+    conversation_id: input.conversationId,
+    agent_id: null,
+    turns: input.turns,
+    prompt_tokens: input.promptTokens,
+    completion_tokens: input.completionTokens,
+    total_tokens: input.totalTokens ?? input.promptTokens + input.completionTokens,
+    last_used_at: "2026-03-14T00:00:00Z"
+  };
+}
+
+function createWorkspaceUsageRow(input: {
+  ownerId?: string;
+  turns: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens?: number;
+}): UsageMetricRow {
+  return {
+    scope: "owner",
+    scope_id: input.ownerId ?? "owner-1",
+    owner_id: input.ownerId ?? "owner-1",
+    conversation_id: null,
+    agent_id: null,
+    turns: input.turns,
+    prompt_tokens: input.promptTokens,
+    completion_tokens: input.completionTokens,
+    total_tokens: input.totalTokens ?? input.promptTokens + input.completionTokens,
+    last_used_at: "2026-03-14T00:00:01Z"
+  };
+}
+
+function renderWorkspaceWithPersistentClient(options: {
+  initialEntries: string[];
+  routes?: Array<{ path: string; element: ReturnType<typeof createElement> }>;
+}) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: 5_000
+      }
+    }
+  });
+  const router = createMemoryRouter(
+    options.routes ?? [
+      { path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) },
+      { path: "/settings", element: createElement("div", null, "Settings") }
+    ],
+    {
+      initialEntries: options.initialEntries
+    }
+  );
+  const rendered = render(
+    createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(RouterProvider, { router })
+    )
+  );
+  return {
+    ...rendered,
+    queryClient,
+    router
+  };
 }
 
 describe("chat workspace usage helpers", () => {
@@ -960,5 +1039,148 @@ describe("chat workspace page", () => {
     expect(screen.getByText("Completion 9")).toBeInTheDocument();
     expect(getUsageMetrics).toHaveBeenCalledWith({ conversationId: "conv-1" });
     expect(getUsageMetrics).toHaveBeenCalledWith({ ownerId: "owner-1" });
+  });
+
+  it("refreshes visible usage after relay reports deliver real metrics", async () => {
+    let usageStage: "initial" | "updated" = "initial";
+    getUsageMetrics.mockImplementation(async (input: { ownerId?: string; conversationId?: string }) => {
+      if (input.conversationId === "conv-1") {
+        return usageStage === "updated"
+          ? [createConversationUsageRow({ conversationId: "conv-1", turns: 4, promptTokens: 16, completionTokens: 8 })]
+          : [];
+      }
+      if (input.ownerId === "owner-1") {
+        return usageStage === "updated"
+          ? [createWorkspaceUsageRow({ ownerId: "owner-1", turns: 10, promptTokens: 36, completionTokens: 24 })]
+          : [];
+      }
+      return [];
+    });
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByText("This chat")).toBeInTheDocument();
+    expect(screen.getAllByText("0 turns")).toHaveLength(2);
+    expect(screen.getAllByText("0 tokens")).toHaveLength(2);
+
+    usageStage = "updated";
+    const streamInput = streamConversationEvents.mock.calls.at(-1)?.[0] as
+      | { onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void }
+      | undefined;
+    expect(streamInput).toBeDefined();
+    streamInput?.onEvent({
+      eventType: "relay.report",
+      payload: {
+        message_id: "msg-usage-refresh",
+        node_id: "node-online",
+        summary: "Usage updated",
+        status: "completed"
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("4 turns")).toBeInTheDocument();
+      expect(screen.getByText("24 tokens")).toBeInTheDocument();
+      expect(screen.getByText("10 turns")).toBeInTheDocument();
+      expect(screen.getByText("60 tokens")).toBeInTheDocument();
+    });
+  });
+
+  it("refetches workspace totals when switching chats under the same owner", async () => {
+    let usageScenario: "conv-1" | "conv-2" = "conv-1";
+    getConversation.mockImplementation(async (conversationId: string) => {
+      if (conversationId === "conv-2") {
+        return {
+          conversation_id: "conv-2",
+          title: "Project Escalation",
+          kind_label: "Direct agent chat",
+          target_label: "Teammate",
+          discoverability_hint: "This is a one-to-one conversation with an available target.",
+          mention_candidates: [],
+          messages: []
+        };
+      }
+      return {
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        kind_label: "Direct agent chat",
+        target_label: "Teammate",
+        discoverability_hint: "This is a one-to-one conversation with an available target.",
+        mention_candidates: [],
+        messages: []
+      };
+    });
+    getUsageMetrics.mockImplementation(async (input: { ownerId?: string; conversationId?: string }) => {
+      if (usageScenario === "conv-1") {
+        return [];
+      }
+      if (input.conversationId === "conv-2") {
+        return [createConversationUsageRow({ conversationId: "conv-2", turns: 5, promptTokens: 18, completionTokens: 12 })];
+      }
+      if (input.ownerId === "owner-1") {
+        return [createWorkspaceUsageRow({ ownerId: "owner-1", turns: 9, promptTokens: 31, completionTokens: 23 })];
+      }
+      return [];
+    });
+
+    const { router } = renderWorkspaceWithPersistentClient({ initialEntries: ["/chat/conv-1"] });
+
+    expect(await screen.findByText("This chat")).toBeInTheDocument();
+    expect(screen.getAllByText("0 turns")).toHaveLength(2);
+
+    usageScenario = "conv-2";
+    await act(async () => {
+      await router.navigate("/chat/conv-2");
+    });
+
+    expect(await screen.findByRole("heading", { name: "Project Escalation" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("5 turns")).toBeInTheDocument();
+      expect(screen.getByText("30 tokens")).toBeInTheDocument();
+      expect(screen.getByText("9 turns")).toBeInTheDocument();
+      expect(screen.getByText("54 tokens")).toBeInTheDocument();
+    });
+  });
+
+  it("refetches usage when re-entering the chat so cached zeros do not stick", async () => {
+    let usageStage: "initial" | "updated" = "initial";
+    getUsageMetrics.mockImplementation(async (input: { ownerId?: string; conversationId?: string }) => {
+      if (input.conversationId === "conv-1") {
+        return usageStage === "updated"
+          ? [createConversationUsageRow({ conversationId: "conv-1", turns: 6, promptTokens: 21, completionTokens: 15 })]
+          : [];
+      }
+      if (input.ownerId === "owner-1") {
+        return usageStage === "updated"
+          ? [createWorkspaceUsageRow({ ownerId: "owner-1", turns: 12, promptTokens: 44, completionTokens: 28 })]
+          : [];
+      }
+      return [];
+    });
+
+    const { router } = renderWorkspaceWithPersistentClient({ initialEntries: ["/chat/conv-1"] });
+
+    expect(await screen.findByText("This chat")).toBeInTheDocument();
+    expect(screen.getAllByText("0 turns")).toHaveLength(2);
+
+    usageStage = "updated";
+    await act(async () => {
+      await router.navigate("/settings");
+    });
+    expect(await screen.findByText("Settings")).toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate("/chat/conv-1");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("6 turns")).toBeInTheDocument();
+      expect(screen.getByText("36 tokens")).toBeInTheDocument();
+      expect(screen.getByText("12 turns")).toBeInTheDocument();
+      expect(screen.getByText("72 tokens")).toBeInTheDocument();
+    });
   });
 });
