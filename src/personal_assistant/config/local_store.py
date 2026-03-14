@@ -18,6 +18,41 @@ _DEFAULT_STARTUP_TIMEOUT_SECONDS = 15.0
 _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.25
 _DEFAULT_HEARTBEAT_TICK_INTERVAL_SECONDS = 30.0
+_DEFAULT_WORKSPACE_MEMORY_CONTENT = "# MEMORY\n\nUse this file for stable long-term notes shared across the agent workspace.\n"
+_DEFAULT_WORKSPACE_HEARTBEAT_CONTENT = (
+    "# HEARTBEAT\n\n"
+    "<!-- Add one schedule (interval/at/cron) and actionable checklist items when heartbeat automation is needed. -->\n"
+)
+DEFAULT_WORKSPACE_FILES: tuple[tuple[str, str], ...] = (
+    ("MEMORY.md", _DEFAULT_WORKSPACE_MEMORY_CONTENT),
+    ("HEARTBEAT.md", _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT),
+)
+
+
+def ensure_workspace_defaults(workspace_root: Path) -> Path:
+    """Create one agent workspace directory and seed default workspace files.
+
+    Args:
+        workspace_root: Workspace root that should contain stable MEMORY/HEARTBEAT files.
+
+    Returns:
+        Resolved workspace path after ensuring the directory and default files exist.
+
+    Side Effects:
+        Creates the workspace directory and writes default files when they are missing.
+        Existing files are left untouched.
+    """
+
+    resolved_root = workspace_root.expanduser().resolve()
+    resolved_root.mkdir(parents=True, exist_ok=True)
+    for filename, default_content in DEFAULT_WORKSPACE_FILES:
+        file_path = resolved_root / filename
+        if file_path.exists():
+            continue
+        file_path.write_text(default_content, encoding="utf-8")
+    return resolved_root
+
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,12 +260,11 @@ def _parse_agents(payload: Any) -> tuple[AgentWorkspaceConfig, ...]:
             workspace_root = Path("~/nano-assistant/workspace").expanduser() / agent_id
             # Default workspaces are gateway-managed local state, so config loading
             # creates them on demand instead of forcing operators to pre-seed paths.
-            workspace_root.mkdir(parents=True, exist_ok=True)
         else:
             workspace_root = Path(workspace_text).expanduser()
             if not workspace_root.exists():
                 raise ValueError(f"workspace_root does not exist: {workspace_root.resolve()}")
-        workspace_root = workspace_root.resolve()
+        workspace_root = ensure_workspace_defaults(workspace_root)
         title = _optional_string(item.get("title"), field_name=f"agents[{index}].title")
         agents.append(
             AgentWorkspaceConfig(agent_id=agent_id, workspace_root=workspace_root, title=title)

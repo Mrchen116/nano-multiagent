@@ -33,6 +33,7 @@ from personal_assistant.config.local_store import (
     HeartbeatConfig,
     KernelConfig,
     LocalConfig,
+    ensure_workspace_defaults,
     load_local_config,
     resolve_kernel_token,
 )
@@ -224,8 +225,7 @@ class _IMConfigSyncClient:
                     raise RuntimeError(
                         f"agent {agent_id} config stale: expected >= {profile_version}, got {resolved_profile_version}"
                     )
-                workspace_root = self._workspace_root_factory(agent_id)
-                workspace_root.mkdir(parents=True, exist_ok=True)
+                workspace_root = ensure_workspace_defaults(self._workspace_root_factory(agent_id))
                 self._pipeline.register_agent(
                     AgentWorkspaceConfig(
                         agent_id=agent_id,
