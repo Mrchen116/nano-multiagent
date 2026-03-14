@@ -71,6 +71,8 @@ describe("agent detail page", () => {
       tool_allowlist: ["read"],
       group_reply_policy: "MENTION",
       default_model: "gpt-5.2-codex",
+      workspace_root: "/tmp/agent-core-1",
+      workspace_is_default: false,
       profile_version: 12,
       bound_nodes: ["node-1"],
       updated_at: "2026-03-13T10:00:00Z"
