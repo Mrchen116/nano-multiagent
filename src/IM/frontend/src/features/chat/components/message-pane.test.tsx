@@ -160,6 +160,84 @@ describe("message pane", () => {
     });
   });
 
+  it("opens mention candidates after existing text, supports a second mention, and keeps stable payload tokens", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    const mentionCandidates: MentionCandidate[] = [
+      { agentId: "agent-alpha", label: "Agent Alpha" },
+      { agentId: "agent-beta", label: "Agent Beta" }
+    ];
+
+    renderMessagePane({
+      onSend,
+      detail: {
+        conversation_id: "conv-group-second-mention",
+        title: "Kernel Ops Crew",
+        kind_label: "Group chat",
+        target_label: "Multiple participants",
+        discoverability_hint: "Shared thread",
+        messages: [],
+        mention_candidates: mentionCandidates
+      }
+    });
+
+    const composer = screen.getByPlaceholderText("Type message");
+    await user.type(composer, "hello team @");
+
+    expect(screen.getByRole("listbox", { name: "Mention candidates" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Agent Alpha/i })).toHaveAttribute("aria-selected", "true");
+
+    await user.keyboard("{Enter}");
+    expect(composer).toHaveValue("hello team @agent:agent-alpha ");
+
+    await user.type(composer, "and @b");
+
+    expect(screen.getByRole("listbox", { name: "Mention candidates" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Agent Beta/i })).toHaveAttribute("aria-selected", "true");
+
+    await user.keyboard("{Enter}");
+    expect(composer).toHaveValue("hello team @agent:agent-alpha and @agent:agent-beta ");
+
+    await user.type(composer, "please investigate");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith({
+      content: "hello team @agent:agent-alpha and @agent:agent-beta please investigate",
+      attachments: []
+    });
+  });
+
+  it("deletes an inserted mention token as a whole on backspace", async () => {
+    const user = userEvent.setup();
+    const mentionCandidates: MentionCandidate[] = [
+      { agentId: "agent-alpha", label: "Agent Alpha" },
+      { agentId: "agent-beta", label: "Agent Beta" }
+    ];
+
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-group-delete-mention",
+        title: "Kernel Ops Crew",
+        kind_label: "Group chat",
+        target_label: "Multiple participants",
+        discoverability_hint: "Shared thread",
+        messages: [],
+        mention_candidates: mentionCandidates
+      }
+    });
+
+    const composer = screen.getByPlaceholderText("Type message") as HTMLTextAreaElement;
+    await user.type(composer, "hello @a");
+    await user.keyboard("{Enter}");
+    expect(composer).toHaveValue("hello @agent:agent-alpha ");
+
+    composer.setSelectionRange(composer.value.length, composer.value.length);
+    await user.keyboard("{Backspace}");
+
+    expect(composer).toHaveValue("hello ");
+    expect(screen.queryByRole("listbox", { name: "Mention candidates" })).not.toBeInTheDocument();
+  });
+
   it("does not open mention candidates for direct chat composers", async () => {
     const user = userEvent.setup();
 

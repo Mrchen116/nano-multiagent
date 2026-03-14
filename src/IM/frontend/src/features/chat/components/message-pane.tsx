@@ -1,4 +1,4 @@
-import { ChangeEvent, Dispatch, FormEvent, KeyboardEvent, SetStateAction, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, Dispatch, FormEvent, KeyboardEvent, SetStateAction, SyntheticEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -327,8 +327,9 @@ function formatMention(agentId: string) {
   return `${STABLE_MENTION_PREFIX}${agentId}`;
 }
 
-function getMentionQuery(draft: string): { start: number; query: string } | null {
-  const match = /(?:^|\s)@([^\s@]*)$/.exec(draft);
+function getMentionQuery(draft: string, selectionStart = draft.length): { start: number; query: string } | null {
+  const beforeCursor = draft.slice(0, selectionStart);
+  const match = /(?:^|\s)@([^\s@]*)$/.exec(beforeCursor);
   if (!match || typeof match.index !== "number") {
     return null;
   }
@@ -337,6 +338,26 @@ function getMentionQuery(draft: string): { start: number; query: string } | null
     start,
     query: match[1] ?? ""
   };
+}
+
+function getMentionTokenRange(draft: string, selectionStart: number, selectionEnd: number): { start: number; end: number } | null {
+  if (selectionStart !== selectionEnd || selectionStart === 0) {
+    return null;
+  }
+  const mentionPattern = /(^|\s)(@agent:[^\s@]+)(?=\s|$)/g;
+  let match: RegExpExecArray | null = mentionPattern.exec(draft);
+  while (match) {
+    const whitespacePrefix = match[1] ?? "";
+    const mentionText = match[2] ?? "";
+    const start = match.index + whitespacePrefix.length;
+    const end = start + mentionText.length;
+    const tokenEnd = end < draft.length && draft[end] === " " ? end + 1 : end;
+    if (selectionStart === tokenEnd) {
+      return { start, end: tokenEnd };
+    }
+    match = mentionPattern.exec(draft);
+  }
+  return null;
 }
 
 function buildMentionCandidates(detail: ConversationDetail | null): MentionCandidate[] {
@@ -462,9 +483,11 @@ export function MessagePane(props: {
   const listRef = useRef<HTMLDivElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const [composerSelection, setComposerSelection] = useState({ start: 0, end: 0 });
 
   const mentionCandidates = useMemo(() => buildMentionCandidates(props.detail), [props.detail]);
-  const mentionQuery = useMemo(() => getMentionQuery(draft), [draft]);
+  const mentionQuery = useMemo(() => getMentionQuery(draft, composerSelection.start), [draft, composerSelection.start]);
   const filteredMentionCandidates = useMemo(() => {
     if (!mentionQuery || mentionCandidates.length === 0) {
       return [];
@@ -498,6 +521,13 @@ export function MessagePane(props: {
     }
     setActiveMentionIndex((current) => Math.min(current, filteredMentionCandidates.length - 1));
   }, [filteredMentionCandidates.length, isMentionMenuOpen]);
+
+  useEffect(() => {
+    if (!composerRef.current) {
+      return;
+    }
+    composerRef.current.setSelectionRange(composerSelection.start, composerSelection.end);
+  }, [composerSelection, draft]);
 
   if (!props.detail) {
     if (props.starter) {
@@ -539,11 +569,29 @@ export function MessagePane(props: {
       return;
     }
     const prefix = draft.slice(0, mentionQuery.start);
-    const suffix = draft.slice(mentionQuery.start + mentionQuery.query.length + 1);
+    const suffix = draft.slice(composerSelection.start);
     const mention = `${formatMention(candidate.agentId)} `;
-    setDraft(`${prefix}${mention}${suffix}`);
+    const nextDraft = `${prefix}${mention}${suffix}`;
+    const nextSelection = prefix.length + mention.length;
+    setDraft(nextDraft);
+    setComposerSelection({ start: nextSelection, end: nextSelection });
     setActiveMentionIndex(0);
     setSendError(null);
+  };
+
+  const onComposerSelect = (event: SyntheticEvent<HTMLTextAreaElement>) => {
+    setComposerSelection({
+      start: event.currentTarget.selectionStart,
+      end: event.currentTarget.selectionEnd
+    });
+  };
+
+  const onComposerChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    setDraft(event.target.value);
+    setComposerSelection({
+      start: event.target.selectionStart,
+      end: event.target.selectionEnd
+    });
   };
 
   const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -564,6 +612,17 @@ export function MessagePane(props: {
         if (candidate) {
           selectMention(candidate);
         }
+        return;
+      }
+    }
+    if (event.key === "Backspace") {
+      const mentionTokenRange = getMentionTokenRange(draft, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+      if (mentionTokenRange) {
+        event.preventDefault();
+        const nextDraft = `${draft.slice(0, mentionTokenRange.start)}${draft.slice(mentionTokenRange.end)}`;
+        setDraft(nextDraft);
+        setComposerSelection({ start: mentionTokenRange.start, end: mentionTokenRange.start });
+        setSendError(null);
         return;
       }
     }
@@ -663,12 +722,16 @@ export function MessagePane(props: {
           </label>
           <div className="relative flex-1">
             <textarea
+              ref={composerRef}
               className="im-input min-h-24 max-h-56 w-full resize-y"
               placeholder={props.sendAvailability.placeholder}
               value={draft}
               rows={3}
               disabled={!props.sendAvailability.canSend}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={onComposerChange}
+              onClick={onComposerSelect}
+              onKeyUp={onComposerSelect}
+              onSelect={onComposerSelect}
               onKeyDown={onComposerKeyDown}
               aria-expanded={isMentionMenuOpen}
               aria-controls={isMentionMenuOpen ? "mention-candidate-list" : undefined}
