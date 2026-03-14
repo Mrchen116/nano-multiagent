@@ -1,11 +1,19 @@
-import { createElement } from "react";
-import { screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createElement } from "react";
+import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderRouter } from "../../test/render-router";
 import { resolveSendAvailability } from "./im-chat-api";
-import { buildUsageView, ChatWorkspacePage, shouldRefreshUsageForEvent, toRelayAgentMessage } from "./chat-workspace-page";
+import {
+  buildUsageView,
+  ChatWorkspacePage,
+  mergeConversationDetail,
+  shouldRefreshUsageForEvent,
+  toRelayAgentMessage
+} from "./chat-workspace-page";
 
 const getChatBootstrapState = vi.fn();
 const getChatStarter = vi.fn();
@@ -52,6 +60,37 @@ function createDeferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
+}
+
+function renderWorkspaceRouter(initialEntries: string[] = ["/chat/conv-1"]) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false }
+    }
+  });
+  const router = createMemoryRouter(
+    [
+      { path: "/chat", element: createElement(ChatWorkspacePage) },
+      { path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }
+    ],
+    { initialEntries }
+  );
+
+  return {
+    queryClient,
+    router,
+    ...render(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(RouterProvider, { router })
+      )
+    )
+  };
+}
+
+function getRenderedMessageContents(container: HTMLElement) {
+  return Array.from(container.querySelectorAll(".whitespace-pre-wrap")).map((node) => node.textContent);
 }
 
 describe("chat workspace usage helpers", () => {
@@ -188,6 +227,205 @@ describe("chat workspace relay event mapping", () => {
       content: "done",
       delivery_status: "completed"
     });
+  });
+});
+
+describe("chat workspace message ordering", () => {
+  it("keeps cached relay messages interleaved when reloading persisted history", () => {
+    const merged = mergeConversationDetail(
+      {
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        kind_label: "Direct agent chat",
+        target_label: "Teammate",
+        discoverability_hint: "This is a one-to-one conversation with an available target.",
+        mention_candidates: [],
+        messages: [
+          {
+            message_id: "msg-user-1",
+            sender_type: "user",
+            sender_name: "You",
+            is_mine: true,
+            content: "First user turn",
+            created_at: "2026-03-14T10:00:00Z",
+            delivery_status: "completed",
+            attachments: []
+          },
+          {
+            message_id: "msg-user-2",
+            sender_type: "user",
+            sender_name: "You",
+            is_mine: true,
+            content: "Second user turn",
+            created_at: "2026-03-14T10:00:02Z",
+            delivery_status: "completed",
+            attachments: []
+          }
+        ]
+      },
+      {
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        mention_candidates: [],
+        messages: [
+          {
+            message_id: "msg-user-1",
+            sender_type: "user",
+            sender_name: "You",
+            is_mine: true,
+            content: "First user turn",
+            created_at: "2026-03-14T10:00:00Z",
+            delivery_status: "completed",
+            attachments: []
+          },
+          {
+            message_id: "msg-user-1:agent",
+            sender_type: "agent",
+            sender_name: "node-demo",
+            is_mine: false,
+            content: "Agent reply between the two user turns",
+            created_at: "2026-03-14T10:00:01Z",
+            delivery_status: "completed",
+            attachments: []
+          },
+          {
+            message_id: "msg-user-2",
+            sender_type: "user",
+            sender_name: "You",
+            is_mine: true,
+            content: "Second user turn",
+            created_at: "2026-03-14T10:00:02Z",
+            delivery_status: "completed",
+            attachments: []
+          }
+        ]
+      }
+    );
+
+    expect(merged?.messages.map((message) => message.content)).toEqual([
+      "First user turn",
+      "Agent reply between the two user turns",
+      "Second user turn"
+    ]);
+  });
+
+  it("renders re-entered conversations in chronological order after history and SSE state merge", async () => {
+    const persistedHistory = {
+      conversation_id: "conv-1",
+      title: "You & Teammate",
+      kind_label: "Direct agent chat",
+      target_label: "Teammate",
+      discoverability_hint: "This is a one-to-one conversation with an available target.",
+      mention_candidates: [],
+      messages: [
+        {
+          message_id: "msg-user-1",
+          sender_type: "user",
+          sender_name: "You",
+          is_mine: true,
+          content: "First user turn",
+          created_at: "2026-03-14T10:00:00Z",
+          delivery_status: "completed",
+          attachments: []
+        },
+        {
+          message_id: "msg-user-2",
+          sender_type: "user",
+          sender_name: "You",
+          is_mine: true,
+          content: "Second user turn",
+          created_at: "2026-03-14T10:00:02Z",
+          delivery_status: "completed",
+          attachments: []
+        }
+      ]
+    };
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "node-online",
+      targetNodeStatus: "online",
+      initialConversationId: "conv-1",
+      ownership: {
+        nodeId: "node-online",
+        nodeLabel: "Online Node",
+        nodeStatus: "online",
+        agentLabel: "OpsBot",
+        ownershipLabel: "Using OpsBot on Online Node (online)"
+      }
+    });
+    getChatStarter.mockResolvedValue({
+      title: "主 Agent · OpsBot",
+      actionLabel: "Open 主 Agent · OpsBot",
+      actionHref: "/chat/conv-1",
+      agentName: "OpsBot",
+      description:
+        "OpsBot is your main agent and default starter chat, but you can also open direct agent chats, group chats, and agent-to-agent threads from the conversation list.",
+      nodeLabel: "node-online",
+      statusLabel: "Using your main agent OpsBot on node-online (online)"
+    });
+    listConversations.mockResolvedValue([
+      {
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        last_message_preview: "Second user turn",
+        last_message_at: "2026-03-14T10:00:02Z",
+        unread_count: 0,
+        participants: ["You", "Teammate"],
+        kind_label: "Direct agent chat",
+        target_label: "Teammate",
+        discoverability_hint: "This is a one-to-one conversation with an available target."
+      }
+    ]);
+    getUsageMetrics.mockResolvedValue([]);
+    getConversation.mockResolvedValue(persistedHistory);
+
+    const { container, router } = renderWorkspaceRouter();
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    expect(getConversation).toHaveBeenCalledTimes(1);
+
+    const initialStreamInput = streamConversationEvents.mock.calls.at(-1)?.[0] as
+      | { onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void }
+      | undefined;
+    expect(initialStreamInput).toBeDefined();
+
+    initialStreamInput?.onEvent({
+      eventType: "relay.report",
+      payload: {
+        message_id: "msg-user-1",
+        node_id: "node-demo",
+        summary: "Agent reply between the two user turns",
+        created_at: "2026-03-14T10:00:01Z"
+      }
+    });
+
+    expect(await screen.findByText("Agent reply between the two user turns", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
+    expect(getRenderedMessageContents(container)).toEqual([
+      "First user turn",
+      "Agent reply between the two user turns",
+      "Second user turn"
+    ]);
+
+    await act(async () => {
+      await router.navigate("/chat");
+    });
+    expect(await screen.findByText("主 Agent · OpsBot")).toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate("/chat/conv-1");
+    });
+    await waitFor(() => {
+      expect(getConversation).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    await screen.findByText("Agent reply between the two user turns", { selector: ".whitespace-pre-wrap" });
+
+    expect(getRenderedMessageContents(container)).toEqual([
+      "First user turn",
+      "Agent reply between the two user turns",
+      "Second user turn"
+    ]);
   });
 });
 
