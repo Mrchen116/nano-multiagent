@@ -42,24 +42,34 @@
 
 ### R2 在默认创建与初始化入口补齐 MEMORY/HEARTBEAT 默认文件
 - Context:
-  - 待执行。
+  - 仅创建目录还不能满足产品要求；需要统一且幂等的默认文件补齐逻辑，并接入初始化入口与真实创建链路。
 - Decision:
-  - 待执行。
+  - 在 `src/personal_assistant/config/local_store.py` 新增 `ensure_workspace_defaults()`，集中负责创建目录并补齐 `MEMORY.md` 与 `HEARTBEAT.md`。
+  - 让 `_parse_agents()` 在默认/显式 workspace 上都调用该 helper，覆盖本地初始化与已有缺失 workspace 补齐。
+  - 让 `_IMConfigSyncClient.sync_agent()` 在注册 live agent 前也调用该 helper，覆盖真实 Agent 创建/同步链路。
 - Rationale:
-  - 待执行。
+  - 统一入口可避免多个调用点各自散落 `mkdir`/写文件逻辑，减少未来漂移；`exists()` 门控可保证已存在文件不被覆盖。
 - Evidence:
-  - 待执行。
-- Status: TODO
+  - `src/personal_assistant/config/local_store.py`
+  - `src/personal_assistant/main.py`
+  - `tests/unit/personal_assistant/test_local_store.py`
+  - `tests/unit/personal_assistant/test_main.py`
+- Status: DONE
 
 ### R3 聚焦验证、记录与收口
 - Tests:
-  - 待执行。
+  - `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M162/tests/unit/personal_assistant/test_local_store.py`
+    - 结果：`11 passed`
+  - `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M162/tests/unit/personal_assistant/test_main.py -k "im_config_sync_client or workspace"`
+    - 结果：`2 passed, 25 deselected`
 - Verification notes:
-  - 待执行。
+  - `test_local_store.py` 已锁定：默认 workspace 会生成 `MEMORY.md` 与 `HEARTBEAT.md`、显式 workspace 缺文件时会补齐、已有文件不会被覆盖。
+  - `test_main.py` 已锁定：IM Agent 创建/同步链路会补齐两个默认文件，且不会覆写已有内容。
+  - `HEARTBEAT.md` 默认模板只提供安全占位说明，不引入默认 schedule，因此不会改变现有 scheduler 触发语义。
 - Commits:
-  - C1=`<pending>`
+  - C1=`ed00037` `docs(M162): outline workspace default file backfill plan`
   - C2=`<pending>`
-- Status: TODO
+- Status: DONE
 
 ## 回滚点
 - 若需回滚本 milestone，只需撤回：
@@ -71,5 +81,6 @@
   - `PROGRESS/M162-默认生成-Agent-Workspace-的-MEMORY-与-HEARTBEAT.md`
 
 ## 当前结论
-- 缺口已经定位清楚：产品要求的是“workspace 默认存在两个文件”，而现状只保证目录存在。
-- 后续只要把统一且幂等的默认文件补齐逻辑接入 `load_local_config()` 与 `_IMConfigSyncClient.sync_agent()`，并用单测锁死不覆盖已有内容，即可完成本 milestone。
+- 缺口已完成修复：现在不论是本地配置初始化，还是 IM Agent 创建/同步链路，workspace 都会默认具备 `MEMORY.md` 与 `HEARTBEAT.md`。
+- 补齐逻辑是幂等的：缺文件时自动创建，已有文件保持原样，不会破坏已有长期记忆与 heartbeat 定义。
+- 聚焦验证已通过，本 milestone 已具备合并前评审条件；合入 `main` 后仍需按要求纳入 Agent 创建真实链路复验。

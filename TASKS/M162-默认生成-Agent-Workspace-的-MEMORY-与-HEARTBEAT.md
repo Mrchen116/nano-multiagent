@@ -36,7 +36,7 @@
 ## Roadpoints
 
 ### R1. 锁定 workspace 默认文件生成入口与测试门禁
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 能明确指出创建/初始化 Agent workspace 的实际入口。
   - 测试先覆盖 `MEMORY.md` / `HEARTBEAT.md` 默认生成与幂等行为。
@@ -47,7 +47,7 @@
   - 回归门禁能在无实现时暴露缺口，在实现后稳定通过。
 
 ### R2. 在默认创建与初始化入口补齐 MEMORY/HEARTBEAT 默认文件
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 新建 Agent workspace 时默认存在 `MEMORY.md` 与 `HEARTBEAT.md`。
   - 已有 workspace 缺失这两个文件时可安全补齐。
@@ -58,7 +58,7 @@
   - 真实创建路径与初始化入口都调用统一的幂等补齐逻辑。
 
 ### R3. 聚焦验证、记录与收口
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 跑完聚焦验证命令并将结果写入 PROGRESS。
   - 完成小步提交并记录 commit hash。
@@ -69,8 +69,9 @@
   - 分支可提交，结论可用于合并前评审。
 
 ## 当前结果
-- 已定位两个关键入口：`load_local_config()` 的 workspace 初始化路径，以及 `_IMConfigSyncClient.sync_agent()` 的 Agent 创建/同步路径。
-- 下一步按 TDD 先补测试，再在这两个入口接入统一的默认文件补齐逻辑。
+- 已在 `src/personal_assistant/config/local_store.py` 中新增统一的 `ensure_workspace_defaults()`，负责创建 workspace 目录并幂等补齐 `MEMORY.md` 与 `HEARTBEAT.md`。
+- `load_local_config()` 与 `_IMConfigSyncClient.sync_agent()` 现在都会走同一份默认文件补齐逻辑，覆盖初始化入口与真实 Agent 创建/同步链路。
+- 已补单测，证明默认文件会生成，且已有 `MEMORY.md` / `HEARTBEAT.md` 内容不会被覆盖。
 
 ## 回滚点
 - 若需要回滚本 milestone，优先撤回：
@@ -86,6 +87,6 @@
 - `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M162/tests/unit/personal_assistant/test_main.py -k "im_config_sync_client or workspace"`
 
 ## 提交计划
-- C1: 任务/进度落盘，锁定入口、Roadpoints 与验证计划
-- C2: 测试与实现，补齐 workspace 默认文件生成
-- C3: 若验证阶段出现收尾问题，再补最小修复提交
+- C1: `ed00037` `docs(M162): outline workspace default file backfill plan`
+- C2: `<pending>` 测试与实现，补齐 workspace 默认文件生成
+- C3: 无额外提交，除非后续验证暴露新的最小修复点
