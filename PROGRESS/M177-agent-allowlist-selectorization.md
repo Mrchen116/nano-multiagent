@@ -34,7 +34,7 @@
 - 本轮未在 CLI 内补做浏览器真机录屏/截图，因为当前可用工具集中不含浏览器交互能力；已以真实前端构建 + 前后端接口/页面测试作为可复现证据保底。
 - 若后续在具备浏览器工具的验收线程继续，可优先复用本 worktree 的 allowlist options API 与选择器 UI，不需要再改后端契约。
 
-## Next
-- 提交 M177 改动。
-- 合并 `milestone/M177` 到 `main`。
-- 删除 `/Users/czj/Repos/nano-multiagent/.worktrees/M177` worktree。
+## Completion
+- 2026-03-14：已提交 `feat(M177): selectorize agent allowlists`（`aece533`）。
+- 2026-03-14：已将 `milestone/M177` 合并到 `main`。
+- 2026-03-14：已清理 `/Users/czj/Repos/nano-multiagent/.worktrees/M177` worktree。

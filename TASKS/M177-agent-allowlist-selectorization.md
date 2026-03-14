@@ -7,7 +7,7 @@
 - [x] 将 Agent 详情页的 Skills Allowlist / Tool Allowlist 改为同类选择交互，确保编辑已有 agent 时正确回显、保存并对不可用旧值做兼容展示。
 - [x] 补齐最小有效前后端测试，覆盖选项接口、创建页选择提交、详情页回显与保存。
 - [x] 做一轮可复现验证并把自动化证据持续写入 PROGRESS；本轮以真实构建与前后端测试为主，若后续环境具备浏览器验收条件可继续补充真机证据。
-- [ ] 完成提交、合并 main、清理 M177 worktree。
+- [x] 完成提交、合并 main、清理 M177 worktree。
 
 ## Scope guard
 - 仅完成 M177：allowlist 选择器化与保存/编辑链路验证。
