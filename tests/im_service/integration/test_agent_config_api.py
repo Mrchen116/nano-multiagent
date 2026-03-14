@@ -292,6 +292,90 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
         assert second_conv_after_patch.json()["config_profile_version"] == 2
 
 
+def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(tmp_path: Path) -> None:
+    """Fresh runtime re-registration must not clear ownership from a previously bound agent profile."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        users = UserRepository(app.state.connection)
+        owner = users.create_user(username="owner", display_name="Owner")
+        nodes = NodeRepository(app.state.connection)
+        profiles = AgentProfileRepository(app.state.connection)
+
+        nodes.upsert_node(node_id="node-fresh", node_name="Fresh Runtime", status="online", version="1.0.0")
+        profiles.upsert_profile(
+            agent_id="agent-m170-alpha",
+            owner_id="",
+            display_name="Alpha",
+            description="fresh runtime agent",
+            system_prompt="You are Alpha.",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-fresh", "agent-m170-alpha"),
+        )
+        app.state.connection.commit()
+
+        start_resp = client.post("/im/v1/bind", json={"action": "start", "node_id": "node-fresh"})
+        assert start_resp.status_code == 201
+        confirm_resp = client.post(
+            "/im/v1/bind",
+            json={
+                "action": "confirm",
+                "bind_token": start_resp.json()["bind_url"].split("token=", 1)[1],
+                "user_id": owner.id,
+            },
+        )
+        assert confirm_resp.status_code == 201
+
+        bound_profile = client.get("/im/v1/agents/agent-m170-alpha/config")
+        assert bound_profile.status_code == 200
+        assert bound_profile.json()["owner_id"] == owner.owner_id
+        assert bound_profile.json()["profile_version"] == 1
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-fresh",
+                        "node_name": "Fresh Runtime",
+                        "version": "1.0.1",
+                        "agents": ["agent-m170-alpha"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            ack = websocket.receive_json()
+            assert ack["type"] == "ack"
+
+        after_reregister = client.get("/im/v1/agents/agent-m170-alpha/config")
+        assert after_reregister.status_code == 200
+        assert after_reregister.json()["owner_id"] == owner.owner_id
+
+        patch_resp = client.patch(
+            "/im/v1/agents/agent-m170-alpha/config",
+            json={
+                "profile_version": after_reregister.json()["profile_version"],
+                "display_name": "Alpha NO_REPLY",
+                "description": "updated after fresh re-registration",
+                "system_prompt": "Return NO_REPLY.",
+                "skills": [],
+                "tool_allowlist": [],
+                "group_reply_policy": "manual",
+                "default_model": None,
+                "workspace_root": None,
+            },
+        )
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["owner_id"] == owner.owner_id
+        assert patch_resp.json()["display_name"] == "Alpha NO_REPLY"
+
+
 def test_agent_allowlist_options_returns_current_selectable_items(tmp_path: Path, monkeypatch) -> None:
     """Expose current skill/tool/model options so the settings UI can render selectors."""
     monkeypatch.setattr(

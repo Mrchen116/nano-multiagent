@@ -184,9 +184,10 @@ class GatewayHandler:
             profile_repository = AgentProfileRepository(self._node_repository._connection)
             for agent_id in agents:
                 existing = profile_repository.get_profile(agent_id=agent_id)
+                owner_id = existing.owner_id if existing is not None and existing.owner_id.strip() else (node.owner_id or "")
                 profile_repository.upsert_profile(
                     agent_id=agent_id,
-                    owner_id=node.owner_id,
+                    owner_id=owner_id,
                     display_name=existing.display_name if existing is not None else agent_id,
                     description=existing.description if existing is not None else f"Runtime agent advertised by {node_name}.",
                     system_prompt=existing.system_prompt if existing is not None else f"You are {agent_id}.",
