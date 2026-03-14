@@ -590,7 +590,57 @@ def test_inbound_pipeline_prefers_group_mentions_over_drifted_explicit_agent_ids
     assert result.agent_id == "agent-b"
     assert result.session_key == "web_relay:conv-1:agent-b"
     assert kernel_client.create_session_calls[0]["workspace_root"] == str(agents[1].workspace_root)
+    assert kernel_client.create_session_calls[0]["metadata"] == {
+        "agent_id": "agent-b",
+        "conversation_id": "conv-1",
+    }
     assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "@agent:agent-b please investigate", "run_id": "run-1"}]
+
+
+def test_inbound_pipeline_freezes_group_agent_id_even_without_additional_snapshot_metadata(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="@agent:agent-b stay quiet",
+                external_user_id="user-1",
+                external_chat_id="conv-2",
+                is_group=True,
+                metadata={
+                    "conversation_id": "conv-2",
+                    "mentioned_agent_ids": ["agent-b"],
+                    "trigger": "mention",
+                },
+            )
+        )
+    )
+
+    assert result is not None
+    assert result.agent_id == "agent-b"
+    assert kernel_client.create_session_calls == [
+        {
+            "workspace_root": str(agents[1].workspace_root),
+            "product_id": "personal_assistant",
+            "title": "Agent B",
+            "metadata": {
+                "agent_id": "agent-b",
+                "conversation_id": "conv-2",
+            },
+        }
+    ]
 
 
 def test_inbound_pipeline_reuses_existing_session_binding_per_session_key(tmp_path: Path) -> None:

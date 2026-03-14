@@ -264,13 +264,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
             )
             assert second.status_code == 201
             second_frame = websocket.receive_json()
-            relay_adapter.accept_relay(
-                {
-                    **second_frame["payload"],
-                    "is_group": True,
-                    "mentioned_agent_ids": ["agent-b"],
-                }
-            )
+            relay_adapter.accept_relay(second_frame["payload"])
 
     assert [call["title"] for call in kernel_client.create_session_calls] == ["Agent-A", "Agent-B"]
     assert [call["metadata"] for call in kernel_client.create_session_calls] == [
@@ -312,6 +306,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
             metadata={
                 "relay_task_id": first_frame["payload"]["relay_task_id"],
                 "idempotency_key": "idem-group-a",
+                "message_id": first_frame["payload"]["message"]["id"],
                 "conversation_type": "group",
                 "mentioned_agent_ids": ["agent-a"],
                 "config_profile_version": 1,
@@ -326,6 +321,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
             metadata={
                 "relay_task_id": second_frame["payload"]["relay_task_id"],
                 "idempotency_key": "idem-group-b",
+                "message_id": second_frame["payload"]["message"]["id"],
                 "conversation_type": "group",
                 "mentioned_agent_ids": ["agent-b"],
                 "config_profile_version": 1,

@@ -247,7 +247,7 @@ class InboundPipeline:
     @staticmethod
     def _build_session_metadata(message: InboundMessage, *, agent_id: str) -> dict[str, object] | None:
         metadata = dict(message.metadata)
-        session_metadata: dict[str, object] = {}
+        session_metadata: dict[str, object] = {"agent_id": agent_id}
         conversation_id = metadata.get("conversation_id")
         if isinstance(conversation_id, str) and conversation_id.strip():
             session_metadata["conversation_id"] = conversation_id.strip()
@@ -257,9 +257,6 @@ class InboundPipeline:
         system_prompt = metadata.get("system_prompt")
         if isinstance(system_prompt, str) and system_prompt.strip():
             session_metadata["system_prompt"] = system_prompt
-        if not session_metadata:
-            return None
-        session_metadata["agent_id"] = agent_id
         return session_metadata
 
     @staticmethod
