@@ -6,6 +6,7 @@ import { afterEach, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   listNodesMock: vi.fn(),
+  getAgentAllowlistOptionsMock: vi.fn(),
   createAgentMock: vi.fn(),
   createDirectConversationMock: vi.fn(),
   navigateMock: vi.fn()
@@ -25,6 +26,7 @@ vi.mock("../../chat/chat-api", () => ({
 
 vi.mock("./im-agent-config-api", () => ({
   listNodes: apiMocks.listNodesMock,
+  getAgentAllowlistOptions: apiMocks.getAgentAllowlistOptionsMock,
   createAgent: apiMocks.createAgentMock
 }));
 
@@ -48,6 +50,7 @@ function renderCreatePage() {
 
 afterEach(() => {
   apiMocks.listNodesMock.mockReset();
+  apiMocks.getAgentAllowlistOptionsMock.mockReset();
   apiMocks.createAgentMock.mockReset();
   apiMocks.createDirectConversationMock.mockReset();
   apiMocks.navigateMock.mockReset();
@@ -68,6 +71,16 @@ describe("agent create page", () => {
         version: "1.0.0"
       }
     ]);
+    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({
+      skills: [
+        { name: "plan", description: "Plan work" },
+        { name: "review", description: "Review work" }
+      ],
+      tools: [
+        { name: "read", description: "Read files" },
+        { name: "bash", description: "Run shell commands" }
+      ]
+    });
     apiMocks.createAgentMock.mockResolvedValue({
       agent_id: "agent-new",
       owner_id: "",
@@ -95,8 +108,8 @@ describe("agent create page", () => {
     await user.type(screen.getByLabelText("Display Name"), "Agent New");
     await user.type(screen.getByLabelText("Description"), "runtime-created helper");
     await user.type(screen.getByLabelText("System Prompt"), "You are Agent New.");
-    await user.type(screen.getByLabelText("Skills Allowlist"), "plan");
-    await user.type(screen.getByLabelText("Tool Allowlist"), "read");
+    await user.click(screen.getByRole("checkbox", { name: /plan/i }));
+    await user.click(screen.getByRole("checkbox", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Node"), "node-1");
     await user.type(screen.getByLabelText("Default Model"), "claude-sonnet-4");
     await user.type(screen.getByLabelText("Workspace Path Setting"), "/tmp/agent-new-workspace");
@@ -143,6 +156,7 @@ describe("agent create page", () => {
     const user = userEvent.setup();
 
     apiMocks.listNodesMock.mockResolvedValue([]);
+    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({ skills: [], tools: [] });
 
     renderCreatePage();
 
@@ -160,6 +174,7 @@ describe("agent create page", () => {
     const user = userEvent.setup();
 
     apiMocks.listNodesMock.mockResolvedValue([]);
+    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({ skills: [], tools: [] });
     apiMocks.createAgentMock.mockRejectedValue(new Error("POST /im/v1/agents failed: 409 (agent already exists)"));
 
     renderCreatePage();

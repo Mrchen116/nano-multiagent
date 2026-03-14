@@ -68,6 +68,24 @@ describe("agent edit page", () => {
         );
       }
 
+      if (url === "/im/v1/agents/allowlist-options") {
+        return new Response(
+          JSON.stringify({
+            skills: [
+              { name: "tdd-execution-worker", description: "Execute TDD tasks" },
+              { name: "playwright", description: "Drive browser checks" },
+              { name: "plan", description: "Plan work" }
+            ],
+            tools: [
+              { name: "bash", description: "Run shell commands" },
+              { name: "read_file", description: "Read files" },
+              { name: "task", description: "Dispatch a subtask" }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
       if (url === "/im/v1/agents/agent-core-1/config" && init?.method === "PATCH") {
         const payload = JSON.parse(String(init.body)) as {
           profile_version: number;
@@ -122,10 +140,18 @@ describe("agent edit page", () => {
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
     expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /tdd-execution-worker/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /playwright/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /bash/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /read_file/i })).toBeChecked();
     expect(screen.getByRole("button", { name: "No Changes to Save" })).toBeDisabled();
 
     await user.clear(input);
     await user.type(input, "Core Planner X");
+    await user.click(screen.getByRole("checkbox", { name: /playwright/i }));
+    await user.click(screen.getByRole("checkbox", { name: /plan/i }));
+    await user.click(screen.getByRole("checkbox", { name: /bash/i }));
+    await user.click(screen.getByRole("checkbox", { name: /dispatch a subtask/i }));
     await user.type(screen.getByLabelText("Workspace Path Setting"), "/custom/agent-core-1");
     await user.click(screen.getByRole("button", { name: "Save Agent" }));
 
@@ -142,8 +168,8 @@ describe("agent edit page", () => {
             display_name: "Core Planner X",
             description: "Milestone execution coordinator",
             system_prompt: "You are the planning core for IM and SDK tasks.",
-            skills: ["tdd-execution-worker", "playwright"],
-            tool_allowlist: ["bash", "read_file"],
+            skills: ["tdd-execution-worker", "plan"],
+            tool_allowlist: ["read_file", "task"],
             group_reply_policy: "MENTION",
             default_model: "gpt-5.2-codex",
             workspace_root: "/custom/agent-core-1"
@@ -161,6 +187,13 @@ describe("agent edit page", () => {
 
       if (url === "/im/v1/nodes") {
         return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (url === "/im/v1/agents/allowlist-options") {
+        return new Response(JSON.stringify({ skills: [], tools: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
@@ -202,7 +235,7 @@ describe("agent edit page", () => {
 
     expect(await screen.findByText("Display name is required.")).toBeInTheDocument();
     expect(screen.getByText("Fix the required fields before saving.")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("surfaces real 409 conflict detail without overwriting the current version label", async () => {
@@ -213,6 +246,13 @@ describe("agent edit page", () => {
 
       if (url === "/im/v1/nodes") {
         return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (url === "/im/v1/agents/allowlist-options") {
+        return new Response(JSON.stringify({ skills: [], tools: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });

@@ -4,17 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { createDirectConversation } from "../../chat/chat-api";
-import { AgentConfig, getAgentConfig, listNodes, updateAgentConfig } from "./im-agent-config-api";
+import { AllowlistSelector } from "./allowlist-selector";
+import { AgentConfig, getAgentAllowlistOptions, getAgentConfig, listNodes, updateAgentConfig } from "./im-agent-config-api";
 
 type AgentConfigFormState = AgentConfig & {
   workspace_root_input: string;
 };
 
-function splitList(value: string) {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+function normalizeAllowlist(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
 function normalizeText(value: string) {
@@ -34,8 +32,8 @@ function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormStat
     display_name: normalizeText(config.display_name),
     description: normalizeText(config.description),
     system_prompt: config.system_prompt.trim(),
-    skills: splitList(config.skills.join(",")),
-    tool_allowlist: splitList(config.tool_allowlist.join(",")),
+    skills: normalizeAllowlist(config.skills),
+    tool_allowlist: normalizeAllowlist(config.tool_allowlist),
     default_model: normalizeText(config.default_model ?? "") || null,
     workspace_root_input: config.workspace_root_input.trim(),
     bound_nodes: config.bound_nodes ?? []
@@ -110,6 +108,11 @@ export function AgentDetailPage() {
     queryKey: ["settings", "nodes"],
     queryFn: listNodes
   });
+  const allowlistOptionsQuery = useQuery({
+    queryKey: ["settings", "agents", "allowlist-options"],
+    queryFn: getAgentAllowlistOptions,
+    staleTime: 30_000
+  });
 
   useEffect(() => {
     if (query.data) {
@@ -127,6 +130,10 @@ export function AgentDetailPage() {
     query.error instanceof Error ? query.error.message.split(" failed: ").at(-1) ?? query.error.message : "Unable to load this agent.";
   const nodeErrorDetail =
     nodesQuery.error instanceof Error ? nodesQuery.error.message.split(" failed: ").at(-1) ?? nodesQuery.error.message : "Unable to load node status.";
+  const allowlistErrorDetail =
+    allowlistOptionsQuery.error instanceof Error
+      ? allowlistOptionsQuery.error.message.split(" failed: ").at(-1) ?? allowlistOptionsQuery.error.message
+      : "Unable to load selectable skills and tools.";
 
   const mutation = useMutation({
     mutationFn: (next: AgentConfigFormState) => {
@@ -328,37 +335,39 @@ export function AgentDetailPage() {
             {shouldShowError("system_prompt") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.system_prompt}</p> : null}
           </div>
 
-          <div className="grid gap-1 md:grid-cols-2 md:gap-3">
-            <div className="grid gap-1">
-              <Label.Root htmlFor="skills-allowlist">Skills Allowlist</Label.Root>
-              <input
-                id="skills-allowlist"
-                className="im-input"
-                value={draft.skills.join(", ")}
-                aria-describedby="skills-help"
-                onChange={(event) => {
-                  setSaved(false);
-                  setErrorMessage(null);
-                  setDraft({ ...draft, skills: splitList(event.target.value) });
-                }}
-              />
-              <p id="skills-help" className="text-xs text-slate-500">Comma-separated skills exposed to this agent.</p>
-            </div>
-            <div className="grid gap-1">
-              <Label.Root htmlFor="tool-allowlist">Tool Allowlist</Label.Root>
-              <input
-                id="tool-allowlist"
-                className="im-input"
-                value={draft.tool_allowlist.join(", ")}
-                aria-describedby="tools-help"
-                onChange={(event) => {
-                  setSaved(false);
-                  setErrorMessage(null);
-                  setDraft({ ...draft, tool_allowlist: splitList(event.target.value) });
-                }}
-              />
-              <p id="tools-help" className="text-xs text-slate-500">Comma-separated tools approved for this agent.</p>
-            </div>
+          <div className="grid gap-3 md:grid-cols-2 md:gap-3">
+            <AllowlistSelector
+              id="skills-allowlist"
+              label="Skills Allowlist"
+              selected={draft.skills}
+              options={allowlistOptionsQuery.data?.skills}
+              isLoading={allowlistOptionsQuery.isLoading}
+              errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
+              onRetry={() => void allowlistOptionsQuery.refetch()}
+              helpText="Choose from the skills the running system currently exposes. Existing saved values still appear even if they are unavailable right now."
+              emptySelectionText="No skill selected. Leave blank if this agent should inherit platform defaults."
+              onChange={(skills) => {
+                setSaved(false);
+                setErrorMessage(null);
+                setDraft({ ...draft, skills });
+              }}
+            />
+            <AllowlistSelector
+              id="tool-allowlist"
+              label="Tool Allowlist"
+              selected={draft.tool_allowlist}
+              options={allowlistOptionsQuery.data?.tools}
+              isLoading={allowlistOptionsQuery.isLoading}
+              errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
+              onRetry={() => void allowlistOptionsQuery.refetch()}
+              helpText="Choose from the tools the running system currently exposes. Existing saved values still appear even if they are unavailable right now."
+              emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
+              onChange={(toolAllowlist) => {
+                setSaved(false);
+                setErrorMessage(null);
+                setDraft({ ...draft, tool_allowlist: toolAllowlist });
+              }}
+            />
           </div>
 
           <div className="grid gap-1 md:grid-cols-2 md:gap-3">
