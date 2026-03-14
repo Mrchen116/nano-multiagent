@@ -160,12 +160,24 @@ class RelayService:
 
     def _resolve_agent_snapshot(self, *, conversation_id: str, mentioned_agent_ids: list[str]) -> _RelayAgentSnapshot:
         conversation_row = self._connection.execute(
-            "SELECT config_profile_version FROM conversations WHERE id = ?",
+            """
+            SELECT type, config_agent_id, config_profile_version, config_system_prompt
+            FROM conversations
+            WHERE id = ?
+            """,
             (conversation_id,),
         ).fetchone()
-        conversation_profile_version = None
-        if conversation_row is not None and conversation_row["config_profile_version"] is not None:
-            conversation_profile_version = int(conversation_row["config_profile_version"])
+        conversation_type = str(conversation_row["type"]) if conversation_row is not None else None
+        frozen_agent_id = None
+        frozen_profile_version = None
+        frozen_system_prompt = None
+        if conversation_row is not None:
+            if conversation_row["config_agent_id"] is not None:
+                frozen_agent_id = str(conversation_row["config_agent_id"])
+            if conversation_row["config_profile_version"] is not None:
+                frozen_profile_version = int(conversation_row["config_profile_version"])
+            if conversation_row["config_system_prompt"] is not None:
+                frozen_system_prompt = str(conversation_row["config_system_prompt"])
 
         participant_rows = self._connection.execute(
             """
@@ -200,14 +212,24 @@ class RelayService:
                 break
         if selected_agent_id is None and participant_agent_ids:
             selected_agent_id = participant_agent_ids[0]
+
+        if conversation_type == "direct" and frozen_agent_id and (
+            selected_agent_id is None or selected_agent_id == frozen_agent_id
+        ):
+            return _RelayAgentSnapshot(
+                agent_id=frozen_agent_id,
+                profile_version=frozen_profile_version,
+                system_prompt=frozen_system_prompt,
+            )
+
         if selected_agent_id is None:
-            return _RelayAgentSnapshot(agent_id=None, profile_version=conversation_profile_version, system_prompt=None)
+            return _RelayAgentSnapshot(agent_id=None, profile_version=frozen_profile_version, system_prompt=None)
         profile = self._profile_row(agent_id=selected_agent_id)
         if profile is None:
-            return _RelayAgentSnapshot(agent_id=None, profile_version=conversation_profile_version, system_prompt=None)
+            return _RelayAgentSnapshot(agent_id=None, profile_version=frozen_profile_version, system_prompt=None)
         return _RelayAgentSnapshot(
             agent_id=selected_agent_id,
-            profile_version=conversation_profile_version if conversation_profile_version is not None else int(profile["profile_version"]),
+            profile_version=frozen_profile_version if frozen_profile_version is not None else int(profile["profile_version"]),
             system_prompt=str(profile["system_prompt"]),
         )
 

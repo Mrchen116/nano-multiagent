@@ -85,6 +85,85 @@ def test_apply_delivery_receipt_updates_task_status(tmp_path: Path) -> None:
     assert completed.receipt_detail == "ok"
 
 
+def test_direct_conversation_relay_keeps_old_snapshot_while_new_conversation_uses_updated_profile(tmp_path: Path) -> None:
+    """Freeze old direct-chat relay metadata after profile edits while new direct chats use the latest config."""
+    relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+    owner = users.create_user(username="owner", display_name="Owner")
+    agent_alias = users.create_user(username="agent:agent-a", display_name="Agent A Alias")
+    profiles.upsert_profile(
+        agent_id="agent-a",
+        owner_id=owner.owner_id,
+        display_name="Agent A",
+        description="profile a",
+        system_prompt="You are agent-a.",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+    )
+    old_conversation = conversations.create_conversation(
+        title="old direct",
+        participant_ids=[owner.id, agent_alias.id],
+    )
+
+    profiles.update_profile(
+        agent_id="agent-a",
+        profile_version=1,
+        display_name="Agent A v2",
+        description="profile a v2",
+        system_prompt="You are upgraded.",
+        skills=["plan"],
+        tool_allowlist=["read"],
+        group_reply_policy="manual",
+        default_model="claude-sonnet-4",
+    )
+    new_conversation = conversations.create_conversation(
+        title="new direct",
+        participant_ids=[owner.id, agent_alias.id],
+    )
+
+    old_message = messages.create_message(
+        conversation_id=old_conversation.id,
+        sender_user_id=owner.id,
+        content="hello old",
+    )
+    new_message = messages.create_message(
+        conversation_id=new_conversation.id,
+        sender_user_id=owner.id,
+        content="hello new",
+    )
+
+    old_created = relay_service.enqueue_message_relay(
+        message=old_message,
+        target_node_id="node-1",
+        idempotency_key="idem-old-direct",
+        sender_user_id=owner.id,
+        conversation_type="direct",
+    )
+    new_created = relay_service.enqueue_message_relay(
+        message=new_message,
+        target_node_id="node-1",
+        idempotency_key="idem-new-direct",
+        sender_user_id=owner.id,
+        conversation_type="direct",
+    )
+
+    assert old_created.relay_task.payload["agent_id"] == "agent-a"
+    assert old_created.relay_task.payload["metadata"] == {
+        "conversation_type": "direct",
+        "mentioned_agent_ids": [],
+        "config_profile_version": 1,
+        "system_prompt": "You are agent-a.",
+    }
+    assert new_created.relay_task.payload["agent_id"] == "agent-a"
+    assert new_created.relay_task.payload["metadata"] == {
+        "conversation_type": "direct",
+        "mentioned_agent_ids": [],
+        "config_profile_version": 2,
+        "system_prompt": "You are upgraded.",
+    }
+
+
 def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_path: Path) -> None:
     """Group relay payloads must snapshot the addressed agent even when the mention includes punctuation."""
     relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)

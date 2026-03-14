@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     is_muted INTEGER NOT NULL DEFAULT 0,
     unread_count INTEGER NOT NULL DEFAULT 0,
     last_message_at TEXT,
+    config_agent_id TEXT,
     config_profile_version INTEGER,
+    config_system_prompt TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -252,8 +254,12 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
             WHERE last_message_at IS NULL
             """
         )
+    if "config_agent_id" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN config_agent_id TEXT")
     if "config_profile_version" not in column_names:
         connection.execute("ALTER TABLE conversations ADD COLUMN config_profile_version INTEGER")
+    if "config_system_prompt" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN config_system_prompt TEXT")
 
 
 def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:

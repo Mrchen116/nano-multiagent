@@ -578,6 +578,16 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
             },
         },
     ]
+    assert channel.sent[1].metadata == {
+        "conversation_id": "chat-1",
+        "config_profile_version": 2,
+        "system_prompt": "You are Agent A v2.",
+    }
+    assert channel.sent[2].metadata == {
+        "conversation_id": "chat-2",
+        "config_profile_version": 2,
+        "system_prompt": "You are Agent A v2.",
+    }
 
 
 def test_session_run_queue_serializes_same_session_and_allows_cross_session_parallelism() -> None:

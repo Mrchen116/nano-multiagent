@@ -159,6 +159,43 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         )
 
 
+def test_direct_conversation_with_agent_alias_freezes_prompt_snapshot(tmp_path: Path) -> None:
+    """Freeze agent snapshot metadata when direct chats target an alias user like `agent:<id>`."""
+    users, conversations, _, profiles, _, _ = _build_repositories(tmp_path)
+    owner = users.create_user(username="owner", display_name="Owner")
+    agent_alias = users.create_user(username="agent:agent-1", display_name="Alpha Alias")
+    profiles.upsert_profile(
+        agent_id="agent-1",
+        owner_id=owner.owner_id,
+        display_name="Alpha",
+        description="initial",
+        system_prompt="You are Alpha.",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+    )
+
+    created = conversations.create_conversation(
+        title="alias direct",
+        participant_ids=[owner.id, agent_alias.id],
+    )
+    stored = conversations.get_conversation(conversation_id=created.id)
+    snapshot_row = conversations._connection.execute(
+        "SELECT config_agent_id, config_profile_version, config_system_prompt FROM conversations WHERE id = ?",
+        (created.id,),
+    ).fetchone()
+
+    assert created.type == "direct"
+    assert created.config_profile_version == 1
+    assert stored is not None
+    assert stored.config_profile_version == 1
+    assert snapshot_row is not None
+    assert snapshot_row["config_agent_id"] == "agent-1"
+    assert snapshot_row["config_profile_version"] == 1
+    assert snapshot_row["config_system_prompt"] == "You are Alpha."
+
+
 def test_user_nodes_and_bind_roundtrip(tmp_path: Path) -> None:
     """Track owned nodes and bind confirmation state in repositories."""
     users, _, _, profiles, nodes, binds = _build_repositories(tmp_path)

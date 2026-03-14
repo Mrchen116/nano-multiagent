@@ -1,5 +1,6 @@
 """SQLite repositories for IM users, conversations, and messages."""
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 import sqlite3
@@ -270,6 +271,15 @@ class AgentProfileVersionConflictError(ValueError):
     """Raise when agent profile optimistic locking detects a stale version."""
 
 
+@dataclass(frozen=True, slots=True)
+class _ConversationConfigSnapshot:
+    """Frozen agent config captured when a conversation is created."""
+
+    agent_id: str | None
+    profile_version: int | None
+    system_prompt: str | None
+
+
 class ConversationRepository:
     """Persist and query conversations and participants."""
 
@@ -302,18 +312,23 @@ class ConversationRepository:
 
         placeholders = ",".join("?" for _ in normalized_participants)
         existing_rows = self._connection.execute(
-            f"SELECT id, owner_id FROM users WHERE id IN ({placeholders})",  # noqa: S608
+            f"SELECT id, username, owner_id FROM users WHERE id IN ({placeholders})",  # noqa: S608
             tuple(normalized_participants),
         ).fetchall()
         if len(existing_rows) != len(normalized_participants):
             raise ValueError("participant_ids contains unknown users")
 
-        owner_ids = {str(row["owner_id"]) for row in existing_rows}
+        existing_rows_by_id = {str(row["id"]): row for row in existing_rows}
+        ordered_rows = [existing_rows_by_id[user_id] for user_id in normalized_participants]
+        owner_ids = {str(row["owner_id"]) for row in ordered_rows}
         conversation_id = uuid4().hex
         created_at = _utc_now()
         owner_id = uuid4().hex if len(owner_ids) > 1 else next(iter(owner_ids))
         conversation_type = "direct" if len(normalized_participants) == 2 else "group"
-        config_profile_version = self._resolve_config_profile_version(owner_id=owner_id, participant_ids=normalized_participants)
+        config_snapshot = self._resolve_config_snapshot(
+            participant_rows=ordered_rows,
+            conversation_type=conversation_type,
+        )
         with self._connection:
             self._connection.execute(
                 """
@@ -326,9 +341,11 @@ class ConversationRepository:
                     is_muted,
                     unread_count,
                     last_message_at,
+                    config_agent_id,
                     config_profile_version,
+                    config_system_prompt,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     conversation_id,
@@ -339,7 +356,9 @@ class ConversationRepository:
                     0,
                     0,
                     None,
-                    config_profile_version,
+                    config_snapshot.agent_id,
+                    config_snapshot.profile_version,
+                    config_snapshot.system_prompt,
                     created_at,
                 ),
             )
@@ -357,7 +376,7 @@ class ConversationRepository:
             is_muted=False,
             unread_count=0,
             last_message_at=None,
-            config_profile_version=config_profile_version,
+            config_profile_version=config_snapshot.profile_version,
             created_at=created_at,
         )
 
@@ -365,7 +384,7 @@ class ConversationRepository:
         """Load one conversation with participants."""
         row = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, created_at
+            SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
             FROM conversations
             WHERE id = ?
             """,
@@ -447,16 +466,60 @@ class ConversationRepository:
         )
 
     def _resolve_config_profile_version(self, *, owner_id: str, participant_ids: list[str]) -> int | None:
-        """Snapshot the latest agent profile version for new agent-facing conversations."""
+        """Return the frozen profile version that a new conversation should bind to."""
         if not participant_ids:
             return None
-        rows = self._connection.execute(
-            f"SELECT profile_version FROM agent_profiles WHERE agent_id IN ({','.join('?' for _ in participant_ids)}) ORDER BY rowid LIMIT 1",  # noqa: S608
+        placeholders = ",".join("?" for _ in participant_ids)
+        participant_rows = self._connection.execute(
+            f"SELECT id, username, owner_id FROM users WHERE id IN ({placeholders})",  # noqa: S608
             tuple(participant_ids),
         ).fetchall()
-        if not rows:
+        if not participant_rows:
             return None
-        return int(rows[0]["profile_version"])
+        snapshot = self._resolve_config_snapshot(participant_rows=participant_rows, conversation_type="group")
+        return snapshot.profile_version
+
+    def _resolve_config_snapshot(
+        self,
+        *,
+        participant_rows: list[sqlite3.Row],
+        conversation_type: str,
+    ) -> _ConversationConfigSnapshot:
+        """Freeze the agent config snapshot that should back a new conversation."""
+        for row in participant_rows:
+            snapshot = self._profile_snapshot_for_participant(row=row)
+            if snapshot is None:
+                continue
+            if conversation_type == "direct":
+                return snapshot
+            return _ConversationConfigSnapshot(
+                agent_id=None,
+                profile_version=snapshot.profile_version,
+                system_prompt=None,
+            )
+        return _ConversationConfigSnapshot(agent_id=None, profile_version=None, system_prompt=None)
+
+    def _profile_snapshot_for_participant(self, *, row: sqlite3.Row) -> _ConversationConfigSnapshot | None:
+        """Resolve one participant row into an agent profile snapshot when it represents an agent."""
+        candidate_agent_ids: list[str] = [str(row["id"])]
+        username = str(row["username"])
+        if username.startswith("agent:"):
+            alias_agent_id = username[len("agent:") :].strip()
+            if alias_agent_id:
+                candidate_agent_ids.append(alias_agent_id)
+        for candidate_agent_id in candidate_agent_ids:
+            profile_row = self._connection.execute(
+                "SELECT agent_id, profile_version, system_prompt FROM agent_profiles WHERE agent_id = ?",
+                (candidate_agent_id,),
+            ).fetchone()
+            if profile_row is None:
+                continue
+            return _ConversationConfigSnapshot(
+                agent_id=str(profile_row["agent_id"]),
+                profile_version=int(profile_row["profile_version"]),
+                system_prompt=str(profile_row["system_prompt"]),
+            )
+        return None
 
 
 class MessageRepository:

@@ -222,7 +222,11 @@ class InboundPipeline:
     def _ensure_binding(self, message: InboundMessage, *, agent_id: str, session_key: str) -> SessionBinding:
         existing = self._session_store.get(session_key)
         if existing is not None:
-            return existing
+            return self._session_store.bind(
+                session_key=session_key,
+                kernel_session_id=existing.kernel_session_id,
+                reply_context=build_reply_context(message),
+            )
         agent = self._agents[agent_id]
         response = self._kernel_client.create_session(
             workspace_root=str(agent.workspace_root),
