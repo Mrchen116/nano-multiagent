@@ -200,17 +200,18 @@ class InboundPipeline:
         await callback(message, update)
 
     def _resolve_agent(self, message: InboundMessage) -> str:
+        metadata = dict(message.metadata)
+        if message.is_group:
+            mentioned = metadata.get("mentioned_agent_ids")
+            if isinstance(mentioned, list):
+                for candidate in mentioned:
+                    if isinstance(candidate, str) and candidate in self._agents:
+                        return self._require_known_agent(candidate)
+            reply_to_agent_id = metadata.get("reply_to_agent_id")
+            if isinstance(reply_to_agent_id, str) and reply_to_agent_id in self._agents:
+                return self._require_known_agent(reply_to_agent_id)
         if message.agent_id:
             return self._require_known_agent(message.agent_id)
-        metadata = dict(message.metadata)
-        mentioned = metadata.get("mentioned_agent_ids")
-        if isinstance(mentioned, list):
-            for candidate in mentioned:
-                if isinstance(candidate, str) and candidate in self._agents:
-                    return self._require_known_agent(candidate)
-        reply_to_agent_id = metadata.get("reply_to_agent_id")
-        if isinstance(reply_to_agent_id, str) and reply_to_agent_id in self._agents:
-            return self._require_known_agent(reply_to_agent_id)
         binding_key = f"{message.channel_name}:{message.external_chat_id}"
         bound_agent = self._channel_bindings.get(binding_key)
         if bound_agent is not None:

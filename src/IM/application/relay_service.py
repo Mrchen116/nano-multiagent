@@ -147,16 +147,25 @@ class RelayService:
         assert created is not None
         return RelayEnqueueResult(relay_task=created, created=True)
 
-    @staticmethod
-    def _extract_mentioned_agent_ids(content: str) -> list[str]:
+    @classmethod
+    def _extract_mentioned_agent_ids(cls, content: str) -> list[str]:
         mentioned: set[str] = set()
         for token in content.split():
             if not token.startswith("@") or len(token) <= 1:
                 continue
-            candidate = token[1:].strip(".,!?:;)]}\"'”’")
+            candidate = cls._normalize_mentioned_agent_id(token[1:])
             if candidate:
                 mentioned.add(candidate)
         return sorted(mentioned)
+
+    @staticmethod
+    def _normalize_mentioned_agent_id(token: str) -> str | None:
+        candidate = token.strip().strip(".,!?:;)]}\"'”’")
+        if not candidate:
+            return None
+        if candidate.startswith("agent:"):
+            candidate = candidate[len("agent:") :].strip()
+        return candidate or None
 
     def _resolve_agent_snapshot(self, *, conversation_id: str, mentioned_agent_ids: list[str]) -> _RelayAgentSnapshot:
         conversation_row = self._connection.execute(
