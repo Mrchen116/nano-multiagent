@@ -23,6 +23,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from IM.infra.db import connect, initialize_schema
+from IM.infra.repositories import AgentProfileRepository
 from personal_assistant.main import stop_gateway
 
 RUNTIME_ROOT = REPO_ROOT / "ACCEPTANCE" / "m170-runtime"
@@ -57,6 +58,40 @@ class RuntimeStatus:
     gateway_http_ok: bool
     node_online: bool
     node_status: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalRuntimeAgent:
+    agent_id: str
+    title: str
+    display_name: str
+    system_prompt: str
+
+    @property
+    def workspace_root(self) -> Path:
+        return (RUNTIME_WORKSPACE / self.agent_id).resolve()
+
+
+CANONICAL_RUNTIME_AGENTS: tuple[CanonicalRuntimeAgent, ...] = (
+    CanonicalRuntimeAgent(
+        agent_id="assistant",
+        title="My Assistant",
+        display_name="assistant",
+        system_prompt="You are assistant.",
+    ),
+    CanonicalRuntimeAgent(
+        agent_id="agent-m170-alpha",
+        title="Agent M170 Alpha",
+        display_name="Agent M170 Alpha",
+        system_prompt="Reply exactly with ALPHA_ACK_M170.",
+    ),
+    CanonicalRuntimeAgent(
+        agent_id="agent-m170-beta",
+        title="Agent M170 Beta",
+        display_name="Agent M170 Beta",
+        system_prompt="Reply exactly with BETA_ACK_M170.",
+    ),
+)
 
 
 def _wait_for_url(url: str, *, timeout_seconds: float) -> bool:
@@ -105,7 +140,8 @@ def _ensure_runtime_layout() -> None:
     RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
     RUNTIME_UPLOADS.mkdir(parents=True, exist_ok=True)
     RUNTIME_WORKSPACE.mkdir(parents=True, exist_ok=True)
-    (RUNTIME_WORKSPACE / "assistant").mkdir(parents=True, exist_ok=True)
+    for agent in CANONICAL_RUNTIME_AGENTS:
+        agent.workspace_root.mkdir(parents=True, exist_ok=True)
 
 
 def _write_runtime_config() -> None:
@@ -113,10 +149,11 @@ def _write_runtime_config() -> None:
         "node": {"node_id": "m170-node"},
         "agents": [
             {
-                "agent_id": "assistant",
-                "title": "My Assistant",
-                "workspace_root": str((RUNTIME_WORKSPACE / "assistant").resolve()),
+                "agent_id": agent.agent_id,
+                "title": agent.title,
+                "workspace_root": str(agent.workspace_root),
             }
+            for agent in CANONICAL_RUNTIME_AGENTS
         ],
         "channels": [{"name": "web_relay", "enabled": True}],
         "kernel": {
@@ -133,6 +170,20 @@ def _initialize_runtime_db() -> None:
     connection = connect(RUNTIME_DB)
     try:
         initialize_schema(connection)
+        profiles = AgentProfileRepository(connection)
+        for agent in CANONICAL_RUNTIME_AGENTS:
+            profiles.upsert_profile(
+                agent_id=agent.agent_id,
+                owner_id="",
+                display_name=agent.display_name,
+                description="Runtime agent advertised by m170-node.",
+                system_prompt=agent.system_prompt,
+                skills=[],
+                tool_allowlist=[],
+                group_reply_policy="MENTION",
+                default_model=None,
+                workspace_root=str(agent.workspace_root),
+            )
         connection.commit()
     finally:
         connection.close()
