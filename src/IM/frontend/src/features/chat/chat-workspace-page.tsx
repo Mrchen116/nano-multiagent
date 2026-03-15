@@ -303,6 +303,13 @@ function refreshUsageQueries(input: {
   }
 }
 
+function isSuppressedNoReplyReceipt(eventType: string, detail: string | null) {
+  return (
+    (eventType === "relay.completed" || eventType === "message.delivered") &&
+    detail?.includes("suppressed_by=no_reply_token")
+  );
+}
+
 export function toRelayAgentMessage(event: {
   eventType: string;
   payload: Record<string, unknown>;
@@ -315,10 +322,7 @@ export function toRelayAgentMessage(event: {
     return null;
   }
   const detail = toStringValue(event.payload.detail);
-  if (
-    event.eventType === "relay.completed" &&
-    detail?.includes("suppressed_by=no_reply_token")
-  ) {
+  if (isSuppressedNoReplyReceipt(event.eventType, detail)) {
     return null;
   }
   const content =

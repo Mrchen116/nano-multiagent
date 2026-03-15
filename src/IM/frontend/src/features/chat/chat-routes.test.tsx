@@ -14,7 +14,7 @@ describe("chat routes", () => {
     expect(screen.getByPlaceholderText("Gateway offline — chat disabled")).toBeDisabled();
     expect(screen.getByText("Chat unavailable")).toBeInTheDocument();
     expect(screen.getByText("Your bound Gateway is offline. Bring that node online or bind another online node to re-enable chat.")).toBeInTheDocument();
-    expect(screen.getByText("sent")).toBeInTheDocument();
+    expect(screen.getByText("Sent to relay")).toBeInTheDocument();
   });
 
   it("shows agent semantics on the default starter conversation route", async () => {
