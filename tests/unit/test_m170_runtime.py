@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
+
+import yaml
 
 from scripts.acceptance import m170_runtime
 
 
-def test_rebuild_runtime_clears_stale_artifacts_and_recreates_layout(monkeypatch, tmp_path: Path) -> None:
-    runtime_root = tmp_path / "m170-runtime"
+def _patch_runtime_paths(monkeypatch, runtime_root: Path) -> None:  # noqa: ANN001
     monkeypatch.setattr(m170_runtime, "RUNTIME_ROOT", runtime_root)
     monkeypatch.setattr(m170_runtime, "RUNTIME_DB", runtime_root / "im_service.sqlite3")
     monkeypatch.setattr(m170_runtime, "RUNTIME_CONFIG", runtime_root / "node-config.yaml")
@@ -16,6 +18,11 @@ def test_rebuild_runtime_clears_stale_artifacts_and_recreates_layout(monkeypatch
     monkeypatch.setattr(m170_runtime, "RUNTIME_GATEWAY_STATE", runtime_root / ".gateway-state.json")
     monkeypatch.setattr(m170_runtime, "RUNTIME_UPLOADS", runtime_root / "uploads")
     monkeypatch.setattr(m170_runtime, "RUNTIME_WORKSPACE", runtime_root / "workspace")
+
+
+def test_rebuild_runtime_clears_stale_artifacts_and_recreates_layout(monkeypatch, tmp_path: Path) -> None:
+    runtime_root = tmp_path / "m170-runtime"
+    _patch_runtime_paths(monkeypatch, runtime_root)
 
     runtime_root.mkdir(parents=True)
     (runtime_root / "im_service.sqlite3").write_text("old-db", encoding="utf-8")
@@ -29,7 +36,11 @@ def test_rebuild_runtime_clears_stale_artifacts_and_recreates_layout(monkeypatch
     (runtime_root / "workspace" / "stale.txt").write_text("stale", encoding="utf-8")
 
     stop_calls: list[float] = []
-    monkeypatch.setattr(m170_runtime, "stop_runtime", lambda timeout_seconds=m170_runtime.DEFAULT_STOP_TIMEOUT_SECONDS: stop_calls.append(timeout_seconds) or {})
+    monkeypatch.setattr(
+        m170_runtime,
+        "stop_runtime",
+        lambda timeout_seconds=m170_runtime.DEFAULT_STOP_TIMEOUT_SECONDS: stop_calls.append(timeout_seconds) or {},
+    )
 
     result = m170_runtime.rebuild_runtime()
 
@@ -45,8 +56,84 @@ def test_rebuild_runtime_clears_stale_artifacts_and_recreates_layout(monkeypatch
     assert (runtime_root / "im.log").exists() is False
     assert (runtime_root / "heartbeat-state.json").exists() is False
     assert (runtime_root / ".gateway-state.json").exists() is False
+    assert (runtime_root / "workspace" / "assistant").is_dir() is True
+    assert (runtime_root / "workspace" / "agent-m170-alpha").is_dir() is True
+    assert (runtime_root / "workspace" / "agent-m170-beta").is_dir() is True
 
-    config_text = (runtime_root / "node-config.yaml").read_text(encoding="utf-8")
-    assert "m170-node" in config_text
-    assert "18031" in config_text
-    assert "18070" in config_text
+
+def test_rebuild_runtime_writes_canonical_m170_node_config(monkeypatch, tmp_path: Path) -> None:
+    runtime_root = tmp_path / "m170-runtime"
+    _patch_runtime_paths(monkeypatch, runtime_root)
+    monkeypatch.setattr(m170_runtime, "stop_runtime", lambda timeout_seconds=m170_runtime.DEFAULT_STOP_TIMEOUT_SECONDS: {})
+
+    m170_runtime.rebuild_runtime()
+
+    payload = yaml.safe_load((runtime_root / "node-config.yaml").read_text(encoding="utf-8"))
+
+    assert payload["node"] == {"node_id": "m170-node"}
+    assert [agent["agent_id"] for agent in payload["agents"]] == [
+        "assistant",
+        "agent-m170-alpha",
+        "agent-m170-beta",
+    ]
+    assert [agent["title"] for agent in payload["agents"]] == [
+        "My Assistant",
+        "Agent M170 Alpha",
+        "Agent M170 Beta",
+    ]
+    assert payload["im_service"] == {"url": "http://127.0.0.1:18031"}
+    assert "18070" in payload["kernel"]["command"]
+
+
+def test_rebuild_runtime_seeds_canonical_agent_profiles_into_fresh_db(monkeypatch, tmp_path: Path) -> None:
+    runtime_root = tmp_path / "m170-runtime"
+    _patch_runtime_paths(monkeypatch, runtime_root)
+    monkeypatch.setattr(m170_runtime, "stop_runtime", lambda timeout_seconds=m170_runtime.DEFAULT_STOP_TIMEOUT_SECONDS: {})
+
+    m170_runtime.rebuild_runtime()
+
+    connection = sqlite3.connect(runtime_root / "im_service.sqlite3")
+    connection.row_factory = sqlite3.Row
+    try:
+        rows = connection.execute(
+            """
+            SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, group_reply_policy, workspace_root
+            FROM agent_profiles
+            ORDER BY rowid
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert [dict(row) for row in rows] == [
+        {
+            "agent_id": "assistant",
+            "owner_id": "",
+            "node_id": None,
+            "display_name": "assistant",
+            "description": "Runtime agent advertised by m170-node.",
+            "system_prompt": "You are assistant.",
+            "group_reply_policy": "MENTION",
+            "workspace_root": str((runtime_root / "workspace" / "assistant").resolve()),
+        },
+        {
+            "agent_id": "agent-m170-alpha",
+            "owner_id": "",
+            "node_id": None,
+            "display_name": "Agent M170 Alpha",
+            "description": "Runtime agent advertised by m170-node.",
+            "system_prompt": "Reply exactly with ALPHA_ACK_M170.",
+            "group_reply_policy": "MENTION",
+            "workspace_root": str((runtime_root / "workspace" / "agent-m170-alpha").resolve()),
+        },
+        {
+            "agent_id": "agent-m170-beta",
+            "owner_id": "",
+            "node_id": None,
+            "display_name": "Agent M170 Beta",
+            "description": "Runtime agent advertised by m170-node.",
+            "system_prompt": "Reply exactly with BETA_ACK_M170.",
+            "group_reply_policy": "MENTION",
+            "workspace_root": str((runtime_root / "workspace" / "agent-m170-beta").resolve()),
+        },
+    ]
