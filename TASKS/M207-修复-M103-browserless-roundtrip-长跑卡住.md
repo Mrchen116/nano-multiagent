@@ -17,7 +17,7 @@
 ## Roadpoints
 
 ### R1. 锁定 browserless hang 的最小根因并补红测
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 能稳定复现并定位 `test_web_im_message_roundtrip_browserless` 的卡住点。
   - 红测直接约束当前缺陷，不依赖手工超时观察。
@@ -37,7 +37,7 @@
   - `test_command` 全绿且 PROGRESS 记录证据/回滚点/提交哈希。
 
 ### R2. 最小修复 browserless roundtrip，并回归 M103 全文件
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `test_web_im_message_roundtrip_browserless` 在合理时间内稳定完成。
   - `tests/im_service/integration/test_m103_im_gateway_e2e.py` 全文件通过。
@@ -58,7 +58,20 @@
   - C1/C2/C3 齐全，PROGRESS 完整记录可回滚点与下一步。
 
 ## 当前结果
-- 待执行。
+- 根因已证实：`tests/im_service/integration/test_m103_im_gateway_e2e.py` 内 `_FakeKernelClient.send_message_async()` 返回的 run snapshot 缺少 `status="completed"`，而 `InboundPipeline._await_terminal_run()` 在存在 `stream_session_events()` 时必须看到 terminal status 才会退出，因此 browserless roundtrip 会无限轮询。
+- 同文件另外两条群聊 NO_REPLY 用例还错误地等待 IM 主动下推 `delivery_status` 帧；真实契约是 gateway 先主动回发 `node.delivery_receipt`，再由 IM 持久化 `relay.accepted/relay.completed` 事件。该前提漂移同样会制造长等。另有一条用例把 2 人会话误当前置 group，实际仓库判定为 direct，也会导致 `NO_REPLY` 断言失真。
+- 最小修复已完成：
+  - 为 browserless fake kernel client 补齐 terminal `status`；
+  - 为 M103 集成测试新增 `_send_delivery_receipt()` 辅助，显式模拟 gateway receipt 回流；
+  - 把 late-stream conflict 用例改成真实 3 人 group 前提，并改从 IM `conversation_events` 验证 receipt 落库，而不是等待不存在的下行帧。
+- 自动化证据：
+  - 红测：`pytest -q tests/im_service/integration/test_m103_im_gateway_e2e.py -k test_fake_kernel_client_send_message_async_seeds_terminal_run_snapshot` 先失败，`KeyError: 'status'`。
+  - 目标 browserless：`pytest -q tests/im_service/integration/test_m103_im_gateway_e2e.py -k test_web_im_message_roundtrip_browserless` → `1 passed, 9 deselected in 0.61s`。
+  - 高风险群聊回归：
+    - `pytest -q tests/im_service/integration/test_m103_im_gateway_e2e.py -k test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversation` → `1 passed, 9 deselected in 0.71s`
+    - `pytest -q tests/im_service/integration/test_m103_im_gateway_e2e.py -k test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta_conflict` → `1 passed, 9 deselected in 0.64s`
+  - 全文件：`pytest -q tests/im_service/integration/test_m103_im_gateway_e2e.py` → `10 passed in 0.97s`
+  - Milestone gate：`pytest -q tests/im_service/integration/test_m103_im_gateway_e2e.py tests/im_service/unit/test_relay_service.py` → `17 passed in 0.83s`
 
 ## 回滚点
-- 当前最近稳定点：`eeb7b80`（M207 worktree 创建基线）。
+- 当前最近稳定点：`2eb9406`（C2，全绿实现点）；若只回退红测前，使用 `548be87`；初始化计划点为 `9c7d0b8`。
