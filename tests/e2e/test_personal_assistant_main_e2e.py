@@ -293,6 +293,67 @@ def test_main_stop_command_reports_stale_runtime_state_after_process_is_gone(tmp
     assert (config_path.parent / ".gateway-state.json").exists() is False
 
 
+def test_main_stop_command_reports_still_healthy_when_another_listener_remains(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = tmp_path / "node-config.yaml"
+    port = _pick_free_port()
+    _write_smoke_config(config_path, port=port)
+
+    started = subprocess.run(
+        _main_command(config_path),
+        env=_pythonpath_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert started.returncode == 0, started.stderr
+    pid = _parse_started_pid(started.stdout)
+    health_url = f"http://127.0.0.1:{port}/v1/health"
+    _wait_for_health(health_url)
+
+    blocker = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json; import signal; import threading; from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer; "
+                f"server = ThreadingHTTPServer(('127.0.0.1', {port}), type('Handler', (BaseHTTPRequestHandler,), {{"
+                "'do_GET': lambda self: (self.send_response(200), self.send_header('Content-Type', 'application/json'), self.end_headers(), self.wfile.write(json.dumps({'healthy': True}).encode('utf-8'))), "
+                "'log_message': lambda *args: None"
+                "})); "
+                "done = threading.Event(); "
+                "signal.signal(signal.SIGTERM, lambda *_args: (done.set(), server.shutdown())); "
+                "threading.Thread(target=server.serve_forever, daemon=True).start(); "
+                "done.wait()"
+            ),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        _terminate_background_pid(pid)
+        _wait_for_health(health_url)
+
+        stopped = subprocess.run(
+            _main_command(config_path, "stop"),
+            env=_pythonpath_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+
+        assert stopped.returncode == 0, stopped.stderr
+        assert "health_url=" in stopped.stdout
+        assert "still_healthy=true" in stopped.stdout
+        assert (config_path.parent / ".gateway-state.json").exists() is False
+    finally:
+        blocker.terminate()
+        blocker.wait(timeout=10)
+
+
 def test_main_stop_command_reports_not_running_without_state_file(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     home_dir = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home_dir))

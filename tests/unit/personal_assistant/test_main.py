@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import threading
 from datetime import UTC, datetime
@@ -8,6 +9,8 @@ from pathlib import Path
 
 import httpx
 import pytest
+
+import personal_assistant.main as main_module
 
 from personal_assistant.config.local_store import (
     DEFAULT_LOCAL_KERNEL_TOKEN,
@@ -600,8 +603,14 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     )
 
     class _Pipeline:
+        def __init__(self) -> None:
+            self.dropped: list[str] = []
+
         def register_agent(self, agent: AgentWorkspaceConfig) -> None:
             seen.append((agent.agent_id, str(agent.workspace_root)))
+
+        def drop_agent_sessions(self, agent_id: str) -> None:
+            self.dropped.append(agent_id)
 
     def _handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
@@ -609,10 +618,11 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
         return next(responses)
 
     client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
+    pipeline = _Pipeline()
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=_Pipeline(),
+        pipeline=pipeline,
         client=client,
         monotonic=lambda: 0.0,
         sleep=lambda seconds: sleeps.append(seconds),
@@ -621,6 +631,7 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     sync.sync_agent(agent_id="agent-live", profile_version=2)
 
     assert seen == [("agent-live", str(workspace_root))]
+    assert pipeline.dropped == ["agent-live"]
     assert sleeps == [0.1, 0.1]
     assert workspace_root.is_dir()
     assert (workspace_root / "MEMORY.md").is_file() is True
@@ -640,8 +651,14 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(tmp_p
     seen: list[tuple[str, str | None]] = []
 
     class _Pipeline:
+        def __init__(self) -> None:
+            self.dropped: list[str] = []
+
         def register_agent(self, agent: AgentWorkspaceConfig) -> None:
             seen.append((agent.agent_id, str(agent.workspace_root)))
+
+        def drop_agent_sessions(self, agent_id: str) -> None:
+            self.dropped.append(agent_id)
 
     def _handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
@@ -652,10 +669,11 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(tmp_p
         )
 
     client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
+    pipeline = _Pipeline()
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=_Pipeline(),
+        pipeline=pipeline,
         workspace_root_factory=lambda _agent_id: workspace_root,
         client=client,
         monotonic=lambda: 0.0,
@@ -665,6 +683,7 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(tmp_p
     sync.sync_agent(agent_id="agent-live", profile_version=2)
 
     assert seen == [("agent-live", str(workspace_root))]
+    assert pipeline.dropped == ["agent-live"]
     assert memory_path.read_text(encoding="utf-8") == "existing memory\n"
     assert heartbeat_path.read_text(encoding="utf-8") == "interval: 1h\n\n- Existing heartbeat\n"
 
@@ -989,3 +1008,85 @@ def test_main_stop_command_reports_stale_runtime_state(
 
     assert exit_code == 0
     assert capsys.readouterr().out == "STALE pid=999 state=.gateway-state.json\n"
+
+
+def test_stop_gateway_reports_still_healthy_when_pid_is_stale_but_health_url_is_alive(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = _build_config(tmp_path)
+    state_path = tmp_path / ".gateway-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 2468,
+                "config_path": str(config.source_path),
+                "health_url": "http://127.0.0.1:8100/v1/health",
+                "log_path": str(tmp_path / "gateway.log"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: False)
+    monkeypatch.setattr("personal_assistant.main._healthcheck_reports_healthy", lambda _url: True)
+
+    result = main_module.stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
+
+    assert result == (
+        "STALE pid=2468 state="
+        f"{state_path} health_url=http://127.0.0.1:8100/v1/health still_healthy=true"
+    )
+    assert state_path.exists() is False
+
+
+def test_stop_gateway_only_reports_stopped_after_health_url_goes_down(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-local"),
+        agents=(),
+        channels=(),
+        kernel=KernelConfig(
+            command="python -m agent.platform.http_api.app",
+            startup_timeout_seconds=0.2,
+            health_poll_interval_seconds=0.01,
+            shutdown_grace_seconds=0.1,
+        ),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=tmp_path / "node-config.yaml",
+    )
+    state_path = tmp_path / ".gateway-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 2468,
+                "config_path": str(config.source_path),
+                "health_url": "http://127.0.0.1:8100/v1/health",
+                "log_path": str(tmp_path / "gateway.log"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    pid_checks = iter([True, False])
+    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks))
+    monkeypatch.setattr("personal_assistant.main.os.kill", lambda _pid, _sig: None)
+    monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__)
+    verify_calls: list[tuple[str, float, float]] = []
+
+    def _verify(health_url: str, *, timeout_seconds: float, sleep_seconds: float) -> bool:
+        verify_calls.append((health_url, timeout_seconds, sleep_seconds))
+        return False
+
+    monkeypatch.setattr("personal_assistant.main._verify_stopped_health_url", _verify)
+
+    result = main_module.stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
+
+    assert result == (
+        "STOPPED pid=2468 state="
+        f"{state_path} health_url=http://127.0.0.1:8100/v1/health still_healthy=true"
+    )
+    assert verify_calls == [("http://127.0.0.1:8100/v1/health", 0.1, 0.01)]
+    assert state_path.exists() is False

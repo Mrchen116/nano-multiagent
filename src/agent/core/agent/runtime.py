@@ -190,7 +190,13 @@ class AgentRuntime:
             raise ValueError("empty input parts are not allowed")
         system_prompt_override = before_payload.get("system_prompt")
         use_frozen_system_prompt = False
-        if not isinstance(system_prompt_override, str) or not system_prompt_override.strip():
+        if isinstance(system_prompt_override, str):
+            system_prompt_override = system_prompt_override.strip()
+            if not system_prompt_override:
+                system_prompt_override = None
+        else:
+            system_prompt_override = None
+        if system_prompt_override is None:
             system_prompt_override = frozen_system_prompt
             use_frozen_system_prompt = frozen_system_prompt is not None
 

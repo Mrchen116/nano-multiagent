@@ -95,6 +95,7 @@ def test_runs_registry_transitions_and_persists_status_entries(tmp_path: Path) -
     completed = registry.get(submitted.run_id)
     assert completed is not None
     assert completed.turn_id == "turn_async_unit"
+    assert completed.output_text == "ok"
 
     entries = manager.list_entries(session.session_id)
     run_statuses = [
@@ -153,6 +154,7 @@ def test_runs_registry_persists_completed_run_usage(tmp_path: Path) -> None:
         if getattr(event.kind, "value", "") == "session.run.status" and event.data.get("status") == "completed"
     ]
     assert completed_entries
+    assert completed_entries[-1].data.get("output_text") == "ok"
     assert completed_entries[-1].data.get("usage") == {
         "prompt_tokens": 200,
         "completion_tokens": 20,

@@ -300,6 +300,10 @@ class InboundPipeline:
         if self._default_agent_id is None:
             self._default_agent_id = agent.agent_id
 
+    def drop_agent_sessions(self, agent_id: str) -> None:
+        """Drop existing kernel-session bindings for one agent after config sync."""
+        self._session_store.drop_agent(agent_id)
+
     def _require_known_agent(self, agent_id: str) -> str:
         if agent_id not in self._agents:
             raise LookupError(f"unknown agent_id: {agent_id}")
@@ -409,13 +413,16 @@ class InboundPipeline:
             return delta
         return f"{current}{delta}"
 
-    @staticmethod
-    def _extract_reply_text(run_state: Mapping[str, object], *, streamed_text: str = "") -> str:
+    @classmethod
+    def _extract_reply_text(cls, run_state: Mapping[str, object], *, streamed_text: str = "") -> str:
         output_text = run_state.get("output_text")
-        if isinstance(output_text, str) and output_text.strip():
-            return output_text.strip()
+        normalized_output = output_text.strip() if isinstance(output_text, str) else ""
+        if cls._is_no_reply_token(normalized_output):
+            return normalized_output
         if streamed_text.strip():
             return streamed_text.strip()
+        if normalized_output:
+            return normalized_output
         error = run_state.get("error")
         if isinstance(error, str) and error.strip():
             return error.strip()

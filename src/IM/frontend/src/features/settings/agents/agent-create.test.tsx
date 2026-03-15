@@ -39,13 +39,16 @@ function renderCreatePage() {
     }
   });
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <AgentCreatePage />
-      </MemoryRouter>
-    </QueryClientProvider>
-  );
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentCreatePage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+  };
 }
 
 afterEach(() => {
@@ -57,7 +60,7 @@ afterEach(() => {
 });
 
 describe("agent create page", () => {
-  it("creates a new agent, redirects to detail, and exposes a reusable direct-chat follow-up", async () => {
+  it("creates a new agent, keeps the success CTA reachable, and opens the reusable direct chat", async () => {
     const user = userEvent.setup();
 
     apiMocks.listNodesMock.mockResolvedValue([
@@ -102,7 +105,7 @@ describe("agent create page", () => {
     });
     apiMocks.createDirectConversationMock.mockResolvedValue({ conversation_id: "conv-agent-new" });
 
-    renderCreatePage();
+    const { queryClient } = renderCreatePage();
 
     expect(await screen.findByRole("heading", { name: "New Agent" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Back to Agents" })).toHaveAttribute("href", "/settings/agents");
@@ -148,6 +151,8 @@ describe("agent create page", () => {
 
     expect(await screen.findByText("Agent created. Open its dedicated direct chat now or keep editing in Settings.")).toBeInTheDocument();
     expect(screen.getByText("Each agent keeps one stable reusable direct chat window. Reopen this same thread anytime instead of starting a new direct chat.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Agent New" })).toHaveAttribute("href", "/settings/agents/agent-new");
+    expect(apiMocks.navigateMock).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Open direct chat" }));
 
@@ -156,9 +161,18 @@ describe("agent create page", () => {
     });
 
     await waitFor(() => {
-      expect(apiMocks.navigateMock).toHaveBeenNthCalledWith(1, "/settings/agents/agent-new");
-      expect(apiMocks.navigateMock).toHaveBeenNthCalledWith(2, "/chat/conv-agent-new");
+      expect(apiMocks.navigateMock).toHaveBeenNthCalledWith(1, "/chat/conv-agent-new");
     });
+
+    expect(screen.getByRole("link", { name: "Agent New" })).toHaveAttribute("href", "/settings/agents/agent-new");
+
+
+    expect(queryClient.getQueryData(["settings", "agents"])).toEqual([
+      expect.objectContaining({
+        agent_id: "agent-new",
+        display_name: "Agent New"
+      })
+    ]);
   });
 
   it("blocks submission and explains required fields", async () => {

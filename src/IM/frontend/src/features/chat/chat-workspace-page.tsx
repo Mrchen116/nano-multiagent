@@ -286,7 +286,7 @@ export function buildUsageView(input: {
 }
 
 export function shouldRefreshUsageForEvent(eventType: string) {
-  return ["message.sent", "relay.report", "message.delivered", "turn_end", "message_status"].includes(eventType);
+  return ["message.sent", "relay.report", "relay.completed", "message.delivered", "turn_end", "message_status"].includes(eventType);
 }
 
 function refreshUsageQueries(input: {

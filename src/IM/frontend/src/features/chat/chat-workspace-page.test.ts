@@ -256,6 +256,7 @@ describe("chat workspace usage helpers", () => {
   it("refreshes usage only for events that can change visible totals", () => {
     expect(shouldRefreshUsageForEvent("message.sent")).toBe(true);
     expect(shouldRefreshUsageForEvent("relay.report")).toBe(true);
+    expect(shouldRefreshUsageForEvent("relay.completed")).toBe(true);
     expect(shouldRefreshUsageForEvent("message.delivered")).toBe(true);
     expect(shouldRefreshUsageForEvent("turn_end")).toBe(true);
     expect(shouldRefreshUsageForEvent("message_status")).toBe(true);
@@ -1151,7 +1152,7 @@ describe("chat workspace page", () => {
     expect(getUsageMetrics).toHaveBeenCalledWith({ ownerId: "owner-1" });
   });
 
-  it("refreshes visible usage after relay reports deliver real metrics", async () => {
+  it("refreshes visible usage after relay completion delivers real metrics", async () => {
     let usageStage: "initial" | "updated" = "initial";
     getUsageMetrics.mockImplementation(async (input: { ownerId?: string; conversationId?: string }) => {
       if (input.conversationId === "conv-1") {
@@ -1182,7 +1183,7 @@ describe("chat workspace page", () => {
       | undefined;
     expect(streamInput).toBeDefined();
     streamInput?.onEvent({
-      eventType: "relay.report",
+      eventType: "relay.completed",
       payload: {
         message_id: "msg-usage-refresh",
         node_id: "node-online",

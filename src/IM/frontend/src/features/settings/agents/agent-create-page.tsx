@@ -5,7 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { createDirectConversation } from "../../chat/chat-api";
 import { AllowlistSelector } from "./allowlist-selector";
-import { createAgent, CreateAgentRequest, getAgentAllowlistOptions, listNodes } from "./im-agent-config-api";
+import { AgentSummary, createAgent, CreateAgentRequest, getAgentAllowlistOptions, listNodes } from "./im-agent-config-api";
 
 type CreateAgentFormState = CreateAgentRequest & {
   workspace_root_input: string;
@@ -172,9 +172,15 @@ export function AgentCreatePage() {
       setErrorMessage(null);
       setCreatedAgentId(created.agent_id);
       queryClient.setQueryData(["settings", "agents", created.agent_id], created);
+      queryClient.setQueryData(["settings", "agents"], (current: AgentSummary[] | undefined) => {
+        if (!current) {
+          return [created];
+        }
+        const next = current.filter((agent) => agent.agent_id !== created.agent_id);
+        return [created, ...next];
+      });
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "nodes"] });
-      await navigate(`/settings/agents/${created.agent_id}`);
     },
     onError: (error) => {
       setCreatedAgentId(null);
@@ -505,6 +511,9 @@ export function AgentCreatePage() {
           {createdAgentId ? (
             <>
               <p className="font-semibold text-emerald-700">Agent created. Open its dedicated direct chat now or keep editing in Settings.</p>
+              <Link className="w-fit font-semibold text-teal-700 hover:underline" to={`/settings/agents/${createdAgentId}`}>
+                {draft.display_name.trim() || createdAgentId}
+              </Link>
               <p className="text-slate-500">Each agent keeps one stable reusable direct chat window. Reopen this same thread anytime instead of starting a new direct chat.</p>
             </>
           ) : !errorMessage && !hasValidationErrors ? (

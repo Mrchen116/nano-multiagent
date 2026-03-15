@@ -238,6 +238,7 @@ class _IMConfigSyncClient:
                         title=str(payload.get("display_name") or agent_id),
                     )
                 )
+                self._pipeline.drop_agent_sessions(agent_id)
                 return
             except (httpx.HTTPError, RuntimeError, ValueError):
                 if attempt >= self._max_attempts or self._monotonic() >= deadline:
@@ -838,7 +839,8 @@ def stop_gateway(
         load_config: Config loader used to derive the state file and shutdown timing.
 
     Returns:
-        One operator-facing status line describing stop success, not-running, or stale state.
+        One operator-facing status line describing stop success, not-running, stale state, or
+        a remaining listener that still answers on the same health URL.
 
     Side Effects:
         Sends SIGTERM and possibly SIGKILL to the background gateway process and removes stale state.
@@ -851,21 +853,59 @@ def stop_gateway(
         return f"NOT RUNNING config={config.source_path.name} state={state_path}"
     if not _pid_is_running(state.pid):
         _remove_gateway_state(state_path)
+        if _healthcheck_reports_healthy(state.health_url):
+            return f"STALE pid={state.pid} state={state_path} health_url={state.health_url} still_healthy=true"
         return f"STALE pid={state.pid} state={state_path}"
     try:
         os.kill(state.pid, signal.SIGTERM)
     except ProcessLookupError:
         _remove_gateway_state(state_path)
+        if _healthcheck_reports_healthy(state.health_url):
+            return f"STALE pid={state.pid} state={state_path} health_url={state.health_url} still_healthy=true"
         return f"STALE pid={state.pid} state={state_path}"
     deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
     while time.monotonic() <= deadline:
         if not _pid_is_running(state.pid):
             _remove_gateway_state(state_path)
-            return f"STOPPED pid={state.pid} state={state_path}"
+            if _verify_stopped_health_url(
+                state.health_url,
+                timeout_seconds=config.kernel.shutdown_grace_seconds,
+                sleep_seconds=config.kernel.health_poll_interval_seconds,
+            ):
+                return f"STOPPED pid={state.pid} state={state_path}"
+            return (
+                f"STOPPED pid={state.pid} state={state_path} "
+                f"health_url={state.health_url} still_healthy=true"
+            )
         time.sleep(config.kernel.health_poll_interval_seconds)
     os.kill(state.pid, signal.SIGKILL)
     _remove_gateway_state(state_path)
-    return f"STOPPED pid={state.pid} state={state_path} forced=true"
+    forced = f"STOPPED pid={state.pid} state={state_path} forced=true"
+    if _verify_stopped_health_url(
+        state.health_url,
+        timeout_seconds=config.kernel.shutdown_grace_seconds,
+        sleep_seconds=config.kernel.health_poll_interval_seconds,
+    ):
+        return forced
+    return f"{forced} health_url={state.health_url} still_healthy=true"
+
+
+def _healthcheck_reports_healthy(health_url: str) -> bool:
+    try:
+        response = httpx.get(health_url, timeout=1.0, trust_env=False)
+        payload = response.json()
+    except Exception:  # noqa: BLE001
+        return False
+    return response.status_code == 200 and isinstance(payload, dict) and bool(payload.get("healthy"))
+
+
+def _verify_stopped_health_url(health_url: str, *, timeout_seconds: float, sleep_seconds: float) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() <= deadline:
+        if not _healthcheck_reports_healthy(health_url):
+            return True
+        time.sleep(sleep_seconds)
+    return not _healthcheck_reports_healthy(health_url)
 
 
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
