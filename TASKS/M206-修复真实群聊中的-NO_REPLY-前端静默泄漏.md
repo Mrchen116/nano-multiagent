@@ -38,14 +38,15 @@
   - C1/C2/C3 齐全，PROGRESS 写清根因、证据、回滚点与下一步重验建议。
 
 ## 当前结果
-- 当前根因已证实：前端仅对 `relay.completed` 做 suppressed 过滤，但后续 `message.delivered` receipt 仍被当作 synthetic agent message 渲染，导致出现可见 bubble 与 `Agent replied`。
+- 当前根因已证实并已修复：前端此前仅对 `relay.completed` 做 suppressed 过滤，但后续 `message.delivered` receipt 仍被当作 synthetic agent message 渲染，导致出现可见 bubble 与 `Agent replied`。
 - 最小修复已落地：前端把 suppressed `NO_REPLY` 过滤扩展到同链路的 `message.delivered`，其余 payload shape 与直聊语义保持不变。
 - 自动化证据：
   - 前端红测先失败：`keeps suppressed NO_REPLY delivery receipts out of visible agent messages`
   - 前端目标 suite 转绿：`./node_modules/.bin/vitest run src/features/chat/chat-workspace-page.test.ts` → `25 passed`
+  - 后端门禁转绿：`pytest tests/im_service/integration/test_m103_im_gateway_e2e.py tests/im_service/unit/test_relay_service.py` → `17 passed in 0.61s`
   - 前端 chat 门禁转绿：`npm test -- --runInBand src/features/chat/**/*.test.ts*` → `63 passed`
-  - relay unit 门禁转绿：`pytest -q tests/im_service/unit/test_relay_service.py` → `7 passed in 0.12s`
-  - 唯一剩余阻塞见 `PROGRESS` 与 `ACCEPTANCE/M206-implementation-proof.md`：`tests/im_service/integration/test_m103_im_gateway_e2e.py::test_web_im_message_roundtrip_browserless` 长时间卡住，未在本次修复范围内复现出确定失败栈。
+  - 前端 build 转绿：`npm run build`
+- 结论：M206 实现与门禁均已完成，可直接重派 M170 真实验收。
 
 ## 回滚点
 - 若需要回滚，优先撤回：

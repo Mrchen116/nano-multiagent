@@ -25,15 +25,17 @@
 - 前端目标测试：
   - `cd /Users/czj/Repos/nano-multiagent/.worktrees/M206/src/IM/frontend && ./node_modules/.bin/vitest run src/features/chat/chat-workspace-page.test.ts`
   - 结果：`25 passed`
+- 后端门禁：
+  - `pytest /Users/czj/Repos/nano-multiagent/.worktrees/M206/tests/im_service/integration/test_m103_im_gateway_e2e.py /Users/czj/Repos/nano-multiagent/.worktrees/M206/tests/im_service/unit/test_relay_service.py`
+  - 结果：`17 passed in 0.61s`
 - 前端 chat 门禁：
   - `cd /Users/czj/Repos/nano-multiagent/.worktrees/M206/src/IM/frontend && npm test -- --runInBand src/features/chat/**/*.test.ts*`
   - 结果：`63 passed`
-- 后端 unit 门禁：
-  - `pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M206/tests/im_service/unit/test_relay_service.py`
-  - 结果：`7 passed in 0.12s`
-- 完整 backend gate 现状：
-  - `tests/im_service/integration/test_m103_im_gateway_e2e.py` 在既有测试 `test_web_im_message_roundtrip_browserless` 处长时间卡住；verbose 运行已确认前 3 个测试通过，阻塞点不在本次 NO_REPLY 前端修复路径。
+- 前端 build：
+  - `cd /Users/czj/Repos/nano-multiagent/.worktrees/M206/src/IM/frontend && npm run build`
+  - 结果：`built in 719ms`
 - 前端完整门禁说明：为兼容当前 Vitest 版本，本次把 `package.json` 的 `test` 脚本调整为过滤透传的 `--runInBand`，使既有 milestone `test_command` 仍可直接运行。
+- 结论：M206 已满足“实现侧完成并可直接重派 M170 验收”的完成态。
 
 ## 不回归边界
 - 未改后端 relay schema、gateway receipt shape、mention parsing 或多 Agent 路由。

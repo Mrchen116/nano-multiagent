@@ -21,14 +21,14 @@
 - Evidence:
   - Tests:
     - 红测：`cd /Users/czj/Repos/nano-multiagent/.worktrees/M206/src/IM/frontend && ./node_modules/.bin/vitest run src/features/chat/chat-workspace-page.test.ts` 在修复前失败，显示 synthetic message `content="NO_REPLY | suppressed_by=no_reply_token"`。
-    - 绿测：同命令修复后 `25 passed`。
+    - 前端目标 suite：同命令修复后 `25 passed`。
+    - 后端门禁：`pytest /Users/czj/Repos/nano-multiagent/.worktrees/M206/tests/im_service/integration/test_m103_im_gateway_e2e.py /Users/czj/Repos/nano-multiagent/.worktrees/M206/tests/im_service/unit/test_relay_service.py` → `17 passed in 0.61s`。
     - 前端 chat 门禁：`cd /Users/czj/Repos/nano-multiagent/.worktrees/M206/src/IM/frontend && npm test -- --runInBand src/features/chat/**/*.test.ts*` → `63 passed`。
-    - 后端 unit 门禁：`pytest -q /Users/czj/Repos/nano-multiagent/.worktrees/M206/tests/im_service/unit/test_relay_service.py` → `7 passed in 0.12s`。
-    - M103 现状：`tests/im_service/integration/test_m103_im_gateway_e2e.py` 在既有测试 `test_web_im_message_roundtrip_browserless` 处长时间卡住；verbose 运行已确认前 3 个测试通过，阻塞点不在本次 NO_REPLY 前端修复路径。
+    - 前端 build：`cd /Users/czj/Repos/nano-multiagent/.worktrees/M206/src/IM/frontend && npm run build` → `built in 719ms`。
   - Entry:
-    - 前端现在会同时吞掉 suppressed `relay.completed` 与 `message.delivered` receipt，因此真实群聊 NO_REPLY turn 不再新增可见 agent bubble，也不会显示 `Agent replied` 成功态。
+    - 前端现在会同时吞掉 suppressed `relay.completed` 与 `message.delivered` receipt，因此真实群聊 NO_REPLY turn 不再新增可见 agent bubble，也不会显示 `suppressed_by=no_reply_token`、`NO_REPLY` 或 `Agent replied` 成功态。
 - Rollback:
   - 若需重做，回退到 `d92b470` 之后的最近稳定点，或只撤回 `chat-workspace-page.tsx`、`chat-routes.test.tsx`、`src/IM/frontend/package.json`。
-- Commits: C1=`d92b470`, C2=<pending>, C3=<pending>
+- Commits: C1=`d92b470`, C2=`33b4ac2`, C3=`4d5fd2e`
 - Next:
-  - 已确认唯一剩余阻塞是既有 `test_web_im_message_roundtrip_browserless` 长跑卡住；待主 agent 决定是否单开 follow-up 处理该基线门禁，再重跑完整 `test_command` 与 M170 真机重验。
+  - M206 实现与门禁已完成；可直接重派 M170 真实验收。若要并 main，需先解决主仓当前脏工作区带来的集成安全性问题。
