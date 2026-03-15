@@ -68,7 +68,7 @@ class _FakeKernelClient:
                 output_text = "NO_REPLY"
             elif system_prompt == "When mentioned in a group chat, reply exactly with NO_REPLY.":
                 output_text = "ALPHA_ACK_M170"
-        self.run_states[run_id] = {"run_id": run_id, "output_text": output_text}
+        self.run_states[run_id] = {"run_id": run_id, "status": "completed", "output_text": output_text}
         return {"run_id": run_id}
 
     def stream_session_events(self, *, session_id: str, max_events: int = 20, timeout_seconds: float = 0.25):
@@ -106,6 +106,39 @@ def test_fake_kernel_client_send_message_async_seeds_terminal_run_snapshot() -> 
 
     assert run_state["status"] == "completed"
     assert run_state["output_text"] == "gateway-reply:hello gateway"
+
+
+
+def _send_delivery_receipt(
+    websocket,
+    *,
+    relay_payload: dict[str, object],
+    delivery_status: str,
+    detail: str | None,
+) -> dict[str, object]:
+    websocket.send_json(
+        {
+            "type": "node.delivery_receipt",
+            "payload": {
+                "node_id": "node-1",
+                "relay_task_id": relay_payload["relay_task_id"],
+                "delivery_status": delivery_status,
+                "detail": detail,
+            },
+        }
+    )
+    ack = websocket.receive_json()
+    expected_status = "failed" if delivery_status == "failed" else delivery_status
+    assert ack == {
+        "type": "ack",
+        "payload": {
+            "message_type": "node.delivery_receipt",
+            "node_id": "node-1",
+            "relay_task_id": relay_payload["relay_task_id"],
+            "status": expected_status,
+        },
+    }
+    return ack
 
 
 
@@ -536,10 +569,18 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
             assert first_message.status_code == 201
             first_relay = websocket.receive_json()
             relay_adapter.accept_relay(first_relay["payload"])
-            assert websocket.receive_json()["payload"]["delivery_status"] == "sent"
-            first_completed = websocket.receive_json()
-            assert first_completed["payload"]["delivery_status"] == "completed"
-            assert first_completed["payload"]["detail"] == "gateway-reply:@agent-a first mention"
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=first_relay["payload"],
+                delivery_status="sent",
+                detail=None,
+            )
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=first_relay["payload"],
+                delivery_status="completed",
+                detail="gateway-reply:@agent-a first mention",
+            )
 
             current = client.get("/im/v1/agents/agent-a/config")
             assert current.status_code == 200
@@ -576,21 +617,47 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
             assert second_message.status_code == 201
             second_relay = websocket.receive_json()
             relay_adapter.accept_relay(second_relay["payload"])
-            assert websocket.receive_json()["payload"]["delivery_status"] == "sent"
-            second_completed = websocket.receive_json()
-            assert second_completed["payload"]["delivery_status"] == "completed"
-            assert second_completed["payload"]["detail"] == "NO_REPLY | suppressed_by=no_reply_token"
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=second_relay["payload"],
+                delivery_status="sent",
+                detail=None,
+            )
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=second_relay["payload"],
+                delivery_status="completed",
+                detail="NO_REPLY | suppressed_by=no_reply_token",
+            )
+
+        event_rows = app.state.connection.execute(
+            """
+            SELECT event_type, payload_json
+            FROM conversation_events
+            WHERE conversation_id = ?
+            ORDER BY event_id
+            """,
+            (conversation_id,),
+        ).fetchall()
+        accepted_payloads = [
+            json.loads(row["payload_json"])
+            for row in event_rows
+            if row["event_type"] == "relay.accepted"
+        ]
+        completed_payloads = [
+            json.loads(row["payload_json"])
+            for row in event_rows
+            if row["event_type"] == "relay.completed"
+        ]
 
     assert [call["metadata"] for call in kernel_client.create_session_calls] == [
         {
             "agent_id": "agent-a",
-            "conversation_id": conversation_id,
             "config_profile_version": 1,
             "system_prompt": "You are agent-a.",
         },
         {
             "agent_id": "agent-a",
-            "conversation_id": conversation_id,
             "config_profile_version": 2,
             "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
         },
@@ -610,6 +677,11 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
     }
     assert relay_adapter.sent[0].text == "gateway-reply:@agent-a first mention"
     assert relay_adapter.sent == [relay_adapter.sent[0]]
+    assert [payload["detail"] for payload in accepted_payloads] == [None, None]
+    assert [payload["detail"] for payload in completed_payloads] == [
+        "gateway-reply:@agent-a first mention",
+        "NO_REPLY | suppressed_by=no_reply_token",
+    ]
 
 
 def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta_conflict(tmp_path: Path) -> None:
@@ -634,9 +706,10 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
         owner_id = _seed_user(client, "owner")
         human_user_id = _seed_user(client, "alice")
         agent_a_user_id = _seed_user(client, "agent:agent-a")
+        agent_b_user_id = _seed_user(client, "agent:agent-b")
         owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
         assert owner is not None
-        _seed_node_and_profiles(app, owner_id=owner.owner_id, agent_ids=("agent-a",))
+        _seed_node_and_profiles(app, owner_id=owner.owner_id, agent_ids=("agent-a", "agent-b"))
 
         current = client.get("/im/v1/agents/agent-a/config")
         assert current.status_code == 200
@@ -659,10 +732,11 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
             "/im/v1/conversations",
             json={
                 "title": "same group",
-                "participant_ids": [human_user_id, agent_a_user_id],
+                "participant_ids": [human_user_id, agent_a_user_id, agent_b_user_id],
             },
         )
         assert group_conversation.status_code == 201
+        assert group_conversation.json()["type"] == "group"
         conversation_id = group_conversation.json()["id"]
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
@@ -673,7 +747,7 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
                         "node_id": "node-1",
                         "node_name": "MacBook",
                         "version": "1.0.0",
-                        "agents": ["agent-a"],
+                        "agents": ["agent-a", "agent-b"],
                         "capabilities": {"relay": True},
                     },
                 }
@@ -702,10 +776,38 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
                 {"run_id": "run-1", "status": "completed", "output_text": "NO_REPLY", "error": None},
             ]
             relay_adapter.accept_relay(second_relay["payload"])
-            assert websocket.receive_json()["payload"]["delivery_status"] == "sent"
-            second_completed = websocket.receive_json()
-            assert second_completed["payload"]["delivery_status"] == "completed"
-            assert second_completed["payload"]["detail"] == "NO_REPLY | suppressed_by=no_reply_token"
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=second_relay["payload"],
+                delivery_status="sent",
+                detail=None,
+            )
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=second_relay["payload"],
+                delivery_status="completed",
+                detail="NO_REPLY | suppressed_by=no_reply_token",
+            )
+
+        event_rows = app.state.connection.execute(
+            """
+            SELECT event_type, payload_json
+            FROM conversation_events
+            WHERE conversation_id = ?
+            ORDER BY event_id
+            """,
+            (conversation_id,),
+        ).fetchall()
+        accepted_payloads = [
+            json.loads(row["payload_json"])
+            for row in event_rows
+            if row["event_type"] == "relay.accepted"
+        ]
+        completed_payloads = [
+            json.loads(row["payload_json"])
+            for row in event_rows
+            if row["event_type"] == "relay.completed"
+        ]
 
     assert kernel_client.create_session_calls == [
         {
@@ -714,7 +816,6 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
             "title": "Agent-A",
             "metadata": {
                 "agent_id": "agent-a",
-                "conversation_id": conversation_id,
                 "config_profile_version": 2,
                 "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
             },
@@ -726,6 +827,8 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
     assert second_relay["payload"]["relay_task_id"] == relay_task_id
     assert second_relay["payload"]["message"]["id"] == message_id
     assert relay_adapter.sent == []
+    assert [payload["detail"] for payload in accepted_payloads] == [None]
+    assert [payload["detail"] for payload in completed_payloads] == ["NO_REPLY | suppressed_by=no_reply_token"]
 
 
 def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile(tmp_path: Path) -> None:
