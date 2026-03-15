@@ -341,6 +341,18 @@ describe("chat workspace relay event mapping", () => {
       })
     ).toBeNull();
   });
+
+  it("keeps suppressed NO_REPLY delivery receipts out of visible agent messages", () => {
+    expect(
+      toRelayAgentMessage({
+        eventType: "message.delivered",
+        payload: {
+          message_id: "msg-1",
+          detail: "NO_REPLY | suppressed_by=no_reply_token"
+        }
+      })
+    ).toBeNull();
+  });
 });
 
 describe("chat workspace message ordering", () => {
