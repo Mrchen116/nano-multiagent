@@ -6,6 +6,7 @@ import { useIsMobile } from "../../hooks/use-is-mobile";
 import { ConversationList } from "./components/conversation-list";
 import { MessagePane } from "./components/message-pane";
 import {
+  createFreshDirectConversation,
   createGroupConversation,
   getChatBootstrapState,
   getChatStarter,
@@ -649,6 +650,16 @@ export function ChatWorkspacePage() {
     }
   });
 
+  const createFreshDirectConversationMutation = useMutation({
+    mutationFn: (agentId: string) => createFreshDirectConversation({ agentId }),
+    onSuccess: async ({ conversation_id }) => {
+      const detail = await getConversation(conversation_id);
+      queryClient.setQueryData(["chat", "conversation", conversation_id], detail);
+      navigate(`/chat/${conversation_id}`);
+      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    }
+  });
+
   const sendMutation = useMutation({
     mutationFn: (payload: { content: string; attachments: ChatAttachment[] }) =>
       sendMessage({ conversationId: conversationId!, content: payload.content, attachments: payload.attachments }),
@@ -726,9 +737,15 @@ export function ChatWorkspacePage() {
           starter={null}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
+          isStartingFreshSession={createFreshDirectConversationMutation.isPending}
           sendAvailability={sendAvailability}
           usage={usage}
           onSend={(payload) => sendMutation.mutateAsync(payload)}
+          onStartFreshSession={
+            detail?.direct_agent_id
+              ? (agentId) => createFreshDirectConversationMutation.mutateAsync(agentId)
+              : undefined
+          }
           onUploadAttachment={uploadAttachment}
         />
       </div>
@@ -855,6 +872,7 @@ export function ChatWorkspacePage() {
             starter={starter}
             isMobile={isMobile}
             isSending={false}
+            isStartingFreshSession={false}
             sendAvailability={sendAvailability}
             usage={usage}
             onSend={async () => undefined}
@@ -878,9 +896,15 @@ export function ChatWorkspacePage() {
           starter={conversationId ? null : starter}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
+          isStartingFreshSession={createFreshDirectConversationMutation.isPending}
           sendAvailability={sendAvailability}
           usage={usage}
           onSend={(payload) => sendMutation.mutateAsync(payload)}
+          onStartFreshSession={
+            detail?.direct_agent_id
+              ? (agentId) => createFreshDirectConversationMutation.mutateAsync(agentId)
+              : undefined
+          }
           onUploadAttachment={uploadAttachment}
         />
       )}

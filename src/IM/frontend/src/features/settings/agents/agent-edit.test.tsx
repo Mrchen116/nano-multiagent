@@ -144,10 +144,13 @@ describe("agent edit page", () => {
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
     expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
+    expect(screen.getAllByText("Recommended for product users")).toHaveLength(2);
+    expect(screen.getAllByText("Saved advanced items")).toHaveLength(2);
     expect(screen.getByRole("checkbox", { name: /tdd-execution-worker/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /playwright/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /bash/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /read_file/i })).toBeChecked();
+    expect(screen.getByText("Show advanced/internal options (1 hidden)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "No Changes to Save" })).toBeDisabled();
 
     await user.clear(input);
@@ -155,7 +158,9 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("checkbox", { name: /playwright/i }));
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /bash/i }));
-    await user.click(screen.getByRole("checkbox", { name: /^task$/i }));
+    const hiddenAdvancedSummary = screen.getByText("Show advanced/internal options (1 hidden)");
+    hiddenAdvancedSummary.closest("details")?.setAttribute("open", "");
+    await user.click(screen.getByText(/^task$/i));
     await user.type(screen.getByLabelText("Workspace Path Setting"), "/custom/agent-core-1");
     await user.click(screen.getByRole("button", { name: "Save Agent" }));
 

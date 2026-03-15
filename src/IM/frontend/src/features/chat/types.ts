@@ -78,6 +78,7 @@ export interface ConversationDetail {
   target_label?: string;
   discoverability_hint?: string;
   mention_candidates?: MentionCandidate[];
+  direct_agent_id?: string;
 }
 
 export interface ChatStarter {

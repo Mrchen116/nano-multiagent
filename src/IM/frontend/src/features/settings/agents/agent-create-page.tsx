@@ -514,7 +514,7 @@ export function AgentCreatePage() {
               <Link className="w-fit font-semibold text-teal-700 hover:underline" to={`/settings/agents/${createdAgentId}`}>
                 {draft.display_name.trim() || createdAgentId}
               </Link>
-              <p className="text-slate-500">Each agent keeps one stable reusable direct chat window. Reopen this same thread anytime instead of starting a new direct chat.</p>
+              <p className="text-slate-500">Each agent keeps one stable reusable direct chat window. From inside chat you can start a fresh session later when you need a new prompt snapshot without disturbing older threads.</p>
             </>
           ) : !errorMessage && !hasValidationErrors ? (
             <p className="text-slate-500">Create a new runtime agent profile without leaving Settings.</p>

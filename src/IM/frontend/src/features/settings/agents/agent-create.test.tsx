@@ -114,6 +114,9 @@ describe("agent create page", () => {
     });
     expect(screen.getByText("We prefill the personal_assistant product template here. Edit it before saving so it matches this agent.")).toBeInTheDocument();
     expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("Platform default (codexOAuth:gpt-5.2-codex)");
+    expect(screen.getAllByText("Recommended for product users")).toHaveLength(2);
+    expect(screen.getAllByText("Show advanced/internal options (1 hidden)")).toHaveLength(1);
+    expect(screen.getByRole("checkbox", { name: /bash/i })).not.toBeChecked();
 
     await user.type(screen.getByLabelText("Agent ID"), "agent-new");
     await user.type(screen.getByLabelText("Display Name"), "Agent New");
@@ -150,7 +153,11 @@ describe("agent create page", () => {
     });
 
     expect(await screen.findByText("Agent created. Open its dedicated direct chat now or keep editing in Settings.")).toBeInTheDocument();
-    expect(screen.getByText("Each agent keeps one stable reusable direct chat window. Reopen this same thread anytime instead of starting a new direct chat.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Each agent keeps one stable reusable direct chat window. From inside chat you can start a fresh session later when you need a new prompt snapshot without disturbing older threads."
+      )
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Agent New" })).toHaveAttribute("href", "/settings/agents/agent-new");
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
 

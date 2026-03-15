@@ -461,7 +461,7 @@ export function AgentDetailPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Start chatting now</p>
             <p className="mt-2 text-sm text-slate-700">Open this agent's dedicated direct chat as soon as creation or edits are done.</p>
             <p className="mt-2 text-xs text-slate-500">This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.</p>
-            <p className="mt-2 text-xs text-slate-500">Existing messages stay in the same conversation. New behavior applies in that same thread after you save changes.</p>
+            <p className="mt-2 text-xs text-slate-500">Existing conversations keep their earlier profile snapshot. Use the in-chat fresh session action when you want a new thread to pick up the latest saved prompt version.</p>
           </section>
 
           <dl className="grid gap-2 text-sm text-slate-600">

@@ -20,8 +20,23 @@ interface AllowlistSelectorProps {
   onChange: (next: string[]) => void;
 }
 
+const ADVANCED_OPTION_PATTERNS = [
+  /acceptance/i,
+  /orchestrator/i,
+  /worker/i,
+  /playwright/i,
+  /project-lead/i,
+  /review-pr/i,
+  /^bash$/i,
+  /^task$/i
+];
+
 function normalizeAllowlist(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function isAdvancedOption(option: AgentAllowlistOption) {
+  return ADVANCED_OPTION_PATTERNS.some((pattern) => pattern.test(option.name));
 }
 
 function mergeOptions(selected: string[], options?: AgentAllowlistOption[]) {
@@ -42,6 +57,39 @@ function mergeOptions(selected: string[], options?: AgentAllowlistOption[]) {
   return merged;
 }
 
+function OptionCard(props: {
+  option: ResolvedAllowlistOption;
+  checked: boolean;
+  showDescriptions: boolean;
+  onToggle: (name: string) => void;
+}) {
+  return (
+    <label
+      className={`grid cursor-pointer gap-2 rounded-xl border px-3 py-3 ${
+        props.checked ? "border-teal-300 bg-white shadow-sm" : "border-[var(--im-border)] bg-white/80"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <input checked={props.checked} type="checkbox" onChange={() => props.onToggle(props.option.name)} />
+        <div className="grid gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-slate-900">{props.option.name}</span>
+            {props.option.unavailable ? (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Unavailable now</span>
+            ) : null}
+            {!props.option.unavailable && isAdvancedOption(props.option) ? (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">Advanced</span>
+            ) : null}
+          </div>
+          {props.showDescriptions || props.option.unavailable ? (
+            <p className="text-xs text-slate-500">{props.option.description || "No description provided."}</p>
+          ) : null}
+        </div>
+      </div>
+    </label>
+  );
+}
+
 export function AllowlistSelector({
   id,
   label,
@@ -57,6 +105,24 @@ export function AllowlistSelector({
 }: AllowlistSelectorProps) {
   const normalizedSelected = useMemo(() => normalizeAllowlist(selected), [selected]);
   const resolvedOptions = useMemo(() => mergeOptions(normalizedSelected, options), [normalizedSelected, options]);
+  const productOptions = useMemo(
+    () => resolvedOptions.filter((option) => !isAdvancedOption(option) && !option.unavailable),
+    [resolvedOptions]
+  );
+  const savedAdvancedOptions = useMemo(
+    () =>
+      resolvedOptions.filter(
+        (option) => (isAdvancedOption(option) || option.unavailable) && normalizedSelected.includes(option.name)
+      ),
+    [normalizedSelected, resolvedOptions]
+  );
+  const hiddenAdvancedOptions = useMemo(
+    () =>
+      resolvedOptions.filter(
+        (option) => isAdvancedOption(option) && !option.unavailable && !normalizedSelected.includes(option.name)
+      ),
+    [normalizedSelected, resolvedOptions]
+  );
 
   function toggleOption(name: string) {
     if (normalizedSelected.includes(name)) {
@@ -107,31 +173,68 @@ export function AllowlistSelector({
 
       {!isLoading && !errorMessage ? (
         resolvedOptions.length > 0 ? (
-          <div className="grid gap-2 md:grid-cols-2">
-            {resolvedOptions.map((option) => {
-              const checked = normalizedSelected.includes(option.name);
-              return (
-                <label
-                  key={option.name}
-                  className={`grid cursor-pointer gap-2 rounded-xl border px-3 py-3 ${checked ? "border-teal-300 bg-white shadow-sm" : "border-[var(--im-border)] bg-white/80"}`}
-                >
-                  <div className="flex items-start gap-3">
-                    <input checked={checked} type="checkbox" onChange={() => toggleOption(option.name)} />
-                    <div className="grid gap-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-900">{option.name}</span>
-                        {option.unavailable ? (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Unavailable now</span>
-                        ) : null}
-                      </div>
-                      {showDescriptions || option.unavailable ? (
-                        <p className="text-xs text-slate-500">{option.description || "No description provided."}</p>
-                      ) : null}
-                    </div>
-                  </div>
-                </label>
-              );
-            })}
+          <div className="grid gap-4">
+            <section className="grid gap-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Recommended for product users</p>
+                <p className="mt-1 text-xs text-slate-500">Start with the common skills and tools shown here. Advanced internal options stay folded by default.</p>
+              </div>
+              {productOptions.length > 0 ? (
+                <div className="grid gap-2 md:grid-cols-2">
+                  {productOptions.map((option) => (
+                    <OptionCard
+                      key={option.name}
+                      option={option}
+                      checked={normalizedSelected.includes(option.name)}
+                      showDescriptions={showDescriptions}
+                      onToggle={toggleOption}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">No product-ready options are currently available from the running system.</p>
+              )}
+            </section>
+
+            {savedAdvancedOptions.length > 0 ? (
+              <section className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">Saved advanced items</p>
+                  <p className="mt-1 text-xs text-amber-700">These values stay visible because this agent already uses them, even though they are hidden from the default picker.</p>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {savedAdvancedOptions.map((option) => (
+                    <OptionCard
+                      key={option.name}
+                      option={option}
+                      checked={normalizedSelected.includes(option.name)}
+                      showDescriptions={showDescriptions}
+                      onToggle={toggleOption}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {hiddenAdvancedOptions.length > 0 ? (
+              <details className="rounded-xl border border-[var(--im-border)] bg-white/70 p-3">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                  Show advanced/internal options ({hiddenAdvancedOptions.length} hidden)
+                </summary>
+                <p className="mt-2 text-xs text-slate-500">Only expand this when you intentionally need developer, orchestration, or acceptance-specific capabilities.</p>
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  {hiddenAdvancedOptions.map((option) => (
+                    <OptionCard
+                      key={option.name}
+                      option={option}
+                      checked={normalizedSelected.includes(option.name)}
+                      showDescriptions={showDescriptions}
+                      onToggle={toggleOption}
+                    />
+                  ))}
+                </div>
+              </details>
+            ) : null}
           </div>
         ) : (
           <p className="text-xs text-slate-500">No selectable options are currently available from the running system.</p>

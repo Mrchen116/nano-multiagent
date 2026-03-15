@@ -29,6 +29,7 @@ export const listDiscoverableGroupParticipants = useMockApi
   ? mockApi.listDiscoverableGroupParticipants
   : imApi.listDiscoverableGroupParticipants;
 export const createDirectConversation = useMockApi ? mockApi.createDirectConversation : imApi.createDirectConversation;
+export const createFreshDirectConversation = useMockApi ? mockApi.createDirectConversation : imApi.createFreshDirectConversation;
 export const createGroupConversation = useMockApi ? mockApi.createGroupConversation : imApi.createGroupConversation;
 export const getConversation = useMockApi ? mockApi.getConversation : imApi.getConversation;
 export const sendMessage = useMockApi ? mockApi.sendMessage : imApi.sendMessage;

@@ -389,7 +389,16 @@ class InboundPipeline:
 
     @staticmethod
     def _run_status(run_state: Mapping[str, object]) -> str:
-        return str(run_state.get("status", "")).strip().lower()
+        status = str(run_state.get("status", "")).strip().lower()
+        if status:
+            return status
+        output_text = run_state.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return "completed"
+        error = run_state.get("error")
+        if error is not None:
+            return "failed"
+        return ""
 
     @staticmethod
     def _extract_run_error(run_state: Mapping[str, object], *, fallback_status: str) -> str:

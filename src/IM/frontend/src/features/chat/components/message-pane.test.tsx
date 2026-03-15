@@ -60,6 +60,7 @@ function renderMessagePane(input?: {
         detail={detail}
         isMobile={false}
         isSending={false}
+        isStartingFreshSession={false}
         sendAvailability={sendAvailability}
         usage={usage}
         onSend={onSend}

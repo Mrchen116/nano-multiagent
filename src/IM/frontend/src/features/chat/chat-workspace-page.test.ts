@@ -21,6 +21,7 @@ const getChatStarter = vi.fn();
 const listConversations = vi.fn();
 const listDiscoverableGroupParticipants = vi.fn();
 const createGroupConversation = vi.fn();
+const createFreshDirectConversation = vi.fn();
 const getConversation = vi.fn();
 const sendMessage = vi.fn();
 const uploadAttachment = vi.fn();
@@ -37,6 +38,7 @@ vi.mock("./chat-api", () => ({
   listConversations: () => listConversations(),
   listDiscoverableGroupParticipants: () => listDiscoverableGroupParticipants(),
   createGroupConversation: (input: { participantIds: string[] }) => createGroupConversation(input),
+  createFreshDirectConversation: (input: { agentId: string }) => createFreshDirectConversation(input),
   getConversation: (conversationId: string) => getConversation(conversationId),
   getUsageMetrics: (input: { ownerId?: string; conversationId?: string }) => getUsageMetrics(input),
   uploadAttachment: (file: File) => uploadAttachment(file),
@@ -610,6 +612,7 @@ describe("chat workspace page", () => {
       }
     ]);
     createGroupConversation.mockResolvedValue({ conversation_id: "conv-group-new" });
+    createFreshDirectConversation.mockResolvedValue({ conversation_id: "conv-fresh-1" });
     getConversation.mockImplementation(async (conversationId: string) => {
       if (conversationId === "conv-group-new") {
         return {
@@ -625,12 +628,25 @@ describe("chat workspace page", () => {
           messages: []
         };
       }
+      if (conversationId === "conv-fresh-1") {
+        return {
+          conversation_id: "conv-fresh-1",
+          title: "Teammate · Fresh session",
+          kind_label: "Direct agent chat",
+          target_label: "Teammate",
+          discoverability_hint: "Reuse this stable direct chat for the same agent, or start a fresh session here when you need a new prompt snapshot.",
+          direct_agent_id: "agent-ops",
+          mention_candidates: [],
+          messages: []
+        };
+      }
       return {
         conversation_id: "conv-1",
         title: "You & Teammate",
         kind_label: "Direct agent chat",
         target_label: "Teammate",
-        discoverability_hint: "This is a one-to-one conversation with an available target.",
+        discoverability_hint: "Reuse this stable direct chat for the same agent, or start a fresh session here when you need a new prompt snapshot.",
+        direct_agent_id: "agent-ops",
         mention_candidates: [],
         messages: []
       };
@@ -849,8 +865,27 @@ describe("chat workspace page", () => {
     expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New direct chat" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create group chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start fresh session" })).toBeInTheDocument();
     expect(screen.getByText("Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /You & Teammate/i })).toBeInTheDocument();
+  });
+
+  it("starts a fresh session from a direct chat without restoring the global new-direct entry", async () => {
+    const user = userEvent.setup();
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    expect(screen.getByText("Existing turns in this thread keep their earlier profile snapshot. Start a fresh session to verify newly saved prompt changes without rewriting this history.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Start fresh session" }));
+
+    expect(createFreshDirectConversation).toHaveBeenCalledWith({ agentId: "agent-ops" });
+    expect(await screen.findByRole("heading", { name: "Teammate · Fresh session" })).toBeInTheDocument();
+    expect(getConversation).toHaveBeenCalledWith("conv-fresh-1");
   });
 
   it("exposes group-chat mention candidates from agent participants only", async () => {
