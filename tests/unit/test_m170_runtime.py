@@ -137,3 +137,58 @@ def test_rebuild_runtime_seeds_canonical_agent_profiles_into_fresh_db(monkeypatc
             "workspace_root": str((runtime_root / "workspace" / "agent-m170-beta").resolve()),
         },
     ]
+
+
+def test_resolve_canonical_repo_root_collapses_worktree_checkout_to_main_repo() -> None:
+    script_path = Path("/Users/czj/Repos/nano-multiagent/.worktrees/M204/scripts/acceptance/m170_runtime.py")
+
+    resolved = m170_runtime._resolve_canonical_repo_root(script_path)
+
+    assert resolved == Path("/Users/czj/Repos/nano-multiagent")
+    assert resolved / "ACCEPTANCE" / "m170-runtime" == Path("/Users/czj/Repos/nano-multiagent/ACCEPTANCE/m170-runtime")
+
+
+def test_stop_runtime_terminates_duplicate_gateway_and_kernel_processes(monkeypatch, tmp_path: Path) -> None:
+    runtime_root = tmp_path / "m170-runtime"
+    _patch_runtime_paths(monkeypatch, runtime_root)
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    (runtime_root / "node-config.yaml").write_text("node:\n  node_id: m170-node\nagents:\n- agent_id: assistant\n", encoding="utf-8")
+    (runtime_root / ".gateway-state.json").write_text('{"pid": 200}', encoding="utf-8")
+    (runtime_root / ".im-state.json").write_text('{"pid": 300}', encoding="utf-8")
+
+    monkeypatch.setattr(m170_runtime, "stop_gateway", lambda config_path: f"STOPPED config={config_path}")
+    monkeypatch.setattr(m170_runtime, "_wait_for_url", lambda url, timeout_seconds: False)
+    monkeypatch.setattr(m170_runtime, "_list_gateway_pids_for_config", lambda config_path: {111, 200})
+    monkeypatch.setattr(m170_runtime, "_list_listener_pids", lambda port: {222, 300})
+    terminated: list[tuple[int, float]] = []
+    monkeypatch.setattr(
+        m170_runtime,
+        "_terminate_pid",
+        lambda pid, timeout_seconds: terminated.append((pid, timeout_seconds)),
+    )
+    kill_calls: list[tuple[int, int]] = []
+
+    def _fake_kill(pid: int, sig: int) -> None:
+        kill_calls.append((pid, sig))
+        if sig == 0:
+            raise ProcessLookupError(pid)
+
+    monkeypatch.setattr(m170_runtime.os, "kill", _fake_kill)
+
+    result = m170_runtime.stop_runtime(timeout_seconds=3.5)
+
+    assert result["gateway"] == f"STOPPED config={runtime_root / 'node-config.yaml'}"
+    assert result["im_url_stopped"] == "true"
+    assert terminated == [(111, 3.5), (222, 3.5)]
+    assert kill_calls == [(200, 0), (300, m170_runtime.signal.SIGTERM)]
+    assert (runtime_root / ".im-state.json").exists() is False
+
+
+
+def test_resolve_canonical_repo_root_keeps_main_checkout_path() -> None:
+    script_path = Path("/Users/czj/Repos/nano-multiagent/scripts/acceptance/m170_runtime.py")
+
+    resolved = m170_runtime._resolve_canonical_repo_root(script_path)
+
+    assert resolved == Path("/Users/czj/Repos/nano-multiagent")
+    assert resolved / "ACCEPTANCE" / "m170-runtime" == Path("/Users/czj/Repos/nano-multiagent/ACCEPTANCE/m170-runtime")

@@ -17,8 +17,27 @@ from typing import Any
 import httpx
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SRC_ROOT = REPO_ROOT / "src"
+def _resolve_canonical_repo_root(script_path: Path) -> Path:
+    """Resolve the main repository root even when this script runs from a worktree.
+
+    Args:
+        script_path: Absolute path to this runtime management script.
+
+    Returns:
+        Main checkout root that owns the shared canonical acceptance runtime.
+    """
+
+    resolved = script_path.expanduser().resolve()
+    parts = resolved.parts
+    if ".worktrees" in parts:
+        worktrees_index = parts.index(".worktrees")
+        return Path(*parts[:worktrees_index])
+    return resolved.parents[2]
+
+
+CHECKOUT_ROOT = Path(__file__).resolve().parents[2]
+CANONICAL_REPO_ROOT = _resolve_canonical_repo_root(Path(__file__).resolve())
+SRC_ROOT = CHECKOUT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
@@ -26,7 +45,8 @@ from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories import AgentProfileRepository
 from personal_assistant.main import stop_gateway
 
-RUNTIME_ROOT = REPO_ROOT / "ACCEPTANCE" / "m170-runtime"
+REPO_ROOT = CHECKOUT_ROOT
+RUNTIME_ROOT = CANONICAL_REPO_ROOT / "ACCEPTANCE" / "m170-runtime"
 RUNTIME_DB = RUNTIME_ROOT / "im_service.sqlite3"
 RUNTIME_CONFIG = RUNTIME_ROOT / "node-config.yaml"
 RUNTIME_IM_LOG = RUNTIME_ROOT / "im.log"
@@ -189,6 +209,75 @@ def _initialize_runtime_db() -> None:
         connection.close()
 
 
+def _list_gateway_pids_for_config(config_path: Path) -> set[int]:
+    try:
+        completed = subprocess.run(
+            ["ps", "-ax", "-o", "pid=,command="],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+    except Exception:
+        return set()
+    needle = f"--config {config_path}"
+    pids: set[int] = set()
+    for raw_line in completed.stdout.splitlines():
+        line = raw_line.strip()
+        if not line or needle not in line or "personal_assistant.main" not in line:
+            continue
+        pid_text, _, _command = line.partition(" ")
+        try:
+            pids.add(int(pid_text))
+        except ValueError:
+            continue
+    return pids
+
+
+
+def _list_listener_pids(port: int) -> set[int]:
+    try:
+        completed = subprocess.run(
+            ["lsof", "-ti", f"tcp:{port}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except Exception:
+        return set()
+    pids: set[int] = set()
+    for raw_line in completed.stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            pids.add(int(line))
+        except ValueError:
+            continue
+    return pids
+
+
+
+def _terminate_pid(pid: int, *, timeout_seconds: float) -> None:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() <= deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.25)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+
+
+
 def stop_runtime(*, timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS) -> dict[str, str]:
     result: dict[str, str] = {}
     if RUNTIME_CONFIG.exists():
@@ -213,6 +302,7 @@ def stop_runtime(*, timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS) -> di
             except ProcessLookupError:
                 break
             time.sleep(0.25)
+    im_pid = None
     im_pid_path = RUNTIME_ROOT / ".im-state.json"
     if im_pid_path.is_file():
         try:
@@ -225,6 +315,14 @@ def stop_runtime(*, timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS) -> di
             pass
         finally:
             im_pid_path.unlink(missing_ok=True)
+    stale_pids = _list_gateway_pids_for_config(RUNTIME_CONFIG) | _list_listener_pids(KERNEL_PORT)
+    stale_pids.discard(os.getpid())
+    if state_pid is not None:
+        stale_pids.discard(state_pid)
+    if im_pid is not None:
+        stale_pids.discard(im_pid)
+    for pid in sorted(stale_pids):
+        _terminate_pid(pid, timeout_seconds=timeout_seconds)
     result["im_url_stopped"] = "true" if not _wait_for_url(IM_HEALTH_URL, timeout_seconds=1.0) else "false"
     return result
 

@@ -33,7 +33,7 @@
   - `test_command` 全绿。
   - 完成 C1/C2/C3。
   - PROGRESS 记录根因、方案、证据、回滚点、提交哈希。
-- 状态：TODO
+- 状态：DONE
 
 ### R2 用 canonical restart 命令做 fresh 自证
 - Acceptance:
@@ -55,4 +55,4 @@
   - `test_command` 全绿。
   - 完成 C1/C2/C3。
   - PROGRESS 写清 DB/nodes/browser picker 证据与截图/查询路径。
-- 状态：TODO
+- 状态：DONE
