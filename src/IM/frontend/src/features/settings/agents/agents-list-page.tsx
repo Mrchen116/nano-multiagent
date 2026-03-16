@@ -24,6 +24,97 @@ function workspaceSourceLabel(isDefault: boolean | undefined) {
   return isDefault ? "Managed default" : "Custom path";
 }
 
+function AgentSummaryCard(props: {
+  agent: {
+    agent_id: string;
+    display_name: string;
+    description?: string | null;
+    profile_version: number;
+    default_model?: string | null;
+    workspace_root: string;
+    workspace_is_default?: boolean;
+    bound_nodes?: string[];
+    updated_at?: string | null;
+  };
+  compact?: boolean;
+}) {
+  const { agent, compact = false } = props;
+
+  return (
+    <article className={`rounded-[1.35rem] border border-[var(--im-border)] bg-white/85 shadow-sm ${compact ? "p-4" : "p-5"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link className="font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}`}>
+              {agent.display_name}
+            </Link>
+            <span className="rounded-full bg-[#dceef0] px-2 py-0.5 text-xs font-semibold text-slate-700">v{agent.profile_version}</span>
+          </div>
+          <p className="text-xs text-slate-500">{agent.agent_id}</p>
+        </div>
+        <span className="im-badge">Stable direct chat</span>
+      </div>
+
+      <p className={`mt-3 text-slate-600 ${compact ? "text-sm" : "text-sm leading-6"}`}>{agent.description || "No description yet."}</p>
+
+      {compact ? (
+        <>
+          <dl className="mt-3 grid gap-2 text-xs text-slate-500">
+            <div className="flex items-center justify-between gap-3">
+              <dt>Default model</dt>
+              <dd className="text-right text-slate-700">{agent.default_model || "Auto"}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>Workspace mode</dt>
+              <dd className="text-right text-slate-700">{workspaceSourceLabel(agent.workspace_is_default)}</dd>
+            </div>
+            <div className="grid gap-1">
+              <dt>Workspace path</dt>
+              <dd className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>Bound nodes</dt>
+              <dd className="text-right text-slate-700">{formatBoundNodes(agent.bound_nodes)}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt>Updated</dt>
+              <dd className="text-right text-slate-700">{formatUpdatedAt(agent.updated_at)}</dd>
+            </div>
+          </dl>
+          <div className="mt-3">
+            <Link className="text-sm font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}#workspace-settings`}>
+              Workspace settings
+            </Link>
+          </div>
+        </>
+      ) : (
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-start">
+          <section className="im-subtle-card grid gap-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Workspace</p>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-slate-900">{workspaceSourceLabel(agent.workspace_is_default)}</p>
+              <p className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</p>
+            </div>
+          </section>
+          <section className="im-subtle-card grid gap-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Routing</p>
+            <div className="space-y-1 text-sm text-slate-700">
+              <p>Default model: {agent.default_model || "Auto"}</p>
+              <p>Bound nodes: {formatBoundNodes(agent.bound_nodes)}</p>
+              <p className="text-xs text-slate-500">Updated {formatUpdatedAt(agent.updated_at)}</p>
+            </div>
+          </section>
+          <div className="flex lg:justify-end">
+            <Link className="text-sm font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}#workspace-settings`}>
+              Workspace settings
+            </Link>
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
 export function AgentsListPage() {
   const isMobile = useIsMobile();
   const query = useQuery({
@@ -38,11 +129,11 @@ export function AgentsListPage() {
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
+        <div className="max-w-2xl space-y-1">
           <h2 className="im-title text-xl font-bold">Agents</h2>
-          <p className="text-sm text-slate-500">Review prompts, models, node bindings, and each agent workspace path before opening any detail page.</p>
+          <p className="text-sm text-slate-500">Review prompts, models, node coverage, and workspace mode before opening an agent.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs text-slate-500">{query.isLoading ? "Loading…" : `${agents.length} agent${agents.length === 1 ? "" : "s"}`}</span>
           {query.isFetching && !query.isLoading ? (
             <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">Refreshing…</span>
@@ -87,95 +178,23 @@ export function AgentsListPage() {
       ) : isMobile ? (
         <div className="grid gap-3">
           {agents.map((agent) => (
-            <article key={agent.agent_id} className="rounded-2xl border border-[var(--im-border)] bg-white/80 p-4 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <Link className="font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}`}>
-                    {agent.display_name}
-                  </Link>
-                  <p className="text-xs text-slate-500">{agent.agent_id}</p>
-                </div>
-                <span className="rounded-full bg-[#dceef0] px-2 py-0.5 text-xs font-semibold text-slate-700">v{agent.profile_version}</span>
-              </div>
-              <p className="mt-3 text-sm text-slate-600">{agent.description || "No description yet."}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span className="rounded-full bg-[#eef8f8] px-2 py-1 text-teal-700">Stable direct chat</span>
-                <span>Open the agent to continue in its reusable direct thread.</span>
-              </div>
-              <dl className="mt-3 grid gap-2 text-xs text-slate-500">
-                <div className="flex items-center justify-between gap-3">
-                  <dt>Default model</dt>
-                  <dd className="text-right text-slate-700">{agent.default_model || "Auto"}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt>Workspace mode</dt>
-                  <dd className="text-right text-slate-700">{workspaceSourceLabel(agent.workspace_is_default)}</dd>
-                </div>
-                <div className="grid gap-1">
-                  <dt>Workspace path</dt>
-                  <dd className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt>Bound nodes</dt>
-                  <dd className="text-right text-slate-700">{formatBoundNodes(agent.bound_nodes)}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt>Updated</dt>
-                  <dd className="text-right text-slate-700">{formatUpdatedAt(agent.updated_at)}</dd>
-                </div>
-              </dl>
-              <div className="mt-3">
-                <Link className="text-sm font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}#workspace-settings`}>
-                  Workspace settings
-                </Link>
-              </div>
-            </article>
+            <AgentSummaryCard key={agent.agent_id} agent={agent} compact />
           ))}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-[var(--im-border)] bg-white/80">
-          <table className="w-full min-w-[980px] text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3">Agent</th>
-                <th className="px-4 py-3">Version</th>
-                <th className="px-4 py-3">Default Model</th>
-                <th className="px-4 py-3">Workspace</th>
-                <th className="px-4 py-3">Bound Nodes</th>
-                <th className="px-4 py-3">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agents.map((agent) => (
-                <tr key={agent.agent_id} className="border-t border-[var(--im-border)] align-top">
-                  <td className="px-4 py-3">
-                    <div className="space-y-1">
-                      <Link className="font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}`}>
-                        {agent.display_name}
-                      </Link>
-                      <p className="text-xs text-slate-500">{agent.agent_id}</p>
-                      <p className="text-xs text-slate-600">{agent.description || "No description yet."}</p>
-                      <p className="text-xs text-teal-700">Open detail to continue in the same reusable direct chat.</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">v{agent.profile_version}</td>
-                  <td className="px-4 py-3">{agent.default_model || "Auto"}</td>
-                  <td className="px-4 py-3">
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold text-slate-600">{workspaceSourceLabel(agent.workspace_is_default)}</p>
-                      <p className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</p>
-                      <Link className="text-xs font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}#workspace-settings`}>
-                        Workspace settings
-                      </Link>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">{formatBoundNodes(agent.bound_nodes)}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500">{formatUpdatedAt(agent.updated_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <section className="grid gap-4 rounded-[1.35rem] border border-[var(--im-border)] bg-white/75 p-5">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Active agents</p>
+              <p className="text-sm text-slate-600">{agents.length} profiles</p>
+            </div>
+          </div>
+          <div className="grid gap-4">
+            {agents.map((agent) => (
+              <AgentSummaryCard key={agent.agent_id} agent={agent} />
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

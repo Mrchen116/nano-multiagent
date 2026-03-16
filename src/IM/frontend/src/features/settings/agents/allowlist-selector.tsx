@@ -65,13 +65,13 @@ function OptionCard(props: {
 }) {
   return (
     <label
-      className={`grid cursor-pointer gap-2 rounded-xl border px-3 py-3 ${
-        props.checked ? "border-teal-300 bg-white shadow-sm" : "border-[var(--im-border)] bg-white/80"
+      className={`grid cursor-pointer gap-2 rounded-2xl border px-3 py-3 transition-colors ${
+        props.checked ? "border-teal-300 bg-teal-50/60 shadow-sm" : "border-[var(--im-border)] bg-white/90 hover:border-slate-300"
       }`}
     >
       <div className="flex items-start gap-3">
         <input checked={props.checked} type="checkbox" onChange={() => props.onToggle(props.option.name)} />
-        <div className="grid gap-1">
+        <div className="grid gap-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-slate-900">{props.option.name}</span>
             {props.option.unavailable ? (
@@ -82,7 +82,7 @@ function OptionCard(props: {
             ) : null}
           </div>
           {props.showDescriptions || props.option.unavailable ? (
-            <p className="text-xs text-slate-500">{props.option.description || "No description provided."}</p>
+            <p className="text-xs leading-5 text-slate-500">{props.option.description || "No description provided."}</p>
           ) : null}
         </div>
       </div>
@@ -133,23 +133,22 @@ export function AllowlistSelector({
   }
 
   return (
-    <fieldset className="grid gap-3 rounded-2xl border border-[var(--im-border)] bg-slate-50/70 p-4">
+    <fieldset className="grid gap-4 rounded-[1.25rem] border border-[var(--im-border)] bg-white/80 p-4">
       <legend className="px-1 text-sm font-semibold text-slate-900">{label}</legend>
-      <p id={`${id}-help`} className="text-xs text-slate-500">
-        {helpText}
-      </p>
+
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p id={`${id}-help`} className="max-w-2xl text-xs leading-5 text-slate-500">
+          {helpText}
+        </p>
+        <span className="im-badge">Selected {normalizedSelected.length}</span>
+      </div>
 
       <div aria-live="polite" className="flex flex-wrap gap-2">
         {normalizedSelected.length > 0 ? (
           normalizedSelected.map((name) => (
-            <button
-              key={name}
-              className="inline-flex items-center gap-2 rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700"
-              type="button"
-              onClick={() => toggleOption(name)}
-            >
+            <button key={name} className="im-chip" type="button" onClick={() => toggleOption(name)}>
               <span>{name}</span>
-              <span className="text-[11px] font-medium text-teal-600">Remove</span>
+              <span aria-hidden="true">×</span>
             </button>
           ))
         ) : (
@@ -175,12 +174,12 @@ export function AllowlistSelector({
         resolvedOptions.length > 0 ? (
           <div className="grid gap-4">
             <section className="grid gap-2">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Recommended for product users</p>
-                <p className="mt-1 text-xs text-slate-500">Start with the common skills and tools shown here. Advanced internal options stay folded by default.</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-900">Common choices</p>
+                <p className="text-xs text-slate-500">Start with the smallest safe set.</p>
               </div>
               {productOptions.length > 0 ? (
-                <div className="grid gap-2 md:grid-cols-2">
+                <div className="grid gap-2 xl:grid-cols-2">
                   {productOptions.map((option) => (
                     <OptionCard
                       key={option.name}
@@ -198,11 +197,11 @@ export function AllowlistSelector({
 
             {savedAdvancedOptions.length > 0 ? (
               <section className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">Saved advanced items</p>
-                  <p className="mt-1 text-xs text-amber-700">These values stay visible because this agent already uses them, even though they are hidden from the default picker.</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-amber-900">Saved advanced selections</p>
+                  <p className="text-xs text-amber-700">Visible because this agent already uses them.</p>
                 </div>
-                <div className="grid gap-2 md:grid-cols-2">
+                <div className="grid gap-2 xl:grid-cols-2">
                   {savedAdvancedOptions.map((option) => (
                     <OptionCard
                       key={option.name}
@@ -217,12 +216,12 @@ export function AllowlistSelector({
             ) : null}
 
             {hiddenAdvancedOptions.length > 0 ? (
-              <details className="rounded-xl border border-[var(--im-border)] bg-white/70 p-3">
+              <details className="rounded-xl border border-[var(--im-border)] bg-slate-50/80 p-3">
                 <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-                  Show advanced/internal options ({hiddenAdvancedOptions.length} hidden)
+                  Show advanced options ({hiddenAdvancedOptions.length} hidden)
                 </summary>
-                <p className="mt-2 text-xs text-slate-500">Only expand this when you intentionally need developer, orchestration, or acceptance-specific capabilities.</p>
-                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <p className="mt-2 text-xs text-slate-500">Only expand this when you intentionally need developer or orchestration capabilities.</p>
+                <div className="mt-3 grid gap-2 xl:grid-cols-2">
                   {hiddenAdvancedOptions.map((option) => (
                     <OptionCard
                       key={option.name}

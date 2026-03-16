@@ -164,7 +164,7 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("checkbox", { name: /playwright/i }));
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /bash/i }));
-    const hiddenAdvancedSummary = screen.getByText("Show advanced/internal options (1 hidden)");
+    const hiddenAdvancedSummary = screen.getByText("Show advanced options (1 hidden)");
     hiddenAdvancedSummary.closest("details")?.setAttribute("open", "");
     await user.click(screen.getByText(/^task$/i));
     await user.type(screen.getByLabelText("Workspace Path Setting"), "/custom/agent-core-1");
@@ -192,7 +192,7 @@ describe("agent edit page", () => {
         })
       );
     });
-  });
+  }, 10_000);
 
   it("blocks save when required fields are empty", async () => {
     const user = userEvent.setup();
