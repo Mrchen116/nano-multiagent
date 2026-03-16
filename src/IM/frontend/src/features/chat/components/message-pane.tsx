@@ -15,6 +15,8 @@ import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
 
 const SEND_AVAILABILITY_MESSAGES = getSendAvailabilityMessages();
 const RELAY_UNAVAILABLE_MESSAGE = SEND_AVAILABILITY_MESSAGES.unavailableHelperText;
+const ENGINEERING_GROUP_OWNERSHIP_PATTERNS = [/^Using your main agent .+ready to chat\)$/i];
+const PRODUCT_GROUP_OWNERSHIP_LABEL = "Shared conversation for people and agents.";
 
 function toErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -350,6 +352,50 @@ function formatMention(agentId: string) {
   return `${STABLE_MENTION_PREFIX}${agentId}`;
 }
 
+function formatMentionDisplay(label: string) {
+  return `@${label}`;
+}
+
+function encodeMentionDraft(draft: string, candidates: MentionCandidate[]) {
+  return candidates.reduce((nextDraft, candidate) => {
+    const encodedLabel = formatMentionDisplay(candidate.label);
+    const stableMention = formatMention(candidate.agentId);
+    return nextDraft.replaceAll(encodedLabel, stableMention);
+  }, draft);
+}
+
+function getMentionDisplayTokenRange(
+  draft: string,
+  selectionStart: number,
+  selectionEnd: number,
+  candidates: MentionCandidate[]
+): { start: number; end: number } | null {
+  if (selectionStart !== selectionEnd || selectionStart === 0) {
+    return null;
+  }
+  for (const candidate of candidates) {
+    const displayMention = formatMentionDisplay(candidate.label);
+    const mentionPattern = new RegExp(`(^|\\s)(${displayMention.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")})(?=\\s|$)`, "g");
+    let match: RegExpExecArray | null = mentionPattern.exec(draft);
+    while (match) {
+      const whitespacePrefix = match[1] ?? "";
+      const mentionText = match[2] ?? "";
+      const start = match.index + whitespacePrefix.length;
+      const end = start + mentionText.length;
+      const tokenEnd = end < draft.length && draft[end] === " " ? end + 1 : end;
+      if (selectionStart === tokenEnd) {
+        return { start, end: tokenEnd };
+      }
+      match = mentionPattern.exec(draft);
+    }
+  }
+  return null;
+}
+
+function formatMentionSecondaryCopy(candidate: MentionCandidate) {
+  return `${candidate.label} mention`;
+}
+
 function getMentionQuery(draft: string, selectionStart = draft.length): { start: number; query: string } | null {
   const beforeCursor = draft.slice(0, selectionStart);
   const match = /(?:^|\s)@([^\s@]*)$/.exec(beforeCursor);
@@ -363,28 +409,27 @@ function getMentionQuery(draft: string, selectionStart = draft.length): { start:
   };
 }
 
-function getMentionTokenRange(draft: string, selectionStart: number, selectionEnd: number): { start: number; end: number } | null {
-  if (selectionStart !== selectionEnd || selectionStart === 0) {
-    return null;
-  }
-  const mentionPattern = /(^|\s)(@agent:[^\s@]+)(?=\s|$)/g;
-  let match: RegExpExecArray | null = mentionPattern.exec(draft);
-  while (match) {
-    const whitespacePrefix = match[1] ?? "";
-    const mentionText = match[2] ?? "";
-    const start = match.index + whitespacePrefix.length;
-    const end = start + mentionText.length;
-    const tokenEnd = end < draft.length && draft[end] === " " ? end + 1 : end;
-    if (selectionStart === tokenEnd) {
-      return { start, end: tokenEnd };
-    }
-    match = mentionPattern.exec(draft);
-  }
-  return null;
-}
 
 function buildMentionCandidates(detail: ConversationDetail | null): MentionCandidate[] {
   return detail?.mention_candidates ?? [];
+}
+
+function sanitizeThreadTargetLabel(detail: ConversationDetail | null) {
+  if (detail?.kind_label === "Group chat" && detail.target_label === "Multiple participants") {
+    return "Shared thread";
+  }
+  return detail?.target_label;
+}
+
+function sanitizeThreadOwnershipLabel(detail: ConversationDetail | null) {
+  const trimmed = detail?.ownership_label?.trim();
+  if (detail?.kind_label !== "Group chat") {
+    return trimmed ?? null;
+  }
+  if (!trimmed || ENGINEERING_GROUP_OWNERSHIP_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return PRODUCT_GROUP_OWNERSHIP_LABEL;
+  }
+  return trimmed;
 }
 
 function PendingAttachments(props: {
@@ -595,7 +640,7 @@ export function MessagePane(props: {
     }
     const prefix = draft.slice(0, mentionQuery.start);
     const suffix = draft.slice(composerSelection.start);
-    const mention = `${formatMention(candidate.agentId)} `;
+    const mention = `${formatMentionDisplay(candidate.label)} `;
     const nextDraft = `${prefix}${mention}${suffix}`;
     const nextSelection = prefix.length + mention.length;
     setDraft(nextDraft);
@@ -641,7 +686,7 @@ export function MessagePane(props: {
       }
     }
     if (event.key === "Backspace") {
-      const mentionTokenRange = getMentionTokenRange(draft, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+      const mentionTokenRange = getMentionDisplayTokenRange(draft, event.currentTarget.selectionStart, event.currentTarget.selectionEnd, mentionCandidates);
       if (mentionTokenRange) {
         event.preventDefault();
         const nextDraft = `${draft.slice(0, mentionTokenRange.start)}${draft.slice(mentionTokenRange.end)}`;
@@ -655,7 +700,7 @@ export function MessagePane(props: {
   };
 
   const submitDraft = async () => {
-    const text = draft.trim();
+    const text = encodeMentionDraft(draft.trim(), mentionCandidates);
     if (
       !canSubmitMessage({
         draft: text,
@@ -698,7 +743,7 @@ export function MessagePane(props: {
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{props.detail.kind_label}</p>
           )}
           <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
-          {props.detail.target_label && <p className="mt-1 text-xs text-slate-600">Target: {props.detail.target_label}</p>}
+          {sanitizeThreadTargetLabel(props.detail) && <p className="mt-1 text-xs text-slate-600">Target: {sanitizeThreadTargetLabel(props.detail)}</p>}
           {props.detail.discoverability_hint && (
             <p className="mt-1 text-xs text-slate-500">{props.detail.discoverability_hint}</p>
           )}
@@ -707,8 +752,8 @@ export function MessagePane(props: {
               Existing turns in this thread keep their earlier profile snapshot. Start a fresh session to verify newly saved prompt changes without rewriting this history.
             </p>
           ) : null}
-          {props.detail.ownership_label && (
-            <p className="mt-1 text-xs text-slate-500">{props.detail.ownership_label}</p>
+          {sanitizeThreadOwnershipLabel(props.detail) && (
+            <p className="mt-1 text-xs text-slate-500">{sanitizeThreadOwnershipLabel(props.detail)}</p>
           )}
         </div>
         {props.detail.direct_agent_id && props.onStartFreshSession ? (
@@ -802,7 +847,7 @@ export function MessagePane(props: {
                       }}
                     >
                       <span className="font-medium">{candidate.label}</span>
-                      <span className={isActive ? "text-slate-200" : "text-slate-400"}>{formatMention(candidate.agentId)}</span>
+                      <span className={isActive ? "text-slate-200" : "text-slate-400"}>{formatMentionSecondaryCopy(candidate)}</span>
                     </button>
                   );
                 })}
