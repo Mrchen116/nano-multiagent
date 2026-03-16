@@ -311,6 +311,34 @@ describe("chat workspace relay event mapping", () => {
     });
   });
 
+  it("keeps relay.processing NO_REPLY tokens out of visible agent messages", () => {
+    expect(
+      toRelayAgentMessage({
+        eventType: "relay.processing",
+        payload: {
+          message_id: "msg-1",
+          node_id: "node-demo",
+          summary: "NO_REPLY",
+          created_at: "2026-03-12T00:00:00Z"
+        }
+      })
+    ).toBeNull();
+  });
+
+  it("keeps relay.report NO_REPLY tokens out of visible agent messages", () => {
+    expect(
+      toRelayAgentMessage({
+        eventType: "relay.report",
+        payload: {
+          message_id: "msg-1",
+          node_id: "node-demo",
+          summary: "NO_REPLY",
+          created_at: "2026-03-12T00:00:00Z"
+        }
+      })
+    ).toBeNull();
+  });
+
   it("converts relay completion receipts into a synthetic completed agent message", () => {
     expect(
       toRelayAgentMessage({
@@ -1169,6 +1197,97 @@ describe("chat workspace page", () => {
     expect(screen.getByText("Need a full update", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
     expect(screen.getByText("assistant:resolved after completion receipt", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
     expect(screen.getByText("node-demo")).toBeInTheDocument();
+  });
+
+  it("keeps NO_REPLY processing and report events out of the live group thread and conversation preview", async () => {
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "m170-node",
+      targetNodeStatus: "online",
+      initialConversationId: "conv-group",
+      ownership: {
+        nodeId: "m170-node",
+        nodeLabel: "m170-node",
+        nodeStatus: "online",
+        agentLabel: "assistant",
+        ownershipLabel: "Using your main agent assistant on m170-node (online and ready to chat)"
+      }
+    });
+    listConversations.mockResolvedValueOnce([
+      {
+        conversation_id: "conv-group",
+        title: "Agent M170 Alpha + Agent M170 Beta",
+        last_message_preview: "Previous visible reply",
+        last_message_at: "2026-03-16T03:12:40Z",
+        unread_count: 0,
+        participants: ["You", "Agent M170 Alpha", "Agent M170 Beta"],
+        kind_label: "Group chat",
+        target_label: "Multiple participants",
+        discoverability_hint: "Use this shared thread for multi-party coordination across people and agents.",
+        ownership_label: "Using your main agent assistant on m170-node (online and ready to chat)"
+      }
+    ]);
+    getConversation.mockResolvedValueOnce({
+      conversation_id: "conv-group",
+      title: "Agent M170 Alpha + Agent M170 Beta",
+      kind_label: "Group chat",
+      target_label: "Multiple participants",
+      discoverability_hint: "Use this shared thread for multi-party coordination across people and agents.",
+      mention_candidates: [
+        { agentId: "agent-m170-alpha", label: "Agent M170 Alpha" },
+        { agentId: "agent-m170-beta", label: "Agent M170 Beta" }
+      ],
+      messages: [
+        {
+          message_id: "msg-user-1",
+          sender_type: "user",
+          sender_name: "You",
+          is_mine: true,
+          content: "@agent-m170-alpha no-reply check: stay silent now.",
+          created_at: "2026-03-16T03:12:56Z",
+          delivery_status: "sent",
+          attachments: []
+        }
+      ]
+    });
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-group"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "Agent M170 Alpha + Agent M170 Beta" })).toBeInTheDocument();
+    expect(screen.getByText("Previous visible reply")).toBeInTheDocument();
+
+    const streamInput = streamConversationEvents.mock.calls.at(-1)?.[0] as
+      | { onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void }
+      | undefined;
+    expect(streamInput).toBeDefined();
+
+    streamInput?.onEvent({
+      eventType: "relay.processing",
+      payload: {
+        message_id: "msg-user-1",
+        node_id: "m170-node",
+        summary: "NO_REPLY",
+        created_at: "2026-03-16T03:13:03Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "relay.report",
+      payload: {
+        message_id: "msg-user-1",
+        node_id: "m170-node",
+        summary: "NO_REPLY",
+        created_at: "2026-03-16T03:13:03Z"
+      }
+    });
+
+    expect(screen.queryByText("NO_REPLY", { selector: ".whitespace-pre-wrap" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent is working")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent replied")).not.toBeInTheDocument();
+    expect(screen.getByText("Previous visible reply")).toBeInTheDocument();
   });
 
   it("shows real conversation and workspace token-turn usage for the active chat", async () => {
