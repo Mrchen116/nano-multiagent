@@ -14,7 +14,7 @@
   5. 若基线测试失败，先区分环境问题与代码问题；本 milestone 不越界改无关模块。
 
 ## R1 页面信息架构与 workspace 语义收口
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - create/detail 页的页头、主体表单、侧栏状态、底部操作区层级清晰，不再互相抢信息。
   - workspace 明确区分“当前运行中的位置”和“下次保存后采用的设置”，不再出现“当前/设置”语义混淆。
@@ -34,7 +34,7 @@
   - PROGRESS 写清页面分区、workspace 语义与回滚点。
 
 ## R2 allowlist / node / status 视觉交互收口与列表回归
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - allowlist 区域默认只呈现产品可选项，不把高噪音标签和大段解释堆在主路径。
   - node/status 区域从“信息堆叠”收口为可扫读的状态摘要，避免和主表单竞争注意力。
