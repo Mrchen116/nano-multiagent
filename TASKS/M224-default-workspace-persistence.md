@@ -32,7 +32,7 @@
 ## Roadpoints
 
 ### R1. 固化默认 workspace_root 未持久化与旧 profile 缺字段的红测
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 红测证明 IM 创建 agent 未填写 workspace 时，数据库行仍写成 `NULL`，而不是默认 managed workspace。
   - 红测覆盖 gateway runtime 广播/注册创建出的 profile，防止只有 HTTP create path 被修。
@@ -54,7 +54,7 @@
   - `PROGRESS` 记录根因、迁移策略、回滚点。
 
 ### R2. 修复旧直聊 binding/session 刷新并完成真实 direct chat bash pwd 验证
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 旧 profile `workspace_root` 缺失时，runtime/gateway 至少有迁移或读取兜底，agent `fuck` 可收敛到 `/Users/czj/nano-assistant/workspace/fuck`。
   - 旧 direct-chat binding 复用前会校验 kernel session metadata；缺少 `workspace_root` 时自动重建，不再冻结 repo-root 旧 session。
