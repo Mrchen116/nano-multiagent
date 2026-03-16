@@ -1,0 +1,36 @@
+{
+  "milestone_id": "M225",
+  "reviewed_at": "2026-03-17",
+  "app_url": "http://127.0.0.1:8013/settings/agents",
+  "screenshots": {
+    "agents_list": "/Users/czj/Repos/nano-multiagent/.worktrees/M225/ACCEPTANCE/m225-runtime/m225-agents-list.png",
+    "agent_create": "/Users/czj/Repos/nano-multiagent/.worktrees/M225/ACCEPTANCE/m225-runtime/m225-agent-create.png",
+    "agent_detail_custom": "/Users/czj/Repos/nano-multiagent/.worktrees/M225/ACCEPTANCE/m225-runtime/m225-agent-detail-custom.png"
+  },
+  "observations": {
+    "agents_list": {
+      "subtitle": "Review each agent's role, access, and runtime placement before opening settings.",
+      "sections": ["Runtime", "Access"],
+      "runtime_labels": ["Managed default", "Custom path", "Current runtime directory"]
+    },
+    "agent_create": {
+      "heading": "Create Agent",
+      "sections": ["Identity", "Behavior", "Access & model", "Runtime"],
+      "workspace_labels": [
+        "Workspace setting",
+        "Directory from current setting",
+        "Managed default directory",
+        "Current runtime directory"
+      ],
+      "absent_text": ["Before you create", "Workspace preview", "Selected 0", "Show advanced options"]
+    },
+    "agent_detail_custom": {
+      "heading": "Agent settings",
+      "review_section": "Needs review",
+      "workspace_labels": ["Current runtime directory", "Managed default directory", "Workspace setting"],
+      "saved_review_items": ["tdd-execution-worker", "plan", "bash"],
+      "badges": ["Unavailable now"],
+      "absent_text": ["Read-only runtime path", "Show advanced options"]
+    }
+  }
+}

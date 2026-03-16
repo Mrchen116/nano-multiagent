@@ -9,7 +9,7 @@
 - Out of scope: `src/agent/**, src/personal_assistant/**, 与 workspace runtime 修复无关的后端深层逻辑`
 
 ## R1 收口 create/detail/list/allowlist 的信息架构与术语
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - New Agent 首屏只保留创建决策必需信息，不再把右栏提示、workspace 预览、内部术语堆成主路径噪音。
   - create/detail/list 三页对 workspace 的表达一致，能明确区分设置值、默认托管值、真实运行目录。
@@ -35,7 +35,7 @@
   - PROGRESS 记录设计取舍、证据、回滚点、提交哈希
 
 ## R2 补真实页面产品验收证据并完成主干集成
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 有真实页面级证据证明 create/detail/list/allowlist 收口已落地。
   - 验收记录能说明本次修复相对 M224 的新增收口点，而不是重复上次工作。
