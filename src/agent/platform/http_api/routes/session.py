@@ -58,6 +58,7 @@ class SessionResponse(BaseModel):
     session_id: str
     status: str
     created_at: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class SessionListResponse(BaseModel):
@@ -441,6 +442,7 @@ def _to_session_response(session: Session) -> SessionResponse:
         session_id=session.session_id,
         status=session.status,
         created_at=session.created_at,
+        metadata=dict(session.metadata),
     )
 
 
