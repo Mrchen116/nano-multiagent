@@ -17,7 +17,7 @@
   - Tests: `python -m pytest /Users/czj/Repos/nano-multiagent/tests/unit/test_m170_rerun_acceptance.py`
   - Entry: 单测已能直接 import 脚本并验证 current-main schema 查询结果，无需触发真实浏览器主流程。
 - Rollback: `f6bcb46`.
-- Commits: C1=f6bcb46, C2=待补, C3=待补
+- Commits: C1=f6bcb46, C2=d026ec4, C3=e92a45b
 - Next: 继续修 current-main UI locator 与 fresh browser 复验路径。
 
 ### R2 稳定 current-main 群聊 UI 复验路径并补齐 fresh 证据
@@ -28,5 +28,5 @@
   - Tests: `python -m pytest /Users/czj/Repos/nano-multiagent/tests/im_service/integration/test_m103_im_gateway_e2e.py /Users/czj/Repos/nano-multiagent/tests/im_service/unit/test_relay_service.py /Users/czj/Repos/nano-multiagent/tests/unit/test_m170_rerun_acceptance.py && python /Users/czj/Repos/nano-multiagent/ACCEPTANCE/m170-runtime/m170_rerun_acceptance.py`
   - Entry: fresh browser 已产出 `/Users/czj/Repos/nano-multiagent/ACCEPTANCE/m170-runtime/m170-rerun-result.json` 与 5 张 rerun 截图；typed mention、picker mention 成功，NO_REPLY 终证来自 fresh browser，仍暴露 `Agent replied` 与 `The latest agent response finished successfully.`。
 - Rollback: `f6bcb46`.
-- Commits: C1=f6bcb46, C2=待补, C3=待补
+- Commits: C1=f6bcb46, C2=d026ec4, C3=e92a45b
 - Next: 可直接重派 current-main M170 验收；若继续修 NO_REPLY，应以前端泄漏文案为主因切新 milestone。
