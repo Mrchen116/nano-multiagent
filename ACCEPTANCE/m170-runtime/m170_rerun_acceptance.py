@@ -211,7 +211,7 @@ async def _select_group_participant(page, label: str) -> None:
 
 
 async def _pick_mention_candidate(page, *, label: str, handle: str) -> None:
-    option = page.get_by_role('option', name=f'{label} {handle}').first
+    option = page.get_by_role('option').filter(has_text=f'{label} {label} mention').first
     await option.wait_for(timeout=20000)
     await option.click()
 
