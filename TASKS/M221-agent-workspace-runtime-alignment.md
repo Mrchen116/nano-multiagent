@@ -6,7 +6,7 @@
 - Worktree: `true`
 - Worktree dir: `/Users/czj/Repos/nano-multiagent/.worktrees/M221`
 - Branch: `milestone/M221`
-- Test gate: `pytest tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py tests/e2e/test_personal_assistant_main_e2e.py -q`
+- Test gate: `pytest tests/contract/test_sessions_contract.py tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py tests/e2e/test_personal_assistant_main_e2e.py -q`
 - Allowed scope:
   - `src/IM/**`
   - `src/personal_assistant/**`
@@ -24,12 +24,12 @@
   - 必须补真实运行态验证，而不是只改设置页文案。
   - 代码仓根目录与 agent workspace 不是同一概念；需要沿创建/API/runtime/sync 链路拆开核对。
 - Baseline:
-  - `test_command` 当前已有 1 个失败：`tests/e2e/test_personal_assistant_main_e2e.py::test_main_stop_command_reports_still_healthy_when_another_listener_remains` 健康检查超时；暂判为既有环境/稳定性问题，先记录并继续本 milestone 范围内修复，最终仍需重跑门禁。
+  - 初始门禁存在 `tests/e2e/test_personal_assistant_main_e2e.py::test_main_stop_command_reports_still_healthy_when_another_listener_remains` 健康检查超时；收尾时已一并修复启动/抢占时序并确认本 milestone 门禁全绿。
 
 ## Roadpoints
 
 ### R1. 固化 workspace 设置未进入 kernel session / runtime cwd 的红测
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 红测证明 IM agent 配置中的 `workspace_root` 已经通过 API/配置返回，但 kernel session 创建时没有把它作为真实运行 workspace 使用。
   - 红测覆盖 agent 创建/更新后的配置接口与 gateway sync 链路，避免只测单点函数。
@@ -51,7 +51,7 @@
   - `PROGRESS` 写清根因证据、回滚点与边界。
 
 ### R2. 修复会话创建、runtime 上下文与 config resolver 的 workspace 真源
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - kernel session 明确持久化 `workspace_root`，并在后续 turn 中以该路径作为实际 cwd/工作目录。
   - gateway 从 IM config API 拉到的 workspace 在 sync 后会进入新会话；编辑 agent 配置后新会话也使用新 workspace。
@@ -72,7 +72,7 @@
   - `PROGRESS` 记录为何拆分 code root / workspace root（若采用）。
 
 ### R3. 用真实创建与真实运行态完成回归验证并收口文档
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 给定 `workspace=/Users/czj/nano-assistant/workspace/fuck`，agent 创建/读取/编辑后的响应与真实运行态 `pwd` 一致。
   - 至少一条真实入口测试覆盖“新建 agent -> gateway/kernel 创建会话 -> 运行时读到 pwd”。
