@@ -757,6 +757,9 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
         def register_agent(self, agent: AgentWorkspaceConfig) -> None:
             self.registered.append((agent.agent_id, str(agent.workspace_root)))
 
+        def drop_agent_sessions(self, agent_id: str) -> None:
+            self._session_store.drop_agent(agent_id)
+
     def _handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path == "/im/v1/agents/agent-live/config"

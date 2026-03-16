@@ -236,6 +236,46 @@ def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) ->
     assert json.loads(second_socket.sent[1])["payload"] == {"run_id": "run-1", "status": "running"}
 
 
+
+def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) -> None:
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    first_socket = _FakeWebSocket()
+    second_socket = _FakeWebSocket(
+        incoming=[json.dumps({"type": "ack", "payload": {"message_type": "node.report", "node_id": "node-1"}})]
+    )
+    sockets = [first_socket, second_socket]
+
+    async def _connect(url: str, headers: dict[str, str]) -> _FakeWebSocket:  # noqa: ARG001
+        return sockets.pop(0)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=_connect,
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager.send_json("node.report", {"run_id": "run-1", "status": "completed"})
+        assert manager._awaiting_ack_type == "node.report"  # noqa: SLF001
+        assert [json.loads(frame)["type"] for frame in first_socket.sent] == ["node.register", "node.report"]
+        await manager._disconnect_current_websocket(RuntimeError("socket dropped"))  # noqa: SLF001
+        await manager.connect_once()
+        assert [json.loads(frame)["type"] for frame in second_socket.sent] == ["node.register", "node.report"]
+        await manager._listen_once()  # noqa: SLF001
+        assert manager._awaiting_ack_type is None  # noqa: SLF001
+        assert list(manager._pending_frames) == []  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+
 def test_im_connection_retries_with_exponential_backoff_until_cap(tmp_path: Path) -> None:
     attempts = 0
     sleeps: list[float] = []
