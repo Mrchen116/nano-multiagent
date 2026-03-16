@@ -120,7 +120,7 @@ describe("message pane", () => {
     expect(screen.getByText("Completion 9")).toBeInTheDocument();
   });
 
-  it("shows group-chat mention candidates and inserts the stable agent id form with keyboard selection", async () => {
+  it("shows group-chat mention candidates with product labels while keeping stable payload tokens", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue(undefined);
     const mentionCandidates: MentionCandidate[] = [
@@ -149,7 +149,9 @@ describe("message pane", () => {
 
     await user.keyboard("{ArrowDown}{Enter}");
 
-    expect(composer).toHaveValue("@agent:agent-beta ");
+    expect(composer).toHaveValue("@Agent Beta ");
+    expect(composer).not.toHaveValue("@agent:agent-beta ");
+    expect(screen.queryByText(/@agent:/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("listbox", { name: "Mention candidates" })).not.toBeInTheDocument();
 
     await user.type(composer, "please investigate");
@@ -189,15 +191,16 @@ describe("message pane", () => {
     expect(screen.getByRole("option", { name: /Agent Alpha/i })).toHaveAttribute("aria-selected", "true");
 
     await user.keyboard("{Enter}");
-    expect(composer).toHaveValue("hello team @agent:agent-alpha ");
+    expect(composer).toHaveValue("hello team @Agent Alpha ");
 
     await user.type(composer, "and @b");
 
     expect(screen.getByRole("listbox", { name: "Mention candidates" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Agent Beta/i })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByText(/@agent:/i)).not.toBeInTheDocument();
 
     await user.keyboard("{Enter}");
-    expect(composer).toHaveValue("hello team @agent:agent-alpha and @agent:agent-beta ");
+    expect(composer).toHaveValue("hello team @Agent Alpha and @Agent Beta ");
 
     await user.type(composer, "please investigate");
     await user.click(screen.getByRole("button", { name: "Send" }));
@@ -230,7 +233,7 @@ describe("message pane", () => {
     const composer = screen.getByPlaceholderText("Type message") as HTMLTextAreaElement;
     await user.type(composer, "hello @a");
     await user.keyboard("{Enter}");
-    expect(composer).toHaveValue("hello @agent:agent-alpha ");
+    expect(composer).toHaveValue("hello @Agent Alpha ");
 
     composer.setSelectionRange(composer.value.length, composer.value.length);
     await user.keyboard("{Backspace}");
