@@ -108,8 +108,8 @@ describe("agents list page", () => {
     expect(screen.getByText("2 profiles")).toBeInTheDocument();
     expect(screen.getAllByText("Workspace")).toHaveLength(2);
     expect(screen.getAllByText("Routing")).toHaveLength(2);
-    expect(screen.getByText("node-app-01, node-app-02")).toBeInTheDocument();
-    expect(screen.getByText("Not bound yet")).toBeInTheDocument();
+    expect(screen.getByText("Bound nodes: node-app-01, node-app-02")).toBeInTheDocument();
+    expect(screen.getByText("Bound nodes: Not bound yet")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
