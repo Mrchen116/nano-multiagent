@@ -299,7 +299,7 @@ const MAIN_AGENT_SESSION_LABEL = "主 Agent 会话";
 const MAIN_AGENT_ENTRY_HINT = "这是你与主 Agent 的默认产品入口。";
 const DIRECT_AGENT_SESSION_LABEL = "Direct agent chat";
 const GROUP_CHAT_SESSION_LABEL = "Group chat";
-const DIRECT_AGENT_DISCOVERABILITY_HINT = "This is a one-to-one conversation with an available target.";
+const DIRECT_AGENT_DISCOVERABILITY_HINT = "Reuse this stable direct chat for the same agent, or start a fresh session here when you need a new prompt snapshot.";
 const GROUP_CHAT_DISCOVERABILITY_HINT = "This is a shared thread where you can compare usage by agent while the group conversation stays in one timeline.";
 const GROUP_CHAT_TARGET_LABEL = "Multiple participants";
 const GROUP_CHAT_LIST_HINT = "Use this shared thread for multi-party coordination across people and agents.";
@@ -809,6 +809,24 @@ async function loadUserMap() {
   return new Map(users.map((item) => [item.id, item]));
 }
 
+function resolveDirectAgentId(input: {
+  conversation: ImConversation;
+  userById: Map<string, ImUser>;
+  selfUserId: string;
+}): string | undefined {
+  if (input.conversation.type === "group") {
+    return undefined;
+  }
+  const agentParticipant = input.conversation.participant_ids
+    .filter((participantId) => participantId !== input.selfUserId)
+    .map((participantId) => input.userById.get(participantId))
+    .find((participant): participant is ImUser => Boolean(participant && isAgentUsername(participant.username)));
+  if (!agentParticipant) {
+    return undefined;
+  }
+  return agentParticipant.username.slice(AGENT_USERNAME_PREFIX.length) || undefined;
+}
+
 export async function confirmBindToken(bindToken: string) {
   const self = await ensureSelfUser();
   const response = await requestJson<{ node_id: string }>("/im/v1/bind", {
@@ -820,7 +838,10 @@ export async function confirmBindToken(bindToken: string) {
     })
   });
   resetChatBootstrapState();
-  return response;
+  return {
+    ...response,
+    self_user_id: self.id
+  };
 }
 
 export async function getChatStarter(): Promise<ChatStarter> {
@@ -917,6 +938,21 @@ export async function createDirectConversation(input: { agentId: string }): Prom
   return { conversation_id: created.id };
 }
 
+export async function createFreshDirectConversation(input: { agentId: string }): Promise<{ conversation_id: string }> {
+  const { selfUserId } = await ensureBootstrap();
+  const agents = await listAgentsRaw();
+  const agent = agents.find((item) => item.agent_id === input.agentId);
+  if (!agent) {
+    throw new Error(`agent not found: ${input.agentId}`);
+  }
+  const peer = await ensureUser(buildStarterPeerUsername(agent.agent_id), agent.display_name || agent.agent_id);
+  const created = await createConversationRaw({
+    title: `${agent.display_name || agent.agent_id} · Fresh session`,
+    participant_ids: [selfUserId, peer.id]
+  });
+  return { conversation_id: created.id };
+}
+
 export async function createGroupConversation(input: { participantIds: string[] }): Promise<{ conversation_id: string }> {
   const { selfUserId } = await ensureBootstrap();
   const participantIds = Array.from(
@@ -961,6 +997,11 @@ export async function getConversation(conversationId: string): Promise<Conversat
     discoverability_hint: semantics.discoverability_hint,
     ownership_label: semantics.ownership_label,
     mention_candidates: toMentionCandidates({
+      conversation,
+      userById,
+      selfUserId
+    }),
+    direct_agent_id: resolveDirectAgentId({
       conversation,
       userById,
       selfUserId

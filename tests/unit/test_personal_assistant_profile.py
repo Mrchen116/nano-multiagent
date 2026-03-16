@@ -32,8 +32,10 @@ def test_personal_assistant_profile_session_db_filename() -> None:
     assert PERSONAL_ASSISTANT_PROFILE.session_db_filename == "sessions.sqlite3"
 
 
-def test_personal_assistant_profile_compat_skill_roots_empty() -> None:
-    assert PERSONAL_ASSISTANT_PROFILE.compat_skill_roots == []
+def test_personal_assistant_profile_compat_skill_roots_include_current_skill_homes() -> None:
+    roots = {str(path) for path in PERSONAL_ASSISTANT_PROFILE.compat_skill_roots}
+    assert "~/.claude/skills" in roots
+    assert "~/.codex/skills" in roots
 
 
 def test_personal_assistant_profile_default_system_prompt_non_empty() -> None:

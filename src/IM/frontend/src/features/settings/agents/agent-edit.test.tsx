@@ -40,7 +40,7 @@ describe("agent edit page", () => {
       skills: ["tdd-execution-worker", "playwright"],
       tool_allowlist: ["bash", "read_file"],
       group_reply_policy: "MENTION",
-      default_model: "gpt-5.2-codex",
+      default_model: "codexOAuth:gpt-5.2-codex",
       workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
       workspace_is_default: true,
       profile_version: 12,
@@ -81,6 +81,8 @@ describe("agent edit page", () => {
               { name: "read_file", description: "Read files" },
               { name: "task", description: "Dispatch a subtask" }
             ],
+            model_options: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
+            platform_default_model: "codexOAuth:gpt-5.2-codex",
             default_system_prompt: "You are the personal_assistant default template."
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -142,10 +144,13 @@ describe("agent edit page", () => {
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
     expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
+    expect(screen.getAllByText("Recommended for product users")).toHaveLength(2);
+    expect(screen.getAllByText("Saved advanced items")).toHaveLength(2);
     expect(screen.getByRole("checkbox", { name: /tdd-execution-worker/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /playwright/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /bash/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /read_file/i })).toBeChecked();
+    expect(screen.getByText("Show advanced/internal options (1 hidden)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "No Changes to Save" })).toBeDisabled();
 
     await user.clear(input);
@@ -153,7 +158,9 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("checkbox", { name: /playwright/i }));
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /bash/i }));
-    await user.click(screen.getByRole("checkbox", { name: /dispatch a subtask/i }));
+    const hiddenAdvancedSummary = screen.getByText("Show advanced/internal options (1 hidden)");
+    hiddenAdvancedSummary.closest("details")?.setAttribute("open", "");
+    await user.click(screen.getByText(/^task$/i));
     await user.type(screen.getByLabelText("Workspace Path Setting"), "/custom/agent-core-1");
     await user.click(screen.getByRole("button", { name: "Save Agent" }));
 
@@ -173,7 +180,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "plan"],
             tool_allowlist: ["read_file", "task"],
             group_reply_policy: "MENTION",
-            default_model: "gpt-5.2-codex",
+            default_model: "codexOAuth:gpt-5.2-codex",
             workspace_root: "/custom/agent-core-1"
           })
         })
@@ -195,10 +202,18 @@ describe("agent edit page", () => {
       }
 
       if (url === "/im/v1/agents/allowlist-options") {
-        return new Response(JSON.stringify({ skills: [], tools: [] }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
+        return new Response(
+          JSON.stringify({
+            skills: [],
+            tools: [],
+            model_options: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
+            platform_default_model: "codexOAuth:gpt-5.2-codex"
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
       }
 
       if (url === "/im/v1/agents/agent-core-1/config") {
@@ -212,7 +227,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
-            default_model: "gpt-5.2-codex",
+            default_model: "codexOAuth:gpt-5.2-codex",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             profile_version: 12,
@@ -254,10 +269,18 @@ describe("agent edit page", () => {
       }
 
       if (url === "/im/v1/agents/allowlist-options") {
-        return new Response(JSON.stringify({ skills: [], tools: [] }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        });
+        return new Response(
+          JSON.stringify({
+            skills: [],
+            tools: [],
+            model_options: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
+            platform_default_model: "codexOAuth:gpt-5.2-codex"
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
       }
 
       if (url === "/im/v1/agents/agent-core-1/config" && init?.method === "PATCH") {
@@ -278,7 +301,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
-            default_model: "gpt-5.2-codex",
+            default_model: "codexOAuth:gpt-5.2-codex",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             profile_version: 12,

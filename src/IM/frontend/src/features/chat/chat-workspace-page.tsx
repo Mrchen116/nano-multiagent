@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
 import { ConversationList } from "./components/conversation-list";
 import { MessagePane } from "./components/message-pane";
 import {
+  createFreshDirectConversation,
   createGroupConversation,
   getChatBootstrapState,
   getChatStarter,
@@ -286,7 +287,7 @@ export function buildUsageView(input: {
 }
 
 export function shouldRefreshUsageForEvent(eventType: string) {
-  return ["message.sent", "relay.report", "message.delivered", "turn_end", "message_status"].includes(eventType);
+  return ["message.sent", "relay.report", "relay.completed", "message.delivered", "turn_end", "message_status"].includes(eventType);
 }
 
 function refreshUsageQueries(input: {
@@ -302,6 +303,17 @@ function refreshUsageQueries(input: {
   }
 }
 
+function isSuppressedNoReplyReceipt(eventType: string, detail: string | null) {
+  return (
+    (eventType === "relay.completed" || eventType === "message.delivered") &&
+    detail?.includes("suppressed_by=no_reply_token")
+  );
+}
+
+function isNoReplyProtocolToken(value: string | null) {
+  return value?.trim() === "NO_REPLY";
+}
+
 export function toRelayAgentMessage(event: {
   eventType: string;
   payload: Record<string, unknown>;
@@ -313,11 +325,15 @@ export function toRelayAgentMessage(event: {
   if (!messageId) {
     return null;
   }
+  const detail = toStringValue(event.payload.detail);
+  if (isSuppressedNoReplyReceipt(event.eventType, detail)) {
+    return null;
+  }
   const content =
     toStringValue(event.payload.summary) ??
-    toStringValue(event.payload.detail) ??
+    detail ??
     toStringValue(event.payload.content);
-  if (!content) {
+  if (!content || isNoReplyProtocolToken(content)) {
     return null;
   }
   const status =
@@ -341,6 +357,7 @@ export function toRelayAgentMessage(event: {
 
 export function ChatWorkspacePage() {
   const { conversationId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
@@ -395,6 +412,10 @@ export function ChatWorkspacePage() {
   });
   const ownerId = bootstrapQuery.data?.ownerId;
   const selfUserId = bootstrapQuery.data?.selfUserId;
+  const boundSelfUserId =
+    location.state && typeof location.state === "object" && "boundSelfUserId" in location.state
+      ? toStringValue((location.state as { boundSelfUserId?: unknown }).boundSelfUserId)
+      : null;
 
   useEffect(() => {
     if (!conversationId) {
@@ -637,6 +658,16 @@ export function ChatWorkspacePage() {
     }
   });
 
+  const createFreshDirectConversationMutation = useMutation({
+    mutationFn: (agentId: string) => createFreshDirectConversation({ agentId }),
+    onSuccess: async ({ conversation_id }) => {
+      const detail = await getConversation(conversation_id);
+      queryClient.setQueryData(["chat", "conversation", conversation_id], detail);
+      navigate(`/chat/${conversation_id}`);
+      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    }
+  });
+
   const sendMutation = useMutation({
     mutationFn: (payload: { content: string; attachments: ChatAttachment[] }) =>
       sendMessage({ conversationId: conversationId!, content: payload.content, attachments: payload.attachments }),
@@ -666,6 +697,19 @@ export function ChatWorkspacePage() {
       refreshUsageQueries({ conversationId, ownerId, queryClient });
     }
   });
+
+  useEffect(() => {
+    if (!boundSelfUserId || !selfUserId || boundSelfUserId === selfUserId || bootstrapQuery.isLoading) {
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: ["chat", "bootstrap"] });
+    void queryClient.invalidateQueries({ queryKey: ["chat", "starter"] });
+    void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    if (conversationId) {
+      queryClient.removeQueries({ queryKey: ["chat", "conversation", conversationId], exact: true });
+    }
+    navigate(location.pathname, { replace: true, state: null });
+  }, [boundSelfUserId, bootstrapQuery.isLoading, conversationId, location.pathname, navigate, queryClient, selfUserId]);
 
   if (
     bootstrapQuery.isLoading ||
@@ -701,9 +745,15 @@ export function ChatWorkspacePage() {
           starter={null}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
+          isStartingFreshSession={createFreshDirectConversationMutation.isPending}
           sendAvailability={sendAvailability}
           usage={usage}
           onSend={(payload) => sendMutation.mutateAsync(payload)}
+          onStartFreshSession={
+            detail?.direct_agent_id
+              ? (agentId) => createFreshDirectConversationMutation.mutateAsync(agentId)
+              : undefined
+          }
           onUploadAttachment={uploadAttachment}
         />
       </div>
@@ -830,6 +880,7 @@ export function ChatWorkspacePage() {
             starter={starter}
             isMobile={isMobile}
             isSending={false}
+            isStartingFreshSession={false}
             sendAvailability={sendAvailability}
             usage={usage}
             onSend={async () => undefined}
@@ -853,9 +904,15 @@ export function ChatWorkspacePage() {
           starter={conversationId ? null : starter}
           isMobile={isMobile}
           isSending={sendMutation.isPending}
+          isStartingFreshSession={createFreshDirectConversationMutation.isPending}
           sendAvailability={sendAvailability}
           usage={usage}
           onSend={(payload) => sendMutation.mutateAsync(payload)}
+          onStartFreshSession={
+            detail?.direct_agent_id
+              ? (agentId) => createFreshDirectConversationMutation.mutateAsync(agentId)
+              : undefined
+          }
           onUploadAttachment={uploadAttachment}
         />
       )}

@@ -247,7 +247,7 @@ class InboundPipeline:
     @staticmethod
     def _build_session_metadata(message: InboundMessage, *, agent_id: str) -> dict[str, object] | None:
         metadata = dict(message.metadata)
-        session_metadata: dict[str, object] = {}
+        session_metadata: dict[str, object] = {"agent_id": agent_id}
         conversation_id = metadata.get("conversation_id")
         if isinstance(conversation_id, str) and conversation_id.strip():
             session_metadata["conversation_id"] = conversation_id.strip()
@@ -257,9 +257,6 @@ class InboundPipeline:
         system_prompt = metadata.get("system_prompt")
         if isinstance(system_prompt, str) and system_prompt.strip():
             session_metadata["system_prompt"] = system_prompt
-        if not session_metadata:
-            return None
-        session_metadata["agent_id"] = agent_id
         return session_metadata
 
     @staticmethod
@@ -299,6 +296,10 @@ class InboundPipeline:
         self._agents[agent.agent_id] = agent
         if self._default_agent_id is None:
             self._default_agent_id = agent.agent_id
+
+    def drop_agent_sessions(self, agent_id: str) -> None:
+        """Drop existing kernel-session bindings for one agent after config sync."""
+        self._session_store.drop_agent(agent_id)
 
     def _require_known_agent(self, agent_id: str) -> str:
         if agent_id not in self._agents:
@@ -388,7 +389,16 @@ class InboundPipeline:
 
     @staticmethod
     def _run_status(run_state: Mapping[str, object]) -> str:
-        return str(run_state.get("status", "")).strip().lower()
+        status = str(run_state.get("status", "")).strip().lower()
+        if status:
+            return status
+        output_text = run_state.get("output_text")
+        if isinstance(output_text, str) and output_text.strip():
+            return "completed"
+        error = run_state.get("error")
+        if error is not None:
+            return "failed"
+        return ""
 
     @staticmethod
     def _extract_run_error(run_state: Mapping[str, object], *, fallback_status: str) -> str:
@@ -409,13 +419,16 @@ class InboundPipeline:
             return delta
         return f"{current}{delta}"
 
-    @staticmethod
-    def _extract_reply_text(run_state: Mapping[str, object], *, streamed_text: str = "") -> str:
+    @classmethod
+    def _extract_reply_text(cls, run_state: Mapping[str, object], *, streamed_text: str = "") -> str:
         output_text = run_state.get("output_text")
-        if isinstance(output_text, str) and output_text.strip():
-            return output_text.strip()
+        normalized_output = output_text.strip() if isinstance(output_text, str) else ""
+        if cls._is_no_reply_token(normalized_output):
+            return normalized_output
         if streamed_text.strip():
             return streamed_text.strip()
+        if normalized_output:
+            return normalized_output
         error = run_state.get("error")
         if isinstance(error, str) and error.strip():
             return error.strip()

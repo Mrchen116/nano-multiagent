@@ -348,6 +348,45 @@ def test_inbound_pipeline_emits_real_usage_in_completed_relay_update(tmp_path: P
 
 
 
+def test_inbound_pipeline_treats_statusless_run_snapshot_with_output_as_completed(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="ping",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    )
+    kernel_client.run_states["run-1"] = {"run_id": "run-1", "output_text": "reply:ping"}
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "reply:ping"
+    assert channel.sent == [
+        OutboundMessage(
+            channel_name="web_relay",
+            text="reply:ping",
+            target_chat_id="conv-1",
+            thread_id=None,
+            metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+        )
+    ]
+
+
+
 def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapshot_has_no_output_text(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
@@ -408,6 +447,81 @@ def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapsho
         ("running", "run-1", "msg-1", "Hello world"),
         ("completed", "run-1", "msg-1", "Hello world"),
     ]
+
+
+def test_inbound_pipeline_prefers_completed_run_output_text_over_streamed_text(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a please stay silent if NO_REPLY works.",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1", "mentioned_agent_ids": ["agent-a"]},
+    )
+    kernel_client.session_events["sess-1"] = [
+        [{"id": "evt-1", "event": "text_delta", "data": {"run_id": "run-1", "delta": "ALPHA_ACK_M170"}}],
+    ]
+    kernel_client.run_states["run-1"] = [
+        {"run_id": "run-1", "status": "running"},
+        {"run_id": "run-1", "status": "completed", "output_text": "NO_REPLY", "error": None},
+    ]
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "NO_REPLY"
+    assert result.outbound is None
+    assert channel.sent == []
+
+
+def test_inbound_pipeline_prefers_completed_no_reply_token_even_when_streamed_text_arrives_later(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a please stay silent if NO_REPLY works.",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1", "mentioned_agent_ids": ["agent-a"]},
+    )
+    kernel_client.session_events["sess-1"] = [
+        [{"id": "evt-1", "event": "text_delta", "data": {"run_id": "run-1", "delta": "ALPHA_ACK_M170"}}],
+        [{"id": "evt-2", "event": "text_delta", "data": {"run_id": "run-1", "delta": "ALPHA_ACK_M170 final"}}],
+    ]
+    kernel_client.run_states["run-1"] = [
+        {"run_id": "run-1", "status": "running", "output_text": "NO_REPLY"},
+        {"run_id": "run-1", "status": "completed", "output_text": "NO_REPLY", "error": None},
+    ]
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "NO_REPLY"
+    assert result.outbound is None
+    assert channel.sent == []
 
 
 def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_default(tmp_path: Path) -> None:
@@ -515,7 +629,57 @@ def test_inbound_pipeline_prefers_group_mentions_over_drifted_explicit_agent_ids
     assert result.agent_id == "agent-b"
     assert result.session_key == "web_relay:conv-1:agent-b"
     assert kernel_client.create_session_calls[0]["workspace_root"] == str(agents[1].workspace_root)
+    assert kernel_client.create_session_calls[0]["metadata"] == {
+        "agent_id": "agent-b",
+        "conversation_id": "conv-1",
+    }
     assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "@agent:agent-b please investigate", "run_id": "run-1"}]
+
+
+def test_inbound_pipeline_freezes_group_agent_id_even_without_additional_snapshot_metadata(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="@agent:agent-b stay quiet",
+                external_user_id="user-1",
+                external_chat_id="conv-2",
+                is_group=True,
+                metadata={
+                    "conversation_id": "conv-2",
+                    "mentioned_agent_ids": ["agent-b"],
+                    "trigger": "mention",
+                },
+            )
+        )
+    )
+
+    assert result is not None
+    assert result.agent_id == "agent-b"
+    assert kernel_client.create_session_calls == [
+        {
+            "workspace_root": str(agents[1].workspace_root),
+            "product_id": "personal_assistant",
+            "title": "Agent B",
+            "metadata": {
+                "agent_id": "agent-b",
+                "conversation_id": "conv-2",
+            },
+        }
+    ]
 
 
 def test_inbound_pipeline_reuses_existing_session_binding_per_session_key(tmp_path: Path) -> None:
@@ -664,6 +828,96 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
         "config_profile_version": 2,
         "system_prompt": "You are Agent A v2.",
     }
+
+
+def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_session(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    store = SessionBindingStore()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=(agents[0],),
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=store,
+        default_agent_id="agent-a",
+    )
+
+    first = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="@agent-a first pass",
+                external_user_id="user-1",
+                external_chat_id="conv-group-1",
+                is_group=True,
+                agent_id="agent-a",
+                metadata={
+                    "conversation_id": "conv-group-1",
+                    "mentioned_agent_ids": ["agent-a"],
+                    "trigger": "mention",
+                    "config_profile_version": 1,
+                    "system_prompt": "Reply with ALPHA_ACK_M170.",
+                },
+            )
+        )
+    )
+
+    pipeline.register_agent(
+        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=agents[0].workspace_root, title="Agent A")
+    )
+    pipeline.drop_agent_sessions("agent-a")
+
+    second = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="@agent-a second pass",
+                external_user_id="user-1",
+                external_chat_id="conv-group-1",
+                is_group=True,
+                agent_id="agent-a",
+                metadata={
+                    "conversation_id": "conv-group-1",
+                    "mentioned_agent_ids": ["agent-a"],
+                    "trigger": "mention",
+                    "config_profile_version": 2,
+                    "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
+                },
+            )
+        )
+    )
+
+    assert first is not None
+    assert second is not None
+    assert first.kernel_session_id == "sess-1"
+    assert second.kernel_session_id == "sess-2"
+    assert kernel_client.create_session_calls == [
+        {
+            "workspace_root": str(agents[0].workspace_root),
+            "product_id": "personal_assistant",
+            "title": "Agent A",
+            "metadata": {
+                "agent_id": "agent-a",
+                "conversation_id": "conv-group-1",
+                "config_profile_version": 1,
+                "system_prompt": "Reply with ALPHA_ACK_M170.",
+            },
+        },
+        {
+            "workspace_root": str(agents[0].workspace_root),
+            "product_id": "personal_assistant",
+            "title": "Agent A",
+            "metadata": {
+                "agent_id": "agent-a",
+                "conversation_id": "conv-group-1",
+                "config_profile_version": 2,
+                "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
+            },
+        },
+    ]
 
 
 def test_session_run_queue_serializes_same_session_and_allows_cross_session_parallelism() -> None:

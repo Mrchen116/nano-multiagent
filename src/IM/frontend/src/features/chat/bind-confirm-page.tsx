@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
@@ -6,11 +6,22 @@ import { confirmBindToken } from "./im-chat-api";
 
 export function BindConfirmPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const bindToken = useMemo(() => searchParams.get("token")?.trim() ?? "", [searchParams]);
   const confirmMutation = useMutation({
     mutationFn: () => confirmBindToken(bindToken),
-    onSuccess: () => navigate("/chat", { replace: true })
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["chat", "bootstrap"] });
+      await queryClient.invalidateQueries({ queryKey: ["chat", "starter"] });
+      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+      navigate("/chat", {
+        replace: true,
+        state: {
+          boundSelfUserId: result.self_user_id
+        }
+      });
+    }
   });
 
   return (

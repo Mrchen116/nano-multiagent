@@ -38,6 +38,8 @@ export interface AgentAllowlistOption {
 export interface AgentAllowlistOptions {
   skills: AgentAllowlistOption[];
   tools: AgentAllowlistOption[];
+  model_options: string[];
+  platform_default_model: string | null;
   default_system_prompt: string;
 }
 

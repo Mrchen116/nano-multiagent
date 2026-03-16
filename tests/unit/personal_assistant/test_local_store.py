@@ -136,6 +136,36 @@ def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> No
     assert config.im_service is None
 
 
+def test_load_local_config_preserves_multiple_seed_agents_in_order(tmp_path: Path) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    alpha_root = tmp_path / "agents" / "alpha"
+    beta_root = tmp_path / "agents" / "beta"
+    alpha_root.mkdir(parents=True)
+    beta_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: Alpha",
+                f"    workspace_root: {alpha_root}",
+                "    title: Alpha",
+                "  - agent_id: Beta",
+                f"    workspace_root: {beta_root}",
+                "    title: Beta",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert [agent.agent_id for agent in config.agents] == ["Alpha", "Beta"]
+    assert [agent.title for agent in config.agents] == ["Alpha", "Beta"]
+    assert [agent.workspace_root for agent in config.agents] == [alpha_root, beta_root]
+
+
 def test_load_local_config_uses_internal_kernel_base_url_default(tmp_path: Path) -> None:
     config_path = tmp_path / "node-config.yaml"
     workspace_root = tmp_path / "agents" / "assistant-a"

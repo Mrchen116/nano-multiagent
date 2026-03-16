@@ -81,6 +81,28 @@ function nodeStatusClasses(status: string) {
   }
 }
 
+function resolveModelOptions(modelOptions: string[] | undefined, currentModel: string | null) {
+  const resolved = Array.from(new Set((modelOptions ?? []).map((value) => value.trim()).filter(Boolean)));
+  if (currentModel && !resolved.includes(currentModel)) {
+    resolved.unshift(currentModel);
+  }
+  return resolved;
+}
+
+function platformDefaultLabel(model: string | null | undefined) {
+  return model ? `Platform default (${model})` : "Platform default";
+}
+
+function modelOptionLabel(model: string, platformDefaultModel: string | null | undefined, isAvailable: boolean) {
+  if (!isAvailable) {
+    return `${model} (unavailable now)`;
+  }
+  if (model === platformDefaultModel) {
+    return `${model} (platform default)`;
+  }
+  return model;
+}
+
 function formatUpdatedAt(value?: string | null) {
   if (!value) {
     return "—";
@@ -123,6 +145,11 @@ export function AgentDetailPage() {
 
   const normalizedDraft = useMemo(() => (draft ? normalizeAgentConfig(draft) : null), [draft]);
   const normalizedServerState = useMemo(() => (query.data ? normalizeAgentConfig(toFormState(query.data)) : null), [query.data]);
+  const availableModels = useMemo(
+    () => resolveModelOptions(allowlistOptionsQuery.data?.model_options, draft?.default_model ?? null),
+    [allowlistOptionsQuery.data?.model_options, draft?.default_model]
+  );
+  const platformDefaultModel = allowlistOptionsQuery.data?.platform_default_model ?? null;
   const validationErrors = useMemo(() => (normalizedDraft ? validateDraft(normalizedDraft) : {}), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
   const isDirty = normalizedDraft && normalizedServerState ? JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedServerState) : false;
@@ -360,6 +387,7 @@ export function AgentDetailPage() {
               isLoading={allowlistOptionsQuery.isLoading}
               errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
               onRetry={() => void allowlistOptionsQuery.refetch()}
+              showDescriptions={false}
               helpText="Choose from the tools the running system currently exposes. Existing saved values still appear even if they are unavailable right now."
               emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
               onChange={(toolAllowlist) => {
@@ -394,19 +422,30 @@ export function AgentDetailPage() {
             </div>
             <div className="grid gap-1">
               <Label.Root htmlFor="default-model">Default Model</Label.Root>
-              <input
+              <select
                 id="default-model"
                 className="im-input"
                 value={draft.default_model ?? ""}
                 aria-describedby="default-model-help"
+                disabled={allowlistOptionsQuery.isLoading && availableModels.length === 0}
                 onChange={(event) => {
                   setSaved(false);
                   setErrorMessage(null);
-                  setDraft({ ...draft, default_model: event.target.value });
+                  setDraft({ ...draft, default_model: event.target.value || null });
                 }}
-              />
+              >
+                <option value="">{platformDefaultLabel(platformDefaultModel)}</option>
+                {availableModels.map((model) => {
+                  const isAvailable = (allowlistOptionsQuery.data?.model_options ?? []).includes(model);
+                  return (
+                    <option key={model} value={model}>
+                      {modelOptionLabel(model, platformDefaultModel, isAvailable)}
+                    </option>
+                  );
+                })}
+              </select>
               <p id="default-model-help" className="text-xs text-slate-500">
-                Leave blank to inherit the platform default, or pin a known-good model for this profile.
+                Choose from the models the current runtime exposes. Leave this on {platformDefaultLabel(platformDefaultModel)} to inherit the platform setting.
               </p>
             </div>
           </div>
@@ -422,7 +461,7 @@ export function AgentDetailPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Start chatting now</p>
             <p className="mt-2 text-sm text-slate-700">Open this agent's dedicated direct chat as soon as creation or edits are done.</p>
             <p className="mt-2 text-xs text-slate-500">This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.</p>
-            <p className="mt-2 text-xs text-slate-500">Existing messages stay in the same conversation. New behavior applies in that same thread after you save changes.</p>
+            <p className="mt-2 text-xs text-slate-500">Existing conversations keep their earlier profile snapshot. Use the in-chat fresh session action when you want a new thread to pick up the latest saved prompt version.</p>
           </section>
 
           <dl className="grid gap-2 text-sm text-slate-600">

@@ -27,9 +27,13 @@ class _FakeKernelClient:
     def __init__(self) -> None:
         self.create_session_calls: list[dict[str, object | None]] = []
         self.send_calls: list[dict[str, str]] = []
-        self.run_states: dict[str, dict[str, str]] = {}
+        self.run_states: dict[str, dict[str, str] | list[dict[str, str]]] = {}
+        self.session_events: dict[str, list[list[dict[str, object]]]] = {}
+        self._session_metadata_by_id: dict[str, dict[str, object | None]] = {}
         self._session_index = 0
         self._run_index = 0
+        self._get_run_calls: dict[str, int] = {}
+        self._stream_calls: dict[str, int] = {}
 
     def create_session(
         self,
@@ -44,17 +48,98 @@ class _FakeKernelClient:
         self.create_session_calls.append(
             {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
         )
+        self._session_metadata_by_id[session_id] = dict(metadata or {})
+        self.session_events.setdefault(session_id, [])
         return {"session_id": session_id}
 
     def send_message_async(self, *, session_id: str, text: str):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         self.send_calls.append({"session_id": session_id, "text": text, "run_id": run_id})
-        self.run_states[run_id] = {"run_id": run_id, "output_text": f"gateway-reply:{text}"}
+        session_metadata = self._session_metadata_by_id.get(session_id, {})
+        output_text = f"gateway-reply:{text}"
+        if text == "@agent-a please stay silent if NO_REPLY works.":
+            system_prompt = session_metadata.get("system_prompt")
+            profile_version = session_metadata.get("config_profile_version")
+            if (
+                system_prompt == "When mentioned in a group chat, reply exactly with NO_REPLY."
+                and profile_version == 2
+            ):
+                output_text = "NO_REPLY"
+            elif system_prompt == "When mentioned in a group chat, reply exactly with NO_REPLY.":
+                output_text = "ALPHA_ACK_M170"
+        self.run_states[run_id] = {"run_id": run_id, "status": "completed", "output_text": output_text}
         return {"run_id": run_id}
 
+    def stream_session_events(self, *, session_id: str, max_events: int = 20, timeout_seconds: float = 0.25):
+        del max_events
+        del timeout_seconds
+        batches = self.session_events.get(session_id, [])
+        index = self._stream_calls.get(session_id, 0)
+        self._stream_calls[session_id] = index + 1
+        if index >= len(batches):
+            return []
+        return batches[index]
+
     def get_run(self, *, run_id: str):
-        return self.run_states[run_id]
+        payload = self.run_states[run_id]
+        if isinstance(payload, list):
+            index = self._get_run_calls.get(run_id, 0)
+            self._get_run_calls[run_id] = index + 1
+            if index >= len(payload):
+                return payload[-1]
+            return payload[index]
+        return payload
+
+
+def test_fake_kernel_client_send_message_async_seeds_terminal_run_snapshot() -> None:
+    """The browserless M103 fixture must mirror terminal run snapshots from the real kernel API."""
+    kernel_client = _FakeKernelClient()
+
+    created = kernel_client.create_session(
+        workspace_root="/tmp/agent-a",
+        product_id="personal_assistant",
+        title="Agent-A",
+    )
+    submitted = kernel_client.send_message_async(session_id=created["session_id"], text="hello gateway")
+    run_state = kernel_client.get_run(run_id=submitted["run_id"])
+
+    assert run_state["status"] == "completed"
+    assert run_state["output_text"] == "gateway-reply:hello gateway"
+
+
+
+def _send_delivery_receipt(
+    websocket,
+    *,
+    relay_payload: dict[str, object],
+    delivery_status: str,
+    detail: str | None,
+) -> dict[str, object]:
+    websocket.send_json(
+        {
+            "type": "node.delivery_receipt",
+            "payload": {
+                "node_id": "node-1",
+                "relay_task_id": relay_payload["relay_task_id"],
+                "delivery_status": delivery_status,
+                "detail": detail,
+            },
+        }
+    )
+    ack = websocket.receive_json()
+    expected_status = "failed" if delivery_status == "failed" else delivery_status
+    assert ack == {
+        "type": "ack",
+        "payload": {
+            "message_type": "node.delivery_receipt",
+            "node_id": "node-1",
+            "relay_task_id": relay_payload["relay_task_id"],
+            "status": expected_status,
+        },
+    }
+    return ack
+
 
 
 def _seed_user(client: TestClient, username: str, display_name: str | None = None) -> str:
@@ -116,7 +201,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                         "node_id": "node-1",
                         "node_name": "MacBook",
                         "version": "1.0.0",
-                        "agents": ["assistant-a", "assistant-b"],
+                        "agents": ["Alpha", "Beta"],
                         "capabilities": {"relay": True},
                     },
                 }
@@ -125,7 +210,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
 
             before_bind = client.get("/im/v1/agents")
             assert before_bind.status_code == 200
-            assert [item["agent_id"] for item in before_bind.json()] == ["assistant-a", "assistant-b"]
+            assert [item["agent_id"] for item in before_bind.json()] == ["Alpha", "Beta"]
             assert [item["bound_nodes"] for item in before_bind.json()] == [["node-1"], ["node-1"]]
             assert [item["owner_id"] for item in before_bind.json()] == ["", ""]
 
@@ -143,9 +228,56 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
 
             listed = client.get("/im/v1/agents")
             assert listed.status_code == 200
-            assert [item["agent_id"] for item in listed.json()] == ["assistant-a", "assistant-b"]
+            assert [item["agent_id"] for item in listed.json()] == ["Alpha", "Beta"]
             assert [item["bound_nodes"] for item in listed.json()] == [["node-1"], ["node-1"]]
             assert [item["owner_id"] for item in listed.json()] == [user.json()["owner_id"], user.json()["owner_id"]]
+
+
+def test_gateway_reregistration_preserves_canonical_agent_labels_after_restart(tmp_path: Path) -> None:
+    """Fresh re-registration should rebuild canonical agent labels instead of leaving raw ids in the picker."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["agent-m170-alpha", "agent-m170-beta"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+        first_listing = client.get("/im/v1/agents")
+        assert first_listing.status_code == 200
+        assert [item["display_name"] for item in first_listing.json()] == ["M170 Alpha", "M170 Beta"]
+
+        app.state.connection.execute("DELETE FROM agent_profiles WHERE agent_id IN (?, ?)", ("agent-m170-alpha", "agent-m170-beta"))
+        app.state.connection.commit()
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.1",
+                        "agents": ["agent-m170-alpha", "agent-m170-beta"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+        second_listing = client.get("/im/v1/agents")
+        assert second_listing.status_code == 200
+        assert [item["agent_id"] for item in second_listing.json()] == ["agent-m170-alpha", "agent-m170-beta"]
+        assert [item["display_name"] for item in second_listing.json()] == ["M170 Alpha", "M170 Beta"]
 
 
 
@@ -163,7 +295,7 @@ def test_fresh_runtime_agents_can_back_group_creation_before_bind(tmp_path: Path
                         "node_id": "node-1",
                         "node_name": "MacBook",
                         "version": "1.0.0",
-                        "agents": ["assistant-a", "assistant-b"],
+                        "agents": ["Alpha", "Beta"],
                         "capabilities": {"relay": True},
                     },
                 }
@@ -172,10 +304,10 @@ def test_fresh_runtime_agents_can_back_group_creation_before_bind(tmp_path: Path
 
             listed = client.get("/im/v1/agents")
             assert listed.status_code == 200
-            assert [item["agent_id"] for item in listed.json()] == ["assistant-a", "assistant-b"]
+            assert [item["agent_id"] for item in listed.json()] == ["Alpha", "Beta"]
 
-            agent_a_user = client.post("/im/v1/users", json={"username": "agent:assistant-a", "display_name": "Assistant A"})
-            agent_b_user = client.post("/im/v1/users", json={"username": "agent:assistant-b", "display_name": "Assistant B"})
+            agent_a_user = client.post("/im/v1/users", json={"username": "agent:Alpha", "display_name": "Alpha"})
+            agent_b_user = client.post("/im/v1/users", json={"username": "agent:Beta", "display_name": "Beta"})
             assert agent_a_user.status_code == 201
             assert agent_b_user.status_code == 201
 
@@ -370,6 +502,333 @@ def test_agent_config_sync_notifies_connected_gateway(tmp_path: Path) -> None:
     assert request.agent_id == "agent-a"
     assert sync_client.latest_profile_version("agent-a") == 2
 
+
+
+def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversation(tmp_path: Path) -> None:
+    """An existing group conversation must use the updated mentioned-agent profile after config sync."""
+    app = create_app(db_path=tmp_path / "im.db")
+    kernel_client = _FakeKernelClient()
+    relay_adapter = WebRelayAdapter()
+    agents = _agents(tmp_path, "agent-a", "agent-b")
+    registry = ChannelRegistry((relay_adapter,))
+    session_store = SessionBindingStore()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=session_store,
+        default_agent_id="agent-a",
+    )
+    relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))
+
+    with TestClient(app) as client:
+        owner_id = _seed_user(client, "owner")
+        human_user_id = _seed_user(client, "alice")
+        agent_a_user_id = _seed_user(client, "agent:agent-a")
+        agent_b_user_id = _seed_user(client, "agent:agent-b")
+        owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
+        assert owner is not None
+        _seed_node_and_profiles(app, owner_id=owner.owner_id, agent_ids=("agent-a", "agent-b"))
+
+        group_conversation = client.post(
+            "/im/v1/conversations",
+            json={
+                "title": "same group",
+                "participant_ids": [human_user_id, agent_a_user_id, agent_b_user_id],
+            },
+        )
+        assert group_conversation.status_code == 201
+        assert group_conversation.json()["config_profile_version"] == 1
+        conversation_id = group_conversation.json()["id"]
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["agent-a", "agent-b"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            first_message = client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-group-before-sync"},
+                json={
+                    "sender_user_id": human_user_id,
+                    "content": "@agent-a first mention",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert first_message.status_code == 201
+            first_relay = websocket.receive_json()
+            relay_adapter.accept_relay(first_relay["payload"])
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=first_relay["payload"],
+                delivery_status="sent",
+                detail=None,
+            )
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=first_relay["payload"],
+                delivery_status="completed",
+                detail="gateway-reply:@agent-a first mention",
+            )
+
+            current = client.get("/im/v1/agents/agent-a/config")
+            assert current.status_code == 200
+            patched = client.patch(
+                "/im/v1/agents/agent-a/config",
+                json={
+                    "profile_version": current.json()["profile_version"],
+                    "display_name": "agent-a v2",
+                    "description": "updated",
+                    "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
+                    "skills": [],
+                    "tool_allowlist": [],
+                    "group_reply_policy": "manual",
+                    "default_model": None,
+                },
+            )
+            assert patched.status_code == 200
+            sync_frame = websocket.receive_json()
+            assert sync_frame == {
+                "type": "config.sync",
+                "payload": {"agent_id": "agent-a", "profile_version": 2},
+            }
+            pipeline.drop_agent_sessions("agent-a")
+
+            second_message = client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-group-after-sync"},
+                json={
+                    "sender_user_id": human_user_id,
+                    "content": "@agent-a please stay silent if NO_REPLY works.",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert second_message.status_code == 201
+            second_relay = websocket.receive_json()
+            relay_adapter.accept_relay(second_relay["payload"])
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=second_relay["payload"],
+                delivery_status="sent",
+                detail=None,
+            )
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=second_relay["payload"],
+                delivery_status="completed",
+                detail="NO_REPLY | suppressed_by=no_reply_token",
+            )
+
+        event_rows = app.state.connection.execute(
+            """
+            SELECT event_type, payload_json
+            FROM conversation_events
+            WHERE conversation_id = ?
+            ORDER BY event_id
+            """,
+            (conversation_id,),
+        ).fetchall()
+        accepted_payloads = [
+            json.loads(row["payload_json"])
+            for row in event_rows
+            if row["event_type"] == "relay.accepted"
+        ]
+        completed_payloads = [
+            json.loads(row["payload_json"])
+            for row in event_rows
+            if row["event_type"] == "relay.completed"
+        ]
+
+    assert [call["metadata"] for call in kernel_client.create_session_calls] == [
+        {
+            "agent_id": "agent-a",
+            "config_profile_version": 1,
+            "system_prompt": "You are agent-a.",
+        },
+        {
+            "agent_id": "agent-a",
+            "config_profile_version": 2,
+            "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
+        },
+    ]
+    assert [call["session_id"] for call in kernel_client.send_calls] == ["sess-1", "sess-2"]
+    assert first_relay["payload"]["metadata"] == {
+        "conversation_type": "group",
+        "mentioned_agent_ids": ["agent-a"],
+        "config_profile_version": 1,
+        "system_prompt": "You are agent-a.",
+    }
+    assert second_relay["payload"]["metadata"] == {
+        "conversation_type": "group",
+        "mentioned_agent_ids": ["agent-a"],
+        "config_profile_version": 2,
+        "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
+    }
+    assert relay_adapter.sent[0].text == "gateway-reply:@agent-a first mention"
+    assert relay_adapter.sent == [relay_adapter.sent[0]]
+    assert [payload["detail"] for payload in accepted_payloads] == [None, None]
+    assert [payload["detail"] for payload in completed_payloads] == [
+        "gateway-reply:@agent-a first mention",
+        "NO_REPLY | suppressed_by=no_reply_token",
+    ]
+
+
+def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta_conflict(tmp_path: Path) -> None:
+    """Completed NO_REPLY snapshots must win over stale streamed text in the same relay chain."""
+    app = create_app(db_path=tmp_path / "im.db")
+    kernel_client = _FakeKernelClient()
+    relay_adapter = WebRelayAdapter()
+    agents = _agents(tmp_path, "agent-a")
+    registry = ChannelRegistry((relay_adapter,))
+    session_store = SessionBindingStore()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=session_store,
+        default_agent_id="agent-a",
+    )
+    relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))
+
+    with TestClient(app) as client:
+        owner_id = _seed_user(client, "owner")
+        human_user_id = _seed_user(client, "alice")
+        agent_a_user_id = _seed_user(client, "agent:agent-a")
+        agent_b_user_id = _seed_user(client, "agent:agent-b")
+        owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
+        assert owner is not None
+        _seed_node_and_profiles(app, owner_id=owner.owner_id, agent_ids=("agent-a", "agent-b"))
+
+        current = client.get("/im/v1/agents/agent-a/config")
+        assert current.status_code == 200
+        patched = client.patch(
+            "/im/v1/agents/agent-a/config",
+            json={
+                "profile_version": current.json()["profile_version"],
+                "display_name": "agent-a v2",
+                "description": "updated",
+                "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
+                "skills": [],
+                "tool_allowlist": [],
+                "group_reply_policy": "manual",
+                "default_model": None,
+            },
+        )
+        assert patched.status_code == 200
+
+        group_conversation = client.post(
+            "/im/v1/conversations",
+            json={
+                "title": "same group",
+                "participant_ids": [human_user_id, agent_a_user_id, agent_b_user_id],
+            },
+        )
+        assert group_conversation.status_code == 201
+        assert group_conversation.json()["type"] == "group"
+        conversation_id = group_conversation.json()["id"]
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["agent-a", "agent-b"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            second_message = client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-group-after-sync-stream-conflict"},
+                json={
+                    "sender_user_id": human_user_id,
+                    "content": "@agent-a please stay silent if NO_REPLY works.",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert second_message.status_code == 201
+            second_relay = websocket.receive_json()
+            relay_task_id = second_relay["payload"]["relay_task_id"]
+            message_id = second_relay["payload"]["message"]["id"]
+            kernel_client.session_events["sess-1"] = [
+                [{"id": "evt-1", "event": "text_delta", "data": {"run_id": "run-1", "delta": "ALPHA_ACK_M170"}}],
+                [{"id": "evt-2", "event": "text_delta", "data": {"run_id": "run-1", "delta": "ALPHA_ACK_M170 final"}}],
+            ]
+            kernel_client.run_states["run-1"] = [
+                {"run_id": "run-1", "status": "running", "output_text": "NO_REPLY"},
+                {"run_id": "run-1", "status": "completed", "output_text": "NO_REPLY", "error": None},
+            ]
+            relay_adapter.accept_relay(second_relay["payload"])
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=second_relay["payload"],
+                delivery_status="sent",
+                detail=None,
+            )
+            _send_delivery_receipt(
+                websocket,
+                relay_payload=second_relay["payload"],
+                delivery_status="completed",
+                detail="NO_REPLY | suppressed_by=no_reply_token",
+            )
+
+        event_rows = app.state.connection.execute(
+            """
+            SELECT event_type, payload_json
+            FROM conversation_events
+            WHERE conversation_id = ?
+            ORDER BY event_id
+            """,
+            (conversation_id,),
+        ).fetchall()
+        accepted_payloads = [
+            json.loads(row["payload_json"])
+            for row in event_rows
+            if row["event_type"] == "relay.accepted"
+        ]
+        completed_payloads = [
+            json.loads(row["payload_json"])
+            for row in event_rows
+            if row["event_type"] == "relay.completed"
+        ]
+
+    assert kernel_client.create_session_calls == [
+        {
+            "workspace_root": str(agents[0].workspace_root),
+            "product_id": "personal_assistant",
+            "title": "Agent-A",
+            "metadata": {
+                "agent_id": "agent-a",
+                "config_profile_version": 2,
+                "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
+            },
+        }
+    ]
+    assert kernel_client.send_calls == [
+        {"session_id": "sess-1", "text": "@agent-a please stay silent if NO_REPLY works.", "run_id": "run-1"}
+    ]
+    assert second_relay["payload"]["relay_task_id"] == relay_task_id
+    assert second_relay["payload"]["message"]["id"] == message_id
+    assert relay_adapter.sent == []
+    assert [payload["detail"] for payload in accepted_payloads] == [None]
+    assert [payload["detail"] for payload in completed_payloads] == ["NO_REPLY | suppressed_by=no_reply_token"]
 
 
 def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile(tmp_path: Path) -> None:

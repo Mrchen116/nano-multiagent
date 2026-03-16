@@ -193,6 +193,57 @@ def test_main_default_command_returns_after_background_start(tmp_path: Path, mon
         _terminate_background_pid(pid)
 
 
+def test_main_background_start_uses_repo_root_node_config_multiple_agents(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = REPO_ROOT / "node-config.yaml"
+    original = config_path.read_text(encoding="utf-8")
+    port = _pick_free_port()
+    command = f"{sys.executable} -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port {port}"
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: canonical-node",
+                "agents:",
+                "  - agent_id: Alpha",
+                "    title: Alpha",
+                "  - agent_id: Beta",
+                "    title: Beta",
+                "channels:",
+                "  - name: web_relay",
+                "    enabled: true",
+                "kernel:",
+                f"  command: {command}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        completed = subprocess.run(
+            _main_command(config_path),
+            env=_pythonpath_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+        assert completed.returncode == 0, completed.stderr
+        pid = _parse_started_pid(completed.stdout)
+        health_url = f"http://127.0.0.1:{port}/v1/health"
+        try:
+            _wait_for_health(health_url)
+            loaded = load_local_config(config_path)
+            assert [agent.agent_id for agent in loaded.agents] == ["Alpha", "Beta"]
+            assert (home_dir / "nano-assistant" / "workspace" / "Alpha").is_dir() is True
+            assert (home_dir / "nano-assistant" / "workspace" / "Beta").is_dir() is True
+        finally:
+            _terminate_background_pid(pid)
+    finally:
+        config_path.write_text(original, encoding="utf-8")
+
+
 def test_main_foreground_flag_keeps_process_attached_until_sigterm(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     home_dir = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home_dir))
@@ -293,6 +344,67 @@ def test_main_stop_command_reports_stale_runtime_state_after_process_is_gone(tmp
     assert (config_path.parent / ".gateway-state.json").exists() is False
 
 
+def test_main_stop_command_reports_still_healthy_when_another_listener_remains(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    config_path = tmp_path / "node-config.yaml"
+    port = _pick_free_port()
+    _write_smoke_config(config_path, port=port)
+
+    started = subprocess.run(
+        _main_command(config_path),
+        env=_pythonpath_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert started.returncode == 0, started.stderr
+    pid = _parse_started_pid(started.stdout)
+    health_url = f"http://127.0.0.1:{port}/v1/health"
+    _wait_for_health(health_url)
+
+    blocker = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json; import signal; import threading; from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer; "
+                f"server = ThreadingHTTPServer(('127.0.0.1', {port}), type('Handler', (BaseHTTPRequestHandler,), {{"
+                "'do_GET': lambda self: (self.send_response(200), self.send_header('Content-Type', 'application/json'), self.end_headers(), self.wfile.write(json.dumps({'healthy': True}).encode('utf-8'))), "
+                "'log_message': lambda *args: None"
+                "})); "
+                "done = threading.Event(); "
+                "signal.signal(signal.SIGTERM, lambda *_args: (done.set(), server.shutdown())); "
+                "threading.Thread(target=server.serve_forever, daemon=True).start(); "
+                "done.wait()"
+            ),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        _terminate_background_pid(pid)
+        _wait_for_health(health_url)
+
+        stopped = subprocess.run(
+            _main_command(config_path, "stop"),
+            env=_pythonpath_env(),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+
+        assert stopped.returncode == 0, stopped.stderr
+        assert "health_url=" in stopped.stdout
+        assert "still_healthy=true" in stopped.stdout
+        assert (config_path.parent / ".gateway-state.json").exists() is False
+    finally:
+        blocker.terminate()
+        blocker.wait(timeout=10)
+
+
 def test_main_stop_command_reports_not_running_without_state_file(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     home_dir = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home_dir))
@@ -362,6 +474,7 @@ class _FakeIMManager:
     def __init__(self, events: list[str]) -> None:
         self._events = events
         self._closed = asyncio.Event()
+        self.connected = True
 
     async def connect_once(self) -> None:
         self._events.append("im.connect")
@@ -371,6 +484,7 @@ class _FakeIMManager:
 
     async def close(self) -> None:
         self._events.append("im.close")
+        self.connected = False
         self._closed.set()
 
 
@@ -422,6 +536,7 @@ class _FakeIMManager:
     def __init__(self, events: list[str]) -> None:
         self._events = events
         self._closed = asyncio.Event()
+        self.connected = True
 
     async def connect_once(self) -> None:
         self._events.append("im.connect")
@@ -431,6 +546,7 @@ class _FakeIMManager:
 
     async def close(self) -> None:
         self._events.append("im.close")
+        self.connected = False
         self._closed.set()
 
 

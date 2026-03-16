@@ -73,7 +73,7 @@ describe("agent detail page", () => {
       skills: ["tdd-execution-worker"],
       tool_allowlist: ["read"],
       group_reply_policy: "MENTION",
-      default_model: "gpt-5.2-codex",
+      default_model: "codexOAuth:gpt-5.2-codex",
       workspace_root: "/tmp/agent-core-1",
       workspace_is_default: false,
       profile_version: 12,
@@ -94,6 +94,8 @@ describe("agent detail page", () => {
     apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({
       skills: [{ name: "tdd-execution-worker", description: "Execute TDD tasks" }],
       tools: [{ name: "read", description: "Read files" }],
+      model_options: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
+      platform_default_model: "codexOAuth:gpt-5.2-codex",
       default_system_prompt: "You are the personal_assistant default template."
     });
     apiMocks.updateAgentConfigMock.mockResolvedValue(undefined);
@@ -106,6 +108,7 @@ describe("agent detail page", () => {
     expect(screen.getByText("This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.")).toBeInTheDocument();
     expect(screen.getByText("Existing messages stay in the same conversation. New behavior applies in that same thread after you save changes.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open direct chat" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("codexOAuth:gpt-5.2-codex (platform default)");
 
     await user.click(screen.getByRole("button", { name: "Open direct chat" }));
 

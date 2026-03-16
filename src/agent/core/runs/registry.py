@@ -37,6 +37,7 @@ class RunRecord:
     trace_id: str | None = None
     turn_id: str | None = None
     stop_reason: str | None = None
+    output_text: str | None = None
     error: Mapping[str, Any] | None = None
     usage: TokenUsage | None = None
     attempt: int | None = None
@@ -224,6 +225,7 @@ class RunsRegistry:
         status: RunStatus,
         turn_id: str | None = None,
         stop_reason: str | None = None,
+        output_text: str | None = None,
         error: Mapping[str, Any] | None = None,
         usage: TokenUsage | None = None,
         attempt: int | None = None,
@@ -244,6 +246,7 @@ class RunsRegistry:
                 updated_at=_utc_now_iso(),
                 turn_id=turn_id,
                 stop_reason=stop_reason,
+                output_text=output_text,
                 error=error,
                 usage=usage,
                 attempt=attempt,
@@ -280,6 +283,7 @@ class RunsRegistry:
             status=RunStatus.COMPLETED,
             turn_id=turn_result.turn_id,
             stop_reason=turn_result.stop_reason,
+            output_text=_extract_run_output_text(turn_result),
             error=None,
             usage=turn_result.usage,
             only_if={RunStatus.RUNNING},
@@ -549,8 +553,20 @@ def _truncate_error_message(message: str, *, max_chars: int = 240) -> str:
     return f"{message[:max_chars]}..."
 
 
+def _extract_run_output_text(turn_result: TurnResult) -> str | None:
+    for message in reversed(turn_result.messages):
+        if message.role != "assistant":
+            continue
+        if not isinstance(message.content, str):
+            continue
+        return message.content
+    return None
+
+
 def _run_status_data(record: RunRecord) -> dict[str, Any]:
     payload: dict[str, Any] = {}
+    if record.output_text is not None:
+        payload["output_text"] = record.output_text
     usage_payload = _serialize_usage(record.usage)
     if usage_payload is not None:
         payload["usage"] = usage_payload

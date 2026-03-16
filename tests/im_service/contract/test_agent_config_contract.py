@@ -68,7 +68,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
 
 
 def test_agent_allowlist_options_contract_shape(tmp_path: Path, monkeypatch) -> None:
-    """Expose stable selectable skill/tool option envelopes for settings UI."""
+    """Expose stable selectable skill/tool/model option envelopes for settings UI."""
     monkeypatch.setattr(
         agent_routes,
         "_list_available_skill_options",
@@ -79,6 +79,8 @@ def test_agent_allowlist_options_contract_shape(tmp_path: Path, monkeypatch) -> 
         "_list_available_tool_options",
         lambda: [agent_routes.AllowlistOptionResponse(name="read", description="Read files")],
     )
+    monkeypatch.setattr(agent_routes, "_list_available_models", lambda: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"])
+    monkeypatch.setattr(agent_routes, "_platform_default_model", lambda: "codexOAuth:gpt-5.2-codex")
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -88,5 +90,7 @@ def test_agent_allowlist_options_contract_shape(tmp_path: Path, monkeypatch) -> 
     assert response.json() == {
         "skills": [{"name": "plan", "description": "Plan work"}],
         "tools": [{"name": "read", "description": "Read files"}],
+        "model_options": ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
+        "platform_default_model": "codexOAuth:gpt-5.2-codex",
         "default_system_prompt": agent_routes.PERSONAL_ASSISTANT_PROFILE.default_system_prompt,
     }

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "vitest run",
+    "test": "node -e \"const { spawnSync } = require('node:child_process'); const args = process.argv.slice(1).filter((arg) => arg !== '--runInBand'); const result = spawnSync('vitest', ['run', ...args], { stdio: 'inherit', shell: true }); process.exit(result.status ?? 1);\" --",
     "test:watch": "vitest"
   },
   "dependencies": {

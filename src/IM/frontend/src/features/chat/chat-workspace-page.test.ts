@@ -21,6 +21,7 @@ const getChatStarter = vi.fn();
 const listConversations = vi.fn();
 const listDiscoverableGroupParticipants = vi.fn();
 const createGroupConversation = vi.fn();
+const createFreshDirectConversation = vi.fn();
 const getConversation = vi.fn();
 const sendMessage = vi.fn();
 const uploadAttachment = vi.fn();
@@ -37,6 +38,7 @@ vi.mock("./chat-api", () => ({
   listConversations: () => listConversations(),
   listDiscoverableGroupParticipants: () => listDiscoverableGroupParticipants(),
   createGroupConversation: (input: { participantIds: string[] }) => createGroupConversation(input),
+  createFreshDirectConversation: (input: { agentId: string }) => createFreshDirectConversation(input),
   getConversation: (conversationId: string) => getConversation(conversationId),
   getUsageMetrics: (input: { ownerId?: string; conversationId?: string }) => getUsageMetrics(input),
   uploadAttachment: (file: File) => uploadAttachment(file),
@@ -256,6 +258,7 @@ describe("chat workspace usage helpers", () => {
   it("refreshes usage only for events that can change visible totals", () => {
     expect(shouldRefreshUsageForEvent("message.sent")).toBe(true);
     expect(shouldRefreshUsageForEvent("relay.report")).toBe(true);
+    expect(shouldRefreshUsageForEvent("relay.completed")).toBe(true);
     expect(shouldRefreshUsageForEvent("message.delivered")).toBe(true);
     expect(shouldRefreshUsageForEvent("turn_end")).toBe(true);
     expect(shouldRefreshUsageForEvent("message_status")).toBe(true);
@@ -308,6 +311,34 @@ describe("chat workspace relay event mapping", () => {
     });
   });
 
+  it("keeps relay.processing NO_REPLY tokens out of visible agent messages", () => {
+    expect(
+      toRelayAgentMessage({
+        eventType: "relay.processing",
+        payload: {
+          message_id: "msg-1",
+          node_id: "node-demo",
+          summary: "NO_REPLY",
+          created_at: "2026-03-12T00:00:00Z"
+        }
+      })
+    ).toBeNull();
+  });
+
+  it("keeps relay.report NO_REPLY tokens out of visible agent messages", () => {
+    expect(
+      toRelayAgentMessage({
+        eventType: "relay.report",
+        payload: {
+          message_id: "msg-1",
+          node_id: "node-demo",
+          summary: "NO_REPLY",
+          created_at: "2026-03-12T00:00:00Z"
+        }
+      })
+    ).toBeNull();
+  });
+
   it("converts relay completion receipts into a synthetic completed agent message", () => {
     expect(
       toRelayAgentMessage({
@@ -325,6 +356,30 @@ describe("chat workspace relay event mapping", () => {
       recovery_action_label: undefined,
       recovery_hint: undefined
     });
+  });
+
+  it("keeps suppressed NO_REPLY completion receipts out of visible agent messages", () => {
+    expect(
+      toRelayAgentMessage({
+        eventType: "relay.completed",
+        payload: {
+          message_id: "msg-1",
+          detail: "suppressed_by=no_reply_token"
+        }
+      })
+    ).toBeNull();
+  });
+
+  it("keeps suppressed NO_REPLY delivery receipts out of visible agent messages", () => {
+    expect(
+      toRelayAgentMessage({
+        eventType: "message.delivered",
+        payload: {
+          message_id: "msg-1",
+          detail: "NO_REPLY | suppressed_by=no_reply_token"
+        }
+      })
+    ).toBeNull();
   });
 });
 
@@ -597,6 +652,7 @@ describe("chat workspace page", () => {
       }
     ]);
     createGroupConversation.mockResolvedValue({ conversation_id: "conv-group-new" });
+    createFreshDirectConversation.mockResolvedValue({ conversation_id: "conv-fresh-1" });
     getConversation.mockImplementation(async (conversationId: string) => {
       if (conversationId === "conv-group-new") {
         return {
@@ -612,12 +668,25 @@ describe("chat workspace page", () => {
           messages: []
         };
       }
+      if (conversationId === "conv-fresh-1") {
+        return {
+          conversation_id: "conv-fresh-1",
+          title: "Teammate · Fresh session",
+          kind_label: "Direct agent chat",
+          target_label: "Teammate",
+          discoverability_hint: "Reuse this stable direct chat for the same agent, or start a fresh session here when you need a new prompt snapshot.",
+          direct_agent_id: "agent-ops",
+          mention_candidates: [],
+          messages: []
+        };
+      }
       return {
         conversation_id: "conv-1",
         title: "You & Teammate",
         kind_label: "Direct agent chat",
         target_label: "Teammate",
-        discoverability_hint: "This is a one-to-one conversation with an available target.",
+        discoverability_hint: "Reuse this stable direct chat for the same agent, or start a fresh session here when you need a new prompt snapshot.",
+        direct_agent_id: "agent-ops",
         mention_candidates: [],
         messages: []
       };
@@ -836,8 +905,27 @@ describe("chat workspace page", () => {
     expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New direct chat" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create group chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start fresh session" })).toBeInTheDocument();
     expect(screen.getByText("Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /You & Teammate/i })).toBeInTheDocument();
+  });
+
+  it("starts a fresh session from a direct chat without restoring the global new-direct entry", async () => {
+    const user = userEvent.setup();
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    expect(screen.getByText("Existing turns in this thread keep their earlier profile snapshot. Start a fresh session to verify newly saved prompt changes without rewriting this history.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Start fresh session" }));
+
+    expect(createFreshDirectConversation).toHaveBeenCalledWith({ agentId: "agent-ops" });
+    expect(await screen.findByRole("heading", { name: "Teammate · Fresh session" })).toBeInTheDocument();
+    expect(getConversation).toHaveBeenCalledWith("conv-fresh-1");
   });
 
   it("exposes group-chat mention candidates from agent participants only", async () => {
@@ -1111,6 +1199,97 @@ describe("chat workspace page", () => {
     expect(screen.getByText("node-demo")).toBeInTheDocument();
   });
 
+  it("keeps NO_REPLY processing and report events out of the live group thread and conversation preview", async () => {
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "m170-node",
+      targetNodeStatus: "online",
+      initialConversationId: "conv-group",
+      ownership: {
+        nodeId: "m170-node",
+        nodeLabel: "m170-node",
+        nodeStatus: "online",
+        agentLabel: "assistant",
+        ownershipLabel: "Using your main agent assistant on m170-node (online and ready to chat)"
+      }
+    });
+    listConversations.mockResolvedValueOnce([
+      {
+        conversation_id: "conv-group",
+        title: "Agent M170 Alpha + Agent M170 Beta",
+        last_message_preview: "Previous visible reply",
+        last_message_at: "2026-03-16T03:12:40Z",
+        unread_count: 0,
+        participants: ["You", "Agent M170 Alpha", "Agent M170 Beta"],
+        kind_label: "Group chat",
+        target_label: "Multiple participants",
+        discoverability_hint: "Use this shared thread for multi-party coordination across people and agents.",
+        ownership_label: "Using your main agent assistant on m170-node (online and ready to chat)"
+      }
+    ]);
+    getConversation.mockResolvedValueOnce({
+      conversation_id: "conv-group",
+      title: "Agent M170 Alpha + Agent M170 Beta",
+      kind_label: "Group chat",
+      target_label: "Multiple participants",
+      discoverability_hint: "Use this shared thread for multi-party coordination across people and agents.",
+      mention_candidates: [
+        { agentId: "agent-m170-alpha", label: "Agent M170 Alpha" },
+        { agentId: "agent-m170-beta", label: "Agent M170 Beta" }
+      ],
+      messages: [
+        {
+          message_id: "msg-user-1",
+          sender_type: "user",
+          sender_name: "You",
+          is_mine: true,
+          content: "@agent-m170-alpha no-reply check: stay silent now.",
+          created_at: "2026-03-16T03:12:56Z",
+          delivery_status: "sent",
+          attachments: []
+        }
+      ]
+    });
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-group"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "Agent M170 Alpha + Agent M170 Beta" })).toBeInTheDocument();
+    expect(screen.getByText("Previous visible reply")).toBeInTheDocument();
+
+    const streamInput = streamConversationEvents.mock.calls.at(-1)?.[0] as
+      | { onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void }
+      | undefined;
+    expect(streamInput).toBeDefined();
+
+    streamInput?.onEvent({
+      eventType: "relay.processing",
+      payload: {
+        message_id: "msg-user-1",
+        node_id: "m170-node",
+        summary: "NO_REPLY",
+        created_at: "2026-03-16T03:13:03Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "relay.report",
+      payload: {
+        message_id: "msg-user-1",
+        node_id: "m170-node",
+        summary: "NO_REPLY",
+        created_at: "2026-03-16T03:13:03Z"
+      }
+    });
+
+    expect(screen.queryByText("NO_REPLY", { selector: ".whitespace-pre-wrap" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent is working")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent replied")).not.toBeInTheDocument();
+    expect(screen.getByText("Previous visible reply")).toBeInTheDocument();
+  });
+
   it("shows real conversation and workspace token-turn usage for the active chat", async () => {
     getChatBootstrapState.mockResolvedValue({
       selfUserId: "user-1",
@@ -1151,7 +1330,7 @@ describe("chat workspace page", () => {
     expect(getUsageMetrics).toHaveBeenCalledWith({ ownerId: "owner-1" });
   });
 
-  it("refreshes visible usage after relay reports deliver real metrics", async () => {
+  it("refreshes visible usage after relay completion delivers real metrics", async () => {
     let usageStage: "initial" | "updated" = "initial";
     getUsageMetrics.mockImplementation(async (input: { ownerId?: string; conversationId?: string }) => {
       if (input.conversationId === "conv-1") {
@@ -1182,7 +1361,7 @@ describe("chat workspace page", () => {
       | undefined;
     expect(streamInput).toBeDefined();
     streamInput?.onEvent({
-      eventType: "relay.report",
+      eventType: "relay.completed",
       payload: {
         message_id: "msg-usage-refresh",
         node_id: "node-online",
@@ -1291,6 +1470,44 @@ describe("chat workspace page", () => {
       expect(screen.getByText("36 tokens")).toBeInTheDocument();
       expect(screen.getByText("12 turns")).toBeInTheDocument();
       expect(screen.getByText("72 tokens")).toBeInTheDocument();
+    });
+  });
+
+  it("invalidates stale bootstrap identity after bind confirmation state is carried into chat", async () => {
+    getChatBootstrapState
+      .mockResolvedValueOnce({
+        selfUserId: "user-stale",
+        ownerId: "owner-stale",
+        targetNodeId: "node-1",
+        targetNodeStatus: "online",
+        initialConversationId: "conv-1",
+        ownership: {
+          ownershipLabel: "Owned by you",
+          nodeLabel: "MacBook"
+        }
+      })
+      .mockResolvedValueOnce({
+        selfUserId: "user-fresh",
+        ownerId: "owner-fresh",
+        targetNodeId: "node-1",
+        targetNodeStatus: "online",
+        initialConversationId: "conv-1",
+        ownership: {
+          ownershipLabel: "Owned by you",
+          nodeLabel: "MacBook"
+        }
+      });
+
+    const { queryClient } = renderWorkspaceWithPersistentClient({
+      initialEntries: [{ pathname: "/chat/conv-1", state: { boundSelfUserId: "user-fresh" } } as unknown as string],
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }]
+    });
+
+    await waitFor(() => {
+      expect(getChatBootstrapState.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+    await waitFor(() => {
+      expect(queryClient.getQueryData(["chat", "bootstrap"])).toMatchObject({ selfUserId: "user-fresh" });
     });
   });
 });

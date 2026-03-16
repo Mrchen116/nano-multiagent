@@ -1,0 +1,111 @@
+# M205 新建 Agent 首聊与新会话收口
+
+## 启动记录
+- 已阅读：`LOGBOOK.md`、`COMMENTING_GUIDE.md`、`/Users/czj/.codex/skills/tdd-execution-worker/SKILL.md`。
+- 已阅读失败材料：`/Users/czj/Repos/nano-multiagent/.worktrees/M146/ACCEPTANCE/M146-acceptance.md`。
+- 当前处境：M205，`execution_mode=parallel`，`use_worktree=true`，worktree=`/Users/czj/Repos/nano-multiagent/.worktrees/M205`，branch=`milestone/M205`。
+- 已识别三类目标问题：
+  - 新建 Agent 创建后虽可发现，但首聊可能卡在 Gateway `unknown agent_id`。
+  - 保持单 Agent 复用直聊入口的同时，缺少同 Agent 的 fresh session 路径。
+  - allowlist 面板对普通用户暴露了过多内部技能/工具。
+- 基线门禁：已完成 milestone 指定的 backend / frontend 定向门禁，并补充了一个 Gateway statusless-run 回归用例。
+
+### R1 新建 Agent 首聊闭环与 runtime 可聊态
+- Context:
+  - Gateway 在线注册时会先写入 ownerless runtime profile；随后用户在 Settings 新建并绑定同 agent_id 时，创建流程需要覆盖这个占位 profile，而不是把它误判成重复创建。
+  - 如果 profile owner 与 node owner 不一致，`/im/v1/agents` 的 runtime-selectable 过滤会把刚创建的 Agent 隐藏掉，进而影响首聊路径。
+- Decision:
+  - `ConfigService.create_profile()` 允许覆盖 ownerless runtime placeholder；当创建请求显式绑定节点时，同步回填 node owner，并保留真正 owner 冲突时的拒绝分支。
+- Rationale:
+  - 这样既保留“已拥有 profile 不能重复创建”的约束，又能把 Gateway 预注册的空壳 runtime 变成真实可聊 Agent，消除新建后首聊 `unknown agent_id` / 列表消失问题。
+- Evidence:
+  - Tests:
+    - `pytest tests/im_service/integration/test_agent_create_flow.py` → `2 passed in 0.59s`
+    - `pytest -q tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py tests/im_service/integration/test_m103_im_gateway_e2e.py::test_web_im_message_roundtrip_browserless tests/im_service/integration/test_m103_im_gateway_e2e.py::test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile` → `10 passed in 0.97s`
+  - Entry:
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/application/config_service.py`
+- Rollback:
+  - 仅回退 `create_profile()` 中 ownerless-placeholder 覆盖与 node owner 回填逻辑即可恢复旧行为，但会重新暴露创建后首聊缺口。
+- Commits:
+  - 未创建；当前仍处于实现收口前的本地变更阶段。
+- Next:
+  - 无；R1 所需实现侧闭环已完成。
+
+### R2 每 Agent 单一入口下的 fresh session 路径
+- Context:
+  - 需求明确禁止恢复全局 `New direct chat` 按钮，但同一 Agent 需要一个可发现的新会话入口，供验证新 prompt snapshot。
+  - 既有 backend 已支持“旧 direct conversation 固定旧 profile，新会话吃新 profile”的语义，前端之前没有暴露对应产品路径。
+- Decision:
+  - 在 direct chat header 中增加 `Start fresh session` CTA，通过 `createFreshDirectConversation()` 创建新的 direct conversation；保留每个 Agent 只有一个稳定直聊入口的模型。
+  - 在 conversation detail 中显式解析 `direct_agent_id`，并补齐聊天页、创建页、详情页文案，解释“稳定线程 + fresh session”的产品语义。
+- Rationale:
+  - 这满足“单一主入口不漂移”的产品约束，同时给普通用户一个明确的新线程验证路径，而不是隐式依赖旧 thread 被覆盖。
+- Evidence:
+  - Tests:
+    - `npm --prefix src/IM/frontend test src/features/chat/chat-workspace-page.test.ts src/features/settings/agents/agent-create.test.tsx src/features/settings/agents/agent-edit.test.tsx` → `31 passed (31)`
+    - `npm --prefix src/IM/frontend run build` → passed
+    - backend snapshot 语义最小必要验证：
+      - `pytest -q tests/im_service/integration/test_m103_im_gateway_e2e.py::test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile` → included in `10 passed in 0.97s`
+  - Entry:
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/frontend/src/features/chat/im-chat-api.ts`
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/frontend/src/features/chat/chat-api.ts`
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/frontend/src/features/chat/chat-workspace-page.tsx`
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/frontend/src/features/chat/components/message-pane.tsx`
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/frontend/src/features/chat/types.ts`
+- Rollback:
+  - 回退 fresh-session API/export、chat workspace mutation 与 MessagePane CTA 即可恢复旧的“只有稳定直聊，无新会话路径”状态。
+- Commits:
+  - 未创建；当前仍处于实现收口前的本地变更阶段。
+- Next:
+  - 无；R2 实现与定向自证已完成。
+
+### R3 Allowlist 面向普通用户的收敛与分组
+- Context:
+  - 创建/编辑页直接暴露 orchestrator、acceptance、dev tools 会把普通用户需要的信息层级淹没，同时旧配置又不能在编辑时被静默隐藏导致误丢。
+- Decision:
+  - 重写 allowlist selector：默认展示 `Recommended for product users`，把 advanced/internal 选项折叠到 `Show advanced/internal options`；已保存但属高级项的值展示在 `Saved advanced items` 区域。
+- Rationale:
+  - 这样普通用户默认只看到产品安全集合，但历史配置仍然可见、可审、可删，不会因 UI 收敛而误清空旧值。
+- Evidence:
+  - Tests:
+    - `npm --prefix src/IM/frontend test src/features/settings/agents/agent-create.test.tsx src/features/settings/agents/agent-edit.test.tsx` → both included in `31 passed (31)`
+    - `npm --prefix src/IM/frontend run build` → passed
+  - Entry:
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/frontend/src/features/settings/agents/allowlist-selector.tsx`
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/frontend/src/features/settings/agents/agent-create-page.tsx`
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx`
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/frontend/src/features/settings/agents/agent-create.test.tsx`
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/IM/frontend/src/features/settings/agents/agent-edit.test.tsx`
+- Rollback:
+  - 回退 allowlist selector 和相关页面文案即可恢复“全部直出”的旧界面。
+- Commits:
+  - 未创建；当前仍处于实现收口前的本地变更阶段。
+- Next:
+  - 无；R3 实现与定向自证已完成。
+
+### R4 自证证据、runtime 复用说明与交接
+- Context:
+  - 本 milestone 要交给 orchestrator 继续重派最终产品验收，因此需要明确区分“实现自证已完成”和“真实产品验收仍待重派”。
+  - 在补跑过程中，还发现一个与本 milestone 改动相邻的 backend 回归：Gateway pipeline 对 statusless run snapshot 无法把 `output_text` 视为 completed，导致 browserless roundtrip 用例卡住。
+- Decision:
+  - 补充 Gateway `_run_status()` fallback：当 run snapshot 没有 `status` 但已有 `output_text` 时按 `completed` 处理；并加 unit 回归测试锁定该行为。
+  - 将实现自证证据统一落盘到 `TASKS` / `PROGRESS` / `ACCEPTANCE`，方便主 agent 直接据此重派真实 acceptance。
+- Rationale:
+  - 这让 backend gate 在干净进程中稳定返回，避免 orchestrator 收到“局部通过、整套卡住”的不完整信号。
+- Evidence:
+  - Tests:
+    - `pytest tests/unit/personal_assistant/test_gateway_pipeline.py -k statusless_run_snapshot_with_output` → `1 passed`
+    - `pytest tests/im_service/integration/test_m103_im_gateway_e2e.py::test_web_im_message_roundtrip_browserless` → `1 passed in 0.63s`
+    - `pytest tests/im_service/integration/test_agent_create_flow.py` → `2 passed in 0.59s`
+    - `pytest tests/im_service/integration/test_agent_config_api.py` → `6 passed in 0.65s`
+    - `pytest -q tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py tests/im_service/integration/test_m103_im_gateway_e2e.py::test_web_im_message_roundtrip_browserless tests/im_service/integration/test_m103_im_gateway_e2e.py::test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile` → `10 passed in 0.97s`
+    - `npm --prefix src/IM/frontend test src/features/settings/agents/agent-create.test.tsx src/features/settings/agents/agent-edit.test.tsx src/features/chat/chat-workspace-page.test.ts && npm --prefix src/IM/frontend run build` → passed
+  - Entry:
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/src/personal_assistant/gateway/inbound_pipeline.py`
+    - `/Users/czj/Repos/nano-multiagent/.worktrees/M205/tests/unit/personal_assistant/test_gateway_pipeline.py`
+- Rollback:
+  - 回退 `_run_status()` 的 fallback 与新增 unit test 即可恢复旧的“必须显式 status 才结束”逻辑，但会重新引入 browserless roundtrip 卡住风险。
+- Commits:
+  - 未创建；当前未进入 commit / merge / cleanup 阶段。
+- Next:
+  - 由主 agent 基于 `ACCEPTANCE/M205-acceptance.md` 继续执行真实产品验收重派。

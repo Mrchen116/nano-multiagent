@@ -492,9 +492,11 @@ export function MessagePane(props: {
   starter?: ChatStarter | null;
   isMobile: boolean;
   isSending: boolean;
+  isStartingFreshSession: boolean;
   sendAvailability: SendAvailability;
   usage: ChatUsageView;
   onSend: (payload: { content: string; attachments: ChatAttachment[] }) => Promise<unknown>;
+  onStartFreshSession?: (agentId: string) => Promise<unknown>;
   onUploadAttachment: (file: File) => Promise<ChatAttachment>;
 }) {
   const [draft, setDraft] = useState("");
@@ -685,13 +687,13 @@ export function MessagePane(props: {
 
   return (
     <section className="im-card flex h-full min-h-[420px] flex-col overflow-hidden">
-      <div className="flex items-center gap-3 border-b border-[var(--im-border)] px-4 py-3">
+      <div className="flex items-start gap-3 border-b border-[var(--im-border)] px-4 py-3">
         {props.isMobile && (
           <Link to="/chat" className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
             Back
           </Link>
         )}
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           {props.detail.kind_label && (
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{props.detail.kind_label}</p>
           )}
@@ -700,10 +702,25 @@ export function MessagePane(props: {
           {props.detail.discoverability_hint && (
             <p className="mt-1 text-xs text-slate-500">{props.detail.discoverability_hint}</p>
           )}
+          {props.detail.direct_agent_id && props.onStartFreshSession ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Existing turns in this thread keep their earlier profile snapshot. Start a fresh session to verify newly saved prompt changes without rewriting this history.
+            </p>
+          ) : null}
           {props.detail.ownership_label && (
             <p className="mt-1 text-xs text-slate-500">{props.detail.ownership_label}</p>
           )}
         </div>
+        {props.detail.direct_agent_id && props.onStartFreshSession ? (
+          <button
+            type="button"
+            className="im-btn im-btn-muted shrink-0"
+            disabled={props.isStartingFreshSession}
+            onClick={() => void props.onStartFreshSession?.(props.detail!.direct_agent_id!)}
+          >
+            {props.isStartingFreshSession ? "Starting fresh session…" : "Start fresh session"}
+          </button>
+        ) : null}
       </div>
       <UsageStrip usage={props.usage} />
       <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4">

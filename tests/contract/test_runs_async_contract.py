@@ -89,12 +89,14 @@ def test_messages_async_contract_submit_and_get_run() -> None:
         "updated_at",
         "turn_id",
         "stop_reason",
+        "output_text",
         "error",
         "usage",
     }
     assert terminal["status"] == "completed"
     assert terminal["turn_id"] == "turn_contract_async"
     assert terminal["stop_reason"] == "completed"
+    assert terminal["output_text"] == "async-ok"
     assert terminal["error"] is None
     assert terminal["usage"] is None
 

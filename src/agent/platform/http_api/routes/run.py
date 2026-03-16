@@ -27,6 +27,7 @@ class RunResponse(BaseModel):
     updated_at: str
     turn_id: str | None = None
     stop_reason: str | None = None
+    output_text: str | None = None
     error: dict[str, Any] | None = None
     usage: dict[str, int] | None = None
 
@@ -75,6 +76,7 @@ def _to_run_response(record: RunRecord) -> RunResponse:
         updated_at=record.updated_at,
         turn_id=record.turn_id,
         stop_reason=record.stop_reason,
+        output_text=record.output_text,
         error=dict(record.error) if record.error is not None else None,
         usage=(
             {

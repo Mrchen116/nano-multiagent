@@ -5,6 +5,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from agent.core.llm.factory import LLMFactoryConfig
+from agent.core.llm.model_registry import list_provider_models
 from agent.core.skills.discovery import default_skill_search_roots
 from agent.core.skills.registry import SkillRegistry
 from agent.platform.config.resolver import ConfigResolver
@@ -90,10 +92,12 @@ class AllowlistOptionResponse(BaseModel):
 
 
 class AgentAllowlistOptionsResponse(BaseModel):
-    """Selectable skills, tools, and product-owned defaults for the settings UI."""
+    """Selectable skills, tools, models, and product-owned defaults for the settings UI."""
 
     skills: list[AllowlistOptionResponse] = Field(default_factory=list)
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
+    model_options: list[str] = Field(default_factory=list)
+    platform_default_model: str | None = None
     default_system_prompt: str = ""
 
 
@@ -159,6 +163,21 @@ def _list_available_tool_options() -> list[AllowlistOptionResponse]:
         AllowlistOptionResponse(name=spec.name, description=spec.description)
         for spec in sorted(registry.list_specs(), key=lambda spec: spec.name)
     ]
+
+
+def _list_available_models() -> list[str]:
+    """List selectable models for the currently configured provider."""
+    llm_config = LLMFactoryConfig.from_env()
+    return [metadata.model for metadata in list_provider_models(llm_config.provider)]
+
+
+def _platform_default_model() -> str | None:
+    """Return the current platform default model shown in settings."""
+    llm_config = LLMFactoryConfig.from_env()
+    available_models = {metadata.model for metadata in list_provider_models(llm_config.provider)}
+    if llm_config.model in available_models:
+        return llm_config.model
+    return next(iter(sorted(available_models)), None)
 
 
 def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -> AgentConfigResponse:
@@ -233,10 +252,12 @@ def list_agents(service: ConfigService = Depends(get_config_service)) -> list[Ag
 
 @router.get("/im/v1/agents/allowlist-options", response_model=AgentAllowlistOptionsResponse)
 def get_agent_allowlist_options() -> AgentAllowlistOptionsResponse:
-    """Return current selectable skills, tools, and product-owned defaults for agent settings."""
+    """Return current selectable skills, tools, models, and product-owned defaults for agent settings."""
     return AgentAllowlistOptionsResponse(
         skills=_list_available_skill_options(),
         tools=_list_available_tool_options(),
+        model_options=_list_available_models(),
+        platform_default_model=_platform_default_model(),
         default_system_prompt=PERSONAL_ASSISTANT_PROFILE.default_system_prompt or "",
     )
 

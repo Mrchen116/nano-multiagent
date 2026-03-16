@@ -39,13 +39,16 @@ function renderCreatePage() {
     }
   });
 
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
-        <AgentCreatePage />
-      </MemoryRouter>
-    </QueryClientProvider>
-  );
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentCreatePage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+  };
 }
 
 afterEach(() => {
@@ -57,7 +60,7 @@ afterEach(() => {
 });
 
 describe("agent create page", () => {
-  it("creates a new agent, redirects to detail, and exposes a reusable direct-chat follow-up", async () => {
+  it("creates a new agent, keeps the success CTA reachable, and opens the reusable direct chat", async () => {
     const user = userEvent.setup();
 
     apiMocks.listNodesMock.mockResolvedValue([
@@ -80,6 +83,8 @@ describe("agent create page", () => {
         { name: "read", description: "Read files" },
         { name: "bash", description: "Run shell commands" }
       ],
+      model_options: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
+      platform_default_model: "codexOAuth:gpt-5.2-codex",
       default_system_prompt: "You are the personal_assistant default template."
     });
     apiMocks.createAgentMock.mockResolvedValue({
@@ -91,7 +96,7 @@ describe("agent create page", () => {
       skills: ["plan"],
       tool_allowlist: ["read"],
       group_reply_policy: "MENTION",
-      default_model: "claude-sonnet-4",
+      default_model: "claude-3-5-sonnet-20241022",
       workspace_root: "/tmp/agent-new-workspace",
       workspace_is_default: false,
       profile_version: 1,
@@ -100,7 +105,7 @@ describe("agent create page", () => {
     });
     apiMocks.createDirectConversationMock.mockResolvedValue({ conversation_id: "conv-agent-new" });
 
-    renderCreatePage();
+    const { queryClient } = renderCreatePage();
 
     expect(await screen.findByRole("heading", { name: "New Agent" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Back to Agents" })).toHaveAttribute("href", "/settings/agents");
@@ -108,6 +113,10 @@ describe("agent create page", () => {
       expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the personal_assistant default template.");
     });
     expect(screen.getByText("We prefill the personal_assistant product template here. Edit it before saving so it matches this agent.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("Platform default (codexOAuth:gpt-5.2-codex)");
+    expect(screen.getAllByText("Recommended for product users")).toHaveLength(2);
+    expect(screen.getAllByText("Show advanced/internal options (1 hidden)")).toHaveLength(1);
+    expect(screen.getByRole("checkbox", { name: /bash/i })).not.toBeChecked();
 
     await user.type(screen.getByLabelText("Agent ID"), "agent-new");
     await user.type(screen.getByLabelText("Display Name"), "Agent New");
@@ -117,7 +126,7 @@ describe("agent create page", () => {
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Node"), "node-1");
-    await user.type(screen.getByLabelText("Default Model"), "claude-sonnet-4");
+    await user.selectOptions(screen.getByLabelText("Default Model"), "claude-3-5-sonnet-20241022");
     await user.type(screen.getByLabelText("Workspace Path Setting"), "/tmp/agent-new-workspace");
 
     expect(screen.getByText("MacBook")).toBeInTheDocument();
@@ -137,14 +146,20 @@ describe("agent create page", () => {
         skills: ["plan"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
-        default_model: "claude-sonnet-4",
+        default_model: "claude-3-5-sonnet-20241022",
         workspace_root: "/tmp/agent-new-workspace",
         node_id: "node-1"
       });
     });
 
     expect(await screen.findByText("Agent created. Open its dedicated direct chat now or keep editing in Settings.")).toBeInTheDocument();
-    expect(screen.getByText("Each agent keeps one stable reusable direct chat window. Reopen this same thread anytime instead of starting a new direct chat.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Each agent keeps one stable reusable direct chat window. From inside chat you can start a fresh session later when you need a new prompt snapshot without disturbing older threads."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Agent New" })).toHaveAttribute("href", "/settings/agents/agent-new");
+    expect(apiMocks.navigateMock).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Open direct chat" }));
 
@@ -153,16 +168,31 @@ describe("agent create page", () => {
     });
 
     await waitFor(() => {
-      expect(apiMocks.navigateMock).toHaveBeenNthCalledWith(1, "/settings/agents/agent-new");
-      expect(apiMocks.navigateMock).toHaveBeenNthCalledWith(2, "/chat/conv-agent-new");
+      expect(apiMocks.navigateMock).toHaveBeenNthCalledWith(1, "/chat/conv-agent-new");
     });
+
+    expect(screen.getByRole("link", { name: "Agent New" })).toHaveAttribute("href", "/settings/agents/agent-new");
+
+
+    expect(queryClient.getQueryData(["settings", "agents"])).toEqual([
+      expect.objectContaining({
+        agent_id: "agent-new",
+        display_name: "Agent New"
+      })
+    ]);
   });
 
   it("blocks submission and explains required fields", async () => {
     const user = userEvent.setup();
 
     apiMocks.listNodesMock.mockResolvedValue([]);
-    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({ skills: [], tools: [], default_system_prompt: "" });
+    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({
+      skills: [],
+      tools: [],
+      model_options: ["codexOAuth:gpt-5.2-codex"],
+      platform_default_model: "codexOAuth:gpt-5.2-codex",
+      default_system_prompt: ""
+    });
 
     renderCreatePage();
 
@@ -181,7 +211,13 @@ describe("agent create page", () => {
     const user = userEvent.setup();
 
     apiMocks.listNodesMock.mockResolvedValue([]);
-    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({ skills: [], tools: [], default_system_prompt: "" });
+    apiMocks.getAgentAllowlistOptionsMock.mockResolvedValue({
+      skills: [],
+      tools: [],
+      model_options: ["codexOAuth:gpt-5.2-codex"],
+      platform_default_model: "codexOAuth:gpt-5.2-codex",
+      default_system_prompt: ""
+    });
     apiMocks.createAgentMock.mockRejectedValue(new Error("POST /im/v1/agents failed: 409 (agent already exists)"));
 
     renderCreatePage();
