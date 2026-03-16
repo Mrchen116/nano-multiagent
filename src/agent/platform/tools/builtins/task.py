@@ -1,9 +1,10 @@
 """Built-in `task` tool for blocking and background sub-agent execution."""
 
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from threading import Lock
 from time import perf_counter
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 
 from agent.core.errors import ToolError
 from agent.core.ids import make_tool_call_id
@@ -16,7 +17,7 @@ from agent.core.tools.base import ToolContext
 class TaskRuntime(Protocol):
     """Runtime surface required by `TaskTool` to create and execute sessions."""
 
-    def create_session(self):  # noqa: ANN201
+    def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None):  # noqa: ANN201
         """Create a sub-session used by a new task run."""
 
         ...
@@ -150,7 +151,7 @@ class TaskTool:
         runtime = self._require_runtime()
         task_id = make_tool_call_id()
         timeout_seconds = _resolve_timeout_seconds(args)
-        task_session_id, prompt, continuation = self._resolve_target_session(args, runtime=runtime)
+        task_session_id, prompt, continuation = self._resolve_target_session(args, runtime=runtime, ctx=ctx)
         description = _normalize_optional_text(args.get("description")) or ""
         agent = _resolve_agent_name(args)
 
@@ -205,7 +206,7 @@ class TaskTool:
         runtime = self._require_runtime()
         timeout_seconds = _resolve_timeout_seconds(args)
         task_id = make_tool_call_id()
-        task_session_id, prompt, continuation = self._resolve_target_session(args, runtime=runtime)
+        task_session_id, prompt, continuation = self._resolve_target_session(args, runtime=runtime, ctx=ctx)
         description = _normalize_optional_text(args.get("description")) or ""
         agent = _resolve_agent_name(args)
         receipt = _background_receipt_message(
@@ -318,10 +319,12 @@ class TaskTool:
         args: Mapping[str, Any],
         *,
         runtime: TaskRuntime,
+        ctx: ToolContext,
     ) -> tuple[str, str, bool]:
         task_session_id = _normalize_optional_text(args.get("session_id")) or ""
         prompt = _normalize_optional_text(args.get("prompt")) or ""
         continuation = bool(task_session_id)
+        inherited_metadata = _build_child_session_metadata(ctx)
 
         if continuation:
             exists = _runtime_session_exists(runtime, task_session_id)
@@ -333,7 +336,7 @@ class TaskTool:
                     tool_name=self.name,
                     details={"session_id": task_session_id},
                 )
-            created = runtime.create_session()
+            created = runtime.create_session(metadata=inherited_metadata)
             return str(created.session_id), prompt, False
 
         if not prompt:
@@ -341,7 +344,7 @@ class TaskTool:
                 "prompt is required when session_id is not provided",
                 tool_name=self.name,
             )
-        created = runtime.create_session()
+        created = runtime.create_session(metadata=inherited_metadata)
         return str(created.session_id), prompt, False
 
     def _validate_task_arguments(self, args: Mapping[str, Any], *, ctx: ToolContext) -> None:
@@ -407,6 +410,19 @@ class TaskTool:
             return
         with self._lock:
             self._idempotent_results[idempotency_key] = str(result)
+
+
+def _build_child_session_metadata(ctx: ToolContext) -> dict[str, str]:
+    """Build inherited child-session metadata from the parent tool context.
+
+    Args:
+        ctx: Active tool context for the parent session.
+
+    Returns:
+        Metadata carrying the parent workspace root so subagent sessions do not
+        silently fall back to the code repository root.
+    """
+    return {"workspace_root": str(ctx.cwd)}
 
 
 def _resolve_timeout_seconds(args: Mapping[str, Any]) -> float:
