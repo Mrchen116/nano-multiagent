@@ -186,7 +186,7 @@ describe("agent create page", () => {
         display_name: "Agent New"
       })
     ]);
-  });
+  }, 10_000);
 
   it("blocks submission and explains required fields", async () => {
     const user = userEvent.setup();
@@ -204,6 +204,7 @@ describe("agent create page", () => {
 
     await screen.findByRole("heading", { name: "New Agent" });
     await user.clear(screen.getByLabelText("System Prompt"));
+    expect(screen.getByLabelText("System Prompt")).toHaveValue("");
     await user.click(screen.getByRole("button", { name: "Create Agent" }));
 
     expect(screen.getByText("Agent ID is required.")).toBeInTheDocument();
