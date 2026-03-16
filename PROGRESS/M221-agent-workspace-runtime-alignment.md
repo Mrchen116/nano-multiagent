@@ -73,6 +73,6 @@
 - Evidence:
   - Tests: `pytest tests/contract/test_sessions_contract.py tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py tests/e2e/test_personal_assistant_main_e2e.py tests/unit/test_task_tool_blocking.py tests/unit/test_task_tool_non_blocking.py tests/unit/test_task_tool_with_resolver.py tests/integration/test_task_blocking_integration.py tests/integration/test_task_non_blocking_integration.py tests/integration/test_task_skills_integration.py tests/e2e/test_task_tool_blocking_e2e.py tests/e2e/test_task_tool_non_blocking_e2e.py tests/e2e/test_task_load_skills_e2e.py -q`
   - Entry: 运行态数据库里旧 `fuck` 直聊 session 缺少 `workspace_root`，而新 session 已带目标 workspace；新增 gateway 单测/集成测试证明旧 binding 会自动切到新 session，结合既有 kernel e2e 说明刷新后的 direct bash `pwd` 会落到 workspace 而不是 repo root。
-- Rollback: `c24a033`
-- Commits: C1=`b457f63`, C2=`c24a033`, C3=`PENDING`
-- Next: 提交文档、rebase `origin/main` 并集成回 `main`。
+- Rollback: `bafd7f9`
+- Commits: C1=`99a05ea`, C2=`bafd7f9`, C3=`2a2b11d`
+- Next: 已完成 rebase 与全量门禁，准备集成回 `main`。
