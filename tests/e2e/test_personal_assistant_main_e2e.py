@@ -445,27 +445,28 @@ def test_main_stop_command_reports_still_healthy_when_another_listener_remains(t
     health_url = f"http://127.0.0.1:{port}/v1/health"
     _wait_for_health(health_url)
 
-    blocker = subprocess.Popen(
-        [
-            sys.executable,
-            "-c",
-            (
-                "import json; import signal; import threading; from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer; "
-                f"server = ThreadingHTTPServer(('127.0.0.1', {port}), type('Handler', (BaseHTTPRequestHandler,), {{"
-                "'do_GET': lambda self: (self.send_response(200), self.send_header('Content-Type', 'application/json'), self.end_headers(), self.wfile.write(json.dumps({'healthy': True}).encode('utf-8'))), "
-                "'log_message': lambda *args: None"
-                "})); "
-                "done = threading.Event(); "
-                "signal.signal(signal.SIGTERM, lambda *_args: (done.set(), server.shutdown())); "
-                "threading.Thread(target=server.serve_forever, daemon=True).start(); "
-                "done.wait()"
-            ),
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    blocker: subprocess.Popen[bytes] | None = None
     try:
         _terminate_background_pid(pid)
+        blocker = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import json; import signal; import threading; from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer; "
+                    f"server = ThreadingHTTPServer(('127.0.0.1', {port}), type('Handler', (BaseHTTPRequestHandler,), {{"
+                    "'do_GET': lambda self: (self.send_response(200), self.send_header('Content-Type', 'application/json'), self.end_headers(), self.wfile.write(json.dumps({'healthy': True}).encode('utf-8'))), "
+                    "'log_message': lambda *args: None"
+                    "})); "
+                    "done = threading.Event(); "
+                    "signal.signal(signal.SIGTERM, lambda *_args: (done.set(), server.shutdown())); "
+                    "threading.Thread(target=server.serve_forever, daemon=True).start(); "
+                    "done.wait()"
+                ),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         _wait_for_health(health_url)
 
         stopped = subprocess.run(
@@ -482,8 +483,9 @@ def test_main_stop_command_reports_still_healthy_when_another_listener_remains(t
         assert "still_healthy=true" in stopped.stdout
         assert (config_path.parent / ".gateway-state.json").exists() is False
     finally:
-        blocker.terminate()
-        blocker.wait(timeout=10)
+        if blocker is not None:
+            blocker.terminate()
+            blocker.wait(timeout=10)
 
 
 def test_main_stop_command_reports_not_running_without_state_file(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

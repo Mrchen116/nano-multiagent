@@ -140,6 +140,7 @@ class AgentRuntime:
         if session is None:
             raise ValueError(f"session does not exist: {session_id}")
         session_created_at = session.created_at
+        session_workspace_root = _resolve_session_workspace_root(session=session, fallback=self._repo_root)
         frozen_system_prompt = session.metadata.get("system_prompt") if isinstance(session.metadata, Mapping) else None
         if not isinstance(frozen_system_prompt, str) or not frozen_system_prompt.strip():
             frozen_system_prompt = None
@@ -150,7 +151,7 @@ class AgentRuntime:
             raise ValueError("empty input parts are not allowed")
 
         turn_id = make_turn_id()
-        hook_metadata: dict[str, Any] = {}
+        hook_metadata: dict[str, Any] = {"cwd": str(session_workspace_root)}
         if isinstance(run_id, str) and run_id.strip():
             hook_metadata["run_id"] = run_id.strip()
         hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id, metadata=hook_metadata)
@@ -241,6 +242,7 @@ class AgentRuntime:
                 available_skills_override=() if use_frozen_system_prompt else None,
                 llm_session_id=llm_session_id,
                 session_created_at=session_created_at,
+                current_working_directory_override=session_workspace_root,
             )
         except ModelError as exc:
             # Retry boundary: only context-overflow-like failures trigger one
@@ -263,6 +265,7 @@ class AgentRuntime:
                 available_skills_override=() if use_frozen_system_prompt else None,
                 llm_session_id=llm_session_id,
                 session_created_at=session_created_at,
+                current_working_directory_override=session_workspace_root,
             )
 
         self._append_turn_events(session_id=session_id, turn_id=turn_id, turn_result=turn_result)
@@ -533,6 +536,7 @@ class AgentRuntime:
         available_skills_override: tuple[SkillMetadata, ...] | None,
         llm_session_id: str | None,
         session_created_at: str,
+        current_working_directory_override: Path | None,
     ) -> TurnResult:
         return self._loop.run(
             AgentState(
@@ -548,6 +552,7 @@ class AgentRuntime:
             available_skills_override=available_skills_override,
             llm_session_id=llm_session_id,
             session_created_at=session_created_at,
+            current_working_directory_override=current_working_directory_override,
         )
 
     def _preflight_compaction(
@@ -715,6 +720,20 @@ class AgentRuntime:
 
 
 _SESSION_EVENT_PUBLISHER_FACTORY_STATE_KEY = "session_event_publisher_factory"
+
+
+def _resolve_session_workspace_root(*, session: Session, fallback: Path) -> Path:
+    """Resolve the per-session working directory, defaulting to runtime repo root."""
+    raw_workspace_root = session.metadata.get("workspace_root") if isinstance(session.metadata, Mapping) else None
+    if not isinstance(raw_workspace_root, str):
+        return fallback
+    normalized = raw_workspace_root.strip()
+    if not normalized:
+        return fallback
+    candidate = Path(normalized).expanduser()
+    if not candidate.is_absolute():
+        return fallback
+    return candidate.resolve()
 
 
 def _resolve_session_event_publisher(*, registry: "HookRegistry", session_id: str):

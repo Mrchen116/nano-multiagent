@@ -3,6 +3,7 @@
 from typing import Any
 
 from collections.abc import Iterator
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -48,6 +49,7 @@ class CreateSessionRequest(BaseModel):
 
     title: str | None = None
     metadata: dict[str, Any] | None = None
+    workspace_root: str | None = None
 
 
 class SessionResponse(BaseModel):
@@ -169,7 +171,18 @@ def create_session(
     session_service: SessionService = Depends(get_session_service),
 ) -> SessionResponse:
     """Create one session via HTTP boundary."""
-    session = session_service.create_session(title=payload.title, metadata=payload.metadata)
+    try:
+        session = session_service.create_session(
+            title=payload.title,
+            metadata=_build_session_metadata(metadata=payload.metadata, workspace_root=payload.workspace_root),
+        )
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
     return _to_session_response(session)
 
 
@@ -471,6 +484,28 @@ def _iter_sse(events: Iterator[StreamEvent]) -> Iterator[str]:
     """Encode hub events into text/event-stream payload chunks."""
     for item in events:
         yield encode_sse_event(event_id=item.event_id, event=item.event, data=item.data)
+
+
+def _build_session_metadata(*, metadata: dict[str, Any] | None, workspace_root: str | None) -> dict[str, Any]:
+    """Merge create-session metadata with normalized workspace root when provided."""
+    merged: dict[str, Any] = dict(metadata or {})
+    normalized_workspace_root = _normalize_workspace_root(workspace_root)
+    if normalized_workspace_root is not None:
+        merged["workspace_root"] = normalized_workspace_root
+    return merged
+
+
+def _normalize_workspace_root(workspace_root: str | None) -> str | None:
+    """Normalize optional workspace root into an absolute filesystem path."""
+    if workspace_root is None:
+        return None
+    normalized = workspace_root.strip()
+    if not normalized:
+        return None
+    candidate = Path(normalized).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError("workspace_root must be an absolute path or start with ~/")
+    return str(candidate.resolve())
 
 
 def _resolve_context_window(runtime: object) -> int:

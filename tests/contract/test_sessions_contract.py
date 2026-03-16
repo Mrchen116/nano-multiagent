@@ -24,6 +24,39 @@ def test_create_session_contract() -> None:
     assert isinstance(payload['created_at'], str)
 
 
+def test_create_session_accepts_workspace_root_and_persists_normalized_value() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/v1/sessions",
+        json={"workspace_root": "~/nano-assistant/workspace/fuck"},
+        headers=_auth_headers("req-create-workspace-contract"),
+    )
+
+    assert response.status_code == 201
+    session_id = response.json()["session_id"]
+    session = client.app.state.session_service.get_session(session_id)
+    assert session is not None
+    assert session.metadata["workspace_root"].endswith("/nano-assistant/workspace/fuck")
+
+
+def test_create_session_rejects_relative_workspace_root() -> None:
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/v1/sessions",
+        json={"workspace_root": "relative/workspace"},
+        headers=_auth_headers("req-create-workspace-invalid-contract"),
+    )
+
+    assert response.status_code == 400
+    payload = response.json()["error"]
+    assert payload["code"] == "invalid_request"
+    assert payload["message"] == "workspace_root must be an absolute path or start with ~/"
+    assert payload["retryable"] is False
+    assert response.headers["x-request-id"] == "req-create-workspace-invalid-contract"
+
+
 def test_sessions_require_bearer_auth_and_use_unified_error_shape() -> None:
     client = TestClient(create_app())
 
