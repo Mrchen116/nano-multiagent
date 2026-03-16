@@ -73,6 +73,30 @@
 
 ### R3. 用真实创建与真实运行态完成回归验证并收口文档
 - Status: DONE
+
+### R4. 修复 task/subagent 链路把 child session cwd 回退到 repo root
+- Status: DONE
+- Acceptance:
+  - 直接复现“父 session 已绑定 workspace，但 task 工具创建的 child session 仍落到 repo root”的真实执行缺陷。
+  - 证明根因不是 prompt 文案，而是 task/subagent 新 session 创建时未继承 workspace_root，导致 runtime fallback 到 repo root。
+  - 修复后 parent session 触发 task/subagent，child session 的真实 `pwd` 与父 workspace 一致。
+  - 给出直接验证，覆盖用户所说的真实执行层而不是 session contract 层。
+- Tests Plan:
+  - unit: 是；补 task tool child session metadata 继承边界。
+  - contract: 否；本次是内部 tool/runtime 接线，不新增 HTTP 契约。
+  - integration: 是；覆盖 task tool 通过 registry/runtime 创建子 session 的链路。
+  - e2e: 是；真实父 session -> task tool -> child bash pwd，断言不再落到 repo root。
+- Expected Tests:
+  - `tests/e2e/test_task_tool_blocking_e2e.py::test_task_subagent_inherits_parent_workspace_root_for_real_pwd`
+  - `tests/integration/test_task_blocking_integration.py`
+  - `tests/integration/test_task_non_blocking_integration.py`
+  - `tests/unit/test_task_tool_blocking.py`
+  - `tests/unit/test_task_tool_non_blocking.py`
+- DoD:
+  - 红测先证明 child session cwd 仍错误回退到 repo root。
+  - C1/C2/C3 齐全。
+  - `test_command` 全绿。
+  - `PROGRESS` 写清 task/subagent 根因、证据与回滚点。
 - Acceptance:
   - 给定 `workspace=/Users/czj/nano-assistant/workspace/fuck`，agent 创建/读取/编辑后的响应与真实运行态 `pwd` 一致。
   - 至少一条真实入口测试覆盖“新建 agent -> gateway/kernel 创建会话 -> 运行时读到 pwd”。
