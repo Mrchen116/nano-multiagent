@@ -1086,7 +1086,7 @@ def _build_relay_lifecycle_callback(
         if relay_task_id is None:
             return
         manager = im_connection_manager_factory()
-        if manager is None or not manager.connected:
+        if manager is None:
             return
         if update.phase == "accepted":
             payload = reporter.send_delivery_receipt(

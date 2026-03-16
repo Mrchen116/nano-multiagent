@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
@@ -105,6 +106,7 @@ class IMConnectionManager:
         self._stop_requested = False
         self._reconnect_delay = config.reconnect_initial_seconds
         self._events: list[dict[str, object]] = []
+        self._pending_frames: deque[tuple[str, dict[str, object]]] = deque()
 
     @property
     def connected(self) -> bool:
@@ -118,7 +120,7 @@ class IMConnectionManager:
         return tuple(self._events)
 
     async def connect_once(self) -> None:
-        """Open the IM websocket, register the node, and reset reconnect backoff."""
+        """Open the IM websocket, register the node, and flush buffered upstream frames."""
 
         headers = {"User-Agent": "nano-multiagent-gateway"}
         if self._config.token is not None:
@@ -128,7 +130,12 @@ class IMConnectionManager:
         self._connected = True
         self._reconnect_delay = self._config.reconnect_initial_seconds
         self._events.append({"event": "connected", "url": self._config.websocket_url()})
-        await self._send_frame("node.register", self._reporter.send_register())
+        try:
+            await self._send_frame("node.register", self._reporter.send_register())
+            await self._flush_pending_frames(raise_on_disconnect=True)
+        except Exception as exc:  # noqa: BLE001
+            self._mark_disconnected(exc)
+            raise
 
     async def close(self) -> None:
         """Stop reconnect attempts and close the current websocket if present."""
@@ -142,9 +149,10 @@ class IMConnectionManager:
         self._events.append({"event": "closed"})
 
     async def send_json(self, message_type: str, payload: Mapping[str, object]) -> None:
-        """Send one gateway -> IM protocol frame over the active websocket."""
+        """Queue one gateway -> IM protocol frame and flush it when the socket is available."""
 
-        await self._send_frame(message_type, dict(payload))
+        self._pending_frames.append((message_type, dict(payload)))
+        await self._flush_pending_frames()
 
     async def run_forever(self) -> None:
         """Maintain the IM websocket until ``close`` is requested."""
@@ -155,9 +163,7 @@ class IMConnectionManager:
                     await self.connect_once()
                 await self._listen_once()
             except Exception as exc:  # noqa: BLE001
-                self._connected = False
-                self._websocket = None
-                self._events.append({"event": "disconnected", "error": str(exc)})
+                self._mark_disconnected(exc)
                 if self._stop_requested:
                     break
                 await self._sleep(self._reconnect_delay)
@@ -191,11 +197,33 @@ class IMConnectionManager:
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 
+    async def _flush_pending_frames(self, *, raise_on_disconnect: bool = False) -> None:
+        while self._pending_frames:
+            message_type, payload = self._pending_frames[0]
+            try:
+                await self._send_frame(message_type, payload)
+            except Exception as exc:  # noqa: BLE001
+                self._mark_disconnected(exc)
+                if raise_on_disconnect:
+                    raise
+                return
+            self._pending_frames.popleft()
+
     async def _send_frame(self, message_type: str, payload: Mapping[str, object]) -> None:
         websocket = self._require_websocket()
         frame = json.dumps({"type": message_type, "payload": dict(payload)}, ensure_ascii=False)
         await websocket.send(frame)
         self._events.append({"event": "sent", "type": message_type})
+
+    def _mark_disconnected(self, exc: Exception | None = None) -> None:
+        had_connection = self._connected or self._websocket is not None
+        self._connected = False
+        self._websocket = None
+        if had_connection:
+            event: dict[str, object] = {"event": "disconnected"}
+            if exc is not None:
+                event["error"] = str(exc)
+            self._events.append(event)
 
     def _require_websocket(self) -> ClientWebSocket:
         websocket = self._websocket
