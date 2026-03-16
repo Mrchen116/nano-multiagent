@@ -301,9 +301,10 @@ const DIRECT_AGENT_SESSION_LABEL = "Direct agent chat";
 const GROUP_CHAT_SESSION_LABEL = "Group chat";
 const DIRECT_AGENT_DISCOVERABILITY_HINT = "Reuse this stable direct chat for the same agent, or start a fresh session here when you need a new prompt snapshot.";
 const GROUP_CHAT_DISCOVERABILITY_HINT = "This is a shared thread where you can compare usage by agent while the group conversation stays in one timeline.";
-const GROUP_CHAT_TARGET_LABEL = "Multiple participants";
-const GROUP_CHAT_LIST_HINT = "Use this shared thread for multi-party coordination across people and agents.";
-const GROUP_CHAT_ENTRY_HINT = "Shared thread with multiple participants, including agent-specific usage views.";
+const GROUP_CHAT_TARGET_LABEL = "Shared thread";
+const GROUP_CHAT_LIST_HINT = "Keep people and agents in one shared conversation timeline.";
+const GROUP_CHAT_ENTRY_HINT = "Shared conversation for people and agents, with agent-specific usage views.";
+const ENGINEERING_GROUP_OWNERSHIP_PATTERNS = [/^Using your main agent .+ready to chat\)$/i];
 const AGENT_NETWORK_SESSION_LABEL = "Agent-to-agent chat";
 const AGENT_NETWORK_DISCOVERABILITY_HINT = "This is a read-only coordination thread between agents.";
 const AGENT_NETWORK_TARGET_LABEL = "Agents only";
@@ -340,6 +341,17 @@ function buildMainAgentOwnershipLabel(agentName: string, nodeLabel: string | nul
   return `${MAIN_AGENT_OWNERSHIP_PREFIX} ${agentName} on ${nodeLabel}${status}`;
 }
 
+function sanitizeGroupOwnershipLabel(ownershipLabel: string | null | undefined) {
+  const trimmed = ownershipLabel?.trim();
+  if (!trimmed) {
+    return GROUP_CHAT_ENTRY_HINT;
+  }
+  if (ENGINEERING_GROUP_OWNERSHIP_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return GROUP_CHAT_ENTRY_HINT;
+  }
+  return trimmed;
+}
+
 function toConversationSemantics(input: {
   title: string;
   conversationType?: string;
@@ -359,7 +371,7 @@ function toConversationSemantics(input: {
       kind_label: GROUP_CHAT_SESSION_LABEL,
       target_label: GROUP_CHAT_TARGET_LABEL,
       discoverability_hint: GROUP_CHAT_DISCOVERABILITY_HINT,
-      ownership_label: input.ownershipLabel ?? GROUP_CHAT_ENTRY_HINT
+      ownership_label: sanitizeGroupOwnershipLabel(input.ownershipLabel)
     };
   }
   if (input.conversationType === "agent-network") {
