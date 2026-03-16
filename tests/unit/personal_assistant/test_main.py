@@ -436,6 +436,99 @@ def test_build_relay_lifecycle_callback_marks_no_reply_suppression_in_completed_
     ]
 
 
+def test_build_relay_lifecycle_callback_keeps_completed_updates_when_im_is_reconnecting() -> None:
+    sent_frames: list[tuple[str, dict[str, object]]] = []
+
+    class _Reporter:
+        def send_report(
+            self,
+            *,
+            run_id: str,
+            status: str,
+            agent_id: str | None = None,
+            session_key: str | None = None,
+            conversation_id: str | None = None,
+            message_id: str | None = None,
+            summary: str | None = None,
+            detail: dict[str, object] | None = None,
+            usage: dict[str, object] | None = None,
+        ) -> dict[str, object]:
+            payload = {
+                "run_id": run_id,
+                "status": status,
+                "agent_id": agent_id,
+                "session_key": session_key,
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "summary": summary,
+            }
+            if detail is not None:
+                payload["detail"] = detail
+            if usage is not None:
+                payload["usage"] = usage
+            return payload
+
+        def send_delivery_receipt(self, *, relay_task_id: str, delivery_status: str, detail: str | None = None):
+            return {
+                "relay_task_id": relay_task_id,
+                "delivery_status": delivery_status,
+                "detail": detail,
+            }
+
+    class _Manager:
+        connected = False
+
+        async def send_json(self, message_type: str, payload: dict[str, object]) -> None:
+            sent_frames.append((message_type, payload))
+
+    callback = _build_relay_lifecycle_callback(
+        reporter=_Reporter(),
+        im_connection_manager_factory=lambda: _Manager(),
+    )
+    message = type("_Message", (), {})()
+    message.external_chat_id = "conv-1"
+    message.metadata = {"relay_task_id": "relay-1", "message_id": "msg-1"}
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="completed",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-1",
+                reply_text="hello from agent",
+                usage={"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert sent_frames == [
+        (
+            "node.report",
+            {
+                "run_id": "run-1",
+                "status": "completed",
+                "agent_id": "agent-a",
+                "session_key": "web:user:agent-a",
+                "conversation_id": "conv-1",
+                "message_id": "msg-1",
+                "summary": "hello from agent",
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+            },
+        ),
+        (
+            "node.delivery_receipt",
+            {
+                "relay_task_id": "relay-1",
+                "delivery_status": "completed",
+                "detail": "hello from agent",
+            },
+        ),
+    ]
+
+
 def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
     config = _build_config(tmp_path)
     seen: dict[str, object] = {}

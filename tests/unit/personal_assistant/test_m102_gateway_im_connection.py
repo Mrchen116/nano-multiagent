@@ -31,6 +31,19 @@ class _FakeWebSocket:
         self.closed += 1
 
 
+class _FailOnNthSendWebSocket(_FakeWebSocket):
+    def __init__(self, *, fail_on_send_number: int, incoming: list[str] | None = None) -> None:
+        super().__init__(incoming=incoming)
+        self._fail_on_send_number = fail_on_send_number
+        self._send_count = 0
+
+    async def send(self, data: str) -> None:
+        self._send_count += 1
+        if self._send_count == self._fail_on_send_number:
+            raise RuntimeError("socket closed")
+        await super().send(data)
+
+
 def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
     workspace = tmp_path / "agent-a"
     workspace.mkdir()
@@ -177,6 +190,47 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(tmp_path
     assert inbound_seen[0].metadata["message_id"] == "msg-1"
     assert sync_client.latest_profile_version("agent-a") == 5
     assert heartbeat_seen == [("agent-a", "manual")]
+
+
+def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) -> None:
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    first_socket = _FailOnNthSendWebSocket(fail_on_send_number=2)
+    second_socket = _FakeWebSocket()
+    sockets = [first_socket, second_socket]
+    connect_calls: list[tuple[str, dict[str, str]]] = []
+
+    async def _connect(url: str, headers: dict[str, str]) -> _FakeWebSocket:
+        connect_calls.append((url, headers))
+        return sockets.pop(0)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=_connect,
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager.send_json("node.report", {"run_id": "run-1", "status": "running"})
+        assert manager.connected is False
+        await manager.connect_once()
+
+    asyncio.run(_exercise())
+
+    assert connect_calls == [
+        ("ws://im.local:9000/im/ws/gateway", {"User-Agent": "nano-multiagent-gateway"}),
+        ("ws://im.local:9000/im/ws/gateway", {"User-Agent": "nano-multiagent-gateway"}),
+    ]
+    assert [json.loads(frame)["type"] for frame in first_socket.sent] == ["node.register"]
+    assert [json.loads(frame)["type"] for frame in second_socket.sent] == ["node.register", "node.report"]
+    assert json.loads(second_socket.sent[1])["payload"] == {"run_id": "run-1", "status": "running"}
 
 
 def test_im_connection_retries_with_exponential_backoff_until_cap(tmp_path: Path) -> None:
