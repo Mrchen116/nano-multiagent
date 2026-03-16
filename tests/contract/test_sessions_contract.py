@@ -18,10 +18,11 @@ def test_create_session_contract() -> None:
     assert response.status_code == 201
     assert response.headers["x-request-id"] == "req-create-contract"
     payload = response.json()
-    assert set(payload.keys()) == {'session_id', 'status', 'created_at'}
+    assert set(payload.keys()) == {'session_id', 'status', 'created_at', 'metadata'}
     assert payload['session_id'].startswith('sess_')
     assert payload['status'] == 'active'
     assert isinstance(payload['created_at'], str)
+    assert payload['metadata'] == {}
 
 
 def test_create_session_accepts_workspace_root_and_persists_normalized_value() -> None:
@@ -76,7 +77,11 @@ def test_get_and_list_sessions_contract_with_minimal_pagination() -> None:
     client = TestClient(create_app())
     headers = _auth_headers("req-list-contract")
 
-    first = client.post("/v1/sessions", json={}, headers=headers)
+    first = client.post(
+        "/v1/sessions",
+        json={"workspace_root": "~/nano-assistant/workspace/fuck", "metadata": {"agent_id": "fuck"}},
+        headers=headers,
+    )
     second = client.post("/v1/sessions", json={}, headers=headers)
     assert first.status_code == 201
     assert second.status_code == 201
@@ -85,9 +90,11 @@ def test_get_and_list_sessions_contract_with_minimal_pagination() -> None:
     get_response = client.get(f"/v1/sessions/{first_id}", headers=headers)
     assert get_response.status_code == 200
     session_payload = get_response.json()
-    assert set(session_payload.keys()) == {"session_id", "status", "created_at"}
+    assert set(session_payload.keys()) == {"session_id", "status", "created_at", "metadata"}
     assert session_payload["session_id"] == first_id
     assert session_payload["status"] == "active"
+    assert session_payload["metadata"]["agent_id"] == "fuck"
+    assert session_payload["metadata"]["workspace_root"].endswith("/nano-assistant/workspace/fuck")
 
     list_response = client.get("/v1/sessions?limit=1&offset=0", headers=headers)
     assert list_response.status_code == 200
@@ -98,7 +105,8 @@ def test_get_and_list_sessions_contract_with_minimal_pagination() -> None:
     assert isinstance(list_payload["has_more"], bool)
     assert isinstance(list_payload["items"], list)
     assert len(list_payload["items"]) == 1
-    assert set(list_payload["items"][0].keys()) == {"session_id", "status", "created_at"}
+    assert set(list_payload["items"][0].keys()) == {"session_id", "status", "created_at", "metadata"}
+    assert isinstance(list_payload["items"][0]["metadata"], dict)
 
 
 def test_session_compact_tools_and_context_budget_contract() -> None:

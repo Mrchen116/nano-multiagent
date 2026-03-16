@@ -39,6 +39,7 @@ class _FakeKernelClient:
         self.send_calls: list[dict[str, str]] = []
         self.run_states: dict[str, list[dict[str, str]] | dict[str, str]] = {}
         self.session_events: dict[str, list[list[dict[str, object]]]] = {}
+        self._session_metadata_by_id: dict[str, dict[str, object]] = {}
         self._session_index = 0
         self._run_index = 0
         self._get_run_calls: dict[str, int] = {}
@@ -57,8 +58,19 @@ class _FakeKernelClient:
         self.create_session_calls.append(
             {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
         )
+        self._session_metadata_by_id[session_id] = {**dict(metadata or {}), "workspace_root": workspace_root}
         self.session_events.setdefault(session_id, [])
         return {"session_id": session_id}
+
+    def get_session(self, *, session_id: str):
+        metadata = self._session_metadata_by_id.get(session_id)
+        if metadata is None:
+            raise RuntimeError(f"missing session: {session_id}")
+        return {"session_id": session_id, "status": "active", "created_at": "now", "metadata": dict(metadata)}
+
+    def seed_session(self, *, session_id: str, metadata: dict[str, object] | None = None) -> None:
+        self._session_metadata_by_id[session_id] = dict(metadata or {})
+        self.session_events.setdefault(session_id, [])
 
     def send_message_async(self, *, session_id: str, text: str):
         self._run_index += 1
@@ -711,6 +723,49 @@ def test_inbound_pipeline_reuses_existing_session_binding_per_session_key(tmp_pa
     assert len(kernel_client.create_session_calls) == 1
     assert [call["run_id"] for call in kernel_client.send_calls] == ["run-1", "run-2"]
 
+
+
+def test_inbound_pipeline_refreshes_legacy_binding_without_workspace_root(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    store = SessionBindingStore()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=store,
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web",
+        text="pwd一下",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+        agent_id="agent-a",
+    )
+    session_key = build_session_key(inbound, agent_id="agent-a")
+    kernel_client.seed_session(session_id="sess-legacy", metadata={"agent_id": "agent-a"})
+    store.bind(
+        session_key=session_key,
+        kernel_session_id="sess-legacy",
+        reply_context=type(
+            "_ReplyContext",
+            (),
+            {"channel_name": "web", "target_chat_id": "chat-1", "thread_id": None, "metadata": {}},
+        )(),
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.kernel_session_id == "sess-1"
+    assert store.get(session_key).kernel_session_id == "sess-1"
+    assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [str(agents[0].workspace_root)]
+    assert [call["session_id"] for call in kernel_client.send_calls] == ["sess-1"]
 
 
 def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_for_new_conversations(tmp_path: Path) -> None:

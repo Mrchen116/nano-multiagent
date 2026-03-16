@@ -48,9 +48,19 @@ class _FakeKernelClient:
         self.create_session_calls.append(
             {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
         )
-        self._session_metadata_by_id[session_id] = dict(metadata or {})
+        self._session_metadata_by_id[session_id] = {**dict(metadata or {}), "workspace_root": workspace_root}
         self.session_events.setdefault(session_id, [])
         return {"session_id": session_id}
+
+    def get_session(self, *, session_id: str):
+        metadata = self._session_metadata_by_id.get(session_id)
+        if metadata is None:
+            raise RuntimeError(f"missing session: {session_id}")
+        return {"session_id": session_id, "status": "active", "created_at": "now", "metadata": dict(metadata)}
+
+    def seed_session(self, *, session_id: str, metadata: dict[str, object] | None = None) -> None:
+        self._session_metadata_by_id[session_id] = dict(metadata or {})
+        self.session_events.setdefault(session_id, [])
 
     def send_message_async(self, *, session_id: str, text: str):
         self._run_index += 1
@@ -829,6 +839,105 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
     assert relay_adapter.sent == []
     assert [payload["detail"] for payload in accepted_payloads] == [None]
     assert [payload["detail"] for payload in completed_payloads] == ["NO_REPLY | suppressed_by=no_reply_token"]
+
+
+def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(tmp_path: Path) -> None:
+    """Legacy direct bindings without workspace metadata must be refreshed before reuse."""
+    app = create_app(db_path=tmp_path / "im.db")
+    kernel_client = _FakeKernelClient()
+    relay_adapter = WebRelayAdapter()
+    agents = _agents(tmp_path, "agent-a")
+    registry = ChannelRegistry((relay_adapter,))
+    session_store = SessionBindingStore()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=session_store,
+        default_agent_id="agent-a",
+    )
+    relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))
+
+    with TestClient(app) as client:
+        owner_id = _seed_user(client, "owner")
+        human_user_id = _seed_user(client, "alice")
+        agent_user_id = _seed_user(client, "agent:agent-a")
+        owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
+        assert owner is not None
+        _seed_node_and_profiles(app, owner_id=owner.owner_id)
+
+        conversation = client.post(
+            "/im/v1/conversations",
+            json={"title": "legacy direct", "participant_ids": [human_user_id, agent_user_id]},
+        )
+        assert conversation.status_code == 201
+        conversation_id = conversation.json()["id"]
+        session_key = f"web_relay:{conversation_id}:agent-a"
+        kernel_client.seed_session(session_id="sess-legacy", metadata={"agent_id": "agent-a", "config_profile_version": 1})
+        session_store.bind(
+            session_key=session_key,
+            kernel_session_id="sess-legacy",
+            reply_context=type(
+                "_ReplyContext",
+                (),
+                {"channel_name": "web_relay", "target_chat_id": conversation_id, "thread_id": None, "metadata": {}},
+            )(),
+        )
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["agent-a"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            message = client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-legacy-workspace-refresh"},
+                json={
+                    "sender_user_id": human_user_id,
+                    "content": "pwd一下",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert message.status_code == 201
+            relay_frame = websocket.receive_json()
+            relay_adapter.accept_relay(relay_frame["payload"])
+            websocket.send_json(
+                {
+                    "type": "node.delivery_receipt",
+                    "payload": {
+                        "node_id": "node-1",
+                        "relay_task_id": relay_frame["payload"]["relay_task_id"],
+                        "delivery_status": "completed",
+                        "detail": "legacy-session-refreshed",
+                    },
+                }
+            )
+            receipt_ack = websocket.receive_json()
+            assert receipt_ack == {
+                "type": "ack",
+                "payload": {
+                    "message_type": "node.delivery_receipt",
+                    "node_id": "node-1",
+                    "relay_task_id": relay_frame["payload"]["relay_task_id"],
+                    "status": "completed",
+                },
+            }
+
+    assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [str(agents[0].workspace_root)]
+    assert [call["session_id"] for call in kernel_client.send_calls] == ["sess-1"]
+    assert session_store.get(session_key).kernel_session_id == "sess-1"
+
 
 
 def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile(tmp_path: Path) -> None:

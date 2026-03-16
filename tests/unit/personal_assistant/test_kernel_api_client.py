@@ -23,7 +23,17 @@ class _JSONTransport(httpx.BaseTransport):
         if request.url.path == "/v1/health":
             return httpx.Response(200, json={"healthy": True, "version": "0.1.0", "node_id": "local"})
         if request.url.path == "/v1/sessions" and request.method == "POST":
-            return httpx.Response(201, json={"session_id": "sess-1", "status": "idle", "created_at": "now"})
+            return httpx.Response(201, json={"session_id": "sess-1", "status": "idle", "created_at": "now", "metadata": {}})
+        if request.url.path == "/v1/sessions/sess-1" and request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "session_id": "sess-1",
+                    "status": "active",
+                    "created_at": "now",
+                    "metadata": {"workspace_root": "/tmp/agent-a", "agent_id": "agent-a"},
+                },
+            )
         if request.url.path == "/v1/sessions/sess-1/messages:async":
             return httpx.Response(202, json={"run_id": "run-1", "session_id": "sess-1", "status": "queued"})
         if request.url.path == "/v1/runs/run-1":
@@ -42,14 +52,18 @@ def test_kernel_api_client_calls_required_http_subset() -> None:
 
     assert client.health()["healthy"] is True
     assert client.create_session(workspace_root="/tmp/agent-a", product_id="personal_assistant")["session_id"] == "sess-1"
+    assert client.get_session(session_id="sess-1")["metadata"]["workspace_root"] == "/tmp/agent-a"
     assert client.send_message_async(session_id="sess-1", text="hello")["run_id"] == "run-1"
     assert client.get_run(run_id="run-1")["status"] == "running"
     assert client.cancel_run(run_id="run-1")["status"] == "cancelled"
 
     create_request = next(request for request in transport.requests if request.url.path == "/v1/sessions")
+    get_request = next(request for request in transport.requests if request.url.path == "/v1/sessions/sess-1")
     async_request = next(request for request in transport.requests if request.url.path.endswith("messages:async"))
     assert create_request.headers["authorization"] == "Bearer secret-token"
     assert create_request.headers["x-request-id"] == "req-fixed"
+    assert get_request.headers["authorization"] == "Bearer secret-token"
+    assert get_request.headers["x-request-id"] == "req-fixed"
     assert b'"workspace_root":"/tmp/agent-a"' in create_request.content
     assert b'"product_id":"personal_assistant"' in create_request.content
     assert b'"parts":[{"type":"text","text":"hello"}]' in async_request.content
