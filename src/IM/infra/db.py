@@ -3,6 +3,8 @@
 from pathlib import Path
 import sqlite3
 
+from IM.domain.models import managed_workspace_root
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -291,6 +293,15 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
         )
     if agent_rows and "workspace_root" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN workspace_root TEXT")
+    if agent_rows and "workspace_root" in {row["name"] for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()}:
+        rows = connection.execute(
+            "SELECT agent_id FROM agent_profiles WHERE workspace_root IS NULL OR TRIM(workspace_root) = ''"
+        ).fetchall()
+        for row in rows:
+            connection.execute(
+                "UPDATE agent_profiles SET workspace_root = ? WHERE agent_id = ?",
+                (managed_workspace_root(str(row["agent_id"])), str(row["agent_id"])),
+            )
 
     node_rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
     node_column_names = {row["name"] for row in node_rows}
