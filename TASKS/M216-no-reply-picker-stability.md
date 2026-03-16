@@ -8,7 +8,7 @@
 - Baseline: 当前环境缺少 `vitest`，基线门禁在 frontend test 入口失败，属依赖缺失，不足以说明本 milestone 代码状态。
 
 ## R1 修复 NO_REPLY 完成态泄漏
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 群聊里 suppressed NO_REPLY turn 对普通用户不显示任何 agent 成功态文案。
   - 空正文 agent message 不再仅因 `delivery_status=completed` 渲染状态块。
@@ -28,7 +28,7 @@
   - PROGRESS 记录根因、证据、提交哈希。
 
 ## R2 让 fresh rerun picker 路径稳定跟随 current-main UI
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - rerun 脚本不再硬编码旧的 option accessible name。
   - 脚本可根据 current-main picker 文案稳定找到 Beta 候选。
