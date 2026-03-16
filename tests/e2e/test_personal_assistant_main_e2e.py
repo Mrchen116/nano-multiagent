@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import signal
@@ -136,6 +137,86 @@ def _terminate_background_pid(pid: int, *, timeout: float = 10.0) -> None:
             return
         time.sleep(0.05)
     os.kill(pid, signal.SIGKILL)
+
+
+class _PwdToolLLM:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate(self, request):  # noqa: ANN001, ANN201
+        from agent.core.llm.interfaces import LLMGenerateResponse, LLMMessage, LLMToolCall
+
+        self.calls += 1
+        if self.calls == 1:
+            return LLMGenerateResponse(
+                model=request.model,
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        LLMToolCall(call_id="call_pwd", name="bash", arguments={"command": "pwd"}),
+                    ),
+                ),
+                finish_reason="tool_calls",
+            )
+        tool_payload = json.loads(request.messages[-1].content)
+        output = tool_payload.get("output", {}) if isinstance(tool_payload, dict) else {}
+        return LLMGenerateResponse(
+            model=request.model,
+            message=LLMMessage(role="assistant", content=str(output.get("content", "")).strip()),
+            finish_reason="stop",
+        )
+
+
+def _runtime_pwd_for_workspace(*, tmp_path: Path, workspace_root: Path) -> str:
+    from fastapi.testclient import TestClient
+
+    from agent.core.agent.runtime import AgentRuntime
+    from agent.core.session.manager import SessionManager
+    from agent.platform.http_api.app import create_app
+    from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+    from agent.platform.tools.loader import build_tool_registry
+
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    llm = _PwdToolLLM()
+    store = SQLiteSessionStore(db_path=tmp_path / "pwd-runtime.sqlite3")
+    runtime = AgentRuntime(
+        session_manager=SessionManager(store=store),
+        llm_client=llm,
+        model="mock-model",
+        repo_root=REPO_ROOT,
+    )
+    tool_registry = build_tool_registry(repo_root=REPO_ROOT, runtime=runtime)
+    app = create_app(session_store=store, runtime=runtime, tool_registry=tool_registry, auth_token="test-token")
+    client = TestClient(app)
+    created = client.post(
+        "/v1/sessions",
+        json={"workspace_root": str(workspace_root)},
+        headers={"Authorization": "Bearer test-token", "X-Request-Id": "req-workspace-create"},
+    )
+    assert created.status_code == 201
+    session_id = created.json()["session_id"]
+    response = client.post(
+        f"/v1/sessions/{session_id}/messages",
+        json={"parts": [{"type": "text", "text": "show pwd"}], "stream": False},
+        headers={"Authorization": "Bearer test-token", "X-Request-Id": "req-workspace-message"},
+    )
+    assert response.status_code == 200
+    return str(response.json()["message"]["content"]).strip()
+
+
+def test_kernel_session_workspace_root_controls_runtime_pwd(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "fuck"
+
+    assert _runtime_pwd_for_workspace(tmp_path=tmp_path, workspace_root=workspace_root) == str(workspace_root.resolve())
+
+
+def test_new_kernel_session_uses_its_own_workspace_root_after_workspace_change(tmp_path: Path) -> None:
+    first_workspace = tmp_path / "workspace-a"
+    second_workspace = tmp_path / "workspace-b"
+
+    assert _runtime_pwd_for_workspace(tmp_path=tmp_path / "run-a", workspace_root=first_workspace) == str(first_workspace.resolve())
+    assert _runtime_pwd_for_workspace(tmp_path=tmp_path / "run-b", workspace_root=second_workspace) == str(second_workspace.resolve())
 
 
 def test_smoke_runtime_script_reports_ready_running_and_shutdown(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001

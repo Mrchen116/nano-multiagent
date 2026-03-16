@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from IM.app import create_app
 from IM.repositories import NodeRepository, UserRepository
 
+_WORKSPACE_PATH_SETTING = "/Users/czj/nano-assistant/workspace/fuck"
+
 
 def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path: Path) -> None:
     """Create an agent through HTTP, then use it in a real Web IM relay path."""
@@ -30,14 +32,14 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path
                 "tool_allowlist": ["read"],
                 "group_reply_policy": "MENTION",
                 "default_model": "claude-sonnet-4",
-                "workspace_root": "/srv/agents/agent-new",
+                "workspace_root": _WORKSPACE_PATH_SETTING,
                 "node_id": "node-1",
             },
         )
         assert created.status_code == 201
         assert created.json()["agent_id"] == agent_user.id
         assert created.json()["bound_nodes"] == ["node-1"]
-        assert created.json()["workspace_root"] == "/srv/agents/agent-new"
+        assert created.json()["workspace_root"] == _WORKSPACE_PATH_SETTING
 
         listed = client.get("/im/v1/agents")
         assert listed.status_code == 200
@@ -49,7 +51,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path
                 "description": "runtime-created helper",
                 "profile_version": 1,
                 "default_model": "claude-sonnet-4",
-                "workspace_root": "/srv/agents/agent-new",
+                "workspace_root": _WORKSPACE_PATH_SETTING,
                 "workspace_is_default": False,
                 "bound_nodes": ["node-1"],
                 "updated_at": created.json()["updated_at"],
@@ -60,7 +62,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path
         assert detail.status_code == 200
         assert detail.json()["bound_nodes"] == ["node-1"]
         assert detail.json()["group_reply_policy"] == "MENTION"
-        assert detail.json()["workspace_root"] == "/srv/agents/agent-new"
+        assert detail.json()["workspace_root"] == _WORKSPACE_PATH_SETTING
 
         conversation = client.post(
             "/im/v1/conversations",
@@ -159,7 +161,7 @@ def test_create_agent_pushes_config_sync_to_connected_gateway(tmp_path: Path) ->
                     "tool_allowlist": ["read"],
                     "group_reply_policy": "MENTION",
                     "default_model": "claude-sonnet-4",
-                    "workspace_root": "/srv/agents/agent-live",
+                    "workspace_root": _WORKSPACE_PATH_SETTING,
                     "node_id": "node-1",
                 },
             )
