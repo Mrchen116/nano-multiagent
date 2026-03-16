@@ -51,10 +51,6 @@ def fetchone_dict(query: str, params: tuple = ()):
     return rows[0] if rows else None
 
 
-async def wait_for_text(page, text: str, timeout: int = 20000):
-    await page.get_by_text(text, exact=False).first.wait_for(timeout=timeout)
-
-
 async def send_message(page, text: str):
     composer = page.locator('textarea[placeholder="Type message"]')
     await composer.wait_for(timeout=20000)
@@ -128,6 +124,39 @@ def build_no_reply_probe(*, body_text: str, message: dict[str, Any] | None, rela
     }
 
 
+async def wait_for_turn_completion(page, *, text: str, timeout_ms: int = 20000, poll_interval_ms: int = 500) -> dict[str, Any]:
+    """Wait for a sent turn to finish in runtime storage.
+
+    Args:
+        page: Playwright page used for timeout pacing between polling attempts.
+        text: Exact human message body sent through the composer.
+        timeout_ms: Maximum wait budget in milliseconds.
+        poll_interval_ms: Delay between DB polls in milliseconds.
+
+    Returns:
+        Structured turn result assembled from messages, relay tasks, and events.
+
+    Raises:
+        TimeoutError: When the runtime never records a completed relay for the message.
+
+    Side Effects:
+        Reads the runtime SQLite database until the turn reaches a stable completed state.
+    """
+    deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
+    while True:
+        message = latest_message_matching(text)
+        if message:
+            relay = relay_for_message(message['id'])
+            events = events_for_message(message['id'])
+            relay_completed = bool(relay) and relay.get('status') == 'completed'
+            has_completion_event = any(event.get('event_type') == 'relay.completed' for event in events)
+            if relay_completed and has_completion_event:
+                return build_turn_result(message=message, relay=relay, events=events)
+        if asyncio.get_running_loop().time() >= deadline:
+            raise TimeoutError(f'Timed out waiting for completed relay for message: {text}')
+        await page.wait_for_timeout(poll_interval_ms)
+
+
 async def patch_agent(agent_id: str, system_prompt: str):
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=20.0, trust_env=False) as client:
         current = (await client.get(f'/im/v1/agents/{agent_id}/config')).json()
@@ -156,7 +185,7 @@ async def _select_group_participant(page, label: str) -> None:
 
 
 async def _pick_mention_candidate(page, *, label: str, handle: str) -> None:
-    option = page.get_by_role('option').filter(has=page.get_by_text(label, exact=True)).filter(has=page.get_by_text(handle, exact=True)).first
+    option = page.get_by_role('option', name=f'{label} {handle}').first
     await option.wait_for(timeout=20000)
     await option.click()
 
@@ -193,19 +222,11 @@ async def main():
 
         alpha_text = '@agent-m170-alpha please answer exactly as configured.'
         await send_message(page, alpha_text)
-        await wait_for_text(page, ALPHA_ACK)
-        alpha_msg = latest_message_matching(alpha_text)
-        alpha_events = events_for_message(alpha_msg['id'])
-        alpha_relay = relay_for_message(alpha_msg['id'])
-        result['alpha_turn'] = build_turn_result(message=alpha_msg, relay=alpha_relay, events=alpha_events)
+        result['alpha_turn'] = await wait_for_turn_completion(page, text=alpha_text)
 
         beta_text = '@agent-m170-beta please answer exactly as configured.'
         await send_message(page, beta_text)
-        await wait_for_text(page, BETA_ACK)
-        beta_msg = latest_message_matching(beta_text)
-        beta_events = events_for_message(beta_msg['id'])
-        beta_relay = relay_for_message(beta_msg['id'])
-        result['beta_turn'] = build_turn_result(message=beta_msg, relay=beta_relay, events=beta_events)
+        result['beta_turn'] = await wait_for_turn_completion(page, text=beta_text)
 
         composer = page.locator('textarea[placeholder="Type message"]')
         await composer.fill('@agent:')
@@ -218,14 +239,10 @@ async def main():
         composer_value = await composer.input_value()
         picker_text = composer_value + 'please answer via picker route.'
         await send_message(page, picker_text)
-        await wait_for_text(page, BETA_ACK)
         await page.screenshot(path=str(SHOT_PICKER), full_page=True)
         result['screenshots'].append(str(SHOT_PICKER))
-        picker_msg = latest_message_matching(picker_text)
-        picker_events = events_for_message(picker_msg['id'])
-        picker_relay = relay_for_message(picker_msg['id'])
         result['picker_turn'] = {
-            **build_turn_result(message=picker_msg, relay=picker_relay, events=picker_events),
+            **await wait_for_turn_completion(page, text=picker_text),
             'picker_options': picker_texts,
             'composer_value': composer_value,
         }

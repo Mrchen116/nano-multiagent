@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 from pathlib import Path
 import importlib.util
+from typing import Any
 
 import pytest
 
@@ -220,3 +222,161 @@ def test_result_json_includes_current_main_turn_summaries() -> None:
         },
         "events": [{"event_type": "message.sent"}, {"event_type": "relay.completed"}],
     }
+
+
+class _RecordingLocator:
+    def __init__(self, sink: list[tuple[str, str]]) -> None:
+        self._sink = sink
+
+    @property
+    def first(self) -> "_RecordingLocator":
+        self._sink.append(("first", ""))
+        return self
+
+    def filter(self, *, has_text: str | None = None) -> "_RecordingLocator":
+        self._sink.append(("filter", has_text or ""))
+        return self
+
+    async def wait_for(self, timeout: int) -> None:
+        self._sink.append(("wait_for", str(timeout)))
+
+    async def click(self) -> None:
+        self._sink.append(("click", ""))
+
+
+class _MentionPickerPage:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def get_by_role(self, role: str, name: str | None = None) -> _RecordingLocator:
+        self.calls.append(("role", role if name is None else f"{role}:{name}"))
+        return _RecordingLocator(self.calls)
+
+
+class _SelectorPage:
+    def __init__(self, values: list[Any]) -> None:
+        self._values = list(values)
+        self.calls: list[str] = []
+
+    async def wait_for_timeout(self, timeout_ms: int) -> None:
+        self.calls.append(f"timeout:{timeout_ms}")
+
+
+def test_wait_for_turn_completion_returns_structured_turn_without_ack_text(runtime_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    observed_selectors: list[str] = []
+
+    def fake_fetchone_dict(query: str, params: tuple = ()) -> dict[str, Any] | None:
+        observed_selectors.append(query)
+        if "FROM messages" in query:
+            return {
+                "id": "msg-1",
+                "conversation_id": "conv-1",
+                "sender_user_id": "user-1",
+                "sender_type": "human",
+                "content": "@agent-m170-alpha please answer exactly as configured.",
+                "created_at": "2026-03-16T10:00:00Z",
+            }
+        if "FROM relay_tasks" in query:
+            return {
+                "relay_task_id": "relay-1",
+                "message_id": "msg-1",
+                "conversation_id": "conv-1",
+                "target_node_id": "m170-node",
+                "payload_json": json.dumps({"mentioned_agent_ids": ["agent-m170-alpha"], "config_profile_version": 1}),
+                "status": "completed",
+                "receipt_status": "delivered",
+                "receipt_detail": "assistant output changed by product copy",
+            }
+        return None
+
+    monkeypatch.setattr(m170_rerun_acceptance, "fetchone_dict", fake_fetchone_dict)
+    monkeypatch.setattr(
+        m170_rerun_acceptance,
+        "fetchall_dicts",
+        lambda query, params=(): [
+            {
+                "event_id": "evt-1",
+                "event_type": "message.sent",
+                "delivery_status": "sent",
+                "payload_json": json.dumps({"message_id": "msg-1"}),
+                "created_at": "2026-03-16T10:00:00Z",
+            },
+            {
+                "event_id": "evt-2",
+                "event_type": "relay.completed",
+                "delivery_status": "delivered",
+                "payload_json": json.dumps({"relay_task_id": "relay-1"}),
+                "created_at": "2026-03-16T10:00:02Z",
+            },
+        ]
+        if "FROM conversation_events" in query
+        else [],
+    )
+
+    result = asyncio.run(
+        m170_rerun_acceptance.wait_for_turn_completion(
+            _SelectorPage([None]),
+            text="@agent-m170-alpha please answer exactly as configured.",
+        )
+    )
+
+    assert result["relay"]["receipt_detail"] == "assistant output changed by product copy"
+    assert result["event_types"] == ["message.sent", "relay.completed"]
+    assert all("ALPHA_ACK_M170" not in query for query in observed_selectors)
+    assert all("BETA_ACK_M170" not in query for query in observed_selectors)
+
+
+def test_wait_for_turn_completion_times_out_when_relay_never_completes(runtime_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        m170_rerun_acceptance,
+        "fetchone_dict",
+        lambda query, params=(): {
+            "id": "msg-1",
+            "conversation_id": "conv-1",
+            "sender_user_id": "user-1",
+            "sender_type": "human",
+            "content": "@agent-m170-alpha please answer exactly as configured.",
+            "created_at": "2026-03-16T10:00:00Z",
+        }
+        if "FROM messages" in query
+        else {
+            "relay_task_id": "relay-1",
+            "message_id": "msg-1",
+            "conversation_id": "conv-1",
+            "target_node_id": "m170-node",
+            "payload_json": json.dumps({"mentioned_agent_ids": ["agent-m170-alpha"], "config_profile_version": 1}),
+            "status": "queued",
+            "receipt_status": None,
+            "receipt_detail": None,
+        },
+    )
+    monkeypatch.setattr(m170_rerun_acceptance, "fetchall_dicts", lambda query, params=(): [])
+
+    with pytest.raises(TimeoutError, match="@agent-m170-alpha please answer exactly as configured."):
+        asyncio.run(
+            m170_rerun_acceptance.wait_for_turn_completion(
+                _SelectorPage([None, None]),
+                text="@agent-m170-alpha please answer exactly as configured.",
+                timeout_ms=20,
+                poll_interval_ms=10,
+            )
+        )
+
+
+def test_pick_mention_candidate_matches_stable_accessible_name() -> None:
+    page = _MentionPickerPage()
+
+    asyncio.run(
+        m170_rerun_acceptance._pick_mention_candidate(
+            page,
+            label="Agent M170 Beta",
+            handle="@agent:agent-m170-beta",
+        )
+    )
+
+    assert page.calls == [
+        ("role", "option:Agent M170 Beta @agent:agent-m170-beta"),
+        ("first", ""),
+        ("wait_for", "20000"),
+        ("click", ""),
+    ]
