@@ -124,8 +124,8 @@ function toDeliveryStatusCopy(message: ChatMessage) {
       };
     case "completed":
       return {
-        label: message.sender_type === "agent" ? "Agent replied" : "Delivered",
-        hint: message.sender_type === "agent" ? "The latest agent response finished successfully." : null
+        label: "Delivered",
+        hint: null
       };
     case "failed":
       return {
