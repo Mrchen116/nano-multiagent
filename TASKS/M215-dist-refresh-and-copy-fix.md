@@ -21,7 +21,7 @@
   - 能给出源码/测试/dist 三处证据，说明旧文案来源与修复范围。
   - 完成 C1/C2/C3。
   - `PROGRESS/M215-dist-refresh-and-copy-fix.md` 记录决策/证据/哈希。
-- 状态: TODO
+- 状态: DONE
 
 ### R2 重建 current-main dist 并验证旧字符串消失
 - Acceptance:
@@ -43,4 +43,4 @@
   - dist 字符串扫描结果满足 exit criteria。
   - 完成 C1/C2/C3。
   - `PROGRESS/M215-dist-refresh-and-copy-fix.md` 记录 build hash/验证结果。
-- 状态: TODO
+- 状态: DONE
