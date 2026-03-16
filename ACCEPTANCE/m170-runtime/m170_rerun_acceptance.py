@@ -67,6 +67,32 @@ def latest_message_matching(snippet: str):
 
 
 
+def latest_message_starting_with(prefix: str):
+    return fetchone_dict(
+        'SELECT id, conversation_id, sender_user_id, sender_type, content, created_at FROM messages WHERE content LIKE ? ORDER BY rowid DESC LIMIT 1',
+        (f'{prefix}%',),
+    )
+
+
+
+def _message_lookup_candidates(text: str) -> list[str]:
+    candidates = [text]
+    normalized = text.replace(' please', '\nplease', 1) if ' please' in text else text
+    if normalized not in candidates:
+        candidates.append(normalized)
+    return candidates
+
+
+
+def _latest_message_for_turn(text: str):
+    for candidate in _message_lookup_candidates(text):
+        message = latest_message_matching(candidate)
+        if message:
+            return message
+    return latest_message_starting_with(text)
+
+
+
 def relay_for_message(message_id: str):
     return fetchone_dict(
         'SELECT relay_task_id, message_id, conversation_id, target_node_id, payload_json, status, receipt_status, receipt_detail FROM relay_tasks WHERE message_id = ? ORDER BY rowid DESC LIMIT 1',
@@ -144,7 +170,7 @@ async def wait_for_turn_completion(page, *, text: str, timeout_ms: int = 20000, 
     """
     deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
     while True:
-        message = latest_message_matching(text)
+        message = _latest_message_for_turn(text)
         if message:
             relay = relay_for_message(message['id'])
             events = events_for_message(message['id'])

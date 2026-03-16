@@ -363,6 +363,62 @@ def test_wait_for_turn_completion_times_out_when_relay_never_completes(runtime_d
         )
 
 
+def test_wait_for_turn_completion_uses_latest_matching_prefix_for_picker_messages(runtime_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    observed_params: list[tuple[Any, ...]] = []
+
+    def fake_fetchone_dict(query: str, params: tuple = ()) -> dict[str, Any] | None:
+        observed_params.append(params)
+        if "FROM messages" in query:
+            if params == ("@agent:agent-m170-beta please answer via picker route.%",):
+                return {
+                    "id": "msg-picker",
+                    "conversation_id": "conv-1",
+                    "sender_user_id": "user-1",
+                    "sender_type": "human",
+                    "content": "@agent:agent-m170-beta\nplease answer via picker route.",
+                    "created_at": "2026-03-16T10:01:00Z",
+                }
+            return None
+        if "FROM relay_tasks" in query:
+            return {
+                "relay_task_id": "relay-picker",
+                "message_id": "msg-picker",
+                "conversation_id": "conv-1",
+                "target_node_id": "m170-node",
+                "payload_json": json.dumps({"mentioned_agent_ids": ["agent-m170-beta"], "config_profile_version": 1}),
+                "status": "completed",
+                "receipt_status": "delivered",
+                "receipt_detail": "picker route finished",
+            }
+        return None
+
+    monkeypatch.setattr(m170_rerun_acceptance, "fetchone_dict", fake_fetchone_dict)
+    monkeypatch.setattr(
+        m170_rerun_acceptance,
+        "fetchall_dicts",
+        lambda query, params=(): [
+            {
+                "event_id": "evt-picker",
+                "event_type": "relay.completed",
+                "delivery_status": "delivered",
+                "payload_json": json.dumps({"relay_task_id": "relay-picker"}),
+                "created_at": "2026-03-16T10:01:02Z",
+            }
+        ],
+    )
+
+    result = asyncio.run(
+        m170_rerun_acceptance.wait_for_turn_completion(
+            _SelectorPage([None]),
+            text="@agent:agent-m170-beta please answer via picker route.",
+        )
+    )
+
+    assert result["message_id"] == "msg-picker"
+    assert result["relay_task_id"] == "relay-picker"
+    assert any(param and param[0] == "@agent:agent-m170-beta please answer via picker route.%" for param in observed_params)
+
+
 def test_pick_mention_candidate_matches_stable_accessible_name() -> None:
     page = _MentionPickerPage()
 
