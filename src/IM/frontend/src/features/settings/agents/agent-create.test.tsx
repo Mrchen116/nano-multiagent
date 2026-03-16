@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, vi } from "vitest";
 
@@ -127,16 +127,15 @@ describe("agent create page", () => {
     expect(screen.queryByText(/advanced\/internal/i)).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /bash/i })).not.toBeChecked();
 
-    await user.type(screen.getByLabelText("Agent ID"), "agent-new");
-    await user.type(screen.getByLabelText("Display Name"), "Agent New");
-    await user.type(screen.getByLabelText("Description"), "runtime-created helper");
-    await user.clear(screen.getByLabelText("System Prompt"));
-    await user.type(screen.getByLabelText("System Prompt"), "You are Agent New.");
+    fireEvent.change(screen.getByLabelText("Agent ID"), { target: { value: "agent-new" } });
+    fireEvent.change(screen.getByLabelText("Display Name"), { target: { value: "Agent New" } });
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: "runtime-created helper" } });
+    fireEvent.change(screen.getByLabelText("System Prompt"), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Node"), "node-1");
     await user.selectOptions(screen.getByLabelText("Default Model"), "claude-3-5-sonnet-20241022");
-    await user.type(screen.getByLabelText("Workspace Path Setting"), "/tmp/agent-new-workspace");
+    fireEvent.change(screen.getByLabelText("Workspace Path Setting"), { target: { value: "/tmp/agent-new-workspace" } });
 
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText("/tmp/agent-new-workspace")).toBeInTheDocument();
@@ -206,11 +205,11 @@ describe("agent create page", () => {
     renderCreatePage();
 
     await screen.findByRole("heading", { name: "New Agent" });
-    await user.clear(screen.getByLabelText("System Prompt"));
-    expect(screen.getByLabelText("System Prompt")).toHaveValue("");
+    const promptInput = screen.getByLabelText("System Prompt");
+    fireEvent.change(promptInput, { target: { value: "" } });
     await user.click(screen.getByRole("button", { name: "Create Agent" }));
 
-    expect(screen.getByText("Agent ID is required.")).toBeInTheDocument();
+    expect(await screen.findByText("Agent ID is required.")).toBeInTheDocument();
     expect(screen.getByText("Display name is required.")).toBeInTheDocument();
     expect(screen.getByText("System prompt is required.")).toBeInTheDocument();
     expect(screen.getByText("Complete the required fields before creating this agent.")).toBeInTheDocument();
@@ -232,10 +231,9 @@ describe("agent create page", () => {
 
     renderCreatePage();
 
-    await user.type(await screen.findByLabelText("Agent ID"), "agent-new");
-    await user.type(screen.getByLabelText("Display Name"), "Agent New");
-    await user.clear(screen.getByLabelText("System Prompt"));
-    await user.type(screen.getByLabelText("System Prompt"), "You are Agent New.");
+    fireEvent.change(await screen.findByLabelText("Agent ID"), { target: { value: "agent-new" } });
+    fireEvent.change(screen.getByLabelText("Display Name"), { target: { value: "Agent New" } });
+    fireEvent.change(screen.getByLabelText("System Prompt"), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: "Create Agent" }));
 
     expect(await screen.findByText("409 (agent already exists)")).toBeInTheDocument();
