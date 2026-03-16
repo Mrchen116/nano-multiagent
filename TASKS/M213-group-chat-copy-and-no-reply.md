@@ -20,7 +20,7 @@
   - `cd /Users/czj/Repos/nano-multiagent/.worktrees/M213/src/IM/frontend && npm test -- --runInBand src/features/chat/**/*.test.ts* && npm run build` 全绿
   - 完成 C1/C2/C3
   - `PROGRESS/M213-group-chat-copy-and-no-reply.md` 记录决策/证据/哈希
-- 状态: TODO
+- 状态: DONE
 
 ### R2 mention picker 与群聊可见文案产品化
 - Acceptance:
@@ -40,4 +40,4 @@
   - `cd /Users/czj/Repos/nano-multiagent/.worktrees/M213/src/IM/frontend && npm test -- --runInBand src/features/chat/**/*.test.ts* && npm run build` 全绿
   - 完成 C1/C2/C3
   - `PROGRESS/M213-group-chat-copy-and-no-reply.md` 记录决策/证据/哈希
-- 状态: TODO
+- 状态: DONE
