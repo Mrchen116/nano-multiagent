@@ -15,6 +15,8 @@ import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
 
 const SEND_AVAILABILITY_MESSAGES = getSendAvailabilityMessages();
 const RELAY_UNAVAILABLE_MESSAGE = SEND_AVAILABILITY_MESSAGES.unavailableHelperText;
+const ENGINEERING_GROUP_OWNERSHIP_PATTERNS = [/^Using your main agent .+ready to chat\)$/i];
+const PRODUCT_GROUP_OWNERSHIP_LABEL = "Shared conversation for people and agents.";
 
 function toErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -387,6 +389,24 @@ function buildMentionCandidates(detail: ConversationDetail | null): MentionCandi
   return detail?.mention_candidates ?? [];
 }
 
+function sanitizeThreadTargetLabel(detail: ConversationDetail | null) {
+  if (detail?.kind_label === "Group chat" && detail.target_label === "Multiple participants") {
+    return "Shared thread";
+  }
+  return detail?.target_label;
+}
+
+function sanitizeThreadOwnershipLabel(detail: ConversationDetail | null) {
+  const trimmed = detail?.ownership_label?.trim();
+  if (detail?.kind_label !== "Group chat") {
+    return trimmed ?? null;
+  }
+  if (!trimmed || ENGINEERING_GROUP_OWNERSHIP_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return PRODUCT_GROUP_OWNERSHIP_LABEL;
+  }
+  return trimmed;
+}
+
 function PendingAttachments(props: {
   attachments: ChatAttachment[];
   isUploading: boolean;
@@ -698,7 +718,7 @@ export function MessagePane(props: {
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{props.detail.kind_label}</p>
           )}
           <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
-          {props.detail.target_label && <p className="mt-1 text-xs text-slate-600">Target: {props.detail.target_label}</p>}
+          {sanitizeThreadTargetLabel(props.detail) && <p className="mt-1 text-xs text-slate-600">Target: {sanitizeThreadTargetLabel(props.detail)}</p>}
           {props.detail.discoverability_hint && (
             <p className="mt-1 text-xs text-slate-500">{props.detail.discoverability_hint}</p>
           )}
@@ -707,8 +727,8 @@ export function MessagePane(props: {
               Existing turns in this thread keep their earlier profile snapshot. Start a fresh session to verify newly saved prompt changes without rewriting this history.
             </p>
           ) : null}
-          {props.detail.ownership_label && (
-            <p className="mt-1 text-xs text-slate-500">{props.detail.ownership_label}</p>
+          {sanitizeThreadOwnershipLabel(props.detail) && (
+            <p className="mt-1 text-xs text-slate-500">{sanitizeThreadOwnershipLabel(props.detail)}</p>
           )}
         </div>
         {props.detail.direct_agent_id && props.onStartFreshSession ? (

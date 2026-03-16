@@ -893,7 +893,7 @@ describe("chat workspace page", () => {
     expect(await screen.findByRole("heading", { name: "OpsBot + Alex" })).toBeInTheDocument();
     expect(getConversation).toHaveBeenCalledWith("conv-group-new");
     expect(screen.queryByText("Select participants")).not.toBeInTheDocument();
-    expect(screen.getByText("Target: Multiple participants")).toBeInTheDocument();
+    expect(screen.getByText("Target: Shared thread")).toBeInTheDocument();
   });
 
   it("removes the new direct chat CTA while keeping group chat creation available", async () => {
