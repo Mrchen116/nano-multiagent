@@ -313,7 +313,7 @@ class ToolSafety:
         )
 
         process = subprocess.Popen(  # noqa: S603
-            ["bash", "-lc", command],
+            ["bash", "-c", command],
             cwd=str(cwd),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

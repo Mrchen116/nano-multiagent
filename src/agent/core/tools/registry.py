@@ -1,6 +1,7 @@
 """Canonical tool registration and execution pipeline with hook support."""
 
 import asyncio
+from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.errors import ToolError
@@ -149,7 +150,8 @@ class ToolRegistry:
                     active_hook_context,
                 )
 
-            execution_context = self._context.with_session(
+            execution_base_context = _resolve_execution_context(self._context, active_hook_context)
+            execution_context = execution_base_context.with_session(
                 active_hook_context.session_id,
                 tool_call_id=tool_call_id,
                 safety_overrides=safety_overrides,
@@ -442,6 +444,36 @@ def _extract_tool_call_id(*, args: Mapping[str, Any], hook_context: HookContext)
     if isinstance(raw_arg_call_id, str) and raw_arg_call_id:
         return raw_arg_call_id
     return None
+
+
+def _resolve_execution_context(base_context: ToolContext, hook_context: HookContext) -> ToolContext:
+    """Return base tool context or clone it with session-scoped cwd override."""
+    resolved_cwd = _metadata_path(hook_context.metadata, key="cwd")
+    if resolved_cwd is None:
+        return base_context
+    return ToolContext(
+        repo_root=base_context.repo_root,
+        cwd=resolved_cwd,
+        safety=base_context.safety,
+        session_id=base_context.session_id,
+        tool_call_id=base_context.tool_call_id,
+        safety_overrides=base_context.safety_overrides,
+        execution_event_callback=base_context.execution_event_callback,
+    )
+
+
+def _metadata_path(metadata: Mapping[str, Any], *, key: str) -> Path | None:
+    """Resolve one absolute path-like metadata field when present."""
+    raw_value = metadata.get(key)
+    if not isinstance(raw_value, str):
+        return None
+    normalized = raw_value.strip()
+    if not normalized:
+        return None
+    candidate = Path(normalized).expanduser()
+    if not candidate.is_absolute():
+        return None
+    return candidate.resolve()
 
 
 def _build_tool_execution_base_payload(

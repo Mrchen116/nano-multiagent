@@ -8,6 +8,8 @@ from IM.api.routes import agents as agent_routes
 from IM.app import create_app
 from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
 
+_WORKSPACE_PATH_SETTING = "/Users/czj/nano-assistant/workspace/fuck"
+
 
 def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
     """List runtime-selectable agents, then read and optimistically update one config."""
@@ -73,7 +75,7 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
                 "tool_allowlist": ["read", "edit"],
                 "group_reply_policy": "auto",
                 "default_model": "claude-sonnet-4",
-                "workspace_root": "/srv/agents/alpha",
+                "workspace_root": _WORKSPACE_PATH_SETTING,
             },
         )
         assert patch_resp.status_code == 200
@@ -81,7 +83,7 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
         assert body["display_name"] == "Alpha v2"
         assert body["profile_version"] == 2
         assert body["group_reply_policy"] == "auto"
-        assert body["workspace_root"] == "/srv/agents/alpha"
+        assert body["workspace_root"] == _WORKSPACE_PATH_SETTING
         assert body["workspace_is_default"] is False
 
         conflict_resp = client.patch(

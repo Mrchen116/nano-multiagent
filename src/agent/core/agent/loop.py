@@ -77,6 +77,7 @@ class AgentLoop:
         available_skills_override: tuple[SkillMetadata, ...] | None = None,
         llm_session_id: str | None = None,
         session_created_at: str | None = None,
+        current_working_directory_override: Path | None = None,
     ) -> TurnResult:
         """Run one user turn until completion or terminal stop reason.
 
@@ -125,7 +126,7 @@ class AgentLoop:
                 available_skills=active_skills,
                 available_tools=active_tools,
                 current_datetime=session_created_at,
-                current_working_directory=self._current_working_directory,
+                current_working_directory=current_working_directory_override or self._current_working_directory,
             )
         )
 
