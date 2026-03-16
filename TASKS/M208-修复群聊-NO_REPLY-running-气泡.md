@@ -32,7 +32,7 @@
 ## Roadpoints
 
 ### R1. 在前端消费层静默吞掉 NO_REPLY 的 processing/report synthetic bubble
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `relay.processing` / `relay.report` 若只携带 NO_REPLY 协议 token，不生成任何可见 agent bubble。
   - 群聊线程与会话列表都不显示 `NO_REPLY`、`suppressed_by=no_reply_token`、`Agent is working` 或 `Agent replied`。
@@ -54,3 +54,14 @@
   - 红测先证明当前前端会把 `relay.processing` / `relay.report` 的 NO_REPLY token 渲染成 synthetic agent bubble 或列表预览。
   - 最小实现后执行 milestone test gate 全绿。
   - C1/C2/C3 齐全，`PROGRESS` / `ACCEPTANCE` 写清根因、证据、回滚点与后续 M170 复验入口。
+
+## 当前结果
+- 当前根因已证实并已修复：前端 `toRelayAgentMessage()` 仍会把 `relay.processing.summary="NO_REPLY"` 与 `relay.report.summary="NO_REPLY"` 合成为 synthetic agent bubble；completion/delivery 虽被吞掉，但用户已经看到了 running/completed 状态。
+- 最小修复已落地：前端现在仅在 relay synthetic message 映射层把精确 `NO_REPLY` token 视为静默，不改后端 schema、mention 路由或其它正常 relay 文案。
+- 自动化证据：
+  - 红测先失败：`cd /Users/czj/Repos/nano-multiagent/.worktrees/M208/src/IM/frontend && ./node_modules/.bin/vitest run src/features/chat/chat-workspace-page.test.ts` → 2 个新增 NO_REPLY mapping 用例失败，返回可见 synthetic agent message `content="NO_REPLY"`。
+  - 前端目标 suite 转绿：同命令修复后 `29 passed`。
+  - 前端 chat 门禁转绿：`cd /Users/czj/Repos/nano-multiagent/.worktrees/M208/src/IM/frontend && npm test -- --runInBand src/features/chat/**/*.test.ts*` → `67 passed`。
+  - 前端 build 转绿：`cd /Users/czj/Repos/nano-multiagent/.worktrees/M208/src/IM/frontend && npm run build` → `built in 727ms`。
+  - 后端门禁转绿：`pytest /Users/czj/Repos/nano-multiagent/.worktrees/M208/tests/im_service/integration/test_m103_im_gateway_e2e.py /Users/czj/Repos/nano-multiagent/.worktrees/M208/tests/im_service/unit/test_relay_service.py` → `17 passed in 0.81s`。
+- 结论：M208 实现与门禁均已完成，可直接重派 M170 真实验收。
