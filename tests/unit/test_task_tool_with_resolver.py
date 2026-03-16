@@ -23,7 +23,8 @@ class _RuntimeStub:
         self.config_resolver = config_resolver
         self.created = 0
 
-    def create_session(self) -> _Session:
+    def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
+        del title, metadata
         self.created += 1
         return _Session(session_id=f"sess_task_with_resolver_{self.created}")
 

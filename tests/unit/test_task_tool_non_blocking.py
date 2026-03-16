@@ -22,7 +22,8 @@ class _RuntimeStub:
         self.continue_calls: list[dict[str, object]] = []
         self._sessions: set[str] = {"sess_existing"}
 
-    def create_session(self) -> _Session:
+    def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
+        del title, metadata
         self.created += 1
         session_id = f"sess_task_non_blocking_{self.created}"
         self._sessions.add(session_id)

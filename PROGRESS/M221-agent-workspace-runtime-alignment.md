@@ -47,4 +47,18 @@
   - Entry: 全量门禁 `28 passed`，其中 workspace contract、create/config API 与真实 `bash pwd` 回归均通过。
 - Rollback: `3628106`
 - Commits: C1=`3628106`, C2=`d03be6a`, C3=`91534e1`
-- Next: 提交文档，rebase/merge 回 `main` 并更新 `data/dev-tasks.json`。
+- Next: 补查真实 task/subagent 链路是否仍绕过 workspace 继承。
+
+### R4 修复 task/subagent 链路把 child session cwd 回退到 repo root
+- Context:
+  - 用户复验仍看到 `pwd=/Users/czj/Repos/nano-multiagent`，说明除主 session 外仍有实际执行路径没继承 workspace。复盘后定位到 `task` 工具直接 `runtime.create_session()`，未带父 session 的 `workspace_root`，child session 因此 fallback 到 repo root。
+- Decision:
+  - 先加真实 e2e：父 session 绑定 workspace 后调用 `task`，让 subagent 再执行 `bash pwd`；随后让 `task` 创建 child session 时继承 `ctx.cwd -> metadata.workspace_root`，避免任何 subagent 新 session 再回退 repo root。
+- Rationale:
+  - 这条链路绕过了 gateway `/v1/sessions` create path，所以之前 session 级修复全部通过，但真正 task/subagent 执行层仍错；必须在 tool/runtime 创建子 session 的入口补齐继承。
+- Evidence:
+  - Tests: `pytest tests/e2e/test_task_tool_blocking_e2e.py -k "inherits_parent_workspace_root_for_real_pwd" -q`
+  - Entry: 红测先看到 task 输出里同时出现 workspace-root 与错误的 repo-root 子 session pwd，修复后 child session metadata 与真实 `pwd` 都落在父 workspace。
+- Rollback: `e7d3868`
+- Commits: C1=`543dac9`, C2=`cefd9ac`, C3=`46e0f24`
+- Next: 更新 TASKS/PROGRESS，记录 task/subagent 真正根因与直接验证，然后再次 merge main。
