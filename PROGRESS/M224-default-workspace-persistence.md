@@ -22,7 +22,7 @@
   - Entry: 隔离 M224 IM runtime 重新注册 `fuck` 后，`data/im_service.sqlite3` 中 `agent_profiles.agent_id='fuck'` 变为 `workspace_root=/Users/czj/nano-assistant/workspace/fuck`。
 - Rollback:
   - `f6bd693`。
-- Commits: C1=`f6bd693`, C2=`69bc8b3`, C3=`pending`
+- Commits: C1=`f6bd693`, C2=`69bc8b3`, C3=`9e8ad19`
 - Next:
   - 用真实 direct chat 证明 legacy session 会被刷新，`pwd` 不再落回 repo root。
 
@@ -40,6 +40,6 @@
   - Entry: 对真实直聊 `7947b93380fe43fd806c759ed1efccd9` 发送“请只执行 pwd，并且只回复当前工作目录的绝对路径，不要加解释。”后，`conversation_events` 的 `relay.completed/message.delivered.detail` 返回 `/Users/czj/nano-assistant/workspace/fuck`；隔离 kernel 的 `m224-sessions.sqlite3` 新 session `sess_b85f433279c0b957` 持久化了 `metadata.workspace_root=/Users/czj/nano-assistant/workspace/fuck`。
 - Rollback:
   - `69bc8b3`。
-- Commits: C1=`already present in branch baseline`, C2=`69bc8b3`, C3=`pending`
+- Commits: C1=`f6bd693`, C2=`69bc8b3`, C3=`9e8ad19`
 - Next:
   - 提交文档，随后 rebase/merge main，并更新 `data/dev-tasks.json`。
