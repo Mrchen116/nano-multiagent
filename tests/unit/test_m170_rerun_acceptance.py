@@ -419,7 +419,7 @@ def test_wait_for_turn_completion_uses_latest_matching_prefix_for_picker_message
     assert any(param and param[0] == "@agent:agent-m170-beta please answer via picker route.%" for param in observed_params)
 
 
-def test_pick_mention_candidate_matches_stable_accessible_name() -> None:
+def test_pick_mention_candidate_matches_current_main_picker_copy() -> None:
     page = _MentionPickerPage()
 
     asyncio.run(
@@ -431,7 +431,7 @@ def test_pick_mention_candidate_matches_stable_accessible_name() -> None:
     )
 
     assert page.calls == [
-        ("role", "option:Agent M170 Beta @agent:agent-m170-beta"),
+        ("role", "option:Agent M170 Beta Agent M170 Beta mention"),
         ("first", ""),
         ("wait_for", "20000"),
         ("click", ""),

@@ -520,4 +520,30 @@ describe("message pane", () => {
     expect(screen.getByText("The agent stopped before finishing this turn. Retry the request to ask the agent again.")).toBeInTheDocument();
     expect(screen.getByText("Recovery: Retry request")).toBeInTheDocument();
   });
+
+  it("keeps empty completed agent placeholders fully silent", () => {
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-status",
+        title: "Status thread",
+        kind_label: "Group chat",
+        ownership_label: "Shared conversation for people and agents.",
+        messages: [
+          {
+            message_id: "msg-silent-complete",
+            sender_type: "agent",
+            sender_name: "OpsBot",
+            content: "",
+            created_at: "2026-03-14T00:05:00Z",
+            delivery_status: "completed"
+          }
+        ]
+      }
+    });
+
+    expect(screen.getByText("OpsBot")).toBeInTheDocument();
+    expect(screen.queryByText("Delivered")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agent replied")).not.toBeInTheDocument();
+    expect(screen.queryByText("The latest agent response finished successfully.")).not.toBeInTheDocument();
+  });
 });
