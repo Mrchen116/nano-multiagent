@@ -104,9 +104,15 @@ describe("agent detail page", () => {
     renderDetailPage();
 
     expect(await screen.findByRole("heading", { name: "Agent Detail" })).toBeInTheDocument();
-    expect(screen.getByText("Open this agent's dedicated direct chat as soon as creation or edits are done.")).toBeInTheDocument();
-    expect(screen.getByText("This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.")).toBeInTheDocument();
-    expect(screen.getByText("Existing messages stay in the same conversation. New behavior applies in that same thread after you save changes.")).toBeInTheDocument();
+    expect(screen.getByText("Review the live profile, then make focused prompt and routing changes without losing state."))
+      .toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Access & model" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Runtime & status" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Direct chat" })).toBeInTheDocument();
+    expect(screen.getByText("Open the reusable direct chat when you want to verify the latest saved profile in context.")).toBeInTheDocument();
+    expect(screen.queryByText("Existing messages stay in the same conversation. New behavior applies in that same thread after you save changes.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open direct chat" })).toBeInTheDocument();
     expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("codexOAuth:gpt-5.2-codex (platform default)");
 

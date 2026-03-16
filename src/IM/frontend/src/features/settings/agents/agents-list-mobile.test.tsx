@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 describe("agents list page", () => {
-  it("renders card list from IM agent summaries without desktop table on mobile", async () => {
+  it("renders a compact card list on mobile without desktop table chrome", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify([
@@ -55,9 +55,61 @@ describe("agents list page", () => {
     expect(screen.getByText("gpt-5.2-codex")).toBeInTheDocument();
     expect(screen.getByText("Managed default")).toBeInTheDocument();
     expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
+    expect(screen.getByText("Stable direct chat")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Workspace settings" })).toHaveAttribute("href", "/settings/agents/agent-core-1#workspace-settings");
     expect(screen.getByText("node-app-01")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/im/v1/agents", expect.any(Object));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("renders desktop cards with summary sections instead of a dense table", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify([
+          {
+            agent_id: "agent-core-1",
+            owner_id: "owner-1",
+            display_name: "Core Planner",
+            description: "Milestone execution coordinator",
+            profile_version: 12,
+            default_model: "gpt-5.2-codex",
+            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
+            workspace_is_default: true,
+            bound_nodes: ["node-app-01", "node-app-02"],
+            updated_at: "2026-03-13T10:00:00Z"
+          },
+          {
+            agent_id: "agent-writer-1",
+            owner_id: "owner-1",
+            display_name: "Writer",
+            description: "Drafts product updates",
+            profile_version: 3,
+            default_model: null,
+            workspace_root: "/Users/demo/nano-assistant/workspace/agent-writer-1",
+            workspace_is_default: false,
+            bound_nodes: [],
+            updated_at: "2026-03-12T08:00:00Z"
+          }
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    await setViewport(1280);
+
+    renderRouter({
+      routes: appRoutes,
+      initialEntries: ["/settings/agents"]
+    });
+
+    expect(await screen.findByText("Core Planner")).toBeInTheDocument();
+    expect(screen.getByText("Review prompts, models, node coverage, and workspace mode before opening an agent.")).toBeInTheDocument();
+    expect(screen.getByText("Active agents")).toBeInTheDocument();
+    expect(screen.getByText("2 profiles")).toBeInTheDocument();
+    expect(screen.getAllByText("Workspace")).toHaveLength(2);
+    expect(screen.getAllByText("Routing")).toHaveLength(2);
+    expect(screen.getByText("Bound nodes: node-app-01, node-app-02")).toBeInTheDocument();
+    expect(screen.getByText("Bound nodes: Not bound yet")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 

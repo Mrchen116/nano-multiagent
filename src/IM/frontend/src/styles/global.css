@@ -83,6 +83,59 @@ body {
   color: var(--im-accent-2);
 }
 
+.im-section-card {
+  display: grid;
+  gap: 1rem;
+  border: 1px solid color-mix(in oklab, var(--im-border) 86%, white 14%);
+  border-radius: 1.25rem;
+  background: color-mix(in oklab, var(--im-surface) 94%, white 6%);
+  padding: 1.1rem;
+}
+
+.im-section-heading {
+  font-family: "Space Grotesk", "Manrope", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.im-section-copy {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.im-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  background: #eef8f8;
+  padding: 0.32rem 0.72rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.im-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid #b9e3e1;
+  background: #f3fbfb;
+  padding: 0.38rem 0.72rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.im-subtle-card {
+  border: 1px solid color-mix(in oklab, var(--im-border) 85%, white 15%);
+  border-radius: 1rem;
+  background: color-mix(in oklab, white 90%, var(--im-surface-2) 10%);
+  padding: 0.95rem;
+}
+
 @media (max-width: 900px) {
   body {
     background:

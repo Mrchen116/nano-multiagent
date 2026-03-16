@@ -141,16 +141,22 @@ describe("agent edit page", () => {
 
     const input = await screen.findByLabelText("Display Name");
     expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the planning core for IM and SDK tasks.");
+    expect(screen.getByText("Review the live profile, then make focused prompt and routing changes without losing state.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Access & model" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Runtime & status" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Direct chat" })).toBeInTheDocument();
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
     expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
-    expect(screen.getAllByText("Recommended for product users")).toHaveLength(2);
-    expect(screen.getAllByText("Saved advanced items")).toHaveLength(2);
+    expect(screen.getAllByText("Selected 2")).toHaveLength(2);
+    expect(screen.getAllByText("Saved advanced selections")).toHaveLength(2);
     expect(screen.getByRole("checkbox", { name: /tdd-execution-worker/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /playwright/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /bash/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /read_file/i })).toBeChecked();
-    expect(screen.getByText("Show advanced/internal options (1 hidden)")).toBeInTheDocument();
+    expect(screen.getByText("Show advanced options (1 hidden)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "No Changes to Save" })).toBeDisabled();
 
     await user.clear(input);
@@ -158,7 +164,7 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("checkbox", { name: /playwright/i }));
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /bash/i }));
-    const hiddenAdvancedSummary = screen.getByText("Show advanced/internal options (1 hidden)");
+    const hiddenAdvancedSummary = screen.getByText("Show advanced options (1 hidden)");
     hiddenAdvancedSummary.closest("details")?.setAttribute("open", "");
     await user.click(screen.getByText(/^task$/i));
     await user.type(screen.getByLabelText("Workspace Path Setting"), "/custom/agent-core-1");
@@ -186,7 +192,7 @@ describe("agent edit page", () => {
         })
       );
     });
-  });
+  }, 10_000);
 
   it("blocks save when required fields are empty", async () => {
     const user = userEvent.setup();

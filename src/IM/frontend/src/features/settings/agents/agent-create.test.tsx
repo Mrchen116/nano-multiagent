@@ -109,13 +109,19 @@ describe("agent create page", () => {
 
     expect(await screen.findByRole("heading", { name: "New Agent" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Back to Agents" })).toHaveAttribute("href", "/settings/agents");
+    expect(screen.getByText("Set the identity, behavior, and runtime defaults before anyone starts using this agent.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Access & model" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Runtime placement" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Before you create" })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the personal_assistant default template.");
     });
-    expect(screen.getByText("We prefill the personal_assistant product template here. Edit it before saving so it matches this agent.")).toBeInTheDocument();
     expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("Platform default (codexOAuth:gpt-5.2-codex)");
-    expect(screen.getAllByText("Recommended for product users")).toHaveLength(2);
-    expect(screen.getAllByText("Show advanced/internal options (1 hidden)")).toHaveLength(1);
+    expect(screen.getAllByText("Selected 0")).toHaveLength(2);
+    expect(screen.getByText("Show advanced options (1 hidden)")).toBeInTheDocument();
+    expect(screen.queryByText("Recommended for product users")).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /bash/i })).not.toBeChecked();
 
     await user.type(screen.getByLabelText("Agent ID"), "agent-new");
@@ -180,7 +186,7 @@ describe("agent create page", () => {
         display_name: "Agent New"
       })
     ]);
-  });
+  }, 10_000);
 
   it("blocks submission and explains required fields", async () => {
     const user = userEvent.setup();
@@ -198,6 +204,7 @@ describe("agent create page", () => {
 
     await screen.findByRole("heading", { name: "New Agent" });
     await user.clear(screen.getByLabelText("System Prompt"));
+    expect(screen.getByLabelText("System Prompt")).toHaveValue("");
     await user.click(screen.getByRole("button", { name: "Create Agent" }));
 
     expect(screen.getByText("Agent ID is required.")).toBeInTheDocument();

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sqlite3
 from pathlib import Path
 import importlib.util
@@ -233,8 +234,11 @@ class _RecordingLocator:
         self._sink.append(("first", ""))
         return self
 
-    def filter(self, *, has_text: str | None = None) -> "_RecordingLocator":
-        self._sink.append(("filter", has_text or ""))
+    def filter(self, *, has_text: object | None = None) -> "_RecordingLocator":
+        recorded = ""
+        if has_text is not None:
+            recorded = getattr(has_text, "pattern", str(has_text))
+        self._sink.append(("filter", recorded))
         return self
 
     async def wait_for(self, timeout: int) -> None:
@@ -251,6 +255,68 @@ class _MentionPickerPage:
     def get_by_role(self, role: str, name: str | None = None) -> _RecordingLocator:
         self.calls.append(("role", role if name is None else f"{role}:{name}"))
         return _RecordingLocator(self.calls)
+
+
+class _FallbackMentionOption:
+    def __init__(self, sink: list[tuple[str, str]], text: str) -> None:
+        self._sink = sink
+        self._text = text
+
+    async def inner_text(self) -> str:
+        self._sink.append(("inner_text", self._text))
+        return self._text
+
+    async def click(self) -> None:
+        self._sink.append(("fallback_click", self._text))
+
+
+class _FallbackMentionFilter:
+    def __init__(self, sink: list[tuple[str, str]]) -> None:
+        self._sink = sink
+
+    @property
+    def first(self) -> "_FallbackMentionFilter":
+        return self
+
+    async def wait_for(self, timeout: int) -> None:
+        self._sink.append(("wait_for", str(timeout)))
+        raise m170_rerun_acceptance.PlaywrightTimeoutError("fast-path miss")
+
+
+class _FallbackMentionList:
+    def __init__(self, sink: list[tuple[str, str]], texts: list[str]) -> None:
+        self._sink = sink
+        self._texts = texts
+
+    def filter(self, *, has_text: object | None = None) -> _FallbackMentionFilter:
+        recorded = ""
+        if has_text is not None:
+            recorded = getattr(has_text, "pattern", str(has_text))
+        self._sink.append(("filter", recorded))
+        return _FallbackMentionFilter(self._sink)
+
+    async def count(self) -> int:
+        self._sink.append(("count", str(len(self._texts))))
+        return len(self._texts)
+
+    def nth(self, index: int) -> _FallbackMentionOption:
+        self._sink.append(("nth", str(index)))
+        return _FallbackMentionOption(self._sink, self._texts[index])
+
+
+class _FallbackMentionPage:
+    def __init__(self, texts: list[str]) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._texts = texts
+
+    def get_by_role(self, role: str, name: str | None = None):
+        self.calls.append(("role", role if name is None else f"{role}:{name}"))
+        if role == "option":
+            return _FallbackMentionList(self.calls, self._texts)
+        return _FallbackMentionFilter(self.calls)
+
+    async def wait_for_timeout(self, timeout_ms: int) -> None:
+        self.calls.append(("timeout", str(timeout_ms)))
 
 
 class _SelectorPage:
@@ -419,7 +485,143 @@ def test_wait_for_turn_completion_uses_latest_matching_prefix_for_picker_message
     assert any(param and param[0] == "@agent:agent-m170-beta please answer via picker route.%" for param in observed_params)
 
 
-def test_pick_mention_candidate_matches_current_main_picker_copy() -> None:
+def test_wait_for_turn_completion_ignores_stale_turns_from_other_conversations(runtime_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    observed_message_params: list[tuple[Any, ...]] = []
+
+    def fake_fetchone_dict(query: str, params: tuple = ()) -> dict[str, Any] | None:
+        if "FROM messages" in query:
+            observed_message_params.append(params)
+            if params == ("@agent-m170-alpha please answer exactly as configured.", "conv-current"):
+                return {
+                    "id": "msg-current",
+                    "conversation_id": "conv-current",
+                    "sender_user_id": "user-1",
+                    "sender_type": "human",
+                    "content": "@agent-m170-alpha please answer exactly as configured.",
+                    "created_at": "2026-03-16T10:05:00Z",
+                }
+            if params == ("@agent-m170-alpha please answer exactly as configured.",):
+                return {
+                    "id": "msg-stale",
+                    "conversation_id": "conv-stale",
+                    "sender_user_id": "user-1",
+                    "sender_type": "human",
+                    "content": "@agent-m170-alpha please answer exactly as configured.",
+                    "created_at": "2026-03-16T09:00:00Z",
+                }
+            return None
+        if "FROM relay_tasks" in query:
+            message_id = params[0]
+            return {
+                "relay_task_id": f"relay-{message_id}",
+                "message_id": message_id,
+                "conversation_id": "conv-current" if message_id == "msg-current" else "conv-stale",
+                "target_node_id": "m170-node",
+                "payload_json": json.dumps({"mentioned_agent_ids": ["agent-m170-alpha"], "config_profile_version": 3}),
+                "status": "completed",
+                "receipt_status": "delivered",
+                "receipt_detail": "ALPHA_ACK_M170",
+            }
+        return None
+
+    monkeypatch.setattr(m170_rerun_acceptance, "fetchone_dict", fake_fetchone_dict)
+    monkeypatch.setattr(
+        m170_rerun_acceptance,
+        "fetchall_dicts",
+        lambda query, params=(): [
+            {
+                "event_id": "evt-current",
+                "event_type": "relay.completed",
+                "delivery_status": "delivered",
+                "payload_json": json.dumps({"relay_task_id": "relay-msg-current"}),
+                "created_at": "2026-03-16T10:05:02Z",
+            }
+        ],
+    )
+
+    result = asyncio.run(
+        m170_rerun_acceptance.wait_for_turn_completion(
+            _SelectorPage([None]),
+            text="@agent-m170-alpha please answer exactly as configured.",
+            conversation_id="conv-current",
+        )
+    )
+
+    assert result["message_id"] == "msg-current"
+    assert result["conversation_id"] == "conv-current"
+    assert observed_message_params[0] == ("@agent-m170-alpha please answer exactly as configured.", "conv-current")
+    assert ("@agent-m170-alpha please answer exactly as configured.",) not in observed_message_params
+
+
+
+def test_finalize_run_artifacts_promotes_only_complete_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    staged_dir = tmp_path / "staged"
+    staged_dir.mkdir()
+    staged_json = staged_dir / "m170-rerun-result.json"
+    staged_home = staged_dir / "m170-rerun-home.png"
+    staged_picker = staged_dir / "m170-rerun-picker.png"
+    staged_json.write_text(json.dumps({"run_id": "run-123", "screenshots": []}), encoding="utf-8")
+    staged_home.write_text("home", encoding="utf-8")
+    staged_picker.write_text("picker", encoding="utf-8")
+
+    out_json = tmp_path / "published-result.json"
+    shot_home = tmp_path / "published-home.png"
+    shot_picker = tmp_path / "published-picker.png"
+    shot_home.write_text("previous-home", encoding="utf-8")
+
+    monkeypatch.setattr(m170_rerun_acceptance, "OUT_JSON", out_json)
+    monkeypatch.setattr(m170_rerun_acceptance, "SHOT_HOME", shot_home)
+    monkeypatch.setattr(m170_rerun_acceptance, "SHOT_PICKER", shot_picker)
+
+    result = {
+        "run_id": "run-123",
+        "screenshots": [str(staged_home), str(staged_picker)],
+    }
+
+    published = m170_rerun_acceptance.finalize_run_artifacts(result=result, staged_dir=staged_dir)
+
+    assert published["run_id"] == "run-123"
+    assert out_json.exists()
+    assert json.loads(out_json.read_text(encoding="utf-8"))["run_id"] == "run-123"
+    assert shot_home.read_text(encoding="utf-8") == "home"
+    assert shot_picker.read_text(encoding="utf-8") == "picker"
+    assert staged_json.exists() is False
+    assert staged_home.exists() is False
+
+
+
+def test_finalize_run_artifacts_preserves_previous_publish_when_stage_is_incomplete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    staged_dir = tmp_path / "staged"
+    staged_dir.mkdir()
+    staged_json = staged_dir / "m170-rerun-result.json"
+    staged_home = staged_dir / "m170-rerun-home.png"
+    staged_json.write_text(json.dumps({"run_id": "run-broken", "screenshots": []}), encoding="utf-8")
+    staged_home.write_text("new-home", encoding="utf-8")
+
+    out_json = tmp_path / "published-result.json"
+    shot_home = tmp_path / "published-home.png"
+    shot_picker = tmp_path / "published-picker.png"
+    out_json.write_text(json.dumps({"run_id": "run-prev", "screenshots": []}), encoding="utf-8")
+    shot_home.write_text("previous-home", encoding="utf-8")
+    shot_picker.write_text("previous-picker", encoding="utf-8")
+
+    monkeypatch.setattr(m170_rerun_acceptance, "OUT_JSON", out_json)
+    monkeypatch.setattr(m170_rerun_acceptance, "SHOT_HOME", shot_home)
+    monkeypatch.setattr(m170_rerun_acceptance, "SHOT_PICKER", shot_picker)
+
+    with pytest.raises(FileNotFoundError, match="m170-rerun-picker.png"):
+        m170_rerun_acceptance.finalize_run_artifacts(
+            result={"run_id": "run-broken", "screenshots": [str(staged_home), str(staged_dir / 'm170-rerun-picker.png')]},
+            staged_dir=staged_dir,
+        )
+
+    assert json.loads(out_json.read_text(encoding="utf-8"))["run_id"] == "run-prev"
+    assert shot_home.read_text(encoding="utf-8") == "previous-home"
+    assert shot_picker.read_text(encoding="utf-8") == "previous-picker"
+
+
+
+def test_pick_mention_candidate_tolerates_multiline_picker_copy() -> None:
     page = _MentionPickerPage()
 
     asyncio.run(
@@ -432,8 +634,26 @@ def test_pick_mention_candidate_matches_current_main_picker_copy() -> None:
 
     assert page.calls == [
         ("role", "option"),
-        ("filter", "Agent M170 BetaAgent M170 Beta mention"),
+        ("filter", re.compile(r"Agent\ M170\ Beta\s+Agent\ M170\ Beta mention", re.IGNORECASE).pattern),
         ("first", ""),
-        ("wait_for", "20000"),
+        ("wait_for", "3000"),
         ("click", ""),
     ]
+
+
+
+def test_pick_mention_candidate_falls_back_to_option_inner_text() -> None:
+    page = _FallbackMentionPage([
+        "Agent M170 Alpha\nAgent M170 Alpha mention",
+        "Agent M170 Beta\nAgent M170 Beta mention",
+    ])
+
+    asyncio.run(
+        m170_rerun_acceptance._pick_mention_candidate(
+            page,
+            label="Agent M170 Beta",
+            handle="@agent:agent-m170-beta",
+        )
+    )
+
+    assert ("fallback_click", "Agent M170 Beta\nAgent M170 Beta mention") in page.calls

@@ -248,158 +248,95 @@ export function AgentDetailPage() {
       }}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
+        <div className="max-w-2xl space-y-2">
           <h2 className="im-title text-xl font-bold">Agent Detail</h2>
-          <p className="text-sm text-slate-500">Make safe prompt and routing updates with explicit save feedback before operators rely on them.</p>
+          <p className="text-sm text-slate-500">Review the live profile, then make focused prompt and routing changes without losing state.</p>
         </div>
         <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{draft.agent_id}</div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.95fr)] xl:items-start">
         <div className="grid gap-4">
-          <div className="grid gap-1 md:grid-cols-2 md:gap-3">
-            <div className="grid gap-1">
-              <Label.Root htmlFor="agent-id">Agent ID</Label.Root>
-              <input id="agent-id" className="im-input bg-slate-50 text-slate-500" value={draft.agent_id} disabled />
-            </div>
-            <div className="grid gap-1">
-              <Label.Root htmlFor="owner-id">Owner</Label.Root>
-              <input id="owner-id" className="im-input bg-slate-50 text-slate-500" value={draft.owner_id || "—"} disabled />
-            </div>
-          </div>
-
-          <section id="workspace-settings" className="grid gap-3 rounded-2xl border border-[var(--im-border)] bg-slate-50/80 p-4">
+          <section className="im-section-card">
             <div className="space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Current workspace</p>
-              <p className="break-all font-mono text-sm text-slate-900">{draft.workspace_root}</p>
-              <p className="text-xs text-slate-500">
-                {draft.workspace_is_default
-                  ? "Read-only runtime path. This agent is currently using the managed default workspace."
-                  : "Read-only runtime path. This agent is currently using a custom workspace override."}
-              </p>
+              <h3 className="im-section-heading">Identity</h3>
+              <p className="im-section-copy">Keep the profile name and purpose concise so reviewers can scan this page quickly.</p>
             </div>
-
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-1">
+                <Label.Root htmlFor="agent-id">Agent ID</Label.Root>
+                <input id="agent-id" className="im-input bg-slate-50 text-slate-500" value={draft.agent_id} disabled />
+              </div>
+              <div className="grid gap-1">
+                <Label.Root htmlFor="owner-id">Owner</Label.Root>
+                <input id="owner-id" className="im-input bg-slate-50 text-slate-500" value={draft.owner_id || "—"} disabled />
+              </div>
+            </div>
             <div className="grid gap-1">
-              <Label.Root htmlFor="workspace-root">Workspace Path Setting</Label.Root>
+              <Label.Root htmlFor="display-name">Display Name</Label.Root>
               <input
-                id="workspace-root"
+                id="display-name"
                 className="im-input"
-                value={draft.workspace_root_input}
-                aria-invalid={Boolean(shouldShowError("workspace_root_input"))}
-                aria-describedby="workspace-root-help"
-                placeholder="Leave blank to use the managed default workspace"
-                onBlur={() => markTouched("workspace_root_input")}
+                value={draft.display_name}
+                aria-invalid={Boolean(shouldShowError("display_name"))}
+                aria-describedby="display-name-help"
+                onBlur={() => markTouched("display_name")}
                 onChange={(event) => {
                   setSaved(false);
                   setErrorMessage(null);
-                  setDraft({ ...draft, workspace_root_input: event.target.value });
+                  setDraft({ ...draft, display_name: event.target.value });
                 }}
               />
-              <p id="workspace-root-help" className="text-xs text-slate-500">
-                Editable setting. Enter an absolute path or `~/...`. Leave blank to keep the managed default path for this agent.
+              <p id="display-name-help" className="text-xs text-slate-500">
+                Use a clear operator-facing name so reviewers can identify this profile from the list instantly.
               </p>
-              {shouldShowError("workspace_root_input") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.workspace_root_input}</p> : null}
+              {shouldShowError("display_name") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.display_name}</p> : null}
+            </div>
+            <div className="grid gap-1">
+              <Label.Root htmlFor="description">Description</Label.Root>
+              <input
+                id="description"
+                className="im-input"
+                value={draft.description ?? ""}
+                aria-describedby="description-help"
+                onChange={(event) => {
+                  setSaved(false);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, description: event.target.value });
+                }}
+              />
+              <p id="description-help" className="text-xs text-slate-500">
+                Keep this short and outcome-oriented so product reviewers can confirm the business purpose quickly.
+              </p>
             </div>
           </section>
 
-          <div className="grid gap-1">
-            <Label.Root htmlFor="display-name">Display Name</Label.Root>
-            <input
-              id="display-name"
-              className="im-input"
-              value={draft.display_name}
-              aria-invalid={Boolean(shouldShowError("display_name"))}
-              aria-describedby="display-name-help"
-              onBlur={() => markTouched("display_name")}
-              onChange={(event) => {
-                setSaved(false);
-                setErrorMessage(null);
-                setDraft({ ...draft, display_name: event.target.value });
-              }}
-            />
-            <p id="display-name-help" className="text-xs text-slate-500">
-              Use a clear operator-facing name so reviewers can identify this profile from the list instantly.
-            </p>
-            {shouldShowError("display_name") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.display_name}</p> : null}
-          </div>
-
-          <div className="grid gap-1">
-            <Label.Root htmlFor="description">Description</Label.Root>
-            <input
-              id="description"
-              className="im-input"
-              value={draft.description ?? ""}
-              aria-describedby="description-help"
-              onChange={(event) => {
-                setSaved(false);
-                setErrorMessage(null);
-                setDraft({ ...draft, description: event.target.value });
-              }}
-            />
-            <p id="description-help" className="text-xs text-slate-500">
-              Keep this short and outcome-oriented so product reviewers can confirm the business purpose quickly.
-            </p>
-          </div>
-
-          <div className="grid gap-1">
-            <Label.Root htmlFor="system-prompt">System Prompt</Label.Root>
-            <textarea
-              id="system-prompt"
-              className="im-input min-h-32"
-              value={draft.system_prompt}
-              aria-invalid={Boolean(shouldShowError("system_prompt"))}
-              aria-describedby="system-prompt-help"
-              onBlur={() => markTouched("system_prompt")}
-              onChange={(event) => {
-                setSaved(false);
-                setErrorMessage(null);
-                setDraft({ ...draft, system_prompt: event.target.value });
-              }}
-            />
-            <p id="system-prompt-help" className="text-xs text-slate-500">
-              Treat this as the runtime contract. Small changes here can materially alter behavior.
-            </p>
-            {shouldShowError("system_prompt") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.system_prompt}</p> : null}
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 md:gap-3">
-            <AllowlistSelector
-              id="skills-allowlist"
-              label="Skills Allowlist"
-              selected={draft.skills}
-              options={allowlistOptionsQuery.data?.skills}
-              isLoading={allowlistOptionsQuery.isLoading}
-              errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
-              onRetry={() => void allowlistOptionsQuery.refetch()}
-              helpText="Choose from the skills the running system currently exposes. Existing saved values still appear even if they are unavailable right now."
-              emptySelectionText="No skill selected. Leave blank if this agent should inherit platform defaults."
-              onChange={(skills) => {
-                setSaved(false);
-                setErrorMessage(null);
-                setDraft({ ...draft, skills });
-              }}
-            />
-            <AllowlistSelector
-              id="tool-allowlist"
-              label="Tool Allowlist"
-              selected={draft.tool_allowlist}
-              options={allowlistOptionsQuery.data?.tools}
-              isLoading={allowlistOptionsQuery.isLoading}
-              errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
-              onRetry={() => void allowlistOptionsQuery.refetch()}
-              showDescriptions={false}
-              helpText="Choose from the tools the running system currently exposes. Existing saved values still appear even if they are unavailable right now."
-              emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
-              onChange={(toolAllowlist) => {
-                setSaved(false);
-                setErrorMessage(null);
-                setDraft({ ...draft, tool_allowlist: toolAllowlist });
-              }}
-            />
-          </div>
-
-          <div className="grid gap-1 md:grid-cols-2 md:gap-3">
+          <section className="im-section-card">
+            <div className="space-y-1">
+              <h3 className="im-section-heading">Behavior</h3>
+              <p className="im-section-copy">Prompt and reply policy are the main behavior levers. Keep the rest of the page out of the way while editing them.</p>
+            </div>
             <div className="grid gap-1">
+              <Label.Root htmlFor="system-prompt">System Prompt</Label.Root>
+              <textarea
+                id="system-prompt"
+                className="im-input min-h-40"
+                value={draft.system_prompt}
+                aria-invalid={Boolean(shouldShowError("system_prompt"))}
+                aria-describedby="system-prompt-help"
+                onBlur={() => markTouched("system_prompt")}
+                onChange={(event) => {
+                  setSaved(false);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, system_prompt: event.target.value });
+                }}
+              />
+              <p id="system-prompt-help" className="text-xs text-slate-500">
+                Treat this as the runtime contract. Small changes here can materially alter behavior.
+              </p>
+              {shouldShowError("system_prompt") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.system_prompt}</p> : null}
+            </div>
+            <div className="grid gap-1 md:max-w-sm">
               <Label.Root htmlFor="group-reply-policy">Group Reply Policy</Label.Root>
               <select
                 id="group-reply-policy"
@@ -420,7 +357,49 @@ export function AgentDetailPage() {
                 {policyDescription(draft.group_reply_policy)}
               </p>
             </div>
-            <div className="grid gap-1">
+          </section>
+
+          <section className="im-section-card">
+            <div className="space-y-1">
+              <h3 className="im-section-heading">Access & model</h3>
+              <p className="im-section-copy">Keep the allowlist minimal and verify whether the saved model still matches the live runtime choices.</p>
+            </div>
+            <div className="grid gap-3 2xl:grid-cols-2">
+              <AllowlistSelector
+                id="skills-allowlist"
+                label="Skills Allowlist"
+                selected={draft.skills}
+                options={allowlistOptionsQuery.data?.skills}
+                isLoading={allowlistOptionsQuery.isLoading}
+                errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
+                onRetry={() => void allowlistOptionsQuery.refetch()}
+                helpText="Choose from the skills the running system currently exposes. Existing saved values still appear even if they are unavailable right now."
+                emptySelectionText="No skill selected. Leave blank if this agent should inherit platform defaults."
+                onChange={(skills) => {
+                  setSaved(false);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, skills });
+                }}
+              />
+              <AllowlistSelector
+                id="tool-allowlist"
+                label="Tool Allowlist"
+                selected={draft.tool_allowlist}
+                options={allowlistOptionsQuery.data?.tools}
+                isLoading={allowlistOptionsQuery.isLoading}
+                errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
+                onRetry={() => void allowlistOptionsQuery.refetch()}
+                showDescriptions={false}
+                helpText="Choose from the tools the running system currently exposes. Existing saved values still appear even if they are unavailable right now."
+                emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
+                onChange={(toolAllowlist) => {
+                  setSaved(false);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, tool_allowlist: toolAllowlist });
+                }}
+              />
+            </div>
+            <div className="grid gap-1 md:max-w-sm">
               <Label.Root htmlFor="default-model">Default Model</Label.Root>
               <select
                 id="default-model"
@@ -448,23 +427,49 @@ export function AgentDetailPage() {
                 Choose from the models the current runtime exposes. Leave this on {platformDefaultLabel(platformDefaultModel)} to inherit the platform setting.
               </p>
             </div>
-          </div>
+          </section>
         </div>
 
-        <aside className="grid gap-3 rounded-2xl border border-[var(--im-border)] bg-white/75 p-4">
+        <aside className="im-section-card xl:sticky xl:top-5">
           <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live status</p>
-            <p className="text-sm text-slate-600">Keep an eye on versioning, last update time, and node placement while editing behavior.</p>
+            <h3 className="im-section-heading">Runtime & status</h3>
+            <p className="im-section-copy">Keep runtime information, workspace overrides, and live node health together so the editing flow stays uncluttered.</p>
           </div>
 
-          <section className="rounded-2xl border border-[var(--im-border)] bg-slate-50 p-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Start chatting now</p>
-            <p className="mt-2 text-sm text-slate-700">Open this agent's dedicated direct chat as soon as creation or edits are done.</p>
-            <p className="mt-2 text-xs text-slate-500">This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.</p>
-            <p className="mt-2 text-xs text-slate-500">Existing conversations keep their earlier profile snapshot. Use the in-chat fresh session action when you want a new thread to pick up the latest saved prompt version.</p>
+          <section id="workspace-settings" className="im-subtle-card grid gap-3">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current workspace</p>
+              <p className="break-all font-mono text-sm text-slate-900">{draft.workspace_root}</p>
+              <p className="text-xs text-slate-500">
+                {draft.workspace_is_default
+                  ? "Read-only runtime path. This agent is currently using the managed default workspace."
+                  : "Read-only runtime path. This agent is currently using a custom workspace override."}
+              </p>
+            </div>
+            <div className="grid gap-1">
+              <Label.Root htmlFor="workspace-root">Workspace Path Setting</Label.Root>
+              <input
+                id="workspace-root"
+                className="im-input"
+                value={draft.workspace_root_input}
+                aria-invalid={Boolean(shouldShowError("workspace_root_input"))}
+                aria-describedby="workspace-root-help"
+                placeholder="Leave blank to use the managed default workspace"
+                onBlur={() => markTouched("workspace_root_input")}
+                onChange={(event) => {
+                  setSaved(false);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, workspace_root_input: event.target.value });
+                }}
+              />
+              <p id="workspace-root-help" className="text-xs text-slate-500">
+                Editable setting. Enter an absolute path or `~/...`. Leave blank to keep the managed default path for this agent.
+              </p>
+              {shouldShowError("workspace_root_input") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.workspace_root_input}</p> : null}
+            </div>
           </section>
 
-          <dl className="grid gap-2 text-sm text-slate-600">
+          <dl className="im-subtle-card grid gap-2 text-sm text-slate-600">
             <div className="flex items-center justify-between gap-3">
               <dt>Profile Version</dt>
               <dd className="font-semibold text-slate-900">{draft.profile_version}</dd>
@@ -479,13 +484,19 @@ export function AgentDetailPage() {
             </div>
           </dl>
 
+          <section className="im-subtle-card grid gap-2">
+            <h3 className="im-section-heading text-base">Direct chat</h3>
+            <p className="text-sm text-slate-700">Open the reusable direct chat when you want to verify the latest saved profile in context.</p>
+            <p className="text-xs text-slate-500">This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.</p>
+          </section>
+
           {nodesQuery.isLoading ? <p className="text-xs text-slate-500">Loading live node status...</p> : null}
           {nodesQuery.isError ? <p className="text-xs font-semibold text-amber-700">Live node status unavailable: {nodeErrorDetail}</p> : null}
 
           {boundNodes.length > 0 ? (
             <div className="grid gap-2">
               {boundNodes.map((node) => (
-                <section key={node.node_id} className="rounded-xl border border-[var(--im-border)] bg-slate-50 p-3">
+                <section key={node.node_id} className="im-subtle-card grid gap-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-slate-900">{node.node_name}</p>
@@ -493,7 +504,7 @@ export function AgentDetailPage() {
                     </div>
                     <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${nodeStatusClasses(node.status)}`}>{node.status}</span>
                   </div>
-                  <dl className="mt-2 grid gap-1 text-xs text-slate-600">
+                  <dl className="grid gap-1 text-xs text-slate-600">
                     <div className="flex items-center justify-between gap-3">
                       <dt>Assigned agents</dt>
                       <dd>{node.agent_count}</dd>
@@ -516,29 +527,31 @@ export function AgentDetailPage() {
         </aside>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--im-border)] pt-3">
-        <div aria-live="polite" className="space-y-1 text-xs">
-          <p className="text-slate-500">Profile Version: {draft.profile_version}</p>
-          {hasAttemptedSave && hasValidationErrors ? <p className="font-semibold text-rose-700">Fix the required fields before saving.</p> : null}
-          {errorMessage ? <p className="font-semibold text-rose-700">{errorMessage}</p> : null}
-          {!errorMessage && mutation.isPending ? <p className="font-semibold text-sky-700">Saving changes...</p> : null}
-          {!errorMessage && !mutation.isPending && isDirty ? <p className="font-semibold text-amber-700">Unsaved changes</p> : null}
-          {!errorMessage && saved ? <p className="font-semibold text-emerald-700">Saved</p> : null}
-          {!errorMessage && !mutation.isPending && !isDirty && !saved ? <p className="text-slate-500">All changes saved.</p> : null}
-        </div>
+      <div className="rounded-[1.25rem] border border-[var(--im-border)] bg-white/80 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div aria-live="polite" className="space-y-1 text-xs">
+            <p className="text-slate-500">Profile Version: {draft.profile_version}</p>
+            {hasAttemptedSave && hasValidationErrors ? <p className="font-semibold text-rose-700">Fix the required fields before saving.</p> : null}
+            {errorMessage ? <p className="font-semibold text-rose-700">{errorMessage}</p> : null}
+            {!errorMessage && mutation.isPending ? <p className="font-semibold text-sky-700">Saving changes...</p> : null}
+            {!errorMessage && !mutation.isPending && isDirty ? <p className="font-semibold text-amber-700">Unsaved changes</p> : null}
+            {!errorMessage && saved ? <p className="font-semibold text-emerald-700">Saved</p> : null}
+            {!errorMessage && !mutation.isPending && !isDirty && !saved ? <p className="text-slate-500">All changes saved.</p> : null}
+          </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            className="im-btn im-btn-muted w-fit"
-            type="button"
-            disabled={openDirectChatMutation.isPending}
-            onClick={() => openDirectChatMutation.mutate()}
-          >
-            {openDirectChatMutation.isPending ? "Opening direct chat…" : "Open direct chat"}
-          </button>
-          <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending || !isDirty}>
-            {mutation.isPending ? "Saving…" : isDirty ? "Save Agent" : "No Changes to Save"}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              className="im-btn im-btn-muted w-fit"
+              type="button"
+              disabled={openDirectChatMutation.isPending}
+              onClick={() => openDirectChatMutation.mutate()}
+            >
+              {openDirectChatMutation.isPending ? "Opening direct chat…" : "Open direct chat"}
+            </button>
+            <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending || !isDirty}>
+              {mutation.isPending ? "Saving…" : isDirty ? "Save Agent" : "No Changes to Save"}
+            </button>
+          </div>
         </div>
       </div>
     </form>

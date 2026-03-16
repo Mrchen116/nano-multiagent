@@ -107,6 +107,8 @@ class IMConnectionManager:
         self._reconnect_delay = config.reconnect_initial_seconds
         self._events: list[dict[str, object]] = []
         self._pending_frames: deque[tuple[str, dict[str, object]]] = deque()
+        self._awaiting_ack_type: str | None = None
+        self._flush_lock = asyncio.Lock()
 
     @property
     def connected(self) -> bool:
@@ -181,6 +183,8 @@ class IMConnectionManager:
             raise ValueError("payload must be an object")
         self._events.append({"event": "frame", "type": message_type})
         if message_type == "ack":
+            self._ack_pending_frame(body)
+            await self._flush_pending_frames()
             return
         if message_type == "relay.message":
             self._relay_adapter.accept_relay(body)
@@ -198,7 +202,9 @@ class IMConnectionManager:
         raise ValueError(f"unsupported downstream message type: {message_type}")
 
     async def _flush_pending_frames(self, *, raise_on_disconnect: bool = False) -> None:
-        while self._pending_frames:
+        async with self._flush_lock:
+            if self._awaiting_ack_type is not None or not self._pending_frames:
+                return
             message_type, payload = self._pending_frames[0]
             try:
                 await self._send_frame(message_type, payload)
@@ -207,7 +213,7 @@ class IMConnectionManager:
                 if raise_on_disconnect:
                     raise
                 return
-            self._pending_frames.popleft()
+            self._awaiting_ack_type = message_type
 
     async def _send_frame(self, message_type: str, payload: Mapping[str, object]) -> None:
         websocket = self._require_websocket()
@@ -224,10 +230,22 @@ class IMConnectionManager:
             except Exception:  # noqa: BLE001
                 return
 
+    def _ack_pending_frame(self, payload: Mapping[str, object]) -> None:
+        awaiting = self._awaiting_ack_type
+        if awaiting is None:
+            return
+        ack_type = payload.get("message_type")
+        if not isinstance(ack_type, str) or ack_type.strip() != awaiting:
+            return
+        self._pending_frames.popleft()
+        self._awaiting_ack_type = None
+        self._events.append({"event": "acked", "type": awaiting})
+
     def _mark_disconnected(self, exc: Exception | None = None) -> None:
         had_connection = self._connected or self._websocket is not None
         self._connected = False
         self._websocket = None
+        self._awaiting_ack_type = None
         if had_connection:
             event: dict[str, object] = {"event": "disconnected"}
             if exc is not None:
