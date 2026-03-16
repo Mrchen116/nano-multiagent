@@ -51,3 +51,4 @@
 - 零残留批量替换防误伤规则（2026-03-11，M88）：对大范围 canonical path 替换，不能只做字符串级 bulk replace 后直接继续；必须立即复查 contract/location tests 中的“forbidden snippets”“legacy doc snippets”“find_spec(... ) is None”这类负向断言，避免把应保留的 legacy 期望字面量也替换成 canonical 文本，导致测试语义反转。
 - CLI 无参数前门防环境劫持规则（2026-03-11，M110）：当产品承诺“直接执行 CLI 即进入 managed 模式”时，通用远端连接环境变量（尤其 `NANO_MULTIAGENT_API_BASE_URL`）不得悄悄改写该默认入口；只允许显式 CLI 参数或专用 mode 开关改变前门语义。否则用户会把一次“无参数本地启动”误送到远端服务，且 smoke/文档难以复现。
 - IM-hosted 前端交付规则（2026-03-12，M122）：若运行时入口依赖仓内 `src/IM/frontend/dist` 作为静态壳文件，前端仓内忽略规则不得把该 `dist` 当成“本地临时产物”永久排除；否则代码里即使已接好 `/`、`/chat`、`/settings/*` 入口，真实服务仍会因为缺壳文件而退回到残留 dev server 或直接 `404`。
+- IM websocket 发送失败主动断连规则（2026-03-16，M219）：Gateway 向 IM websocket 发送 frame 时若已遭遇短断连，不能只把 `_connected=False` 留给后台 `recv()` 路径慢慢发现；必须立即关闭旧 socket，并把未送达的 report/receipt frame 留在本地缓冲，等重连后 flush。否则 fresh runtime 的首条 relay 会长期停在 `relay.accepted` / `receipt sent`，看起来像“等待不足”，实则是 lifecycle 投递永久丢失。
