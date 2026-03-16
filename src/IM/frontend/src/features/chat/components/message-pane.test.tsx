@@ -511,8 +511,9 @@ describe("message pane", () => {
     expect(screen.getByText("Your message left this device and is waiting for agent work.")).toBeInTheDocument();
     expect(screen.getByText("Agent is working")).toBeInTheDocument();
     expect(screen.getByText("The relay accepted your request and the agent is still processing it.")).toBeInTheDocument();
-    expect(screen.getByText("Agent replied")).toBeInTheDocument();
-    expect(screen.getByText("The latest agent response finished successfully.")).toBeInTheDocument();
+    expect(screen.getByText("Delivered")).toBeInTheDocument();
+    expect(screen.queryByText("Agent replied")).not.toBeInTheDocument();
+    expect(screen.queryByText("The latest agent response finished successfully.")).not.toBeInTheDocument();
     expect(screen.getByText("Didn't send")).toBeInTheDocument();
     expect(screen.getByText("The message did not reach the relay. Retry after the connection is back.")).toBeInTheDocument();
     expect(screen.getByText("Agent couldn't finish")).toBeInTheDocument();
