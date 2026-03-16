@@ -111,8 +111,12 @@ describe("agent detail page", () => {
     expect(screen.getByRole("heading", { name: "Access & model" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Runtime & status" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Direct chat" })).toBeInTheDocument();
+    expect(screen.getByText("Current workspace")).toBeInTheDocument();
+    expect(screen.getByLabelText("Workspace Path Setting")).toBeInTheDocument();
     expect(screen.getByText("Open the reusable direct chat when you want to verify the latest saved profile in context.")).toBeInTheDocument();
-    expect(screen.queryByText("Existing messages stay in the same conversation. New behavior applies in that same thread after you save changes.")).not.toBeInTheDocument();
+    expect(screen.getByText("This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.")).toBeInTheDocument();
+    expect(screen.queryByText("Live status")).not.toBeInTheDocument();
+    expect(screen.queryByText("Start chatting now")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open direct chat" })).toBeInTheDocument();
     expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("codexOAuth:gpt-5.2-codex (platform default)");
 

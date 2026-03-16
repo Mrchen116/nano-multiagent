@@ -118,10 +118,13 @@ describe("agent create page", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the personal_assistant default template.");
     });
+    expect(screen.getByText("We prefill the personal_assistant product template here. Edit it before saving so it matches this agent.")).toBeInTheDocument();
     expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("Platform default (codexOAuth:gpt-5.2-codex)");
     expect(screen.getAllByText("Selected 0")).toHaveLength(2);
     expect(screen.getByText("Show advanced options (1 hidden)")).toBeInTheDocument();
-    expect(screen.queryByText("Recommended for product users")).not.toBeInTheDocument();
+    expect(screen.getByText("Workspace preview")).toBeInTheDocument();
+    expect(screen.getByLabelText("Workspace Path Setting")).toBeInTheDocument();
+    expect(screen.queryByText(/advanced\/internal/i)).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /bash/i })).not.toBeChecked();
 
     await user.type(screen.getByLabelText("Agent ID"), "agent-new");
