@@ -17,8 +17,8 @@
 - Evidence:
   - Tests: `pytest tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py tests/e2e/test_personal_assistant_main_e2e.py -k "workspace or pwd" -q`
   - Entry: `/v1/sessions` 接受 `workspace_root` 前，`pwd` 红测返回 worktree/repo 根而非目标 workspace。
-- Rollback: `75f4eb1`
-- Commits: C1=`43783fc`, C2=`3de48fe`, C3=`<pending>`
+- Rollback: `a8350d2`
+- Commits: C1=`3628106`, C2=`d03be6a`, C3=`91534e1`
 - Next: 收口文档并准备 rebase/merge。
 
 ### R2 修复会话创建、runtime 上下文与 config resolver 的 workspace 真源
@@ -31,8 +31,8 @@
 - Evidence:
   - Tests: `pytest tests/contract/test_sessions_contract.py tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py tests/e2e/test_personal_assistant_main_e2e.py -q`
   - Entry: 新建 session 后 `pwd` 返回 session metadata 中的 `workspace_root`，而非 `/Users/czj/Repos/nano-multiagent`。
-- Rollback: `43783fc`
-- Commits: C1=`43783fc`, C2=`3de48fe`, C3=`<pending>`
+- Rollback: `3628106`
+- Commits: C1=`3628106`, C2=`d03be6a`, C3=`91534e1`
 - Next: 记录文档提交并集成回 `main`。
 
 ### R3 用真实创建与真实运行态完成回归验证并收口文档
@@ -45,6 +45,6 @@
 - Evidence:
   - Tests: `pytest tests/contract/test_sessions_contract.py tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py tests/e2e/test_personal_assistant_main_e2e.py -q`
   - Entry: 全量门禁 `28 passed`，其中 workspace contract、create/config API 与真实 `bash pwd` 回归均通过。
-- Rollback: `43783fc`
-- Commits: C1=`43783fc`, C2=`3de48fe`, C3=`<pending>`
+- Rollback: `3628106`
+- Commits: C1=`3628106`, C2=`d03be6a`, C3=`91534e1`
 - Next: 提交文档，rebase/merge 回 `main` 并更新 `data/dev-tasks.json`。
