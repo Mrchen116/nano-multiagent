@@ -163,6 +163,141 @@ def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) 
             assert node_row.json()[0]["node_name"] == "MacBook"
 
 
+def test_gateway_websocket_persists_completed_relay_chain_from_report_and_receipt(tmp_path: Path) -> None:
+    """Persist relay processing/completed events even when report and receipt arrive after reconnect."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        alice_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, alice_id)
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["agent-a"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            created = client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-http-reconnect-chain"},
+                json={
+                    "sender_user_id": alice_id,
+                    "content": "hello reconnect chain",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert created.status_code == 201
+            relay_frame = websocket.receive_json()
+            relay_task_id = relay_frame["payload"]["relay_task_id"]
+            message_id = relay_frame["payload"]["message"]["id"]
+
+            websocket.send_json(
+                {
+                    "type": "node.delivery_receipt",
+                    "payload": {
+                        "node_id": "node-1",
+                        "relay_task_id": relay_task_id,
+                        "delivery_status": "sent",
+                        "detail": "run_id=run-1",
+                    },
+                }
+            )
+            assert websocket.receive_json()["payload"]["status"] == "sent"
+
+            websocket.send_json(
+                {
+                    "type": "node.report",
+                    "payload": {
+                        "node_id": "node-1",
+                        "run_id": "run-1",
+                        "status": "running",
+                        "agent_id": "agent-a",
+                        "conversation_id": conversation_id,
+                        "message_id": message_id,
+                        "summary": "processing after reconnect",
+                    },
+                }
+            )
+            assert websocket.receive_json() == {
+                "type": "ack",
+                "payload": {"message_type": "node.report", "node_id": "node-1"},
+            }
+
+            websocket.send_json(
+                {
+                    "type": "node.report",
+                    "payload": {
+                        "node_id": "node-1",
+                        "run_id": "run-1",
+                        "status": "completed",
+                        "agent_id": "agent-a",
+                        "conversation_id": conversation_id,
+                        "message_id": message_id,
+                        "summary": "completed after reconnect",
+                    },
+                }
+            )
+            assert websocket.receive_json() == {
+                "type": "ack",
+                "payload": {"message_type": "node.report", "node_id": "node-1"},
+            }
+
+            websocket.send_json(
+                {
+                    "type": "node.delivery_receipt",
+                    "payload": {
+                        "node_id": "node-1",
+                        "relay_task_id": relay_task_id,
+                        "delivery_status": "completed",
+                        "detail": "completed after reconnect",
+                    },
+                }
+            )
+            assert websocket.receive_json() == {
+                "type": "ack",
+                "payload": {
+                    "message_type": "node.delivery_receipt",
+                    "node_id": "node-1",
+                    "relay_task_id": relay_task_id,
+                    "status": "completed",
+                },
+            }
+
+        relay_row = app.state.connection.execute(
+            "SELECT status, receipt_status, receipt_detail FROM relay_tasks WHERE relay_task_id = ?",
+            (relay_task_id,),
+        ).fetchone()
+        event_rows = app.state.connection.execute(
+            "SELECT event_type, delivery_status FROM conversation_events WHERE message_id = ? ORDER BY rowid ASC",
+            (message_id,),
+        ).fetchall()
+        message_row = client.get(f"/im/v1/conversations/{conversation_id}/messages")
+
+        assert relay_row is not None
+        assert relay_row["status"] == "completed"
+        assert relay_row["receipt_status"] == "completed"
+        assert relay_row["receipt_detail"] == "completed after reconnect"
+        assert [row["event_type"] for row in event_rows] == [
+            "message.sent",
+            "relay.accepted",
+            "relay.processing",
+            "relay.report",
+            "relay.completed",
+            "message.delivered",
+        ]
+        assert event_rows[-1]["delivery_status"] == "completed"
+        assert message_row.status_code == 200
+        assert message_row.json()["items"][-1]["delivery_status"] == "completed"
+
+
 def test_gateway_websocket_exposes_actionable_last_error_in_node_board(tmp_path: Path) -> None:
     """Persist actionable startup guidance so `/im/v1/nodes` can surface it to operators."""
     app = create_app(db_path=tmp_path / "im.db")
