@@ -223,6 +223,13 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
             assert [item["agent_id"] for item in before_bind.json()] == ["Alpha", "Beta"]
             assert [item["bound_nodes"] for item in before_bind.json()] == [["node-1"], ["node-1"]]
             assert [item["owner_id"] for item in before_bind.json()] == ["", ""]
+            assert [item["workspace_is_default"] for item in before_bind.json()] == [True, True]
+            stored_rows = app.state.connection.execute(
+                "SELECT agent_id, workspace_root FROM agent_profiles WHERE agent_id IN (?, ?) ORDER BY agent_id",
+                ("Alpha", "Beta"),
+            ).fetchall()
+            assert [row["agent_id"] for row in stored_rows] == ["Alpha", "Beta"]
+            assert [row["workspace_root"].endswith(f"/nano-assistant/workspace/{row['agent_id']}") for row in stored_rows] == [True, True]
 
             bind_start = client.post("/im/v1/bind", json={"action": "start", "node_id": "node-1"})
             assert bind_start.status_code == 201

@@ -1,6 +1,43 @@
 """Domain models for the independent IM service."""
 
 from dataclasses import dataclass, field
+from pathlib import Path
+
+
+_MANAGED_WORKSPACE_ROOT = Path("~/nano-assistant/workspace").expanduser()
+
+
+def managed_workspace_root(agent_id: str) -> str:
+    """Return the canonical managed workspace path for one agent.
+
+    Args:
+        agent_id: Stable agent identifier used to derive the managed workspace directory.
+
+    Returns:
+        Absolute workspace path under the shared managed workspace root.
+    """
+    return str((_MANAGED_WORKSPACE_ROOT / agent_id).resolve())
+
+
+def is_managed_workspace_root(*, agent_id: str, workspace_root: str | None) -> bool:
+    """Return whether one stored workspace path matches the managed default.
+
+    Args:
+        agent_id: Stable agent identifier whose managed default should be checked.
+        workspace_root: Stored workspace path from persistence.
+
+    Returns:
+        ``True`` when the stored path is empty or resolves to the managed default path.
+    """
+    if workspace_root is None:
+        return True
+    normalized = workspace_root.strip()
+    if not normalized:
+        return True
+    candidate = Path(normalized).expanduser()
+    if not candidate.is_absolute():
+        return False
+    return str(candidate.resolve()) == managed_workspace_root(agent_id)
 
 
 @dataclass(frozen=True, slots=True)

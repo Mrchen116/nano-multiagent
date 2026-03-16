@@ -1,0 +1,18 @@
+node:
+  node_id: m224-fuck-node
+
+agents:
+  - agent_id: fuck
+    title: fuck
+    workspace_root: /Users/czj/nano-assistant/workspace/fuck
+
+channels:
+  - name: web_relay
+    enabled: true
+
+kernel:
+  base_url: http://127.0.0.1:18122
+  command: "python -c \"import time; time.sleep(600)\""
+
+im_service:
+  url: http://127.0.0.1:18121

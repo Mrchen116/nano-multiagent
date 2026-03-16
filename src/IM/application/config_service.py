@@ -4,12 +4,10 @@ import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
-from IM.domain.models import AgentProfile
+from IM.domain.models import AgentProfile, is_managed_workspace_root, managed_workspace_root
 from IM.infra.repositories import AgentProfileRepository, NodeRepository
 
 ConfigSyncNotifier = Callable[[str, str, int], object]
-
-_DEFAULT_WORKSPACE_ROOT = Path("~/nano-assistant/workspace").expanduser()
 
 
 class ConfigService:
@@ -67,7 +65,7 @@ class ConfigService:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
-            workspace_root=self.normalize_workspace_root(workspace_root=workspace_root),
+            workspace_root=self.normalize_workspace_root(agent_id=agent_id, workspace_root=workspace_root),
         )
         if node_id is not None:
             self._profiles._connection.execute(
@@ -129,7 +127,7 @@ class ConfigService:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
-            workspace_root=self.normalize_workspace_root(workspace_root=workspace_root),
+            workspace_root=self.normalize_workspace_root(agent_id=agent_id, workspace_root=workspace_root),
         )
         self._notify_config_sync(agent_id=agent_id, profile_version=updated.profile_version)
         return updated
@@ -138,20 +136,25 @@ class ConfigService:
         """Return the effective workspace root used by runtime sync and UI."""
         if profile.workspace_root:
             return str(Path(profile.workspace_root).expanduser().resolve())
-        return str((_DEFAULT_WORKSPACE_ROOT / profile.agent_id).resolve())
+        return managed_workspace_root(profile.agent_id)
+
+    def workspace_is_default_for_profile(self, profile: AgentProfile) -> bool:
+        """Return whether one profile is still using the managed default workspace."""
+        return is_managed_workspace_root(agent_id=profile.agent_id, workspace_root=profile.workspace_root)
 
     @staticmethod
-    def normalize_workspace_root(*, workspace_root: str | None) -> str | None:
-        """Normalize one optional workspace override for storage.
+    def normalize_workspace_root(*, agent_id: str, workspace_root: str | None) -> str:
+        """Normalize one workspace value for storage.
 
-        Blank values mean "use managed default". Non-blank values must be
-        absolute after ``expanduser()`` so operators always see a stable path.
+        Blank values mean "use managed default" and are persisted as the canonical
+        managed workspace path so later runtime/session refreshes can trust storage.
+        Non-blank values must be absolute after ``expanduser()``.
         """
         if workspace_root is None:
-            return None
+            return managed_workspace_root(agent_id)
         normalized = workspace_root.strip()
         if not normalized:
-            return None
+            return managed_workspace_root(agent_id)
         path = Path(normalized).expanduser()
         if not path.is_absolute():
             raise ValueError("workspace_root must be an absolute path or start with ~/")

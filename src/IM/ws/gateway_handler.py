@@ -11,6 +11,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
+from IM.domain.models import managed_workspace_root
 from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, NodeRepository
 
 
@@ -193,7 +194,7 @@ class GatewayHandler:
                     runtime_tool_allowlist: list[str] = []
                     runtime_group_reply_policy = "MENTION"
                     runtime_default_model: str | None = None
-                    runtime_workspace_root: str | None = None
+                    runtime_workspace_root = managed_workspace_root(agent_id)
                 else:
                     runtime_display_name = existing.display_name
                     runtime_description = existing.description
@@ -202,7 +203,7 @@ class GatewayHandler:
                     runtime_tool_allowlist = existing.tool_allowlist
                     runtime_group_reply_policy = existing.group_reply_policy
                     runtime_default_model = existing.default_model
-                    runtime_workspace_root = existing.workspace_root
+                    runtime_workspace_root = existing.workspace_root or managed_workspace_root(agent_id)
                 if runtime_display_name == agent_id and agent_id.startswith("agent-"):
                     runtime_display_name = agent_id.replace("agent-", "", 1).replace("-", " ").title()
                 profile_repository.upsert_profile(

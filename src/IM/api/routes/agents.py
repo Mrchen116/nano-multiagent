@@ -193,7 +193,7 @@ def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -
         group_reply_policy=profile.group_reply_policy,
         default_model=profile.default_model,
         workspace_root=service.workspace_root_for_profile(profile),
-        workspace_is_default=profile.workspace_root is None,
+        workspace_is_default=service.workspace_is_default_for_profile(profile),
         profile_version=profile.profile_version,
         bound_nodes=service.list_bound_nodes(agent_id=profile.agent_id),
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
@@ -210,7 +210,7 @@ def to_agent_summary_response(profile: AgentProfile, *, service: ConfigService) 
         profile_version=profile.profile_version,
         default_model=profile.default_model,
         workspace_root=service.workspace_root_for_profile(profile),
-        workspace_is_default=profile.workspace_root is None,
+        workspace_is_default=service.workspace_is_default_for_profile(profile),
         bound_nodes=service.list_bound_nodes(agent_id=profile.agent_id),
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
     )
