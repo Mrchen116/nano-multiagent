@@ -97,6 +97,31 @@
   - C1/C2/C3 齐全。
   - `test_command` 全绿。
   - `PROGRESS` 写清 task/subagent 根因、证据与回滚点。
+
+### R5. 修复旧直聊绑定复用缺少 workspace_root 的 legacy kernel session
+- Status: DONE
+- Acceptance:
+  - 先查主仓运行态数据库与 kernel session 历史，明确区分“旧 session 污染”与“新 session 仍错”。
+  - 证明 agent `fuck` 历史直聊里存在缺少 `workspace_root` 的 legacy kernel session，而修复后的新 session 已带正确 workspace metadata。
+  - gateway 复用旧直聊 binding 前会校验 kernel session metadata；若缺少 `workspace_root`，必须自动刷新为新 session，而不是继续沿用 repo-root 旧会话。
+  - 修复后 direct chat 入口不要求用户手动删会话或重绑，旧 binding 会被自动收敛到带 workspace 的新 session。
+- Tests Plan:
+  - unit: 是；锁定 legacy binding 缺少 `workspace_root` 时必须重建 session。
+  - contract: 是；session detail/list 返回 metadata，供 gateway 判断旧 session 是否可继续复用。
+  - integration: 是；覆盖 direct chat 通过 IM gateway 复用旧 binding 时的刷新行为。
+  - e2e: 否；真实 `bash pwd` 已由 R2/R3 覆盖，本轮聚焦“旧 binding 是否会继续命中错误旧 session”的入口修复。
+- Expected Tests:
+  - `tests/contract/test_sessions_contract.py::test_create_session_contract`
+  - `tests/contract/test_sessions_contract.py::test_get_and_list_sessions_contract_with_minimal_pagination`
+  - `tests/unit/personal_assistant/test_kernel_api_client.py::test_kernel_api_client_calls_required_http_subset`
+  - `tests/unit/personal_assistant/test_gateway_pipeline.py::test_inbound_pipeline_refreshes_legacy_binding_without_workspace_root`
+  - `tests/im_service/integration/test_m103_im_gateway_e2e.py::test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata`
+- DoD:
+  - 红测先证明 gateway 会复用缺少 workspace metadata 的旧直聊 session。
+  - C1/C2/C3 齐全。
+  - `test_command` 全绿。
+  - `PROGRESS` 写清数据库证据、旧/新 session 区分、自动刷新策略与回滚点。
+
 - Acceptance:
   - 给定 `workspace=/Users/czj/nano-assistant/workspace/fuck`，agent 创建/读取/编辑后的响应与真实运行态 `pwd` 一致。
   - 至少一条真实入口测试覆盖“新建 agent -> gateway/kernel 创建会话 -> 运行时读到 pwd”。

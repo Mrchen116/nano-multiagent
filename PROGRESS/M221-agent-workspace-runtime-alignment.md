@@ -62,3 +62,17 @@
 - Rollback: `e7d3868`
 - Commits: C1=`543dac9`, C2=`cefd9ac`, C3=`46e0f24`
 - Next: 更新 TASKS/PROGRESS，记录 task/subagent 真正根因与直接验证，然后再次 merge main。
+
+### R5 修复旧直聊 binding 复用缺少 workspace_root 的 legacy kernel session
+- Context:
+  - 按用户要求先查主仓运行态数据库与历史：`/Users/czj/Repos/nano-multiagent/data/im_service.sqlite3` 中 agent `fuck` 当前 `workspace_root` 存储为空，UI 会回退展示默认 managed workspace；而 `/Users/czj/Repos/nano-multiagent/.agent/sessions.sqlite3` 同时存在两类 kernel session：较早的直聊 session `sess_2f98426b641a4e89` / `sess_16fb1524e3e6b18a` metadata 只有 `agent_id/config_profile_version/system_prompt`，没有 `workspace_root`；较新的 session `sess_69b12d075f59de86` / `sess_94353ef80ddfa2b4` / `sess_ce0aea16c01f81fe` / `sess_0a991fcde08bedff` 已带 `workspace_root=/Users/czj/nano-assistant/workspace/fuck`。这说明主问题是旧直聊会话污染，不是“新 session 仍然默认 repo root”。
+- Decision:
+  - 给 kernel session detail/list 暴露 metadata；给 gateway 的 `KernelApiClient` 增加 `get_session()`；`InboundPipeline` 复用现有 direct binding 前先检查目标 kernel session metadata 是否含 `workspace_root`。若缺失，则把它视为修复前遗留的 legacy session，立即创建并绑定一个新的 workspace-aware session，再发送本轮消息。
+- Rationale:
+  - 用户看到的 repo-root `pwd` 来自旧直聊 binding 继续指向修复前创建的 kernel session。新 session 其实已经正确，只是产品语义里“同一 direct chat 继续复用同一 session”把旧错误冻结了。自动刷新缺字段的 legacy session，既保住了 direct chat 入口，又不要求用户手动删历史会话。
+- Evidence:
+  - Tests: `pytest tests/contract/test_sessions_contract.py tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py tests/e2e/test_personal_assistant_main_e2e.py tests/unit/test_task_tool_blocking.py tests/unit/test_task_tool_non_blocking.py tests/unit/test_task_tool_with_resolver.py tests/integration/test_task_blocking_integration.py tests/integration/test_task_non_blocking_integration.py tests/integration/test_task_skills_integration.py tests/e2e/test_task_tool_blocking_e2e.py tests/e2e/test_task_tool_non_blocking_e2e.py tests/e2e/test_task_load_skills_e2e.py -q`
+  - Entry: 运行态数据库里旧 `fuck` 直聊 session 缺少 `workspace_root`，而新 session 已带目标 workspace；新增 gateway 单测/集成测试证明旧 binding 会自动切到新 session，结合既有 kernel e2e 说明刷新后的 direct bash `pwd` 会落到 workspace 而不是 repo root。
+- Rollback: `c24a033`
+- Commits: C1=`b457f63`, C2=`c24a033`, C3=`PENDING`
+- Next: 提交文档、rebase `origin/main` 并集成回 `main`。
