@@ -55,3 +55,22 @@
   - `test_command` 全绿。
   - 完成 C1/C2/C3。
   - PROGRESS 写清 allowlist/status 收口点、回归证据与最终稳定提交。
+
+## R3 agent 页面回归稳定性修复
+- Status: DONE
+- Acceptance:
+  - `agent-create` 与 `agent-edit` 回归在整套前端测试并发场景下稳定通过，不再因长输入或异步默认值抖动超时。
+  - create 页必填校验对 system prompt 断言稳定，不依赖慢速交互时序。
+  - 不放宽产品断言，只修正测试驱动方式与必要实现，保证门禁可重复。
+- Tests Plan:
+  - unit: 不新增。
+  - contract: 不新增。
+  - integration: 直接用现有 `agent-create` / `agent-edit` 前端回归复现整套门禁失败，再最小修复。
+  - e2e: 不新增。
+- Expected Tests:
+  - `src/IM/frontend/src/features/settings/agents/agent-create.test.tsx`
+  - `src/IM/frontend/src/features/settings/agents/agent-edit.test.tsx`
+- DoD:
+  - `test_command` 全绿。
+  - 完成 C1/C2/C3。
+  - PROGRESS 写清失败现象、稳定化手段与证据。

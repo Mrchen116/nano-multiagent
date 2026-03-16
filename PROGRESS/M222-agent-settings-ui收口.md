@@ -31,5 +31,17 @@
   - Tests: `cd /Users/czj/Repos/nano-multiagent/.worktrees/M222 && pytest tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py && npx pnpm --dir src/IM/frontend test -- agent-create agent-detail agents-list-mobile`
   - Entry: create/detail/list mobile 的 allowlist、workspace 和入口名称已一致；route 级 `agent-edit` 回归也覆盖了新结构与保存流。
 - Rollback: `4dca7de`
-- Commits: C1=`4dca7de`, C2=`d7d533e`, C3=`this commit`
-- Next: Milestone 文档已齐，进入 rebase / merge / dev-tasks 收尾。
+- Commits: C1=`4dca7de`, C2=`d7d533e`, C3=`d9d4316`
+- Next: 处理整套前端并发下暴露的测试超时与校验抖动。
+
+## R3 agent 页面回归稳定性修复
+- Status: DONE
+- Context: rebase 后复跑全量门禁时，`agent-create` 与 `agent-edit` 在整套 Vitest 并发下暴露 5s timeout；create 页的 system prompt 必填断言也因长输入/异步默认值路径不稳定而丢失。
+- Decision: 对 create/edit 回归把长文本输入从逐字 `user.type` 收敛为 `fireEvent.change`，保留 checkbox/select/button 的真实交互；同时为最重的两个 happy-path 用例显式设置 `10000ms` 超时，避免它们在整套并发下被默认 5s 误杀。
+- Rationale: 问题在测试驱动方式而不是产品逻辑。把真正耗时的长输入改成同步表单赋值，既能保留关键行为断言，又能避免全套测试竞争 CPU 时的假超时与校验抖动。
+- Evidence:
+  - Tests: `cd /Users/czj/Repos/nano-multiagent/.worktrees/M222 && pytest tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py && npx pnpm --dir src/IM/frontend test -- agent-create agent-detail agents-list-mobile`
+  - Entry: 同一轮全量门禁里 `agent-create` / `agent-edit` 已从 timeout 转为稳定通过，create 必填校验重新稳定命中 `System prompt is required.`。
+- Rollback: `d9d4316`
+- Commits: C1=`26cceab`, C2=`1340c1b`, C3=`this commit`
+- Next: 进入 merge / dev-tasks 收尾。
