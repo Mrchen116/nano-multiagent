@@ -141,32 +141,31 @@ describe("agent edit page", () => {
 
     const input = await screen.findByLabelText("Display Name");
     expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the planning core for IM and SDK tasks.");
-    expect(screen.getByText("Review the live profile, then make focused prompt and routing changes without losing state.")).toBeInTheDocument();
+    expect(screen.getByText("Review the saved role, access, and runtime details without losing the current profile state.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Access & model" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Runtime & status" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Runtime" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Direct chat" })).toBeInTheDocument();
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
-    expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
-    expect(screen.getAllByText("Selected 2")).toHaveLength(2);
-    expect(screen.getAllByText("Saved advanced selections")).toHaveLength(2);
+    expect(screen.getByText("Current runtime directory")).toBeInTheDocument();
+    expect(screen.getByText("Managed default directory")).toBeInTheDocument();
+    expect(screen.getAllByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toHaveLength(2);
+    expect(screen.queryByText(/^Selected 2$/)).not.toBeInTheDocument();
+    expect(screen.getAllByText("Needs review")).toHaveLength(2);
     expect(screen.getByRole("checkbox", { name: /tdd-execution-worker/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /playwright/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /bash/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /read_file/i })).toBeChecked();
-    expect(screen.getByText("Show advanced options (1 hidden)")).toBeInTheDocument();
+    expect(screen.queryByText(/Show advanced options/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "No Changes to Save" })).toBeDisabled();
 
     fireEvent.change(input, { target: { value: "Core Planner X" } });
     await user.click(screen.getByRole("checkbox", { name: /playwright/i }));
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /bash/i }));
-    const hiddenAdvancedSummary = screen.getByText("Show advanced options (1 hidden)");
-    hiddenAdvancedSummary.closest("details")?.setAttribute("open", "");
-    await user.click(screen.getByText(/^task$/i));
-    fireEvent.change(screen.getByLabelText("Workspace Path Setting"), { target: { value: "/custom/agent-core-1" } });
+    fireEvent.change(screen.getByLabelText("Workspace setting"), { target: { value: "/custom/agent-core-1" } });
     await user.click(screen.getByRole("button", { name: "Save Agent" }));
 
     expect(await screen.findByText("Saved")).toBeInTheDocument();
@@ -183,7 +182,7 @@ describe("agent edit page", () => {
             description: "Milestone execution coordinator",
             system_prompt: "You are the planning core for IM and SDK tasks.",
             skills: ["tdd-execution-worker", "plan"],
-            tool_allowlist: ["read_file", "task"],
+            tool_allowlist: ["read_file"],
             group_reply_policy: "MENTION",
             default_model: "codexOAuth:gpt-5.2-codex",
             workspace_root: "/custom/agent-core-1"

@@ -107,25 +107,27 @@ describe("agent create page", () => {
 
     const { queryClient } = renderCreatePage();
 
-    expect(await screen.findByRole("heading", { name: "New Agent" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Create Agent" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Back to Agents" })).toHaveAttribute("href", "/settings/agents");
-    expect(screen.getByText("Set the identity, behavior, and runtime defaults before anyone starts using this agent.")).toBeInTheDocument();
+    expect(screen.getByText("Start with the role and behavior. Access and runtime settings stay available without taking over the page.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Access & model" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Runtime placement" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Before you create" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Runtime" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Before you create" })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the personal_assistant default template.");
     });
-    expect(screen.getByText("We prefill the personal_assistant product template here. Edit it before saving so it matches this agent.")).toBeInTheDocument();
+    expect(screen.getByText("We prefill the standard personal assistant template here. Edit it before saving so it matches this agent.")).toBeInTheDocument();
     expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("Platform default (codexOAuth:gpt-5.2-codex)");
-    expect(screen.getAllByText("Selected 0")).toHaveLength(2);
-    expect(screen.getByText("Show advanced options (1 hidden)")).toBeInTheDocument();
-    expect(screen.getByText("Workspace preview")).toBeInTheDocument();
-    expect(screen.getByLabelText("Workspace Path Setting")).toBeInTheDocument();
+    expect(screen.queryByText(/^Selected 0$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Show advanced options/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Workspace preview")).not.toBeInTheDocument();
+    expect(screen.getByText("Managed default directory")).toBeInTheDocument();
+    expect(screen.getByText("Current runtime directory appears after the agent is created.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Workspace setting")).toBeInTheDocument();
     expect(screen.queryByText(/advanced\/internal/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /bash/i })).not.toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: /bash/i })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Agent ID"), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText("Display Name"), { target: { value: "Agent New" } });
@@ -135,7 +137,7 @@ describe("agent create page", () => {
     await user.click(screen.getByRole("checkbox", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Node"), "node-1");
     await user.selectOptions(screen.getByLabelText("Default Model"), "claude-3-5-sonnet-20241022");
-    fireEvent.change(screen.getByLabelText("Workspace Path Setting"), { target: { value: "/tmp/agent-new-workspace" } });
+    fireEvent.change(screen.getByLabelText("Workspace setting"), { target: { value: "/tmp/agent-new-workspace" } });
 
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText("/tmp/agent-new-workspace")).toBeInTheDocument();
@@ -204,7 +206,7 @@ describe("agent create page", () => {
 
     renderCreatePage();
 
-    await screen.findByRole("heading", { name: "New Agent" });
+    await screen.findByRole("heading", { name: "Create Agent" });
     const promptInput = screen.getByLabelText("System Prompt");
     fireEvent.change(promptInput, { target: { value: "" } });
     await user.click(screen.getByRole("button", { name: "Create Agent" }));

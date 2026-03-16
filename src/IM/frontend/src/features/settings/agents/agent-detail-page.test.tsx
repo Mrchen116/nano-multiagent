@@ -103,16 +103,17 @@ describe("agent detail page", () => {
 
     renderDetailPage();
 
-    expect(await screen.findByRole("heading", { name: "Agent Detail" })).toBeInTheDocument();
-    expect(screen.getByText("Review the live profile, then make focused prompt and routing changes without losing state."))
-      .toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Agent settings" })).toBeInTheDocument();
+    expect(screen.getByText("Review the saved role, access, and runtime details without losing the current profile state.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Access & model" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Runtime & status" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Runtime" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Direct chat" })).toBeInTheDocument();
-    expect(screen.getByText("Current workspace")).toBeInTheDocument();
-    expect(screen.getByLabelText("Workspace Path Setting")).toBeInTheDocument();
+    expect(screen.getByText("Current runtime directory")).toBeInTheDocument();
+    expect(screen.getByText("Managed default directory")).toBeInTheDocument();
+    expect(screen.getByLabelText("Workspace setting")).toBeInTheDocument();
+    expect(screen.queryByText(/Read-only runtime path/i)).not.toBeInTheDocument();
     expect(screen.getByText("Open the reusable direct chat when you want to verify the latest saved profile in context.")).toBeInTheDocument();
     expect(screen.getByText("This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.")).toBeInTheDocument();
     expect(screen.queryByText("Live status")).not.toBeInTheDocument();

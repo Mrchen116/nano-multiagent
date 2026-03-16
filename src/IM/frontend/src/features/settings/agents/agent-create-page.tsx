@@ -224,205 +224,205 @@ export function AgentCreatePage() {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-2xl space-y-2">
-          <h2 className="im-title text-xl font-bold">New Agent</h2>
-          <p className="text-sm text-slate-500">Set the identity, behavior, and runtime defaults before anyone starts using this agent.</p>
+          <h2 className="im-title text-xl font-bold">Create Agent</h2>
+          <p className="text-sm text-slate-500">Start with the role and behavior. Access and runtime settings stay available without taking over the page.</p>
         </div>
         <Link className="text-sm font-semibold text-teal-700 hover:underline" to="/settings/agents">
           Back to Agents
         </Link>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.95fr)] xl:items-start">
-        <div className="grid gap-4">
-          <section className="im-section-card">
-            <div className="space-y-1">
-              <h3 className="im-section-heading">Identity</h3>
-              <p className="im-section-copy">Name the agent clearly so operators can recognize its role at a glance.</p>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="grid gap-1">
-                <Label.Root htmlFor="agent-id">Agent ID</Label.Root>
-                <input
-                  id="agent-id"
-                  className="im-input"
-                  value={draft.agent_id}
-                  aria-invalid={Boolean(shouldShowError("agent_id"))}
-                  aria-describedby="agent-id-help"
-                  onBlur={() => markTouched("agent_id")}
-                  onChange={(event) => {
-                    setCreatedAgentId(null);
-                    setErrorMessage(null);
-                    setDraft({ ...draft, agent_id: event.target.value });
-                  }}
-                />
-                <p id="agent-id-help" className="text-xs text-slate-500">
-                  Stable slug used in URLs and runtime routing. Example: `agent-sales-assist`.
-                </p>
-                {shouldShowError("agent_id") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.agent_id}</p> : null}
-              </div>
-              <div className="grid gap-1">
-                <Label.Root htmlFor="display-name">Display Name</Label.Root>
-                <input
-                  id="display-name"
-                  className="im-input"
-                  value={draft.display_name}
-                  aria-invalid={Boolean(shouldShowError("display_name"))}
-                  aria-describedby="display-name-help"
-                  onBlur={() => markTouched("display_name")}
-                  onChange={(event) => {
-                    setCreatedAgentId(null);
-                    setErrorMessage(null);
-                    setDraft({ ...draft, display_name: event.target.value });
-                  }}
-                />
-                <p id="display-name-help" className="text-xs text-slate-500">
-                  Human-friendly name shown to operators and PMs in Settings.
-                </p>
-                {shouldShowError("display_name") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.display_name}</p> : null}
-              </div>
-            </div>
+      <div className="grid gap-4">
+        <section className="im-section-card">
+          <div className="space-y-1">
+            <h3 className="im-section-heading">Identity</h3>
+            <p className="im-section-copy">Name the agent clearly so operators can recognize its role at a glance.</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
             <div className="grid gap-1">
-              <Label.Root htmlFor="description">Description</Label.Root>
+              <Label.Root htmlFor="agent-id">Agent ID</Label.Root>
               <input
-                id="description"
+                id="agent-id"
                 className="im-input"
-                value={draft.description}
-                aria-describedby="description-help"
+                value={draft.agent_id}
+                aria-invalid={Boolean(shouldShowError("agent_id"))}
+                aria-describedby="agent-id-help"
+                onBlur={() => markTouched("agent_id")}
                 onChange={(event) => {
                   setCreatedAgentId(null);
                   setErrorMessage(null);
-                  setDraft({ ...draft, description: event.target.value });
+                  setDraft({ ...draft, agent_id: event.target.value });
                 }}
               />
-              <p id="description-help" className="text-xs text-slate-500">
-                Explain the business role in one sentence so the next reviewer understands when to use this agent.
+              <p id="agent-id-help" className="text-xs text-slate-500">
+                Stable slug used in URLs and runtime routing. Example: `agent-sales-assist`.
               </p>
-            </div>
-          </section>
-
-          <section className="im-section-card">
-            <div className="space-y-1">
-              <h3 className="im-section-heading">Behavior</h3>
-              <p className="im-section-copy">Start from the standard template, then tune behavior only where this agent truly differs.</p>
+              {shouldShowError("agent_id") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.agent_id}</p> : null}
             </div>
             <div className="grid gap-1">
-              <Label.Root htmlFor="system-prompt">System Prompt</Label.Root>
-              <textarea
-                id="system-prompt"
-                className="im-input min-h-40"
-                value={draft.system_prompt}
-                aria-invalid={Boolean(shouldShowError("system_prompt"))}
-                aria-describedby="system-prompt-help"
-                onBlur={() => markTouched("system_prompt")}
-                onChange={(event) => {
-                  setCreatedAgentId(null);
-                  setErrorMessage(null);
-                  setDraft({ ...draft, system_prompt: event.target.value });
-                }}
-              />
-              <p id="system-prompt-help" className="text-xs text-slate-500">
-                We prefill the personal_assistant product template here. Edit it before saving so it matches this agent.
-              </p>
-              {shouldShowError("system_prompt") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.system_prompt}</p> : null}
-            </div>
-            <div className="grid gap-1 md:max-w-sm">
-              <Label.Root htmlFor="group-reply-policy">Group Reply Policy</Label.Root>
-              <select
-                id="group-reply-policy"
+              <Label.Root htmlFor="display-name">Display Name</Label.Root>
+              <input
+                id="display-name"
                 className="im-input"
-                aria-describedby="group-reply-policy-help"
-                value={draft.group_reply_policy}
+                value={draft.display_name}
+                aria-invalid={Boolean(shouldShowError("display_name"))}
+                aria-describedby="display-name-help"
+                onBlur={() => markTouched("display_name")}
                 onChange={(event) => {
                   setCreatedAgentId(null);
                   setErrorMessage(null);
-                  setDraft({ ...draft, group_reply_policy: event.target.value });
-                }}
-              >
-                <option value="ALWAYS">ALWAYS</option>
-                <option value="MENTION">MENTION</option>
-                <option value="NO_REPLY">NO_REPLY</option>
-              </select>
-              <p id="group-reply-policy-help" className="text-xs text-slate-500">
-                {policyDescription(draft.group_reply_policy)}
-              </p>
-            </div>
-          </section>
-
-          <section className="im-section-card">
-            <div className="space-y-1">
-              <h3 className="im-section-heading">Access & model</h3>
-              <p className="im-section-copy">Keep the allowed surface area small and leave the model on platform default unless this agent needs a known override.</p>
-            </div>
-            <div className="grid gap-3 2xl:grid-cols-2">
-              <AllowlistSelector
-                id="skills-allowlist"
-                label="Skills Allowlist"
-                selected={draft.skills}
-                options={allowlistOptionsQuery.data?.skills}
-                isLoading={allowlistOptionsQuery.isLoading}
-                errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
-                onRetry={() => void allowlistOptionsQuery.refetch()}
-                helpText="Choose from the skills the running system currently exposes. Leave blank to inherit platform defaults."
-                emptySelectionText="No skill selected. Leave blank if this agent should inherit platform defaults."
-                onChange={(skills) => {
-                  setCreatedAgentId(null);
-                  setErrorMessage(null);
-                  setDraft({ ...draft, skills });
+                  setDraft({ ...draft, display_name: event.target.value });
                 }}
               />
-              <AllowlistSelector
-                id="tool-allowlist"
-                label="Tool Allowlist"
-                selected={draft.tool_allowlist}
-                options={allowlistOptionsQuery.data?.tools}
-                isLoading={allowlistOptionsQuery.isLoading}
-                errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
-                onRetry={() => void allowlistOptionsQuery.refetch()}
-                showDescriptions={false}
-                helpText="Choose from the tools the running system currently exposes. Use the smallest safe surface area for production workflows."
-                emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
-                onChange={(toolAllowlist) => {
-                  setCreatedAgentId(null);
-                  setErrorMessage(null);
-                  setDraft({ ...draft, tool_allowlist: toolAllowlist });
-                }}
-              />
-            </div>
-            <div className="grid gap-1 md:max-w-sm">
-              <Label.Root htmlFor="default-model">Default Model</Label.Root>
-              <select
-                id="default-model"
-                className="im-input"
-                value={draft.default_model ?? ""}
-                aria-describedby="default-model-help"
-                disabled={allowlistOptionsQuery.isLoading && availableModels.length === 0}
-                onChange={(event) => {
-                  setCreatedAgentId(null);
-                  setErrorMessage(null);
-                  setDraft({ ...draft, default_model: event.target.value || null });
-                }}
-              >
-                <option value="">{platformDefaultLabel(platformDefaultModel)}</option>
-                {availableModels.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))}
-              </select>
-              <p id="default-model-help" className="text-xs text-slate-500">
-                Choose from the models the current runtime exposes. Leave this on {platformDefaultLabel(platformDefaultModel)} to inherit the platform setting.
+              <p id="display-name-help" className="text-xs text-slate-500">
+                Human-friendly name shown to operators and PMs in Settings.
               </p>
+              {shouldShowError("display_name") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.display_name}</p> : null}
             </div>
-          </section>
+          </div>
+          <div className="grid gap-1">
+            <Label.Root htmlFor="description">Description</Label.Root>
+            <input
+              id="description"
+              className="im-input"
+              value={draft.description}
+              aria-describedby="description-help"
+              onChange={(event) => {
+                setCreatedAgentId(null);
+                setErrorMessage(null);
+                setDraft({ ...draft, description: event.target.value });
+              }}
+            />
+            <p id="description-help" className="text-xs text-slate-500">
+              Explain the business role in one sentence so the next reviewer understands when to use this agent.
+            </p>
+          </div>
+        </section>
 
-          <section className="im-section-card">
-            <div className="space-y-1">
-              <h3 className="im-section-heading">Runtime placement</h3>
-              <p className="im-section-copy">Decide whether to keep the managed workspace and whether this agent should bind to a node immediately.</p>
-            </div>
-            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.9fr)]">
+        <section className="im-section-card">
+          <div className="space-y-1">
+            <h3 className="im-section-heading">Behavior</h3>
+            <p className="im-section-copy">Start from the standard template, then tune behavior only where this agent truly differs.</p>
+          </div>
+          <div className="grid gap-1">
+            <Label.Root htmlFor="system-prompt">System Prompt</Label.Root>
+            <textarea
+              id="system-prompt"
+              className="im-input min-h-40"
+              value={draft.system_prompt}
+              aria-invalid={Boolean(shouldShowError("system_prompt"))}
+              aria-describedby="system-prompt-help"
+              onBlur={() => markTouched("system_prompt")}
+              onChange={(event) => {
+                setCreatedAgentId(null);
+                setErrorMessage(null);
+                setDraft({ ...draft, system_prompt: event.target.value });
+              }}
+            />
+            <p id="system-prompt-help" className="text-xs text-slate-500">
+              We prefill the standard personal assistant template here. Edit it before saving so it matches this agent.
+            </p>
+            {shouldShowError("system_prompt") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.system_prompt}</p> : null}
+          </div>
+          <div className="grid gap-1 md:max-w-sm">
+            <Label.Root htmlFor="group-reply-policy">Group Reply Policy</Label.Root>
+            <select
+              id="group-reply-policy"
+              className="im-input"
+              aria-describedby="group-reply-policy-help"
+              value={draft.group_reply_policy}
+              onChange={(event) => {
+                setCreatedAgentId(null);
+                setErrorMessage(null);
+                setDraft({ ...draft, group_reply_policy: event.target.value });
+              }}
+            >
+              <option value="ALWAYS">ALWAYS</option>
+              <option value="MENTION">MENTION</option>
+              <option value="NO_REPLY">NO_REPLY</option>
+            </select>
+            <p id="group-reply-policy-help" className="text-xs text-slate-500">
+              {policyDescription(draft.group_reply_policy)}
+            </p>
+          </div>
+        </section>
+
+        <section className="im-section-card">
+          <div className="space-y-1">
+            <h3 className="im-section-heading">Access & model</h3>
+            <p className="im-section-copy">Keep the allowed surface area small and leave the model on platform default unless this agent needs a known override.</p>
+          </div>
+          <div className="grid gap-3 2xl:grid-cols-2">
+            <AllowlistSelector
+              id="skills-allowlist"
+              label="Skills"
+              selected={draft.skills}
+              options={allowlistOptionsQuery.data?.skills}
+              isLoading={allowlistOptionsQuery.isLoading}
+              errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
+              onRetry={() => void allowlistOptionsQuery.refetch()}
+              helpText="Choose only the reusable skills this agent needs right now. Saved non-standard items stay under review instead of filling the main path."
+              emptySelectionText="No skill selected. Leave blank if this agent should inherit platform defaults."
+              onChange={(skills) => {
+                setCreatedAgentId(null);
+                setErrorMessage(null);
+                setDraft({ ...draft, skills });
+              }}
+            />
+            <AllowlistSelector
+              id="tool-allowlist"
+              label="Tools"
+              selected={draft.tool_allowlist}
+              options={allowlistOptionsQuery.data?.tools}
+              isLoading={allowlistOptionsQuery.isLoading}
+              errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
+              onRetry={() => void allowlistOptionsQuery.refetch()}
+              showDescriptions={false}
+              helpText="Choose only the tools this agent needs right now. Saved non-standard items stay under review instead of filling the main path."
+              emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
+              onChange={(toolAllowlist) => {
+                setCreatedAgentId(null);
+                setErrorMessage(null);
+                setDraft({ ...draft, tool_allowlist: toolAllowlist });
+              }}
+            />
+          </div>
+          <div className="grid gap-1 md:max-w-sm">
+            <Label.Root htmlFor="default-model">Default Model</Label.Root>
+            <select
+              id="default-model"
+              className="im-input"
+              value={draft.default_model ?? ""}
+              aria-describedby="default-model-help"
+              disabled={allowlistOptionsQuery.isLoading && availableModels.length === 0}
+              onChange={(event) => {
+                setCreatedAgentId(null);
+                setErrorMessage(null);
+                setDraft({ ...draft, default_model: event.target.value || null });
+              }}
+            >
+              <option value="">{platformDefaultLabel(platformDefaultModel)}</option>
+              {availableModels.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+            <p id="default-model-help" className="text-xs text-slate-500">
+              Choose from the models the current runtime exposes. Leave this on {platformDefaultLabel(platformDefaultModel)} to inherit the platform setting.
+            </p>
+          </div>
+        </section>
+
+        <section className="im-section-card">
+          <div className="space-y-1">
+            <h3 className="im-section-heading">Runtime</h3>
+            <p className="im-section-copy">Keep placement choices available, but separate the saved setting from the managed default and the live runtime directory.</p>
+          </div>
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+            <div className="grid gap-4">
               <div className="grid gap-1">
-                <Label.Root htmlFor="workspace-root">Workspace Path Setting</Label.Root>
+                <Label.Root htmlFor="workspace-root">Workspace setting</Label.Root>
                 <input
                   id="workspace-root"
                   className="im-input"
@@ -434,10 +434,21 @@ export function AgentCreatePage() {
                   onChange={(event) => setDraft({ ...draft, workspace_root_input: event.target.value })}
                 />
                 <p id="workspace-root-help" className="text-xs text-slate-500">
-                  Editable setting. Use an absolute path or `~/...`. Leave blank to let the gateway create the managed default workspace for this agent.
+                  Editable setting. Use an absolute path or `~/...`. Leave blank to store no override and let the platform use the managed default directory.
                 </p>
                 {shouldShowError("workspace_root_input") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.workspace_root_input}</p> : null}
               </div>
+
+              <section className="im-subtle-card grid gap-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Directory from current setting</p>
+                <p className="break-all font-mono text-sm text-slate-900">{normalizedDraft.workspace_root_input || managedWorkspacePreview}</p>
+                <p className="text-xs text-slate-500">
+                  {normalizedDraft.workspace_root_input
+                    ? "This custom directory will be saved on the agent profile."
+                    : "Leaving the setting blank means the agent will use the managed default directory shown here."}
+                </p>
+              </section>
+
               <div className="grid gap-1">
                 <Label.Root htmlFor="node-id">Node</Label.Root>
                 <select
@@ -460,73 +471,64 @@ export function AgentCreatePage() {
                 </select>
                 <p className="text-xs text-slate-500">Bind now for immediate placement, or leave unbound and assign capacity later.</p>
               </div>
+
+              {nodesQuery.isLoading ? <p className="text-xs text-slate-500">Loading nodes. You can still create an unbound agent now.</p> : null}
+
+              {nodesQuery.isError ? (
+                <div className="grid gap-2 rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-sm text-rose-700">
+                  <p className="font-semibold">Could not load live node status.</p>
+                  <p className="text-xs text-rose-600">{nodeErrorDetail}</p>
+                  <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void nodesQuery.refetch()}>
+                    Retry nodes
+                  </button>
+                </div>
+              ) : selectedNode ? (
+                <div className="im-subtle-card grid gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{selectedNode.node_name}</p>
+                      <p className="text-xs text-slate-500">{selectedNode.node_id}</p>
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${nodeStatusClasses(selectedNode.status)}`}>
+                      {selectedNode.status}
+                    </span>
+                  </div>
+                  <dl className="grid gap-1 text-xs text-slate-600">
+                    <div className="flex items-center justify-between gap-3">
+                      <dt>Assigned agents</dt>
+                      <dd>{selectedNode.agent_count}</dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt>Last heartbeat</dt>
+                      <dd>{selectedNode.last_heartbeat_at || "—"}</dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt>Runtime version</dt>
+                      <dd>{selectedNode.version || "—"}</dd>
+                    </div>
+                  </dl>
+                </div>
+              ) : nodes.length === 0 ? (
+                <p className="text-xs text-slate-500">No nodes are currently discoverable. Create the agent unbound and bind it when infrastructure is ready.</p>
+              ) : (
+                <p className="text-xs text-slate-500">No node selected yet. Leaving this unbound keeps the creation flow unblocked.</p>
+              )}
             </div>
 
-            {nodesQuery.isLoading ? <p className="text-xs text-slate-500">Loading nodes. You can still create an unbound agent now.</p> : null}
+            <div className="grid gap-4">
+              <section className="im-subtle-card grid gap-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Managed default directory</p>
+                <p className="break-all font-mono text-sm text-slate-900">{managedWorkspacePreview}</p>
+                <p className="text-xs text-slate-500">This is the default directory the platform can create for this agent when no custom workspace setting is saved.</p>
+              </section>
 
-            {nodesQuery.isError ? (
-              <div className="grid gap-2 rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-sm text-rose-700">
-                <p className="font-semibold">Could not load live node status.</p>
-                <p className="text-xs text-rose-600">{nodeErrorDetail}</p>
-                <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void nodesQuery.refetch()}>
-                  Retry nodes
-                </button>
-              </div>
-            ) : selectedNode ? (
-              <div className="im-subtle-card grid gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{selectedNode.node_name}</p>
-                    <p className="text-xs text-slate-500">{selectedNode.node_id}</p>
-                  </div>
-                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${nodeStatusClasses(selectedNode.status)}`}>
-                    {selectedNode.status}
-                  </span>
-                </div>
-                <dl className="grid gap-1 text-xs text-slate-600">
-                  <div className="flex items-center justify-between gap-3">
-                    <dt>Assigned agents</dt>
-                    <dd>{selectedNode.agent_count}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt>Last heartbeat</dt>
-                    <dd>{selectedNode.last_heartbeat_at || "—"}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt>Runtime version</dt>
-                    <dd>{selectedNode.version || "—"}</dd>
-                  </div>
-                </dl>
-              </div>
-            ) : nodes.length === 0 ? (
-              <p className="text-xs text-slate-500">No nodes are currently discoverable. Create the agent unbound and bind it when infrastructure is ready.</p>
-            ) : (
-              <p className="text-xs text-slate-500">No node selected yet. Leaving this unbound keeps the creation flow unblocked.</p>
-            )}
-          </section>
-        </div>
-
-        <aside className="im-section-card xl:sticky xl:top-5">
-          <div className="space-y-1">
-            <h3 className="im-section-heading">Before you create</h3>
-            <p className="im-section-copy">Keep the right rail focused on the essentials: workspace result, runtime availability, and what happens next.</p>
+              <section className="im-subtle-card grid gap-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current runtime directory</p>
+                <p className="text-xs text-slate-500">Current runtime directory appears after the agent is created.</p>
+              </section>
+            </div>
           </div>
-
-          <section className="im-subtle-card grid gap-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Workspace preview</p>
-            <p className="break-all font-mono text-sm text-slate-900">{normalizedDraft.workspace_root_input || managedWorkspacePreview}</p>
-            <p className="text-xs text-slate-500">Leave the workspace field blank to use the managed default shown here.</p>
-          </section>
-
-          <section className="im-subtle-card grid gap-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">What operators get</p>
-            <ul className="grid gap-2 text-sm text-slate-600">
-              <li>One reusable direct chat thread per agent after creation.</li>
-              <li>A single settings page for prompt, model, tools, and runtime placement.</li>
-              <li>Clear defaults that can be revised before rollout.</li>
-            </ul>
-          </section>
-        </aside>
+        </section>
       </div>
 
       <div className="rounded-[1.25rem] border border-[var(--im-border)] bg-white/80 p-4">
