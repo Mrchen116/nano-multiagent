@@ -86,6 +86,32 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
         assert body["workspace_root"] == _WORKSPACE_PATH_SETTING
         assert body["workspace_is_default"] is False
 
+        reset_resp = client.patch(
+            f"/im/v1/agents/{seeded.agent_id}/config",
+            json={
+                "profile_version": 2,
+                "display_name": "Alpha default",
+                "description": "default workspace",
+                "system_prompt": "You are Alpha default.",
+                "skills": ["plan"],
+                "tool_allowlist": ["read"],
+                "group_reply_policy": "manual",
+                "default_model": None,
+                "workspace_root": None,
+            },
+        )
+        assert reset_resp.status_code == 200
+        reset_body = reset_resp.json()
+        assert reset_body["profile_version"] == 3
+        assert reset_body["workspace_is_default"] is True
+        assert reset_body["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
+        stored_row = app.state.connection.execute(
+            "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
+            (seeded.agent_id,),
+        ).fetchone()
+        assert stored_row is not None
+        assert stored_row["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
+
         conflict_resp = client.patch(
             f"/im/v1/agents/{seeded.agent_id}/config",
             json={

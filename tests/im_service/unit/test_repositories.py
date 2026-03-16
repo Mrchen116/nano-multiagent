@@ -163,6 +163,60 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         )
 
 
+def test_initialize_schema_backfills_missing_agent_workspace_roots(tmp_path: Path) -> None:
+    """Backfill legacy profiles that still have a NULL managed workspace root."""
+    db_path = tmp_path / "im.db"
+    connection = connect(db_path)
+    initialize_schema(connection)
+    connection.execute(
+        """
+        INSERT INTO agent_profiles(
+            agent_id,
+            owner_id,
+            node_id,
+            display_name,
+            description,
+            system_prompt,
+            skills_json,
+            tool_allowlist_json,
+            group_reply_policy,
+            default_model,
+            workspace_root,
+            profile_version,
+            created_at,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "agent-legacy",
+            "",
+            None,
+            "Legacy",
+            "legacy row",
+            "You are Legacy.",
+            "[]",
+            "[]",
+            "manual",
+            None,
+            None,
+            1,
+            "2026-03-17T00:00:00Z",
+            "2026-03-17T00:00:00Z",
+        ),
+    )
+    connection.commit()
+
+    initialize_schema(connection)
+
+    row = connection.execute(
+        "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
+        ("agent-legacy",),
+    ).fetchone()
+    assert row is not None
+    assert row["workspace_root"].endswith("/nano-assistant/workspace/agent-legacy")
+
+
+
 def test_direct_conversation_with_agent_alias_freezes_prompt_snapshot(tmp_path: Path) -> None:
     """Freeze agent snapshot metadata when direct chats target an alias user like `agent:<id>`."""
     users, conversations, _, profiles, _, _ = _build_repositories(tmp_path)
