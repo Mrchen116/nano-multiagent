@@ -310,6 +310,10 @@ function isSuppressedNoReplyReceipt(eventType: string, detail: string | null) {
   );
 }
 
+function isNoReplyProtocolToken(value: string | null) {
+  return value?.trim() === "NO_REPLY";
+}
+
 export function toRelayAgentMessage(event: {
   eventType: string;
   payload: Record<string, unknown>;
@@ -329,7 +333,7 @@ export function toRelayAgentMessage(event: {
     toStringValue(event.payload.summary) ??
     detail ??
     toStringValue(event.payload.content);
-  if (!content) {
+  if (!content || isNoReplyProtocolToken(content)) {
     return null;
   }
   const status =
