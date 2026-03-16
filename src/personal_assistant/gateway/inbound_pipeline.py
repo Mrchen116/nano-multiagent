@@ -222,13 +222,13 @@ class InboundPipeline:
 
     def _ensure_binding(self, message: InboundMessage, *, agent_id: str, session_key: str) -> SessionBinding:
         existing = self._session_store.get(session_key)
-        if existing is not None:
+        agent = self._agents[agent_id]
+        if existing is not None and self._binding_has_workspace_root(existing.kernel_session_id):
             return self._session_store.bind(
                 session_key=session_key,
                 kernel_session_id=existing.kernel_session_id,
                 reply_context=build_reply_context(message),
             )
-        agent = self._agents[agent_id]
         response = self._kernel_client.create_session(
             workspace_root=str(agent.workspace_root),
             product_id="personal_assistant",
@@ -296,6 +296,30 @@ class InboundPipeline:
         self._agents[agent.agent_id] = agent
         if self._default_agent_id is None:
             self._default_agent_id = agent.agent_id
+
+    def _binding_has_workspace_root(self, session_id: str) -> bool:
+        """Return whether one already-bound kernel session carries explicit workspace metadata.
+
+        Notes:
+            This detects legacy direct-chat sessions created before workspace propagation was
+            wired through `/v1/sessions`. Those sessions silently fall back to repo root even
+            though the gateway now knows the agent workspace, so they must be refreshed once.
+            Older test doubles may not implement session lookup yet; in that case we preserve
+            the historical reuse behavior instead of breaking unrelated coverage.
+        """
+
+        get_session = getattr(self._kernel_client, "get_session", None)
+        if not callable(get_session):
+            return True
+        try:
+            session_payload = get_session(session_id=session_id)
+        except RuntimeError:
+            return False
+        metadata = session_payload.get("metadata")
+        if not isinstance(metadata, Mapping):
+            return False
+        workspace_root = metadata.get("workspace_root")
+        return isinstance(workspace_root, str) and bool(workspace_root.strip())
 
     def drop_agent_sessions(self, agent_id: str) -> None:
         """Drop existing kernel-session bindings for one agent after config sync."""

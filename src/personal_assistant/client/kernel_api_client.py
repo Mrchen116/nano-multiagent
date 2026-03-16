@@ -95,6 +95,12 @@ class KernelApiClient:
             payload["metadata"] = dict(metadata)
         return self._request("POST", "/v1/sessions", json=payload, require_auth=True)
 
+    def get_session(self, *, session_id: str) -> dict[str, Any]:
+        """Fetch one kernel session summary including persisted metadata."""
+
+        session = _require_non_empty_string(session_id, field_name="session_id")
+        return self._request("GET", f"/v1/sessions/{session}", require_auth=True)
+
     def send_message_async(self, *, session_id: str, text: str) -> dict[str, Any]:
         """Submit one asynchronous text message to an existing session."""
 
