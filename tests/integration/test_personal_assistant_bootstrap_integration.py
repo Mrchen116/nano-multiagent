@@ -34,11 +34,11 @@ def test_bootstrap_personal_assistant_resolved_system_prompt_non_empty(tmp_path:
 
 
 def test_bootstrap_personal_assistant_tool_registry_keeps_send_message_opt_in(tmp_path: Path) -> None:
-    """personal_assistant bootstrap must only expose default tools by default."""
+    """personal_assistant bootstrap must expose the full default toolset while keeping send_message opt-in."""
     resolved = bootstrap_product(profile=PERSONAL_ASSISTANT_PROFILE, repo_root=tmp_path)
     assert resolved.tool_registry is not None
     tool_names = {spec.name for spec in resolved.tool_registry.list_specs()}
-    assert tool_names == {"read", "task"}
+    assert tool_names == {"read", "write", "edit", "bash", "task", "web_fetch", "web_search"}
     assert PERSONAL_ASSISTANT_PROFILE.optional_tool_ids == ["send_message"]
 
 
