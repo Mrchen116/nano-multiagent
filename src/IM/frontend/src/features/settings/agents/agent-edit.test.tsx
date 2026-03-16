@@ -1,5 +1,5 @@
 import userEvent from "@testing-library/user-event";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
 import { appRoutes } from "../../../app/router";
@@ -159,15 +159,14 @@ describe("agent edit page", () => {
     expect(screen.getByText("Show advanced options (1 hidden)")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "No Changes to Save" })).toBeDisabled();
 
-    await user.clear(input);
-    await user.type(input, "Core Planner X");
+    fireEvent.change(input, { target: { value: "Core Planner X" } });
     await user.click(screen.getByRole("checkbox", { name: /playwright/i }));
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /bash/i }));
     const hiddenAdvancedSummary = screen.getByText("Show advanced options (1 hidden)");
     hiddenAdvancedSummary.closest("details")?.setAttribute("open", "");
     await user.click(screen.getByText(/^task$/i));
-    await user.type(screen.getByLabelText("Workspace Path Setting"), "/custom/agent-core-1");
+    fireEvent.change(screen.getByLabelText("Workspace Path Setting"), { target: { value: "/custom/agent-core-1" } });
     await user.click(screen.getByRole("button", { name: "Save Agent" }));
 
     expect(await screen.findByText("Saved")).toBeInTheDocument();
@@ -327,8 +326,7 @@ describe("agent edit page", () => {
     });
 
     const input = await screen.findByLabelText("Display Name");
-    await user.clear(input);
-    await user.type(input, "Core Planner X");
+    fireEvent.change(input, { target: { value: "Core Planner X" } });
     await user.click(screen.getByRole("button", { name: "Save Agent" }));
 
     expect(await screen.findByText("409 (profile_version conflict)")).toBeInTheDocument();
