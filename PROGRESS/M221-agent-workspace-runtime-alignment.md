@@ -59,6 +59,6 @@
 - Evidence:
   - Tests: `pytest tests/e2e/test_task_tool_blocking_e2e.py -k "inherits_parent_workspace_root_for_real_pwd" -q`
   - Entry: 红测先看到 task 输出里同时出现 workspace-root 与错误的 repo-root 子 session pwd，修复后 child session metadata 与真实 `pwd` 都落在父 workspace。
-- Rollback: `9a1e48e`
-- Commits: C1=`1956e89`, C2=`30784b6`, C3=`<pending>`
+- Rollback: `e7d3868`
+- Commits: C1=`543dac9`, C2=`cefd9ac`, C3=`46e0f24`
 - Next: 更新 TASKS/PROGRESS，记录 task/subagent 真正根因与直接验证，然后再次 merge main。
