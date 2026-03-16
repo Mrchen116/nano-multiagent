@@ -8,7 +8,7 @@
 - Out of Scope: `data/dev-tasks.json`, `src/IM/frontend/**`
 
 ## R1 锁定 rerun 成功判据并移除脆弱 ACK/locator 依赖
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - fresh runtime 脚本不再直接等待 `ALPHA_ACK_M170` / `BETA_ACK_M170` 文本可见。
   - 脚本改为等待 current-main 稳定 UI/运行态信号，例如线程消息落库、relay/event 完成、mention picker 可操作。
