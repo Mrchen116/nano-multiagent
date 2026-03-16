@@ -65,11 +65,11 @@ function AgentSummaryCard(props: {
               <dd className="text-right text-slate-700">{agent.default_model || "Auto"}</dd>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <dt>Workspace mode</dt>
+              <dt>Runtime mode</dt>
               <dd className="text-right text-slate-700">{workspaceSourceLabel(agent.workspace_is_default)}</dd>
             </div>
             <div className="grid gap-1">
-              <dt>Workspace path</dt>
+              <dt>Current runtime directory</dt>
               <dd className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</dd>
             </div>
             <div className="flex items-center justify-between gap-3">
@@ -90,14 +90,15 @@ function AgentSummaryCard(props: {
       ) : (
         <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-start">
           <section className="im-subtle-card grid gap-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Workspace</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Runtime</p>
             <div className="space-y-1">
               <p className="text-sm font-semibold text-slate-900">{workspaceSourceLabel(agent.workspace_is_default)}</p>
+              <p className="text-xs text-slate-500">Current runtime directory</p>
               <p className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</p>
             </div>
           </section>
           <section className="im-subtle-card grid gap-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Routing</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Access</p>
             <div className="space-y-1 text-sm text-slate-700">
               <p>Default model: {agent.default_model || "Auto"}</p>
               <p>Bound nodes: {formatBoundNodes(agent.bound_nodes)}</p>
@@ -131,7 +132,7 @@ export function AgentsListPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-2xl space-y-1">
           <h2 className="im-title text-xl font-bold">Agents</h2>
-          <p className="text-sm text-slate-500">Review prompts, models, node coverage, and workspace mode before opening an agent.</p>
+          <p className="text-sm text-slate-500">Review each agent's role, access, and runtime placement before opening settings.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs text-slate-500">{query.isLoading ? "Loading…" : `${agents.length} agent${agents.length === 1 ? "" : "s"}`}</span>

@@ -149,7 +149,9 @@ describe("agent edit page", () => {
     expect(screen.getByRole("heading", { name: "Direct chat" })).toBeInTheDocument();
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
-    expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
+    expect(screen.getByText("Current runtime directory")).toBeInTheDocument();
+    expect(screen.getByText("Managed default directory")).toBeInTheDocument();
+    expect(screen.getAllByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toHaveLength(2);
     expect(screen.queryByText(/^Selected 2$/)).not.toBeInTheDocument();
     expect(screen.getAllByText("Needs review")).toHaveLength(2);
     expect(screen.getByRole("checkbox", { name: /tdd-execution-worker/i })).toBeChecked();

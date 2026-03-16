@@ -48,7 +48,7 @@ function mergeOptions(selected: string[], options?: AgentAllowlistOption[]) {
     if (!knownNames.has(name)) {
       merged.push({
         name,
-        description: "Currently saved on this agent, but not available from the running system.",
+        description: "Saved on this agent but not currently available from the running system.",
         unavailable: true
       });
     }
@@ -71,14 +71,11 @@ function OptionCard(props: {
     >
       <div className="flex items-start gap-3">
         <input checked={props.checked} type="checkbox" onChange={() => props.onToggle(props.option.name)} />
-        <div className="grid gap-1 min-w-0">
+        <div className="grid min-w-0 gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-slate-900">{props.option.name}</span>
             {props.option.unavailable ? (
               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Unavailable now</span>
-            ) : null}
-            {!props.option.unavailable && isAdvancedOption(props.option) ? (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">Advanced</span>
             ) : null}
           </div>
           {props.showDescriptions || props.option.unavailable ? (
@@ -105,21 +102,14 @@ export function AllowlistSelector({
 }: AllowlistSelectorProps) {
   const normalizedSelected = useMemo(() => normalizeAllowlist(selected), [selected]);
   const resolvedOptions = useMemo(() => mergeOptions(normalizedSelected, options), [normalizedSelected, options]);
-  const productOptions = useMemo(
+  const commonOptions = useMemo(
     () => resolvedOptions.filter((option) => !isAdvancedOption(option) && !option.unavailable),
     [resolvedOptions]
   );
-  const savedAdvancedOptions = useMemo(
+  const reviewOptions = useMemo(
     () =>
       resolvedOptions.filter(
-        (option) => (isAdvancedOption(option) || option.unavailable) && normalizedSelected.includes(option.name)
-      ),
-    [normalizedSelected, resolvedOptions]
-  );
-  const hiddenAdvancedOptions = useMemo(
-    () =>
-      resolvedOptions.filter(
-        (option) => isAdvancedOption(option) && !option.unavailable && !normalizedSelected.includes(option.name)
+        (option) => normalizedSelected.includes(option.name) && (isAdvancedOption(option) || option.unavailable)
       ),
     [normalizedSelected, resolvedOptions]
   );
@@ -136,25 +126,9 @@ export function AllowlistSelector({
     <fieldset className="grid gap-4 rounded-[1.25rem] border border-[var(--im-border)] bg-white/80 p-4">
       <legend className="px-1 text-sm font-semibold text-slate-900">{label}</legend>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p id={`${id}-help`} className="max-w-2xl text-xs leading-5 text-slate-500">
-          {helpText}
-        </p>
-        <span className="im-badge">Selected {normalizedSelected.length}</span>
-      </div>
-
-      <div aria-live="polite" className="flex flex-wrap gap-2">
-        {normalizedSelected.length > 0 ? (
-          normalizedSelected.map((name) => (
-            <button key={name} className="im-chip" type="button" onClick={() => toggleOption(name)}>
-              <span>{name}</span>
-              <span aria-hidden="true">×</span>
-            </button>
-          ))
-        ) : (
-          <p className="text-xs text-slate-500">{emptySelectionText}</p>
-        )}
-      </div>
+      <p id={`${id}-help`} className="max-w-2xl text-xs leading-5 text-slate-500">
+        {helpText}
+      </p>
 
       {isLoading ? <p className="text-xs text-slate-500">Loading available options…</p> : null}
 
@@ -171,38 +145,16 @@ export function AllowlistSelector({
       ) : null}
 
       {!isLoading && !errorMessage ? (
-        resolvedOptions.length > 0 ? (
+        commonOptions.length > 0 || reviewOptions.length > 0 ? (
           <div className="grid gap-4">
-            <section className="grid gap-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-900">Common choices</p>
-                <p className="text-xs text-slate-500">Start with the smallest safe set.</p>
-              </div>
-              {productOptions.length > 0 ? (
-                <div className="grid gap-2 xl:grid-cols-2">
-                  {productOptions.map((option) => (
-                    <OptionCard
-                      key={option.name}
-                      option={option}
-                      checked={normalizedSelected.includes(option.name)}
-                      showDescriptions={showDescriptions}
-                      onToggle={toggleOption}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-slate-500">No product-ready options are currently available from the running system.</p>
-              )}
-            </section>
-
-            {savedAdvancedOptions.length > 0 ? (
-              <section className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+            {commonOptions.length > 0 ? (
+              <section className="grid gap-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-amber-900">Saved advanced selections</p>
-                  <p className="text-xs text-amber-700">Visible because this agent already uses them.</p>
+                  <p className="text-sm font-semibold text-slate-900">Common choices</p>
+                  <p className="text-xs text-slate-500">Start with the smallest safe set.</p>
                 </div>
                 <div className="grid gap-2 xl:grid-cols-2">
-                  {savedAdvancedOptions.map((option) => (
+                  {commonOptions.map((option) => (
                     <OptionCard
                       key={option.name}
                       option={option}
@@ -215,14 +167,14 @@ export function AllowlistSelector({
               </section>
             ) : null}
 
-            {hiddenAdvancedOptions.length > 0 ? (
-              <details className="rounded-xl border border-[var(--im-border)] bg-slate-50/80 p-3">
-                <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-                  Show advanced options ({hiddenAdvancedOptions.length} hidden)
-                </summary>
-                <p className="mt-2 text-xs text-slate-500">Only expand this when you intentionally need developer or orchestration capabilities.</p>
-                <div className="mt-3 grid gap-2 xl:grid-cols-2">
-                  {hiddenAdvancedOptions.map((option) => (
+            {reviewOptions.length > 0 ? (
+              <section className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-amber-900">Needs review</p>
+                  <p className="text-xs text-amber-700">Already saved on this agent, so we keep them visible here.</p>
+                </div>
+                <div className="grid gap-2 xl:grid-cols-2">
+                  {reviewOptions.map((option) => (
                     <OptionCard
                       key={option.name}
                       option={option}
@@ -232,11 +184,11 @@ export function AllowlistSelector({
                     />
                   ))}
                 </div>
-              </details>
+              </section>
             ) : null}
           </div>
         ) : (
-          <p className="text-xs text-slate-500">No selectable options are currently available from the running system.</p>
+          <p className="text-xs text-slate-500">{emptySelectionText}</p>
         )
       ) : null}
     </fieldset>
