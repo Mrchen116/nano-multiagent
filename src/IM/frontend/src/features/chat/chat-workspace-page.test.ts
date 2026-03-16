@@ -1287,7 +1287,10 @@ describe("chat workspace page", () => {
     expect(screen.queryByText("NO_REPLY", { selector: ".whitespace-pre-wrap" })).not.toBeInTheDocument();
     expect(screen.queryByText("Agent is working")).not.toBeInTheDocument();
     expect(screen.queryByText("Agent replied")).not.toBeInTheDocument();
+    expect(screen.queryByText("Using your main agent assistant on m170-node (online and ready to chat)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Target: Multiple participants")).not.toBeInTheDocument();
     expect(screen.getByText("Previous visible reply")).toBeInTheDocument();
+    expect(screen.getAllByText("Group chat").length).toBeGreaterThan(0);
   });
 
   it("shows real conversation and workspace token-turn usage for the active chat", async () => {
