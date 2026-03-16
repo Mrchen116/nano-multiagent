@@ -111,6 +111,9 @@ function toUploadErrorMessage(fileName: string, error: unknown) {
 }
 
 function toDeliveryStatusCopy(message: ChatMessage) {
+  if (message.sender_type === "agent" && message.delivery_status === "completed" && !message.content?.trim()) {
+    return null;
+  }
   switch (message.delivery_status) {
     case "sent":
       return {
