@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 
-MODULE_PATH = Path("/Users/czj/Repos/nano-multiagent/ACCEPTANCE/m170-runtime/m170_rerun_acceptance.py")
+MODULE_PATH = Path(__file__).resolve().parents[2] / "ACCEPTANCE" / "m170-runtime" / "m170_rerun_acceptance.py"
 SPEC = importlib.util.spec_from_file_location("m170_rerun_acceptance", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 m170_rerun_acceptance = importlib.util.module_from_spec(SPEC)
@@ -432,7 +432,7 @@ def test_pick_mention_candidate_matches_current_main_picker_copy() -> None:
 
     assert page.calls == [
         ("role", "option"),
-        ("filter", "Agent M170 Beta Agent M170 Beta mention"),
+        ("filter", "Agent M170 BetaAgent M170 Beta mention"),
         ("first", ""),
         ("wait_for", "20000"),
         ("click", ""),
