@@ -12,7 +12,7 @@
   - 本地基线因环境缺少 `pnpm` 可执行文件，执行时使用 `npx pnpm` 等价跑同一门禁。
 
 ## R1 创建页/详情页信息架构与 allowlist 收口
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 创建页与详情页出现明确的主区块分组，基础信息、行为配置、访问范围、运行状态主次清晰。
   - allowlist 选择器不再同时堆叠重复帮助文案、重卡片和冗长 chips，已选状态可快速扫读。
@@ -34,7 +34,7 @@
   - `PROGRESS/M223-agent-settings-visual-polish.md` 记录决策、证据、回滚点与提交哈希。
 
 ## R2 Agents 列表页密度与桌面布局收口
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 列表页在桌面宽度下不再使用信息密度过高的大表格，主信息、次信息和 CTA 分区清楚。
   - 移动端卡片去掉多余噪音，保留默认模型、工作区、节点、更新时间等关键摘要。
