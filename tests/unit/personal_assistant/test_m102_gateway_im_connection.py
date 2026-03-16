@@ -220,7 +220,10 @@ def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) ->
         await manager.connect_once()
         await manager.send_json("node.report", {"run_id": "run-1", "status": "running"})
         assert manager.connected is False
+        assert first_socket.closed == 1
         await manager.connect_once()
+        assert first_socket.closed == 1
+        assert second_socket.closed == 0
 
     asyncio.run(_exercise())
 

@@ -134,7 +134,7 @@ class IMConnectionManager:
             await self._send_frame("node.register", self._reporter.send_register())
             await self._flush_pending_frames(raise_on_disconnect=True)
         except Exception as exc:  # noqa: BLE001
-            self._mark_disconnected(exc)
+            await self._disconnect_current_websocket(exc)
             raise
 
     async def close(self) -> None:
@@ -203,7 +203,7 @@ class IMConnectionManager:
             try:
                 await self._send_frame(message_type, payload)
             except Exception as exc:  # noqa: BLE001
-                self._mark_disconnected(exc)
+                await self._disconnect_current_websocket(exc)
                 if raise_on_disconnect:
                     raise
                 return
@@ -214,6 +214,15 @@ class IMConnectionManager:
         frame = json.dumps({"type": message_type, "payload": dict(payload)}, ensure_ascii=False)
         await websocket.send(frame)
         self._events.append({"event": "sent", "type": message_type})
+
+    async def _disconnect_current_websocket(self, exc: Exception | None = None) -> None:
+        websocket = self._websocket
+        self._mark_disconnected(exc)
+        if websocket is not None:
+            try:
+                await websocket.close()
+            except Exception:  # noqa: BLE001
+                return
 
     def _mark_disconnected(self, exc: Exception | None = None) -> None:
         had_connection = self._connected or self._websocket is not None
