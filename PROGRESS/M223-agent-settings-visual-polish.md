@@ -25,7 +25,7 @@
   - Tests: `npx pnpm --dir src/IM/frontend test -- agent-create agent-detail`
   - Entry: `AgentCreatePage` 与 `AgentDetailPage` 页面级测试均验证新分区标题、allowlist 计数、创建/保存主链路与直聊 CTA 仍可用。
 - Rollback: `0e58787`
-- Commits: C1=`0e58787`, C2=`ff6c71f`, C3=`f49160b`
+- Commits: C1=`0e58787`, C2=`218dc13`, C3=`<pending>`
 - Next: 进入 R2，清理 Agents 列表桌面表格与移动端摘要密度。
 
 ### R2 Agents 列表页密度与桌面布局收口
@@ -36,5 +36,5 @@
   - Tests: `npx pnpm --dir src/IM/frontend test -- agents-list-mobile`；全量门禁 `npx pnpm --dir src/IM/frontend test -- agent-create agent-detail agents-list-mobile && npx pnpm --dir src/IM/frontend build`
   - Entry: `AgentsListPage` 测试确认移动端无 table，桌面端改为 Active agents 摘要卡片并保留 Workspace / Routing 摘要和详情入口。
 - Rollback: `fce24d7`
-- Commits: C1=`fce24d7`, C2=`ff6c71f`, C3=`f49160b`
+- Commits: C1=`fce24d7`, C2=`218dc13`, C3=`<pending>`
 - Next: 提交文档，随后整体 rebase / merge / 更新 dev-tasks。
