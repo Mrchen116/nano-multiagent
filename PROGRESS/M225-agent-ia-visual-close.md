@@ -27,8 +27,8 @@
   - Tests: `npx pnpm --dir src/IM/frontend test -- --run agent-create agent-detail agents-list-mobile allowlist-selector router && pytest tests/im_service/integration/test_agent_create_flow.py tests/im_service/integration/test_agent_config_api.py`
   - Entry: create/detail/list/allowlist 的红测先锁定旧文案与旧结构，再由页面实现收口到新 IA 与统一词汇。
 - Rollback: `d1eb5ff`（R1 红测稳定点）
-- Commits: C1=`d1eb5ff`, C2=`013774a`, C3=`pending-this-docs-commit`
-- Next: 用真实页面验证新 IA 已落到 dist 入口，而不是只在测试中通过。
+- Commits: C1=`d1eb5ff`, C2=`013774a`, C3=`def40d0`
+- Next: 已补真实页面验证，剩余主干合并、dev-tasks 更新与 worktree 清理。
 
 ### R2 补真实页面产品验收证据并完成主干集成
 - Context:
@@ -51,5 +51,5 @@
     - `/Users/czj/Repos/nano-multiagent/.worktrees/M225/ACCEPTANCE/m225-runtime/m225-agent-create.png`
     - `/Users/czj/Repos/nano-multiagent/.worktrees/M225/ACCEPTANCE/m225-runtime/m225-agent-detail-custom.png`
 - Rollback: `013774a`（R1 实现全绿点）
-- Commits: C1=`pending`, C2=`pending`, C3=`pending-this-docs-commit`
-- Next: rebase `origin/main`，完成主干合并、dev-tasks 更新与 worktree 清理。
+- Commits: C1=`n/a（验收复用既有 gate）`, C2=`10e37b4`, C3=`pending-this-docs-sync`
+- Next: 完成主干合并、dev-tasks 更新与 worktree 清理。
