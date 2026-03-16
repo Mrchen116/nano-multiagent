@@ -9,7 +9,7 @@
 ## Roadpoints
 
 ### R1 适配 current-main runtime schema 与结果采集
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 复验脚本不再查询 `messages.sender_id`、`relay_tasks.id`、`conversation_events.detail` 等旧字段。
   - 结构化结果改为记录 current-main schema 下的消息、relay、event 关键字段。
@@ -29,7 +29,7 @@
   - `PROGRESS` 记录 schema 取舍、证据与提交哈希。
 
 ### R2 稳定 current-main 群聊 UI 复验路径并补齐 fresh 证据
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 复验脚本在 current-main UI 上不因 strict locator 冲突崩溃。
   - 同一轮 fresh runtime 可完成群聊创建、typed mention、picker mention。
