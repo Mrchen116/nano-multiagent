@@ -191,7 +191,12 @@ def _agents(tmp_path: Path, *agent_ids: str) -> tuple[AgentWorkspaceConfig, ...]
         workspace_root = tmp_path / agent_id
         workspace_root.mkdir()
         agents.append(
-            AgentWorkspaceConfig(agent_id=agent_id, workspace_root=workspace_root, title=agent_id.title())
+            AgentWorkspaceConfig(
+                agent_id=agent_id,
+                workspace_root=workspace_root,
+                title=agent_id.title(),
+                system_prompt=f"You are {agent_id}.",
+            )
         )
     return tuple(agents)
 
@@ -419,7 +424,6 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
-        "system_prompt": "You are agent-a.",
     }
     assert relay_adapter.sent == [
         OutboundMessage(
@@ -434,7 +438,6 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
                 "conversation_type": "direct",
                 "mentioned_agent_ids": [],
                 "config_profile_version": 1,
-                "system_prompt": "You are agent-a.",
             },
         )
     ]
@@ -620,6 +623,14 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                 "type": "config.sync",
                 "payload": {"agent_id": "agent-a", "profile_version": 2},
             }
+            pipeline.register_agent(
+                AgentWorkspaceConfig(
+                    agent_id="agent-a",
+                    workspace_root=agents[0].workspace_root,
+                    title=agents[0].title,
+                    system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
+                )
+            )
             pipeline.drop_agent_sessions("agent-a")
 
             second_message = client.post(
@@ -684,13 +695,11 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
         "config_profile_version": 1,
-        "system_prompt": "You are agent-a.",
     }
     assert second_relay["payload"]["metadata"] == {
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
         "config_profile_version": 2,
-        "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
     }
     assert relay_adapter.sent[0].text == "gateway-reply:@agent-a first mention"
     assert relay_adapter.sent == [relay_adapter.sent[0]]
@@ -744,6 +753,14 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
             },
         )
         assert patched.status_code == 200
+        pipeline.register_agent(
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=agents[0].workspace_root,
+                title=agents[0].title,
+                system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
+            )
+        )
 
         group_conversation = client.post(
             "/im/v1/conversations",
@@ -1061,6 +1078,10 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
                     agent_id="agent-a",
                     workspace_root=refreshed_workspace,
                     title="agent-a v2",
+                    system_prompt="You are upgraded.",
+                    skills=("plan",),
+                    tool_allowlist=("read",),
+                    default_model="claude-sonnet-4",
                 )
             )
 
@@ -1137,18 +1158,28 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         },
         {
             "agent_id": "agent-a",
+            "config_profile_version": 1,
+            "system_prompt": "You are upgraded.",
+            "skills": ["plan"],
+            "tool_allowlist": ["read"],
+        },
+        {
+            "agent_id": "agent-a",
             "config_profile_version": 2,
             "system_prompt": "You are upgraded.",
+            "skills": ["plan"],
+            "tool_allowlist": ["read"],
         },
     ]
-    assert [call["title"] for call in kernel_client.create_session_calls] == ["Agent-A", "agent-a v2"]
+    assert [call["title"] for call in kernel_client.create_session_calls] == ["Agent-A", "agent-a v2", "agent-a v2"]
     assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [
         str(agents[0].workspace_root),
         str(tmp_path / "agent-a-refreshed"),
+        str(tmp_path / "agent-a-refreshed"),
     ]
-    assert [call["session_id"] for call in kernel_client.send_calls] == ["sess-1", "sess-1", "sess-2"]
-    assert session_store.get(f"web_relay:{old_conversation_id}:agent-a").kernel_session_id == "sess-1"
-    assert session_store.get(f"web_relay:{new_conversation_id}:agent-a").kernel_session_id == "sess-2"
+    assert [call["session_id"] for call in kernel_client.send_calls] == ["sess-1", "sess-2", "sess-3"]
+    assert session_store.get(f"web_relay:{old_conversation_id}:agent-a").kernel_session_id == "sess-2"
+    assert session_store.get(f"web_relay:{new_conversation_id}:agent-a").kernel_session_id == "sess-3"
 
     assert first_relay["payload"]["conversation_id"] == old_conversation_id
     assert old_after_relay["payload"]["conversation_id"] == old_conversation_id
@@ -1160,19 +1191,16 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
-        "system_prompt": "You are agent-a.",
     }
     assert old_after_relay["payload"]["metadata"] == {
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
-        "system_prompt": "You are agent-a.",
     }
     assert new_after_relay["payload"]["metadata"] == {
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 2,
-        "system_prompt": "You are upgraded.",
     }
 
     assert relay_adapter.sent[0].target_chat_id == old_conversation_id
@@ -1185,7 +1213,6 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
-        "system_prompt": "You are agent-a.",
     }
     assert relay_adapter.sent[1].metadata == {
         "relay_task_id": old_after_relay["payload"]["relay_task_id"],
@@ -1194,7 +1221,6 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
-        "system_prompt": "You are agent-a.",
     }
     assert relay_adapter.sent[2].metadata == {
         "relay_task_id": new_after_relay["payload"]["relay_task_id"],
@@ -1203,7 +1229,6 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 2,
-        "system_prompt": "You are upgraded.",
     }
     assert relay_adapter.sent[1].text == "gateway-reply:hello after sync old"
     assert relay_adapter.sent[2].text == "gateway-reply:hello after sync new"

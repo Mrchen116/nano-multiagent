@@ -5,6 +5,8 @@ import pytest
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
+from agent.core.tools.base import set_tool_safety_config_factory, set_tool_safety_factory
+from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 from agent.core.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
@@ -17,6 +19,8 @@ from agent.core.session.store import LoadedSession, SessionStore
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.registry import ToolRegistry
 
+set_tool_safety_factory(ToolSafety)
+set_tool_safety_config_factory(ToolSafetyConfig)
 
 def _make_workspace_session(manager: SessionManager, tmp_path: Path):
     workspace_root = tmp_path / "workspace"
