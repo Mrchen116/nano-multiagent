@@ -147,6 +147,28 @@ class RelayService:
         assert created is not None
         return RelayEnqueueResult(relay_task=created, created=True)
 
+    def resolve_target_node_id(
+        self,
+        *,
+        conversation_id: str,
+        content: str,
+    ) -> str | None:
+        """Resolve the bound node for the concrete target agent of a message."""
+        mentioned_agent_ids = self._extract_mentioned_agent_ids(content)
+        agent_snapshot = self._resolve_agent_snapshot(
+            conversation_id=conversation_id,
+            mentioned_agent_ids=mentioned_agent_ids,
+        )
+        if not agent_snapshot.agent_id:
+            return None
+        row = self._connection.execute(
+            "SELECT node_id FROM agent_profiles WHERE agent_id = ?",
+            (agent_snapshot.agent_id,),
+        ).fetchone()
+        if row is None or row["node_id"] in (None, ""):
+            return None
+        return str(row["node_id"])
+
     @classmethod
     def _extract_mentioned_agent_ids(cls, content: str) -> list[str]:
         mentioned: set[str] = set()

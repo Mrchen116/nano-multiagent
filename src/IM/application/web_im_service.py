@@ -151,3 +151,12 @@ class WebIMService:
             sender_user_id=sender_user_id,
             conversation_type=conversation.type if conversation is not None else None,
         )
+
+    def resolve_target_node_id(self, *, conversation_id: str, content: str) -> str | None:
+        """Resolve the concrete gateway node for one outgoing conversation message."""
+        if self._relay_service is None:
+            return None
+        return self._relay_service.resolve_target_node_id(
+            conversation_id=conversation_id,
+            content=content,
+        )

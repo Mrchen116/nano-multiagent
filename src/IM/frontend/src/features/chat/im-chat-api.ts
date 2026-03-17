@@ -1046,7 +1046,7 @@ export async function sendMessage(input: {
           selfUserId,
           content: input.content,
           attachments: input.attachments,
-          targetNodeId
+          targetNodeId: null
         })
       )
     }),

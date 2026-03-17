@@ -170,6 +170,10 @@ async def create_message(
 ) -> MessageResponse:
     """Create a message in a conversation and optionally relay it to one gateway."""
     assert_conversation_exists(request, conversation_id=conversation_id)
+    resolved_target_node_id = payload.target_node_id or service.resolve_target_node_id(
+        conversation_id=conversation_id,
+        content=payload.content,
+    )
     try:
         created = service.create_message(
             conversation_id=conversation_id,
@@ -184,20 +188,20 @@ async def create_message(
                 )
                 for item in payload.attachments
             ],
-            auto_complete_delivery=payload.target_node_id is None,
+            auto_complete_delivery=resolved_target_node_id is None,
         )
     except ValueError as exc:
         raise map_message_write_error(exc) from exc
-    if payload.target_node_id is not None:
+    if resolved_target_node_id is not None:
         relay_result = service.enqueue_relay(
             message=created,
-            target_node_id=payload.target_node_id,
-            idempotency_key=idempotency_key or f"relay:{created.id}:{payload.target_node_id}",
+            target_node_id=resolved_target_node_id,
+            idempotency_key=idempotency_key or f"relay:{created.id}:{resolved_target_node_id}",
             sender_user_id=payload.sender_user_id,
         )
         dispatched = await gateway_handler.push_relay_message(
             relay_task_id=relay_result.relay_task.relay_task_id,
-            target_node_id=payload.target_node_id,
+            target_node_id=resolved_target_node_id,
             payload=relay_result.relay_task.payload,
         )
         if not dispatched:
@@ -205,7 +209,7 @@ async def create_message(
                 conversation_id=created.conversation_id,
                 message_id=created.id,
                 relay_task_id=relay_result.relay_task.relay_task_id,
-                target_node_id=payload.target_node_id,
+                target_node_id=resolved_target_node_id,
                 reason="node_disconnected",
                 guidance="检查目标节点连接状态后重试，或切换到在线节点。",
             )
