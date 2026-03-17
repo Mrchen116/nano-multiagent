@@ -76,11 +76,21 @@ class AgentWorkspaceConfig:
         agent_id: Stable agent identifier used by gateway routing.
         workspace_root: Existing workspace root bound to sessions created for the agent.
         title: Optional operator-facing label.
+        skills: Enabled skill identifiers for this agent.
+        tool_allowlist: Allowed tool names restricting the agent's tool access.
+        system_prompt: Custom system prompt override for the agent.
+        group_reply_policy: Reply policy in group conversations (e.g. "always", "mention_only").
+        default_model: Default LLM model identifier for this agent.
     """
 
     agent_id: str
     workspace_root: Path
     title: str | None = None
+    skills: tuple[str, ...] = ()
+    tool_allowlist: tuple[str, ...] = ()
+    system_prompt: str | None = None
+    group_reply_policy: str | None = None
+    default_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +226,94 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
     )
 
 
+def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
+    """Serialize a LocalConfig back to YAML and write to disk.
+
+    Args:
+        config: Typed configuration to serialize.
+        config_path: Destination file path. Parent directories must exist.
+
+    Side Effects:
+        Writes one UTF-8 YAML file to local disk, overwriting any existing file.
+    """
+    data: dict[str, Any] = {}
+
+    # Node
+    node_dict: dict[str, Any] = {"node_id": config.node.node_id}
+    if config.node.user_id is not None:
+        node_dict["user_id"] = config.node.user_id
+    data["node"] = node_dict
+
+    # Agents
+    agents_list: list[dict[str, Any]] = []
+    for agent in config.agents:
+        agent_dict: dict[str, Any] = {
+            "agent_id": agent.agent_id,
+            "workspace_root": str(agent.workspace_root),
+        }
+        if agent.title is not None:
+            agent_dict["title"] = agent.title
+        if agent.skills:
+            agent_dict["skills"] = list(agent.skills)
+        if agent.tool_allowlist:
+            agent_dict["tool_allowlist"] = list(agent.tool_allowlist)
+        if agent.system_prompt is not None:
+            agent_dict["system_prompt"] = agent.system_prompt
+        if agent.group_reply_policy is not None:
+            agent_dict["group_reply_policy"] = agent.group_reply_policy
+        if agent.default_model is not None:
+            agent_dict["default_model"] = agent.default_model
+        agents_list.append(agent_dict)
+    data["agents"] = agents_list
+
+    # Channels
+    if config.channels:
+        channels_list: list[dict[str, Any]] = []
+        for ch in config.channels:
+            ch_dict: dict[str, Any] = {"name": ch.name}
+            if not ch.enabled:
+                ch_dict["enabled"] = ch.enabled
+            if ch.settings:
+                ch_dict["settings"] = dict(ch.settings)
+            channels_list.append(ch_dict)
+        data["channels"] = channels_list
+
+    # Kernel — only emit non-default values to keep output concise
+    kernel_dict: dict[str, Any] = {}
+    if config.kernel.base_url != _DEFAULT_KERNEL_BASE_URL:
+        kernel_dict["base_url"] = config.kernel.base_url
+    if config.kernel.command != _DEFAULT_KERNEL_ENTRYPOINT:
+        kernel_dict["command"] = config.kernel.command
+    if config.kernel.health_path != _DEFAULT_KERNEL_HEALTH_PATH:
+        kernel_dict["health_path"] = config.kernel.health_path
+    if config.kernel.request_id is not None:
+        kernel_dict["request_id"] = config.kernel.request_id
+    if config.kernel.timeout_seconds != 10.0:
+        kernel_dict["timeout_seconds"] = config.kernel.timeout_seconds
+    if config.kernel.startup_timeout_seconds != _DEFAULT_STARTUP_TIMEOUT_SECONDS:
+        kernel_dict["startup_timeout_seconds"] = config.kernel.startup_timeout_seconds
+    if config.kernel.shutdown_grace_seconds != _DEFAULT_SHUTDOWN_GRACE_SECONDS:
+        kernel_dict["shutdown_grace_seconds"] = config.kernel.shutdown_grace_seconds
+    if config.kernel.health_poll_interval_seconds != _DEFAULT_POLL_INTERVAL_SECONDS:
+        kernel_dict["health_poll_interval_seconds"] = config.kernel.health_poll_interval_seconds
+    if kernel_dict:
+        data["kernel"] = kernel_dict
+
+    # Heartbeat — only emit non-default
+    if config.heartbeat.tick_interval_seconds != _DEFAULT_HEARTBEAT_TICK_INTERVAL_SECONDS:
+        data["heartbeat"] = {"tick_interval_seconds": config.heartbeat.tick_interval_seconds}
+
+    # IM service
+    if config.im_service is not None:
+        im_dict: dict[str, Any] = {"url": config.im_service.url}
+        if config.im_service.token is not None:
+            im_dict["token"] = config.im_service.token
+        data["im_service"] = im_dict
+
+    dest = Path(config_path).expanduser().resolve()
+    dest.write_text(yaml.safe_dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+
 def resolve_kernel_token(token: str | None) -> str:
     """Return the effective bearer token used for local kernel HTTP calls.
 
@@ -266,8 +364,22 @@ def _parse_agents(payload: Any) -> tuple[AgentWorkspaceConfig, ...]:
                 raise ValueError(f"workspace_root does not exist: {workspace_root.resolve()}")
         workspace_root = ensure_workspace_defaults(workspace_root)
         title = _optional_string(item.get("title"), field_name=f"agents[{index}].title")
+        skills = _parse_string_list(item.get("skills"), field_name=f"agents[{index}].skills")
+        tool_allowlist = _parse_string_list(item.get("tool_allowlist"), field_name=f"agents[{index}].tool_allowlist")
+        system_prompt = _optional_string(item.get("system_prompt"), field_name=f"agents[{index}].system_prompt")
+        group_reply_policy = _optional_string(item.get("group_reply_policy"), field_name=f"agents[{index}].group_reply_policy")
+        default_model = _optional_string(item.get("default_model"), field_name=f"agents[{index}].default_model")
         agents.append(
-            AgentWorkspaceConfig(agent_id=agent_id, workspace_root=workspace_root, title=title)
+            AgentWorkspaceConfig(
+                agent_id=agent_id,
+                workspace_root=workspace_root,
+                title=title,
+                skills=skills,
+                tool_allowlist=tool_allowlist,
+                system_prompt=system_prompt,
+                group_reply_policy=group_reply_policy,
+                default_model=default_model,
+            )
         )
     return tuple(agents)
 
@@ -404,3 +516,28 @@ def _positive_number(value: Any, *, field_name: str) -> float:
     if resolved <= 0:
         raise ValueError(f"{field_name} must be a positive number")
     return resolved
+
+
+def _parse_string_list(value: Any, *, field_name: str) -> tuple[str, ...]:
+    """Parse an optional YAML list of strings into a tuple.
+
+    Args:
+        value: Raw YAML value (None, list, or invalid).
+        field_name: Diagnostic label for error messages.
+
+    Returns:
+        Tuple of stripped non-empty strings, or empty tuple when value is None.
+
+    Raises:
+        ValueError: When value is not a list or contains non-string elements.
+    """
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    result: list[str] = []
+    for i, entry in enumerate(value):
+        if not isinstance(entry, str) or not entry.strip():
+            raise ValueError(f"{field_name}[{i}] must be a non-empty string")
+        result.append(entry.strip())
+    return tuple(result)
