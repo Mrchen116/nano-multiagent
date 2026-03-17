@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.config.local_store import DEFAULT_LOCAL_KERNEL_TOKEN, load_local_config
+from personal_assistant.config.local_store import DEFAULT_LOCAL_KERNEL_TOKEN, load_local_config, save_local_config
 
 
 def test_load_local_config_defaults_workspace_root_to_user_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -366,3 +366,103 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
     assert agent.tool_allowlist == ("Read", "Write")
     assert agent.group_reply_policy == "always"
     assert agent.default_model == "gpt-4"
+
+
+def test_save_local_config_round_trip(tmp_path: Path) -> None:
+    """Load config, save it, reload — fields must be equivalent."""
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "  user_id: u1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "    title: My Agent",
+                "    system_prompt: You are helpful.",
+                "    skills:",
+                "      - web_search",
+                "    tool_allowlist:",
+                "      - Read",
+                "    group_reply_policy: always",
+                "    default_model: gpt-4",
+                "channels:",
+                "  - name: web_relay",
+                "    enabled: true",
+                "    settings:",
+                "      port: 8080",
+                "im_service:",
+                "  url: wss://im.example.com",
+                "  token: secret-token",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved-config.yaml"
+    save_local_config(original, saved_path)
+    reloaded = load_local_config(saved_path)
+
+    # Node
+    assert reloaded.node.node_id == original.node.node_id
+    assert reloaded.node.user_id == original.node.user_id
+    # Agent fields round-trip
+    assert len(reloaded.agents) == len(original.agents)
+    orig_agent = original.agents[0]
+    reload_agent = reloaded.agents[0]
+    assert reload_agent.agent_id == orig_agent.agent_id
+    assert reload_agent.workspace_root == orig_agent.workspace_root
+    assert reload_agent.title == orig_agent.title
+    assert reload_agent.system_prompt == orig_agent.system_prompt
+    assert reload_agent.skills == orig_agent.skills
+    assert reload_agent.tool_allowlist == orig_agent.tool_allowlist
+    assert reload_agent.group_reply_policy == orig_agent.group_reply_policy
+    assert reload_agent.default_model == orig_agent.default_model
+    # Channels
+    assert len(reloaded.channels) == len(original.channels)
+    assert reloaded.channels[0].name == original.channels[0].name
+    # IM service
+    assert reloaded.im_service is not None
+    assert reloaded.im_service.url == original.im_service.url
+    assert reloaded.im_service.token == original.im_service.token
+
+
+def test_save_local_config_omits_none_fields(tmp_path: Path) -> None:
+    """Saved YAML should not contain keys for None-valued optional fields."""
+    import yaml as _yaml
+
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved-config.yaml"
+    save_local_config(original, saved_path)
+
+    raw = _yaml.safe_load(saved_path.read_text(encoding="utf-8"))
+    agent_raw = raw["agents"][0]
+    # None fields should be absent from serialized YAML
+    assert "system_prompt" not in agent_raw
+    assert "group_reply_policy" not in agent_raw
+    assert "default_model" not in agent_raw
+    assert "title" not in agent_raw
+    # Empty tuples should also be absent
+    assert "skills" not in agent_raw
+    assert "tool_allowlist" not in agent_raw
