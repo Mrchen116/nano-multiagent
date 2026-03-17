@@ -20,23 +20,8 @@ interface AllowlistSelectorProps {
   onChange: (next: string[]) => void;
 }
 
-const ADVANCED_OPTION_PATTERNS = [
-  /acceptance/i,
-  /orchestrator/i,
-  /worker/i,
-  /playwright/i,
-  /project-lead/i,
-  /review-pr/i,
-  /^bash$/i,
-  /^task$/i
-];
-
 function normalizeAllowlist(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
-}
-
-function isAdvancedOption(option: AgentAllowlistOption) {
-  return ADVANCED_OPTION_PATTERNS.some((pattern) => pattern.test(option.name));
 }
 
 function mergeOptions(selected: string[], options?: AgentAllowlistOption[]) {
@@ -102,17 +87,6 @@ export function AllowlistSelector({
 }: AllowlistSelectorProps) {
   const normalizedSelected = useMemo(() => normalizeAllowlist(selected), [selected]);
   const resolvedOptions = useMemo(() => mergeOptions(normalizedSelected, options), [normalizedSelected, options]);
-  const commonOptions = useMemo(
-    () => resolvedOptions.filter((option) => !isAdvancedOption(option) && !option.unavailable),
-    [resolvedOptions]
-  );
-  const reviewOptions = useMemo(
-    () =>
-      resolvedOptions.filter(
-        (option) => normalizedSelected.includes(option.name) && (isAdvancedOption(option) || option.unavailable)
-      ),
-    [normalizedSelected, resolvedOptions]
-  );
 
   function toggleOption(name: string) {
     if (normalizedSelected.includes(name)) {
@@ -145,47 +119,17 @@ export function AllowlistSelector({
       ) : null}
 
       {!isLoading && !errorMessage ? (
-        commonOptions.length > 0 || reviewOptions.length > 0 ? (
-          <div className="grid gap-4">
-            {commonOptions.length > 0 ? (
-              <section className="grid gap-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-slate-900">Common choices</p>
-                  <p className="text-xs text-slate-500">Start with the smallest safe set.</p>
-                </div>
-                <div className="grid gap-2 xl:grid-cols-2">
-                  {commonOptions.map((option) => (
-                    <OptionCard
-                      key={option.name}
-                      option={option}
-                      checked={normalizedSelected.includes(option.name)}
-                      showDescriptions={showDescriptions}
-                      onToggle={toggleOption}
-                    />
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            {reviewOptions.length > 0 ? (
-              <section className="grid gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-amber-900">Needs review</p>
-                  <p className="text-xs text-amber-700">Already saved on this agent, so we keep them visible here.</p>
-                </div>
-                <div className="grid gap-2 xl:grid-cols-2">
-                  {reviewOptions.map((option) => (
-                    <OptionCard
-                      key={option.name}
-                      option={option}
-                      checked={normalizedSelected.includes(option.name)}
-                      showDescriptions={showDescriptions}
-                      onToggle={toggleOption}
-                    />
-                  ))}
-                </div>
-              </section>
-            ) : null}
+        resolvedOptions.length > 0 ? (
+          <div className="grid gap-2 xl:grid-cols-2">
+            {resolvedOptions.map((option) => (
+              <OptionCard
+                key={option.name}
+                option={option}
+                checked={normalizedSelected.includes(option.name)}
+                showDescriptions={showDescriptions}
+                onToggle={toggleOption}
+              />
+            ))}
           </div>
         ) : (
           <p className="text-xs text-slate-500">{emptySelectionText}</p>

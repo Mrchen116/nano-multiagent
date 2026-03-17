@@ -1,6 +1,23 @@
 import userEvent from "@testing-library/user-event";
-import { act, screen } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
+
+const apiMocks = vi.hoisted(() => ({
+  createDirectConversationMock: vi.fn(),
+  navigateMock: vi.fn()
+}));
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => apiMocks.navigateMock
+  };
+});
+
+vi.mock("../../chat/chat-api", () => ({
+  createDirectConversation: apiMocks.createDirectConversationMock
+}));
 
 import { appRoutes } from "../../../app/router";
 import { renderRouter } from "../../../test/render-router";
@@ -18,6 +35,8 @@ async function setViewport(width: number) {
 
 afterEach(async () => {
   fetchMock.mockReset();
+  apiMocks.createDirectConversationMock.mockReset();
+  apiMocks.navigateMock.mockReset();
   await setViewport(1280);
 });
 
@@ -43,6 +62,8 @@ describe("agents list page", () => {
       )
     );
 
+    apiMocks.createDirectConversationMock.mockResolvedValue({ conversation_id: "conv-agent-core-1" });
+
     await setViewport(375);
 
     renderRouter({
@@ -56,11 +77,52 @@ describe("agents list page", () => {
     expect(screen.getByText("Managed default")).toBeInTheDocument();
     expect(screen.getByText("Current runtime directory")).toBeInTheDocument();
     expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
-    expect(screen.getByText("Stable direct chat")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open direct chat" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Workspace settings" })).toHaveAttribute("href", "/settings/agents/agent-core-1#workspace-settings");
     expect(screen.getByText("node-app-01")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/im/v1/agents", expect.any(Object));
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("opens direct chat from the list card", async () => {
+    const user = userEvent.setup();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify([
+          {
+            agent_id: "agent-core-1",
+            owner_id: "owner-1",
+            display_name: "Core Planner",
+            description: "Milestone execution coordinator",
+            profile_version: 12,
+            default_model: "gpt-5.2-codex",
+            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
+            workspace_is_default: true,
+            bound_nodes: ["node-app-01"],
+            updated_at: "2026-03-13T10:00:00Z"
+          }
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    apiMocks.createDirectConversationMock.mockResolvedValue({ conversation_id: "conv-agent-core-1" });
+
+    await setViewport(375);
+
+    renderRouter({
+      routes: appRoutes,
+      initialEntries: ["/settings/agents"]
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Open direct chat" }));
+
+    await waitFor(() => {
+      expect(apiMocks.createDirectConversationMock).toHaveBeenCalledWith({ agentId: "agent-core-1" });
+    });
+    await waitFor(() => {
+      expect(apiMocks.navigateMock).toHaveBeenCalledWith("/chat/conv-agent-core-1");
+    });
   });
 
   it("renders desktop cards with summary sections instead of a dense table", async () => {

@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "react-router-dom";
 
+import { createDirectConversation } from "../../chat/chat-api";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { listAgentSummaries } from "./im-agent-config-api";
 
@@ -37,8 +38,10 @@ function AgentSummaryCard(props: {
     updated_at?: string | null;
   };
   compact?: boolean;
+  isOpeningDirectChat?: boolean;
+  onOpenDirectChat: (agentId: string) => void;
 }) {
-  const { agent, compact = false } = props;
+  const { agent, compact = false, isOpeningDirectChat = false, onOpenDirectChat } = props;
 
   return (
     <article className={`rounded-[1.35rem] border border-[var(--im-border)] bg-white/85 shadow-sm ${compact ? "p-4" : "p-5"}`}>
@@ -52,7 +55,9 @@ function AgentSummaryCard(props: {
           </div>
           <p className="text-xs text-slate-500">{agent.agent_id}</p>
         </div>
-        <span className="im-badge">Stable direct chat</span>
+        <button className="im-badge" type="button" disabled={isOpeningDirectChat} onClick={() => onOpenDirectChat(agent.agent_id)}>
+          {isOpeningDirectChat ? "Opening direct chat…" : "Open direct chat"}
+        </button>
       </div>
 
       <p className={`mt-3 text-slate-600 ${compact ? "text-sm" : "text-sm leading-6"}`}>{agent.description || "No description yet."}</p>
@@ -118,9 +123,18 @@ function AgentSummaryCard(props: {
 
 export function AgentsListPage() {
   const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["settings", "agents"],
     queryFn: listAgentSummaries
+  });
+  const openDirectChatMutation = useMutation({
+    mutationFn: (agentId: string) => createDirectConversation({ agentId }),
+    onSuccess: async ({ conversation_id }) => {
+      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+      navigate(`/chat/${conversation_id}`);
+    }
   });
 
   const agents = query.data ?? [];
@@ -179,7 +193,13 @@ export function AgentsListPage() {
       ) : isMobile ? (
         <div className="grid gap-3">
           {agents.map((agent) => (
-            <AgentSummaryCard key={agent.agent_id} agent={agent} compact />
+            <AgentSummaryCard
+              key={agent.agent_id}
+              agent={agent}
+              compact
+              onOpenDirectChat={(nextAgentId) => openDirectChatMutation.mutate(nextAgentId)}
+              isOpeningDirectChat={openDirectChatMutation.isPending && openDirectChatMutation.variables === agent.agent_id}
+            />
           ))}
         </div>
       ) : (
@@ -192,7 +212,12 @@ export function AgentsListPage() {
           </div>
           <div className="grid gap-4">
             {agents.map((agent) => (
-              <AgentSummaryCard key={agent.agent_id} agent={agent} />
+              <AgentSummaryCard
+                key={agent.agent_id}
+                agent={agent}
+                onOpenDirectChat={(nextAgentId) => openDirectChatMutation.mutate(nextAgentId)}
+                isOpeningDirectChat={openDirectChatMutation.isPending && openDirectChatMutation.variables === agent.agent_id}
+              />
             ))}
           </div>
         </section>
