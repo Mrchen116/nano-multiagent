@@ -114,7 +114,6 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path
             "conversation_type": "direct",
             "mentioned_agent_ids": [],
             "config_profile_version": 1,
-            "system_prompt": "You are Agent New.",
         }
         relay_task = app.state.connection.execute(
             "SELECT target_node_id FROM relay_tasks WHERE relay_task_id = ?",

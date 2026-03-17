@@ -33,6 +33,7 @@ from personal_assistant.config.local_store import (
     HeartbeatConfig,
     KernelConfig,
     LocalConfig,
+    default_local_config_path,
     ensure_workspace_defaults,
     load_local_config,
     resolve_kernel_token,
@@ -287,6 +288,7 @@ class _IMConfigSyncClient:
                 break
         else:
             agents.append(agent_config)
+        persist_path = default_local_config_path()
         self._local_config = LocalConfig(
             node=self._local_config.node,
             agents=tuple(agents),
@@ -294,12 +296,28 @@ class _IMConfigSyncClient:
             kernel=self._local_config.kernel,
             heartbeat=self._local_config.heartbeat,
             im_service=self._local_config.im_service,
-            source_path=self._local_config.source_path,
+            source_path=persist_path,
         )
-        save_local_config(self._local_config, self._local_config.source_path)
+        save_local_config(self._local_config, persist_path)
+
+    def current_agent_payload(self, *, agent_id: str) -> dict[str, object] | None:
+        for agent in self._local_config.agents:
+            if agent.agent_id != agent_id:
+                continue
+            payload: dict[str, object] = {
+                "display_name": agent.title or agent.agent_id,
+                "system_prompt": agent.system_prompt or "",
+                "skills": list(agent.skills),
+                "tool_allowlist": list(agent.tool_allowlist),
+                "group_reply_policy": agent.group_reply_policy or "manual",
+                "default_model": agent.default_model,
+                "workspace_root": str(agent.workspace_root),
+            }
+            return payload
+        return None
 
     def _fetch_agent_config(self, *, agent_id: str) -> dict[str, object]:
-        response = self._get_client().get(f"/im/v1/agents/{agent_id}/config")
+        response = self._get_client().get(f"/im/v1/agents/{agent_id}/config", params={"source": "mirror"})
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
@@ -1011,6 +1029,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             reporter=reporter,
             heartbeat_runner=heartbeat_runner,
             sync_client=ConfigSyncClient(fetcher=im_config_sync_client.sync_agent),
+            agent_config_provider=lambda agent_id: im_config_sync_client.current_agent_payload(agent_id=agent_id),
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -1044,7 +1063,7 @@ def main(argv: list[str] | None = None) -> int:
 
     argv = sys.argv[1:] if argv is None else list(argv)
     parser = argparse.ArgumentParser(description="Run personal assistant gateway runtime")
-    parser.add_argument("--config", help="Path to local node-config.yaml for the default start command")
+    parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
     parser.add_argument(
         "--foreground",
         action="store_true",
@@ -1052,18 +1071,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     subparsers = parser.add_subparsers(dest="command")
     stop_parser = subparsers.add_parser("stop", help="Stop the current background gateway for one config")
-    stop_parser.add_argument("--config", required=True, help="Path to local node-config.yaml")
+    stop_parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
     args = parser.parse_args(argv)
     command = args.command or "start"
-    if command == "start" and not args.config:
-        parser.error("the following arguments are required: --config")
+    resolved_config_path = str(Path(args.config).expanduser()) if args.config else str(default_local_config_path())
     try:
         if command == "stop":
-            print(stop_gateway(config_path=args.config))
+            print(stop_gateway(config_path=resolved_config_path))
             return 0
         if args.foreground:
-            return run_gateway(config_path=args.config)
-        result = launch_gateway_in_background(config_path=args.config)
+            return run_gateway(config_path=resolved_config_path)
+        result = launch_gateway_in_background(config_path=resolved_config_path)
         print(f"STARTED pid={result.pid} health_url={result.health_url} log={result.log_path}")
         return 0
     except GatewayStartupError as exc:
@@ -1108,6 +1126,7 @@ def _build_im_connection_manager(
     reporter: UpstreamReporter,
     heartbeat_runner: PollingHeartbeatRunner,
     sync_client: ConfigSyncClient | None = None,
+    agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -1118,6 +1137,7 @@ def _build_im_connection_manager(
         relay_adapter=relay_adapter,
         sync_client=sync_client,
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
+        agent_config_provider=agent_config_provider,
         connect=_connect_websocket,
     )
 

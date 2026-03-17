@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import asyncio
 import json
 from typing import Any
+from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -56,6 +57,7 @@ class GatewayHandler:
         self._lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
         self._reports: list[dict[str, object]] = []
+        self._agent_config_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
 
     async def serve(self, websocket: WebSocket) -> None:
         """Accept one websocket and process gateway protocol frames until disconnect."""
@@ -98,6 +100,8 @@ class GatewayHandler:
             return await self._handle_report(payload=payload)
         if message_type == "node.delivery_receipt":
             return await self._handle_delivery_receipt(payload=payload)
+        if message_type == "agent.config":
+            return await self._handle_agent_config(payload=payload)
         return {
             "type": "error",
             "payload": {"code": "unsupported_message_type", "message": message_type},
@@ -141,6 +145,34 @@ class GatewayHandler:
             message_type="heartbeat.trigger",
             payload={"agent_id": agent_id, "reason": reason},
         )
+
+    async def request_agent_config(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        timeout_seconds: float = 5.0,
+    ) -> dict[str, object] | None:
+        """Request one live agent config snapshot from a connected gateway node."""
+        request_id = f"agent-config-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._agent_config_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="agent.config.get",
+                payload={"request_id": request_id, "agent_id": agent_id},
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._agent_config_waiters.pop(request_id, None)
 
     async def disconnect(self, *, node_id: str) -> None:
         """Remove one node from the active connection map."""
@@ -287,6 +319,25 @@ class GatewayHandler:
             return False
         await connection.websocket.send_json({"type": message_type, "payload": payload})
         return True
+
+    async def _handle_agent_config(self, *, payload: dict[str, object]) -> dict[str, object]:
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
+        agent_payload = payload.get("agent")
+        if agent_payload is not None and not isinstance(agent_payload, dict):
+            raise ValueError("agent must be an object when provided")
+        async with self._lock:
+            waiter = self._agent_config_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(dict(agent_payload) if isinstance(agent_payload, dict) else None)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "agent.config",
+                "request_id": request_id,
+                "agent_id": agent_id,
+            },
+        }
 
     def record_relay_failure(
         self,

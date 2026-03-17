@@ -155,14 +155,12 @@ def test_direct_conversation_relay_keeps_old_snapshot_while_new_conversation_use
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
-        "system_prompt": "You are agent-a.",
     }
     assert new_created.relay_task.payload["agent_id"] == "agent-a"
     assert new_created.relay_task.payload["metadata"] == {
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 2,
-        "system_prompt": "You are upgraded.",
     }
 
 
@@ -219,8 +217,6 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_pa
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-b"],
         "config_profile_version": 1,
-        "system_prompt": "You are agent-b.",
-        "skills": ["playwright", "tdd-execution-worker"],
     }
 
 
@@ -298,7 +294,6 @@ def test_enqueue_message_relay_advances_group_profile_version_without_overwritin
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
         "config_profile_version": 2,
-        "system_prompt": app_prompt,
     }
 
 
@@ -369,7 +364,6 @@ def test_enqueue_message_relay_uses_live_group_prompt_when_conversation_has_no_m
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
         "config_profile_version": 2,
-        "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
     }
 
 

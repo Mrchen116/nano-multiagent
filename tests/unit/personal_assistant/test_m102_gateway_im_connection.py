@@ -192,6 +192,67 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(tmp_path
     assert heartbeat_seen == [("agent-a", "manual")]
 
 
+def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -> None:
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "agent.config.get",
+                    "payload": {"request_id": "req-1", "agent_id": "agent-a"},
+                }
+            ),
+        ]
+    )
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        agent_config_provider=lambda agent_id: {
+            "display_name": "Agent A",
+            "system_prompt": "You are local.",
+            "skills": ["plan"],
+            "tool_allowlist": ["read"],
+            "group_reply_policy": "manual",
+            "default_model": "claude-sonnet-4",
+            "workspace_root": f"/tmp/{agent_id}",
+        },
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - ack node.register
+        await manager._listen_once()  # noqa: SLF001 - focused unit coverage for downstream request/response
+
+    asyncio.run(_exercise())
+
+    response_frame = json.loads(socket.sent[-1])
+    assert response_frame == {
+        "type": "agent.config",
+        "payload": {
+            "request_id": "req-1",
+            "agent_id": "agent-a",
+            "agent": {
+                "display_name": "Agent A",
+                "system_prompt": "You are local.",
+                "skills": ["plan"],
+                "tool_allowlist": ["read"],
+                "group_reply_policy": "manual",
+                "default_model": "claude-sonnet-4",
+                "workspace_root": "/tmp/agent-a",
+            },
+        },
+    }
+
+
 def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) -> None:
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1"),

@@ -6,6 +6,7 @@ import sys
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
+import os
 
 import httpx
 import pytest
@@ -710,6 +711,7 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     def _handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path == "/im/v1/agents/agent-live/config"
+        assert request.url.params["source"] == "mirror"
         return next(responses)
 
     client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
@@ -874,7 +876,7 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(tmp_p
     assert heartbeat_path.read_text(encoding="utf-8") == "interval: 1h\n\n- Existing heartbeat\n"
 
 
-def test_im_config_sync_client_persists_agent_config_to_local_yaml(tmp_path: Path) -> None:
+def test_im_config_sync_client_persists_agent_config_to_canonical_local_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     workspace_root = tmp_path / "workspace"
 
     class _Pipeline:
@@ -900,9 +902,11 @@ def test_im_config_sync_client_persists_agent_config_to_local_yaml(tmp_path: Pat
             },
         )
 
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
     seed_workspace = tmp_path / "seed-workspace"
     seed_workspace.mkdir(parents=True)
-    config_path = tmp_path / "config.yaml"
+    config_path = tmp_path / "legacy-config.yaml"
     local_config = LocalConfig(
         node=NodeConfig(node_id="node-1"),
         agents=(
@@ -926,7 +930,11 @@ def test_im_config_sync_client_persists_agent_config_to_local_yaml(tmp_path: Pat
 
     sync.sync_agent(agent_id="agent-live", profile_version=2)
 
-    persisted = load_local_config(config_path)
+    canonical_path = (home_dir / ".nano-assistant" / "config.yaml").resolve()
+    assert canonical_path.exists() is True
+    assert config_path.exists() is False
+    persisted = load_local_config(canonical_path)
+    assert persisted.source_path == canonical_path
     assert len(persisted.agents) == 2
     agent = next(item for item in persisted.agents if item.agent_id == "agent-live")
     assert agent.title == "Agent Live"
@@ -1146,6 +1154,34 @@ def test_main_defaults_to_background_launch(monkeypatch: pytest.MonkeyPatch, cap
     )
 
 
+def test_main_defaults_to_canonical_config_path_when_flag_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    seen: dict[str, object] = {}
+
+    def _launch_background(**kwargs):  # noqa: ANN001
+        seen["background"] = kwargs["config_path"]
+        return BackgroundLaunchResult(
+            pid=1,
+            health_url="http://127.0.0.1:8000/v1/health",
+            log_path=tmp_path / "gateway.log",
+        )
+
+    monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _launch_background)
+    monkeypatch.setattr(
+        "personal_assistant.main.run_gateway",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("foreground path should not run")),
+    )
+
+    exit_code = main([])
+
+    assert exit_code == 0
+    assert seen == {"background": str((home_dir / ".nano-assistant" / "config.yaml").resolve())}
+
+
 def test_main_runs_gateway_in_foreground_when_requested(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     seen: dict[str, object] = {}
 
@@ -1235,6 +1271,28 @@ def test_main_stop_command_stops_background_gateway(monkeypatch: pytest.MonkeyPa
 
     assert exit_code == 0
     assert seen == {"config_path": str(tmp_path / "node-config.yaml")}
+    assert capsys.readouterr().out == "STOPPED pid=999\n"
+
+
+def test_main_stop_command_defaults_to_canonical_config_path_when_flag_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    seen: dict[str, object] = {}
+
+    def _stop_background(*, config_path: str) -> str:
+        seen["config_path"] = config_path
+        return "STOPPED pid=999"
+
+    monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop_background)
+
+    exit_code = main(["stop"])
+
+    assert exit_code == 0
+    assert seen == {"config_path": str((home_dir / ".nano-assistant" / "config.yaml").resolve())}
     assert capsys.readouterr().out == "STOPPED pid=999\n"
 
 

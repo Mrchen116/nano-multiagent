@@ -14,6 +14,8 @@ _DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
 _DEFAULT_KERNEL_ENTRYPOINT = "python -m agent.platform.http_api.app"
 _DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
 DEFAULT_LOCAL_KERNEL_TOKEN = "nano-local-gateway"
+DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nano-assistant").expanduser()
+DEFAULT_LOCAL_CONFIG_PATH = DEFAULT_LOCAL_CONFIG_DIR / "config.yaml"
 _DEFAULT_STARTUP_TIMEOUT_SECONDS = 15.0
 _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.25
@@ -226,6 +228,12 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
     )
 
 
+def default_local_config_path() -> Path:
+    """Return the canonical Gateway config path under the user home directory."""
+
+    return Path("~/.nano-assistant/config.yaml").expanduser().resolve()
+
+
 def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     """Serialize a LocalConfig back to YAML and write to disk.
 
@@ -311,6 +319,7 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
         data["im_service"] = im_dict
 
     dest = Path(config_path).expanduser().resolve()
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(yaml.safe_dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
