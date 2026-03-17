@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.config.local_store import DEFAULT_LOCAL_KERNEL_TOKEN, load_local_config, save_local_config
+from personal_assistant.config.local_store import DEFAULT_LOCAL_KERNEL_TOKEN, default_local_config_path, load_local_config, save_local_config
 
 
 def test_load_local_config_defaults_workspace_root_to_user_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -430,6 +430,37 @@ def test_save_local_config_round_trip(tmp_path: Path) -> None:
     assert reloaded.im_service is not None
     assert reloaded.im_service.url == original.im_service.url
     assert reloaded.im_service.token == original.im_service.token
+
+
+def test_save_local_config_creates_missing_parent_directories(tmp_path: Path) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "missing" / "dir" / "config.yaml"
+
+    save_local_config(original, saved_path)
+
+    assert saved_path.exists() is True
+
+
+def test_default_local_config_path_uses_user_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+
+    assert default_local_config_path() == (home_dir / ".nano-assistant" / "config.yaml").resolve()
 
 
 def test_save_local_config_omits_none_fields(tmp_path: Path) -> None:

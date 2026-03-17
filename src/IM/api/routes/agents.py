@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from agent.core.llm.factory import LLMFactoryConfig
@@ -293,13 +293,22 @@ def get_agent_allowlist_options() -> AgentAllowlistOptionsResponse:
 @router.get("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)
 async def get_agent_config(
     agent_id: str,
+    source: str = Query(default="live"),
     service: ConfigService = Depends(get_config_service),
     gateway_handler: GatewayHandler = Depends(get_gateway_handler),
 ) -> AgentConfigResponse:
-    """Return one agent configuration profile, preferring a live gateway snapshot when available."""
+    """Return one agent configuration profile.
+
+    `source=live` prefers a live Gateway snapshot when available.
+    `source=mirror` forces the IM-stored mirror row so Gateway config.sync fetches do not reflect stale local state back to themselves.
+    """
     profile = service.get_profile(agent_id=agent_id)
     if profile is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+    if source == "mirror":
+        return to_agent_config_response(profile, service=service)
+    if source != "live":
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="source must be live or mirror")
     for node_id in service.list_bound_nodes(agent_id=agent_id):
         payload = await gateway_handler.request_agent_config(target_node_id=node_id, agent_id=agent_id)
         if not isinstance(payload, dict):

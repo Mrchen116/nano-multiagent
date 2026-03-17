@@ -59,7 +59,7 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
         ]
         assert list_resp.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
 
-        get_resp = client.get(f"/im/v1/agents/{seeded.agent_id}/config")
+        get_resp = client.get(f"/im/v1/agents/{seeded.agent_id}/config?source=mirror")
         assert get_resp.status_code == 200
         assert get_resp.json()["profile_version"] == 1
         assert get_resp.json()["skills"] == ["plan"]
@@ -217,6 +217,10 @@ def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
         response = result["response"]
         assert response.status_code == 200
         assert response.json()["display_name"] == "Live Alpha"
+
+        mirror_response = client.get("/im/v1/agents/agent-1/config?source=mirror")
+        assert mirror_response.status_code == 200
+        assert mirror_response.json()["display_name"] == "Cached Alpha"
         assert response.json()["system_prompt"] == "live prompt"
         assert response.json()["skills"] == ["plan"]
         assert response.json()["tool_allowlist"] == ["read"]
