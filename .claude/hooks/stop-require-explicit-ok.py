@@ -10,8 +10,9 @@ data = json.loads(sys.stdin.read())
 
 session_id = data.get("session_id", "")
 last_msg = data.get("last_assistant_message", "") or ""
+stop_hook_active = data.get("stop_hook_active", True)
 
-if EXEMPT in last_msg:
+if stop_hook_active or EXEMPT in last_msg:
     sys.exit(0)
 
 active = 0
@@ -32,7 +33,7 @@ if active > 0:
     sys.exit(0)
 
 reason = (
-    "<systeam_reminder>当前没有任何 subagent 在运行。"
+    "当前没有任何 subagent 在运行。"
     "如果你其实还需要继续处理，请继续调用工具或继续推进，不要直接停下。"
     "如果你确认这次就是应该结束，请在你的下一条回复中明确写出：NO_SUBAGENT_STOP_OK"
 )

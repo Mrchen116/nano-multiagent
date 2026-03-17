@@ -11,11 +11,25 @@ from uuid import uuid4
 from IM.domain.models import Message, RelayTask
 
 
+def _decode_name_list(raw_value: object) -> tuple[str, ...]:
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return ()
+    try:
+        payload = json.loads(raw_value)
+    except json.JSONDecodeError:
+        return ()
+    if not isinstance(payload, list):
+        return ()
+    return tuple(item.strip() for item in payload if isinstance(item, str) and item.strip())
+
+
 @dataclass(frozen=True, slots=True)
 class _RelayAgentSnapshot:
     agent_id: str | None
     profile_version: int | None
     system_prompt: str | None
+    skills: tuple[str, ...] = ()
+    tool_allowlist: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +103,10 @@ class RelayService:
             metadata["config_profile_version"] = agent_snapshot.profile_version
         if agent_snapshot.system_prompt:
             metadata["system_prompt"] = agent_snapshot.system_prompt
+        if agent_snapshot.skills:
+            metadata["skills"] = list(agent_snapshot.skills)
+        if agent_snapshot.tool_allowlist:
+            metadata["tool_allowlist"] = list(agent_snapshot.tool_allowlist)
         payload = {
             "idempotency_key": idempotency_key,
             "conversation_id": message.conversation_id,
@@ -218,6 +236,8 @@ class RelayService:
                 agent_id=agent_id,
                 profile_version=int(profile["profile_version"]),
                 system_prompt=str(profile["system_prompt"]),
+                skills=_decode_name_list(profile["skills_json"]),
+                tool_allowlist=_decode_name_list(profile["tool_allowlist_json"]),
             )
 
         participant_rows = self._connection.execute(
@@ -257,10 +277,13 @@ class RelayService:
         if conversation_type == "direct" and frozen_agent_id and (
             selected_agent_id is None or selected_agent_id == frozen_agent_id
         ):
+            frozen_snapshot = _profile_snapshot(frozen_agent_id)
             return _RelayAgentSnapshot(
                 agent_id=frozen_agent_id,
                 profile_version=frozen_profile_version,
                 system_prompt=frozen_system_prompt,
+                skills=() if frozen_snapshot is None else frozen_snapshot.skills,
+                tool_allowlist=() if frozen_snapshot is None else frozen_snapshot.tool_allowlist,
             )
 
         if selected_agent_id is None:
@@ -279,23 +302,28 @@ class RelayService:
                     agent_id=selected_snapshot.agent_id,
                     profile_version=selected_snapshot.profile_version,
                     system_prompt=frozen_system_prompt,
+                    skills=selected_snapshot.skills,
+                    tool_allowlist=selected_snapshot.tool_allowlist,
                 )
             return selected_snapshot
 
         if conversation_type == "group" and frozen_agent_id and (
             selected_agent_id is None or selected_agent_id == frozen_agent_id
         ):
+            frozen_snapshot = _profile_snapshot(frozen_agent_id)
             return _RelayAgentSnapshot(
                 agent_id=frozen_agent_id,
                 profile_version=frozen_profile_version,
                 system_prompt=frozen_system_prompt,
+                skills=() if frozen_snapshot is None else frozen_snapshot.skills,
+                tool_allowlist=() if frozen_snapshot is None else frozen_snapshot.tool_allowlist,
             )
 
         return _RelayAgentSnapshot(agent_id=None, profile_version=frozen_profile_version, system_prompt=None)
 
     def _profile_row(self, *, agent_id: str) -> sqlite3.Row | None:
         return self._connection.execute(
-            "SELECT agent_id, profile_version, system_prompt FROM agent_profiles WHERE agent_id = ?",
+            "SELECT agent_id, profile_version, system_prompt, skills_json, tool_allowlist_json FROM agent_profiles WHERE agent_id = ?",
             (agent_id,),
         ).fetchone()
 

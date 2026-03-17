@@ -139,6 +139,34 @@ def test_runtime_builds_followup_context_from_session_events(tmp_path: Path) -> 
     assert second_call_messages[3].content == "second"
 
 
+def test_runtime_filters_prompt_skills_from_session_metadata(tmp_path: Path) -> None:
+    skills_root = tmp_path / ".codex" / "skills"
+    selected_dir = skills_root / "selected-skill"
+    ignored_dir = skills_root / "ignored-skill"
+    selected_dir.mkdir(parents=True)
+    ignored_dir.mkdir(parents=True)
+    (selected_dir / "SKILL.md").write_text("---\nname: selected-skill\ndescription: selected skill\n---\n", encoding="utf-8")
+    (ignored_dir / "SKILL.md").write_text("---\nname: ignored-skill\ndescription: ignored skill\n---\n", encoding="utf-8")
+
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    workspace_root = tmp_path
+    session = manager.create_session(
+        metadata={
+            "workspace_root": str(workspace_root.resolve()),
+            "skills": ["selected-skill"],
+        }
+    )
+    llm_client = FakeLLMClient()
+    runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="mock-model", repo_root=workspace_root)
+
+    runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+
+    system_prompt = llm_client.requests[-1].messages[0].content
+    assert "<name>selected-skill</name>" in system_prompt
+    assert "<name>ignored-skill</name>" not in system_prompt
+
+
 def test_runtime_persists_tool_events_with_metadata_and_replays_context(tmp_path: Path) -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)

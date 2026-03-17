@@ -75,6 +75,7 @@ class AgentLoop:
         hook_ctx: HookContext | None = None,
         system_prompt_override: str | None = None,
         available_skills_override: tuple[SkillMetadata, ...] | None = None,
+        available_tools_override: tuple[ToolSpec, ...] | None = None,
         llm_session_id: str | None = None,
         session_created_at: str | None = None,
         current_working_directory_override: Path | None = None,
@@ -116,7 +117,7 @@ class AgentLoop:
         completed = False
         self._policies.ensure_turn_allowed(turn_count=state.turn_count)
 
-        active_tools = self._active_tool_specs()
+        active_tools = self._active_tool_specs() if available_tools_override is None else available_tools_override
         active_skills = self._available_skills if available_skills_override is None else available_skills_override
         llm_messages = list(
             build_prompt_messages(

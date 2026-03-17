@@ -190,7 +190,7 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_pa
         display_name="Agent B",
         description="profile b",
         system_prompt="You are agent-b.",
-        skills=[],
+        skills=["playwright", "tdd-execution-worker"],
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
@@ -220,6 +220,7 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_pa
         "mentioned_agent_ids": ["agent-b"],
         "config_profile_version": 1,
         "system_prompt": "You are agent-b.",
+        "skills": ["playwright", "tdd-execution-worker"],
     }
 
 

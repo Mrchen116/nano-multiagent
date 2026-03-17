@@ -19,6 +19,7 @@ from personal_assistant.config.local_store import (
     KernelConfig,
     LocalConfig,
     NodeConfig,
+    load_local_config,
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
@@ -713,10 +714,23 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
 
     client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
     pipeline = _Pipeline()
+    config_path = tmp_path / "config.yaml"
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(
+            AgentWorkspaceConfig(agent_id="seed-agent", workspace_root=(tmp_path / "seed-workspace")),
+        ),
+        channels=(),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=config_path,
+    )
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
         pipeline=pipeline,
+        local_config=local_config,
         client=client,
         monotonic=lambda: 0.0,
         sleep=lambda seconds: sleeps.append(seconds),
@@ -770,10 +784,23 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
 
     pipeline = _Pipeline()
     client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
+    config_path = tmp_path / "config.yaml"
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(
+            AgentWorkspaceConfig(agent_id="seed-agent", workspace_root=(tmp_path / "seed-workspace")),
+        ),
+        channels=(),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=config_path,
+    )
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
         pipeline=pipeline,
+        local_config=local_config,
         workspace_root_factory=lambda _agent_id: workspace_root,
         client=client,
         monotonic=lambda: 0.0,
@@ -816,10 +843,23 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(tmp_p
 
     client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
     pipeline = _Pipeline()
+    config_path = tmp_path / "config.yaml"
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(
+            AgentWorkspaceConfig(agent_id="seed-agent", workspace_root=(tmp_path / "seed-workspace")),
+        ),
+        channels=(),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=config_path,
+    )
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
         pipeline=pipeline,
+        local_config=local_config,
         workspace_root_factory=lambda _agent_id: workspace_root,
         client=client,
         monotonic=lambda: 0.0,
@@ -832,6 +872,70 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(tmp_p
     assert pipeline.dropped == ["agent-live"]
     assert memory_path.read_text(encoding="utf-8") == "existing memory\n"
     assert heartbeat_path.read_text(encoding="utf-8") == "interval: 1h\n\n- Existing heartbeat\n"
+
+
+def test_im_config_sync_client_persists_agent_config_to_local_yaml(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+
+    class _Pipeline:
+        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
+            self.agent = agent
+
+        def drop_agent_sessions(self, agent_id: str) -> None:
+            self.dropped = agent_id
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "agent-live",
+                "display_name": "Agent Live",
+                "profile_version": 2,
+                "workspace_root": str(workspace_root),
+                "skills": ["skill-a", "skill-b"],
+                "tool_allowlist": ["Read", "Bash"],
+                "system_prompt": "You are synced.",
+                "group_reply_policy": "mention_only",
+                "default_model": "claude-sonnet-4-6",
+            },
+        )
+
+    seed_workspace = tmp_path / "seed-workspace"
+    seed_workspace.mkdir(parents=True)
+    config_path = tmp_path / "config.yaml"
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(
+            AgentWorkspaceConfig(agent_id="seed-agent", workspace_root=seed_workspace),
+        ),
+        channels=(),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=config_path,
+    )
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=_Pipeline(),
+        local_config=local_config,
+        client=httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False),
+        monotonic=lambda: 0.0,
+        sleep=lambda _seconds: None,
+    )
+
+    sync.sync_agent(agent_id="agent-live", profile_version=2)
+
+    persisted = load_local_config(config_path)
+    assert len(persisted.agents) == 2
+    agent = next(item for item in persisted.agents if item.agent_id == "agent-live")
+    assert agent.title == "Agent Live"
+    assert agent.workspace_root == workspace_root.resolve()
+    assert agent.skills == ("skill-a", "skill-b")
+    assert agent.tool_allowlist == ("Read", "Bash")
+    assert agent.system_prompt == "You are synced."
+    assert agent.group_reply_policy == "mention_only"
+    assert agent.default_model == "claude-sonnet-4-6"
 
 
 def test_build_heartbeat_product_reports_maps_runs_to_main_agent_im_payloads() -> None:

@@ -141,6 +141,8 @@ class AgentRuntime:
             raise ValueError(f"session does not exist: {session_id}")
         session_created_at = session.created_at
         session_workspace_root = _resolve_session_workspace_root(session=session)
+        session_available_skills = self._resolve_session_available_skills(session=session, workspace_root=session_workspace_root)
+        session_available_tools = self._resolve_session_available_tools(session=session)
         frozen_system_prompt = session.metadata.get("system_prompt") if isinstance(session.metadata, Mapping) else None
         if not isinstance(frozen_system_prompt, str) or not frozen_system_prompt.strip():
             frozen_system_prompt = None
@@ -239,10 +241,11 @@ class AgentRuntime:
                 user_text=user_text,
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
-                available_skills_override=() if use_frozen_system_prompt else None,
                 llm_session_id=llm_session_id,
                 session_created_at=session_created_at,
                 current_working_directory_override=session_workspace_root,
+                available_skills_override=() if use_frozen_system_prompt else session_available_skills,
+                available_tools_override=session_available_tools,
             )
         except ModelError as exc:
             # Retry boundary: only context-overflow-like failures trigger one
@@ -262,10 +265,11 @@ class AgentRuntime:
                 user_text=user_text,
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
-                available_skills_override=() if use_frozen_system_prompt else None,
                 llm_session_id=llm_session_id,
                 session_created_at=session_created_at,
                 current_working_directory_override=session_workspace_root,
+                available_skills_override=() if use_frozen_system_prompt else session_available_skills,
+                available_tools_override=session_available_tools,
             )
 
         self._append_turn_events(session_id=session_id, turn_id=turn_id, turn_result=turn_result)
@@ -410,6 +414,30 @@ class AgentRuntime:
             hook_ctx,
         )
         return session
+
+    def _resolve_session_available_skills(self, *, session: Session, workspace_root: Path) -> tuple[SkillMetadata, ...]:
+        raw_skills = session.metadata.get("skills") if isinstance(session.metadata, Mapping) else None
+        if not isinstance(raw_skills, list):
+            return self._loop._available_skills  # type: ignore[attr-defined]
+        requested = tuple(item.strip() for item in raw_skills if isinstance(item, str) and item.strip())
+        if not requested:
+            return ()
+        return resolve_available_skills(
+            workspace_root=workspace_root,
+            include_names=requested,
+            config_resolver=self._config_resolver,
+        )
+
+    def _resolve_session_available_tools(self, *, session: Session) -> tuple[ToolSpec, ...]:
+        raw_tools = session.metadata.get("tool_allowlist") if isinstance(session.metadata, Mapping) else None
+        if not isinstance(raw_tools, list):
+            return self._loop._active_tool_specs()  # type: ignore[attr-defined]
+        requested = {item.strip() for item in raw_tools if isinstance(item, str) and item.strip()}
+        if self._loop._tool_registry is None:  # type: ignore[attr-defined]
+            active_tools = self._loop._active_tool_specs()  # type: ignore[attr-defined]
+        else:
+            active_tools = self._loop._tool_registry.list_specs()  # type: ignore[attr-defined]
+        return tuple(tool for tool in active_tools if tool.name in requested)
 
     def _dispatch_intercept(
         self,

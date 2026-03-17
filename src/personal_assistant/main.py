@@ -36,6 +36,7 @@ from personal_assistant.config.local_store import (
     ensure_workspace_defaults,
     load_local_config,
     resolve_kernel_token,
+    save_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
@@ -192,6 +193,7 @@ class _IMConfigSyncClient:
         base_url: str,
         token: str | None,
         pipeline: InboundPipeline,
+        local_config: LocalConfig,
         workspace_root_factory: Callable[[str], Path] | None = None,
         client: httpx.Client | None = None,
         client_factory: BootstrapClientFactory | None = None,
@@ -207,6 +209,7 @@ class _IMConfigSyncClient:
         self._retry_interval_seconds = retry_interval_seconds
         self._max_attempts = max(max_attempts, 1)
         self._pipeline = pipeline
+        self._local_config = local_config
         self._workspace_root_factory = workspace_root_factory or self._default_workspace_root
         self._client_factory = client_factory
         self._client = client
@@ -231,13 +234,38 @@ class _IMConfigSyncClient:
                 else:
                     workspace_root = self._workspace_root_factory(agent_id)
                 workspace_root = ensure_workspace_defaults(workspace_root)
-                self._pipeline.register_agent(
-                    AgentWorkspaceConfig(
-                        agent_id=agent_id,
-                        workspace_root=workspace_root,
-                        title=str(payload.get("display_name") or agent_id),
-                    )
+                agent_config = AgentWorkspaceConfig(
+                    agent_id=agent_id,
+                    workspace_root=workspace_root,
+                    title=str(payload.get("display_name") or agent_id),
+                    skills=tuple(
+                        item.strip()
+                        for item in payload.get("skills", [])
+                        if isinstance(item, str) and item.strip()
+                    ),
+                    tool_allowlist=tuple(
+                        item.strip()
+                        for item in payload.get("tool_allowlist", [])
+                        if isinstance(item, str) and item.strip()
+                    ),
+                    system_prompt=(
+                        payload.get("system_prompt").strip()
+                        if isinstance(payload.get("system_prompt"), str) and payload.get("system_prompt").strip()
+                        else None
+                    ),
+                    group_reply_policy=(
+                        payload.get("group_reply_policy").strip()
+                        if isinstance(payload.get("group_reply_policy"), str) and payload.get("group_reply_policy").strip()
+                        else None
+                    ),
+                    default_model=(
+                        payload.get("default_model").strip()
+                        if isinstance(payload.get("default_model"), str) and payload.get("default_model").strip()
+                        else None
+                    ),
                 )
+                self._pipeline.register_agent(agent_config)
+                self._persist_agent_config(agent_config)
                 self._pipeline.drop_agent_sessions(agent_id)
                 return
             except (httpx.HTTPError, RuntimeError, ValueError):
@@ -250,6 +278,25 @@ class _IMConfigSyncClient:
         if client is not None:
             client.close()
             self._client = None
+
+    def _persist_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
+        agents = list(self._local_config.agents)
+        for index, existing in enumerate(agents):
+            if existing.agent_id == agent_config.agent_id:
+                agents[index] = agent_config
+                break
+        else:
+            agents.append(agent_config)
+        self._local_config = LocalConfig(
+            node=self._local_config.node,
+            agents=tuple(agents),
+            channels=self._local_config.channels,
+            kernel=self._local_config.kernel,
+            heartbeat=self._local_config.heartbeat,
+            im_service=self._local_config.im_service,
+            source_path=self._local_config.source_path,
+        )
+        save_local_config(self._local_config, self._local_config.source_path)
 
     def _fetch_agent_config(self, *, agent_id: str) -> dict[str, object]:
         response = self._get_client().get(f"/im/v1/agents/{agent_id}/config")
@@ -956,6 +1003,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             base_url=config.im_service.url,
             token=config.im_service.token,
             pipeline=pipeline,
+            local_config=config,
         )
         im_connection_manager = _build_im_connection_manager(
             config=config,
