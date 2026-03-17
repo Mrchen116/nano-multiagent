@@ -16,7 +16,7 @@
   - tests/unit/personal_assistant/test_local_store.py::test_parse_agents_loads_extended_fields
   - tests/unit/personal_assistant/test_local_store.py::test_parse_agents_defaults_new_fields_to_none
 - DoD: test_command 全绿 + C1/C2/C3 齐全
-- Status: TODO
+- Status: DONE
 
 ### R2 save_local_config 序列化落盘 + round-trip
 - Acceptance:
@@ -32,4 +32,4 @@
   - tests/unit/personal_assistant/test_local_store.py::test_save_local_config_round_trip
   - tests/unit/personal_assistant/test_local_store.py::test_save_local_config_omits_none_fields
 - DoD: test_command 全绿 + C1/C2/C3 齐全
-- Status: TODO
+- Status: DONE
