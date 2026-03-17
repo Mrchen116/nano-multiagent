@@ -223,7 +223,10 @@ class InboundPipeline:
     def _ensure_binding(self, message: InboundMessage, *, agent_id: str, session_key: str) -> SessionBinding:
         existing = self._session_store.get(session_key)
         agent = self._agents[agent_id]
-        if existing is not None and self._binding_has_workspace_root(existing.kernel_session_id):
+        if existing is not None and self._binding_matches_workspace_root(
+            existing.kernel_session_id,
+            expected_workspace_root=str(agent.workspace_root),
+        ):
             return self._session_store.bind(
                 session_key=session_key,
                 kernel_session_id=existing.kernel_session_id,
@@ -297,8 +300,8 @@ class InboundPipeline:
         if self._default_agent_id is None:
             self._default_agent_id = agent.agent_id
 
-    def _binding_has_workspace_root(self, session_id: str) -> bool:
-        """Return whether one already-bound kernel session carries explicit workspace metadata.
+    def _binding_matches_workspace_root(self, session_id: str, *, expected_workspace_root: str) -> bool:
+        """Return whether one bound kernel session carries the exact expected workspace metadata.
 
         Notes:
             This detects legacy direct-chat sessions created before workspace propagation was
@@ -319,7 +322,7 @@ class InboundPipeline:
         if not isinstance(metadata, Mapping):
             return False
         workspace_root = metadata.get("workspace_root")
-        return isinstance(workspace_root, str) and bool(workspace_root.strip())
+        return isinstance(workspace_root, str) and workspace_root.strip() == expected_workspace_root.strip()
 
     def drop_agent_sessions(self, agent_id: str) -> None:
         """Drop existing kernel-session bindings for one agent after config sync."""

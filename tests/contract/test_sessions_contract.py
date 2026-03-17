@@ -13,7 +13,11 @@ def _auth_headers(request_id: str | None = None) -> dict[str, str]:
 def test_create_session_contract() -> None:
     client = TestClient(create_app())
 
-    response = client.post('/v1/sessions', json={}, headers=_auth_headers("req-create-contract"))
+    response = client.post(
+        '/v1/sessions',
+        json={"workspace_root": "~/nano-assistant/workspace/contract"},
+        headers=_auth_headers("req-create-contract"),
+    )
 
     assert response.status_code == 201
     assert response.headers["x-request-id"] == "req-create-contract"
@@ -22,7 +26,7 @@ def test_create_session_contract() -> None:
     assert payload['session_id'].startswith('sess_')
     assert payload['status'] == 'active'
     assert isinstance(payload['created_at'], str)
-    assert payload['metadata'] == {}
+    assert payload['metadata']["workspace_root"].endswith('/nano-assistant/workspace/contract')
 
 
 def test_create_session_accepts_workspace_root_and_persists_normalized_value() -> None:
@@ -82,7 +86,11 @@ def test_get_and_list_sessions_contract_with_minimal_pagination() -> None:
         json={"workspace_root": "~/nano-assistant/workspace/fuck", "metadata": {"agent_id": "fuck"}},
         headers=headers,
     )
-    second = client.post("/v1/sessions", json={}, headers=headers)
+    second = client.post(
+        "/v1/sessions",
+        json={"workspace_root": "~/nano-assistant/workspace/fuck-2"},
+        headers=headers,
+    )
     assert first.status_code == 201
     assert second.status_code == 201
     first_id = first.json()["session_id"]
@@ -113,7 +121,11 @@ def test_session_compact_tools_and_context_budget_contract() -> None:
     client = TestClient(create_app())
     headers = _auth_headers("req-session-compact-tools-contract")
 
-    created = client.post("/v1/sessions", json={}, headers=headers)
+    created = client.post(
+        "/v1/sessions",
+        json={"workspace_root": "~/nano-assistant/workspace/session-tools"},
+        headers=headers,
+    )
     assert created.status_code == 201
     session_id = created.json()["session_id"]
 

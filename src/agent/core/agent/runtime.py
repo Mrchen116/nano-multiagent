@@ -140,7 +140,7 @@ class AgentRuntime:
         if session is None:
             raise ValueError(f"session does not exist: {session_id}")
         session_created_at = session.created_at
-        session_workspace_root = _resolve_session_workspace_root(session=session, fallback=self._repo_root)
+        session_workspace_root = _resolve_session_workspace_root(session=session)
         frozen_system_prompt = session.metadata.get("system_prompt") if isinstance(session.metadata, Mapping) else None
         if not isinstance(frozen_system_prompt, str) or not frozen_system_prompt.strip():
             frozen_system_prompt = None
@@ -722,17 +722,17 @@ class AgentRuntime:
 _SESSION_EVENT_PUBLISHER_FACTORY_STATE_KEY = "session_event_publisher_factory"
 
 
-def _resolve_session_workspace_root(*, session: Session, fallback: Path) -> Path:
-    """Resolve the per-session working directory, defaulting to runtime repo root."""
+def _resolve_session_workspace_root(*, session: Session) -> Path:
+    """Resolve the per-session working directory from explicit session metadata."""
     raw_workspace_root = session.metadata.get("workspace_root") if isinstance(session.metadata, Mapping) else None
     if not isinstance(raw_workspace_root, str):
-        return fallback
+        raise ValueError(f"session {session.session_id} missing workspace_root metadata")
     normalized = raw_workspace_root.strip()
     if not normalized:
-        return fallback
+        raise ValueError(f"session {session.session_id} has empty workspace_root metadata")
     candidate = Path(normalized).expanduser()
     if not candidate.is_absolute():
-        return fallback
+        raise ValueError(f"session {session.session_id} has non-absolute workspace_root metadata")
     return candidate.resolve()
 
 

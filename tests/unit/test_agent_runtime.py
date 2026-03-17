@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
@@ -14,6 +16,12 @@ from agent.core.session.manager import SessionManager
 from agent.core.session.store import LoadedSession, SessionStore
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.registry import ToolRegistry
+
+
+def _make_workspace_session(manager: SessionManager, tmp_path: Path):
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir(exist_ok=True)
+    return manager.create_session(metadata={"workspace_root": str(workspace_root.resolve())})
 
 
 class InMemorySessionStore(SessionStore):
@@ -78,10 +86,10 @@ class EchoTool:
         return {"echoed": args["text"]}
 
 
-def test_runtime_run_appends_user_and_assistant_events() -> None:
+def test_runtime_run_appends_user_and_assistant_events(tmp_path: Path) -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = _make_workspace_session(manager, tmp_path)
     runtime = AgentRuntime(session_manager=manager, llm_client=FakeLLMClient(), model="mock-model")
 
     result = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
@@ -99,10 +107,20 @@ def test_runtime_run_appends_user_and_assistant_events() -> None:
     assert assistant_event.data["content"] == "runtime-pong"
 
 
-def test_runtime_builds_followup_context_from_session_events() -> None:
+def test_runtime_run_requires_session_workspace_root_metadata() -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
     session = manager.create_session()
+    runtime = AgentRuntime(session_manager=manager, llm_client=FakeLLMClient(), model="mock-model")
+
+    with pytest.raises(ValueError, match="missing workspace_root metadata"):
+        runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+
+
+def test_runtime_builds_followup_context_from_session_events(tmp_path: Path) -> None:
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient()
     runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="mock-model")
 
@@ -121,10 +139,10 @@ def test_runtime_builds_followup_context_from_session_events() -> None:
     assert second_call_messages[3].content == "second"
 
 
-def test_runtime_persists_tool_events_with_metadata_and_replays_context() -> None:
+def test_runtime_persists_tool_events_with_metadata_and_replays_context(tmp_path: Path) -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(
@@ -204,10 +222,10 @@ def test_runtime_persists_tool_events_with_metadata_and_replays_context() -> Non
     assert second_turn_request.messages[3].tool_call_id == "call_runtime_1"
 
 
-def test_hook_context_model_call_uses_same_session_id() -> None:
+def test_hook_context_model_call_uses_same_session_id(tmp_path: Path) -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(
@@ -245,10 +263,10 @@ def test_hook_context_model_call_uses_same_session_id() -> None:
     assert llm_client.requests[1].session_id == session.session_id
 
 
-def test_hook_context_model_call_supports_model_override() -> None:
+def test_hook_context_model_call_supports_model_override(tmp_path: Path) -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(

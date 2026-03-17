@@ -191,7 +191,7 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(tmp_pat
             "workspace_root": str(agents[0].workspace_root),
             "product_id": "personal_assistant",
             "title": "Agent A",
-            "metadata": None,
+            "metadata": {"agent_id": "agent-a"},
         }
     ]
     assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "ping", "run_id": "run-1"}]
@@ -237,6 +237,48 @@ def test_inbound_pipeline_passes_frozen_prompt_metadata_when_creating_new_kernel
                 "config_profile_version": 2,
                 "system_prompt": "You are Agent B v2.",
             },
+        }
+    ]
+
+
+def test_inbound_pipeline_recreates_bound_session_when_workspace_mismatches(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    session_store = SessionBindingStore()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=session_store,
+        default_agent_id="agent-a",
+    )
+    stale_session_id = "sess-stale"
+    kernel_client.seed_session(session_id=stale_session_id, metadata={"workspace_root": str(agents[1].workspace_root)})
+    session_store.bind(
+        session_key="web:chat-1:agent-a",
+        kernel_session_id=stale_session_id,
+        reply_context=None,
+    )
+    inbound = InboundMessage(
+        channel_name="web",
+        text="ping",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result.kernel_session_id == "sess-1"
+    assert kernel_client.create_session_calls == [
+        {
+            "workspace_root": str(agents[0].workspace_root),
+            "product_id": "personal_assistant",
+            "title": "Agent A",
+            "metadata": {"agent_id": "agent-a"},
         }
     ]
 
@@ -843,10 +885,11 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
     assert second_old is not None
     assert new_conversation is not None
     assert first.kernel_session_id == "sess-1"
-    assert second_old.kernel_session_id == "sess-1"
-    assert new_conversation.kernel_session_id == "sess-2"
+    assert second_old.kernel_session_id == "sess-2"
+    assert new_conversation.kernel_session_id == "sess-3"
     assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [
         str(agents[0].workspace_root),
+        str(refreshed_workspace),
         str(refreshed_workspace),
     ]
     assert kernel_client.create_session_calls == [
@@ -859,6 +902,17 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "conversation_id": "chat-1",
                 "config_profile_version": 1,
                 "system_prompt": "You are Agent A v1.",
+            },
+        },
+        {
+            "workspace_root": str(refreshed_workspace),
+            "product_id": "personal_assistant",
+            "title": "Agent A v2",
+            "metadata": {
+                "agent_id": "agent-a",
+                "conversation_id": "chat-1",
+                "config_profile_version": 2,
+                "system_prompt": "You are Agent A v2.",
             },
         },
         {

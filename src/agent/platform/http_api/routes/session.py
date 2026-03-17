@@ -49,7 +49,7 @@ class CreateSessionRequest(BaseModel):
 
     title: str | None = None
     metadata: dict[str, Any] | None = None
-    workspace_root: str | None = None
+    workspace_root: str
 
 
 class SessionResponse(BaseModel):
