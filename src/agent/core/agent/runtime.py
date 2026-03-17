@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
 
 from agent.core.errors import ModelError
 from agent.core.ids import make_message_id, make_turn_id
-from agent.core.types import Message, ToolCall, ToolResult, TurnResult
+from agent.core.types import Message, ToolCall, ToolResult, ToolSpec, TurnResult
 from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from agent.core.hooks.runner import HookExecution, HookRunner
 from agent.core.llm.factory import LLMFactoryConfig, create_llm_client
@@ -562,6 +562,7 @@ class AgentRuntime:
         hook_ctx: HookContext,
         system_prompt_override: str | None,
         available_skills_override: tuple[SkillMetadata, ...] | None,
+        available_tools_override: tuple[ToolSpec, ...] | None,
         llm_session_id: str | None,
         session_created_at: str,
         current_working_directory_override: Path | None,
@@ -578,6 +579,7 @@ class AgentRuntime:
             hook_ctx=hook_ctx,
             system_prompt_override=system_prompt_override,
             available_skills_override=available_skills_override,
+            available_tools_override=available_tools_override,
             llm_session_id=llm_session_id,
             session_created_at=session_created_at,
             current_working_directory_override=current_working_directory_override,
