@@ -498,6 +498,26 @@ def test_agent_config_sync_notifies_connected_gateway(tmp_path: Path) -> None:
 
             current = client.get("/im/v1/agents/agent-a/config")
             assert current.status_code == 200
+            live_read_request = websocket.receive_json()
+            assert live_read_request["type"] == "agent.config.get"
+            websocket.send_json(
+                {
+                    "type": "agent.config",
+                    "payload": {
+                        "request_id": live_read_request["payload"]["request_id"],
+                        "agent_id": "agent-a",
+                        "agent": None,
+                    },
+                }
+            )
+            assert websocket.receive_json() == {
+                "type": "ack",
+                "payload": {
+                    "message_type": "agent.config",
+                    "request_id": live_read_request["payload"]["request_id"],
+                    "agent_id": "agent-a",
+                },
+            }
             patched = client.patch(
                 "/im/v1/agents/agent-a/config",
                 json={
@@ -604,6 +624,26 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
 
             current = client.get("/im/v1/agents/agent-a/config")
             assert current.status_code == 200
+            live_read_request = websocket.receive_json()
+            assert live_read_request["type"] == "agent.config.get"
+            websocket.send_json(
+                {
+                    "type": "agent.config",
+                    "payload": {
+                        "request_id": live_read_request["payload"]["request_id"],
+                        "agent_id": "agent-a",
+                        "agent": None,
+                    },
+                }
+            )
+            assert websocket.receive_json() == {
+                "type": "ack",
+                "payload": {
+                    "message_type": "agent.config",
+                    "request_id": live_read_request["payload"]["request_id"],
+                    "agent_id": "agent-a",
+                },
+            }
             patched = client.patch(
                 "/im/v1/agents/agent-a/config",
                 json={
@@ -1054,6 +1094,26 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
 
             current = client.get("/im/v1/agents/agent-a/config")
             assert current.status_code == 200
+            live_read_request = websocket.receive_json()
+            assert live_read_request["type"] == "agent.config.get"
+            websocket.send_json(
+                {
+                    "type": "agent.config",
+                    "payload": {
+                        "request_id": live_read_request["payload"]["request_id"],
+                        "agent_id": "agent-a",
+                        "agent": None,
+                    },
+                }
+            )
+            assert websocket.receive_json() == {
+                "type": "ack",
+                "payload": {
+                    "message_type": "agent.config",
+                    "request_id": live_read_request["payload"]["request_id"],
+                    "agent_id": "agent-a",
+                },
+            }
             patched = client.patch(
                 "/im/v1/agents/agent-a/config",
                 json={

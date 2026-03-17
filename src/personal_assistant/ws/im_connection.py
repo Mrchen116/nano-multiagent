@@ -30,6 +30,7 @@ class ClientWebSocket(Protocol):
 ConnectFn = Callable[[str, Mapping[str, str]], Awaitable[ClientWebSocket]]
 SleepFn = Callable[[float], Awaitable[None]]
 HeartbeatTrigger = Callable[[str, str], None]
+AgentConfigProvider = Callable[[str], Mapping[str, object] | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +92,7 @@ class IMConnectionManager:
         relay_adapter: WebRelayAdapter,
         sync_client: ConfigSyncClient | None = None,
         heartbeat_trigger: HeartbeatTrigger | None = None,
+        agent_config_provider: AgentConfigProvider | None = None,
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -99,6 +101,7 @@ class IMConnectionManager:
         self._relay_adapter = relay_adapter
         self._sync_client = sync_client
         self._heartbeat_trigger = heartbeat_trigger
+        self._agent_config_provider = agent_config_provider
         self._connect = connect
         self._sleep = sleep
         self._websocket: ClientWebSocket | None = None
@@ -198,6 +201,23 @@ class IMConnectionManager:
                 agent_id = _require_text(body.get("agent_id"), field_name="agent_id")
                 reason = _require_text(body.get("reason"), field_name="reason")
                 self._heartbeat_trigger(agent_id, reason)
+            return
+        if message_type == "agent.config.get":
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            agent_id = _require_text(body.get("agent_id"), field_name="agent_id")
+            agent_payload = None
+            if self._agent_config_provider is not None:
+                payload = self._agent_config_provider(agent_id)
+                if payload is not None:
+                    agent_payload = dict(payload)
+            await self.send_json(
+                "agent.config",
+                {
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "agent": agent_payload,
+                },
+            )
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 

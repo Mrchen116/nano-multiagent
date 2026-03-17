@@ -298,6 +298,22 @@ class _IMConfigSyncClient:
         )
         save_local_config(self._local_config, self._local_config.source_path)
 
+    def current_agent_payload(self, *, agent_id: str) -> dict[str, object] | None:
+        for agent in self._local_config.agents:
+            if agent.agent_id != agent_id:
+                continue
+            payload: dict[str, object] = {
+                "display_name": agent.title or agent.agent_id,
+                "system_prompt": agent.system_prompt or "",
+                "skills": list(agent.skills),
+                "tool_allowlist": list(agent.tool_allowlist),
+                "group_reply_policy": agent.group_reply_policy or "manual",
+                "default_model": agent.default_model,
+                "workspace_root": str(agent.workspace_root),
+            }
+            return payload
+        return None
+
     def _fetch_agent_config(self, *, agent_id: str) -> dict[str, object]:
         response = self._get_client().get(f"/im/v1/agents/{agent_id}/config")
         response.raise_for_status()
@@ -1011,6 +1027,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             reporter=reporter,
             heartbeat_runner=heartbeat_runner,
             sync_client=ConfigSyncClient(fetcher=im_config_sync_client.sync_agent),
+            agent_config_provider=lambda agent_id: im_config_sync_client.current_agent_payload(agent_id=agent_id),
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -1108,6 +1125,7 @@ def _build_im_connection_manager(
     reporter: UpstreamReporter,
     heartbeat_runner: PollingHeartbeatRunner,
     sync_client: ConfigSyncClient | None = None,
+    agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -1118,6 +1136,7 @@ def _build_im_connection_manager(
         relay_adapter=relay_adapter,
         sync_client=sync_client,
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
+        agent_config_provider=agent_config_provider,
         connect=_connect_websocket,
     )
 

@@ -12,8 +12,10 @@ from agent.core.skills.registry import SkillRegistry
 from agent.platform.config.resolver import ConfigResolver
 from agent.platform.tools.loader import build_tool_registry
 from agent.products.personal_assistant.profile import PERSONAL_ASSISTANT_PROFILE
-from IM.api.deps import get_config_service
+from IM.api.deps import get_config_service, get_gateway_handler
 from IM.application.config_service import ConfigService
+from IM.domain.models import AgentProfile
+from IM.ws.gateway_handler import GatewayHandler
 from IM.domain.models import AgentProfile
 from IM.infra.repositories import AgentProfileVersionConflictError
 
@@ -200,6 +202,32 @@ def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -
     )
 
 
+def _merge_live_agent_profile(profile: AgentProfile, payload: dict[str, object]) -> AgentProfile:
+    """Overlay one live gateway snapshot onto the persisted IM mirror for read APIs."""
+    display_name = payload.get("display_name")
+    system_prompt = payload.get("system_prompt")
+    skills = payload.get("skills")
+    tool_allowlist = payload.get("tool_allowlist")
+    group_reply_policy = payload.get("group_reply_policy")
+    default_model = payload.get("default_model")
+    workspace_root = payload.get("workspace_root")
+    return AgentProfile(
+        agent_id=profile.agent_id,
+        owner_id=profile.owner_id,
+        display_name=display_name if isinstance(display_name, str) and display_name.strip() else profile.display_name,
+        description=profile.description,
+        system_prompt=system_prompt if isinstance(system_prompt, str) else profile.system_prompt,
+        skills=[item for item in skills if isinstance(item, str)] if isinstance(skills, list) else profile.skills,
+        tool_allowlist=[item for item in tool_allowlist if isinstance(item, str)] if isinstance(tool_allowlist, list) else profile.tool_allowlist,
+        group_reply_policy=(
+            group_reply_policy if isinstance(group_reply_policy, str) and group_reply_policy.strip() else profile.group_reply_policy
+        ),
+        default_model=default_model if isinstance(default_model, str) or default_model is None else profile.default_model,
+        workspace_root=workspace_root if isinstance(workspace_root, str) and workspace_root.strip() else profile.workspace_root,
+        profile_version=profile.profile_version,
+    )
+
+
 def to_agent_summary_response(profile: AgentProfile, *, service: ConfigService) -> AgentSummaryResponse:
     """Convert a domain profile to a compact agent list item."""
     return AgentSummaryResponse(
@@ -263,14 +291,21 @@ def get_agent_allowlist_options() -> AgentAllowlistOptionsResponse:
 
 
 @router.get("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)
-def get_agent_config(
+async def get_agent_config(
     agent_id: str,
     service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
 ) -> AgentConfigResponse:
-    """Return one agent configuration profile."""
+    """Return one agent configuration profile, preferring a live gateway snapshot when available."""
     profile = service.get_profile(agent_id=agent_id)
     if profile is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+    for node_id in service.list_bound_nodes(agent_id=agent_id):
+        payload = await gateway_handler.request_agent_config(target_node_id=node_id, agent_id=agent_id)
+        if not isinstance(payload, dict):
+            continue
+        profile = _merge_live_agent_profile(profile, payload)
+        break
     return to_agent_config_response(profile, service=service)
 
 

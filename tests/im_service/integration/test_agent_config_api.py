@@ -1,6 +1,7 @@
 """Integration tests for IM agent configuration APIs."""
 
 from pathlib import Path
+import threading
 
 from fastapi.testclient import TestClient
 
@@ -128,6 +129,102 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
         )
         assert conflict_resp.status_code == 409
         assert conflict_resp.json()["detail"] == "profile_version conflict"
+
+
+def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
+    """Read agent config through the connected gateway so IM cache becomes a mirror, not the runtime source."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        users = UserRepository(app.state.connection)
+        owner = users.create_user(username="owner", display_name="Owner")
+        profiles = AgentProfileRepository(app.state.connection)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1",
+            node_name="MacBook",
+            status="online",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles.upsert_profile(
+            agent_id="agent-1",
+            owner_id=owner.owner_id,
+            display_name="Cached Alpha",
+            description="cached",
+            system_prompt="cached prompt",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+        app.state.connection.execute("UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?", ("node-1", "agent-1"))
+        app.state.connection.commit()
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["agent-1"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            result: dict[str, object] = {}
+
+            def _fetch() -> None:
+                result["response"] = client.get("/im/v1/agents/agent-1/config")
+
+            worker = threading.Thread(target=_fetch)
+            worker.start()
+            request_frame = websocket.receive_json()
+            assert request_frame["type"] == "agent.config.get"
+            request_id = request_frame["payload"]["request_id"]
+            assert request_frame["payload"]["agent_id"] == "agent-1"
+            websocket.send_json(
+                {
+                    "type": "agent.config",
+                    "payload": {
+                        "request_id": request_id,
+                        "agent_id": "agent-1",
+                        "agent": {
+                            "display_name": "Live Alpha",
+                            "system_prompt": "live prompt",
+                            "skills": ["plan"],
+                            "tool_allowlist": ["read"],
+                            "group_reply_policy": "auto",
+                            "default_model": "claude-sonnet-4",
+                            "workspace_root": _WORKSPACE_PATH_SETTING,
+                        },
+                    },
+                }
+            )
+            assert websocket.receive_json() == {
+                "type": "ack",
+                "payload": {
+                    "message_type": "agent.config",
+                    "request_id": request_id,
+                    "agent_id": "agent-1",
+                },
+            }
+            worker.join(timeout=5)
+
+        response = result["response"]
+        assert response.status_code == 200
+        assert response.json()["display_name"] == "Live Alpha"
+        assert response.json()["system_prompt"] == "live prompt"
+        assert response.json()["skills"] == ["plan"]
+        assert response.json()["tool_allowlist"] == ["read"]
+        assert response.json()["group_reply_policy"] == "auto"
+        assert response.json()["default_model"] == "claude-sonnet-4"
+        assert response.json()["workspace_root"] == _WORKSPACE_PATH_SETTING
+        assert response.json()["owner_id"] == owner.owner_id
+        assert response.json()["profile_version"] == 1
 
 
 def test_agents_list_hides_unbound_and_cross_owner_profiles(tmp_path: Path) -> None:
