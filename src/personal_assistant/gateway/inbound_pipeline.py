@@ -247,8 +247,20 @@ class InboundPipeline:
             reply_context=build_reply_context(message),
         )
 
-    @staticmethod
-    def _build_session_metadata(message: InboundMessage, *, agent_id: str) -> dict[str, object] | None:
+    def _build_session_metadata(self, message: InboundMessage, *, agent_id: str) -> dict[str, object] | None:
+        """Build kernel session metadata from local agent config and message routing fields.
+
+        Args:
+            message: Inbound channel message carrying routing metadata (conversation_id, etc.).
+            agent_id: Resolved agent whose local config supplies prompt/skills/tool_allowlist.
+
+        Returns:
+            Metadata dict for kernel session creation. Prompt-related fields come from the
+            local AgentWorkspaceConfig; routing fields (conversation_id, config_profile_version)
+            come from message metadata.
+        """
+
+        agent = self._agents[agent_id]
         metadata = dict(message.metadata)
         session_metadata: dict[str, object] = {"agent_id": agent_id}
         conversation_id = metadata.get("conversation_id")
@@ -257,9 +269,13 @@ class InboundPipeline:
         profile_version = metadata.get("config_profile_version")
         if isinstance(profile_version, int):
             session_metadata["config_profile_version"] = profile_version
-        system_prompt = metadata.get("system_prompt")
-        if isinstance(system_prompt, str) and system_prompt.strip():
-            session_metadata["system_prompt"] = system_prompt
+        # Prompt/skills/tool_allowlist: read from local agent config, not message metadata.
+        if agent.system_prompt:
+            session_metadata["system_prompt"] = agent.system_prompt
+        if agent.skills:
+            session_metadata["skills"] = list(agent.skills)
+        if agent.tool_allowlist:
+            session_metadata["tool_allowlist"] = list(agent.tool_allowlist)
         return session_metadata
 
     @staticmethod

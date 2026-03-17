@@ -197,8 +197,22 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(tmp_pat
     assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "ping", "run_id": "run-1"}]
 
 
-def test_inbound_pipeline_passes_frozen_prompt_metadata_when_creating_new_kernel_sessions(tmp_path: Path) -> None:
-    agents = _agents(tmp_path)
+def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_sessions(tmp_path: Path) -> None:
+    """Session metadata uses local agent config for prompt fields; message.metadata
+    system_prompt is ignored.  Routing fields (conversation_id, config_profile_version)
+    still come from message.metadata."""
+    agent_b_dir = tmp_path / "agent-b"
+    agent_b_dir.mkdir()
+    agents = (
+        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=tmp_path / "agent-a", title="Agent A"),
+        AgentWorkspaceConfig(
+            agent_id="agent-b",
+            workspace_root=agent_b_dir,
+            title="Agent B",
+            system_prompt="Local Agent B prompt.",
+        ),
+    )
+    (tmp_path / "agent-a").mkdir(exist_ok=True)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernelClient()
@@ -220,7 +234,7 @@ def test_inbound_pipeline_passes_frozen_prompt_metadata_when_creating_new_kernel
         metadata={
             "conversation_id": "conv-1",
             "config_profile_version": 2,
-            "system_prompt": "You are Agent B v2.",
+            "system_prompt": "Stale relay prompt ignored.",
         },
     )
 
@@ -228,14 +242,14 @@ def test_inbound_pipeline_passes_frozen_prompt_metadata_when_creating_new_kernel
 
     assert kernel_client.create_session_calls == [
         {
-            "workspace_root": str(agents[1].workspace_root),
+            "workspace_root": str(agent_b_dir),
             "product_id": "personal_assistant",
             "title": "Agent B",
             "metadata": {
                 "agent_id": "agent-b",
                 "conversation_id": "conv-1",
                 "config_profile_version": 2,
-                "system_prompt": "You are Agent B v2.",
+                "system_prompt": "Local Agent B prompt.",
             },
         }
     ]
@@ -811,14 +825,19 @@ def test_inbound_pipeline_refreshes_legacy_binding_without_workspace_root(tmp_pa
 
 
 def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_for_new_conversations(tmp_path: Path) -> None:
-    agents = _agents(tmp_path)
+    agent_a_dir = tmp_path / "agent-a"
+    agent_a_dir.mkdir()
+    initial_agent = AgentWorkspaceConfig(
+        agent_id="agent-a", workspace_root=agent_a_dir, title="Agent A",
+        system_prompt="You are Agent A v1.",
+    )
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernelClient()
     store = SessionBindingStore()
     pipeline = InboundPipeline(
         kernel_client=kernel_client,
-        agents=(agents[0],),
+        agents=(initial_agent,),
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
         session_store=store,
@@ -834,7 +853,6 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
         metadata={
             "conversation_id": "chat-1",
             "config_profile_version": 1,
-            "system_prompt": "You are Agent A v1.",
         },
     )
 
@@ -843,7 +861,10 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
     refreshed_workspace = tmp_path / "agent-a-v2"
     refreshed_workspace.mkdir()
     pipeline.register_agent(
-        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2")
+        AgentWorkspaceConfig(
+            agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2",
+            system_prompt="You are Agent A v2.",
+        )
     )
 
     second_old = asyncio.run(
@@ -858,7 +879,6 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 metadata={
                     "conversation_id": "chat-1",
                     "config_profile_version": 2,
-                    "system_prompt": "You are Agent A v2.",
                 },
             )
         )
@@ -875,7 +895,6 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 metadata={
                     "conversation_id": "chat-2",
                     "config_profile_version": 2,
-                    "system_prompt": "You are Agent A v2.",
                 },
             )
         )
@@ -888,13 +907,13 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
     assert second_old.kernel_session_id == "sess-2"
     assert new_conversation.kernel_session_id == "sess-3"
     assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [
-        str(agents[0].workspace_root),
+        str(agent_a_dir),
         str(refreshed_workspace),
         str(refreshed_workspace),
     ]
     assert kernel_client.create_session_calls == [
         {
-            "workspace_root": str(agents[0].workspace_root),
+            "workspace_root": str(agent_a_dir),
             "product_id": "personal_assistant",
             "title": "Agent A",
             "metadata": {
@@ -927,27 +946,31 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
             },
         },
     ]
+    # Outbound metadata passes through message.metadata verbatim (routing fields only).
     assert channel.sent[1].metadata == {
         "conversation_id": "chat-1",
         "config_profile_version": 2,
-        "system_prompt": "You are Agent A v2.",
     }
     assert channel.sent[2].metadata == {
         "conversation_id": "chat-2",
         "config_profile_version": 2,
-        "system_prompt": "You are Agent A v2.",
     }
 
 
 def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_session(tmp_path: Path) -> None:
-    agents = _agents(tmp_path)
+    agent_a_dir = tmp_path / "agent-a"
+    agent_a_dir.mkdir()
+    initial_agent = AgentWorkspaceConfig(
+        agent_id="agent-a", workspace_root=agent_a_dir, title="Agent A",
+        system_prompt="Reply with ALPHA_ACK_M170.",
+    )
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernelClient()
     store = SessionBindingStore()
     pipeline = InboundPipeline(
         kernel_client=kernel_client,
-        agents=(agents[0],),
+        agents=(initial_agent,),
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
         session_store=store,
@@ -968,14 +991,17 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
                     "mentioned_agent_ids": ["agent-a"],
                     "trigger": "mention",
                     "config_profile_version": 1,
-                    "system_prompt": "Reply with ALPHA_ACK_M170.",
                 },
             )
         )
     )
 
+    # Simulate config sync: update system_prompt via register_agent + drop stale sessions.
     pipeline.register_agent(
-        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=agents[0].workspace_root, title="Agent A")
+        AgentWorkspaceConfig(
+            agent_id="agent-a", workspace_root=agent_a_dir, title="Agent A",
+            system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
+        )
     )
     pipeline.drop_agent_sessions("agent-a")
 
@@ -993,7 +1019,6 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
                     "mentioned_agent_ids": ["agent-a"],
                     "trigger": "mention",
                     "config_profile_version": 2,
-                    "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
                 },
             )
         )
@@ -1005,7 +1030,7 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
     assert second.kernel_session_id == "sess-2"
     assert kernel_client.create_session_calls == [
         {
-            "workspace_root": str(agents[0].workspace_root),
+            "workspace_root": str(agent_a_dir),
             "product_id": "personal_assistant",
             "title": "Agent A",
             "metadata": {
@@ -1016,7 +1041,7 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
             },
         },
         {
-            "workspace_root": str(agents[0].workspace_root),
+            "workspace_root": str(agent_a_dir),
             "product_id": "personal_assistant",
             "title": "Agent A",
             "metadata": {
