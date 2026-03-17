@@ -16,4 +16,4 @@
   - `tests/unit/personal_assistant/test_gateway_pipeline.py::test_build_session_metadata_ignores_message_metadata_for_prompt_fields`
   - `tests/unit/personal_assistant/test_gateway_pipeline.py::test_build_session_metadata_still_reads_conversation_id_from_message_metadata`
 - **DoD**: `test_command` all green + C1/C2/C3
-- **Status**: TODO
+- **Status**: DONE
