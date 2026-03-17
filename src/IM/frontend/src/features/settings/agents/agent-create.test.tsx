@@ -113,7 +113,7 @@ describe("agent create page", () => {
     expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Access & model" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Runtime" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Workspace" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Before you create" })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the personal_assistant default template.");
@@ -123,11 +123,9 @@ describe("agent create page", () => {
     expect(screen.queryByText(/^Selected 0$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Show advanced options/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Workspace preview")).not.toBeInTheDocument();
-    expect(screen.getByText("Managed default directory")).toBeInTheDocument();
-    expect(screen.getByText("Current runtime directory appears after the agent is created.")).toBeInTheDocument();
     expect(screen.getByLabelText("Workspace setting")).toBeInTheDocument();
     expect(screen.queryByText(/advanced\/internal/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /bash/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /bash/i })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Agent ID"), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText("Display Name"), { target: { value: "Agent New" } });
@@ -140,7 +138,7 @@ describe("agent create page", () => {
     fireEvent.change(screen.getByLabelText("Workspace setting"), { target: { value: "/tmp/agent-new-workspace" } });
 
     expect(screen.getByText("MacBook")).toBeInTheDocument();
-    expect(screen.getByText("/tmp/agent-new-workspace")).toBeInTheDocument();
+    expect(screen.getAllByText("/tmp/agent-new-workspace")).toHaveLength(1);
     expect(screen.getByText("Assigned agents")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
 

@@ -416,8 +416,8 @@ export function AgentCreatePage() {
 
         <section className="im-section-card">
           <div className="space-y-1">
-            <h3 className="im-section-heading">Runtime</h3>
-            <p className="im-section-copy">Keep placement choices available, but separate the saved setting from the managed default and the live runtime directory.</p>
+            <h3 className="im-section-heading">Workspace</h3>
+            <p className="im-section-copy">Keep one workspace setting here. After creation, this page will show the active workspace in the same place.</p>
           </div>
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
             <div className="grid gap-4">
@@ -438,16 +438,6 @@ export function AgentCreatePage() {
                 </p>
                 {shouldShowError("workspace_root_input") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.workspace_root_input}</p> : null}
               </div>
-
-              <section className="im-subtle-card grid gap-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Directory from current setting</p>
-                <p className="break-all font-mono text-sm text-slate-900">{normalizedDraft.workspace_root_input || managedWorkspacePreview}</p>
-                <p className="text-xs text-slate-500">
-                  {normalizedDraft.workspace_root_input
-                    ? "This custom directory will be saved on the agent profile."
-                    : "Leaving the setting blank means the agent will use the managed default directory shown here."}
-                </p>
-              </section>
 
               <div className="grid gap-1">
                 <Label.Root htmlFor="node-id">Node</Label.Root>
@@ -517,14 +507,13 @@ export function AgentCreatePage() {
 
             <div className="grid gap-4">
               <section className="im-subtle-card grid gap-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Managed default directory</p>
-                <p className="break-all font-mono text-sm text-slate-900">{managedWorkspacePreview}</p>
-                <p className="text-xs text-slate-500">This is the default directory the platform can create for this agent when no custom workspace setting is saved.</p>
-              </section>
-
-              <section className="im-subtle-card grid gap-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current runtime directory</p>
-                <p className="text-xs text-slate-500">Current runtime directory appears after the agent is created.</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current workspace</p>
+                <p className="break-all font-mono text-sm text-slate-900">{normalizedDraft.workspace_root_input || managedWorkspacePreview}</p>
+                <p className="text-xs text-slate-500">
+                  {normalizedDraft.workspace_root_input
+                    ? "This custom workspace will be saved on the agent profile when you create it."
+                    : "Leave the setting blank to use the managed default workspace for this agent."}
+                </p>
               </section>
             </div>
           </div>

@@ -74,8 +74,7 @@ describe("agents list page", () => {
     expect(await screen.findByText("Core Planner")).toBeInTheDocument();
     expect(screen.getByText("Milestone execution coordinator")).toBeInTheDocument();
     expect(screen.getByText("gpt-5.2-codex")).toBeInTheDocument();
-    expect(screen.getByText("Managed default")).toBeInTheDocument();
-    expect(screen.getByText("Current runtime directory")).toBeInTheDocument();
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open direct chat" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Workspace settings" })).toHaveAttribute("href", "/settings/agents/agent-core-1#workspace-settings");
@@ -166,10 +165,10 @@ describe("agents list page", () => {
     });
 
     expect(await screen.findByText("Core Planner")).toBeInTheDocument();
-    expect(screen.getByText("Review each agent's role, access, and runtime placement before opening settings.")).toBeInTheDocument();
+    expect(screen.getByText("Review each agent's role, access, and workspace before opening settings.")).toBeInTheDocument();
     expect(screen.getByText("Active agents")).toBeInTheDocument();
     expect(screen.getByText("2 profiles")).toBeInTheDocument();
-    expect(screen.getAllByText("Runtime")).toHaveLength(2);
+    expect(screen.getAllByText("Workspace")).toHaveLength(2);
     expect(screen.getAllByText("Access")).toHaveLength(2);
     expect(screen.getByText("Bound nodes: node-app-01, node-app-02")).toBeInTheDocument();
     expect(screen.getByText("Bound nodes: Not bound yet")).toBeInTheDocument();

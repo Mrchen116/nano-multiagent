@@ -21,10 +21,6 @@ function formatBoundNodes(boundNodes?: string[]) {
   return boundNodes.join(", ");
 }
 
-function workspaceSourceLabel(isDefault: boolean | undefined) {
-  return isDefault ? "Managed default" : "Custom path";
-}
-
 function AgentSummaryCard(props: {
   agent: {
     agent_id: string;
@@ -69,12 +65,8 @@ function AgentSummaryCard(props: {
               <dt>Default model</dt>
               <dd className="text-right text-slate-700">{agent.default_model || "Auto"}</dd>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt>Runtime mode</dt>
-              <dd className="text-right text-slate-700">{workspaceSourceLabel(agent.workspace_is_default)}</dd>
-            </div>
             <div className="grid gap-1">
-              <dt>Current runtime directory</dt>
+              <dt>Workspace</dt>
               <dd className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</dd>
             </div>
             <div className="flex items-center justify-between gap-3">
@@ -95,10 +87,8 @@ function AgentSummaryCard(props: {
       ) : (
         <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-start">
           <section className="im-subtle-card grid gap-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Runtime</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Workspace</p>
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-slate-900">{workspaceSourceLabel(agent.workspace_is_default)}</p>
-              <p className="text-xs text-slate-500">Current runtime directory</p>
               <p className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</p>
             </div>
           </section>
@@ -146,7 +136,7 @@ export function AgentsListPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-2xl space-y-1">
           <h2 className="im-title text-xl font-bold">Agents</h2>
-          <p className="text-sm text-slate-500">Review each agent's role, access, and runtime placement before opening settings.</p>
+          <p className="text-sm text-slate-500">Review each agent's role, access, and workspace before opening settings.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs text-slate-500">{query.isLoading ? "Loading…" : `${agents.length} agent${agents.length === 1 ? "" : "s"}`}</span>
