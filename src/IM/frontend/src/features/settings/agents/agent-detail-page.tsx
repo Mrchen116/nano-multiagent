@@ -231,7 +231,7 @@ export function AgentDetailPage() {
   const liveNodes = nodesQuery.data ?? [];
   const liveNodeLookup = new Map(liveNodes.map((node) => [node.node_id, node]));
   const boundNodes = (draft.bound_nodes ?? []).map((nodeId) => liveNodeLookup.get(nodeId) ?? { node_id: nodeId, node_name: nodeId, status: "unknown", last_heartbeat_at: "", agent_count: 0, version: "" });
-  const managedWorkspacePreview = draft.workspace_is_default ? draft.workspace_root : `~/nano-assistant/workspace/${draft.agent_id}`;
+  const managedWorkspacePreview = `~/nano-assistant/workspace/${draft.agent_id}`;
 
   return (
     <form
@@ -431,29 +431,21 @@ export function AgentDetailPage() {
 
         <section className="im-section-card">
           <div className="space-y-1">
-            <h3 className="im-section-heading">Runtime</h3>
-            <p className="im-section-copy">Keep runtime details available, but separate the saved setting from the managed default and the live runtime directory.</p>
+            <h3 className="im-section-heading">Workspace</h3>
+            <p className="im-section-copy">Keep one workspace setting here. The saved setting and the active workspace always match.</p>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
             <div className="grid gap-4">
               <section id="workspace-settings" className="im-subtle-card grid gap-3">
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current runtime directory</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current workspace</p>
                   <p className="break-all font-mono text-sm text-slate-900">{draft.workspace_root}</p>
                   <p className="text-xs text-slate-500">
                     {draft.workspace_is_default
-                      ? "The live runtime is currently using the managed default directory."
-                      : "The live runtime is currently using a saved custom workspace setting."}
+                      ? `Using the managed default workspace at ${managedWorkspacePreview}.`
+                      : "Using a saved custom workspace path."}
                   </p>
-                </div>
-              </section>
-
-              <section className="im-subtle-card grid gap-3">
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Managed default directory</p>
-                  <p className="break-all font-mono text-sm text-slate-900">{managedWorkspacePreview}</p>
-                  <p className="text-xs text-slate-500">This is the default directory the platform can use for this agent when no custom workspace setting is saved.</p>
                 </div>
                 <div className="grid gap-1">
                   <Label.Root htmlFor="workspace-root">Workspace setting</Label.Root>
@@ -495,12 +487,6 @@ export function AgentDetailPage() {
             </div>
 
             <div className="grid gap-4">
-              <section className="im-subtle-card grid gap-2">
-                <h3 className="im-section-heading text-base">Direct chat</h3>
-                <p className="text-sm text-slate-700">Open the reusable direct chat when you want to verify the latest saved profile in context.</p>
-                <p className="text-xs text-slate-500">This agent keeps one stable reusable direct chat window. Opening chat reuses that thread instead of creating a new direct chat.</p>
-              </section>
-
               {nodesQuery.isLoading ? <p className="text-xs text-slate-500">Loading live node status...</p> : null}
               {nodesQuery.isError ? <p className="text-xs font-semibold text-amber-700">Live node status unavailable: {nodeErrorDetail}</p> : null}
 
