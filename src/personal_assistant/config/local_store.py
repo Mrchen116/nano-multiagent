@@ -76,11 +76,21 @@ class AgentWorkspaceConfig:
         agent_id: Stable agent identifier used by gateway routing.
         workspace_root: Existing workspace root bound to sessions created for the agent.
         title: Optional operator-facing label.
+        skills: Enabled skill identifiers for this agent.
+        tool_allowlist: Allowed tool names restricting the agent's tool access.
+        system_prompt: Custom system prompt override for the agent.
+        group_reply_policy: Reply policy in group conversations (e.g. "always", "mention_only").
+        default_model: Default LLM model identifier for this agent.
     """
 
     agent_id: str
     workspace_root: Path
     title: str | None = None
+    skills: tuple[str, ...] = ()
+    tool_allowlist: tuple[str, ...] = ()
+    system_prompt: str | None = None
+    group_reply_policy: str | None = None
+    default_model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,8 +276,22 @@ def _parse_agents(payload: Any) -> tuple[AgentWorkspaceConfig, ...]:
                 raise ValueError(f"workspace_root does not exist: {workspace_root.resolve()}")
         workspace_root = ensure_workspace_defaults(workspace_root)
         title = _optional_string(item.get("title"), field_name=f"agents[{index}].title")
+        skills = _parse_string_list(item.get("skills"), field_name=f"agents[{index}].skills")
+        tool_allowlist = _parse_string_list(item.get("tool_allowlist"), field_name=f"agents[{index}].tool_allowlist")
+        system_prompt = _optional_string(item.get("system_prompt"), field_name=f"agents[{index}].system_prompt")
+        group_reply_policy = _optional_string(item.get("group_reply_policy"), field_name=f"agents[{index}].group_reply_policy")
+        default_model = _optional_string(item.get("default_model"), field_name=f"agents[{index}].default_model")
         agents.append(
-            AgentWorkspaceConfig(agent_id=agent_id, workspace_root=workspace_root, title=title)
+            AgentWorkspaceConfig(
+                agent_id=agent_id,
+                workspace_root=workspace_root,
+                title=title,
+                skills=skills,
+                tool_allowlist=tool_allowlist,
+                system_prompt=system_prompt,
+                group_reply_policy=group_reply_policy,
+                default_model=default_model,
+            )
         )
     return tuple(agents)
 
@@ -404,3 +428,28 @@ def _positive_number(value: Any, *, field_name: str) -> float:
     if resolved <= 0:
         raise ValueError(f"{field_name} must be a positive number")
     return resolved
+
+
+def _parse_string_list(value: Any, *, field_name: str) -> tuple[str, ...]:
+    """Parse an optional YAML list of strings into a tuple.
+
+    Args:
+        value: Raw YAML value (None, list, or invalid).
+        field_name: Diagnostic label for error messages.
+
+    Returns:
+        Tuple of stripped non-empty strings, or empty tuple when value is None.
+
+    Raises:
+        ValueError: When value is not a list or contains non-string elements.
+    """
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    result: list[str] = []
+    for i, entry in enumerate(value):
+        if not isinstance(entry, str) or not entry.strip():
+            raise ValueError(f"{field_name}[{i}] must be a non-empty string")
+        result.append(entry.strip())
+    return tuple(result)
