@@ -300,3 +300,69 @@ def test_load_local_config_rejects_missing_workspace_root(tmp_path: Path) -> Non
 
     with pytest.raises(ValueError, match="workspace_root does not exist"):
         load_local_config(config_path)
+
+
+def test_parse_agents_defaults_new_fields_to_none(tmp_path: Path) -> None:
+    """YAML without extended fields loads with None/empty defaults."""
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+    agent = config.agents[0]
+
+    assert agent.system_prompt is None
+    assert agent.group_reply_policy is None
+    assert agent.default_model is None
+    assert agent.skills == ()
+    assert agent.tool_allowlist == ()
+
+
+def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
+    """YAML with all extended agent fields are parsed into AgentWorkspaceConfig."""
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "    title: My Agent",
+                "    system_prompt: You are a helpful assistant.",
+                "    skills:",
+                "      - web_search",
+                "      - code_review",
+                "    tool_allowlist:",
+                "      - Read",
+                "      - Write",
+                "    group_reply_policy: always",
+                "    default_model: gpt-4",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+    agent = config.agents[0]
+
+    assert agent.system_prompt == "You are a helpful assistant."
+    assert agent.skills == ("web_search", "code_review")
+    assert agent.tool_allowlist == ("Read", "Write")
+    assert agent.group_reply_policy == "always"
+    assert agent.default_model == "gpt-4"
