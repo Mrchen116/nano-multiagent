@@ -894,7 +894,6 @@ describe("chat workspace page", () => {
     expect(await screen.findByRole("heading", { name: "OpsBot + Alex" })).toBeInTheDocument();
     expect(getConversation).toHaveBeenCalledWith("conv-group-new");
     expect(screen.queryByText("Select participants")).not.toBeInTheDocument();
-    expect(screen.getByText("Target: Shared thread")).toBeInTheDocument();
   });
 
   it("removes the new direct chat CTA while keeping group chat creation available", async () => {
@@ -920,7 +919,6 @@ describe("chat workspace page", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
-    expect(screen.getByText("Existing turns in this thread keep their earlier profile snapshot. Start a fresh session to verify newly saved prompt changes without rewriting this history.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Start fresh session" }));
 

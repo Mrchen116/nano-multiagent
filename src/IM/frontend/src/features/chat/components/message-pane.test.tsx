@@ -77,8 +77,7 @@ describe("message pane", () => {
   it("shows main-agent session semantics in the header", () => {
     renderMessagePane();
 
-    expect(screen.getByText("主 Agent 会话")).toBeInTheDocument();
-    expect(screen.getByText("这是你与主 Agent 的默认产品入口。")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Kernel Ops Crew" })).toBeInTheDocument();
   });
 
   it("shows per-agent usage tabs and switches the active agent totals", async () => {

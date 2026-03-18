@@ -3,33 +3,6 @@ import { Link } from "react-router-dom";
 
 import { ConversationSummary } from "../types";
 
-const ENGINEERING_GROUP_OWNERSHIP_PATTERNS = [/^Using your main agent .+ready to chat\)$/i];
-const PRODUCT_GROUP_OWNERSHIP_LABEL = "Group chat";
-
-function sanitizeGroupOwnershipLabel(item: ConversationSummary) {
-  if (item.kind_label !== "Group chat") {
-    return item.ownership_label ?? item.agent_label;
-  }
-  const trimmed = item.ownership_label?.trim();
-  if (!trimmed || ENGINEERING_GROUP_OWNERSHIP_PATTERNS.some((pattern) => pattern.test(trimmed))) {
-    return PRODUCT_GROUP_OWNERSHIP_LABEL;
-  }
-  return trimmed;
-}
-
-function sanitizeTargetLabel(item: ConversationSummary) {
-  if (item.kind_label === "Group chat" && item.target_label === "Multiple participants") {
-    return "Shared thread";
-  }
-  return item.target_label;
-}
-
-function sanitizeDiscoverabilityHint(item: ConversationSummary) {
-  if (item.kind_label === "Group chat" && item.discoverability_hint === "Use this shared thread for multi-party coordination across people and agents.") {
-    return "Keep people and agents in one shared conversation timeline.";
-  }
-  return item.discoverability_hint;
-}
 
 function formatTime(input?: string) {
   if (!input) {
@@ -129,15 +102,10 @@ export function ConversationList(props: {
                   )}
                 </div>
               </div>
-              {sanitizeTargetLabel(item) && <p className="mt-2 text-xs text-slate-600">Target: {sanitizeTargetLabel(item)}</p>}
               <p className="mt-2 line-clamp-2 text-sm text-slate-600">{formatPreview(item)}</p>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                 <span className="rounded-full bg-slate-100 px-2 py-1">{formatParticipantSummary(item.participants)}</span>
-                {sanitizeDiscoverabilityHint(item) && <span className="line-clamp-1">{sanitizeDiscoverabilityHint(item)}</span>}
               </div>
-              {sanitizeGroupOwnershipLabel(item) && (
-                <p className="mt-2 line-clamp-1 text-[11px] text-slate-500">{sanitizeGroupOwnershipLabel(item)}</p>
-              )}
             </Link>
           ))
         )}

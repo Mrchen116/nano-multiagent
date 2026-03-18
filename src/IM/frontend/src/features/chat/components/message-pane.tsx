@@ -15,8 +15,6 @@ import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
 
 const SEND_AVAILABILITY_MESSAGES = getSendAvailabilityMessages();
 const RELAY_UNAVAILABLE_MESSAGE = SEND_AVAILABILITY_MESSAGES.unavailableHelperText;
-const ENGINEERING_GROUP_OWNERSHIP_PATTERNS = [/^Using your main agent .+ready to chat\)$/i];
-const PRODUCT_GROUP_OWNERSHIP_LABEL = "Group chat";
 
 function toErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -431,23 +429,6 @@ function buildMentionCandidates(detail: ConversationDetail | null): MentionCandi
   return detail?.mention_candidates ?? [];
 }
 
-function sanitizeThreadTargetLabel(detail: ConversationDetail | null) {
-  if (detail?.kind_label === "Group chat" && detail.target_label === "Multiple participants") {
-    return "Shared thread";
-  }
-  return detail?.target_label;
-}
-
-function sanitizeThreadOwnershipLabel(detail: ConversationDetail | null) {
-  const trimmed = detail?.ownership_label?.trim();
-  if (detail?.kind_label !== "Group chat") {
-    return trimmed ?? null;
-  }
-  if (!trimmed || ENGINEERING_GROUP_OWNERSHIP_PATTERNS.some((pattern) => pattern.test(trimmed))) {
-    return PRODUCT_GROUP_OWNERSHIP_LABEL;
-  }
-  return trimmed;
-}
 
 function PendingAttachments(props: {
   attachments: ChatAttachment[];
@@ -770,9 +751,6 @@ export function MessagePane(props: {
           </Link>
         )}
         <div className="min-w-0 flex-1">
-          {props.detail.kind_label && (
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{props.detail.kind_label}</p>
-          )}
           {/* M235: group chats show an inline-editable title; others show a plain heading */}
           {props.detail.kind_label === "Group chat" && props.onRenameConversation ? (
             isEditingTitle ? (
@@ -819,18 +797,6 @@ export function MessagePane(props: {
             )
           ) : (
             <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
-          )}
-          {sanitizeThreadTargetLabel(props.detail) && <p className="mt-1 text-xs text-slate-600">Target: {sanitizeThreadTargetLabel(props.detail)}</p>}
-          {props.detail.discoverability_hint && (
-            <p className="mt-1 text-xs text-slate-500">{props.detail.discoverability_hint}</p>
-          )}
-          {props.detail.direct_agent_id && props.onStartFreshSession ? (
-            <p className="mt-1 text-xs text-slate-500">
-              Existing turns in this thread keep their earlier profile snapshot. Start a fresh session to verify newly saved prompt changes without rewriting this history.
-            </p>
-          ) : null}
-          {sanitizeThreadOwnershipLabel(props.detail) && (
-            <p className="mt-1 text-xs text-slate-500">{sanitizeThreadOwnershipLabel(props.detail)}</p>
           )}
         </div>
         {props.detail.direct_agent_id && props.onStartFreshSession ? (
