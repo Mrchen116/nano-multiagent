@@ -33,7 +33,7 @@ tests/unit/IM/test_conversation_delete.py
 - C1/C2/C3 齐全
 - PROGRESS 更新
 
-**状态**: DONE
+**状态**: DONE (C1=3a061a0, C2=4e51bd3)
 
 ---
 
@@ -63,4 +63,4 @@ src/IM/frontend/src/features/chat/im-chat-api.test.ts（扩展）
 - C1/C2/C3 齐全
 - PROGRESS 更新
 
-**状态**: DONE
+**状态**: DONE (C1=28824d9, C2=2ad682d)
