@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -45,11 +46,12 @@ class _FakeKernelClient:
         )
         return {"session_id": session_id}
 
-    def send_message_async(self, *, session_id: str, text: str):
+    def send_message_async(self, *, session_id: str, texts: list[str]):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
-        self.send_calls.append({"session_id": session_id, "text": text, "run_id": run_id})
-        self.run_states[run_id] = {"run_id": run_id, "output_text": self.default_output_text.format(text=text)}
+        rendered_text = "\n".join(texts)
+        self.send_calls.append({"session_id": session_id, "text": rendered_text, "run_id": run_id})
+        self.run_states[run_id] = {"run_id": run_id, "output_text": self.default_output_text.format(text=rendered_text)}
         return {"run_id": run_id}
 
     def get_run(self, *, run_id: str):
@@ -63,6 +65,29 @@ def _seed_user(client: TestClient, username: str) -> str:
     )
     assert response.status_code == 201
     return response.json()["id"]
+
+
+
+def _send_delivery_receipt(
+    websocket,
+    *,
+    relay_payload: dict[str, object],
+    delivery_status: str,
+    detail: str | None,
+) -> dict[str, object]:
+    websocket.send_json(
+        {
+            "type": "node.delivery_receipt",
+            "payload": {
+                "node_id": "node-1",
+                "relay_task_id": relay_payload["relay_task_id"],
+                "delivery_status": delivery_status,
+                "detail": detail,
+            },
+        }
+    )
+    return websocket.receive_json()
+
 
 
 def _seed_node_and_profiles(app, *, owner_id: str = "", agent_ids: tuple[str, ...]) -> None:
@@ -166,17 +191,45 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
                     "mentioned_agent_ids": ["agent-a"],
                 }
             )
+            sent_ack = _send_delivery_receipt(
+                websocket,
+                relay_payload=relay_frame["payload"],
+                delivery_status="sent",
+                detail=None,
+            )
+            completed_ack = _send_delivery_receipt(
+                websocket,
+                relay_payload=relay_frame["payload"],
+                delivery_status="completed",
+                detail="NO_REPLY | suppressed_by=no_reply_token",
+            )
 
-            receipt_frame = websocket.receive_json()
-            completed_frame = websocket.receive_json()
+        event_rows = app.state.connection.execute(
+            """
+            SELECT event_type, payload_json
+            FROM conversation_events
+            WHERE conversation_id = ?
+            ORDER BY event_id
+            """,
+            (conversation_id,),
+        ).fetchall()
 
+    accepted_payloads = [
+        json.loads(row["payload_json"])
+        for row in event_rows
+        if row["event_type"] == "relay.accepted"
+    ]
+    completed_payloads = [
+        json.loads(row["payload_json"])
+        for row in event_rows
+        if row["event_type"] == "relay.completed"
+    ]
     assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "@agent-a stay quiet", "run_id": "run-1"}]
     assert relay_adapter.sent == []
-    assert receipt_frame["type"] == "node.delivery_receipt"
-    assert receipt_frame["payload"]["delivery_status"] == "sent"
-    assert completed_frame["type"] == "node.delivery_receipt"
-    assert completed_frame["payload"]["delivery_status"] == "completed"
-    assert completed_frame["payload"]["detail"] == "suppressed_by=no_reply_token"
+    assert sent_ack["type"] == "ack"
+    assert completed_ack["type"] == "ack"
+    assert [payload["detail"] for payload in accepted_payloads] == [None]
+    assert [payload["detail"] for payload in completed_payloads] == ["NO_REPLY | suppressed_by=no_reply_token"]
 
 
 def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_path: Path) -> None:
@@ -244,14 +297,13 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
                 },
             )
             assert first.status_code == 201
-            first_frame = websocket.receive_json()
-            relay_adapter.accept_relay(
-                {
-                    **first_frame["payload"],
-                    "is_group": True,
-                    "mentioned_agent_ids": ["agent-a"],
-                }
-            )
+            first_frames = [websocket.receive_json(), websocket.receive_json()]
+            first_frame_by_agent = {
+                frame["payload"]["agent_id"]: frame
+                for frame in first_frames
+            }
+            relay_adapter.accept_relay(first_frame_by_agent["agent-a"]["payload"])
+            relay_adapter.accept_relay(first_frame_by_agent["agent-b"]["payload"])
 
             second = client.post(
                 f"/im/v1/conversations/{conversation_id}/messages",
@@ -263,9 +315,16 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
                 },
             )
             assert second.status_code == 201
-            second_frame = websocket.receive_json()
-            relay_adapter.accept_relay(second_frame["payload"])
+            second_frames = [websocket.receive_json(), websocket.receive_json()]
+            second_frame_by_agent = {
+                frame["payload"]["agent_id"]: frame
+                for frame in second_frames
+            }
+            relay_adapter.accept_relay(second_frame_by_agent["agent-a"]["payload"])
+            relay_adapter.accept_relay(second_frame_by_agent["agent-b"]["payload"])
 
+    first_frame = first_frame_by_agent["agent-a"]
+    second_frame = second_frame_by_agent["agent-b"]
     assert [call["title"] for call in kernel_client.create_session_calls] == ["Agent-A", "Agent-B"]
     assert [call["metadata"] for call in kernel_client.create_session_calls] == [
         {
@@ -287,6 +346,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
     assert first_frame["payload"]["metadata"] == {
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
+        "participant_agent_ids": ["agent-a", "agent-b"],
         "config_profile_version": 1,
         "system_prompt": "You are agent-a.",
     }
@@ -294,6 +354,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
     assert second_frame["payload"]["metadata"] == {
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-b"],
+        "participant_agent_ids": ["agent-a", "agent-b"],
         "config_profile_version": 1,
         "system_prompt": "You are agent-b.",
     }

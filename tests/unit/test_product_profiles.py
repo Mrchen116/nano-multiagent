@@ -6,6 +6,9 @@ Verifies that LOCAL_CODING_PROFILE and PERSONAL_ASSISTANT_PROFILE live under
 
 from pathlib import Path
 
+from agent.core.hooks.context import HookContext
+from agent.core.hooks.registry import HookAPI, HookRegistry
+from agent.platform.bootstrap import bootstrap_product
 from agent.platform.products.local_coding import (
     LOCAL_CODING_PROFILE as LEGACY_LOCAL_CODING_PROFILE,
 )
@@ -75,7 +78,52 @@ def test_personal_assistant_package_exports_default_modules() -> None:
     assert {"read", "write", "edit", "bash", "task", "web_fetch", "web_search"} <= set(personal_assistant_toolsets.DEFAULT_TOOL_IDS)
     assert set(personal_assistant_toolsets.OPTIONAL_TOOL_IDS) == {"send_message"}
     assert set(PERSONAL_ASSISTANT_PROFILE.optional_tool_ids) == {"send_message"}
+    assert "communication_context" in personal_assistant_hooks.DEFAULT_HOOK_MODULES
     assert "default_status" in personal_assistant_hooks.DEFAULT_HOOK_MODULES
+
+
+
+def test_personal_assistant_bootstrap_loads_communication_context_hook(tmp_path: Path) -> None:
+    resolved = bootstrap_product(profile=PERSONAL_ASSISTANT_PROFILE, repo_root=tmp_path)
+
+    module_stems = {
+        Path(handler.file_path).stem
+        for handler in resolved.hook_registry.all_handlers()
+        if handler.file_path is not None
+    }
+
+    assert "communication_context" in module_stems
+    assert "default_status" in module_stems
+
+
+
+def test_personal_assistant_hook_uses_session_system_prompt_as_base() -> None:
+    registry = HookRegistry()
+    personal_assistant_hooks.setup(
+        HookAPI(registry, source="product", module_name="pa_hooks", file_path=None)
+    )
+
+    handlers = registry.handlers_for("before_agent_start")
+    assert handlers
+
+    result = handlers[0].handler(
+        {"message": "hello", "system_prompt": None},
+        HookContext(
+            session_id="sess-test",
+            metadata={
+                "conversation_type": "group",
+                "agent_id": "agent-a",
+                "participant_agent_ids": ["agent-a", "agent-b"],
+                "system_prompt": "You are agent-a.",
+            },
+        ),
+    )
+
+    assert result is not None
+    assert result["system_prompt"].startswith("You are agent-a.")
+    assert "[Communication Context]" in result["system_prompt"]
+    assert "group_participants: agent-a, agent-b" in result["system_prompt"]
+
 
 
 def test_platform_products_shims_export_canonical_profiles() -> None:
