@@ -25,7 +25,7 @@ import websockets
 from websockets.asyncio.client import ClientConnection
 
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
+from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
 from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
@@ -987,7 +987,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         )
     )
     process_manager = GatewayProcessManager(config=config.kernel, kernel_client=kernel_client)
-    channel_registry = _build_channel_registry(config.channels)
+    runtime_dir = config.source_path.parent
+    channel_registry = _build_channel_registry(
+        config.channels,
+        dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
+    )
     outbound_router = OutboundRouter(channel_registry)
     heartbeat_runner = PollingHeartbeatRunner(
         scheduler=HeartbeatScheduler(
@@ -1009,7 +1013,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         run_queue=SessionRunQueue(),
         session_store=SessionBindingStore(),
         group_context_store=GroupContextStore(
-            db_path=Path("~/.nano-assistant/group_context_buffer.sqlite3").expanduser()
+            db_path=runtime_dir / "group_context_buffer.sqlite3"
         ),
     )
     if config.im_service is not None:
@@ -1111,13 +1115,20 @@ def _coerce_factories(factories: RuntimeFactories | Mapping[str, Any] | None) ->
     )
 
 
-def _build_channel_registry(channels: tuple[ChannelConfig, ...]) -> ChannelRegistry:
+def _build_channel_registry(
+    channels: tuple[ChannelConfig, ...],
+    *,
+    dedup_db_path: Path | None = None,
+) -> ChannelRegistry:
     registry = ChannelRegistry()
     for channel in channels:
         if not channel.enabled:
             continue
         if channel.name == "web_relay":
-            registry.register(WebRelayAdapter())
+            dedup_store = None
+            if dedup_db_path is not None:
+                dedup_store = RelayDeduplicationStore(db_path=dedup_db_path)
+            registry.register(WebRelayAdapter(dedup_store=dedup_store))
             continue
         raise ValueError(f"unsupported channel adapter: {channel.name}")
     return registry

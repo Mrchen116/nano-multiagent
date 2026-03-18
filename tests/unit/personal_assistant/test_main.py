@@ -643,7 +643,7 @@ def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(tmp_path: Path,
     )
 
     runtime = build_runtime(config)
-    relay_adapter = runtime.channel_registry.get("web_relay")
+    relay_adapter = runtime._channel_registry.get("web_relay")  # noqa: SLF001
 
     assert relay_adapter is not None
     assert relay_adapter._dedup_store is not None  # noqa: SLF001
