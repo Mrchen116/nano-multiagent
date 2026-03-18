@@ -52,15 +52,12 @@ def test_personal_assistant_profile_system_prompt_not_coding() -> None:
     assert "code assistant" not in prompt
 
 
-def test_personal_assistant_profile_default_tool_ids_keep_conservative_defaults() -> None:
-    """personal_assistant must default to read/task and keep send_message opt-in."""
+def test_personal_assistant_profile_default_tool_ids() -> None:
+    """personal_assistant includes full set of default tools; send_message remains opt-in."""
     assert PERSONAL_ASSISTANT_PROFILE.default_tool_ids is not None
     tool_ids = set(PERSONAL_ASSISTANT_PROFILE.default_tool_ids)
-    assert tool_ids == {"read", "task"}
+    assert {"read", "write", "edit", "bash", "task", "web_fetch", "web_search"} <= tool_ids
     assert "send_message" not in tool_ids
-    assert "write" not in tool_ids
-    assert "edit" not in tool_ids
-    assert "bash" not in tool_ids
 
 
 def test_personal_assistant_profile_optional_tool_ids_include_send_message() -> None:

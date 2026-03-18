@@ -314,7 +314,7 @@ Gateway 采用本地配置文件驱动（如 `~/.nano-assistant/config.yaml`）�
 | product_id | `personal_assistant` |
 | config_namespace | `nano-assistant` |
 | 全局配置目录 | `~/.nano-assistant/` |
-| 默认工具 | `read` `write` `edit` `bash` `task` |
+| 默认工具 | `read` `write` `edit` `bash` `task` `web_fetch` `web_search` |
 | 默认 hook | `default_status` `realtime_stream` `usage_metrics` |
 | Session 存储 | `~/.nano-assistant/sessions.sqlite3` |
 | System prompt | 个人助手（带 heartbeat 上下文） |

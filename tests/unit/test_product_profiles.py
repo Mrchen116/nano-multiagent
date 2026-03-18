@@ -72,7 +72,7 @@ def test_personal_assistant_package_exports_default_modules() -> None:
         personal_assistant_prompts.PERSONAL_ASSISTANT_SYSTEM_PROMPT
         == PERSONAL_ASSISTANT_PROFILE.default_system_prompt
     )
-    assert set(personal_assistant_toolsets.DEFAULT_TOOL_IDS) == {"read", "task"}
+    assert {"read", "write", "edit", "bash", "task", "web_fetch", "web_search"} <= set(personal_assistant_toolsets.DEFAULT_TOOL_IDS)
     assert set(personal_assistant_toolsets.OPTIONAL_TOOL_IDS) == {"send_message"}
     assert set(PERSONAL_ASSISTANT_PROFILE.optional_tool_ids) == {"send_message"}
     assert "default_status" in personal_assistant_hooks.DEFAULT_HOOK_MODULES
