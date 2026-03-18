@@ -11,6 +11,7 @@ from typing import Literal
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.client.kernel_api_client import KernelApiClient
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import (
@@ -96,6 +97,7 @@ class InboundPipeline:
         channel_bindings: Mapping[str, str] | None = None,
         default_agent_id: str | None = None,
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
+        group_context_store: GroupContextStore | None = None,
     ) -> None:
         self._kernel_client = kernel_client
         self._agents = {agent.agent_id: agent for agent in agents}
@@ -105,6 +107,7 @@ class InboundPipeline:
         self._channel_bindings = dict(channel_bindings or {})
         self._default_agent_id = default_agent_id or (agents[0].agent_id if agents else None)
         self._relay_lifecycle_callback = relay_lifecycle_callback
+        self._group_context_store = group_context_store
 
     async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
         """Process one inbound message through route, session, queue, and reply steps.
@@ -116,6 +119,8 @@ class InboundPipeline:
 
         agent_id = self._resolve_agent(message)
         if not self._should_process(message, agent_id=agent_id):
+            if message.is_group and self._group_context_store is not None:
+                self._group_context_store.append(self._group_buf_key(message), message.text)
             return None
         session_key = build_session_key(message, agent_id=agent_id)
 
@@ -123,9 +128,12 @@ class InboundPipeline:
             run_id: str | None = None
             try:
                 binding = self._ensure_binding(message, agent_id=agent_id, session_key=session_key)
+                buf_key = self._group_buf_key(message)
+                buffered = self._group_context_store.drain(buf_key) if message.is_group and self._group_context_store else []
+                texts = buffered + [message.text]
                 run_payload = self._kernel_client.send_message_async(
                     session_id=binding.kernel_session_id,
-                    text=message.text,
+                    texts=texts,
                 )
                 run_id = str(run_payload.get("run_id", "")).strip()
                 await self._emit_relay_lifecycle(
@@ -192,6 +200,10 @@ class InboundPipeline:
                 raise
 
         return await self._run_queue.submit(session_key, _run)
+
+    @staticmethod
+    def _group_buf_key(message: InboundMessage) -> str:
+        return f"{message.channel_name}:{message.external_chat_id}"
 
     async def _emit_relay_lifecycle(self, message: InboundMessage, update: RelayLifecycleUpdate) -> None:
         callback = self._relay_lifecycle_callback

@@ -53,7 +53,7 @@ def test_kernel_api_client_calls_required_http_subset() -> None:
     assert client.health()["healthy"] is True
     assert client.create_session(workspace_root="/tmp/agent-a", product_id="personal_assistant")["session_id"] == "sess-1"
     assert client.get_session(session_id="sess-1")["metadata"]["workspace_root"] == "/tmp/agent-a"
-    assert client.send_message_async(session_id="sess-1", text="hello")["run_id"] == "run-1"
+    assert client.send_message_async(session_id="sess-1", texts=["hello"])["run_id"] == "run-1"
     assert client.get_run(run_id="run-1")["status"] == "running"
     assert client.cancel_run(run_id="run-1")["status"] == "cancelled"
 

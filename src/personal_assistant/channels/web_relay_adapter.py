@@ -1,10 +1,13 @@
 """Web IM relay channel adapter fed by IM websocket downstream frames."""
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from personal_assistant.channels.base import InboundHandler, InboundMessage, OutboundMessage
+
+_SEEN_KEYS_MAX = 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +47,7 @@ class WebRelayAdapter:
     def __init__(self) -> None:
         self._on_inbound: InboundHandler | None = None
         self.sent: list[OutboundMessage] = []
+        self._seen_idempotency_keys: deque[str] = deque()
 
     def start(self, on_inbound: InboundHandler) -> None:
         """Store the gateway inbound callback used for relay pushes."""
@@ -72,29 +76,38 @@ class WebRelayAdapter:
         if callback is None:
             raise RuntimeError("web relay adapter is not started")
         envelope = _parse_relay_payload(payload)
-        conversation_type = envelope.metadata.get("conversation_type")
-        message_id = _optional_text(payload.get("message_id"))
-        if message_id is None:
-            message = payload.get("message")
-            if isinstance(message, Mapping):
-                message_id = _optional_text(message.get("id"))
-        inbound = InboundMessage(
-            channel_name=self.name,
-            text=envelope.content,
-            external_user_id=envelope.sender_user_id,
-            external_chat_id=envelope.conversation_id,
-            is_group=conversation_type == "group",
-            agent_id=envelope.agent_id,
-            thread_id=_optional_text(envelope.metadata.get("thread_id")),
-            metadata={
-                "relay_task_id": envelope.relay_task_id,
-                "idempotency_key": envelope.idempotency_key,
-                "message_id": message_id,
-                **dict(envelope.metadata),
-            },
-        )
+        if envelope.idempotency_key in self._seen_idempotency_keys:
+            return _build_inbound(envelope, payload)
+        self._seen_idempotency_keys.append(envelope.idempotency_key)
+        if len(self._seen_idempotency_keys) > _SEEN_KEYS_MAX:
+            self._seen_idempotency_keys.popleft()
+        inbound = _build_inbound(envelope, payload)
         callback(inbound)
         return inbound
+
+
+def _build_inbound(envelope: RelayEnvelope, payload: Mapping[str, object]) -> InboundMessage:
+    conversation_type = envelope.metadata.get("conversation_type")
+    message_id = _optional_text(payload.get("message_id"))
+    if message_id is None:
+        message = payload.get("message")
+        if isinstance(message, Mapping):
+            message_id = _optional_text(message.get("id"))
+    return InboundMessage(
+        channel_name="web_relay",
+        text=envelope.content,
+        external_user_id=envelope.sender_user_id,
+        external_chat_id=envelope.conversation_id,
+        is_group=conversation_type == "group",
+        agent_id=envelope.agent_id,
+        thread_id=_optional_text(envelope.metadata.get("thread_id")),
+        metadata={
+            "relay_task_id": envelope.relay_task_id,
+            "idempotency_key": envelope.idempotency_key,
+            "message_id": message_id,
+            **dict(envelope.metadata),
+        },
+    )
 
 
 def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:

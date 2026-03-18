@@ -52,11 +52,11 @@ class _FakeKernelClient:
         )
         return {"session_id": f"sess-{self._session_index}"}
 
-    def send_message_async(self, *, session_id: str, text: str):
+    def send_message_async(self, *, session_id: str, texts: list[str]):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
-        self.send_calls.append({"session_id": session_id, "text": text, "run_id": run_id})
-        self.run_states[run_id] = {"run_id": run_id, "output_text": self.default_output_text.format(text=text)}
+        self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
+        self.run_states[run_id] = {"run_id": run_id, "output_text": self.default_output_text.format(text=texts[-1] if texts else "")}
         return {"run_id": run_id}
 
     def get_run(self, *, run_id: str):
@@ -136,7 +136,7 @@ def test_group_message_with_mention_or_reply_runs(tmp_path: Path) -> None:
 
     assert first is not None
     assert second is not None
-    assert [call["text"] for call in kernel.send_calls] == ["@agent-a hello", "follow-up"]
+    assert [call["texts"][-1] for call in kernel.send_calls] == ["@agent-a hello", "follow-up"]
     assert [item.text for item in channel.sent] == ["reply:@agent-a hello", "reply:follow-up"]
 
 
@@ -169,7 +169,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
     assert result is not None
     assert result.reply_text == "NO_REPLY"
     assert result.outbound is None
-    assert kernel.send_calls == [{"session_id": "sess-1", "text": "@agent-a stay quiet", "run_id": "run-1"}]
+    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["@agent-a stay quiet"], "run_id": "run-1"}]
     assert channel.sent == []
 
 
@@ -241,7 +241,7 @@ def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> No
 
     assert result is not None
     assert result.reply_text == "reply:offline still works"
-    assert kernel.send_calls == [{"session_id": "sess-1", "text": "offline still works", "run_id": "run-1"}]
+    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["offline still works"], "run_id": "run-1"}]
     assert channel.sent == [
         OutboundMessage(
             channel_name="qq",

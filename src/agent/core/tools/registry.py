@@ -11,7 +11,7 @@ from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation
 from agent.core.types import ToolSpec
 
-from .base import Tool, ToolContext
+from .base import Tool, ToolContext, _build_default_tool_safety_config, _require_tool_safety_factory
 
 
 class ToolRegistry:
@@ -451,10 +451,19 @@ def _resolve_execution_context(base_context: ToolContext, hook_context: HookCont
     resolved_cwd = _metadata_path(hook_context.metadata, key="cwd")
     if resolved_cwd is None:
         return base_context
+    # When the session workspace differs from the global repo root, rebuild the
+    # safety sandbox so that file tools can access files in the workspace.
+    if resolved_cwd != base_context.repo_root:
+        safety_config = getattr(base_context.safety, "config", None) or _build_default_tool_safety_config()
+        safety = _require_tool_safety_factory()(repo_root=resolved_cwd, config=safety_config)
+        repo_root = resolved_cwd
+    else:
+        safety = base_context.safety
+        repo_root = base_context.repo_root
     return ToolContext(
-        repo_root=base_context.repo_root,
+        repo_root=repo_root,
         cwd=resolved_cwd,
-        safety=base_context.safety,
+        safety=safety,
         session_id=base_context.session_id,
         tool_call_id=base_context.tool_call_id,
         safety_overrides=base_context.safety_overrides,

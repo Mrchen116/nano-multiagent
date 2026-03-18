@@ -36,7 +36,7 @@ class _FakeChannel:
 class _FakeKernelClient:
     def __init__(self) -> None:
         self.create_session_calls: list[dict[str, object | None]] = []
-        self.send_calls: list[dict[str, str]] = []
+        self.send_calls: list[dict[str, object]] = []
         self.run_states: dict[str, list[dict[str, str]] | dict[str, str]] = {}
         self.session_events: dict[str, list[list[dict[str, object]]]] = {}
         self._session_metadata_by_id: dict[str, dict[str, object]] = {}
@@ -72,10 +72,11 @@ class _FakeKernelClient:
         self._session_metadata_by_id[session_id] = dict(metadata or {})
         self.session_events.setdefault(session_id, [])
 
-    def send_message_async(self, *, session_id: str, text: str):
+    def send_message_async(self, *, session_id: str, texts: list[str]):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
-        self.send_calls.append({"session_id": session_id, "text": text, "run_id": run_id})
+        text = texts[-1] if texts else ""
+        self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
         self.run_states.setdefault(run_id, {"run_id": run_id, "status": "completed", "output_text": f"reply:{text}"})
         self.session_events.setdefault(session_id, [])
         return {"run_id": run_id}
@@ -194,7 +195,7 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(tmp_pat
             "metadata": {"agent_id": "agent-a"},
         }
     ]
-    assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "ping", "run_id": "run-1"}]
+    assert kernel_client.send_calls == [{"session_id": "sess-1", "texts": ["ping"], "run_id": "run-1"}]
 
 
 def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_sessions(tmp_path: Path) -> None:
@@ -701,7 +702,7 @@ def test_inbound_pipeline_prefers_group_mentions_over_drifted_explicit_agent_ids
         "agent_id": "agent-b",
         "conversation_id": "conv-1",
     }
-    assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "@agent:agent-b please investigate", "run_id": "run-1"}]
+    assert kernel_client.send_calls == [{"session_id": "sess-1", "texts": ["@agent:agent-b please investigate"], "run_id": "run-1"}]
 
 
 def test_inbound_pipeline_freezes_group_agent_id_even_without_additional_snapshot_metadata(tmp_path: Path) -> None:

@@ -101,11 +101,20 @@ class KernelApiClient:
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request("GET", f"/v1/sessions/{session}", require_auth=True)
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, Any]:
-        """Submit one asynchronous text message to an existing session."""
+    def send_message_async(self, *, session_id: str, texts: list[str]) -> dict[str, Any]:
+        """Submit one or more asynchronous text messages to an existing session.
 
+        Args:
+            session_id: Existing kernel session id.
+            texts: Non-empty list of message texts sent as ordered ``parts``.
+                   When the list contains a single item this is equivalent to
+                   the previous single-text API.
+        """
+
+        if not texts:
+            raise ValueError("texts must contain at least one message")
         payload = {
-            "parts": [{"type": "text", "text": _require_non_empty_string(text, field_name="text")}],
+            "parts": [{"type": "text", "text": _require_non_empty_string(t, field_name="texts[i]")} for t in texts],
         }
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request(

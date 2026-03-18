@@ -42,6 +42,7 @@ from personal_assistant.config.local_store import (
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline, RelayLifecycleUpdate
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -1007,6 +1008,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         outbound_router=outbound_router,
         run_queue=SessionRunQueue(),
         session_store=SessionBindingStore(),
+        group_context_store=GroupContextStore(
+            db_path=Path("~/.nano-assistant/group_context_buffer.sqlite3").expanduser()
+        ),
     )
     if config.im_service is not None:
         relay_adapter = channel_registry.get("web_relay")
