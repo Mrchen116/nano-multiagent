@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
 import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
@@ -35,6 +36,7 @@ function renderMessagePane(input?: {
   sendAvailability?: SendAvailability;
   usage?: ChatUsageView;
   detail?: ConversationDetail;
+  onRenameConversation?: (conversationId: string, title: string) => Promise<void>;
 }) {
   const detail: ConversationDetail = input?.detail ?? {
     conversation_id: "conv-kernel-ops",
@@ -65,6 +67,7 @@ function renderMessagePane(input?: {
         usage={usage}
         onSend={onSend}
         onUploadAttachment={onUploadAttachment}
+        onRenameConversation={input?.onRenameConversation}
       />
     </MemoryRouter>
   );
@@ -519,6 +522,91 @@ describe("message pane", () => {
     expect(screen.getByText("Agent couldn't finish")).toBeInTheDocument();
     expect(screen.getByText("The agent stopped before finishing this turn. Retry the request to ask the agent again.")).toBeInTheDocument();
     expect(screen.getByText("Recovery: Retry request")).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // M235: inline group name editing
+  // -------------------------------------------------------------------------
+
+  it("renders group chat title as a clickable edit trigger (M235)", () => {
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-group-rename",
+        title: "Dev Team",
+        kind_label: "Group chat",
+        messages: []
+      },
+      // Provide handler so the rename button is rendered.
+      onRenameConversation: vi.fn().mockResolvedValue(undefined)
+    });
+
+    // Title must be visible; a button or element with aria-label="编辑群聊名称" should exist.
+    expect(screen.getByText("Dev Team")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /编辑群聊名称|群聊改名/i })).toBeInTheDocument();
+  });
+
+  it("enters inline edit mode on click and exits with Esc (M235)", async () => {
+    const user = userEvent.setup();
+    const onRenameConversation = vi.fn().mockResolvedValue(undefined);
+
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-group-rename",
+        title: "Dev Team",
+        kind_label: "Group chat",
+        messages: []
+      },
+      onRenameConversation
+    });
+
+    await user.click(screen.getByRole("button", { name: /编辑群聊名称|群聊改名/i }));
+
+    const input = screen.getByDisplayValue("Dev Team");
+    expect(input).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    // Input gone; original title restored.
+    expect(screen.queryByDisplayValue("Dev Team")).not.toBeInTheDocument();
+    expect(screen.getByText("Dev Team")).toBeInTheDocument();
+    expect(onRenameConversation).not.toHaveBeenCalled();
+  });
+
+  it("saves inline edit with Enter and calls onRenameConversation (M235)", async () => {
+    const user = userEvent.setup();
+    const onRenameConversation = vi.fn().mockResolvedValue(undefined);
+
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-group-rename",
+        title: "Dev Team",
+        kind_label: "Group chat",
+        messages: []
+      },
+      onRenameConversation
+    });
+
+    await user.click(screen.getByRole("button", { name: /编辑群聊名称|群聊改名/i }));
+
+    const input = screen.getByDisplayValue("Dev Team");
+    await user.clear(input);
+    await user.type(input, "Platform Team");
+    await user.keyboard("{Enter}");
+
+    expect(onRenameConversation).toHaveBeenCalledWith("conv-group-rename", "Platform Team");
+  });
+
+  it("does not show inline rename trigger for direct chat (M235)", () => {
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-direct",
+        title: "Agent Alpha",
+        kind_label: "Direct agent chat",
+        messages: []
+      }
+    });
+
+    expect(screen.queryByRole("button", { name: /编辑群聊名称|群聊改名/i })).not.toBeInTheDocument();
   });
 
   it("keeps empty completed agent placeholders fully silent", () => {
