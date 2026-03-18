@@ -892,43 +892,46 @@ export function ChatWorkspacePage() {
             No available participants yet. Add a teammate or configure another agent to start a shared thread.
           </div>
         ) : (
-          <div className="grid gap-3">
-            {groupParticipantOptions.map((participant) => {
-              const checked = selectedGroupParticipantIds.includes(participant.user_id);
-              return (
-                <label
-                  key={participant.user_id}
-                  className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition ${
-                    checked ? "border-[#9bd2d6] bg-[#eef8f8]" : "border-[var(--im-border)] bg-white hover:border-slate-300"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-700"
-                    checked={checked}
-                    onChange={() => {
-                      setSelectedGroupParticipantIds((previous) =>
-                        previous.includes(participant.user_id)
-                          ? previous.filter((item) => item !== participant.user_id)
-                          : [...previous, participant.user_id]
-                      );
-                    }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold text-slate-900">{participant.label}</span>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                        {participant.kind === "agent" ? "Agent" : "Teammate"}
-                      </span>
-                      {checked && (
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Selected</span>
-                      )}
+          // 候选列表固定最大高度并启用内部滚动，防止候选项过多时将左栏 ConversationList 推出视口。
+          <div className="max-h-60 overflow-y-auto">
+            <div className="grid gap-3">
+              {groupParticipantOptions.map((participant) => {
+                const checked = selectedGroupParticipantIds.includes(participant.user_id);
+                return (
+                  <label
+                    key={participant.user_id}
+                    className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition ${
+                      checked ? "border-[#9bd2d6] bg-[#eef8f8]" : "border-[var(--im-border)] bg-white hover:border-slate-300"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-700"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedGroupParticipantIds((previous) =>
+                          previous.includes(participant.user_id)
+                            ? previous.filter((item) => item !== participant.user_id)
+                            : [...previous, participant.user_id]
+                        );
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-slate-900">{participant.label}</span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                          {participant.kind === "agent" ? "Agent" : "Teammate"}
+                        </span>
+                        {checked && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Selected</span>
+                        )}
+                      </div>
+                      {participant.description && <p className="mt-1 text-xs text-slate-500">{participant.description}</p>}
                     </div>
-                    {participant.description && <p className="mt-1 text-xs text-slate-500">{participant.description}</p>}
-                  </div>
-                </label>
-              );
-            })}
+                  </label>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
