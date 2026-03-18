@@ -14,10 +14,10 @@
 - Decision: 在 `_build_session_metadata` 中根据 `message.is_group` 写入三个字段。
 - Rationale: session metadata 是唯一能穿越 gateway→kernel HTTP 边界的持久化载体；字段命名与 SPEC §7 对齐。
 - Evidence:
-  - Tests: `python -m pytest tests/unit/personal_assistant/ tests/unit/ -x -q`
-  - Entry: unit test 断言 create_session_calls[0]["metadata"]["conversation_type"] == "group"
-- Rollback: 回退到 baseline（baseline 无此字段）
-- Commits: C1=?, C2=?, C3=?
+  - Tests: 108 passed (106 baseline + 2 new)
+  - Entry: test_session_metadata_group_fields / test_session_metadata_direct_fields 覆盖 group/direct 两路径
+- Rollback: 回退到 plan 提交 8e61036（baseline）
+- Commits: C1=93ce372, C2=a3b1439, C3=(本次)
 - Next: R2
 
 ---
