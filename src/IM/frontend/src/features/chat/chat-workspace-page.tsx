@@ -365,6 +365,8 @@ export function ChatWorkspacePage() {
   const queryClient = useQueryClient();
   const [isCreatingGroupChat, setIsCreatingGroupChat] = useState(false);
   const [selectedGroupParticipantIds, setSelectedGroupParticipantIds] = useState<string[]>([]);
+  // M235: optional custom group name input; blank = auto-generate from participant labels.
+  const [groupNameDraft, setGroupNameDraft] = useState("");
 
   const bootstrapQuery = useQuery<ChatBootstrapState>({
     queryKey: ["chat", "bootstrap"],
@@ -626,8 +628,8 @@ export function ChatWorkspacePage() {
   }, [conversationId, ownerId, queryClient, selfUserId]);
 
   const createGroupConversationMutation = useMutation({
-    mutationFn: (payload: { participantIds: string[]; participantLabels: string[] }) =>
-      createGroupConversation({ participantIds: payload.participantIds }),
+    mutationFn: (payload: { participantIds: string[]; participantLabels: string[]; groupName?: string }) =>
+      createGroupConversation({ participantIds: payload.participantIds, groupName: payload.groupName }),
     onSuccess: async ({ conversation_id }, variables) => {
       const detail = await getConversation(conversation_id);
       queryClient.setQueryData(["chat", "conversation", conversation_id], detail);
@@ -654,6 +656,7 @@ export function ChatWorkspacePage() {
         });
       }
       setSelectedGroupParticipantIds([]);
+      setGroupNameDraft("");
       setIsCreatingGroupChat(false);
       navigate(`/chat/${conversation_id}`);
       void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
@@ -823,11 +826,27 @@ export function ChatWorkspacePage() {
           className="im-btn im-btn-muted"
           onClick={() => {
             setSelectedGroupParticipantIds([]);
+            setGroupNameDraft("");
             setIsCreatingGroupChat(false);
           }}
         >
           Cancel
         </button>
+      </div>
+      {/* M235: optional custom group name input */}
+      <div className="mt-4">
+        <label className="block text-xs font-semibold text-slate-700" htmlFor="group-name-input">
+          群聊名称（可选）
+        </label>
+        <input
+          id="group-name-input"
+          type="text"
+          className="im-input mt-1 w-full"
+          placeholder="留空则自动生成"
+          value={groupNameDraft}
+          onChange={(e) => setGroupNameDraft(e.target.value)}
+          maxLength={100}
+        />
       </div>
       <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600">
         <p className="font-semibold text-slate-900">Selected participants</p>
@@ -909,7 +928,9 @@ export function ChatWorkspacePage() {
           onClick={() =>
             createGroupConversationMutation.mutate({
               participantIds: selectedGroupParticipants.map((item) => item.user_id),
-              participantLabels: selectedGroupParticipants.map((item) => item.label)
+              participantLabels: selectedGroupParticipants.map((item) => item.label),
+              // M235: pass custom group name; empty string means auto-generate.
+              groupName: groupNameDraft
             })
           }
         >
@@ -942,6 +963,7 @@ export function ChatWorkspacePage() {
           compact={isMobile}
           onCreateGroupChat={() => {
             setSelectedGroupParticipantIds([]);
+            setGroupNameDraft("");
             setIsCreatingGroupChat(true);
           }}
         />
