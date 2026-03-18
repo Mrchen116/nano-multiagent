@@ -118,9 +118,24 @@ class InboundPipeline:
         """
 
         agent_id = self._resolve_agent(message)
-        if not self._should_process(message, agent_id=agent_id):
-            if message.is_group and self._group_context_store is not None:
-                self._group_context_store.append(self._group_buf_key(message), message.text)
+        should_process = self._should_process(message, agent_id=agent_id)
+
+        if message.is_group and self._group_context_store is not None:
+            if not should_process:
+                # Nobody processes this turn — buffer for every agent as background context.
+                for aid in self._agents:
+                    self._group_context_store.append(
+                        self._group_buf_key_for_agent(message, aid), message.text
+                    )
+            else:
+                # agent_id will process; buffer the message only for the other agents.
+                for other_id in self._agents:
+                    if other_id != agent_id:
+                        self._group_context_store.append(
+                            self._group_buf_key_for_agent(message, other_id), message.text
+                        )
+
+        if not should_process:
             return None
         session_key = build_session_key(message, agent_id=agent_id)
 
@@ -128,7 +143,7 @@ class InboundPipeline:
             run_id: str | None = None
             try:
                 binding = self._ensure_binding(message, agent_id=agent_id, session_key=session_key)
-                buf_key = self._group_buf_key(message)
+                buf_key = self._group_buf_key_for_agent(message, agent_id)
                 buffered = self._group_context_store.drain(buf_key) if message.is_group and self._group_context_store else []
                 texts = buffered + [message.text]
                 run_payload = self._kernel_client.send_message_async(
@@ -173,6 +188,14 @@ class InboundPipeline:
                     reply_text=reply_text,
                     outbound=outbound,
                 )
+                # Buffer agent's reply for all other agents so they have full group context.
+                if message.is_group and self._group_context_store is not None and not self._is_no_reply_token(reply_text):
+                    for other_id in self._agents:
+                        if other_id != agent_id:
+                            self._group_context_store.append(
+                                self._group_buf_key_for_agent(message, other_id),
+                                f"@{agent_id}: {reply_text}",
+                            )
                 await self._emit_relay_lifecycle(
                     message,
                     RelayLifecycleUpdate(
@@ -202,8 +225,8 @@ class InboundPipeline:
         return await self._run_queue.submit(session_key, _run)
 
     @staticmethod
-    def _group_buf_key(message: InboundMessage) -> str:
-        return f"{message.channel_name}:{message.external_chat_id}"
+    def _group_buf_key_for_agent(message: InboundMessage, agent_id: str) -> str:
+        return f"{agent_id}:{message.channel_name}:{message.external_chat_id}"
 
     async def _emit_relay_lifecycle(self, message: InboundMessage, update: RelayLifecycleUpdate) -> None:
         callback = self._relay_lifecycle_callback
@@ -308,9 +331,6 @@ class InboundPipeline:
             return True
         reply_to_agent_id = metadata.get("reply_to_agent_id")
         if isinstance(reply_to_agent_id, str) and reply_to_agent_id.strip() == agent_id:
-            return True
-        trigger = metadata.get("trigger")
-        if isinstance(trigger, str) and trigger.strip() in {"command", "mention", "reply"}:
             return True
         return f"@{agent_id}" in message.text
 

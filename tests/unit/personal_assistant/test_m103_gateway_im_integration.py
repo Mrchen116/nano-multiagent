@@ -69,6 +69,17 @@ def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
     return (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace, title="Agent A"),)
 
 
+def _two_agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
+    wa = tmp_path / "agent-a"
+    wb = tmp_path / "agent-b"
+    wa.mkdir()
+    wb.mkdir()
+    return (
+        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=wa, title="Agent A"),
+        AgentWorkspaceConfig(agent_id="agent-b", workspace_root=wb, title="Agent B"),
+    )
+
+
 def test_group_message_without_mention_is_ignored(tmp_path: Path) -> None:
     """Unmentioned group traffic must not invoke the kernel."""
     agents = _agents(tmp_path)
@@ -251,3 +262,71 @@ def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> No
             metadata={},
         )
     ]
+
+
+def test_group_multiagent_fanout_buffers_and_contextualises(tmp_path: Path) -> None:
+    """Non-target agents must buffer incoming messages and other agents' replies as context."""
+    from personal_assistant.gateway.group_context_store import GroupContextStore
+
+    agents = _two_agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    kernel = _FakeKernelClient()
+    store = GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3")
+    pipeline = InboundPipeline(
+        kernel_client=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        group_context_store=store,
+        default_agent_id="agent-a",
+    )
+
+    # Step 1: plain user message (no @) → both agents buffer, neither responds.
+    plain = InboundMessage(
+        channel_name="web_relay",
+        text="hello everyone",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        metadata={"mentioned_agent_ids": []},
+    )
+    result_plain = asyncio.run(pipeline.handle_inbound(plain))
+    assert result_plain is None
+    assert kernel.send_calls == []
+
+    # Step 2: @agent-b → agent-b processes, agent-a buffers message + b's reply.
+    mention_b = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-b what time is it?",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        metadata={"mentioned_agent_ids": ["agent-b"]},
+    )
+    result_b = asyncio.run(pipeline.handle_inbound(mention_b))
+    assert result_b is not None
+    assert result_b.agent_id == "agent-b"
+    assert len(kernel.send_calls) == 1
+    # agent-b should have drained "hello everyone" then received the @mention
+    assert kernel.send_calls[0]["texts"] == ["hello everyone", "@agent-b what time is it?"]
+
+    # Step 3: @agent-a now — should arrive with context: plain msg + b's message + b's reply.
+    mention_a = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a your turn",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        metadata={"mentioned_agent_ids": ["agent-a"]},
+    )
+    result_a = asyncio.run(pipeline.handle_inbound(mention_a))
+    assert result_a is not None
+    assert result_a.agent_id == "agent-a"
+    assert len(kernel.send_calls) == 2
+    sent_texts = kernel.send_calls[1]["texts"]
+    # Should contain: plain msg, @agent-b mention, b's reply, then a's mention
+    assert sent_texts[0] == "hello everyone"
+    assert sent_texts[1] == "@agent-b what time is it?"
+    assert "@agent-b:" in sent_texts[2]  # buffered reply from agent-b
+    assert sent_texts[-1] == "@agent-a your turn"
