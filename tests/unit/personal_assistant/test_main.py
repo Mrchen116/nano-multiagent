@@ -16,7 +16,9 @@ import personal_assistant.main as main_module
 from personal_assistant.config.local_store import (
     DEFAULT_LOCAL_KERNEL_TOKEN,
     AgentWorkspaceConfig,
+    ChannelConfig,
     HeartbeatConfig,
+    IMServiceConfig,
     KernelConfig,
     LocalConfig,
     NodeConfig,
@@ -33,6 +35,7 @@ from personal_assistant.main import (
     RuntimeFactories,
     _IMBootstrapClient,
     _IMConfigSyncClient,
+    _build_channel_registry,
     build_runtime,
     _build_relay_lifecycle_callback,
     launch_gateway_in_background,
@@ -590,6 +593,61 @@ def test_build_runtime_defaults_local_kernel_token_when_config_omits_it(tmp_path
     assert isinstance(runtime, GatewayRuntime)
     kernel_config = seen["kernel_config"]
     assert kernel_config.token == DEFAULT_LOCAL_KERNEL_TOKEN
+
+
+
+def test_build_channel_registry_passes_dedup_db_path(tmp_path: Path) -> None:
+    registry = _build_channel_registry(
+        (ChannelConfig(name="web_relay", enabled=True),),
+        dedup_db_path=tmp_path / "relay-dedup.sqlite3",
+    )
+
+    relay_adapter = registry.get("web_relay")
+
+    assert relay_adapter is not None
+    assert relay_adapter._dedup_store is not None  # noqa: SLF001
+    assert relay_adapter._dedup_store._db_path == tmp_path / "relay-dedup.sqlite3"  # noqa: SLF001
+
+
+
+def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace_root = tmp_path / "agent-a"
+    workspace_root.mkdir()
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-local"),
+        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        channels=(ChannelConfig(name="web_relay", enabled=True),),
+        kernel=KernelConfig(
+            token=None,
+            command="python -m agent.platform.http_api.app",
+            startup_timeout_seconds=0.2,
+            health_poll_interval_seconds=0.0,
+            shutdown_grace_seconds=0.1,
+        ),
+        heartbeat=HeartbeatConfig(),
+        im_service=IMServiceConfig(url="http://im.local"),
+        source_path=tmp_path / "node-config.yaml",
+    )
+
+    class _RecordingKernelClient:
+        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
+            del config, transport
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _RecordingKernelClient)
+    monkeypatch.setattr(
+        "personal_assistant.main._build_im_connection_manager",
+        lambda **kwargs: type("_Manager", (), {"connected": True, "close": lambda self: None})(),
+    )
+
+    runtime = build_runtime(config)
+    relay_adapter = runtime._channel_registry.get("web_relay")  # noqa: SLF001
+
+    assert relay_adapter is not None
+    assert relay_adapter._dedup_store is not None  # noqa: SLF001
+    assert relay_adapter._dedup_store._db_path == tmp_path / "relay_dedup.sqlite3"  # noqa: SLF001
 
 
 def test_im_bootstrap_client_opens_browser_for_unbound_node() -> None:
