@@ -907,7 +907,7 @@ describe("chat workspace page", () => {
     expect(screen.queryByRole("button", { name: "New direct chat" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create group chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start fresh session" })).toBeInTheDocument();
-    expect(screen.getByText("Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.")).toBeInTheDocument();
+    expect(screen.queryByText("Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /You & Teammate/i })).toBeInTheDocument();
   });
 
