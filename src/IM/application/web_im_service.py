@@ -152,6 +152,42 @@ class WebIMService:
             conversation_type=conversation.type if conversation is not None else None,
         )
 
+    def enqueue_relay_all(
+        self,
+        *,
+        message: Message,
+        target_node_id: str,
+        idempotency_key_base: str,
+        sender_user_id: str,
+    ) -> list[RelayEnqueueResult]:
+        """Create or reuse relay tasks for all participant agents in a conversation.
+
+        Delegates to ``RelayService.enqueue_message_relay_all``, which creates one
+        relay per participant agent for group chats and a single relay for direct chats.
+
+        Args:
+            message: Persisted message to relay.
+            target_node_id: Gateway node that should receive every relay.
+            idempotency_key_base: Base retry key; per-agent key is ``{base}:{agent_id}``.
+            sender_user_id: Human sender identifier copied into relay payloads.
+
+        Returns:
+            List of RelayEnqueueResult, one per agent.
+
+        Raises:
+            RuntimeError: When the app was built without relay support.
+        """
+        if self._relay_service is None:
+            raise RuntimeError("relay_service is not configured")
+        conversation = self._conversations.get_conversation(conversation_id=message.conversation_id)
+        return self._relay_service.enqueue_message_relay_all(
+            message=message,
+            target_node_id=target_node_id,
+            idempotency_key_base=idempotency_key_base,
+            sender_user_id=sender_user_id,
+            conversation_type=conversation.type if conversation is not None else None,
+        )
+
     def resolve_target_node_id(self, *, conversation_id: str, content: str) -> str | None:
         """Resolve the concrete gateway node for one outgoing conversation message."""
         if self._relay_service is None:
