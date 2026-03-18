@@ -13,7 +13,7 @@ export function App() {
   }, [location.pathname, setWorkspace]);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-[1280px] flex-col gap-4 px-4 py-4 lg:px-6">
+    <div className="mx-auto flex h-screen max-w-[1280px] flex-col gap-4 overflow-hidden px-4 py-4 lg:px-6">
       <header className="im-card flex items-center justify-between gap-4 px-4 py-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Nano Multiagent</p>
