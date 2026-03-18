@@ -228,24 +228,62 @@ function PendingStatusHint(props: { canSend: boolean; isUploading: boolean; hasA
   return <p className="mt-2 text-xs text-slate-500">Press Enter to send. Press Shift+Enter for a new line.</p>;
 }
 
+function isImageAttachment(attachment: ChatAttachment): boolean {
+  return Boolean(attachment.content_type?.startsWith("image/"));
+}
+
+function ImageAttachmentItem({ attachment, muted }: { attachment: ChatAttachment; muted: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const label = attachment.file_name ?? attachment.url;
+  return (
+    <li>
+      <button
+        type="button"
+        className={[
+          "inline-flex items-center gap-1 text-left",
+          muted ? "underline underline-offset-2 opacity-80" : "underline underline-offset-2"
+        ].join(" ")}
+        aria-label={label}
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        <span>{label}</span>
+        <span aria-hidden="true" className="text-[10px] text-slate-400">{expanded ? "▲" : "▶"}</span>
+      </button>
+      {expanded && (
+        <img
+          src={attachment.url}
+          alt={label}
+          className="mt-1 max-w-full rounded-lg"
+        />
+      )}
+    </li>
+  );
+}
+
 function AttachmentLinks({ attachments, muted = false }: { attachments: ChatAttachment[]; muted?: boolean }) {
   if (attachments.length === 0) {
     return null;
   }
   return (
     <ul className="mt-2 space-y-1 text-xs">
-      {attachments.map((attachment) => (
-        <li key={`${attachment.url}:${attachment.file_name ?? "file"}`}>
-          <a
-            href={attachment.url}
-            target="_blank"
-            rel="noreferrer"
-            className={muted ? "underline underline-offset-2 opacity-80" : "underline underline-offset-2"}
-          >
-            {attachment.file_name ?? attachment.url}
-          </a>
-        </li>
-      ))}
+      {attachments.map((attachment) => {
+        const key = `${attachment.url}:${attachment.file_name ?? "file"}`;
+        if (isImageAttachment(attachment)) {
+          return <ImageAttachmentItem key={key} attachment={attachment} muted={muted} />;
+        }
+        return (
+          <li key={key}>
+            <a
+              href={attachment.url}
+              target="_blank"
+              rel="noreferrer"
+              className={muted ? "underline underline-offset-2 opacity-80" : "underline underline-offset-2"}
+            >
+              {attachment.file_name ?? attachment.url}
+            </a>
+          </li>
+        );
+      })}
     </ul>
   );
 }
