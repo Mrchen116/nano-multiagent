@@ -48,6 +48,8 @@ export interface ChatMessage {
   message_id: string;
   sender_type: SenderType;
   sender_name?: string;
+  sender_display_name?: string;
+  sender_user_id?: string;
   is_mine?: boolean;
   content: string;
   created_at: string;
