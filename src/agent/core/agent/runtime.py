@@ -153,7 +153,11 @@ class AgentRuntime:
             raise ValueError("empty input parts are not allowed")
 
         turn_id = make_turn_id()
-        hook_metadata: dict[str, Any] = {"cwd": str(session_workspace_root)}
+        # Seed hook_metadata from session metadata so hooks (e.g. before_agent_start)
+        # can read conversation_type, participant_agent_ids, agent_id, etc.
+        # Runtime-injected keys (cwd, run_id) are applied after and always take priority.
+        hook_metadata: dict[str, Any] = dict(session.metadata) if isinstance(session.metadata, Mapping) else {}
+        hook_metadata["cwd"] = str(session_workspace_root)
         if isinstance(run_id, str) and run_id.strip():
             hook_metadata["run_id"] = run_id.strip()
         hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id, metadata=hook_metadata)
