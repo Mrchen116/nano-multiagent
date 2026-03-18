@@ -79,7 +79,8 @@ def test_runtime_and_loop_emit_hook_events_in_expected_order() -> None:
 
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    # workspace_root is required by runtime._resolve_session_workspace_root
+    session = manager.create_session(metadata={"workspace_root": str(Path.cwd())})
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=EchoLLMClient(),
@@ -120,7 +121,8 @@ def test_input_transform_chain_affects_runtime_main_flow() -> None:
 
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    # workspace_root is required by runtime._resolve_session_workspace_root
+    session = manager.create_session(metadata={"workspace_root": str(Path.cwd())})
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -149,7 +151,8 @@ def test_before_agent_start_message_override_affects_runtime_main_flow() -> None
 
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    # workspace_root is required by runtime._resolve_session_workspace_root
+    session = manager.create_session(metadata={"workspace_root": str(Path.cwd())})
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -170,7 +173,7 @@ def test_before_agent_start_message_override_affects_runtime_main_flow() -> None
 def test_session_metadata_system_prompt_is_used_for_every_turn() -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session(metadata={"system_prompt": "You are the prompt frozen for this chat."})
+    session = manager.create_session(metadata={"workspace_root": str(Path.cwd()), "system_prompt": "You are the prompt frozen for this chat."})
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -199,7 +202,7 @@ def test_before_agent_start_blank_override_does_not_drop_session_frozen_system_p
 
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session(metadata={"system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY."})
+    session = manager.create_session(metadata={"workspace_root": str(Path.cwd()), "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY."})
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -226,7 +229,8 @@ def test_input_handled_short_circuits_runtime_flow() -> None:
 
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    # workspace_root is required by runtime._resolve_session_workspace_root
+    session = manager.create_session(metadata={"workspace_root": str(Path.cwd())})
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -255,7 +259,8 @@ def test_hook_exceptions_are_isolated_and_fail_open() -> None:
 
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    # workspace_root is required by runtime._resolve_session_workspace_root
+    session = manager.create_session(metadata={"workspace_root": str(Path.cwd())})
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,

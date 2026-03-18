@@ -75,7 +75,8 @@ def test_context_budget_defaults_to_zero_without_exact_usage_snapshot() -> None:
     client = TestClient(create_app(auth_token="test-token"))
     headers = {"Authorization": "Bearer test-token"}
 
-    created = client.post("/v1/sessions", json={}, headers=headers)
+    # workspace_root is required by CreateSessionRequest
+    created = client.post("/v1/sessions", json={"workspace_root": "/tmp"}, headers=headers)
     assert created.status_code == 201
     session_id = created.json()["session_id"]
 
@@ -92,7 +93,8 @@ def test_context_budget_prefers_latest_provider_total_tokens_when_available() ->
     client = TestClient(create_app(auth_token="test-token"))
     headers = {"Authorization": "Bearer test-token"}
 
-    created = client.post("/v1/sessions", json={}, headers=headers)
+    # workspace_root is required by CreateSessionRequest
+    created = client.post("/v1/sessions", json={"workspace_root": "/tmp"}, headers=headers)
     assert created.status_code == 201
     session_id = created.json()["session_id"]
 
