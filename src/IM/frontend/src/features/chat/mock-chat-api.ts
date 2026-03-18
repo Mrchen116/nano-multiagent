@@ -432,3 +432,12 @@ export async function leaveConversation(input: { conversationId: string; userId:
     conversations.splice(index, 1);
   }
 }
+
+/** M235: mock rename — updates the title in the in-memory conversation store. */
+export async function renameConversation(input: { conversationId: string; title: string }): Promise<{ title: string }> {
+  const conversation = conversations.find((item) => item.conversation_id === input.conversationId);
+  if (conversation) {
+    (conversation as { title: string }).title = input.title;
+  }
+  return { title: input.title };
+}

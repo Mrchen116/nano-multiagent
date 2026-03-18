@@ -16,6 +16,7 @@ import {
   leaveConversation,
   listConversations,
   listDiscoverableGroupParticipants,
+  renameConversation,
   resolveSendAvailability,
   sendMessage,
   streamConversationEvents,
@@ -785,6 +786,21 @@ export function ChatWorkspacePage() {
         deleteConversationMutation.mutateAsync({ conversationId: targetConversationId, requesterId: selfUserId })
     : undefined;
 
+  // M235: inline group rename handler; optimistically updates sidebar list and conversation cache.
+  const handleRenameConversation = isGroupConversation
+    ? async (targetConversationId: string, newTitle: string) => {
+        const { title: confirmedTitle } = await renameConversation({ conversationId: targetConversationId, title: newTitle });
+        // Optimistically update conversation detail cache.
+        queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", targetConversationId], (previous) =>
+          previous ? { ...previous, title: confirmedTitle } : previous
+        );
+        // Update sidebar list.
+        queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
+          updateConversationList(previous, targetConversationId, { title: confirmedTitle })
+        );
+      }
+    : undefined;
+
   if (isMobile && conversationId) {
     return (
       <div className="w-full">
@@ -806,6 +822,7 @@ export function ChatWorkspacePage() {
           onLeaveConversation={handleLeaveConversation}
           onDeleteConversation={handleDeleteConversation}
           isGroupCreator={isGroupCreator}
+          onRenameConversation={handleRenameConversation}
         />
       </div>
     );
@@ -987,6 +1004,7 @@ export function ChatWorkspacePage() {
           onLeaveConversation={handleLeaveConversation}
           onDeleteConversation={handleDeleteConversation}
           isGroupCreator={isGroupCreator}
+          onRenameConversation={handleRenameConversation}
         />
       )}
     </section>

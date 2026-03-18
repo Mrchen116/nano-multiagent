@@ -1201,3 +1201,23 @@ export async function leaveConversation(input: {
     throw new ChatRequestError({ status: response.status, detail, method: "DELETE", path: `/im/v1/conversations/${input.conversationId}/participants/${input.userId}` });
   }
 }
+
+/**
+ * Rename a group conversation (M235).
+ *
+ * Sends PATCH /im/v1/conversations/{conversationId} with { title }.
+ * Returns the updated title on success.
+ */
+export async function renameConversation(input: {
+  conversationId: string;
+  title: string;
+}): Promise<{ title: string }> {
+  const response = await requestJson<{ id: string; title: string }>(
+    `/im/v1/conversations/${input.conversationId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ title: input.title })
+    }
+  );
+  return { title: response.title };
+}
