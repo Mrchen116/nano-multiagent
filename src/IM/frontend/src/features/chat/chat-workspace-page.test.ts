@@ -1514,4 +1514,26 @@ describe("chat workspace page", () => {
       expect(queryClient.getQueryData(["chat", "bootstrap"])).toMatchObject({ selfUserId: "user-fresh" });
     });
   });
+
+  // M237: 候选列表容器必须有限高和滚动，防止撑高左栏后 ConversationList 滑出视口。
+  it("group chat panel - candidate list has max-height and overflow scroll", async () => {
+    const user = userEvent.setup();
+
+    const { container } = renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create group chat" }));
+
+    // 等待候选列表渲染完毕（至少一个 agent 出现）。
+    expect(await screen.findByText("OpsBot")).toBeInTheDocument();
+
+    // 候选列表包裹层必须带限高（max-h-*）与溢出滚动（overflow-y-auto）。
+    const scrollableWrapper = container.querySelector(".overflow-y-auto");
+    expect(scrollableWrapper).not.toBeNull();
+    const wrapperClasses = scrollableWrapper?.className ?? "";
+    expect(/\bmax-h-\S+/.test(wrapperClasses)).toBe(true);
+  });
 });
