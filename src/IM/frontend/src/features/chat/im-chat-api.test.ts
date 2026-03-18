@@ -318,3 +318,36 @@ describe("im chat stream parser", () => {
     expect(parsed).toBeNull();
   });
 });
+
+// M234: group chat delete API
+describe("deleteConversation / leaveConversation", () => {
+  it("deleteConversation sends DELETE to /im/v1/conversations/{id} with requester_id", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(null, { status: 204 })
+    );
+
+    const { deleteConversation } = await import("./im-chat-api");
+    await deleteConversation({ conversationId: "conv-abc", requesterId: "user-123" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/im\/v1\/conversations\/conv-abc$/);
+    expect(init.method).toBe("DELETE");
+    const body = JSON.parse(init.body as string) as { requester_id: string };
+    expect(body.requester_id).toBe("user-123");
+  });
+
+  it("leaveConversation sends DELETE to /im/v1/conversations/{id}/participants/{userId}", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(null, { status: 204 })
+    );
+
+    const { leaveConversation } = await import("./im-chat-api");
+    await leaveConversation({ conversationId: "conv-abc", userId: "user-456" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/im\/v1\/conversations\/conv-abc\/participants\/user-456$/);
+    expect(init.method).toBe("DELETE");
+  });
+});
