@@ -29,7 +29,7 @@ metadata，触发 `_resolve_session_workspace_root` 抛出 ValueError。这是�
 
 **DoD**：test_command 全绿 + C1/C2/C3
 
-**状态**：TODO
+**状态**：DONE
 
 ---
 
@@ -61,4 +61,4 @@ metadata，触发 `_resolve_session_workspace_root` 抛出 ValueError。这是�
 
 **DoD**：test_command 全绿 + C1/C2/C3
 
-**状态**：TODO
+**状态**：DONE
