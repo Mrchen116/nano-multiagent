@@ -83,7 +83,7 @@
 
 ## R3: inbound_pipeline.py — 移除 gateway fan-out loop
 
-**状态：** TODO
+**状态：** DONE
 
 ### Acceptance
 

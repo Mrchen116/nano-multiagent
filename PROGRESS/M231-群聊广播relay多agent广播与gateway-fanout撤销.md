@@ -38,12 +38,12 @@
 
 ## R3: inbound_pipeline.py — 移除 gateway fan-out loop
 
-- Context:
-- Decision:
-- Rationale:
+- Context: commit 3a43a47 在 inbound_pipeline 中为每个其他 agent 手动广播 buffer（fan-out）；现在 IM 已按 agent 分发 relay，gateway 只需管理本 relay 的 agent_id。
+- Decision: 移除 `for aid in self._agents` 的无 @ 广播 loop 和 `for other_id in self._agents` 的有 @ 消息广播/回复广播 loop；保留 GroupContextStore、`_group_buf_key_for_agent`、buffer drain（只写本 relay 的 agent_id key）。同步更新 test_m103 中的 `test_group_multiagent_fanout_buffers_and_contextualises` 测试，使其模拟 per-relay 模式（每条消息携带 `agent_id`）。
+- Rationale: 单一责任——每条 relay 只为自己的 agent 服务；跨 agent context 由 IM 侧按 agent 发 relay 保证。
 - Evidence:
-  - Tests:
-  - Entry:
-- Rollback:
-- Commits: C1=, C2=, C3=
-- Next:
+  - Tests: `python -m pytest tests/unit/personal_assistant/ tests/unit/IM/ -x -q` → 113 passed
+  - Entry: agent_id=agent-b 的 relay → 只写入 agent-b 的 buffer key；agent-a buffer 为空。
+- Rollback: 回退到 C1 commit 2d5d957
+- Commits: C1=2d5d957, C2=4fccdaf, C3=（待写）
+- Next: 整体 rebase + merge 到 main
