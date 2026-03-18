@@ -287,13 +287,15 @@ describe("chat workspace relay event mapping", () => {
     });
   });
 
-  it("converts relay.processing into a synthetic running agent message", () => {
+  it("prefers relay agent display name over node identity for synthetic agent messages", () => {
     expect(
       toRelayAgentMessage({
         eventType: "relay.processing",
         payload: {
           message_id: "msg-1",
-          node_id: "node-demo",
+          agent_id: "A",
+          sender_display_name: "Alpha",
+          node_id: "my-macbook",
           summary: "working on it",
           created_at: "2026-03-12T00:00:00Z"
         }
@@ -301,13 +303,35 @@ describe("chat workspace relay event mapping", () => {
     ).toEqual({
       message_id: "msg-1:agent",
       sender_type: "agent",
-      sender_name: "node-demo",
+      sender_name: "A",
+      sender_display_name: "Alpha",
       is_mine: false,
       content: "working on it",
       created_at: "2026-03-12T00:00:00Z",
       delivery_status: "running",
       recovery_action_label: undefined,
       recovery_hint: undefined
+    });
+  });
+
+  it("falls back to relay agent id before node identity when display name is absent", () => {
+    expect(
+      toRelayAgentMessage({
+        eventType: "relay.processing",
+        payload: {
+          message_id: "msg-1",
+          agent_id: "Q",
+          node_id: "my-macbook",
+          summary: "working on it",
+          created_at: "2026-03-12T00:00:00Z"
+        }
+      })
+    ).toMatchObject({
+      message_id: "msg-1:agent",
+      sender_type: "agent",
+      sender_name: "Q",
+      content: "working on it",
+      delivery_status: "running"
     });
   });
 

@@ -317,6 +317,17 @@ function isNoReplyProtocolToken(value: string | null) {
   return value?.trim() === "NO_REPLY";
 }
 
+function toRelaySenderIdentity(payload: Record<string, unknown>) {
+  const senderDisplayName =
+    toStringValue(payload.sender_display_name) ?? toStringValue(payload.display_name) ?? toStringValue(payload.agent_display_name);
+  const agentId = toStringValue(payload.agent_id);
+  const nodeId = toStringValue(payload.node_id);
+  return {
+    sender_display_name: senderDisplayName ?? undefined,
+    sender_name: agentId ?? nodeId ?? "Agent"
+  };
+}
+
 export function toRelayAgentMessage(event: {
   eventType: string;
   payload: Record<string, unknown>;
@@ -345,10 +356,12 @@ export function toRelayAgentMessage(event: {
       : event.eventType === "relay.failed"
         ? "failed"
         : "completed";
+  const senderIdentity = toRelaySenderIdentity(event.payload);
   return {
     message_id: `${messageId}:agent`,
     sender_type: "agent",
-    sender_name: toStringValue(event.payload.node_id) ?? "Agent",
+    sender_name: senderIdentity.sender_name,
+    sender_display_name: senderIdentity.sender_display_name,
     is_mine: false,
     content,
     created_at: toStringValue(event.payload.created_at) ?? new Date().toISOString(),
