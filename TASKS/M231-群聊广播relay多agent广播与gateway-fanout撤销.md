@@ -50,7 +50,7 @@
 
 ## R2: messages.py — 群聊 per-agent relay loop
 
-**状态：** TODO
+**状态：** DONE
 
 ### Acceptance
 

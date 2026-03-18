@@ -24,15 +24,15 @@
 
 ## R2: messages.py — 群聊 per-agent relay loop
 
-- Context:
-- Decision:
-- Rationale:
+- Context: create_message 路由原来只调一次 enqueue_relay + push；需改为对每个 participant agent 各调一次，且单节点离线不阻断其他。
+- Decision: 新增 WebIMService.enqueue_relay_all（委托 relay_service.enqueue_message_relay_all），路由改为遍历结果逐个 push，收集 any_dispatched；全部失败才抛 503，部分失败 record_relay_failure 继续。
+- Rationale: any_dispatched 逻辑确保"至少一个 agent 收到"才算成功，符合群聊广播容错语义。
 - Evidence:
-  - Tests:
-  - Entry:
-- Rollback:
-- Commits: C1=, C2=, C3=
-- Next:
+  - Tests: `python -m pytest tests/unit/personal_assistant/ tests/unit/IM/ -x -q` → 109 passed
+  - Entry: 群聊 2 agent，一个离线 → 200 返回；全部离线 → 503；两个均在线 → 两次 push 均被调用。
+- Rollback: 回退到 C1 commit c5f8e0b
+- Commits: C1=c5f8e0b, C2=b5b82bc, C3=（待写）
+- Next: R3 — inbound_pipeline.py 移除 gateway fan-out loop
 
 ---
 
