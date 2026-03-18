@@ -147,15 +147,20 @@ class WebRelayAdapter:
 
     name = "web_relay"
 
-    def __init__(self) -> None:
+    def __init__(self, *, dedup_store: RelayDeduplicationStore | None = None) -> None:
         self._on_inbound: InboundHandler | None = None
         self.sent: list[OutboundMessage] = []
         self._seen_idempotency_keys: deque[str] = deque()
+        self._dedup_store = dedup_store
+        if self._dedup_store is not None:
+            self._seen_idempotency_keys = self._dedup_store._seen_idempotency_keys
 
     def start(self, on_inbound: InboundHandler) -> None:
         """Store the gateway inbound callback used for relay pushes."""
 
         self._on_inbound = on_inbound
+        if self._dedup_store is not None:
+            self._dedup_store.load_from_db()
 
     def send(self, outbound: OutboundMessage) -> None:
         """Record normalized outbound traffic destined for Web IM."""
@@ -179,14 +184,25 @@ class WebRelayAdapter:
         if callback is None:
             raise RuntimeError("web relay adapter is not started")
         envelope = _parse_relay_payload(payload)
-        if envelope.idempotency_key in self._seen_idempotency_keys:
+        if self._contains_seen_key(envelope.idempotency_key):
             return _build_inbound(envelope, payload)
-        self._seen_idempotency_keys.append(envelope.idempotency_key)
-        if len(self._seen_idempotency_keys) > _SEEN_KEYS_MAX:
-            self._seen_idempotency_keys.popleft()
+        self._remember_seen_key(envelope.idempotency_key)
         inbound = _build_inbound(envelope, payload)
         callback(inbound)
         return inbound
+
+    def _contains_seen_key(self, key: str) -> bool:
+        if self._dedup_store is not None:
+            return self._dedup_store.contains(key)
+        return key in self._seen_idempotency_keys
+
+    def _remember_seen_key(self, key: str) -> None:
+        if self._dedup_store is not None:
+            self._dedup_store.add(key)
+            return
+        self._seen_idempotency_keys.append(key)
+        if len(self._seen_idempotency_keys) > _SEEN_KEYS_MAX:
+            self._seen_idempotency_keys.popleft()
 
 
 def _build_inbound(envelope: RelayEnvelope, payload: Mapping[str, object]) -> InboundMessage:
