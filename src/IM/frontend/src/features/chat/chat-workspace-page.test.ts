@@ -1315,6 +1315,9 @@ describe("chat workspace page", () => {
       initialEntries: ["/chat/conv-1"]
     });
 
+    // Usage strip is collapsed by default; expand it first.
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /usage/i }));
     expect(await screen.findByText("This chat")).toBeInTheDocument();
     expect(screen.getByText("Workspace total")).toBeInTheDocument();
     expect(screen.getAllByText("3 turns")).toHaveLength(2);
@@ -1355,6 +1358,9 @@ describe("chat workspace page", () => {
       initialEntries: ["/chat/conv-1"]
     });
 
+    // Usage strip is collapsed by default; expand it first.
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /usage/i }));
     expect(await screen.findByText("This chat")).toBeInTheDocument();
     expect(screen.getAllByText("0 turns")).toHaveLength(2);
     expect(screen.getAllByText("0 tokens")).toHaveLength(2);
@@ -1421,6 +1427,9 @@ describe("chat workspace page", () => {
 
     const { router } = renderWorkspaceWithPersistentClient({ initialEntries: ["/chat/conv-1"] });
 
+    // Usage strip is collapsed by default; expand it first.
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /usage/i }));
     expect(await screen.findByText("This chat")).toBeInTheDocument();
     expect(screen.getAllByText("0 turns")).toHaveLength(2);
 
@@ -1430,6 +1439,8 @@ describe("chat workspace page", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "Project Escalation" })).toBeInTheDocument();
+    // Strip resets to collapsed on navigation; expand again to verify updated totals.
+    await userEvent.click(screen.getByRole("button", { name: /usage/i }));
     await waitFor(() => {
       expect(screen.getByText("5 turns")).toBeInTheDocument();
       expect(screen.getByText("30 tokens")).toBeInTheDocument();
@@ -1456,6 +1467,9 @@ describe("chat workspace page", () => {
 
     const { router } = renderWorkspaceWithPersistentClient({ initialEntries: ["/chat/conv-1"] });
 
+    // Usage strip is collapsed by default; expand it first.
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /usage/i }));
     expect(await screen.findByText("This chat")).toBeInTheDocument();
     expect(screen.getAllByText("0 turns")).toHaveLength(2);
 
@@ -1469,6 +1483,9 @@ describe("chat workspace page", () => {
       await router.navigate("/chat/conv-1");
     });
 
+    // Strip resets to collapsed on navigation; expand again to verify updated totals.
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /usage/i }));
     await waitFor(() => {
       expect(screen.getByText("6 turns")).toBeInTheDocument();
       expect(screen.getByText("36 tokens")).toBeInTheDocument();
