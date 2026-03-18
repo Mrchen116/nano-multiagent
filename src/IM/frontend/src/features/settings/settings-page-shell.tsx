@@ -12,8 +12,8 @@ export function SettingsPageShell() {
   const isAgentSubpage = location.pathname.startsWith("/settings/agents/");
 
   return (
-    <section className="grid w-full gap-4 lg:grid-cols-[240px_1fr]">
-      <aside className="im-card p-3">
+    <section className="grid h-full w-full gap-4 overflow-hidden lg:grid-cols-[240px_1fr]">
+      <aside className="im-card overflow-y-auto p-3">
         <p className="im-title mb-3 text-base font-bold">Settings</p>
         <nav
           aria-label="Settings Sections"
@@ -38,7 +38,7 @@ export function SettingsPageShell() {
           ))}
         </nav>
       </aside>
-      <div className="im-card p-5">
+      <div className="im-card flex h-full flex-col overflow-y-auto p-5">
         <Outlet />
       </div>
     </section>

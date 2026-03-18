@@ -31,7 +31,7 @@ export function PoliciesPage() {
 
   return (
     <form
-      className="grid gap-3 md:grid-cols-2"
+      className="grid h-full flex-1 gap-3 md:grid-cols-2"
       onSubmit={(event) => {
         event.preventDefault();
         mutation.mutate(draft);

@@ -39,7 +39,7 @@ export function AccountPage() {
 
   return (
     <form
-      className="grid gap-3"
+      className="flex h-full flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
         mutation.mutate(draft);
