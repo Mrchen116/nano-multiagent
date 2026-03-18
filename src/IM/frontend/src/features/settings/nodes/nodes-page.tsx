@@ -33,7 +33,7 @@ export function NodesPage() {
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="flex h-full flex-col gap-3">
       <h2 className="im-title text-xl font-bold">Nodes</h2>
       {rows.map((row) => (
         <section key={row.node_id} className="rounded-xl border border-[var(--im-border)] bg-white p-3">
