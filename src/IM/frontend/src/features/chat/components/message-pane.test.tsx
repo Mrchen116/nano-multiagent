@@ -611,6 +611,86 @@ describe("message pane", () => {
     expect(screen.queryByRole("button", { name: /编辑群聊名称|群聊改名/i })).not.toBeInTheDocument();
   });
 
+  it("shows sender names above each bubble in group chat", () => {
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-group-senders",
+        title: "Status thread",
+        kind_label: "Group chat",
+        ownership_label: "Shared conversation for people and agents.",
+        messages: [
+          {
+            message_id: "msg-group-mine",
+            sender_type: "user",
+            sender_name: "You",
+            is_mine: true,
+            content: "I am here",
+            created_at: "2026-03-14T00:05:00Z"
+          },
+          {
+            message_id: "msg-group-agent",
+            sender_type: "agent",
+            sender_display_name: "OpsBot",
+            sender_user_id: "agent-ops",
+            content: "Reply from ops",
+            created_at: "2026-03-14T00:06:00Z"
+          },
+          {
+            message_id: "msg-group-fallback-user-id",
+            sender_type: "agent",
+            sender_user_id: "agent-review",
+            content: "Reply from review",
+            created_at: "2026-03-14T00:07:00Z"
+          },
+          {
+            message_id: "msg-group-fallback-type",
+            sender_type: "system",
+            content: "System note",
+            created_at: "2026-03-14T00:08:00Z"
+          }
+        ]
+      }
+    });
+
+    expect(screen.getByText("You")).toBeInTheDocument();
+    expect(screen.getByText("OpsBot")).toBeInTheDocument();
+    expect(screen.getByText("agent-review")).toBeInTheDocument();
+    expect(screen.getByText("system")).toBeInTheDocument();
+  });
+
+  it("does not show sender names inside direct chat bubbles", () => {
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-direct-senders",
+        title: "Agent Alpha",
+        kind_label: "Direct agent chat",
+        messages: [
+          {
+            message_id: "msg-direct-user",
+            sender_type: "user",
+            sender_name: "You",
+            is_mine: true,
+            content: "hello",
+            created_at: "2026-03-14T00:05:00Z"
+          },
+          {
+            message_id: "msg-direct-agent",
+            sender_type: "agent",
+            sender_display_name: "OpsBot",
+            sender_user_id: "agent-ops",
+            content: "hi",
+            created_at: "2026-03-14T00:06:00Z"
+          }
+        ]
+      }
+    });
+
+    expect(screen.getByText("hello")).toBeInTheDocument();
+    expect(screen.getByText("hi")).toBeInTheDocument();
+    expect(screen.queryByText("You")).not.toBeInTheDocument();
+    expect(screen.queryByText("OpsBot")).not.toBeInTheDocument();
+  });
+
   it("keeps empty completed agent placeholders fully silent", () => {
     renderMessagePane({
       detail: {

@@ -248,10 +248,15 @@ function AttachmentLinks({ attachments, muted = false }: { attachments: ChatAtta
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function getGroupMessageSenderLabel(message: ChatMessage) {
+  return message.sender_display_name ?? message.sender_name ?? message.sender_user_id ?? message.sender_type;
+}
+
+function MessageBubble({ message, isGroupChat }: { message: ChatMessage; isGroupChat: boolean }) {
   const mine = message.is_mine ?? message.sender_type === "user";
   const attachments = message.attachments ?? [];
   const deliveryStatus = toDeliveryStatusCopy(message);
+  const senderLabel = isGroupChat ? getGroupMessageSenderLabel(message) : null;
   return (
     <div className={`mb-3 flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
@@ -260,8 +265,8 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           mine ? "bg-[#0f766e] text-white" : "bg-[#e5ebf2] text-slate-900"
         ].join(" ")}
       >
-        <p className="text-[11px] opacity-75">{message.sender_name ?? message.sender_type}</p>
-        {message.content ? <p className="mt-1 whitespace-pre-wrap">{message.content}</p> : null}
+        {senderLabel ? <p className="text-[11px] opacity-75">{senderLabel}</p> : null}
+        {message.content ? <p className={senderLabel ? "mt-1 whitespace-pre-wrap" : "whitespace-pre-wrap"}>{message.content}</p> : null}
         <AttachmentLinks attachments={attachments} muted={mine} />
         {deliveryStatus && (
           <div className="mt-2 rounded-xl border border-black/10 bg-black/5 px-2 py-1 text-[10px] leading-4">
@@ -583,7 +588,8 @@ export function MessagePane(props: {
       return candidate.label.toLowerCase().includes(normalizedQuery) || stableMention.includes(normalizedQuery);
     });
   }, [mentionCandidates, mentionQuery]);
-  const isMentionMenuOpen = props.detail?.kind_label === "Group chat" && filteredMentionCandidates.length > 0 && Boolean(mentionQuery);
+  const isGroupChat = props.detail?.kind_label === "Group chat";
+  const isMentionMenuOpen = isGroupChat && filteredMentionCandidates.length > 0 && Boolean(mentionQuery);
 
   useEffect(() => {
     if (!props.detail) {
@@ -890,7 +896,7 @@ export function MessagePane(props: {
           {props.detail.messages.length === 0 ? (
             <EmptyThreadState />
           ) : (
-            props.detail.messages.map((message) => <MessageBubble key={message.message_id} message={message} />)
+            props.detail.messages.map((message) => <MessageBubble key={message.message_id} message={message} isGroupChat={isGroupChat} />)
           )}
         </div>
       </div>
