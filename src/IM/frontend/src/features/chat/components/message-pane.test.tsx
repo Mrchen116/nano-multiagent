@@ -635,3 +635,99 @@ describe("message pane", () => {
     expect(screen.queryByText("The latest agent response finished successfully.")).not.toBeInTheDocument();
   });
 });
+
+describe("MessagePane image attachments", () => {
+  it("renders image attachments collapsed by default, showing only filename and expand button", () => {
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-img",
+        title: "Image test",
+        kind_label: "Direct agent chat",
+        messages: [
+          {
+            message_id: "msg-img-1",
+            sender_type: "agent",
+            sender_name: "Bot",
+            content: "Here is your image",
+            created_at: "2026-03-18T10:00:00Z",
+            delivery_status: "completed",
+            attachments: [
+              {
+                url: "http://im.test/im/uploads/photo.png",
+                file_name: "photo.png",
+                content_type: "image/png"
+              }
+            ]
+          }
+        ]
+      }
+    });
+
+    expect(screen.getByText("photo.png")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /photo\.png/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /expand.*photo\.png|show.*photo\.png|photo\.png/i })).toBeInTheDocument();
+  });
+
+  it("expands image attachment on toggle click", async () => {
+    const user = userEvent.setup();
+
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-img-expand",
+        title: "Image expand test",
+        kind_label: "Direct agent chat",
+        messages: [
+          {
+            message_id: "msg-img-2",
+            sender_type: "agent",
+            sender_name: "Bot",
+            content: "Attached",
+            created_at: "2026-03-18T10:00:00Z",
+            delivery_status: "completed",
+            attachments: [
+              {
+                url: "http://im.test/im/uploads/screenshot.png",
+                file_name: "screenshot.png",
+                content_type: "image/png"
+              }
+            ]
+          }
+        ]
+      }
+    });
+
+    await user.click(screen.getByRole("button", { name: /expand.*screenshot\.png|show.*screenshot\.png|screenshot\.png/i }));
+
+    expect(screen.getByRole("img", { name: "screenshot.png" })).toBeInTheDocument();
+  });
+
+  it("non-image attachments remain as plain links without an expand button", () => {
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-file",
+        title: "File test",
+        kind_label: "Direct agent chat",
+        messages: [
+          {
+            message_id: "msg-file-1",
+            sender_type: "agent",
+            sender_name: "Bot",
+            content: "Here is the file",
+            created_at: "2026-03-18T10:00:00Z",
+            delivery_status: "completed",
+            attachments: [
+              {
+                url: "http://im.test/im/uploads/report.pdf",
+                file_name: "report.pdf",
+                content_type: "application/pdf"
+              }
+            ]
+          }
+        ]
+      }
+    });
+
+    expect(screen.getByRole("link", { name: "report.pdf" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /expand.*report|show.*report/i })).not.toBeInTheDocument();
+  });
+});
