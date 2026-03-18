@@ -13,7 +13,8 @@ import {
   pickPrimaryOwnedNodeId,
   resetChatBootstrapState,
   resolveSendAvailability,
-  confirmBindToken
+  confirmBindToken,
+  resolveGroupConversationTitle
 } from "./im-chat-api";
 
 afterEach(() => {
@@ -98,6 +99,17 @@ describe("im chat api helpers", () => {
     expect(buildGroupConversationTitle(["OpsBot"])).toBe("OpsBot group");
     expect(buildGroupConversationTitle(["OpsBot", "Alex"])).toBe("OpsBot + Alex");
     expect(buildGroupConversationTitle(["OpsBot", "Alex", "Agent New"])).toBe("OpsBot + Alex +1");
+  });
+
+  it("resolves group conversation title: custom name overrides auto-generated title (M235)", () => {
+    // Custom name provided → use it regardless of participant labels.
+    expect(resolveGroupConversationTitle({ groupName: "Dev Team", participantLabels: ["OpsBot", "Alex"] })).toBe("Dev Team");
+    // Whitespace-only name → fall back to auto-generated title.
+    expect(resolveGroupConversationTitle({ groupName: "   ", participantLabels: ["OpsBot", "Alex"] })).toBe("OpsBot + Alex");
+    // Empty string → fall back.
+    expect(resolveGroupConversationTitle({ groupName: "", participantLabels: ["OpsBot"] })).toBe("OpsBot group");
+    // Undefined → fall back.
+    expect(resolveGroupConversationTitle({ groupName: undefined, participantLabels: [] })).toBe("New group chat");
   });
 
   it("reuses the oldest matching direct thread as the canonical agent chat", () => {

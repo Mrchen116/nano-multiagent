@@ -552,6 +552,8 @@ export function MessagePane(props: {
   onDeleteConversation?: (conversationId: string) => Promise<void>;
   /** Whether the current user is the creator/owner of this group conversation. */
   isGroupCreator?: boolean;
+  /** M235: called when user renames the group chat; receives (conversationId, newTitle). */
+  onRenameConversation?: (conversationId: string, title: string) => Promise<void>;
 }) {
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -562,6 +564,9 @@ export function MessagePane(props: {
   // Confirmation dialog state for leave/delete group operations (M234).
   const [confirmAction, setConfirmAction] = useState<"leave" | "delete" | null>(null);
   const [isConfirmPending, setIsConfirmPending] = useState(false);
+  // M235: inline group-name edit state.
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const listRef = useRef<HTMLDivElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -754,7 +759,53 @@ export function MessagePane(props: {
           {props.detail.kind_label && (
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{props.detail.kind_label}</p>
           )}
-          <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
+          {/* M235: group chats show an inline-editable title; others show a plain heading */}
+          {props.detail.kind_label === "Group chat" && props.onRenameConversation ? (
+            isEditingTitle ? (
+              <input
+                className="im-input w-full text-lg font-bold"
+                value={titleDraft}
+                autoFocus
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const trimmed = titleDraft.trim();
+                    if (trimmed) {
+                      void props.onRenameConversation!(props.detail!.conversation_id, trimmed);
+                    }
+                    setIsEditingTitle(false);
+                  } else if (e.key === "Escape") {
+                    setIsEditingTitle(false);
+                  }
+                }}
+                onBlur={() => {
+                  const trimmed = titleDraft.trim();
+                  if (trimmed && trimmed !== props.detail!.title) {
+                    void props.onRenameConversation!(props.detail!.conversation_id, trimmed);
+                  }
+                  setIsEditingTitle(false);
+                }}
+              />
+            ) : (
+              <div className="flex items-center gap-1">
+                <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
+                <button
+                  type="button"
+                  aria-label="编辑群聊名称"
+                  className="rounded px-1 py-0.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  onClick={() => {
+                    setTitleDraft(props.detail!.title);
+                    setIsEditingTitle(true);
+                  }}
+                >
+                  ✏
+                </button>
+              </div>
+            )
+          ) : (
+            <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
+          )}
           {sanitizeThreadTargetLabel(props.detail) && <p className="mt-1 text-xs text-slate-600">Target: {sanitizeThreadTargetLabel(props.detail)}</p>}
           {props.detail.discoverability_hint && (
             <p className="mt-1 text-xs text-slate-500">{props.detail.discoverability_hint}</p>

@@ -510,6 +510,18 @@ export function buildGroupConversationTitle(labels: string[]): string {
   return `${normalizedLabels[0]} + ${normalizedLabels[1]} +${normalizedLabels.length - 2}`;
 }
 
+export function resolveGroupConversationTitle(input: {
+  groupName: string | undefined;
+  participantLabels: string[];
+}): string {
+  // Use custom name when provided; fall back to auto-generated title from participant labels.
+  const trimmed = input.groupName?.trim() ?? "";
+  if (trimmed.length > 0) {
+    return trimmed;
+  }
+  return buildGroupConversationTitle(input.participantLabels);
+}
+
 export function buildStarterPeerUsername(agentId: string): string {
   return agentId === PEER_USERNAME ? PEER_USERNAME : `${AGENT_USERNAME_PREFIX}${agentId}`;
 }
@@ -966,7 +978,11 @@ export async function createFreshDirectConversation(input: { agentId: string }):
   return { conversation_id: created.id };
 }
 
-export async function createGroupConversation(input: { participantIds: string[] }): Promise<{ conversation_id: string }> {
+export async function createGroupConversation(input: {
+  participantIds: string[];
+  /** Optional custom group name; leave blank to auto-generate from participant names. */
+  groupName?: string;
+}): Promise<{ conversation_id: string }> {
   const { selfUserId } = await ensureBootstrap();
   const participantIds = Array.from(
     new Set(input.participantIds.filter((participantId) => participantId && participantId !== selfUserId))
@@ -975,9 +991,8 @@ export async function createGroupConversation(input: { participantIds: string[] 
     throw new Error("select at least two participants to create a group chat");
   }
   const userById = await loadUserMap();
-  const title = buildGroupConversationTitle(
-    participantIds.map((participantId) => userById.get(participantId)?.display_name ?? participantId)
-  );
+  const participantLabels = participantIds.map((participantId) => userById.get(participantId)?.display_name ?? participantId);
+  const title = resolveGroupConversationTitle({ groupName: input.groupName, participantLabels });
   const created = await createConversationRaw({
     title,
     participant_ids: [selfUserId, ...participantIds]
@@ -1185,4 +1200,24 @@ export async function leaveConversation(input: {
     }
     throw new ChatRequestError({ status: response.status, detail, method: "DELETE", path: `/im/v1/conversations/${input.conversationId}/participants/${input.userId}` });
   }
+}
+
+/**
+ * Rename a group conversation (M235).
+ *
+ * Sends PATCH /im/v1/conversations/{conversationId} with { title }.
+ * Returns the updated title on success.
+ */
+export async function renameConversation(input: {
+  conversationId: string;
+  title: string;
+}): Promise<{ title: string }> {
+  const response = await requestJson<{ id: string; title: string }>(
+    `/im/v1/conversations/${input.conversationId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ title: input.title })
+    }
+  );
+  return { title: response.title };
 }

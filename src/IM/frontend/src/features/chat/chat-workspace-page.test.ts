@@ -889,7 +889,8 @@ describe("chat workspace page", () => {
     await user.click(screen.getByRole("checkbox", { name: /Alex/i }));
     await user.click(screen.getByRole("button", { name: "Create selected group chat" }));
 
-    expect(createGroupConversation).toHaveBeenCalledWith({ participantIds: ["agent-ops-user", "teammate-alex"] });
+    // M235: groupName is now passed alongside participantIds (empty string = auto-generate title).
+    expect(createGroupConversation).toHaveBeenCalledWith({ participantIds: ["agent-ops-user", "teammate-alex"], groupName: "" });
     expect(await screen.findByRole("heading", { name: "OpsBot + Alex" })).toBeInTheDocument();
     expect(getConversation).toHaveBeenCalledWith("conv-group-new");
     expect(screen.queryByText("Select participants")).not.toBeInTheDocument();
