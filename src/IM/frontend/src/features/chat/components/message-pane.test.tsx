@@ -112,6 +112,9 @@ describe("message pane", () => {
       }
     });
 
+    // Usage strip is collapsed by default; expand it first.
+    await user.click(screen.getByRole("button", { name: /usage/i }));
+
     expect(screen.getByRole("tab", { name: "Agent Alpha" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("Agent · Agent Alpha")).toBeInTheDocument();
     expect(screen.getByText("Completion 7")).toBeInTheDocument();
@@ -633,5 +636,25 @@ describe("message pane", () => {
     expect(screen.queryByText("Delivered")).not.toBeInTheDocument();
     expect(screen.queryByText("Agent replied")).not.toBeInTheDocument();
     expect(screen.queryByText("The latest agent response finished successfully.")).not.toBeInTheDocument();
+  });
+});
+
+describe("MessagePane usage strip", () => {
+  it("collapses usage strip by default, showing only a summary toggle", () => {
+    renderMessagePane();
+
+    expect(screen.getByRole("button", { name: /usage/i })).toBeInTheDocument();
+    expect(screen.queryByText("This chat")).not.toBeInTheDocument();
+    expect(screen.queryByText("Workspace total")).not.toBeInTheDocument();
+  });
+
+  it("expands usage strip after clicking the toggle", async () => {
+    const user = userEvent.setup();
+    renderMessagePane();
+
+    await user.click(screen.getByRole("button", { name: /usage/i }));
+
+    expect(screen.getByText("This chat")).toBeInTheDocument();
+    expect(screen.getByText("Workspace total")).toBeInTheDocument();
   });
 });

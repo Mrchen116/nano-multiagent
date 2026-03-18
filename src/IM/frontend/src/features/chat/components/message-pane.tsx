@@ -16,7 +16,7 @@ import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
 const SEND_AVAILABILITY_MESSAGES = getSendAvailabilityMessages();
 const RELAY_UNAVAILABLE_MESSAGE = SEND_AVAILABILITY_MESSAGES.unavailableHelperText;
 const ENGINEERING_GROUP_OWNERSHIP_PATTERNS = [/^Using your main agent .+ready to chat\)$/i];
-const PRODUCT_GROUP_OWNERSHIP_LABEL = "Shared conversation for people and agents.";
+const PRODUCT_GROUP_OWNERSHIP_LABEL = "Group chat";
 
 function toErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -338,13 +338,27 @@ function AgentUsagePanel(props: { agents: UsageAgentView[] }) {
 }
 
 function UsageStrip(props: { usage: ChatUsageView }) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <div className="border-b border-[var(--im-border)] px-4 py-3">
-      <div className="grid gap-2 md:grid-cols-2">
-        <UsageCard label="This chat" totals={props.usage.conversation} />
-        <UsageCard label="Workspace total" totals={props.usage.workspace} />
-      </div>
-      <AgentUsagePanel agents={props.usage.agents} />
+    <div className="border-b border-[var(--im-border)] px-4 py-2">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 hover:text-slate-700"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((prev) => !prev)}
+      >
+        <span>Usage</span>
+        <span aria-hidden="true" className="text-[10px] text-slate-400">{expanded ? "▲" : "▶"}</span>
+      </button>
+      {expanded && (
+        <div className="mt-2">
+          <div className="grid gap-2 md:grid-cols-2">
+            <UsageCard label="This chat" totals={props.usage.conversation} />
+            <UsageCard label="Workspace total" totals={props.usage.workspace} />
+          </div>
+          <AgentUsagePanel agents={props.usage.agents} />
+        </div>
+      )}
     </div>
   );
 }

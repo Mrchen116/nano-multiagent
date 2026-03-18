@@ -162,10 +162,10 @@ describe("agent create page", () => {
 
     expect(await screen.findByText("Agent created. Open its dedicated direct chat now or keep editing in Settings.")).toBeInTheDocument();
     expect(
-      screen.getByText(
+      screen.queryByText(
         "Each agent keeps one stable reusable direct chat window. From inside chat you can start a fresh session later when you need a new prompt snapshot without disturbing older threads."
       )
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Agent New" })).toHaveAttribute("href", "/settings/agents/agent-new");
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
 
