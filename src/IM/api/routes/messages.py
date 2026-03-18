@@ -193,26 +193,33 @@ async def create_message(
     except ValueError as exc:
         raise map_message_write_error(exc) from exc
     if resolved_target_node_id is not None:
-        relay_result = service.enqueue_relay(
+        idempotency_key_base = idempotency_key or f"relay:{created.id}:{resolved_target_node_id}"
+        relay_results = service.enqueue_relay_all(
             message=created,
             target_node_id=resolved_target_node_id,
-            idempotency_key=idempotency_key or f"relay:{created.id}:{resolved_target_node_id}",
+            idempotency_key_base=idempotency_key_base,
             sender_user_id=payload.sender_user_id,
         )
-        dispatched = await gateway_handler.push_relay_message(
-            relay_task_id=relay_result.relay_task.relay_task_id,
-            target_node_id=resolved_target_node_id,
-            payload=relay_result.relay_task.payload,
-        )
-        if not dispatched:
-            gateway_handler.record_relay_failure(
-                conversation_id=created.conversation_id,
-                message_id=created.id,
+        # Push each relay independently: one offline agent must not block others.
+        any_dispatched = False
+        for relay_result in relay_results:
+            dispatched = await gateway_handler.push_relay_message(
                 relay_task_id=relay_result.relay_task.relay_task_id,
                 target_node_id=resolved_target_node_id,
-                reason="node_disconnected",
-                guidance="检查目标节点连接状态后重试，或切换到在线节点。",
+                payload=relay_result.relay_task.payload,
             )
+            if dispatched:
+                any_dispatched = True
+            else:
+                gateway_handler.record_relay_failure(
+                    conversation_id=created.conversation_id,
+                    message_id=created.id,
+                    relay_task_id=relay_result.relay_task.relay_task_id,
+                    target_node_id=resolved_target_node_id,
+                    reason="node_disconnected",
+                    guidance="检查目标节点连接状态后重试，或切换到在线节点。",
+                )
+        if not any_dispatched:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="target_node_id is not connected",

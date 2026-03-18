@@ -48,6 +48,7 @@ class RelayService:
         idempotency_key: str,
         sender_user_id: str,
         conversation_type: str | None = None,
+        _override_agent_id: str | None = None,
     ) -> RelayEnqueueResult:
         """Create or return an existing relay task for one IM message.
 
@@ -58,6 +59,9 @@ class RelayService:
             sender_user_id: Human sender identifier copied into the relay payload.
             conversation_type: Conversation kind copied into relay metadata so gateway mention gating
                 can distinguish group chats from direct chats.
+            _override_agent_id: Internal-only override for group-chat fan-out; forces payload.agent_id
+                to this value instead of the snapshot-resolved agent.  Callers should prefer
+                ``enqueue_message_relay_all`` for group broadcasts.
 
         Returns:
             RelayEnqueueResult with the canonical task and whether it was newly created.
@@ -101,8 +105,11 @@ class RelayService:
                 "created_at": message.created_at,
             },
         }
-        if agent_snapshot.agent_id:
-            payload["agent_id"] = agent_snapshot.agent_id
+        # _override_agent_id is used by enqueue_message_relay_all for group fan-out:
+        # each per-agent relay identifies its own target agent explicitly.
+        effective_agent_id = _override_agent_id if _override_agent_id is not None else agent_snapshot.agent_id
+        if effective_agent_id:
+            payload["agent_id"] = effective_agent_id
         payload_json = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
         with self._connection:
             try:
@@ -144,6 +151,83 @@ class RelayService:
         created = self.get_task_by_idempotency_key(idempotency_key=idempotency_key)
         assert created is not None
         return RelayEnqueueResult(relay_task=created, created=True)
+
+    def enqueue_message_relay_all(
+        self,
+        *,
+        message: Message,
+        target_node_id: str,
+        idempotency_key_base: str,
+        sender_user_id: str,
+        conversation_type: str | None = None,
+    ) -> list[RelayEnqueueResult]:
+        """Create relay tasks for all participant agents in the conversation.
+
+        For group chats: creates one independent relay task per participant agent, each
+        carrying the full ``mentioned_agent_ids`` list so gateway can decide execute vs
+        buffer based on whether this agent was addressed.
+
+        For direct chats: creates a single relay task (same semantics as
+        ``enqueue_message_relay``).
+
+        Args:
+            message: Persisted message to relay.
+            target_node_id: Gateway node that should receive every relay.
+            idempotency_key_base: Base retry key; per-agent key is ``{base}:{agent_id}``.
+            sender_user_id: Human sender identifier copied into relay payload.
+            conversation_type: Conversation kind; ``"group"`` triggers fan-out.
+
+        Returns:
+            List of RelayEnqueueResult, one per agent.  Never empty for known conversations.
+
+        Raises:
+            ValueError: When target_node_id or idempotency_key_base is blank.
+        """
+        if not target_node_id.strip():
+            raise ValueError("target_node_id must be non-empty")
+        if not idempotency_key_base.strip():
+            raise ValueError("idempotency_key_base must be non-empty")
+
+        if conversation_type != "group":
+            # Direct/unknown chats: single relay, backward-compatible path.
+            result = self.enqueue_message_relay(
+                message=message,
+                target_node_id=target_node_id,
+                idempotency_key=idempotency_key_base,
+                sender_user_id=sender_user_id,
+                conversation_type=conversation_type,
+            )
+            return [result]
+
+        # Group chat: one relay per participant agent so each gateway node receives its own task.
+        participant_agent_ids = self._resolve_participant_agent_ids(
+            conversation_id=message.conversation_id,
+        )
+        if not participant_agent_ids:
+            # No known agents in conversation; fall back to single relay.
+            result = self.enqueue_message_relay(
+                message=message,
+                target_node_id=target_node_id,
+                idempotency_key=idempotency_key_base,
+                sender_user_id=sender_user_id,
+                conversation_type=conversation_type,
+            )
+            return [result]
+
+        results: list[RelayEnqueueResult] = []
+        for agent_id in participant_agent_ids:
+            per_agent_key = f"{idempotency_key_base}:{agent_id}"
+            # Each agent gets its own relay; payload.agent_id identifies the target agent.
+            result = self.enqueue_message_relay(
+                message=message,
+                target_node_id=target_node_id,
+                idempotency_key=per_agent_key,
+                sender_user_id=sender_user_id,
+                conversation_type=conversation_type,
+                _override_agent_id=agent_id,
+            )
+            results.append(result)
+        return results
 
     def resolve_target_node_id(
         self,
@@ -292,6 +376,45 @@ class RelayService:
             )
 
         return _RelayAgentSnapshot(agent_id=None, profile_version=frozen_profile_version, system_prompt=None)
+
+    def _resolve_participant_agent_ids(self, *, conversation_id: str) -> list[str]:
+        """Return all participant agent IDs for a conversation, in insertion order.
+
+        Resolves both direct agent_id matches (where user_id is a known agent_id) and
+        ``agent:`` username aliases.  Only IDs with a known agent_profiles row are returned.
+
+        Args:
+            conversation_id: Conversation to inspect.
+
+        Returns:
+            Ordered list of resolved agent IDs; empty if no agents are participants.
+        """
+        participant_rows = self._connection.execute(
+            """
+            SELECT cp.user_id, u.username
+            FROM conversation_participants cp
+            JOIN users u ON u.id = cp.user_id
+            WHERE cp.conversation_id = ?
+            ORDER BY cp.rowid
+            """,
+            (conversation_id,),
+        ).fetchall()
+        agent_ids: list[str] = []
+        for row in participant_rows:
+            direct_agent_id = str(row["user_id"])
+            if self._profile_row(agent_id=direct_agent_id) is not None:
+                agent_ids.append(direct_agent_id)
+                continue
+            username = str(row["username"])
+            if not username.startswith("agent:"):
+                continue
+            alias_agent_id = username[len("agent:"):].strip()
+            if not alias_agent_id:
+                continue
+            if self._profile_row(agent_id=alias_agent_id) is None:
+                continue
+            agent_ids.append(alias_agent_id)
+        return agent_ids
 
     def _profile_row(self, *, agent_id: str) -> sqlite3.Row | None:
         return self._connection.execute(
