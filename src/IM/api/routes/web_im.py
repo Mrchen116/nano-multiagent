@@ -124,3 +124,56 @@ def update_conversation(
         http_status = status.HTTP_404_NOT_FOUND if detail == "conversation_id not found" else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=http_status, detail=detail) from exc
     return to_conversation_response(updated)
+
+
+class DeleteConversationRequest(BaseModel):
+    """Request body for dissolving a conversation; carries the requester identity."""
+
+    requester_id: str = Field(min_length=1)
+
+
+@router.delete(
+    "/im/v1/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_conversation(
+    conversation_id: str,
+    payload: DeleteConversationRequest,
+    service: WebIMService = Depends(get_web_im_service),
+) -> None:
+    """Dissolve a group conversation (creator only).
+
+    Cascades deletion of all messages, participants, and relay tasks.
+    Returns 403 when the requester is not the conversation creator.
+    """
+    try:
+        service.delete_conversation(
+            conversation_id=conversation_id,
+            requester_id=payload.requester_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/im/v1/conversations/{conversation_id}/participants/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def leave_conversation(
+    conversation_id: str,
+    user_id: str,
+    service: WebIMService = Depends(get_web_im_service),
+) -> None:
+    """Remove one participant from a conversation (leave-group).
+
+    Other participants are not affected.
+    """
+    try:
+        service.remove_participant(
+            conversation_id=conversation_id,
+            user_id=user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
