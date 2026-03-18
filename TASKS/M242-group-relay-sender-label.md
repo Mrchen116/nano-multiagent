@@ -7,7 +7,7 @@
 - Out of scope: `src/personal_assistant/`、`src/agent/`、`src/IM/application/`、`src/IM/api/`、`docs/`
 
 ## R1 修正 relay synthetic message 的 sender 身份映射
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - group relay/SSE synthetic agent message 不再显示 node_id 作为 sender label
   - 若 payload 提供 display name，则优先用于群聊 sender label
