@@ -43,8 +43,7 @@ describe("InAppToast", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it("navigates to the conversation when clicked", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+  it("navigates to the conversation when clicked", () => {
     const onDismiss = vi.fn();
 
     render(
@@ -56,12 +55,12 @@ describe("InAppToast", () => {
     const link = screen.getByRole("link", { name: /view message/i });
     expect(link).toHaveAttribute("href", "/chat/conv-42");
 
-    await user.click(link);
+    // Click via DOM directly to avoid fake-timer / userEvent interaction issues
+    link.click();
     expect(onDismiss).toHaveBeenCalled();
   });
 
-  it("shows a dismiss button that calls onDismiss immediately", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime.bind(vi) });
+  it("shows a dismiss button that calls onDismiss immediately", () => {
     const onDismiss = vi.fn();
 
     render(
@@ -70,7 +69,7 @@ describe("InAppToast", () => {
       </MemoryRouter>
     );
 
-    await user.click(screen.getByRole("button", { name: /dismiss/i }));
+    screen.getByRole("button", { name: /dismiss/i }).click();
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });
