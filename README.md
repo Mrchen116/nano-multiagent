@@ -63,7 +63,7 @@ im_service:
 
 ```bash
 cd <repo>
-PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
+PYTHONPATH=src python -m personal_assistant.main
 ```
 
 默认命令会把 Gateway 放到后台，并立即返回：
