@@ -15,7 +15,7 @@
 
 ## R1: relay_service — 群聊多 agent broadcast
 
-**状态：** TODO
+**状态：** DONE
 
 ### Acceptance
 
