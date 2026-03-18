@@ -265,7 +265,12 @@ def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> No
 
 
 def test_group_multiagent_fanout_buffers_and_contextualises(tmp_path: Path) -> None:
-    """Non-target agents must buffer incoming messages and other agents' replies as context."""
+    """Each agent's relay buffers messages into its own context; no cross-agent fan-out.
+
+    After M231 the IM service sends one relay per participant agent.  Each gateway
+    only buffers context for its own agent_id and drains it on the next addressed turn.
+    The test simulates the relay-per-agent flow using explicit agent_id on each message.
+    """
     from personal_assistant.gateway.group_context_store import GroupContextStore
 
     agents = _two_agents(tmp_path)
@@ -282,42 +287,57 @@ def test_group_multiagent_fanout_buffers_and_contextualises(tmp_path: Path) -> N
         default_agent_id="agent-a",
     )
 
-    # Step 1: plain user message (no @) → both agents buffer, neither responds.
-    plain = InboundMessage(
+    # Step 1a: plain message relay targeted to agent-b → agent-b buffers, does not respond.
+    plain_for_b = InboundMessage(
         channel_name="web_relay",
         text="hello everyone",
         external_user_id="user-1",
         external_chat_id="conv-1",
         is_group=True,
+        agent_id="agent-b",  # relay explicitly targets agent-b
         metadata={"mentioned_agent_ids": []},
     )
-    result_plain = asyncio.run(pipeline.handle_inbound(plain))
+    result_plain = asyncio.run(pipeline.handle_inbound(plain_for_b))
     assert result_plain is None
     assert kernel.send_calls == []
 
-    # Step 2: @agent-b → agent-b processes, agent-a buffers message + b's reply.
+    # Step 2: @agent-b relay targeted to agent-b → agent-b drains its buffer then processes.
     mention_b = InboundMessage(
         channel_name="web_relay",
         text="@agent-b what time is it?",
         external_user_id="user-1",
         external_chat_id="conv-1",
         is_group=True,
+        agent_id="agent-b",  # relay explicitly targets agent-b
         metadata={"mentioned_agent_ids": ["agent-b"]},
     )
     result_b = asyncio.run(pipeline.handle_inbound(mention_b))
     assert result_b is not None
     assert result_b.agent_id == "agent-b"
     assert len(kernel.send_calls) == 1
-    # agent-b should have drained "hello everyone" then received the @mention
+    # agent-b must drain "hello everyone" then receive the @mention in its own buffer
     assert kernel.send_calls[0]["texts"] == ["hello everyone", "@agent-b what time is it?"]
 
-    # Step 3: @agent-a now — should arrive with context: plain msg + b's message + b's reply.
+    # Step 3a: plain message relay targeted to agent-a → agent-a buffers.
+    plain_for_a = InboundMessage(
+        channel_name="web_relay",
+        text="hello everyone",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"mentioned_agent_ids": []},
+    )
+    asyncio.run(pipeline.handle_inbound(plain_for_a))
+
+    # Step 3b: @agent-a relay targeted to agent-a → agent-a drains its own buffer and processes.
     mention_a = InboundMessage(
         channel_name="web_relay",
         text="@agent-a your turn",
         external_user_id="user-1",
         external_chat_id="conv-1",
         is_group=True,
+        agent_id="agent-a",
         metadata={"mentioned_agent_ids": ["agent-a"]},
     )
     result_a = asyncio.run(pipeline.handle_inbound(mention_a))
@@ -325,8 +345,6 @@ def test_group_multiagent_fanout_buffers_and_contextualises(tmp_path: Path) -> N
     assert result_a.agent_id == "agent-a"
     assert len(kernel.send_calls) == 2
     sent_texts = kernel.send_calls[1]["texts"]
-    # Should contain: plain msg, @agent-b mention, b's reply, then a's mention
+    # agent-a drains its own buffer ("hello everyone") then receives the @mention
     assert sent_texts[0] == "hello everyone"
-    assert sent_texts[1] == "@agent-b what time is it?"
-    assert "@agent-b:" in sent_texts[2]  # buffered reply from agent-b
     assert sent_texts[-1] == "@agent-a your turn"

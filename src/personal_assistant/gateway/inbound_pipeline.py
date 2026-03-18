@@ -122,18 +122,12 @@ class InboundPipeline:
 
         if message.is_group and self._group_context_store is not None:
             if not should_process:
-                # Nobody processes this turn — buffer for every agent as background context.
-                for aid in self._agents:
-                    self._group_context_store.append(
-                        self._group_buf_key_for_agent(message, aid), message.text
-                    )
-            else:
-                # agent_id will process; buffer the message only for the other agents.
-                for other_id in self._agents:
-                    if other_id != agent_id:
-                        self._group_context_store.append(
-                            self._group_buf_key_for_agent(message, other_id), message.text
-                        )
+                # This relay's agent is not addressed — buffer message as background context
+                # for this agent's own future turn.  Each agent receives its own relay from IM,
+                # so we only write to this agent's buffer key (no cross-agent fan-out).
+                self._group_context_store.append(
+                    self._group_buf_key_for_agent(message, agent_id), message.text
+                )
 
         if not should_process:
             return None
@@ -188,14 +182,6 @@ class InboundPipeline:
                     reply_text=reply_text,
                     outbound=outbound,
                 )
-                # Buffer agent's reply for all other agents so they have full group context.
-                if message.is_group and self._group_context_store is not None and not self._is_no_reply_token(reply_text):
-                    for other_id in self._agents:
-                        if other_id != agent_id:
-                            self._group_context_store.append(
-                                self._group_buf_key_for_agent(message, other_id),
-                                f"@{agent_id}: {reply_text}",
-                            )
                 await self._emit_relay_lifecycle(
                     message,
                     RelayLifecycleUpdate(
