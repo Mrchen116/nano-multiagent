@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { ConversationSummary } from "../types";
 
 const ENGINEERING_GROUP_OWNERSHIP_PATTERNS = [/^Using your main agent .+ready to chat\)$/i];
-const PRODUCT_GROUP_OWNERSHIP_LABEL = "Shared conversation for people and agents.";
+const PRODUCT_GROUP_OWNERSHIP_LABEL = "Group chat";
 
 function sanitizeGroupOwnershipLabel(item: ConversationSummary) {
   if (item.kind_label !== "Group chat") {
@@ -80,9 +80,6 @@ export function ConversationList(props: {
                 {props.items.length}
               </span>
             </div>
-            <p className="mt-1 text-sm text-slate-500">
-              Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.
-            </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             {props.onCreateGroupChat && (
@@ -91,15 +88,6 @@ export function ConversationList(props: {
               </button>
             )}
           </div>
-        </div>
-      </div>
-      <div className="border-b border-[var(--im-border)] bg-slate-50 px-4 py-3 text-xs text-slate-600">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span>Direct agent chats</span>
-          <span className="text-slate-300">•</span>
-          <span>Shared group threads</span>
-          <span className="text-slate-300">•</span>
-          <span>Agent coordination visibility</span>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2">

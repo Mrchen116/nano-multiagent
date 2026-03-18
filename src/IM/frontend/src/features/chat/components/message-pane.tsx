@@ -16,7 +16,7 @@ import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
 const SEND_AVAILABILITY_MESSAGES = getSendAvailabilityMessages();
 const RELAY_UNAVAILABLE_MESSAGE = SEND_AVAILABILITY_MESSAGES.unavailableHelperText;
 const ENGINEERING_GROUP_OWNERSHIP_PATTERNS = [/^Using your main agent .+ready to chat\)$/i];
-const PRODUCT_GROUP_OWNERSHIP_LABEL = "Shared conversation for people and agents.";
+const PRODUCT_GROUP_OWNERSHIP_LABEL = "Group chat";
 
 function toErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) {
