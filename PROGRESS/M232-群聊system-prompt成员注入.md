@@ -33,8 +33,8 @@
   或返回 `{"system_prompt": context_block}` 当 payload["system_prompt"] 为 None。
 - Rationale: hook 应追加而不是覆盖，因此优先取 payload["system_prompt"] 作 base。
 - Evidence:
-  - Tests: `python -m pytest tests/unit/personal_assistant/ tests/unit/ -x -q`
-  - Entry: unit test 断言群聊 system_prompt 含 `[Communication Context]` 块
-- Rollback: 回退到 R1 C3
-- Commits: C1=?, C2=?, C3=?
+  - Tests: 114 passed (108 R1完成后 + 6 新增 hook 测试)
+  - Entry: test_hook_group_appends_context_block_to_none_base_prompt 断言群聊返回含 [Communication Context]
+- Rollback: 回退到 R1 C3=3c4b03b
+- Commits: C1=d4b15e5, C2=f27b0f7, C3=(本次)
 - Next: DONE

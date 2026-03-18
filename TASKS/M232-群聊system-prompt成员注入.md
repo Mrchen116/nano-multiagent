@@ -13,7 +13,7 @@ SPEC §7：每个 Agent 在 session 启动时，通过 `before_agent_start` hook
 
 ### R1 gateway session metadata 写入群聊元信息
 
-**状态**: TODO
+**状态**: DONE
 
 **目标**：在 `InboundPipeline._build_session_metadata` 中，写入 `conversation_type`、
 `participant_agent_ids`、`external_chat_id`（当消息为群聊时）。
@@ -38,7 +38,7 @@ SPEC §7：每个 Agent 在 session 启动时，通过 `before_agent_start` hook
 
 ### R2 before_agent_start hook 追加通信上下文块
 
-**状态**: TODO
+**状态**: DONE
 
 **目标**：在 `src/agent/products/personal_assistant/hooks/__init__.py` 的 `setup()` 中注册
 `before_agent_start` handler。handler 读取 `ctx.metadata` 中的 `conversation_type` 和
