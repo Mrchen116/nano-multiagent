@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     title TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'group',
     owner_id TEXT NOT NULL DEFAULT '',
+    creator_id TEXT NOT NULL DEFAULT '',
     is_pinned INTEGER NOT NULL DEFAULT 0,
     is_muted INTEGER NOT NULL DEFAULT 0,
     unread_count INTEGER NOT NULL DEFAULT 0,
@@ -263,6 +264,27 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE conversations ADD COLUMN config_profile_version INTEGER")
     if "config_system_prompt" not in column_names:
         connection.execute("ALTER TABLE conversations ADD COLUMN config_system_prompt TEXT")
+    # M234: creator_id records who created the conversation for dissolve-permission checks.
+    # Legacy rows are backfilled with the first participant (owner_id fallback).
+    if "creator_id" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN creator_id TEXT NOT NULL DEFAULT ''")
+        connection.execute(
+            """
+            UPDATE conversations
+            SET creator_id = COALESCE(
+                (
+                    SELECT user_id
+                    FROM conversation_participants
+                    WHERE conversation_id = conversations.id
+                    ORDER BY rowid
+                    LIMIT 1
+                ),
+                owner_id,
+                ''
+            )
+            WHERE creator_id = ''
+            """
+        )
 
 
 def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
