@@ -192,7 +192,7 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(tmp_pat
             "workspace_root": str(agents[0].workspace_root),
             "product_id": "personal_assistant",
             "title": "Agent A",
-            "metadata": {"agent_id": "agent-a"},
+            "metadata": {"agent_id": "agent-a", "conversation_type": "direct"},
         }
     ]
     assert kernel_client.send_calls == [{"session_id": "sess-1", "texts": ["ping"], "run_id": "run-1"}]
@@ -251,6 +251,7 @@ def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_
                 "conversation_id": "conv-1",
                 "config_profile_version": 2,
                 "system_prompt": "Local Agent B prompt.",
+                "conversation_type": "direct",
             },
         }
     ]
@@ -293,7 +294,7 @@ def test_inbound_pipeline_recreates_bound_session_when_workspace_mismatches(tmp_
             "workspace_root": str(agents[0].workspace_root),
             "product_id": "personal_assistant",
             "title": "Agent A",
-            "metadata": {"agent_id": "agent-a"},
+            "metadata": {"agent_id": "agent-a", "conversation_type": "direct"},
         }
     ]
 
@@ -701,6 +702,9 @@ def test_inbound_pipeline_prefers_group_mentions_over_drifted_explicit_agent_ids
     assert kernel_client.create_session_calls[0]["metadata"] == {
         "agent_id": "agent-b",
         "conversation_id": "conv-1",
+        "conversation_type": "group",
+        "participant_agent_ids": ["agent-b"],
+        "external_chat_id": "conv-1",
     }
     assert kernel_client.send_calls == [{"session_id": "sess-1", "texts": ["@agent:agent-b please investigate"], "run_id": "run-1"}]
 
@@ -746,6 +750,9 @@ def test_inbound_pipeline_freezes_group_agent_id_even_without_additional_snapsho
             "metadata": {
                 "agent_id": "agent-b",
                 "conversation_id": "conv-2",
+                "conversation_type": "group",
+                "participant_agent_ids": ["agent-b"],
+                "external_chat_id": "conv-2",
             },
         }
     ]
@@ -922,6 +929,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "conversation_id": "chat-1",
                 "config_profile_version": 1,
                 "system_prompt": "You are Agent A v1.",
+                "conversation_type": "direct",
             },
         },
         {
@@ -933,6 +941,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "conversation_id": "chat-1",
                 "config_profile_version": 2,
                 "system_prompt": "You are Agent A v2.",
+                "conversation_type": "direct",
             },
         },
         {
@@ -944,6 +953,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "conversation_id": "chat-2",
                 "config_profile_version": 2,
                 "system_prompt": "You are Agent A v2.",
+                "conversation_type": "direct",
             },
         },
     ]
@@ -1039,6 +1049,9 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
                 "conversation_id": "conv-group-1",
                 "config_profile_version": 1,
                 "system_prompt": "Reply with ALPHA_ACK_M170.",
+                "conversation_type": "group",
+                "participant_agent_ids": ["agent-a"],
+                "external_chat_id": "conv-group-1",
             },
         },
         {
@@ -1050,6 +1063,9 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
                 "conversation_id": "conv-group-1",
                 "config_profile_version": 2,
                 "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
+                "conversation_type": "group",
+                "participant_agent_ids": ["agent-a"],
+                "external_chat_id": "conv-group-1",
             },
         },
     ]
@@ -1287,3 +1303,70 @@ def test_build_session_metadata_still_reads_conversation_id_from_message_metadat
     assert created_metadata["conversation_id"] == "conv-42"
     assert created_metadata["config_profile_version"] == 7
     assert created_metadata["system_prompt"] == "Local prompt."
+
+
+# ---------------------------------------------------------------------------
+# R1: conversation_type / participant_agent_ids / external_chat_id in session metadata
+# ---------------------------------------------------------------------------
+
+def test_session_metadata_group_fields(tmp_path: Path) -> None:
+    """Group-chat session metadata contains conversation_type, participant_agent_ids, external_chat_id."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="@agent:agent-a hello group",
+        external_user_id="user-1",
+        external_chat_id="grp-42",
+        is_group=True,
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "conversation_id": "grp-42",
+        },
+    )
+
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    created_metadata = kernel_client.create_session_calls[0]["metadata"]
+    assert created_metadata["conversation_type"] == "group"
+    assert created_metadata["participant_agent_ids"] == ["agent-a"]
+    assert created_metadata["external_chat_id"] == "grp-42"
+
+
+def test_session_metadata_direct_fields(tmp_path: Path) -> None:
+    """Direct-chat session metadata contains conversation_type='direct' and no participant_agent_ids."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="hello direct",
+        external_user_id="user-1",
+        external_chat_id="dm-1",
+        is_group=False,
+    )
+
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    created_metadata = kernel_client.create_session_calls[0]["metadata"]
+    assert created_metadata["conversation_type"] == "direct"
+    assert "participant_agent_ids" not in created_metadata
