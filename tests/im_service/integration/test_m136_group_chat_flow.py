@@ -51,7 +51,11 @@ class _FakeKernelClient:
         run_id = f"run-{self._run_index}"
         rendered_text = "\n".join(texts)
         self.send_calls.append({"session_id": session_id, "text": rendered_text, "run_id": run_id})
-        self.run_states[run_id] = {"run_id": run_id, "output_text": self.default_output_text.format(text=rendered_text)}
+        self.run_states[run_id] = {
+            "run_id": run_id,
+            "status": "completed",
+            "output_text": self.default_output_text.format(text=rendered_text),
+        }
         return {"run_id": run_id}
 
     def get_run(self, *, run_id: str):
@@ -132,7 +136,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
     kernel_client = _FakeKernelClient()
     kernel_client.default_output_text = "NO_REPLY"
     relay_adapter = WebRelayAdapter()
-    agents = _agents(tmp_path, "agent-a")
+    agents = _agents(tmp_path, "agent-a", "agent-b")
     pipeline = InboundPipeline(
         kernel_client=kernel_client,
         agents=agents,
@@ -146,13 +150,14 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
     with TestClient(app) as client:
         user_id = _seed_user(client, "alice")
         agent_a_user_id = _seed_user(client, "agent:agent-a")
-        _seed_node_and_profiles(app, agent_ids=("agent-a",))
+        agent_b_user_id = _seed_user(client, "agent:agent-b")
+        _seed_node_and_profiles(app, agent_ids=("agent-a", "agent-b"))
 
         conversation = client.post(
             "/im/v1/conversations",
             json={
                 "title": "Quiet Group",
-                "participant_ids": [user_id, agent_a_user_id],
+                "participant_ids": [user_id, agent_a_user_id, agent_b_user_id],
             },
         )
         assert conversation.status_code == 201
@@ -166,7 +171,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
                         "node_id": "node-1",
                         "node_name": "MacBook",
                         "version": "1.0.0",
-                        "agents": ["agent-a"],
+                        "agents": ["agent-a", "agent-b"],
                         "capabilities": {"relay": True},
                     },
                 }
@@ -183,23 +188,22 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
                 },
             )
             assert posted.status_code == 201
-            relay_frame = websocket.receive_json()
-            relay_adapter.accept_relay(
-                {
-                    **relay_frame["payload"],
-                    "is_group": True,
-                    "mentioned_agent_ids": ["agent-a"],
-                }
-            )
+            relay_frames = [websocket.receive_json(), websocket.receive_json()]
+            relay_frame_by_agent = {
+                frame["payload"]["agent_id"]: frame
+                for frame in relay_frames
+            }
+            relay_adapter.accept_relay(relay_frame_by_agent["agent-a"]["payload"])
+            relay_adapter.accept_relay(relay_frame_by_agent["agent-b"]["payload"])
             sent_ack = _send_delivery_receipt(
                 websocket,
-                relay_payload=relay_frame["payload"],
+                relay_payload=relay_frame_by_agent["agent-a"]["payload"],
                 delivery_status="sent",
                 detail=None,
             )
             completed_ack = _send_delivery_receipt(
                 websocket,
-                relay_payload=relay_frame["payload"],
+                relay_payload=relay_frame_by_agent["agent-a"]["payload"],
                 delivery_status="completed",
                 detail="NO_REPLY | suppressed_by=no_reply_token",
             )
@@ -330,12 +334,16 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
         {
             "agent_id": "agent-a",
             "config_profile_version": 1,
-            "system_prompt": "You are agent-a.",
+            "conversation_type": "group",
+            "participant_agent_ids": ["agent-a", "agent-b"],
+            "external_chat_id": conversation_id,
         },
         {
             "agent_id": "agent-b",
             "config_profile_version": 1,
-            "system_prompt": "You are agent-b.",
+            "conversation_type": "group",
+            "participant_agent_ids": ["agent-a", "agent-b"],
+            "external_chat_id": conversation_id,
         },
     ]
     assert [call["text"] for call in kernel_client.send_calls] == [
@@ -348,7 +356,6 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
         "mentioned_agent_ids": ["agent-a"],
         "participant_agent_ids": ["agent-a", "agent-b"],
         "config_profile_version": 1,
-        "system_prompt": "You are agent-a.",
     }
     assert second_frame["payload"]["agent_id"] == "agent-b"
     assert second_frame["payload"]["metadata"] == {
@@ -356,7 +363,6 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
         "mentioned_agent_ids": ["agent-b"],
         "participant_agent_ids": ["agent-a", "agent-b"],
         "config_profile_version": 1,
-        "system_prompt": "You are agent-b.",
     }
     assert relay_adapter.sent == [
         OutboundMessage(
@@ -366,12 +372,12 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
             thread_id=None,
             metadata={
                 "relay_task_id": first_frame["payload"]["relay_task_id"],
-                "idempotency_key": "idem-group-a",
+                "idempotency_key": "idem-group-a:agent-a",
                 "message_id": first_frame["payload"]["message"]["id"],
                 "conversation_type": "group",
                 "mentioned_agent_ids": ["agent-a"],
+                "participant_agent_ids": ["agent-a", "agent-b"],
                 "config_profile_version": 1,
-                "system_prompt": "You are agent-a.",
             },
         ),
         OutboundMessage(
@@ -381,12 +387,12 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
             thread_id=None,
             metadata={
                 "relay_task_id": second_frame["payload"]["relay_task_id"],
-                "idempotency_key": "idem-group-b",
+                "idempotency_key": "idem-group-b:agent-b",
                 "message_id": second_frame["payload"]["message"]["id"],
                 "conversation_type": "group",
                 "mentioned_agent_ids": ["agent-b"],
+                "participant_agent_ids": ["agent-a", "agent-b"],
                 "config_profile_version": 1,
-                "system_prompt": "You are agent-b.",
             },
         ),
     ]
