@@ -278,7 +278,10 @@ class InboundPipeline:
         Returns:
             Metadata dict for kernel session creation. Prompt-related fields come from the
             local AgentWorkspaceConfig; routing fields (conversation_id, config_profile_version)
-            come from message metadata.
+            come from message metadata. Group-chat sessions additionally carry
+            ``conversation_type``, ``participant_agent_ids``, and ``external_chat_id`` so that
+            downstream hooks (e.g. before_agent_start) can inject group context into the
+            system prompt without requiring a separate API call.
         """
 
         agent = self._agents[agent_id]
@@ -297,6 +300,20 @@ class InboundPipeline:
             session_metadata["skills"] = list(agent.skills)
         if agent.tool_allowlist:
             session_metadata["tool_allowlist"] = list(agent.tool_allowlist)
+        # SPEC §7: inject group chat routing context into session metadata so the
+        # before_agent_start hook can append a communication context block.
+        if message.is_group:
+            session_metadata["conversation_type"] = "group"
+            session_metadata["external_chat_id"] = message.external_chat_id or ""
+            mentioned = metadata.get("mentioned_agent_ids")
+            if isinstance(mentioned, list):
+                session_metadata["participant_agent_ids"] = [
+                    str(aid) for aid in mentioned if isinstance(aid, str)
+                ]
+            else:
+                session_metadata["participant_agent_ids"] = []
+        else:
+            session_metadata["conversation_type"] = "direct"
         return session_metadata
 
     @staticmethod
