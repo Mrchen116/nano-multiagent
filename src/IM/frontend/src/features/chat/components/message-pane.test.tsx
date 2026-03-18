@@ -731,3 +731,23 @@ describe("MessagePane image attachments", () => {
     expect(screen.queryByRole("button", { name: /expand.*report|show.*report/i })).not.toBeInTheDocument();
   });
 });
+
+describe("MessagePane usage strip", () => {
+  it("collapses usage strip by default, showing only a summary toggle", () => {
+    renderMessagePane();
+
+    expect(screen.getByRole("button", { name: /usage/i })).toBeInTheDocument();
+    expect(screen.queryByText("This chat")).not.toBeInTheDocument();
+    expect(screen.queryByText("Workspace total")).not.toBeInTheDocument();
+  });
+
+  it("expands usage strip after clicking the toggle", async () => {
+    const user = userEvent.setup();
+    renderMessagePane();
+
+    await user.click(screen.getByRole("button", { name: /usage/i }));
+
+    expect(screen.getByText("This chat")).toBeInTheDocument();
+    expect(screen.getByText("Workspace total")).toBeInTheDocument();
+  });
+});
