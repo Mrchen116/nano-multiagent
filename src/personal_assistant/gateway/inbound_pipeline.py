@@ -222,6 +222,8 @@ class InboundPipeline:
 
     def _resolve_agent(self, message: InboundMessage) -> str:
         metadata = dict(message.metadata)
+        if message.is_group and message.agent_id:
+            return self._require_known_agent(message.agent_id)
         if message.is_group:
             mentioned = metadata.get("mentioned_agent_ids")
             if isinstance(mentioned, list):
@@ -329,6 +331,8 @@ class InboundPipeline:
         if not message.is_group:
             return True
         metadata = dict(message.metadata)
+        if metadata.get("background_context_only") is True:
+            return False
         mentioned = metadata.get("mentioned_agent_ids")
         if isinstance(mentioned, list) and agent_id in mentioned:
             return True

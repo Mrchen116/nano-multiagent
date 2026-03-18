@@ -158,30 +158,45 @@ def test_mention_message_does_not_broadcast_to_non_target_agent_buffer(tmp_path:
     assert drained_a == [], f"agent-a buffer must not receive @agent-b relay's message, got: {drained_a}"
 
 
-def test_agent_reply_does_not_broadcast_to_other_agent_buffer(tmp_path: Path) -> None:
-    """Agent-b 的回复不应写入 agent-a 的缓冲区（移除回复广播 loop）。"""
+def test_background_context_only_relay_buffers_agent_reply_for_peer(tmp_path: Path) -> None:
+    """Agent reply relays for peers should buffer and never execute.
+
+    IM may rebroadcast one agent's completed reply to other participant agents as
+    background-only relay context. Gateway must buffer that text for the target
+    peer without allocating a run.
+    """
     agents = _two_agents(tmp_path)
     pipeline, store, kernel = _build_pipeline(tmp_path, agents=agents, default_agent_id="agent-a")
 
-    mention_b = InboundMessage(
+    peer_reply_for_a = InboundMessage(
         channel_name="web_relay",
-        text="@agent-b reply now",
+        text="Agent B: here is the answer",
+        external_user_id="agent-b-user",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"background_context_only": True, "source_agent_id": "agent-b", "mentioned_agent_ids": []},
+    )
+    later_for_a = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a continue",
         external_user_id="user-1",
         external_chat_id="conv-1",
         is_group=True,
-        agent_id="agent-b",
-        metadata={"mentioned_agent_ids": ["agent-b"]},
+        agent_id="agent-a",
+        metadata={"mentioned_agent_ids": ["agent-a"]},
     )
-    asyncio.run(pipeline.handle_inbound(mention_b))
 
-    buf_key_a = pipeline._group_buf_key_for_agent(mention_b, "agent-a")
-    # The reply from agent-b must NOT appear in agent-a's buffer
-    drained_a = store.drain(buf_key_a)
-    # After fan-out removal, no reply broadcast → agent-a's buffer is empty
-    agent_b_replies = [entry for entry in drained_a if "agent-b:" in entry]
-    assert agent_b_replies == [], (
-        f"agent-b reply must not be written to agent-a buffer, got: {agent_b_replies}"
-    )
+    reply_result = asyncio.run(pipeline.handle_inbound(peer_reply_for_a))
+    mention_result = asyncio.run(pipeline.handle_inbound(later_for_a))
+
+    assert reply_result is None
+    assert mention_result is not None
+    assert mention_result.agent_id == "agent-a"
+    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["Agent B: here is the answer", "@agent-a continue"], "run_id": "run-1"}]
+
+    buf_key_a = pipeline._group_buf_key_for_agent(peer_reply_for_a, "agent-a")
+    assert store.drain(buf_key_a) == []
 
 
 def test_own_agent_buffer_drain_still_works(tmp_path: Path) -> None:
@@ -223,3 +238,60 @@ def test_own_agent_buffer_drain_still_works(tmp_path: Path) -> None:
     # agent-b must have sent both the plain message and the mention as texts
     assert len(kernel.send_calls) == 1
     assert kernel.send_calls[0]["texts"] == ["hello everyone", "@agent-b what time is it?"]
+
+
+def test_non_mentioned_group_relay_buffers_for_its_target_agent(tmp_path: Path) -> None:
+    """Per-agent relays for other participants must buffer, not reroute back to the mentioned agent.
+
+    This guards the real fan-out case:
+    - user sends @agent-b in a group with agents a+b
+    - IM creates one relay for agent-a and one relay for agent-b
+    - agent-a's relay must buffer for agent-a instead of being re-routed to agent-b
+    - on a later @agent-a turn, agent-a should drain that buffered @agent-b message as prior context
+    """
+    agents = _two_agents(tmp_path)
+    pipeline, store, kernel = _build_pipeline(tmp_path, agents=agents, default_agent_id="agent-a")
+
+    relay_for_a = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-b first turn",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"mentioned_agent_ids": ["agent-b"]},
+    )
+    relay_for_b = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-b first turn",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-b",
+        metadata={"mentioned_agent_ids": ["agent-b"]},
+    )
+    later_for_a = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a second turn",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"mentioned_agent_ids": ["agent-a"]},
+    )
+
+    result_a_background = asyncio.run(pipeline.handle_inbound(relay_for_a))
+    result_b = asyncio.run(pipeline.handle_inbound(relay_for_b))
+    result_a = asyncio.run(pipeline.handle_inbound(later_for_a))
+
+    assert result_a_background is None
+    assert result_b is not None
+    assert result_b.agent_id == "agent-b"
+    assert result_a is not None
+    assert result_a.agent_id == "agent-a"
+    assert len(kernel.send_calls) == 2
+    assert kernel.send_calls[0]["texts"] == ["@agent-b first turn"]
+    assert kernel.send_calls[1]["texts"] == ["@agent-b first turn", "@agent-a second turn"]
+
+    buf_key_a = pipeline._group_buf_key_for_agent(relay_for_a, "agent-a")
+    assert store.drain(buf_key_a) == []

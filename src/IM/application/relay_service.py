@@ -48,6 +48,7 @@ class RelayService:
         idempotency_key: str,
         sender_user_id: str,
         conversation_type: str | None = None,
+        extra_metadata: dict[str, object] | None = None,
         _override_agent_id: str | None = None,
     ) -> RelayEnqueueResult:
         """Create or return an existing relay task for one IM message.
@@ -89,6 +90,8 @@ class RelayService:
             "conversation_type": conversation_type,
             "mentioned_agent_ids": mentioned_agent_ids,
         }
+        if extra_metadata:
+            metadata.update(extra_metadata)
         if agent_snapshot.profile_version is not None:
             metadata["config_profile_version"] = agent_snapshot.profile_version
         payload = {

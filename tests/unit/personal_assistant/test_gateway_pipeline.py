@@ -664,7 +664,7 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
     assert default_kernel.create_session_calls[0]["workspace_root"] == str(agents[0].workspace_root)
 
 
-def test_inbound_pipeline_prefers_group_mentions_over_drifted_explicit_agent_ids(tmp_path: Path) -> None:
+def test_inbound_pipeline_trusts_group_relay_target_agent_over_mentions(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
@@ -696,17 +696,10 @@ def test_inbound_pipeline_prefers_group_mentions_over_drifted_explicit_agent_ids
         )
     )
 
-    assert result.agent_id == "agent-b"
-    assert result.session_key == "web_relay:conv-1:agent-b"
-    assert kernel_client.create_session_calls[0]["workspace_root"] == str(agents[1].workspace_root)
-    assert kernel_client.create_session_calls[0]["metadata"] == {
-        "agent_id": "agent-b",
-        "conversation_id": "conv-1",
-        "conversation_type": "group",
-        "participant_agent_ids": ["agent-b"],
-        "external_chat_id": "conv-1",
-    }
-    assert kernel_client.send_calls == [{"session_id": "sess-1", "texts": ["@agent:agent-b please investigate"], "run_id": "run-1"}]
+    assert result is None
+    assert kernel_client.create_session_calls == []
+    assert kernel_client.send_calls == []
+    assert channel.sent == []
 
 
 def test_inbound_pipeline_freezes_group_agent_id_even_without_additional_snapshot_metadata(tmp_path: Path) -> None:

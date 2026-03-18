@@ -12,8 +12,8 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
-from IM.domain.models import managed_workspace_root
-from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, NodeRepository
+from IM.domain.models import Message, managed_workspace_root
+from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, NodeRepository, UserRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +54,7 @@ class GatewayHandler:
         self._event_repository = event_repository
         self._metrics_service = metrics_service
         self._conversation_repository = conversation_repository
+        self._user_repository = UserRepository(conversation_repository._connection) if conversation_repository is not None else None
         self._lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
         self._reports: list[dict[str, object]] = []
@@ -302,6 +303,8 @@ class GatewayHandler:
             detail=detail,
         )
         self._persist_receipt_events(task=task, node_id=node_id, detail=detail)
+        if delivery_status == "completed":
+            await self._broadcast_group_reply_context(task=task, node_id=node_id, detail=detail)
         return {
             "type": "ack",
             "payload": {
@@ -311,6 +314,86 @@ class GatewayHandler:
                 "status": task.status,
             },
         }
+
+    async def _broadcast_group_reply_context(self, *, task, node_id: str, detail: str | None) -> None:  # noqa: ANN001
+        if self._conversation_repository is None or self._user_repository is None:
+            return
+        if detail is None or not detail.strip() or detail.strip() == "NO_REPLY" or "suppressed_by=no_reply_token" in detail:
+            return
+        relay_metadata = task.payload.get("metadata", {})
+        if not isinstance(relay_metadata, dict) or relay_metadata.get("conversation_type") != "group":
+            return
+        source_agent_id = task.payload.get("agent_id")
+        if not isinstance(source_agent_id, str) or not source_agent_id.strip():
+            return
+        conversation = self._conversation_repository.get_conversation(conversation_id=task.conversation_id)
+        if conversation is None:
+            return
+        participant_ids = conversation.participant_ids
+        if not participant_ids:
+            return
+        placeholders = ",".join("?" for _ in participant_ids)
+        participant_rows = self._conversation_repository._connection.execute(  # noqa: SLF001
+            f"SELECT id, username, display_name FROM users WHERE id IN ({placeholders})",  # noqa: S608, SLF001
+            tuple(participant_ids),
+        ).fetchall()
+        source_user = self._conversation_repository._connection.execute(  # noqa: SLF001
+            "SELECT id, display_name FROM users WHERE username = ?",
+            (f"agent:{source_agent_id}",),
+        ).fetchone()
+        if source_user is None:
+            return
+        sender_user_id = str(source_user["id"])
+        sender_display_name = str(source_user["display_name"])
+        peer_agent_ids: list[str] = []
+        for row in participant_rows:
+            username = str(row["username"])
+            if not username.startswith("agent:"):
+                continue
+            agent_id = username[len("agent:") :].strip()
+            if not agent_id or agent_id == source_agent_id:
+                continue
+            peer_agent_ids.append(agent_id)
+        if not peer_agent_ids:
+            return
+        context_text = f"{sender_display_name}: {detail.strip()}"
+        synthetic_message = Message(
+            id=task.message_id,
+            conversation_id=task.conversation_id,
+            sender_user_id=sender_user_id,
+            sender_type="agent",
+            content=context_text,
+            attachments=[],
+            delivery_status="completed",
+            created_at=task.updated_at,
+        )
+        for peer_agent_id in peer_agent_ids:
+            profile_row = self._conversation_repository._connection.execute(  # noqa: SLF001
+                "SELECT node_id FROM agent_profiles WHERE agent_id = ?",
+                (peer_agent_id,),
+            ).fetchone()
+            if profile_row is None or profile_row["node_id"] is None:
+                continue
+            target_node_id = str(profile_row["node_id"])
+            result = self._relay_service.enqueue_message_relay(
+                message=synthetic_message,
+                target_node_id=target_node_id,
+                idempotency_key=f"peer-context:{task.relay_task_id}:{peer_agent_id}",
+                sender_user_id=sender_user_id,
+                conversation_type="group",
+                extra_metadata={
+                    "background_context_only": True,
+                    "source_agent_id": source_agent_id,
+                    "sender_display_name": sender_display_name,
+                },
+                _override_agent_id=peer_agent_id,
+            )
+            if result.created:
+                await self.push_relay_message(
+                    relay_task_id=result.relay_task.relay_task_id,
+                    target_node_id=target_node_id,
+                    payload=result.relay_task.payload,
+                )
 
     async def _push_downstream(self, *, target_node_id: str, message_type: str, payload: dict[str, object]) -> bool:
         async with self._lock:
