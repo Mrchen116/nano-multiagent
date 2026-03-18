@@ -72,8 +72,8 @@ export function ConversationList(props: {
   return (
     <div className="im-card flex h-full min-h-[420px] flex-col overflow-hidden">
       <div className="border-b border-[var(--im-border)] px-4 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex items-start justify-between gap-4 overflow-hidden">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h1 className="im-title text-xl font-bold">Conversations</h1>
               <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
@@ -84,7 +84,7 @@ export function ConversationList(props: {
               Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.
             </p>
           </div>
-          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-2 sm:flex-row">
             {props.onCreateGroupChat && (
               <button type="button" className="im-btn im-btn-muted" onClick={props.onCreateGroupChat}>
                 Create group chat

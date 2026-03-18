@@ -872,7 +872,7 @@ export function ChatWorkspacePage() {
   ) : null;
 
   return (
-    <section className="grid w-full min-h-0 gap-4 lg:grid-cols-[360px_1fr]">
+    <section className="grid h-full w-full min-h-0 gap-4 lg:grid-cols-[360px_1fr]">
       <div className="flex min-h-0 flex-col gap-4">
         {isMobile && !conversationId && starter && (
           <MessagePane
