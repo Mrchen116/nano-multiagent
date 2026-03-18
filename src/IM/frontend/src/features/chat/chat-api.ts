@@ -40,3 +40,5 @@ export const streamConversationEvents = useMockApi
   ? mockApi.streamConversationEvents
   : imApi.streamConversationEvents;
 export const resetChatBootstrapState = useMockApi ? mockApi.resetChatBootstrapState : imApi.resetChatBootstrapState;
+export const deleteConversation = useMockApi ? mockApi.deleteConversation : imApi.deleteConversation;
+export const leaveConversation = useMockApi ? mockApi.leaveConversation : imApi.leaveConversation;

@@ -384,6 +384,7 @@ class ConversationRepository:
             participant_ids=normalized_participants,
             type=conversation_type,
             owner_id=owner_id,
+            creator_id=resolved_creator_id,
             is_pinned=False,
             is_muted=False,
             unread_count=0,
@@ -396,7 +397,7 @@ class ConversationRepository:
         """Load one conversation with participants."""
         row = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
             FROM conversations
             WHERE id = ?
             """,
@@ -444,7 +445,7 @@ class ConversationRepository:
         """
         conversation_rows = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
             FROM conversations
             ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
             """
@@ -523,12 +524,16 @@ class ConversationRepository:
             (row["id"],),
         ).fetchall()
         profile_version = row["config_profile_version"] if "config_profile_version" in row.keys() else None
+        row_keys = row.keys()
+        # creator_id was added by M234 migration; fall back to owner_id for legacy rows.
+        creator_id = str(row["creator_id"]) if "creator_id" in row_keys else str(row["owner_id"])
         return Conversation(
             id=row["id"],
             title=row["title"],
             participant_ids=[item["user_id"] for item in participant_rows],
             type=row["type"],
             owner_id=row["owner_id"],
+            creator_id=creator_id,
             is_pinned=bool(row["is_pinned"]),
             is_muted=bool(row["is_muted"]),
             unread_count=int(row["unread_count"]),
