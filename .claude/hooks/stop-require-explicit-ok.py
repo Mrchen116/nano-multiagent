@@ -33,8 +33,7 @@ if active > 0:
     sys.exit(0)
 
 reason = (
-    "当前没有任何 subagent 在运行。"
-    "如果你其实还需要继续处理，请继续调用工具或继续推进，不要直接停下。"
+    "当前没有任何 subagent 在运行，如果这不符合你的预期，请继续调用工具或继续推进，不要直接停下。"
     "如果你确认这次就是应该结束，请在你的下一条回复中明确写出：NO_SUBAGENT_STOP_OK"
 )
 print(json.dumps({"decision": "block", "reason": reason}))

@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 .claude/hooks/strip-agent-worktree-isolation.py"
+            "command": "python3 \"$(dirname \"$(git rev-parse --path-format=absolute --git-common-dir)\")/.claude/hooks/strip-agent-worktree-isolation.py"
           }
         ]
       }
