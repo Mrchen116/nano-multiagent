@@ -291,12 +291,20 @@ class ConversationRepository:
         """
         self._connection = connection
 
-    def create_conversation(self, *, title: str, participant_ids: list[str]) -> Conversation:
+    def create_conversation(
+        self,
+        *,
+        title: str,
+        participant_ids: list[str],
+        creator_id: str | None = None,
+    ) -> Conversation:
         """Create a conversation with participant membership.
 
         Args:
             title: Human-readable conversation title.
             participant_ids: User IDs that belong to the conversation.
+            creator_id: User ID of the creator; defaults to the first participant when omitted.
+                Used for dissolve-permission checks (M234).
 
         Returns:
             Created conversation entity.
@@ -325,6 +333,8 @@ class ConversationRepository:
         created_at = _utc_now()
         owner_id = uuid4().hex if len(owner_ids) > 1 else next(iter(owner_ids))
         conversation_type = "direct" if len(normalized_participants) == 2 else "group"
+        # Default creator is the first participant when not explicitly provided.
+        resolved_creator_id = creator_id if creator_id else normalized_participants[0]
         config_snapshot = self._resolve_config_snapshot(
             participant_rows=ordered_rows,
             conversation_type=conversation_type,
@@ -337,6 +347,7 @@ class ConversationRepository:
                     title,
                     type,
                     owner_id,
+                    creator_id,
                     is_pinned,
                     is_muted,
                     unread_count,
@@ -345,13 +356,14 @@ class ConversationRepository:
                     config_profile_version,
                     config_system_prompt,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     conversation_id,
                     title,
                     conversation_type,
                     owner_id,
+                    resolved_creator_id,
                     0,
                     0,
                     0,
@@ -372,6 +384,7 @@ class ConversationRepository:
             participant_ids=normalized_participants,
             type=conversation_type,
             owner_id=owner_id,
+            creator_id=resolved_creator_id,
             is_pinned=False,
             is_muted=False,
             unread_count=0,
@@ -384,7 +397,7 @@ class ConversationRepository:
         """Load one conversation with participants."""
         row = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
             FROM conversations
             WHERE id = ?
             """,
@@ -432,12 +445,72 @@ class ConversationRepository:
         """
         conversation_rows = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
             FROM conversations
             ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
             """
         ).fetchall()
         return [self._row_to_conversation(row) for row in conversation_rows]
+
+    def delete_conversation(self, *, conversation_id: str, requester_id: str) -> None:
+        """Dissolve a conversation and cascade-delete all messages and participants.
+
+        Only the creator of the conversation may call this method.
+
+        Args:
+            conversation_id: Identifier of the conversation to delete.
+            requester_id: User ID of the caller; must match the stored creator_id.
+
+        Raises:
+            ValueError: When the conversation does not exist.
+            PermissionError: When the requester is not the conversation creator.
+
+        Side Effects:
+            Deletes the conversation row; ON DELETE CASCADE removes messages,
+            conversation_participants, conversation_events, and relay_tasks.
+        """
+        row = self._connection.execute(
+            "SELECT creator_id FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("conversation_id not found")
+        # Permission check is enforced here in the service layer, not only in the UI.
+        if str(row["creator_id"]) != requester_id:
+            raise PermissionError("only the conversation creator can dissolve this conversation")
+        with self._connection:
+            self._connection.execute(
+                "DELETE FROM conversations WHERE id = ?",
+                (conversation_id,),
+            )
+
+    def remove_participant(self, *, conversation_id: str, user_id: str) -> None:
+        """Remove one participant from a conversation (leave-group operation).
+
+        Args:
+            conversation_id: Identifier of the target conversation.
+            user_id: Identifier of the user leaving the conversation.
+
+        Raises:
+            ValueError: When the conversation does not exist or user is not a participant.
+        """
+        convo_row = self._connection.execute(
+            "SELECT id FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if convo_row is None:
+            raise ValueError("conversation_id not found")
+        participant_row = self._connection.execute(
+            "SELECT 1 FROM conversation_participants WHERE conversation_id = ? AND user_id = ?",
+            (conversation_id, user_id),
+        ).fetchone()
+        if participant_row is None:
+            raise ValueError("user_id not a participant of this conversation")
+        with self._connection:
+            self._connection.execute(
+                "DELETE FROM conversation_participants WHERE conversation_id = ? AND user_id = ?",
+                (conversation_id, user_id),
+            )
 
     def _row_to_conversation(self, row: sqlite3.Row) -> Conversation:
         """Convert one conversation row into a domain model with participants."""
@@ -451,12 +524,16 @@ class ConversationRepository:
             (row["id"],),
         ).fetchall()
         profile_version = row["config_profile_version"] if "config_profile_version" in row.keys() else None
+        row_keys = row.keys()
+        # creator_id was added by M234 migration; fall back to owner_id for legacy rows.
+        creator_id = str(row["creator_id"]) if "creator_id" in row_keys else str(row["owner_id"])
         return Conversation(
             id=row["id"],
             title=row["title"],
             participant_ids=[item["user_id"] for item in participant_rows],
             type=row["type"],
             owner_id=row["owner_id"],
+            creator_id=creator_id,
             is_pinned=bool(row["is_pinned"]),
             is_muted=bool(row["is_muted"]),
             unread_count=int(row["unread_count"]),

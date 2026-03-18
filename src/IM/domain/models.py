@@ -100,6 +100,8 @@ class Conversation:
     participant_ids: list[str]
     type: str
     owner_id: str
+    # creator_id: user who created the conversation; used for dissolve-permission checks (M234).
+    creator_id: str
     is_pinned: bool
     is_muted: bool
     unread_count: int

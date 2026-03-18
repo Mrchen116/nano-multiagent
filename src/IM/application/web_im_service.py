@@ -58,6 +58,37 @@ class WebIMService:
         """List conversations visible in the current storage scope."""
         return self._conversations.list_conversations()
 
+    def delete_conversation(self, *, conversation_id: str, requester_id: str) -> None:
+        """Dissolve a conversation; only the creator may do this.
+
+        Args:
+            conversation_id: Conversation to delete.
+            requester_id: Caller's user ID; must be the conversation creator.
+
+        Raises:
+            ValueError: When conversation does not exist.
+            PermissionError: When requester is not the creator.
+        """
+        self._conversations.delete_conversation(
+            conversation_id=conversation_id,
+            requester_id=requester_id,
+        )
+
+    def remove_participant(self, *, conversation_id: str, user_id: str) -> None:
+        """Remove a participant from a conversation (leave-group).
+
+        Args:
+            conversation_id: Target conversation identifier.
+            user_id: User leaving the conversation.
+
+        Raises:
+            ValueError: When conversation or participant does not exist.
+        """
+        self._conversations.remove_participant(
+            conversation_id=conversation_id,
+            user_id=user_id,
+        )
+
     def create_message(
         self,
         *,
