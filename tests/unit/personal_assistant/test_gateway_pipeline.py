@@ -1287,3 +1287,70 @@ def test_build_session_metadata_still_reads_conversation_id_from_message_metadat
     assert created_metadata["conversation_id"] == "conv-42"
     assert created_metadata["config_profile_version"] == 7
     assert created_metadata["system_prompt"] == "Local prompt."
+
+
+# ---------------------------------------------------------------------------
+# R1: conversation_type / participant_agent_ids / external_chat_id in session metadata
+# ---------------------------------------------------------------------------
+
+def test_session_metadata_group_fields(tmp_path: Path) -> None:
+    """Group-chat session metadata contains conversation_type, participant_agent_ids, external_chat_id."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="@agent:agent-a hello group",
+        external_user_id="user-1",
+        external_chat_id="grp-42",
+        is_group=True,
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "conversation_id": "grp-42",
+        },
+    )
+
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    created_metadata = kernel_client.create_session_calls[0]["metadata"]
+    assert created_metadata["conversation_type"] == "group"
+    assert created_metadata["participant_agent_ids"] == ["agent-a"]
+    assert created_metadata["external_chat_id"] == "grp-42"
+
+
+def test_session_metadata_direct_fields(tmp_path: Path) -> None:
+    """Direct-chat session metadata contains conversation_type='direct' and no participant_agent_ids."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernelClient()
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="hello direct",
+        external_user_id="user-1",
+        external_chat_id="dm-1",
+        is_group=False,
+    )
+
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    created_metadata = kernel_client.create_session_calls[0]["metadata"]
+    assert created_metadata["conversation_type"] == "direct"
+    assert "participant_agent_ids" not in created_metadata
