@@ -24,6 +24,7 @@ interface ImConversation {
   participant_ids: string[];
   type: string;
   owner_id: string;
+  creator_id?: string;
   created_at?: string;
 }
 
@@ -1008,6 +1009,8 @@ export async function getConversation(conversationId: string): Promise<Conversat
     target_label: semantics.target_label,
     discoverability_hint: semantics.discoverability_hint,
     ownership_label: semantics.ownership_label,
+    // creator_id is forwarded so the UI can show the dissolve button only to the creator (M234).
+    creator_id: conversation.creator_id ?? undefined,
     mention_candidates: toMentionCandidates({
       conversation,
       userById,
@@ -1125,4 +1128,61 @@ export function streamConversationEvents(input: {
     }
     source.close();
   };
+}
+
+/**
+ * Dissolve a group conversation (creator only).
+ *
+ * Sends DELETE /im/v1/conversations/{conversationId} with a JSON body
+ * carrying the requester_id for server-side permission enforcement.
+ */
+export async function deleteConversation(input: {
+  conversationId: string;
+  requesterId: string;
+}): Promise<void> {
+  const response = await fetch(withBase(`/im/v1/conversations/${input.conversationId}`), {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requester_id: input.requesterId })
+  });
+  if (!response.ok) {
+    let detail = response.statusText || "request failed";
+    const rawBody = await response.text();
+    if (rawBody) {
+      try {
+        const parsed = JSON.parse(rawBody) as { detail?: string };
+        detail = typeof parsed.detail === "string" && parsed.detail.length > 0 ? parsed.detail : rawBody;
+      } catch {
+        detail = rawBody;
+      }
+    }
+    throw new ChatRequestError({ status: response.status, detail, method: "DELETE", path: `/im/v1/conversations/${input.conversationId}` });
+  }
+}
+
+/**
+ * Leave a group conversation (any participant).
+ *
+ * Sends DELETE /im/v1/conversations/{conversationId}/participants/{userId}.
+ */
+export async function leaveConversation(input: {
+  conversationId: string;
+  userId: string;
+}): Promise<void> {
+  const response = await fetch(withBase(`/im/v1/conversations/${input.conversationId}/participants/${input.userId}`), {
+    method: "DELETE"
+  });
+  if (!response.ok) {
+    let detail = response.statusText || "request failed";
+    const rawBody = await response.text();
+    if (rawBody) {
+      try {
+        const parsed = JSON.parse(rawBody) as { detail?: string };
+        detail = typeof parsed.detail === "string" && parsed.detail.length > 0 ? parsed.detail : rawBody;
+      } catch {
+        detail = rawBody;
+      }
+    }
+    throw new ChatRequestError({ status: response.status, detail, method: "DELETE", path: `/im/v1/conversations/${input.conversationId}/participants/${input.userId}` });
+  }
 }

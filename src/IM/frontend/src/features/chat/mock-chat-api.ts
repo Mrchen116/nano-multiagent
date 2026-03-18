@@ -417,3 +417,18 @@ export function streamConversationEvents(_: {
 }) {
   return () => undefined;
 }
+
+export async function deleteConversation(input: { conversationId: string; requesterId: string }): Promise<void> {
+  const index = conversations.findIndex((item) => item.conversation_id === input.conversationId);
+  if (index !== -1) {
+    conversations.splice(index, 1);
+  }
+}
+
+export async function leaveConversation(input: { conversationId: string; userId: string }): Promise<void> {
+  // Mock: remove conversation from list (simulates user leaving).
+  const index = conversations.findIndex((item) => item.conversation_id === input.conversationId);
+  if (index !== -1) {
+    conversations.splice(index, 1);
+  }
+}

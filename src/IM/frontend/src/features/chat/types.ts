@@ -79,6 +79,8 @@ export interface ConversationDetail {
   discoverability_hint?: string;
   mention_candidates?: MentionCandidate[];
   direct_agent_id?: string;
+  /** User ID of the conversation creator; used to show the dissolve button only to the creator (M234). */
+  creator_id?: string;
 }
 
 export interface ChatStarter {

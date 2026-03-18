@@ -8,10 +8,12 @@ import { MessagePane } from "./components/message-pane";
 import {
   createFreshDirectConversation,
   createGroupConversation,
+  deleteConversation,
   getChatBootstrapState,
   getChatStarter,
   getConversation,
   getUsageMetrics,
+  leaveConversation,
   listConversations,
   listDiscoverableGroupParticipants,
   resolveSendAvailability,
@@ -668,6 +670,36 @@ export function ChatWorkspacePage() {
     }
   });
 
+  // M234: remove conversation from cache then navigate home.
+  function removeConversationFromCache(targetConversationId: string) {
+    queryClient.setQueryData<ConversationSummary[] | undefined>(
+      ["chat", "conversations"],
+      (previous) => previous?.filter((item) => item.conversation_id !== targetConversationId)
+    );
+    queryClient.removeQueries({ queryKey: ["chat", "conversation", targetConversationId], exact: true });
+    if (conversationId === targetConversationId) {
+      navigate("/chat");
+    }
+  }
+
+  const leaveConversationMutation = useMutation({
+    mutationFn: (payload: { conversationId: string; userId: string }) =>
+      leaveConversation({ conversationId: payload.conversationId, userId: payload.userId }),
+    onSuccess: (_data, variables) => {
+      removeConversationFromCache(variables.conversationId);
+      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    }
+  });
+
+  const deleteConversationMutation = useMutation({
+    mutationFn: (payload: { conversationId: string; requesterId: string }) =>
+      deleteConversation({ conversationId: payload.conversationId, requesterId: payload.requesterId }),
+    onSuccess: (_data, variables) => {
+      removeConversationFromCache(variables.conversationId);
+      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    }
+  });
+
   const sendMutation = useMutation({
     mutationFn: (payload: { content: string; attachments: ChatAttachment[] }) =>
       sendMessage({ conversationId: conversationId!, content: payload.content, attachments: payload.attachments }),
@@ -736,6 +768,19 @@ export function ChatWorkspacePage() {
   const selectedGroupParticipants = groupParticipantOptions.filter((item) => selectedGroupParticipantIds.includes(item.user_id));
   const remainingParticipantsNeeded = Math.max(0, 2 - selectedGroupParticipants.length);
   const canCreateGroupChat = remainingParticipantsNeeded === 0 && !createGroupConversationMutation.isPending;
+  // M234: determine group creator so the dissolve button appears only for them.
+  const isGroupCreator = Boolean(detail?.creator_id && selfUserId && detail.creator_id === selfUserId);
+
+  // M234: handlers wired to leave/delete mutations; only shown for group conversations.
+  const isGroupConversation = detail?.kind_label === "Group chat";
+  const handleLeaveConversation = isGroupConversation && selfUserId
+    ? (targetConversationId: string) =>
+        leaveConversationMutation.mutateAsync({ conversationId: targetConversationId, userId: selfUserId })
+    : undefined;
+  const handleDeleteConversation = isGroupConversation && selfUserId
+    ? (targetConversationId: string) =>
+        deleteConversationMutation.mutateAsync({ conversationId: targetConversationId, requesterId: selfUserId })
+    : undefined;
 
   if (isMobile && conversationId) {
     return (
@@ -755,6 +800,9 @@ export function ChatWorkspacePage() {
               : undefined
           }
           onUploadAttachment={uploadAttachment}
+          onLeaveConversation={handleLeaveConversation}
+          onDeleteConversation={handleDeleteConversation}
+          isGroupCreator={isGroupCreator}
         />
       </div>
     );
@@ -914,6 +962,9 @@ export function ChatWorkspacePage() {
               : undefined
           }
           onUploadAttachment={uploadAttachment}
+          onLeaveConversation={handleLeaveConversation}
+          onDeleteConversation={handleDeleteConversation}
+          isGroupCreator={isGroupCreator}
         />
       )}
     </section>

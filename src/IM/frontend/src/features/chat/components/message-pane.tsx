@@ -546,6 +546,12 @@ export function MessagePane(props: {
   onSend: (payload: { content: string; attachments: ChatAttachment[] }) => Promise<unknown>;
   onStartFreshSession?: (agentId: string) => Promise<unknown>;
   onUploadAttachment: (file: File) => Promise<ChatAttachment>;
+  /** Called when user confirms leaving a group conversation. */
+  onLeaveConversation?: (conversationId: string) => Promise<void>;
+  /** Called when group creator confirms dissolving a conversation. */
+  onDeleteConversation?: (conversationId: string) => Promise<void>;
+  /** Whether the current user is the creator/owner of this group conversation. */
+  isGroupCreator?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -553,6 +559,9 @@ export function MessagePane(props: {
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
+  // Confirmation dialog state for leave/delete group operations (M234).
+  const [confirmAction, setConfirmAction] = useState<"leave" | "delete" | null>(null);
+  const [isConfirmPending, setIsConfirmPending] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -734,7 +743,7 @@ export function MessagePane(props: {
   };
 
   return (
-    <section className="im-card flex h-full min-h-[420px] flex-col overflow-hidden">
+    <section className="im-card relative flex h-full min-h-[420px] flex-col overflow-hidden">
       <div className="flex items-start gap-3 border-b border-[var(--im-border)] px-4 py-3">
         {props.isMobile && (
           <Link to="/chat" className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
@@ -769,7 +778,81 @@ export function MessagePane(props: {
             {props.isStartingFreshSession ? "Starting fresh session…" : "Start fresh session"}
           </button>
         ) : null}
+        {/* M234: group chat leave/delete buttons shown when handlers are provided */}
+        {props.detail.kind_label === "Group chat" && (props.onLeaveConversation || props.onDeleteConversation) ? (
+          <div className="flex shrink-0 flex-col gap-1">
+            {props.onLeaveConversation && (
+              <button
+                type="button"
+                className="im-btn im-btn-muted shrink-0 text-xs"
+                onClick={() => setConfirmAction("leave")}
+              >
+                退出群聊
+              </button>
+            )}
+            {props.isGroupCreator && props.onDeleteConversation && (
+              <button
+                type="button"
+                className="im-btn shrink-0 border border-rose-300 bg-rose-50 text-xs text-rose-700 hover:bg-rose-100"
+                onClick={() => setConfirmAction("delete")}
+              >
+                解散群聊
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
+      {/* M234: confirmation dialog for leave/delete group */}
+      {confirmAction && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={confirmAction === "delete" ? "解散群聊确认" : "退出群聊确认"}
+          className="absolute inset-0 z-20 flex items-center justify-center bg-black/30"
+        >
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-[var(--im-border)] bg-white px-6 py-5 shadow-xl">
+            <h3 className="text-base font-bold text-slate-900">
+              {confirmAction === "delete" ? "解散群聊" : "退出群聊"}
+            </h3>
+            <p className="mt-2 text-sm text-slate-600">
+              {confirmAction === "delete"
+                ? "解散后所有成员将无法继续使用此群聊，且所有消息将被删除。此操作不可撤销，确认继续？"
+                : "退出后你将离开此群聊，其他成员不受影响。确认退出？"}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="im-btn im-btn-muted"
+                disabled={isConfirmPending}
+                onClick={() => setConfirmAction(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className={confirmAction === "delete" ? "im-btn border border-rose-400 bg-rose-600 text-white hover:bg-rose-700" : "im-btn im-btn-primary"}
+                disabled={isConfirmPending}
+                onClick={async () => {
+                  if (!props.detail) return;
+                  setIsConfirmPending(true);
+                  try {
+                    if (confirmAction === "delete") {
+                      await props.onDeleteConversation?.(props.detail.conversation_id);
+                    } else {
+                      await props.onLeaveConversation?.(props.detail.conversation_id);
+                    }
+                  } finally {
+                    setIsConfirmPending(false);
+                    setConfirmAction(null);
+                  }
+                }}
+              >
+                {isConfirmPending ? "处理中…" : confirmAction === "delete" ? "确认解散" : "确认退出"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <UsageStrip usage={props.usage} />
       <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4">
         <div data-testid="message-list-stack" className="flex min-h-full flex-col justify-end">

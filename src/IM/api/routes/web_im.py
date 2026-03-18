@@ -32,6 +32,7 @@ class ConversationResponse(BaseModel):
     participant_ids: list[str]
     type: str
     owner_id: str
+    creator_id: str
     is_pinned: bool
     is_muted: bool
     unread_count: int
@@ -54,6 +55,7 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
         participant_ids=conversation.participant_ids,
         type=conversation.type,
         owner_id=conversation.owner_id,
+        creator_id=conversation.creator_id,
         is_pinned=conversation.is_pinned,
         is_muted=conversation.is_muted,
         unread_count=conversation.unread_count,
