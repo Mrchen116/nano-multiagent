@@ -1050,8 +1050,8 @@ describe("chat workspace page", () => {
     expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
     expect(screen.getByText("Need a full update", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
     expect(screen.getByText("Agent is preparing the response", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
-    expect(screen.getByText("You")).toBeInTheDocument();
-    expect(screen.getByText("node-demo")).toBeInTheDocument();
+    expect(screen.queryByText("You")).not.toBeInTheDocument();
+    expect(screen.queryByText("node-demo")).not.toBeInTheDocument();
   });
 
   it("keeps optimistic self messages on the local side after SSE reconciliation", async () => {
@@ -1106,8 +1106,8 @@ describe("chat workspace page", () => {
       }
     });
 
-    expect(await screen.findByText("You")).toBeInTheDocument();
     expect(screen.getByText("I will handle this update.", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
+    expect(screen.queryByText("You")).not.toBeInTheDocument();
     expect(screen.queryByText("user-1")).not.toBeInTheDocument();
   });
 
@@ -1195,7 +1195,7 @@ describe("chat workspace page", () => {
     expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
     expect(screen.getByText("Need a full update", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
     expect(screen.getByText("assistant:resolved after completion receipt", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
-    expect(screen.getByText("node-demo")).toBeInTheDocument();
+    expect(screen.queryByText("node-demo")).not.toBeInTheDocument();
   });
 
   it("keeps NO_REPLY processing and report events out of the live group thread and conversation preview", async () => {
