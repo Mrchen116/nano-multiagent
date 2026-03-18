@@ -289,7 +289,7 @@ class _IMConfigSyncClient:
                 break
         else:
             agents.append(agent_config)
-        persist_path = default_local_config_path()
+        persist_path = Path(self._local_config.source_path) if self._local_config.source_path else default_local_config_path()
         self._local_config = LocalConfig(
             node=self._local_config.node,
             agents=tuple(agents),

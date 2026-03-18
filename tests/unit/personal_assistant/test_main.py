@@ -876,7 +876,8 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(tmp_p
     assert heartbeat_path.read_text(encoding="utf-8") == "interval: 1h\n\n- Existing heartbeat\n"
 
 
-def test_im_config_sync_client_persists_agent_config_to_canonical_local_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_im_config_sync_client_persists_agent_config_to_source_path(tmp_path: Path) -> None:
+    """Config sync must write back to the path the config was loaded from, not a hardcoded default."""
     workspace_root = tmp_path / "workspace"
 
     class _Pipeline:
@@ -902,11 +903,9 @@ def test_im_config_sync_client_persists_agent_config_to_canonical_local_yaml(tmp
             },
         )
 
-    home_dir = tmp_path / "home"
-    monkeypatch.setenv("HOME", str(home_dir))
     seed_workspace = tmp_path / "seed-workspace"
     seed_workspace.mkdir(parents=True)
-    config_path = tmp_path / "legacy-config.yaml"
+    config_path = tmp_path / "my-config.yaml"
     local_config = LocalConfig(
         node=NodeConfig(node_id="node-1"),
         agents=(
@@ -930,11 +929,10 @@ def test_im_config_sync_client_persists_agent_config_to_canonical_local_yaml(tmp
 
     sync.sync_agent(agent_id="agent-live", profile_version=2)
 
-    canonical_path = (home_dir / ".nano-assistant" / "config.yaml").resolve()
-    assert canonical_path.exists() is True
-    assert config_path.exists() is False
-    persisted = load_local_config(canonical_path)
-    assert persisted.source_path == canonical_path
+    # Must write to source_path (where the config was loaded from), not a hardcoded default.
+    assert config_path.exists() is True
+    persisted = load_local_config(config_path)
+    assert persisted.source_path == config_path
     assert len(persisted.agents) == 2
     agent = next(item for item in persisted.agents if item.agent_id == "agent-live")
     assert agent.title == "Agent Live"
