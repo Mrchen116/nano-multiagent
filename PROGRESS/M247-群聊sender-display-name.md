@@ -21,4 +21,15 @@
   - Entry: `payload["sender"]["display_name"]` 读取 users.display_name，fallback 到 user_id
 - Rollback: 回退到 test(R1.1) commit
 - Commits: C1=226bdef, C2=a483f78, C3=（待写）
-- Next: R2 — web_relay_adapter 解析 sender.display_name
+- Next: R2 — web_relay_adapter 解析 sender.display_name — DONE
+
+### R2.1 web_relay_adapter 解析 sender_display_name 和 participants
+- Context: RelayEnvelope 无 sender_display_name 字段；InboundMessage.metadata 不含 sender_display_name/participants。
+- Decision: RelayEnvelope 新增 `sender_display_name: str | None` 和 `participants: list[dict]`（default None，`__post_init__` 归一化为 []）；`_parse_relay_payload` 从 `payload["sender"]["display_name"]` 提取；`_build_inbound` 将两个字段注入 `extra` dict（仅非空时）。
+- Rationale: gateway 只透传，不查询；保持 metadata key 为 None 时不注入，维持旧 payload 的 metadata 洁净。
+- Evidence:
+  - Tests: 全部 adapter 测试 13 passed，im_service unit+contract 56 passed，personal_assistant unit 220 total 全绿
+  - Entry: `inbound.metadata["sender_display_name"]` 可直接读取
+- Rollback: 回退到 R1.1 C3 commit
+- Commits: C1=50eee46, C2=540cb33, C3=（待写）
+- Next: R3 — inbound_pipeline 使用 display_name 替代 UUID
