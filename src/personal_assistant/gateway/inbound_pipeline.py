@@ -337,10 +337,10 @@ class InboundPipeline:
         if message.is_group:
             session_metadata["conversation_type"] = "group"
             session_metadata["external_chat_id"] = message.external_chat_id or ""
-            participants = metadata.get("participant_agent_ids")
-            if isinstance(participants, list):
+            participant_agent_ids = metadata.get("participant_agent_ids")
+            if isinstance(participant_agent_ids, list):
                 session_metadata["participant_agent_ids"] = [
-                    str(aid) for aid in participants if isinstance(aid, str)
+                    str(aid) for aid in participant_agent_ids if isinstance(aid, str)
                 ]
             else:
                 mentioned = metadata.get("mentioned_agent_ids")
@@ -350,6 +350,14 @@ class InboundPipeline:
                     ]
                 else:
                     session_metadata["participant_agent_ids"] = []
+            # M247: pass structured participants list (with display_name and type) to session
+            # metadata so the communication_context hook can render readable names.
+            # Only propagate when the relay payload carried this M247 field.
+            raw_participants = metadata.get("participants")
+            if isinstance(raw_participants, list) and raw_participants:
+                session_metadata["participants"] = [
+                    dict(p) for p in raw_participants if isinstance(p, dict)
+                ]
         else:
             session_metadata["conversation_type"] = "direct"
         return session_metadata
