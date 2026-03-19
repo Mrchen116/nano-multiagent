@@ -136,6 +136,15 @@ class RelayEnvelope:
     agent_id: str | None
     metadata: Mapping[str, Any]
     attachments: list[dict[str, Any]]
+    # M247: resolved display name and participant roster from relay_service.
+    # None / empty for pre-M247 payloads; gateway must handle absence gracefully.
+    sender_display_name: str | None = None
+    participants: list[dict[str, Any]] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        # Normalize None participants to empty list for uniform downstream handling.
+        if object.__getattribute__(self, "participants") is None:
+            object.__setattr__(self, "participants", [])
 
 
 class WebRelayAdapter:
@@ -217,6 +226,15 @@ def _build_inbound(envelope: RelayEnvelope, payload: Mapping[str, object]) -> In
     extra: dict[str, Any] = {}
     if envelope.attachments:
         extra["attachments"] = envelope.attachments
+    # M247: forward sender_display_name when present so inbound_pipeline can use
+    # it for [sender] prefix instead of raw UUID.  Omit key when None to keep
+    # metadata clean for pre-M247 payloads.
+    if envelope.sender_display_name is not None:
+        extra["sender_display_name"] = envelope.sender_display_name
+    # M247: forward participants list so inbound_pipeline and session metadata
+    # can propagate structured participant info to communication_context hook.
+    if envelope.participants:
+        extra["participants"] = envelope.participants
     return InboundMessage(
         channel_name="web_relay",
         text=envelope.content,
@@ -261,6 +279,20 @@ def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:
                         "content_type": item.get("content_type"),
                         "file_name": item.get("file_name"),
                     })
+    # M247: parse optional sender.display_name (absent in pre-M247 payloads).
+    sender_display_name: str | None = None
+    raw_sender = payload.get("sender")
+    if isinstance(raw_sender, Mapping):
+        raw_display_name = raw_sender.get("display_name")
+        if isinstance(raw_display_name, str) and raw_display_name.strip():
+            sender_display_name = raw_display_name.strip()
+    # M247: parse optional participants list (absent in pre-M247 payloads).
+    participants: list[dict[str, Any]] = []
+    raw_participants = payload.get("participants")
+    if isinstance(raw_participants, list):
+        for item in raw_participants:
+            if isinstance(item, Mapping):
+                participants.append(dict(item))
     return RelayEnvelope(
         relay_task_id=relay_task_id,
         idempotency_key=idempotency_key,
@@ -270,6 +302,8 @@ def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:
         agent_id=_optional_text(payload.get("agent_id")),
         metadata=dict(metadata),
         attachments=attachments,
+        sender_display_name=sender_display_name,
+        participants=participants,
     )
 
 
