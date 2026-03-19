@@ -385,11 +385,11 @@ class InboundPipeline:
         if not message.is_group:
             return True
         metadata = dict(message.metadata)
-        if metadata.get("background_context_only") is True:
-            return False
         policy = (agent_config.group_reply_policy or "MENTION").upper() if agent_config else "MENTION"
         if policy == "ALWAYS":
             return True
+        if metadata.get("background_context_only") is True:
+            return False
         # MENTION policy: check explicit mention metadata or plain-text @agent
         mentioned = metadata.get("mentioned_agent_ids")
         if isinstance(mentioned, list) and agent_id in mentioned:
