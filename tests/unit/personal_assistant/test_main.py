@@ -26,7 +26,7 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
-from personal_assistant.gateway.session_keys import SessionBindingStore
+from personal_assistant.gateway.session_keys import PersistentSessionBindingStore, SessionBindingStore
 from personal_assistant.main import (
     BackgroundLaunchResult,
     GatewayProcessManager,
@@ -1668,3 +1668,107 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
 
     assert "STOPPED" in result
     assert not pid_path.exists(), "gateway.pid must be removed after stop"
+
+
+# ---------------------------------------------------------------------------
+# M248: build_runtime 使用 PersistentSessionBindingStore
+# ---------------------------------------------------------------------------
+
+
+def _make_minimal_config(tmp_path: Path) -> "LocalConfig":
+    """构造一个最小可用的 LocalConfig，source_path 在 tmp_path 下。"""
+    workspace_root = tmp_path / "agent-a"
+    workspace_root.mkdir()
+    return LocalConfig(
+        node=NodeConfig(node_id="node-m248"),
+        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        channels=(),
+        kernel=KernelConfig(
+            token=None,
+            command="python -m dummy",
+            startup_timeout_seconds=0.1,
+            health_poll_interval_seconds=0.0,
+            shutdown_grace_seconds=0.1,
+        ),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=tmp_path / "node-config.yaml",
+    )
+
+
+def test_build_runtime_uses_persistent_session_binding_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """build_runtime 构造的 pipeline 使用 PersistentSessionBindingStore。"""
+    config = _make_minimal_config(tmp_path)
+
+    class _DummyKernelClient:
+        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
+            del config, transport
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _DummyKernelClient)
+
+    runtime = build_runtime(config)
+
+    pipeline = runtime._on_inbound._pipeline  # noqa: SLF001
+    assert isinstance(pipeline._session_store, PersistentSessionBindingStore)  # noqa: SLF001
+
+
+def test_build_runtime_session_store_db_path_is_under_config_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """session_bindings.sqlite3 与 relay_dedup.sqlite3 同目录（config_path 的父目录）。"""
+    config = _make_minimal_config(tmp_path)
+
+    class _DummyKernelClient:
+        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
+            del config, transport
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _DummyKernelClient)
+
+    runtime = build_runtime(config)
+
+    pipeline = runtime._on_inbound._pipeline  # noqa: SLF001
+    store: PersistentSessionBindingStore = pipeline._session_store  # noqa: SLF001
+    expected_db_path = tmp_path / "session_bindings.sqlite3"
+    assert store._db_path == expected_db_path  # noqa: SLF001
+
+
+def test_build_runtime_injects_kernel_client_into_session_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """build_runtime 在构造后将 kernel_client 注入 PersistentSessionBindingStore。"""
+    config = _make_minimal_config(tmp_path)
+    injected_clients: list[object] = []
+
+    original_init = PersistentSessionBindingStore.__init__
+
+    class _TrackingStore(PersistentSessionBindingStore):
+        def set_kernel_client(self, client: object) -> None:
+            injected_clients.append(client)
+            super().set_kernel_client(client)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("personal_assistant.main.PersistentSessionBindingStore", _TrackingStore)
+
+    class _DummyKernelClient:
+        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
+            del config, transport
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _DummyKernelClient)
+
+    build_runtime(config)
+
+    assert len(injected_clients) == 1, "kernel_client должен быть инъецирован один раз"
+    assert isinstance(injected_clients[0], _DummyKernelClient)

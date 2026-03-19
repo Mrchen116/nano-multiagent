@@ -46,7 +46,7 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline, RelayLifecycleUpdate
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import SessionBindingStore
+from personal_assistant.gateway.session_keys import PersistentSessionBindingStore, SessionBindingStore
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatScheduler,
@@ -1023,12 +1023,19 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     im_bootstrap_client: _IMBootstrapClient | None = None
     im_config_sync_client: _IMConfigSyncClient | None = None
     post_im_connect: Callable[[], None] | None = None
+    # Use SQLite-backed store so kernel session mappings survive gateway restarts
+    # (NodeGateway-SPEC §4.2).  The kernel_client is injected below after construction
+    # so that live session validation (GET /v1/sessions/{id}) is enabled at runtime.
+    session_store = PersistentSessionBindingStore(
+        db_path=runtime_dir / "session_bindings.sqlite3"
+    )
+    session_store.set_kernel_client(kernel_client)
     pipeline = InboundPipeline(
         kernel_client=kernel_client,
         agents=config.agents,
         outbound_router=outbound_router,
         run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
+        session_store=session_store,
         group_context_store=GroupContextStore(
             db_path=runtime_dir / "group_context_buffer.sqlite3"
         ),
