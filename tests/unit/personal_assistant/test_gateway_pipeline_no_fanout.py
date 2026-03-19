@@ -125,7 +125,8 @@ def test_no_mention_message_buffers_only_for_current_agent(tmp_path: Path) -> No
     # agent-b's buffer must NOT be populated by agent-a's relay
     drained_b = store.drain(buf_key_b)
 
-    assert "hello everyone" in drained_a, f"agent-a buffer missing message: {drained_a}"
+    # drain returns (sender, text) tuples since M246
+    assert any(text == "hello everyone" for _, text in drained_a), f"agent-a buffer missing message: {drained_a}"
     assert drained_b == [], f"agent-b buffer must not be populated by agent-a's relay, got: {drained_b}"
 
 
@@ -193,7 +194,8 @@ def test_background_context_only_relay_buffers_agent_reply_for_peer(tmp_path: Pa
     assert reply_result is None
     assert mention_result is not None
     assert mention_result.agent_id == "agent-a"
-    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["Agent B: here is the answer", "@agent-a continue"], "run_id": "run-1"}]
+    # Since M246: each group message is prefixed with [sender_id] before being sent to the kernel.
+    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["[agent-b-user] Agent B: here is the answer", "[user-1] @agent-a continue"], "run_id": "run-1"}]
 
     buf_key_a = pipeline._group_buf_key_for_agent(peer_reply_for_a, "agent-a")
     assert store.drain(buf_key_a) == []
@@ -235,9 +237,10 @@ def test_own_agent_buffer_drain_still_works(tmp_path: Path) -> None:
     assert r2 is not None
     assert r2.agent_id == "agent-b"
 
-    # agent-b must have sent both the plain message and the mention as texts
+    # agent-b must have sent both the plain message and the mention as texts.
+    # Since M246: each group message is prefixed with [sender_id] by the gateway layer.
     assert len(kernel.send_calls) == 1
-    assert kernel.send_calls[0]["texts"] == ["hello everyone", "@agent-b what time is it?"]
+    assert kernel.send_calls[0]["texts"] == ["[user-1] hello everyone", "[user-1] @agent-b what time is it?"]
 
 
 def test_non_mentioned_group_relay_buffers_for_its_target_agent(tmp_path: Path) -> None:
@@ -289,9 +292,10 @@ def test_non_mentioned_group_relay_buffers_for_its_target_agent(tmp_path: Path) 
     assert result_b.agent_id == "agent-b"
     assert result_a is not None
     assert result_a.agent_id == "agent-a"
+    # Since M246: each group message is prefixed with [sender_id] by the gateway layer.
     assert len(kernel.send_calls) == 2
-    assert kernel.send_calls[0]["texts"] == ["@agent-b first turn"]
-    assert kernel.send_calls[1]["texts"] == ["@agent-b first turn", "@agent-a second turn"]
+    assert kernel.send_calls[0]["texts"] == ["[user-1] @agent-b first turn"]
+    assert kernel.send_calls[1]["texts"] == ["[user-1] @agent-b first turn", "[user-1] @agent-a second turn"]
 
     buf_key_a = pipeline._group_buf_key_for_agent(relay_for_a, "agent-a")
     assert store.drain(buf_key_a) == []

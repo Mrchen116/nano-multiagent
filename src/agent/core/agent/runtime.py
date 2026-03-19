@@ -235,14 +235,37 @@ class AgentRuntime:
             message_id=user_message_id,
         )
 
+        # Multi-part expansion (M246): when the gateway sends N buffered messages as N parts,
+        # each part must appear as an independent user message in the LLM history rather than
+        # being \n-joined into a single message.  Parts 0..N-2 are injected into history;
+        # the last part becomes the current user_text consumed by the loop.
+        # Single-part paths (N=1) are unchanged — backward compatible.
+        effective_user_text = user_text
+        effective_input_parts = input_parts
+        if len(input_parts) > 1:
+            extra_parts = input_parts[:-1]
+            last_part = input_parts[-1:]
+            extra_messages = tuple(
+                Message(
+                    message_id=make_message_id(),
+                    role="user",
+                    content=render_user_text([part]),
+                )
+                for part in extra_parts
+                if render_user_text([part])
+            )
+            history = history + extra_messages
+            effective_user_text = render_user_text(last_part)
+            effective_input_parts = last_part
+
         try:
             turn_result = self._execute_loop(
                 session_id=session_id,
                 turn_id=turn_id,
                 turn_count=turn_count,
                 history=history,
-                input_parts=input_parts,
-                user_text=user_text,
+                input_parts=effective_input_parts,
+                user_text=effective_user_text,
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
                 llm_session_id=llm_session_id,
@@ -256,17 +279,19 @@ class AgentRuntime:
             # compaction attempt plus one replay; all other model errors bubble up.
             if not self._post_turn_check_overflow(session_id=session_id, error=exc):
                 raise
-            retry_history = self._history_without_message(
+            base_retry_history = self._history_without_message(
                 session_id=session_id,
                 message_id=user_message_id,
             )
+            # Re-apply multi-part expansion on the compaction-adjusted retry history.
+            retry_history = base_retry_history + (history[len(base_retry_history):] if len(input_parts) > 1 else ())
             turn_result = self._execute_loop(
                 session_id=session_id,
                 turn_id=turn_id,
                 turn_count=turn_count,
                 history=retry_history,
-                input_parts=input_parts,
-                user_text=user_text,
+                input_parts=effective_input_parts,
+                user_text=effective_user_text,
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
                 llm_session_id=llm_session_id,

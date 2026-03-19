@@ -19,6 +19,10 @@ def _build_communication_context_block(
     if conversation_type == "group" and participant_agent_ids is not None:
         ids_repr = ", ".join(participant_agent_ids) if participant_agent_ids else "(none)"
         lines.append(f"- group_participants: {ids_repr}")
+    if conversation_type == "group":
+        # M246: each group message is prefixed with the sender identifier so the model
+        # can attribute messages to their authors.  Direct chats need no such hint.
+        lines.append("- message_format: [sender_id] message_text")
     return "\n".join(lines)
 
 

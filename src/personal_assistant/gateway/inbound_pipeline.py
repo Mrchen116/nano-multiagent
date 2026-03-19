@@ -125,8 +125,11 @@ class InboundPipeline:
                 # This relay's agent is not addressed — buffer message as background context
                 # for this agent's own future turn.  Each agent receives its own relay from IM,
                 # so we only write to this agent's buffer key (no cross-agent fan-out).
+                # Store sender (external_user_id) so the pipeline can format [sender] text prefixes.
                 self._group_context_store.append(
-                    self._group_buf_key_for_agent(message, agent_id), message.text
+                    self._group_buf_key_for_agent(message, agent_id),
+                    message.text,
+                    sender=message.external_user_id,
                 )
 
         if not should_process:
@@ -138,8 +141,21 @@ class InboundPipeline:
             try:
                 binding = self._ensure_binding(message, agent_id=agent_id, session_key=session_key)
                 buf_key = self._group_buf_key_for_agent(message, agent_id)
-                buffered = self._group_context_store.drain(buf_key) if message.is_group and self._group_context_store else []
-                texts = buffered + [message.text]
+                # drain() returns (sender, text) tuples since M246; format each as "[sender] text"
+                # so the kernel receives sender-prefixed, independently-structured context messages.
+                buffered_pairs: list[tuple[str, str]] = (
+                    self._group_context_store.drain(buf_key)
+                    if message.is_group and self._group_context_store
+                    else []
+                )
+                buffered_texts = [_format_sender_text(sender, text) for sender, text in buffered_pairs]
+                # Group messages get a sender prefix so the kernel can identify who spoke.
+                # Direct messages remain unchanged — no sender prefix needed.
+                if message.is_group:
+                    current_text = _format_sender_text(message.external_user_id, message.text)
+                else:
+                    current_text = message.text
+                texts = buffered_texts + [current_text]
                 run_payload = self._kernel_client.send_message_async(
                     session_id=binding.kernel_session_id,
                     texts=texts,
@@ -539,3 +555,23 @@ class InboundPipeline:
             "completion_tokens": max(completion_tokens, 0),
             "total_tokens": max(total_tokens, 0),
         }
+
+
+def _format_sender_text(sender: str, text: str) -> str:
+    """Prepend ``[sender]`` prefix to a group message text.
+
+    Args:
+        sender: External user identifier (empty string when unknown).
+        text: Raw message text.
+
+    Returns:
+        ``"[sender] text"`` when sender is non-empty, otherwise ``text`` unchanged.
+
+    Notes:
+        Gateway layer owns this formatting so the kernel remains sender-agnostic.
+        The prefix follows the same convention described in Communication Context
+        ``message_format`` so the LLM can parse sender identity from each message.
+    """
+    if sender:
+        return f"[{sender}] {text}"
+    return text

@@ -147,8 +147,9 @@ def test_group_message_with_mention_or_reply_runs(tmp_path: Path) -> None:
 
     assert first is not None
     assert second is not None
-    assert [call["texts"][-1] for call in kernel.send_calls] == ["@agent-a hello", "follow-up"]
-    assert [item.text for item in channel.sent] == ["reply:@agent-a hello", "reply:follow-up"]
+    # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
+    assert [call["texts"][-1] for call in kernel.send_calls] == ["[user-1] @agent-a hello", "[user-1] follow-up"]
+    assert [item.text for item in channel.sent] == ["reply:[user-1] @agent-a hello", "reply:[user-1] follow-up"]
 
 
 def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Path) -> None:
@@ -180,7 +181,8 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
     assert result is not None
     assert result.reply_text == "NO_REPLY"
     assert result.outbound is None
-    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["@agent-a stay quiet"], "run_id": "run-1"}]
+    # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
+    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["[user-1] @agent-a stay quiet"], "run_id": "run-1"}]
     assert channel.sent == []
 
 
@@ -315,8 +317,9 @@ def test_group_multiagent_fanout_buffers_and_contextualises(tmp_path: Path) -> N
     assert result_b is not None
     assert result_b.agent_id == "agent-b"
     assert len(kernel.send_calls) == 1
+    # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
     # agent-b must drain "hello everyone" then receive the @mention in its own buffer
-    assert kernel.send_calls[0]["texts"] == ["hello everyone", "@agent-b what time is it?"]
+    assert kernel.send_calls[0]["texts"] == ["[user-1] hello everyone", "[user-1] @agent-b what time is it?"]
 
     # Step 3a: plain message relay targeted to agent-a → agent-a buffers.
     plain_for_a = InboundMessage(
@@ -345,6 +348,7 @@ def test_group_multiagent_fanout_buffers_and_contextualises(tmp_path: Path) -> N
     assert result_a.agent_id == "agent-a"
     assert len(kernel.send_calls) == 2
     sent_texts = kernel.send_calls[1]["texts"]
+    # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
     # agent-a drains its own buffer ("hello everyone") then receives the @mention
-    assert sent_texts[0] == "hello everyone"
-    assert sent_texts[-1] == "@agent-a your turn"
+    assert sent_texts[0] == "[user-1] hello everyone"
+    assert sent_texts[-1] == "[user-1] @agent-a your turn"
