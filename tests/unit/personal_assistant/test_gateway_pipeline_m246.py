@@ -200,3 +200,76 @@ def test_multiple_buffered_items_become_independent_texts(tmp_path: Path) -> Non
 
     texts = kernel.send_calls[0]["texts"]
     assert texts == ["[alice] msg one", "[bob] msg two", "[charlie] @agent-a go"]
+
+
+# ---------------------------------------------------------------------------
+# M247: sender_display_name replaces UUID in [sender] prefix
+# ---------------------------------------------------------------------------
+
+
+def test_group_mention_uses_display_name_when_provided(tmp_path: Path) -> None:
+    """当 metadata 携带 sender_display_name 时，[sender] 前缀应使用 display_name 而非 UUID。"""
+    pipeline, _, kernel = _build_pipeline(tmp_path)
+
+    msg = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a hello",
+        external_user_id="uuid-alice-raw",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"mentioned_agent_ids": ["agent-a"], "sender_display_name": "Alice Chen"},
+    )
+    asyncio.run(pipeline.handle_inbound(msg))
+
+    assert kernel.send_calls[0]["texts"] == ["[Alice Chen] @agent-a hello"]
+
+
+def test_group_mention_falls_back_to_uuid_when_no_display_name(tmp_path: Path) -> None:
+    """metadata 无 sender_display_name 时 fallback 使用 external_user_id（UUID）。"""
+    pipeline, _, kernel = _build_pipeline(tmp_path)
+
+    msg = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a hello",
+        external_user_id="uuid-alice-raw",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"mentioned_agent_ids": ["agent-a"]},
+    )
+    asyncio.run(pipeline.handle_inbound(msg))
+
+    assert kernel.send_calls[0]["texts"] == ["[uuid-alice-raw] @agent-a hello"]
+
+
+def test_buffered_messages_use_display_name_from_metadata(tmp_path: Path) -> None:
+    """Buffer 中的消息以 sender_display_name 作为前缀（而非 UUID）。"""
+    pipeline, store, kernel = _build_pipeline(tmp_path)
+
+    # Buffer a message with display_name in metadata
+    plain = InboundMessage(
+        channel_name="web_relay",
+        text="first message",
+        external_user_id="uuid-bob-raw",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"mentioned_agent_ids": [], "sender_display_name": "Bob Smith"},
+    )
+    # Trigger with display_name mention
+    mention = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a respond",
+        external_user_id="uuid-alice-raw",
+        external_chat_id="conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"mentioned_agent_ids": ["agent-a"], "sender_display_name": "Alice Chen"},
+    )
+
+    asyncio.run(pipeline.handle_inbound(plain))
+    asyncio.run(pipeline.handle_inbound(mention))
+
+    texts = kernel.send_calls[0]["texts"]
+    assert texts == ["[Bob Smith] first message", "[Alice Chen] @agent-a respond"]
