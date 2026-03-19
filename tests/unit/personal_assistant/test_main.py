@@ -1454,3 +1454,217 @@ def test_stop_gateway_only_reports_stopped_after_health_url_goes_down(
     )
     assert verify_calls == [("http://127.0.0.1:8100/v1/health", 0.1, 0.01)]
     assert state_path.exists() is False
+
+
+# ---------------------------------------------------------------------------
+# M245: PID file lifecycle, single-instance protection, restart subcommand
+# ---------------------------------------------------------------------------
+
+
+def test_run_gateway_writes_pid_file_before_start_and_removes_on_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """run_gateway must write gateway.pid before the runtime starts and remove it on clean exit."""
+    from personal_assistant.main import run_gateway, _gateway_pid_path
+
+    config = _build_config(tmp_path)
+    pid_path = _gateway_pid_path(config)
+    pid_observed_during_run: list[bool] = []
+
+    class _Runtime:
+        def run_forever(self) -> int:
+            pid_observed_during_run.append(pid_path.exists())
+            return 0
+
+    run_gateway(
+        config_path=config.source_path,
+        factories=RuntimeFactories(
+            load_config=lambda _path: config,
+            build_runtime=lambda _config: _Runtime(),
+        ),
+    )
+
+    assert pid_observed_during_run == [True], "gateway.pid must exist while runtime is running"
+    assert not pid_path.exists(), "gateway.pid must be removed after clean exit"
+
+
+def test_run_gateway_removes_pid_file_even_when_runtime_raises(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """run_gateway must remove gateway.pid even when the runtime raises an exception."""
+    from personal_assistant.main import run_gateway, _gateway_pid_path
+
+    config = _build_config(tmp_path)
+    pid_path = _gateway_pid_path(config)
+
+    class _BrokenRuntime:
+        def run_forever(self) -> int:
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        run_gateway(
+            config_path=config.source_path,
+            factories=RuntimeFactories(
+                load_config=lambda _path: config,
+                build_runtime=lambda _config: _BrokenRuntime(),
+            ),
+        )
+
+    assert not pid_path.exists(), "gateway.pid must be cleaned up even on error"
+
+
+def test_launch_background_refuses_to_start_when_pid_file_shows_live_process(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """launch_gateway_in_background must raise GatewayStartupError with PID when already running."""
+    from personal_assistant.main import launch_gateway_in_background, _gateway_pid_path
+
+    config = _build_config(tmp_path)
+    pid_path = _gateway_pid_path(config)
+    pid_path.write_text("12345", encoding="utf-8")
+
+    # Simulate that PID 12345 is alive
+    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: True)
+
+    with pytest.raises(GatewayStartupError) as exc_info:
+        launch_gateway_in_background(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+        )
+
+    assert "12345" in str(exc_info.value), "error must mention the existing PID"
+    assert pid_path.exists(), "stale pid file must be left intact when process is alive"
+
+
+def test_launch_background_clears_stale_pid_file_when_process_dead(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """launch_gateway_in_background must remove a stale gateway.pid if process is no longer running."""
+    from personal_assistant.main import launch_gateway_in_background, _gateway_pid_path
+
+    config = _build_config(tmp_path)
+    pid_path = _gateway_pid_path(config)
+    pid_path.write_text("99999", encoding="utf-8")
+
+    spawned: list[list[str]] = []
+
+    def _spawn(argv: list[str], log_path: Path) -> _FakeProcess:
+        spawned.append(argv)
+        return _FakeProcess(wait_result=0, pid=1111)
+
+    # Simulate that PID 99999 is dead
+    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: False)
+
+    launch_gateway_in_background(
+        config_path=config.source_path,
+        load_config=lambda _path: config,
+        spawn_process=_spawn,
+        wait_for_ready=lambda _child, _config, _timeout: None,
+    )
+
+    assert spawned, "gateway must have been spawned after stale PID cleanup"
+    assert not pid_path.exists() or pid_path.read_text(encoding="utf-8") != "99999", (
+        "stale PID content must have been replaced"
+    )
+
+
+def test_main_restart_command_stops_then_starts(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """main restart must call stop then start (background launch), returning exit code 0."""
+    calls: list[str] = []
+
+    def _stop(*, config_path: str) -> str:
+        calls.append(f"stop:{config_path}")
+        return "STOPPED pid=999"
+
+    def _start(*, config_path: str) -> BackgroundLaunchResult:
+        calls.append(f"start:{config_path}")
+        return BackgroundLaunchResult(
+            pid=1234,
+            health_url="http://127.0.0.1:8100/v1/health",
+            log_path=tmp_path / "gateway.log",
+        )
+
+    monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop)
+    monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _start)
+
+    config_path = str(tmp_path / "node-config.yaml")
+    exit_code = main(["restart", "--config", config_path])
+
+    assert exit_code == 0
+    assert calls == [f"stop:{config_path}", f"start:{config_path}"]
+    out = capsys.readouterr().out
+    assert "STARTED pid=1234" in out
+
+
+def test_main_restart_command_continues_when_gateway_not_running(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """main restart must ignore NOT RUNNING from stop and proceed to start."""
+    calls: list[str] = []
+
+    def _stop(*, config_path: str) -> str:
+        calls.append("stop")
+        return "NOT RUNNING config=node-config.yaml"
+
+    def _start(*, config_path: str) -> BackgroundLaunchResult:
+        calls.append("start")
+        return BackgroundLaunchResult(
+            pid=5678,
+            health_url="http://127.0.0.1:8100/v1/health",
+            log_path=tmp_path / "gateway.log",
+        )
+
+    monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop)
+    monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _start)
+
+    exit_code = main(["restart", "--config", str(tmp_path / "node-config.yaml")])
+
+    assert exit_code == 0
+    assert calls == ["stop", "start"]
+
+
+def test_stop_gateway_removes_pid_file_on_successful_stop(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """stop_gateway must delete gateway.pid after successfully stopping the process."""
+    from personal_assistant.main import stop_gateway, _gateway_pid_path
+
+    config = _build_config(tmp_path)
+    pid_path = _gateway_pid_path(config)
+    pid_path.write_text("2468", encoding="utf-8")
+
+    # Also write state file so stop_gateway can find the PID
+    state_path = tmp_path / ".gateway-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 2468,
+                "config_path": str(config.source_path),
+                "health_url": "http://127.0.0.1:8100/v1/health",
+                "log_path": str(tmp_path / "gateway.log"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    pid_checks = iter([True, False])
+    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks))
+    monkeypatch.setattr("personal_assistant.main.os.kill", lambda _pid, _sig: None)
+    monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _s: None)
+    monkeypatch.setattr("personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__)
+    monkeypatch.setattr("personal_assistant.main._verify_stopped_health_url", lambda *a, **kw: True)
+
+    result = stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
+
+    assert "STOPPED" in result
+    assert not pid_path.exists(), "gateway.pid must be removed after stop"

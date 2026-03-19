@@ -845,10 +845,13 @@ def run_gateway(
     runtime = builder(config)
     restore_signal_handlers = resolved_factories.install_signal_handlers or _install_default_signal_handlers(runtime)
     restore = restore_signal_handlers()
+    # Write PID file so the background launcher can detect a live instance.
+    _write_gateway_pid(config)
     try:
         return runtime.run_forever()
     finally:
         restore()
+        _remove_gateway_pid(config)
 
 
 def launch_gateway_in_background(
@@ -874,6 +877,16 @@ def launch_gateway_in_background(
     """
 
     config = load_config(config_path)
+    # Single-instance protection: refuse to start if a live gateway is already running.
+    existing_pid = _read_gateway_pid(config)
+    if existing_pid is not None:
+        if _pid_is_running(existing_pid):
+            raise GatewayStartupError(
+                summary=f"gateway is already running (pid={existing_pid})",
+                next_step=f"Run 'stop' to shut it down first, or 'restart' to replace it.",
+            )
+        # Stale PID file from a crashed process — clean it up and continue.
+        _remove_gateway_pid(config)
     log_path = _default_gateway_log_path(config)
     argv = _background_gateway_argv(config.source_path)
     launcher = spawn_process or _spawn_background_gateway_process
@@ -919,6 +932,7 @@ def stop_gateway(
         return f"NOT RUNNING config={config.source_path.name} state={state_path}"
     if not _pid_is_running(state.pid):
         _remove_gateway_state(state_path)
+        _remove_gateway_pid(config)
         if _healthcheck_reports_healthy(state.health_url):
             return f"STALE pid={state.pid} state={state_path} health_url={state.health_url} still_healthy=true"
         return f"STALE pid={state.pid} state={state_path}"
@@ -926,6 +940,7 @@ def stop_gateway(
         os.kill(state.pid, signal.SIGTERM)
     except ProcessLookupError:
         _remove_gateway_state(state_path)
+        _remove_gateway_pid(config)
         if _healthcheck_reports_healthy(state.health_url):
             return f"STALE pid={state.pid} state={state_path} health_url={state.health_url} still_healthy=true"
         return f"STALE pid={state.pid} state={state_path}"
@@ -933,6 +948,7 @@ def stop_gateway(
     while time.monotonic() <= deadline:
         if not _pid_is_running(state.pid):
             _remove_gateway_state(state_path)
+            _remove_gateway_pid(config)
             if _verify_stopped_health_url(
                 state.health_url,
                 timeout_seconds=config.kernel.shutdown_grace_seconds,
@@ -946,6 +962,7 @@ def stop_gateway(
         time.sleep(config.kernel.health_poll_interval_seconds)
     os.kill(state.pid, signal.SIGKILL)
     _remove_gateway_state(state_path)
+    _remove_gateway_pid(config)
     forced = f"STOPPED pid={state.pid} state={state_path} forced=true"
     if _verify_stopped_health_url(
         state.health_url,
@@ -1080,12 +1097,20 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command")
     stop_parser = subparsers.add_parser("stop", help="Stop the current background gateway for one config")
     stop_parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
+    restart_parser = subparsers.add_parser("restart", help="Stop then start the background gateway (equivalent to stop + start)")
+    restart_parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
     args = parser.parse_args(argv)
     command = args.command or "start"
     resolved_config_path = str(Path(args.config).expanduser()) if args.config else str(default_local_config_path())
     try:
         if command == "stop":
             print(stop_gateway(config_path=resolved_config_path))
+            return 0
+        if command == "restart":
+            # Ignore NOT RUNNING / STALE statuses — they are not errors during restart.
+            stop_gateway(config_path=resolved_config_path)
+            result = launch_gateway_in_background(config_path=resolved_config_path)
+            print(f"STARTED pid={result.pid} health_url={result.health_url} log={result.log_path}")
             return 0
         if args.foreground:
             return run_gateway(config_path=resolved_config_path)
@@ -1285,6 +1310,49 @@ def _default_heartbeat_state_path(config: LocalConfig) -> Path:
 
 def _default_gateway_log_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "gateway.log"
+
+
+def _gateway_pid_path(config: LocalConfig) -> Path:
+    """Return the PID file path used for single-instance protection.
+
+    Returns:
+        Path to ``gateway.pid`` inside the config's runtime directory.
+    """
+    return config.source_path.parent / "gateway.pid"
+
+
+def _write_gateway_pid(config: LocalConfig) -> None:
+    """Write the current process PID to ``gateway.pid``.
+
+    Side Effects:
+        Creates or overwrites ``gateway.pid`` in the runtime directory.
+    """
+    _gateway_pid_path(config).write_text(str(os.getpid()), encoding="utf-8")
+
+
+def _remove_gateway_pid(config: LocalConfig) -> None:
+    """Remove ``gateway.pid`` if it exists.
+
+    Side Effects:
+        Deletes the PID file; silently succeeds if the file is already gone.
+    """
+    with suppress(FileNotFoundError):
+        _gateway_pid_path(config).unlink()
+
+
+def _read_gateway_pid(config: LocalConfig) -> int | None:
+    """Read and return the PID stored in ``gateway.pid``, or ``None`` if absent/invalid.
+
+    Returns:
+        Integer PID when the file exists and contains a parseable integer; ``None`` otherwise.
+    """
+    pid_path = _gateway_pid_path(config)
+    if not pid_path.exists():
+        return None
+    try:
+        return int(pid_path.read_text(encoding="utf-8").strip())
+    except (ValueError, OSError):
+        return None
 
 
 def _gateway_state_path(config: LocalConfig) -> Path:
