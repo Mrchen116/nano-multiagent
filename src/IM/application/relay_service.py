@@ -119,6 +119,14 @@ class RelayService:
                 "created_at": message.created_at,
             },
         }
+        # M247: group relays carry structured sender and participants so gateway
+        # can show display names instead of raw UUIDs.  Direct chats omit these
+        # fields to keep the payload backward-compatible.
+        if conversation_type == "group":
+            payload["sender"] = self._resolve_sender_info(sender_user_id=sender_user_id)
+            payload["participants"] = self._resolve_all_participants(
+                conversation_id=message.conversation_id,
+            )
         # _override_agent_id is used by enqueue_message_relay_all for group fan-out:
         # each per-agent relay identifies its own target agent explicitly.
         effective_agent_id = _override_agent_id if _override_agent_id is not None else agent_snapshot.agent_id
@@ -429,6 +437,85 @@ class RelayService:
                 continue
             agent_ids.append(alias_agent_id)
         return agent_ids
+
+    def _resolve_sender_info(self, *, sender_user_id: str) -> dict[str, str]:
+        """Return ``{id, display_name, type}`` for one sender.
+
+        Args:
+            sender_user_id: Raw user UUID from the relay request.
+
+        Returns:
+            Dict with ``id``, ``display_name`` (fallback to id when unknown), and
+            ``type`` (``"user"`` or ``"agent"``).
+
+        Notes:
+            Resolves against the users table first; if the user's username begins with
+            ``agent:`` the sender is typed as an agent.  Fallback to ``id`` when the
+            user row cannot be found.
+        """
+        row = self._connection.execute(
+            "SELECT id, username, display_name FROM users WHERE id = ?",
+            (sender_user_id,),
+        ).fetchone()
+        if row is None:
+            return {"id": sender_user_id, "display_name": sender_user_id, "type": "user"}
+        username = str(row["username"])
+        sender_type = "agent" if username.startswith("agent:") else "user"
+        display_name = str(row["display_name"]) or sender_user_id
+        return {"id": sender_user_id, "display_name": display_name, "type": sender_type}
+
+    def _resolve_all_participants(self, *, conversation_id: str) -> list[dict[str, str]]:
+        """Return ``[{id, display_name, type}]`` for all conversation participants.
+
+        Args:
+            conversation_id: Conversation to inspect.
+
+        Returns:
+            Ordered list of participant dicts in insertion order.  Each dict has
+            ``id`` (user UUID), ``display_name`` (from users or agent_profiles),
+            and ``type`` (``"user"`` or ``"agent"``).
+
+        Notes:
+            For agent participants (``agent:`` username prefix), ``display_name`` is
+            resolved from ``agent_profiles.display_name`` when available, otherwise
+            from ``users.display_name``.  Human user display names come from
+            ``users.display_name``.
+        """
+        rows = self._connection.execute(
+            """
+            SELECT cp.user_id, u.username, u.display_name
+            FROM conversation_participants cp
+            JOIN users u ON u.id = cp.user_id
+            WHERE cp.conversation_id = ?
+            ORDER BY cp.rowid
+            """,
+            (conversation_id,),
+        ).fetchall()
+        result: list[dict[str, str]] = []
+        for row in rows:
+            user_id = str(row["user_id"])
+            username = str(row["username"])
+            user_display_name = str(row["display_name"]) or user_id
+            if username.startswith("agent:"):
+                # Resolve agent display_name from agent_profiles (canonical title).
+                agent_id = username[len("agent:"):].strip()
+                profile = self._agent_display_name_row(agent_id=agent_id) if agent_id else None
+                display_name = profile if profile else user_display_name
+                result.append({"id": user_id, "display_name": display_name, "type": "agent"})
+            else:
+                result.append({"id": user_id, "display_name": user_display_name, "type": "user"})
+        return result
+
+    def _agent_display_name_row(self, *, agent_id: str) -> str | None:
+        """Return the display_name from agent_profiles for one agent, or None when missing."""
+        row = self._connection.execute(
+            "SELECT display_name FROM agent_profiles WHERE agent_id = ?",
+            (agent_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        value = row["display_name"]
+        return str(value) if value else None
 
     def _profile_row(self, *, agent_id: str) -> sqlite3.Row | None:
         return self._connection.execute(

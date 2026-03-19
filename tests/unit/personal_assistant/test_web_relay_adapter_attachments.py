@@ -133,3 +133,114 @@ def test_accept_relay_multiple_attachments_all_forwarded() -> None:
     urls = [a["url"] for a in attachments]
     assert "http://im.local/im/uploads/a.png" in urls
     assert "http://im.local/im/uploads/b.jpg" in urls
+
+
+# ---------------------------------------------------------------------------
+# M247: sender.display_name and participants propagation
+# ---------------------------------------------------------------------------
+
+
+def _group_payload_with_sender_field(
+    *,
+    sender_id: str = "user-uuid-1",
+    sender_display_name: str = "Alice Chen",
+    participants: list | None = None,
+) -> dict:
+    """Build a group relay payload with M247 sender and participants fields."""
+    payload = {
+        "relay_task_id": "rt-group-1",
+        "idempotency_key": "idem-group-1",
+        "message": {
+            "id": "msg-g1",
+            "conversation_id": "conv-g1",
+            "sender_user_id": sender_id,
+            "sender_type": "user",
+            "content": "@agent-a hello",
+            "created_at": "2026-01-01T00:00:00Z",
+        },
+        "metadata": {"conversation_type": "group"},
+        "sender": {
+            "id": sender_id,
+            "display_name": sender_display_name,
+            "type": "user",
+        },
+    }
+    if participants is not None:
+        payload["participants"] = participants
+    return payload
+
+
+def test_relay_adapter_parses_sender_display_name_from_payload() -> None:
+    """_parse_relay_payload must extract sender_display_name from sender.display_name."""
+    payload = _group_payload_with_sender_field(sender_display_name="Alice Chen")
+
+    envelope = _parse_relay_payload(payload)
+
+    assert envelope.sender_display_name == "Alice Chen"
+
+
+def test_relay_adapter_parses_participants_from_payload() -> None:
+    """_parse_relay_payload must extract participants list from relay payload."""
+    participants = [
+        {"id": "user-uuid-1", "display_name": "Alice Chen", "type": "user"},
+        {"id": "agent-uuid-a", "display_name": "Agent Alpha", "type": "agent"},
+    ]
+    payload = _group_payload_with_sender_field(participants=participants)
+
+    envelope = _parse_relay_payload(payload)
+
+    assert len(envelope.participants) == 2
+    assert envelope.participants[0]["display_name"] == "Alice Chen"
+    assert envelope.participants[1]["display_name"] == "Agent Alpha"
+
+
+def test_relay_adapter_builds_inbound_with_sender_display_name_in_metadata() -> None:
+    """accept_relay must put sender_display_name into InboundMessage.metadata."""
+    received = []
+    adapter = WebRelayAdapter()
+    adapter.start(lambda msg: received.append(msg))
+
+    payload = _group_payload_with_sender_field(sender_display_name="Alice Chen")
+    inbound = adapter.accept_relay(payload)
+
+    assert inbound.metadata.get("sender_display_name") == "Alice Chen"
+
+
+def test_relay_adapter_builds_inbound_with_participants_in_metadata() -> None:
+    """accept_relay must put participants list into InboundMessage.metadata."""
+    received = []
+    adapter = WebRelayAdapter()
+    adapter.start(lambda msg: received.append(msg))
+
+    participants = [
+        {"id": "user-uuid-1", "display_name": "Alice Chen", "type": "user"},
+        {"id": "agent-uuid-a", "display_name": "Agent Alpha", "type": "agent"},
+    ]
+    payload = _group_payload_with_sender_field(participants=participants)
+    inbound = adapter.accept_relay(payload)
+
+    meta_participants = inbound.metadata.get("participants")
+    assert isinstance(meta_participants, list)
+    assert len(meta_participants) == 2
+
+
+def test_relay_adapter_backward_compat_without_sender_field() -> None:
+    """Old relay payloads without sender field must yield sender_display_name=None and participants=[]."""
+    payload = _minimal_payload(content="hello")
+
+    envelope = _parse_relay_payload(payload)
+
+    assert envelope.sender_display_name is None
+    assert envelope.participants == []
+
+
+def test_relay_adapter_inbound_no_sender_display_name_key_when_none(tmp_path: object) -> None:
+    """When sender_display_name is None, InboundMessage.metadata must not contain the key."""
+    received = []
+    adapter = WebRelayAdapter()
+    adapter.start(lambda msg: received.append(msg))
+
+    payload = _minimal_payload(content="hello")
+    inbound = adapter.accept_relay(payload)
+
+    assert "sender_display_name" not in inbound.metadata

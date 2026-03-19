@@ -12,17 +12,49 @@ def _build_communication_context_block(
     conversation_type: str,
     agent_id: str | None,
     participant_agent_ids: list[str] | None,
+    participants: list[dict[str, str]] | None = None,
 ) -> str:
+    """Build the [Communication Context] block injected into system prompts.
+
+    Args:
+        conversation_type: Conversation kind (``"group"`` or ``"direct"``).
+        agent_id: This agent's own ID, injected as ``your_agent_id``.
+        participant_agent_ids: Fallback list of agent IDs when structured
+            ``participants`` data is unavailable (pre-M247 sessions).
+        participants: M247 structured participant list; each item has
+            ``id``, ``display_name``, and ``type`` (``"user"``/``"agent"``).
+            When provided, takes priority over ``participant_agent_ids``.
+
+    Returns:
+        Multi-line context block string ready for system prompt injection.
+    """
     lines = ["[Communication Context]", f"- session_type: {conversation_type}"]
     if agent_id:
         lines.append(f"- your_agent_id: {agent_id}")
-    if conversation_type == "group" and participant_agent_ids is not None:
-        ids_repr = ", ".join(participant_agent_ids) if participant_agent_ids else "(none)"
-        lines.append(f"- group_participants: {ids_repr}")
     if conversation_type == "group":
-        # M246: each group message is prefixed with the sender identifier so the model
-        # can attribute messages to their authors.  Direct chats need no such hint.
-        lines.append("- message_format: [sender_id] message_text")
+        if participants is not None:
+            # M247: structured participant list with display names and types.
+            # Each entry: "display_name (type, id: <id>)" for unambiguous attribution.
+            if participants:
+                entries = []
+                for p in participants:
+                    p_display = p.get("display_name") or p.get("id", "unknown")
+                    p_type = p.get("type", "user")
+                    p_id = p.get("id", "")
+                    entries.append(f"{p_display} ({p_type}, id: {p_id})")
+                lines.append(f"- group_participants: {'; '.join(entries)}")
+            else:
+                lines.append("- group_participants: (none)")
+        elif participant_agent_ids is not None:
+            # Fallback for pre-M247 sessions that only carry agent ID lists.
+            ids_repr = ", ".join(participant_agent_ids) if participant_agent_ids else "(none)"
+            lines.append(f"- group_participants: {ids_repr}")
+        # M247: message_format updated to reference display_name for readability.
+        # @mention still uses id for routing precision.
+        lines.append(
+            "- message_format: 历史消息中每条以 [display_name] 标识发言人；"
+            "你的回复无需加前缀。如需 @mention 某人，使用其 id（如 @agent_id）。"
+        )
     return "\n".join(lines)
 
 
@@ -37,15 +69,22 @@ def setup(hooks: Any) -> None:  # noqa: ANN401
         if not isinstance(agent_id, str):
             agent_id = None
 
-        raw_participants = metadata.get("participant_agent_ids")
-        participant_agent_ids: list[str] | None = None
+        # M247: prefer structured participants list over flat agent-id list.
+        raw_participants = metadata.get("participants")
+        participants: list[dict[str, str]] | None = None
         if isinstance(raw_participants, list):
-            participant_agent_ids = [str(p) for p in raw_participants if isinstance(p, str)]
+            participants = [dict(p) for p in raw_participants if isinstance(p, dict)]
+
+        raw_agent_ids = metadata.get("participant_agent_ids")
+        participant_agent_ids: list[str] | None = None
+        if isinstance(raw_agent_ids, list):
+            participant_agent_ids = [str(p) for p in raw_agent_ids if isinstance(p, str)]
 
         context_block = _build_communication_context_block(
             conversation_type=conversation_type,
             agent_id=agent_id,
             participant_agent_ids=participant_agent_ids,
+            participants=participants,
         )
 
         base_prompt = payload.get("system_prompt")

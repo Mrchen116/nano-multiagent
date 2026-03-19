@@ -121,16 +121,21 @@ class InboundPipeline:
         agent_config = self._agents.get(agent_id)
         should_process = self._should_process(message, agent_id=agent_id, agent_config=agent_config)
 
+        # M247: prefer sender_display_name from relay metadata over raw external_user_id (UUID).
+        # Relay metadata supplies display_name when the IM service could resolve it.
+        # Fallback to external_user_id ensures pre-M247 payloads still get the UUID prefix.
+        sender_label = _resolve_sender_label(message)
+
         if message.is_group and self._group_context_store is not None:
             if not should_process:
                 # This relay's agent is not addressed — buffer message as background context
                 # for this agent's own future turn.  Each agent receives its own relay from IM,
                 # so we only write to this agent's buffer key (no cross-agent fan-out).
-                # Store sender (external_user_id) so the pipeline can format [sender] text prefixes.
+                # Store sender label (display_name or UUID) for [sender] text prefixes.
                 self._group_context_store.append(
                     self._group_buf_key_for_agent(message, agent_id),
                     message.text,
-                    sender=message.external_user_id,
+                    sender=sender_label,
                 )
 
         if not should_process:
@@ -153,7 +158,7 @@ class InboundPipeline:
                 # Group messages get a sender prefix so the kernel can identify who spoke.
                 # Direct messages remain unchanged — no sender prefix needed.
                 if message.is_group:
-                    current_text = _format_sender_text(message.external_user_id, message.text)
+                    current_text = _format_sender_text(sender_label, message.text)
                 else:
                     current_text = message.text
                 texts = buffered_texts + [current_text]
@@ -332,10 +337,10 @@ class InboundPipeline:
         if message.is_group:
             session_metadata["conversation_type"] = "group"
             session_metadata["external_chat_id"] = message.external_chat_id or ""
-            participants = metadata.get("participant_agent_ids")
-            if isinstance(participants, list):
+            participant_agent_ids = metadata.get("participant_agent_ids")
+            if isinstance(participant_agent_ids, list):
                 session_metadata["participant_agent_ids"] = [
-                    str(aid) for aid in participants if isinstance(aid, str)
+                    str(aid) for aid in participant_agent_ids if isinstance(aid, str)
                 ]
             else:
                 mentioned = metadata.get("mentioned_agent_ids")
@@ -345,6 +350,14 @@ class InboundPipeline:
                     ]
                 else:
                     session_metadata["participant_agent_ids"] = []
+            # M247: pass structured participants list (with display_name and type) to session
+            # metadata so the communication_context hook can render readable names.
+            # Only propagate when the relay payload carried this M247 field.
+            raw_participants = metadata.get("participants")
+            if isinstance(raw_participants, list) and raw_participants:
+                session_metadata["participants"] = [
+                    dict(p) for p in raw_participants if isinstance(p, dict)
+                ]
         else:
             session_metadata["conversation_type"] = "direct"
         return session_metadata
@@ -584,7 +597,7 @@ def _format_sender_text(sender: str, text: str) -> str:
     """Prepend ``[sender]`` prefix to a group message text.
 
     Args:
-        sender: External user identifier (empty string when unknown).
+        sender: Display label for the sender (empty string when unknown).
         text: Raw message text.
 
     Returns:
@@ -598,3 +611,24 @@ def _format_sender_text(sender: str, text: str) -> str:
     if sender:
         return f"[{sender}] {text}"
     return text
+
+
+def _resolve_sender_label(message: "InboundMessage") -> str:
+    """Return the best available display label for a message sender.
+
+    Args:
+        message: Inbound channel message carrying routing metadata.
+
+    Returns:
+        ``sender_display_name`` from metadata when present, otherwise
+        ``external_user_id`` (fallback for pre-M247 relay payloads).
+
+    Notes:
+        M247 relay payloads include ``sender.display_name`` resolved by the IM
+        service.  Older payloads omit the field; this function ensures the
+        gateway falls back gracefully without querying IM.
+    """
+    display_name = message.metadata.get("sender_display_name")
+    if isinstance(display_name, str) and display_name.strip():
+        return display_name.strip()
+    return message.external_user_id
