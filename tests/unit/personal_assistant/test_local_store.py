@@ -211,7 +211,7 @@ def test_load_local_config_defaults_kernel_command_to_real_http_app_entrypoint(t
 
     config = load_local_config(config_path)
 
-    assert config.kernel.command == "python -m agent.platform.http_api.app"
+    assert config.kernel.command == "python -m uvicorn personal_assistant.kernel_app:app"
     assert config.kernel.base_url == "http://127.0.0.1:8000"
     assert config.agents[0].workspace_root == workspace_root
 
@@ -252,7 +252,7 @@ def test_load_local_config_derives_kernel_base_url_from_local_command_port(tmp_p
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
                 "kernel:",
-                "  command: python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8123",
+                "  command: python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port 8123",
             ]
         ),
         encoding="utf-8",

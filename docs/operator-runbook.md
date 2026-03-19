@@ -54,7 +54,7 @@ channels:
     enabled: true
 
 kernel:
-  command: "python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000"
+  command: "python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port 8000"
   startup_timeout_seconds: 15
   health_poll_interval_seconds: 0.25
   shutdown_grace_seconds: 5

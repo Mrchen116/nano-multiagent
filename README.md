@@ -48,7 +48,7 @@ channels:
     enabled: true
 
 kernel:
-  command: "python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000"
+  command: "python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port 8000"
 
 im_service:
   url: http://127.0.0.1:8011

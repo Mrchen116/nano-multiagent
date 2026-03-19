@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 
 _DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
-_DEFAULT_KERNEL_ENTRYPOINT = "python -m agent.platform.http_api.app"
+_DEFAULT_KERNEL_ENTRYPOINT = "python -m uvicorn personal_assistant.kernel_app:app"
 _DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
 DEFAULT_LOCAL_KERNEL_TOKEN = "nano-local-gateway"
 DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nano-assistant").expanduser()

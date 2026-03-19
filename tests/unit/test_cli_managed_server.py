@@ -100,7 +100,7 @@ def test_managed_server_uses_platform_http_api_entrypoint(monkeypatch: pytest.Mo
     manager.start()
     manager.stop()
 
-    assert "agent.platform.http_api.app:create_app" in captured_command
+    assert "coding_cli.kernel_app:app" in captured_command
 
 
 def test_managed_server_reports_startup_timeout_with_suggestion(monkeypatch: pytest.MonkeyPatch) -> None:

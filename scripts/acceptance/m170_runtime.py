@@ -178,7 +178,7 @@ def _write_runtime_config() -> None:
         "channels": [{"name": "web_relay", "enabled": True}],
         "kernel": {
             "command": (
-                f"python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port {KERNEL_PORT}"
+                f"python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port {KERNEL_PORT}"
             )
         },
         "im_service": {"url": IM_BASE_URL},

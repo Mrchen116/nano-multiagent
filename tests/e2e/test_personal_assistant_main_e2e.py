@@ -34,7 +34,7 @@ def _pythonpath_env() -> dict[str, str]:
 
 
 def _write_smoke_config(config_path: Path, workspace_root: Path | None = None, *, port: int) -> None:
-    command = f"{sys.executable} -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port {port}"
+    command = f"{sys.executable} -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port {port}"
     lines = [
         "node:",
         "  node_id: node-smoke",
@@ -280,7 +280,7 @@ def test_main_background_start_uses_repo_root_node_config_multiple_agents(tmp_pa
     config_path = REPO_ROOT / "node-config.yaml"
     original = config_path.read_text(encoding="utf-8")
     port = _pick_free_port()
-    command = f"{sys.executable} -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port {port}"
+    command = f"{sys.executable} -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port {port}"
     config_path.write_text(
         "\n".join(
             [

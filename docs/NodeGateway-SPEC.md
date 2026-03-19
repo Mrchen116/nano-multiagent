@@ -53,7 +53,7 @@ Gateway 与 IM 服务的连接方向：
 默认启动流程：
 
 1. 加载本地配置（`node-config.yaml` 或等效）
-2. 在内部启动/探活同机 agent 内核进程，轮询 `/v1/health` 确认就绪
+2. 在内部启动同机 agent 内核进程（使用产品专属入口 `personal_assistant.kernel_app:app`），轮询 `/v1/health` 确认就绪
 3. 初始化 Channel 注册表，调用 `start_channels()` 启动所有已配置通道
 4. 初始化 heartbeat 调度器
 5. 如果配置了 IM 服务地址，主动建立 WebSocket 连接，注册节点并拉取最新配置
@@ -315,7 +315,7 @@ Gateway 采用本地配置文件驱动（如 `~/.nano-assistant/config.yaml`）�
 | config_namespace | `nano-assistant` |
 | 全局配置目录 | `~/.nano-assistant/` |
 | 默认工具 | `read` `write` `edit` `bash` `task` `web_fetch` `web_search` |
-| 默认 hook | `default_status` `realtime_stream` `usage_metrics` |
+| 默认 hook | `default_status` `realtime_stream` `usage_metrics` `communication_context` |
 | Session 存储 | `~/.nano-assistant/sessions.sqlite3` |
 | System prompt | 个人助手（带 heartbeat 上下文） |
 
@@ -327,6 +327,7 @@ Gateway 采用本地配置文件驱动（如 `~/.nano-assistant/config.yaml`）�
 
 ```text
 src/personal_assistant/
+├── kernel_app.py            # 产品专属内核入口，注入 ProductProfile
 ├── main.py                  # 进程入口
 ├── gateway/
 │   ├── bootstrap.py         # start_channels() 与生命周期

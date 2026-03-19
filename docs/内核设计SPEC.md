@@ -413,6 +413,8 @@ class ProductProfile:
 
 Bootstrap 启动时将 Profile 解析为 `ResolvedProductConfig`（含已装配的 `ToolRegistry`、`HookRegistry`、`SessionStore`），runtime 和 http_api 消费解析结果，无需产品条件分支。
 
+**产品入口约定**：每个产品提供自己的 kernel app 模块（如 `personal_assistant/kernel_app.py`），在其中将对应的 `ProductProfile` 传入 `create_app(product_profile=...)`。uvicorn 启动时直接加载该模块，而非裸的 `platform/http_api/app.py`。这确保了依赖方向始终为 app → platform → products，platform 层无需感知具体产品。
+
 ---
 
 ## 12. HTTP API
