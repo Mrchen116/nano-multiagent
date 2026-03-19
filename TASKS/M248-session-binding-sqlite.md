@@ -6,7 +6,7 @@
 ## Roadpoints
 
 ### R1 — PersistentSessionBindingStore 核心实现（不含验证）
-**状态**: TODO
+**状态**: DONE
 
 **Acceptance**:
 1. `PersistentSessionBindingStore` 可用 `tmp_path` 构造，数据写入 SQLite 文件
@@ -28,7 +28,7 @@
 ---
 
 ### R2 — kernel session 验证（get() 调用 kernel_client）
-**状态**: TODO
+**状态**: DONE（合并至 R1）
 
 **Acceptance**:
 1. `set_kernel_client(client)` 注入 kernel_client 后，`get()` 调用 `kernel_client.get_session()`
@@ -50,7 +50,7 @@
 ---
 
 ### R3 — main.py 切换到 PersistentSessionBindingStore
-**状态**: TODO
+**状态**: DONE
 
 **Acceptance**:
 1. `build_runtime()` 使用 `PersistentSessionBindingStore(db_path=...)`
