@@ -90,6 +90,10 @@ class RelayService:
             "conversation_type": conversation_type,
             "mentioned_agent_ids": mentioned_agent_ids,
         }
+        if conversation_type == "group":
+            metadata["participant_agent_ids"] = self._resolve_participant_agent_ids(
+                conversation_id=message.conversation_id,
+            )
         if extra_metadata:
             metadata.update(extra_metadata)
         if agent_snapshot.profile_version is not None:

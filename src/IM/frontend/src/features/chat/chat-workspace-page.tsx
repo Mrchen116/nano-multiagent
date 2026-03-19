@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
@@ -317,26 +317,66 @@ function isNoReplyProtocolToken(value: string | null) {
   return value?.trim() === "NO_REPLY";
 }
 
-function toRelaySenderIdentity(payload: Record<string, unknown>) {
+function toRelaySenderIdentity(payload: Record<string, unknown>, fallback?: { sender_name?: string; sender_display_name?: string }) {
   const senderDisplayName =
-    toStringValue(payload.sender_display_name) ?? toStringValue(payload.display_name) ?? toStringValue(payload.agent_display_name);
+    toStringValue(payload.sender_display_name) ??
+    toStringValue(payload.display_name) ??
+    toStringValue(payload.agent_display_name) ??
+    fallback?.sender_display_name ??
+    undefined;
   const agentId = toStringValue(payload.agent_id);
   const nodeId = toStringValue(payload.node_id);
   return {
-    sender_display_name: senderDisplayName ?? undefined,
-    sender_name: agentId ?? nodeId ?? "Agent"
+    sender_display_name: senderDisplayName,
+    sender_name: agentId ?? fallback?.sender_name ?? nodeId ?? "Agent"
   };
+}
+
+function toRelayIdentityToken(payload: Record<string, unknown>, fallbackIdentity?: string) {
+  const agentId = toStringValue(payload.agent_id);
+  if (agentId) {
+    return agentId;
+  }
+  const relayTaskId = toStringValue(payload.relay_task_id);
+  if (relayTaskId) {
+    return relayTaskId;
+  }
+  return fallbackIdentity ?? null;
+}
+
+function toRelaySyntheticMessageId(payload: Record<string, unknown>, fallbackIdentity?: string) {
+  const messageId = toStringValue(payload.message_id);
+  if (!messageId) {
+    return null;
+  }
+  const identityToken = toRelayIdentityToken(payload, fallbackIdentity);
+  return identityToken ? `${messageId}:agent:${identityToken}` : `${messageId}:agent`;
+}
+
+function parseRelayRunId(payload: Record<string, unknown>) {
+  const directRunId = toStringValue(payload.run_id);
+  if (directRunId) {
+    return directRunId;
+  }
+  const detail = toStringValue(payload.detail);
+  if (!detail) {
+    return null;
+  }
+  const match = /^run_id=(.+)$/.exec(detail.trim());
+  return match?.[1]?.trim() || null;
 }
 
 export function toRelayAgentMessage(event: {
   eventType: string;
   payload: Record<string, unknown>;
+  identityHint?: string;
+  senderHint?: { sender_name?: string; sender_display_name?: string };
 }): ChatMessage | null {
   if (toSenderType(event.payload.sender_type)) {
     return null;
   }
-  const messageId = toStringValue(event.payload.message_id);
-  if (!messageId) {
+  const syntheticMessageId = toRelaySyntheticMessageId(event.payload, event.identityHint);
+  if (!syntheticMessageId) {
     return null;
   }
   const detail = toStringValue(event.payload.detail);
@@ -356,9 +396,9 @@ export function toRelayAgentMessage(event: {
       : event.eventType === "relay.failed"
         ? "failed"
         : "completed";
-  const senderIdentity = toRelaySenderIdentity(event.payload);
+  const senderIdentity = toRelaySenderIdentity(event.payload, event.senderHint);
   return {
-    message_id: `${messageId}:agent`,
+    message_id: syntheticMessageId,
     sender_type: "agent",
     sender_name: senderIdentity.sender_name,
     sender_display_name: senderIdentity.sender_display_name,
@@ -381,6 +421,7 @@ export function ChatWorkspacePage() {
   const [selectedGroupParticipantIds, setSelectedGroupParticipantIds] = useState<string[]>([]);
   // M235: optional custom group name input; blank = auto-generate from participant labels.
   const [groupNameDraft, setGroupNameDraft] = useState("");
+  const relayRunIdentityRef = useRef<Map<string, { identity: string; sender_name?: string; sender_display_name?: string }>>(new Map());
 
   const bootstrapQuery = useQuery<ChatBootstrapState>({
     queryKey: ["chat", "bootstrap"],
@@ -434,6 +475,10 @@ export function ChatWorkspacePage() {
     location.state && typeof location.state === "object" && "boundSelfUserId" in location.state
       ? toStringValue((location.state as { boundSelfUserId?: unknown }).boundSelfUserId)
       : null;
+
+  useEffect(() => {
+    relayRunIdentityRef.current.clear();
+  }, [conversationId]);
 
   useEffect(() => {
     if (!conversationId) {
@@ -498,6 +543,21 @@ export function ChatWorkspacePage() {
           return;
         }
 
+        if (event.eventType === "relay.accepted") {
+          const relayPayload = event.payload as Record<string, unknown>;
+          const runId = parseRelayRunId(relayPayload);
+          const identity = toRelayIdentityToken(relayPayload);
+          if (runId && identity) {
+            const senderIdentity = toRelaySenderIdentity(relayPayload);
+            relayRunIdentityRef.current.set(runId, {
+              identity,
+              sender_name: senderIdentity.sender_name,
+              sender_display_name: senderIdentity.sender_display_name
+            });
+          }
+          return;
+        }
+
         if (
           event.eventType === "relay.processing" ||
           event.eventType === "relay.report" ||
@@ -505,9 +565,14 @@ export function ChatWorkspacePage() {
           event.eventType === "relay.failed" ||
           event.eventType === "message.delivered"
         ) {
+          const relayPayload = event.payload as Record<string, unknown>;
+          const relayRunId = parseRelayRunId(relayPayload);
+          const relayIdentity = relayRunId ? relayRunIdentityRef.current.get(relayRunId) : undefined;
           const nextMessage = toRelayAgentMessage({
             eventType: event.eventType,
-            payload: event.payload as Record<string, unknown>
+            payload: relayPayload,
+            identityHint: relayIdentity?.identity,
+            senderHint: relayIdentity
           });
           if (!nextMessage) {
             return;

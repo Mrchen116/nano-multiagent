@@ -307,13 +307,19 @@ class InboundPipeline:
         if message.is_group:
             session_metadata["conversation_type"] = "group"
             session_metadata["external_chat_id"] = message.external_chat_id or ""
-            mentioned = metadata.get("mentioned_agent_ids")
-            if isinstance(mentioned, list):
+            participants = metadata.get("participant_agent_ids")
+            if isinstance(participants, list):
                 session_metadata["participant_agent_ids"] = [
-                    str(aid) for aid in mentioned if isinstance(aid, str)
+                    str(aid) for aid in participants if isinstance(aid, str)
                 ]
             else:
-                session_metadata["participant_agent_ids"] = []
+                mentioned = metadata.get("mentioned_agent_ids")
+                if isinstance(mentioned, list):
+                    session_metadata["participant_agent_ids"] = [
+                        str(aid) for aid in mentioned if isinstance(aid, str)
+                    ]
+                else:
+                    session_metadata["participant_agent_ids"] = []
         else:
             session_metadata["conversation_type"] = "direct"
         return session_metadata

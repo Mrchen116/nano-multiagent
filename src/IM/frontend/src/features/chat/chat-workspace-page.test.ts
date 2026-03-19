@@ -301,7 +301,7 @@ describe("chat workspace relay event mapping", () => {
         }
       })
     ).toEqual({
-      message_id: "msg-1:agent",
+      message_id: "msg-1:agent:A",
       sender_type: "agent",
       sender_name: "A",
       sender_display_name: "Alpha",
@@ -327,11 +327,52 @@ describe("chat workspace relay event mapping", () => {
         }
       })
     ).toMatchObject({
-      message_id: "msg-1:agent",
+      message_id: "msg-1:agent:Q",
       sender_type: "agent",
       sender_name: "Q",
       content: "working on it",
       delivery_status: "running"
+    });
+  });
+
+  it("uses per-agent identity to keep same-turn multi-agent relay replies distinct", () => {
+    expect(
+      toRelayAgentMessage({
+        eventType: "relay.completed",
+        payload: {
+          message_id: "msg-1",
+          relay_task_id: "relay-q",
+          agent_id: "agent-q",
+          sender_display_name: "Q",
+          detail: "Q completed the rollout summary",
+          created_at: "2026-03-12T00:00:02Z"
+        }
+      })
+    ).toMatchObject({
+      message_id: "msg-1:agent:agent-q",
+      sender_name: "agent-q",
+      sender_display_name: "Q",
+      content: "Q completed the rollout summary",
+      delivery_status: "completed"
+    });
+    expect(
+      toRelayAgentMessage({
+        eventType: "relay.completed",
+        payload: {
+          message_id: "msg-1",
+          relay_task_id: "relay-a",
+          agent_id: "agent-a",
+          sender_display_name: "A",
+          detail: "A completed the code review summary",
+          created_at: "2026-03-12T00:00:03Z"
+        }
+      })
+    ).toMatchObject({
+      message_id: "msg-1:agent:agent-a",
+      sender_name: "agent-a",
+      sender_display_name: "A",
+      content: "A completed the code review summary",
+      delivery_status: "completed"
     });
   });
 
@@ -1220,6 +1261,261 @@ describe("chat workspace page", () => {
     expect(screen.getByText("Need a full update", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
     expect(screen.getByText("assistant:resolved after completion receipt", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
     expect(screen.queryByText("node-demo")).not.toBeInTheDocument();
+  });
+
+  it("keeps same-turn group replies from multiple agents visible instead of collapsing them", async () => {
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "node-online",
+      targetNodeStatus: "online",
+      initialConversationId: "conv-group",
+      ownership: {
+        nodeId: "node-online",
+        nodeLabel: "Online Node",
+        nodeStatus: "online",
+        agentLabel: "assistant",
+        ownershipLabel: "Using your main agent assistant on Online Node (online and ready to chat)"
+      }
+    });
+    listConversations.mockResolvedValueOnce([
+      {
+        conversation_id: "conv-group",
+        title: "Q + A",
+        last_message_preview: "@agent:Q @agent:A please review this rollout",
+        last_message_at: "2026-03-19T10:00:00Z",
+        unread_count: 0,
+        participants: ["You", "Q", "A"],
+        kind_label: "Group chat",
+        target_label: "Multiple participants",
+        discoverability_hint: "Use this shared thread for multi-party coordination across people and agents.",
+        ownership_label: "Using your main agent assistant on Online Node (online and ready to chat)"
+      }
+    ]);
+    getConversation.mockResolvedValueOnce({
+      conversation_id: "conv-group",
+      title: "Q + A",
+      kind_label: "Group chat",
+      target_label: "Multiple participants",
+      discoverability_hint: "Use this shared thread for multi-party coordination across people and agents.",
+      mention_candidates: [
+        { agentId: "agent:Q", label: "Q" },
+        { agentId: "agent:A", label: "A" }
+      ],
+      messages: [
+        {
+          message_id: "msg-user-1",
+          sender_type: "user",
+          sender_name: "You",
+          is_mine: true,
+          content: "@agent:Q @agent:A please review this rollout",
+          created_at: "2026-03-19T10:00:00Z",
+          delivery_status: "sent",
+          attachments: []
+        }
+      ]
+    });
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-group"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "Q + A" })).toBeInTheDocument();
+
+    const streamInput = streamConversationEvents.mock.calls.at(-1)?.[0] as
+      | { onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void }
+      | undefined;
+    expect(streamInput).toBeDefined();
+
+    streamInput?.onEvent({
+      eventType: "relay.accepted",
+      payload: {
+        message_id: "msg-user-1",
+        relay_task_id: "relay-q",
+        agent_id: "agent:Q",
+        detail: "run_id=run-q",
+        created_at: "2026-03-19T10:00:00Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "relay.accepted",
+      payload: {
+        message_id: "msg-user-1",
+        relay_task_id: "relay-a",
+        agent_id: "agent:A",
+        detail: "run_id=run-a",
+        created_at: "2026-03-19T10:00:00Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "relay.processing",
+      payload: {
+        message_id: "msg-user-1",
+        run_id: "run-q",
+        summary: "Q is preparing the rollout summary",
+        created_at: "2026-03-19T10:00:01Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "relay.processing",
+      payload: {
+        message_id: "msg-user-1",
+        run_id: "run-a",
+        summary: "A is preparing the review summary",
+        created_at: "2026-03-19T10:00:02Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "relay.completed",
+      payload: {
+        message_id: "msg-user-1",
+        relay_task_id: "relay-q",
+        agent_id: "agent:Q",
+        sender_display_name: "Q",
+        detail: "Q completed the rollout summary with deployment notes",
+        created_at: "2026-03-19T10:00:03Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "relay.completed",
+      payload: {
+        message_id: "msg-user-1",
+        relay_task_id: "relay-a",
+        agent_id: "agent:A",
+        sender_display_name: "A",
+        detail: "A completed the review summary with validation notes",
+        created_at: "2026-03-19T10:00:04Z"
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Q completed the rollout summary with deployment notes", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
+      expect(screen.getByText("A completed the review summary with validation notes", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
+    });
+    expect(screen.getByText("Q")).toBeInTheDocument();
+    expect(screen.getByText("A")).toBeInTheDocument();
+    expect(screen.queryByText("Q is preparing the rollout summary", { selector: ".whitespace-pre-wrap" })).not.toBeInTheDocument();
+    expect(screen.queryByText("A is preparing the review summary", { selector: ".whitespace-pre-wrap" })).not.toBeInTheDocument();
+  });
+
+  it("keeps two dual-mention relay replies distinct when SSE events carry direct per-agent identity", async () => {
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "m170-node",
+      targetNodeStatus: "online",
+      initialConversationId: "conv-group",
+      ownership: {
+        nodeId: "m170-node",
+        nodeLabel: "m170-node",
+        nodeStatus: "online",
+        agentLabel: "assistant",
+        ownershipLabel: "Using your main agent assistant on m170-node (online and ready to chat)"
+      }
+    });
+    listConversations.mockResolvedValueOnce([
+      {
+        conversation_id: "conv-group",
+        title: "Q + A",
+        last_message_preview: "@agent:Q @agent:A please review the rollout",
+        last_message_at: "2026-03-19T10:00:00Z",
+        unread_count: 0,
+        participants: ["You", "Q", "A"],
+        kind_label: "Group chat",
+        target_label: "Multiple participants",
+        discoverability_hint: "Use this shared thread for multi-party coordination across people and agents.",
+        ownership_label: "Using your main agent assistant on m170-node (online and ready to chat)"
+      }
+    ]);
+    getConversation.mockResolvedValueOnce({
+      conversation_id: "conv-group",
+      title: "Q + A",
+      kind_label: "Group chat",
+      target_label: "Multiple participants",
+      discoverability_hint: "Use this shared thread for multi-party coordination across people and agents.",
+      mention_candidates: [
+        { agentId: "agent:Q", label: "Q" },
+        { agentId: "agent:A", label: "A" }
+      ],
+      messages: [
+        {
+          message_id: "msg-user-1",
+          sender_type: "user",
+          sender_name: "You",
+          is_mine: true,
+          content: "@agent:Q @agent:A please review the rollout",
+          created_at: "2026-03-19T10:00:00Z",
+          delivery_status: "completed",
+          attachments: []
+        }
+      ]
+    });
+    getUsageMetrics.mockResolvedValue([]);
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-group"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "Q + A" })).toBeInTheDocument();
+
+    const streamInput = streamConversationEvents.mock.calls.at(-1)?.[0] as
+      | { onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void }
+      | undefined;
+    expect(streamInput).toBeDefined();
+
+    streamInput?.onEvent({
+      eventType: "relay.processing",
+      payload: {
+        message_id: "msg-user-1",
+        relay_task_id: "relay-q",
+        agent_id: "agent:Q",
+        summary: "Q is preparing the rollout summary",
+        created_at: "2026-03-19T10:00:01Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "relay.processing",
+      payload: {
+        message_id: "msg-user-1",
+        relay_task_id: "relay-a",
+        agent_id: "agent:A",
+        summary: "A is preparing the review summary",
+        created_at: "2026-03-19T10:00:02Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "relay.report",
+      payload: {
+        message_id: "msg-user-1",
+        relay_task_id: "relay-q",
+        agent_id: "agent:Q",
+        sender_display_name: "Q",
+        summary: "Q completed the rollout summary with deployment notes",
+        created_at: "2026-03-19T10:00:03Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "relay.report",
+      payload: {
+        message_id: "msg-user-1",
+        relay_task_id: "relay-a",
+        agent_id: "agent:A",
+        sender_display_name: "A",
+        summary: "A completed the review summary with validation notes",
+        created_at: "2026-03-19T10:00:04Z"
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Q completed the rollout summary with deployment notes", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
+      expect(screen.getByText("A completed the review summary with validation notes", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
+    });
+    expect(screen.getByText("Q")).toBeInTheDocument();
+    expect(screen.getByText("A")).toBeInTheDocument();
+    expect(screen.queryByText("Q is preparing the rollout summary", { selector: ".whitespace-pre-wrap" })).not.toBeInTheDocument();
+    expect(screen.queryByText("A is preparing the review summary", { selector: ".whitespace-pre-wrap" })).not.toBeInTheDocument();
   });
 
   it("keeps NO_REPLY processing and report events out of the live group thread and conversation preview", async () => {

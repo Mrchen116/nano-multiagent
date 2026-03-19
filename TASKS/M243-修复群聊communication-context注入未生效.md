@@ -36,7 +36,7 @@
 
 **DoD**：`test_command` 全绿 + C1/C2/C3 + PROGRESS 写清 hook stem 过滤约束与 participant 传递证据
 
-**状态**：TODO
+**状态**：DONE
 
 ---
 
@@ -63,4 +63,4 @@
 
 **DoD**：`test_command` 全绿 + 真实日志验证成功 + C1/C2/C3 + PROGRESS 记录证据与回滚点
 
-**状态**：TODO
+**状态**：DONE（2026-03-19 fresh 日志复核通过；详见 PROGRESS）

@@ -1324,6 +1324,7 @@ def test_session_metadata_group_fields(tmp_path: Path) -> None:
         is_group=True,
         metadata={
             "mentioned_agent_ids": ["agent-a"],
+            "participant_agent_ids": ["agent-a", "agent-b"],
             "conversation_id": "grp-42",
         },
     )
@@ -1332,7 +1333,7 @@ def test_session_metadata_group_fields(tmp_path: Path) -> None:
 
     created_metadata = kernel_client.create_session_calls[0]["metadata"]
     assert created_metadata["conversation_type"] == "group"
-    assert created_metadata["participant_agent_ids"] == ["agent-a"]
+    assert created_metadata["participant_agent_ids"] == ["agent-a", "agent-b"]
     assert created_metadata["external_chat_id"] == "grp-42"
 
 
