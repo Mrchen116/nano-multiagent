@@ -1,6 +1,6 @@
 # PROGRESS M245 — Gateway 生命周期管理：stop/restart 子命令与单实例保护
 
-## 状态: IN PROGRESS
+## 状态: DONE
 
 ## 设计决策
 
@@ -19,6 +19,9 @@
 - Evidence:
   - Tests: PYTHONPATH=src python -m pytest tests/unit/ -x -q 2>&1 | tail -20
   - Entry: python -m personal_assistant.main restart --config ...
-- Rollback: 回退到 M245 plan commit
-- Commits: C1=TBD, C2=TBD, C3=TBD
-- Next: 完成后合并到 main，更新 dev-tasks.json
+- Rollback: 回退到 plan commit (0ce69ac)
+- Commits: C1=7982049, C2=9d4ae9c, C3=TBD
+- Evidence:
+  - Tests: 596 passed, 0 failed (PYTHONPATH=src python -m pytest tests/unit/ -x -q)
+  - Entry: 7 新增测试全绿，涵盖 PID file 写入/删除/单实例拒绝/stale 清理/restart/stop 删 PID
+- Next: C3 文档提交 → rebase main → merge → 更新 dev-tasks.json → 清理 worktree
