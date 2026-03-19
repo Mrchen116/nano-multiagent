@@ -1541,7 +1541,10 @@ def _consume_future_exception(future: object) -> None:
 
 
 def _spawn_process(command: str) -> ProcessLike:
-    return subprocess.Popen(shlex.split(command), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _kernel_log = Path("~/.nano-assistant/kernel.log").expanduser()
+    _kernel_log.parent.mkdir(parents=True, exist_ok=True)
+    _log_file = _kernel_log.open("ab")
+    return subprocess.Popen(shlex.split(command), stdout=_log_file, stderr=_log_file)
 
 
 if __name__ == "__main__":

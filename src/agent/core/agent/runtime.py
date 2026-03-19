@@ -226,6 +226,8 @@ class AgentRuntime:
             parts=_serialize_input_parts(input_parts),
         )
         history_with_current_user = self._session_manager.list_turn_messages(session_id)
+        import sys
+        print(f"[DEBUG run] session={session_id[:8]} parts={len(input_parts)} user_text={user_text!r:.60} history_len_before={len(history)} history_with_current={len(history_with_current_user)}", file=sys.stderr, flush=True)
         self._preflight_compaction(
             session_id=session_id,
             history=history_with_current_user,
@@ -234,6 +236,7 @@ class AgentRuntime:
             session_id=session_id,
             message_id=user_message_id,
         )
+        print(f"[DEBUG run] history_after_strip={len(history)} roles={[m.role for m in history]}", file=sys.stderr, flush=True)
 
         # Multi-part expansion (M246): when the gateway sends N buffered messages as N parts,
         # each part must appear as an independent user message in the LLM history rather than
@@ -257,6 +260,10 @@ class AgentRuntime:
             history = history + extra_messages
             effective_user_text = render_user_text(last_part)
             effective_input_parts = last_part
+            import sys
+            print(f"[DEBUG M246] multi-part: extra={len(extra_messages)} effective_user_text={effective_user_text!r:.60}", file=sys.stderr, flush=True)
+        import sys
+        print(f"[DEBUG run] final history_len={len(history)} effective_user_text={effective_user_text!r:.60}", file=sys.stderr, flush=True)
 
         try:
             turn_result = self._execute_loop(

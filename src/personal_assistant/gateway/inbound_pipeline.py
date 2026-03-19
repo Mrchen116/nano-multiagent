@@ -118,7 +118,8 @@ class InboundPipeline:
         """
 
         agent_id = self._resolve_agent(message)
-        should_process = self._should_process(message, agent_id=agent_id)
+        agent_config = self._agents.get(agent_id)
+        should_process = self._should_process(message, agent_id=agent_id, agent_config=agent_config)
 
         if message.is_group and self._group_context_store is not None:
             if not should_process:
@@ -351,13 +352,23 @@ class InboundPipeline:
         return session_metadata
 
     @staticmethod
-    def _should_process(message: InboundMessage, *, agent_id: str) -> bool:
-        """Apply the group-chat @mention gate before kernel execution.
+    @staticmethod
+    def _should_process(
+        message: InboundMessage,
+        *,
+        agent_id: str,
+        agent_config: AgentWorkspaceConfig | None = None,
+    ) -> bool:
+        """Apply the group-chat reply gate before kernel execution.
 
         Notes:
             The gateway keeps this gate at the routing boundary so ignored group chatter
             never allocates kernel sessions or queue slots. Channels may provide either
             structured metadata or plain-text `@agent` mentions; both are accepted here.
+
+            group_reply_policy values:
+            - "ALWAYS" (or "always"): respond to every group message regardless of mention.
+            - "MENTION" (or "mention_only", default): only respond when explicitly @mentioned.
         """
 
         if not message.is_group:
@@ -365,6 +376,10 @@ class InboundPipeline:
         metadata = dict(message.metadata)
         if metadata.get("background_context_only") is True:
             return False
+        policy = (agent_config.group_reply_policy or "MENTION").upper() if agent_config else "MENTION"
+        if policy == "ALWAYS":
+            return True
+        # MENTION policy: check explicit mention metadata or plain-text @agent
         mentioned = metadata.get("mentioned_agent_ids")
         if isinstance(mentioned, list) and agent_id in mentioned:
             return True

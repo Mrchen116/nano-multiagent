@@ -80,12 +80,24 @@ STARTED pid=<pid> health_url=http://127.0.0.1:8000/v1/health log=<config目录>/
 停止当前配置对应的后台 Gateway：
 
 ```bash
-PYTHONPATH=src python -m personal_assistant.main stop --config ./node-config.yaml
+PYTHONPATH=src python -m personal_assistant.main stop
+```
+
+重启（stop + start）：
+
+```bash
+PYTHONPATH=src python -m personal_assistant.main restart
+```
+
+**单实例保护**：同一台机器只允许运行一个 Gateway 实例。若已有实例在运行，`start`/`restart` 会拒绝启动并提示当前 PID：
+
+```text
+ERROR gateway already running (pid=<pid>). Run `stop` first or `restart` to replace it.
 ```
 
 stop 反馈语义：
-- `STOPPED ...`：当前配置对应的后台 Gateway 已关闭；若优雅等待超时会额外显示 `forced=true`。
-- `NOT RUNNING ...`：当前配置目录没有可用运行态记录，可直接重新 start。
+- `STOPPED ...`：后台 Gateway 已关闭；若优雅等待超时会额外显示 `forced=true`。
+- `NOT RUNNING ...`：没有可用运行态记录，可直接重新 start。
 - `STALE ...`：记录里的 pid 已失效；CLI 会自动清掉陈旧状态文件，然后你可以重新 start。
 
 你会看到的 ready 信号：
