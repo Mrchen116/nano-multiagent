@@ -122,6 +122,8 @@ class ChannelAdapter(Protocol):
 - 群聊：`{channel}:{external_chat_id}:{agent_id}`
 - 私聊：`{channel}:{external_user_id}:{agent_id}`
 - 映射到 `kernel_session_id`，持久化在本地 `session_binding_store`
+- `session_binding_store` 使用 SQLite 落盘（`~/.nano-assistant/session_bindings.sqlite3`），Gateway 重启后自动恢复映射，续接原 kernel session，聊天历史不丢失
+- 恢复时通过 `GET /v1/sessions/{id}` 验证 kernel session 仍然存在；若已失效则重新创建
 
 ### 4.3 队列管理（是否有运行中 Agent）
 
@@ -320,6 +322,15 @@ Gateway 采用本地配置文件驱动（如 `~/.nano-assistant/config.yaml`）�
 | System prompt | 个人助手（带 heartbeat 上下文） |
 
 各 Agent 的个性化（记忆、heartbeat、自定义工具/hook/skill）通过各自 workspace 目录下的文件实现，遵循内核四层加载顺序：内核内置 → 产品默认 → 用户全局（`~/.nano-assistant/`） → workspace（`<agent_workspace>/.nano-assistant/`）。
+
+### 聊天历史落盘
+
+每轮对话结束后，将本轮用户输入与 Agent 回复追加写入工作区内的 JSONL 文件：
+
+- 路径：`<agent_workspace>/chat_history/<session_id>.jsonl`
+- 每行一个 JSON 对象：`{"ts": "<ISO8601>", "role": "user"|"assistant", "content": "<text>"}`
+- 实现：`after_agent_reply` Hook，从 HookContext 读取 `session_id` 与 `workspace_root`，目录不存在时自动创建
+- 此文件仅供人工审阅与Agent在workspace探索时按需读取，不被 runtime 重新加载，不属于 `SessionStore` 管辖
 
 ---
 
