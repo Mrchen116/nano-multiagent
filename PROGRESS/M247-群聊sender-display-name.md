@@ -32,4 +32,15 @@
   - Entry: `inbound.metadata["sender_display_name"]` 可直接读取
 - Rollback: 回退到 R1.1 C3 commit
 - Commits: C1=50eee46, C2=540cb33, C3=（待写）
-- Next: R3 — inbound_pipeline 使用 display_name 替代 UUID
+- Next: R3 — inbound_pipeline 使用 display_name 替代 UUID — DONE
+
+### R3.1 inbound_pipeline 使用 sender_display_name 替代 UUID
+- Context: pipeline 一直从 `message.external_user_id`（UUID）生成 `[sender]` 前缀，可读性差。
+- Decision: 新增 `_resolve_sender_label(message)` helper，从 `metadata["sender_display_name"]` 读取（fallback 到 `external_user_id`）；在 buffer append 和 `_format_sender_text` 两处替换使用。
+- Rationale: 单点逻辑，不污染现有 fallback；gateway 不查询 IM，仅透传。
+- Evidence:
+  - Tests: M246 file 10 passed，unit+im_service 270 passed，5 pre-existing failures 与基线一致
+  - Entry: `[Alice Chen] @agent-a hello` 替代 `[uuid-alice-raw] @agent-a hello`
+- Rollback: 回退到 R2.1 C3 commit
+- Commits: C1=5af1fdd, C2=553f730, C3=（待写）
+- Next: R4 — communication_context hook 更新 participants 格式
