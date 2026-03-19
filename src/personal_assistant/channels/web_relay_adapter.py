@@ -125,6 +125,7 @@ class RelayEnvelope:
         content: Plain-text message content.
         agent_id: Optional explicit target agent.
         metadata: Opaque remaining relay metadata.
+        attachments: Optional list of attachment dicts forwarded from the IM message.
     """
 
     relay_task_id: str
@@ -134,6 +135,7 @@ class RelayEnvelope:
     content: str
     agent_id: str | None
     metadata: Mapping[str, Any]
+    attachments: list[dict[str, Any]]
 
 
 class WebRelayAdapter:
@@ -212,6 +214,9 @@ def _build_inbound(envelope: RelayEnvelope, payload: Mapping[str, object]) -> In
         message = payload.get("message")
         if isinstance(message, Mapping):
             message_id = _optional_text(message.get("id"))
+    extra: dict[str, Any] = {}
+    if envelope.attachments:
+        extra["attachments"] = envelope.attachments
     return InboundMessage(
         channel_name="web_relay",
         text=envelope.content,
@@ -225,6 +230,7 @@ def _build_inbound(envelope: RelayEnvelope, payload: Mapping[str, object]) -> In
             "idempotency_key": envelope.idempotency_key,
             "message_id": message_id,
             **dict(envelope.metadata),
+            **extra,
         },
     )
 
@@ -243,6 +249,18 @@ def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:
         metadata = {}
     if not isinstance(metadata, Mapping):
         raise ValueError("metadata must be an object")
+    raw_attachments = message.get("attachments")
+    attachments: list[dict[str, Any]] = []
+    if isinstance(raw_attachments, list):
+        for item in raw_attachments:
+            if isinstance(item, Mapping):
+                url = item.get("url")
+                if isinstance(url, str) and url.strip():
+                    attachments.append({
+                        "url": url,
+                        "content_type": item.get("content_type"),
+                        "file_name": item.get("file_name"),
+                    })
     return RelayEnvelope(
         relay_task_id=relay_task_id,
         idempotency_key=idempotency_key,
@@ -251,6 +269,7 @@ def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:
         content=content,
         agent_id=_optional_text(payload.get("agent_id")),
         metadata=dict(metadata),
+        attachments=attachments,
     )
 
 

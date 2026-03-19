@@ -72,11 +72,14 @@ class _FakeKernelClient:
         self._session_metadata_by_id[session_id] = dict(metadata or {})
         self.session_events.setdefault(session_id, [])
 
-    def send_message_async(self, *, session_id: str, texts: list[str]):
+    def send_message_async(self, *, session_id: str, texts: list[str], image_urls=None):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         text = texts[-1] if texts else ""
-        self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
+        call: dict = {"session_id": session_id, "texts": texts, "run_id": run_id}
+        if image_urls is not None:
+            call["image_urls"] = image_urls
+        self.send_calls.append(call)
         self.run_states.setdefault(run_id, {"run_id": run_id, "status": "completed", "output_text": f"reply:{text}"})
         self.session_events.setdefault(session_id, [])
         return {"run_id": run_id}

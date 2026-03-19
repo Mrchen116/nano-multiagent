@@ -1,8 +1,10 @@
 """Unit tests for IM relay task orchestration."""
 
+import json
 from pathlib import Path
 
 from IM.application.relay_service import RelayService
+from IM.domain.models import Attachment
 from IM.infra.db import connect, initialize_schema
 from IM.repositories import AgentProfileRepository, ConversationRepository, MessageRepository, UserRepository
 
@@ -434,3 +436,63 @@ def test_enqueue_message_relay_normalizes_typed_and_picker_mentions_to_the_same_
     assert picker_relay.relay_task.payload["agent_id"] == "agent-b"
     assert typed_relay.relay_task.payload["metadata"]["mentioned_agent_ids"] == ["agent-b"]
     assert picker_relay.relay_task.payload["metadata"]["mentioned_agent_ids"] == ["agent-b"]
+
+
+def test_relay_payload_with_attachments_is_json_serializable(tmp_path: Path) -> None:
+    """Attachment dataclass objects must be serialized to dicts before json.dumps (regression for 500 on image send)."""
+    relay_service, messages, conversations, users, _profiles = _build_fixture(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(title="chat", participant_ids=[alice.id])
+    message = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="look at this image",
+        attachments=[
+            Attachment(url="http://im.local/im/uploads/abc123.png", content_type="image/png", file_name="screenshot.png"),
+            Attachment(url="http://im.local/im/uploads/def456.jpg", content_type="image/jpeg", file_name=None),
+        ],
+    )
+
+    result = relay_service.enqueue_message_relay(
+        message=message,
+        target_node_id="node-1",
+        idempotency_key="idem-img",
+        sender_user_id=alice.id,
+    )
+
+    # The payload must be valid JSON (no TypeError from unserializable dataclasses).
+    payload = result.relay_task.payload
+    serialized = json.dumps(payload)
+    deserialized = json.loads(serialized)
+
+    attachments = deserialized["message"]["attachments"]
+    assert isinstance(attachments, list)
+    assert len(attachments) == 2
+    assert attachments[0]["url"] == "http://im.local/im/uploads/abc123.png"
+    assert attachments[0]["content_type"] == "image/png"
+    assert attachments[0]["file_name"] == "screenshot.png"
+    assert attachments[1]["url"] == "http://im.local/im/uploads/def456.jpg"
+    assert attachments[1]["content_type"] == "image/jpeg"
+    assert attachments[1]["file_name"] is None
+
+
+def test_relay_payload_without_attachments_has_empty_list(tmp_path: Path) -> None:
+    """Relay payload always includes an attachments list even when message has none."""
+    relay_service, messages, conversations, users, _profiles = _build_fixture(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(title="chat", participant_ids=[alice.id])
+    message = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="plain text message",
+    )
+
+    result = relay_service.enqueue_message_relay(
+        message=message,
+        target_node_id="node-1",
+        idempotency_key="idem-plain",
+        sender_user_id=alice.id,
+    )
+
+    attachments = result.relay_task.payload["message"]["attachments"]
+    assert attachments == []

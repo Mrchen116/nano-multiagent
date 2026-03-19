@@ -156,9 +156,19 @@ class InboundPipeline:
                 else:
                     current_text = message.text
                 texts = buffered_texts + [current_text]
+                attachments = message.metadata.get("attachments")
+                image_urls: list[dict[str, Any]] | None = None
+                if isinstance(attachments, list) and attachments and not message.is_group:
+                    # Only forward image attachments for direct chats; group chat context
+                    # messages are text-only synthetic messages that never carry images.
+                    image_urls = [
+                        item for item in attachments
+                        if isinstance(item, dict) and isinstance(item.get("url"), str)
+                    ] or None
                 run_payload = self._kernel_client.send_message_async(
                     session_id=binding.kernel_session_id,
                     texts=texts,
+                    image_urls=image_urls,
                 )
                 run_id = str(run_payload.get("run_id", "")).strip()
                 await self._emit_relay_lifecycle(

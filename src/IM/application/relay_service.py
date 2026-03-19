@@ -108,7 +108,14 @@ class RelayService:
                 "sender_user_id": sender_user_id,
                 "sender_type": message.sender_type,
                 "content": message.content,
-                "attachments": list(message.attachments),
+                "attachments": [
+                    {
+                        "url": att.url,
+                        "content_type": att.content_type,
+                        "file_name": att.file_name,
+                    }
+                    for att in message.attachments
+                ],
                 "created_at": message.created_at,
             },
         }

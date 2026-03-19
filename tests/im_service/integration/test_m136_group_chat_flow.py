@@ -46,7 +46,7 @@ class _FakeKernelClient:
         )
         return {"session_id": session_id}
 
-    def send_message_async(self, *, session_id: str, texts: list[str]):
+    def send_message_async(self, *, session_id: str, texts: list[str], image_urls=None):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         rendered_text = "\n".join(texts)

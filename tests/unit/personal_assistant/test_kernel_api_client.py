@@ -130,3 +130,57 @@ def test_kernel_api_client_requires_token_for_authenticated_calls() -> None:
 
     with pytest.raises(ValueError, match="missing API token"):
         client.create_session(workspace_root="/tmp/agent-a", product_id="personal_assistant")
+
+
+def test_send_message_async_includes_image_parts_when_image_urls_provided() -> None:
+    """send_message_async must append type=image parts for each valid image_url entry."""
+    captured_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        return httpx.Response(202, json={"run_id": "run-1", "session_id": "sess-1", "status": "queued"})
+
+    client = KernelApiClient(
+        config=KernelApiClientConfig(base_url="http://kernel.local", token="tok", request_id="req-1"),
+        transport=httpx.MockTransport(handler),
+    )
+
+    client.send_message_async(
+        session_id="sess-1",
+        texts=["describe this image"],
+        image_urls=[
+            {"url": "http://im.local/im/uploads/photo.png", "content_type": "image/png"},
+            {"url": "http://im.local/im/uploads/doc.jpg"},
+        ],
+    )
+
+    assert len(captured_requests) == 1
+    body = captured_requests[0].content
+    import json as _json
+    parsed = _json.loads(body)
+    parts = parsed["parts"]
+    assert parts[0] == {"type": "text", "text": "describe this image"}
+    assert parts[1] == {"type": "image", "image_url": "http://im.local/im/uploads/photo.png", "mime_type": "image/png"}
+    assert parts[2] == {"type": "image", "image_url": "http://im.local/im/uploads/doc.jpg"}
+
+
+def test_send_message_async_without_image_urls_sends_only_text_parts() -> None:
+    """send_message_async without image_urls must produce only text parts (backward compat)."""
+    captured_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        return httpx.Response(202, json={"run_id": "run-1", "session_id": "sess-1", "status": "queued"})
+
+    client = KernelApiClient(
+        config=KernelApiClientConfig(base_url="http://kernel.local", token="tok", request_id="req-1"),
+        transport=httpx.MockTransport(handler),
+    )
+
+    client.send_message_async(session_id="sess-1", texts=["hello"])
+
+    import json as _json
+    parsed = _json.loads(captured_requests[0].content)
+    parts = parsed["parts"]
+    assert len(parts) == 1
+    assert parts[0] == {"type": "text", "text": "hello"}

@@ -101,7 +101,13 @@ class KernelApiClient:
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request("GET", f"/v1/sessions/{session}", require_auth=True)
 
-    def send_message_async(self, *, session_id: str, texts: list[str]) -> dict[str, Any]:
+    def send_message_async(
+        self,
+        *,
+        session_id: str,
+        texts: list[str],
+        image_urls: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         """Submit one or more asynchronous text messages to an existing session.
 
         Args:
@@ -109,13 +115,25 @@ class KernelApiClient:
             texts: Non-empty list of message texts sent as ordered ``parts``.
                    When the list contains a single item this is equivalent to
                    the previous single-text API.
+            image_urls: Optional list of image attachment dicts (each with ``url`` and
+                        optionally ``content_type``) appended as ``type=image`` parts
+                        after all text parts.
         """
 
         if not texts:
             raise ValueError("texts must contain at least one message")
-        payload = {
-            "parts": [{"type": "text", "text": _require_non_empty_string(t, field_name="texts[i]")} for t in texts],
-        }
+        parts: list[dict[str, Any]] = [
+            {"type": "text", "text": _require_non_empty_string(t, field_name="texts[i]")} for t in texts
+        ]
+        for img in image_urls or []:
+            url = img.get("url")
+            if isinstance(url, str) and url.strip():
+                image_part: dict[str, Any] = {"type": "image", "image_url": url.strip()}
+                mime = img.get("content_type")
+                if isinstance(mime, str) and mime.strip():
+                    image_part["mime_type"] = mime.strip()
+                parts.append(image_part)
+        payload: dict[str, Any] = {"parts": parts}
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request(
             "POST",

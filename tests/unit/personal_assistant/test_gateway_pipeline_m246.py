@@ -40,7 +40,7 @@ class _FakeKernelClient:
         self._session_count += 1
         return {"session_id": f"sess-{self._session_count}"}
 
-    def send_message_async(self, *, session_id, texts):
+    def send_message_async(self, *, session_id, texts, image_urls=None):
         self._run_count += 1
         run_id = f"run-{self._run_count}"
         self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
