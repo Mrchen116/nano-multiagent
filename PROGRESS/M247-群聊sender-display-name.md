@@ -43,4 +43,15 @@
   - Entry: `[Alice Chen] @agent-a hello` 替代 `[uuid-alice-raw] @agent-a hello`
 - Rollback: 回退到 R2.1 C3 commit
 - Commits: C1=5af1fdd, C2=553f730, C3=（待写）
-- Next: R4 — communication_context hook 更新 participants 格式
+- Next: R4 — communication_context hook 更新 participants 格式 — DONE
+
+### R4.1 communication_context 更新 participants 格式和 message_format
+- Context: hook 只展示 `participant_agent_ids`（纯 ID 列表），message_format 引用 `[sender_id]`；两者可读性差。
+- Decision: `_build_communication_context_block` 新增 `participants: list[dict] | None` 参数；当传入时以 `display_name (type, id: ...)` 格式渲染；fallback 到旧 `participant_agent_ids`。message_format 更新为中文描述，说明 `[display_name]` 标识发言人，@mention 用 id。`_build_session_metadata` 将 `participants` 列表注入 session_metadata。
+- Rationale: 结构化参数优先，向后兼容（未传 participants 时使用旧格式）。
+- Evidence:
+  - Tests: communication_context 9 passed，unit+im_service 228 passed，全套 79 failures 与基线一致
+  - Entry: context block 包含 "Alice Chen (user, id: ...)" 而非原始 UUID
+- Rollback: 回退到 R3.1 C3 commit
+- Commits: C1=a89611d, C2=c055248, C3=（待写）
+- Next: 全部 Roadpoints DONE，进入 Milestone 整体集成
