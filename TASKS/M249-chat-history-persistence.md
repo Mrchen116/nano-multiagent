@@ -48,13 +48,15 @@ Expected Tests:
   - `test_jsonl_line_fields_valid`
 
 DoD:
-- test_command (`PYTHONPATH=src python -m pytest tests/unit/ -x -q`) 全绿
+- test_command (`PYTHONPATH=src python -m pytest tests/unit/ -x -q`) 全绿 624 passed
 - C1/C2/C3 均已提交
 
-Status: TODO
+Status: DONE
 
 ---
 
 ## Commits Log
 
-（提交后补充）
+- C1: 8da7345 test(R1): 先红——chat_history hook 单元测试（5条）
+- C2: 990f19b feat(R1): 实现 chat_history hook（input+message_end+agent_end 三事件落盘）
+- C3: （本次提交）

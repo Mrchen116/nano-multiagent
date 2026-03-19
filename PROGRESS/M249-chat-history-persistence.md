@@ -1,6 +1,6 @@
 # PROGRESS: M249 personal_assistant 聊天历史落盘
 
-## 当前状态: RUNNING
+## 当前状态: DONE
 
 ### 预存失败
 - tests/im_service/integration/test_m103_im_gateway_e2e.py::test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversation
@@ -21,8 +21,8 @@
   - agent_end handler: 写 JSONL，清理 _pending
 - Rationale: 三事件串联是在不修改 core 情况下唯一可行的方案；module-level dict 无需锁（GIL 保护简单 dict 操作）
 - Evidence:
-  - Tests: （待填充）
-  - Entry: （待填充）
-- Rollback: 回到本 Milestone 初始 commit（计划提交）
-- Commits: C1=（待填充）, C2=（待填充）, C3=（待填充）
-- Next: DONE
+  - Tests: `PYTHONPATH=src python -m pytest tests/unit/ -x -q` → 624 passed（含 5 新增）
+  - Entry: `_simulate_turn` 驱动三事件链，断言 JSONL 内容/路径/追加语义全部通过
+- Rollback: 回到 1bd2822（计划提交），C1=8da7345 可安全回到红态
+- Commits: C1=8da7345, C2=990f19b, C3=（本次提交）
+- Next: 合并到 main
