@@ -349,6 +349,13 @@ function toRelaySyntheticMessageId(payload: Record<string, unknown>, fallbackIde
   if (!messageId) {
     return null;
   }
+  // Prefer relay_task_id (unique per turn) over agent_id (shared across all turns by the same agent).
+  // relay.report and relay.processing events are server-enriched with relay_task_id from relay.accepted;
+  // relay.completed and message.delivered carry relay_task_id natively.
+  const relayTaskId = toStringValue(payload.relay_task_id);
+  if (relayTaskId) {
+    return `${messageId}:relay:${relayTaskId}`;
+  }
   const identityToken = toRelayIdentityToken(payload, fallbackIdentity);
   return identityToken ? `${messageId}:agent:${identityToken}` : `${messageId}:agent`;
 }
