@@ -44,6 +44,7 @@ from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline, RelayLifecycleUpdate
+from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore, SessionBindingStore
@@ -701,6 +702,8 @@ class GatewayRuntime:
         post_im_connect: Callable[[], None] | None = None,
         resource_closers: tuple[Callable[[], None], ...] = (),
         feedback_sink: FeedbackSink = _emit_gateway_feedback,
+        internal_dispatch_handler: InternalDispatchHandler | None = None,
+        gateway_internal_port: int = 8089,
     ) -> None:
         self._config = config
         self._process_manager = process_manager
@@ -711,6 +714,8 @@ class GatewayRuntime:
         self._post_im_connect = post_im_connect
         self._resource_closers = resource_closers
         self._feedback_sink = feedback_sink
+        self._internal_dispatch_handler = internal_dispatch_handler
+        self._gateway_internal_port = gateway_internal_port
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
 
@@ -743,6 +748,7 @@ class GatewayRuntime:
         channels_started = False
         heartbeat_started = False
         im_connected = False
+        dispatch_runner: Any | None = None
         im_task: asyncio.Task[None] | None = None
         try:
             self._process_manager.start_kernel_process()
@@ -751,6 +757,22 @@ class GatewayRuntime:
             if self._heartbeat_runner is not None:
                 await self._heartbeat_runner.start()
                 heartbeat_started = True
+            if self._internal_dispatch_handler is not None:
+                try:
+                    from aiohttp import web as _aiohttp_web
+                    _dispatch_app = _aiohttp_web.Application()
+                    _dispatch_app.router.add_post(
+                        "/internal/dispatch",
+                        self._internal_dispatch_handler.build_aiohttp_handler(),
+                    )
+                    dispatch_runner = _aiohttp_web.AppRunner(_dispatch_app)
+                    await dispatch_runner.setup()
+                    _dispatch_site = _aiohttp_web.TCPSite(
+                        dispatch_runner, "127.0.0.1", self._gateway_internal_port
+                    )
+                    await _dispatch_site.start()
+                except Exception:  # noqa: BLE001
+                    dispatch_runner = None
             if self._im_connection_manager is not None:
                 await self._im_connection_manager.connect_once()
                 im_connected = True
@@ -768,6 +790,9 @@ class GatewayRuntime:
             return 0
         finally:
             self._ready_event.clear()
+            if dispatch_runner is not None:
+                with suppress(Exception):
+                    await dispatch_runner.cleanup()
             if heartbeat_started and self._heartbeat_runner is not None:
                 await self._heartbeat_runner.close()
             if channels_started:
@@ -1030,6 +1055,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         db_path=runtime_dir / "session_bindings.sqlite3"
     )
     session_store.set_kernel_client(kernel_client)
+    _gateway_internal_port = 8089
     pipeline = InboundPipeline(
         kernel_client=kernel_client,
         agents=config.agents,
@@ -1039,6 +1065,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         group_context_store=GroupContextStore(
             db_path=runtime_dir / "group_context_buffer.sqlite3"
         ),
+        gateway_internal_port=_gateway_internal_port,
     )
     if config.im_service is not None:
         relay_adapter = channel_registry.get("web_relay")
@@ -1078,6 +1105,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         closers.append(im_bootstrap_client.close)
     if im_config_sync_client is not None:
         closers.append(im_config_sync_client.close)
+    internal_dispatch_handler = InternalDispatchHandler(
+        im_connection_manager=im_connection_manager,
+    )
     return GatewayRuntime(
         config,
         process_manager,
@@ -1087,6 +1117,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         on_inbound=inbound_dispatcher,
         post_im_connect=post_im_connect,
         resource_closers=tuple(closers),
+        internal_dispatch_handler=internal_dispatch_handler,
+        gateway_internal_port=_gateway_internal_port,
     )
 
 
