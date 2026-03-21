@@ -104,6 +104,10 @@ class ResolvedProductConfig:
     session_store: "SessionStore | None"
     config_resolver: "ConfigResolver | None" = None
     skill_registry: object | None = None
+    # Tool ids exposed to the LLM by default (before per-session allowlists are
+    # applied).  ``None`` uses platform default (all tools in registry).  Set by
+    # bootstrap from ``ProductProfile.default_tool_ids``.
+    default_tool_ids: list[str] | None = None
 
 
 __all__ = ["ProductProfile", "ResolvedProductConfig"]

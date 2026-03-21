@@ -57,6 +57,7 @@ class AgentRuntime:
         tool_registry: ToolRegistryLike | None = None,
         system_prompt: str | None = None,
         config_resolver: ConfigResolverLike | None = None,
+        default_tool_ids: list[str] | None = None,
     ) -> None:
         env_llm_config = LLMFactoryConfig.from_env()
         self._llm_config = LLMFactoryConfig(
@@ -81,6 +82,9 @@ class AgentRuntime:
             )
         )
         self._session_manager = session_manager
+        # Product default tool ids used when no per-session tool_allowlist is set.
+        # None means "all tools in registry" (platform default behavior).
+        self._default_tool_ids = default_tool_ids
         # system_prompt=None uses AgentLoop's empty-string default; callers that
         # want product-specific prompts must inject via this parameter or bootstrap.
         loop_kwargs: dict = {}
@@ -467,8 +471,17 @@ class AgentRuntime:
     def _resolve_session_available_tools(self, *, session: Session) -> tuple[ToolSpec, ...]:
         raw_tools = session.metadata.get("tool_allowlist") if isinstance(session.metadata, Mapping) else None
         if not isinstance(raw_tools, list):
-            return self._loop._active_tool_specs()  # type: ignore[attr-defined]
+            # No per-session allowlist: apply product default_tool_ids gate when present.
+            # When default_tool_ids is None the platform default (all registry tools) is used.
+            all_specs = self._loop._active_tool_specs()  # type: ignore[attr-defined]
+            default_ids = self._default_tool_ids
+            if default_ids is None:
+                return all_specs
+            allowed_set = set(default_ids)
+            return tuple(spec for spec in all_specs if spec.name in allowed_set)
         requested = {item.strip() for item in raw_tools if isinstance(item, str) and item.strip()}
+        # allowlist path: filter full registry so optional tools (e.g. send_message)
+        # that are absent from _active_tool_specs() are still discoverable.
         if self._loop._tool_registry is None:  # type: ignore[attr-defined]
             active_tools = self._loop._active_tool_specs()  # type: ignore[attr-defined]
         else:

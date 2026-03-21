@@ -66,6 +66,10 @@ class ToolContext:
     tool_call_id: str | None = None
     safety_overrides: Mapping[str, Any] = field(default_factory=dict)
     execution_event_callback: Callable[[Mapping[str, Any]], None] | None = None
+    # Per-session metadata forwarded from the kernel session so product tools
+    # (e.g. send_message) can read runtime-injected fields such as
+    # ``gateway_dispatch_url`` without requiring a separate registry lookup.
+    session_metadata: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
     def create(
@@ -90,6 +94,7 @@ class ToolContext:
         tool_call_id: str | None = None,
         safety_overrides: Mapping[str, Any] | None = None,
         execution_event_callback: Callable[[Mapping[str, Any]], None] | None = None,
+        session_metadata: Mapping[str, Any] | None = None,
     ) -> "ToolContext":
         """Clone context with session/call metadata and per-call safety overrides."""
 
@@ -101,6 +106,7 @@ class ToolContext:
             tool_call_id=tool_call_id,
             safety_overrides=dict(safety_overrides or {}),
             execution_event_callback=execution_event_callback,
+            session_metadata=dict(session_metadata) if session_metadata is not None else dict(self.session_metadata),
         )
 
     def emit_execution_event(self, payload: Mapping[str, Any]) -> None:

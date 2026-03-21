@@ -78,6 +78,7 @@ def create_app(
     # over profile-resolved ones, matching the principle of "explicit > profile > defaults".
     resolved_system_prompt: str | None = None
     resolved_config_resolver = None
+    resolved_default_tool_ids: list[str] | None = None
     if product_profile is not None:
         from agent.platform.bootstrap import bootstrap_product
 
@@ -97,6 +98,8 @@ def create_app(
         # uses its own empty-string default rather than setting empty explicitly.
         if resolved_product.resolved_system_prompt:
             resolved_system_prompt = resolved_product.resolved_system_prompt
+        # Thread default_tool_ids so the runtime can gate tool exposure per session.
+        resolved_default_tool_ids = resolved_product.default_tool_ids
     session_service = SessionService(store=session_store, profile=product_profile)
     app.state.session_service = session_service
     if runtime is None:
@@ -110,6 +113,8 @@ def create_app(
             runtime_kwargs["system_prompt"] = resolved_system_prompt
         if resolved_config_resolver is not None:
             runtime_kwargs["config_resolver"] = resolved_config_resolver
+        if resolved_default_tool_ids is not None:
+            runtime_kwargs["default_tool_ids"] = resolved_default_tool_ids
         active_runtime = AgentRuntime(
             session_manager=session_service.manager,
             hook_runner=active_hook_runner,
