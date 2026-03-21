@@ -64,6 +64,8 @@ RelayLifecycleCallback = Callable[[InboundMessage, RelayLifecycleUpdate], Awaita
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 _EVENT_POLL_MAX_EVENTS = 200
 _EVENT_POLL_TIMEOUT_SECONDS = 0.25
+# Default port for the Gateway's internal HTTP dispatch endpoint.
+_DEFAULT_GATEWAY_INTERNAL_PORT = 8089
 
 
 class InboundPipeline:
@@ -79,6 +81,10 @@ class InboundPipeline:
         default_agent_id: Node-level fallback agent used when no explicit/bound agent matches.
         relay_lifecycle_callback: Optional async hook that mirrors relay execution milestones
             back to IM-facing runtime wiring.
+        gateway_internal_port: Port for the Gateway's internal HTTP dispatch endpoint
+            (``POST /internal/dispatch``).  Injected into kernel session metadata as
+            ``gateway_dispatch_url`` so product tools (e.g. ``send_message``) can post
+            outbound messages back through the Gateway without a separate discovery step.
 
     Notes:
         Group-chat traffic honors the NodeGateway-SPEC @mention gate before any kernel
@@ -98,6 +104,7 @@ class InboundPipeline:
         default_agent_id: str | None = None,
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         group_context_store: GroupContextStore | None = None,
+        gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
     ) -> None:
         self._kernel_client = kernel_client
         self._agents = {agent.agent_id: agent for agent in agents}
@@ -108,6 +115,7 @@ class InboundPipeline:
         self._default_agent_id = default_agent_id or (agents[0].agent_id if agents else None)
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._group_context_store = group_context_store
+        self._gateway_internal_port = gateway_internal_port
 
     async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
         """Process one inbound message through route, session, queue, and reply steps.
@@ -318,7 +326,12 @@ class InboundPipeline:
 
         agent = self._agents[agent_id]
         metadata = dict(message.metadata)
-        session_metadata: dict[str, object] = {"agent_id": agent_id}
+        session_metadata: dict[str, object] = {
+            "agent_id": agent_id,
+            # Inject internal Gateway dispatch URL so product tools (e.g. send_message)
+            # can post outbound messages back through the Gateway HTTP boundary.
+            "gateway_dispatch_url": f"http://127.0.0.1:{self._gateway_internal_port}/internal/dispatch",
+        }
         conversation_id = metadata.get("conversation_id")
         if isinstance(conversation_id, str) and conversation_id.strip():
             session_metadata["conversation_id"] = conversation_id.strip()
