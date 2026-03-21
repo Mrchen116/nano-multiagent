@@ -28,13 +28,13 @@
 ### R2 SendMessageTool 无状态化
 
 - Context: SendMessageTool 有 bind_dispatcher 有状态单例，需改为从 ctx.session_metadata 读 URL 做 HTTP POST
-- Decision: 移除 TOOL 单例和 bind_dispatcher；ToolContext 增 session_metadata 字段；registry.execute 从 hook_context.metadata 注入
-- Rationale: 无状态工具便于测试和并发
+- Decision: 移除 TOOL 单例和 bind_dispatcher；ToolContext 增 session_metadata 字段；registry.execute 从 hook_context.metadata 注入；加 get_tool() 工厂供 loader 发现
+- Rationale: 无状态工具便于测试和并发；tool loader 用 get_tool() 而非 TOOL 单例
 - Evidence:
-  - Tests: <待填>
-  - Entry: unit tests pass
-- Rollback: R1 C3
-- Commits: C1=<待填>, C2=<待填>, C3=<待填>
+  - Tests: 6 passed (test_send_message_tool.py)，654 unit passed
+  - Entry: tests/unit 654 passed
+- Rollback: 8af52a3 (R1 C3)
+- Commits: C1=00fc94f, C2=bad1ac2, C3=<待填>
 - Next: R3
 
 ### R3 inbound_pipeline 注入 gateway_dispatch_url
