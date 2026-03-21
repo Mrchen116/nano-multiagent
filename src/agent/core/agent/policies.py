@@ -12,9 +12,9 @@ T = TypeVar("T")
 class AgentPolicies:
     """Bound runtime resource usage and fail fast on policy violations."""
 
-    max_turns: int = 32
-    max_context_messages: int = 24
-    max_tool_calls: int = 16
+    max_turns: int = 10_000
+    max_context_messages: int = 0
+    max_tool_calls: int = 64
 
     def ensure_turn_allowed(self, *, turn_count: int) -> None:
         """Assert turn count is still within configured limit.
@@ -33,10 +33,14 @@ class AgentPolicies:
             )
 
     def truncate_history(self, messages: tuple[T, ...]) -> tuple[T, ...]:
-        """Trim history to the configured context window size."""
+        """Trim history to the configured context window size.
+
+        When max_context_messages <= 0, no truncation is applied and the full
+        message tuple is returned (unlimited context).
+        """
 
         if self.max_context_messages <= 0:
-            return ()
+            return messages
         if len(messages) <= self.max_context_messages:
             return messages
         return messages[-self.max_context_messages :]
