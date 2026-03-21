@@ -78,7 +78,12 @@ def bootstrap_product(
 
     # Build tool registry without a hook_runner initially; the server wires
     # the hook_runner after it creates the HookRunner wrapper.
-    # When default_tool_ids is declared, only those tool names are kept.
+    # When default_tool_ids is declared the registry is built from the union of
+    # default_tool_ids + optional_tool_ids so that optional tools (e.g.
+    # send_message) are physically present for per-session allowlist filtering,
+    # while the resolved config records default_tool_ids separately so the
+    # runtime can apply the product default gate when no per-session allowlist
+    # is supplied.
     full_tool_registry = build_tool_registry(
         repo_root=resolved_root,
         hook_runner=None,
@@ -87,7 +92,13 @@ def bootstrap_product(
         product_tool_dir=product_root / "tools",
     )
     if profile.default_tool_ids is not None:
-        tool_registry = _filter_tool_registry(full_tool_registry, profile.default_tool_ids)
+        # Include both default and optional ids so optional tools are accessible
+        # when an explicit tool_allowlist enables them on a per-session basis.
+        combined_ids = list(profile.default_tool_ids) + [
+            tid for tid in profile.optional_tool_ids
+            if tid not in profile.default_tool_ids
+        ]
+        tool_registry = _filter_tool_registry(full_tool_registry, combined_ids)
     else:
         tool_registry = full_tool_registry
 
@@ -111,6 +122,7 @@ def bootstrap_product(
         session_store=session_store,
         config_resolver=config_resolver,
         skill_registry=skill_registry,
+        default_tool_ids=list(profile.default_tool_ids) if profile.default_tool_ids is not None else None,
     )
 
 

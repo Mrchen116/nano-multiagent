@@ -20,10 +20,9 @@ def _make_session(metadata: dict | None = None) -> Session:
     """Build a minimal Session with given metadata."""
     return Session(
         session_id="sess_test",
-        title="test",
-        metadata=metadata or {},
+        status="active",
         created_at="2026-01-01T00:00:00Z",
-        updated_at="2026-01-01T00:00:00Z",
+        metadata=metadata or {},
     )
 
 
