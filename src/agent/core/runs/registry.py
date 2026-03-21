@@ -6,10 +6,8 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from threading import Event, Lock
-import time
 from typing import Any, Mapping, Protocol, Sequence
 
-from agent.core.errors import ModelError
 from agent.core.ids import make_run_id
 from agent.core.types import TokenUsage, TurnResult
 from agent.core.hooks.context import HookContext
@@ -152,12 +150,9 @@ class RunsRegistry:
         parts: Sequence[Mapping[str, Any]],
         trace_id: str | None,
     ) -> None:
-        backoff_delays = (0.5, 1.0, 2.0)
-        cooldown_every_failures = 5
-        cooldown_seconds = 30.0
-        backoff_index = 0
-        failed_attempts = 0
-
+        # Transient LLM retry is handled inside AgentLoop._generate_with_retry().
+        # _run_worker executes the turn exactly once; any ModelError that reaches
+        # this layer (including retryable=True exhausted by the loop) is terminal.
         with bind_correlation(session_id=session_id, trace_id=trace_id):
             started = self._set_status(
                 run_id,
@@ -168,55 +163,17 @@ class RunsRegistry:
                 return
             log_info("run_started", run_id=run_id)
 
-            while True:
-                if self._is_cancelled(run_id):
-                    return
-                try:
-                    result = self._runtime.run(session_id, parts, stream=False, run_id=run_id)
-                except TimeoutError as exc:
-                    self._mark_timed_out(run_id, message=str(exc))
-                    return
-                except ModelError as exc:
-                    if not exc.retryable:
-                        self._mark_failed(run_id, message=str(exc))
-                        return
-
-                    failed_attempts += 1
-                    next_delay = backoff_delays[backoff_index]
-                    backoff_index = (backoff_index + 1) % len(backoff_delays)
-                    cooldown = cooldown_seconds if failed_attempts % cooldown_every_failures == 0 else 0.0
-                    if cooldown > 0:
-                        backoff_index = 0
-
-                    updated = self._set_status(
-                        run_id,
-                        status=RunStatus.RUNNING,
-                        attempt=failed_attempts,
-                        next_delay=next_delay,
-                        cooldown=cooldown,
-                        last_error=_summarize_retry_error(exc),
-                        only_if={RunStatus.RUNNING},
-                    )
-                    if updated is None or updated.status is not RunStatus.RUNNING:
-                        return
-                    log_info(
-                        "run_retry_scheduled",
-                        run_id=run_id,
-                        attempt=failed_attempts,
-                        next_delay=next_delay,
-                        cooldown=cooldown,
-                    )
-
-                    if not self._sleep_until_retry(run_id=run_id, seconds=next_delay):
-                        return
-                    if cooldown > 0 and not self._sleep_until_retry(run_id=run_id, seconds=cooldown):
-                        return
-                    continue
-                except Exception as exc:  # noqa: BLE001
-                    self._mark_failed(run_id, message=str(exc))
-                    return
-                self._mark_completed(run_id, turn_result=result)
+            if self._is_cancelled(run_id):
                 return
+            try:
+                result = self._runtime.run(session_id, parts, stream=False, run_id=run_id)
+            except TimeoutError as exc:
+                self._mark_timed_out(run_id, message=str(exc))
+                return
+            except Exception as exc:  # noqa: BLE001
+                self._mark_failed(run_id, message=str(exc))
+                return
+            self._mark_completed(run_id, turn_result=result)
 
     def _set_status(
         self,
@@ -263,19 +220,6 @@ class RunsRegistry:
         with self._lock:
             current = self._runs.get(run_id)
             return current is not None and current.status is RunStatus.CANCELLED
-
-    def _sleep_until_retry(self, *, run_id: str, seconds: float) -> bool:
-        if seconds <= 0:
-            return not self._is_cancelled(run_id)
-        with self._lock:
-            cancel_event = self._cancel_events.get(run_id)
-        if cancel_event is None:
-            _sleep(seconds)
-            return not self._is_cancelled(run_id)
-        cancelled = _wait_with_cancel(cancel_event, seconds)
-        if cancelled:
-            return False
-        return not self._is_cancelled(run_id)
 
     def _mark_completed(self, run_id: str, *, turn_result: TurnResult) -> RunRecord | None:
         updated = self._set_status(
@@ -526,31 +470,6 @@ def _serialize_usage(usage: TokenUsage | None) -> dict[str, int] | None:
         "completion_tokens": usage.completion_tokens,
         "total_tokens": usage.total_tokens,
     }
-
-
-def _sleep(seconds: float) -> None:
-    time.sleep(seconds)
-
-
-def _wait_with_cancel(cancel_event: Event, seconds: float) -> bool:
-    return cancel_event.wait(timeout=seconds)
-
-
-def _summarize_retry_error(error: ModelError) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "code": error.code,
-        "message": _truncate_error_message(error.message),
-        "retryable": error.retryable,
-    }
-    if error.details:
-        payload["details"] = dict(error.details)
-    return payload
-
-
-def _truncate_error_message(message: str, *, max_chars: int = 240) -> str:
-    if len(message) <= max_chars:
-        return message
-    return f"{message[:max_chars]}..."
 
 
 def _extract_run_output_text(turn_result: TurnResult) -> str | None:
