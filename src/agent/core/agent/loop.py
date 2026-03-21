@@ -125,13 +125,12 @@ class AgentLoop:
 
         stop_reason = "error"
         completed = False
-        self._policies.ensure_turn_allowed(turn_count=state.turn_count)
 
         active_tools = self._active_tool_specs() if available_tools_override is None else available_tools_override
         active_skills = self._available_skills if available_skills_override is None else available_skills_override
         llm_messages = list(
             build_prompt_messages(
-                history_messages=self._policies.truncate_history(state.history_messages),
+                history_messages=state.history_messages,
                 user_text=state.user_text,
                 system_prompt=system_prompt_override or self._system_prompt,
                 available_skills=active_skills,
