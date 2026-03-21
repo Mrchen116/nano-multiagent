@@ -19,10 +19,10 @@
 - Decision: ResolvedProductConfig 增 default_tool_ids 字段；bootstrap 用 default+optional 并集构建 full registry，再存 default_tool_ids；runtime 无 allowlist 时按 default_tool_ids 过滤
 - Rationale: optional 工具需在 registry 中（以便 allowlist 路径可找到），但默认不暴露给 LLM
 - Evidence:
-  - Tests: <待填>
-  - Entry: unit tests pass
-- Rollback: 初始 commit 前
-- Commits: C1=<待填>, C2=<待填>, C3=<待填>
+  - Tests: 8 passed (test_resolved_product_config_default_tool_ids.py + test_runtime_tool_allowlist_filtering.py)
+  - Entry: tests/unit 648 passed
+- Rollback: 0ef29ce (C1 test commit)
+- Commits: C1=0ef29ce, C2=4f9df56, C3=<待填>
 - Next: R2
 
 ### R2 SendMessageTool 无状态化
