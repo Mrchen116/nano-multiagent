@@ -2,19 +2,29 @@
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+from agent.core.errors import ModelError
 from agent.core.ids import make_message_id, make_tool_call_id
 from agent.core.types import Message, TokenUsage, ToolCall, ToolResult, ToolSpec, TurnResult
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.runner import HookExecution, HookRunner
-from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
+from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 from agent.core.skills.registry import SkillMetadata
 
 from .policies import AgentPolicies
 from .prompting import build_prompt_messages
 from .state import AgentState
+
+# Retry constants for transient LLM failures inside the turn loop.
+# Delays cycle through these values; after every _RETRY_COOLDOWN_EVERY consecutive
+# failures an extra _RETRY_COOLDOWN_SECONDS pause is inserted before resuming.
+_RETRY_BACKOFF_DELAYS = (0.5, 1.0, 2.0)
+_RETRY_MAX_RETRIES = 20
+_RETRY_COOLDOWN_EVERY = 5
+_RETRY_COOLDOWN_SECONDS = 30.0
 
 
 class ToolRegistryLike(Protocol):
@@ -145,7 +155,7 @@ class AgentLoop:
             # 3) If tools are unavailable, stop with explicit terminal reason instead
             #    of silently dropping tool calls.
             while True:
-                response = self._llm_client.generate(
+                response = self._generate_with_retry(
                     LLMGenerateRequest(
                         session_id=llm_session_id or state.session_id,
                         model=self._model,
@@ -352,6 +362,48 @@ class AgentLoop:
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
             return None, str(exc)
 
+    def _generate_with_retry(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+        """Call LLMClient.generate() with exponential back-off retry on transient failures.
+
+        Only retryable ModelErrors are retried; non-retryable errors propagate immediately.
+        Retries do not touch session history — callers must not write session state between
+        individual generate() attempts.
+
+        Args:
+            request: The LLM generate request to send.
+
+        Returns:
+            Successful LLM generate response.
+
+        Raises:
+            ModelError: Non-retryable immediately; retryable after _RETRY_MAX_RETRIES attempts.
+        """
+        backoff_index = 0
+        for attempt in range(_RETRY_MAX_RETRIES + 1):
+            try:
+                return self._llm_client.generate(request)
+            except ModelError as exc:
+                if not exc.retryable:
+                    raise
+                if attempt >= _RETRY_MAX_RETRIES:
+                    # Wrap as non-retryable so the caller (registry) marks it failed
+                    # instead of scheduling another outer retry loop.
+                    raise ModelError(
+                        f"LLM generate exceeded {_RETRY_MAX_RETRIES} retries: {exc.message}",
+                        retryable=False,
+                        details=exc.details,
+                    ) from exc
+                delay = _RETRY_BACKOFF_DELAYS[backoff_index]
+                backoff_index = (backoff_index + 1) % len(_RETRY_BACKOFF_DELAYS)
+                _loop_sleep(delay)
+                failed_attempts = attempt + 1
+                if failed_attempts % _RETRY_COOLDOWN_EVERY == 0:
+                    backoff_index = 0
+                    _loop_sleep(_RETRY_COOLDOWN_SECONDS)
+
+        # Unreachable: loop above always returns or raises.
+        raise AssertionError("unreachable")  # pragma: no cover
+
     def _active_tool_specs(self) -> tuple[ToolSpec, ...]:
         if self._tool_registry is not None:
             return self._tool_registry.list_specs()
@@ -484,3 +536,8 @@ def _with_optional_run_id(payload: Mapping[str, Any], *, run_id: str | None) -> 
     if run_id is not None:
         resolved["run_id"] = run_id
     return resolved
+
+
+def _loop_sleep(seconds: float) -> None:
+    """Sleep for the given duration; extracted for test monkeypatching."""
+    time.sleep(seconds)

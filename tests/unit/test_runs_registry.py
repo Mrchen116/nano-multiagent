@@ -45,25 +45,13 @@ class _RuntimeWithUsageStub:
         )
 
 
-class _RetryThenSuccessRuntime:
-    def __init__(self, *, fail_times: int) -> None:
-        self._fail_times = fail_times
-        self.calls = 0
+class _RetryableModelErrorRuntime:
+    """Runtime that raises a retryable ModelError, simulating loop-exhausted errors reaching registry."""
 
     def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
-        del parts
-        del stream
-        del run_id
-        self.calls += 1
-        if self.calls <= self._fail_times:
-            raise ModelError(f"upstream unavailable #{self.calls}", retryable=True)
-        return TurnResult(
-            session_id=session_id,
-            turn_id="turn_async_retry",
-            messages=(Message(message_id="msg_async_retry", role="assistant", content="ok-after-retry"),),
-            completed=True,
-            stop_reason="completed",
-        )
+        del session_id, parts, stream, run_id
+        # After M251 retry lives in loop; retryable errors that reach registry are terminal.
+        raise ModelError("transient upstream blip", retryable=True)
 
 
 def _wait_for(predicate, *, timeout_seconds: float = 1.0) -> None:  # noqa: ANN001
@@ -246,21 +234,18 @@ def test_runs_registry_dispatches_run_timeout_observe_hook_when_runtime_times_ou
     ]
 
 
-def test_runs_registry_retries_retryable_model_errors_and_resets_backoff_after_cooldown(
+def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
-    sleep_calls: list[float] = []
-    monkeypatch.setattr(
-        "agent.core.runs.registry._wait_with_cancel",
-        lambda _event, seconds: sleep_calls.append(seconds) or False,
-    )
+    """After M251 retry is handled in loop; retryable ModelError from runtime.run() marks run failed.
 
+    The registry no longer contains a while-True retry loop. Any ModelError that
+    propagates out of runtime.run() (including retryable=True) is treated as terminal.
+    """
     store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-retry.sqlite3")
     manager = SessionManager(store=store)
     session = manager.create_session()
-    runtime = _RetryThenSuccessRuntime(fail_times=6)
-    registry = RunsRegistry(runtime=runtime, session_manager=manager)
+    registry = RunsRegistry(runtime=_RetryableModelErrorRuntime(), session_manager=manager)
 
     submitted = registry.submit(
         session_id=session.session_id,
@@ -269,26 +254,22 @@ def test_runs_registry_retries_retryable_model_errors_and_resets_backoff_after_c
 
     _wait_for(
         lambda: registry.get(submitted.run_id) is not None
-        and registry.get(submitted.run_id).status is RunStatus.COMPLETED
+        and registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED},
+        timeout_seconds=2.0,
     )
 
-    completed = registry.get(submitted.run_id)
-    assert completed is not None
-    assert completed.status is RunStatus.COMPLETED
-    assert completed.turn_id == "turn_async_retry"
-    assert runtime.calls == 7
-    assert sleep_calls == [0.5, 1.0, 2.0, 0.5, 1.0, 30.0, 0.5]
+    final = registry.get(submitted.run_id)
+    assert final is not None
+    assert final.status is RunStatus.FAILED
 
     entries = manager.list_entries(session.session_id)
-    retry_events = [
-        event
+    run_statuses = [
+        event.data["status"]
         for event in entries
         if getattr(event.kind, "value", "") == "session.run.status"
         and event.data.get("run_id") == submitted.run_id
-        and event.data.get("status") == "running"
-        and event.data.get("attempt") is not None
     ]
-    assert [event.data["attempt"] for event in retry_events] == [1, 2, 3, 4, 5, 6]
-    assert [event.data["next_delay"] for event in retry_events] == [0.5, 1.0, 2.0, 0.5, 1.0, 0.5]
-    assert retry_events[4].data["cooldown"] == 30.0
-    assert retry_events[0].data["cooldown"] == 0.0
+    # Should transition queued -> running -> failed with no retry-running entries
+    assert run_statuses[-1] == "failed"
+    retry_attempts = [e for e in entries if e.data.get("attempt") is not None]
+    assert retry_attempts == [], "registry must not emit retry attempt entries after M251"

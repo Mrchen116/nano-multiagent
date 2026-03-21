@@ -29,10 +29,13 @@ class _BlockingRuntime:
         )
 
 
-class _AlwaysRetryableFailureRuntime:
+class _FailureRuntime:
+    """Runtime that raises a non-retryable ModelError (simulates loop exhausting retries)."""
+
     def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id
-        raise ModelError("upstream temporary unavailable", retryable=True)
+        # Retryable errors are exhausted inside loop; what reaches registry is non-retryable.
+        raise ModelError("retries exhausted", retryable=False)
 
 
 def _wait_for(predicate, *, timeout_seconds: float = 1.0) -> None:  # noqa: ANN001
@@ -78,29 +81,24 @@ def test_cancel_unknown_run_returns_none(tmp_path: Path) -> None:
     assert registry.cancel("run_missing") is None
 
 
-def test_cancel_stops_retry_loop_without_transitioning_to_failed(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "run-cancel-retryable.sqlite3")
+def test_model_error_from_runtime_marks_run_failed(tmp_path: Path) -> None:
+    """ModelError propagating from runtime.run() causes the run to be marked failed.
+
+    After M251, retry is handled inside loop._generate_with_retry(); any ModelError
+    that reaches _run_worker means all retries are exhausted and the run is terminal.
+    """
+    store = SQLiteSessionStore(db_path=tmp_path / "run-model-error-failed.sqlite3")
     manager = SessionManager(store=store)
     session = manager.create_session()
-    registry = RunsRegistry(runtime=_AlwaysRetryableFailureRuntime(), session_manager=manager)
+    registry = RunsRegistry(runtime=_FailureRuntime(), session_manager=manager)
 
     submitted = registry.submit(
         session_id=session.session_id,
-        parts=[{"type": "text", "text": "cancel retry"}],
+        parts=[{"type": "text", "text": "will fail"}],
     )
 
-    _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.RUNNING)
-    cancelled = registry.cancel(submitted.run_id)
-    assert cancelled is not None
-    assert cancelled.status is RunStatus.CANCELLED
+    _wait_for(lambda: registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED}, timeout_seconds=2.0)
 
-    _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.CANCELLED)
-
-    entries = manager.list_entries(session.session_id)
-    run_statuses = [
-        event.data["status"]
-        for event in entries
-        if getattr(event.kind, "value", "") == "session.run.status" and event.data.get("run_id") == submitted.run_id
-    ]
-    assert run_statuses[-1] == "cancelled"
-    assert "failed" not in run_statuses
+    final = registry.get(submitted.run_id)
+    assert final is not None
+    assert final.status is RunStatus.FAILED
