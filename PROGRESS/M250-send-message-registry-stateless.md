@@ -40,13 +40,13 @@
 ### R3 inbound_pipeline 注入 gateway_dispatch_url
 
 - Context: session 创建时需注入 gateway_dispatch_url 以便 SendMessageTool 使用
-- Decision: InboundPipeline 接收 gateway_internal_port，_build_session_metadata 注入 gateway_dispatch_url
-- Rationale: 最小侵入方案，避免修改 ToolContext 注入链路
+- Decision: InboundPipeline 接收 gateway_internal_port（默认 8089），_build_session_metadata 注入 gateway_dispatch_url
+- Rationale: 最小侵入方案，URL 在 session 创建时注入，不需要运行时查询
 - Evidence:
-  - Tests: <待填>
-  - Entry: unit tests pass
-- Rollback: R2 C3
-- Commits: C1=<待填>, C2=<待填>, C3=<待填>
+  - Tests: 4 passed (test_gateway_dispatch_url_injection.py)，658 unit passed
+  - Entry: tests/unit 658 passed
+- Rollback: b4e0d0a (R2 C3)
+- Commits: C1=1a3e912, C2=8427d5b, C3=<待填>
 - Next: R4
 
 ### R4 Gateway /internal/dispatch 端点
