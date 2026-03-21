@@ -20,3 +20,14 @@
 - Rollback: 回退到 bd2d405（plan commit）
 - Commits: C1=dc2e31c, C2=5f4d955, C3=pending
 - Next: R2 — 移除 loop.py 中 ensure_turn_allowed 和 truncate_history 调用
+
+### R2 移除 loop.py 中 ensure_turn_allowed 和 truncate_history 调用
+- Context: loop.py L128 调用 ensure_turn_allowed（硬性 turn 限制），L134 调用 truncate_history（硬性截断 history）；compaction 子系统已负责上下文管理，两处调用多余且有害。
+- Decision: 删除 L128 的 ensure_turn_allowed 调用；将 L134 truncate_history(state.history_messages) 替换为直接传 state.history_messages。
+- Rationale: 上下文超限由 compaction preflight/post-turn 处理，不需要 loop 层再次硬截断；max_turns 限制会在 agent 未完成任务时误终止会话。
+- Evidence:
+  - Tests: 653 unit tests passed in 150s（全绿）
+  - Entry: loop.run() 在 turn_count=9999 + max_turns=1 时不再抛 PolicyViolation；5 条 history 消息完整传入 LLM
+- Rollback: 回退到 7c74e07（R2 C1 测试提交）
+- Commits: C1=7c74e07, C2=4f73749, C3=pending
+- Next: 集成到 main
