@@ -151,11 +151,14 @@ class ToolRegistry:
                 )
 
             execution_base_context = _resolve_execution_context(self._context, active_hook_context)
+            # Forward session metadata from hook context so product tools (e.g.
+            # send_message) can read runtime-injected fields like gateway_dispatch_url.
             execution_context = execution_base_context.with_session(
                 active_hook_context.session_id,
                 tool_call_id=tool_call_id,
                 safety_overrides=safety_overrides,
                 execution_event_callback=_emit_execution_update,
+                session_metadata=dict(active_hook_context.metadata) if active_hook_context.metadata else {},
             )
             log_info("tool_execution_start", tool_name=name)
             self._dispatch_observe(

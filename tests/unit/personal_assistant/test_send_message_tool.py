@@ -59,11 +59,14 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> Non
     """run() must POST to gateway_dispatch_url from session_metadata."""
     from agent.products.personal_assistant.tools.send_message import SendMessageTool
 
-    captured: list[httpx.Request] = []
+    captured_urls: list[str] = []
+    captured_payloads: list[dict] = []
 
     def mock_post(url: str, **kwargs) -> httpx.Response:
-        captured.append(httpx.Request("POST", url, json=kwargs.get("json")))
-        return httpx.Response(200, json={"ok": True})
+        captured_urls.append(url)
+        captured_payloads.append(kwargs.get("json", {}))
+        req = httpx.Request("POST", url)
+        return httpx.Response(200, json={"ok": True}, request=req)
 
     ctx = _make_tool_context(session_metadata={
         "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
@@ -74,8 +77,10 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> Non
         result = tool.run({"text": "hello", "to": "agent_b"}, ctx)
 
     assert result["ok"] is True
-    assert len(captured) == 1
-    assert "127.0.0.1:8089" in captured[0].url.host or "127.0.0.1" in str(captured[0].url)
+    assert len(captured_urls) == 1
+    assert "127.0.0.1:8089" in captured_urls[0]
+    assert captured_payloads[0]["text"] == "hello"
+    assert captured_payloads[0]["to"] == "agent_b"
 
 
 def test_send_message_tool_raises_when_no_gateway_dispatch_url() -> None:
@@ -111,7 +116,10 @@ def test_send_message_tool_run_returns_ok_target_text() -> None:
     })
     tool = SendMessageTool()
 
-    with patch("httpx.post", return_value=httpx.Response(200, json={"ok": True})):
+    def _ok_response(url: str, **kwargs) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True}, request=httpx.Request("POST", url))
+
+    with patch("httpx.post", side_effect=_ok_response):
         result = tool.run({"text": "hello world", "to": "agent_x"}, ctx)
 
     assert result["ok"] is True

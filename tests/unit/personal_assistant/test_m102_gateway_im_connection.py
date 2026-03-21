@@ -509,15 +509,17 @@ def test_im_connection_retries_with_exponential_backoff_until_cap(tmp_path: Path
 
 
 def test_send_message_tool_dispatches_via_gateway_boundary() -> None:
-    seen: list[dict[str, object]] = []
+    """SendMessageTool dispatches to gateway_dispatch_url from session_metadata (stateless HTTP)."""
+    from unittest.mock import patch
+    import httpx as _httpx
 
-    class _Dispatcher:
-        def send_message(self, *, text: str, to: str, session_id: str | None = None):
-            payload = {"text": text, "to": to, "session_id": session_id, "route": "local"}
-            seen.append(payload)
-            return payload
+    seen_payloads: list[dict] = []
 
-    tool = SendMessageTool(dispatcher=_Dispatcher())
+    def _mock_post(url: str, **kwargs) -> _httpx.Response:
+        seen_payloads.append(kwargs.get("json", {}))
+        return _httpx.Response(200, json={"ok": True}, request=_httpx.Request("POST", url))
+
+    tool = SendMessageTool()
     from agent.core.tools.base import ToolContext
     from pathlib import Path as _Path
     from agent.core.tools.base import set_tool_safety_config_factory, set_tool_safety_factory
@@ -532,12 +534,20 @@ def test_send_message_tool_dispatches_via_gateway_boundary() -> None:
 
     set_tool_safety_factory(_Safety)
     set_tool_safety_config_factory(_SafetyConfig)
-    ctx = ToolContext.create(repo_root=_Path("/tmp")).with_session("sess-1")
+    ctx = ToolContext.create(repo_root=_Path("/tmp")).with_session(
+        "sess-1",
+        session_metadata={"gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch"},
+    )
 
-    result = tool.run({"text": "hello", "to": "agent-b"}, ctx)
+    with patch("httpx.post", side_effect=_mock_post):
+        result = tool.run({"text": "hello", "to": "agent-b"}, ctx)
 
     assert result["ok"] is True
-    assert seen == [{"text": "hello", "to": "agent-b", "session_id": "sess-1", "route": "local"}]
+    assert result["target"] == "agent-b"
+    assert result["text"] == "hello"
+    assert seen_payloads[0]["text"] == "hello"
+    assert seen_payloads[0]["to"] == "agent-b"
+    assert seen_payloads[0]["from_session_id"] == "sess-1"
 
 
 async def _connect_fake(
