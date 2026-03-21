@@ -55,8 +55,8 @@
 - Decision: GatewayRuntime 内嵌轻量 HTTP server 暴露 /internal/dispatch
 - Rationale: 避免引入新进程，gateway 进程内直接服务
 - Evidence:
-  - Tests: <待填>
-  - Entry: unit tests pass
-- Rollback: R3 C3
-- Commits: C1=<待填>, C2=<待填>, C3=<待填>
+  - Tests: 5 passed (test_internal_dispatch_endpoint.py)
+  - Entry: tests/unit 663 passed
+- Rollback: R3 C3 (8427d5b)
+- Commits: C1=0523ab5, C2=88d7085+a8fa61a, C3=<待填>
 - Next: DONE
