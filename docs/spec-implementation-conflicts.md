@@ -69,6 +69,12 @@
 - group discoverability hint 已与实现一致：mentions 支持 participant IDs（`user_id` / `agent_id`）
 - 对应提示词已明确“群聊 mention 可使用 `user_id` / `agent_id` 稳定标识”
 
+### M312：`send_message` 去重与反馈一致性收敛
+- Gateway `agent.message` 入站新增 dispatch 请求幂等日志：同一 `tool_call` 请求重放时复用首次落点，不再重复写入 agent-agent direct 消息
+- `send_message` 工具发送时附带稳定 `tool_call` 请求标识，并在 Gateway 端解析为 source + dispatch key，实现同请求单次投递
+- `send_message` 工具改为以 Gateway JSON 回包作为成功判定（`ok=true`），并移除读超时上限，避免“实际已路由成功但工具侧误报 timeout”
+- personal_assistant 提示词已补充：群聊内对 `send_message` 状态反馈必须严格基于工具返回结果
+
 ## 1. 当前剩余冲突
 
 - 本轮（M301–M309）在实现层面的冲突已清零；当前未发现必须继续改动的 SPEC 阻塞项。
