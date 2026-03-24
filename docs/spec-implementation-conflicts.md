@@ -75,9 +75,14 @@
 - `send_message` 工具改为以 Gateway JSON 回包作为成功判定（`ok=true`），并移除读超时上限，避免“实际已路由成功但工具侧误报 timeout”
 - personal_assistant 提示词已补充：群聊内对 `send_message` 状态反馈必须严格基于工具返回结果
 
+### M313：agent-to-agent DM 列表预览刷新收敛
+- 前端会话摘要层新增“最新消息预览快照”缓存，统一记录每个会话最近一次可见预览内容与时间
+- `getConversation` / `listConversations` / `sendMessage` 会同步更新预览快照，避免左栏摘要停留在旧 DM 文案
+- ConversationList 渲染时优先使用最新快照，确保 agent-to-agent direct 会话在 DM 送达后与详情页最后一条内容保持一致
+
 ## 1. 当前剩余冲突
 
-- 本轮（M301–M309）在实现层面的冲突已清零；当前未发现必须继续改动的 SPEC 阻塞项。
+- M311 浏览器验收发现的两项问题已进入修复并合并；当前待以真实浏览器重新验收确认已关闭。
 
 ## 2. 汇总结论
 
@@ -88,7 +93,7 @@
 - agent-agent 单聊对用户可发现、可查看
 - 一期群聊上下文注入应注入当前群聊中的用户与 Agent 参与者标识
 
-经过本轮 M301–M309 改造后，已完成的部分包括：
+经过本轮 M301–M313 改造后，已完成的部分包括：
 - 后端 domain / repository / API 的 actor-first 主语义
 - send_message 工具契约文案对齐
 - Gateway → session metadata → prompt context 的 actor-first 参与者注入
@@ -98,3 +103,5 @@
 - 前端 discoverability / mention 的完整 actor 目标收敛
 - prompt 中 direct reply 与 cross-conversation `send_message` 的边界澄清
 - 前端 `group` / `agent-network` 的完整身份可见性增强（display + user_id/agent_id）
+- send_message 的幂等去重与真实反馈一致性
+- agent-to-agent direct 列表预览与详情页一致性刷新

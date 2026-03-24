@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { Link } from "react-router-dom";
 
+import { getConversationPreviewSnapshot } from "../im-chat-api";
 import { ConversationSummary } from "../types";
 
 type ConversationSectionKey = "agent-network" | "group" | "direct" | "other";
@@ -25,6 +26,18 @@ function formatPreview(item: ConversationSummary) {
     return "No agent coordination updates yet.";
   }
   return "No messages yet.";
+}
+
+function withLatestPreviewSnapshot(item: ConversationSummary): ConversationSummary {
+  const snapshot = getConversationPreviewSnapshot(item.conversation_id);
+  if (!snapshot) {
+    return item;
+  }
+  return {
+    ...item,
+    last_message_preview: snapshot.preview,
+    last_message_at: snapshot.lastMessageAt ?? item.last_message_at
+  };
 }
 
 function formatParticipantSummary(participants: string[]) {
@@ -127,42 +140,45 @@ export function ConversationList(props: {
                 <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                   {toSectionTitle(section)}
                 </p>
-                {items.map((item) => (
+                {items.map((item) => {
+                  const hydratedItem = withLatestPreviewSnapshot(item);
+                  return (
                   <Link
-                    key={item.conversation_id}
-                    to={`/chat/${item.conversation_id}`}
+                    key={hydratedItem.conversation_id}
+                    to={`/chat/${hydratedItem.conversation_id}`}
                     className={clsx(
                       "mb-2 block rounded-2xl border px-3 py-3 transition shadow-sm",
-                      item.conversation_id === props.activeId
+                      hydratedItem.conversation_id === props.activeId
                         ? "border-[#9bd2d6] bg-[#eef8f8]"
                         : "border-slate-200 bg-white hover:border-[var(--im-border)] hover:bg-slate-50"
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        {item.kind_label && (
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{item.kind_label}</p>
+                        {hydratedItem.kind_label && (
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{hydratedItem.kind_label}</p>
                         )}
-                        <p className="mt-1 font-semibold text-slate-900">{item.title}</p>
+                        <p className="mt-1 font-semibold text-slate-900">{hydratedItem.title}</p>
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className="text-xs font-medium text-slate-500">{formatTime(item.last_message_at) || "New"}</p>
-                        {item.unread_count > 0 && (
+                        <p className="text-xs font-medium text-slate-500">{formatTime(hydratedItem.last_message_at) || "New"}</p>
+                        {hydratedItem.unread_count > 0 && (
                           <span className="mt-2 inline-flex rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-bold text-white">
-                            {item.unread_count} new
+                            {hydratedItem.unread_count} new
                           </span>
                         )}
                       </div>
                     </div>
-                    <p className="mt-2 line-clamp-2 text-sm text-slate-600">{formatPreview(item)}</p>
-                    {item.discoverability_hint && (
-                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">{item.discoverability_hint}</p>
+                    <p className="mt-2 line-clamp-2 text-sm text-slate-600">{formatPreview(hydratedItem)}</p>
+                    {hydratedItem.discoverability_hint && (
+                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">{hydratedItem.discoverability_hint}</p>
                     )}
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span className="rounded-full bg-slate-100 px-2 py-1">{formatParticipantSummary(item.participants)}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-1">{formatParticipantSummary(hydratedItem.participants)}</span>
                     </div>
                   </Link>
-                ))}
+                  );
+                })}
               </section>
             );
           })

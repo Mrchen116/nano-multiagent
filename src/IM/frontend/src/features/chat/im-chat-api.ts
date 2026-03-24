@@ -410,6 +410,13 @@ export interface ParsedImStreamEvent {
   eventId?: number;
 }
 
+interface ConversationPreviewSnapshot {
+  preview: string;
+  lastMessageAt?: string;
+}
+
+const conversationPreviewSnapshotById = new Map<string, ConversationPreviewSnapshot>();
+
 const SELF_USERNAME = "you";
 const PEER_USERNAME = "peer";
 const DEFAULT_CONVERSATION_TITLE = "You & Teammate";
@@ -1020,6 +1027,7 @@ async function ensureBootstrap(): Promise<BootstrapState> {
 
 export function resetChatBootstrapState() {
   bootstrapPromise = null;
+  conversationPreviewSnapshotById.clear();
 }
 
 export async function getChatBootstrapState(): Promise<ChatBootstrapState> {
@@ -1077,6 +1085,106 @@ function toChatMessage(input: {
   };
 }
 
+function toMessagePreview(message: Pick<ImMessage, "content" | "attachments"> | null | undefined) {
+  const content = message?.content?.trim();
+  if (content) {
+    return content;
+  }
+  const firstAttachmentName = message?.attachments?.[0]?.file_name?.trim();
+  if (firstAttachmentName) {
+    return firstAttachmentName;
+  }
+  return "";
+}
+
+function compareMessageRecency(left: ImMessage, right: ImMessage) {
+  const leftTimestamp = Date.parse(left.created_at);
+  const rightTimestamp = Date.parse(right.created_at);
+  const leftHasTimestamp = Number.isFinite(leftTimestamp);
+  const rightHasTimestamp = Number.isFinite(rightTimestamp);
+  if (leftHasTimestamp && rightHasTimestamp && leftTimestamp !== rightTimestamp) {
+    return leftTimestamp - rightTimestamp;
+  }
+  if (leftHasTimestamp !== rightHasTimestamp) {
+    return leftHasTimestamp ? 1 : -1;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function pickLatestConversationMessage(messages: ImMessage[]) {
+  if (messages.length === 0) {
+    return null;
+  }
+  return [...messages].sort(compareMessageRecency).at(-1) ?? null;
+}
+
+function shouldApplyPreviewSnapshot(input: {
+  current: ConversationPreviewSnapshot | undefined;
+  next: ConversationPreviewSnapshot;
+}) {
+  if (!input.current) {
+    return true;
+  }
+  const currentAt = input.current.lastMessageAt ?? "";
+  const nextAt = input.next.lastMessageAt ?? "";
+  if (nextAt && currentAt) {
+    if (nextAt > currentAt) {
+      return true;
+    }
+    if (nextAt < currentAt) {
+      return false;
+    }
+  } else if (nextAt && !currentAt) {
+    return true;
+  } else if (!nextAt && currentAt) {
+    return false;
+  }
+  const currentPreview = input.current.preview.trim();
+  const nextPreview = input.next.preview.trim();
+  if (!currentPreview && nextPreview) {
+    return true;
+  }
+  if (currentPreview && !nextPreview) {
+    return false;
+  }
+  return nextPreview.length >= currentPreview.length;
+}
+
+function updateConversationPreviewSnapshot(input: {
+  conversationId: string;
+  preview: string;
+  lastMessageAt?: string;
+}) {
+  const next: ConversationPreviewSnapshot = {
+    preview: input.preview,
+    lastMessageAt: input.lastMessageAt
+  };
+  const current = conversationPreviewSnapshotById.get(input.conversationId);
+  if (!shouldApplyPreviewSnapshot({ current, next })) {
+    return;
+  }
+  conversationPreviewSnapshotById.set(input.conversationId, next);
+}
+
+function updateConversationPreviewFromMessages(input: {
+  conversationId: string;
+  messages: ImMessage[];
+}) {
+  const latest = pickLatestConversationMessage(input.messages);
+  if (!latest) {
+    return;
+  }
+  updateConversationPreviewSnapshot({
+    conversationId: input.conversationId,
+    preview: toMessagePreview(latest),
+    lastMessageAt: latest.created_at
+  });
+}
+
+export function getConversationPreviewSnapshot(conversationId: string): ConversationPreviewSnapshot | null {
+  return conversationPreviewSnapshotById.get(conversationId) ?? null;
+}
+
 function toConversationSummary(input: {
   conversation: ImConversation;
   messages: ImMessage[];
@@ -1096,7 +1204,7 @@ function toConversationSummary(input: {
     participants,
     selfUserId: input.selfUserId
   });
-  const latest = input.messages.at(-1);
+  const latest = pickLatestConversationMessage(input.messages);
   const unreadCount = input.messages.filter((item) => {
     const sender =
       parseActorRef(item.sender) ??
@@ -1118,11 +1226,17 @@ function toConversationSummary(input: {
     conversationKind,
     fallback: semantics.discoverability_hint ?? ""
   });
+  updateConversationPreviewSnapshot({
+    conversationId: input.conversation.id,
+    preview: toMessagePreview(latest),
+    lastMessageAt: latest?.created_at
+  });
+  const previewSnapshot = getConversationPreviewSnapshot(input.conversation.id);
   return {
     conversation_id: input.conversation.id,
     title: resolvedTitle,
-    last_message_preview: latest?.content ?? "",
-    last_message_at: latest?.created_at,
+    last_message_preview: previewSnapshot?.preview ?? "",
+    last_message_at: previewSnapshot?.lastMessageAt ?? latest?.created_at,
     unread_count: unreadCount,
     kind: conversationKind,
     participants: toConversationParticipantLabels({
@@ -1381,6 +1495,7 @@ export async function getConversation(conversationId: string): Promise<Conversat
   if (!conversation) {
     return null;
   }
+  updateConversationPreviewFromMessages({ conversationId, messages });
   const resolvedTitle = resolveConversationTitle({ conversation, starterTitle: starter.title });
   const participants = resolveConversationParticipants({
     conversation,
@@ -1455,6 +1570,11 @@ export async function sendMessage(input: {
     }),
     loadUserMap()
   ]);
+  updateConversationPreviewSnapshot({
+    conversationId: input.conversationId,
+    preview: toMessagePreview(created),
+    lastMessageAt: created.created_at
+  });
   return toChatMessage({
     message: created,
     userById,
