@@ -17,117 +17,55 @@
 以下冲突已由本轮里程碑关闭，不再视为“当前冲突”：
 
 ### M301：后端 Actor-first 契约收敛
-
-- IM domain 已补 Actor-first 结构：
-  - `Conversation.participants(actor[])`
-  - `Message.sender(actor)`
-  - `Conversation.direct_kind`（user-agent / agent-agent 等 direct 子语义）
-  - 相关文件：`src/IM/domain/models.py`
-
-- HTTP API 已提供 Actor-first 主语义并兼容旧字段输入：
-  - 会话 API：新增 `participants`，并返回 `direct_kind`
-  - 消息 API：新增 `sender`
-  - 相关文件：`src/IM/api/routes/web_im.py`、`src/IM/api/routes/messages.py`
-
-- Repository 边界已支持 actor 标识归一化：
-  - participant 支持 `user:<id>` / `agent:<id>` 解析
-  - sender 支持 agent actor id 解析并写回 sender(actor) 语义
-  - 相关文件：`src/IM/infra/repositories.py`
-
-- `send_message` 工具契约文案已对齐 `to=user_id/agent_id/conversation_id`：
-  - 相关文件：`src/agent/products/personal_assistant/tools/send_message.py`
+- IM domain 已补 Actor-first 结构：`Conversation.participants(actor[])`、`Message.sender(actor)`、`Conversation.direct_kind`
+- HTTP API 已提供 Actor-first 主语义并兼容旧字段输入：会话 API 返回 `participants` / `direct_kind`，消息 API 返回 `sender`
+- Repository 边界已支持 actor 标识归一化：participant 支持 `user:<id>` / `agent:<id>`，sender 支持 agent actor id 解析
+- `send_message` 工具契约文案已对齐 `to=user_id/agent_id/conversation_id`
 
 ### M302：上下文注入 / 提示词收敛
-
-> 本小节仅标注「上下文注入 / 提示词」范围的落地状态；不覆盖 IM domain、前端或 send_message 全链路改造。
-
-- 群聊 session metadata 已改为 actor-first 规范化：
-  - relay `participants` 会被规范为 `participants[{type,user_id|agent_id,display_name}]`
-  - `participant_agent_ids` 由结构化 participants 派生；无结构化数据时回退为当前 `agent_id`，不再使用 mention 列表
-  - 相关文件：`src/personal_assistant/gateway/inbound_pipeline.py`
-
-- communication context hook 已优先展示稳定标识：
-  - user 显示 `user_id`
-  - agent 显示 `agent_id`
-  - `send_message` 目标格式明确为 `user_id / agent_id / conversation_id`
-  - 相关文件：`src/agent/products/personal_assistant/hooks/communication_context.py`
-
-- personal_assistant 提示词与系统提示词文档已同步：
-  - 群聊按配置回复策略
-  - `send_message(to=...)` 的目标标识规则
-  - 当前会话直接回复 vs 跨会话发送的边界
-  - 相关文件：`src/agent/products/personal_assistant/prompts.py`、`docs/内核设计细化/系统提示词.md`
+- 群聊 session metadata 已改为 actor-first 规范化：relay `participants` 规范为 `participants[{type,user_id|agent_id,display_name}]`
+- `participant_agent_ids` 改为由结构化 participants 派生；无结构化数据时回退为当前 `agent_id`，不再使用 mention 列表
+- communication context hook 已优先展示 `user_id` / `agent_id`
+- personal_assistant 提示词与系统提示词文档已同步到新的目标标识规则
 
 ### M303：前端 actor-first / direct 语义收敛
-
-- 前端 API 主路径已切到 Actor-first：
-  - `Conversation.participants(actor[])`
-  - `Message.sender(actor)`
-  - `participant_ids` / `sender_user_id` 仅保留兼容回退
-  - 相关文件：`src/IM/frontend/src/features/chat/im-chat-api.ts`
-
-- direct 语义已在前端显式区分：
-  - 区分 user-agent direct、agent-agent direct 等 direct 语义
-  - agent-agent direct 保持用户可发现
-  - 相关文件：`src/IM/frontend/src/features/chat/im-chat-api.ts`
-
-- 会话列表与发现文案已去除“只读协调线程 / Agents only”导向：
-  - 改为 direct/shared thread 的统一发现语义
-  - 相关文件：`src/IM/frontend/src/features/chat/components/conversation-list.tsx`
-
-- 仍待后续里程碑继续细化：
-  - 群聊 mention 候选仍偏 agent-oriented，尚未扩展为完整 user+agent 标识视图
-  - UI 侧尚未新增单独的 agent-agent direct 分组/发现交互
+- 前端 API 主路径已切到 Actor-first：`Conversation.participants(actor[])`、`Message.sender(actor)`
+- `participant_ids` / `sender_user_id` 仅保留兼容回退
+- direct 语义已在前端显式区分，agent-agent direct 保持用户可发现
+- 会话列表与发现文案已去除“只读协调线程 / Agents only”导向
 
 ### M304：Gateway send_message 目标分类与落点收敛（部分）
+- 已新增显式目标分类与落点解析：`conversation_id / agent_id / user_id`
+- 为 `agent_id` / `user_id` 目标补齐 direct 会话落点（缺失时自动创建）
+- direct 复用已按 `direct_kind` 语义区分 `agent-agent` 与 `user-agent`
+- 已补充对应 gateway handler 测试
+- 仍未闭环部分：`personal_assistant` 侧 `/internal/dispatch` 尚未接入该解析入口，因此“工具调用到网关落点”的端到端链路仍待后续里程碑接线
 
-- 已新增显式目标分类与落点解析：
-  - 分类 `conversation_id / agent_id / user_id`
-  - 为 `agent_id` / `user_id` 目标落到 direct 会话（缺失时自动创建）
-  - direct 复用按 `direct_kind` 语义区分（`agent-agent` vs `user-agent`）
-  - 相关文件：`src/IM/ws/gateway_handler.py`、`tests/im_service/unit/test_gateway_handler.py`
+### M305：前端发现与 mention 收敛
+- mention 候选已增强为稳定标识展示：候选 label 显式包含 `agent_id`，并保持排序/去重
+- group / agent-network 场景下，discoverability hint 已附带 `user_id` / `agent_id` 摘要
+- Conversation list 已加入显式分组：`Agent-to-agent direct` / `Group chats` / `Direct chats` / `Other`
+- agent-agent direct 的发现规则从“仅列表映射”提升为一等可见分区
 
-- 当前仍未闭环的部分：
-  - `personal_assistant` 侧 `/internal/dispatch` 尚未接入该解析入口，因此“工具调用到网关落点”的端到端链路仍待后续里程碑接线。
+### M306：通信边界提示词收敛
+- 已明确“当前会话直回 vs 跨会话 send_message”硬边界：
+  - 当前会话回复：直接输出文本，不调用 `send_message`
+  - 跨会话投递：仅用 `send_message(to=user_id|agent_id|conversation_id)`
+  - 需要“会话内可见 + 会话外投递”时：先会话内回复，再调用 `send_message`
+- 上述边界已同步到运行时 prompt、communication context hook、系统提示词文档
 
-## 1. 核心数据模型 / 路由语义
+## 1. 当前剩余冲突
 
 - **`send_message(to=...)` 的 Gateway internal dispatch 链路仍未完全端到端闭环**
   - IM 侧已具备目标分类和会话落点解析能力；但 `personal_assistant` 的 `/internal/dispatch` 入口尚未接线到该能力，仍待后续里程碑完成全链路收敛。
 
-- **单聊落点能力已补齐，但尚未接入 dispatch 入口**
-  - `src/IM/ws/gateway_handler.py:resolve_send_message_target`
-    - `agent_id` 目标：落到 `agent-agent` direct
-    - `user_id` 目标：落到 `user-agent` direct
-    - `conversation_id` 目标：直接落到指定群聊
-  - 仍需把该能力接入实际 `/internal/dispatch` 调用链。
+- **前端群聊 mention 候选仍偏 agent，不是完整 user+agent identity 视图**
+  - 当前 mention 候选已增强 `agent_id` 标识，但仍主要围绕 agent 候选，而不是完整覆盖群聊中的 user/agent 参与者标识视图。
 
-- **direct 复用语义已收敛**
-  - `src/IM/ws/gateway_handler.py:_find_canonical_direct_conversation`
-    - 已按 `expected_direct_kind` 区分并优先复用 `user-agent` / `agent-agent` 语义一致的 direct 会话。
+- **UI 的 agent-agent direct 发现规则仍可继续增强**
+  - 当前已完成显式分组展示；若要做到更强 discoverability（置顶/过滤/独立入口），仍需后续产品化细化。
 
-- **`task` 子 Agent 不具备 `send_message` 能力，目前主要靠外围约定**
-  - `src/IM/ws/gateway_handler.py:_resolve_source_agent_id_from_session`
-    - 发起方身份来自 session metadata 中的 `agent_id`
-  - 没有链路内强校验，只是外围能力配置在限制。
-
-## 2. Prompt / 前端语义
-
-- **前端群聊 mention 候选仍主要突出 agent，不完整覆盖 user participant identity**
-  - `src/IM/frontend/src/features/chat/im-chat-api.ts`
-    - `toMentionCandidates()` 仍主要返回 agent mention 候选
-  - 与一期 spec 强调“当前群聊中的用户与 Agent 参与者标识”仍有差距。
-
-- **UI 没有明确承载 agent-agent 单聊的发现规则**
-  - `src/IM/frontend/src/features/chat/components/conversation-list.tsx`
-    - 当前仍以列表映射显示为主，没有专门的发现/分组逻辑。
-
-- **提示词对“何时 direct reply、何时 send_message”仍可能存在边界模糊**
-  - `src/agent/products/personal_assistant/prompts.py`
-  - `docs/内核设计细化/系统提示词.md`
-  - 尽管已补充 `send_message(to=user_id)` 语义，但复杂场景下的策略边界仍值得继续细化。
-
-## 3. 汇总结论
+## 2. 汇总结论
 
 当前最新 spec 的主方向已经明显收敛为：
 - Actor-first 身份模型
@@ -136,13 +74,16 @@
 - agent-agent 单聊对用户可发现、可查看
 - 一期群聊上下文注入应注入当前群聊中的用户与 Agent 参与者标识
 
-经过本轮 M301 / M302 / M303 改造后，已完成的部分包括：
+经过本轮 M301–M306 改造后，已完成的部分包括：
 - 后端 domain / repository / API 的 actor-first 主语义
 - send_message 工具契约文案对齐
 - Gateway → session metadata → prompt context 的 actor-first 参与者注入
 - 前端 conversation / message 的 actor-first 主路径与 direct 语义收敛
+- Gateway 侧 send_message 目标分类与 direct 落点能力
+- 前端 discoverability / mention 的一轮增强
+- prompt 中 direct reply 与 cross-conversation `send_message` 的边界澄清
 
 当前剩余冲突主要集中在：
-- Gateway internal dispatch 的目标类型与落点完整闭环
-- 一些前端发现逻辑与 mention 语义的进一步细化
-- prompt 中复杂通信策略边界的继续收敛
+- `/internal/dispatch` 到 Gateway 新目标解析入口的端到端接线
+- 群聊 mention 候选是否要升级为完整 user+agent identity 视图
+- agent-agent direct 是否需要更强产品化发现入口

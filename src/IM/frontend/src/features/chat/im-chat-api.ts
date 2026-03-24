@@ -134,6 +134,22 @@ function toParticipantDisplayName(participant: ImActorRef): string {
   return participant.id;
 }
 
+function toParticipantIdentityTag(participant: ImActorRef): string {
+  if (participant.type === "agent") {
+    return `agent_id:${participant.id}`;
+  }
+  if (participant.type === "user") {
+    return `user_id:${participant.id}`;
+  }
+  return `id:${participant.id}`;
+}
+
+function toMentionCandidateLabel(participant: ImActorRef): string {
+  const display = toParticipantDisplayName(participant);
+  const identity = toParticipantIdentityTag(participant);
+  return `${display} (${identity})`;
+}
+
 function toMentionCandidates(input: {
   conversation: ImConversation;
   userById: Map<string, ImUser>;
@@ -149,7 +165,7 @@ function toMentionCandidates(input: {
     .filter((participant) => participant.type === "agent")
     .map((participant) => ({
       agentId: participant.id,
-      label: toParticipantDisplayName(participant)
+      label: toMentionCandidateLabel(participant)
     }))
     .filter((participant) => participant.agentId.length > 0)
     .filter((participant) => {
@@ -158,7 +174,8 @@ function toMentionCandidates(input: {
       }
       seenAgentIds.add(participant.agentId);
       return true;
-    });
+    })
+    .sort((left, right) => left.label.localeCompare(right.label));
 }
 
 interface ImMessage {
@@ -541,6 +558,47 @@ function buildListDiscoverabilityHint(input: { title: string; conversationKind: 
     return AGENT_NETWORK_LIST_HINT;
   }
   return input.fallback;
+}
+
+function formatIdentityList(items: string[]): string {
+  if (items.length === 0) {
+    return "";
+  }
+  if (items.length <= 3) {
+    return items.join(", ");
+  }
+  return `${items.slice(0, 3).join(", ")} +${items.length - 3}`;
+}
+
+function buildParticipantDiscoverabilityHint(input: {
+  conversationKind: ConversationKind;
+  participants: ImActorRef[];
+  baseHint?: string;
+}): string | undefined {
+  const agentIdentities = input.participants
+    .filter((item) => item.type === "agent")
+    .map((item) => toParticipantIdentityTag(item));
+  const userIdentities = input.participants
+    .filter((item) => item.type === "user")
+    .map((item) => toParticipantIdentityTag(item));
+  if (input.conversationKind === "group") {
+    const summary = [
+      userIdentities.length > 0 ? `users: ${formatIdentityList(userIdentities)}` : "",
+      agentIdentities.length > 0 ? `agents: ${formatIdentityList(agentIdentities)}` : ""
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    if (!summary) {
+      return input.baseHint;
+    }
+    const base = input.baseHint ? `${input.baseHint} ` : "";
+    return `${base}Participants — ${summary}. Mentionable targets use agent_id.`;
+  }
+  if (input.conversationKind === "agent-network" && agentIdentities.length > 0) {
+    const base = input.baseHint ? `${input.baseHint} ` : "";
+    return `${base}Agents — ${formatIdentityList(agentIdentities)}.`;
+  }
+  return input.baseHint;
 }
 
 let bootstrapPromise: Promise<BootstrapState> | null = null;
@@ -1041,6 +1099,11 @@ function toConversationSummary(input: {
     conversationKind,
     ownershipLabel: input.ownership.ownershipLabel
   });
+  const baseDiscoverabilityHint = buildListDiscoverabilityHint({
+    title: resolvedTitle,
+    conversationKind,
+    fallback: semantics.discoverability_hint ?? ""
+  });
   return {
     conversation_id: input.conversation.id,
     title: resolvedTitle,
@@ -1055,10 +1118,10 @@ function toConversationSummary(input: {
     ownership_label: semantics.ownership_label,
     kind_label: semantics.kind_label,
     target_label: semantics.target_label,
-    discoverability_hint: buildListDiscoverabilityHint({
-      title: resolvedTitle,
+    discoverability_hint: buildParticipantDiscoverabilityHint({
       conversationKind,
-      fallback: semantics.discoverability_hint ?? ""
+      participants,
+      baseHint: baseDiscoverabilityHint
     })
   };
 }
@@ -1317,12 +1380,17 @@ export async function getConversation(conversationId: string): Promise<Conversat
     conversationKind,
     ownershipLabel: starter.statusLabel
   });
+  const detailDiscoverabilityHint = buildParticipantDiscoverabilityHint({
+    conversationKind,
+    participants,
+    baseHint: semantics.discoverability_hint
+  });
   return {
     conversation_id: conversation.id,
     title: resolvedTitle,
     kind_label: semantics.kind_label,
     target_label: semantics.target_label,
-    discoverability_hint: semantics.discoverability_hint,
+    discoverability_hint: detailDiscoverabilityHint,
     ownership_label: semantics.ownership_label,
     // creator_id is forwarded so the UI can show the dissolve button only to the creator (M234).
     creator_id: conversation.creator_id ?? undefined,

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { ConversationSummary } from "../types";
 
+type ConversationSectionKey = "agent-network" | "group" | "direct" | "other";
 
 function formatTime(input?: string) {
   if (!input) {
@@ -36,12 +37,53 @@ function formatParticipantSummary(participants: string[]) {
   return `${participants.slice(0, 3).join(" · ")} +${participants.length - 3}`;
 }
 
+function resolveSectionKey(item: ConversationSummary): ConversationSectionKey {
+  if (item.kind === "agent-network") {
+    return "agent-network";
+  }
+  if (item.kind === "group") {
+    return "group";
+  }
+  if (item.kind === "direct-agent" || item.kind === "direct-user") {
+    return "direct";
+  }
+  if (item.kind_label?.toLowerCase().includes("agent-to-agent")) {
+    return "agent-network";
+  }
+  if (item.kind_label === "Group chat") {
+    return "group";
+  }
+  return "other";
+}
+
+function toSectionTitle(section: ConversationSectionKey): string {
+  if (section === "agent-network") {
+    return "Agent-to-agent direct";
+  }
+  if (section === "group") {
+    return "Group chats";
+  }
+  if (section === "direct") {
+    return "Direct chats";
+  }
+  return "Other";
+}
+
 export function ConversationList(props: {
   items: ConversationSummary[];
   activeId?: string;
   compact?: boolean;
   onCreateGroupChat?: () => void;
 }) {
+  const sectionOrder: ConversationSectionKey[] = ["agent-network", "group", "direct", "other"];
+  const sectionItems = new Map<ConversationSectionKey, ConversationSummary[]>(
+    sectionOrder.map((section) => [section, [] as ConversationSummary[]])
+  );
+  for (const item of props.items) {
+    const section = resolveSectionKey(item);
+    sectionItems.get(section)?.push(item);
+  }
+
   return (
     <div className="im-card flex h-full min-h-[420px] flex-col overflow-hidden">
       <div className="border-b border-[var(--im-border)] px-4 py-4">
@@ -75,39 +117,52 @@ export function ConversationList(props: {
             </div>
           </div>
         ) : (
-          props.items.map((item) => (
-            <Link
-              key={item.conversation_id}
-              to={`/chat/${item.conversation_id}`}
-              className={clsx(
-                "mb-2 block rounded-2xl border px-3 py-3 transition shadow-sm",
-                item.conversation_id === props.activeId
-                  ? "border-[#9bd2d6] bg-[#eef8f8]"
-                  : "border-slate-200 bg-white hover:border-[var(--im-border)] hover:bg-slate-50"
-              )}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  {item.kind_label && (
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{item.kind_label}</p>
-                  )}
-                  <p className="mt-1 font-semibold text-slate-900">{item.title}</p>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-xs font-medium text-slate-500">{formatTime(item.last_message_at) || "New"}</p>
-                  {item.unread_count > 0 && (
-                    <span className="mt-2 inline-flex rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-bold text-white">
-                      {item.unread_count} new
-                    </span>
-                  )}
-                </div>
-              </div>
-              <p className="mt-2 line-clamp-2 text-sm text-slate-600">{formatPreview(item)}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span className="rounded-full bg-slate-100 px-2 py-1">{formatParticipantSummary(item.participants)}</span>
-              </div>
-            </Link>
-          ))
+          sectionOrder.map((section) => {
+            const items = sectionItems.get(section) ?? [];
+            if (items.length === 0) {
+              return null;
+            }
+            return (
+              <section key={section} className="mb-4">
+                <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  {toSectionTitle(section)}
+                </p>
+                {items.map((item) => (
+                  <Link
+                    key={item.conversation_id}
+                    to={`/chat/${item.conversation_id}`}
+                    className={clsx(
+                      "mb-2 block rounded-2xl border px-3 py-3 transition shadow-sm",
+                      item.conversation_id === props.activeId
+                        ? "border-[#9bd2d6] bg-[#eef8f8]"
+                        : "border-slate-200 bg-white hover:border-[var(--im-border)] hover:bg-slate-50"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        {item.kind_label && (
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{item.kind_label}</p>
+                        )}
+                        <p className="mt-1 font-semibold text-slate-900">{item.title}</p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-xs font-medium text-slate-500">{formatTime(item.last_message_at) || "New"}</p>
+                        {item.unread_count > 0 && (
+                          <span className="mt-2 inline-flex rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-bold text-white">
+                            {item.unread_count} new
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-sm text-slate-600">{formatPreview(item)}</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <span className="rounded-full bg-slate-100 px-2 py-1">{formatParticipantSummary(item.participants)}</span>
+                    </div>
+                  </Link>
+                ))}
+              </section>
+            );
+          })
         )}
       </div>
     </div>
