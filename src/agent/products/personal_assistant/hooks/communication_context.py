@@ -21,8 +21,9 @@ def _build_communication_context_block(
         agent_id: This agent's own ID, injected as ``your_agent_id``.
         participant_agent_ids: Fallback list of agent IDs when structured
             ``participants`` data is unavailable (pre-M247 sessions).
-        participants: M247 structured participant list; each item has
-            ``id``, ``display_name``, and ``type`` (``"user"``/``"agent"``).
+        participants: Structured participant list with actor-first identity fields.
+            User entries should carry ``user_id`` and agent entries should carry
+            ``agent_id``. Legacy ``id`` is still accepted as fallback.
             When provided, takes priority over ``participant_agent_ids``.
 
     Returns:
@@ -33,15 +34,25 @@ def _build_communication_context_block(
         lines.append(f"- your_agent_id: {agent_id}")
     if conversation_type == "group":
         if participants is not None:
-            # M247: structured participant list with display names and types.
-            # Each entry: "display_name (type, id: <id>)" for unambiguous attribution.
+            # Structured participant list with actor-first IDs.
             if participants:
                 entries = []
                 for p in participants:
-                    p_display = p.get("display_name") or p.get("id", "unknown")
                     p_type = p.get("type", "user")
-                    p_id = p.get("id", "")
-                    entries.append(f"{p_display} ({p_type}, id: {p_id})")
+                    if p_type == "agent":
+                        identity_key = "agent_id"
+                        p_identity = p.get("agent_id") or p.get("id", "")
+                    elif p_type == "user":
+                        identity_key = "user_id"
+                        p_identity = p.get("user_id") or p.get("id", "")
+                    else:
+                        identity_key = "id"
+                        p_identity = p.get("id", "")
+                    p_display = p.get("display_name") or p_identity or "unknown"
+                    if p_identity:
+                        entries.append(f"{p_display} ({p_type}, {identity_key}: {p_identity})")
+                    else:
+                        entries.append(f"{p_display} ({p_type})")
                 lines.append(f"- group_participants: {'; '.join(entries)}")
             else:
                 lines.append("- group_participants: (none)")
@@ -53,7 +64,8 @@ def _build_communication_context_block(
         # @mention still uses id for routing precision.
         lines.append(
             "- message_format: 历史消息中每条以 [display_name] 标识发言人；"
-            "你的回复无需加前缀。如需 @mention 某人，使用其 id（如 @agent_id）。"
+            "你的回复无需加前缀。群聊中如需 @mention Agent，使用其 agent_id（如 @agent_id）；"
+            "跨会话通信请使用 send_message(to=user_id|agent_id|conversation_id)。"
         )
     return "\n".join(lines)
 

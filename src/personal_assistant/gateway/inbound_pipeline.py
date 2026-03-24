@@ -319,9 +319,9 @@ class InboundPipeline:
             Metadata dict for kernel session creation. Prompt-related fields come from the
             local AgentWorkspaceConfig; routing fields (conversation_id, config_profile_version)
             come from message metadata. Group-chat sessions additionally carry
-            ``conversation_type``, ``participant_agent_ids``, and ``external_chat_id`` so that
-            downstream hooks (e.g. before_agent_start) can inject group context into the
-            system prompt without requiring a separate API call.
+            ``conversation_type``, ``participants``, ``participant_agent_ids``, and
+            ``external_chat_id`` so that downstream hooks (e.g. before_agent_start) can
+            inject group context into the system prompt without requiring a separate API call.
         """
 
         agent = self._agents[agent_id]
@@ -350,27 +350,20 @@ class InboundPipeline:
         if message.is_group:
             session_metadata["conversation_type"] = "group"
             session_metadata["external_chat_id"] = message.external_chat_id or ""
+            # Prefer structured participants and normalize to actor-first identities.
+            raw_participants = metadata.get("participants")
+            normalized_participants = _normalize_group_participants(raw_participants)
+            if normalized_participants:
+                session_metadata["participants"] = normalized_participants
             participant_agent_ids = metadata.get("participant_agent_ids")
             if isinstance(participant_agent_ids, list):
                 session_metadata["participant_agent_ids"] = [
                     str(aid) for aid in participant_agent_ids if isinstance(aid, str)
                 ]
+            elif normalized_participants:
+                session_metadata["participant_agent_ids"] = _extract_participant_agent_ids(normalized_participants)
             else:
-                mentioned = metadata.get("mentioned_agent_ids")
-                if isinstance(mentioned, list):
-                    session_metadata["participant_agent_ids"] = [
-                        str(aid) for aid in mentioned if isinstance(aid, str)
-                    ]
-                else:
-                    session_metadata["participant_agent_ids"] = []
-            # M247: pass structured participants list (with display_name and type) to session
-            # metadata so the communication_context hook can render readable names.
-            # Only propagate when the relay payload carried this M247 field.
-            raw_participants = metadata.get("participants")
-            if isinstance(raw_participants, list) and raw_participants:
-                session_metadata["participants"] = [
-                    dict(p) for p in raw_participants if isinstance(p, dict)
-                ]
+                session_metadata["participant_agent_ids"] = [agent_id]
         else:
             session_metadata["conversation_type"] = "direct"
         return session_metadata
@@ -645,3 +638,65 @@ def _resolve_sender_label(message: "InboundMessage") -> str:
     if isinstance(display_name, str) and display_name.strip():
         return display_name.strip()
     return message.external_user_id
+
+
+def _normalize_group_participants(raw_participants: object) -> list[dict[str, str]]:
+    """Normalize relay participants to actor-first user_id/agent_id identities."""
+    if not isinstance(raw_participants, list):
+        return []
+    normalized: list[dict[str, str]] = []
+    for item in raw_participants:
+        if not isinstance(item, Mapping):
+            continue
+        participant_type = _normalize_participant_type(item.get("type"))
+        if participant_type is None:
+            continue
+        display_name = _optional_stripped_text(item.get("display_name"))
+        if participant_type == "agent":
+            agent_id = _optional_stripped_text(item.get("agent_id")) or _optional_stripped_text(item.get("id"))
+            if agent_id is None:
+                continue
+            entry: dict[str, str] = {"type": "agent", "agent_id": agent_id}
+        else:
+            user_id = _optional_stripped_text(item.get("user_id")) or _optional_stripped_text(item.get("id"))
+            if user_id is None:
+                continue
+            entry = {"type": "user", "user_id": user_id}
+        if display_name is not None:
+            entry["display_name"] = display_name
+        normalized.append(entry)
+    return normalized
+
+
+def _extract_participant_agent_ids(participants: list[dict[str, str]]) -> list[str]:
+    """Extract stable agent IDs from normalized participant entries."""
+    seen: set[str] = set()
+    agent_ids: list[str] = []
+    for participant in participants:
+        if participant.get("type") != "agent":
+            continue
+        agent_id = participant.get("agent_id")
+        if not isinstance(agent_id, str) or not agent_id.strip():
+            continue
+        normalized_id = agent_id.strip()
+        if normalized_id in seen:
+            continue
+        seen.add(normalized_id)
+        agent_ids.append(normalized_id)
+    return agent_ids
+
+
+def _normalize_participant_type(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"user", "agent"}:
+        return normalized
+    return None
+
+
+def _optional_stripped_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
