@@ -9,7 +9,7 @@ from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.domain.models import Message
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import ConversationRepository, UsageMetricsRepository, UserRepository
+from IM.infra.repositories import ConversationRepository, MessageRepository, UsageMetricsRepository, UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -119,6 +119,7 @@ def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
     metrics_repo = UsageMetricsRepository(connection)
     users = UserRepository(connection)
     conversations = ConversationRepository(connection)
+    messages_repo = MessageRepository(connection)
     handler = GatewayHandler(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=metrics_repo),
@@ -364,3 +365,73 @@ def test_resolve_send_message_target_rejects_unknown_target(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="target not found"):
         handler.resolve_send_message_target(source_agent_id="A", target="missing-target")
+
+
+def test_handle_agent_message_routes_user_target_and_persists_message(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    users = UserRepository(connection)
+    conversations = ConversationRepository(connection)
+    messages_repo = MessageRepository(connection)
+    handler = GatewayHandler(
+        relay_service=RelayService(connection),
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+        conversation_repository=conversations,
+    )
+    websocket = StubWebSocket()
+    source_agent = users.create_user(username="agent:A", display_name="Agent A")
+    teammate = users.create_user(username="teammate", display_name="Teammate")
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="agent.message",
+            payload={
+                "from_session_id": "A",
+                "to": f"user:{teammate.id}",
+                "text": "hello teammate",
+            },
+        )
+    )
+
+    assert response is not None
+    assert response["type"] == "ack"
+    payload = response["payload"]
+    assert payload["message_type"] == "agent.message"
+    assert payload["target_kind"] == "user_id"
+    conversation_id = str(payload["conversation_id"])
+    message_id = str(payload["message_id"])
+
+    landed_conversation = conversations.get_conversation(conversation_id=conversation_id)
+    assert landed_conversation is not None
+    assert landed_conversation.type == "direct"
+    assert landed_conversation.direct_kind == "user-agent"
+    assert set(landed_conversation.participant_ids) == {source_agent.id, teammate.id}
+    messages = messages_repo.list_messages(conversation_id=conversation_id)
+    assert len(messages) == 1
+    assert messages[0].id == message_id
+    assert messages[0].content == "hello teammate"
+    assert messages[0].sender_type == "agent"
+    assert messages[0].sender is not None
+    assert messages[0].sender.id == "A"
+
+
+def test_handle_agent_message_returns_error_for_invalid_source(tmp_path: Path) -> None:
+    handler = _build_handler(tmp_path)
+    websocket = StubWebSocket()
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="agent.message",
+            payload={
+                "from_session_id": "unknown-source",
+                "to": "conversation:missing",
+                "text": "test",
+            },
+        )
+    )
+
+    assert response is not None
+    assert response["type"] == "error"
+    assert response["payload"]["code"] == "invalid_agent_message"

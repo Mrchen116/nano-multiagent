@@ -73,10 +73,16 @@ class SendMessageTool:
         text = _require_text(args.get("text"), field_name="text")
         target = _require_text(args.get("to"), field_name="to")
 
+        source_agent_id = ctx.session_metadata.get("agent_id")
+        if isinstance(source_agent_id, str) and source_agent_id.strip():
+            dispatch_source = source_agent_id.strip()
+        else:
+            dispatch_source = ctx.session_id
+
         payload: dict[str, Any] = {
             "text": text,
             "to": target,
-            "from_session_id": ctx.session_id,
+            "from_session_id": dispatch_source,
         }
         response = httpx.post(dispatch_url.strip(), json=payload, timeout=10.0)
         response.raise_for_status()

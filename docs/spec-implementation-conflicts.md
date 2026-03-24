@@ -34,12 +34,16 @@
 - direct 语义已在前端显式区分，agent-agent direct 保持用户可发现
 - 会话列表与发现文案已去除“只读协调线程 / Agents only”导向
 
-### M304：Gateway send_message 目标分类与落点收敛（部分）
+### M304：Gateway send_message 目标分类与落点收敛
 - 已新增显式目标分类与落点解析：`conversation_id / agent_id / user_id`
 - 为 `agent_id` / `user_id` 目标补齐 direct 会话落点（缺失时自动创建）
 - direct 复用已按 `direct_kind` 语义区分 `agent-agent` 与 `user-agent`
 - 已补充对应 gateway handler 测试
-- 仍未闭环部分：`personal_assistant` 侧 `/internal/dispatch` 尚未接入该解析入口，因此“工具调用到网关落点”的端到端链路仍待后续里程碑接线
+
+### M307：`/internal/dispatch` 端到端接线收敛
+- IM Gateway 已支持 `agent.message` 入站处理，按 `to=user_id|agent_id|conversation_id` 分类落点并持久化消息
+- `send_message` 工具发送时优先透传 `agent_id` 到 `from_session_id`，使 dispatch 链路可稳定识别发起 agent
+- 相关测试已覆盖 `agent.message` 的 user/direct 落点与无效来源错误路径
 
 ### M305：前端发现与 mention 收敛
 - mention 候选已增强为稳定标识展示：候选 label 显式包含 `agent_id`，并保持排序/去重
@@ -56,9 +60,6 @@
 
 ## 1. 当前剩余冲突
 
-- **`send_message(to=...)` 的 Gateway internal dispatch 链路仍未完全端到端闭环**
-  - IM 侧已具备目标分类和会话落点解析能力；但 `personal_assistant` 的 `/internal/dispatch` 入口尚未接线到该能力，仍待后续里程碑完成全链路收敛。
-
 - **前端群聊 mention 候选仍偏 agent，不是完整 user+agent identity 视图**
   - 当前 mention 候选已增强 `agent_id` 标识，但仍主要围绕 agent 候选，而不是完整覆盖群聊中的 user/agent 参与者标识视图。
 
@@ -74,16 +75,16 @@
 - agent-agent 单聊对用户可发现、可查看
 - 一期群聊上下文注入应注入当前群聊中的用户与 Agent 参与者标识
 
-经过本轮 M301–M306 改造后，已完成的部分包括：
+经过本轮 M301–M307 改造后，已完成的部分包括：
 - 后端 domain / repository / API 的 actor-first 主语义
 - send_message 工具契约文案对齐
 - Gateway → session metadata → prompt context 的 actor-first 参与者注入
 - 前端 conversation / message 的 actor-first 主路径与 direct 语义收敛
 - Gateway 侧 send_message 目标分类与 direct 落点能力
+- `/internal/dispatch` 到 Gateway 目标分类落点的端到端接线
 - 前端 discoverability / mention 的一轮增强
 - prompt 中 direct reply 与 cross-conversation `send_message` 的边界澄清
 
 当前剩余冲突主要集中在：
-- `/internal/dispatch` 到 Gateway 新目标解析入口的端到端接线
 - 群聊 mention 候选是否要升级为完整 user+agent identity 视图
 - agent-agent direct 是否需要更强产品化发现入口

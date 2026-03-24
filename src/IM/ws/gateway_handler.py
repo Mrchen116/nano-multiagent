@@ -13,7 +13,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.domain.models import Actor, Message, managed_workspace_root
-from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, NodeRepository, UserRepository
+from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, UserRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +63,7 @@ class GatewayHandler:
         self._metrics_service = metrics_service
         self._conversation_repository = conversation_repository
         self._user_repository = UserRepository(conversation_repository._connection) if conversation_repository is not None else None
+        self._message_repository = MessageRepository(conversation_repository._connection) if conversation_repository is not None else None
         self._lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
         self._reports: list[dict[str, object]] = []
@@ -111,6 +112,8 @@ class GatewayHandler:
             return await self._handle_delivery_receipt(payload=payload)
         if message_type == "agent.config":
             return await self._handle_agent_config(payload=payload)
+        if message_type == "agent.message":
+            return await self._handle_agent_message(payload=payload)
         return {
             "type": "error",
             "payload": {"code": "unsupported_message_type", "message": message_type},
@@ -439,6 +442,72 @@ class GatewayHandler:
                 "agent_id": agent_id,
             },
         }
+
+    async def _handle_agent_message(self, *, payload: dict[str, object]) -> dict[str, object]:
+        """Persist one gateway-dispatched send_message payload into IM conversations."""
+        if self._conversation_repository is None or self._user_repository is None or self._message_repository is None:
+            return {
+                "type": "error",
+                "payload": {
+                    "code": "gateway_not_configured",
+                    "message": "conversation_repository and user_repository must be configured",
+                },
+            }
+
+        try:
+            text = _require_text(payload.get("text"), field_name="text").strip()
+            target = _require_text(payload.get("to"), field_name="to").strip()
+            source_raw = _require_text(payload.get("from_session_id"), field_name="from_session_id").strip()
+            source_agent_id = self._resolve_source_agent_id_from_dispatch(source_raw=source_raw)
+            resolved_target, conversation_id = self.resolve_send_message_target(
+                source_agent_id=source_agent_id,
+                target=target,
+            )
+            sender_user_id = self._require_user_id_by_username(username=f"agent:{source_agent_id}")
+            message = self._message_repository.create_message(
+                conversation_id=conversation_id,
+                sender_user_id=sender_user_id,
+                sender_type="agent",
+                content=text,
+            )
+        except ValueError as exc:
+            return {
+                "type": "error",
+                "payload": {
+                    "code": "invalid_agent_message",
+                    "message": str(exc),
+                },
+            }
+        except RuntimeError as exc:
+            return {
+                "type": "error",
+                "payload": {
+                    "code": "gateway_not_configured",
+                    "message": str(exc),
+                },
+            }
+
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "agent.message",
+                "conversation_id": conversation_id,
+                "message_id": message.id,
+                "target_kind": resolved_target.kind,
+                "target_id": resolved_target.id,
+                "source_agent_id": source_agent_id,
+            },
+        }
+
+    @staticmethod
+    def _resolve_source_agent_id_from_dispatch(*, source_raw: str) -> str:
+        """Resolve source agent id forwarded in dispatch payload."""
+        normalized = source_raw.strip()
+        if normalized.startswith("agent:"):
+            normalized = normalized[len("agent:") :].strip()
+        if not normalized:
+            raise ValueError("from_session_id must carry source agent id")
+        return normalized
 
     def resolve_send_message_target(
         self,
