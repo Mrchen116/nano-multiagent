@@ -209,14 +209,20 @@ Agent 间协同完全通过 IM 消息路由实现，不引入专用内部消息�
 send_message(text: str, to: str)
 ```
 
-- `to` 为目标 Agent ID 或群聊 ID
-- 工具执行时由 Gateway 将消息投递到目标会话（同机直接路由，跨机通过 IM 服务 WebSocket 中继）
+- `to` 为稳定业务标识：目标用户使用 `user_id`，目标 Agent 使用 `agent_id`，目标群聊使用 `conversation_id`；`send_message` 不接受 IM 内部路由主键
+- `send_message` 由发起调用的配置级 Agent 向目标会话投递消息；`task` 临时子 Agent 不具备 `send_message` 能力
+- 当 `to` 为 `agent_id` 时，投递到“发起 Agent 与目标 Agent”的单聊会话；当 `to` 为 `user_id` 时，投递到“发起 Agent 与目标用户”的单聊会话；当 `to` 为 `conversation_id` 时，投递到对应群聊
+- 工具执行时由 Gateway 将消息投递到目标会话（同机直接路由，跨机通过 IM 服务 WebSocket 中继）；若目标单聊不存在则创建，已存在则复用
 - 同机器、跨机器通信逻辑完全一致，Agent 无感知部署环境
 
 **上下文注入**：
 
 每个 Agent 在 session 启动时，通过 `before_agent_start` hook 在系统提示词后追加通信上下文：
 
+- **一期（当前范围）**：仅在群聊 session 启动时，通过 `before_agent_start` hook 在系统提示词后追加当前聊天上下文，包括当前群聊中的用户与 Agent 参与者标识。用户使用 `user_id`，Agent 使用 `agent_id`。
+一期的目标只是让 Agent 知道"我现在在哪个群里，当前群里有哪些人和 Agent"，不在本期注入全量可通信对象目录。
+
+- **二期（后续扩展）**：再扩展为完整通信上下文，补充可通信的用户列表、Agent 列表、群聊列表等全局通信目录。
 - 当前所在会话（session ID、会话类型、参与者）
 - 可通信的 Agent 列表（同一用户归属的配置级 Agent，含 ID、名称、职责摘要）
 - 可通信的群聊列表（该 Agent 已加入的群聊）

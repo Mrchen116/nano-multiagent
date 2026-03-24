@@ -19,6 +19,8 @@
 
 **边界**：IM 服务只与用户浏览器和各机器上的 `personal_assistant`（Node Gateway）交互。IM 可离线，Node Gateway 仍可本地自治。
 
+**消息主体**：对 IM 而言，人和 Agent 都是平等的消息参与者。产品与接口语义应优先围绕参与者/Actor 建模。
+
 ---
 
 ## 2. 核心能力
@@ -30,7 +32,7 @@
 用户在未接入任何外部 IM 时也可完整使用 Multi-Agent 能力。
 
 - 用户与任意 Agent 单聊
-- 用户查看 Agent 之间的单聊会话
+- 用户查看 Agent 之间的单聊会话（参与者为两个 Agent；用户是查看者而非该单聊参与者，并在自己的会话列表中可发现）
 - 用户创建群聊（手动选择若干 Agent）
 - 消息流式推送（SSE）
 - 多媒体/文件上传（落盘后路径透传给 Node Gateway）
@@ -110,12 +112,14 @@ Gateway 断线后自动重连（指数退避），重连后重新注册。断线
 | 方法 | 端点 | 用途 |
 |---|---|---|
 | GET | `/im/v1/conversations` | 会话列表（含未读数、最后消息摘要） |
-| POST | `/im/v1/conversations` | 创建会话（单聊/群聊，指定参与者） |
+| POST | `/im/v1/conversations` | 创建会话（单聊/群聊，指定参与者 Actor） |
 | GET | `/im/v1/conversations/{id}` | 会话详情 |
 | PATCH | `/im/v1/conversations/{id}` | 更新会话（置顶、免打扰、标题） |
-| POST | `/im/v1/conversations/{id}/messages` | 发送消息 |
+| POST | `/im/v1/conversations/{id}/messages` | 以发送者 Actor 身份发送消息 |
 | GET | `/im/v1/conversations/{id}/messages` | 分页读取消息历史 |
 | GET | `/im/v1/conversations/{id}/events` | SSE 事件流（流式回复、状态变更） |
+
+> 说明：IM 对外接口以 Actor 语义建模。会话参与者、消息发送者、工具目标均使用稳定业务标识（如 `user_id`、`agent_id`、`conversation_id`），不暴露 IM 内部路由主键。
 
 ### Agent 配置
 
@@ -154,10 +158,10 @@ Gateway 断线后自动重连（指数退避），重连后重新注册。断线
 
 | 模型 | 核心字段 | 说明 |
 |---|---|---|
-| `User` | `user_id`, `display_name`, `owned_node_ids`, `created_at` | 单用户 owner |
-| `AgentProfile` | `agent_id`, `owner_id`, `display_name`, `system_prompt`, `skills[]`, `tool_allowlist[]`, `group_reply_policy`, `default_model`, `profile_version` | 配置变更仅对新会话生效；`owner_id` 关联所属用户 |
-| `Conversation` | `conversation_id`, `owner_id`, `type`(direct/group), `participants[]`, `title`, `is_pinned`, `is_muted`, `unread_count`, `last_message_at` | 会话容器；`owner_id` 用于用户间数据隔离 |
-| `Message` | `message_id`, `conversation_id`, `sender_type`(user/agent/system), `sender_id`, `content`, `attachments[]`, `created_at`, `delivery_status` | 消息（通过 conversation 间接关联 owner） |
+| `User` | `user_id`, `display_name`, `owned_node_ids`, `created_at` | 单用户 owner；在人机消息模型中对应一种参与者类型 |
+| `AgentProfile` | `agent_id`, `owner_id`, `display_name`, `system_prompt`, `skills[]`, `tool_allowlist[]`, `group_reply_policy`, `default_model`, `profile_version` | 配置变更仅对新会话生效；`owner_id` 关联所属用户；在 IM 消息模型中与人同为参与者 |
+| `Conversation` | `conversation_id`, `owner_id`, `type`(direct/group), `participants[]`, `title`, `is_pinned`, `is_muted`, `unread_count`, `last_message_at` | 会话容器；participants 为 Actor 集合；`direct` 明确区分“用户-Agent 单聊”与“Agent-Agent 单聊”，二者不可混用；属于同一 owner 空间的 Agent-Agent 单聊对用户可发现、可查看；`owner_id` 用于用户间数据隔离 |
+| `Message` | `message_id`, `conversation_id`, `sender`(actor), `content`, `attachments[]`, `created_at`, `delivery_status` | 消息；发送者是 Actor（人 / Agent / system），通过 conversation 间接关联 owner |
 | `NodeStatus` | `node_id`, `owner_id`, `node_name`, `status`(online/offline/degraded), `last_heartbeat_at`, `agent_count`, `version`, `last_error` | 节点运行态；`owner_id` 关联所属用户 |
 | `RelayTask` | `message_id`, `target_node_id`, `payload`, `idempotency_key`, `status` | 消息中继任务 |
 
