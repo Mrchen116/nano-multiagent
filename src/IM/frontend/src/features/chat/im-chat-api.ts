@@ -3,6 +3,7 @@ import {
   ChatMessage,
   ChatOwnershipSummary,
   ChatStarter,
+  ConversationKind,
   ConversationDetail,
   ConversationSummary,
   GroupChatParticipantOption,
@@ -21,37 +22,134 @@ interface ImUser {
 interface ImConversation {
   id: string;
   title: string;
-  participant_ids: string[];
+  participants?: ImActorRef[];
+  participant_ids?: string[];
   type: string;
   owner_id: string;
   creator_id?: string;
   created_at?: string;
 }
 
+type ImActorType = "user" | "agent" | "system";
+
+interface ImActorRef {
+  type: ImActorType;
+  id: string;
+  display_name?: string;
+}
+
 function isAgentUsername(username: string) {
   return username.startsWith(AGENT_USERNAME_PREFIX);
 }
 
-function toMentionLabel(user: ImUser) {
-  return user.display_name.trim() || user.username;
+function normalizeActorType(value: unknown): ImActorType | null {
+  if (value === "user" || value === "agent" || value === "system") {
+    return value;
+  }
+  return null;
+}
+
+function normalizeActorId(type: ImActorType, rawId: unknown): string | null {
+  if (typeof rawId !== "string") {
+    return null;
+  }
+  const trimmed = rawId.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (type === "agent" && trimmed.startsWith(AGENT_USERNAME_PREFIX)) {
+    return trimmed.slice(AGENT_USERNAME_PREFIX.length) || null;
+  }
+  return trimmed;
+}
+
+function parseActorRef(value: unknown): ImActorRef | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const payload = value as Record<string, unknown>;
+  const type = normalizeActorType(payload.type);
+  if (!type) {
+    return null;
+  }
+  const directId = normalizeActorId(type, payload.id);
+  const aliasId = normalizeActorId(type, type === "agent" ? payload.agent_id : payload.user_id);
+  const id = directId ?? aliasId;
+  if (!id) {
+    return null;
+  }
+  const displayName = typeof payload.display_name === "string" ? payload.display_name.trim() : "";
+  return {
+    type,
+    id,
+    display_name: displayName || undefined
+  };
+}
+
+function toActorFromUser(user: ImUser): ImActorRef {
+  if (isAgentUsername(user.username)) {
+    return {
+      type: "agent",
+      id: user.username.slice(AGENT_USERNAME_PREFIX.length),
+      display_name: user.display_name
+    };
+  }
+  return {
+    type: "user",
+    id: user.id,
+    display_name: user.display_name
+  };
+}
+
+function resolveConversationParticipants(input: {
+  conversation: ImConversation;
+  userById: Map<string, ImUser>;
+}): ImActorRef[] {
+  const parsedParticipants = (input.conversation.participants ?? [])
+    .map((item) => parseActorRef(item))
+    .filter((item): item is ImActorRef => Boolean(item));
+  if (parsedParticipants.length > 0) {
+    return parsedParticipants;
+  }
+  return (input.conversation.participant_ids ?? []).map((participantId) => {
+    const user = input.userById.get(participantId);
+    if (!user) {
+      return { type: "user", id: participantId };
+    }
+    return toActorFromUser(user);
+  });
+}
+
+function toParticipantDisplayName(participant: ImActorRef): string {
+  const displayName = participant.display_name?.trim();
+  if (displayName) {
+    return displayName;
+  }
+  if (participant.type === "agent") {
+    return `agent:${participant.id}`;
+  }
+  if (participant.type === "system") {
+    return `system:${participant.id}`;
+  }
+  return participant.id;
 }
 
 function toMentionCandidates(input: {
   conversation: ImConversation;
   userById: Map<string, ImUser>;
-  selfUserId: string;
 }): MentionCandidate[] {
   if (input.conversation.type !== "group") {
     return [];
   }
   const seenAgentIds = new Set<string>();
-  return input.conversation.participant_ids
-    .filter((participantId) => participantId !== input.selfUserId)
-    .map((participantId) => input.userById.get(participantId))
-    .filter((participant): participant is ImUser => Boolean(participant && isAgentUsername(participant.username)))
+  return resolveConversationParticipants({
+    conversation: input.conversation,
+    userById: input.userById
+  })
+    .filter((participant) => participant.type === "agent")
     .map((participant) => ({
-      agentId: participant.username.slice(AGENT_USERNAME_PREFIX.length),
-      label: toMentionLabel(participant)
+      agentId: participant.id,
+      label: toParticipantDisplayName(participant)
     }))
     .filter((participant) => participant.agentId.length > 0)
     .filter((participant) => {
@@ -66,7 +164,8 @@ function toMentionCandidates(input: {
 interface ImMessage {
   id: string;
   conversation_id: string;
-  sender_user_id: string;
+  sender?: ImActorRef;
+  sender_user_id?: string;
   sender_type?: string;
   content: string;
   attachments?: ChatAttachment[];
@@ -273,7 +372,8 @@ interface ItemsEnvelope<T> {
 }
 
 interface CreateMessagePayload {
-  sender_user_id: string;
+  sender: ImActorRef;
+  sender_user_id?: string;
   content: string;
   attachments?: ChatAttachment[];
   target_node_id?: string;
@@ -299,18 +399,21 @@ const MAIN_AGENT_PREFIX = "主 Agent · ";
 const MAIN_AGENT_SESSION_LABEL = "主 Agent 会话";
 const MAIN_AGENT_ENTRY_HINT = "这是你与主 Agent 的默认产品入口。";
 const DIRECT_AGENT_SESSION_LABEL = "Direct agent chat";
+const DIRECT_USER_SESSION_LABEL = "Direct teammate chat";
 const GROUP_CHAT_SESSION_LABEL = "Group chat";
 const DIRECT_AGENT_DISCOVERABILITY_HINT = "Reuse this stable direct chat for the same agent, or start a fresh session here when you need a new prompt snapshot.";
+const DIRECT_USER_DISCOVERABILITY_HINT = "Direct conversation with one teammate.";
+const DIRECT_USER_TARGET_LABEL = "Teammate";
 const GROUP_CHAT_DISCOVERABILITY_HINT = "Group thread";
 const GROUP_CHAT_TARGET_LABEL = "Shared thread";
 const GROUP_CHAT_LIST_HINT = "Keep people and agents in one shared conversation timeline.";
 const GROUP_CHAT_ENTRY_HINT = "Group chat";
 const ENGINEERING_GROUP_OWNERSHIP_PATTERNS = [/^Using your main agent .+ready to chat\)$/i];
-const AGENT_NETWORK_SESSION_LABEL = "Agent-to-agent chat";
-const AGENT_NETWORK_DISCOVERABILITY_HINT = "This is a read-only coordination thread between agents.";
-const AGENT_NETWORK_TARGET_LABEL = "Agents only";
-const AGENT_NETWORK_LIST_HINT = "Use this thread to inspect coordination between agents.";
-const AGENT_NETWORK_ENTRY_HINT = "Read-only coordination thread between agents.";
+const AGENT_NETWORK_SESSION_LABEL = "Agent-to-agent direct chat";
+const AGENT_NETWORK_DISCOVERABILITY_HINT = "Direct conversation between two agents in your workspace.";
+const AGENT_NETWORK_TARGET_LABEL = "Agent pair";
+const AGENT_NETWORK_LIST_HINT = "Review direct coordination between agents.";
+const AGENT_NETWORK_ENTRY_HINT = "Agent-to-agent direct conversation.";
 const MAIN_AGENT_DISCOVERABILITY_HINT = "Use this thread when you want to talk to your main agent acting as your delegate.";
 const MAIN_AGENT_TARGET_LABEL = "你的主 Agent";
 const MAIN_AGENT_LIST_HINT = "This is the user-visible product entry where your main agent receives intent and routes follow-up work.";
@@ -353,9 +456,37 @@ function sanitizeGroupOwnershipLabel(ownershipLabel: string | null | undefined) 
   return trimmed;
 }
 
+function resolveConversationKind(input: {
+  title: string;
+  conversation: ImConversation;
+  participants: ImActorRef[];
+  selfUserId: string;
+}): ConversationKind {
+  if (isMainAgentStarterTitle(input.title)) {
+    return "direct-agent";
+  }
+  if (input.conversation.type === "group") {
+    return "group";
+  }
+  const participants = input.participants;
+  const hasAgent = participants.some((item) => item.type === "agent");
+  const hasSelfUser = participants.some((item) => item.type === "user" && item.id === input.selfUserId);
+  const allAgents = participants.length > 0 && participants.every((item) => item.type === "agent");
+  if (allAgents) {
+    return "agent-network";
+  }
+  if (hasAgent && hasSelfUser) {
+    return "direct-agent";
+  }
+  if (participants.some((item) => item.type === "system")) {
+    return "system";
+  }
+  return "direct-user";
+}
+
 function toConversationSemantics(input: {
   title: string;
-  conversationType?: string;
+  conversationKind: ConversationKind;
   ownershipLabel?: string | null;
 }): Pick<ConversationSummary, "kind_label" | "target_label" | "discoverability_hint" | "ownership_label"> &
   Pick<ConversationDetail, "kind_label" | "target_label" | "discoverability_hint" | "ownership_label"> {
@@ -367,7 +498,7 @@ function toConversationSemantics(input: {
       ownership_label: input.ownershipLabel ?? MAIN_AGENT_ENTRY_HINT
     };
   }
-  if (input.conversationType === "group") {
+  if (input.conversationKind === "group") {
     return {
       kind_label: GROUP_CHAT_SESSION_LABEL,
       target_label: GROUP_CHAT_TARGET_LABEL,
@@ -375,12 +506,20 @@ function toConversationSemantics(input: {
       ownership_label: sanitizeGroupOwnershipLabel(input.ownershipLabel)
     };
   }
-  if (input.conversationType === "agent-network") {
+  if (input.conversationKind === "agent-network") {
     return {
       kind_label: AGENT_NETWORK_SESSION_LABEL,
       target_label: AGENT_NETWORK_TARGET_LABEL,
       discoverability_hint: AGENT_NETWORK_DISCOVERABILITY_HINT,
       ownership_label: input.ownershipLabel ?? AGENT_NETWORK_ENTRY_HINT
+    };
+  }
+  if (input.conversationKind === "direct-user") {
+    return {
+      kind_label: DIRECT_USER_SESSION_LABEL,
+      target_label: DIRECT_USER_TARGET_LABEL,
+      discoverability_hint: DIRECT_USER_DISCOVERABILITY_HINT,
+      ownership_label: input.ownershipLabel ?? undefined
     };
   }
   return {
@@ -391,14 +530,14 @@ function toConversationSemantics(input: {
   };
 }
 
-function buildListDiscoverabilityHint(input: { title: string; conversationType?: string; fallback: string }): string {
+function buildListDiscoverabilityHint(input: { title: string; conversationKind: ConversationKind; fallback: string }): string {
   if (isMainAgentStarterTitle(input.title)) {
     return MAIN_AGENT_LIST_HINT;
   }
-  if (input.conversationType === "group") {
+  if (input.conversationKind === "group") {
     return GROUP_CHAT_LIST_HINT;
   }
-  if (input.conversationType === "agent-network") {
+  if (input.conversationKind === "agent-network") {
     return AGENT_NETWORK_LIST_HINT;
   }
   return input.fallback;
@@ -526,6 +665,22 @@ export function buildStarterPeerUsername(agentId: string): string {
   return agentId === PEER_USERNAME ? PEER_USERNAME : `${AGENT_USERNAME_PREFIX}${agentId}`;
 }
 
+function buildLegacyParticipantIds(input: { participants: ImActorRef[]; selfUserId: string; peerUserId?: string }): string[] {
+  const ids: string[] = [];
+  for (const participant of input.participants) {
+    if (participant.type === "user") {
+      ids.push(participant.id);
+    }
+  }
+  if (!ids.includes(input.selfUserId)) {
+    ids.unshift(input.selfUserId);
+  }
+  if (input.peerUserId && !ids.includes(input.peerUserId)) {
+    ids.push(input.peerUserId);
+  }
+  return ids;
+}
+
 export function buildCreateMessageRequest(input: {
   selfUserId: string;
   content: string;
@@ -533,6 +688,10 @@ export function buildCreateMessageRequest(input: {
   targetNodeId: string | null;
 }): CreateMessagePayload {
   const payload: CreateMessagePayload = {
+    sender: {
+      type: "user",
+      id: input.selfUserId
+    },
     sender_user_id: input.selfUserId,
     content: input.content
   };
@@ -569,7 +728,11 @@ async function listNodesRaw() {
   return requestJson<ImNode[]>("/im/v1/nodes");
 }
 
-async function createConversationRaw(payload: { title: string; participant_ids: string[] }) {
+async function createConversationRaw(payload: {
+  title: string;
+  participants: ImActorRef[];
+  participant_ids?: string[];
+}) {
   return requestJson<ImConversation>("/im/v1/conversations", {
     method: "POST",
     body: JSON.stringify(payload)
@@ -666,15 +829,36 @@ function compareConversationCreation(left: ImConversation, right: ImConversation
 export function pickCanonicalDirectConversation(input: {
   conversations: ImConversation[];
   selfUserId: string;
-  peerUserId: string;
+  peerUserId?: string;
+  peerAgentId?: string;
+  userById?: Map<string, ImUser>;
 }): ImConversation | null {
-  const matches = input.conversations.filter(
-    (item) =>
-      item.type !== "group" &&
-      item.participant_ids.length === 2 &&
-      item.participant_ids.includes(input.selfUserId) &&
-      item.participant_ids.includes(input.peerUserId)
-  );
+  const userById = input.userById ?? new Map<string, ImUser>();
+  const matches = input.conversations.filter((item) => {
+    if (item.type === "group") {
+      return false;
+    }
+    const participants = resolveConversationParticipants({
+      conversation: item,
+      userById
+    });
+    if (participants.length !== 2) {
+      return false;
+    }
+    if (input.peerAgentId) {
+      return (
+        participants.some((participant) => participant.type === "user" && participant.id === input.selfUserId) &&
+        participants.some((participant) => participant.type === "agent" && participant.id === input.peerAgentId)
+      );
+    }
+    if (input.peerUserId) {
+      return (
+        participants.some((participant) => participant.type === "user" && participant.id === input.selfUserId) &&
+        participants.some((participant) => participant.type === "user" && participant.id === input.peerUserId)
+      );
+    }
+    return false;
+  });
   if (matches.length === 0) {
     return null;
   }
@@ -685,13 +869,22 @@ function findStarterConversation(input: {
   conversations: ImConversation[];
   selfUserId: string;
   peerUserId: string;
+  starterAgentId: string;
+  userById: Map<string, ImUser>;
   starterTitle: string;
 }): ImConversation | null {
   return (
     pickCanonicalDirectConversation({
       conversations: input.conversations,
       selfUserId: input.selfUserId,
-      peerUserId: input.peerUserId
+      peerAgentId: input.starterAgentId,
+      userById: input.userById
+    }) ??
+    pickCanonicalDirectConversation({
+      conversations: input.conversations,
+      selfUserId: input.selfUserId,
+      peerUserId: input.peerUserId,
+      userById: input.userById
     }) ??
     input.conversations.find((item) => item.title === input.starterTitle) ??
     input.conversations[0] ??
@@ -709,16 +902,22 @@ async function ensureBootstrap(): Promise<BootstrapState> {
         starterAgent.display_name || DEFAULT_AGENT_NAME
       );
       const starterTitle = buildStarterConversationTitle(starterAgent.display_name || DEFAULT_AGENT_NAME);
-      const existingConversations = await listConversationsRaw();
+      const [existingConversations, userById] = await Promise.all([listConversationsRaw(), loadUserMap()]);
       const starterConversation =
         findStarterConversation({
           conversations: existingConversations,
           selfUserId: self.id,
           peerUserId: starterPeer.id,
+          starterAgentId: starterAgent.agent_id,
+          userById,
           starterTitle
         }) ??
         (await createConversationRaw({
           title: starterTitle,
+          participants: [
+            { type: "user", id: self.id },
+            { type: "agent", id: starterAgent.agent_id, display_name: starterAgent.display_name }
+          ],
           participant_ids: [self.id, starterPeer.id]
         }));
       const agentName = starterAgent.display_name || DEFAULT_AGENT_NAME;
@@ -769,13 +968,29 @@ function toChatMessage(input: {
   selfUserId: string;
   defaultStatus: "sent" | "completed";
 }): ChatMessage {
-  const sender = input.userById.get(input.message.sender_user_id);
-  const isMine = input.message.sender_user_id === input.selfUserId;
+  const resolvedSender =
+    parseActorRef(input.message.sender) ??
+    (input.message.sender_user_id
+      ? {
+          type: normalizeActorType(input.message.sender_type) ?? "user",
+          id: input.message.sender_user_id
+        }
+      : null);
+  const senderName =
+    resolvedSender?.display_name ??
+    (resolvedSender?.type === "user" ? input.userById.get(resolvedSender.id)?.display_name : undefined) ??
+    resolvedSender?.id ??
+    "Unknown";
+  const isMine = resolvedSender?.type === "user" ? resolvedSender.id === input.selfUserId : false;
   return {
     message_id: input.message.id,
     sender_type:
-      input.message.sender_type === "agent" || input.message.sender_type === "system" ? input.message.sender_type : "user",
-    sender_name: sender?.display_name ?? input.message.sender_user_id,
+      resolvedSender?.type === "agent" || resolvedSender?.type === "system"
+        ? resolvedSender.type
+        : input.message.sender_type === "agent" || input.message.sender_type === "system"
+          ? input.message.sender_type
+          : "user",
+    sender_name: senderName,
     is_mine: isMine,
     content: input.message.content,
     attachments: input.message.attachments ?? [],
@@ -798,12 +1013,32 @@ function toConversationSummary(input: {
   starterTitle: string;
   ownership: ChatOwnershipSummary;
 }): ConversationSummary {
-  const latest = input.messages.at(-1);
-  const unreadCount = input.messages.filter((item) => item.sender_user_id !== input.selfUserId).length;
   const resolvedTitle = resolveConversationTitle({ conversation: input.conversation, starterTitle: input.starterTitle });
+  const participants = resolveConversationParticipants({
+    conversation: input.conversation,
+    userById: input.userById
+  });
+  const conversationKind = resolveConversationKind({
+    title: resolvedTitle,
+    conversation: input.conversation,
+    participants,
+    selfUserId: input.selfUserId
+  });
+  const latest = input.messages.at(-1);
+  const unreadCount = input.messages.filter((item) => {
+    const sender =
+      parseActorRef(item.sender) ??
+      (item.sender_user_id
+        ? {
+            type: normalizeActorType(item.sender_type) ?? "user",
+            id: item.sender_user_id
+          }
+        : null);
+    return sender?.type !== "user" || sender.id !== input.selfUserId;
+  }).length;
   const semantics = toConversationSemantics({
     title: resolvedTitle,
-    conversationType: input.conversation.type,
+    conversationKind,
     ownershipLabel: input.ownership.ownershipLabel
   });
   return {
@@ -812,9 +1047,8 @@ function toConversationSummary(input: {
     last_message_preview: latest?.content ?? "",
     last_message_at: latest?.created_at,
     unread_count: unreadCount,
-    participants: input.conversation.participant_ids.map(
-      (participantId) => input.userById.get(participantId)?.display_name ?? participantId
-    ),
+    kind: conversationKind,
+    participants: participants.map((participant) => toParticipantDisplayName(participant)),
     node_label: input.ownership.nodeLabel ?? undefined,
     node_status: input.ownership.nodeStatus ?? undefined,
     agent_label: input.ownership.agentLabel ?? undefined,
@@ -823,7 +1057,7 @@ function toConversationSummary(input: {
     target_label: semantics.target_label,
     discoverability_hint: buildListDiscoverabilityHint({
       title: resolvedTitle,
-      conversationType: input.conversation.type,
+      conversationKind,
       fallback: semantics.discoverability_hint ?? ""
     })
   };
@@ -839,17 +1073,24 @@ function resolveDirectAgentId(input: {
   userById: Map<string, ImUser>;
   selfUserId: string;
 }): string | undefined {
-  if (input.conversation.type === "group") {
+  const participants = resolveConversationParticipants({
+    conversation: input.conversation,
+    userById: input.userById
+  });
+  const conversationKind = resolveConversationKind({
+    title: input.conversation.title,
+    conversation: input.conversation,
+    participants,
+    selfUserId: input.selfUserId
+  });
+  if (conversationKind !== "direct-agent") {
     return undefined;
   }
-  const agentParticipant = input.conversation.participant_ids
-    .filter((participantId) => participantId !== input.selfUserId)
-    .map((participantId) => input.userById.get(participantId))
-    .find((participant): participant is ImUser => Boolean(participant && isAgentUsername(participant.username)));
+  const agentParticipant = participants.find((participant) => participant.type === "agent");
   if (!agentParticipant) {
     return undefined;
   }
-  return agentParticipant.username.slice(AGENT_USERNAME_PREFIX.length) || undefined;
+  return agentParticipant.id || undefined;
 }
 
 export async function confirmBindToken(bindToken: string) {
@@ -900,16 +1141,25 @@ export async function listConversations(): Promise<ConversationSummary[]> {
 export async function listDiscoverableAgents(): Promise<DiscoverableAgent[]> {
   const { selfUserId } = await ensureBootstrap();
   const [agents, users, conversations] = await Promise.all([listAgentsRaw(), listUsersRaw(), listConversationsRaw()]);
+  const userById = new Map(users.map((item) => [item.id, item]));
   const usersByUsername = new Map(users.map((item) => [item.username, item]));
   return agents.map((agent) => {
     const peer = usersByUsername.get(buildStarterPeerUsername(agent.agent_id));
-    const existingConversation = peer
-      ? pickCanonicalDirectConversation({
-          conversations,
-          selfUserId,
-          peerUserId: peer.id
-        })
-      : null;
+    const existingConversation =
+      pickCanonicalDirectConversation({
+        conversations,
+        selfUserId,
+        peerAgentId: agent.agent_id,
+        userById
+      }) ??
+      (peer
+        ? pickCanonicalDirectConversation({
+            conversations,
+            selfUserId,
+            peerUserId: peer.id,
+            userById
+          })
+        : null);
     return {
       agent_id: agent.agent_id,
       display_name: agent.display_name,
@@ -946,19 +1196,37 @@ export async function createDirectConversation(input: { agentId: string }): Prom
   if (!agent) {
     throw new Error(`agent not found: ${input.agentId}`);
   }
-  const peer = await ensureUser(buildStarterPeerUsername(agent.agent_id), agent.display_name || agent.agent_id);
-  const conversations = await listConversationsRaw();
+  const [peer, conversations, userById] = await Promise.all([
+    ensureUser(buildStarterPeerUsername(agent.agent_id), agent.display_name || agent.agent_id),
+    listConversationsRaw(),
+    loadUserMap()
+  ]);
   const existing = pickCanonicalDirectConversation({
     conversations,
     selfUserId,
-    peerUserId: peer.id
+    peerAgentId: agent.agent_id,
+    userById
+  }) ?? pickCanonicalDirectConversation({
+    conversations,
+    selfUserId,
+    peerUserId: peer.id,
+    userById
   });
   if (existing) {
     return { conversation_id: existing.id };
   }
+  const participants: ImActorRef[] = [
+    { type: "user", id: selfUserId },
+    { type: "agent", id: agent.agent_id, display_name: agent.display_name || agent.agent_id }
+  ];
   const created = await createConversationRaw({
     title: agent.display_name || agent.agent_id,
-    participant_ids: [selfUserId, peer.id]
+    participants,
+    participant_ids: buildLegacyParticipantIds({
+      participants,
+      selfUserId,
+      peerUserId: peer.id
+    })
   });
   return { conversation_id: created.id };
 }
@@ -971,9 +1239,18 @@ export async function createFreshDirectConversation(input: { agentId: string }):
     throw new Error(`agent not found: ${input.agentId}`);
   }
   const peer = await ensureUser(buildStarterPeerUsername(agent.agent_id), agent.display_name || agent.agent_id);
+  const participants: ImActorRef[] = [
+    { type: "user", id: selfUserId },
+    { type: "agent", id: agent.agent_id, display_name: agent.display_name || agent.agent_id }
+  ];
   const created = await createConversationRaw({
     title: `${agent.display_name || agent.agent_id} · Fresh session`,
-    participant_ids: [selfUserId, peer.id]
+    participants,
+    participant_ids: buildLegacyParticipantIds({
+      participants,
+      selfUserId,
+      peerUserId: peer.id
+    })
   });
   return { conversation_id: created.id };
 }
@@ -993,9 +1270,22 @@ export async function createGroupConversation(input: {
   const userById = await loadUserMap();
   const participantLabels = participantIds.map((participantId) => userById.get(participantId)?.display_name ?? participantId);
   const title = resolveGroupConversationTitle({ groupName: input.groupName, participantLabels });
+  const participants: ImActorRef[] = [{ type: "user", id: selfUserId }].concat(
+    participantIds.map((participantId) => {
+      const user = userById.get(participantId);
+      if (!user) {
+        return { type: "user", id: participantId };
+      }
+      return toActorFromUser(user);
+    })
+  );
   const created = await createConversationRaw({
     title,
-    participant_ids: [selfUserId, ...participantIds]
+    participants,
+    participant_ids: buildLegacyParticipantIds({
+      participants,
+      selfUserId
+    })
   });
   return { conversation_id: created.id };
 }
@@ -1012,9 +1302,19 @@ export async function getConversation(conversationId: string): Promise<Conversat
     return null;
   }
   const resolvedTitle = resolveConversationTitle({ conversation, starterTitle: starter.title });
+  const participants = resolveConversationParticipants({
+    conversation,
+    userById
+  });
+  const conversationKind = resolveConversationKind({
+    title: resolvedTitle,
+    conversation,
+    participants,
+    selfUserId
+  });
   const semantics = toConversationSemantics({
     title: resolvedTitle,
-    conversationType: conversation.type,
+    conversationKind,
     ownershipLabel: starter.statusLabel
   });
   return {
@@ -1028,8 +1328,7 @@ export async function getConversation(conversationId: string): Promise<Conversat
     creator_id: conversation.creator_id ?? undefined,
     mention_candidates: toMentionCandidates({
       conversation,
-      userById,
-      selfUserId
+      userById
     }),
     direct_agent_id: resolveDirectAgentId({
       conversation,

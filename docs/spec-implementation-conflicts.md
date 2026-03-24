@@ -60,20 +60,24 @@
 
 ### M303：前端 actor-first / direct 语义收敛
 
-- 前端 API 模型已改为 actor-first 主路径：
+- 前端 API 主路径已切到 Actor-first：
   - `Conversation.participants(actor[])`
   - `Message.sender(actor)`
   - `participant_ids` / `sender_user_id` 仅保留兼容回退
   - 相关文件：`src/IM/frontend/src/features/chat/im-chat-api.ts`
 
-- direct 语义改为显式判定：
+- direct 语义已在前端显式区分：
   - 区分 user-agent direct、agent-agent direct 等 direct 语义
   - agent-agent direct 保持用户可发现
   - 相关文件：`src/IM/frontend/src/features/chat/im-chat-api.ts`
 
-- 会话列表文案已去除“只读协调线程”心智：
+- 会话列表与发现文案已去除“只读协调线程 / Agents only”导向：
   - 改为 direct/shared thread 的统一发现语义
   - 相关文件：`src/IM/frontend/src/features/chat/components/conversation-list.tsx`
+
+- 仍待后续里程碑继续细化：
+  - 群聊 mention 候选仍偏 agent-oriented，尚未扩展为完整 user+agent 标识视图
+  - UI 侧尚未新增单独的 agent-agent direct 分组/发现交互
 
 ## 1. 核心数据模型 / 路由语义
 

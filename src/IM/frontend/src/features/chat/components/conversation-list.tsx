@@ -20,8 +20,8 @@ function formatPreview(item: ConversationSummary) {
   if (item.kind_label === "Group chat") {
     return "No messages yet in this shared thread.";
   }
-  if (item.kind_label === "Agent-to-agent chat") {
-    return "No coordination updates yet.";
+  if (item.kind_label?.startsWith("Agent-to-agent")) {
+    return "No agent coordination updates yet.";
   }
   return "No messages yet.";
 }
@@ -68,9 +68,9 @@ export function ConversationList(props: {
           <div className="flex h-full min-h-[260px] items-center justify-center px-6 py-8 text-center">
             <div className="max-w-sm">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">No conversations yet</p>
-              <h2 className="im-title mt-2 text-lg font-bold text-slate-900">Open an agent chat or create a shared thread</h2>
+              <h2 className="im-title mt-2 text-lg font-bold text-slate-900">Start a direct chat or create a shared thread</h2>
               <p className="mt-2 text-sm text-slate-500">
-                Agent chats launched from Settings reopen each agent's stable direct thread here, and new group threads appear with participant context, latest activity, and unread updates.
+                Stable direct chats and shared threads both show up here, including agent-to-agent direct conversations that are visible in your workspace.
               </p>
             </div>
           </div>
