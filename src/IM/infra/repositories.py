@@ -6,7 +6,7 @@ import json
 import sqlite3
 from uuid import uuid4
 
-from IM.domain.models import AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, SettingsPolicy, UsageMetric, User
+from IM.domain.models import Actor, AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, SettingsPolicy, UsageMetric, User
 from IM.infra.db import DEFAULT_SETTINGS_POLICIES
 
 
@@ -312,29 +312,39 @@ class ConversationRepository:
         Raises:
             ValueError: When participant list is empty, references missing users, or mixes owners.
         """
-        normalized_participants = list(dict.fromkeys(participant_ids))
-        if not normalized_participants:
+        normalized_references = list(
+            dict.fromkeys(participant_id.strip() for participant_id in participant_ids if participant_id.strip())
+        )
+        if not normalized_references:
             raise ValueError("participant_ids must not be empty")
         if not title.strip():
             raise ValueError("title must be non-empty")
 
-        placeholders = ",".join("?" for _ in normalized_participants)
-        existing_rows = self._connection.execute(
-            f"SELECT id, username, owner_id FROM users WHERE id IN ({placeholders})",  # noqa: S608
-            tuple(normalized_participants),
-        ).fetchall()
-        if len(existing_rows) != len(normalized_participants):
-            raise ValueError("participant_ids contains unknown users")
-
-        existing_rows_by_id = {str(row["id"]): row for row in existing_rows}
-        ordered_rows = [existing_rows_by_id[user_id] for user_id in normalized_participants]
+        ordered_rows: list[sqlite3.Row] = []
+        normalized_participants: list[str] = []
+        for reference in normalized_references:
+            resolved_user = self._resolve_participant_user_row(reference=reference)
+            if resolved_user is None:
+                raise ValueError("participant_ids contains unknown users")
+            resolved_user_id = str(resolved_user["id"])
+            if resolved_user_id in normalized_participants:
+                continue
+            normalized_participants.append(resolved_user_id)
+            ordered_rows.append(resolved_user)
         owner_ids = {str(row["owner_id"]) for row in ordered_rows}
         conversation_id = uuid4().hex
         created_at = _utc_now()
         owner_id = uuid4().hex if len(owner_ids) > 1 else next(iter(owner_ids))
         conversation_type = "direct" if len(normalized_participants) == 2 else "group"
-        # Default creator is the first participant when not explicitly provided.
-        resolved_creator_id = creator_id if creator_id else normalized_participants[0]
+        if creator_id is None:
+            resolved_creator_id = normalized_participants[0]
+        else:
+            creator_row = self._resolve_participant_user_row(reference=creator_id)
+            if creator_row is None:
+                raise ValueError("creator_id not found")
+            resolved_creator_id = str(creator_row["id"])
+            if resolved_creator_id not in normalized_participants:
+                raise ValueError("creator_id must be one of participant_ids")
         config_snapshot = self._resolve_config_snapshot(
             participant_rows=ordered_rows,
             conversation_type=conversation_type,
@@ -391,6 +401,7 @@ class ConversationRepository:
             last_message_at=None,
             config_profile_version=config_snapshot.profile_version,
             created_at=created_at,
+            participants=[self._actor_from_user_row(row) for row in ordered_rows],
         )
 
     def get_conversation(self, *, conversation_id: str) -> Conversation | None:
@@ -516,10 +527,11 @@ class ConversationRepository:
         """Convert one conversation row into a domain model with participants."""
         participant_rows = self._connection.execute(
             """
-            SELECT user_id
+            SELECT users.id, users.username, users.display_name
             FROM conversation_participants
+            JOIN users ON users.id = conversation_participants.user_id
             WHERE conversation_id = ?
-            ORDER BY rowid
+            ORDER BY conversation_participants.rowid
             """,
             (row["id"],),
         ).fetchall()
@@ -530,7 +542,7 @@ class ConversationRepository:
         return Conversation(
             id=row["id"],
             title=row["title"],
-            participant_ids=[item["user_id"] for item in participant_rows],
+            participant_ids=[str(item["id"]) for item in participant_rows],
             type=row["type"],
             owner_id=row["owner_id"],
             creator_id=creator_id,
@@ -540,17 +552,74 @@ class ConversationRepository:
             last_message_at=row["last_message_at"],
             config_profile_version=profile_version,
             created_at=row["created_at"],
+            participants=[self._actor_from_user_row(item) for item in participant_rows],
         )
+
+    def _resolve_participant_user_row(self, *, reference: str) -> sqlite3.Row | None:
+        """Resolve one participant reference into a concrete IM user row."""
+        normalized = reference.strip()
+        if not normalized:
+            return None
+        if normalized.startswith("user:"):
+            user_id = normalized[len("user:") :].strip()
+            if not user_id:
+                return None
+            return self._connection.execute(
+                "SELECT id, username, display_name, owner_id FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+        if normalized.startswith("agent:"):
+            agent_id = normalized[len("agent:") :].strip()
+            if not agent_id:
+                return None
+            return self._connection.execute(
+                "SELECT id, username, display_name, owner_id FROM users WHERE username = ?",
+                (f"agent:{agent_id}",),
+            ).fetchone()
+
+        by_id = self._connection.execute(
+            "SELECT id, username, display_name, owner_id FROM users WHERE id = ?",
+            (normalized,),
+        ).fetchone()
+        if by_id is not None:
+            return by_id
+        by_agent_username = self._connection.execute(
+            "SELECT id, username, display_name, owner_id FROM users WHERE username = ?",
+            (f"agent:{normalized}",),
+        ).fetchone()
+        if by_agent_username is not None:
+            return by_agent_username
+        return self._connection.execute(
+            "SELECT id, username, display_name, owner_id FROM users WHERE username = ?",
+            (normalized,),
+        ).fetchone()
+
+    @staticmethod
+    def _actor_from_user_row(row: sqlite3.Row) -> Actor:
+        """Convert one IM user row to actor-first identity."""
+        user_id = str(row["id"])
+        username = str(row["username"])
+        display_name = str(row["display_name"]) if row["display_name"] is not None else None
+        if username.startswith("agent:"):
+            agent_id = username[len("agent:") :].strip() or user_id
+            return Actor(type="agent", id=agent_id, display_name=display_name, user_id=user_id)
+        return Actor(type="user", id=user_id, display_name=display_name, user_id=user_id)
 
     def _resolve_config_profile_version(self, *, owner_id: str, participant_ids: list[str]) -> int | None:
         """Return the frozen profile version that a new conversation should bind to."""
         if not participant_ids:
             return None
-        placeholders = ",".join("?" for _ in participant_ids)
-        participant_rows = self._connection.execute(
-            f"SELECT id, username, owner_id FROM users WHERE id IN ({placeholders})",  # noqa: S608
-            tuple(participant_ids),
-        ).fetchall()
+        participant_rows: list[sqlite3.Row] = []
+        seen_user_ids: set[str] = set()
+        for reference in participant_ids:
+            resolved = self._resolve_participant_user_row(reference=reference)
+            if resolved is None:
+                continue
+            resolved_user_id = str(resolved["id"])
+            if resolved_user_id in seen_user_ids:
+                continue
+            participant_rows.append(resolved)
+            seen_user_ids.add(resolved_user_id)
         if not participant_rows:
             return None
         snapshot = self._resolve_config_snapshot(participant_rows=participant_rows, conversation_type="group")
@@ -652,21 +721,28 @@ class MessageRepository:
         if conversation_exists is None:
             raise ValueError("conversation_id not found")
 
-        sender_exists = self._connection.execute(
-            "SELECT owner_id FROM users WHERE id = ?",
-            (sender_user_id,),
-        ).fetchone()
-        if sender_exists is None:
+        sender_user = self._resolve_sender_user_row(
+            sender_user_id=sender_user_id,
+            sender_type=sender_type,
+        )
+        if sender_user is None:
             raise ValueError("sender_user_id not found")
+        resolved_sender_user_id = str(sender_user["id"])
+        sender_actor = self._actor_from_sender_row(
+            sender_type=sender_type,
+            sender_user_id=resolved_sender_user_id,
+            sender_username=str(sender_user["username"]),
+            sender_display_name=str(sender_user["display_name"]) if sender_user["display_name"] is not None else None,
+        )
         participant_exists = self._connection.execute(
             """
             SELECT 1
             FROM conversation_participants
             WHERE conversation_id = ? AND user_id = ?
             """,
-            (conversation_id, sender_user_id),
+            (conversation_id, resolved_sender_user_id),
         ).fetchone()
-        if participant_exists is None and str(sender_exists["owner_id"]) != str(conversation_exists["owner_id"]):
+        if participant_exists is None and str(sender_user["owner_id"]) != str(conversation_exists["owner_id"]):
             raise ValueError("sender_user_id is outside conversation owner scope")
 
 
@@ -682,8 +758,9 @@ class MessageRepository:
         sent_payload = {
             "conversation_id": conversation_id,
             "message_id": message_id,
-            "sender_user_id": sender_user_id,
+            "sender_user_id": resolved_sender_user_id,
             "sender_type": sender_type,
+            "sender": {"type": sender_actor.type, "id": sender_actor.id},
             "attachments": event_attachments,
             "progress_state": "pending",
             "semantic": "persisted_to_im",
@@ -705,7 +782,7 @@ class MessageRepository:
                 (
                     message_id,
                     conversation_id,
-                    sender_user_id,
+                    resolved_sender_user_id,
                     sender_type,
                     content,
                     attachments_json,
@@ -745,8 +822,9 @@ class MessageRepository:
         return Message(
             id=message_id,
             conversation_id=conversation_id,
-            sender_user_id=sender_user_id,
+            sender_user_id=resolved_sender_user_id,
             sender_type=sender_type,
+            sender=sender_actor,
             content=content,
             attachments=normalized_attachments,
             delivery_status=final_status,
@@ -785,10 +863,21 @@ class MessageRepository:
         params.append(bounded_limit)
         rows = self._connection.execute(
             f"""
-            SELECT id, conversation_id, sender_user_id, sender_type, content, attachments_json, delivery_status, created_at
+            SELECT
+                messages.id,
+                messages.conversation_id,
+                messages.sender_user_id,
+                messages.sender_type,
+                messages.content,
+                messages.attachments_json,
+                messages.delivery_status,
+                messages.created_at,
+                users.username AS sender_username,
+                users.display_name AS sender_display_name
             FROM messages
+            LEFT JOIN users ON users.id = messages.sender_user_id
             WHERE conversation_id = ?{cursor_clause}
-            ORDER BY rowid DESC
+            ORDER BY messages.rowid DESC
             LIMIT ?
             """,
             tuple(params),
@@ -800,6 +889,14 @@ class MessageRepository:
                 conversation_id=row["conversation_id"],
                 sender_user_id=row["sender_user_id"],
                 sender_type=row["sender_type"],
+                sender=self._actor_from_sender_row(
+                    sender_type=str(row["sender_type"]),
+                    sender_user_id=str(row["sender_user_id"]),
+                    sender_username=str(row["sender_username"]) if row["sender_username"] is not None else None,
+                    sender_display_name=(
+                        str(row["sender_display_name"]) if row["sender_display_name"] is not None else None
+                    ),
+                ),
                 content=row["content"],
                 attachments=_decode_attachments(row["attachments_json"]),
                 delivery_status=row["delivery_status"],
@@ -807,6 +904,50 @@ class MessageRepository:
             )
             for row in ordered_rows
         ]
+
+    def _resolve_sender_user_row(self, *, sender_user_id: str, sender_type: str) -> sqlite3.Row | None:
+        """Resolve sender identity by stable actor id to concrete IM user row."""
+        normalized_sender = sender_user_id.strip()
+        if not normalized_sender:
+            return None
+        if normalized_sender.startswith("user:"):
+            normalized_sender = normalized_sender[len("user:") :].strip()
+            if not normalized_sender:
+                return None
+        if sender_type == "agent" and normalized_sender.startswith("agent:"):
+            normalized_sender = normalized_sender[len("agent:") :].strip()
+            if not normalized_sender:
+                return None
+
+        by_id = self._connection.execute(
+            "SELECT id, username, display_name, owner_id FROM users WHERE id = ?",
+            (normalized_sender,),
+        ).fetchone()
+        if by_id is not None:
+            return by_id
+        if sender_type == "agent":
+            return self._connection.execute(
+                "SELECT id, username, display_name, owner_id FROM users WHERE username = ?",
+                (f"agent:{normalized_sender}",),
+            ).fetchone()
+        return self._connection.execute(
+            "SELECT id, username, display_name, owner_id FROM users WHERE username = ?",
+            (normalized_sender,),
+        ).fetchone()
+
+    @staticmethod
+    def _actor_from_sender_row(
+        *,
+        sender_type: str,
+        sender_user_id: str,
+        sender_username: str | None,
+        sender_display_name: str | None,
+    ) -> Actor:
+        """Build actor-first sender identity from message row and user metadata."""
+        if sender_type == "agent" and sender_username is not None and sender_username.startswith("agent:"):
+            actor_id = sender_username[len("agent:") :].strip() or sender_user_id
+            return Actor(type="agent", id=actor_id, display_name=sender_display_name, user_id=sender_user_id)
+        return Actor(type=sender_type, id=sender_user_id, display_name=sender_display_name, user_id=sender_user_id)
 
     def _insert_event(
         self,

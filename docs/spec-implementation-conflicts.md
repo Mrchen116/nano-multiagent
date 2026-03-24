@@ -12,6 +12,31 @@
 - 本文档只记录冲突/偏差，不给出实现方案。
 - 以“新的 SPEC 设计”为准，不考虑后向兼容。
 
+## 0. 状态更新（M301，2026-03-24）
+
+以下冲突已由 M301 后端改造关闭，不再视为“当前冲突”：
+
+- IM domain 已补 Actor-first 结构：
+  - `Conversation.participants(actor[])`
+  - `Message.sender(actor)`
+  - `Conversation.direct_kind`（user-agent / agent-agent 等 direct 子语义）
+  - 相关文件：`src/IM/domain/models.py`
+
+- HTTP API 已提供 Actor-first 主语义并兼容旧字段输入：
+  - 会话 API：新增 `participants`，并返回 `direct_kind`
+  - 消息 API：新增 `sender`
+  - 相关文件：`src/IM/api/routes/web_im.py`、`src/IM/api/routes/messages.py`
+
+- Repository 边界已支持 actor 标识归一化：
+  - participant 支持 `user:<id>` / `agent:<id>` 解析
+  - sender 支持 agent actor id 解析并写回 sender(actor) 语义
+  - 相关文件：`src/IM/infra/repositories.py`
+
+- `send_message` 工具契约文案已对齐 `to=user_id/agent_id/conversation_id`：
+  - 相关文件：`src/agent/products/personal_assistant/tools/send_message.py`
+
+> 说明：本次仅更新后端职责范围。Gateway internal dispatch 的目标分类校验、前端语义与提示词相关冲突仍保留在下文。
+
 ## 1. IM 服务
 
 - **Actor-first 模型未落地到核心 domain**

@@ -27,12 +27,18 @@ class SendMessageTool:
     """
 
     name = "send_message"
-    description = "Send a message to another agent or group via the gateway IM routing layer."
+    description = (
+        "Send a message via the gateway IM routing layer. "
+        "`to` accepts stable business ids: user_id, agent_id, or conversation_id."
+    )
     input_schema = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Message body to send."},
-            "to": {"type": "string", "description": "Target agent id or group id."},
+            "to": {
+                "type": "string",
+                "description": "Target stable id: user_id, agent_id, or conversation_id.",
+            },
         },
         "required": ["text", "to"],
         "additionalProperties": False,

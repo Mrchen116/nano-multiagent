@@ -50,6 +50,29 @@ class Attachment:
 
 
 @dataclass(frozen=True, slots=True)
+class Actor:
+    """Represent one stable actor identity used by IM APIs."""
+
+    type: str
+    id: str
+    display_name: str | None = None
+    user_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.type not in {"user", "agent", "system"}:
+            raise ValueError("actor.type must be one of: user, agent, system")
+        if not self.id.strip():
+            raise ValueError("actor.id must be non-empty")
+        if self.user_id is not None and not self.user_id.strip():
+            raise ValueError("actor.user_id must be non-empty when provided")
+
+    @property
+    def agent_id(self) -> str | None:
+        """Return the stable agent id when this actor is an agent."""
+        return self.id if self.type == "agent" else None
+
+
+@dataclass(frozen=True, slots=True)
 class User:
     """Represent a human chat user persisted in IM storage."""
 
@@ -108,6 +131,33 @@ class Conversation:
     last_message_at: str | None
     config_profile_version: int | None
     created_at: str
+    participants: list[Actor] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.participants:
+            return
+        object.__setattr__(
+            self,
+            "participants",
+            [
+                Actor(type="user", id=participant_id, user_id=participant_id)
+                for participant_id in self.participant_ids
+            ],
+        )
+
+    @property
+    def direct_kind(self) -> str | None:
+        """Return direct conversation subtype when ``type`` is direct."""
+        if self.type != "direct" or len(self.participants) != 2:
+            return None
+        participant_types = {item.type for item in self.participants}
+        if participant_types == {"agent"}:
+            return "agent-agent"
+        if participant_types == {"agent", "user"}:
+            return "user-agent"
+        if participant_types == {"user"}:
+            return "user-user"
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,9 +169,22 @@ class Message:
     sender_user_id: str
     sender_type: str
     content: str
+    sender: Actor | None = None
     attachments: list[Attachment] = field(default_factory=list)
     delivery_status: str = "completed"
     created_at: str = ""
+
+    def __post_init__(self) -> None:
+        if self.sender is None:
+            object.__setattr__(
+                self,
+                "sender",
+                Actor(
+                    type=self.sender_type,
+                    id=self.sender_user_id,
+                    user_id=self.sender_user_id,
+                ),
+            )
 
 
 @dataclass(frozen=True, slots=True)

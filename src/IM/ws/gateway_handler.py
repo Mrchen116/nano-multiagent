@@ -12,7 +12,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
-from IM.domain.models import Message, managed_workspace_root
+from IM.domain.models import Actor, Message, managed_workspace_root
 from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, NodeRepository, UserRepository
 
 
@@ -329,7 +329,11 @@ class GatewayHandler:
         conversation = self._conversation_repository.get_conversation(conversation_id=task.conversation_id)
         if conversation is None:
             return
-        participant_ids = conversation.participant_ids
+        participant_ids = [
+            item.user_id or item.id
+            for item in conversation.participants
+            if (item.user_id or item.id).strip()
+        ] or conversation.participant_ids
         if not participant_ids:
             return
         placeholders = ",".join("?" for _ in participant_ids)
@@ -362,6 +366,12 @@ class GatewayHandler:
             conversation_id=task.conversation_id,
             sender_user_id=sender_user_id,
             sender_type="agent",
+            sender=Actor(
+                type="agent",
+                id=source_agent_id,
+                display_name=sender_display_name,
+                user_id=sender_user_id,
+            ),
             content=context_text,
             attachments=[],
             delivery_status="completed",

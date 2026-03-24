@@ -1,6 +1,6 @@
 """Conversation routes for IM HTTP APIs."""
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from IM.api.deps import get_web_im_service
 from IM.application.web_im_service import WebIMService
@@ -9,11 +9,30 @@ from IM.domain.models import Conversation
 router = APIRouter(tags=["web-im"])
 
 
+class ActorPayload(BaseModel):
+    """Actor-first identity payload used by IM HTTP APIs."""
+
+    type: str = Field(min_length=1)
+    id: str = Field(min_length=1)
+    display_name: str | None = None
+
+
 class CreateConversationRequest(BaseModel):
     """Request payload for creating a conversation."""
 
     title: str = Field(min_length=1)
-    participant_ids: list[str] = Field(min_length=1)
+    participants: list["ActorPayload"] | None = None
+    participant_ids: list[str] | None = None
+
+    @model_validator(mode="after")
+    def validate_participants(self) -> "CreateConversationRequest":
+        if self.participants is None and self.participant_ids is None:
+            raise ValueError("participants or participant_ids is required")
+        if self.participants is not None and len(self.participants) == 0:
+            raise ValueError("participants must contain at least one actor")
+        if self.participant_ids is not None and len(self.participant_ids) == 0:
+            raise ValueError("participant_ids must contain at least one id")
+        return self
 
 
 class UpdateConversationRequest(BaseModel):
@@ -29,8 +48,10 @@ class ConversationResponse(BaseModel):
 
     id: str
     title: str
+    participants: list["ActorPayload"]
     participant_ids: list[str]
     type: str
+    direct_kind: str | None
     owner_id: str
     creator_id: str
     is_pinned: bool
@@ -52,8 +73,17 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
     return ConversationResponse(
         id=conversation.id,
         title=conversation.title,
+        participants=[
+            ActorPayload(
+                type=item.type,
+                id=item.id,
+                display_name=item.display_name,
+            )
+            for item in conversation.participants
+        ],
         participant_ids=conversation.participant_ids,
         type=conversation.type,
+        direct_kind=conversation.direct_kind,
         owner_id=conversation.owner_id,
         creator_id=conversation.creator_id,
         is_pinned=conversation.is_pinned,
@@ -76,9 +106,10 @@ def create_conversation(
 ) -> ConversationResponse:
     """Create a conversation with validated participants."""
     try:
+        participant_refs = _resolve_create_conversation_participants(payload)
         created = service.create_conversation(
             title=payload.title,
-            participant_ids=payload.participant_ids,
+            participant_ids=participant_refs,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -179,3 +210,21 @@ def leave_conversation(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+def _resolve_create_conversation_participants(payload: CreateConversationRequest) -> list[str]:
+    """Normalize actor-first participants to repository-compatible references."""
+    if payload.participants is not None:
+        references: list[str] = []
+        for actor in payload.participants:
+            normalized_actor_type = actor.type.strip().lower()
+            if normalized_actor_type == "agent":
+                references.append(f"agent:{actor.id.strip()}")
+                continue
+            if normalized_actor_type == "user":
+                references.append(f"user:{actor.id.strip()}")
+                continue
+            raise ValueError("participants.type must be one of: user, agent")
+        return references
+    assert payload.participant_ids is not None
+    return [item.strip() for item in payload.participant_ids if item.strip()]

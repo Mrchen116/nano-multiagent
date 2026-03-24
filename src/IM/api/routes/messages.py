@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from IM.api.deps import assert_conversation_exists, get_event_service, get_gateway_handler, get_web_im_service
 from IM.application.event_service import EventService
@@ -27,14 +27,29 @@ class AttachmentPayload(BaseModel):
     file_name: str | None = None
 
 
+class ActorPayload(BaseModel):
+    """Actor-first identity payload used by message APIs."""
+
+    type: str = Field(min_length=1)
+    id: str = Field(min_length=1)
+    display_name: str | None = None
+
+
 class CreateMessageRequest(BaseModel):
     """Request payload for creating a message."""
 
-    sender_user_id: str = Field(min_length=1)
-    sender_type: str = Field(default="user")
+    sender: ActorPayload | None = None
+    sender_user_id: str | None = None
+    sender_type: str | None = Field(default="user")
     content: str = Field(default="")
     attachments: list[AttachmentPayload] = Field(default_factory=list)
     target_node_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_sender(self) -> "CreateMessageRequest":
+        if self.sender is None and self.sender_user_id is None:
+            raise ValueError("sender or sender_user_id is required")
+        return self
 
 
 class MessageResponse(BaseModel):
@@ -42,6 +57,7 @@ class MessageResponse(BaseModel):
 
     id: str
     conversation_id: str
+    sender: ActorPayload
     sender_user_id: str
     sender_type: str
     content: str
@@ -70,6 +86,11 @@ def to_message_response(message: Message) -> MessageResponse:
     return MessageResponse(
         id=message.id,
         conversation_id=message.conversation_id,
+        sender=ActorPayload(
+            type=message.sender.type if message.sender is not None else message.sender_type,
+            id=message.sender.id if message.sender is not None else message.sender_user_id,
+            display_name=message.sender.display_name if message.sender is not None else None,
+        ),
         sender_user_id=message.sender_user_id,
         sender_type=message.sender_type,
         content=message.content,
@@ -170,15 +191,16 @@ async def create_message(
 ) -> MessageResponse:
     """Create a message in a conversation and optionally relay it to one gateway."""
     assert_conversation_exists(request, conversation_id=conversation_id)
-    resolved_target_node_id = payload.target_node_id or service.resolve_target_node_id(
-        conversation_id=conversation_id,
-        content=payload.content,
-    )
     try:
+        sender_user_id, sender_type = _resolve_create_message_sender(payload)
+        resolved_target_node_id = payload.target_node_id or service.resolve_target_node_id(
+            conversation_id=conversation_id,
+            content=payload.content,
+        )
         created = service.create_message(
             conversation_id=conversation_id,
-            sender_user_id=payload.sender_user_id,
-            sender_type=payload.sender_type,
+            sender_user_id=sender_user_id,
+            sender_type=sender_type,
             content=payload.content,
             attachments=[
                 Attachment(
@@ -198,7 +220,7 @@ async def create_message(
             message=created,
             target_node_id=resolved_target_node_id,
             idempotency_key_base=idempotency_key_base,
-            sender_user_id=payload.sender_user_id,
+            sender_user_id=created.sender_user_id,
         )
         # Push each relay independently: one offline agent must not block others.
         any_dispatched = False
@@ -319,3 +341,20 @@ def map_message_write_error(exc: ValueError) -> HTTPException:
     }:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+
+def _resolve_create_message_sender(payload: CreateMessageRequest) -> tuple[str, str]:
+    """Normalize actor-first sender payload to repository-compatible sender identifiers."""
+    if payload.sender is not None:
+        sender_type = payload.sender.type.strip().lower()
+        sender_id = payload.sender.id.strip()
+        if sender_type not in {"user", "agent", "system"}:
+            raise ValueError("sender.type must be one of: user, agent, system")
+        if sender_type == "agent":
+            return (f"agent:{sender_id}", sender_type)
+        if sender_type == "user":
+            return (f"user:{sender_id}", sender_type)
+        return (sender_id, sender_type)
+    assert payload.sender_user_id is not None
+    legacy_sender_type = (payload.sender_type or "user").strip().lower()
+    return (payload.sender_user_id.strip(), legacy_sender_type)

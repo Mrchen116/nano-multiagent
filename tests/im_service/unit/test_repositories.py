@@ -55,6 +55,7 @@ def test_user_and_conversation_roundtrip(tmp_path: Path) -> None:
     assert len(items) == 1
     assert items[0].id == created.id
     assert set(items[0].participant_ids) == {alice.id, bob.id}
+    assert [item.type for item in items[0].participants] == ["user", "user"]
 
 
 def test_message_roundtrip_keeps_order(tmp_path: Path) -> None:
@@ -253,6 +254,53 @@ def test_direct_conversation_with_agent_alias_freezes_prompt_snapshot(tmp_path: 
     assert snapshot_row["config_agent_id"] == "agent-1"
     assert snapshot_row["config_profile_version"] == 1
     assert snapshot_row["config_system_prompt"] == "You are Alpha."
+
+
+def test_create_conversation_accepts_actor_references(tmp_path: Path) -> None:
+    """Accept actor-style participant references (`user:`/`agent:`) at repository boundary."""
+    users, conversations, _, _, _, _ = _build_repositories(tmp_path)
+    owner = users.create_user(username="owner", display_name="Owner")
+    agent_alias = users.create_user(username="agent:agent-q", display_name="Q")
+
+    created = conversations.create_conversation(
+        title="actor refs",
+        participant_ids=[f"user:{owner.id}", "agent:agent-q"],
+    )
+    stored = conversations.get_conversation(conversation_id=created.id)
+
+    assert stored is not None
+    assert stored.type == "direct"
+    assert stored.direct_kind == "user-agent"
+    assert [item.type for item in stored.participants] == ["user", "agent"]
+    assert [item.id for item in stored.participants] == [owner.id, "agent-q"]
+
+
+def test_create_message_accepts_agent_actor_sender_id(tmp_path: Path) -> None:
+    """Accept agent sender ids and expose sender(actor) in returned message model."""
+    users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
+    owner = users.create_user(username="owner", display_name="Owner")
+    agent_alias = users.create_user(username="agent:A", display_name="A")
+    conversation = conversations.create_conversation(
+        title="agent direct",
+        participant_ids=[owner.id, agent_alias.id],
+    )
+
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id="agent:A",
+        sender_type="agent",
+        content="ack",
+    )
+    listed = messages.list_messages(conversation_id=conversation.id)
+
+    assert created.sender_user_id == agent_alias.id
+    assert created.sender is not None
+    assert created.sender.type == "agent"
+    assert created.sender.id == "A"
+    assert len(listed) == 1
+    assert listed[0].sender is not None
+    assert listed[0].sender.type == "agent"
+    assert listed[0].sender.id == "A"
 
 
 def test_user_nodes_and_bind_roundtrip(tmp_path: Path) -> None:
