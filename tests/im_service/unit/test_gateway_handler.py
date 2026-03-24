@@ -435,3 +435,53 @@ def test_handle_agent_message_returns_error_for_invalid_source(tmp_path: Path) -
     assert response is not None
     assert response["type"] == "error"
     assert response["payload"]["code"] == "invalid_agent_message"
+
+
+def test_handle_agent_message_deduplicates_same_dispatch_request(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    users = UserRepository(connection)
+    conversations = ConversationRepository(connection)
+    messages_repo = MessageRepository(connection)
+    handler = GatewayHandler(
+        relay_service=RelayService(connection),
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+        conversation_repository=conversations,
+    )
+    websocket = StubWebSocket()
+    source_agent = users.create_user(username="agent:A", display_name="Agent A")
+    target_agent = users.create_user(username="agent:B", display_name="Agent B")
+
+    payload = {
+        "from_session_id": "A|tool_call:tool-call-1",
+        "to": "agent:B",
+        "text": "hello B",
+    }
+    first = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="agent.message",
+            payload=payload,
+        )
+    )
+    second = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="agent.message",
+            payload=payload,
+        )
+    )
+
+    assert first is not None and second is not None
+    assert first["type"] == "ack"
+    assert second["type"] == "ack"
+    assert first["payload"]["message_id"] == second["payload"]["message_id"]
+    assert first["payload"]["conversation_id"] == second["payload"]["conversation_id"]
+    landed = conversations.get_conversation(conversation_id=str(first["payload"]["conversation_id"]))
+    assert landed is not None
+    assert landed.type == "direct"
+    assert landed.direct_kind == "agent-agent"
+    assert set(landed.participant_ids) == {source_agent.id, target_agent.id}
+    messages = messages_repo.list_messages(conversation_id=landed.id)
+    assert len(messages) == 1
+    assert messages[0].content == "hello B"
