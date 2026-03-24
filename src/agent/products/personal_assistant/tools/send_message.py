@@ -7,6 +7,7 @@ the message via an HTTP POST.  No module-level singleton, no bind_dispatcher.
 from __future__ import annotations
 
 from typing import Any, Mapping
+from uuid import uuid4
 
 import httpx
 
@@ -79,18 +80,38 @@ class SendMessageTool:
         else:
             dispatch_source = ctx.session_id
 
+        dispatch_request_id: str | None = None
+        if isinstance(ctx.tool_call_id, str) and ctx.tool_call_id.strip():
+            dispatch_request_id = ctx.tool_call_id.strip()
+        else:
+            dispatch_request_id = uuid4().hex
+        if isinstance(dispatch_source, str) and dispatch_source.strip() and dispatch_request_id:
+            dispatch_source = f"{dispatch_source.strip()}|tool_call:{dispatch_request_id}"
+
         payload: dict[str, Any] = {
             "text": text,
             "to": target,
             "from_session_id": dispatch_source,
         }
-        response = httpx.post(dispatch_url.strip(), json=payload, timeout=10.0)
-        response.raise_for_status()
+        timeout = httpx.Timeout(connect=3.0, write=10.0, read=None, pool=3.0)
+        response = httpx.post(dispatch_url.strip(), json=payload, timeout=timeout)
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise RuntimeError("send_message: gateway dispatch returned non-JSON response") from exc
+        if not isinstance(body, Mapping):
+            raise RuntimeError("send_message: gateway dispatch returned non-object response")
+        if response.status_code >= 400 or body.get("ok") is not True:
+            error = body.get("error")
+            if isinstance(error, str) and error.strip():
+                raise RuntimeError(f"send_message: {error.strip()}")
+            raise RuntimeError(f"send_message: gateway dispatch failed with status {response.status_code}")
 
         return {
             "ok": True,
             "target": target,
             "text": text,
+            "dispatch_request_id": dispatch_request_id,
         }
 
 

@@ -65,9 +65,11 @@ class GatewayHandler:
         self._user_repository = UserRepository(conversation_repository._connection) if conversation_repository is not None else None
         self._message_repository = MessageRepository(conversation_repository._connection) if conversation_repository is not None else None
         self._lock = asyncio.Lock()
+        self._agent_message_lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
         self._reports: list[dict[str, object]] = []
         self._agent_config_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        self._ensure_agent_message_dispatch_table()
 
     async def serve(self, websocket: WebSocket) -> None:
         """Accept one websocket and process gateway protocol frames until disconnect."""
@@ -458,18 +460,57 @@ class GatewayHandler:
             text = _require_text(payload.get("text"), field_name="text").strip()
             target = _require_text(payload.get("to"), field_name="to").strip()
             source_raw = _require_text(payload.get("from_session_id"), field_name="from_session_id").strip()
-            source_agent_id = self._resolve_source_agent_id_from_dispatch(source_raw=source_raw)
+            source_agent_id, dispatch_request_id = self._resolve_dispatch_source_from_session_id(source_raw=source_raw)
             resolved_target, conversation_id = self.resolve_send_message_target(
                 source_agent_id=source_agent_id,
                 target=target,
             )
-            sender_user_id = self._require_user_id_by_username(username=f"agent:{source_agent_id}")
-            message = self._message_repository.create_message(
-                conversation_id=conversation_id,
-                sender_user_id=sender_user_id,
-                sender_type="agent",
-                content=text,
+            dispatch_request_key = (
+                f"{source_agent_id}:{dispatch_request_id}" if dispatch_request_id is not None else None
             )
+            existing = (
+                self._find_dispatched_agent_message(dispatch_request_key=dispatch_request_key)
+                if dispatch_request_key is not None
+                else None
+            )
+            if existing is None:
+                async with self._agent_message_lock:
+                    existing = (
+                        self._find_dispatched_agent_message(dispatch_request_key=dispatch_request_key)
+                        if dispatch_request_key is not None
+                        else None
+                    )
+                    if existing is None:
+                        sender_user_id = self._require_user_id_by_username(username=f"agent:{source_agent_id}")
+                        message = self._message_repository.create_message(
+                            conversation_id=conversation_id,
+                            sender_user_id=sender_user_id,
+                            sender_type="agent",
+                            content=text,
+                        )
+                        if dispatch_request_key is not None:
+                            self._record_dispatched_agent_message(
+                                dispatch_request_key=dispatch_request_key,
+                                source_agent_id=source_agent_id,
+                                target_kind=resolved_target.kind,
+                                target_id=resolved_target.id,
+                                conversation_id=conversation_id,
+                                message_id=message.id,
+                            )
+                    else:
+                        conversation_id = existing["conversation_id"]
+                        resolved_target = DispatchTarget(
+                            kind=existing["target_kind"],
+                            id=existing["target_id"],
+                        )
+                        message_id = existing["message_id"]
+            else:
+                conversation_id = existing["conversation_id"]
+                resolved_target = DispatchTarget(
+                    kind=existing["target_kind"],
+                    id=existing["target_id"],
+                )
+                message_id = existing["message_id"]
         except ValueError as exc:
             return {
                 "type": "error",
@@ -487,12 +528,14 @@ class GatewayHandler:
                 },
             }
 
+        if existing is None:
+            message_id = message.id
         return {
             "type": "ack",
             "payload": {
                 "message_type": "agent.message",
                 "conversation_id": conversation_id,
-                "message_id": message.id,
+                "message_id": message_id,
                 "target_kind": resolved_target.kind,
                 "target_id": resolved_target.id,
                 "source_agent_id": source_agent_id,
@@ -502,12 +545,85 @@ class GatewayHandler:
     @staticmethod
     def _resolve_source_agent_id_from_dispatch(*, source_raw: str) -> str:
         """Resolve source agent id forwarded in dispatch payload."""
+        source_agent_id, _ = GatewayHandler._resolve_dispatch_source_from_session_id(source_raw=source_raw)
+        return source_agent_id
+
+    @staticmethod
+    def _resolve_dispatch_source_from_session_id(*, source_raw: str) -> tuple[str, str | None]:
+        """Resolve source agent id and optional dispatch request id from one source payload."""
         normalized = source_raw.strip()
         if normalized.startswith("agent:"):
             normalized = normalized[len("agent:") :].strip()
+        dispatch_request_id = None
+        if "|tool_call:" in normalized:
+            source_part, dispatch_part = normalized.split("|tool_call:", 1)
+            normalized = source_part.strip()
+            dispatch_request_id = dispatch_part.strip() or None
+            if dispatch_request_id is None:
+                raise ValueError("from_session_id tool_call suffix must be non-empty")
         if not normalized:
             raise ValueError("from_session_id must carry source agent id")
-        return normalized
+        return (normalized, dispatch_request_id)
+
+    def _ensure_agent_message_dispatch_table(self) -> None:
+        if self._conversation_repository is None:
+            return
+        self._conversation_repository._connection.execute(  # noqa: SLF001
+            """
+            CREATE TABLE IF NOT EXISTS agent_message_dispatch_log (
+                dispatch_request_key TEXT PRIMARY KEY,
+                source_agent_id TEXT NOT NULL,
+                target_kind TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        self._conversation_repository._connection.commit()  # noqa: SLF001
+
+    def _find_dispatched_agent_message(self, *, dispatch_request_key: str | None) -> dict[str, str] | None:
+        if dispatch_request_key is None or self._conversation_repository is None:
+            return None
+        row = self._conversation_repository._connection.execute(  # noqa: SLF001
+            """
+            SELECT target_kind, target_id, conversation_id, message_id
+            FROM agent_message_dispatch_log
+            WHERE dispatch_request_key = ?
+            """,
+            (dispatch_request_key,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "target_kind": str(row["target_kind"]),
+            "target_id": str(row["target_id"]),
+            "conversation_id": str(row["conversation_id"]),
+            "message_id": str(row["message_id"]),
+        }
+
+    def _record_dispatched_agent_message(
+        self,
+        *,
+        dispatch_request_key: str,
+        source_agent_id: str,
+        target_kind: str,
+        target_id: str,
+        conversation_id: str,
+        message_id: str,
+    ) -> None:
+        if self._conversation_repository is None:
+            return
+        self._conversation_repository._connection.execute(  # noqa: SLF001
+            """
+            INSERT INTO agent_message_dispatch_log(
+                dispatch_request_key, source_agent_id, target_kind, target_id, conversation_id, message_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (dispatch_request_key, source_agent_id, target_kind, target_id, conversation_id, message_id),
+        )
+        self._conversation_repository._connection.commit()  # noqa: SLF001
 
     def resolve_send_message_target(
         self,
