@@ -144,10 +144,12 @@ function toParticipantIdentityTag(participant: ImActorRef): string {
   return `id:${participant.id}`;
 }
 
+function toParticipantIdentityLabel(participant: ImActorRef): string {
+  return `${toParticipantDisplayName(participant)} (${toParticipantIdentityTag(participant)})`;
+}
+
 function toMentionCandidateLabel(participant: ImActorRef): string {
-  const display = toParticipantDisplayName(participant);
-  const identity = toParticipantIdentityTag(participant);
-  return `${display} (${identity})`;
+  return toParticipantIdentityLabel(participant);
 }
 
 function toMentionCandidates(input: {
@@ -570,6 +572,16 @@ function formatIdentityList(items: string[]): string {
   return `${items.slice(0, 3).join(", ")} +${items.length - 3}`;
 }
 
+function toConversationParticipantLabels(input: {
+  participants: ImActorRef[];
+  conversationKind: ConversationKind;
+}): string[] {
+  if (input.conversationKind === "group" || input.conversationKind === "agent-network") {
+    return input.participants.map((participant) => toParticipantIdentityLabel(participant));
+  }
+  return input.participants.map((participant) => toParticipantDisplayName(participant));
+}
+
 function buildParticipantDiscoverabilityHint(input: {
   conversationKind: ConversationKind;
   participants: ImActorRef[];
@@ -577,10 +589,10 @@ function buildParticipantDiscoverabilityHint(input: {
 }): string | undefined {
   const agentIdentities = input.participants
     .filter((item) => item.type === "agent")
-    .map((item) => toParticipantIdentityTag(item));
+    .map((item) => toParticipantIdentityLabel(item));
   const userIdentities = input.participants
     .filter((item) => item.type === "user")
-    .map((item) => toParticipantIdentityTag(item));
+    .map((item) => toParticipantIdentityLabel(item));
   if (input.conversationKind === "group") {
     const summary = [
       userIdentities.length > 0 ? `users: ${formatIdentityList(userIdentities)}` : "",
@@ -592,7 +604,7 @@ function buildParticipantDiscoverabilityHint(input: {
       return input.baseHint;
     }
     const base = input.baseHint ? `${input.baseHint} ` : "";
-    return `${base}Participants — ${summary}. Mentionable targets use agent_id.`;
+    return `${base}Participants — ${summary}. Mentions currently target agents (agent_id).`;
   }
   if (input.conversationKind === "agent-network" && agentIdentities.length > 0) {
     const base = input.baseHint ? `${input.baseHint} ` : "";
@@ -1111,7 +1123,10 @@ function toConversationSummary(input: {
     last_message_at: latest?.created_at,
     unread_count: unreadCount,
     kind: conversationKind,
-    participants: participants.map((participant) => toParticipantDisplayName(participant)),
+    participants: toConversationParticipantLabels({
+      participants,
+      conversationKind
+    }),
     node_label: input.ownership.nodeLabel ?? undefined,
     node_status: input.ownership.nodeStatus ?? undefined,
     agent_label: input.ownership.agentLabel ?? undefined,

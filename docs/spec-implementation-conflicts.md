@@ -40,11 +40,6 @@
 - direct 复用已按 `direct_kind` 语义区分 `agent-agent` 与 `user-agent`
 - 已补充对应 gateway handler 测试
 
-### M307：`/internal/dispatch` 端到端接线收敛
-- IM Gateway 已支持 `agent.message` 入站处理，按 `to=user_id|agent_id|conversation_id` 分类落点并持久化消息
-- `send_message` 工具发送时优先透传 `agent_id` 到 `from_session_id`，使 dispatch 链路可稳定识别发起 agent
-- 相关测试已覆盖 `agent.message` 的 user/direct 落点与无效来源错误路径
-
 ### M305：前端发现与 mention 收敛
 - mention 候选已增强为稳定标识展示：候选 label 显式包含 `agent_id`，并保持排序/去重
 - group / agent-network 场景下，discoverability hint 已附带 `user_id` / `agent_id` 摘要
@@ -58,10 +53,21 @@
   - 需要“会话内可见 + 会话外投递”时：先会话内回复，再调用 `send_message`
 - 上述边界已同步到运行时 prompt、communication context hook、系统提示词文档
 
+### M307：`/internal/dispatch` 端到端接线收敛
+- IM Gateway 已支持 `agent.message` 入站处理，按 `to=user_id|agent_id|conversation_id` 分类落点并持久化消息
+- `send_message` 工具发送时优先透传 `agent_id` 到 `from_session_id`，使 dispatch 链路可稳定识别发起 agent
+- 相关测试已覆盖 `agent.message` 的 user/direct 落点与无效来源错误路径
+
+### M308：前端完整身份可见性收敛（discoverability）
+- 会话参与者摘要在 `group` / `agent-network` 场景改为显示完整身份：`display_name + user_id/agent_id`
+- 会话 discoverability hint 显式展示用户与 agent 身份摘要，不再只偏向 agent 语义
+- 会话列表卡片新增 discoverability hint 展示，身份语义对用户可见
+- mention 候选仍按当前产品策略只支持 agent 目标，但文案已明确“用户身份可见、mention 目标为 agent_id”
+
 ## 1. 当前剩余冲突
 
-- **前端群聊 mention 候选仍偏 agent，不是完整 user+agent identity 视图**
-  - 当前 mention 候选已增强 `agent_id` 标识，但仍主要围绕 agent 候选，而不是完整覆盖群聊中的 user/agent 参与者标识视图。
+- **前端群聊 mention 动作仍是 agent-only，而不是完整 user+agent selectable target**
+  - 当前会话与列表 discoverability 已展示完整 user+agent 身份，但 mention 动作本身仍按现有产品策略仅面向 agent（`agent_id`）。
 
 - **UI 的 agent-agent direct 发现规则仍可继续增强**
   - 当前已完成显式分组展示；若要做到更强 discoverability（置顶/过滤/独立入口），仍需后续产品化细化。
@@ -75,7 +81,7 @@
 - agent-agent 单聊对用户可发现、可查看
 - 一期群聊上下文注入应注入当前群聊中的用户与 Agent 参与者标识
 
-经过本轮 M301–M307 改造后，已完成的部分包括：
+经过本轮 M301–M308 改造后，已完成的部分包括：
 - 后端 domain / repository / API 的 actor-first 主语义
 - send_message 工具契约文案对齐
 - Gateway → session metadata → prompt context 的 actor-first 参与者注入
@@ -84,7 +90,8 @@
 - `/internal/dispatch` 到 Gateway 目标分类落点的端到端接线
 - 前端 discoverability / mention 的一轮增强
 - prompt 中 direct reply 与 cross-conversation `send_message` 的边界澄清
+- 前端 `group` / `agent-network` 的完整身份可见性增强（display + user_id/agent_id）
 
 当前剩余冲突主要集中在：
-- 群聊 mention 候选是否要升级为完整 user+agent identity 视图
+- mention 动作是否要从“agent-only”升级为“user+agent 可选目标”
 - agent-agent direct 是否需要更强产品化发现入口
