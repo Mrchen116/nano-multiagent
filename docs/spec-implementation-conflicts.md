@@ -79,22 +79,32 @@
   - 群聊 mention 候选仍偏 agent-oriented，尚未扩展为完整 user+agent 标识视图
   - UI 侧尚未新增单独的 agent-agent direct 分组/发现交互
 
+### M304：Gateway send_message 目标分类与落点收敛（部分）
+
+- 已新增显式目标分类与落点解析：
+  - 分类 `conversation_id / agent_id / user_id`
+  - 为 `agent_id` / `user_id` 目标落到 direct 会话（缺失时自动创建）
+  - direct 复用按 `direct_kind` 语义区分（`agent-agent` vs `user-agent`）
+  - 相关文件：`src/IM/ws/gateway_handler.py`、`tests/im_service/unit/test_gateway_handler.py`
+
+- 当前仍未闭环的部分：
+  - `personal_assistant` 侧 `/internal/dispatch` 尚未接入该解析入口，因此“工具调用到网关落点”的端到端链路仍待后续里程碑接线。
+
 ## 1. 核心数据模型 / 路由语义
 
-- **`send_message(to=...)` 的 Gateway internal dispatch 链路仍未完整显式建模目标类型**
-  - 虽然后端 API/工具文案已对齐 `user_id / agent_id / conversation_id`，但 Gateway internal dispatch 的目标分类、校验与落点仍需继续核实是否全链路收敛。
+- **`send_message(to=...)` 的 Gateway internal dispatch 链路仍未完全端到端闭环**
+  - IM 侧已具备目标分类和会话落点解析能力；但 `personal_assistant` 的 `/internal/dispatch` 入口尚未接线到该能力，仍待后续里程碑完成全链路收敛。
 
-- **单聊落点只覆盖 agent-agent 一种 case**
-  - `src/IM/ws/gateway_handler.py:_handle_agent_message`
-    - `source_user = agent:{source_agent_id}`
-    - `target_user = agent:{target_agent_id}`
-    - `create_conversation(participant_ids=[source_user.id, target_user.id])`
-  - 未实现 agent-user 单聊和 `conversation_id` 群聊落点。
+- **单聊落点能力已补齐，但尚未接入 dispatch 入口**
+  - `src/IM/ws/gateway_handler.py:resolve_send_message_target`
+    - `agent_id` 目标：落到 `agent-agent` direct
+    - `user_id` 目标：落到 `user-agent` direct
+    - `conversation_id` 目标：直接落到指定群聊
+  - 仍需把该能力接入实际 `/internal/dispatch` 调用链。
 
-- **direct 复用语义过粗**
+- **direct 复用语义已收敛**
   - `src/IM/ws/gateway_handler.py:_find_canonical_direct_conversation`
-    - 复用规则是“任意两个 participant user_id 的 direct conversation”
-  - 没有区分 user-agent direct 和 agent-agent direct 的业务语义。
+    - 已按 `expected_direct_kind` 区分并优先复用 `user-agent` / `agent-agent` 语义一致的 direct 会话。
 
 - **`task` 子 Agent 不具备 `send_message` 能力，目前主要靠外围约定**
   - `src/IM/ws/gateway_handler.py:_resolve_source_agent_id_from_session`

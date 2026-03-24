@@ -28,6 +28,14 @@ class GatewayConnection:
     heartbeats: list[dict[str, object]]
 
 
+@dataclass(frozen=True, slots=True)
+class DispatchTarget:
+    """Represent one normalized outbound dispatch target."""
+
+    kind: str
+    id: str
+
+
 class GatewayHandler:
     """Manage gateway websocket sessions and IM relay protocol messages.
 
@@ -431,6 +439,129 @@ class GatewayHandler:
                 "agent_id": agent_id,
             },
         }
+
+    def resolve_send_message_target(
+        self,
+        *,
+        source_agent_id: str,
+        target: str,
+    ) -> tuple[DispatchTarget, str]:
+        """Resolve one send_message target into kind + landed conversation_id."""
+        if self._conversation_repository is None or self._user_repository is None:
+            raise RuntimeError("conversation_repository and user_repository must be configured")
+        source_user_id = self._require_user_id_by_username(username=f"agent:{source_agent_id}")
+        resolved_target = self._classify_dispatch_target(target=target)
+        if resolved_target.kind == "conversation_id":
+            conversation = self._conversation_repository.get_conversation(conversation_id=resolved_target.id)
+            if conversation is None:
+                raise ValueError("conversation_id not found")
+            return (resolved_target, conversation.id)
+        if resolved_target.kind == "agent_id":
+            target_user_id = self._require_user_id_by_username(username=f"agent:{resolved_target.id}")
+            landed = self._find_or_create_direct_conversation(
+                left_user_id=source_user_id,
+                right_user_id=target_user_id,
+                expected_direct_kind="agent-agent",
+            )
+            return (resolved_target, landed.id)
+        target_user_id = self._require_user_id_by_id(user_id=resolved_target.id)
+        landed = self._find_or_create_direct_conversation(
+            left_user_id=source_user_id,
+            right_user_id=target_user_id,
+            expected_direct_kind="user-agent",
+        )
+        return (resolved_target, landed.id)
+
+    def _classify_dispatch_target(self, *, target: str) -> DispatchTarget:
+        """Classify one raw target into conversation_id, agent_id, or user_id."""
+        normalized = _require_text(target, field_name="target").strip()
+        for prefix, kind in (
+            ("conversation:", "conversation_id"),
+            ("conversation_id:", "conversation_id"),
+            ("agent:", "agent_id"),
+            ("agent_id:", "agent_id"),
+            ("user:", "user_id"),
+            ("user_id:", "user_id"),
+        ):
+            if normalized.startswith(prefix):
+                resolved_id = normalized[len(prefix) :].strip()
+                if not resolved_id:
+                    raise ValueError("target id must be non-empty")
+                return DispatchTarget(kind=kind, id=resolved_id)
+
+        conversation = self._conversation_repository.get_conversation(conversation_id=normalized)
+        if conversation is not None:
+            return DispatchTarget(kind="conversation_id", id=normalized)
+        by_id = self._user_repository.get_user(user_id=normalized)
+        if by_id is not None:
+            if by_id.username.startswith("agent:"):
+                return DispatchTarget(kind="agent_id", id=by_id.username[len("agent:") :].strip() or by_id.id)
+            return DispatchTarget(kind="user_id", id=by_id.id)
+        agent_row = self._find_user_by_username(username=f"agent:{normalized}")
+        if agent_row is not None:
+            return DispatchTarget(kind="agent_id", id=normalized)
+        raise ValueError("target not found")
+
+    def _find_or_create_direct_conversation(
+        self,
+        *,
+        left_user_id: str,
+        right_user_id: str,
+        expected_direct_kind: str,
+    ):  # noqa: ANN202
+        """Resolve one canonical direct conversation, creating it when absent."""
+        existing = self._find_canonical_direct_conversation(
+            left_user_id=left_user_id,
+            right_user_id=right_user_id,
+            expected_direct_kind=expected_direct_kind,
+        )
+        if existing is not None:
+            return existing
+        return self._conversation_repository.create_conversation(
+            title="Direct conversation",
+            participant_ids=[left_user_id, right_user_id],
+            creator_id=left_user_id,
+        )
+
+    def _find_canonical_direct_conversation(
+        self,
+        *,
+        left_user_id: str,
+        right_user_id: str,
+        expected_direct_kind: str,
+    ):  # noqa: ANN202
+        """Return the canonical direct conversation for one participant pair."""
+        pair = {left_user_id, right_user_id}
+        direct_candidates = [
+            item
+            for item in self._conversation_repository.list_conversations()
+            if item.type == "direct" and len(item.participant_ids) == 2 and set(item.participant_ids) == pair
+        ]
+        kind_matches = [item for item in direct_candidates if item.direct_kind == expected_direct_kind]
+        candidates = kind_matches or direct_candidates
+        if not candidates:
+            return None
+        return sorted(candidates, key=lambda item: (item.created_at, item.id))[0]
+
+    def _find_user_by_username(self, *, username: str):  # noqa: ANN202
+        if self._user_repository is None:
+            return None
+        return self._conversation_repository._connection.execute(  # noqa: SLF001
+            "SELECT id, username, display_name, owner_id FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+
+    def _require_user_id_by_username(self, *, username: str) -> str:
+        row = self._find_user_by_username(username=username)
+        if row is None:
+            raise ValueError(f"username not found: {username}")
+        return str(row["id"])
+
+    def _require_user_id_by_id(self, *, user_id: str) -> str:
+        user = self._user_repository.get_user(user_id=user_id)
+        if user is None:
+            raise ValueError("user_id not found")
+        return str(user.id)
 
     def record_relay_failure(
         self,

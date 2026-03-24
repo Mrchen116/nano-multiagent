@@ -3,6 +3,8 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.domain.models import Message
@@ -270,3 +272,95 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(tmp_
     relay_frames = [item for item in websocket.sent_json if item.get("type") == "relay.message"]
     assert len(relay_frames) == 1
     assert relay_frames[0]["payload"]["agent_id"] == "Q"
+
+
+def test_resolve_send_message_target_handles_agent_user_and_conversation(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    users = UserRepository(connection)
+    conversations = ConversationRepository(connection)
+    handler = GatewayHandler(
+        relay_service=RelayService(connection),
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+        conversation_repository=conversations,
+    )
+    owner = users.create_user(username="owner", display_name="Owner")
+    source_agent = users.create_user(username="agent:A", display_name="Agent A")
+    target_agent = users.create_user(username="agent:B", display_name="Agent B")
+    teammate = users.create_user(username="teammate", display_name="Teammate")
+    group = conversations.create_conversation(
+        title="group",
+        participant_ids=[owner.id, source_agent.id, target_agent.id, teammate.id],
+    )
+
+    agent_target, agent_conversation_id = handler.resolve_send_message_target(
+        source_agent_id="A",
+        target="agent:B",
+    )
+    user_target, user_conversation_id = handler.resolve_send_message_target(
+        source_agent_id="A",
+        target=f"user:{teammate.id}",
+    )
+    group_target, landed_group_id = handler.resolve_send_message_target(
+        source_agent_id="A",
+        target=f"conversation:{group.id}",
+    )
+
+    landed_agent = conversations.get_conversation(conversation_id=agent_conversation_id)
+    landed_user = conversations.get_conversation(conversation_id=user_conversation_id)
+
+    assert agent_target.kind == "agent_id"
+    assert agent_target.id == "B"
+    assert landed_agent is not None
+    assert landed_agent.type == "direct"
+    assert landed_agent.direct_kind == "agent-agent"
+
+    assert user_target.kind == "user_id"
+    assert user_target.id == teammate.id
+    assert landed_user is not None
+    assert landed_user.type == "direct"
+    assert landed_user.direct_kind == "user-agent"
+
+    assert group_target.kind == "conversation_id"
+    assert landed_group_id == group.id
+
+
+def test_resolve_send_message_target_reuses_existing_direct_conversation(tmp_path: Path) -> None:
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    users = UserRepository(connection)
+    conversations = ConversationRepository(connection)
+    handler = GatewayHandler(
+        relay_service=RelayService(connection),
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+        conversation_repository=conversations,
+    )
+    source_agent = users.create_user(username="agent:A", display_name="Agent A")
+    target_agent = users.create_user(username="agent:B", display_name="Agent B")
+    existing = conversations.create_conversation(
+        title="existing direct",
+        participant_ids=[source_agent.id, target_agent.id],
+    )
+
+    first_target, first_conversation_id = handler.resolve_send_message_target(
+        source_agent_id="A",
+        target="agent:B",
+    )
+    second_target, second_conversation_id = handler.resolve_send_message_target(
+        source_agent_id="A",
+        target="agent:B",
+    )
+
+    assert first_target.kind == "agent_id"
+    assert second_target.kind == "agent_id"
+    assert first_conversation_id == existing.id
+    assert second_conversation_id == existing.id
+
+
+def test_resolve_send_message_target_rejects_unknown_target(tmp_path: Path) -> None:
+    handler = _build_handler(tmp_path)
+    users = UserRepository(handler._conversation_repository._connection)  # noqa: SLF001
+    users.create_user(username="agent:A", display_name="Agent A")
+
+    with pytest.raises(ValueError, match="target not found"):
+        handler.resolve_send_message_target(source_agent_id="A", target="missing-target")
