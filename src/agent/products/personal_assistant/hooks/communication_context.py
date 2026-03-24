@@ -65,7 +65,8 @@ def _build_communication_context_block(
         lines.append(
             "- message_format: 历史消息中每条以 [display_name] 标识发言人；"
             "你的回复无需加前缀。群聊中如需 @mention Agent，使用其 agent_id（如 @agent_id）；"
-            "跨会话通信请使用 send_message(to=user_id|agent_id|conversation_id)。"
+            "在当前会话中回应时直接输出文本，不要调用 send_message；"
+            "仅当目标不在当前会话（私聊用户/触达其他 agent/发送到其他群）时，使用 send_message(to=user_id|agent_id|conversation_id)。"
         )
     return "\n".join(lines)
 
