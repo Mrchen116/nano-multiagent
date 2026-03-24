@@ -155,26 +155,28 @@ function toMentionCandidateLabel(participant: ImActorRef): string {
 function toMentionCandidates(input: {
   conversation: ImConversation;
   userById: Map<string, ImUser>;
+  selfUserId: string;
 }): MentionCandidate[] {
   if (input.conversation.type !== "group") {
     return [];
   }
-  const seenAgentIds = new Set<string>();
+  const seenTargets = new Set<string>();
   return resolveConversationParticipants({
     conversation: input.conversation,
     userById: input.userById
   })
-    .filter((participant) => participant.type === "agent")
+    .filter((participant) => participant.type === "agent" || participant.type === "user")
+    .filter((participant) => !(participant.type === "user" && participant.id === input.selfUserId))
     .map((participant) => ({
       agentId: participant.id,
       label: toMentionCandidateLabel(participant)
     }))
     .filter((participant) => participant.agentId.length > 0)
     .filter((participant) => {
-      if (seenAgentIds.has(participant.agentId)) {
+      if (seenTargets.has(participant.agentId)) {
         return false;
       }
-      seenAgentIds.add(participant.agentId);
+      seenTargets.add(participant.agentId);
       return true;
     })
     .sort((left, right) => left.label.localeCompare(right.label));
@@ -604,7 +606,7 @@ function buildParticipantDiscoverabilityHint(input: {
       return input.baseHint;
     }
     const base = input.baseHint ? `${input.baseHint} ` : "";
-    return `${base}Participants — ${summary}. Mentions currently target agents (agent_id).`;
+    return `${base}Participants — ${summary}. Mentions support participant IDs (user_id / agent_id).`;
   }
   if (input.conversationKind === "agent-network" && agentIdentities.length > 0) {
     const base = input.baseHint ? `${input.baseHint} ` : "";
@@ -1411,7 +1413,8 @@ export async function getConversation(conversationId: string): Promise<Conversat
     creator_id: conversation.creator_id ?? undefined,
     mention_candidates: toMentionCandidates({
       conversation,
-      userById
+      userById,
+      selfUserId
     }),
     direct_agent_id: resolveDirectAgentId({
       conversation,

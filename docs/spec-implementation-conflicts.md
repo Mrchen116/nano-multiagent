@@ -62,15 +62,16 @@
 - 会话参与者摘要在 `group` / `agent-network` 场景改为显示完整身份：`display_name + user_id/agent_id`
 - 会话 discoverability hint 显式展示用户与 agent 身份摘要，不再只偏向 agent 语义
 - 会话列表卡片新增 discoverability hint 展示，身份语义对用户可见
-- mention 候选仍按当前产品策略只支持 agent 目标，但文案已明确“用户身份可见、mention 目标为 agent_id”
+- mention 候选已具备稳定身份展示能力，并为后续 mention 目标扩展打通前端语义基础
+
+### M309：群聊 mention 全参与者目标收敛
+- 群聊 mention 候选从 agent-only 扩展为 user+agent 全参与者可选（排除当前用户）
+- group discoverability hint 已与实现一致：mentions 支持 participant IDs（`user_id` / `agent_id`）
+- 对应提示词已明确“群聊 mention 可使用 `user_id` / `agent_id` 稳定标识”
 
 ## 1. 当前剩余冲突
 
-- **前端群聊 mention 动作仍是 agent-only，而不是完整 user+agent selectable target**
-  - 当前会话与列表 discoverability 已展示完整 user+agent 身份，但 mention 动作本身仍按现有产品策略仅面向 agent（`agent_id`）。
-
-- **UI 的 agent-agent direct 发现规则仍可继续增强**
-  - 当前已完成显式分组展示；若要做到更强 discoverability（置顶/过滤/独立入口），仍需后续产品化细化。
+- 本轮（M301–M309）在实现层面的冲突已清零；当前未发现必须继续改动的 SPEC 阻塞项。
 
 ## 2. 汇总结论
 
@@ -81,17 +82,13 @@
 - agent-agent 单聊对用户可发现、可查看
 - 一期群聊上下文注入应注入当前群聊中的用户与 Agent 参与者标识
 
-经过本轮 M301–M308 改造后，已完成的部分包括：
+经过本轮 M301–M309 改造后，已完成的部分包括：
 - 后端 domain / repository / API 的 actor-first 主语义
 - send_message 工具契约文案对齐
 - Gateway → session metadata → prompt context 的 actor-first 参与者注入
 - 前端 conversation / message 的 actor-first 主路径与 direct 语义收敛
 - Gateway 侧 send_message 目标分类与 direct 落点能力
 - `/internal/dispatch` 到 Gateway 目标分类落点的端到端接线
-- 前端 discoverability / mention 的一轮增强
+- 前端 discoverability / mention 的完整 actor 目标收敛
 - prompt 中 direct reply 与 cross-conversation `send_message` 的边界澄清
 - 前端 `group` / `agent-network` 的完整身份可见性增强（display + user_id/agent_id）
-
-当前剩余冲突主要集中在：
-- mention 动作是否要从“agent-only”升级为“user+agent 可选目标”
-- agent-agent direct 是否需要更强产品化发现入口
