@@ -524,6 +524,15 @@ export function ChatWorkspacePage() {
     if (!conversationId) {
       return;
     }
+    queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
+      updateConversationList(previous, conversationId, { unread_count: 0 })
+    );
+  }, [conversationId, conversationsQuery.data, queryClient]);
+
+  useEffect(() => {
+    if (!conversationId) {
+      return;
+    }
     return streamConversationEvents({
       conversationId,
       onEvent: (event) => {

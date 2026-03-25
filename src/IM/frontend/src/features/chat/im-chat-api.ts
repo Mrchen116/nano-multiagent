@@ -27,6 +27,8 @@ interface ImConversation {
   type: string;
   owner_id: string;
   creator_id?: string;
+  unread_count?: number;
+  last_message_at?: string | null;
   created_at?: string;
 }
 
@@ -845,8 +847,13 @@ async function createConversationRaw(payload: {
   });
 }
 
-async function listMessagesRaw(conversationId: string) {
-  const payload = await requestJson<ItemsEnvelope<ImMessage> | ImMessage[]>(`/im/v1/conversations/${conversationId}/messages`);
+async function listMessagesRaw(conversationId: string, options?: { markAsRead?: boolean }) {
+  const params = new URLSearchParams();
+  if (options?.markAsRead) {
+    params.set("mark_as_read", "true");
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  const payload = await requestJson<ItemsEnvelope<ImMessage> | ImMessage[]>(`/im/v1/conversations/${conversationId}/messages${suffix}`);
   return normalizeItemsEnvelope(payload);
 }
 
@@ -1232,17 +1239,10 @@ function toConversationSummary(input: {
     selfUserId: input.selfUserId
   });
   const latest = pickLatestConversationMessage(input.messages);
-  const unreadCount = input.messages.filter((item) => {
-    const sender =
-      parseActorRef(item.sender) ??
-      (item.sender_user_id
-        ? {
-            type: normalizeActorType(item.sender_type) ?? "user",
-            id: item.sender_user_id
-          }
-        : null);
-    return sender?.type !== "user" || sender.id !== input.selfUserId;
-  }).length;
+  const unreadCount =
+    typeof input.conversation.unread_count === "number" && Number.isFinite(input.conversation.unread_count)
+      ? Math.max(0, Math.trunc(input.conversation.unread_count))
+      : 0;
   const semantics = toConversationSemantics({
     title: resolvedTitle,
     conversationKind,
@@ -1623,7 +1623,7 @@ export async function getConversation(conversationId: string): Promise<Conversat
   const [conversations, userById, messages] = await Promise.all([
     listConversationsRaw(),
     loadUserMap(),
-    listMessagesRaw(conversationId)
+    listMessagesRaw(conversationId, { markAsRead: true })
   ]);
   const conversation = conversations.find((item) => item.id === conversationId);
   if (!conversation) {

@@ -151,12 +151,14 @@ class WebIMService:
         conversation_id: str,
         limit: int = 50,
         before_message_id: str | None = None,
+        mark_as_read: bool = False,
     ) -> list[Message]:
         """List messages for one conversation in storage order."""
         return self._messages.list_messages(
             conversation_id=conversation_id,
             limit=limit,
             before_message_id=before_message_id,
+            mark_as_read=mark_as_read,
         )
 
     def enqueue_relay(

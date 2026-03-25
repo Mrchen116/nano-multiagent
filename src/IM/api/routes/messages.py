@@ -258,6 +258,7 @@ def list_messages(
     request: Request,
     limit: int = Query(default=50, ge=1, le=200),
     before_message_id: str | None = Query(default=None),
+    mark_as_read: bool = Query(default=False),
     service: WebIMService = Depends(get_web_im_service),
 ) -> ListMessagesResponse:
     """List messages for one conversation in insertion order."""
@@ -267,6 +268,7 @@ def list_messages(
             conversation_id=conversation_id,
             limit=limit,
             before_message_id=before_message_id,
+            mark_as_read=mark_as_read,
         )
     except ValueError as exc:
         detail = str(exc)
