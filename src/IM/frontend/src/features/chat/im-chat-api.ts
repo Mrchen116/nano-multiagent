@@ -1762,8 +1762,14 @@ export function parseImStreamEvent(input: {
   }
 }
 
+export async function getConversationLatestEventId(conversationId: string): Promise<number> {
+  const response = await requestJson<{ latest_event_id?: number }>(`/im/v1/conversations/${conversationId}/events/latest`);
+  return typeof response.latest_event_id === "number" && Number.isFinite(response.latest_event_id) ? response.latest_event_id : 0;
+}
+
 export function streamConversationEvents(input: {
   conversationId: string;
+  afterEventId?: number;
   onEvent: (event: ParsedImStreamEvent) => void;
   onError?: (error: Error) => void;
 }) {
@@ -1771,7 +1777,12 @@ export function streamConversationEvents(input: {
     return () => undefined;
   }
 
-  const source = new window.EventSource(withBase(`/im/v1/conversations/${input.conversationId}/events`));
+  const afterEventId = typeof input.afterEventId === "number" && Number.isFinite(input.afterEventId) ? input.afterEventId : null;
+  const streamPath =
+    afterEventId === null
+      ? `/im/v1/conversations/${input.conversationId}/events`
+      : `/im/v1/conversations/${input.conversationId}/events?after_event_id=${afterEventId}`;
+  const source = new window.EventSource(withBase(streamPath));
   const eventTypes = [
     "message.sent",
     "message.delivered",

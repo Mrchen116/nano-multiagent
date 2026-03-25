@@ -81,6 +81,12 @@ class ListMessagesResponse(BaseModel):
         return len(self.items)
 
 
+class LatestConversationEventResponse(BaseModel):
+    """Expose the latest persisted SSE cursor for one conversation."""
+
+    latest_event_id: int
+
+
 def to_message_response(message: Message) -> MessageResponse:
     """Convert domain message to API response model."""
     return MessageResponse(
@@ -278,6 +284,22 @@ def list_messages(
     return ListMessagesResponse(
         items=[to_message_response(item) for item in items],
         next_before_message_id=next_before_message_id,
+    )
+
+
+@router.get(
+    "/im/v1/conversations/{conversation_id}/events/latest",
+    response_model=LatestConversationEventResponse,
+)
+def get_latest_conversation_event(
+    conversation_id: str,
+    request: Request,
+    service: EventService = Depends(get_event_service),
+) -> LatestConversationEventResponse:
+    """Return the latest persisted SSE cursor for one conversation."""
+    assert_conversation_exists(request, conversation_id=conversation_id)
+    return LatestConversationEventResponse(
+        latest_event_id=service.get_latest_event_id(conversation_id=conversation_id)
     )
 
 

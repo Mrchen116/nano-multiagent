@@ -213,6 +213,41 @@ def test_sse_events_roundtrip_for_sent_message(tmp_path: Path) -> None:
         assert '"attachments":[{"url":"https://example.com/file.png"' in body
 
 
+def test_latest_event_endpoint_and_cursor_skip_history(tmp_path: Path) -> None:
+    """Expose latest cursor and let clients start streaming after existing history."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        sender_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, sender_id, "chat")
+
+        first = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": sender_id, "content": "old-1"},
+        )
+        second = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": sender_id, "content": "old-2"},
+        )
+        assert first.status_code == 201
+        assert second.status_code == 201
+
+        latest = client.get(f"/im/v1/conversations/{conversation_id}/events/latest")
+        assert latest.status_code == 200
+        latest_event_id = latest.json()["latest_event_id"]
+        assert latest_event_id > 0
+
+        with client.stream(
+            "GET",
+            f"/im/v1/conversations/{conversation_id}/events?after_event_id={latest_event_id}&max_events=10&timeout_seconds=0.05",
+        ) as stream_response:
+            assert stream_response.status_code == 200
+            body = "".join(chunk for chunk in stream_response.iter_text())
+
+        assert "event: message.sent" not in body
+        assert "event: message.delivered" not in body
+        assert ": keepalive" in body
+
+
 def test_uploads_expose_im_hosted_paths_for_message_attachments(tmp_path: Path) -> None:
     """Accept raw file uploads and return IM-hosted URLs usable by Web IM messages."""
     app = create_app(db_path=tmp_path / "im.db")

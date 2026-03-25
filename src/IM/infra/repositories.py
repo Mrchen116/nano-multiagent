@@ -860,7 +860,7 @@ class MessageRepository:
             ).fetchone()
             if cursor_row is None:
                 raise ValueError("before_message_id not found")
-            cursor_clause = " AND rowid < ?"
+            cursor_clause = " AND messages.rowid < ?"
             params.append(int(cursor_row["rowid"]))
         params.append(bounded_limit)
         rows = self._connection.execute(
@@ -1697,6 +1697,16 @@ class EventRepository:
                 "UPDATE messages SET delivery_status = ? WHERE id = ?",
                 (delivery_status, message_id),
             )
+
+    def get_latest_event_id(self, *, conversation_id: str) -> int:
+        """Return the highest persisted event id for one conversation."""
+        row = self._connection.execute(
+            "SELECT MAX(event_id) AS latest_event_id FROM conversation_events WHERE conversation_id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if row is None or row["latest_event_id"] is None:
+            return 0
+        return int(row["latest_event_id"])
 
     def list_events(
         self,

@@ -78,3 +78,26 @@ def test_list_events_supports_after_event_id_cursor(tmp_path: Path) -> None:
 
     assert len(incremental) == len(all_events) - 2
     assert all(item.event_id > cursor for item in incremental)
+
+
+def test_get_latest_event_id_returns_zero_for_empty_conversation(tmp_path: Path) -> None:
+    """Return zero when a conversation has no persisted events yet."""
+    users, conversations, _messages, events = _build_repositories(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(title="chat", participant_ids=[alice.id])
+
+    assert events.get_latest_event_id(conversation_id=conversation.id) == 0
+
+
+def test_get_latest_event_id_returns_max_persisted_event_id(tmp_path: Path) -> None:
+    """Expose the highest stored event id for one conversation."""
+    users, conversations, messages, events = _build_repositories(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(title="chat", participant_ids=[alice.id])
+
+    messages.create_message(conversation_id=conversation.id, sender_user_id=alice.id, content="m1")
+    messages.create_message(conversation_id=conversation.id, sender_user_id=alice.id, content="m2")
+
+    all_events = events.list_events(conversation_id=conversation.id)
+
+    assert events.get_latest_event_id(conversation_id=conversation.id) == all_events[-1].event_id

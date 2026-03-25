@@ -26,6 +26,10 @@ class EventService:
         """
         self._events = events
 
+    def get_latest_event_id(self, *, conversation_id: str) -> int:
+        """Return the latest persisted event id for one conversation."""
+        return self._events.get_latest_event_id(conversation_id=conversation_id)
+
     def list_events(
         self,
         *,

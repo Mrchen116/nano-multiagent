@@ -5,6 +5,7 @@ import {
   buildGroupConversationTitle,
   buildStarterConversationTitle,
   buildStarterPeerUsername,
+  getConversationLatestEventId,
   listDiscoverableGroupParticipants,
   normalizeItemsEnvelope,
   parseImStreamEvent,
@@ -14,7 +15,8 @@ import {
   resetChatBootstrapState,
   resolveSendAvailability,
   confirmBindToken,
-  resolveGroupConversationTitle
+  resolveGroupConversationTitle,
+  streamConversationEvents
 } from "./im-chat-api";
 
 afterEach(() => {
@@ -287,6 +289,46 @@ describe("im chat api helpers", () => {
 });
 
 describe("im chat stream parser", () => {
+  it("requests latest event id for one conversation", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ latest_event_id: 42 }), { status: 200 })
+    );
+
+    await expect(getConversationLatestEventId("conv-1")).resolves.toBe(42);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/im/v1/conversations/conv-1/events/latest",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "Content-Type": "application/json" })
+      })
+    );
+  });
+
+  it("passes after_event_id when opening an SSE stream", () => {
+    class FakeEventSource {
+      static instances: FakeEventSource[] = [];
+      url: string;
+      onerror: (() => void) | null = null;
+      constructor(url: string) {
+        this.url = url;
+        FakeEventSource.instances.push(this);
+      }
+      addEventListener() {}
+      removeEventListener() {}
+      close() {}
+    }
+
+    vi.stubGlobal("EventSource", FakeEventSource);
+
+    const teardown = streamConversationEvents({
+      conversationId: "conv-9",
+      afterEventId: 17,
+      onEvent: () => undefined
+    });
+
+    expect(FakeEventSource.instances[0]?.url).toBe("/im/v1/conversations/conv-9/events?after_event_id=17");
+    teardown();
+  });
+
   it("parses text_delta payload for incremental rendering", () => {
     const parsed = parseImStreamEvent({
       eventType: "text_delta",

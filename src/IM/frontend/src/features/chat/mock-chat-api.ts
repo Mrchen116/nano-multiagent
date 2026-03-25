@@ -245,6 +245,11 @@ export async function listConversations() {
   return [...conversations].sort((a, b) => Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned)));
 }
 
+export async function getConversationLatestEventId(_: string) {
+  await wait();
+  return 0;
+}
+
 export async function listDiscoverableAgents() {
   await wait(40);
   return discoverableAgents.map((item) => ({ ...item }));
@@ -412,7 +417,8 @@ export async function sendMessage(input: { conversationId: string; content: stri
 
 export function streamConversationEvents(_: {
   conversationId: string;
-  onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void;
+  afterEventId?: number;
+  onEvent: (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void;
   onError?: (error: Error) => void;
 }) {
   return () => undefined;

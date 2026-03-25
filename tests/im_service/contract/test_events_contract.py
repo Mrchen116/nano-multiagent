@@ -61,3 +61,25 @@ def test_events_endpoint_contract_rejects_invalid_cursor(tmp_path: Path) -> None
 
         assert response.status_code == 400
         assert response.json()["detail"] == "after_event_id must be an integer"
+
+
+def test_latest_events_endpoint_contract_returns_latest_cursor(tmp_path: Path) -> None:
+    """Return the latest persisted conversation event id for startup baselines."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        alice_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, alice_id)
+
+        empty = client.get(f"/im/v1/conversations/{conversation_id}/events/latest")
+        assert empty.status_code == 200
+        assert empty.json() == {"latest_event_id": 0}
+
+        created = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": alice_id, "content": "hello"},
+        )
+        assert created.status_code == 201
+
+        latest = client.get(f"/im/v1/conversations/{conversation_id}/events/latest")
+        assert latest.status_code == 200
+        assert latest.json()["latest_event_id"] > 0

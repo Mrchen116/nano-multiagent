@@ -24,6 +24,9 @@ export const getChatBootstrapState = useMockApi ? mockApi.getChatBootstrapState 
 export const confirmBindToken = useMockApi ? mockApi.confirmBindToken : imApi.confirmBindToken;
 export const getChatStarter = useMockApi ? mockApi.getChatStarter : imApi.getChatStarter;
 export const listConversations = useMockApi ? mockApi.listConversations : imApi.listConversations;
+export const getConversationLatestEventId = useMockApi
+  ? mockApi.getConversationLatestEventId
+  : imApi.getConversationLatestEventId;
 export const listDiscoverableAgents = useMockApi ? mockApi.listDiscoverableAgents : imApi.listDiscoverableAgents;
 export const listDiscoverableGroupParticipants = useMockApi
   ? mockApi.listDiscoverableGroupParticipants
