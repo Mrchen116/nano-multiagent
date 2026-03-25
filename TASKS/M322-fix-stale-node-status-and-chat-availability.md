@@ -8,7 +8,7 @@
 ## Roadpoints
 
 ### R1.1 Node status freshness + live connectivity alignment
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - `/im/v1/nodes` 不再把超出心跳有效窗口的节点继续展示为 `online`。
   - 节点断开 WebSocket 连接后，节点状态读取结果可反映实际连接态（不是仅依赖持久化旧状态）。
