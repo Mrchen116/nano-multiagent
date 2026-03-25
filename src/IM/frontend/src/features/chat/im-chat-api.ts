@@ -198,6 +198,7 @@ interface ImAgent {
   agent_id: string;
   display_name: string;
   description: string;
+  bound_nodes?: string[];
 }
 
 export interface DiscoverableAgent {
@@ -706,8 +707,34 @@ export function pickPrimaryOwnedNodeId(user: { owned_node_ids?: string[] | null 
   return typeof user.owned_node_ids[0] === "string" && user.owned_node_ids[0].length > 0 ? user.owned_node_ids[0] : null;
 }
 
+function normalizeNodeIdList(nodeIds: string[] | null | undefined): string[] {
+  if (!Array.isArray(nodeIds)) {
+    return [];
+  }
+  return nodeIds
+    .map((nodeId) => (typeof nodeId === "string" ? nodeId.trim() : ""))
+    .filter((nodeId) => nodeId.length > 0);
+}
+
 export function pickDefaultNodeForSend(nodes: Array<Pick<ImNode, "node_id" | "status" | "relay_enabled" | "node_name">>) {
   return nodes.find((item) => item.relay_enabled && item.status === "online") ?? nodes.find((item) => item.relay_enabled) ?? null;
+}
+
+function resolveBoundNodeForAgent(input: { agent: ImAgent | undefined; nodes: ImNode[] }) {
+  const boundNodeIds = normalizeNodeIdList(input.agent?.bound_nodes);
+  if (boundNodeIds.length === 0) {
+    return null;
+  }
+  const boundNodes = boundNodeIds.map(
+    (nodeId) =>
+      input.nodes.find((item) => item.node_id === nodeId) ?? {
+        node_id: nodeId,
+        node_name: nodeId,
+        status: "offline",
+        relay_enabled: false
+      }
+  );
+  return pickDefaultNodeForSend(boundNodes) ?? boundNodes[0] ?? null;
 }
 
 export function buildStarterConversationTitle(agentName: string): string {
@@ -1243,6 +1270,7 @@ function toConversationSummary(input: {
       participants,
       conversationKind
     }),
+    node_id: input.ownership.nodeId ?? undefined,
     node_label: input.ownership.nodeLabel ?? undefined,
     node_status: input.ownership.nodeStatus ?? undefined,
     agent_label: input.ownership.agentLabel ?? undefined,
@@ -1287,6 +1315,99 @@ function resolveDirectAgentId(input: {
   return agentParticipant.id || undefined;
 }
 
+function resolveDirectConversationNodeState(input: {
+  conversation: ImConversation;
+  userById: Map<string, ImUser>;
+  selfUserId: string;
+  agentsById: Map<string, ImAgent>;
+  nodes: ImNode[];
+}) {
+  const directAgentId = resolveDirectAgentId({
+    conversation: input.conversation,
+    userById: input.userById,
+    selfUserId: input.selfUserId
+  });
+  if (!directAgentId) {
+    return null;
+  }
+  const targetNode = resolveBoundNodeForAgent({
+    agent: input.agentsById.get(directAgentId),
+    nodes: input.nodes
+  });
+  if (!targetNode) {
+    return {
+      targetNodeId: null,
+      targetNodeLabel: null,
+      targetNodeStatus: null
+    };
+  }
+  return {
+    targetNodeId: targetNode.node_id,
+    targetNodeLabel: targetNode.node_name ?? targetNode.node_id,
+    targetNodeStatus: toNodeStatus(targetNode)
+  };
+}
+
+function resolveConversationOwnershipForSummary(input: {
+  conversation: ImConversation;
+  userById: Map<string, ImUser>;
+  selfUserId: string;
+  defaultOwnership: ChatOwnershipSummary;
+  agentsById: Map<string, ImAgent>;
+  nodes: ImNode[];
+}): ChatOwnershipSummary {
+  const directNodeState = resolveDirectConversationNodeState({
+    conversation: input.conversation,
+    userById: input.userById,
+    selfUserId: input.selfUserId,
+    agentsById: input.agentsById,
+    nodes: input.nodes
+  });
+  if (!directNodeState) {
+    return input.defaultOwnership;
+  }
+  return {
+    ...input.defaultOwnership,
+    nodeId: directNodeState.targetNodeId,
+    nodeLabel: directNodeState.targetNodeLabel,
+    nodeStatus: directNodeState.targetNodeStatus
+  };
+}
+
+async function resolveConversationSendNodeState(input: {
+  conversationId: string;
+  selfUserId: string;
+  fallback: {
+    targetNodeId: string | null;
+    targetNodeStatus: string | null;
+  };
+}) {
+  const [conversations, userById, agents, nodes] = await Promise.all([
+    listConversationsRaw(),
+    loadUserMap(),
+    listAgentsRaw(),
+    listNodesRaw()
+  ]);
+  const conversation = conversations.find((item) => item.id === input.conversationId);
+  if (!conversation) {
+    return input.fallback;
+  }
+  const directNodeState = resolveDirectConversationNodeState({
+    conversation,
+    userById,
+    selfUserId: input.selfUserId,
+    agentsById: new Map(agents.map((agent) => [agent.agent_id, agent])),
+    nodes
+  });
+  if (!directNodeState) {
+    return input.fallback;
+  }
+  return {
+    targetNodeId: directNodeState.targetNodeId,
+    targetNodeStatus: directNodeState.targetNodeStatus
+  };
+}
+
 export async function confirmBindToken(bindToken: string) {
   const self = await ensureSelfUser();
   const response = await requestJson<{ node_id: string }>("/im/v1/bind", {
@@ -1311,7 +1432,13 @@ export async function getChatStarter(): Promise<ChatStarter> {
 
 export async function listConversations(): Promise<ConversationSummary[]> {
   const { selfUserId, starter, ownership } = await ensureBootstrap();
-  const [conversations, userById] = await Promise.all([listConversationsRaw(), loadUserMap()]);
+  const [conversations, userById, agents, nodes] = await Promise.all([
+    listConversationsRaw(),
+    loadUserMap(),
+    listAgentsRaw(),
+    listNodesRaw()
+  ]);
+  const agentsById = new Map(agents.map((agent) => [agent.agent_id, agent]));
   const messagesByConversation = await Promise.all(
     conversations.map(async (item) => ({
       conversation: item,
@@ -1326,7 +1453,14 @@ export async function listConversations(): Promise<ConversationSummary[]> {
         userById,
         selfUserId,
         starterTitle: starter.title,
-        ownership
+        ownership: resolveConversationOwnershipForSummary({
+          conversation: item.conversation,
+          userById,
+          selfUserId,
+          defaultOwnership: ownership,
+          agentsById,
+          nodes
+        })
       })
     )
     .sort((left, right) => (right.last_message_at ?? "").localeCompare(left.last_message_at ?? ""));
@@ -1552,8 +1686,16 @@ export async function sendMessage(input: {
   content: string;
   attachments?: ChatAttachment[];
 }): Promise<ChatMessage> {
-  const { selfUserId, targetNodeId, targetNodeStatus } = await ensureBootstrap();
-  if (!isNodeReadyForSend({ targetNodeId, nodeStatus: targetNodeStatus })) {
+  const bootstrap = await ensureBootstrap();
+  const sendNodeState = await resolveConversationSendNodeState({
+    conversationId: input.conversationId,
+    selfUserId: bootstrap.selfUserId,
+    fallback: {
+      targetNodeId: bootstrap.targetNodeId,
+      targetNodeStatus: bootstrap.targetNodeStatus
+    }
+  });
+  if (!isNodeReadyForSend({ targetNodeId: sendNodeState.targetNodeId, nodeStatus: sendNodeState.targetNodeStatus })) {
     throw new Error(SEND_FAILURE_UNAVAILABLE_HELPER);
   }
   const [created, userById] = await Promise.all([
@@ -1561,7 +1703,7 @@ export async function sendMessage(input: {
       method: "POST",
       body: JSON.stringify(
         buildCreateMessageRequest({
-          selfUserId,
+          selfUserId: bootstrap.selfUserId,
           content: input.content,
           attachments: input.attachments,
           targetNodeId: null
@@ -1578,7 +1720,7 @@ export async function sendMessage(input: {
   return toChatMessage({
     message: created,
     userById,
-    selfUserId,
+    selfUserId: bootstrap.selfUserId,
     defaultStatus: "sent"
   });
 }

@@ -11,6 +11,7 @@ export interface ConversationSummary {
   participants: string[];
   is_pinned?: boolean;
   is_muted?: boolean;
+  node_id?: string;
   node_label?: string;
   node_status?: string;
   agent_label?: string;

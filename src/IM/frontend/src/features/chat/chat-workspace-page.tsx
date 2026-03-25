@@ -227,6 +227,39 @@ export function mergeConversationDetail(
   });
 }
 
+function isDirectAgentConversation(summary: ConversationSummary | null | undefined) {
+  return summary?.kind === "direct-agent" || summary?.kind_label === "Direct agent chat";
+}
+
+function resolveConversationSendNodeState(input: {
+  conversationId?: string;
+  conversations: ConversationSummary[];
+  bootstrap: ChatBootstrapState | null;
+}) {
+  const fallback = {
+    targetNodeId: input.bootstrap?.targetNodeId ?? null,
+    nodeStatus: input.bootstrap?.targetNodeStatus ?? null
+  };
+  if (!input.conversationId) {
+    return fallback;
+  }
+  const activeConversation = input.conversations.find((item) => item.conversation_id === input.conversationId);
+  if (!isDirectAgentConversation(activeConversation)) {
+    return fallback;
+  }
+  const hasExplicitNodeState =
+    (activeConversation && Object.prototype.hasOwnProperty.call(activeConversation, "node_id")) ||
+    (activeConversation && Object.prototype.hasOwnProperty.call(activeConversation, "node_label")) ||
+    (activeConversation && Object.prototype.hasOwnProperty.call(activeConversation, "node_status"));
+  if (!hasExplicitNodeState) {
+    return fallback;
+  }
+  return {
+    targetNodeId: activeConversation?.node_id ?? activeConversation?.node_label ?? null,
+    nodeStatus: activeConversation?.node_status ?? null
+  };
+}
+
 function upsertConversationMessage(
   detail: ConversationDetail | null | undefined,
   conversationId: string,
@@ -845,13 +878,18 @@ export function ChatWorkspacePage() {
   const starter = starterQuery.data ?? null;
   const detail = (detailQuery.data ?? null) as ConversationDetail | null;
   const bootstrap = bootstrapQuery.data ?? null;
+  const sendNodeState = resolveConversationSendNodeState({
+    conversationId,
+    conversations,
+    bootstrap
+  });
   const usage = buildUsageView({
     conversationRows: conversationUsageQuery.data,
     workspaceRows: workspaceUsageQuery.data
   });
   const sendAvailability = resolveSendAvailability({
-    targetNodeId: bootstrap?.targetNodeId ?? null,
-    nodeStatus: bootstrap?.targetNodeStatus ?? null
+    targetNodeId: sendNodeState.targetNodeId,
+    nodeStatus: sendNodeState.nodeStatus
   });
   const groupParticipantOptions = discoverableGroupParticipantsQuery.data ?? [];
   const selectedGroupParticipants = groupParticipantOptions.filter((item) => selectedGroupParticipantIds.includes(item.user_id));
