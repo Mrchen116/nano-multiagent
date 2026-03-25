@@ -24,5 +24,5 @@
     - bundle：`/assets/index-hutXMXlb.js`，包含 `mark_as_read`。
     - 浏览器快照：`.playwright-cli/page-2026-03-25T04-14-48-442Z.yml`、`.playwright-cli/page-2026-03-25T04-19-55-485Z.yml`，目标会话 `5e82e46169d044d18662e5bc853065bb` 行不再出现 `8 new`。
 - Rollback: 回退到 `9e3318d` 可撤销 C2 实现，仅保留 runtime 红测。
-- Commits: C1=`9e3318d`, C2=`688eda5`, C3=`(this commit)`
+- Commits: C1=`9e3318d`, C2=`688eda5`, C3=`f460eff`
 - Next: 已完成 C3 与 dev-tasks DONE，等待 orchestrator 集成。
