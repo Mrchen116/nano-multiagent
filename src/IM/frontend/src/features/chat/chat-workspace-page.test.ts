@@ -836,6 +836,100 @@ describe("chat workspace page", () => {
     streamConversationEvents.mockReturnValue(() => undefined);
   });
 
+  it("clears the active conversation unread badge after opening and keeps it cleared after refresh", async () => {
+    listConversations
+      .mockResolvedValueOnce([
+        {
+          conversation_id: "conv-1",
+          title: "You & Teammate",
+          last_message_preview: "Need a full update",
+          last_message_at: "2026-03-25T10:00:00Z",
+          unread_count: 8,
+          participants: ["You", "Teammate"],
+          kind_label: "Direct agent chat",
+          target_label: "Teammate",
+          discoverability_hint: "This is a one-to-one conversation with an available target."
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          conversation_id: "conv-1",
+          title: "You & Teammate",
+          last_message_preview: "Need a full update",
+          last_message_at: "2026-03-25T10:00:00Z",
+          unread_count: 0,
+          participants: ["You", "Teammate"],
+          kind_label: "Direct agent chat",
+          target_label: "Teammate",
+          discoverability_hint: "This is a one-to-one conversation with an available target."
+        }
+      ]);
+    getConversation
+      .mockResolvedValueOnce({
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        kind_label: "Direct agent chat",
+        target_label: "Teammate",
+        discoverability_hint: "This is a one-to-one conversation with an available target.",
+        direct_agent_id: "agent-ops",
+        mention_candidates: [],
+        messages: [
+          {
+            message_id: "msg-agent-latest",
+            sender_type: "agent",
+            sender_name: "OpsBot",
+            is_mine: false,
+            content: "Need a full update",
+            created_at: "2026-03-25T10:00:00Z",
+            delivery_status: "completed",
+            attachments: []
+          }
+        ]
+      })
+      .mockResolvedValueOnce({
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        kind_label: "Direct agent chat",
+        target_label: "Teammate",
+        discoverability_hint: "This is a one-to-one conversation with an available target.",
+        direct_agent_id: "agent-ops",
+        mention_candidates: [],
+        messages: [
+          {
+            message_id: "msg-agent-latest",
+            sender_type: "agent",
+            sender_name: "OpsBot",
+            is_mine: false,
+            content: "Need a full update",
+            created_at: "2026-03-25T10:00:00Z",
+            delivery_status: "completed",
+            attachments: []
+          }
+        ]
+      });
+
+    const firstRender = renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    expect(screen.getByText("8 new")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("8 new")).not.toBeInTheDocument();
+    });
+
+    firstRender.unmount();
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    expect(screen.queryByText("8 new")).not.toBeInTheDocument();
+  });
+
   it("blocks sending when no node is bound yet", async () => {
     renderRouter({
       routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
