@@ -4,6 +4,7 @@ import asyncio
 import json
 import sys
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 import os
@@ -281,6 +282,9 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
 
     assert runtime.wait_until_ready(timeout=1.0) is True
     assert thread.is_alive() is True
+    deadline = time.time() + 1.0
+    while "im.bootstrap" not in events and time.time() < deadline:
+        time.sleep(0.01)
     assert events[:5] == [
         "kernel.start",
         "channel.start:web_relay",

@@ -368,6 +368,7 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
         await manager.connect_once()
         await manager._listen_once()  # noqa: SLF001 - ack node.register
         await manager._listen_once()  # noqa: SLF001 - focused unit coverage for downstream request/response
+        await manager.close()
 
     asyncio.run(_exercise())
 
@@ -388,6 +389,40 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
             },
         },
     }
+
+
+def test_im_connection_sends_periodic_node_heartbeats_while_connected(tmp_path: Path) -> None:
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(incoming=[json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})])
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000", heartbeat_interval_seconds=0.01),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - ack node.register
+        await asyncio.sleep(0.03)
+        await manager.close()
+
+    asyncio.run(_exercise())
+
+    sent_types = [json.loads(frame)["type"] for frame in socket.sent]
+    assert sent_types[:2] == ["node.register", "node.heartbeat"]
+    heartbeat_payload = json.loads(socket.sent[1])["payload"]
+    assert heartbeat_payload["node_id"] == "node-1"
+    assert heartbeat_payload["status"] == "online"
+    assert heartbeat_payload["agent_count"] == 1
+
+
 
 
 def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) -> None:

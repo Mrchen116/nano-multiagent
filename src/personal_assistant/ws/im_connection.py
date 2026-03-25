@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -81,12 +82,20 @@ class IMConnectionConfig:
         token: Optional bearer token for upstream auth.
         reconnect_initial_seconds: Initial reconnect delay after failure.
         reconnect_max_seconds: Maximum reconnect delay cap.
+        heartbeat_interval_seconds: Delay between periodic node heartbeats while connected.
     """
 
     url: str
     token: str | None = None
     reconnect_initial_seconds: float = 1.0
     reconnect_max_seconds: float = 60.0
+    heartbeat_interval_seconds: float = 30.0
+
+    def normalized_heartbeat_interval_seconds(self) -> float | None:
+        interval = self.heartbeat_interval_seconds
+        if interval <= 0:
+            return None
+        return interval
 
     def websocket_url(self) -> str:
         """Return the normalized websocket endpoint URL for the IM gateway socket."""
@@ -151,6 +160,7 @@ class IMConnectionManager:
         self._pending_frames: deque[PendingFrame] = deque()
         self._awaiting_ack_type: str | None = None
         self._flush_lock = asyncio.Lock()
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     @property
     def connected(self) -> bool:
@@ -176,6 +186,7 @@ class IMConnectionManager:
         self._events.append({"event": "connected", "url": self._config.websocket_url()})
         try:
             await self._send_frame("node.register", self._reporter.send_register())
+            self._start_heartbeat_loop()
             await self._flush_pending_frames(raise_on_disconnect=True)
         except Exception as exc:  # noqa: BLE001
             await self._disconnect_current_websocket(exc)
@@ -185,11 +196,16 @@ class IMConnectionManager:
         """Stop reconnect attempts and close the current websocket if present."""
 
         self._stop_requested = True
+        self._stop_heartbeat_loop()
         websocket = self._websocket
         self._websocket = None
         self._connected = False
         if websocket is not None:
             await websocket.close()
+        heartbeat_task = self._heartbeat_task
+        if heartbeat_task is not None and heartbeat_task is not asyncio.current_task():
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
         self._events.append({"event": "closed"})
 
     async def send_json(self, message_type: str, payload: Mapping[str, object]) -> None:
@@ -299,12 +315,16 @@ class IMConnectionManager:
 
     async def _disconnect_current_websocket(self, exc: Exception | None = None) -> None:
         websocket = self._websocket
+        heartbeat_task = self._heartbeat_task
         self._mark_disconnected(exc)
         if websocket is not None:
             try:
                 await websocket.close()
             except Exception:  # noqa: BLE001
                 return
+        if heartbeat_task is not None and heartbeat_task is not asyncio.current_task():
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
 
     def _ack_pending_frame(self, payload: Mapping[str, object]) -> None:
         awaiting = self._awaiting_ack_type
@@ -319,12 +339,42 @@ class IMConnectionManager:
             pending_frame.ack_future.set_result(dict(payload))
         self._events.append({"event": "acked", "type": awaiting})
 
+    def _start_heartbeat_loop(self) -> None:
+        interval = self._config.normalized_heartbeat_interval_seconds()
+        if interval is None:
+            return
+        existing = self._heartbeat_task
+        if existing is not None and not existing.done():
+            return
+        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(interval), name="personal-assistant-im-heartbeat")
+
+    def _stop_heartbeat_loop(self) -> None:
+        task = self._heartbeat_task
+        self._heartbeat_task = None
+        if task is not None:
+            task.cancel()
+
+    async def _heartbeat_loop(self, interval_seconds: float) -> None:
+        try:
+            while self._connected and not self._stop_requested:
+                await self._sleep(interval_seconds)
+                if not self._connected or self._stop_requested:
+                    break
+                try:
+                    await self._send_frame("node.heartbeat", self._reporter.send_heartbeat(status="online"))
+                except Exception as exc:  # noqa: BLE001
+                    await self._disconnect_current_websocket(exc)
+                    return
+        except asyncio.CancelledError:
+            raise
+
     def _mark_disconnected(self, exc: Exception | None = None) -> None:
         had_connection = self._connected or self._websocket is not None
         pending_frame = self._pending_frames[0] if self._pending_frames else None
         self._connected = False
         self._websocket = None
         self._awaiting_ack_type = None
+        self._stop_heartbeat_loop()
         if pending_frame is not None and pending_frame.ack_future is not None and not pending_frame.ack_future.done():
             pending_frame.ack_future.set_exception(RuntimeError("IM websocket disconnected before ack"))
         if had_connection:
