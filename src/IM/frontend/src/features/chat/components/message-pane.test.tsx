@@ -691,6 +691,44 @@ describe("message pane", () => {
     expect(screen.queryByText("OpsBot")).not.toBeInTheDocument();
   });
 
+  it("shows a compact timestamp for each sent and received bubble", () => {
+    const { container } = renderMessagePane({
+      detail: {
+        conversation_id: "conv-direct-timestamps",
+        title: "Agent Alpha",
+        kind_label: "Direct agent chat",
+        messages: [
+          {
+            message_id: "msg-direct-user-ts",
+            sender_type: "user",
+            sender_name: "You",
+            is_mine: true,
+            content: "hello",
+            created_at: "2026-03-14T00:05:00Z"
+          },
+          {
+            message_id: "msg-direct-agent-ts",
+            sender_type: "agent",
+            sender_display_name: "OpsBot",
+            sender_user_id: "agent-ops",
+            content: "hi",
+            created_at: "2026-03-14T00:06:00Z"
+          }
+        ]
+      }
+    });
+
+    const timestamps = Array.from(container.querySelectorAll("time[data-testid='message-timestamp']"));
+    expect(timestamps).toHaveLength(2);
+    expect(timestamps.map((node) => node.getAttribute("dateTime"))).toEqual([
+      "2026-03-14T00:05:00Z",
+      "2026-03-14T00:06:00Z"
+    ]);
+    timestamps.forEach((node) => {
+      expect(node).toHaveTextContent(/^\d{2}:\d{2}$/);
+    });
+  });
+
   it("keeps empty completed agent placeholders fully silent", () => {
     renderMessagePane({
       detail: {

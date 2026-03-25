@@ -624,6 +624,16 @@ describe("chat workspace message ordering", () => {
       "Agent reply between the two user turns",
       "Second user turn"
     ]);
+    const firstPassTimestamps = Array.from(container.querySelectorAll("time[data-testid='message-timestamp']"));
+    expect(firstPassTimestamps).toHaveLength(3);
+    expect(firstPassTimestamps.map((node) => node.getAttribute("dateTime"))).toEqual([
+      "2026-03-14T10:00:00Z",
+      "2026-03-14T10:00:01Z",
+      "2026-03-14T10:00:02Z"
+    ]);
+    firstPassTimestamps.forEach((node) => {
+      expect(node).toHaveTextContent(/^\d{2}:\d{2}$/);
+    });
 
     await act(async () => {
       await router.navigate("/chat");
@@ -644,6 +654,8 @@ describe("chat workspace message ordering", () => {
       "Agent reply between the two user turns",
       "Second user turn"
     ]);
+    const secondPassTimestamps = Array.from(container.querySelectorAll("time[data-testid='message-timestamp']"));
+    expect(secondPassTimestamps).toHaveLength(3);
   });
 });
 
