@@ -1,10 +1,13 @@
 import clsx from "clsx";
+import { UIEvent, useLayoutEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 
 import { getConversationPreviewSnapshot } from "../im-chat-api";
 import { ConversationSummary } from "../types";
 
 type ConversationSectionKey = "agent-network" | "group" | "direct" | "other";
+
+let conversationListScrollTop = 0;
 
 function formatTime(input?: string) {
   if (!input) {
@@ -88,6 +91,23 @@ export function ConversationList(props: {
   compact?: boolean;
   onCreateGroupChat?: () => void;
 }) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!scrollContainerRef.current) {
+      return;
+    }
+    scrollContainerRef.current.scrollTop = conversationListScrollTop;
+  }, [props.activeId, props.items.length]);
+
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    conversationListScrollTop = event.currentTarget.scrollTop;
+  };
+
+  const rememberScrollPosition = () => {
+    conversationListScrollTop = scrollContainerRef.current?.scrollTop ?? 0;
+  };
+
   const sectionOrder: ConversationSectionKey[] = ["agent-network", "group", "direct", "other"];
   const sectionItems = new Map<ConversationSectionKey, ConversationSummary[]>(
     sectionOrder.map((section) => [section, [] as ConversationSummary[]])
@@ -118,16 +138,15 @@ export function ConversationList(props: {
           </div>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-2">
+      <div
+        ref={scrollContainerRef}
+        data-testid="conversation-list-scroll-container"
+        className="flex-1 overflow-y-auto p-2"
+        onScroll={handleScroll}
+      >
         {props.items.length === 0 ? (
           <div className="flex h-full min-h-[260px] items-center justify-center px-6 py-8 text-center">
-            <div className="max-w-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">No conversations yet</p>
-              <h2 className="im-title mt-2 text-lg font-bold text-slate-900">Start a direct chat or create a shared thread</h2>
-              <p className="mt-2 text-sm text-slate-500">
-                Stable direct chats and shared threads both show up here, including agent-to-agent direct conversations that are visible in your workspace.
-              </p>
-            </div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">No conversations yet</p>
           </div>
         ) : (
           sectionOrder.map((section) => {
@@ -146,6 +165,7 @@ export function ConversationList(props: {
                   <Link
                     key={hydratedItem.conversation_id}
                     to={`/chat/${hydratedItem.conversation_id}`}
+                    onClick={rememberScrollPosition}
                     className={clsx(
                       "mb-2 block rounded-2xl border px-3 py-3 transition shadow-sm",
                       hydratedItem.conversation_id === props.activeId

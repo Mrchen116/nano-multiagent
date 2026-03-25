@@ -115,7 +115,7 @@ describe("im chat api helpers", () => {
             conversation_id: "conv-1",
             title: "Ops Bot",
             last_message_preview: "",
-            last_message_at: null,
+            last_message_at: undefined,
             unread_count: 0,
             participants: ["You", "Ops Bot"],
             kind: "direct-agent",

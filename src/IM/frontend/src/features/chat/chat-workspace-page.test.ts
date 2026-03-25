@@ -319,7 +319,7 @@ describe("chat workspace relay event mapping", () => {
     ).toEqual({
       message_id: "msg-1:agent:A",
       sender_type: "agent",
-      sender_name: "A",
+      sender_name: "Alpha",
       sender_display_name: "Alpha",
       is_mine: false,
       content: "working on it",
@@ -330,7 +330,7 @@ describe("chat workspace relay event mapping", () => {
     });
   });
 
-  it("falls back to relay agent id before node identity when display name is absent", () => {
+  it("falls back to a generic agent label when relay display name is absent", () => {
     expect(
       toRelayAgentMessage({
         eventType: "relay.processing",
@@ -345,7 +345,7 @@ describe("chat workspace relay event mapping", () => {
     ).toMatchObject({
       message_id: "msg-1:agent:Q",
       sender_type: "agent",
-      sender_name: "Q",
+      sender_name: "Agent",
       content: "working on it",
       delivery_status: "running"
     });
@@ -366,7 +366,7 @@ describe("chat workspace relay event mapping", () => {
       })
     ).toMatchObject({
       message_id: "msg-1:relay:relay-q",
-      sender_name: "agent-q",
+      sender_name: "Q",
       sender_display_name: "Q",
       content: "Q completed the rollout summary",
       delivery_status: "completed"
@@ -385,7 +385,7 @@ describe("chat workspace relay event mapping", () => {
       })
     ).toMatchObject({
       message_id: "msg-1:relay:relay-a",
-      sender_name: "agent-a",
+      sender_name: "A",
       sender_display_name: "A",
       content: "A completed the code review summary",
       delivery_status: "completed"

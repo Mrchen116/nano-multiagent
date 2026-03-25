@@ -654,8 +654,9 @@ describe("message pane", () => {
 
     expect(screen.getByText("You")).toBeInTheDocument();
     expect(screen.getByText("OpsBot")).toBeInTheDocument();
-    expect(screen.getByText("agent-review")).toBeInTheDocument();
-    expect(screen.getByText("system")).toBeInTheDocument();
+    expect(screen.getByText("Agent")).toBeInTheDocument();
+    expect(screen.getByText("System")).toBeInTheDocument();
+    expect(screen.queryByText("agent-review")).not.toBeInTheDocument();
   });
 
   it("does not show sender names inside direct chat bubbles", () => {

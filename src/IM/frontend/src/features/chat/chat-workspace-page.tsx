@@ -75,14 +75,14 @@ function toSenderName(input: {
   if (input.senderUserId && input.selfUserId && input.senderUserId === input.selfUserId) {
     return "You";
   }
-  if (input.senderUserId) {
-    return input.senderUserId;
-  }
   if (input.senderType === "agent") {
     return "Agent";
   }
   if (input.senderType === "system") {
     return "System";
+  }
+  if (input.senderUserId) {
+    return "Participant";
   }
   return input.fallback;
 }
@@ -369,11 +369,9 @@ function toRelaySenderIdentity(payload: Record<string, unknown>, fallback?: { se
     toStringValue(payload.agent_display_name) ??
     fallback?.sender_display_name ??
     undefined;
-  const agentId = toStringValue(payload.agent_id);
-  const nodeId = toStringValue(payload.node_id);
   return {
     sender_display_name: senderDisplayName,
-    sender_name: agentId ?? fallback?.sender_name ?? nodeId ?? "Agent"
+    sender_name: senderDisplayName ?? fallback?.sender_display_name ?? fallback?.sender_name ?? "Agent"
   };
 }
 

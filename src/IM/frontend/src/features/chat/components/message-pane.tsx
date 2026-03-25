@@ -249,7 +249,19 @@ function AttachmentLinks({ attachments, muted = false }: { attachments: ChatAtta
 }
 
 function getGroupMessageSenderLabel(message: ChatMessage) {
-  return message.sender_display_name ?? message.sender_name ?? message.sender_user_id ?? message.sender_type;
+  if (message.sender_display_name) {
+    return message.sender_display_name;
+  }
+  if (message.sender_name && message.sender_name !== message.sender_user_id) {
+    return message.sender_name;
+  }
+  if (message.sender_type === "agent") {
+    return "Agent";
+  }
+  if (message.sender_type === "system") {
+    return "System";
+  }
+  return "Participant";
 }
 
 function formatMessageTimestamp(createdAt: string) {
