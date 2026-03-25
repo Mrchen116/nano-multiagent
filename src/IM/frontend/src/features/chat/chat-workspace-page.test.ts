@@ -888,6 +888,118 @@ describe("chat workspace page", () => {
     expect(screen.getByPlaceholderText("Gateway offline — chat disabled")).toBeDisabled();
   });
 
+  it("keeps composer and retry enabled when direct chat target node is online even if bootstrap node is offline", async () => {
+    const user = userEvent.setup();
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "bootstrap-offline-node",
+      targetNodeStatus: "offline",
+      initialConversationId: "conv-1",
+      ownership: {
+        nodeId: "bootstrap-offline-node",
+        nodeLabel: "Bootstrap Offline Node",
+        nodeStatus: "offline",
+        agentLabel: "OpsBot",
+        ownershipLabel: "Using OpsBot on Bootstrap Offline Node (offline)"
+      }
+    });
+    listConversations.mockResolvedValueOnce([
+      {
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        last_message_preview: "",
+        last_message_at: null,
+        unread_count: 0,
+        participants: ["You", "Teammate"],
+        kind: "direct-agent",
+        kind_label: "Direct agent chat",
+        target_label: "Teammate",
+        discoverability_hint: "This is a one-to-one conversation with an available target.",
+        node_id: "target-online-node",
+        node_label: "target-online-node",
+        node_status: "online"
+      }
+    ]);
+    sendMessage
+      .mockRejectedValueOnce(new Error("target_node_id is not connected"))
+      .mockResolvedValueOnce({
+        message_id: "msg-retry-ok",
+        sender_type: "user",
+        sender_name: "You",
+        is_mine: true,
+        content: "retry succeeds once target node is used",
+        created_at: "2026-03-25T10:00:00Z",
+        delivery_status: "sent",
+        attachments: []
+      });
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    const composer = screen.getByPlaceholderText("Type message");
+    expect(composer).toBeEnabled();
+
+    await user.type(composer, "retry succeeds once target node is used");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
+    expect(await screen.findByRole("button", { name: "Retry send" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Retry send" }));
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("disables direct chat composer when the target agent has no bound node even if bootstrap node is online", async () => {
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "bootstrap-online-node",
+      targetNodeStatus: "online",
+      initialConversationId: "conv-1",
+      ownership: {
+        nodeId: "bootstrap-online-node",
+        nodeLabel: "Bootstrap Online Node",
+        nodeStatus: "online",
+        agentLabel: "OpsBot",
+        ownershipLabel: "Using OpsBot on Bootstrap Online Node (online)"
+      }
+    });
+    listConversations.mockResolvedValueOnce([
+      {
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        last_message_preview: "",
+        last_message_at: null,
+        unread_count: 0,
+        participants: ["You", "Teammate"],
+        kind: "direct-agent",
+        kind_label: "Direct agent chat",
+        target_label: "Teammate",
+        discoverability_hint: "This is a one-to-one conversation with an available target.",
+        node_id: null,
+        node_label: null,
+        node_status: null
+      }
+    ]);
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByText("Chat unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Bind this Gateway to continue. Web IM disables the composer until one of your Gateway nodes is connected.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByPlaceholderText("Bind this Gateway to continue")).toBeDisabled();
+  });
+
   it("shows selectable participants, selected state, and a disabled create affordance for group chat creation", async () => {
     const user = userEvent.setup();
 
