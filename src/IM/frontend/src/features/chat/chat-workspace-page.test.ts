@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -939,6 +939,88 @@ describe("chat workspace page", () => {
 
     expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
     expect(screen.queryByText("8 new")).not.toBeInTheDocument();
+  });
+
+  it("keeps sidebar preview aligned to latest detail and avoids stale-prefix catch-up during text deltas", async () => {
+    listConversations.mockResolvedValueOnce([
+      {
+        conversation_id: "conv-1",
+        title: "You & Teammate",
+        last_message_preview: "Very stale summary from earlier",
+        last_message_at: "2026-03-25T09:59:00Z",
+        unread_count: 0,
+        participants: ["You", "Teammate"],
+        kind_label: "Direct agent chat",
+        target_label: "Teammate",
+        discoverability_hint: "This is a one-to-one conversation with an available target."
+      }
+    ]);
+    getConversation.mockResolvedValueOnce({
+      conversation_id: "conv-1",
+      title: "You & Teammate",
+      kind_label: "Direct agent chat",
+      target_label: "Teammate",
+      discoverability_hint: "This is a one-to-one conversation with an available target.",
+      direct_agent_id: "agent-ops",
+      mention_candidates: [],
+      messages: [
+        {
+          message_id: "msg-history-latest",
+          sender_type: "agent",
+          sender_name: "OpsBot",
+          is_mine: false,
+          content: "Newest confirmed reply from history",
+          created_at: "2026-03-25T10:00:00Z",
+          delivery_status: "completed",
+          attachments: []
+        }
+      ]
+    });
+
+    renderRouter({
+      routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
+      initialEntries: ["/chat/conv-1"]
+    });
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+
+    const getConversationCard = () => screen.getByRole("link", { name: /You & Teammate/ });
+    await waitFor(() => {
+      expect(within(getConversationCard()).getByText("Newest confirmed reply from history")).toBeInTheDocument();
+    });
+    expect(within(getConversationCard()).queryByText("Very stale summary from earlier")).not.toBeInTheDocument();
+
+    const streamInput = streamConversationEvents.mock.calls.at(-1)?.[0] as
+      | { onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void }
+      | undefined;
+    expect(streamInput).toBeDefined();
+
+    streamInput?.onEvent({
+      eventType: "message_created",
+      payload: {
+        message_id: "msg-streaming-1",
+        sender_type: "agent",
+        sender_user_id: "agent-user-1",
+        content: "",
+        created_at: "2026-03-25T10:01:00Z"
+      }
+    });
+    streamInput?.onEvent({
+      eventType: "text_delta",
+      payload: {
+        message_id: "msg-streaming-1",
+        sender_type: "agent",
+        sender_user_id: "agent-user-1",
+        delta: "Fresh streamed summary"
+      }
+    });
+
+    await waitFor(() => {
+      expect(within(getConversationCard()).getByText("Fresh streamed summary")).toBeInTheDocument();
+    });
+    expect(
+      within(getConversationCard()).queryByText("Newest confirmed reply from historyFresh streamed summary")
+    ).not.toBeInTheDocument();
   });
 
   it("blocks sending when no node is bound yet", async () => {
