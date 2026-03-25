@@ -22,6 +22,7 @@ import {
   streamConversationEvents,
   uploadAttachment
 } from "./chat-api";
+import { setConversationPreviewSnapshot } from "./im-chat-api";
 import {
   ChatAttachment,
   ChatBootstrapState,
@@ -283,6 +284,49 @@ function updateConversationList(
   return items.map((item) => (item.conversation_id === conversationId ? { ...item, ...patch } : item));
 }
 
+function toConversationPreviewContent(message: ChatMessage) {
+  const content = message.content.trim();
+  if (content) {
+    return content;
+  }
+  const firstAttachmentName = message.attachments?.[0]?.file_name?.trim();
+  if (firstAttachmentName) {
+    return firstAttachmentName;
+  }
+  if ((message.attachments?.length ?? 0) > 0) {
+    return "Attachment";
+  }
+  return "";
+}
+
+function syncConversationPreviewFromDetail(input: {
+  queryClient: ReturnType<typeof useQueryClient>;
+  conversationId: string;
+  detail?: ConversationDetail | null;
+}) {
+  const detail =
+    input.detail ?? input.queryClient.getQueryData<ConversationDetail | null>(["chat", "conversation", input.conversationId]);
+  const latest = detail?.messages.at(-1);
+  if (!latest) {
+    return;
+  }
+  const preview = toConversationPreviewContent(latest);
+  if (!preview) {
+    return;
+  }
+  input.queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
+    updateConversationList(previous, input.conversationId, {
+      last_message_preview: preview,
+      last_message_at: latest.created_at
+    })
+  );
+  setConversationPreviewSnapshot({
+    conversationId: input.conversationId,
+    preview,
+    lastMessageAt: latest.created_at
+  });
+}
+
 export function toUsageTotals(rows: UsageMetricRow[] | undefined): UsageTotals {
   return (rows ?? []).reduce<UsageTotals>(
     (totals, row) => ({
@@ -533,6 +577,17 @@ export function ChatWorkspacePage() {
     if (!conversationId) {
       return;
     }
+    syncConversationPreviewFromDetail({
+      queryClient,
+      conversationId,
+      detail: detailQuery.data ?? null
+    });
+  }, [conversationId, detailQuery.data, queryClient]);
+
+  useEffect(() => {
+    if (!conversationId) {
+      return;
+    }
     return streamConversationEvents({
       conversationId,
       onEvent: (event) => {
@@ -559,6 +614,7 @@ export function ChatWorkspacePage() {
           queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) =>
             upsertConversationMessage(previous, conversationId, nextMessage)
           );
+          syncConversationPreviewFromDetail({ queryClient, conversationId });
           refreshUsageQueries({ conversationId, ownerId, queryClient });
           return;
         }
@@ -588,6 +644,7 @@ export function ChatWorkspacePage() {
               })
             };
           });
+          syncConversationPreviewFromDetail({ queryClient, conversationId });
           refreshUsageQueries({ conversationId, ownerId, queryClient });
           return;
         }
@@ -629,12 +686,7 @@ export function ChatWorkspacePage() {
           queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) =>
             upsertConversationMessage(previous, conversationId, nextMessage)
           );
-          queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
-            updateConversationList(previous, conversationId, {
-              last_message_preview: nextMessage.content,
-              last_message_at: nextMessage.created_at
-            })
-          );
+          syncConversationPreviewFromDetail({ queryClient, conversationId });
           if (shouldRefreshUsageForEvent(event.eventType)) {
             refreshUsageQueries({ conversationId, ownerId, queryClient });
           }
@@ -659,14 +711,7 @@ export function ChatWorkspacePage() {
           queryClient.setQueryData<ConversationDetail | null>(["chat", "conversation", conversationId], (previous) =>
             upsertConversationMessage(previous, conversationId, nextMessage)
           );
-          if (content) {
-            queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
-              updateConversationList(previous, conversationId, {
-                last_message_preview: content,
-                last_message_at: createdAt
-              })
-            );
-          }
+          syncConversationPreviewFromDetail({ queryClient, conversationId });
           return;
         }
 
@@ -703,16 +748,7 @@ export function ChatWorkspacePage() {
               messages: upsertMessage(base.messages, nextMessage)
             };
           });
-          queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) => {
-            const active = previous?.find((item) => item.conversation_id === conversationId);
-            if (!active) {
-              return previous;
-            }
-            return updateConversationList(previous, conversationId, {
-              last_message_preview: `${active.last_message_preview ?? ""}${delta}`,
-              last_message_at: new Date().toISOString()
-            });
-          });
+          syncConversationPreviewFromDetail({ queryClient, conversationId });
           return;
         }
 
@@ -739,14 +775,7 @@ export function ChatWorkspacePage() {
               messages: upsertMessage(previous.messages, nextMessage)
             };
           });
-          if (content) {
-            queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
-              updateConversationList(previous, conversationId, {
-                last_message_preview: content,
-                last_message_at: new Date().toISOString()
-              })
-            );
-          }
+          syncConversationPreviewFromDetail({ queryClient, conversationId });
           if (shouldRefreshUsageForEvent(event.eventType)) {
             refreshUsageQueries({ conversationId, ownerId, queryClient });
           }
@@ -851,12 +880,7 @@ export function ChatWorkspacePage() {
           messages: upsertMessage(previous.messages, message)
         };
       });
-      queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
-        updateConversationList(previous, conversationId, {
-          last_message_preview: message.content || message.attachments?.[0]?.file_name || "Attachment",
-          last_message_at: message.created_at
-        })
-      );
+      syncConversationPreviewFromDetail({ queryClient, conversationId });
       refreshUsageQueries({ conversationId, ownerId, queryClient });
     }
   });

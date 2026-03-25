@@ -1219,6 +1219,18 @@ export function getConversationPreviewSnapshot(conversationId: string): Conversa
   return conversationPreviewSnapshotById.get(conversationId) ?? null;
 }
 
+export function setConversationPreviewSnapshot(input: {
+  conversationId: string;
+  preview: string;
+  lastMessageAt?: string;
+}) {
+  updateConversationPreviewSnapshot({
+    conversationId: input.conversationId,
+    preview: input.preview,
+    lastMessageAt: input.lastMessageAt
+  });
+}
+
 function toConversationSummary(input: {
   conversation: ImConversation;
   messages: ImMessage[];

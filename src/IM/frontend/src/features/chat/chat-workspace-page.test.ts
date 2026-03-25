@@ -6,7 +6,7 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderRouter } from "../../test/render-router";
-import { resolveSendAvailability } from "./im-chat-api";
+import { resetChatBootstrapState, resolveSendAvailability } from "./im-chat-api";
 import {
   buildUsageView,
   ChatWorkspacePage,
@@ -169,6 +169,10 @@ function renderWorkspaceWithPersistentClient(options: {
     router
   };
 }
+
+beforeEach(() => {
+  resetChatBootstrapState();
+});
 
 describe("chat workspace usage helpers", () => {
   it("builds conversation, workspace, and per-agent usage without double counting", () => {
@@ -947,7 +951,7 @@ describe("chat workspace page", () => {
         conversation_id: "conv-1",
         title: "You & Teammate",
         last_message_preview: "Very stale summary from earlier",
-        last_message_at: "2026-03-25T09:59:00Z",
+        last_message_at: "2026-03-24T09:59:00Z",
         unread_count: 0,
         participants: ["You", "Teammate"],
         kind_label: "Direct agent chat",
@@ -970,7 +974,7 @@ describe("chat workspace page", () => {
           sender_name: "OpsBot",
           is_mine: false,
           content: "Newest confirmed reply from history",
-          created_at: "2026-03-25T10:00:00Z",
+          created_at: "2026-03-24T10:00:00Z",
           delivery_status: "completed",
           attachments: []
         }
@@ -1002,7 +1006,7 @@ describe("chat workspace page", () => {
         sender_type: "agent",
         sender_user_id: "agent-user-1",
         content: "",
-        created_at: "2026-03-25T10:01:00Z"
+        created_at: "2026-03-24T10:01:00Z"
       }
     });
     streamInput?.onEvent({
@@ -1836,7 +1840,7 @@ describe("chat workspace page", () => {
       {
         conversation_id: "conv-group",
         title: "Agent M170 Alpha + Agent M170 Beta",
-        last_message_preview: "Previous visible reply",
+        last_message_preview: "@agent-m170-alpha no-reply check: stay silent now.",
         last_message_at: "2026-03-16T03:12:40Z",
         unread_count: 0,
         participants: ["You", "Agent M170 Alpha", "Agent M170 Beta"],
@@ -1876,7 +1880,8 @@ describe("chat workspace page", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "Agent M170 Alpha + Agent M170 Beta" })).toBeInTheDocument();
-    expect(screen.getByText("Previous visible reply")).toBeInTheDocument();
+    const conversationCard = screen.getByRole("link", { name: /Agent M170 Alpha \+ Agent M170 Beta/ });
+    expect(within(conversationCard).getByText("@agent-m170-alpha no-reply check: stay silent now.")).toBeInTheDocument();
 
     const streamInput = streamConversationEvents.mock.calls.at(-1)?.[0] as
       | { onEvent: (event: { eventType: string; payload: Record<string, unknown> }) => void }
@@ -1907,7 +1912,7 @@ describe("chat workspace page", () => {
     expect(screen.queryByText("Agent replied")).not.toBeInTheDocument();
     expect(screen.queryByText("Using your main agent assistant on m170-node (online and ready to chat)")).not.toBeInTheDocument();
     expect(screen.queryByText("Target: Multiple participants")).not.toBeInTheDocument();
-    expect(screen.getByText("Previous visible reply")).toBeInTheDocument();
+    expect(within(conversationCard).getByText("@agent-m170-alpha no-reply check: stay silent now.")).toBeInTheDocument();
     expect(screen.getAllByText("Group chat").length).toBeGreaterThan(0);
   });
 
