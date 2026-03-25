@@ -9,12 +9,19 @@
   - 当前交付 bundle 为 `src/IM/frontend/dist/assets/index-tC8820Bk.js`，不包含 `mark_as_read` 路径。
 
 ### R1.1 Runtime bundle delivery aligns with unread read-ack semantics
-- Context: 待补充
-- Decision: 待补充
-- Rationale: 待补充
+- Context: 真实产品 URL `http://127.0.0.1:8011/chat/5e82e46169d044d18662e5bc853065bb` 可稳定复现“已打开会话仍显示 `8 new`”。排查确认运行时实际交付的 bundle 为 `src/IM/frontend/dist/assets/index-tC8820Bk.js`，其中不包含 `mark_as_read` 参数路径，导致 M317 的已读语义未进入真实前端运行时。
+- Decision:
+  - 在 `tests/im_service/integration/test_messages_api.py` 增加运行时交付回归：从 `/chat/...` 解析脚本地址并断言 bundle 包含 `mark_as_read`。
+  - 修复前端构建阻塞（`createGroupConversation` 中 `ImActorRef[]` 推断失败），确保 `npm run build` 能稳定产出最新 bundle。
+  - 重新构建并提交 `src/IM/frontend/dist` 产物，确保运行时交付与源码 read-ack 路径一致。
+  - 按 orchestrator 要求先同步分支基线：`git fetch origin && git merge --no-ff origin/main`，结果 `Already up to date.`（无冲突）。
+- Rationale: 这次故障是“真实运行时交付漂移”而非逻辑缺失；必须把 read-ack 路径放进实际被 IM 服务对外提供的 bundle，才能让真实 URL 中会话未读角标及时清零并在刷新后保持一致。
 - Evidence:
-  - Tests: 待补充
-  - Entry: 待补充
-- Rollback: 待补充
-- Commits: C1=``, C2=``, C3=``
-- Next: 先补 runtime 交付红测，再修复前端交付产物并做真实 URL 复验。
+  - Tests: `cd src/IM/frontend && npm test -- --run src/features/chat/chat-workspace-page.test.ts`（仍有 2 个既有失败：`uses per-agent identity to keep same-turn multi-agent relay replies distinct`、`keeps same-turn group replies from multiple agents visible instead of collapsing them`；与 M320 变更无关）。
+  - Tests: `pytest tests/im_service/integration/test_messages_api.py -k mark_as_read`（2 passed）。
+  - Entry: 真实运行时验证（sync 后复验）：
+    - bundle：`/assets/index-hutXMXlb.js`，包含 `mark_as_read`。
+    - 浏览器快照：`.playwright-cli/page-2026-03-25T04-11-18-637Z.yml`、刷新后 `.playwright-cli/page-2026-03-25T04-12-03-636Z.yml`，目标会话 `5e82e46169d044d18662e5bc853065bb` 行不再出现 `8 new`。
+- Rollback: 回退到 `9e3318d` 可撤销 C2 实现，仅保留 runtime 红测。
+- Commits: C1=`9e3318d`, C2=`688eda5`, C3=`(this commit)`
+- Next: 提交 C3，并将 `data/dev-tasks.json` 标记为 DONE 回传编排器。

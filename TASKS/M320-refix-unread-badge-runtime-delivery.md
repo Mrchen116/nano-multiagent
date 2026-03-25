@@ -8,7 +8,7 @@
 ## Roadpoints
 
 ### R1 Runtime-delivered unread semantics match source fix
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 真实 URL 下，打开目标会话后 sidebar 未读角标及时清零。
   - 刷新后仍保持已清零，不回退为旧未读值。
