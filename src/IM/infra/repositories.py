@@ -837,6 +837,7 @@ class MessageRepository:
         conversation_id: str,
         limit: int = 50,
         before_message_id: str | None = None,
+        mark_as_read: bool = False,
     ) -> list[Message]:
         """List messages for a conversation in insertion order.
 
@@ -844,6 +845,7 @@ class MessageRepository:
             conversation_id: Target conversation identifier.
             limit: Maximum number of recent messages to return.
             before_message_id: Exclusive cursor; return messages older than this message.
+            mark_as_read: Whether to clear unread_count for the conversation after loading latest page.
 
         Returns:
             Messages ordered from oldest to newest within the selected page.
@@ -882,6 +884,12 @@ class MessageRepository:
             """,
             tuple(params),
         ).fetchall()
+        if mark_as_read and before_message_id is None:
+            with self._connection:
+                self._connection.execute(
+                    "UPDATE conversations SET unread_count = 0 WHERE id = ?",
+                    (conversation_id,),
+                )
         ordered_rows = list(reversed(rows))
         return [
             Message(

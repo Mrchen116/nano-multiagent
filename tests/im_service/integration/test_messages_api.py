@@ -52,6 +52,37 @@ def test_messages_roundtrip_and_order(tmp_path: Path) -> None:
         assert [item["content"] for item in payload] == ["hello", "world"]
 
 
+def test_list_messages_mark_as_read_clears_conversation_unread_counter(tmp_path: Path) -> None:
+    """Treat initial history load as read acknowledgement for unread badge sync."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        user_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, user_id, "chat")
+
+        first = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": user_id, "content": "hello"},
+        )
+        second = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": user_id, "content": "world"},
+        )
+        assert first.status_code == 201
+        assert second.status_code == 201
+
+        before_read = client.get(f"/im/v1/conversations/{conversation_id}")
+        assert before_read.status_code == 200
+        assert before_read.json()["unread_count"] == 2
+
+        listed = client.get(f"/im/v1/conversations/{conversation_id}/messages?mark_as_read=true")
+        assert listed.status_code == 200
+        assert [item["content"] for item in listed.json()["items"]] == ["hello", "world"]
+
+        after_read = client.get(f"/im/v1/conversations/{conversation_id}")
+        assert after_read.status_code == 200
+        assert after_read.json()["unread_count"] == 0
+
+
 def test_messages_are_isolated_by_conversation(tmp_path: Path) -> None:
     """Avoid leaking messages from one conversation to another."""
     app = create_app(db_path=tmp_path / "im.db")

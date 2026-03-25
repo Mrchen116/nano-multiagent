@@ -914,7 +914,6 @@ describe("chat workspace page", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
-    expect(screen.getByText("8 new")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByText("8 new")).not.toBeInTheDocument();
     });
