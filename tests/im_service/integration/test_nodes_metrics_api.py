@@ -41,7 +41,7 @@ def test_nodes_list_and_config_update(tmp_path: Path) -> None:
                 "node_id": "node-1",
                 "owner_id": "",
                 "node_name": "MacBook",
-                "status": "online",
+                "status": "offline",
                 "last_heartbeat_at": "",
                 "agent_count": 0,
                 "version": "1.0.0",

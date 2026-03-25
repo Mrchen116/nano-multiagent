@@ -3,9 +3,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from IM.api.deps import get_node_service
+from IM.api.deps import get_gateway_handler, get_node_service
 from IM.application.node_service import NodeService
 from IM.domain.models import NodeStatus
+from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["nodes"])
 
@@ -52,9 +53,13 @@ def to_node_response(node: NodeStatus) -> NodeResponse:
 
 
 @router.get("/im/v1/nodes", response_model=list[NodeResponse])
-def list_nodes(service: NodeService = Depends(get_node_service)) -> list[NodeResponse]:
+async def list_nodes(
+    service: NodeService = Depends(get_node_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+) -> list[NodeResponse]:
     """List node board snapshots with canonical online/offline/degraded status."""
-    return [to_node_response(item) for item in service.list_nodes()]
+    connected_node_ids = await gateway_handler.list_connected_node_ids()
+    return [to_node_response(item) for item in service.list_nodes(connected_node_ids=connected_node_ids)]
 
 
 @router.patch("/im/v1/nodes/{node_id}/config", response_model=NodeResponse)

@@ -205,6 +205,11 @@ class GatewayHandler:
         async with self._lock:
             return self._connections.get(node_id)
 
+    async def list_connected_node_ids(self) -> set[str]:
+        """Return all currently connected node identifiers."""
+        async with self._lock:
+            return set(self._connections.keys())
+
     async def _handle_register(self, *, websocket: WebSocket, payload: dict[str, object]) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
         agents = _require_string_list(payload.get("agents", []), field_name="agents")
