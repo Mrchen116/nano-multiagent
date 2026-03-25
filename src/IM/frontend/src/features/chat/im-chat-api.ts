@@ -1610,15 +1610,16 @@ export async function createGroupConversation(input: {
   const userById = await loadUserMap();
   const participantLabels = participantIds.map((participantId) => userById.get(participantId)?.display_name ?? participantId);
   const title = resolveGroupConversationTitle({ groupName: input.groupName, participantLabels });
-  const participants: ImActorRef[] = [{ type: "user", id: selfUserId }].concat(
-    participantIds.map((participantId) => {
+  const participants: ImActorRef[] = [
+    { type: "user", id: selfUserId },
+    ...participantIds.map<ImActorRef>((participantId) => {
       const user = userById.get(participantId);
       if (!user) {
         return { type: "user", id: participantId };
       }
       return toActorFromUser(user);
     })
-  );
+  ];
   const created = await createConversationRaw({
     title,
     participants,
