@@ -83,6 +83,26 @@ def test_list_messages_mark_as_read_clears_conversation_unread_counter(tmp_path:
         assert after_read.json()["unread_count"] == 0
 
 
+def test_frontend_runtime_bundle_exposes_mark_as_read_flow(tmp_path: Path) -> None:
+    """Ensure IM-hosted frontend bundle includes unread read-ack query flow used in real runtime."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        entry = client.get("/chat/5e82e46169d044d18662e5bc853065bb")
+        assert entry.status_code == 200
+        html = entry.text
+        script_prefix = 'src="/assets/'
+        script_index = html.find(script_prefix)
+        assert script_index >= 0
+        script_start = script_index + len('src="')
+        script_end = html.find('"', script_start)
+        assert script_end > script_start
+        script_path = html[script_start:script_end]
+
+        bundle = client.get(script_path)
+        assert bundle.status_code == 200
+        assert "mark_as_read" in bundle.text
+
+
 def test_messages_are_isolated_by_conversation(tmp_path: Path) -> None:
     """Avoid leaking messages from one conversation to another."""
     app = create_app(db_path=tmp_path / "im.db")
