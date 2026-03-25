@@ -26,6 +26,7 @@ const getConversation = vi.fn();
 const sendMessage = vi.fn();
 const uploadAttachment = vi.fn();
 const getUsageMetrics = vi.fn();
+const resolveConversationSendNodeState = vi.fn();
 const streamConversationEvents = vi.fn((_: unknown) => () => undefined);
 
 vi.mock("../../hooks/use-is-mobile", () => ({
@@ -42,6 +43,12 @@ vi.mock("./chat-api", () => ({
   getConversation: (conversationId: string) => getConversation(conversationId),
   getUsageMetrics: (input: { ownerId?: string; conversationId?: string }) => getUsageMetrics(input),
   uploadAttachment: (file: File) => uploadAttachment(file),
+  resolveConversationSendNodeState: (input: {
+    conversationId?: string;
+    conversations?: unknown[];
+    selfUserId: string;
+    fallback: { targetNodeId: string | null; targetNodeStatus: string | null };
+  }) => resolveConversationSendNodeState(input),
   resolveSendAvailability,
   sendMessage: (input: { conversationId: string; content: string; attachments?: unknown[] }) => sendMessage(input),
   streamConversationEvents: (input: {
@@ -171,7 +178,12 @@ function renderWorkspaceWithPersistentClient(options: {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   resetChatBootstrapState();
+  resolveConversationSendNodeState.mockImplementation(async (input: { fallback: { targetNodeId: string | null; targetNodeStatus: string | null } }) => ({
+    targetNodeId: input.fallback.targetNodeId,
+    targetNodeStatus: input.fallback.targetNodeStatus
+  }));
 });
 
 describe("chat workspace usage helpers", () => {
@@ -353,7 +365,7 @@ describe("chat workspace relay event mapping", () => {
         }
       })
     ).toMatchObject({
-      message_id: "msg-1:agent:agent-q",
+      message_id: "msg-1:relay:relay-q",
       sender_name: "agent-q",
       sender_display_name: "Q",
       content: "Q completed the rollout summary",
@@ -372,7 +384,7 @@ describe("chat workspace relay event mapping", () => {
         }
       })
     ).toMatchObject({
-      message_id: "msg-1:agent:agent-a",
+      message_id: "msg-1:relay:relay-a",
       sender_name: "agent-a",
       sender_display_name: "A",
       content: "A completed the code review summary",
@@ -844,6 +856,10 @@ describe("chat workspace page", () => {
       return [];
     });
     sendMessage.mockResolvedValue({});
+    resolveConversationSendNodeState.mockImplementation(async (input: { fallback: { targetNodeId: string | null; targetNodeStatus: string | null } }) => ({
+      targetNodeId: input.fallback.targetNodeId,
+      targetNodeStatus: input.fallback.targetNodeStatus
+    }));
     uploadAttachment.mockResolvedValue({
       url: "http://im.test/im/uploads/demo.txt",
       file_name: "demo.txt",
@@ -1095,7 +1111,7 @@ describe("chat workspace page", () => {
         ownershipLabel: "Using OpsBot on Bootstrap Offline Node (offline)"
       }
     });
-    listConversations.mockResolvedValueOnce([
+    listConversations.mockResolvedValue([
       {
         conversation_id: "conv-1",
         title: "You & Teammate",
@@ -1112,6 +1128,10 @@ describe("chat workspace page", () => {
         node_status: "online"
       }
     ]);
+    resolveConversationSendNodeState.mockResolvedValue({
+      targetNodeId: "target-online-node",
+      targetNodeStatus: "online"
+    });
     sendMessage
       .mockRejectedValueOnce(new Error("target_node_id is not connected"))
       .mockResolvedValueOnce({
@@ -1131,7 +1151,7 @@ describe("chat workspace page", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
-    const composer = screen.getByPlaceholderText("Type message");
+    const composer = await screen.findByPlaceholderText("Type message");
     expect(composer).toBeEnabled();
 
     await user.type(composer, "retry succeeds once target node is used");
@@ -1162,7 +1182,7 @@ describe("chat workspace page", () => {
         ownershipLabel: "Using OpsBot on Bootstrap Online Node (online)"
       }
     });
-    listConversations.mockResolvedValueOnce([
+    listConversations.mockResolvedValue([
       {
         conversation_id: "conv-1",
         title: "You & Teammate",
@@ -1179,6 +1199,10 @@ describe("chat workspace page", () => {
         node_status: null
       }
     ]);
+    resolveConversationSendNodeState.mockResolvedValue({
+      targetNodeId: null,
+      targetNodeStatus: null
+    });
 
     renderRouter({
       routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
@@ -1310,6 +1334,20 @@ describe("chat workspace page", () => {
         ownershipLabel: "Using OpsBot on Online Node (online)"
       }
     });
+    listConversations.mockResolvedValueOnce([
+      {
+        conversation_id: "conv-group",
+        title: "Kernel Ops Crew",
+        last_message_preview: "",
+        last_message_at: null,
+        unread_count: 0,
+        participants: ["You", "OpsBot", "ReviewBot"],
+        kind: "group",
+        kind_label: "Group chat",
+        target_label: "Multiple participants",
+        discoverability_hint: "Shared thread"
+      }
+    ]);
     getConversation.mockResolvedValueOnce({
       conversation_id: "conv-group",
       title: "Kernel Ops Crew",
@@ -1322,6 +1360,10 @@ describe("chat workspace page", () => {
       ],
       messages: []
     });
+    resolveConversationSendNodeState.mockResolvedValue({
+      targetNodeId: "node-online",
+      targetNodeStatus: "online"
+    });
 
     renderRouter({
       routes: [{ path: "/chat/:conversationId", element: createElement(ChatWorkspacePage) }],
@@ -1329,7 +1371,7 @@ describe("chat workspace page", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "Kernel Ops Crew" })).toBeInTheDocument();
-    await userEvent.type(screen.getByPlaceholderText("Type message"), "@");
+    await userEvent.type(await screen.findByPlaceholderText("Type message"), "@");
     expect(screen.getByRole("option", { name: /OpsBot/i })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /ReviewBot/i })).toBeInTheDocument();
   });

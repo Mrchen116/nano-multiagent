@@ -163,6 +163,7 @@ export function useGlobalMessageToast(input?: { maxConversations?: number }) {
   const pathnameRef = useRef(location.pathname);
   const selfUserIdRef = useRef<string | null>(null);
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
+  const hasInitializedRef = useRef(false);
   const [subscriptions, setSubscriptions] = useState<Array<{ conversationId: string; afterEventId: number }>>([]);
 
   useEffect(() => {
@@ -172,44 +173,77 @@ export function useGlobalMessageToast(input?: { maxConversations?: number }) {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadNotificationBaselines() {
+    async function refreshNotificationSubscriptions() {
       try {
         const [items, bootstrap] = await Promise.all([listConversations(), getChatBootstrapState()]);
         if (cancelled) {
           return;
         }
         selfUserIdRef.current = bootstrap.selfUserId;
-        const conversationIds = items.slice(0, maxConversations).map((item: ConversationSummary) => item.conversation_id);
+        const trackedConversations = items.slice(0, maxConversations);
+        const trackedIds = new Set(trackedConversations.map((item: ConversationSummary) => item.conversation_id));
+        const previousState = conversationStateRef.current;
+        const nextState = new Map<string, ConversationNotificationState>();
+        const subscriptionsToLoad: Array<{ conversationId: string; unreadCount: number }> = [];
+
+        for (const item of trackedConversations) {
+          const existing = previousState.get(item.conversation_id);
+          if (existing) {
+            nextState.set(item.conversation_id, existing);
+            continue;
+          }
+          subscriptionsToLoad.push({
+            conversationId: item.conversation_id,
+            unreadCount: typeof item.unread_count === "number" ? Math.max(0, Math.trunc(item.unread_count)) : 0
+          });
+        }
+
         const latestEventIds = await Promise.all(
-          conversationIds.map(async (conversationId) => ({
+          subscriptionsToLoad.map(async ({ conversationId, unreadCount }) => ({
             conversationId,
+            unreadCount,
             latestEventId: await getConversationLatestEventId(conversationId)
           }))
         );
         if (cancelled) {
           return;
         }
+
+        for (const { conversationId, unreadCount, latestEventId } of latestEventIds) {
+          const shouldReplayLatestEvent = hasInitializedRef.current && unreadCount > 0 && latestEventId > 0;
+          const baselineEventId = shouldReplayLatestEvent ? latestEventId - 1 : latestEventId;
+          nextState.set(conversationId, {
+            baselineEventId,
+            lastSeenEventId: baselineEventId,
+            notifiedMessageKeys: new Set<string>()
+          });
+        }
+
         conversationStateRef.current = new Map(
-          latestEventIds.map(({ conversationId, latestEventId }) => [
-            conversationId,
-            {
-              baselineEventId: latestEventId,
-              lastSeenEventId: latestEventId,
-              notifiedMessageKeys: new Set<string>()
-            }
-          ])
+          [...nextState.entries()].filter(([conversationId]) => trackedIds.has(conversationId))
         );
-        setSubscriptions(latestEventIds.map(({ conversationId, latestEventId }) => ({ conversationId, afterEventId: latestEventId })));
+        setSubscriptions(
+          [...conversationStateRef.current.entries()].map(([conversationId, state]) => ({
+            conversationId,
+            afterEventId: state.lastSeenEventId
+          }))
+        );
+        hasInitializedRef.current = true;
       } catch {
         if (!cancelled) {
+          conversationStateRef.current = new Map();
           setSubscriptions([]);
         }
       }
     }
 
-    void loadNotificationBaselines();
+    void refreshNotificationSubscriptions();
+    const intervalId = window.setInterval(() => {
+      void refreshNotificationSubscriptions();
+    }, 3000);
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [maxConversations]);
 

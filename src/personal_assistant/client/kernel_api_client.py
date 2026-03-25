@@ -101,6 +101,43 @@ class KernelApiClient:
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request("GET", f"/v1/sessions/{session}", require_auth=True)
 
+    def append_message(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        content: str,
+        message_id: str | None = None,
+        turn_id: str | None = None,
+        parts: list[dict[str, Any]] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist one user/assistant message into session history without running the model."""
+
+        session = _require_non_empty_string(session_id, field_name="session_id")
+        normalized_role = _require_non_empty_string(role, field_name="role").lower()
+        if normalized_role not in {"user", "assistant"}:
+            raise ValueError("role must be one of: user, assistant")
+        payload: dict[str, Any] = {
+            "role": normalized_role,
+            "content": content,
+            "parts": [dict(part) for part in parts or []],
+            "metadata": dict(metadata or {}),
+        }
+        if message_id is not None:
+            payload["message_id"] = _require_non_empty_string(message_id, field_name="message_id")
+        if turn_id is not None:
+            payload["turn_id"] = _require_non_empty_string(turn_id, field_name="turn_id")
+        if idempotency_key is not None:
+            payload["idempotency_key"] = _require_non_empty_string(idempotency_key, field_name="idempotency_key")
+        return self._request(
+            "POST",
+            f"/v1/sessions/{session}/messages:append",
+            json=payload,
+            require_auth=True,
+        )
+
     def send_message_async(
         self,
         *,

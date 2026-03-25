@@ -7,9 +7,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from agent.core.agent.compaction.types import CompactionSettings
+from agent.core.session.entries import SessionEntry
 from agent.core.errors import ModelError
 from agent.core.hooks.registry import HookRegistry
 from agent.core.session.models import Session
@@ -120,6 +121,41 @@ class SendMessageAsyncResponse(BaseModel):
     run_id: str
     session_id: str
     status: str
+
+
+class AppendMessageRequest(BaseModel):
+    """Persist one user/assistant message without triggering a model run."""
+
+    role: str = Field(min_length=1)
+    content: str = Field(default="")
+    message_id: str | None = None
+    turn_id: str | None = None
+    parts: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str | None = None
+
+    @model_validator(mode="after")
+    def validate_role(self) -> "AppendMessageRequest":
+        normalized_role = self.role.strip().lower()
+        if normalized_role not in {"user", "assistant"}:
+            raise ValueError("role must be one of: user, assistant")
+        self.role = normalized_role
+        return self
+
+
+class AppendMessageResponse(BaseModel):
+    """Projection for one persisted append-only session message."""
+
+    session_id: str
+    entry_id: str
+    kind: str
+    created_at: str
+    turn_id: str
+    role: str
+    content: str
+    message_id: str | None = None
+    parts: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolDescriptor(BaseModel):
@@ -325,6 +361,51 @@ def get_context_budget(
     )
 
 
+@router.post("/{session_id}/messages:append", response_model=AppendMessageResponse)
+def append_message(
+    session_id: str,
+    payload: AppendMessageRequest,
+    session_service: SessionService = Depends(get_session_service),
+    event_hub: EventStreamHub = Depends(get_event_stream_hub),
+) -> AppendMessageResponse:
+    """Persist one append-only session message and publish a session event."""
+
+    existing = session_service.get_session(session_id)
+    if existing is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message=f"session does not exist: {session_id}",
+            retryable=False,
+        )
+    try:
+        append_result = session_service.append_message(
+            session_id,
+            role=payload.role,
+            content=payload.content,
+            message_id=payload.message_id,
+            turn_id=payload.turn_id,
+            parts=payload.parts,
+            metadata=payload.metadata,
+            idempotency_key=payload.idempotency_key,
+        )
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    entry = append_result.entry
+    if append_result.created:
+        event_hub.publish(
+            event=entry.kind.value,
+            session_id=session_id,
+            data=_session_entry_payload(entry),
+        )
+    return _to_append_message_response(entry)
+
+
 @router.post("/{session_id}/messages", response_model=SendMessageResponse, response_model_exclude_none=True)
 def send_message(
     session_id: str,
@@ -444,6 +525,35 @@ def _to_session_response(session: Session) -> SessionResponse:
         created_at=session.created_at,
         metadata=dict(session.metadata),
     )
+
+
+def _to_append_message_response(entry: SessionEntry) -> AppendMessageResponse:
+    """Convert one persisted turn-appended entry into HTTP response shape."""
+
+    return AppendMessageResponse(
+        session_id=entry.session_id,
+        entry_id=entry.entry_id,
+        kind=entry.kind.value,
+        created_at=entry.created_at,
+        turn_id=str(entry.data.get("turn_id", "")),
+        role=str(entry.data.get("role", "")),
+        content=str(entry.data.get("content", "")),
+        message_id=entry.data.get("message_id") if isinstance(entry.data.get("message_id"), str) else None,
+        parts=[dict(part) for part in entry.data.get("parts", []) if isinstance(part, dict)],
+        metadata=dict(entry.data.get("metadata", {})) if isinstance(entry.data.get("metadata"), dict) else {},
+    )
+
+
+def _session_entry_payload(entry: SessionEntry) -> dict[str, Any]:
+    """Encode one session entry for SSE publication."""
+
+    return {
+        "entry_id": entry.entry_id,
+        "session_id": entry.session_id,
+        "created_at": entry.created_at,
+        "kind": entry.kind.value,
+        **dict(entry.data),
+    }
 
 
 def _to_message_response(result: TurnResult) -> dict[str, Any]:

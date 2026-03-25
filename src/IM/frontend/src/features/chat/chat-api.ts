@@ -39,6 +39,9 @@ export const sendMessage = useMockApi ? mockApi.sendMessage : imApi.sendMessage;
 export const uploadAttachment = useMockApi ? mockApi.uploadAttachment : imApi.uploadAttachment;
 export const getUsageMetrics = useMockApi ? mockApi.getUsageMetrics : imApi.getUsageMetrics;
 export const resolveSendAvailability = imApi.resolveSendAvailability;
+export const resolveConversationSendNodeState = useMockApi
+  ? mockApi.resolveConversationSendNodeState
+  : imApi.resolveConversationSendNodeState;
 export const streamConversationEvents = useMockApi
   ? mockApi.streamConversationEvents
   : imApi.streamConversationEvents;

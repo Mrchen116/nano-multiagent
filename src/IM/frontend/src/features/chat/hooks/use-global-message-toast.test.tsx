@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const streamHandlers = new Map<string, (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void>();
 
@@ -37,6 +37,10 @@ function emit(conversationId: string, event: { eventType: string; payload: Recor
 }
 
 describe("useGlobalMessageToast", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     streamHandlers.clear();
     vi.clearAllMocks();
@@ -179,4 +183,35 @@ describe("useGlobalMessageToast", () => {
 
     expect(result.current.toast).toBeNull();
   });
+
+  it("subscribes to conversations discovered after mount and toasts the replayed latest unread event", async () => {
+    listConversationsMock
+      .mockResolvedValueOnce([{ conversation_id: "conv-1", unread_count: 0, participants: [], title: "Chat" }])
+      .mockResolvedValueOnce([
+        { conversation_id: "conv-2", unread_count: 1, participants: [], title: "New chat" },
+        { conversation_id: "conv-1", unread_count: 0, participants: [], title: "Chat" }
+      ]);
+    getConversationLatestEventIdMock.mockImplementation(async (conversationId: string) => (conversationId === "conv-2" ? 5 : 0));
+
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper("/") });
+
+    await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-1", afterEventId: 0 })));
+    await waitFor(
+      () => expect(streamConversationEventsMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-2", afterEventId: 4 })),
+      { timeout: 4000 }
+    );
+
+    emit("conv-2", {
+      eventType: "message.sent",
+      eventId: 5,
+      payload: { message_id: "new-direct-1", sender_type: "agent", sender_display_name: "Ops Bot", content: "fresh dm" }
+    });
+
+    expect(result.current.toast).toMatchObject({
+      id: "message:new-direct-1",
+      conversationId: "conv-2",
+      senderName: "Ops Bot",
+      preview: "fresh dm"
+    });
+  }, 10000);
 });

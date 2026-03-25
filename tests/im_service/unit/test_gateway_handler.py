@@ -315,12 +315,14 @@ def test_resolve_send_message_target_handles_agent_user_and_conversation(tmp_pat
     assert landed_agent is not None
     assert landed_agent.type == "direct"
     assert landed_agent.direct_kind == "agent-agent"
+    assert landed_agent.title == "Agent B"
 
     assert user_target.kind == "user_id"
     assert user_target.id == teammate.id
     assert landed_user is not None
     assert landed_user.type == "direct"
     assert landed_user.direct_kind == "user-agent"
+    assert landed_user.title == "Agent A"
 
     assert group_target.kind == "conversation_id"
     assert landed_group_id == group.id
@@ -406,6 +408,7 @@ def test_handle_agent_message_routes_user_target_and_persists_message(tmp_path: 
     assert landed_conversation is not None
     assert landed_conversation.type == "direct"
     assert landed_conversation.direct_kind == "user-agent"
+    assert landed_conversation.title == "Agent A"
     assert set(landed_conversation.participant_ids) == {source_agent.id, teammate.id}
     messages = messages_repo.list_messages(conversation_id=conversation_id)
     assert len(messages) == 1

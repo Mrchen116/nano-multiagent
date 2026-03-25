@@ -117,6 +117,47 @@ def test_get_and_list_sessions_contract_with_minimal_pagination() -> None:
     assert isinstance(list_payload["items"][0]["metadata"], dict)
 
 
+def test_append_message_contract() -> None:
+    client = TestClient(create_app())
+    headers = _auth_headers("req-append-contract")
+
+    created = client.post(
+        "/v1/sessions",
+        json={"workspace_root": "~/nano-assistant/workspace/append-contract"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    session_id = created.json()["session_id"]
+
+    response = client.post(
+        f"/v1/sessions/{session_id}/messages:append",
+        json={
+            "role": "assistant",
+            "content": "给你个冷笑话",
+            "message_id": "msg_contract_dm",
+            "turn_id": "turn_contract_dm",
+            "metadata": {"source": "gateway"},
+            "idempotency_key": "idem-contract-dm",
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload.keys()) == {
+        "session_id", "entry_id", "kind", "created_at", "turn_id", "role", "content", "message_id", "parts", "metadata"
+    }
+    assert payload["session_id"] == session_id
+    assert payload["kind"] == "session.turn.appended"
+    assert payload["turn_id"] == "turn_contract_dm"
+    assert payload["role"] == "assistant"
+    assert payload["content"] == "给你个冷笑话"
+    assert payload["message_id"] == "msg_contract_dm"
+    assert payload["metadata"]["source"] == "gateway"
+    assert payload["metadata"]["idempotency_key"] == "idem-contract-dm"
+
+
+
 def test_session_compact_tools_and_context_budget_contract() -> None:
     client = TestClient(create_app())
     headers = _auth_headers("req-session-compact-tools-contract")

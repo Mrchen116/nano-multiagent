@@ -5,13 +5,52 @@ import asyncio
 import json
 from collections import deque
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
+
+
+@dataclass(slots=True)
+class PendingFrame:
+    """Track one queued upstream frame plus its optional ack waiter."""
+
+    message_type: str
+    payload: dict[str, object]
+    ack_future: asyncio.Future[dict[str, object]] | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class IMDispatchAck:
+    """Canonical subset returned by IM after one agent.message dispatch."""
+
+    conversation_id: str
+    message_id: str
+    target_kind: str
+    target_id: str
+    source_agent_id: str
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, object]) -> "IMDispatchAck":
+        return cls(
+            conversation_id=_require_text(payload.get("conversation_id"), field_name="conversation_id"),
+            message_id=_require_text(payload.get("message_id"), field_name="message_id"),
+            target_kind=_require_text(payload.get("target_kind"), field_name="target_kind"),
+            target_id=_require_text(payload.get("target_id"), field_name="target_id"),
+            source_agent_id=_require_text(payload.get("source_agent_id"), field_name="source_agent_id"),
+        )
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "conversation_id": self.conversation_id,
+            "message_id": self.message_id,
+            "target_kind": self.target_kind,
+            "target_id": self.target_id,
+            "source_agent_id": self.source_agent_id,
+        }
 
 
 class ClientWebSocket(Protocol):
@@ -109,7 +148,7 @@ class IMConnectionManager:
         self._stop_requested = False
         self._reconnect_delay = config.reconnect_initial_seconds
         self._events: list[dict[str, object]] = []
-        self._pending_frames: deque[tuple[str, dict[str, object]]] = deque()
+        self._pending_frames: deque[PendingFrame] = deque()
         self._awaiting_ack_type: str | None = None
         self._flush_lock = asyncio.Lock()
 
@@ -156,8 +195,25 @@ class IMConnectionManager:
     async def send_json(self, message_type: str, payload: Mapping[str, object]) -> None:
         """Queue one gateway -> IM protocol frame and flush it when the socket is available."""
 
-        self._pending_frames.append((message_type, dict(payload)))
+        self._pending_frames.append(PendingFrame(message_type=message_type, payload=dict(payload)))
         await self._flush_pending_frames()
+
+    async def send_json_await_ack(self, message_type: str, payload: Mapping[str, object]) -> dict[str, object]:
+        """Queue one frame and wait until the matching ack payload arrives."""
+
+        loop = asyncio.get_running_loop()
+        ack_future: asyncio.Future[dict[str, object]] = loop.create_future()
+        self._pending_frames.append(
+            PendingFrame(message_type=message_type, payload=dict(payload), ack_future=ack_future)
+        )
+        await self._flush_pending_frames()
+        return await ack_future
+
+    async def send_agent_message(self, payload: Mapping[str, object]) -> IMDispatchAck:
+        """Send one agent.message frame and return the parsed IM dispatch ack."""
+
+        ack_payload = await self.send_json_await_ack("agent.message", payload)
+        return IMDispatchAck.from_payload(ack_payload)
 
     async def run_forever(self) -> None:
         """Maintain the IM websocket until ``close`` is requested."""
@@ -225,15 +281,15 @@ class IMConnectionManager:
         async with self._flush_lock:
             if self._awaiting_ack_type is not None or not self._pending_frames:
                 return
-            message_type, payload = self._pending_frames[0]
+            pending_frame = self._pending_frames[0]
             try:
-                await self._send_frame(message_type, payload)
+                await self._send_frame(pending_frame.message_type, pending_frame.payload)
             except Exception as exc:  # noqa: BLE001
                 await self._disconnect_current_websocket(exc)
                 if raise_on_disconnect:
                     raise
                 return
-            self._awaiting_ack_type = message_type
+            self._awaiting_ack_type = pending_frame.message_type
 
     async def _send_frame(self, message_type: str, payload: Mapping[str, object]) -> None:
         websocket = self._require_websocket()
@@ -257,15 +313,20 @@ class IMConnectionManager:
         ack_type = payload.get("message_type")
         if not isinstance(ack_type, str) or ack_type.strip() != awaiting:
             return
-        self._pending_frames.popleft()
+        pending_frame = self._pending_frames.popleft()
         self._awaiting_ack_type = None
+        if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
+            pending_frame.ack_future.set_result(dict(payload))
         self._events.append({"event": "acked", "type": awaiting})
 
     def _mark_disconnected(self, exc: Exception | None = None) -> None:
         had_connection = self._connected or self._websocket is not None
+        pending_frame = self._pending_frames[0] if self._pending_frames else None
         self._connected = False
         self._websocket = None
         self._awaiting_ack_type = None
+        if pending_frame is not None and pending_frame.ack_future is not None and not pending_frame.ack_future.done():
+            pending_frame.ack_future.set_exception(RuntimeError("IM websocket disconnected before ack"))
         if had_connection:
             event: dict[str, object] = {"event": "disconnected"}
             if exc is not None:

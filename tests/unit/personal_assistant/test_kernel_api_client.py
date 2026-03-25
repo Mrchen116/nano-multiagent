@@ -34,6 +34,22 @@ class _JSONTransport(httpx.BaseTransport):
                     "metadata": {"workspace_root": "/tmp/agent-a", "agent_id": "agent-a"},
                 },
             )
+        if request.url.path == "/v1/sessions/sess-1/messages:append":
+            return httpx.Response(
+                200,
+                json={
+                    "session_id": "sess-1",
+                    "entry_id": "evt-1",
+                    "kind": "session.turn.appended",
+                    "created_at": "now",
+                    "turn_id": "turn-1",
+                    "role": "assistant",
+                    "content": "hello",
+                    "message_id": "msg-1",
+                    "parts": [],
+                    "metadata": {"idempotency_key": "idem-1"},
+                },
+            )
         if request.url.path == "/v1/sessions/sess-1/messages:async":
             return httpx.Response(202, json={"run_id": "run-1", "session_id": "sess-1", "status": "queued"})
         if request.url.path == "/v1/runs/run-1":
@@ -41,6 +57,22 @@ class _JSONTransport(httpx.BaseTransport):
         if request.url.path == "/v1/runs/run-1/cancel":
             return httpx.Response(200, json={"run_id": "run-1", "session_id": "sess-1", "status": "cancelled", "created_at": "a", "updated_at": "c"})
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+
+EXPECTED_METHODS = {
+    "health",
+    "create_session",
+    "append_message",
+    "send_message_async",
+    "stream_session_events",
+    "get_run",
+    "cancel_run",
+}
+
+
+def test_kernel_api_client_exposes_gateway_http_subset() -> None:
+    for method_name in EXPECTED_METHODS:
+        assert hasattr(KernelApiClient, method_name)
 
 
 def test_kernel_api_client_calls_required_http_subset() -> None:
@@ -53,12 +85,20 @@ def test_kernel_api_client_calls_required_http_subset() -> None:
     assert client.health()["healthy"] is True
     assert client.create_session(workspace_root="/tmp/agent-a", product_id="personal_assistant")["session_id"] == "sess-1"
     assert client.get_session(session_id="sess-1")["metadata"]["workspace_root"] == "/tmp/agent-a"
+    assert client.append_message(
+        session_id="sess-1",
+        role="assistant",
+        content="hello",
+        metadata={"source": "gateway"},
+        idempotency_key="idem-1",
+    )["entry_id"] == "evt-1"
     assert client.send_message_async(session_id="sess-1", texts=["hello"])["run_id"] == "run-1"
     assert client.get_run(run_id="run-1")["status"] == "running"
     assert client.cancel_run(run_id="run-1")["status"] == "cancelled"
 
     create_request = next(request for request in transport.requests if request.url.path == "/v1/sessions")
     get_request = next(request for request in transport.requests if request.url.path == "/v1/sessions/sess-1")
+    append_request = next(request for request in transport.requests if request.url.path.endswith("messages:append"))
     async_request = next(request for request in transport.requests if request.url.path.endswith("messages:async"))
     assert create_request.headers["authorization"] == "Bearer secret-token"
     assert create_request.headers["x-request-id"] == "req-fixed"
@@ -66,6 +106,9 @@ def test_kernel_api_client_calls_required_http_subset() -> None:
     assert get_request.headers["x-request-id"] == "req-fixed"
     assert b'"workspace_root":"/tmp/agent-a"' in create_request.content
     assert b'"product_id":"personal_assistant"' in create_request.content
+    assert b'"role":"assistant"' in append_request.content
+    assert b'"content":"hello"' in append_request.content
+    assert b'"idempotency_key":"idem-1"' in append_request.content
     assert b'"parts":[{"type":"text","text":"hello"}]' in async_request.content
 
 

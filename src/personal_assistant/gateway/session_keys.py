@@ -287,3 +287,44 @@ def build_reply_context(message: InboundMessage) -> ReplyContext:
         thread_id=message.thread_id,
         metadata=dict(message.metadata),
     )
+
+
+def build_conversation_session_key(*, channel_name: str, conversation_id: str, agent_id: str) -> str:
+    """Build one gateway session key from a canonical conversation id."""
+
+    return f"{channel_name}:{conversation_id}:{agent_id}"
+
+
+def build_conversation_reply_context(*, channel_name: str, conversation_id: str) -> ReplyContext:
+    """Build a reply context that routes back to one canonical IM conversation."""
+
+    return ReplyContext(
+        channel_name=channel_name,
+        target_chat_id=conversation_id,
+        thread_id=None,
+        metadata={"conversation_id": conversation_id},
+    )
+
+
+def bind_conversation_session(
+    *,
+    store: SessionBindingStore,
+    channel_name: str,
+    conversation_id: str,
+    agent_id: str,
+    kernel_session_id: str,
+) -> SessionBinding:
+    """Bind one canonical conversation id to an existing kernel session."""
+
+    return store.bind(
+        session_key=build_conversation_session_key(
+            channel_name=channel_name,
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+        ),
+        kernel_session_id=kernel_session_id,
+        reply_context=build_conversation_reply_context(
+            channel_name=channel_name,
+            conversation_id=conversation_id,
+        ),
+    )

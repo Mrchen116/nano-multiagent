@@ -250,6 +250,28 @@ export async function getConversationLatestEventId(_: string) {
   return 0;
 }
 
+export async function resolveConversationSendNodeState(input: {
+  conversationId?: string;
+  conversations?: ConversationSummary[];
+  fallback: {
+    targetNodeId: string | null;
+    targetNodeStatus: string | null;
+  };
+}) {
+  await wait();
+  if (!input.conversationId) {
+    return input.fallback;
+  }
+  const conversation = (input.conversations ?? conversations).find((item) => item.conversation_id === input.conversationId);
+  if (!conversation) {
+    return input.fallback;
+  }
+  return {
+    targetNodeId: conversation.node_id ?? input.fallback.targetNodeId,
+    targetNodeStatus: conversation.node_status ?? input.fallback.targetNodeStatus
+  };
+}
+
 export async function listDiscoverableAgents() {
   await wait(40);
   return discoverableAgents.map((item) => ({ ...item }));

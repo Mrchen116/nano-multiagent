@@ -423,6 +423,7 @@ const conversationPreviewSnapshotById = new Map<string, ConversationPreviewSnaps
 const SELF_USERNAME = "you";
 const PEER_USERNAME = "peer";
 const DEFAULT_CONVERSATION_TITLE = "You & Teammate";
+const DIRECT_CONVERSATION_PLACEHOLDER_TITLE = "Direct conversation";
 const AGENT_USERNAME_PREFIX = "agent:";
 const DEFAULT_AGENT_NAME = "OpsBot";
 const DEFAULT_AGENT_DESCRIPTION = "OpsBot is your main agent and default IM entry for this workspace.";
@@ -917,12 +918,46 @@ function buildStarterDescription(agent: ImAgent): string {
   return agent.description.trim() || `${normalizedName} ${MAIN_AGENT_DEFAULT_DESCRIPTION_SUFFIX}`;
 }
 
-function resolveConversationTitle(input: { conversation: ImConversation; starterTitle: string }): string {
-  const normalized = input.conversation.title.trim();
-  if (!normalized || normalized === DEFAULT_CONVERSATION_TITLE) {
-    return input.starterTitle;
+function isPlaceholderConversationTitle(title: string): boolean {
+  return !title || title === DEFAULT_CONVERSATION_TITLE || title === DIRECT_CONVERSATION_PLACEHOLDER_TITLE;
+}
+
+function resolveDirectConversationFallbackTitle(input: {
+  participants: ImActorRef[];
+  selfUserId: string;
+}): string | null {
+  const selfUserParticipant = input.participants.find((participant) => participant.type === "user" && participant.id === input.selfUserId);
+  const agentParticipant = input.participants.find((participant) => participant.type === "agent");
+  if (agentParticipant && selfUserParticipant) {
+    return toParticipantDisplayName(agentParticipant);
   }
-  return normalized;
+  const peerUserParticipant = input.participants.find(
+    (participant) => participant.type === "user" && participant.id !== input.selfUserId
+  );
+  if (peerUserParticipant) {
+    return toParticipantDisplayName(peerUserParticipant);
+  }
+  return agentParticipant ? toParticipantDisplayName(agentParticipant) : null;
+}
+
+function resolveConversationTitle(input: {
+  conversation: ImConversation;
+  starterTitle: string;
+  participants: ImActorRef[];
+  selfUserId: string;
+}): string {
+  const normalized = input.conversation.title.trim();
+  if (!isPlaceholderConversationTitle(normalized)) {
+    return normalized;
+  }
+  const directFallbackTitle = resolveDirectConversationFallbackTitle({
+    participants: input.participants,
+    selfUserId: input.selfUserId
+  });
+  if (directFallbackTitle) {
+    return directFallbackTitle;
+  }
+  return input.starterTitle;
 }
 
 function compareConversationCreation(left: ImConversation, right: ImConversation) {
@@ -1240,10 +1275,15 @@ function toConversationSummary(input: {
   starterTitle: string;
   ownership: ChatOwnershipSummary;
 }): ConversationSummary {
-  const resolvedTitle = resolveConversationTitle({ conversation: input.conversation, starterTitle: input.starterTitle });
   const participants = resolveConversationParticipants({
     conversation: input.conversation,
     userById: input.userById
+  });
+  const resolvedTitle = resolveConversationTitle({
+    conversation: input.conversation,
+    starterTitle: input.starterTitle,
+    participants,
+    selfUserId: input.selfUserId
   });
   const conversationKind = resolveConversationKind({
     title: resolvedTitle,
@@ -1391,14 +1431,44 @@ function resolveConversationOwnershipForSummary(input: {
   };
 }
 
-async function resolveConversationSendNodeState(input: {
-  conversationId: string;
+function isDirectAgentConversationSummary(summary: ConversationSummary | null | undefined) {
+  return summary?.kind === "direct-agent" || summary?.kind_label === DIRECT_AGENT_SESSION_LABEL;
+}
+
+function hasExplicitSummaryNodeState(summary: ConversationSummary | null | undefined) {
+  return Boolean(
+    summary &&
+      (Object.prototype.hasOwnProperty.call(summary, "node_id") ||
+        Object.prototype.hasOwnProperty.call(summary, "node_label") ||
+        Object.prototype.hasOwnProperty.call(summary, "node_status"))
+  );
+}
+
+export async function resolveConversationSendNodeState(input: {
+  conversationId?: string;
+  conversations?: ConversationSummary[];
   selfUserId: string;
   fallback: {
     targetNodeId: string | null;
     targetNodeStatus: string | null;
   };
-}) {
+}): Promise<{
+  targetNodeId: string | null;
+  targetNodeStatus: string | null;
+}> {
+  if (!input.conversationId) {
+    return input.fallback;
+  }
+  const activeSummary = input.conversations?.find((item) => item.conversation_id === input.conversationId);
+  if (activeSummary && !isDirectAgentConversationSummary(activeSummary)) {
+    return input.fallback;
+  }
+  if (hasExplicitSummaryNodeState(activeSummary)) {
+    return {
+      targetNodeId: activeSummary?.node_id ?? activeSummary?.node_label ?? null,
+      targetNodeStatus: activeSummary?.node_status ?? null
+    };
+  }
   const [conversations, userById, agents, nodes] = await Promise.all([
     listConversationsRaw(),
     loadUserMap(),
@@ -1648,10 +1718,15 @@ export async function getConversation(conversationId: string): Promise<Conversat
     return null;
   }
   updateConversationPreviewFromMessages({ conversationId, messages });
-  const resolvedTitle = resolveConversationTitle({ conversation, starterTitle: starter.title });
   const participants = resolveConversationParticipants({
     conversation,
     userById
+  });
+  const resolvedTitle = resolveConversationTitle({
+    conversation,
+    starterTitle: starter.title,
+    participants,
+    selfUserId
   });
   const conversationKind = resolveConversationKind({
     title: resolvedTitle,

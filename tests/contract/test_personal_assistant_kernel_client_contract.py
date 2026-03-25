@@ -4,6 +4,7 @@ from personal_assistant.client.kernel_api_client import KernelApiClient
 EXPECTED_METHODS = {
     "health",
     "create_session",
+    "append_message",
     "send_message_async",
     "stream_session_events",
     "get_run",

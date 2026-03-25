@@ -5,6 +5,8 @@ import {
   buildGroupConversationTitle,
   buildStarterConversationTitle,
   buildStarterPeerUsername,
+  confirmBindToken,
+  getConversation,
   getConversationLatestEventId,
   listDiscoverableGroupParticipants,
   normalizeItemsEnvelope,
@@ -13,9 +15,9 @@ import {
   pickDefaultNodeForSend,
   pickPrimaryOwnedNodeId,
   resetChatBootstrapState,
-  resolveSendAvailability,
-  confirmBindToken,
+  resolveConversationSendNodeState,
   resolveGroupConversationTitle,
+  resolveSendAvailability,
   streamConversationEvents
 } from "./im-chat-api";
 
@@ -104,6 +106,39 @@ describe("im chat api helpers", () => {
     expect(buildStarterPeerUsername("peer")).toBe("peer");
   });
 
+  it("prefers explicit conversation summary node state before refetching direct send availability", async () => {
+    await expect(
+      resolveConversationSendNodeState({
+        conversationId: "conv-1",
+        conversations: [
+          {
+            conversation_id: "conv-1",
+            title: "Ops Bot",
+            last_message_preview: "",
+            last_message_at: null,
+            unread_count: 0,
+            participants: ["You", "Ops Bot"],
+            kind: "direct-agent",
+            kind_label: "Direct agent chat",
+            target_label: "Ops Bot",
+            discoverability_hint: "",
+            node_id: "node-online",
+            node_label: "node-online",
+            node_status: "online"
+          }
+        ],
+        selfUserId: "user-self",
+        fallback: {
+          targetNodeId: "bootstrap-node",
+          targetNodeStatus: "offline"
+        }
+      })
+    ).resolves.toEqual({
+      targetNodeId: "node-online",
+      targetNodeStatus: "online"
+    });
+  });
+
   it("builds stable group chat titles from selected participant labels", () => {
     expect(buildGroupConversationTitle([])).toBe("New group chat");
     expect(buildGroupConversationTitle(["OpsBot"])).toBe("OpsBot group");
@@ -155,6 +190,153 @@ describe("im chat api helpers", () => {
         ]
       })
     ).toMatchObject({ id: "conv-older" });
+  });
+
+  it("falls back to the peer agent display name when a direct chat still stores the placeholder title", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/users") {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "user-self",
+              username: "you",
+              display_name: "You",
+              owner_id: "owner-1",
+              owned_node_ids: ["node-1"],
+              created_at: "2026-03-14T00:00:00Z"
+            },
+            {
+              id: "agent-user",
+              username: "agent:ops-bot",
+              display_name: "Ops Bot",
+              owner_id: "owner-1",
+              owned_node_ids: [],
+              created_at: "2026-03-14T00:00:00Z"
+            }
+          ]),
+          { status: 200 }
+        );
+      }
+      if (url === "/im/v1/agents") {
+        return new Response(JSON.stringify([{ agent_id: "ops-bot", display_name: "Ops Bot", description: "starter agent" }]), {
+          status: 200
+        });
+      }
+      if (url === "/im/v1/nodes") {
+        return new Response(JSON.stringify([{ node_id: "node-1", node_name: "Node 1", status: "online", relay_enabled: true }]), {
+          status: 200
+        });
+      }
+      if (url === "/im/v1/conversations") {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "conv-1",
+              title: "Direct conversation",
+              participant_ids: ["user-self", "agent-user"],
+              type: "direct",
+              owner_id: "owner-1",
+              created_at: "2026-03-14T00:00:00Z"
+            }
+          ]),
+          { status: 200 }
+        );
+      }
+      if (url === "/im/v1/conversations/conv-1/messages?mark_as_read=true") {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getConversation("conv-1")).resolves.toMatchObject({
+      conversation_id: "conv-1",
+      title: "Ops Bot",
+      direct_agent_id: "ops-bot"
+    });
+  });
+
+  it("falls back to the peer teammate display name when a direct user chat keeps the default placeholder", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/users" && (!init?.method || init.method === "GET")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "user-self",
+              username: "you",
+              display_name: "You",
+              owner_id: "owner-1",
+              owned_node_ids: ["node-1"],
+              created_at: "2026-03-14T00:00:00Z"
+            },
+            {
+              id: "agent-user",
+              username: "agent:ops-bot",
+              display_name: "Ops Bot",
+              owner_id: "owner-1",
+              owned_node_ids: [],
+              created_at: "2026-03-14T00:00:00Z"
+            },
+            {
+              id: "user-peer",
+              username: "alex",
+              display_name: "Alex",
+              owner_id: "owner-1",
+              owned_node_ids: [],
+              created_at: "2026-03-14T00:00:00Z"
+            }
+          ]),
+          { status: 200 }
+        );
+      }
+      if (url === "/im/v1/agents") {
+        return new Response(JSON.stringify([{ agent_id: "ops-bot", display_name: "Ops Bot", description: "starter agent" }]), {
+          status: 200
+        });
+      }
+      if (url === "/im/v1/nodes") {
+        return new Response(JSON.stringify([{ node_id: "node-1", node_name: "Node 1", status: "online", relay_enabled: true }]), {
+          status: 200
+        });
+      }
+      if (url === "/im/v1/conversations") {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "starter-conv",
+              title: "主 Agent · OpsBot",
+              participant_ids: ["user-self", "agent-user"],
+              type: "direct",
+              owner_id: "owner-1",
+              created_at: "2026-03-13T00:00:00Z"
+            },
+            {
+              id: "conv-user",
+              title: "You & Teammate",
+              participant_ids: ["user-self", "user-peer"],
+              type: "direct",
+              owner_id: "owner-1",
+              created_at: "2026-03-14T00:00:00Z"
+            }
+          ]),
+          { status: 200 }
+        );
+      }
+      if (url === "/im/v1/conversations/conv-user/messages?mark_as_read=true") {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response(null, { status: 404 });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getConversation("conv-user")).resolves.toMatchObject({
+      conversation_id: "conv-user",
+      title: "Alex"
+    });
   });
 
   it("returns the confirmed self user id so the browser can invalidate stale chat bootstrap state", async () => {

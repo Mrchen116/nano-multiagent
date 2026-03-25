@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
+from agent.core import ids
+from agent.core.session.entries import SessionEntry, SessionEntryKind
 from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
 from agent.core.session.store import SessionStore
@@ -13,6 +16,14 @@ from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 if TYPE_CHECKING:
     from agent.products.base import ProductProfile
+
+
+@dataclass(frozen=True, slots=True)
+class AppendMessageResult:
+    """Describe the outcome of one append-only session message request."""
+
+    entry: SessionEntry
+    created: bool
 
 
 class SessionService:
@@ -66,6 +77,59 @@ class SessionService:
         """List sessions with pagination and `has_more` result."""
 
         return self._manager.list_sessions(limit=limit, offset=offset)
+
+    def append_message(
+        self,
+        session_id: str,
+        *,
+        role: str,
+        content: str,
+        message_id: str | None = None,
+        turn_id: str | None = None,
+        parts: Sequence[Mapping[str, Any]] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        idempotency_key: str | None = None,
+    ) -> AppendMessageResult:
+        """Append one persisted user/assistant message without triggering a model run."""
+
+        normalized_role = role.strip().lower()
+        if normalized_role not in {"user", "assistant"}:
+            raise ValueError("role must be one of: user, assistant")
+        if self._manager.get_session(session_id) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+
+        normalized_metadata = dict(metadata or {})
+        normalized_idempotency_key = idempotency_key.strip() if isinstance(idempotency_key, str) else ""
+        if normalized_idempotency_key:
+            normalized_metadata.setdefault("idempotency_key", normalized_idempotency_key)
+            existing = self._find_message_by_idempotency_key(
+                session_id=session_id,
+                idempotency_key=normalized_idempotency_key,
+            )
+            if existing is not None:
+                return AppendMessageResult(entry=existing, created=False)
+
+        entry = self._manager.append_turn_message(
+            session_id,
+            turn_id=turn_id or ids.make_turn_id(),
+            role=normalized_role,
+            content=content,
+            message_id=message_id or ids.make_message_id(),
+            parts=parts,
+            metadata=normalized_metadata,
+        )
+        return AppendMessageResult(entry=entry, created=True)
+
+    def _find_message_by_idempotency_key(self, *, session_id: str, idempotency_key: str) -> SessionEntry | None:
+        for entry in self._manager.list_entries(session_id):
+            if not isinstance(entry, SessionEntry) or entry.kind is not SessionEntryKind.TURN_APPENDED:
+                continue
+            metadata = entry.data.get("metadata")
+            if not isinstance(metadata, Mapping):
+                continue
+            if metadata.get("idempotency_key") == idempotency_key:
+                return entry
+        return None
 
 
 def _store_from_profile(profile: ProductProfile) -> SQLiteSessionStore:

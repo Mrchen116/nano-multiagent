@@ -1159,6 +1159,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         closers.append(im_config_sync_client.close)
     internal_dispatch_handler = InternalDispatchHandler(
         im_connection_manager=im_connection_manager,
+        kernel_client=kernel_client,
+        session_store=session_store,
     )
     return GatewayRuntime(
         config,

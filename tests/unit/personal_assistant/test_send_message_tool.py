@@ -70,6 +70,10 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> Non
 
     ctx = _make_tool_context(session_metadata={
         "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+        "agent_id": "agent_a",
+    }).with_session("sess_test", tool_call_id="toolu_test_dispatch", session_metadata={
+        "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+        "agent_id": "agent_a",
     })
     tool = SendMessageTool()
 
@@ -81,6 +85,10 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> Non
     assert "127.0.0.1:8089" in captured_urls[0]
     assert captured_payloads[0]["text"] == "hello"
     assert captured_payloads[0]["to"] == "agent_b"
+    assert captured_payloads[0]["origin_kernel_session_id"] == "sess_test"
+    assert captured_payloads[0]["source_agent_id"] == "agent_a"
+    assert captured_payloads[0]["dispatch_request_id"] == "toolu_test_dispatch"
+    assert captured_payloads[0]["from_session_id"] == "agent_a|tool_call:toolu_test_dispatch"
 
 
 def test_send_message_tool_raises_when_no_gateway_dispatch_url() -> None:

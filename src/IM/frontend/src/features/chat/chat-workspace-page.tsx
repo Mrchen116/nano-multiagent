@@ -17,6 +17,7 @@ import {
   listConversations,
   listDiscoverableGroupParticipants,
   renameConversation,
+  resolveConversationSendNodeState,
   resolveSendAvailability,
   sendMessage,
   streamConversationEvents,
@@ -228,39 +229,6 @@ export function mergeConversationDetail(
   });
 }
 
-function isDirectAgentConversation(summary: ConversationSummary | null | undefined) {
-  return summary?.kind === "direct-agent" || summary?.kind_label === "Direct agent chat";
-}
-
-function resolveConversationSendNodeState(input: {
-  conversationId?: string;
-  conversations: ConversationSummary[];
-  bootstrap: ChatBootstrapState | null;
-}) {
-  const fallback = {
-    targetNodeId: input.bootstrap?.targetNodeId ?? null,
-    nodeStatus: input.bootstrap?.targetNodeStatus ?? null
-  };
-  if (!input.conversationId) {
-    return fallback;
-  }
-  const activeConversation = input.conversations.find((item) => item.conversation_id === input.conversationId);
-  if (!isDirectAgentConversation(activeConversation)) {
-    return fallback;
-  }
-  const hasExplicitNodeState =
-    (activeConversation && Object.prototype.hasOwnProperty.call(activeConversation, "node_id")) ||
-    (activeConversation && Object.prototype.hasOwnProperty.call(activeConversation, "node_label")) ||
-    (activeConversation && Object.prototype.hasOwnProperty.call(activeConversation, "node_status"));
-  if (!hasExplicitNodeState) {
-    return fallback;
-  }
-  return {
-    targetNodeId: activeConversation?.node_id ?? activeConversation?.node_label ?? null,
-    nodeStatus: activeConversation?.node_status ?? null
-  };
-}
-
 function upsertConversationMessage(
   detail: ConversationDetail | null | undefined,
   conversationId: string,
@@ -410,13 +378,13 @@ function toRelaySenderIdentity(payload: Record<string, unknown>, fallback?: { se
 }
 
 function toRelayIdentityToken(payload: Record<string, unknown>, fallbackIdentity?: string) {
-  const agentId = toStringValue(payload.agent_id);
-  if (agentId) {
-    return agentId;
-  }
   const relayTaskId = toStringValue(payload.relay_task_id);
   if (relayTaskId) {
     return relayTaskId;
+  }
+  const agentId = toStringValue(payload.agent_id);
+  if (agentId) {
+    return agentId;
   }
   return fallbackIdentity ?? null;
 }
@@ -433,7 +401,10 @@ function toRelaySyntheticMessageId(payload: Record<string, unknown>, fallbackIde
   if (relayTaskId) {
     return `${messageId}:relay:${relayTaskId}`;
   }
-  const identityToken = toRelayIdentityToken(payload, fallbackIdentity);
+  if (fallbackIdentity) {
+    return `${messageId}:relay:${fallbackIdentity}`;
+  }
+  const identityToken = toRelayIdentityToken(payload);
   return identityToken ? `${messageId}:agent:${identityToken}` : `${messageId}:agent`;
 }
 
@@ -538,6 +509,29 @@ export function ChatWorkspacePage() {
         queryClient.getQueryData<ConversationDetail | null>(["chat", "conversation", conversationId])
       );
     }
+  });
+
+  const sendNodeStateQuery = useQuery({
+    enabled: Boolean(bootstrapQuery.data?.selfUserId),
+    queryKey: [
+      "chat",
+      "send-node-state",
+      conversationId ?? null,
+      bootstrapQuery.data?.selfUserId ?? null,
+      bootstrapQuery.data?.targetNodeId ?? null,
+      bootstrapQuery.data?.targetNodeStatus ?? null,
+      ...((conversationsQuery.data ?? []).map((item) => [item.conversation_id, item.node_id ?? null, item.node_status ?? null]).flat())
+    ],
+    queryFn: () =>
+      resolveConversationSendNodeState({
+        conversationId,
+        conversations: conversationsQuery.data ?? [],
+        selfUserId: bootstrapQuery.data!.selfUserId,
+        fallback: {
+          targetNodeId: bootstrapQuery.data?.targetNodeId ?? null,
+          targetNodeStatus: bootstrapQuery.data?.targetNodeStatus ?? null
+        }
+      })
   });
 
   const conversationUsageQuery = useQuery({
@@ -911,18 +905,17 @@ export function ChatWorkspacePage() {
   const starter = starterQuery.data ?? null;
   const detail = (detailQuery.data ?? null) as ConversationDetail | null;
   const bootstrap = bootstrapQuery.data ?? null;
-  const sendNodeState = resolveConversationSendNodeState({
-    conversationId,
-    conversations,
-    bootstrap
-  });
+  const sendNodeState = sendNodeStateQuery.data ?? {
+    targetNodeId: bootstrap?.targetNodeId ?? null,
+    targetNodeStatus: bootstrap?.targetNodeStatus ?? null
+  };
   const usage = buildUsageView({
     conversationRows: conversationUsageQuery.data,
     workspaceRows: workspaceUsageQuery.data
   });
   const sendAvailability = resolveSendAvailability({
     targetNodeId: sendNodeState.targetNodeId,
-    nodeStatus: sendNodeState.nodeStatus
+    nodeStatus: sendNodeState.targetNodeStatus
   });
   const groupParticipantOptions = discoverableGroupParticipantsQuery.data ?? [];
   const selectedGroupParticipants = groupParticipantOptions.filter((item) => selectedGroupParticipantIds.includes(item.user_id));

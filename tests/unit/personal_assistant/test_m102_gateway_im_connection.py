@@ -7,6 +7,8 @@ import time
 from collections import deque
 from pathlib import Path
 
+import pytest
+
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from agent.products.personal_assistant.tools.send_message import SendMessageTool
 from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
@@ -508,6 +510,151 @@ def test_im_connection_retries_with_exponential_backoff_until_cap(tmp_path: Path
     assert manager.connected is False
 
 
+def test_im_connection_send_agent_message_returns_dispatch_ack(tmp_path: Path) -> None:
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "agent.message",
+                        "conversation_id": "conv-direct-1",
+                        "message_id": "msg-1",
+                        "target_kind": "user_id",
+                        "target_id": "user-1",
+                        "source_agent_id": "agent-a",
+                    },
+                }
+            ),
+        ]
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - consume node.register ack first
+        ack_task = asyncio.create_task(manager.send_agent_message({"to": "user-1", "text": "hi"}))
+        await asyncio.sleep(0)
+        await manager._listen_once()  # noqa: SLF001 - consume agent.message ack
+        ack = await ack_task
+        assert ack.conversation_id == "conv-direct-1"
+        assert ack.message_id == "msg-1"
+        assert ack.target_kind == "user_id"
+        assert ack.target_id == "user-1"
+        assert ack.source_agent_id == "agent-a"
+
+    asyncio.run(_exercise())
+
+
+def test_im_connection_send_json_await_ack_returns_raw_ack_payload(tmp_path: Path) -> None:
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps({"type": "ack", "payload": {"message_type": "node.report", "status": "ok", "run_id": "run-1"}}),
+        ]
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        ack_task = asyncio.create_task(manager.send_json_await_ack("node.report", {"run_id": "run-1"}))
+        await asyncio.sleep(0)
+        await manager._listen_once()  # noqa: SLF001
+        ack = await ack_task
+        assert ack == {"message_type": "node.report", "status": "ok", "run_id": "run-1"}
+
+    asyncio.run(_exercise())
+
+
+def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp_path: Path) -> None:
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(incoming=[json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})])
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - consume node.register ack first
+        task = asyncio.create_task(manager.send_agent_message({"to": "user-1", "text": "hi"}))
+        await asyncio.sleep(0)
+        await manager._disconnect_current_websocket(RuntimeError("socket dropped"))  # noqa: SLF001
+        with pytest.raises(RuntimeError, match="before ack"):
+            await task
+        assert len(manager._pending_frames) == 1  # noqa: SLF001
+        assert manager._pending_frames[0].message_type == "agent.message"  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+
+
+    asyncio.run(_exercise())
+
+
+def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp_path: Path) -> None:
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(incoming=[json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})])
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        task = asyncio.create_task(manager.send_agent_message({"to": "user-1", "text": "hi"}))
+        await asyncio.sleep(0)
+        await manager._disconnect_current_websocket(RuntimeError("socket dropped"))  # noqa: SLF001
+        with pytest.raises(RuntimeError, match="before ack"):
+            await task
+        assert len(manager._pending_frames) == 1  # noqa: SLF001
+        assert manager._pending_frames[0].message_type == "agent.message"  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+
 def test_send_message_tool_dispatches_via_gateway_boundary() -> None:
     """SendMessageTool dispatches to gateway_dispatch_url from session_metadata (stateless HTTP)."""
     from unittest.mock import patch
@@ -547,7 +694,10 @@ def test_send_message_tool_dispatches_via_gateway_boundary() -> None:
     assert result["text"] == "hello"
     assert seen_payloads[0]["text"] == "hello"
     assert seen_payloads[0]["to"] == "agent-b"
-    assert seen_payloads[0]["from_session_id"] == "sess-1"
+    assert seen_payloads[0]["origin_kernel_session_id"] == "sess-1"
+    assert seen_payloads[0]["source_agent_id"] is None
+    assert isinstance(seen_payloads[0]["dispatch_request_id"], str)
+    assert seen_payloads[0]["from_session_id"] == f"sess-1|tool_call:{seen_payloads[0]['dispatch_request_id']}"
 
 
 async def _connect_fake(

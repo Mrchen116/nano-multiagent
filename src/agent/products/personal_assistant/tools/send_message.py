@@ -92,6 +92,9 @@ class SendMessageTool:
             "text": text,
             "to": target,
             "from_session_id": dispatch_source,
+            "origin_kernel_session_id": ctx.session_id,
+            "source_agent_id": source_agent_id.strip() if isinstance(source_agent_id, str) and source_agent_id.strip() else None,
+            "dispatch_request_id": dispatch_request_id,
         }
         timeout = httpx.Timeout(connect=3.0, write=10.0, read=None, pool=3.0)
         response = httpx.post(dispatch_url.strip(), json=payload, timeout=timeout)

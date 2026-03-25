@@ -56,7 +56,11 @@ def test_session_routes_wire_tools_registry_and_manual_compact() -> None:
     client = TestClient(app)
     headers = {"Authorization": "Bearer test-token", "X-Request-Id": "req-session-flow-compact-tools"}
 
-    created = client.post("/v1/sessions", json={}, headers=headers)
+    created = client.post(
+        "/v1/sessions",
+        json={"workspace_root": "~/nano-assistant/workspace/session-flow-tools"},
+        headers=headers,
+    )
     assert created.status_code == 201
     session_id = created.json()["session_id"]
 
@@ -74,3 +78,39 @@ def test_session_routes_wire_tools_registry_and_manual_compact() -> None:
     assert compact_payload["compacted"] is True
     assert compact_payload["result"]["reason"] == "manual"
     assert runtime.compact_calls == [session_id]
+
+
+def test_append_message_persists_history_once_per_idempotency_key() -> None:
+    app = create_app(auth_token="test-token")
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer test-token", "X-Request-Id": "req-append-history-integration"}
+
+    created = client.post(
+        "/v1/sessions",
+        json={"workspace_root": "~/nano-assistant/workspace/append-history"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    session_id = created.json()["session_id"]
+
+    payload = {
+        "role": "assistant",
+        "content": "给你个冷笑话：为什么海盗数学不好？",
+        "message_id": "msg_dm_joke",
+        "turn_id": "turn_dm_joke",
+        "metadata": {"source": "gateway", "conversation_id": "conv-direct-1"},
+        "idempotency_key": "dispatch-sync-1",
+    }
+    first = client.post(f"/v1/sessions/{session_id}/messages:append", json=payload, headers=headers)
+    second = client.post(f"/v1/sessions/{session_id}/messages:append", json=payload, headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["entry_id"] == second.json()["entry_id"]
+
+    messages = app.state.session_service.manager.list_turn_messages(session_id)
+    assert len(messages) == 1
+    assert messages[0].role == "assistant"
+    assert messages[0].content == "给你个冷笑话：为什么海盗数学不好？"
+    assert messages[0].metadata["source"] == "gateway"
+    assert messages[0].metadata["idempotency_key"] == "dispatch-sync-1"

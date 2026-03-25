@@ -729,10 +729,53 @@ class GatewayHandler:
         if existing is not None:
             return existing
         return self._conversation_repository.create_conversation(
-            title="Direct conversation",
+            title=self._build_default_direct_conversation_title(
+                left_user_id=left_user_id,
+                right_user_id=right_user_id,
+                expected_direct_kind=expected_direct_kind,
+            ),
             participant_ids=[left_user_id, right_user_id],
             creator_id=left_user_id,
         )
+
+    def _build_default_direct_conversation_title(
+        self,
+        *,
+        left_user_id: str,
+        right_user_id: str,
+        expected_direct_kind: str,
+    ) -> str:
+        if self._conversation_repository is None:
+            return "Direct conversation"
+        placeholders = ",".join("?" for _ in (left_user_id, right_user_id))
+        rows = self._conversation_repository._connection.execute(  # noqa: SLF001
+            f"SELECT id, username, display_name FROM users WHERE id IN ({placeholders})",  # noqa: S608
+            (left_user_id, right_user_id),
+        ).fetchall()
+        row_by_id = {str(row["id"]): row for row in rows}
+        left_user = row_by_id.get(left_user_id)
+        right_user = row_by_id.get(right_user_id)
+
+        def _display_name(row: object | None) -> str | None:
+            if row is None:
+                return None
+            display_name = str(row["display_name"] or "").strip()  # type: ignore[index]
+            if display_name:
+                return display_name
+            username = str(row["username"] or "").strip()  # type: ignore[index]
+            if username.startswith("agent:"):
+                return username[len("agent:") :].strip() or None
+            return username or None
+
+        if expected_direct_kind == "user-agent":
+            for row in (left_user, right_user):
+                username = str(row["username"] or "").strip() if row is not None else ""
+                if username.startswith("agent:"):
+                    agent_name = _display_name(row)
+                    if agent_name:
+                        return agent_name
+
+        return _display_name(right_user) or _display_name(left_user) or "Direct conversation"
 
     def _find_canonical_direct_conversation(
         self,
