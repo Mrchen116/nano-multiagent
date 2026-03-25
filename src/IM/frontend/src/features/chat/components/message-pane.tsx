@@ -252,11 +252,22 @@ function getGroupMessageSenderLabel(message: ChatMessage) {
   return message.sender_display_name ?? message.sender_name ?? message.sender_user_id ?? message.sender_type;
 }
 
+function formatMessageTimestamp(createdAt: string) {
+  const timestamp = new Date(createdAt);
+  if (Number.isNaN(timestamp.getTime())) {
+    throw new Error(`Invalid message timestamp: ${createdAt}`);
+  }
+  const hours = String(timestamp.getHours()).padStart(2, "0");
+  const minutes = String(timestamp.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
 function MessageBubble({ message, isGroupChat }: { message: ChatMessage; isGroupChat: boolean }) {
   const mine = message.is_mine ?? message.sender_type === "user";
   const attachments = message.attachments ?? [];
   const deliveryStatus = toDeliveryStatusCopy(message);
   const senderLabel = isGroupChat ? getGroupMessageSenderLabel(message) : null;
+  const timestampLabel = formatMessageTimestamp(message.created_at);
   return (
     <div className={`mb-3 flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
@@ -268,6 +279,16 @@ function MessageBubble({ message, isGroupChat }: { message: ChatMessage; isGroup
         {senderLabel ? <p className="text-[11px] opacity-75">{senderLabel}</p> : null}
         {message.content ? <p className={senderLabel ? "mt-1 whitespace-pre-wrap" : "whitespace-pre-wrap"}>{message.content}</p> : null}
         <AttachmentLinks attachments={attachments} muted={mine} />
+        <time
+          data-testid="message-timestamp"
+          dateTime={message.created_at}
+          className={[
+            "mt-1 block text-[10px] leading-4",
+            mine ? "text-right text-white/80" : "text-left text-slate-500"
+          ].join(" ")}
+        >
+          {timestampLabel}
+        </time>
         {deliveryStatus && (
           <div className="mt-2 rounded-xl border border-black/10 bg-black/5 px-2 py-1 text-[10px] leading-4">
             <p className="font-semibold tracking-wide opacity-80">{deliveryStatus.label}</p>
