@@ -1,5 +1,6 @@
 """Integration tests for IM node board and usage metrics APIs."""
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -59,6 +60,70 @@ def test_nodes_list_and_config_update(tmp_path: Path) -> None:
         assert updated.json()["alias"] == "Office Mac"
         assert updated.json()["relay_enabled"] is False
         assert updated.json()["reporting_enabled"] is True
+
+
+def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(tmp_path: Path) -> None:
+    """Show offline when stored online snapshots are stale or not live-connected."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        repo = NodeRepository(app.state.connection)
+        stale_heartbeat = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+        fresh_heartbeat = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        app.state.connection.execute(
+            """
+            INSERT INTO nodes(
+                node_id,
+                owner_id,
+                node_name,
+                status,
+                last_heartbeat_at,
+                agent_count,
+                version,
+                relay_enabled,
+                reporting_enabled,
+                alias,
+                last_error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("node-stale", "", "Stale Node", "online", stale_heartbeat, 1, "1.0.0", 1, 1, None, None),
+        )
+        app.state.connection.execute(
+            """
+            INSERT INTO nodes(
+                node_id,
+                owner_id,
+                node_name,
+                status,
+                last_heartbeat_at,
+                agent_count,
+                version,
+                relay_enabled,
+                reporting_enabled,
+                alias,
+                last_error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("node-fresh-but-disconnected", "", "Fresh Node", "online", fresh_heartbeat, 1, "1.0.1", 1, 1, None, None),
+        )
+        app.state.connection.commit()
+
+        listed = client.get("/im/v1/nodes")
+        assert listed.status_code == 200
+        payload = {item["node_id"]: item for item in listed.json()}
+
+        assert payload["node-stale"]["status"] == "offline"
+        assert payload["node-fresh-but-disconnected"]["status"] == "offline"
+
+        repo.record_gateway_registration(
+            node_id="node-live",
+            node_name="Live Node",
+            version="2.0.0",
+            agent_count=2,
+        )
+        listed_after_register = client.get("/im/v1/nodes")
+        assert listed_after_register.status_code == 200
+        payload_after_register = {item["node_id"]: item for item in listed_after_register.json()}
+        assert payload_after_register["node-live"]["status"] == "offline"
 
 
 def test_usage_metrics_aggregate_messages_by_scope(tmp_path: Path) -> None:
