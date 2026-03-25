@@ -38,11 +38,19 @@ describe("im chat api helpers", () => {
 
   it("builds relay-aware create-message payloads only when a node is bound", () => {
     expect(buildCreateMessageRequest({ selfUserId: "u-self", content: "hello", targetNodeId: "node-a" })).toEqual({
+      sender: {
+        type: "user",
+        id: "u-self"
+      },
       sender_user_id: "u-self",
       content: "hello",
       target_node_id: "node-a"
     });
     expect(buildCreateMessageRequest({ selfUserId: "u-self", content: "hello", targetNodeId: null })).toEqual({
+      sender: {
+        type: "user",
+        id: "u-self"
+      },
       sender_user_id: "u-self",
       content: "hello"
     });

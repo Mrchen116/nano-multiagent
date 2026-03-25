@@ -1090,11 +1090,11 @@ function toChatMessage(input: {
           id: input.message.sender_user_id
         }
       : null);
-  const senderName =
+  const senderDisplayName =
     resolvedSender?.display_name ??
     (resolvedSender?.type === "user" ? input.userById.get(resolvedSender.id)?.display_name : undefined) ??
-    resolvedSender?.id ??
-    "Unknown";
+    undefined;
+  const senderName = senderDisplayName ?? resolvedSender?.id ?? "Unknown";
   const isMine = resolvedSender?.type === "user" ? resolvedSender.id === input.selfUserId : false;
   return {
     message_id: input.message.id,
@@ -1105,6 +1105,7 @@ function toChatMessage(input: {
           ? input.message.sender_type
           : "user",
     sender_name: senderName,
+    sender_display_name: senderDisplayName,
     is_mine: isMine,
     content: input.message.content,
     attachments: input.message.attachments ?? [],
@@ -1271,9 +1272,13 @@ function toConversationSummary(input: {
     lastMessageAt: latest?.created_at
   });
   const previewSnapshot = getConversationPreviewSnapshot(input.conversation.id);
+  const displayTitle =
+    conversationKind === "agent-network" && participants.length >= 2
+      ? participants.map((p) => toParticipantDisplayName(p)).join(" · ")
+      : resolvedTitle;
   return {
     conversation_id: input.conversation.id,
-    title: resolvedTitle,
+    title: displayTitle,
     last_message_preview: previewSnapshot?.preview ?? "",
     last_message_at: previewSnapshot?.lastMessageAt ?? latest?.created_at,
     unread_count: unreadCount,
@@ -1664,9 +1669,13 @@ export async function getConversation(conversationId: string): Promise<Conversat
     participants,
     baseHint: semantics.discoverability_hint
   });
+  const displayTitle =
+    conversationKind === "agent-network" && participants.length >= 2
+      ? participants.map((p) => toParticipantDisplayName(p)).join(" · ")
+      : resolvedTitle;
   return {
     conversation_id: conversation.id,
-    title: resolvedTitle,
+    title: displayTitle,
     kind_label: semantics.kind_label,
     target_label: semantics.target_label,
     discoverability_hint: detailDiscoverabilityHint,

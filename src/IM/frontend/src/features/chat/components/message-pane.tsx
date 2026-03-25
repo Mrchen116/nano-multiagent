@@ -609,7 +609,9 @@ export function MessagePane(props: {
       return candidate.label.toLowerCase().includes(normalizedQuery) || stableMention.includes(normalizedQuery);
     });
   }, [mentionCandidates, mentionQuery]);
-  const isGroupChat = props.detail?.kind_label === "Group chat";
+  const isGroupChat =
+    props.detail?.kind_label === "Group chat" ||
+    props.detail?.kind_label === "Agent-to-agent direct chat";
   const isMentionMenuOpen = isGroupChat && filteredMentionCandidates.length > 0 && Boolean(mentionQuery);
 
   useEffect(() => {

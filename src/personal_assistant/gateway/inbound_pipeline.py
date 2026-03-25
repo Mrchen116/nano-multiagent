@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -192,9 +193,12 @@ class InboundPipeline:
                         run_id=run_id or None,
                     ),
                 )
-                run_state, reply_text = self._await_terminal_run(
-                    kernel_session_id=binding.kernel_session_id,
-                    run_id=run_id,
+                run_state, reply_text = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    lambda: self._await_terminal_run(
+                        kernel_session_id=binding.kernel_session_id,
+                        run_id=run_id,
+                    ),
                 )
                 await self._emit_relay_lifecycle(
                     message,

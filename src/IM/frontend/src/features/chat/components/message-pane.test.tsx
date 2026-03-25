@@ -691,6 +691,37 @@ describe("message pane", () => {
     expect(screen.queryByText("OpsBot")).not.toBeInTheDocument();
   });
 
+  it("shows sender names inside agent-to-agent direct chat bubbles", () => {
+    renderMessagePane({
+      detail: {
+        conversation_id: "conv-agent-network-senders",
+        title: "A · QQQ",
+        kind_label: "Agent-to-agent direct chat",
+        messages: [
+          {
+            message_id: "msg-agent-network-a",
+            sender_type: "agent",
+            sender_display_name: "A",
+            sender_user_id: "agent-a-user-id",
+            content: "hello",
+            created_at: "2026-03-14T00:05:00Z"
+          },
+          {
+            message_id: "msg-agent-network-qqq",
+            sender_type: "agent",
+            sender_display_name: "QQQ",
+            sender_user_id: "agent-qqq-user-id",
+            content: "hi",
+            created_at: "2026-03-14T00:06:00Z"
+          }
+        ]
+      }
+    });
+
+    expect(screen.getByText("A")).toBeInTheDocument();
+    expect(screen.getByText("QQQ")).toBeInTheDocument();
+  });
+
   it("shows a compact timestamp for each sent and received bubble", () => {
     const { container } = renderMessagePane({
       detail: {

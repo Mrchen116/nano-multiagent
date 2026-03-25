@@ -502,6 +502,27 @@ class GatewayHandler:
                                 conversation_id=conversation_id,
                                 message_id=message.id,
                             )
+                        if resolved_target.kind == "agent_id" and self._relay_service is not None:
+                            _profile = self._conversation_repository._connection.execute(  # noqa: SLF001
+                                "SELECT node_id FROM agent_profiles WHERE agent_id = ?",
+                                (resolved_target.id,),
+                            ).fetchone()
+                            if _profile is not None and _profile["node_id"]:
+                                _node = str(_profile["node_id"])
+                                _relay_result = self._relay_service.enqueue_message_relay(
+                                    message=message,
+                                    target_node_id=_node,
+                                    idempotency_key=f"agent-dm:{message.id}:{resolved_target.id}",
+                                    sender_user_id=sender_user_id,
+                                    conversation_type="direct",
+                                    _override_agent_id=resolved_target.id,
+                                )
+                                if _relay_result.created:
+                                    await self.push_relay_message(
+                                        relay_task_id=_relay_result.relay_task.relay_task_id,
+                                        target_node_id=_node,
+                                        payload=_relay_result.relay_task.payload,
+                                    )
                     else:
                         conversation_id = existing["conversation_id"]
                         resolved_target = DispatchTarget(
