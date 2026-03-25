@@ -8,7 +8,7 @@
 ## Roadpoints
 
 ### R1 Unread clear semantics align on open conversation
-- Status: TODO
+- Status: DONE
 - Acceptance:
   - 打开并加载目标会话后，左栏对应会话未读角标立即清零。
   - 页面刷新后，同一会话未读角标仍保持清零（后端状态持久化）。
@@ -18,6 +18,6 @@
   - 在 `src/IM/frontend/src/features/chat/chat-workspace-page.test.ts` 增补“打开会话后角标清零并刷新保持清零”的回归用例（先红后绿）。
   - 运行 `cd src/IM/frontend && npm test -- --run src/features/chat/chat-workspace-page.test.ts`。
 - DoD:
-  - C1/C2/C3 三提交完成。
-  - 新增回归测试可稳定复现并在实现后通过。
-  - `TASKS`/`PROGRESS` 与 `data/dev-tasks.json` 状态同步。
+  - ✅ C1/C2/C3 三提交完成。
+  - ✅ 新增回归测试可稳定复现并在实现后通过。
+  - ✅ `TASKS`/`PROGRESS` 与 `data/dev-tasks.json` 状态同步。
