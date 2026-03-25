@@ -86,12 +86,50 @@ class GatewayStartupError(RuntimeError):
         self.next_step = cleaned_next_step
 
 
+def _read_log_last_error(log_path: Path, *, offset: int = 0, lines: int = 20) -> str | None:
+    """Return the last non-empty line written after *offset* bytes, or None if unreadable."""
+    try:
+        with log_path.open("rb") as f:
+            f.seek(offset)
+            chunk = f.read().decode("utf-8", errors="replace")
+        tail = [l for l in chunk.splitlines()[-lines:] if l.strip()]
+        return tail[-1] if tail else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _check_im_reachable(url: str) -> bool:
+    """Return True if the IM service HTTP endpoint responds within 1 second."""
+    try:
+        httpx.get(url, timeout=1.0, trust_env=False)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _print_gateway_started(result: "BackgroundLaunchResult") -> None:
+    print(f"Gateway started  (pid={result.pid})")
+    print(f"Health:          {result.health_url}")
+    if result.im_service_url is not None:
+        reachable = _check_im_reachable(result.im_service_url)
+        status = "connected" if reachable else "unavailable (running offline, will retry)"
+        print(f"IM service:      {result.im_service_url}  [{status}]")
+    print(f"Log:             {result.log_path}")
+
+
 def _emit_gateway_feedback(level: str, summary: str, next_step: str | None = None) -> None:
     """Print one operator-facing gateway feedback line to stderr."""
 
-    print(f"{level} {summary}", file=sys.stderr)
-    if next_step is not None:
-        print(f"NEXT {next_step}", file=sys.stderr)
+    if level == "ERROR":
+        print("Gateway failed to start\n", file=sys.stderr)
+        for line in summary.splitlines():
+            print(f"  {line}", file=sys.stderr)
+        if next_step is not None:
+            print(f"\n  → {next_step}", file=sys.stderr)
+    else:
+        print(f"{level} {summary}", file=sys.stderr)
+        if next_step is not None:
+            print(f"  → {next_step}", file=sys.stderr)
 
 
 class GatewayRuntimeLike(Protocol):
@@ -163,11 +201,13 @@ class BackgroundLaunchResult:
         pid: Process id of the detached foreground child now hosting the gateway runtime.
         health_url: Ready-check URL operators can probe during follow-up troubleshooting.
         log_path: File receiving the detached child stdout/stderr stream.
+        im_service_url: Optional IM service URL configured for this gateway.
     """
 
     pid: int
     health_url: str
     log_path: Path
+    im_service_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -773,18 +813,23 @@ class GatewayRuntime:
                     await _dispatch_site.start()
                 except Exception:  # noqa: BLE001
                     dispatch_runner = None
-            if self._im_connection_manager is not None:
-                await self._im_connection_manager.connect_once()
-                im_connected = True
-                if self._post_im_connect is not None:
-                    try:
-                        await asyncio.to_thread(self._post_im_connect)
-                    except GatewayStartupError as exc:
-                        await self._publish_startup_failure(exc)
-                        raise
-                await self._publish_heartbeat_product_reports()
-                im_task = asyncio.create_task(self._im_connection_manager.run_forever(), name="personal-assistant-im")
             self._ready_event.set()
+            if self._im_connection_manager is not None:
+                try:
+                    await self._im_connection_manager.connect_once()
+                    im_connected = True
+                    if self._post_im_connect is not None:
+                        try:
+                            await asyncio.to_thread(self._post_im_connect)
+                        except GatewayStartupError as exc:
+                            await self._publish_startup_failure(exc)
+                            raise
+                    await self._publish_heartbeat_product_reports()
+                except GatewayStartupError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    self._feedback_sink("WARN", f"IM service unavailable, running offline: {exc}")
+                im_task = asyncio.create_task(self._im_connection_manager.run_forever(), name="personal-assistant-im")
             await asyncio.to_thread(self._shutdown_requested.wait)
             await self._publish_heartbeat_product_reports()
             return 0
@@ -913,19 +958,26 @@ def launch_gateway_in_background(
         # Stale PID file from a crashed process — clean it up and continue.
         _remove_gateway_pid(config)
     log_path = _default_gateway_log_path(config)
+    log_offset = log_path.stat().st_size if log_path.exists() else 0
     argv = _background_gateway_argv(config.source_path)
     launcher = spawn_process or _spawn_background_gateway_process
     ready_waiter = wait_for_ready or _wait_for_gateway_ready
     process = launcher(argv, log_path)
     try:
         ready_waiter(process, config, config.kernel.startup_timeout_seconds)
-    except Exception:
+    except Exception as exc:
         _stop_background_process(process, timeout_seconds=config.kernel.shutdown_grace_seconds)
-        raise
+        hint = _read_log_last_error(log_path, offset=log_offset)
+        summary = hint if hint else str(exc)
+        raise GatewayStartupError(
+            summary=summary,
+            next_step=f"Check the log for details: tail -20 {log_path}",
+        ) from exc
     result = BackgroundLaunchResult(
         pid=process.pid,
         health_url=f"{config.kernel.base_url}{config.kernel.health_path}",
         log_path=log_path,
+        im_service_url=config.im_service.url if config.im_service is not None else None,
     )
     _write_gateway_state(config, result)
     return result
@@ -1149,12 +1201,12 @@ def main(argv: list[str] | None = None) -> int:
             # Ignore NOT RUNNING / STALE statuses — they are not errors during restart.
             stop_gateway(config_path=resolved_config_path)
             result = launch_gateway_in_background(config_path=resolved_config_path)
-            print(f"STARTED pid={result.pid} health_url={result.health_url} log={result.log_path}")
+            _print_gateway_started(result)
             return 0
         if args.foreground:
             return run_gateway(config_path=resolved_config_path)
         result = launch_gateway_in_background(config_path=resolved_config_path)
-        print(f"STARTED pid={result.pid} health_url={result.health_url} log={result.log_path}")
+        _print_gateway_started(result)
         return 0
     except GatewayStartupError as exc:
         _emit_gateway_feedback("ERROR", exc.summary, exc.next_step)

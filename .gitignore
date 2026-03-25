@@ -1,5 +1,6 @@
 # Claude Code hook state (runtime only)
 .claude/state/
+.codex/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
