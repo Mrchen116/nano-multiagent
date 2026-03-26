@@ -24,16 +24,16 @@ describe("settings scroll layout", () => {
 
   it.each([
     ["/settings/agents", /Loading agents and the latest configuration snapshot/i],
-    ["/settings/agents/new", /Back to Agents/i],
+    ["/settings/nodes/node-1/agents/new", /Could not load this node\.|Create Agent on/i],
     ["/settings/agents/agent-1", /Loading agent profile/i],
     ["/settings/nodes", /Loading nodes/i],
     ["/settings/policies", /Loading policies/i],
     ["/settings/account", /Loading account/i]
-  ])("renders %s inside a full-height column container", (entry, marker) => {
+  ])("renders %s inside a full-height column container", async (entry, marker) => {
     const { container } = renderSettingsShell(entry);
 
     const panel = container.querySelector("aside")?.nextElementSibling;
-    expect(screen.getByText(marker)).toBeInTheDocument();
+    expect(await screen.findByText(marker)).toBeInTheDocument();
     expect(panel).toHaveClass("h-full");
     expect(panel).toHaveClass("flex");
     expect(panel).toHaveClass("flex-col");
