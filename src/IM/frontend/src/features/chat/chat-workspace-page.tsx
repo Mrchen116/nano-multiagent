@@ -497,6 +497,10 @@ export function ChatWorkspacePage() {
     queryFn: listDiscoverableGroupParticipants
   });
 
+  const activeConversationSummary = conversationId
+    ? conversationsQuery.data?.find((item) => item.conversation_id === conversationId)
+    : undefined;
+
   const detailQuery = useQuery({
     enabled: Boolean(conversationId),
     queryKey: ["chat", "conversation", conversationId],
@@ -518,12 +522,15 @@ export function ChatWorkspacePage() {
       bootstrapQuery.data?.selfUserId ?? null,
       bootstrapQuery.data?.targetNodeId ?? null,
       bootstrapQuery.data?.targetNodeStatus ?? null,
-      ...((conversationsQuery.data ?? []).map((item) => [item.conversation_id, item.node_id ?? null, item.node_status ?? null]).flat())
+      activeConversationSummary?.conversation_id ?? null,
+      activeConversationSummary?.node_id ?? null,
+      activeConversationSummary?.node_status ?? null,
+      activeConversationSummary?.kind ?? null
     ],
     queryFn: () =>
       resolveConversationSendNodeState({
         conversationId,
-        conversations: conversationsQuery.data ?? [],
+        conversations: activeConversationSummary ? [activeConversationSummary] : [],
         selfUserId: bootstrapQuery.data!.selfUserId,
         fallback: {
           targetNodeId: bootstrapQuery.data?.targetNodeId ?? null,
@@ -890,12 +897,11 @@ export function ChatWorkspacePage() {
     navigate(location.pathname, { replace: true, state: null });
   }, [boundSelfUserId, bootstrapQuery.isLoading, conversationId, location.pathname, navigate, queryClient, selfUserId]);
 
-  if (
-    bootstrapQuery.isLoading ||
-    conversationsQuery.isLoading ||
-    starterQuery.isLoading ||
-    (Boolean(conversationId) && detailQuery.isLoading)
-  ) {
+  const isDetailRoute = Boolean(conversationId);
+  const isSidebarLoading = conversationsQuery.isLoading;
+  const isMessagePaneLoading = bootstrapQuery.isLoading || (isDetailRoute && detailQuery.isLoading);
+
+  if ((!isDetailRoute && (bootstrapQuery.isLoading || conversationsQuery.isLoading || starterQuery.isLoading)) || isMessagePaneLoading) {
     return <section className="im-card flex w-full items-center justify-center">Loading chat...</section>;
   }
 
@@ -1128,6 +1134,7 @@ export function ChatWorkspacePage() {
           items={conversations}
           activeId={conversationId}
           compact={isMobile}
+          isLoading={isSidebarLoading}
           onCreateGroupChat={() => {
             setSelectedGroupParticipantIds([]);
             setGroupNameDraft("");

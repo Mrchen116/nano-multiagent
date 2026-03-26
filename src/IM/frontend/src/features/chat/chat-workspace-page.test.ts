@@ -676,6 +676,75 @@ describe("chat workspace message ordering", () => {
 });
 
 describe("chat workspace page", () => {
+  it("renders a direct conversation route before sidebar and starter queries finish", async () => {
+    const conversationsDeferred = createDeferred<Array<{
+      conversation_id: string;
+      title: string;
+      last_message_preview: string;
+      last_message_at: string | null;
+      unread_count: number;
+      participants: string[];
+      kind_label: string;
+      target_label: string;
+      discoverability_hint: string;
+    }>>();
+    const starterDeferred = createDeferred<{
+      title: string;
+      actionLabel: string;
+      actionHref: string;
+      agentName: string;
+      description: string;
+      nodeLabel?: string;
+      statusLabel?: string;
+    }>();
+
+    getChatBootstrapState.mockResolvedValue({
+      selfUserId: "user-1",
+      ownerId: "owner-1",
+      targetNodeId: "node-1",
+      targetNodeStatus: "online",
+      initialConversationId: "conv-1",
+      ownership: {
+        nodeId: "node-1",
+        nodeLabel: "Node 1",
+        nodeStatus: "online",
+        agentLabel: "OpsBot",
+        ownershipLabel: "Using OpsBot on Node 1 (online)"
+      }
+    });
+    listConversations.mockReturnValue(conversationsDeferred.promise);
+    getChatStarter.mockReturnValue(starterDeferred.promise);
+    getConversation.mockResolvedValue({
+      conversation_id: "conv-1",
+      title: "You & Teammate",
+      kind_label: "Direct agent chat",
+      target_label: "Teammate",
+      discoverability_hint: "This is a one-to-one conversation with an available target.",
+      mention_candidates: [],
+      direct_agent_id: "agent-1",
+      messages: [
+        {
+          message_id: "msg-1",
+          sender_type: "user",
+          sender_name: "You",
+          is_mine: true,
+          content: "Hello from the deep link",
+          created_at: "2026-03-26T10:00:00Z",
+          delivery_status: "completed",
+          attachments: []
+        }
+      ]
+    });
+    getUsageMetrics.mockResolvedValue([]);
+
+    renderWorkspaceRouter(["/chat/conv-1"]);
+
+    expect(await screen.findByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
+    expect(screen.getByText("Hello from the deep link", { selector: ".whitespace-pre-wrap" })).toBeInTheDocument();
+    expect(screen.getByText("Loading conversations...")).toBeInTheDocument();
+    expect(screen.queryByText("Loading chat...")).not.toBeInTheDocument();
+  });
+
   it("shows the main-agent semantics on the default starter entry", async () => {
     renderRouter({
       routes: [{ path: "/chat", element: createElement(ChatWorkspacePage) }],
