@@ -156,7 +156,7 @@ export function buildNotificationCandidate(event: ParsedImStreamEvent): Notifica
       messageKey: `message:${messageId}`,
       senderName: extractSenderName(payload),
       preview,
-      createdAt: normalizeText(payload.created_at)
+      createdAt: normalizeText(payload.created_at) ?? undefined
     };
   }
 
@@ -169,7 +169,7 @@ export function buildNotificationCandidate(event: ParsedImStreamEvent): Notifica
       messageKey,
       senderName: extractSenderName(payload),
       preview,
-      createdAt: normalizeText(payload.created_at)
+      createdAt: normalizeText(payload.created_at) ?? undefined
     };
   }
 

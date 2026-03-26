@@ -176,7 +176,6 @@ export function ConversationList(props: {
                 {filteredItems.totalMatches}
               </span>
             </div>
-            <p className="mt-2 text-xs text-slate-500">Priority chats stay on top. Everything else follows recent activity.</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             {props.onCreateGroupChat && (
