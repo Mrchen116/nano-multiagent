@@ -91,6 +91,7 @@ describe("chat layout", () => {
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Kernel Ops Crew" })).toBeInTheDocument();
+    expect(screen.queryByText("Collaborate with multiple teammates and agents in one thread.")).not.toBeInTheDocument();
   });
 
   it("shows a default agent starter on desktop /chat", async () => {

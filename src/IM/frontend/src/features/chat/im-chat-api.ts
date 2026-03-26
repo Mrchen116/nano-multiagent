@@ -128,30 +128,16 @@ function toParticipantDisplayName(participant: ImActorRef): string {
     return displayName;
   }
   if (participant.type === "agent") {
-    return `agent:${participant.id}`;
+    return "Agent";
   }
   if (participant.type === "system") {
-    return `system:${participant.id}`;
+    return "System";
   }
-  return participant.id;
-}
-
-function toParticipantIdentityTag(participant: ImActorRef): string {
-  if (participant.type === "agent") {
-    return `agent_id:${participant.id}`;
-  }
-  if (participant.type === "user") {
-    return `user_id:${participant.id}`;
-  }
-  return `id:${participant.id}`;
-}
-
-function toParticipantIdentityLabel(participant: ImActorRef): string {
-  return `${toParticipantDisplayName(participant)} (${toParticipantIdentityTag(participant)})`;
+  return "Teammate";
 }
 
 function toMentionCandidateLabel(participant: ImActorRef): string {
-  return toParticipantIdentityLabel(participant);
+  return toParticipantDisplayName(participant);
 }
 
 function toMentionCandidates(input: {
@@ -589,9 +575,6 @@ function toConversationParticipantLabels(input: {
   participants: ImActorRef[];
   conversationKind: ConversationKind;
 }): string[] {
-  if (input.conversationKind === "group" || input.conversationKind === "agent-network") {
-    return input.participants.map((participant) => toParticipantIdentityLabel(participant));
-  }
   return input.participants.map((participant) => toParticipantDisplayName(participant));
 }
 
@@ -600,29 +583,6 @@ function buildParticipantDiscoverabilityHint(input: {
   participants: ImActorRef[];
   baseHint?: string;
 }): string | undefined {
-  const agentIdentities = input.participants
-    .filter((item) => item.type === "agent")
-    .map((item) => toParticipantIdentityLabel(item));
-  const userIdentities = input.participants
-    .filter((item) => item.type === "user")
-    .map((item) => toParticipantIdentityLabel(item));
-  if (input.conversationKind === "group") {
-    const summary = [
-      userIdentities.length > 0 ? `users: ${formatIdentityList(userIdentities)}` : "",
-      agentIdentities.length > 0 ? `agents: ${formatIdentityList(agentIdentities)}` : ""
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    if (!summary) {
-      return input.baseHint;
-    }
-    const base = input.baseHint ? `${input.baseHint} ` : "";
-    return `${base}Participants — ${summary}. Mentions support participant IDs (user_id / agent_id).`;
-  }
-  if (input.conversationKind === "agent-network" && agentIdentities.length > 0) {
-    const base = input.baseHint ? `${input.baseHint} ` : "";
-    return `${base}Agents — ${formatIdentityList(agentIdentities)}.`;
-  }
   return input.baseHint;
 }
 

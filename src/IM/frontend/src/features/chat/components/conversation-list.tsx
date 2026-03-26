@@ -190,9 +190,6 @@ export function ConversationList(props: {
                       </div>
                     </div>
                     <p className="mt-2 line-clamp-2 text-sm text-slate-600">{formatPreview(hydratedItem)}</p>
-                    {hydratedItem.discoverability_hint && (
-                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">{hydratedItem.discoverability_hint}</p>
-                    )}
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                       <span className="rounded-full bg-slate-100 px-2 py-1">{formatParticipantSummary(hydratedItem.participants)}</span>
                     </div>
