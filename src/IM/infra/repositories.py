@@ -361,12 +361,13 @@ class ConversationRepository:
                     is_pinned,
                     is_muted,
                     unread_count,
+                    last_message_preview,
                     last_message_at,
                     config_agent_id,
                     config_profile_version,
                     config_system_prompt,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     conversation_id,
@@ -377,6 +378,7 @@ class ConversationRepository:
                     0,
                     0,
                     0,
+                    None,
                     None,
                     config_snapshot.agent_id,
                     config_snapshot.profile_version,
@@ -398,6 +400,7 @@ class ConversationRepository:
             is_pinned=False,
             is_muted=False,
             unread_count=0,
+            last_message_preview=None,
             last_message_at=None,
             config_profile_version=config_snapshot.profile_version,
             created_at=created_at,
@@ -408,7 +411,7 @@ class ConversationRepository:
         """Load one conversation with participants."""
         row = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_profile_version, created_at
             FROM conversations
             WHERE id = ?
             """,
@@ -456,7 +459,7 @@ class ConversationRepository:
         """
         conversation_rows = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_profile_version, created_at
             FROM conversations
             ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
             """
@@ -549,6 +552,7 @@ class ConversationRepository:
             is_pinned=bool(row["is_pinned"]),
             is_muted=bool(row["is_muted"]),
             unread_count=int(row["unread_count"]),
+            last_message_preview=row["last_message_preview"] if "last_message_preview" in row_keys else None,
             last_message_at=row["last_message_at"],
             config_profile_version=profile_version,
             created_at=row["created_at"],
@@ -816,8 +820,8 @@ class MessageRepository:
             # Web IM unread_count is tracked per owner-scoped conversation in V1. Every persisted message bumps
             # the aggregate counter; read/ack semantics can later decrement it without changing this write path.
             self._connection.execute(
-                "UPDATE conversations SET last_message_at = ?, unread_count = unread_count + 1 WHERE id = ?",
-                (created_at, conversation_id),
+                "UPDATE conversations SET last_message_preview = ?, last_message_at = ?, unread_count = unread_count + 1 WHERE id = ?",
+                (_to_message_preview(content=content, attachments=normalized_attachments), created_at, conversation_id),
             )
         return Message(
             id=message_id,
@@ -1654,6 +1658,8 @@ class EventRepository:
             The stored conversation event including the generated event id.
         """
         created_at = _utc_now()
+        payload_json = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+        preview = _preview_from_event(event_type=event_type, payload=payload)
         with self._connection:
             cursor = self._connection.execute(
                 """
@@ -1671,17 +1677,22 @@ class EventRepository:
                     message_id,
                     event_type,
                     delivery_status,
-                    json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+                    payload_json,
                     created_at,
                 ),
             )
+            if preview is not None:
+                self._connection.execute(
+                    "UPDATE conversations SET last_message_preview = ?, last_message_at = ? WHERE id = ?",
+                    (preview, created_at, conversation_id),
+                )
         return ConversationEvent(
             event_id=int(cursor.lastrowid),
             conversation_id=conversation_id,
             message_id=message_id,
             event_type=event_type,
             delivery_status=delivery_status,
-            payload_json=json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+            payload_json=payload_json,
             created_at=created_at,
         )
 
@@ -1827,6 +1838,53 @@ def _encode_attachments(attachments: list[Attachment]) -> str:
     """Encode attachments JSON with stable field ordering."""
     payload = [_attachment_to_dict(item) for item in attachments]
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+
+
+def _optional_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _is_no_reply_protocol_token(value: str | None) -> bool:
+    if value is None:
+        return False
+    normalized = value.strip()
+    return normalized == "NO_REPLY" or normalized.startswith("suppressed_by=no_reply_token") or "suppressed_by=no_reply_token" in normalized
+
+
+def _preview_from_event(*, event_type: str, payload: dict[str, object]) -> str | None:
+    content = _optional_text(payload.get("content"))
+    if event_type in {"message.sent", "message_created"} and content is not None:
+        return content
+
+    if event_type in {"relay.processing", "relay.report", "relay.completed", "relay.failed", "message.delivered"}:
+        summary = _optional_text(payload.get("summary"))
+        detail = _optional_text(payload.get("detail"))
+        preview = summary or detail or content
+        if preview is None or _is_no_reply_protocol_token(preview):
+            return None
+        return preview
+
+    file_name = _optional_text(payload.get("file_name"))
+    if file_name is not None:
+        return file_name
+    attachments = payload.get("attachments")
+    if isinstance(attachments, list) and attachments:
+        return "Attachment"
+    return None
+
+
+def _to_message_preview(*, content: str, attachments: list[Attachment]) -> str:
+    """Choose the best lightweight inbox preview for one persisted message."""
+    normalized_content = content.strip()
+    if normalized_content:
+        return normalized_content
+    first_attachment = attachments[0] if attachments else None
+    if first_attachment and first_attachment.file_name:
+        return first_attachment.file_name
+    return ""
 
 
 def _decode_attachments(raw_value: str) -> list[Attachment]:

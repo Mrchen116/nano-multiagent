@@ -44,6 +44,7 @@ def test_users_and_conversations_roundtrip(tmp_path: Path) -> None:
         assert conversation["is_pinned"] is False
         assert conversation["is_muted"] is False
         assert conversation["unread_count"] == 0
+        assert conversation["last_message_preview"] is None
         assert conversation["last_message_at"] is None
 
         list_resp = client.get("/im/v1/conversations")
@@ -111,6 +112,7 @@ def test_conversation_list_orders_pinned_then_recent_activity(tmp_path: Path) ->
 
         items = client.get("/im/v1/conversations").json()["items"]
         assert [item["id"] for item in items] == [first["id"], second["id"], third["id"]]
+        assert items[1]["last_message_preview"] == "latest"
         assert items[1]["last_message_at"] is not None
         assert items[1]["unread_count"] == 1
 

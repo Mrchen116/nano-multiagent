@@ -76,7 +76,7 @@ class _ConfigEnabledConversationRepository(ConversationRepository):
     def list_conversations(self):  # type: ignore[override]
         rows = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, is_pinned, is_muted, unread_count, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_profile_version, created_at
             FROM conversations
             ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
             """

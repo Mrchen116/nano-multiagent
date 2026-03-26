@@ -128,6 +128,7 @@ class Conversation:
     is_pinned: bool
     is_muted: bool
     unread_count: int
+    last_message_preview: str | None
     last_message_at: str | None
     config_profile_version: int | None
     created_at: str

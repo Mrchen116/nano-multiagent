@@ -10,6 +10,7 @@ from IM.repositories import (
     AgentProfileVersionConflictError,
     BindRepository,
     ConversationRepository,
+    EventRepository,
     MessageRepository,
     NodeRepository,
     UserRepository,
@@ -292,6 +293,7 @@ def test_create_message_accepts_agent_actor_sender_id(tmp_path: Path) -> None:
         content="ack",
     )
     listed = messages.list_messages(conversation_id=conversation.id)
+    stored = conversations.get_conversation(conversation_id=conversation.id)
 
     assert created.sender_user_id == agent_alias.id
     assert created.sender is not None
@@ -301,6 +303,154 @@ def test_create_message_accepts_agent_actor_sender_id(tmp_path: Path) -> None:
     assert listed[0].sender is not None
     assert listed[0].sender.type == "agent"
     assert listed[0].sender.id == "A"
+    assert stored is not None
+    assert stored.last_message_preview == "ack"
+    assert stored.last_message_at is not None
+
+
+def test_initialize_schema_backfills_last_message_preview_from_latest_message(tmp_path: Path) -> None:
+    """Backfill last_message_preview so inbox list data survives restarts without N message fetches."""
+    db_path = tmp_path / "im.db"
+    connection = connect(db_path)
+    initialize_schema(connection)
+    connection.execute(
+        """
+        INSERT INTO users(id, username, display_name, owner_id, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        ("user-1", "alice", "Alice", "owner-1", "2026-03-26T00:00:00Z"),
+    )
+    connection.execute(
+        """
+        INSERT INTO conversations(
+            id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("conv-1", "Alpha", "direct", "owner-1", "user-1", 0, 0, 1, "2026-03-26T00:02:00Z", "2026-03-26T00:00:00Z"),
+    )
+    connection.execute(
+        """
+        INSERT INTO conversation_participants(conversation_id, user_id)
+        VALUES (?, ?)
+        """,
+        ("conv-1", "user-1"),
+    )
+    connection.execute(
+        """
+        INSERT INTO messages(
+            id, conversation_id, sender_user_id, sender_type, content, attachments_json, delivery_status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("msg-1", "conv-1", "user-1", "user", "latest preview", "[]", "completed", "2026-03-26T00:02:00Z"),
+    )
+    connection.commit()
+
+    connection.execute("ALTER TABLE conversations DROP COLUMN last_message_preview")
+    connection.commit()
+
+    initialize_schema(connection)
+
+    row = connection.execute(
+        "SELECT last_message_preview FROM conversations WHERE id = ?",
+        ("conv-1",),
+    ).fetchone()
+    assert row is not None
+    assert row["last_message_preview"] == "latest preview"
+
+
+def test_event_repository_updates_last_message_preview_for_visible_relay_events(tmp_path: Path) -> None:
+    """Persist relay-visible events into conversation summaries so inbox preview matches reopened threads."""
+    users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
+    events = EventRepository(messages._connection)
+    owner = users.create_user(username="owner", display_name="Owner")
+    conversation = conversations.create_conversation(title="relay thread", participant_ids=[owner.id])
+    base_message = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        content="question",
+        auto_complete_delivery=False,
+    )
+
+    events.append_event(
+        conversation_id=conversation.id,
+        message_id=base_message.id,
+        event_type="relay.completed",
+        delivery_status="completed",
+        payload={
+            "message_id": base_message.id,
+            "relay_task_id": "relay-1",
+            "agent_id": "agent-a",
+            "detail": "A\n\nGot it. What would you like to do?",
+        },
+    )
+
+    stored = conversations.get_conversation(conversation_id=conversation.id)
+    assert stored is not None
+    assert stored.last_message_preview == "A\n\nGot it. What would you like to do?"
+    assert stored.last_message_at is not None
+
+
+def test_initialize_schema_reconciles_old_relay_preview_mismatches(tmp_path: Path) -> None:
+    """Recompute stale conversation previews from the latest visible relay event on startup."""
+    db_path = tmp_path / "im.db"
+    connection = connect(db_path)
+    initialize_schema(connection)
+    connection.execute(
+        """
+        INSERT INTO users(id, username, display_name, owner_id, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        ("user-1", "alice", "Alice", "owner-1", "2026-03-26T00:00:00Z"),
+    )
+    connection.execute(
+        """
+        INSERT INTO conversations(
+            id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("conv-1", "Alpha", "direct", "owner-1", "user-1", 0, 0, 1, "11", "2026-03-26T00:01:00Z", "2026-03-26T00:00:00Z"),
+    )
+    connection.execute(
+        """
+        INSERT INTO conversation_participants(conversation_id, user_id)
+        VALUES (?, ?)
+        """,
+        ("conv-1", "user-1"),
+    )
+    connection.execute(
+        """
+        INSERT INTO messages(
+            id, conversation_id, sender_user_id, sender_type, content, attachments_json, delivery_status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        ("msg-1", "conv-1", "user-1", "user", "11", "[]", "completed", "2026-03-26T00:01:00Z"),
+    )
+    connection.execute(
+        """
+        INSERT INTO conversation_events(
+            conversation_id, message_id, event_type, delivery_status, payload_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "conv-1",
+            "msg-1",
+            "relay.completed",
+            "completed",
+            '{"message_id":"msg-1","relay_task_id":"relay-1","detail":"A\\n\\nGot it. What would you like to do?"}',
+            "2026-03-26T00:02:00Z",
+        ),
+    )
+    connection.commit()
+
+    initialize_schema(connection)
+
+    row = connection.execute(
+        "SELECT last_message_preview, last_message_at FROM conversations WHERE id = ?",
+        ("conv-1",),
+    ).fetchone()
+    assert row is not None
+    assert row["last_message_preview"] == "A\n\nGot it. What would you like to do?"
+    assert row["last_message_at"] == "2026-03-26T00:02:00Z"
 
 
 def test_user_nodes_and_bind_roundtrip(tmp_path: Path) -> None:

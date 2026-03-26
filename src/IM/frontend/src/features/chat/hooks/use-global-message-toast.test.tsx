@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -20,9 +21,13 @@ const getChatBootstrapStateMock = vi.mocked(chatApi.getChatBootstrapState);
 const getConversationLatestEventIdMock = vi.mocked(chatApi.getConversationLatestEventId);
 const streamConversationEventsMock = vi.mocked(chatApi.streamConversationEvents);
 
-function buildWrapper(route = "/") {
+function buildWrapper(queryClient: QueryClient, route = "/") {
   return function Wrapper(props: { children: ReactNode }) {
-    return <MemoryRouter initialEntries={[route]}>{props.children}</MemoryRouter>;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[route]}>{props.children}</MemoryRouter>
+      </QueryClientProvider>
+    );
   };
 }
 
@@ -70,7 +75,8 @@ describe("useGlobalMessageToast", () => {
 
   it("suppresses replayed history at the startup baseline and only toasts newer events", async () => {
     getConversationLatestEventIdMock.mockResolvedValue(10);
-    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper("/") });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
     await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-1", afterEventId: 10 })));
 
@@ -91,7 +97,8 @@ describe("useGlobalMessageToast", () => {
   });
 
   it("dedupes message_created and message.sent for the same message id", async () => {
-    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper("/") });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
     await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalled());
 
@@ -117,7 +124,8 @@ describe("useGlobalMessageToast", () => {
   });
 
   it("ignores relay.report but toasts one relay.completed reply", async () => {
-    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper("/") });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
     await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalled());
 
@@ -138,7 +146,8 @@ describe("useGlobalMessageToast", () => {
   });
 
   it("suppresses NO_REPLY relay completions", async () => {
-    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper("/") });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
     await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalled());
 
@@ -157,7 +166,8 @@ describe("useGlobalMessageToast", () => {
   });
 
   it("does not toast for the currently open conversation", async () => {
-    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper("/chat/conv-1") });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/chat/conv-1") });
 
     await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalled());
 
@@ -170,18 +180,100 @@ describe("useGlobalMessageToast", () => {
     expect(result.current.toast).toBeNull();
   });
 
-  it("does not toast for self-authored user messages", async () => {
-    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper("/") });
+  it("still refreshes the cached sidebar preview for self-authored user messages", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["chat", "conversations"], [
+      {
+        conversation_id: "conv-1",
+        unread_count: 0,
+        participants: [],
+        title: "Chat",
+        last_message_preview: "older",
+        last_message_at: "2026-03-26T00:00:00Z"
+      }
+    ]);
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
     await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalled());
 
     emit("conv-1", {
       eventType: "message.sent",
       eventId: 1,
-      payload: { message_id: "m-1", sender_type: "user", sender_user_id: "user:self-user", content: "my own message" }
+      payload: {
+        message_id: "m-1",
+        sender_type: "user",
+        sender_user_id: "user:self-user",
+        content: "my own message",
+        created_at: "2026-03-26T00:01:00Z"
+      }
     });
 
     expect(result.current.toast).toBeNull();
+    expect(queryClient.getQueryData(["chat", "conversations"])).toEqual([
+      {
+        conversation_id: "conv-1",
+        unread_count: 0,
+        participants: [],
+        title: "Chat",
+        last_message_preview: "my own message",
+        last_message_at: "2026-03-26T00:01:00Z"
+      }
+    ]);
+  });
+
+  it("refreshes the cached sidebar preview when an unopened conversation finishes a relay turn", async () => {
+    listConversationsMock.mockResolvedValue([
+      {
+        conversation_id: "conv-2",
+        unread_count: 0,
+        participants: [],
+        title: "Agent chat",
+        last_message_preview: "11",
+        last_message_at: "2026-03-26T00:00:00Z"
+      }
+    ]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["chat", "conversations"], [
+      {
+        conversation_id: "conv-2",
+        unread_count: 0,
+        participants: [],
+        title: "Agent chat",
+        last_message_preview: "11",
+        last_message_at: "2026-03-26T00:00:00Z"
+      }
+    ]);
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+
+    await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-2" })));
+
+    emit("conv-2", {
+      eventType: "relay.completed",
+      eventId: 1,
+      payload: {
+        message_id: "m-1",
+        relay_task_id: "relay-1",
+        agent_id: "ops-bot",
+        sender_display_name: "Ops Bot",
+        detail: "A\n\nGot it. What would you like to do?",
+        created_at: "2026-03-26T00:02:00Z"
+      }
+    });
+
+    expect(result.current.toast).toMatchObject({
+      conversationId: "conv-2",
+      preview: "A\n\nGot it. What would you like to do?"
+    });
+    expect(queryClient.getQueryData(["chat", "conversations"])).toEqual([
+      {
+        conversation_id: "conv-2",
+        unread_count: 0,
+        participants: [],
+        title: "Agent chat",
+        last_message_preview: "A\n\nGot it. What would you like to do?",
+        last_message_at: "2026-03-26T00:02:00Z"
+      }
+    ]);
   });
 
   it("subscribes to conversations discovered after mount and toasts the replayed latest unread event", async () => {
@@ -193,7 +285,8 @@ describe("useGlobalMessageToast", () => {
       ]);
     getConversationLatestEventIdMock.mockImplementation(async (conversationId: string) => (conversationId === "conv-2" ? 5 : 0));
 
-    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper("/") });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
     await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-1", afterEventId: 0 })));
     await waitFor(

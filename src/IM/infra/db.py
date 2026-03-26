@@ -1,6 +1,7 @@
 """SQLite connection and schema initialization helpers."""
 
 from pathlib import Path
+import json
 import sqlite3
 
 from IM.domain.models import managed_workspace_root
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     is_pinned INTEGER NOT NULL DEFAULT 0,
     is_muted INTEGER NOT NULL DEFAULT 0,
     unread_count INTEGER NOT NULL DEFAULT 0,
+    last_message_preview TEXT,
     last_message_at TEXT,
     config_agent_id TEXT,
     config_profile_version INTEGER,
@@ -189,6 +191,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _migrate_relay_tasks(connection)
     _migrate_usage_metrics(connection)
     _migrate_settings_policies(connection)
+    _reconcile_conversation_summary_previews(connection)
     connection.commit()
 
 
@@ -256,6 +259,24 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
                 WHERE messages.conversation_id = conversations.id
             )
             WHERE last_message_at IS NULL
+            """
+        )
+    if "last_message_preview" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN last_message_preview TEXT")
+        connection.execute(
+            """
+            UPDATE conversations
+            SET last_message_preview = (
+                SELECT CASE
+                    WHEN TRIM(COALESCE(messages.content, '')) <> '' THEN messages.content
+                    ELSE ''
+                END
+                FROM messages
+                WHERE messages.conversation_id = conversations.id
+                ORDER BY messages.created_at DESC, messages.rowid DESC
+                LIMIT 1
+            )
+            WHERE last_message_preview IS NULL
             """
         )
     if "config_agent_id" not in column_names:
@@ -412,6 +433,112 @@ def _migrate_usage_metrics(connection: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def _optional_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _is_no_reply_protocol_token(value: str | None) -> bool:
+    if value is None:
+        return False
+    normalized = value.strip()
+    return normalized == "NO_REPLY" or normalized.startswith("suppressed_by=no_reply_token") or "suppressed_by=no_reply_token" in normalized
+
+
+def _preview_from_event(event_type: str, payload: dict[str, object]) -> str | None:
+    content = _optional_text(payload.get("content"))
+    if event_type in {"message.sent", "message_created"} and content is not None:
+        return content
+    if event_type in {"relay.processing", "relay.report", "relay.completed", "relay.failed", "message.delivered"}:
+        summary = _optional_text(payload.get("summary"))
+        detail = _optional_text(payload.get("detail"))
+        preview = summary or detail or content
+        if preview is None or _is_no_reply_protocol_token(preview):
+            return None
+        return preview
+    file_name = _optional_text(payload.get("file_name"))
+    if file_name is not None:
+        return file_name
+    attachments = payload.get("attachments")
+    if isinstance(attachments, list) and attachments:
+        return "Attachment"
+    return None
+
+
+def _preview_from_message_row(row: sqlite3.Row) -> str:
+    content = str(row["content"] or "").strip()
+    if content:
+        return content
+    try:
+        attachments = json.loads(row["attachments_json"] or "[]")
+    except json.JSONDecodeError:
+        attachments = []
+    if isinstance(attachments, list) and attachments:
+        first = attachments[0] if isinstance(attachments[0], dict) else None
+        if isinstance(first, dict):
+            file_name = _optional_text(first.get("file_name"))
+            if file_name is not None:
+                return file_name
+        return "Attachment"
+    return ""
+
+
+def _reconcile_conversation_summary_previews(connection: sqlite3.Connection) -> None:
+    conversation_rows = connection.execute("SELECT id FROM conversations").fetchall()
+    for conversation_row in conversation_rows:
+        conversation_id = str(conversation_row["id"])
+        latest_message = connection.execute(
+            """
+            SELECT content, attachments_json, created_at
+            FROM messages
+            WHERE conversation_id = ?
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT 1
+            """,
+            (conversation_id,),
+        ).fetchone()
+        latest_event = connection.execute(
+            """
+            SELECT event_type, payload_json, created_at
+            FROM conversation_events
+            WHERE conversation_id = ?
+            ORDER BY created_at DESC, event_id DESC
+            """,
+            (conversation_id,),
+        ).fetchall()
+
+        chosen_preview: str | None = None
+        chosen_created_at: str | None = None
+        if latest_message is not None:
+            chosen_preview = _preview_from_message_row(latest_message)
+            chosen_created_at = str(latest_message["created_at"])
+
+        for event_row in latest_event:
+            try:
+                payload = json.loads(event_row["payload_json"])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            event_preview = _preview_from_event(str(event_row["event_type"]), payload)
+            if event_preview is None:
+                continue
+            event_created_at = str(event_row["created_at"])
+            if chosen_created_at is None or event_created_at >= chosen_created_at:
+                chosen_preview = event_preview
+                chosen_created_at = event_created_at
+            break
+
+        if chosen_created_at is None:
+            continue
+        connection.execute(
+            "UPDATE conversations SET last_message_preview = ?, last_message_at = ? WHERE id = ?",
+            (chosen_preview, chosen_created_at, conversation_id),
+        )
 
 
 DEFAULT_SETTINGS_POLICIES = {

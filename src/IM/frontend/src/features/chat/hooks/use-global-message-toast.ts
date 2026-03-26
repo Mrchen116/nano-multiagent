@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 
 import {
@@ -7,7 +8,7 @@ import {
   listConversations,
   streamConversationEvents
 } from "../chat-api";
-import { ParsedImStreamEvent } from "../im-chat-api";
+import { ParsedImStreamEvent, setConversationPreviewSnapshot } from "../im-chat-api";
 import { ConversationSummary } from "../types";
 
 /** Payload for a single in-app toast notification. */
@@ -22,6 +23,7 @@ interface NotificationCandidate {
   messageKey: string;
   senderName: string;
   preview: string;
+  createdAt?: string;
 }
 
 interface ConversationNotificationState {
@@ -84,6 +86,26 @@ function extractSenderName(payload: Record<string, unknown>): string {
   );
 }
 
+function patchConversationPreview(
+  items: ConversationSummary[] | undefined,
+  conversationId: string,
+  preview: string,
+  createdAt?: string
+) {
+  if (!items) {
+    return items;
+  }
+  return items.map((item) =>
+    item.conversation_id === conversationId
+      ? {
+          ...item,
+          last_message_preview: preview,
+          last_message_at: createdAt ?? item.last_message_at
+        }
+      : item
+  );
+}
+
 function isViewingConversation(pathname: string, conversationId: string): boolean {
   return pathname === `/chat/${conversationId}`;
 }
@@ -133,7 +155,8 @@ export function buildNotificationCandidate(event: ParsedImStreamEvent): Notifica
     return {
       messageKey: `message:${messageId}`,
       senderName: extractSenderName(payload),
-      preview
+      preview,
+      createdAt: normalizeText(payload.created_at)
     };
   }
 
@@ -145,7 +168,8 @@ export function buildNotificationCandidate(event: ParsedImStreamEvent): Notifica
     return {
       messageKey,
       senderName: extractSenderName(payload),
-      preview
+      preview,
+      createdAt: normalizeText(payload.created_at)
     };
   }
 
@@ -159,6 +183,7 @@ export function buildNotificationCandidate(event: ParsedImStreamEvent): Notifica
 export function useGlobalMessageToast(input?: { maxConversations?: number }) {
   const maxConversations = input?.maxConversations ?? 10;
   const [toast, setToast] = useState<ToastPayload | null>(null);
+  const queryClient = useQueryClient();
   const location = useLocation();
   const pathnameRef = useRef(location.pathname);
   const selfUserIdRef = useRef<string | null>(null);
@@ -265,14 +290,24 @@ export function useGlobalMessageToast(input?: { maxConversations?: number }) {
             return;
           }
           conversationState.lastSeenEventId = event.eventId;
+          const payload = event.payload as Record<string, unknown>;
+          const candidate = buildNotificationCandidate(event);
+          if (candidate) {
+            queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
+              patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt)
+            );
+            setConversationPreviewSnapshot({
+              conversationId,
+              preview: candidate.preview,
+              lastMessageAt: candidate.createdAt
+            });
+          }
           if (isViewingConversation(pathnameRef.current, conversationId)) {
             return;
           }
-          const payload = event.payload as Record<string, unknown>;
           if (isSelfAuthoredUserMessage(payload, selfUserIdRef.current)) {
             return;
           }
-          const candidate = buildNotificationCandidate(event);
           if (!candidate || conversationState.notifiedMessageKeys.has(candidate.messageKey)) {
             return;
           }
@@ -292,7 +327,7 @@ export function useGlobalMessageToast(input?: { maxConversations?: number }) {
         teardown();
       }
     };
-  }, [subscriptions]);
+  }, [queryClient, subscriptions]);
 
   const dismiss = useCallback(() => setToast(null), []);
 
