@@ -47,7 +47,16 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "nodes",
-            element: <NodesPage />
+            children: [
+              {
+                index: true,
+                element: <NodesPage />
+              },
+              {
+                path: ":nodeId/agents/new",
+                element: <AgentCreatePage />
+              }
+            ]
           },
           {
             path: "policies",

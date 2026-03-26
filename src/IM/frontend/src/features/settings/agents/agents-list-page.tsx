@@ -143,9 +143,6 @@ export function AgentsListPage() {
           {query.isFetching && !query.isLoading ? (
             <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">Refreshing…</span>
           ) : null}
-          <Link className="im-btn im-btn-primary" to="/settings/agents/new">
-            New Agent
-          </Link>
         </div>
       </div>
 
@@ -163,8 +160,8 @@ export function AgentsListPage() {
             <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void query.refetch()}>
               Retry
             </button>
-            <Link className="text-sm font-semibold text-teal-700 hover:underline" to="/settings/agents/new">
-              Create an agent manually
+            <Link className="text-sm font-semibold text-teal-700 hover:underline" to="/settings/nodes">
+              Open Nodes to create an agent
             </Link>
           </div>
         </section>
@@ -172,11 +169,11 @@ export function AgentsListPage() {
         <section className="grid gap-3 rounded-2xl border border-dashed border-[var(--im-border)] bg-white/80 p-6">
           <div className="space-y-1">
             <p className="text-sm font-semibold text-slate-900">No agents yet</p>
-            <p className="text-sm text-slate-500">Create your first runtime profile to verify prompts, default models, and node routing in one place.</p>
+            <p className="text-sm text-slate-500">Open Nodes to create your first runtime profile on an online bound node.</p>
           </div>
           <div>
-            <Link className="im-btn im-btn-primary inline-flex" to="/settings/agents/new">
-              Create First Agent
+            <Link className="im-btn im-btn-primary inline-flex" to="/settings/nodes">
+              Open Nodes
             </Link>
           </div>
         </section>

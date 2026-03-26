@@ -5,11 +5,9 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { createDirectConversation } from "../../chat/chat-api";
 import { AllowlistSelector } from "./allowlist-selector";
-import { AgentConfig, getAgentAllowlistOptions, getAgentConfig, listNodes, updateAgentConfig } from "./im-agent-config-api";
+import { AgentConfig, getAgentDetailState, updateAgentConfig } from "./im-agent-config-api";
 
-type AgentConfigFormState = AgentConfig & {
-  workspace_root_input: string;
-};
+type AgentConfigFormState = AgentConfig;
 
 function normalizeAllowlist(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
@@ -17,13 +15,6 @@ function normalizeAllowlist(values: string[]) {
 
 function normalizeText(value: string) {
   return value.trim();
-}
-
-function toFormState(config: AgentConfig): AgentConfigFormState {
-  return {
-    ...config,
-    workspace_root_input: config.workspace_is_default ? "" : config.workspace_root
-  };
 }
 
 function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormState {
@@ -35,13 +26,12 @@ function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormStat
     skills: normalizeAllowlist(config.skills),
     tool_allowlist: normalizeAllowlist(config.tool_allowlist),
     default_model: normalizeText(config.default_model ?? "") || null,
-    workspace_root_input: config.workspace_root_input.trim(),
     bound_nodes: config.bound_nodes ?? []
   };
 }
 
 function validateDraft(draft: AgentConfigFormState) {
-  const errors: Partial<Record<"display_name" | "system_prompt" | "workspace_root_input", string>> = {};
+  const errors: Partial<Record<"display_name" | "system_prompt", string>> = {};
 
   if (!draft.display_name) {
     errors.display_name = "Display name is required.";
@@ -49,10 +39,6 @@ function validateDraft(draft: AgentConfigFormState) {
 
   if (!draft.system_prompt) {
     errors.system_prompt = "System prompt is required.";
-  }
-
-  if (draft.workspace_root_input && !draft.workspace_root_input.startsWith("/") && !draft.workspace_root_input.startsWith("~/")) {
-    errors.workspace_root_input = "Workspace path must be absolute or start with ~/.";
   }
 
   return errors;
@@ -121,64 +107,53 @@ export function AgentDetailPage() {
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  const query = useQuery({
-    queryKey: ["settings", "agents", agentId],
-    queryFn: () => getAgentConfig(agentId),
-    staleTime: 30_000
-  });
-  const nodesQuery = useQuery({
-    queryKey: ["settings", "nodes"],
-    queryFn: listNodes
-  });
-  const allowlistOptionsQuery = useQuery({
-    queryKey: ["settings", "agents", "allowlist-options"],
-    queryFn: getAgentAllowlistOptions,
+  const detailQuery = useQuery({
+    queryKey: ["settings", "agents", agentId, "detail-state"],
+    queryFn: () => getAgentDetailState(agentId),
     staleTime: 30_000
   });
 
   useEffect(() => {
-    if (query.data) {
-      setDraft(toFormState(query.data));
+    if (detailQuery.data?.config) {
+      setDraft(detailQuery.data.config);
       setErrorMessage(null);
     }
-  }, [query.data]);
+  }, [detailQuery.data]);
 
+  const capabilities = detailQuery.data?.capabilities;
+  const owningNode = detailQuery.data?.owningNode ?? null;
   const normalizedDraft = useMemo(() => (draft ? normalizeAgentConfig(draft) : null), [draft]);
-  const normalizedServerState = useMemo(() => (query.data ? normalizeAgentConfig(toFormState(query.data)) : null), [query.data]);
+  const normalizedServerState = useMemo(() => (detailQuery.data?.config ? normalizeAgentConfig(detailQuery.data.config) : null), [detailQuery.data]);
   const availableModels = useMemo(
-    () => resolveModelOptions(allowlistOptionsQuery.data?.model_options, draft?.default_model ?? null),
-    [allowlistOptionsQuery.data?.model_options, draft?.default_model]
+    () => resolveModelOptions(capabilities?.model_options, draft?.default_model ?? null),
+    [capabilities?.model_options, draft?.default_model]
   );
-  const platformDefaultModel = allowlistOptionsQuery.data?.platform_default_model ?? null;
+  const platformDefaultModel = capabilities?.platform_default_model ?? null;
   const validationErrors = useMemo(() => (normalizedDraft ? validateDraft(normalizedDraft) : {}), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
   const isDirty = normalizedDraft && normalizedServerState ? JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedServerState) : false;
   const queryErrorDetail =
-    query.error instanceof Error ? query.error.message.split(" failed: ").at(-1) ?? query.error.message : "Unable to load this agent.";
-  const nodeErrorDetail =
-    nodesQuery.error instanceof Error ? nodesQuery.error.message.split(" failed: ").at(-1) ?? nodesQuery.error.message : "Unable to load node status.";
-  const allowlistErrorDetail =
-    allowlistOptionsQuery.error instanceof Error
-      ? allowlistOptionsQuery.error.message.split(" failed: ").at(-1) ?? allowlistOptionsQuery.error.message
-      : "Unable to load selectable skills and tools.";
+    detailQuery.error instanceof Error ? detailQuery.error.message.split(" failed: ").at(-1) ?? detailQuery.error.message : "Unable to load this agent.";
 
   const mutation = useMutation({
     mutationFn: (next: AgentConfigFormState) => {
-      const { workspace_root_input, workspace_is_default: _workspaceIsDefault, bound_nodes: _boundNodes, updated_at: _updatedAt, owner_id: _ownerId, agent_id: _agentId, workspace_root: _workspaceRoot, ...payload } = next;
-      return updateAgentConfig(agentId, {
-        ...payload,
-        workspace_root: workspace_root_input || null
-      });
+      const { bound_nodes: _boundNodes, updated_at: _updatedAt, owner_id: _ownerId, agent_id: _agentId, workspace_root: _workspaceRoot, workspace_is_default: _workspaceIsDefault, node_id: _nodeId, node_name: _nodeName, node_status: _nodeStatus, ...payload } = next;
+      return updateAgentConfig(agentId, payload);
     },
     onSuccess: async (updated) => {
       setErrorMessage(null);
       setSaved(true);
       setHasAttemptedSave(false);
-      if (updated) {
-        setDraft(toFormState(updated));
+      if (updated && capabilities) {
+        setDraft(updated);
+        queryClient.setQueryData(["settings", "agents", agentId, "detail-state"], {
+          config: updated,
+          capabilities,
+          owningNode
+        });
       }
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
-      await queryClient.invalidateQueries({ queryKey: ["settings", "agents", agentId] });
+      await queryClient.invalidateQueries({ queryKey: ["settings", "agents", agentId, "detail-state"] });
       setTimeout(() => setSaved(false), 1600);
     },
     onError: (error) => {
@@ -198,40 +173,39 @@ export function AgentDetailPage() {
     }
   });
 
-  function markTouched(field: "display_name" | "system_prompt" | "workspace_root_input") {
+  function markTouched(field: "display_name" | "system_prompt") {
     setTouched((current) => ({ ...current, [field]: true }));
   }
 
-  function shouldShowError(field: "display_name" | "system_prompt" | "workspace_root_input") {
+  function shouldShowError(field: "display_name" | "system_prompt") {
     return (hasAttemptedSave || touched[field]) && validationErrors[field];
   }
 
-  if (query.isLoading && !draft) {
+  if (detailQuery.isLoading && !draft) {
     return <p className="text-sm text-slate-500">Loading agent profile...</p>;
   }
 
-  if (query.isError && !draft) {
+  if (detailQuery.isError && !draft) {
     return (
       <section className="grid gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-5">
         <div className="space-y-1">
           <p className="text-sm font-semibold text-rose-700">Could not load this agent.</p>
           <p className="text-sm text-rose-600">{queryErrorDetail}</p>
         </div>
-        <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void query.refetch()}>
+        <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void detailQuery.refetch()}>
           Retry
         </button>
       </section>
     );
   }
 
-  if (!draft || !normalizedDraft) {
+  if (!draft || !normalizedDraft || !capabilities) {
     return <p className="text-sm text-slate-500">Loading agent profile...</p>;
   }
 
-  const liveNodes = nodesQuery.data ?? [];
-  const liveNodeLookup = new Map(liveNodes.map((node) => [node.node_id, node]));
-  const boundNodes = (draft.bound_nodes ?? []).map((nodeId) => liveNodeLookup.get(nodeId) ?? { node_id: nodeId, node_name: nodeId, status: "unknown", last_heartbeat_at: "", agent_count: 0, version: "" });
-  const managedWorkspacePreview = `~/nano-assistant/workspace/${draft.agent_id}`;
+  const displayedNodeName = draft.node_name ?? capabilities.node_name ?? owningNode?.node_name ?? draft.node_id ?? capabilities.node_id;
+  const displayedNodeId = draft.node_id ?? capabilities.node_id;
+  const displayedNodeStatus = draft.node_status ?? capabilities.node_status ?? owningNode?.status ?? "unknown";
 
   return (
     <form
@@ -353,9 +327,7 @@ export function AgentDetailPage() {
               <option value="MENTION">MENTION</option>
               <option value="NO_REPLY">NO_REPLY</option>
             </select>
-            <p id="group-policy-help" className="text-xs text-slate-500">
-              {policyDescription(draft.group_reply_policy)}
-            </p>
+            <p id="group-policy-help" className="text-xs text-slate-500">{policyDescription(draft.group_reply_policy)}</p>
           </div>
         </section>
 
@@ -369,10 +341,10 @@ export function AgentDetailPage() {
               id="skills-allowlist"
               label="Skills"
               selected={draft.skills}
-              options={allowlistOptionsQuery.data?.skills}
-              isLoading={allowlistOptionsQuery.isLoading}
-              errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
-              onRetry={() => void allowlistOptionsQuery.refetch()}
+              options={capabilities.skills}
+              isLoading={detailQuery.isLoading}
+              errorMessage={detailQuery.isError ? queryErrorDetail : null}
+              onRetry={() => void detailQuery.refetch()}
               helpText="Choose only the reusable skills this agent needs right now. Saved non-standard items stay under review instead of filling the main path."
               emptySelectionText="No skill selected. Leave blank if this agent should inherit platform defaults."
               onChange={(skills) => {
@@ -385,10 +357,10 @@ export function AgentDetailPage() {
               id="tool-allowlist"
               label="Tools"
               selected={draft.tool_allowlist}
-              options={allowlistOptionsQuery.data?.tools}
-              isLoading={allowlistOptionsQuery.isLoading}
-              errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
-              onRetry={() => void allowlistOptionsQuery.refetch()}
+              options={capabilities.tools}
+              isLoading={detailQuery.isLoading}
+              errorMessage={detailQuery.isError ? queryErrorDetail : null}
+              onRetry={() => void detailQuery.refetch()}
               showDescriptions={false}
               helpText="Choose only the tools this agent needs right now. Saved non-standard items stay under review instead of filling the main path."
               emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
@@ -406,7 +378,7 @@ export function AgentDetailPage() {
               className="im-input"
               value={draft.default_model ?? ""}
               aria-describedby="default-model-help"
-              disabled={allowlistOptionsQuery.isLoading && availableModels.length === 0}
+              disabled={detailQuery.isLoading && availableModels.length === 0}
               onChange={(event) => {
                 setSaved(false);
                 setErrorMessage(null);
@@ -415,7 +387,7 @@ export function AgentDetailPage() {
             >
               <option value="">{platformDefaultLabel(platformDefaultModel)}</option>
               {availableModels.map((model) => {
-                const isAvailable = (allowlistOptionsQuery.data?.model_options ?? []).includes(model);
+                const isAvailable = (capabilities.model_options ?? []).includes(model);
                 return (
                   <option key={model} value={model}>
                     {modelOptionLabel(model, platformDefaultModel, isAvailable)}
@@ -432,7 +404,7 @@ export function AgentDetailPage() {
         <section className="im-section-card">
           <div className="space-y-1">
             <h3 className="im-section-heading">Workspace</h3>
-            <p className="im-section-copy">Keep one workspace setting here. The saved setting and the active workspace always match.</p>
+            <p className="im-section-copy">Workspace is assigned by the owning node and remains read-only in the frontend.</p>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
@@ -441,32 +413,7 @@ export function AgentDetailPage() {
                 <div className="space-y-1">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current workspace</p>
                   <p className="break-all font-mono text-sm text-slate-900">{draft.workspace_root}</p>
-                  <p className="text-xs text-slate-500">
-                    {draft.workspace_is_default
-                      ? `Using the managed default workspace at ${managedWorkspacePreview}.`
-                      : "Using a saved custom workspace path."}
-                  </p>
-                </div>
-                <div className="grid gap-1">
-                  <Label.Root htmlFor="workspace-root">Workspace setting</Label.Root>
-                  <input
-                    id="workspace-root"
-                    className="im-input"
-                    value={draft.workspace_root_input}
-                    aria-invalid={Boolean(shouldShowError("workspace_root_input"))}
-                    aria-describedby="workspace-root-help"
-                    placeholder="Leave blank to use the managed default workspace"
-                    onBlur={() => markTouched("workspace_root_input")}
-                    onChange={(event) => {
-                      setSaved(false);
-                      setErrorMessage(null);
-                      setDraft({ ...draft, workspace_root_input: event.target.value });
-                    }}
-                  />
-                  <p id="workspace-root-help" className="text-xs text-slate-500">
-                    Editable setting. Enter an absolute path or `~/...`. Leave blank to remove any custom override and keep the managed default directory.
-                  </p>
-                  {shouldShowError("workspace_root_input") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.workspace_root_input}</p> : null}
+                  <p className="text-xs text-slate-500">Read-only runtime path. The owning node assigns and validates this workspace.</p>
                 </div>
               </section>
 
@@ -487,40 +434,34 @@ export function AgentDetailPage() {
             </div>
 
             <div className="grid gap-4">
-              {nodesQuery.isLoading ? <p className="text-xs text-slate-500">Loading live node status...</p> : null}
-              {nodesQuery.isError ? <p className="text-xs font-semibold text-amber-700">Live node status unavailable: {nodeErrorDetail}</p> : null}
-
-              {boundNodes.length > 0 ? (
-                <div className="grid gap-2">
-                  {boundNodes.map((node) => (
-                    <section key={node.node_id} className="im-subtle-card grid gap-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">{node.node_name}</p>
-                          <p className="text-xs text-slate-500">{node.node_id}</p>
-                        </div>
-                        <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${nodeStatusClasses(node.status)}`}>{node.status}</span>
-                      </div>
-                      <dl className="grid gap-1 text-xs text-slate-600">
-                        <div className="flex items-center justify-between gap-3">
-                          <dt>Assigned agents</dt>
-                          <dd>{node.agent_count}</dd>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <dt>Last heartbeat</dt>
-                          <dd>{node.last_heartbeat_at || "—"}</dd>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <dt>Runtime version</dt>
-                          <dd>{node.version || "—"}</dd>
-                        </div>
-                      </dl>
-                    </section>
-                  ))}
+              <section className="im-subtle-card grid gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Owning node</p>
+                    <p className="text-sm font-semibold text-slate-900">{displayedNodeName}</p>
+                    <p className="text-xs text-slate-500">{displayedNodeId}</p>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${nodeStatusClasses(displayedNodeStatus)}`}>{displayedNodeStatus}</span>
                 </div>
-              ) : (
-                <p className="text-xs text-slate-500">This agent is currently unbound. Save behavior changes first, then assign runtime capacity when ready.</p>
-              )}
+                <div className="grid gap-1 text-xs text-slate-600">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt>Capabilities updated</dt>
+                    <dd>{capabilities.capabilities_updated_at ?? "—"}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt>Assigned agents</dt>
+                    <dd>{owningNode?.agent_count ?? "—"}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt>Last heartbeat</dt>
+                    <dd>{owningNode?.last_heartbeat_at || "—"}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt>Runtime version</dt>
+                    <dd>{owningNode?.version || "—"}</dd>
+                  </div>
+                </div>
+              </section>
             </div>
           </div>
         </section>

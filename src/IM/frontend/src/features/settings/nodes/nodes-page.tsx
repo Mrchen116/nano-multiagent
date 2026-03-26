@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { NodeSettingsProfile, listNodes, updateNode } from "../im-settings-api";
 
@@ -103,14 +104,21 @@ export function NodesPage() {
             </label>
           </div>
 
-          <button
-            type="button"
-            className="im-btn im-btn-primary mt-3"
-            onClick={() => mutation.mutate(row)}
-            disabled={mutation.isPending}
-          >
-            Save {row.node_id}
-          </button>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            {row.status === "online" ? (
+              <Link className="im-btn im-btn-muted" to={`/settings/nodes/${row.node_id}/agents/new`}>
+                Create agent on {row.node_id}
+              </Link>
+            ) : null}
+            <button
+              type="button"
+              className="im-btn im-btn-primary"
+              onClick={() => mutation.mutate(row)}
+              disabled={mutation.isPending}
+            >
+              Save {row.node_id}
+            </button>
+          </div>
         </section>
       ))}
     </div>

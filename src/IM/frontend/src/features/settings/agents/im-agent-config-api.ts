@@ -9,6 +9,9 @@ export interface AgentSummary {
   default_model: string | null;
   workspace_root: string;
   workspace_is_default: boolean;
+  node_id?: string | null;
+  node_name?: string | null;
+  node_status?: string | null;
   bound_nodes?: string[];
   updated_at?: string | null;
 }
@@ -26,6 +29,9 @@ export interface AgentConfig {
   workspace_root: string;
   workspace_is_default: boolean;
   profile_version: number;
+  node_id?: string | null;
+  node_name?: string | null;
+  node_status?: string | null;
   bound_nodes?: string[];
   updated_at?: string | null;
 }
@@ -35,7 +41,11 @@ export interface AgentAllowlistOption {
   description: string;
 }
 
-export interface AgentAllowlistOptions {
+export interface CapabilitySnapshot {
+  node_id: string;
+  node_name: string;
+  node_status: string;
+  capabilities_updated_at?: string | null;
   skills: AgentAllowlistOption[];
   tools: AgentAllowlistOption[];
   model_options: string[];
@@ -43,7 +53,30 @@ export interface AgentAllowlistOptions {
   default_system_prompt: string;
 }
 
-export interface CreateAgentRequest {
+export interface NodeCapabilities extends CapabilitySnapshot {}
+
+export interface AgentCapabilities extends CapabilitySnapshot {}
+
+export interface NodeSummary {
+  node_id: string;
+  owner_id: string;
+  node_name: string;
+  status: string;
+  last_heartbeat_at: string;
+  agent_count: number;
+  version: string;
+}
+
+export interface AgentDetailNodeView {
+  node_id: string;
+  node_name: string;
+  status: string;
+  last_heartbeat_at: string;
+  agent_count: number;
+  version: string;
+}
+
+export interface NodeAgentCreateRequest {
   agent_id: string;
   owner_id: string;
   display_name: string;
@@ -53,7 +86,9 @@ export interface CreateAgentRequest {
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
-  workspace_root?: string | null;
+}
+
+export interface CreateAgentRequest extends NodeAgentCreateRequest {
   node_id?: string | null;
 }
 
@@ -66,7 +101,17 @@ export interface UpdateAgentConfigRequest {
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
   default_model: string | null;
-  workspace_root?: string | null;
+}
+
+export interface AgentDetailState {
+  config: AgentConfig;
+  capabilities: AgentCapabilities;
+  owningNode: AgentDetailNodeView | null;
+}
+
+export interface NodeCreateState {
+  node: NodeSummary | null;
+  capabilities: NodeCapabilities;
 }
 
 function getApiBaseUrl() {
@@ -123,19 +168,36 @@ export async function getAgentConfig(agentId: string) {
   return requestJson<AgentConfig>(`/im/v1/agents/${agentId}/config`);
 }
 
-export async function getAgentAllowlistOptions() {
-  return requestJson<AgentAllowlistOptions>("/im/v1/agents/allowlist-options");
+export async function getAgentCapabilities(agentId: string) {
+  return requestJson<AgentCapabilities>(`/im/v1/agents/${agentId}/capabilities`);
 }
 
-export async function createAgent(next: CreateAgentRequest) {
-  return requestJson<AgentConfig>("/im/v1/agents", {
+export async function listNodes() {
+  return requestJson<NodeSummary[]>("/im/v1/nodes");
+}
+
+export async function getNodeCapabilities(nodeId: string) {
+  return requestJson<NodeCapabilities>(`/im/v1/nodes/${nodeId}/capabilities`);
+}
+
+export async function createNodeAgent(nodeId: string, next: NodeAgentCreateRequest) {
+  return requestJson<AgentConfig>(`/im/v1/nodes/${nodeId}/agents`, {
     method: "POST",
     body: JSON.stringify(next)
   });
 }
 
-export async function listNodes() {
-  return requestJson<Array<{ node_id: string; owner_id: string; node_name: string; status: string; last_heartbeat_at: string; agent_count: number; version: string }>>("/im/v1/nodes");
+export async function getAgentDetailState(agentId: string): Promise<AgentDetailState> {
+  const [config, capabilities, nodes] = await Promise.all([getAgentConfig(agentId), getAgentCapabilities(agentId), listNodes()]);
+  const owningNodeId = config.node_id ?? capabilities.node_id;
+  const owningNode = owningNodeId ? nodes.find((node) => node.node_id === owningNodeId) ?? null : null;
+  return { config, capabilities, owningNode };
+}
+
+export async function getNodeCreateState(nodeId: string): Promise<NodeCreateState> {
+  const [capabilities, nodes] = await Promise.all([getNodeCapabilities(nodeId), listNodes()]);
+  const node = nodes.find((item) => item.node_id === nodeId) ?? null;
+  return { node, capabilities };
 }
 
 export async function updateAgentConfig(agentId: string, next: UpdateAgentConfigRequest) {
@@ -149,8 +211,7 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       skills: next.skills,
       tool_allowlist: next.tool_allowlist,
       group_reply_policy: next.group_reply_policy,
-      default_model: next.default_model,
-      workspace_root: next.workspace_root
+      default_model: next.default_model
     })
   });
 }
