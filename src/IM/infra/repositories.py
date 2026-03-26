@@ -855,20 +855,28 @@ class MessageRepository:
             Messages ordered from oldest to newest within the selected page.
         """
         bounded_limit = max(1, min(limit, 200))
-        params: list[object] = [conversation_id]
-        cursor_clause = ""
+        merged_messages = self._list_message_timeline(conversation_id=conversation_id)
         if before_message_id is not None:
-            cursor_row = self._connection.execute(
-                "SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?",
-                (before_message_id, conversation_id),
-            ).fetchone()
-            if cursor_row is None:
+            cursor_index = next(
+                (index for index, message in enumerate(merged_messages) if message.id == before_message_id),
+                None,
+            )
+            if cursor_index is None:
                 raise ValueError("before_message_id not found")
-            cursor_clause = " AND messages.rowid < ?"
-            params.append(int(cursor_row["rowid"]))
-        params.append(bounded_limit)
-        rows = self._connection.execute(
-            f"""
+            merged_messages = merged_messages[:cursor_index]
+        paged_messages = merged_messages[-bounded_limit:]
+        if mark_as_read and before_message_id is None:
+            with self._connection:
+                self._connection.execute(
+                    "UPDATE conversations SET unread_count = 0 WHERE id = ?",
+                    (conversation_id,),
+                )
+        return paged_messages
+
+    def _list_message_timeline(self, *, conversation_id: str) -> list[Message]:
+        """Return persisted messages merged with visible relay-history messages."""
+        message_rows = self._connection.execute(
+            """
             SELECT
                 messages.id,
                 messages.conversation_id,
@@ -882,40 +890,102 @@ class MessageRepository:
                 users.display_name AS sender_display_name
             FROM messages
             LEFT JOIN users ON users.id = messages.sender_user_id
-            WHERE conversation_id = ?{cursor_clause}
-            ORDER BY messages.rowid DESC
-            LIMIT ?
+            WHERE conversation_id = ?
+            ORDER BY messages.rowid
             """,
-            tuple(params),
+            (conversation_id,),
         ).fetchall()
-        if mark_as_read and before_message_id is None:
-            with self._connection:
-                self._connection.execute(
-                    "UPDATE conversations SET unread_count = 0 WHERE id = ?",
-                    (conversation_id,),
-                )
-        ordered_rows = list(reversed(rows))
-        return [
-            Message(
-                id=row["id"],
-                conversation_id=row["conversation_id"],
-                sender_user_id=row["sender_user_id"],
-                sender_type=row["sender_type"],
-                sender=self._actor_from_sender_row(
-                    sender_type=str(row["sender_type"]),
-                    sender_user_id=str(row["sender_user_id"]),
-                    sender_username=str(row["sender_username"]) if row["sender_username"] is not None else None,
-                    sender_display_name=(
-                        str(row["sender_display_name"]) if row["sender_display_name"] is not None else None
-                    ),
+        merged = [self._message_from_row(row) for row in message_rows]
+        event_rows = self._connection.execute(
+            """
+            SELECT event_id, conversation_id, message_id, event_type, delivery_status, payload_json, created_at
+            FROM conversation_events
+            WHERE conversation_id = ?
+            ORDER BY event_id
+            """,
+            (conversation_id,),
+        ).fetchall()
+        for row in event_rows:
+            synthetic_message = self._message_from_visible_event_row(row)
+            if synthetic_message is None:
+                continue
+            merged = _upsert_message(merged, synthetic_message)
+        return merged
+
+    def _message_from_row(self, row: sqlite3.Row) -> Message:
+        """Convert one stored SQLite row into a Message domain model."""
+        return Message(
+            id=row["id"],
+            conversation_id=row["conversation_id"],
+            sender_user_id=row["sender_user_id"],
+            sender_type=row["sender_type"],
+            sender=self._actor_from_sender_row(
+                sender_type=str(row["sender_type"]),
+                sender_user_id=str(row["sender_user_id"]),
+                sender_username=str(row["sender_username"]) if row["sender_username"] is not None else None,
+                sender_display_name=(
+                    str(row["sender_display_name"]) if row["sender_display_name"] is not None else None
                 ),
-                content=row["content"],
-                attachments=_decode_attachments(row["attachments_json"]),
-                delivery_status=row["delivery_status"],
-                created_at=row["created_at"],
+            ),
+            content=row["content"],
+            attachments=_decode_attachments(row["attachments_json"]),
+            delivery_status=row["delivery_status"],
+            created_at=row["created_at"],
+        )
+
+    def _message_from_visible_event_row(self, row: sqlite3.Row) -> Message | None:
+        """Convert one relay-visible event row into the synthetic message shown in history."""
+        event_type = str(row["event_type"])
+        if event_type not in {"relay.completed", "relay.failed"}:
+            return None
+        try:
+            payload = json.loads(row["payload_json"])
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        synthetic_message_id = _synthetic_message_id_from_event_payload(payload)
+        if synthetic_message_id is None:
+            return None
+        content = _visible_content_from_event(event_type=event_type, payload=payload)
+        if content is None:
+            return None
+        sender = self._actor_from_event_payload(payload)
+        sender_user_id = sender.user_id or sender.id
+        delivery_status = "running" if event_type == "relay.processing" else "failed" if event_type == "relay.failed" else "completed"
+        return Message(
+            id=synthetic_message_id,
+            conversation_id=str(row["conversation_id"]),
+            sender_user_id=sender_user_id,
+            sender_type="agent",
+            sender=sender,
+            content=content,
+            attachments=[],
+            delivery_status=delivery_status,
+            created_at=str(row["created_at"]),
+        )
+
+    def _actor_from_event_payload(self, payload: dict[str, object]) -> Actor:
+        """Build the agent actor identity exposed for synthetic relay history rows."""
+        agent_id = _optional_text(payload.get("agent_id"))
+        sender_display_name = (
+            _optional_text(payload.get("sender_display_name"))
+            or _optional_text(payload.get("display_name"))
+            or _optional_text(payload.get("agent_display_name"))
+        )
+        if agent_id is not None:
+            sender_row = self._connection.execute(
+                "SELECT id, display_name FROM users WHERE username = ?",
+                (f"agent:{agent_id}",),
+            ).fetchone()
+            return Actor(
+                type="agent",
+                id=agent_id,
+                display_name=sender_display_name or (str(sender_row["display_name"]) if sender_row is not None else None),
+                user_id=str(sender_row["id"]) if sender_row is not None else f"agent:{agent_id}",
             )
-            for row in ordered_rows
-        ]
+        fallback_display_name = sender_display_name or "Agent"
+        return Actor(type="agent", id=fallback_display_name, display_name=sender_display_name, user_id=f"agent:{fallback_display_name}")
 
     def _resolve_sender_user_row(self, *, sender_user_id: str, sender_type: str) -> sqlite3.Row | None:
         """Resolve sender identity by stable actor id to concrete IM user row."""
@@ -1874,6 +1944,51 @@ def _preview_from_event(*, event_type: str, payload: dict[str, object]) -> str |
     if isinstance(attachments, list) and attachments:
         return "Attachment"
     return None
+
+
+def _visible_content_from_event(*, event_type: str, payload: dict[str, object]) -> str | None:
+    """Return the visible bubble content represented by one event payload."""
+    return _preview_from_event(event_type=event_type, payload=payload)
+
+
+def _synthetic_message_id_from_event_payload(payload: dict[str, object]) -> str | None:
+    """Build the same stable synthetic message ids used by the frontend relay mapper."""
+    message_id = _optional_text(payload.get("message_id"))
+    if message_id is None:
+        return None
+    relay_task_id = _optional_text(payload.get("relay_task_id"))
+    if relay_task_id is not None:
+        return f"{message_id}:relay:{relay_task_id}"
+    agent_id = _optional_text(payload.get("agent_id"))
+    if agent_id is not None:
+        return f"{message_id}:agent:{agent_id}"
+    return f"{message_id}:agent"
+
+
+def _upsert_message(messages: list[Message], candidate: Message) -> list[Message]:
+    """Insert or refresh one message while preserving chronological ordering."""
+    existing_index = next((index for index, item in enumerate(messages) if item.id == candidate.id), -1)
+    if existing_index == -1:
+        return _sort_messages(messages + [candidate])
+    existing = messages[existing_index]
+    next_messages = list(messages)
+    next_messages[existing_index] = Message(
+        id=existing.id,
+        conversation_id=existing.conversation_id,
+        sender_user_id=candidate.sender_user_id,
+        sender_type=candidate.sender_type,
+        sender=candidate.sender,
+        content=candidate.content if len(candidate.content) >= len(existing.content) else existing.content,
+        attachments=candidate.attachments if candidate.attachments else existing.attachments,
+        delivery_status=candidate.delivery_status,
+        created_at=candidate.created_at,
+    )
+    return _sort_messages(next_messages)
+
+
+def _sort_messages(messages: list[Message]) -> list[Message]:
+    """Return messages ordered by created_at, then stable id."""
+    return sorted(messages, key=lambda item: (item.created_at, item.id))
 
 
 def _to_message_preview(*, content: str, attachments: list[Attachment]) -> str:

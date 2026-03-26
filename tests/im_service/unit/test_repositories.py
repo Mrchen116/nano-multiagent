@@ -390,6 +390,133 @@ def test_event_repository_updates_last_message_preview_for_visible_relay_events(
     assert stored.last_message_at is not None
 
 
+def test_list_messages_merges_visible_relay_history_into_old_conversations(tmp_path: Path) -> None:
+    """Return the same visible relay replies on first history load, even when only events were persisted."""
+    users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
+    events = EventRepository(messages._connection)
+    owner = users.create_user(username="owner", display_name="Owner")
+    agent_a = users.create_user(username="agent:A", display_name="A")
+    agent_q = users.create_user(username="agent:Q", display_name="Q")
+    conversation = conversations.create_conversation(
+        title="A + Q",
+        participant_ids=[owner.id, agent_a.id, agent_q.id],
+    )
+    prompt = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        content="大家下午去哪里了",
+        auto_complete_delivery=False,
+    )
+    messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        content="@agent:A 你",
+        auto_complete_delivery=False,
+    )
+    followup = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        content="@agent:Q 还有你",
+        auto_complete_delivery=False,
+    )
+    relay_a_1 = events.append_event(
+        conversation_id=conversation.id,
+        message_id=prompt.id,
+        event_type="relay.completed",
+        delivery_status="completed",
+        payload={
+            "message_id": prompt.id,
+            "relay_task_id": "relay-a-1",
+            "agent_id": "A",
+            "detail": "我不在现场，无法得知。你想让我帮你发消息问大家吗？",
+        },
+    )
+    relay_q_1 = events.append_event(
+        conversation_id=conversation.id,
+        message_id=prompt.id,
+        event_type="relay.completed",
+        delivery_status="completed",
+        payload={
+            "message_id": prompt.id,
+            "relay_task_id": "relay-q-1",
+            "agent_id": "Q",
+            "detail": "抱歉没明白，你是要我帮你问大家下午去哪儿了吗？",
+        },
+    )
+    relay_a_2 = events.append_event(
+        conversation_id=conversation.id,
+        message_id=followup.id,
+        event_type="relay.completed",
+        delivery_status="completed",
+        payload={
+            "message_id": followup.id,
+            "relay_task_id": "relay-a-2",
+            "agent_id": "A",
+            "detail": "我在这儿呢。你是指今天下午大家都去哪儿了吗？我这边没收到行程消息，要不要我帮你问一下？",
+        },
+    )
+    relay_q_2 = events.append_event(
+        conversation_id=conversation.id,
+        message_id=followup.id,
+        event_type="relay.completed",
+        delivery_status="completed",
+        payload={
+            "message_id": followup.id,
+            "relay_task_id": "relay-q-2",
+            "agent_id": "Q",
+            "detail": "在的。你想让我做什么？",
+        },
+    )
+    messages._connection.execute(
+        "UPDATE messages SET created_at = ? WHERE id = ?",
+        ("2026-03-26T00:00:00Z", prompt.id),
+    )
+    messages._connection.execute(
+        "UPDATE messages SET created_at = ? WHERE content = ?",
+        ("2026-03-26T00:00:03Z", "@agent:A 你"),
+    )
+    messages._connection.execute(
+        "UPDATE messages SET created_at = ? WHERE id = ?",
+        ("2026-03-26T00:00:04Z", followup.id),
+    )
+    messages._connection.execute(
+        "UPDATE conversation_events SET created_at = ? WHERE event_id = ?",
+        ("2026-03-26T00:00:01Z", relay_a_1.event_id),
+    )
+    messages._connection.execute(
+        "UPDATE conversation_events SET created_at = ? WHERE event_id = ?",
+        ("2026-03-26T00:00:02Z", relay_q_1.event_id),
+    )
+    messages._connection.execute(
+        "UPDATE conversation_events SET created_at = ? WHERE event_id = ?",
+        ("2026-03-26T00:00:05Z", relay_a_2.event_id),
+    )
+    messages._connection.execute(
+        "UPDATE conversation_events SET created_at = ? WHERE event_id = ?",
+        ("2026-03-26T00:00:06Z", relay_q_2.event_id),
+    )
+    messages._connection.commit()
+
+    listed = messages.list_messages(conversation_id=conversation.id)
+
+    assert [item.content for item in listed] == [
+        "大家下午去哪里了",
+        "我不在现场，无法得知。你想让我帮你发消息问大家吗？",
+        "抱歉没明白，你是要我帮你问大家下午去哪儿了吗？",
+        "@agent:A 你",
+        "@agent:Q 还有你",
+        "我在这儿呢。你是指今天下午大家都去哪儿了吗？我这边没收到行程消息，要不要我帮你问一下？",
+        "在的。你想让我做什么？",
+    ]
+    assert [item.id for item in listed if item.sender_type == "agent"] == [
+        f"{prompt.id}:relay:relay-a-1",
+        f"{prompt.id}:relay:relay-q-1",
+        f"{followup.id}:relay:relay-a-2",
+        f"{followup.id}:relay:relay-q-2",
+    ]
+    assert [item.sender.id for item in listed if item.sender_type == "agent"] == ["A", "Q", "A", "Q"]
+
+
 def test_initialize_schema_reconciles_old_relay_preview_mismatches(tmp_path: Path) -> None:
     """Recompute stale conversation previews from the latest visible relay event on startup."""
     db_path = tmp_path / "im.db"

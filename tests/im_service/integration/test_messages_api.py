@@ -248,6 +248,126 @@ def test_latest_event_endpoint_and_cursor_skip_history(tmp_path: Path) -> None:
         assert ": keepalive" in body
 
 
+def test_messages_endpoint_includes_visible_relay_history_on_first_load(tmp_path: Path) -> None:
+    """Return synthetic agent history rows so old conversations do not gain replies only after SSE replay."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner_id = _create_user(client, "owner")
+        agent_a_user_id = _create_user(client, "agent:A")
+        agent_q_user_id = _create_user(client, "agent:Q")
+        create_group = client.post(
+            "/im/v1/conversations",
+            json={"title": "A + Q", "participant_ids": [owner_id, agent_a_user_id, agent_q_user_id]},
+        )
+        assert create_group.status_code == 201
+        conversation_id = create_group.json()["id"]
+
+        base_message = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": owner_id, "content": "大家下午去哪里了", "target_node_id": "node-offline"},
+        )
+        followup_message = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": owner_id, "content": "@agent:Q 还有你", "target_node_id": "node-offline"},
+        )
+        assert base_message.status_code == 503
+        assert followup_message.status_code == 503
+
+        connection = app.state.connection
+        base_id = connection.execute(
+            "SELECT id FROM messages WHERE conversation_id = ? ORDER BY rowid ASC LIMIT 1",
+            (conversation_id,),
+        ).fetchone()["id"]
+        followup_id = connection.execute(
+            "SELECT id FROM messages WHERE conversation_id = ? ORDER BY rowid DESC LIMIT 1",
+            (conversation_id,),
+        ).fetchone()["id"]
+        connection.execute(
+            "UPDATE messages SET created_at = ? WHERE id = ?",
+            ("2026-03-26T00:00:00Z", base_id),
+        )
+        connection.execute(
+            "UPDATE messages SET created_at = ? WHERE id = ?",
+            ("2026-03-26T00:00:03Z", followup_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO conversation_events(conversation_id, message_id, event_type, delivery_status, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                base_id,
+                "relay.completed",
+                "completed",
+                '{"message_id":"' + base_id + '","relay_task_id":"relay-a-1","agent_id":"A","detail":"我不在现场，无法得知。你想让我帮你发消息问大家吗？"}',
+                "2026-03-26T00:00:01Z",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO conversation_events(conversation_id, message_id, event_type, delivery_status, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                base_id,
+                "relay.completed",
+                "completed",
+                '{"message_id":"' + base_id + '","relay_task_id":"relay-q-1","agent_id":"Q","detail":"抱歉没明白，你是要我帮你问大家下午去哪儿了吗？"}',
+                "2026-03-26T00:00:02Z",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO conversation_events(conversation_id, message_id, event_type, delivery_status, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                followup_id,
+                "relay.completed",
+                "completed",
+                '{"message_id":"' + followup_id + '","relay_task_id":"relay-a-2","agent_id":"A","detail":"我在这儿呢。你是指今天下午大家都去哪儿了吗？我这边没收到行程消息，要不要我帮你问一下？"}',
+                "2026-03-26T00:00:04Z",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO conversation_events(conversation_id, message_id, event_type, delivery_status, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                followup_id,
+                "relay.completed",
+                "completed",
+                '{"message_id":"' + followup_id + '","relay_task_id":"relay-q-2","agent_id":"Q","detail":"在的。你想让我做什么？"}',
+                "2026-03-26T00:00:05Z",
+            ),
+        )
+        connection.commit()
+
+        listed = client.get(f"/im/v1/conversations/{conversation_id}/messages")
+        assert listed.status_code == 200
+        items = listed.json()["items"]
+        assert [item["content"] for item in items] == [
+            "大家下午去哪里了",
+            "我不在现场，无法得知。你想让我帮你发消息问大家吗？",
+            "抱歉没明白，你是要我帮你问大家下午去哪儿了吗？",
+            "@agent:Q 还有你",
+            "我在这儿呢。你是指今天下午大家都去哪儿了吗？我这边没收到行程消息，要不要我帮你问一下？",
+            "在的。你想让我做什么？",
+        ]
+        assert [item["id"] for item in items if item["sender_type"] == "agent"] == [
+            f"{base_id}:relay:relay-a-1",
+            f"{base_id}:relay:relay-q-1",
+            f"{followup_id}:relay:relay-a-2",
+            f"{followup_id}:relay:relay-q-2",
+        ]
+        assert [item["sender"]["id"] for item in items if item["sender_type"] == "agent"] == ["A", "Q", "A", "Q"]
+
+
 def test_uploads_expose_im_hosted_paths_for_message_attachments(tmp_path: Path) -> None:
     """Accept raw file uploads and return IM-hosted URLs usable by Web IM messages."""
     app = create_app(db_path=tmp_path / "im.db")
