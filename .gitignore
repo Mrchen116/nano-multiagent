@@ -230,3 +230,4 @@ data/*.sqlite3
 
 # Local screenshots / scratch artifacts
 Snipaste_*.png
+.gstack/

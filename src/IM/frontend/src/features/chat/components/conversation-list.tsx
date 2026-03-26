@@ -1,13 +1,20 @@
 import clsx from "clsx";
-import { UIEvent, useLayoutEffect, useRef } from "react";
+import { UIEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { getConversationPreviewSnapshot } from "../im-chat-api";
-import { ConversationSummary } from "../types";
-
-type ConversationSectionKey = "agent-network" | "group" | "direct" | "other";
+import { ConversationKind, ConversationSummary } from "../types";
 
 let conversationListScrollTop = 0;
+
+const FILTER_OPTIONS: Array<{ key: "all" | ConversationKind; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "direct-agent", label: "Agent" },
+  { key: "direct-user", label: "People" },
+  { key: "group", label: "Groups" },
+  { key: "agent-network", label: "Agent ↔ Agent" },
+  { key: "system", label: "System" }
+];
 
 function formatTime(input?: string) {
   if (!input) {
@@ -53,45 +60,84 @@ function formatParticipantSummary(participants: string[]) {
   return `${participants.slice(0, 3).join(" · ")} +${participants.length - 3}`;
 }
 
-function resolveSectionKey(item: ConversationSummary): ConversationSectionKey {
-  if (item.kind === "agent-network") {
-    return "agent-network";
-  }
-  if (item.kind === "group") {
-    return "group";
-  }
-  if (item.kind === "direct-agent" || item.kind === "direct-user") {
-    return "direct";
-  }
-  if (item.kind_label?.toLowerCase().includes("agent-to-agent")) {
-    return "agent-network";
-  }
-  if (item.kind_label === "Group chat") {
-    return "group";
-  }
-  return "other";
+function isPriorityConversation(item: ConversationSummary) {
+  return Boolean(item.is_pinned || item.kind_label === "主 Agent 会话" || item.title.startsWith("主 Agent · "));
 }
 
-function toSectionTitle(section: ConversationSectionKey): string {
-  if (section === "agent-network") {
-    return "Agent-to-agent direct";
+function matchesSearch(item: ConversationSummary, query: string) {
+  if (!query) {
+    return true;
   }
-  if (section === "group") {
-    return "Group chats";
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return true;
   }
-  if (section === "direct") {
-    return "Direct chats";
-  }
-  return "Other";
+  return [item.title, item.target_label, item.discoverability_hint, item.kind_label, ...item.participants]
+    .filter(Boolean)
+    .some((value) => value!.toLowerCase().includes(normalizedQuery));
+}
+
+function compareRecency(left: ConversationSummary, right: ConversationSummary) {
+  return (right.last_message_at ?? "").localeCompare(left.last_message_at ?? "");
+}
+
+function ConversationCard(props: {
+  item: ConversationSummary;
+  activeId?: string;
+  onRememberScrollPosition: () => void;
+}) {
+  return (
+    <Link
+      to={`/chat/${props.item.conversation_id}`}
+      onClick={props.onRememberScrollPosition}
+      className={clsx(
+        "mb-2 block rounded-2xl border px-3 py-3 transition shadow-sm",
+        props.item.conversation_id === props.activeId
+          ? "border-[#9bd2d6] bg-[#eef8f8]"
+          : "border-slate-200 bg-white hover:border-[var(--im-border)] hover:bg-slate-50"
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            {props.item.kind_label && (
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{props.item.kind_label}</p>
+            )}
+            {isPriorityConversation(props.item) && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">
+                Priority
+              </span>
+            )}
+          </div>
+          <p className="mt-1 font-semibold text-slate-900">{props.item.title}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-xs font-medium text-slate-500">{formatTime(props.item.last_message_at) || "New"}</p>
+          {props.item.unread_count > 0 && (
+            <span className="mt-2 inline-flex rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-bold text-white">
+              {props.item.unread_count} new
+            </span>
+          )}
+        </div>
+      </div>
+      <p className="mt-2 line-clamp-2 text-sm text-slate-600">{formatPreview(props.item)}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <span className="rounded-full bg-slate-100 px-2 py-1">{formatParticipantSummary(props.item.participants)}</span>
+      </div>
+    </Link>
+  );
 }
 
 export function ConversationList(props: {
   items: ConversationSummary[];
   activeId?: string;
   compact?: boolean;
+  isLoading?: boolean;
   onCreateGroupChat?: () => void;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState<"all" | ConversationKind>("all");
 
   useLayoutEffect(() => {
     if (!scrollContainerRef.current) {
@@ -108,14 +154,16 @@ export function ConversationList(props: {
     conversationListScrollTop = scrollContainerRef.current?.scrollTop ?? 0;
   };
 
-  const sectionOrder: ConversationSectionKey[] = ["agent-network", "group", "direct", "other"];
-  const sectionItems = new Map<ConversationSectionKey, ConversationSummary[]>(
-    sectionOrder.map((section) => [section, [] as ConversationSummary[]])
-  );
-  for (const item of props.items) {
-    const section = resolveSectionKey(item);
-    sectionItems.get(section)?.push(item);
-  }
+  const hydratedItems = useMemo(() => props.items.map(withLatestPreviewSnapshot), [props.items]);
+  const filteredItems = useMemo(() => {
+    const matchingItems = hydratedItems.filter((item) => {
+      const matchesKind = activeFilter === "all" || item.kind === activeFilter;
+      return matchesKind && matchesSearch(item, searchQuery);
+    });
+    const priorityItems = matchingItems.filter(isPriorityConversation).sort(compareRecency);
+    const recentItems = matchingItems.filter((item) => !isPriorityConversation(item)).sort(compareRecency);
+    return { priorityItems, recentItems, totalMatches: matchingItems.length };
+  }, [activeFilter, hydratedItems, searchQuery]);
 
   return (
     <div className="im-card flex h-full min-h-[420px] flex-col overflow-hidden">
@@ -125,9 +173,10 @@ export function ConversationList(props: {
             <div className="flex items-center gap-2">
               <h1 className="im-title text-xl font-bold">Conversations</h1>
               <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                {props.items.length}
+                {filteredItems.totalMatches}
               </span>
             </div>
+            <p className="mt-2 text-xs text-slate-500">Priority chats stay on top. Everything else follows recent activity.</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             {props.onCreateGroupChat && (
@@ -137,6 +186,31 @@ export function ConversationList(props: {
             )}
           </div>
         </div>
+        <div className="mt-4 space-y-3">
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search conversations"
+            className="im-input w-full"
+            aria-label="Search conversations"
+          />
+          <div className="flex flex-wrap gap-2">
+            {FILTER_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => setActiveFilter(option.key)}
+                className={clsx(
+                  "rounded-full px-3 py-1.5 text-xs font-semibold transition",
+                  activeFilter === option.key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       <div
         ref={scrollContainerRef}
@@ -144,61 +218,41 @@ export function ConversationList(props: {
         className="flex-1 overflow-y-auto p-2"
         onScroll={handleScroll}
       >
-        {props.items.length === 0 ? (
+        {filteredItems.totalMatches === 0 ? (
           <div className="flex h-full min-h-[260px] items-center justify-center px-6 py-8 text-center">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">No conversations yet</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              {props.isLoading ? "Loading conversations..." : searchQuery || activeFilter !== "all" ? "No matching conversations" : "No conversations yet"}
+            </p>
           </div>
         ) : (
-          sectionOrder.map((section) => {
-            const items = sectionItems.get(section) ?? [];
-            if (items.length === 0) {
-              return null;
-            }
-            return (
-              <section key={section} className="mb-4">
-                <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  {toSectionTitle(section)}
-                </p>
-                {items.map((item) => {
-                  const hydratedItem = withLatestPreviewSnapshot(item);
-                  return (
-                  <Link
-                    key={hydratedItem.conversation_id}
-                    to={`/chat/${hydratedItem.conversation_id}`}
-                    onClick={rememberScrollPosition}
-                    className={clsx(
-                      "mb-2 block rounded-2xl border px-3 py-3 transition shadow-sm",
-                      hydratedItem.conversation_id === props.activeId
-                        ? "border-[#9bd2d6] bg-[#eef8f8]"
-                        : "border-slate-200 bg-white hover:border-[var(--im-border)] hover:bg-slate-50"
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        {hydratedItem.kind_label && (
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{hydratedItem.kind_label}</p>
-                        )}
-                        <p className="mt-1 font-semibold text-slate-900">{hydratedItem.title}</p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-xs font-medium text-slate-500">{formatTime(hydratedItem.last_message_at) || "New"}</p>
-                        {hydratedItem.unread_count > 0 && (
-                          <span className="mt-2 inline-flex rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-bold text-white">
-                            {hydratedItem.unread_count} new
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <p className="mt-2 line-clamp-2 text-sm text-slate-600">{formatPreview(hydratedItem)}</p>
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span className="rounded-full bg-slate-100 px-2 py-1">{formatParticipantSummary(hydratedItem.participants)}</span>
-                    </div>
-                  </Link>
-                  );
-                })}
+          <>
+            {filteredItems.priorityItems.length > 0 && (
+              <section className="mb-4">
+                <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Priority</p>
+                {filteredItems.priorityItems.map((item) => (
+                  <ConversationCard
+                    key={item.conversation_id}
+                    item={item}
+                    activeId={props.activeId}
+                    onRememberScrollPosition={rememberScrollPosition}
+                  />
+                ))}
               </section>
-            );
-          })
+            )}
+            {filteredItems.recentItems.length > 0 && (
+              <section>
+                <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Recent</p>
+                {filteredItems.recentItems.map((item) => (
+                  <ConversationCard
+                    key={item.conversation_id}
+                    item={item}
+                    activeId={props.activeId}
+                    onRememberScrollPosition={rememberScrollPosition}
+                  />
+                ))}
+              </section>
+            )}
+          </>
         )}
       </div>
     </div>

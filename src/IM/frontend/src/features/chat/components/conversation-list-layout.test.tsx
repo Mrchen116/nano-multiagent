@@ -2,6 +2,48 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { ConversationList } from "./conversation-list";
+import { ConversationSummary } from "../types";
+
+const sampleItems: ConversationSummary[] = [
+  {
+    conversation_id: "conv-main",
+    title: "主 Agent · OpsBot",
+    participants: ["You", "OpsBot"],
+    unread_count: 1,
+    kind: "direct-agent",
+    kind_label: "主 Agent 会话",
+    last_message_at: "2026-03-26T10:00:00Z"
+  },
+  {
+    conversation_id: "conv-group",
+    title: "Kernel Ops Crew",
+    participants: ["You", "OpsBot", "Alex"],
+    unread_count: 0,
+    kind: "group",
+    kind_label: "Group chat",
+    last_message_at: "2026-03-26T09:00:00Z",
+    is_pinned: true
+  },
+  {
+    conversation_id: "conv-direct",
+    title: "DesignBot",
+    participants: ["You", "DesignBot"],
+    unread_count: 0,
+    kind: "direct-agent",
+    kind_label: "Direct chat",
+    target_label: "DesignBot",
+    discoverability_hint: "Message this agent directly.",
+    last_message_at: "2026-03-26T08:00:00Z"
+  }
+];
+
+function renderList(items: ConversationSummary[] = sampleItems) {
+  return render(
+    <MemoryRouter>
+      <ConversationList items={items} onCreateGroupChat={() => undefined} />
+    </MemoryRouter>
+  );
+}
 
 describe("ConversationList layout — create-group-chat button", () => {
   it("create group chat button wrapper does not use shrink-0 (which causes overflow)", () => {
@@ -25,6 +67,34 @@ describe("ConversationList layout — create-group-chat button", () => {
 
     expect(screen.getByText("No conversations yet")).toBeInTheDocument();
     expect(screen.queryByText("Start a direct chat or create a shared thread")).not.toBeInTheDocument();
+  });
+
+  it("keeps priority chats above the recent feed", () => {
+    renderList();
+
+    expect(screen.getByText("Priority", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText("Recent", { selector: "p" })).toBeInTheDocument();
+    const links = screen.getAllByRole("link").map((node) => node.textContent ?? "");
+    expect(links[0]).toContain("主 Agent · OpsBot");
+    expect(links[1]).toContain("Kernel Ops Crew");
+    expect(links[2]).toContain("DesignBot");
+  });
+
+  it("filters conversations by search and kind", () => {
+    renderList();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search conversations" }), {
+      target: { value: "Design" }
+    });
+    expect(screen.getByText("DesignBot")).toBeInTheDocument();
+    expect(screen.queryByText("Kernel Ops Crew")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search conversations" }), {
+      target: { value: "" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Groups" }));
+    expect(screen.getByText("Kernel Ops Crew")).toBeInTheDocument();
+    expect(screen.queryByText("DesignBot")).not.toBeInTheDocument();
   });
 
   it("restores sidebar scroll position after switching conversations", () => {

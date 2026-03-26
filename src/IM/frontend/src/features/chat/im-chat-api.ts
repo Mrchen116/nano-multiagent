@@ -28,6 +28,7 @@ interface ImConversation {
   owner_id: string;
   creator_id?: string;
   unread_count?: number;
+  last_message_preview?: string | null;
   last_message_at?: string | null;
   created_at?: string;
 }
@@ -1229,7 +1230,7 @@ export function setConversationPreviewSnapshot(input: {
 
 function toConversationSummary(input: {
   conversation: ImConversation;
-  messages: ImMessage[];
+  latestMessage?: Pick<ImMessage, "content" | "attachments" | "created_at"> | null;
   userById: Map<string, ImUser>;
   selfUserId: string;
   starterTitle: string;
@@ -1251,7 +1252,6 @@ function toConversationSummary(input: {
     participants,
     selfUserId: input.selfUserId
   });
-  const latest = pickLatestConversationMessage(input.messages);
   const unreadCount =
     typeof input.conversation.unread_count === "number" && Number.isFinite(input.conversation.unread_count)
       ? Math.max(0, Math.trunc(input.conversation.unread_count))
@@ -1266,12 +1266,17 @@ function toConversationSummary(input: {
     conversationKind,
     fallback: semantics.discoverability_hint ?? ""
   });
-  updateConversationPreviewSnapshot({
-    conversationId: input.conversation.id,
-    preview: toMessagePreview(latest),
-    lastMessageAt: latest?.created_at
-  });
+  if (input.latestMessage) {
+    updateConversationPreviewSnapshot({
+      conversationId: input.conversation.id,
+      preview: toMessagePreview(input.latestMessage),
+      lastMessageAt: input.latestMessage.created_at
+    });
+  }
   const previewSnapshot = getConversationPreviewSnapshot(input.conversation.id);
+  const persistedPreview = input.conversation.last_message_preview?.trim() ?? "";
+  const summaryLastMessageAt =
+    previewSnapshot?.lastMessageAt ?? input.conversation.last_message_at ?? input.conversation.created_at ?? undefined;
   const displayTitle =
     conversationKind === "agent-network" && participants.length >= 2
       ? participants.map((p) => toParticipantDisplayName(p)).join(" · ")
@@ -1279,8 +1284,8 @@ function toConversationSummary(input: {
   return {
     conversation_id: input.conversation.id,
     title: displayTitle,
-    last_message_preview: previewSnapshot?.preview ?? "",
-    last_message_at: previewSnapshot?.lastMessageAt ?? latest?.created_at,
+    last_message_preview: previewSnapshot?.preview ?? persistedPreview,
+    last_message_at: summaryLastMessageAt,
     unread_count: unreadCount,
     kind: conversationKind,
     participants: toConversationParticipantLabels({
@@ -1486,22 +1491,15 @@ export async function listConversations(): Promise<ConversationSummary[]> {
     listNodesRaw()
   ]);
   const agentsById = new Map(agents.map((agent) => [agent.agent_id, agent]));
-  const messagesByConversation = await Promise.all(
-    conversations.map(async (item) => ({
-      conversation: item,
-      messages: await listMessagesRaw(item.id)
-    }))
-  );
-  return messagesByConversation
-    .map((item) =>
+  return conversations
+    .map((conversation) =>
       toConversationSummary({
-        conversation: item.conversation,
-        messages: item.messages,
+        conversation,
         userById,
         selfUserId,
         starterTitle: starter.title,
         ownership: resolveConversationOwnershipForSummary({
-          conversation: item.conversation,
+          conversation,
           userById,
           selfUserId,
           defaultOwnership: ownership,
