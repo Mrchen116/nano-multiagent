@@ -68,7 +68,7 @@ describe("agent detail page", () => {
         skills: ["tdd-execution-worker"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
-        default_model: "codexOAuth:gpt-5.2-codex",
+        default_model: "codex_oauth:gpt-5.4",
         workspace_root: "/tmp/agent-core-1",
         workspace_is_default: false,
         profile_version: 12,
@@ -85,8 +85,8 @@ describe("agent detail page", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [{ name: "tdd-execution-worker", description: "Execute TDD tasks" }],
         tools: [{ name: "read", description: "Read files" }],
-        model_options: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
-        platform_default_model: "codexOAuth:gpt-5.2-codex",
+        model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
+        platform_default_model: "codex_oauth:gpt-5.4",
         default_system_prompt: "You are the personal_assistant default template."
       },
       owningNode: {
@@ -116,7 +116,7 @@ describe("agent detail page", () => {
     expect(screen.getByText(/Read-only runtime path/i)).toBeInTheDocument();
     expect(screen.queryByText("Start chatting now")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open direct chat" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("codexOAuth:gpt-5.2-codex (platform default)");
+    expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("codex_oauth:gpt-5.4 (platform default)");
 
     await user.click(screen.getByRole("button", { name: "Open direct chat" }));
 

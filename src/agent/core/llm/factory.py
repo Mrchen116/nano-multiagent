@@ -20,7 +20,7 @@ class LLMFactoryConfig:
     """Collect provider configuration needed to build an LLM client."""
 
     provider: str = DEFAULT_PROVIDER
-    model: str = "codexOAuth:gpt-5.2-codex"
+    model: str = "codex_oauth:gpt-5.4"
     base_url: str = "http://127.0.0.1:4000"
     api_key: str | None = None
     timeout_seconds: float = 30.0

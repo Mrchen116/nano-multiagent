@@ -14,7 +14,7 @@ def test_policies_defaults_and_roundtrip_persistence(tmp_path: Path) -> None:
         initial = client.get("/im/v1/policies")
         assert initial.status_code == 200
         assert initial.json() == {
-            "default_model": "gpt-5.2-codex",
+            "default_model": "codex_oauth:gpt-5.4",
             "max_turn_per_run": 14,
             "max_attachment_size_mb": 15,
             "retention_days": 30,
@@ -59,7 +59,7 @@ def test_policies_reseed_missing_singleton_row(tmp_path: Path) -> None:
         reseeded = client.get("/im/v1/policies")
         assert reseeded.status_code == 200
         assert reseeded.json() == {
-            "default_model": "gpt-5.2-codex",
+            "default_model": "codex_oauth:gpt-5.4",
             "max_turn_per_run": 14,
             "max_attachment_size_mb": 15,
             "retention_days": 30,

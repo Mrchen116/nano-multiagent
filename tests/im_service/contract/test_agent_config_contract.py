@@ -74,7 +74,7 @@ def test_node_capabilities_contract_shape(tmp_path: Path) -> None:
         nodes.upsert_node(node_id="node-1", node_name="MacBook")
         app.state.connection.execute(
             "UPDATE nodes SET capabilities_json = ? WHERE node_id = ?",
-            ('{"skills":["plan"],"tools":["read"],"models":["codexOAuth:gpt-5.2-codex"]}', "node-1"),
+            ('{"skills":["plan"],"tools":["read"],"models":["codex_oauth:gpt-5.4"]}', "node-1"),
         )
         app.state.connection.commit()
 
@@ -85,7 +85,7 @@ def test_node_capabilities_contract_shape(tmp_path: Path) -> None:
         "node_id": "node-1",
         "skills": ["plan"],
         "tools": ["read"],
-        "models": ["codexOAuth:gpt-5.2-codex"],
+        "models": ["codex_oauth:gpt-5.4"],
         "platform_default_model": None,
         "default_system_prompt": "",
     }

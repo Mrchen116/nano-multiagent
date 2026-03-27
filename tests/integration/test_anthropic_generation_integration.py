@@ -22,7 +22,7 @@ def test_factory_anthropic_generation_wires_translator_and_header() -> None:
                 "id": "msg_test",
                 "type": "message",
                 "role": "assistant",
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "moonshotAnthropic:kimi-k2.5",
                 "stop_reason": "end_turn",
                 "content": [{"type": "text", "text": "pong"}],
             },
@@ -31,7 +31,7 @@ def test_factory_anthropic_generation_wires_translator_and_header() -> None:
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="anthropic",
-            model="claude-3-5-sonnet-20241022",
+            model="moonshotAnthropic:kimi-k2.5",
             base_url="http://127.0.0.1:4000",
             api_key="test-anthropic-key",
         ),
@@ -41,7 +41,7 @@ def test_factory_anthropic_generation_wires_translator_and_header() -> None:
     result = client.generate(
         LLMGenerateRequest(
             session_id="sess_integration_anthropic",
-            model="claude-3-5-sonnet-20241022",
+            model="moonshotAnthropic:kimi-k2.5",
             messages=(
                 LLMMessage(role="system", content="You are concise."),
                 LLMMessage(role="user", content="reply with one word: pong"),

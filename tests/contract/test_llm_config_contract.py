@@ -35,7 +35,7 @@ def test_llm_config_patch_contract_shape_and_runtime_effect() -> None:
         headers=_auth_headers("req-llm-config-patch-contract"),
         json={
             "provider": "anthropic",
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "moonshotAnthropic:kimi-k2.5",
         },
     )
 
@@ -45,13 +45,13 @@ def test_llm_config_patch_contract_shape_and_runtime_effect() -> None:
     payload = response.json()
     assert set(payload.keys()) == {"provider", "model", "base_url", "api_key", "timeout_seconds"}
     assert payload["provider"] == "anthropic"
-    assert payload["model"] == "claude-3-5-sonnet-20241022"
+    assert payload["model"] == "moonshotAnthropic:kimi-k2.5"
 
     capabilities = client.get("/v1/capabilities", headers=_auth_headers("req-cap-after-llm-config-contract"))
     assert capabilities.status_code == 200
     capabilities_payload = capabilities.json()
     assert capabilities_payload["llm"]["active_provider"] == "anthropic"
-    assert capabilities_payload["llm"]["active_model"] == "claude-3-5-sonnet-20241022"
+    assert capabilities_payload["llm"]["active_model"] == "moonshotAnthropic:kimi-k2.5"
 
 
 def test_llm_config_patch_error_contract_shape() -> None:

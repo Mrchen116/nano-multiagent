@@ -84,8 +84,8 @@ describe("agent create page", () => {
           { name: "read", description: "Read files" },
           { name: "bash", description: "Run shell commands" }
         ],
-        model_options: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
-        platform_default_model: "codexOAuth:gpt-5.2-codex",
+        model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
+        platform_default_model: "codex_oauth:gpt-5.4",
         default_system_prompt: "You are the personal_assistant default template."
       }
     });
@@ -98,7 +98,7 @@ describe("agent create page", () => {
       skills: ["plan"],
       tool_allowlist: ["read"],
       group_reply_policy: "MENTION",
-      default_model: "claude-3-5-sonnet-20241022",
+      default_model: "moonshotAnthropic:kimi-k2.5",
       workspace_root: "/tmp/agent-new-workspace",
       workspace_is_default: false,
       profile_version: 1,
@@ -126,7 +126,7 @@ describe("agent create page", () => {
       expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the personal_assistant default template.");
     });
     expect(screen.getByText("We prefill the standard personal assistant template here. Edit it before saving so it matches this agent.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("Platform default (codexOAuth:gpt-5.2-codex)");
+    expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("Platform default (codex_oauth:gpt-5.4)");
     expect(screen.queryByText(/^Selected 0$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Show advanced options/i)).not.toBeInTheDocument();
     expect(screen.getByText("Workspace preview")).toBeInTheDocument();
@@ -143,7 +143,7 @@ describe("agent create page", () => {
     fireEvent.change(screen.getByLabelText("System Prompt"), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /read/i }));
-    await user.selectOptions(screen.getByLabelText("Default Model"), "claude-3-5-sonnet-20241022");
+    await user.selectOptions(screen.getByLabelText("Default Model"), "moonshotAnthropic:kimi-k2.5");
     fireEvent.change(screen.getByLabelText("Workspace Root"), { target: { value: "/tmp/custom-agent-new-workspace" } });
 
     expect(screen.getByText("Capabilities updated")).toBeInTheDocument();
@@ -161,7 +161,7 @@ describe("agent create page", () => {
         skills: ["plan"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
-        default_model: "claude-3-5-sonnet-20241022",
+        default_model: "moonshotAnthropic:kimi-k2.5",
         workspace_root: "/tmp/custom-agent-new-workspace"
       });
     });
@@ -216,8 +216,8 @@ describe("agent create page", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codexOAuth:gpt-5.2-codex"],
-        platform_default_model: "codexOAuth:gpt-5.2-codex",
+        model_options: ["codex_oauth:gpt-5.4"],
+        platform_default_model: "codex_oauth:gpt-5.4",
         default_system_prompt: ""
       }
     });
@@ -256,8 +256,8 @@ describe("agent create page", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codexOAuth:gpt-5.2-codex"],
-        platform_default_model: "codexOAuth:gpt-5.2-codex",
+        model_options: ["codex_oauth:gpt-5.4"],
+        platform_default_model: "codex_oauth:gpt-5.4",
         default_system_prompt: ""
       }
     });

@@ -121,7 +121,7 @@ def test_llm_config_get_and_set_use_config_endpoint_contract() -> None:
                 status_code=200,
                 json={
                     "provider": "openai_compat",
-                    "model": "codexOAuth:gpt-5.2-codex",
+                    "model": "codex_oauth:gpt-5.4",
                     "base_url": "http://127.0.0.1:4000",
                     "api_key_configured": False,
                     "timeout_seconds": 30.0,
@@ -131,7 +131,7 @@ def test_llm_config_get_and_set_use_config_endpoint_contract() -> None:
             status_code=200,
             json={
                 "provider": "anthropic",
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "moonshotAnthropic:kimi-k2.5",
                 "base_url": "http://127.0.0.1:4100",
                 "api_key_configured": True,
                 "timeout_seconds": 55.0,
@@ -143,7 +143,7 @@ def test_llm_config_get_and_set_use_config_endpoint_contract() -> None:
         got = client.get_llm_config()
         updated = client.set_llm_config(
             provider="anthropic",
-            model="claude-3-5-sonnet-20241022",
+            model="moonshotAnthropic:kimi-k2.5",
             base_url="http://127.0.0.1:4100",
             api_key="sk-cli",
             timeout_seconds=55.0,
@@ -158,7 +158,7 @@ def test_llm_config_get_and_set_use_config_endpoint_contract() -> None:
             "/v1/llm-config",
             {
                 "provider": "anthropic",
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "moonshotAnthropic:kimi-k2.5",
                 "base_url": "http://127.0.0.1:4100",
                 "api_key": "sk-cli",
                 "timeout_seconds": 55.0,

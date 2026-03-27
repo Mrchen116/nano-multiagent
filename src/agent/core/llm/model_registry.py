@@ -21,9 +21,9 @@ class ModelMetadata:
 
 _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
     "openai_compat": {
-        "codexOAuth:gpt-5.2-codex": ModelMetadata(
+        "codex_oauth:gpt-5.4": ModelMetadata(
             provider="openai_compat",
-            model="codexOAuth:gpt-5.2-codex",
+            model="codex_oauth:gpt-5.4",
             default_base_url="http://127.0.0.1:4000",
             supports_text=True,
             supports_image=False,
@@ -32,18 +32,9 @@ _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
         ),
     },
     "anthropic": {
-        "codexOAuth:gpt-5.2-codex": ModelMetadata(
+        "moonshotAnthropic:kimi-k2.5": ModelMetadata(
             provider="anthropic",
-            model="codexOAuth:gpt-5.2-codex",
-            default_base_url="http://127.0.0.1:4000",
-            supports_text=True,
-            supports_image=False,
-            supports_tools=False,
-            supports_streaming=False,
-        ),
-        "claude-3-5-sonnet-20241022": ModelMetadata(
-            provider="anthropic",
-            model="claude-3-5-sonnet-20241022",
+            model="moonshotAnthropic:kimi-k2.5",
             default_base_url="http://127.0.0.1:4000",
             supports_text=True,
             supports_image=False,
@@ -54,8 +45,8 @@ _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
 }
 
 _PROVIDER_DEFAULT_MODEL: dict[str, str] = {
-    "openai_compat": "codexOAuth:gpt-5.2-codex",
-    "anthropic": "codexOAuth:gpt-5.2-codex",
+    "openai_compat": "codex_oauth:gpt-5.4",
+    "anthropic": "moonshotAnthropic:kimi-k2.5",
 }
 
 

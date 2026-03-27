@@ -514,7 +514,7 @@ def test_node_capabilities_return_current_selectable_items(tmp_path: Path) -> No
         app.state.connection.execute(
             "UPDATE nodes SET capabilities_json = ? WHERE node_id = ?",
             (
-                '{"skills":["plan","playwright"],"tools":["read","bash"],"models":["codexOAuth:gpt-5.2-codex","claude-3-5-sonnet-20241022"]}',
+                '{"skills":["plan","playwright"],"tools":["read","bash"],"models":["moonshotAnthropic:kimi-k2.5","codex_oauth:gpt-5.4"]}',
                 "node-1",
             ),
         )
@@ -524,4 +524,4 @@ def test_node_capabilities_return_current_selectable_items(tmp_path: Path) -> No
     assert response.status_code == 200
     assert response.json()["skills"] == ["plan", "playwright"]
     assert response.json()["tools"] == ["read", "bash"]
-    assert response.json()["models"] == ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"]
+    assert response.json()["models"] == ["moonshotAnthropic:kimi-k2.5", "codex_oauth:gpt-5.4"]

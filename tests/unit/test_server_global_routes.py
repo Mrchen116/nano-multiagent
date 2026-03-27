@@ -46,19 +46,19 @@ def test_build_capabilities_payload_reflects_active_llm_and_sorted_tools() -> No
         tool_registry=registry,
         llm_config=LLMFactoryConfig(
             provider="anthropic",
-            model="claude-3-5-sonnet-20241022",
+            model="moonshotAnthropic:kimi-k2.5",
             base_url="http://127.0.0.1:4000",
         ),
     )
 
     assert payload["llm"]["active_provider"] == "anthropic"
-    assert payload["llm"]["active_model"] == "claude-3-5-sonnet-20241022"
+    assert payload["llm"]["active_model"] == "moonshotAnthropic:kimi-k2.5"
     assert [item["name"] for item in payload["tools"]] == ["alpha", "zeta"]
 
     providers = {item["provider"]: item for item in payload["llm"]["providers"]}
     assert "openai_compat" in providers
     assert "anthropic" in providers
-    assert providers["openai_compat"]["default_model"] == "codexOAuth:gpt-5.2-codex"
+    assert providers["openai_compat"]["default_model"] == "codex_oauth:gpt-5.4"
 
 
 def test_llm_config_patch_updates_runtime_and_capabilities() -> None:
@@ -73,7 +73,7 @@ def test_llm_config_patch_updates_runtime_and_capabilities() -> None:
         headers=_auth_headers("req-llm-config-patch"),
         json={
             "provider": "anthropic",
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "moonshotAnthropic:kimi-k2.5",
             "base_url": "http://127.0.0.1:5000",
             "timeout_seconds": 15.0,
         },
@@ -81,14 +81,14 @@ def test_llm_config_patch_updates_runtime_and_capabilities() -> None:
     assert patched.status_code == 200
     payload = patched.json()
     assert payload["provider"] == "anthropic"
-    assert payload["model"] == "claude-3-5-sonnet-20241022"
+    assert payload["model"] == "moonshotAnthropic:kimi-k2.5"
     assert payload["base_url"] == "http://127.0.0.1:5000"
     assert payload["timeout_seconds"] == 15.0
 
     capabilities = client.get("/v1/capabilities", headers=_auth_headers("req-capabilities-after-patch"))
     assert capabilities.status_code == 200
     assert capabilities.json()["llm"]["active_provider"] == "anthropic"
-    assert capabilities.json()["llm"]["active_model"] == "claude-3-5-sonnet-20241022"
+    assert capabilities.json()["llm"]["active_model"] == "moonshotAnthropic:kimi-k2.5"
 
 
 def test_llm_config_patch_rejects_empty_payload() -> None:

@@ -25,7 +25,7 @@ def test_policies_contract_shape_and_patch_semantics(tmp_path: Path) -> None:
         updated = client.patch(
             "/im/v1/policies",
             json={
-                "default_model": "gpt-5.2-codex",
+                "default_model": "codex_oauth:gpt-5.4",
                 "max_turn_per_run": 21,
                 "max_attachment_size_mb": 32,
                 "retention_days": 90,
@@ -35,7 +35,7 @@ def test_policies_contract_shape_and_patch_semantics(tmp_path: Path) -> None:
         )
         assert updated.status_code == 200
         assert updated.json() == {
-            "default_model": "gpt-5.2-codex",
+            "default_model": "codex_oauth:gpt-5.4",
             "max_turn_per_run": 21,
             "max_attachment_size_mb": 32,
             "retention_days": 90,

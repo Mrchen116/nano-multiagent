@@ -398,7 +398,7 @@ class _StubClient:
         self.calls.append(("get_llm_config", None))
         return {
             "provider": "openai_compat",
-            "model": "codexOAuth:gpt-5.2-codex",
+            "model": "codex_oauth:gpt-5.4",
             "base_url": "http://127.0.0.1:4000",
             "api_key_configured": False,
             "timeout_seconds": 30.0,
@@ -430,7 +430,7 @@ class _StubClient:
         resolved_api_key = None if clear_api_key else api_key
         return {
             "provider": provider or "openai_compat",
-            "model": model or "codexOAuth:gpt-5.2-codex",
+            "model": model or "codex_oauth:gpt-5.4",
             "base_url": base_url or "http://127.0.0.1:4000",
             "api_key_configured": bool(resolved_api_key),
             "timeout_seconds": timeout_seconds or 30.0,
@@ -3341,7 +3341,7 @@ def test_run_cli_llm_config_set_applies_requested_fields() -> None:
             "--provider",
             "anthropic",
             "--model",
-            "claude-3-5-sonnet-20241022",
+            "moonshotAnthropic:kimi-k2.5",
             "--base-url",
             "http://127.0.0.1:4100",
             "--api-key",
@@ -3361,7 +3361,7 @@ def test_run_cli_llm_config_set_applies_requested_fields() -> None:
             "set_llm_config",
             {
                 "provider": "anthropic",
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "moonshotAnthropic:kimi-k2.5",
                 "base_url": "http://127.0.0.1:4100",
                 "api_key": "sk-cli",
                 "timeout_seconds": 55.0,
@@ -3432,7 +3432,7 @@ def test_run_cli_managed_mode_forwards_llm_startup_options_to_managed_server() -
             "--llm-provider",
             "anthropic",
             "--llm-model",
-            "claude-3-5-sonnet-20241022",
+            "moonshotAnthropic:kimi-k2.5",
             "--llm-base-url",
             "http://127.0.0.1:4100",
             "--llm-api-key",
@@ -3450,7 +3450,7 @@ def test_run_cli_managed_mode_forwards_llm_startup_options_to_managed_server() -
     assert manager.config_base_url == "http://127.0.0.1:8115"
     assert manager.config_token == "test-token"
     assert manager.llm_provider == "anthropic"
-    assert manager.llm_model == "claude-3-5-sonnet-20241022"
+    assert manager.llm_model == "moonshotAnthropic:kimi-k2.5"
     assert manager.llm_base_url == "http://127.0.0.1:4100"
     assert manager.llm_api_key == "sk-managed"
     assert manager.llm_timeout_seconds == 75.0

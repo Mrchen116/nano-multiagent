@@ -51,7 +51,7 @@ describe("agents list page", () => {
             display_name: "Core Planner",
             description: "Milestone execution coordinator",
             profile_version: 12,
-            default_model: "gpt-5.2-codex",
+            default_model: "codex_oauth:gpt-5.4",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             node_id: "node-app-01",
@@ -73,7 +73,7 @@ describe("agents list page", () => {
 
     expect(await screen.findByText("Core Planner")).toBeInTheDocument();
     expect(screen.getByText("Milestone execution coordinator")).toBeInTheDocument();
-    expect(screen.getByText("gpt-5.2-codex")).toBeInTheDocument();
+    expect(screen.getByText("codex_oauth:gpt-5.4")).toBeInTheDocument();
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open direct chat" })).toBeInTheDocument();
@@ -95,7 +95,7 @@ describe("agents list page", () => {
             display_name: "Core Planner",
             description: "Milestone execution coordinator",
             profile_version: 12,
-            default_model: "gpt-5.2-codex",
+            default_model: "codex_oauth:gpt-5.4",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             node_id: "node-app-01",
@@ -134,7 +134,7 @@ describe("agents list page", () => {
             display_name: "Core Planner",
             description: "Milestone execution coordinator",
             profile_version: 12,
-            default_model: "gpt-5.2-codex",
+            default_model: "codex_oauth:gpt-5.4",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             node_id: "node-app-01",
@@ -211,7 +211,7 @@ describe("agents list page", () => {
             display_name: "Core Planner",
             description: "Milestone execution coordinator",
             profile_version: 12,
-            default_model: "gpt-5.2-codex",
+            default_model: "codex_oauth:gpt-5.4",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             bound_nodes: [],

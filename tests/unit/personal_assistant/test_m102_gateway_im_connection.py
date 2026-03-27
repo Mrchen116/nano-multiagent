@@ -60,7 +60,7 @@ def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
             title="Agent A",
             skills=("plan", "playwright"),
             tool_allowlist=("read", "bash"),
-            default_model="codexOAuth:gpt-5.2-codex",
+            default_model="codex_oauth:gpt-5.4",
         ),
     )
 
@@ -106,10 +106,10 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(tmp_path
         "relay": True,
         "send_message": True,
         "config_sync": True,
-        "models": ["claude-3-5-sonnet-20241022", "codexOAuth:gpt-5.2-codex"],
+        "models": ["moonshotAnthropic:kimi-k2.5", "codex_oauth:gpt-5.4"],
         "skills": ["plan", "plan-design-review", "playwright"],
         "tools": ["read", "write", "edit", "bash", "task", "send_message", "web_fetch", "web_search"],
-        "platform_default_model": "codexOAuth:gpt-5.2-codex",
+        "platform_default_model": "codex_oauth:gpt-5.4",
         "default_system_prompt": PERSONAL_ASSISTANT_PROFILE.default_system_prompt,
     }
     assert heartbeat["running_runs"] == 2

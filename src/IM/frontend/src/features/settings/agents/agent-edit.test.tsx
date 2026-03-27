@@ -40,7 +40,7 @@ describe("agent edit page", () => {
       skills: ["tdd-execution-worker", "playwright"],
       tool_allowlist: ["bash", "read_file"],
       group_reply_policy: "MENTION",
-      default_model: "codexOAuth:gpt-5.2-codex",
+      default_model: "codex_oauth:gpt-5.4",
       workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
       workspace_is_default: true,
       profile_version: 12,
@@ -85,8 +85,8 @@ describe("agent edit page", () => {
               { name: "read_file", description: "Read files" },
               { name: "task", description: "Dispatch a subtask" }
             ],
-            model_options: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
-            platform_default_model: "codexOAuth:gpt-5.2-codex",
+            model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
+            platform_default_model: "codex_oauth:gpt-5.4",
             default_system_prompt: "You are the personal_assistant default template."
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -188,7 +188,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "plan"],
             tool_allowlist: ["read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codexOAuth:gpt-5.2-codex"
+            default_model: "codex_oauth:gpt-5.4"
           })
         })
       );
@@ -213,8 +213,8 @@ describe("agent edit page", () => {
           JSON.stringify({
             skills: [],
             tools: [],
-            model_options: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
-            platform_default_model: "codexOAuth:gpt-5.2-codex"
+            model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
+            platform_default_model: "codex_oauth:gpt-5.4"
           }),
           {
             status: 200,
@@ -234,7 +234,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codexOAuth:gpt-5.2-codex",
+            default_model: "codex_oauth:gpt-5.4",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             profile_version: 12,
@@ -280,8 +280,8 @@ describe("agent edit page", () => {
           JSON.stringify({
             skills: [],
             tools: [],
-            model_options: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
-            platform_default_model: "codexOAuth:gpt-5.2-codex"
+            model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
+            platform_default_model: "codex_oauth:gpt-5.4"
           }),
           {
             status: 200,
@@ -308,7 +308,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codexOAuth:gpt-5.2-codex",
+            default_model: "codex_oauth:gpt-5.4",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             profile_version: 12,

@@ -1111,7 +1111,7 @@ def test_cli_llm_config_get_set_flow_supports_remote_and_managed_modes(mode: str
     app = FastAPI()
     state: dict[str, object] = {
         "provider": "openai_compat",
-        "model": "codexOAuth:gpt-5.2-codex",
+        "model": "codex_oauth:gpt-5.4",
         "base_url": "http://127.0.0.1:4000",
         "timeout_seconds": 30.0,
         "api_key": None,
@@ -1162,7 +1162,7 @@ def test_cli_llm_config_get_set_flow_supports_remote_and_managed_modes(mode: str
             "--provider",
             "anthropic",
             "--model",
-            "claude-3-5-sonnet-20241022",
+            "moonshotAnthropic:kimi-k2.5",
             "--base-url",
             "http://127.0.0.1:4100",
             "--timeout-seconds",
@@ -1175,7 +1175,7 @@ def test_cli_llm_config_get_set_flow_supports_remote_and_managed_modes(mode: str
     assert set_exit == 0
     set_payload = json.loads(set_out.getvalue())
     assert set_payload["provider"] == "anthropic"
-    assert set_payload["model"] == "claude-3-5-sonnet-20241022"
+    assert set_payload["model"] == "moonshotAnthropic:kimi-k2.5"
     assert set_payload["base_url"] == "http://127.0.0.1:4100"
     assert set_payload["timeout_seconds"] == 66.0
 
@@ -1189,7 +1189,7 @@ def test_cli_llm_config_get_set_flow_supports_remote_and_managed_modes(mode: str
     assert get_exit == 0
     get_payload = json.loads(get_out.getvalue())
     assert get_payload["provider"] == "anthropic"
-    assert get_payload["model"] == "claude-3-5-sonnet-20241022"
+    assert get_payload["model"] == "moonshotAnthropic:kimi-k2.5"
     assert get_payload["base_url"] == "http://127.0.0.1:4100"
     assert get_payload["timeout_seconds"] == 66.0
 

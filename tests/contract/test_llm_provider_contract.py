@@ -35,14 +35,14 @@ def provider_case(request: pytest.FixtureRequest) -> ProviderContractCase:
             mapper=OpenAICompatMapper(),
             make_client=lambda transport: OpenAICompatClient(
                 base_url="http://127.0.0.1:4000",
-                model="codexOAuth:gpt-5.2-codex",
+                model="codex_oauth:gpt-5.4",
                 api_key="test-openai-key",
                 transport=transport,
             ),
             expected_path="/v1/chat/completions",
             request_assertion=_assert_openai_request,
             sample_response={
-                "model": "codexOAuth:gpt-5.2-codex",
+                "model": "codex_oauth:gpt-5.4",
                 "usage": {
                     "prompt_tokens": 11,
                     "completion_tokens": 4,
@@ -62,7 +62,7 @@ def provider_case(request: pytest.FixtureRequest) -> ProviderContractCase:
         mapper=AnthropicMapper(),
         make_client=lambda transport: AnthropicClient(
             base_url="http://127.0.0.1:4000",
-            model="claude-3-5-sonnet-20241022",
+            model="moonshotAnthropic:kimi-k2.5",
             api_key="test-anthropic-key",
             transport=transport,
         ),
@@ -72,7 +72,7 @@ def provider_case(request: pytest.FixtureRequest) -> ProviderContractCase:
             "id": "msg_123",
             "type": "message",
             "role": "assistant",
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "moonshotAnthropic:kimi-k2.5",
             "stop_reason": "end_turn",
             "usage": {
                 "input_tokens": 11,
@@ -87,7 +87,7 @@ def provider_case(request: pytest.FixtureRequest) -> ProviderContractCase:
 def _build_request(*, stream: bool = False) -> LLMGenerateRequest:
     return LLMGenerateRequest(
         session_id="sess_provider_contract",
-        model="codexOAuth:gpt-5.2-codex",
+        model="codex_oauth:gpt-5.4",
         messages=(
             LLMMessage(role="system", content="You are concise."),
             LLMMessage(role="user", content="reply with one word: pong"),
@@ -101,7 +101,7 @@ def _build_request(*, stream: bool = False) -> LLMGenerateRequest:
 def _build_tool_request() -> LLMGenerateRequest:
     return LLMGenerateRequest(
         session_id="sess_provider_contract",
-        model="codexOAuth:gpt-5.2-codex",
+        model="codex_oauth:gpt-5.4",
         messages=(
             LLMMessage(role="system", content="You are concise."),
             LLMMessage(role="user", content="read README"),
@@ -132,7 +132,7 @@ def _build_tool_request() -> LLMGenerateRequest:
 def _build_tool_image_request() -> LLMGenerateRequest:
     return LLMGenerateRequest(
         session_id="sess_provider_contract",
-        model="codexOAuth:gpt-5.2-codex",
+        model="codex_oauth:gpt-5.4",
         messages=(
             LLMMessage(role="system", content="You are concise."),
             LLMMessage(role="user", content="what is in the image?"),
@@ -302,7 +302,7 @@ def test_provider_mapper_tool_request_preserves_image_parts(provider_case: Provi
 def test_provider_mapper_tool_response_contract(provider_case: ProviderContractCase) -> None:
     if provider_case.provider == "openai_compat":
         payload = {
-            "model": "codexOAuth:gpt-5.2-codex",
+            "model": "codex_oauth:gpt-5.4",
             "choices": [
                 {
                     "message": {
@@ -328,7 +328,7 @@ def test_provider_mapper_tool_response_contract(provider_case: ProviderContractC
             "id": "msg_123",
             "type": "message",
             "role": "assistant",
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "moonshotAnthropic:kimi-k2.5",
             "stop_reason": "tool_use",
             "content": [
                 {"type": "text", "text": "checking"},
@@ -392,7 +392,7 @@ def test_provider_clients_keep_env_proxy_for_remote_base_url() -> None:
 
 
 def _assert_openai_request(payload: dict[str, Any]) -> None:
-    assert payload["model"] == "codexOAuth:gpt-5.2-codex"
+    assert payload["model"] == "codex_oauth:gpt-5.4"
     assert payload["stream"] is False
     assert payload["temperature"] == 0.2
     assert payload["max_tokens"] == 64
@@ -401,7 +401,7 @@ def _assert_openai_request(payload: dict[str, Any]) -> None:
 
 
 def _assert_anthropic_request(payload: dict[str, Any]) -> None:
-    assert payload["model"] == "codexOAuth:gpt-5.2-codex"
+    assert payload["model"] == "codex_oauth:gpt-5.4"
     assert payload["stream"] is False
     assert payload["temperature"] == 0.2
     assert payload["max_tokens"] == 64

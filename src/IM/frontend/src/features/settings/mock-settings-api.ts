@@ -55,7 +55,7 @@ const initialAgents: AgentProfile[] = [
     skills_allowlist: ["tdd-execution-worker", "playwright"],
     group_reply_policy: "MENTION",
     no_reply_token: "NO_REPLY",
-    default_model: "gpt-5.2-codex",
+    default_model: "codex_oauth:gpt-5.4",
     tool_allowlist: ["bash", "read_file"],
     profile_version: "v12",
     enabled: true,
@@ -107,7 +107,7 @@ const initialNodes: NodeProfile[] = [
 ];
 
 const initialPolicies: PolicyProfile = {
-  default_model: "gpt-5.2-codex",
+  default_model: "codex_oauth:gpt-5.4",
   max_turn_per_run: 14,
   max_attachment_size_mb: 15,
   retention_days: 30,
