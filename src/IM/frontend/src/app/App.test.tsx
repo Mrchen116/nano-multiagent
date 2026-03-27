@@ -2,30 +2,33 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { App } from "./App";
+import { AppProviders } from "./providers";
 
 describe("App shell", () => {
   it("renders workspace switch", () => {
     render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
+      <AppProviders>
+        <MemoryRouter>
+          <App />
+        </MemoryRouter>
+      </AppProviders>
     );
 
     expect(screen.getByRole("tab", { name: "Chat" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Settings" })).toBeInTheDocument();
   });
 
-  it("uses fixed viewport height so the chat panel never causes page scroll", () => {
+  it("uses fixed viewport height so the flex chain is capped and inner panels scroll", () => {
     const { container } = render(
-      <MemoryRouter>
-        <App />
-      </MemoryRouter>
+      <AppProviders>
+        <MemoryRouter>
+          <App />
+        </MemoryRouter>
+      </AppProviders>
     );
 
-    // Must be exactly h-screen (not min-h-screen) so the flex chain below is capped
-    // and the message list scrolls internally without pushing the page.
     const root = container.firstElementChild as HTMLElement;
     expect(root.className).toContain("h-screen");
-    expect(root.className).not.toContain("min-h-screen");
+    expect(root.className).toContain("min-h-0");
   });
 });

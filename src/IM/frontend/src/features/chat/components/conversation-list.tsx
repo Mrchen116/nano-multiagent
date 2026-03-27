@@ -166,8 +166,13 @@ export function ConversationList(props: {
   }, [activeFilter, hydratedItems, searchQuery]);
 
   return (
-    <div className="im-card flex h-full min-h-[420px] flex-col overflow-hidden">
-      <div className="border-b border-[var(--im-border)] px-4 py-4">
+    <div
+      className={clsx(
+        "im-card flex h-full flex-col overflow-hidden",
+        props.compact ? "min-h-0" : "min-h-[420px]"
+      )}
+    >
+      <div className={clsx("border-b border-[var(--im-border)] px-4 py-4", props.compact && "px-3 py-3")}>
         <div className="flex items-start justify-between gap-4 overflow-hidden">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -194,7 +199,12 @@ export function ConversationList(props: {
             className="im-input w-full"
             aria-label="Search conversations"
           />
-          <div className="flex flex-wrap gap-2">
+          <div
+            className={clsx(
+              "flex gap-2",
+              props.compact ? "flex-nowrap overflow-x-auto overscroll-x-contain pb-0.5 [-webkit-overflow-scrolling:touch]" : "flex-wrap"
+            )}
+          >
             {FILTER_OPTIONS.map((option) => (
               <button
                 key={option.key}
@@ -214,7 +224,7 @@ export function ConversationList(props: {
       <div
         ref={scrollContainerRef}
         data-testid="conversation-list-scroll-container"
-        className="flex-1 overflow-y-auto p-2"
+        className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain p-2 [-webkit-overflow-scrolling:touch]"
         onScroll={handleScroll}
       >
         {filteredItems.totalMatches === 0 ? (

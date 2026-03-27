@@ -784,7 +784,9 @@ export function MessagePane(props: {
   };
 
   return (
-    <section className="im-card relative flex h-full min-h-[420px] flex-col overflow-hidden">
+    <section
+      className={`im-card relative flex h-full flex-col overflow-hidden ${props.isMobile ? "min-h-0" : "min-h-[420px]"}`}
+    >
       <div className="flex items-start gap-3 border-b border-[var(--im-border)] px-4 py-3">
         {props.isMobile && (
           <Link to="/chat" className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
@@ -926,7 +928,10 @@ export function MessagePane(props: {
         </div>
       )}
       <UsageStrip usage={props.usage} />
-      <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4">
+      <div
+        ref={listRef}
+        className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain px-4 py-4 [-webkit-overflow-scrolling:touch]"
+      >
         <div data-testid="message-list-stack" className="flex min-h-full flex-col justify-end">
           {props.detail.messages.length === 0 ? (
             <EmptyThreadState />
@@ -935,7 +940,11 @@ export function MessagePane(props: {
           )}
         </div>
       </div>
-      <form ref={formRef} className="border-t border-[var(--im-border)] p-3" onSubmit={onSubmit}>
+      <form
+        ref={formRef}
+        className={`border-t border-[var(--im-border)] p-3 ${props.isMobile ? "pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]" : ""}`}
+        onSubmit={onSubmit}
+      >
         <FailureStateBanner sendAvailability={props.sendAvailability} />
         {failedUpload && (
           <UploadErrorBanner

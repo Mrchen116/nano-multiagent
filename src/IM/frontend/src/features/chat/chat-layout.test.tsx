@@ -121,14 +121,16 @@ describe("chat layout", () => {
     expect(screen.queryByRole("heading", { name: "Conversations" })).not.toBeInTheDocument();
   });
 
-  it("shows the default agent starter on mobile /chat", async () => {
+  it("shows compact default chat entry on mobile /chat", async () => {
     window.innerWidth = 375;
     window.dispatchEvent(new Event("resize"));
 
     renderRouter({ routes: appRoutes, initialEntries: ["/chat"] });
 
     expect(await screen.findByRole("heading", { name: "Conversations" })).toBeInTheDocument();
-    expect(screen.getByText("OpsBot is your default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("OpsBot is your default starter chat. Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.")
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Agent · OpsBot" })).toBeInTheDocument();
   });
 

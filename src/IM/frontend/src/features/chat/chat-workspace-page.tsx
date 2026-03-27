@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
 import { ConversationList } from "./components/conversation-list";
@@ -28,6 +28,7 @@ import {
   ChatAttachment,
   ChatBootstrapState,
   ChatMessage,
+  ChatStarter,
   ChatUsageView,
   ConversationDetail,
   ConversationSummary,
@@ -360,6 +361,27 @@ function isSuppressedNoReplyReceipt(eventType: string, detail: string | null) {
 
 function isNoReplyProtocolToken(value: string | null) {
   return value?.trim() === "NO_REPLY";
+}
+
+/** 手机首页顶栏：一键进默认会话，列表在下方可滚动 */
+function MobileDefaultChatStrip({ starter }: { starter: ChatStarter }) {
+  return (
+    <div className="im-card shrink-0 rounded-xl border border-[var(--im-border)] px-3 py-2.5 shadow-none">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500">默认会话</p>
+          <p className="truncate text-sm font-bold text-slate-900">{starter.title}</p>
+        </div>
+        <Link
+          to={starter.actionHref}
+          className="im-btn im-btn-primary shrink-0 whitespace-nowrap px-3 py-2 text-xs"
+          aria-label={starter.actionLabel}
+        >
+          打开
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 function toRelaySenderIdentity(payload: Record<string, unknown>, fallback?: { sender_name?: string; sender_display_name?: string }) {
@@ -902,7 +924,7 @@ export function ChatWorkspacePage() {
   const isMessagePaneLoading = bootstrapQuery.isLoading || (isDetailRoute && detailQuery.isLoading);
 
   if ((!isDetailRoute && (bootstrapQuery.isLoading || conversationsQuery.isLoading || starterQuery.isLoading)) || isMessagePaneLoading) {
-    return <section className="im-card flex w-full items-center justify-center">Loading chat...</section>;
+    return <section className="im-card flex h-full min-h-0 w-full items-center justify-center">Loading chat...</section>;
   }
 
   const conversations = conversationsQuery.data ?? [];
@@ -956,7 +978,7 @@ export function ChatWorkspacePage() {
 
   if (isMobile && conversationId) {
     return (
-      <div className="w-full">
+      <div className="flex h-full min-h-0 w-full flex-1 flex-col">
         <MessagePane
           detail={detail}
           starter={null}
@@ -1114,33 +1136,23 @@ export function ChatWorkspacePage() {
   ) : null;
 
   return (
-    <section className="grid h-full w-full min-h-0 gap-4 lg:grid-cols-[360px_1fr]">
-      <div className="flex min-h-0 flex-col gap-4">
-        {isMobile && !conversationId && starter && (
-          <MessagePane
-            detail={null}
-            starter={starter}
-            isMobile={isMobile}
-            isSending={false}
-            isStartingFreshSession={false}
-            sendAvailability={sendAvailability}
-            usage={usage}
-            onSend={async () => undefined}
-            onUploadAttachment={uploadAttachment}
-          />
-        )}
+    <section className="flex h-full min-h-0 w-full flex-1 flex-col gap-3 lg:grid lg:grid-cols-[360px_1fr] lg:gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 lg:h-full lg:min-h-0 lg:gap-4">
+        {isMobile && !conversationId && starter && <MobileDefaultChatStrip starter={starter} />}
         {groupChatPanel}
-        <ConversationList
-          items={conversations}
-          activeId={conversationId}
-          compact={isMobile}
-          isLoading={isSidebarLoading}
-          onCreateGroupChat={() => {
-            setSelectedGroupParticipantIds([]);
-            setGroupNameDraft("");
-            setIsCreatingGroupChat(true);
-          }}
-        />
+        <div className="flex min-h-0 flex-1 flex-col lg:min-h-0">
+          <ConversationList
+            items={conversations}
+            activeId={conversationId}
+            compact={isMobile}
+            isLoading={isSidebarLoading}
+            onCreateGroupChat={() => {
+              setSelectedGroupParticipantIds([]);
+              setGroupNameDraft("");
+              setIsCreatingGroupChat(true);
+            }}
+          />
+        </div>
       </div>
       {!isMobile && (
         <MessagePane
