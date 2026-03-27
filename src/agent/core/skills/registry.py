@@ -1,5 +1,6 @@
 """Canonical skill metadata model and filesystem-backed discovery registry."""
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -34,7 +35,12 @@ class SkillRegistry:
         for root in self._search_roots:
             if not root.exists():
                 continue
-            for skill_file in sorted(root.rglob("SKILL.md")):
+            discovered_files: list[Path] = []
+            for dir_path, _, file_names in os.walk(root, followlinks=True):
+                if "SKILL.md" not in file_names:
+                    continue
+                discovered_files.append(Path(dir_path) / "SKILL.md")
+            for skill_file in sorted(discovered_files):
                 metadata = _parse_skill_metadata(skill_file)
                 if metadata.name in skills_by_name:
                     continue
@@ -45,8 +51,8 @@ class SkillRegistry:
 def _parse_skill_metadata(skill_file: Path) -> SkillMetadata:
     resolved_file = skill_file.expanduser().resolve()
     frontmatter, body_lines = _extract_frontmatter_and_body(resolved_file)
-    name = frontmatter.get("name") or resolved_file.parent.name
-    description = frontmatter.get("description") or _extract_description(body_lines)
+    name = _normalize_frontmatter_text(frontmatter.get("name")) or resolved_file.parent.name
+    description = _normalize_frontmatter_text(frontmatter.get("description")) or _extract_description(body_lines)
     return SkillMetadata(
         name=name,
         description=description,
@@ -75,6 +81,15 @@ def _extract_frontmatter_and_body(skill_file: Path) -> tuple[Mapping[str, str], 
         key, value = line.split(":", maxsplit=1)
         metadata[key.strip().lower()] = value.strip()
     return metadata, tuple(lines[body_start:])
+
+
+def _normalize_frontmatter_text(value: str | None) -> str:
+    if value is None:
+        return ""
+    normalized = value.strip()
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {'"', "'"}:
+        normalized = normalized[1:-1].strip()
+    return normalized
 
 
 def _extract_description(lines: Sequence[str]) -> str:

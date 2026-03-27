@@ -69,6 +69,8 @@ class GatewayHandler:
         self._connections: dict[str, GatewayConnection] = {}
         self._reports: list[dict[str, object]] = []
         self._agent_config_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        self._agent_create_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        self._agent_capabilities_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
         self._ensure_agent_message_dispatch_table()
 
     async def serve(self, websocket: WebSocket) -> None:
@@ -114,6 +116,10 @@ class GatewayHandler:
             return await self._handle_delivery_receipt(payload=payload)
         if message_type == "agent.config":
             return await self._handle_agent_config(payload=payload)
+        if message_type == "agent.created":
+            return await self._handle_agent_created(payload=payload)
+        if message_type == "agent.capabilities":
+            return await self._handle_agent_capabilities(payload=payload)
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
         return {
@@ -188,6 +194,67 @@ class GatewayHandler:
             async with self._lock:
                 self._agent_config_waiters.pop(request_id, None)
 
+    async def request_agent_create(
+        self,
+        *,
+        target_node_id: str,
+        payload: dict[str, object],
+        timeout_seconds: float = 5.0,
+    ) -> dict[str, object] | None:
+        """Request one gateway node to create an agent and return its created agent payload."""
+        request_id = f"agent-create-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._agent_create_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="agent.create",
+                payload={"request_id": request_id, "agent": dict(payload)},
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._agent_create_waiters.pop(request_id, None)
+
+    async def request_agent_capabilities(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        timeout_seconds: float = 5.0,
+    ) -> dict[str, object] | None:
+        """Request one gateway node to resolve runtime capabilities for an agent workspace."""
+        request_id = f"agent-capabilities-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._agent_capabilities_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="agent.capabilities.resolve",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._agent_capabilities_waiters.pop(request_id, None)
+
     async def disconnect(self, *, node_id: str) -> None:
         """Remove one node from the active connection map."""
         async with self._lock:
@@ -232,6 +299,7 @@ class GatewayHandler:
                 node_name=node_name,
                 version=version,
                 agent_count=len(agents),
+                capabilities=capabilities,
             )
             profile_repository = AgentProfileRepository(self._node_repository._connection)
             for agent_id in agents:
@@ -290,6 +358,7 @@ class GatewayHandler:
                 agent_count=_optional_int(payload.get("agent_count")),
                 last_error=_optional_text(payload.get("last_error")),
                 version=_optional_text(payload.get("version")),
+                capabilities=_optional_dict(payload.get("capabilities")),
             )
         return {"type": "ack", "payload": {"message_type": "node.heartbeat", "node_id": node_id}}
 
@@ -428,7 +497,11 @@ class GatewayHandler:
             connection = self._connections.get(target_node_id)
         if connection is None:
             return False
-        await connection.websocket.send_json({"type": message_type, "payload": payload})
+        try:
+            await connection.websocket.send_json({"type": message_type, "payload": payload})
+        except (RuntimeError, WebSocketDisconnect):
+            await self.disconnect(node_id=target_node_id)
+            return False
         return True
 
     async def _handle_agent_config(self, *, payload: dict[str, object]) -> dict[str, object]:
@@ -446,6 +519,43 @@ class GatewayHandler:
             "payload": {
                 "message_type": "agent.config",
                 "request_id": request_id,
+                "agent_id": agent_id,
+            },
+        }
+
+    async def _handle_agent_created(self, *, payload: dict[str, object]) -> dict[str, object]:
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        agent_payload = _require_dict(payload.get("agent"), field_name="agent")
+        async with self._lock:
+            waiter = self._agent_create_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(dict(agent_payload))
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "agent.created",
+                "request_id": request_id,
+                "node_id": node_id,
+            },
+        }
+
+    async def _handle_agent_capabilities(self, *, payload: dict[str, object]) -> dict[str, object]:
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
+        workspace_root = _require_text(payload.get("workspace_root"), field_name="workspace_root")
+        capabilities = _require_dict(payload.get("capabilities"), field_name="capabilities")
+        async with self._lock:
+            waiter = self._agent_capabilities_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(dict(capabilities))
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "agent.capabilities",
+                "request_id": request_id,
+                "node_id": node_id,
                 "agent_id": agent_id,
             },
         }
@@ -1064,6 +1174,14 @@ def _optional_int(value: object) -> int | None:
         return None
     if not isinstance(value, int):
         raise ValueError("optional integer fields must be integers when provided")
+    return value
+
+
+def _optional_dict(value: object) -> dict[str, object] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("optional object fields must be objects when provided")
     return value
 
 

@@ -103,7 +103,8 @@ class AgentProfile:
 
     agent_id: str
     owner_id: str
-    display_name: str
+    node_id: str | None = None
+    display_name: str = ""
     description: str = ""
     system_prompt: str = ""
     skills: list[str] = field(default_factory=list)

@@ -15,7 +15,7 @@ import time
 import webbrowser
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -31,6 +31,7 @@ from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     ChannelConfig,
     HeartbeatConfig,
+    IMServiceConfig,
     KernelConfig,
     LocalConfig,
     default_local_config_path,
@@ -48,7 +49,7 @@ from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore, SessionBindingStore
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter
+from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_runtime_capabilities
 from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatScheduler,
     HeartbeatSchedulerStateStore,
@@ -67,7 +68,6 @@ AsyncConnect = Callable[[str, Mapping[str, str]], Awaitable[ClientConnection]]
 SignalHandlerInstaller = Callable[[], Callable[[], None]]
 BootstrapClientFactory = Callable[[str], httpx.Client]
 FeedbackSink = Callable[[str, str, str | None], None]
-_DEFAULT_LOCAL_IM_API_PORT = 8011
 
 
 class GatewayStartupError(RuntimeError):
@@ -815,20 +815,15 @@ class GatewayRuntime:
                     dispatch_runner = None
             self._ready_event.set()
             if self._im_connection_manager is not None:
-                try:
-                    await self._im_connection_manager.connect_once()
-                    im_connected = True
-                    if self._post_im_connect is not None:
-                        try:
-                            await asyncio.to_thread(self._post_im_connect)
-                        except GatewayStartupError as exc:
-                            await self._publish_startup_failure(exc)
-                            raise
-                    await self._publish_heartbeat_product_reports()
-                except GatewayStartupError:
-                    raise
-                except Exception as exc:  # noqa: BLE001
-                    self._feedback_sink("WARN", f"IM service unavailable, running offline: {exc}")
+                await self._im_connection_manager.connect_once()
+                im_connected = True
+                if self._post_im_connect is not None:
+                    try:
+                        await asyncio.to_thread(self._post_im_connect)
+                    except GatewayStartupError as exc:
+                        await self._publish_startup_failure(exc)
+                        raise
+                await self._publish_heartbeat_product_reports()
                 im_task = asyncio.create_task(self._im_connection_manager.run_forever(), name="personal-assistant-im")
             await asyncio.to_thread(self._shutdown_requested.wait)
             await self._publish_heartbeat_product_reports()
@@ -894,10 +889,25 @@ class GatewayRuntime:
                 return
 
 
+def _load_runtime_config(
+    config_path: str | Path,
+    *,
+    load_config: Callable[[str | Path], LocalConfig] = load_local_config,
+    im_service_url_override: str | None = None,
+) -> LocalConfig:
+    config = load_config(config_path)
+    if not isinstance(im_service_url_override, str) or not im_service_url_override.strip():
+        return config
+    override_url = im_service_url_override.strip()
+    override_token = config.im_service.token if config.im_service is not None else None
+    return replace(config, im_service=IMServiceConfig(url=override_url, token=override_token))
+
+
 def run_gateway(
     *,
     config_path: str | Path,
     factories: RuntimeFactories | Mapping[str, Any] | None = None,
+    im_service_url_override: str | None = None,
 ) -> int:
     """Load config, build runtime, and execute the gateway entry flow.
 
@@ -910,7 +920,11 @@ def run_gateway(
     """
 
     resolved_factories = _coerce_factories(factories)
-    config = resolved_factories.load_config(config_path)
+    config = _load_runtime_config(
+        config_path,
+        load_config=resolved_factories.load_config,
+        im_service_url_override=im_service_url_override,
+    )
     builder = resolved_factories.build_runtime or build_runtime
     runtime = builder(config)
     restore_signal_handlers = resolved_factories.install_signal_handlers or _install_default_signal_handlers(runtime)
@@ -930,6 +944,7 @@ def launch_gateway_in_background(
     load_config: Callable[[str | Path], LocalConfig] = load_local_config,
     spawn_process: BackgroundProcessFactory | None = None,
     wait_for_ready: ReadyWaiter | None = None,
+    im_service_url_override: str | None = None,
 ) -> BackgroundLaunchResult:
     """Start the gateway in a detached child and wait until it is ready.
 
@@ -946,7 +961,11 @@ def launch_gateway_in_background(
         RuntimeError: When the detached child exits or never becomes ready.
     """
 
-    config = load_config(config_path)
+    config = _load_runtime_config(
+        config_path,
+        load_config=load_config,
+        im_service_url_override=im_service_url_override,
+    )
     # Single-instance protection: refuse to start if a live gateway is already running.
     existing_pid = _read_gateway_pid(config)
     if existing_pid is not None:
@@ -959,7 +978,7 @@ def launch_gateway_in_background(
         _remove_gateway_pid(config)
     log_path = _default_gateway_log_path(config)
     log_offset = log_path.stat().st_size if log_path.exists() else 0
-    argv = _background_gateway_argv(config.source_path)
+    argv = _background_gateway_argv(config.source_path, im_service_url_override=im_service_url_override)
     launcher = spawn_process or _spawn_background_gateway_process
     ready_waiter = wait_for_ready or _wait_for_gateway_ready
     process = launcher(argv, log_path)
@@ -1006,7 +1025,26 @@ def stop_gateway(
     state_path = _gateway_state_path(config)
     state = _read_gateway_state(state_path)
     if state is None:
-        return f"NOT RUNNING config={config.source_path.name} state={state_path}"
+        pid = _read_gateway_pid(config)
+        if pid is None:
+            return f"NOT RUNNING config={config.source_path.name} state={state_path}"
+        if not _pid_is_running(pid):
+            _remove_gateway_pid(config)
+            return f"STALE pid={pid} pid_file={_gateway_pid_path(config)}"
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            _remove_gateway_pid(config)
+            return f"STALE pid={pid} pid_file={_gateway_pid_path(config)}"
+        deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
+        while time.monotonic() <= deadline:
+            if not _pid_is_running(pid):
+                _remove_gateway_pid(config)
+                return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)}"
+            time.sleep(config.kernel.health_poll_interval_seconds)
+        os.kill(pid, signal.SIGKILL)
+        _remove_gateway_pid(config)
+        return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)} forced=true"
     if not _pid_is_running(state.pid):
         _remove_gateway_state(state_path)
         _remove_gateway_pid(config)
@@ -1127,6 +1165,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             node=config.node,
             agents=config.agents,
             send_frame=lambda _message_type, _payload: None,
+            capabilities=build_runtime_capabilities(),
         )
         im_config_sync_client = _IMConfigSyncClient(
             base_url=config.im_service.url,
@@ -1182,6 +1221,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     parser = argparse.ArgumentParser(description="Run personal assistant gateway runtime")
     parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
+    parser.add_argument("--im-service-url", help="Override the upstream IM service base URL for this launch")
     parser.add_argument(
         "--foreground",
         action="store_true",
@@ -1190,8 +1230,10 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command")
     stop_parser = subparsers.add_parser("stop", help="Stop the current background gateway for one config")
     stop_parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
+    stop_parser.add_argument("--im-service-url", help="Override the upstream IM service base URL for this launch")
     restart_parser = subparsers.add_parser("restart", help="Stop then start the background gateway (equivalent to stop + start)")
     restart_parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
+    restart_parser.add_argument("--im-service-url", help="Override the upstream IM service base URL for this launch")
     args = parser.parse_args(argv)
     command = args.command or "start"
     resolved_config_path = str(Path(args.config).expanduser()) if args.config else str(default_local_config_path())
@@ -1202,12 +1244,18 @@ def main(argv: list[str] | None = None) -> int:
         if command == "restart":
             # Ignore NOT RUNNING / STALE statuses — they are not errors during restart.
             stop_gateway(config_path=resolved_config_path)
-            result = launch_gateway_in_background(config_path=resolved_config_path)
+            result = launch_gateway_in_background(
+                config_path=resolved_config_path,
+                im_service_url_override=args.im_service_url,
+            )
             _print_gateway_started(result)
             return 0
         if args.foreground:
-            return run_gateway(config_path=resolved_config_path)
-        result = launch_gateway_in_background(config_path=resolved_config_path)
+            return run_gateway(config_path=resolved_config_path, im_service_url_override=args.im_service_url)
+        result = launch_gateway_in_background(
+            config_path=resolved_config_path,
+            im_service_url_override=args.im_service_url,
+        )
         _print_gateway_started(result)
         return 0
     except GatewayStartupError as exc:
@@ -1508,31 +1556,21 @@ def _im_http_base_url(url: str) -> str:
 
 
 def _im_bootstrap_base_urls(url: str) -> tuple[str, ...]:
-    primary = _im_http_base_url(url)
-    parsed = urlparse(primary)
-    candidates = [primary]
-    hostname = (parsed.hostname or "").strip().lower()
-    if hostname in {"127.0.0.1", "localhost"} and parsed.port != _DEFAULT_LOCAL_IM_API_PORT:
-        fallback_path = parsed.path.rstrip("/")
-        fallback = f"{parsed.scheme}://{hostname}:{_DEFAULT_LOCAL_IM_API_PORT}{fallback_path}"
-        candidates.append(fallback.rstrip("/"))
-    unique: list[str] = []
-    for candidate in candidates:
-        normalized = candidate.rstrip("/")
-        if normalized and normalized not in unique:
-            unique.append(normalized)
-    return tuple(unique)
+    return (_im_http_base_url(url),)
 
 
-def _background_gateway_argv(config_path: Path) -> list[str]:
-    return [
+def _background_gateway_argv(config_path: Path, *, im_service_url_override: str | None = None) -> list[str]:
+    argv = [
         sys.executable,
         "-m",
         "personal_assistant.main",
         "--config",
         str(config_path),
-        "--foreground",
     ]
+    if isinstance(im_service_url_override, str) and im_service_url_override.strip():
+        argv.extend(["--im-service-url", im_service_url_override.strip()])
+    argv.append("--foreground")
+    return argv
 
 
 def _spawn_background_gateway_process(argv: list[str], log_path: Path) -> ProcessLike:

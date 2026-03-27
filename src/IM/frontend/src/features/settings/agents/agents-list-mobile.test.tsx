@@ -54,7 +54,7 @@ describe("agents list page", () => {
             default_model: "gpt-5.2-codex",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
-            bound_nodes: ["node-app-01"],
+            node_id: "node-app-01",
             updated_at: "2026-03-13T10:00:00Z"
           }
         ]),
@@ -98,7 +98,7 @@ describe("agents list page", () => {
             default_model: "gpt-5.2-codex",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
-            bound_nodes: ["node-app-01"],
+            node_id: "node-app-01",
             updated_at: "2026-03-13T10:00:00Z"
           }
         ]),
@@ -137,7 +137,7 @@ describe("agents list page", () => {
             default_model: "gpt-5.2-codex",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
-            bound_nodes: ["node-app-01", "node-app-02"],
+            node_id: "node-app-01",
             updated_at: "2026-03-13T10:00:00Z"
           },
           {
@@ -170,8 +170,8 @@ describe("agents list page", () => {
     expect(screen.getByText("2 profiles")).toBeInTheDocument();
     expect(screen.getAllByText("Workspace")).toHaveLength(2);
     expect(screen.getAllByText("Access")).toHaveLength(2);
-    expect(screen.getByText("Bound nodes: node-app-01, node-app-02")).toBeInTheDocument();
-    expect(screen.getByText("Bound nodes: Not bound yet")).toBeInTheDocument();
+    expect(screen.getByText("Owning node: node-app-01")).toBeInTheDocument();
+    expect(screen.getByText("Owning node: Not assigned")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
@@ -186,7 +186,7 @@ describe("agents list page", () => {
     });
 
     expect(await screen.findByText("No agents yet")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Create First Agent" })).toHaveAttribute("href", "/settings/agents/new");
+    expect(screen.getByRole("link", { name: "Open Nodes" })).toHaveAttribute("href", "/settings/nodes");
   });
 
   it("shows load errors and retries the query", async () => {

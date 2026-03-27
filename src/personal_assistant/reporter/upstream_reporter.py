@@ -2,8 +2,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from agent.core.llm.model_registry import DEFAULT_PROVIDER, get_default_model, list_provider_models, list_supported_providers
+from agent.core.skills.discovery import default_skill_search_roots
+from agent.core.skills.registry import SkillRegistry
+from agent.platform.config.resolver import ConfigResolver
+from agent.platform.tools.loader import build_tool_registry
+from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
 
 
@@ -12,17 +19,25 @@ SendFrame = Callable[[str, dict[str, object]], None]
 
 @dataclass(frozen=True, slots=True)
 class ReporterCapabilities:
-    """Describe upstream feature flags declared during node registration.
+    """Describe upstream feature flags and selectable runtime items.
 
     Args:
         relay: Whether the node accepts Web IM relay traffic.
         send_message: Whether the node supports agent-to-agent send_message delivery.
         config_sync: Whether the node can react to config.sync notifications.
+        models: Runtime model ids currently selectable on this node.
+        skills: Runtime skill ids currently selectable on this node.
+        tools: Runtime tool ids currently selectable on this node.
     """
 
     relay: bool = True
     send_message: bool = True
     config_sync: bool = True
+    models: tuple[str, ...] = ()
+    skills: tuple[str, ...] = ()
+    tools: tuple[str, ...] = ()
+    platform_default_model: str | None = None
+    default_system_prompt: str = ""
 
     def as_payload(self) -> dict[str, object]:
         """Return a JSON-serializable capability declaration."""
@@ -31,7 +46,76 @@ class ReporterCapabilities:
             "relay": self.relay,
             "send_message": self.send_message,
             "config_sync": self.config_sync,
+            "models": list(self.models),
+            "skills": list(self.skills),
+            "tools": list(self.tools),
+            "platform_default_model": self.platform_default_model,
+            "default_system_prompt": self.default_system_prompt,
         }
+
+
+def _dedupe_preserve_order(items: list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        normalized = item.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return tuple(ordered)
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _product_root() -> Path:
+    return _repo_root() / "src" / "agent" / "products" / PERSONAL_ASSISTANT_PROFILE.product_id
+
+
+def _build_skill_names() -> tuple[str, ...]:
+    config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=None)
+    registry = SkillRegistry(
+        search_roots=default_skill_search_roots(
+            workspace_root=_repo_root(),
+            config_resolver=config_resolver,
+            product_skill_root=_product_root() / "skills",
+        )
+    )
+    return tuple(skill.name for skill in registry.list_skills())
+
+
+def _build_tool_names() -> tuple[str, ...]:
+    config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=None)
+    registry = build_tool_registry(
+        repo_root=_repo_root(),
+        hook_runner=None,
+        runtime=None,
+        config_resolver=config_resolver,
+        product_tool_dir=_product_root() / "tools",
+    )
+    allowed_ids = [*PERSONAL_ASSISTANT_PROFILE.default_tool_ids, *PERSONAL_ASSISTANT_PROFILE.optional_tool_ids]
+    allowed_set = set(allowed_ids)
+    return tuple(spec.name for spec in registry.list_specs() if spec.name in allowed_set)
+
+
+def _build_model_names() -> tuple[str, ...]:
+    return _dedupe_preserve_order(
+        [metadata.model for provider in list_supported_providers() for metadata in list_provider_models(provider)]
+    )
+
+
+def build_runtime_capabilities() -> ReporterCapabilities:
+    """Build node-level selectable runtime items from the Gateway runtime surface."""
+
+    return ReporterCapabilities(
+        models=_build_model_names(),
+        skills=_build_skill_names(),
+        tools=_build_tool_names(),
+        platform_default_model=get_default_model(DEFAULT_PROVIDER),
+        default_system_prompt=PERSONAL_ASSISTANT_PROFILE.default_system_prompt,
+    )
 
 
 class UpstreamReporter:
@@ -62,6 +146,11 @@ class UpstreamReporter:
         self._capabilities = capabilities or ReporterCapabilities()
         self._node_name = (node_name or node.node_id).strip()
         self._version = (version or "").strip()
+
+    @property
+    def node_id(self) -> str:
+        """Return the stable node identifier used for upstream IM frames."""
+        return self._node.node_id
 
     def send_register(self) -> dict[str, object]:
         """Send one ``node.register`` frame for the current node."""
@@ -97,6 +186,7 @@ class UpstreamReporter:
             "node_id": self._node.node_id,
             "status": status,
             "agent_count": len(self._agents),
+            "capabilities": self._capabilities.as_payload(),
         }
         if self._version:
             payload["version"] = self._version

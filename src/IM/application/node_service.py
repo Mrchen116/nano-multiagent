@@ -31,6 +31,10 @@ class NodeService:
         """Return one node snapshot, or None when missing."""
         return self._nodes.get_node(node_id=node_id)
 
+    def get_node_capabilities(self, *, node_id: str) -> dict[str, object]:
+        """Return the last node-reported runtime capability summary."""
+        return self._nodes.get_node_capabilities(node_id=node_id)
+
     def update_node_config(
         self,
         *,

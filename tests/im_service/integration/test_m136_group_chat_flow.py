@@ -254,7 +254,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
         for row in event_rows
         if row["event_type"] == "relay.completed"
     ]
-    assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "@agent-a stay quiet", "run_id": "run-1"}]
+    assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "[Alice] @agent-a stay quiet", "run_id": "run-1"}]
     assert relay_adapter.sent == []
     assert sent_ack["type"] == "ack"
     assert completed_ack["type"] == "ack"
@@ -359,22 +359,34 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
     assert [call["metadata"] for call in kernel_client.create_session_calls] == [
         {
             "agent_id": "agent-a",
+            "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "config_profile_version": 1,
             "conversation_type": "group",
             "participant_agent_ids": ["agent-a", "agent-b"],
             "external_chat_id": conversation_id,
+            "participants": [
+                {"type": "user", "user_id": user_id, "display_name": "Alice"},
+                {"type": "agent", "agent_id": agent_a_user_id, "display_name": "A"},
+                {"type": "agent", "agent_id": agent_b_user_id, "display_name": "B"},
+            ],
         },
         {
             "agent_id": "agent-b",
+            "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "config_profile_version": 1,
             "conversation_type": "group",
             "participant_agent_ids": ["agent-a", "agent-b"],
             "external_chat_id": conversation_id,
+            "participants": [
+                {"type": "user", "user_id": user_id, "display_name": "Alice"},
+                {"type": "agent", "agent_id": agent_a_user_id, "display_name": "A"},
+                {"type": "agent", "agent_id": agent_b_user_id, "display_name": "B"},
+            ],
         },
     ]
     assert [call["text"] for call in kernel_client.send_calls] == [
-        "@agent-a, please inspect rollout",
-        "@agent:agent-b review the result",
+        "[Alice] @agent-a, please inspect rollout",
+        "[Alice] @agent:agent-b review the result",
     ]
     assert first_frame["payload"]["agent_id"] == "agent-a"
     assert first_frame["payload"]["metadata"] == {
@@ -393,7 +405,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
     assert relay_adapter.sent == [
         OutboundMessage(
             channel_name="web_relay",
-            text="reply:@agent-a, please inspect rollout",
+            text="reply:[Alice] @agent-a, please inspect rollout",
             target_chat_id=conversation_id,
             thread_id=None,
             metadata={
@@ -404,11 +416,17 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
                 "mentioned_agent_ids": ["agent-a"],
                 "participant_agent_ids": ["agent-a", "agent-b"],
                 "config_profile_version": 1,
+                "sender_display_name": "Alice",
+                "participants": [
+                    {"id": user_id, "display_name": "Alice", "type": "user"},
+                    {"id": agent_a_user_id, "display_name": "A", "type": "agent"},
+                    {"id": agent_b_user_id, "display_name": "B", "type": "agent"},
+                ],
             },
         ),
         OutboundMessage(
             channel_name="web_relay",
-            text="reply:@agent:agent-b review the result",
+            text="reply:[Alice] @agent:agent-b review the result",
             target_chat_id=conversation_id,
             thread_id=None,
             metadata={
@@ -419,6 +437,12 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
                 "mentioned_agent_ids": ["agent-b"],
                 "participant_agent_ids": ["agent-a", "agent-b"],
                 "config_profile_version": 1,
+                "sender_display_name": "Alice",
+                "participants": [
+                    {"id": user_id, "display_name": "Alice", "type": "user"},
+                    {"id": agent_a_user_id, "display_name": "A", "type": "agent"},
+                    {"id": agent_b_user_id, "display_name": "B", "type": "agent"},
+                ],
             },
         ),
     ]
@@ -663,8 +687,8 @@ def test_group_message_mentioning_two_agents_persists_distinct_completion_events
         if row["event_type"] == "message.delivered"
     ]
     assert [call["text"] for call in kernel_client.send_calls] == [
-        "@agent-a @agent-b please review this rollout together",
-        "@agent-a @agent-b please review this rollout together",
+        "[Alice] @agent-a @agent-b please review this rollout together",
+        "[Alice] @agent-a @agent-b please review this rollout together",
     ]
     assert {payload["agent_id"] for payload in completed_payloads} == {"agent-a", "agent-b"}
     assert {payload["relay_task_id"] for payload in completed_payloads} == {

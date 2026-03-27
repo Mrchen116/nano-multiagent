@@ -13,12 +13,12 @@ function formatUpdatedAt(value?: string | null) {
   return new Date(value).toLocaleString();
 }
 
-function formatBoundNodes(boundNodes?: string[]) {
-  if (!boundNodes || boundNodes.length === 0) {
-    return "Not bound yet";
+function formatOwningNode(nodeId?: string | null) {
+  if (!nodeId) {
+    return "Not assigned";
   }
 
-  return boundNodes.join(", ");
+  return nodeId;
 }
 
 function AgentSummaryCard(props: {
@@ -30,7 +30,7 @@ function AgentSummaryCard(props: {
     default_model?: string | null;
     workspace_root: string;
     workspace_is_default?: boolean;
-    bound_nodes?: string[];
+    node_id?: string | null;
     updated_at?: string | null;
   };
   compact?: boolean;
@@ -70,8 +70,8 @@ function AgentSummaryCard(props: {
               <dd className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</dd>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <dt>Bound nodes</dt>
-              <dd className="text-right text-slate-700">{formatBoundNodes(agent.bound_nodes)}</dd>
+              <dt>Owning node</dt>
+              <dd className="text-right text-slate-700">{formatOwningNode(agent.node_id)}</dd>
             </div>
             <div className="flex items-center justify-between gap-3">
               <dt>Updated</dt>
@@ -96,7 +96,7 @@ function AgentSummaryCard(props: {
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Access</p>
             <div className="space-y-1 text-sm text-slate-700">
               <p>Default model: {agent.default_model || "Auto"}</p>
-              <p>Bound nodes: {formatBoundNodes(agent.bound_nodes)}</p>
+              <p>Owning node: {formatOwningNode(agent.node_id)}</p>
               <p className="text-xs text-slate-500">Updated {formatUpdatedAt(agent.updated_at)}</p>
             </div>
           </section>
@@ -143,9 +143,6 @@ export function AgentsListPage() {
           {query.isFetching && !query.isLoading ? (
             <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">Refreshing…</span>
           ) : null}
-          <Link className="im-btn im-btn-primary" to="/settings/agents/new">
-            New Agent
-          </Link>
         </div>
       </div>
 
@@ -163,8 +160,8 @@ export function AgentsListPage() {
             <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void query.refetch()}>
               Retry
             </button>
-            <Link className="text-sm font-semibold text-teal-700 hover:underline" to="/settings/agents/new">
-              Create an agent manually
+            <Link className="text-sm font-semibold text-teal-700 hover:underline" to="/settings/nodes">
+              Open Nodes to create an agent
             </Link>
           </div>
         </section>
@@ -172,11 +169,11 @@ export function AgentsListPage() {
         <section className="grid gap-3 rounded-2xl border border-dashed border-[var(--im-border)] bg-white/80 p-6">
           <div className="space-y-1">
             <p className="text-sm font-semibold text-slate-900">No agents yet</p>
-            <p className="text-sm text-slate-500">Create your first runtime profile to verify prompts, default models, and node routing in one place.</p>
+            <p className="text-sm text-slate-500">Open Nodes to create your first runtime profile on an online bound node.</p>
           </div>
           <div>
-            <Link className="im-btn im-btn-primary inline-flex" to="/settings/agents/new">
-              Create First Agent
+            <Link className="im-btn im-btn-primary inline-flex" to="/settings/nodes">
+              Open Nodes
             </Link>
           </div>
         </section>

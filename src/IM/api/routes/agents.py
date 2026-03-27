@@ -1,23 +1,13 @@
-"""Agent configuration routes for IM HTTP APIs."""
-
-from pathlib import Path
+"""Agent configuration and capability routes for IM HTTP APIs."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from agent.core.llm.factory import LLMFactoryConfig
-from agent.core.llm.model_registry import list_provider_models
-from agent.core.skills.discovery import default_skill_search_roots
-from agent.core.skills.registry import SkillRegistry
-from agent.platform.config.resolver import ConfigResolver
-from agent.platform.tools.loader import build_tool_registry
-from agent.products.personal_assistant.profile import PERSONAL_ASSISTANT_PROFILE
 from IM.api.deps import get_config_service, get_gateway_handler
 from IM.application.config_service import ConfigService
 from IM.domain.models import AgentProfile
-from IM.ws.gateway_handler import GatewayHandler
-from IM.domain.models import AgentProfile
 from IM.infra.repositories import AgentProfileVersionConflictError
+from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["agents"])
 
@@ -27,6 +17,7 @@ class AgentConfigResponse(BaseModel):
 
     agent_id: str
     owner_id: str
+    node_id: str | None
     display_name: str
     description: str
     system_prompt: str
@@ -37,24 +28,7 @@ class AgentConfigResponse(BaseModel):
     workspace_root: str
     workspace_is_default: bool
     profile_version: int
-    bound_nodes: list[str] = Field(default_factory=list)
     updated_at: str | None = None
-
-
-class CreateAgentRequest(BaseModel):
-    """Request payload for creating one agent profile."""
-
-    agent_id: str = Field(min_length=1)
-    owner_id: str = ""
-    display_name: str = Field(min_length=1)
-    description: str = ""
-    system_prompt: str = ""
-    skills: list[str] = Field(default_factory=list)
-    tool_allowlist: list[str] = Field(default_factory=list)
-    group_reply_policy: str = Field(min_length=1)
-    default_model: str | None = None
-    workspace_root: str | None = None
-    node_id: str | None = None
 
 
 class UpdateAgentConfigRequest(BaseModel):
@@ -68,7 +42,6 @@ class UpdateAgentConfigRequest(BaseModel):
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
-    workspace_root: str | None = None
 
 
 class AgentSummaryResponse(BaseModel):
@@ -76,110 +49,25 @@ class AgentSummaryResponse(BaseModel):
 
     agent_id: str
     owner_id: str
+    node_id: str | None
     display_name: str
     description: str
     profile_version: int
     default_model: str | None
     workspace_root: str
     workspace_is_default: bool
-    bound_nodes: list[str] = Field(default_factory=list)
     updated_at: str | None = None
 
 
-class AllowlistOptionResponse(BaseModel):
-    """One selectable allowlist option exposed to the IM settings UI."""
+class AgentCapabilitiesResponse(BaseModel):
+    """Node-backed runtime capability data for one agent workspace."""
 
-    name: str
-    description: str = ""
-
-
-class AgentAllowlistOptionsResponse(BaseModel):
-    """Selectable skills, tools, models, and product-owned defaults for the settings UI."""
-
-    skills: list[AllowlistOptionResponse] = Field(default_factory=list)
-    tools: list[AllowlistOptionResponse] = Field(default_factory=list)
-    model_options: list[str] = Field(default_factory=list)
-    platform_default_model: str | None = None
-    default_system_prompt: str = ""
-
-
-def _discover_repo_root(start_dir: Path) -> Path | None:
-    """Resolve the canonical repository root for the running checkout or worktree."""
-    current = start_dir.expanduser().resolve(strict=False)
-    while True:
-        dot_git_path = current / ".git"
-        if dot_git_path.is_dir():
-            return current
-        if dot_git_path.is_file():
-            return current
-        if current.parent == current:
-            return None
-        current = current.parent
-
-
-def _resolve_repo_root() -> Path:
-    """Return the repository root used for skill/tool discovery."""
-    fallback = Path(__file__).resolve().parents[4]
-    return _discover_repo_root(Path(__file__).resolve()) or fallback
-
-
-def _product_source_root() -> Path:
-    """Return the personal_assistant product source directory."""
-    return Path(__file__).resolve().parents[3] / "agent" / "products" / "personal_assistant"
-
-
-def _build_allowlist_config_resolver(*, repo_root: Path) -> ConfigResolver:
-    """Build the product-aware config resolver used by allowlist option discovery."""
-    return ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=repo_root)
-
-
-def _list_available_skill_options() -> list[AllowlistOptionResponse]:
-    """List current selectable skills for the agent settings UI."""
-    repo_root = _resolve_repo_root()
-    product_root = _product_source_root()
-    config_resolver = _build_allowlist_config_resolver(repo_root=repo_root)
-    registry = SkillRegistry(
-        search_roots=default_skill_search_roots(
-            workspace_root=repo_root,
-            config_resolver=config_resolver,
-            product_skill_root=product_root / "skills",
-        )
-    )
-    return [
-        AllowlistOptionResponse(name=skill.name, description=skill.description)
-        for skill in registry.list_skills(refresh=True)
-    ]
-
-
-def _list_available_tool_options() -> list[AllowlistOptionResponse]:
-    """List current selectable tools for the agent settings UI."""
-    repo_root = _resolve_repo_root()
-    product_root = _product_source_root()
-    config_resolver = _build_allowlist_config_resolver(repo_root=repo_root)
-    registry = build_tool_registry(
-        repo_root=repo_root,
-        config_resolver=config_resolver,
-        product_tool_dir=product_root / "tools",
-    )
-    return [
-        AllowlistOptionResponse(name=spec.name, description=spec.description)
-        for spec in sorted(registry.list_specs(), key=lambda spec: spec.name)
-    ]
-
-
-def _list_available_models() -> list[str]:
-    """List selectable models for the currently configured provider."""
-    llm_config = LLMFactoryConfig.from_env()
-    return [metadata.model for metadata in list_provider_models(llm_config.provider)]
-
-
-def _platform_default_model() -> str | None:
-    """Return the current platform default model shown in settings."""
-    llm_config = LLMFactoryConfig.from_env()
-    available_models = {metadata.model for metadata in list_provider_models(llm_config.provider)}
-    if llm_config.model in available_models:
-        return llm_config.model
-    return next(iter(sorted(available_models)), None)
+    agent_id: str
+    node_id: str
+    workspace_root: str
+    models: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
 
 
 def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -> AgentConfigResponse:
@@ -187,6 +75,7 @@ def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -
     return AgentConfigResponse(
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
+        node_id=profile.node_id,
         display_name=profile.display_name,
         description=profile.description,
         system_prompt=profile.system_prompt,
@@ -197,7 +86,6 @@ def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -
         workspace_root=service.workspace_root_for_profile(profile),
         workspace_is_default=service.workspace_is_default_for_profile(profile),
         profile_version=profile.profile_version,
-        bound_nodes=service.list_bound_nodes(agent_id=profile.agent_id),
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
     )
 
@@ -214,6 +102,7 @@ def _merge_live_agent_profile(profile: AgentProfile, payload: dict[str, object])
     return AgentProfile(
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
+        node_id=profile.node_id,
         display_name=display_name if isinstance(display_name, str) and display_name.strip() else profile.display_name,
         description=profile.description,
         system_prompt=system_prompt if isinstance(system_prompt, str) else profile.system_prompt,
@@ -233,61 +122,21 @@ def to_agent_summary_response(profile: AgentProfile, *, service: ConfigService) 
     return AgentSummaryResponse(
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
+        node_id=profile.node_id,
         display_name=profile.display_name,
         description=profile.description,
         profile_version=profile.profile_version,
         default_model=profile.default_model,
         workspace_root=service.workspace_root_for_profile(profile),
         workspace_is_default=service.workspace_is_default_for_profile(profile),
-        bound_nodes=service.list_bound_nodes(agent_id=profile.agent_id),
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
     )
-
-
-@router.post("/im/v1/agents", response_model=AgentConfigResponse, status_code=status.HTTP_201_CREATED)
-def create_agent(
-    payload: CreateAgentRequest,
-    service: ConfigService = Depends(get_config_service),
-) -> AgentConfigResponse:
-    """Create one agent profile bound to an optional node."""
-    try:
-        created = service.create_profile(
-            agent_id=payload.agent_id,
-            owner_id=payload.owner_id,
-            display_name=payload.display_name,
-            description=payload.description,
-            system_prompt=payload.system_prompt,
-            skills=payload.skills,
-            tool_allowlist=payload.tool_allowlist,
-            group_reply_policy=payload.group_reply_policy,
-            default_model=payload.default_model,
-            workspace_root=payload.workspace_root,
-            node_id=payload.node_id,
-        )
-    except LookupError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    except ValueError as exc:
-        status_code = status.HTTP_409_CONFLICT if str(exc) == "agent_id already exists" else status.HTTP_422_UNPROCESSABLE_ENTITY
-        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
-    return to_agent_config_response(created, service=service)
 
 
 @router.get("/im/v1/agents", response_model=list[AgentSummaryResponse])
 def list_agents(service: ConfigService = Depends(get_config_service)) -> list[AgentSummaryResponse]:
     """List runtime-selectable agents for the current IM workspace."""
     return [to_agent_summary_response(item, service=service) for item in service.list_runtime_selectable_profiles()]
-
-
-@router.get("/im/v1/agents/allowlist-options", response_model=AgentAllowlistOptionsResponse)
-def get_agent_allowlist_options() -> AgentAllowlistOptionsResponse:
-    """Return current selectable skills, tools, models, and product-owned defaults for agent settings."""
-    return AgentAllowlistOptionsResponse(
-        skills=_list_available_skill_options(),
-        tools=_list_available_tool_options(),
-        model_options=_list_available_models(),
-        platform_default_model=_platform_default_model(),
-        default_system_prompt=PERSONAL_ASSISTANT_PROFILE.default_system_prompt or "",
-    )
 
 
 @router.get("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)
@@ -309,13 +158,41 @@ async def get_agent_config(
         return to_agent_config_response(profile, service=service)
     if source != "live":
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="source must be live or mirror")
-    for node_id in service.list_bound_nodes(agent_id=agent_id):
-        payload = await gateway_handler.request_agent_config(target_node_id=node_id, agent_id=agent_id)
-        if not isinstance(payload, dict):
-            continue
-        profile = _merge_live_agent_profile(profile, payload)
-        break
+    if profile.node_id:
+        payload = await gateway_handler.request_agent_config(target_node_id=profile.node_id, agent_id=agent_id)
+        if isinstance(payload, dict):
+            profile = _merge_live_agent_profile(profile, payload)
     return to_agent_config_response(profile, service=service)
+
+
+@router.get("/im/v1/agents/{agent_id}/capabilities", response_model=AgentCapabilitiesResponse)
+async def get_agent_capabilities(
+    agent_id: str,
+    service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+) -> AgentCapabilitiesResponse:
+    """Resolve runtime capabilities for one agent from its owning node."""
+    profile = service.get_profile(agent_id=agent_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+    if profile.node_id is None or not profile.node_id.strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id is not bound to a node")
+    workspace_root = service.workspace_root_for_profile(profile)
+    payload = await gateway_handler.request_agent_capabilities(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        workspace_root=workspace_root,
+    )
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")
+    return AgentCapabilitiesResponse(
+        agent_id=agent_id,
+        node_id=profile.node_id,
+        workspace_root=workspace_root,
+        models=_coerce_string_list(payload.get("models")),
+        skills=_coerce_string_list(payload.get("skills")),
+        tools=_coerce_string_list(payload.get("tools")),
+    )
 
 
 @router.patch("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)
@@ -336,7 +213,7 @@ def update_agent_config(
             tool_allowlist=payload.tool_allowlist,
             group_reply_policy=payload.group_reply_policy,
             default_model=payload.default_model,
-            workspace_root=payload.workspace_root,
+            workspace_root=None,
         )
     except AgentProfileVersionConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -345,3 +222,9 @@ def update_agent_config(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return to_agent_config_response(updated, service=service)
+
+
+def _coerce_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]

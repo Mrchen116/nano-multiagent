@@ -1,6 +1,7 @@
 """Integration coverage for creating agent profiles and using them in relay flows."""
 
 from pathlib import Path
+import threading
 
 from fastapi.testclient import TestClient
 
@@ -20,56 +21,6 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path
         agent_user = users.create_user(username="agent:agent-new", display_name="Agent New")
         NodeRepository(app.state.connection).upsert_node(node_id="node-1", node_name="MacBook")
 
-        created = client.post(
-            "/im/v1/agents",
-            json={
-                "agent_id": agent_user.id,
-                "owner_id": owner.owner_id,
-                "display_name": "Agent New",
-                "description": "runtime-created helper",
-                "system_prompt": "You are Agent New.",
-                "skills": ["plan"],
-                "tool_allowlist": ["read"],
-                "group_reply_policy": "MENTION",
-                "default_model": "claude-sonnet-4",
-                "workspace_root": _WORKSPACE_PATH_SETTING,
-                "node_id": "node-1",
-            },
-        )
-        assert created.status_code == 201
-        assert created.json()["agent_id"] == agent_user.id
-        assert created.json()["bound_nodes"] == ["node-1"]
-        assert created.json()["workspace_root"] == _WORKSPACE_PATH_SETTING
-
-        listed = client.get("/im/v1/agents")
-        assert listed.status_code == 200
-        assert listed.json() == [
-            {
-                "agent_id": agent_user.id,
-                "owner_id": owner.owner_id,
-                "display_name": "Agent New",
-                "description": "runtime-created helper",
-                "profile_version": 1,
-                "default_model": "claude-sonnet-4",
-                "workspace_root": _WORKSPACE_PATH_SETTING,
-                "workspace_is_default": False,
-                "bound_nodes": ["node-1"],
-                "updated_at": created.json()["updated_at"],
-            }
-        ]
-
-        detail = client.get(f"/im/v1/agents/{agent_user.id}/config")
-        assert detail.status_code == 200
-        assert detail.json()["bound_nodes"] == ["node-1"]
-        assert detail.json()["group_reply_policy"] == "MENTION"
-        assert detail.json()["workspace_root"] == _WORKSPACE_PATH_SETTING
-
-        conversation = client.post(
-            "/im/v1/conversations",
-            json={"title": "new agent thread", "participant_ids": [human_user.id, agent_user.id]},
-        )
-        assert conversation.status_code == 201
-
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
                 {
@@ -85,6 +36,107 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path
             )
             assert websocket.receive_json()["type"] == "ack"
 
+            creation_result: dict[str, object] = {}
+
+            def _create_agent() -> None:
+                creation_result["response"] = client.post(
+                    "/im/v1/nodes/node-1/agents",
+                    json={
+                        "agent_id": agent_user.id,
+                        "owner_id": owner.owner_id,
+                        "display_name": "Agent New",
+                        "description": "runtime-created helper",
+                        "system_prompt": "You are Agent New.",
+                        "skills": ["plan"],
+                        "tool_allowlist": ["read"],
+                        "group_reply_policy": "MENTION",
+                        "default_model": "claude-sonnet-4",
+                    },
+                )
+
+            creation_worker = threading.Thread(target=_create_agent)
+            creation_worker.start()
+            create_request = websocket.receive_json()
+            assert create_request["type"] == "agent.create"
+            request_id = create_request["payload"]["request_id"]
+            assert create_request["payload"]["agent"] == {
+                "agent_id": agent_user.id,
+                "display_name": "Agent New",
+                "description": "runtime-created helper",
+                "system_prompt": "You are Agent New.",
+                "skills": ["plan"],
+                "tool_allowlist": ["read"],
+                "group_reply_policy": "MENTION",
+                "default_model": "claude-sonnet-4",
+            }
+            websocket.send_json(
+                {
+                    "type": "agent.created",
+                    "payload": {
+                        "request_id": request_id,
+                        "node_id": "node-1",
+                        "agent": {
+                            "agent_id": agent_user.id,
+                            "display_name": "Agent New",
+                            "description": "runtime-created helper",
+                            "system_prompt": "You are Agent New.",
+                            "skills": ["plan"],
+                            "tool_allowlist": ["read"],
+                            "group_reply_policy": "MENTION",
+                            "default_model": "claude-sonnet-4",
+                            "workspace_root": _WORKSPACE_PATH_SETTING,
+                        },
+                    },
+                }
+            )
+            assert websocket.receive_json() == {
+                "type": "ack",
+                "payload": {
+                    "message_type": "agent.created",
+                    "request_id": request_id,
+                    "node_id": "node-1",
+                },
+            }
+            assert websocket.receive_json() == {
+                "type": "config.sync",
+                "payload": {"agent_id": agent_user.id, "profile_version": 1},
+            }
+            creation_worker.join(timeout=5)
+            created = creation_result["response"]
+            assert created.status_code == 201
+            assert created.json()["agent_id"] == agent_user.id
+            assert created.json()["node_id"] == "node-1"
+            assert created.json()["workspace_root"] == _WORKSPACE_PATH_SETTING
+
+            listed = client.get("/im/v1/agents")
+            assert listed.status_code == 200
+            assert listed.json() == [
+                {
+                    "agent_id": agent_user.id,
+                    "owner_id": owner.owner_id,
+                    "node_id": "node-1",
+                    "display_name": "Agent New",
+                    "description": "runtime-created helper",
+                    "profile_version": 1,
+                    "default_model": "claude-sonnet-4",
+                    "workspace_root": _WORKSPACE_PATH_SETTING,
+                    "workspace_is_default": False,
+                    "updated_at": created.json()["updated_at"],
+                }
+            ]
+
+            detail = client.get(f"/im/v1/agents/{agent_user.id}/config")
+            assert detail.status_code == 200
+            assert detail.json()["node_id"] == "node-1"
+            assert detail.json()["group_reply_policy"] == "MENTION"
+            assert detail.json()["workspace_root"] == _WORKSPACE_PATH_SETTING
+
+            conversation = client.post(
+                "/im/v1/conversations",
+                json={"title": "new agent thread", "participant_ids": [human_user.id, agent_user.id]},
+            )
+            assert conversation.status_code == 201
+
             created_message = client.post(
                 f"/im/v1/conversations/{conversation.json()['id']}/messages",
                 headers={"Idempotency-Key": "idem-agent-create"},
@@ -95,7 +147,31 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path
                 },
             )
             assert created_message.status_code == 201
-            relay_frame = websocket.receive_json()
+            live_read_request = websocket.receive_json()
+            assert live_read_request["type"] == "agent.config.get"
+            websocket.send_json(
+                {
+                    "type": "agent.config",
+                    "payload": {
+                        "request_id": live_read_request["payload"]["request_id"],
+                        "agent_id": agent_user.id,
+                        "agent": None,
+                    },
+                }
+            )
+            next_frame = websocket.receive_json()
+            if next_frame["type"] == "ack":
+                assert next_frame == {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "agent.config",
+                        "request_id": live_read_request["payload"]["request_id"],
+                        "agent_id": agent_user.id,
+                    },
+                }
+                relay_frame = websocket.receive_json()
+            else:
+                relay_frame = next_frame
 
         assert relay_frame["type"] == "relay.message"
         assert relay_frame["payload"]["relay_task_id"]
@@ -133,8 +209,25 @@ def test_create_agent_without_workspace_persists_managed_default_workspace_root(
         agent_user = users.create_user(username="agent:agent-default", display_name="Agent Default")
         NodeRepository(app.state.connection).upsert_node(node_id="node-1", node_name="MacBook")
 
+        async def fake_request_agent_create(*, target_node_id: str, payload: dict[str, object], timeout_seconds: float = 5.0):
+            del timeout_seconds
+            assert target_node_id == "node-1"
+            return {
+                "agent_id": payload["agent_id"],
+                "display_name": payload["display_name"],
+                "description": payload["description"],
+                "system_prompt": payload["system_prompt"],
+                "skills": payload["skills"],
+                "tool_allowlist": payload["tool_allowlist"],
+                "group_reply_policy": payload["group_reply_policy"],
+                "default_model": payload["default_model"],
+                "workspace_root": f"/Users/czj/nano-assistant/workspace/{payload['agent_id']}",
+            }
+
+        app.state.gateway_handler.request_agent_create = fake_request_agent_create
+
         created = client.post(
-            "/im/v1/agents",
+            "/im/v1/nodes/node-1/agents",
             json={
                 "agent_id": agent_user.id,
                 "owner_id": owner.owner_id,
@@ -145,7 +238,6 @@ def test_create_agent_without_workspace_persists_managed_default_workspace_root(
                 "tool_allowlist": ["read"],
                 "group_reply_policy": "MENTION",
                 "default_model": "claude-sonnet-4",
-                "node_id": "node-1",
             },
         )
         assert created.status_code == 201
@@ -185,25 +277,62 @@ def test_create_agent_pushes_config_sync_to_connected_gateway(tmp_path: Path) ->
             )
             assert websocket.receive_json()["type"] == "ack"
 
-            created = client.post(
-                "/im/v1/agents",
-                json={
-                    "agent_id": agent_user.id,
-                    "owner_id": owner.owner_id,
-                    "display_name": "Agent Live",
-                    "description": "runtime-created helper",
-                    "system_prompt": "You are Agent Live.",
-                    "skills": ["plan"],
-                    "tool_allowlist": ["read"],
-                    "group_reply_policy": "MENTION",
-                    "default_model": "claude-sonnet-4",
-                    "workspace_root": _WORKSPACE_PATH_SETTING,
-                    "node_id": "node-1",
-                },
+            creation_result: dict[str, object] = {}
+
+            def _create_agent() -> None:
+                creation_result["response"] = client.post(
+                    "/im/v1/nodes/node-1/agents",
+                    json={
+                        "agent_id": agent_user.id,
+                        "owner_id": owner.owner_id,
+                        "display_name": "Agent Live",
+                        "description": "runtime-created helper",
+                        "system_prompt": "You are Agent Live.",
+                        "skills": ["plan"],
+                        "tool_allowlist": ["read"],
+                        "group_reply_policy": "MENTION",
+                        "default_model": "claude-sonnet-4",
+                    },
+                )
+
+            creation_worker = threading.Thread(target=_create_agent)
+            creation_worker.start()
+            create_request = websocket.receive_json()
+            assert create_request["type"] == "agent.create"
+            request_id = create_request["payload"]["request_id"]
+            websocket.send_json(
+                {
+                    "type": "agent.created",
+                    "payload": {
+                        "request_id": request_id,
+                        "node_id": "node-1",
+                        "agent": {
+                            "agent_id": agent_user.id,
+                            "display_name": "Agent Live",
+                            "description": "runtime-created helper",
+                            "system_prompt": "You are Agent Live.",
+                            "skills": ["plan"],
+                            "tool_allowlist": ["read"],
+                            "group_reply_policy": "MENTION",
+                            "default_model": "claude-sonnet-4",
+                            "workspace_root": _WORKSPACE_PATH_SETTING,
+                        },
+                    },
+                }
             )
 
-            assert created.status_code == 201
+            assert websocket.receive_json() == {
+                "type": "ack",
+                "payload": {
+                    "message_type": "agent.created",
+                    "request_id": request_id,
+                    "node_id": "node-1",
+                },
+            }
             assert websocket.receive_json() == {
                 "type": "config.sync",
                 "payload": {"agent_id": agent_user.id, "profile_version": 1},
             }
+            creation_worker.join(timeout=5)
+            created = creation_result["response"]
+            assert created.status_code == 201

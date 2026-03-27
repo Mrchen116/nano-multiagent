@@ -71,6 +71,8 @@ ConnectFn = Callable[[str, Mapping[str, str]], Awaitable[ClientWebSocket]]
 SleepFn = Callable[[float], Awaitable[None]]
 HeartbeatTrigger = Callable[[str, str], None]
 AgentConfigProvider = Callable[[str], Mapping[str, object] | None]
+AgentCreateHandler = Callable[[Mapping[str, object]], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None]
+AgentCapabilitiesProvider = Callable[[str, str], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +143,8 @@ class IMConnectionManager:
         sync_client: ConfigSyncClient | None = None,
         heartbeat_trigger: HeartbeatTrigger | None = None,
         agent_config_provider: AgentConfigProvider | None = None,
+        agent_create_handler: AgentCreateHandler | None = None,
+        agent_capabilities_provider: AgentCapabilitiesProvider | None = None,
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -150,6 +154,8 @@ class IMConnectionManager:
         self._sync_client = sync_client
         self._heartbeat_trigger = heartbeat_trigger
         self._agent_config_provider = agent_config_provider
+        self._agent_create_handler = agent_create_handler
+        self._agent_capabilities_provider = agent_capabilities_provider
         self._connect = connect
         self._sleep = sleep
         self._websocket: ClientWebSocket | None = None
@@ -291,6 +297,39 @@ class IMConnectionManager:
                 },
             )
             return
+        if message_type == "agent.create":
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            agent_payload = _require_mapping(body.get("agent"), field_name="agent")
+            created_payload = None
+            if self._agent_create_handler is not None:
+                created_payload = await _maybe_await(self._agent_create_handler(agent_payload))
+            await self.send_json(
+                "agent.created",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "agent": dict(created_payload) if isinstance(created_payload, Mapping) else {},
+                },
+            )
+            return
+        if message_type == "agent.capabilities.resolve":
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            agent_id = _require_text(body.get("agent_id"), field_name="agent_id")
+            workspace_root = _require_text(body.get("workspace_root"), field_name="workspace_root")
+            capability_payload = None
+            if self._agent_capabilities_provider is not None:
+                capability_payload = await _maybe_await(self._agent_capabilities_provider(agent_id, workspace_root))
+            await self.send_json(
+                "agent.capabilities",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                    "capabilities": dict(capability_payload) if isinstance(capability_payload, Mapping) else {},
+                },
+            )
+            return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 
     async def _flush_pending_frames(self, *, raise_on_disconnect: bool = False) -> None:
@@ -390,6 +429,12 @@ class IMConnectionManager:
         return websocket
 
 
+async def _maybe_await(value: Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None) -> Mapping[str, object] | None:
+    if asyncio.iscoroutine(value) or isinstance(value, Awaitable):
+        return await value
+    return value
+
+
 def _decode_message(raw: str) -> dict[str, Any]:
     try:
         parsed = json.loads(raw)
@@ -404,3 +449,9 @@ def _require_text(value: object, *, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
     return value.strip()
+
+
+def _require_mapping(value: object, *, field_name: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be an object")
+    return value

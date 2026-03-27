@@ -114,4 +114,11 @@ describe("app routes", () => {
     expect(await screen.findByRole("heading", { name: "Agents" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Settings Sections" })).toBeInTheDocument();
   });
+
+  it("renders the node-scoped agent creation route", async () => {
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes/node-1/agents/new"] });
+
+    expect(await screen.findByText(/Could not load this node\.|Create Agent on/i)).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Settings Sections" })).toBeInTheDocument();
+  });
 });

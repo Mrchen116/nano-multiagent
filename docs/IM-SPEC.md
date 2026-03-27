@@ -47,14 +47,19 @@
 ### P1 — Agent 配置中心
 
 - Web 端管理各 Agent 的显示名、描述、system prompt、skills 白名单、工具白名单、群聊策略、默认模型
+- Agent 创建入口挂在节点下：只有已绑定且在线的节点才允许创建 Agent
+- 每个 Agent 只属于一个节点（`agent -> node` 为多对一），不支持一个 Agent 绑定多个节点
+- `workspace_root` 由节点在创建时自动分配，IM 负责保存与展示，不允许前端手填本地路径
 - 配置变更仅对新会话生效，已开始的会话保持原行为
 - 配置版本化（`profile_version` 乐观锁），支持冲突检测
+- runtime 候选项（skills / tools / models）由节点上报能力并由节点校验，IM 不推断节点本地真实可用集合
 
 ### P1 — 节点管理与状态聚合
 
 - 节点注册、心跳上报、在线/离线/降级状态
 - 执行结果汇报与投递回执
 - 节点看板：在线状态、最近心跳、错误摘要、承载 Agent 数量
+- 节点上报 runtime capabilities 摘要（skills / tools / models），供 Web 端创建与编辑 Agent 时展示
 
 ---
 
@@ -88,8 +93,8 @@ Node Gateway 运行在用户个人机器上，通常在 NAT 后面，不可作�
 
 | 消息类型 | 用途 |
 |---|---|
-| `node.register` | 节点注册（携带 node_id、agent 列表、能力声明） |
-| `node.heartbeat` | 周期心跳（在线状态、Agent 运行态摘要） |
+| `node.register` | 节点注册（携带 node_id、agent 列表、能力声明与 capabilities 摘要） |
+| `node.heartbeat` | 周期心跳（在线状态、Agent 运行态摘要；必要时附带 capabilities 版本/摘要刷新） |
 | `node.report` | 执行结果汇报 |
 | `node.delivery_receipt` | 投递回执 |
 
@@ -99,6 +104,8 @@ Node Gateway 运行在用户个人机器上，通常在 NAT 后面，不可作�
 |---|---|
 | `relay.message` | Web IM 消息中继（进入 WebIM Channel 适配器） |
 | `config.sync` | 配置版本通知 |
+| `agent.create` | 节点侧创建 Agent 工作区并校验初始 runtime 配置 |
+| `agent.capabilities.resolve` | 按某个 Agent 的真实 workspace 解析 runtime capabilities |
 | `heartbeat.trigger` | 手动触发某个 Agent 的 heartbeat |
 
 Gateway 断线后自动重连（指数退避），重连后重新注册。断线期间外部 IM 主路径不受影响。
@@ -127,6 +134,7 @@ Gateway 断线后自动重连（指数退避），重连后重新注册。断线
 |---|---|---|
 | GET | `/im/v1/agents` | Agent 列表 |
 | GET | `/im/v1/agents/{id}/config` | Agent 配置详情 |
+| GET | `/im/v1/agents/{id}/capabilities` | 按该 Agent 真实 workspace 解析后的 runtime capabilities |
 | PATCH | `/im/v1/agents/{id}/config` | 更新配置（需 `profile_version` 乐观锁） |
 
 ### 节点管理（面向前端）
@@ -136,6 +144,8 @@ Gateway 断线后自动重连（指数退避），重连后重新注册。断线
 | 方法 | 端点 | 用途 |
 |---|---|---|
 | GET | `/im/v1/nodes` | 节点列表与状态（前端看板） |
+| GET | `/im/v1/nodes/{id}/capabilities` | 节点最近一次上报的 runtime capabilities 摘要 |
+| POST | `/im/v1/nodes/{id}/agents` | 在指定在线节点上创建 Agent（节点分配 workspace_root） |
 | PATCH | `/im/v1/nodes/{id}/config` | 节点中心配置（别名、中继开关、上报开关） |
 
 ### 用户与账号
@@ -159,10 +169,11 @@ Gateway 断线后自动重连（指数退避），重连后重新注册。断线
 | 模型 | 核心字段 | 说明 |
 |---|---|---|
 | `User` | `user_id`, `display_name`, `owned_node_ids`, `created_at` | 单用户 owner；在人机消息模型中对应一种参与者类型 |
-| `AgentProfile` | `agent_id`, `owner_id`, `display_name`, `system_prompt`, `skills[]`, `tool_allowlist[]`, `group_reply_policy`, `default_model`, `profile_version` | 配置变更仅对新会话生效；`owner_id` 关联所属用户；在 IM 消息模型中与人同为参与者 |
+| `AgentProfile` | `agent_id`, `owner_id`, `node_id`, `display_name`, `description`, `system_prompt`, `skills[]`, `tool_allowlist[]`, `group_reply_policy`, `default_model`, `workspace_root`, `profile_version` | 每个 Agent 只属于一个节点；`workspace_root` 由节点创建时自动分配并由 IM 持久化；配置变更仅对新会话生效；`owner_id` 关联所属用户；在 IM 消息模型中与人同为参与者 |
 | `Conversation` | `conversation_id`, `owner_id`, `type`(direct/group), `participants[]`, `title`, `is_pinned`, `is_muted`, `unread_count`, `last_message_at` | 会话容器；participants 为 Actor 集合；`direct` 明确区分“用户-Agent 单聊”与“Agent-Agent 单聊”，二者不可混用；属于同一 owner 空间的 Agent-Agent 单聊对用户可发现、可查看；`owner_id` 用于用户间数据隔离 |
 | `Message` | `message_id`, `conversation_id`, `sender`(actor), `content`, `attachments[]`, `created_at`, `delivery_status` | 消息；发送者是 Actor（人 / Agent / system），通过 conversation 间接关联 owner |
 | `NodeStatus` | `node_id`, `owner_id`, `node_name`, `status`(online/offline/degraded), `last_heartbeat_at`, `agent_count`, `version`, `last_error` | 节点运行态；`owner_id` 关联所属用户 |
+| `NodeCapabilities` | `node_id`, `reported_at`, `models[]`, `skills[]`, `tools[]` | 节点最近一次上报的 runtime capabilities 摘要；作为新建 Agent 页候选项来源 |
 | `RelayTask` | `message_id`, `target_node_id`, `payload`, `idempotency_key`, `status` | 消息中继任务 |
 
 ---
@@ -204,9 +215,25 @@ Node Gateway → IM 服务（回执/结果）→ SSE 推送到浏览器
 ```
 用户在 Web 端修改 Agent 配置
   → PATCH /im/v1/agents/{id}/config（带 profile_version 乐观锁）
-  → IM 服务版本 +1，返回 ack
+  → IM 服务要求所属节点校验 runtime 相关字段（skills / tools / models）
+  → 校验通过后版本 +1，返回 ack
   → 可选：通过 WebSocket 下推 config.sync 通知 Gateway 拉取最新配置
   → 配置仅对新会话生效，已有会话不受影响
+```
+
+### 7.4 节点下创建 Agent
+
+```
+用户在 Web 端打开 /settings/nodes/{node_id}/agents/new
+  → GET /im/v1/nodes/{node_id}/capabilities
+  → 前端展示该节点最近一次上报的 skills / tools / models 候选项
+  → 用户提交 POST /im/v1/nodes/{node_id}/agents
+  → IM 服务校验 node 已绑定、归属当前用户且当前 online
+  → 通过 WebSocket 发送 agent.create 到 Node Gateway
+  → Node Gateway 创建并分配 workspace_root，校验初始 runtime 配置
+  → IM 服务持久化 AgentProfile（含 node_id、workspace_root）
+  → 可选：下推 config.sync
+  → 返回新 Agent 配置
 ```
 
 ---
@@ -233,9 +260,10 @@ Node Gateway → IM 服务（回执/结果）→ SSE 推送到浏览器
 |---|---|
 | `/chat` | 会话列表 |
 | `/chat/:conversationId` | 会话详情 |
-| `/settings/agents` | Agent 配置列表 |
+| `/settings/agents` | Agent 配置列表（不承担创建入口） |
 | `/settings/agents/:id` | Agent 配置编辑 |
-| `/settings/nodes` | 节点状态与配置 |
+| `/settings/nodes` | 节点状态与配置、Agent 创建入口 |
+| `/settings/nodes/:nodeId/agents/new` | 在指定在线节点上创建 Agent |
 | `/settings/account` | 账号与设备归属 |
 
 ### 技术栈
@@ -317,6 +345,8 @@ src/IM/
 6. IM 离线不影响外部 IM 主路径（Node Gateway 本地自治）
 7. 中继可单独关闭，关闭后配置中心功能不受影响
 8. 消息中继必须幂等（`idempotency_key`）
+9. Agent 创建必须挂在一个已绑定且在线的节点下；无节点不允许创建 Agent
+10. runtime capabilities 的候选项与校验结果以节点上报/解析为准，IM 不得通过自身部署机本地文件系统推断
 
 ---
 
@@ -332,3 +362,5 @@ src/IM/
 8. 前端在桌面与手机竖屏都可正常使用
 9. IM 服务离线时，外部 IM 主路径仍可用（Node Gateway 自治验证）
 10. 消息中继幂等，重复请求不产生重复消息
+11. 用户只能在已绑定且在线的节点下创建 Agent；创建成功后 Agent 带单一 `node_id` 与节点分配的 `workspace_root`
+12. 新建页与编辑页展示的 runtime 候选项来自节点能力接口，而不是 IM 服务本机扫描结果

@@ -4,9 +4,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from IM.api.routes import agents as agent_routes
 from IM.app import create_app
-from IM.repositories import AgentProfileRepository, UserRepository
+from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
 
 
 def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None:
@@ -34,6 +33,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
         assert set(response.json()) == {
             "agent_id",
             "owner_id",
+            "node_id",
             "display_name",
             "description",
             "system_prompt",
@@ -44,7 +44,6 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "workspace_root",
             "workspace_is_default",
             "profile_version",
-            "bound_nodes",
             "updated_at",
         }
         assert response.json()["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
@@ -67,30 +66,26 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
         assert conflict.json() == {"detail": "profile_version conflict"}
 
 
-def test_agent_allowlist_options_contract_shape(tmp_path: Path, monkeypatch) -> None:
-    """Expose stable selectable skill/tool/model option envelopes for settings UI."""
-    monkeypatch.setattr(
-        agent_routes,
-        "_list_available_skill_options",
-        lambda: [agent_routes.AllowlistOptionResponse(name="plan", description="Plan work")],
-    )
-    monkeypatch.setattr(
-        agent_routes,
-        "_list_available_tool_options",
-        lambda: [agent_routes.AllowlistOptionResponse(name="read", description="Read files")],
-    )
-    monkeypatch.setattr(agent_routes, "_list_available_models", lambda: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"])
-    monkeypatch.setattr(agent_routes, "_platform_default_model", lambda: "codexOAuth:gpt-5.2-codex")
-
+def test_node_capabilities_contract_shape(tmp_path: Path) -> None:
+    """Expose stable node capability fields for node-first agent creation."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        response = client.get("/im/v1/agents/allowlist-options")
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(node_id="node-1", node_name="MacBook")
+        app.state.connection.execute(
+            "UPDATE nodes SET capabilities_json = ? WHERE node_id = ?",
+            ('{"skills":["plan"],"tools":["read"],"models":["codexOAuth:gpt-5.2-codex"]}', "node-1"),
+        )
+        app.state.connection.commit()
+
+        response = client.get("/im/v1/nodes/node-1/capabilities")
 
     assert response.status_code == 200
     assert response.json() == {
-        "skills": [{"name": "plan", "description": "Plan work"}],
-        "tools": [{"name": "read", "description": "Read files"}],
-        "model_options": ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"],
-        "platform_default_model": "codexOAuth:gpt-5.2-codex",
-        "default_system_prompt": agent_routes.PERSONAL_ASSISTANT_PROFILE.default_system_prompt,
+        "node_id": "node-1",
+        "skills": ["plan"],
+        "tools": ["read"],
+        "models": ["codexOAuth:gpt-5.2-codex"],
+        "platform_default_model": None,
+        "default_system_prompt": "",
     }

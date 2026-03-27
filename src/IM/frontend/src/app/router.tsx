@@ -36,10 +36,6 @@ export const appRoutes: RouteObject[] = [
                 element: <AgentsListPage />
               },
               {
-                path: "new",
-                element: <AgentCreatePage />
-              },
-              {
                 path: ":agentId",
                 element: <AgentDetailPage />
               }
@@ -47,7 +43,16 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: "nodes",
-            element: <NodesPage />
+            children: [
+              {
+                index: true,
+                element: <NodesPage />
+              },
+              {
+                path: ":nodeId/agents/new",
+                element: <AgentCreatePage />
+              }
+            ]
           },
           {
             path: "policies",

@@ -1,15 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { createDirectConversation } from "../../chat/chat-api";
 import { AllowlistSelector } from "./allowlist-selector";
-import { AgentSummary, createAgent, CreateAgentRequest, getAgentAllowlistOptions, listNodes } from "./im-agent-config-api";
+import { AgentSummary, createNodeAgent, getNodeCreateState, NodeAgentCreateRequest } from "./im-agent-config-api";
 
-type CreateAgentFormState = CreateAgentRequest & {
-  workspace_root_input: string;
-};
+type CreateAgentFormState = NodeAgentCreateRequest;
 
 function normalizeAllowlist(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
@@ -29,13 +27,12 @@ function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
     skills: normalizeAllowlist(draft.skills),
     tool_allowlist: normalizeAllowlist(draft.tool_allowlist),
     default_model: normalizeText(draft.default_model ?? "") || null,
-    workspace_root_input: draft.workspace_root_input.trim(),
-    node_id: draft.node_id || null
+    workspace_root: normalizeText(draft.workspace_root ?? "") || null
   };
 }
 
 function validateDraft(draft: CreateAgentFormState) {
-  const errors: Partial<Record<"agent_id" | "display_name" | "system_prompt" | "workspace_root_input", string>> = {};
+  const errors: Partial<Record<"agent_id" | "display_name" | "system_prompt", string>> = {};
 
   if (!draft.agent_id) {
     errors.agent_id = "Agent ID is required.";
@@ -51,14 +48,10 @@ function validateDraft(draft: CreateAgentFormState) {
     errors.system_prompt = "System prompt is required.";
   }
 
-  if (draft.workspace_root_input && !draft.workspace_root_input.startsWith("/") && !draft.workspace_root_input.startsWith("~/")) {
-    errors.workspace_root_input = "Workspace path must be absolute or start with ~/.";
-  }
-
   return errors;
 }
 
-function policyDescription(policy: CreateAgentRequest["group_reply_policy"]) {
+function policyDescription(policy: CreateAgentFormState["group_reply_policy"]) {
   switch (policy) {
     case "ALWAYS":
       return "Reply to every group message for high-touch concierge or assistant roles.";
@@ -81,14 +74,6 @@ function nodeStatusClasses(status: string) {
   }
 }
 
-function resolveModelOptions(modelOptions: string[] | undefined, currentModel: string | null) {
-  const resolved = Array.from(new Set((modelOptions ?? []).map((value) => value.trim()).filter(Boolean)));
-  if (currentModel && !resolved.includes(currentModel)) {
-    resolved.unshift(currentModel);
-  }
-  return resolved;
-}
-
 function platformDefaultLabel(model: string | null | undefined) {
   return model ? `Platform default (${model})` : "Platform default";
 }
@@ -103,11 +88,11 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   tool_allowlist: [],
   group_reply_policy: "MENTION",
   default_model: null,
-  workspace_root_input: "",
-  node_id: null
+  workspace_root: null
 };
 
 export function AgentCreatePage() {
+  const { nodeId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<CreateAgentFormState>(EMPTY_DRAFT);
@@ -116,18 +101,14 @@ export function AgentCreatePage() {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  const nodesQuery = useQuery({
-    queryKey: ["settings", "nodes"],
-    queryFn: listNodes
-  });
-  const allowlistOptionsQuery = useQuery({
-    queryKey: ["settings", "agents", "allowlist-options"],
-    queryFn: getAgentAllowlistOptions,
+  const createStateQuery = useQuery({
+    queryKey: ["settings", "nodes", nodeId, "create-state"],
+    queryFn: () => getNodeCreateState(nodeId),
     staleTime: 30_000
   });
 
   useEffect(() => {
-    const defaultSystemPrompt = allowlistOptionsQuery.data?.default_system_prompt?.trim() ?? "";
+    const defaultSystemPrompt = createStateQuery.data?.capabilities.default_system_prompt?.trim() ?? "";
     if (!defaultSystemPrompt) {
       return;
     }
@@ -137,37 +118,28 @@ export function AgentCreatePage() {
       }
       return { ...current, system_prompt: defaultSystemPrompt };
     });
-  }, [allowlistOptionsQuery.data?.default_system_prompt]);
+  }, [createStateQuery.data?.capabilities.default_system_prompt]);
 
   const normalizedDraft = useMemo(() => normalizeDraft(draft), [draft]);
   const validationErrors = useMemo(() => validateDraft(normalizedDraft), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
+  const capabilities = createStateQuery.data?.capabilities;
+  const node = createStateQuery.data?.node ?? null;
+  const availableModels = capabilities?.model_options ?? [];
+  const nodeLabel = capabilities?.node_name ?? node?.node_name ?? nodeId;
+  const nodeStatus = capabilities?.node_status ?? node?.status ?? "unknown";
+  const isNodeOnline = nodeStatus.toLowerCase() === "online";
   const managedWorkspacePreview = useMemo(
     () => `~/nano-assistant/workspace/${normalizedDraft.agent_id || "<agent-id>"}`,
     [normalizedDraft.agent_id]
   );
-  const availableModels = useMemo(
-    () => resolveModelOptions(allowlistOptionsQuery.data?.model_options, draft.default_model),
-    [allowlistOptionsQuery.data?.model_options, draft.default_model]
-  );
-  const platformDefaultModel = allowlistOptionsQuery.data?.platform_default_model ?? null;
-  const nodes = nodesQuery.data ?? [];
-  const selectedNode = nodes.find((node) => node.node_id === draft.node_id) ?? null;
-  const nodeErrorDetail =
-    nodesQuery.error instanceof Error ? nodesQuery.error.message.split(" failed: ").at(-1) ?? nodesQuery.error.message : "Unable to load nodes.";
-  const allowlistErrorDetail =
-    allowlistOptionsQuery.error instanceof Error
-      ? allowlistOptionsQuery.error.message.split(" failed: ").at(-1) ?? allowlistOptionsQuery.error.message
-      : "Unable to load selectable skills and tools.";
+  const queryErrorDetail =
+    createStateQuery.error instanceof Error
+      ? createStateQuery.error.message.split(" failed: ").at(-1) ?? createStateQuery.error.message
+      : "Unable to load this node.";
 
   const mutation = useMutation({
-    mutationFn: (next: CreateAgentFormState) => {
-      const { workspace_root_input, ...rest } = next;
-      return createAgent({
-        ...rest,
-        workspace_root: workspace_root_input || null
-      });
-    },
+    mutationFn: (next: CreateAgentFormState) => createNodeAgent(nodeId, next),
     onSuccess: async (created) => {
       setErrorMessage(null);
       setCreatedAgentId(created.agent_id);
@@ -199,12 +171,34 @@ export function AgentCreatePage() {
     }
   });
 
-  function markTouched(field: "agent_id" | "display_name" | "system_prompt" | "workspace_root_input") {
+  function markTouched(field: "agent_id" | "display_name" | "system_prompt") {
     setTouched((current) => ({ ...current, [field]: true }));
   }
 
-  function shouldShowError(field: "agent_id" | "display_name" | "system_prompt" | "workspace_root_input") {
+  function shouldShowError(field: "agent_id" | "display_name" | "system_prompt") {
     return (hasSubmitted || touched[field]) && validationErrors[field];
+  }
+
+  if (createStateQuery.isLoading && !capabilities) {
+    return <p className="text-sm text-slate-500">Loading node creation flow...</p>;
+  }
+
+  if (createStateQuery.isError && !capabilities) {
+    return (
+      <section className="grid gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-5">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-rose-700">Could not load this node.</p>
+          <p className="text-sm text-rose-600">{queryErrorDetail}</p>
+        </div>
+        <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void createStateQuery.refetch()}>
+          Retry
+        </button>
+      </section>
+    );
+  }
+
+  if (!capabilities) {
+    return <p className="text-sm text-slate-500">Loading node creation flow...</p>;
   }
 
   return (
@@ -215,7 +209,7 @@ export function AgentCreatePage() {
         setHasSubmitted(true);
         setErrorMessage(null);
 
-        if (hasValidationErrors) {
+        if (hasValidationErrors || !isNodeOnline) {
           return;
         }
 
@@ -224,13 +218,35 @@ export function AgentCreatePage() {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-2xl space-y-2">
-          <h2 className="im-title text-xl font-bold">Create Agent</h2>
-          <p className="text-sm text-slate-500">Start with the role and behavior. Access and runtime settings stay available without taking over the page.</p>
+          <h2 className="im-title text-xl font-bold">Create Agent on {nodeLabel}</h2>
+          <p className="text-sm text-slate-500">Start from one online node so runtime choices match the node that will actually host this agent.</p>
         </div>
-        <Link className="text-sm font-semibold text-teal-700 hover:underline" to="/settings/agents">
-          Back to Agents
+        <Link className="text-sm font-semibold text-teal-700 hover:underline" to="/settings/nodes">
+          Back to Nodes
         </Link>
       </div>
+
+      <section className="im-section-card">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="im-section-heading">Owning node</h3>
+            <p className="im-section-copy">Only online bound nodes can host a new agent.</p>
+          </div>
+          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${nodeStatusClasses(nodeStatus)}`}>{nodeStatus}</span>
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="im-subtle-card grid gap-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Node</p>
+            <p className="text-sm font-semibold text-slate-900">{nodeLabel}</p>
+            <p className="text-xs text-slate-500">{nodeId}</p>
+          </div>
+          <div className="im-subtle-card grid gap-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Capabilities updated</p>
+            <p className="text-sm text-slate-900">{capabilities.capabilities_updated_at ?? "—"}</p>
+            {!isNodeOnline ? <p className="text-xs font-semibold text-rose-700">This node is not online, so creation is blocked.</p> : null}
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-4">
         <section className="im-section-card">
@@ -357,11 +373,11 @@ export function AgentCreatePage() {
               id="skills-allowlist"
               label="Skills"
               selected={draft.skills}
-              options={allowlistOptionsQuery.data?.skills}
-              isLoading={allowlistOptionsQuery.isLoading}
-              errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
-              onRetry={() => void allowlistOptionsQuery.refetch()}
-              helpText="Choose only the reusable skills this agent needs right now. Saved non-standard items stay under review instead of filling the main path."
+              options={capabilities.skills}
+              isLoading={createStateQuery.isLoading}
+              errorMessage={createStateQuery.isError ? queryErrorDetail : null}
+              onRetry={() => void createStateQuery.refetch()}
+              helpText="Choose only the reusable skills this agent needs right now."
               emptySelectionText="No skill selected. Leave blank if this agent should inherit platform defaults."
               onChange={(skills) => {
                 setCreatedAgentId(null);
@@ -373,12 +389,12 @@ export function AgentCreatePage() {
               id="tool-allowlist"
               label="Tools"
               selected={draft.tool_allowlist}
-              options={allowlistOptionsQuery.data?.tools}
-              isLoading={allowlistOptionsQuery.isLoading}
-              errorMessage={allowlistOptionsQuery.isError ? allowlistErrorDetail : null}
-              onRetry={() => void allowlistOptionsQuery.refetch()}
+              options={capabilities.tools}
+              isLoading={createStateQuery.isLoading}
+              errorMessage={createStateQuery.isError ? queryErrorDetail : null}
+              onRetry={() => void createStateQuery.refetch()}
               showDescriptions={false}
-              helpText="Choose only the tools this agent needs right now. Saved non-standard items stay under review instead of filling the main path."
+              helpText="Choose only the tools this agent needs right now."
               emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
               onChange={(toolAllowlist) => {
                 setCreatedAgentId(null);
@@ -394,14 +410,13 @@ export function AgentCreatePage() {
               className="im-input"
               value={draft.default_model ?? ""}
               aria-describedby="default-model-help"
-              disabled={allowlistOptionsQuery.isLoading && availableModels.length === 0}
               onChange={(event) => {
                 setCreatedAgentId(null);
                 setErrorMessage(null);
                 setDraft({ ...draft, default_model: event.target.value || null });
               }}
             >
-              <option value="">{platformDefaultLabel(platformDefaultModel)}</option>
+              <option value="">{platformDefaultLabel(capabilities.platform_default_model)}</option>
               {availableModels.map((model) => (
                 <option key={model} value={model}>
                   {model}
@@ -409,7 +424,7 @@ export function AgentCreatePage() {
               ))}
             </select>
             <p id="default-model-help" className="text-xs text-slate-500">
-              Choose from the models the current runtime exposes. Leave this on {platformDefaultLabel(platformDefaultModel)} to inherit the platform setting.
+              Choose from the models the selected node currently exposes. Leave this on {platformDefaultLabel(capabilities.platform_default_model)} to inherit the platform setting.
             </p>
           </div>
         </section>
@@ -417,104 +432,35 @@ export function AgentCreatePage() {
         <section className="im-section-card">
           <div className="space-y-1">
             <h3 className="im-section-heading">Workspace</h3>
-            <p className="im-section-copy">Keep one workspace setting here. After creation, this page will show the active workspace in the same place.</p>
+            <p className="im-section-copy">The default workspace updates from the agent ID immediately. If you want a different location, override it here.</p>
           </div>
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-            <div className="grid gap-4">
-              <div className="grid gap-1">
-                <Label.Root htmlFor="workspace-root">Workspace setting</Label.Root>
-                <input
-                  id="workspace-root"
-                  className="im-input"
-                  value={draft.workspace_root_input}
-                  aria-invalid={Boolean(shouldShowError("workspace_root_input"))}
-                  aria-describedby="workspace-root-help"
-                  placeholder="Leave blank to use the managed default workspace"
-                  onBlur={() => markTouched("workspace_root_input")}
-                  onChange={(event) => setDraft({ ...draft, workspace_root_input: event.target.value })}
-                />
-                <p id="workspace-root-help" className="text-xs text-slate-500">
-                  Editable setting. Use an absolute path or `~/...`. Leave blank to store no override and let the platform use the managed default directory.
-                </p>
-                {shouldShowError("workspace_root_input") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.workspace_root_input}</p> : null}
-              </div>
-
-              <div className="grid gap-1">
-                <Label.Root htmlFor="node-id">Node</Label.Root>
-                <select
-                  id="node-id"
-                  className="im-input"
-                  value={draft.node_id ?? ""}
-                  disabled={nodesQuery.isLoading && nodes.length === 0}
-                  onChange={(event) => {
-                    setCreatedAgentId(null);
-                    setErrorMessage(null);
-                    setDraft({ ...draft, node_id: event.target.value || null });
-                  }}
-                >
-                  <option value="">Unbound</option>
-                  {nodes.map((node) => (
-                    <option key={node.node_id} value={node.node_id}>
-                      {node.node_name} ({node.node_id}) · {node.status}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-slate-500">Bind now for immediate placement, or leave unbound and assign capacity later.</p>
-              </div>
-
-              {nodesQuery.isLoading ? <p className="text-xs text-slate-500">Loading nodes. You can still create an unbound agent now.</p> : null}
-
-              {nodesQuery.isError ? (
-                <div className="grid gap-2 rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-sm text-rose-700">
-                  <p className="font-semibold">Could not load live node status.</p>
-                  <p className="text-xs text-rose-600">{nodeErrorDetail}</p>
-                  <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void nodesQuery.refetch()}>
-                    Retry nodes
-                  </button>
-                </div>
-              ) : selectedNode ? (
-                <div className="im-subtle-card grid gap-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{selectedNode.node_name}</p>
-                      <p className="text-xs text-slate-500">{selectedNode.node_id}</p>
-                    </div>
-                    <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${nodeStatusClasses(selectedNode.status)}`}>
-                      {selectedNode.status}
-                    </span>
-                  </div>
-                  <dl className="grid gap-1 text-xs text-slate-600">
-                    <div className="flex items-center justify-between gap-3">
-                      <dt>Assigned agents</dt>
-                      <dd>{selectedNode.agent_count}</dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <dt>Last heartbeat</dt>
-                      <dd>{selectedNode.last_heartbeat_at || "—"}</dd>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <dt>Runtime version</dt>
-                      <dd>{selectedNode.version || "—"}</dd>
-                    </div>
-                  </dl>
-                </div>
-              ) : nodes.length === 0 ? (
-                <p className="text-xs text-slate-500">No nodes are currently discoverable. Create the agent unbound and bind it when infrastructure is ready.</p>
-              ) : (
-                <p className="text-xs text-slate-500">No node selected yet. Leaving this unbound keeps the creation flow unblocked.</p>
-              )}
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)]">
+            <div className="grid gap-1">
+              <Label.Root htmlFor="workspace-root">Workspace Root</Label.Root>
+              <input
+                id="workspace-root"
+                className="im-input"
+                value={draft.workspace_root ?? ""}
+                aria-describedby="workspace-root-help"
+                placeholder={managedWorkspacePreview}
+                onChange={(event) => {
+                  setCreatedAgentId(null);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, workspace_root: event.target.value || null });
+                }}
+              />
+              <p id="workspace-root-help" className="text-xs text-slate-500">
+                Leave this blank to use the default path shown on the right, or enter a custom absolute path if this agent should live elsewhere.
+              </p>
             </div>
-
-            <div className="grid gap-4">
-              <section className="im-subtle-card grid gap-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current workspace</p>
-                <p className="break-all font-mono text-sm text-slate-900">{normalizedDraft.workspace_root_input || managedWorkspacePreview}</p>
-                <p className="text-xs text-slate-500">
-                  {normalizedDraft.workspace_root_input
-                    ? "This custom workspace will be saved on the agent profile when you create it."
-                    : "Leave the setting blank to use the managed default workspace for this agent."}
-                </p>
-              </section>
+            <div className="im-subtle-card grid gap-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Workspace preview</p>
+              <p className="break-all font-mono text-sm text-slate-900">{normalizedDraft.workspace_root || managedWorkspacePreview}</p>
+              <p className="text-xs text-slate-500">
+                {normalizedDraft.workspace_root
+                  ? "This custom workspace path will be sent during creation."
+                  : "This is the default workspace path derived from the current agent ID."}
+              </p>
             </div>
           </div>
         </section>
@@ -524,6 +470,7 @@ export function AgentCreatePage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div aria-live="polite" className="space-y-1 text-xs">
             {hasSubmitted && hasValidationErrors ? <p className="font-semibold text-rose-700">Complete the required fields before creating this agent.</p> : null}
+            {hasSubmitted && !hasValidationErrors && !isNodeOnline ? <p className="font-semibold text-rose-700">Bring this node online before creating an agent on it.</p> : null}
             {errorMessage ? <p className="font-semibold text-rose-700">{errorMessage}</p> : null}
             {createdAgentId ? (
               <>
@@ -533,7 +480,7 @@ export function AgentCreatePage() {
                 </Link>
               </>
             ) : !errorMessage && !hasValidationErrors ? (
-              <p className="text-slate-500">Create a new runtime agent profile without leaving Settings.</p>
+              <p className="text-slate-500">Create a new runtime agent profile on {nodeLabel} without leaving Settings.</p>
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -547,7 +494,7 @@ export function AgentCreatePage() {
                 {openDirectChatMutation.isPending ? "Opening direct chat…" : "Open direct chat"}
               </button>
             ) : null}
-            <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending}>
+            <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending || !isNodeOnline}>
               {mutation.isPending ? "Creating Agent…" : "Create Agent"}
             </button>
           </div>

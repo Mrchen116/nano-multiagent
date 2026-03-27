@@ -17,6 +17,7 @@ def test_node_repository_aggregates_degraded_and_offline_states(tmp_path: Path) 
         node_name="MacBook",
         version="1.2.3",
         agent_count=2,
+        capabilities={"relay": True},
     )
     assert registered.status == "online"
     assert registered.agent_count == 2

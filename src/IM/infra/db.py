@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     relay_enabled INTEGER NOT NULL DEFAULT 1,
     reporting_enabled INTEGER NOT NULL DEFAULT 1,
     alias TEXT,
-    last_error TEXT
+    last_error TEXT,
+    capabilities_json TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS usage_metrics (
@@ -362,6 +363,8 @@ def _migrate_nodes_metadata(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE nodes ADD COLUMN reporting_enabled INTEGER NOT NULL DEFAULT 1")
     if rows and "alias" not in column_names:
         connection.execute("ALTER TABLE nodes ADD COLUMN alias TEXT")
+    if rows and "capabilities_json" not in column_names:
+        connection.execute("ALTER TABLE nodes ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '{}' ")
 
 
 def _migrate_relay_tasks(connection: sqlite3.Connection) -> None:

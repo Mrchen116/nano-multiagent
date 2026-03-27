@@ -30,6 +30,7 @@ class ConfigService:
         *,
         agent_id: str,
         owner_id: str,
+        node_id: str,
         display_name: str,
         description: str,
         system_prompt: str,
@@ -37,27 +38,26 @@ class ConfigService:
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
-        workspace_root: str | None,
-        node_id: str | None,
+        workspace_root: str,
     ) -> AgentProfile:
-        """Create one agent profile and optionally bind it to a known node."""
+        """Create one agent profile under exactly one known node."""
         existing = self._profiles.get_profile(agent_id=agent_id)
         if existing is not None and existing.owner_id.strip():
             raise ValueError("agent_id already exists")
-        if node_id is not None:
-            if self._nodes is None:
-                raise LookupError("node_id not found")
-            node = self._nodes.get_node(node_id=node_id)
-            if node is None:
-                raise LookupError("node_id not found")
-            normalized_owner_id = owner_id.strip()
-            if node.owner_id.strip() and normalized_owner_id and node.owner_id != normalized_owner_id:
-                raise ValueError("node_id owned by another owner")
-            if not node.owner_id.strip() and normalized_owner_id:
-                self._nodes.assign_owner(node_id=node_id, owner_id=normalized_owner_id)
+        if self._nodes is None:
+            raise LookupError("node_id not found")
+        node = self._nodes.get_node(node_id=node_id)
+        if node is None:
+            raise LookupError("node_id not found")
+        normalized_owner_id = owner_id.strip()
+        if node.owner_id.strip() and normalized_owner_id and node.owner_id != normalized_owner_id:
+            raise ValueError("node_id owned by another owner")
+        if not node.owner_id.strip() and normalized_owner_id:
+            self._nodes.assign_owner(node_id=node_id, owner_id=normalized_owner_id)
         created = self._profiles.upsert_profile(
             agent_id=agent_id,
             owner_id=owner_id,
+            node_id=node_id,
             display_name=display_name,
             description=description,
             system_prompt=system_prompt,
@@ -67,16 +67,6 @@ class ConfigService:
             default_model=default_model,
             workspace_root=self.normalize_workspace_root(agent_id=agent_id, workspace_root=workspace_root),
         )
-        if node_id is not None:
-            self._profiles._connection.execute(
-                "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
-                (node_id, agent_id),
-            )
-            self._profiles._connection.commit()
-            rebound = self._profiles.get_profile(agent_id=agent_id)
-            assert rebound is not None
-            self._notify_config_sync(agent_id=agent_id, profile_version=rebound.profile_version)
-            return rebound
         self._notify_config_sync(agent_id=agent_id, profile_version=created.profile_version)
         return created
 
@@ -87,10 +77,6 @@ class ConfigService:
     def list_runtime_selectable_profiles(self) -> list[AgentProfile]:
         """List agent profiles that are selectable in the current runtime."""
         return self._profiles.list_runtime_selectable_profiles()
-
-    def list_bound_nodes(self, *, agent_id: str) -> list[str]:
-        """Return the bound node ids for one agent."""
-        return self._profiles.list_bound_nodes(agent_id=agent_id)
 
     def get_updated_at(self, *, agent_id: str) -> str | None:
         """Return the last update timestamp for one agent."""
@@ -164,7 +150,14 @@ class ConfigService:
         notifier = self._config_sync_notifier
         if notifier is None:
             return
-        for node_id in self.list_bound_nodes(agent_id=agent_id):
-            result = notifier(node_id, agent_id, profile_version)
-            if asyncio.iscoroutine(result):
+        profile = self.get_profile(agent_id=agent_id)
+        if profile is None or profile.node_id is None or not profile.node_id.strip():
+            return
+        result = notifier(profile.node_id, agent_id, profile_version)
+        if asyncio.iscoroutine(result):
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
                 asyncio.run(result)
+            else:
+                loop.create_task(result)

@@ -1,6 +1,7 @@
 # Claude Code hook state (runtime only)
 .claude/state/
 .codex/
+*.sqlite3
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -230,4 +231,3 @@ data/*.sqlite3
 
 # Local screenshots / scratch artifacts
 Snipaste_*.png
-.gstack/

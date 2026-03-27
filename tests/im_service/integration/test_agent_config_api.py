@@ -47,13 +47,13 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
             {
                 "agent_id": "agent-1",
                 "owner_id": owner.owner_id,
+                "node_id": "node-1",
                 "display_name": "Alpha",
                 "description": "initial",
                 "profile_version": 1,
                 "default_model": "gpt-4.1",
                 "workspace_root": list_resp.json()[0]["workspace_root"],
                 "workspace_is_default": True,
-                "bound_nodes": ["node-1"],
                 "updated_at": list_resp.json()[0]["updated_at"],
             }
         ]
@@ -84,8 +84,8 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
         assert body["display_name"] == "Alpha v2"
         assert body["profile_version"] == 2
         assert body["group_reply_policy"] == "auto"
-        assert body["workspace_root"] == _WORKSPACE_PATH_SETTING
-        assert body["workspace_is_default"] is False
+        assert body["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
+        assert body["workspace_is_default"] is True
 
         reset_resp = client.patch(
             f"/im/v1/agents/{seeded.agent_id}/config",
@@ -292,7 +292,7 @@ def test_agents_list_hides_unbound_and_cross_owner_profiles(tmp_path: Path) -> N
         response = client.get("/im/v1/agents")
         assert response.status_code == 200
         assert [item["agent_id"] for item in response.json()] == ["agent-selectable"]
-        assert response.json()[0]["bound_nodes"] == ["node-1"]
+        assert response.json()[0]["node_id"] == "node-1"
 
 
 
@@ -346,13 +346,13 @@ def test_agents_list_includes_fresh_runtime_profiles_before_bind(tmp_path: Path)
             {
                 "agent_id": "agent-fresh",
                 "owner_id": "",
+                "node_id": "node-fresh",
                 "display_name": "Fresh Agent",
                 "description": "advertised by an unbound runtime",
                 "profile_version": 1,
                 "default_model": None,
                 "workspace_root": response.json()[0]["workspace_root"],
                 "workspace_is_default": True,
-                "bound_nodes": ["node-fresh"],
                 "updated_at": response.json()[0]["updated_at"],
             }
         ]
@@ -505,39 +505,23 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(tmp_pat
         assert patch_resp.json()["display_name"] == "Alpha NO_REPLY"
 
 
-def test_agent_allowlist_options_returns_current_selectable_items(tmp_path: Path, monkeypatch) -> None:
-    """Expose current skill/tool/model options so the settings UI can render selectors."""
-    monkeypatch.setattr(
-        agent_routes,
-        "_list_available_skill_options",
-        lambda: [
-            agent_routes.AllowlistOptionResponse(name="plan", description="Plan work"),
-            agent_routes.AllowlistOptionResponse(name="playwright", description="Drive browser checks"),
-        ],
-    )
-    monkeypatch.setattr(
-        agent_routes,
-        "_list_available_tool_options",
-        lambda: [
-            agent_routes.AllowlistOptionResponse(name="read", description="Read files"),
-            agent_routes.AllowlistOptionResponse(name="bash", description="Run shell commands"),
-        ],
-    )
-    monkeypatch.setattr(agent_routes, "_list_available_models", lambda: ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"])
-    monkeypatch.setattr(agent_routes, "_platform_default_model", lambda: "codexOAuth:gpt-5.2-codex")
-
+def test_node_capabilities_return_current_selectable_items(tmp_path: Path) -> None:
+    """Expose current node-reported skill/tool/model items for the settings UI."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        response = client.get("/im/v1/agents/allowlist-options")
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(node_id="node-1", node_name="MacBook", status="online", version="1.0.0")
+        app.state.connection.execute(
+            "UPDATE nodes SET capabilities_json = ? WHERE node_id = ?",
+            (
+                '{"skills":["plan","playwright"],"tools":["read","bash"],"models":["codexOAuth:gpt-5.2-codex","claude-3-5-sonnet-20241022"]}',
+                "node-1",
+            ),
+        )
+        app.state.connection.commit()
+        response = client.get("/im/v1/nodes/node-1/capabilities")
 
     assert response.status_code == 200
-    assert response.json()["skills"] == [
-        {"name": "plan", "description": "Plan work"},
-        {"name": "playwright", "description": "Drive browser checks"},
-    ]
-    assert response.json()["tools"] == [
-        {"name": "read", "description": "Read files"},
-        {"name": "bash", "description": "Run shell commands"},
-    ]
-    assert response.json()["model_options"] == ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"]
-    assert response.json()["platform_default_model"] == "codexOAuth:gpt-5.2-codex"
+    assert response.json()["skills"] == ["plan", "playwright"]
+    assert response.json()["tools"] == ["read", "bash"]
+    assert response.json()["models"] == ["codexOAuth:gpt-5.2-codex", "claude-3-5-sonnet-20241022"]

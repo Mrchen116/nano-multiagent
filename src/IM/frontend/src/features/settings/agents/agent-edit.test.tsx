@@ -68,9 +68,13 @@ describe("agent edit page", () => {
         );
       }
 
-      if (url === "/im/v1/agents/allowlist-options") {
+      if (url === "/im/v1/agents/agent-core-1/capabilities") {
         return new Response(
           JSON.stringify({
+            node_id: "node-1",
+            node_name: "MacBook",
+            node_status: "online",
+            capabilities_updated_at: "2026-03-13T10:00:00Z",
             skills: [
               { name: "tdd-execution-worker", description: "Execute TDD tasks" },
               { name: "playwright", description: "Drive browser checks" },
@@ -148,8 +152,11 @@ describe("agent edit page", () => {
     expect(screen.getByRole("heading", { name: "Workspace" })).toBeInTheDocument();
     expect(screen.getByText("MacBook")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
+    expect(screen.getByText("Owning node")).toBeInTheDocument();
+    expect(screen.getByText("Capabilities updated")).toBeInTheDocument();
     expect(screen.getByText("Current workspace")).toBeInTheDocument();
     expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Workspace setting")).not.toBeInTheDocument();
     expect(screen.queryByText(/^Selected 2$/)).not.toBeInTheDocument();
     expect(screen.queryByText("Needs review")).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /tdd-execution-worker/i })).toBeChecked();
@@ -163,7 +170,6 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("checkbox", { name: /playwright/i }));
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /bash/i }));
-    fireEvent.change(screen.getByLabelText("Workspace setting"), { target: { value: "/custom/agent-core-1" } });
     await user.click(screen.getByRole("button", { name: "Save Agent" }));
 
     expect(await screen.findByText("Saved")).toBeInTheDocument();
@@ -182,8 +188,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "plan"],
             tool_allowlist: ["read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codexOAuth:gpt-5.2-codex",
-            workspace_root: "/custom/agent-core-1"
+            default_model: "codexOAuth:gpt-5.2-codex"
           })
         })
       );
@@ -203,7 +208,7 @@ describe("agent edit page", () => {
         });
       }
 
-      if (url === "/im/v1/agents/allowlist-options") {
+      if (url === "/im/v1/agents/agent-core-1/capabilities") {
         return new Response(
           JSON.stringify({
             skills: [],
@@ -270,7 +275,7 @@ describe("agent edit page", () => {
         });
       }
 
-      if (url === "/im/v1/agents/allowlist-options") {
+      if (url === "/im/v1/agents/agent-core-1/capabilities") {
         return new Response(
           JSON.stringify({
             skills: [],

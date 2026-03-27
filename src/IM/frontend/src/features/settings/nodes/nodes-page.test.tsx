@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 describe("nodes page", () => {
-  it("edits node alias via IM APIs and persists after reload", async () => {
+  it("shows node-scoped create entry only for online nodes and edits aliases via IM APIs", async () => {
     const user = userEvent.setup();
     fetchMock
       .mockResolvedValueOnce(
@@ -32,6 +32,19 @@ describe("nodes page", () => {
               reporting_enabled: true,
               alias: null,
               last_error: null
+            },
+            {
+              node_id: "node-app-02",
+              owner_id: "owner-1",
+              node_name: "node-app-02",
+              status: "offline",
+              last_heartbeat_at: "2026-03-13T09:00:00Z",
+              agent_count: 1,
+              version: "1.8.2",
+              relay_enabled: true,
+              reporting_enabled: true,
+              alias: null,
+              last_error: "gateway disconnected"
             }
           ]),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -80,6 +93,9 @@ describe("nodes page", () => {
       routes: appRoutes,
       initialEntries: ["/settings/nodes"]
     });
+
+    expect(await screen.findByRole("link", { name: "Create agent on node-app-01" })).toHaveAttribute("href", "/settings/nodes/node-app-01/agents/new");
+    expect(screen.queryByRole("link", { name: "Create agent on node-app-02" })).not.toBeInTheDocument();
 
     const aliasInput = await screen.findByLabelText("Alias node-app-01");
     await user.clear(aliasInput);

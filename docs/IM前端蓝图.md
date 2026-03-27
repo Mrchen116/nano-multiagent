@@ -27,16 +27,17 @@ V1 采用个人 owner 模型：
 
 ### 4.1 放在 IM 前端（中心可管配置）
 
-1. Agent Profile 配置：`system prompt`、skills 白名单、群聊策略（如 `NO_REPLY`）。
+1. Agent Profile 配置：`display name`、`description`、`system prompt`、skills 白名单、工具白名单、群聊策略、默认模型。
 2. 节点中心配置：节点别名、绑定关系、目标配置版本、是否启用中继/上报。
 3. 内置 Web IM 会话配置：会话成员、会话级规则。
-4. 节点运行态看板：在线状态、最近心跳、错误摘要。
+4. 节点运行态看板：在线状态、最近心跳、错误摘要、节点上报的 runtime capabilities 摘要。
 
 ### 4.2 不放在 IM 前端（节点本地配置）
 
 1. 外部 IM 账号凭证（QQ token、机器人密钥等）。
 2. `HEARTBEAT.md` 本地调度细节与本地 cron。
-3. 本地工作区路径、文件权限、安全策略。
+3. 本地工作区路径分配、文件权限、安全策略。
+4. skills / tools / models 的真实可用集合推断；这些由节点上报能力并由节点校验，不由 IM 前端或 IM 服务本机猜测。
 
 说明：手机端支持修改“中心可管配置”；本地敏感配置仍在 AgentNode 本地控制台/CLI 修改。
 
@@ -56,10 +57,11 @@ V1 采用个人 owner 模型：
 
 ## 6. 配置页路由（IM前端内）
 
-1. `/settings/agents`：Agent 列表与配置版本
-2. `/settings/agents/:id`：单 Agent 配置编辑（prompt/skills/群聊规则）
-3. `/settings/nodes`：节点状态与中心配置编辑
-4. `/settings/account`：账号与节点归属信息
+1. `/settings/agents`：Agent 列表与配置版本（只查看/进入编辑，不承担创建入口）
+2. `/settings/agents/:id`：单 Agent 配置编辑（显示所属节点，并基于该节点上报能力编辑 runtime 配置）
+3. `/settings/nodes`：节点状态查看、中心配置编辑、Agent 创建入口
+4. `/settings/nodes/:nodeId/agents/new`：在指定在线节点上创建 Agent
+5. `/settings/account`：账号与节点归属信息
 
 ## 7. 视觉与交互基线
 
@@ -104,9 +106,12 @@ V1 采用个人 owner 模型：
 2. `GET /im/v1/conversations/{id}/events`（SSE）
 3. `GET /im/v1/agents/{agent_id}/config`
 4. `PATCH /im/v1/agents/{agent_id}/config`
-5. `GET /im/v1/nodes`
-6. `PATCH /im/v1/nodes/{node_id}/config`（中心可管配置）
-7. `GET /im/v1/metrics/usage`
+5. `GET /im/v1/agents/{agent_id}/capabilities`
+6. `GET /im/v1/nodes`
+7. `GET /im/v1/nodes/{node_id}/capabilities`
+8. `POST /im/v1/nodes/{node_id}/agents`
+9. `PATCH /im/v1/nodes/{node_id}/config`（中心可管配置）
+10. `GET /im/v1/metrics/usage`
 
 ## 11. 目录建议
 
@@ -134,7 +139,8 @@ src/IM/frontend/
 | `P2` | `/chat/:conversationId` | 桌面/手机 | 消息阅读、发送、附件上传 | 节点所有者（用户自己） |
 | `P3` | `/settings/agents` | 桌面/手机 | Agent 配置列表与版本查看 | 节点所有者（用户自己） |
 | `P4` | `/settings/agents/:agentId` | 桌面/手机 | 单 Agent 配置编辑 | 节点所有者（用户自己） |
-| `P5` | `/settings/nodes` | 桌面/手机 | 节点状态查看与中心配置编辑 | 节点所有者（用户自己） |
+| `P5` | `/settings/nodes` | 桌面/手机 | 节点状态查看、中心配置编辑、Agent 创建入口 | 节点所有者（用户自己） |
+| `P5a` | `/settings/nodes/:nodeId/agents/new` | 桌面/手机 | 在指定在线节点上创建 Agent | 节点所有者（用户自己） |
 | `P6` | `/settings/account` | 桌面/手机 | 账号与节点归属信息 | 节点所有者（用户自己） |
 
 ## 13. 每页字段清单
@@ -176,7 +182,9 @@ src/IM/frontend/
 | `display_name` | string | 是 | 同上 | 展示名称 |
 | `profile_version` | string | 是 | 同上 | 配置版本 |
 | `enabled` | boolean | 是 | 同上 | 启用状态 |
-| `bound_nodes` | array | 否 | 同上 | 已绑定节点 |
+| `node_id` | string | 是 | 同上 | 所属节点 ID |
+| `node_name` | string | 否 | 同上 | 所属节点展示名 |
+| `node_status` | enum | 否 | 同上 | 所属节点在线状态 |
 | `updated_at` | datetime | 是 | 同上 | 最后更新时间 |
 
 ### 13.4 `P4 /settings/agents/:agentId`（Agent 配置编辑页）
@@ -184,15 +192,20 @@ src/IM/frontend/
 | 字段 | 类型 | 必填 | 来源 | 说明 |
 |---|---|---|---|---|
 | `agent_id` | string | 是 | 路由参数 | 目标 Agent |
+| `node_id` | string | 是 | `GET /im/v1/agents/{id}/config` | 所属节点 ID |
+| `node_name` | string | 否 | 同上 | 所属节点展示名 |
+| `node_status` | enum | 否 | 同上/`GET /im/v1/agents/{id}/capabilities` | 所属节点在线状态 |
+| `workspace_root` | string | 是 | 同上 | 由节点分配并管理的工作区路径（只读展示） |
 | `display_name` | string | 是 | `GET/PATCH /im/v1/agents/{id}/config` | 显示名 |
 | `description` | string | 否 | 同上 | 用途说明 |
 | `system_prompt` | text | 是 | 同上 | 系统提示词 |
-| `skills_allowlist` | array<string> | 否 | 同上 | 技能白名单 |
+| `skills_allowlist` | array<string> | 否 | 同上 | 技能白名单；候选项来自所属节点上报/解析的能力集合 |
 | `group_reply_policy` | enum | 是 | 同上 | 群聊回复策略 |
 | `no_reply_token` | string | 否 | 同上 | 默认为 `NO_REPLY` |
-| `default_model` | string | 否 | 同上 | 默认模型 |
-| `tool_allowlist` | array<string> | 否 | 同上 | 工具白名单 |
+| `default_model` | string | 否 | 同上 | 默认模型；候选项来自所属节点能力 |
+| `tool_allowlist` | array<string> | 否 | 同上 | 工具白名单；候选项来自所属节点上报/解析的能力集合 |
 | `profile_version` | string | 是 | 同上 | 乐观锁版本号 |
+| `capabilities_updated_at` | datetime | 否 | `GET /im/v1/agents/{id}/capabilities` | 当前能力快照时间 |
 
 ### 13.5 `P5 /settings/nodes`（节点状态与中心配置页）
 
@@ -208,8 +221,27 @@ src/IM/frontend/
 | `relay_enabled` | boolean | 否 | 同上 | 是否启用中心中继（可改） |
 | `report_enabled` | boolean | 否 | 同上 | 是否启用上报（可改） |
 | `last_error` | string | 否 | `GET /im/v1/nodes` | 最近错误摘要 |
+| `capability_summary` | string | 否 | `GET /im/v1/nodes`/`GET /im/v1/nodes/{id}/capabilities` | 节点上报的 skills/tools/models 摘要 |
+| `can_create_agent` | boolean | 是 | 前端派生 | 仅在线节点允许进入创建 Agent 流程 |
 
-### 13.6 `P6 /settings/account`（账号与归属页）
+### 13.6 `P5a /settings/nodes/:nodeId/agents/new`（在指定节点上创建 Agent）
+
+| 字段 | 类型 | 必填 | 来源 | 说明 |
+|---|---|---|---|---|
+| `node_id` | string | 是 | 路由参数 | 创建目标节点 |
+| `node_name` | string | 是 | `GET /im/v1/nodes/{node_id}/capabilities` | 目标节点展示名 |
+| `node_status` | enum | 是 | 同上 | 创建时必须为 online |
+| `capabilities_updated_at` | datetime | 否 | 同上 | 节点能力快照时间 |
+| `display_name` | string | 是 | 本地表单/`POST /im/v1/nodes/{node_id}/agents` | Agent 显示名 |
+| `description` | string | 否 | 同上 | 用途说明 |
+| `system_prompt` | text | 是 | 同上 | 系统提示词 |
+| `skills_allowlist` | array<string> | 否 | 同上 | 候选项仅来自该节点当前上报能力 |
+| `group_reply_policy` | enum | 是 | 同上 | 群聊回复策略 |
+| `default_model` | string | 否 | 同上 | 候选项仅来自该节点当前上报能力 |
+| `tool_allowlist` | array<string> | 否 | 同上 | 候选项仅来自该节点当前上报能力 |
+| `workspace_root` | string | 否 | `POST` 响应 | 由节点创建时自动分配；创建前不作为用户输入 |
+
+### 13.7 `P6 /settings/account`（账号与归属页）
 
 | 字段 | 类型 | 必填 | 来源 | 说明 |
 |---|---|---|---|---|
@@ -234,7 +266,9 @@ src/IM/frontend/
 1. API 契约冻结：
    - `conversations/messages/events`
    - `agents config`
-   - `nodes config/status`
+   - `agents capabilities`
+   - `nodes config/status/capabilities`
+   - `node-scoped agent creation`
    - `account`
 2. SSE 事件字典统一：
    - 事件名（`text_delta/tool_start/tool_end/turn_end/error`）
@@ -252,10 +286,13 @@ src/IM/frontend/
 1. 节点状态语义统一：
    - `online/offline/degraded` 判定规则
    - `last_heartbeat_at` 时区与格式
-2. 中继与上报开关联动：
+2. 节点能力语义统一：
+   - skills / tools / models 由节点上报并作为前端唯一候选来源
+   - Agent 创建与 runtime 配置保存时由节点做最终校验
+3. 中继与上报开关联动：
    - `relay_enabled/report_enabled` 修改后的生效时机
    - 生效失败时的回滚提示
-3. 消息回执映射：
+4. 消息回执映射：
    - 节点回执状态与前端气泡状态一一映射
    - 失败重试按钮触发协议统一
 

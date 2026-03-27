@@ -10,11 +10,12 @@ from pathlib import Path
 import pytest
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
+from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 from agent.products.personal_assistant.tools.send_message import SendMessageTool
 from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter
+from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_runtime_capabilities
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
 
@@ -52,15 +53,44 @@ class _FailOnNthSendWebSocket(_FakeWebSocket):
 def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
     workspace = tmp_path / "agent-a"
     workspace.mkdir()
-    return (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace, title="Agent A"),)
+    return (
+        AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=workspace,
+            title="Agent A",
+            skills=("plan", "playwright"),
+            tool_allowlist=("read", "bash"),
+            default_model="codexOAuth:gpt-5.2-codex",
+        ),
+    )
 
 
-def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(tmp_path: Path) -> None:
+def _write_skill(root: Path, dir_name: str, *, frontmatter_name: str | None = None) -> None:
+    skill_dir = root / dir_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    declared_name = frontmatter_name or dir_name
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {declared_name}\ndescription: {declared_name} skill\n---\n",
+        encoding="utf-8",
+    )
+
+
+def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     frames: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_skill(tmp_path / ".nanoassistant" / "skills", "plan")
+    _write_skill(tmp_path / ".claude" / "skills", "playwright", frontmatter_name='"playwright"')
+    gstack_target_root = tmp_path / ".gstack" / "repos" / "gstack" / ".agents" / "skills"
+    _write_skill(gstack_target_root, "gstack-plan-design-review", frontmatter_name="plan-design-review")
+    codex_skills_root = tmp_path / ".codex" / "skills"
+    codex_skills_root.mkdir(parents=True, exist_ok=True)
+    (codex_skills_root / "gstack-plan-design-review").symlink_to(gstack_target_root / "gstack-plan-design-review", target_is_directory=True)
+    agents = _agents(tmp_path)
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1", user_id="user-1"),
-        agents=_agents(tmp_path),
+        agents=agents,
         send_frame=lambda message_type, payload: frames.append((message_type, payload)),
+        capabilities=build_runtime_capabilities(),
         node_name="MacBook",
         version="1.2.3",
     )
@@ -72,6 +102,16 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(tmp_path
 
     assert register["node_id"] == "node-1"
     assert register["agents"] == ["agent-a"]
+    assert register["capabilities"] == {
+        "relay": True,
+        "send_message": True,
+        "config_sync": True,
+        "models": ["claude-3-5-sonnet-20241022", "codexOAuth:gpt-5.2-codex"],
+        "skills": ["plan", "plan-design-review", "playwright"],
+        "tools": ["read", "write", "edit", "bash", "task", "send_message", "web_fetch", "web_search"],
+        "platform_default_model": "codexOAuth:gpt-5.2-codex",
+        "default_system_prompt": PERSONAL_ASSISTANT_PROFILE.default_system_prompt,
+    }
     assert heartbeat["running_runs"] == 2
     assert report["run_id"] == "run-1"
     assert receipt["relay_task_id"] == "relay-1"

@@ -51,10 +51,12 @@ kernel:
   command: "python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port 8000"
 
 im_service:
-  url: http://127.0.0.1:8011
+  url: http://<im-host>:8011
 ```
 
 说明：
+- `im_service.url` 应填写 Gateway 实际要连接的 IM 服务地址；可以是本机，也可以是远端内网/公网地址。
+- 临时覆盖某次启动的 IM 地址时，可在命令行追加 `--im-service-url http://<im-host>:8011`。
 - 默认本地路径不需要手工填写 `kernel.token`；Gateway 会补齐本地 kernel bearer token。
 - 省略 `agents[].workspace_root` 时，默认使用 `~/nano-assistant/workspace/<agent_id>/`，并在首次加载配置时自动创建目录。
 - `kernel.base_url` 属于 Gateway 内部默认值，面向用户的最小配置无需填写。
@@ -64,6 +66,8 @@ im_service:
 ```bash
 cd <repo>
 PYTHONPATH=src python -m personal_assistant.main
+# 或显式指定远端 IM
+PYTHONPATH=src python -m personal_assistant.main --im-service-url http://<im-host>:8011
 ```
 
 默认命令会把 Gateway 放到后台，并立即返回：
@@ -87,6 +91,8 @@ PYTHONPATH=src python -m personal_assistant.main stop
 
 ```bash
 PYTHONPATH=src python -m personal_assistant.main restart
+# 或显式指定远端 IM
+PYTHONPATH=src python -m personal_assistant.main restart --im-service-url http://<im-host>:8011
 ```
 
 **单实例保护**：同一台机器只允许运行一个 Gateway 实例。若已有实例在运行，`start`/`restart` 会拒绝启动并提示当前 PID：

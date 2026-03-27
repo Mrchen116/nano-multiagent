@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import signal
 import sys
 import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-import os
 
 import httpx
 import pytest
@@ -701,18 +702,13 @@ def test_im_bootstrap_client_skips_browser_for_bound_node() -> None:
     assert calls == ["GET /im/v1/nodes"]
 
 
-def test_im_bootstrap_client_falls_back_to_local_im_api_port_when_primary_bootstrap_host_has_no_node() -> None:
-    opened: list[str] = []
+def test_im_bootstrap_client_only_uses_configured_im_base_url() -> None:
+    requests: list[tuple[str, str]] = []
 
     def _client_factory(base_url: str) -> httpx.Client:
         def _handler(request: httpx.Request) -> httpx.Response:
-            if base_url == "http://127.0.0.1:8021" and request.method == "GET" and request.url.path == "/im/v1/nodes":
-                return httpx.Response(200, json=[])
-            if base_url == "http://127.0.0.1:8011" and request.method == "GET" and request.url.path == "/im/v1/nodes":
-                return httpx.Response(200, json=[{"node_id": "node-local", "owner_id": ""}])
-            if base_url == "http://127.0.0.1:8011" and request.method == "POST" and request.url.path == "/im/v1/bind":
-                return httpx.Response(201, json={"bind_url": "http://127.0.0.1:4173/bind/confirm?token=fallback"})
-            raise AssertionError(f"unexpected request: {base_url} {request.method} {request.url}")
+            requests.append((base_url, request.url.path))
+            return httpx.Response(200, json=[])
 
         return httpx.Client(base_url=base_url, transport=httpx.MockTransport(_handler), trust_env=False)
 
@@ -720,15 +716,15 @@ def test_im_bootstrap_client_falls_back_to_local_im_api_port_when_primary_bootst
         base_url="http://127.0.0.1:8021",
         token=None,
         client_factory=_client_factory,
-        browser_opener=lambda url, new=0, autoraise=True: opened.append(url) or True,
-        monotonic=lambda: 0.0,
+        browser_opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("browser should not open")),
+        monotonic=iter([0.0, 0.0, 5.1]).__next__,
         sleep=lambda _seconds: None,
     )
 
-    bind_url = bootstrap.ensure_node_binding(node_id="node-local")
+    with pytest.raises(GatewayStartupError, match="node node-local did not appear in IM bootstrap"):
+        bootstrap.ensure_node_binding(node_id="node-local")
 
-    assert bind_url == "http://127.0.0.1:4173/bind/confirm?token=fallback"
-    assert opened == ["http://127.0.0.1:4173/bind/confirm?token=fallback"]
+    assert requests == [("http://127.0.0.1:8021", "/im/v1/nodes")]
 
 
 
@@ -1171,6 +1167,47 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_read
     assert seen["wait"] == (process, config, config.kernel.startup_timeout_seconds)
 
 
+
+def test_launch_gateway_in_background_passes_im_service_override_to_child_and_runtime_config(tmp_path: Path) -> None:
+    config = _build_config(tmp_path)
+    process = _FakeProcess(wait_result=0, pid=1357)
+    seen: dict[str, object] = {}
+
+    def _spawn_process(argv: list[str], log_path: Path) -> _FakeProcess:
+        seen["spawn"] = (argv, log_path)
+        return process
+
+    def _wait_for_ready(child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float) -> None:
+        seen["wait"] = (child, loaded_config, timeout_seconds)
+
+    result = launch_gateway_in_background(
+        config_path=config.source_path,
+        load_config=lambda _path: config,
+        spawn_process=_spawn_process,
+        wait_for_ready=_wait_for_ready,
+        im_service_url_override="http://im.remote:9011",
+    )
+
+    assert result.im_service_url == "http://im.remote:9011"
+    assert seen["spawn"] == (
+        [
+            sys.executable,
+            "-m",
+            "personal_assistant.main",
+            "--config",
+            str(config.source_path),
+            "--im-service-url",
+            "http://im.remote:9011",
+            "--foreground",
+        ],
+        config.source_path.parent / "gateway.log",
+    )
+    loaded_config = seen["wait"][1]
+    assert loaded_config.im_service is not None
+    assert loaded_config.im_service.url == "http://im.remote:9011"
+
+
+
 def test_launch_gateway_in_background_stops_child_when_ready_wait_fails(tmp_path: Path) -> None:
     config = _build_config(tmp_path)
     process = _FakeProcess(wait_result=0)
@@ -1194,8 +1231,8 @@ def test_main_defaults_to_background_launch(monkeypatch: pytest.MonkeyPatch, cap
         log_path=tmp_path / "gateway.log",
     )
 
-    def _launch_background(*, config_path: str) -> BackgroundLaunchResult:
-        seen["background"] = config_path
+    def _launch_background(*, config_path: str, im_service_url_override: str | None = None) -> BackgroundLaunchResult:
+        seen["background"] = (config_path, im_service_url_override)
         return result
 
     monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _launch_background)
@@ -1207,11 +1244,42 @@ def test_main_defaults_to_background_launch(monkeypatch: pytest.MonkeyPatch, cap
     exit_code = main(["--config", str(tmp_path / "node-config.yaml")])
 
     assert exit_code == 0
-    assert seen == {"background": str(tmp_path / "node-config.yaml")}
+    assert seen == {"background": (str(tmp_path / "node-config.yaml"), None)}
     assert capsys.readouterr().out == (
-        "STARTED pid=999 health_url=http://127.0.0.1:8100/v1/health log="
-        f"{tmp_path / 'gateway.log'}\n"
+        "Gateway started  (pid=999)\n"
+        "Health:          http://127.0.0.1:8100/v1/health\n"
+        f"Log:             {tmp_path / 'gateway.log'}\n"
     )
+
+
+def test_main_passes_im_service_url_override_to_background_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    seen: dict[str, object] = {}
+
+    def _launch_background(**kwargs):  # noqa: ANN001
+        seen.update(kwargs)
+        return BackgroundLaunchResult(
+            pid=1,
+            health_url="http://127.0.0.1:8000/v1/health",
+            log_path=tmp_path / "gateway.log",
+        )
+
+    monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _launch_background)
+    monkeypatch.setattr(
+        "personal_assistant.main.run_gateway",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("foreground path should not run")),
+    )
+
+    exit_code = main(["--config", str(tmp_path / "node-config.yaml"), "--im-service-url", "http://im.remote:9011"])
+
+    assert exit_code == 0
+    assert seen == {
+        "config_path": str(tmp_path / "node-config.yaml"),
+        "im_service_url_override": "http://im.remote:9011",
+    }
+
 
 
 def test_main_defaults_to_canonical_config_path_when_flag_missing(
@@ -1245,8 +1313,8 @@ def test_main_defaults_to_canonical_config_path_when_flag_missing(
 def test_main_runs_gateway_in_foreground_when_requested(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     seen: dict[str, object] = {}
 
-    def _run_gateway(*, config_path: str, factories=None) -> int:  # noqa: ANN001
-        seen["foreground"] = (config_path, factories)
+    def _run_gateway(*, config_path: str, factories=None, im_service_url_override: str | None = None) -> int:  # noqa: ANN001
+        seen["foreground"] = (config_path, factories, im_service_url_override)
         return 0
 
     monkeypatch.setattr("personal_assistant.main.run_gateway", _run_gateway)
@@ -1258,7 +1326,27 @@ def test_main_runs_gateway_in_foreground_when_requested(monkeypatch: pytest.Monk
     exit_code = main(["--config", str(tmp_path / "node-config.yaml"), "--foreground"])
 
     assert exit_code == 0
-    assert seen == {"foreground": (str(tmp_path / "node-config.yaml"), None)}
+    assert seen == {"foreground": (str(tmp_path / "node-config.yaml"), None, None)}
+
+
+
+def test_main_passes_im_service_url_override_to_foreground_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    def _run_gateway(*, config_path: str, factories=None, im_service_url_override: str | None = None) -> int:  # noqa: ANN001
+        seen["foreground"] = (config_path, factories, im_service_url_override)
+        return 0
+
+    monkeypatch.setattr("personal_assistant.main.run_gateway", _run_gateway)
+    monkeypatch.setattr(
+        "personal_assistant.main.launch_gateway_in_background",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("background path should not run")),
+    )
+
+    exit_code = main(["--config", str(tmp_path / "node-config.yaml"), "--im-service-url", "http://im.remote:9011", "--foreground"])
+
+    assert exit_code == 0
+    assert seen == {"foreground": (str(tmp_path / "node-config.yaml"), None, "http://im.remote:9011")}
 
 
 def test_main_returns_non_zero_when_background_launch_fails(
@@ -1296,8 +1384,9 @@ def test_main_surfaces_next_step_for_gateway_startup_error(
 
     assert exit_code == 1
     assert capsys.readouterr().err == (
-        "ERROR node-local did not appear in IM bootstrap\n"
-        "NEXT Verify /im/v1/nodes on the configured IM API and rerun gateway.\n"
+        "Gateway failed to start\n\n"
+        "  node-local did not appear in IM bootstrap\n\n"
+        "  → Verify /im/v1/nodes on the configured IM API and rerun gateway.\n"
     )
 
 
@@ -1605,7 +1694,7 @@ def test_main_restart_command_stops_then_starts(
     assert exit_code == 0
     assert calls == [f"stop:{config_path}", f"start:{config_path}"]
     out = capsys.readouterr().out
-    assert "STARTED pid=1234" in out
+    assert "Gateway started  (pid=1234)" in out
 
 
 def test_main_restart_command_continues_when_gateway_not_running(
@@ -1634,6 +1723,35 @@ def test_main_restart_command_continues_when_gateway_not_running(
 
     assert exit_code == 0
     assert calls == ["stop", "start"]
+
+
+def test_main_restart_command_stops_foreground_pid_before_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """restart must proceed after stop handles a live PID-file-only gateway."""
+    calls: list[str] = []
+
+    def _stop(*, config_path: str) -> str:
+        calls.append(f"stop:{config_path}")
+        return f"STOPPED pid=2468 pid_file={tmp_path / 'gateway.pid'}"
+
+    def _start(*, config_path: str) -> BackgroundLaunchResult:
+        calls.append(f"start:{config_path}")
+        return BackgroundLaunchResult(
+            pid=5678,
+            health_url="http://127.0.0.1:8100/v1/health",
+            log_path=tmp_path / "gateway.log",
+        )
+
+    monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop)
+    monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _start)
+
+    config_path = str(tmp_path / "node-config.yaml")
+    exit_code = main(["restart", "--config", config_path])
+
+    assert exit_code == 0
+    assert calls == [f"stop:{config_path}", f"start:{config_path}"]
 
 
 def test_stop_gateway_removes_pid_file_on_successful_stop(
@@ -1672,6 +1790,32 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
 
     assert "STOPPED" in result
     assert not pid_path.exists(), "gateway.pid must be removed after stop"
+
+
+
+def test_stop_gateway_stops_foreground_pid_without_runtime_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """stop_gateway must stop a live PID-file-only gateway started in foreground mode."""
+    from personal_assistant.main import stop_gateway, _gateway_pid_path
+
+    config = _build_config(tmp_path)
+    pid_path = _gateway_pid_path(config)
+    pid_path.write_text("2468", encoding="utf-8")
+    pid_checks = iter([True, False])
+    kills: list[tuple[int, int]] = []
+
+    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks))
+    monkeypatch.setattr("personal_assistant.main.os.kill", lambda pid, sig: kills.append((pid, sig)))
+    monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _s: None)
+    monkeypatch.setattr("personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__)
+
+    result = stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
+
+    assert result == f"STOPPED pid=2468 pid_file={pid_path}"
+    assert kills == [(2468, signal.SIGTERM)]
+    assert not pid_path.exists()
 
 
 # ---------------------------------------------------------------------------

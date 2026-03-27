@@ -1075,7 +1075,7 @@ class AgentProfileRepository:
         """List agent profiles in stable creation order."""
         rows = self._connection.execute(
             """
-            SELECT agent_id, owner_id, display_name, description, system_prompt, skills_json,
+            SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version
             FROM agent_profiles
             ORDER BY created_at, rowid
@@ -1094,7 +1094,7 @@ class AgentProfileRepository:
         """
         rows = self._connection.execute(
             """
-            SELECT ap.agent_id, ap.owner_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
+            SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
@@ -1108,16 +1108,6 @@ class AgentProfileRepository:
             """
         ).fetchall()
         return [self._row_to_profile(row) for row in rows]
-
-    def list_bound_nodes(self, *, agent_id: str) -> list[str]:
-        """Return the bound node ids for one agent profile."""
-        row = self._connection.execute(
-            "SELECT node_id FROM agent_profiles WHERE agent_id = ?",
-            (agent_id,),
-        ).fetchone()
-        if row is None or row["node_id"] in (None, ""):
-            return []
-        return [str(row["node_id"])]
 
     def get_updated_at(self, *, agent_id: str) -> str | None:
         """Return the last update timestamp for one agent profile."""
@@ -1134,7 +1124,7 @@ class AgentProfileRepository:
         """Return one agent profile, or None when it does not exist."""
         row = self._connection.execute(
             """
-            SELECT agent_id, owner_id, display_name, description, system_prompt, skills_json,
+            SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version
             FROM agent_profiles
             WHERE agent_id = ?
@@ -1158,6 +1148,7 @@ class AgentProfileRepository:
         group_reply_policy: str,
         default_model: str | None,
         workspace_root: str | None,
+        node_id: str | None = None,
     ) -> AgentProfile:
         """Create or replace one seed profile without optimistic locking."""
         created_at = _utc_now()
@@ -1167,12 +1158,13 @@ class AgentProfileRepository:
             self._connection.execute(
                 """
                 INSERT INTO agent_profiles(
-                    agent_id, owner_id, display_name, description, system_prompt,
+                    agent_id, owner_id, node_id, display_name, description, system_prompt,
                     skills_json, tool_allowlist_json, group_reply_policy,
                     default_model, workspace_root, profile_version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
+                    node_id = excluded.node_id,
                     display_name = excluded.display_name,
                     description = excluded.description,
                     system_prompt = excluded.system_prompt,
@@ -1186,6 +1178,7 @@ class AgentProfileRepository:
                 (
                     agent_id,
                     owner_id,
+                    node_id,
                     display_name,
                     description,
                     system_prompt,
@@ -1272,6 +1265,7 @@ class AgentProfileRepository:
         return AgentProfile(
             agent_id=row["agent_id"],
             owner_id=row["owner_id"],
+            node_id=row["node_id"],
             display_name=row["display_name"],
             description=row["description"],
             system_prompt=row["system_prompt"],
@@ -1315,16 +1309,17 @@ class NodeRepository:
                     relay_enabled,
                     reporting_enabled,
                     alias,
-                    last_error
+                    last_error,
+                    capabilities_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(node_id) DO UPDATE SET
                     owner_id = COALESCE(excluded.owner_id, nodes.owner_id),
                     node_name = excluded.node_name,
                     status = excluded.status,
                     version = excluded.version
                 """,
-                (node_id, owner_id, node_name, normalized_status, "", 0, version, 1, 1, None, None),
+                (node_id, owner_id, node_name, normalized_status, "", 0, version, 1, 1, None, None, "{}"),
             )
         node = self.get_node(node_id=node_id)
         assert node is not None
@@ -1337,9 +1332,11 @@ class NodeRepository:
         node_name: str,
         version: str,
         agent_count: int,
+        capabilities: dict[str, object],
         owner_id: str | None = None,
     ) -> NodeStatus:
         """Persist node.register metadata as an online snapshot."""
+        capabilities_json = json.dumps(capabilities, ensure_ascii=True, separators=(",", ":"))
         with self._connection:
             self._connection.execute(
                 """
@@ -1354,8 +1351,9 @@ class NodeRepository:
                     relay_enabled,
                     reporting_enabled,
                     alias,
-                    last_error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    last_error,
+                    capabilities_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(node_id) DO UPDATE SET
                     owner_id = COALESCE(excluded.owner_id, nodes.owner_id),
                     node_name = excluded.node_name,
@@ -1363,9 +1361,10 @@ class NodeRepository:
                     last_heartbeat_at = excluded.last_heartbeat_at,
                     agent_count = excluded.agent_count,
                     version = excluded.version,
-                    last_error = excluded.last_error
+                    last_error = excluded.last_error,
+                    capabilities_json = excluded.capabilities_json
                 """,
-                (node_id, owner_id, node_name, "online", _utc_now(), max(agent_count, 0), version, 1, 1, None, None),
+                (node_id, owner_id, node_name, "online", _utc_now(), max(agent_count, 0), version, 1, 1, None, None, capabilities_json),
             )
         node = self.get_node(node_id=node_id)
         assert node is not None
@@ -1379,6 +1378,7 @@ class NodeRepository:
         agent_count: int | None,
         last_error: str | None,
         version: str | None,
+        capabilities: dict[str, object] | None = None,
     ) -> NodeStatus:
         """Persist node.heartbeat payload and derive canonical status aggregation."""
         existing = self.get_node(node_id=node_id)
@@ -1387,14 +1387,16 @@ class NodeRepository:
         next_status = _normalize_node_status(status=reported_status, last_error=last_error)
         next_agent_count = existing.agent_count if agent_count is None else max(agent_count, 0)
         next_version = existing.version if version is None else version
+        next_capabilities = self.get_node_capabilities(node_id=node_id) if capabilities is None else capabilities
+        next_capabilities_json = json.dumps(next_capabilities, ensure_ascii=True, separators=(",", ":"))
         with self._connection:
             self._connection.execute(
                 """
                 UPDATE nodes
-                SET status = ?, last_heartbeat_at = ?, agent_count = ?, version = ?, last_error = ?
+                SET status = ?, last_heartbeat_at = ?, agent_count = ?, version = ?, last_error = ?, capabilities_json = ?
                 WHERE node_id = ?
                 """,
-                (next_status, _utc_now(), next_agent_count, next_version, last_error, node_id),
+                (next_status, _utc_now(), next_agent_count, next_version, last_error, next_capabilities_json, node_id),
             )
         node = self.get_node(node_id=node_id)
         assert node is not None
@@ -1405,7 +1407,7 @@ class NodeRepository:
         rows = self._connection.execute(
             """
             SELECT node_id, owner_id, node_name, status, last_heartbeat_at, agent_count, version,
-                   relay_enabled, reporting_enabled, alias, last_error
+                   relay_enabled, reporting_enabled, alias, last_error, capabilities_json
             FROM nodes
             ORDER BY CASE status WHEN 'online' THEN 0 WHEN 'degraded' THEN 1 ELSE 2 END,
                      COALESCE(last_heartbeat_at, '') DESC,
@@ -1440,6 +1442,20 @@ class NodeRepository:
         node = self.get_node(node_id=node_id)
         assert node is not None
         return node
+
+    def get_node_capabilities(self, *, node_id: str) -> dict[str, object]:
+        """Return the last node-reported capability summary."""
+        row = self._connection.execute(
+            "SELECT capabilities_json FROM nodes WHERE node_id = ?",
+            (node_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("node_id not found")
+        raw_value = row["capabilities_json"] or "{}"
+        parsed = json.loads(raw_value)
+        if not isinstance(parsed, dict):
+            raise ValueError("capabilities_json must decode to an object")
+        return parsed
 
     def update_node_config(
         self,

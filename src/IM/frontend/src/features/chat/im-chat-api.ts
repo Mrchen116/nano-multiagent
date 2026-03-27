@@ -187,7 +187,7 @@ interface ImAgent {
   agent_id: string;
   display_name: string;
   description: string;
-  bound_nodes?: string[];
+  node_id?: string | null;
 }
 
 export interface DiscoverableAgent {
@@ -685,20 +685,18 @@ export function pickDefaultNodeForSend(nodes: Array<Pick<ImNode, "node_id" | "st
 }
 
 function resolveBoundNodeForAgent(input: { agent: ImAgent | undefined; nodes: ImNode[] }) {
-  const boundNodeIds = normalizeNodeIdList(input.agent?.bound_nodes);
-  if (boundNodeIds.length === 0) {
+  const nodeId = typeof input.agent?.node_id === "string" ? input.agent.node_id.trim() : "";
+  if (!nodeId) {
     return null;
   }
-  const boundNodes = boundNodeIds.map(
-    (nodeId) =>
-      input.nodes.find((item) => item.node_id === nodeId) ?? {
-        node_id: nodeId,
-        node_name: nodeId,
-        status: "offline",
-        relay_enabled: false
-      }
+  return (
+    input.nodes.find((item) => item.node_id === nodeId) ?? {
+      node_id: nodeId,
+      node_name: nodeId,
+      status: "offline",
+      relay_enabled: false
+    }
   );
-  return pickDefaultNodeForSend(boundNodes) ?? boundNodes[0] ?? null;
 }
 
 export function buildStarterConversationTitle(agentName: string): string {

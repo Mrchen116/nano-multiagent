@@ -243,7 +243,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
             before_bind = client.get("/im/v1/agents")
             assert before_bind.status_code == 200
             assert [item["agent_id"] for item in before_bind.json()] == ["Alpha", "Beta"]
-            assert [item["bound_nodes"] for item in before_bind.json()] == [["node-1"], ["node-1"]]
+            assert [item["node_id"] for item in before_bind.json()] == ["node-1", "node-1"]
             assert [item["owner_id"] for item in before_bind.json()] == ["", ""]
             assert [item["workspace_is_default"] for item in before_bind.json()] == [True, True]
             stored_rows = app.state.connection.execute(
@@ -268,7 +268,7 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
             listed = client.get("/im/v1/agents")
             assert listed.status_code == 200
             assert [item["agent_id"] for item in listed.json()] == ["Alpha", "Beta"]
-            assert [item["bound_nodes"] for item in listed.json()] == [["node-1"], ["node-1"]]
+            assert [item["node_id"] for item in listed.json()] == ["node-1", "node-1"]
             assert [item["owner_id"] for item in listed.json()] == [user.json()["owner_id"], user.json()["owner_id"]]
 
 
@@ -428,6 +428,7 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
             "title": "Agent-A",
             "metadata": {
                 "agent_id": "agent-a",
+                "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "config_profile_version": 1,
                 "system_prompt": "You are agent-a.",
                 "conversation_type": "direct",
@@ -746,18 +747,30 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
     assert [call["metadata"] for call in kernel_client.create_session_calls] == [
         {
             "agent_id": "agent-a",
+            "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "config_profile_version": 1,
             "system_prompt": "You are agent-a.",
             "conversation_type": "group",
             "external_chat_id": conversation_id,
+            "participants": [
+                {"type": "user", "user_id": human_user_id, "display_name": "Alice"},
+                {"type": "agent", "agent_id": agent_a_user_id, "display_name": "A"},
+                {"type": "agent", "agent_id": agent_b_user_id, "display_name": "B"},
+            ],
             "participant_agent_ids": ["agent-a", "agent-b"],
         },
         {
             "agent_id": "agent-a",
+            "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "config_profile_version": 2,
             "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
             "conversation_type": "group",
             "external_chat_id": conversation_id,
+            "participants": [
+                {"type": "user", "user_id": human_user_id, "display_name": "Alice"},
+                {"type": "agent", "agent_id": agent_a_user_id, "display_name": "agent-a v2"},
+                {"type": "agent", "agent_id": agent_b_user_id, "display_name": "B"},
+            ],
             "participant_agent_ids": ["agent-a", "agent-b"],
         },
     ]
@@ -774,8 +787,13 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
         "participant_agent_ids": ["agent-a", "agent-b"],
         "config_profile_version": 2,
     }
-    assert relay_adapter.sent[0].text == "gateway-reply:@agent-a first mention"
-    assert relay_adapter.sent == [relay_adapter.sent[0]]
+    assert [message.text for message in relay_adapter.sent] == [
+        "gateway-reply:[Alice] @agent-a first mention",
+        "gateway-reply:[Alice] @agent-a please stay silent if NO_REPLY works.",
+    ]
+    assert relay_adapter.sent[0].metadata["config_profile_version"] == 1
+    assert relay_adapter.sent[1].metadata["config_profile_version"] == 2
+    assert relay_adapter.sent[1].metadata["participants"][1]["display_name"] == "agent-a v2"
     assert [payload["detail"] for payload in accepted_payloads] == [None, None]
     assert [payload["detail"] for payload in completed_payloads] == [
         "gateway-reply:@agent-a first mention",
@@ -927,20 +945,28 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
             "title": "Agent-A",
             "metadata": {
                 "agent_id": "agent-a",
+                "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "config_profile_version": 2,
                 "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
                 "conversation_type": "group",
                 "external_chat_id": conversation_id,
+                "participants": [
+                    {"type": "user", "user_id": human_user_id, "display_name": "Alice"},
+                    {"type": "agent", "agent_id": agent_a_user_id, "display_name": "agent-a v2"},
+                    {"type": "agent", "agent_id": agent_b_user_id, "display_name": "B"},
+                ],
                 "participant_agent_ids": ["agent-a", "agent-b"],
             },
         }
     ]
     assert kernel_client.send_calls == [
-        {"session_id": "sess-1", "text": "@agent-a please stay silent if NO_REPLY works.", "run_id": "run-1"}
+        {"session_id": "sess-1", "text": "[Alice] @agent-a please stay silent if NO_REPLY works.", "run_id": "run-1"}
     ]
     assert second_relay["payload"]["relay_task_id"] == relay_task_id
     assert second_relay["payload"]["message"]["id"] == message_id
-    assert relay_adapter.sent == []
+    assert [message.text for message in relay_adapter.sent] == ["ALPHA_ACK_M170"]
+    assert relay_adapter.sent[0].metadata["config_profile_version"] == 2
+    assert relay_adapter.sent[0].metadata["participants"][1]["display_name"] == "agent-a v2"
     assert [payload["detail"] for payload in accepted_payloads] == [None]
     assert [payload["detail"] for payload in completed_payloads] == ["NO_REPLY | suppressed_by=no_reply_token"]
 
@@ -1253,12 +1279,14 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     assert [call["metadata"] for call in kernel_client.create_session_calls] == [
         {
             "agent_id": "agent-a",
+            "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "config_profile_version": 1,
             "system_prompt": "You are agent-a.",
             "conversation_type": "direct",
         },
         {
             "agent_id": "agent-a",
+            "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "config_profile_version": 1,
             "system_prompt": "You are upgraded.",
             "skills": ["plan"],
@@ -1267,6 +1295,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         },
         {
             "agent_id": "agent-a",
+            "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "config_profile_version": 2,
             "system_prompt": "You are upgraded.",
             "skills": ["plan"],

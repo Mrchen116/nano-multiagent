@@ -9,15 +9,33 @@ from IM.repositories import NodeRepository, UserRepository
 
 
 def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
-    """Expose stable create response fields and reject unknown nodes."""
+    """Expose stable node-scoped create response fields and reject unknown/disconnected nodes."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
         owner = users.create_user(username="owner", display_name="Owner")
         NodeRepository(app.state.connection).upsert_node(node_id="node-1", node_name="MacBook")
 
+        async def fake_request_agent_create(*, target_node_id: str, payload: dict[str, object], timeout_seconds: float = 5.0):
+            del timeout_seconds
+            if target_node_id != "node-1":
+                return None
+            return {
+                "agent_id": payload["agent_id"],
+                "display_name": payload["display_name"],
+                "description": payload["description"],
+                "system_prompt": payload["system_prompt"],
+                "skills": payload["skills"],
+                "tool_allowlist": payload["tool_allowlist"],
+                "group_reply_policy": payload["group_reply_policy"],
+                "default_model": payload["default_model"],
+                "workspace_root": "/srv/agents/agent-1",
+            }
+
+        app.state.gateway_handler.request_agent_create = fake_request_agent_create
+
         created = client.post(
-            "/im/v1/agents",
+            "/im/v1/nodes/node-1/agents",
             json={
                 "agent_id": "agent-1",
                 "owner_id": owner.owner_id,
@@ -28,14 +46,13 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
                 "tool_allowlist": ["read"],
                 "group_reply_policy": "MENTION",
                 "default_model": "claude-sonnet-4",
-                "workspace_root": "/srv/agents/agent-1",
-                "node_id": "node-1",
             },
         )
         assert created.status_code == 201
         assert set(created.json()) == {
             "agent_id",
             "owner_id",
+            "node_id",
             "display_name",
             "description",
             "system_prompt",
@@ -46,17 +63,16 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             "workspace_root",
             "workspace_is_default",
             "profile_version",
-            "bound_nodes",
             "updated_at",
         }
-        assert created.json()["bound_nodes"] == ["node-1"]
+        assert created.json()["node_id"] == "node-1"
         assert created.json()["workspace_root"] == "/srv/agents/agent-1"
         assert created.json()["workspace_is_default"] is False
         assert isinstance(created.json()["updated_at"], str)
         assert created.json()["profile_version"] == 1
 
         duplicate = client.post(
-            "/im/v1/agents",
+            "/im/v1/nodes/node-1/agents",
             json={
                 "agent_id": "agent-1",
                 "owner_id": owner.owner_id,
@@ -73,7 +89,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
         assert duplicate.json() == {"detail": "agent_id already exists"}
 
         missing_node = client.post(
-            "/im/v1/agents",
+            "/im/v1/nodes/node-missing/agents",
             json={
                 "agent_id": "agent-2",
                 "owner_id": owner.owner_id,
@@ -84,26 +100,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
                 "tool_allowlist": [],
                 "group_reply_policy": "MENTION",
                 "default_model": None,
-                "node_id": "node-missing",
             },
         )
-        assert missing_node.status_code == 404
-        assert missing_node.json() == {"detail": "node_id not found"}
-
-        invalid_workspace = client.post(
-            "/im/v1/agents",
-            json={
-                "agent_id": "agent-3",
-                "owner_id": owner.owner_id,
-                "display_name": "Gamma",
-                "description": "bad path",
-                "system_prompt": "You are Gamma.",
-                "skills": [],
-                "tool_allowlist": [],
-                "group_reply_policy": "MENTION",
-                "default_model": None,
-                "workspace_root": "relative/path",
-            },
-        )
-        assert invalid_workspace.status_code == 422
-        assert invalid_workspace.json() == {"detail": "workspace_root must be an absolute path or start with ~/"}
+        assert missing_node.status_code == 503
+        assert missing_node.json() == {"detail": "target_node_id is not connected"}
