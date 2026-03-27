@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
-from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 from agent.products.personal_assistant.tools.send_message import SendMessageTool
 from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
@@ -102,16 +101,8 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(tmp_path
 
     assert register["node_id"] == "node-1"
     assert register["agents"] == ["agent-a"]
-    assert register["capabilities"] == {
-        "relay": True,
-        "send_message": True,
-        "config_sync": True,
-        "models": ["moonshotAnthropic:kimi-k2.5", "codex_oauth:gpt-5.4"],
-        "skills": ["plan", "plan-design-review", "playwright"],
-        "tools": ["read", "write", "edit", "bash", "task", "send_message", "web_fetch", "web_search"],
-        "platform_default_model": "codex_oauth:gpt-5.4",
-        "default_system_prompt": PERSONAL_ASSISTANT_PROFILE.default_system_prompt,
-    }
+    assert register["capabilities"] == {"relay": True, "send_message": True, "config_sync": True}
+    assert "capabilities" not in heartbeat
     assert heartbeat["running_runs"] == 2
     assert report["run_id"] == "run-1"
     assert receipt["relay_task_id"] == "relay-1"

@@ -49,7 +49,11 @@ from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore, SessionBindingStore
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_runtime_capabilities
+from personal_assistant.reporter.upstream_reporter import (
+    UpstreamReporter,
+    build_agent_capabilities_payload,
+    build_runtime_capabilities,
+)
 from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatScheduler,
     HeartbeatSchedulerStateStore,
@@ -1180,6 +1184,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             heartbeat_runner=heartbeat_runner,
             sync_client=ConfigSyncClient(fetcher=im_config_sync_client.sync_agent),
             agent_config_provider=lambda agent_id: im_config_sync_client.current_agent_payload(agent_id=agent_id),
+            agent_capabilities_provider=lambda _agent_id, workspace_root: build_agent_capabilities_payload(
+                workspace_root=workspace_root
+            ),
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -1308,6 +1315,7 @@ def _build_im_connection_manager(
     heartbeat_runner: PollingHeartbeatRunner,
     sync_client: ConfigSyncClient | None = None,
     agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
+    agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -1319,6 +1327,7 @@ def _build_im_connection_manager(
         sync_client=sync_client,
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
         agent_config_provider=agent_config_provider,
+        agent_capabilities_provider=agent_capabilities_provider,
         connect=_connect_websocket,
     )
 

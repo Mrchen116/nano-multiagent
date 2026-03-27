@@ -252,8 +252,8 @@ Gateway 运行在用户个人机器上，通常在 NAT / 防火墙后面，**不
 
 | 消息类型 | 用途 |
 |---|---|
-| `node.register` | 节点注册（携带 node_id、agent 列表、能力声明） |
-| `node.heartbeat` | 周期心跳（在线状态、Agent 运行态摘要） |
+| `node.register` | 节点注册（携带 node_id、agent 列表；`capabilities` 仅含 relay/send_message/config_sync 等开关，**不含** skills/tools/models 全量目录） |
+| `node.heartbeat` | 周期心跳（在线状态、Agent 运行态摘要；**不携带** skills/tools/models 全量目录） |
 | `node.report` | 执行结果汇报 |
 | `node.delivery_receipt` | 投递回执（sent / completed / failed） |
 
@@ -263,6 +263,10 @@ Gateway 运行在用户个人机器上，通常在 NAT / 防火墙后面，**不
 |---|---|
 | `relay.message` | Web IM 消息中继（进入 WebIM Channel 适配器） |
 | `config.sync` | 配置版本通知（Gateway 按需拉取最新配置） |
+| `agent.config.get` | IM 请求当前 Agent 配置快照 |
+| `agent.create` | IM 请求在节点侧创建 Agent 工作区 |
+| `agent.capabilities.resolve` | IM 请求按某 Agent workspace 当场解析 capabilities |
+| `node.capabilities.resolve` | IM 请求节点级当场解析 capabilities（如新建 Agent 页） |
 | `heartbeat.trigger` | 手动触发某个 Agent 的 heartbeat |
 
 ### 断线重连

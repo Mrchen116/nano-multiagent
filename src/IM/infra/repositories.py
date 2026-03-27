@@ -1309,17 +1309,16 @@ class NodeRepository:
                     relay_enabled,
                     reporting_enabled,
                     alias,
-                    last_error,
-                    capabilities_json
+                    last_error
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(node_id) DO UPDATE SET
                     owner_id = COALESCE(excluded.owner_id, nodes.owner_id),
                     node_name = excluded.node_name,
                     status = excluded.status,
                     version = excluded.version
                 """,
-                (node_id, owner_id, node_name, normalized_status, "", 0, version, 1, 1, None, None, "{}"),
+                (node_id, owner_id, node_name, normalized_status, "", 0, version, 1, 1, None, None),
             )
         node = self.get_node(node_id=node_id)
         assert node is not None
@@ -1332,11 +1331,9 @@ class NodeRepository:
         node_name: str,
         version: str,
         agent_count: int,
-        capabilities: dict[str, object],
         owner_id: str | None = None,
     ) -> NodeStatus:
         """Persist node.register metadata as an online snapshot."""
-        capabilities_json = json.dumps(capabilities, ensure_ascii=True, separators=(",", ":"))
         with self._connection:
             self._connection.execute(
                 """
@@ -1351,9 +1348,8 @@ class NodeRepository:
                     relay_enabled,
                     reporting_enabled,
                     alias,
-                    last_error,
-                    capabilities_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    last_error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(node_id) DO UPDATE SET
                     owner_id = COALESCE(excluded.owner_id, nodes.owner_id),
                     node_name = excluded.node_name,
@@ -1361,10 +1357,9 @@ class NodeRepository:
                     last_heartbeat_at = excluded.last_heartbeat_at,
                     agent_count = excluded.agent_count,
                     version = excluded.version,
-                    last_error = excluded.last_error,
-                    capabilities_json = excluded.capabilities_json
+                    last_error = excluded.last_error
                 """,
-                (node_id, owner_id, node_name, "online", _utc_now(), max(agent_count, 0), version, 1, 1, None, None, capabilities_json),
+                (node_id, owner_id, node_name, "online", _utc_now(), max(agent_count, 0), version, 1, 1, None, None),
             )
         node = self.get_node(node_id=node_id)
         assert node is not None
@@ -1378,7 +1373,6 @@ class NodeRepository:
         agent_count: int | None,
         last_error: str | None,
         version: str | None,
-        capabilities: dict[str, object] | None = None,
     ) -> NodeStatus:
         """Persist node.heartbeat payload and derive canonical status aggregation."""
         existing = self.get_node(node_id=node_id)
@@ -1387,16 +1381,14 @@ class NodeRepository:
         next_status = _normalize_node_status(status=reported_status, last_error=last_error)
         next_agent_count = existing.agent_count if agent_count is None else max(agent_count, 0)
         next_version = existing.version if version is None else version
-        next_capabilities = self.get_node_capabilities(node_id=node_id) if capabilities is None else capabilities
-        next_capabilities_json = json.dumps(next_capabilities, ensure_ascii=True, separators=(",", ":"))
         with self._connection:
             self._connection.execute(
                 """
                 UPDATE nodes
-                SET status = ?, last_heartbeat_at = ?, agent_count = ?, version = ?, last_error = ?, capabilities_json = ?
+                SET status = ?, last_heartbeat_at = ?, agent_count = ?, version = ?, last_error = ?
                 WHERE node_id = ?
                 """,
-                (next_status, _utc_now(), next_agent_count, next_version, last_error, next_capabilities_json, node_id),
+                (next_status, _utc_now(), next_agent_count, next_version, last_error, node_id),
             )
         node = self.get_node(node_id=node_id)
         assert node is not None
@@ -1407,7 +1399,7 @@ class NodeRepository:
         rows = self._connection.execute(
             """
             SELECT node_id, owner_id, node_name, status, last_heartbeat_at, agent_count, version,
-                   relay_enabled, reporting_enabled, alias, last_error, capabilities_json
+                   relay_enabled, reporting_enabled, alias, last_error
             FROM nodes
             ORDER BY CASE status WHEN 'online' THEN 0 WHEN 'degraded' THEN 1 ELSE 2 END,
                      COALESCE(last_heartbeat_at, '') DESC,
@@ -1442,20 +1434,6 @@ class NodeRepository:
         node = self.get_node(node_id=node_id)
         assert node is not None
         return node
-
-    def get_node_capabilities(self, *, node_id: str) -> dict[str, object]:
-        """Return the last node-reported capability summary."""
-        row = self._connection.execute(
-            "SELECT capabilities_json FROM nodes WHERE node_id = ?",
-            (node_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("node_id not found")
-        raw_value = row["capabilities_json"] or "{}"
-        parsed = json.loads(raw_value)
-        if not isinstance(parsed, dict):
-            raise ValueError("capabilities_json must decode to an object")
-        return parsed
 
     def update_node_config(
         self,

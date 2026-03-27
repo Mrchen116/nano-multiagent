@@ -52,14 +52,14 @@
 - `workspace_root` 由节点在创建时自动分配，IM 负责保存与展示，不允许前端手填本地路径
 - 配置变更仅对新会话生效，已开始的会话保持原行为
 - 配置版本化（`profile_version` 乐观锁），支持冲突检测
-- runtime 候选项（skills / tools / models）由节点上报能力并由节点校验，IM 不推断节点本地真实可用集合
+- runtime 候选项（skills / tools / models）由**在线网关节点**当场解析并由节点校验；IM 只转发请求、**不在本地持久化**完整能力目录，也不依据 IM 部署机文件系统推断节点真实可用集合
 
 ### P1 — 节点管理与状态聚合
 
 - 节点注册、心跳上报、在线/离线/降级状态
 - 执行结果汇报与投递回执
 - 节点看板：在线状态、最近心跳、错误摘要、承载 Agent 数量
-- 节点上报 runtime capabilities 摘要（skills / tools / models），供 Web 端创建与编辑 Agent 时展示
+- Web 端打开新建/编辑 Agent 相关页时，经 HTTP API 触发 IM 向**已连接节点**当场拉取 runtime capabilities（skills / tools / models 等），不在 IM 库内缓存该目录
 
 ---
 
@@ -93,8 +93,8 @@ Node Gateway 运行在用户个人机器上，通常在 NAT 后面，不可作�
 
 | 消息类型 | 用途 |
 |---|---|
-| `node.register` | 节点注册（携带 node_id、agent 列表、能力声明与 capabilities 摘要） |
-| `node.heartbeat` | 周期心跳（在线状态、Agent 运行态摘要；必要时附带 capabilities 版本/摘要刷新） |
+| `node.register` | 节点注册（携带 node_id、agent 列表；`capabilities` 仅含 relay/send_message/config_sync 等轻量开关，**不含** skills/tools/models 全表） |
+| `node.heartbeat` | 周期心跳（在线状态、Agent 运行态摘要；**不携带** skills/tools/models 等重负载能力目录） |
 | `node.report` | 执行结果汇报 |
 | `node.delivery_receipt` | 投递回执 |
 
@@ -106,6 +106,7 @@ Node Gateway 运行在用户个人机器上，通常在 NAT 后面，不可作�
 | `config.sync` | 配置版本通知 |
 | `agent.create` | 节点侧创建 Agent 工作区并校验初始 runtime 配置 |
 | `agent.capabilities.resolve` | 按某个 Agent 的真实 workspace 解析 runtime capabilities |
+| `node.capabilities.resolve` | 节点级当场解析 runtime capabilities（供新建 Agent 页等；**不依赖**历史心跳入库） |
 | `heartbeat.trigger` | 手动触发某个 Agent 的 heartbeat |
 
 Gateway 断线后自动重连（指数退避），重连后重新注册。断线期间外部 IM 主路径不受影响。
@@ -144,7 +145,7 @@ Gateway 断线后自动重连（指数退避），重连后重新注册。断线
 | 方法 | 端点 | 用途 |
 |---|---|---|
 | GET | `/im/v1/nodes` | 节点列表与状态（前端看板） |
-| GET | `/im/v1/nodes/{id}/capabilities` | 节点最近一次上报的 runtime capabilities 摘要 |
+| GET | `/im/v1/nodes/{id}/capabilities` | 向**已连接**的该节点当场请求并返回 runtime capabilities；节点未连接则失败（不把能力快照持久化在 IM 库） |
 | POST | `/im/v1/nodes/{id}/agents` | 在指定在线节点上创建 Agent（节点分配 workspace_root） |
 | PATCH | `/im/v1/nodes/{id}/config` | 节点中心配置（别名、中继开关、上报开关） |
 
@@ -173,7 +174,7 @@ Gateway 断线后自动重连（指数退避），重连后重新注册。断线
 | `Conversation` | `conversation_id`, `owner_id`, `type`(direct/group), `participants[]`, `title`, `is_pinned`, `is_muted`, `unread_count`, `last_message_at` | 会话容器；participants 为 Actor 集合；`direct` 明确区分“用户-Agent 单聊”与“Agent-Agent 单聊”，二者不可混用；属于同一 owner 空间的 Agent-Agent 单聊对用户可发现、可查看；`owner_id` 用于用户间数据隔离 |
 | `Message` | `message_id`, `conversation_id`, `sender`(actor), `content`, `attachments[]`, `created_at`, `delivery_status` | 消息；发送者是 Actor（人 / Agent / system），通过 conversation 间接关联 owner |
 | `NodeStatus` | `node_id`, `owner_id`, `node_name`, `status`(online/offline/degraded), `last_heartbeat_at`, `agent_count`, `version`, `last_error` | 节点运行态；`owner_id` 关联所属用户 |
-| `NodeCapabilities` | `node_id`, `reported_at`, `models[]`, `skills[]`, `tools[]` | 节点最近一次上报的 runtime capabilities 摘要；作为新建 Agent 页候选项来源 |
+| `NodeCapabilities` | （逻辑视图，**不入库**）`node_id`, `models[]`, `skills[]`, `tools[]`, … | 由 `GET /im/v1/nodes/{id}/capabilities` 经 WebSocket `node.capabilities.resolve` 向在线网关索取后返回；作为新建 Agent 页候选项来源 |
 | `RelayTask` | `message_id`, `target_node_id`, `payload`, `idempotency_key`, `status` | 消息中继任务 |
 
 ---
@@ -225,8 +226,8 @@ Node Gateway → IM 服务（回执/结果）→ SSE 推送到浏览器
 
 ```
 用户在 Web 端打开 /settings/nodes/{node_id}/agents/new
-  → GET /im/v1/nodes/{node_id}/capabilities
-  → 前端展示该节点最近一次上报的 skills / tools / models 候选项
+  → GET /im/v1/nodes/{node_id}/capabilities（IM 向在线网关当场请求）
+  → 前端展示当场解析的 skills / tools / models 候选项
   → 用户提交 POST /im/v1/nodes/{node_id}/agents
   → IM 服务校验 node 已绑定、归属当前用户且当前 online
   → 通过 WebSocket 发送 agent.create 到 Node Gateway
@@ -346,7 +347,7 @@ src/IM/
 7. 中继可单独关闭，关闭后配置中心功能不受影响
 8. 消息中继必须幂等（`idempotency_key`）
 9. Agent 创建必须挂在一个已绑定且在线的节点下；无节点不允许创建 Agent
-10. runtime capabilities 的候选项与校验结果以节点上报/解析为准，IM 不得通过自身部署机本地文件系统推断
+10. runtime capabilities 的候选项与校验结果以**网关节点当场解析**为准；IM 不得通过自身部署机本地文件系统推断，且**不得**将完整目录快照写入 IM 持久化存储
 
 ---
 

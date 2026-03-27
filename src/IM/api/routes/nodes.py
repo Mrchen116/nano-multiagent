@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from IM.api.deps import get_config_service, get_gateway_handler, get_node_service
-from IM.api.routes.agents import AgentCapabilitiesResponse, AgentConfigResponse, to_agent_config_response
+from IM.api.routes.agents import (
+    AgentConfigResponse,
+    AllowlistOptionResponse,
+    coerce_allowlist_options,
+    to_agent_config_response,
+)
 from IM.application.config_service import ConfigService
 from IM.application.node_service import NodeService
 from IM.domain.models import NodeStatus
@@ -53,12 +58,12 @@ class CreateNodeAgentRequest(BaseModel):
 
 
 class NodeCapabilitiesResponse(BaseModel):
-    """Last node-reported runtime capability summary."""
+    """网关节点当场解析的运行时能力（打开新建 Agent 页时按需拉取）。"""
 
     node_id: str
     models: list[str] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list)
-    tools: list[str] = Field(default_factory=list)
+    skills: list[AllowlistOptionResponse] = Field(default_factory=list)
+    tools: list[AllowlistOptionResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
     default_system_prompt: str = ""
 
@@ -91,22 +96,27 @@ async def list_nodes(
 
 
 @router.get("/im/v1/nodes/{node_id}/capabilities", response_model=NodeCapabilitiesResponse)
-def get_node_capabilities(
+async def get_node_capabilities(
     node_id: str,
     service: NodeService = Depends(get_node_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
 ) -> NodeCapabilitiesResponse:
-    """Return the last runtime capability summary reported by one node."""
-    try:
-        capabilities = service.get_node_capabilities(node_id=node_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    """向已连接的网关节点当场请求运行时能力（不在 IM 库中缓存目录数据）。"""
+    if service.get_node(node_id=node_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found")
+    live = await gateway_handler.request_node_capabilities(target_node_id=node_id)
+    if live is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="节点未连接或未能返回能力数据",
+        )
     return NodeCapabilitiesResponse(
         node_id=node_id,
-        models=_coerce_string_list(capabilities.get("models")),
-        skills=_coerce_string_list(capabilities.get("skills")),
-        tools=_coerce_string_list(capabilities.get("tools")),
-        platform_default_model=_coerce_optional_text(capabilities.get("platform_default_model"), fallback=None),
-        default_system_prompt=_coerce_text(capabilities.get("default_system_prompt"), fallback=""),
+        models=_coerce_string_list(live.get("models")),
+        skills=coerce_allowlist_options(live.get("skills")),
+        tools=coerce_allowlist_options(live.get("tools")),
+        platform_default_model=_coerce_optional_text(live.get("platform_default_model"), fallback=None),
+        default_system_prompt=_coerce_text(live.get("default_system_prompt"), fallback=""),
     )
 
 

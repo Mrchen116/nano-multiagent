@@ -119,7 +119,6 @@ def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(tmp_path
             node_name="Live Node",
             version="2.0.0",
             agent_count=2,
-            capabilities={"relay": True},
         )
         listed_after_register = client.get("/im/v1/nodes")
         assert listed_after_register.status_code == 200

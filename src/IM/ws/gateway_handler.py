@@ -71,6 +71,7 @@ class GatewayHandler:
         self._agent_config_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
         self._agent_create_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
         self._agent_capabilities_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        self._node_capabilities_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
         self._ensure_agent_message_dispatch_table()
 
     async def serve(self, websocket: WebSocket) -> None:
@@ -120,6 +121,8 @@ class GatewayHandler:
             return await self._handle_agent_created(payload=payload)
         if message_type == "agent.capabilities":
             return await self._handle_agent_capabilities(payload=payload)
+        if message_type == "node.capabilities":
+            return await self._handle_node_capabilities(payload=payload)
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
         return {
@@ -255,6 +258,33 @@ class GatewayHandler:
             async with self._lock:
                 self._agent_capabilities_waiters.pop(request_id, None)
 
+    async def request_node_capabilities(
+        self,
+        *,
+        target_node_id: str,
+        timeout_seconds: float = 15.0,
+    ) -> dict[str, object] | None:
+        """请求网关节点当场解析 models/skills/tools 等（不从 IM 数据库读取）。"""
+        request_id = f"node-capabilities-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._node_capabilities_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.capabilities.resolve",
+                payload={"request_id": request_id},
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._node_capabilities_waiters.pop(request_id, None)
+
     async def disconnect(self, *, node_id: str) -> None:
         """Remove one node from the active connection map."""
         async with self._lock:
@@ -280,7 +310,11 @@ class GatewayHandler:
     async def _handle_register(self, *, websocket: WebSocket, payload: dict[str, object]) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
         agents = _require_string_list(payload.get("agents", []), field_name="agents")
-        capabilities = _require_dict(payload.get("capabilities", {}), field_name="capabilities")
+        cap_raw = payload.get("capabilities")
+        if cap_raw is None:
+            capabilities: dict[str, object] = {}
+        else:
+            capabilities = _require_dict(cap_raw, field_name="capabilities")
         node_name = _optional_text(payload.get("node_name")) or node_id
         version = _optional_text(payload.get("version")) or ""
         connection = GatewayConnection(
@@ -299,7 +333,6 @@ class GatewayHandler:
                 node_name=node_name,
                 version=version,
                 agent_count=len(agents),
-                capabilities=capabilities,
             )
             profile_repository = AgentProfileRepository(self._node_repository._connection)
             for agent_id in agents:
@@ -358,7 +391,6 @@ class GatewayHandler:
                 agent_count=_optional_int(payload.get("agent_count")),
                 last_error=_optional_text(payload.get("last_error")),
                 version=_optional_text(payload.get("version")),
-                capabilities=_optional_dict(payload.get("capabilities")),
             )
         return {"type": "ack", "payload": {"message_type": "node.heartbeat", "node_id": node_id}}
 
@@ -557,6 +589,23 @@ class GatewayHandler:
                 "request_id": request_id,
                 "node_id": node_id,
                 "agent_id": agent_id,
+            },
+        }
+
+    async def _handle_node_capabilities(self, *, payload: dict[str, object]) -> dict[str, object]:
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        capabilities = _require_dict(payload.get("capabilities"), field_name="capabilities")
+        async with self._lock:
+            waiter = self._node_capabilities_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(dict(capabilities))
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.capabilities",
+                "request_id": request_id,
+                "node_id": node_id,
             },
         }
 

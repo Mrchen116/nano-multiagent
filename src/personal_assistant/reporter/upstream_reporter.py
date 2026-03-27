@@ -26,7 +26,7 @@ class ReporterCapabilities:
         send_message: Whether the node supports agent-to-agent send_message delivery.
         config_sync: Whether the node can react to config.sync notifications.
         models: Runtime model ids currently selectable on this node.
-        skills: Runtime skill ids currently selectable on this node.
+        skills: 可选技能列表，每项为 ``{"name", "description"}``（description 来自 SKILL.md 元数据）。
         tools: Runtime tool ids currently selectable on this node.
     """
 
@@ -34,7 +34,7 @@ class ReporterCapabilities:
     send_message: bool = True
     config_sync: bool = True
     models: tuple[str, ...] = ()
-    skills: tuple[str, ...] = ()
+    skills: tuple[dict[str, str], ...] = ()
     tools: tuple[str, ...] = ()
     platform_default_model: str | None = None
     default_system_prompt: str = ""
@@ -51,6 +51,14 @@ class ReporterCapabilities:
             "tools": list(self.tools),
             "platform_default_model": self.platform_default_model,
             "default_system_prompt": self.default_system_prompt,
+        }
+
+    def register_flags_payload(self) -> dict[str, object]:
+        """仅用于 node.register：不包含 models/skills/tools 等大字段。"""
+        return {
+            "relay": self.relay,
+            "send_message": self.send_message,
+            "config_sync": self.config_sync,
         }
 
 
@@ -74,7 +82,8 @@ def _product_root() -> Path:
     return _repo_root() / "src" / "agent" / "products" / PERSONAL_ASSISTANT_PROFILE.product_id
 
 
-def _build_skill_names() -> tuple[str, ...]:
+def _build_skill_capability_entries() -> tuple[dict[str, str], ...]:
+    """从 SKILL.md 解析 name/description，供 IM 设置页展示。"""
     config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=None)
     registry = SkillRegistry(
         search_roots=default_skill_search_roots(
@@ -83,7 +92,7 @@ def _build_skill_names() -> tuple[str, ...]:
             product_skill_root=_product_root() / "skills",
         )
     )
-    return tuple(skill.name for skill in registry.list_skills())
+    return tuple({"name": skill.name, "description": skill.description or ""} for skill in registry.list_skills())
 
 
 def _build_tool_names() -> tuple[str, ...]:
@@ -111,11 +120,30 @@ def build_runtime_capabilities() -> ReporterCapabilities:
 
     return ReporterCapabilities(
         models=_build_model_names(),
-        skills=_build_skill_names(),
+        skills=_build_skill_capability_entries(),
         tools=_build_tool_names(),
         platform_default_model=get_default_model(DEFAULT_PROVIDER),
         default_system_prompt=PERSONAL_ASSISTANT_PROFILE.default_system_prompt,
     )
+
+
+def build_agent_capabilities_payload(*, workspace_root: str) -> dict[str, object]:
+    """按 Agent 工作区根路径解析可选技能（含描述），供 agent.capabilities.resolve 响应。"""
+    root = Path(workspace_root).expanduser().resolve()
+    config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=root)
+    registry = SkillRegistry(
+        search_roots=default_skill_search_roots(
+            workspace_root=root,
+            config_resolver=config_resolver,
+            product_skill_root=_product_root() / "skills",
+        )
+    )
+    skills: list[dict[str, str]] = [
+        {"name": skill.name, "description": skill.description or ""} for skill in registry.list_skills()
+    ]
+    base = build_runtime_capabilities().as_payload()
+    base["skills"] = skills
+    return base
 
 
 class UpstreamReporter:
@@ -160,7 +188,7 @@ class UpstreamReporter:
             "node_name": self._node_name,
             "version": self._version,
             "agents": [agent.agent_id for agent in self._agents],
-            "capabilities": self._capabilities.as_payload(),
+            "capabilities": self._capabilities.register_flags_payload(),
         }
         if self._node.user_id is not None:
             payload["user_id"] = self._node.user_id
@@ -186,7 +214,6 @@ class UpstreamReporter:
             "node_id": self._node.node_id,
             "status": status,
             "agent_count": len(self._agents),
-            "capabilities": self._capabilities.as_payload(),
         }
         if self._version:
             payload["version"] = self._version

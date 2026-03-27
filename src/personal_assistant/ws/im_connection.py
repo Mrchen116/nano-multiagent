@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter
+from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_runtime_capabilities
 
 
 @dataclass(slots=True)
@@ -309,6 +309,17 @@ class IMConnectionManager:
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,
                     "agent": dict(created_payload) if isinstance(created_payload, Mapping) else {},
+                },
+            )
+            return
+        if message_type == "node.capabilities.resolve":
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            await self.send_json(
+                "node.capabilities",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "capabilities": build_runtime_capabilities().as_payload(),
                 },
             )
             return

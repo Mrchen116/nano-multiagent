@@ -3,6 +3,7 @@
 from pathlib import Path
 import threading
 
+import pytest
 from fastapi.testclient import TestClient
 
 from IM.api.routes import agents as agent_routes
@@ -505,23 +506,27 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(tmp_pat
         assert patch_resp.json()["display_name"] == "Alpha NO_REPLY"
 
 
-def test_node_capabilities_return_current_selectable_items(tmp_path: Path) -> None:
-    """Expose current node-reported skill/tool/model items for the settings UI."""
+def test_node_capabilities_return_current_selectable_items(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Expose current gateway-resolved skill/tool/model items for the settings UI."""
+
+    async def _fake_node_capabilities(self, *, target_node_id: str, timeout_seconds: float = 15.0):  # noqa: ARG002
+        return {
+            "skills": ["plan", "playwright"],
+            "tools": ["read", "bash"],
+            "models": ["moonshotAnthropic:kimi-k2.5", "codex_oauth:gpt-5.4"],
+        }
+
+    from IM.ws.gateway_handler import GatewayHandler
+
+    monkeypatch.setattr(GatewayHandler, "request_node_capabilities", _fake_node_capabilities)
+
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         nodes = NodeRepository(app.state.connection)
         nodes.upsert_node(node_id="node-1", node_name="MacBook", status="online", version="1.0.0")
-        app.state.connection.execute(
-            "UPDATE nodes SET capabilities_json = ? WHERE node_id = ?",
-            (
-                '{"skills":["plan","playwright"],"tools":["read","bash"],"models":["moonshotAnthropic:kimi-k2.5","codex_oauth:gpt-5.4"]}',
-                "node-1",
-            ),
-        )
-        app.state.connection.commit()
         response = client.get("/im/v1/nodes/node-1/capabilities")
 
     assert response.status_code == 200
-    assert response.json()["skills"] == ["plan", "playwright"]
-    assert response.json()["tools"] == ["read", "bash"]
+    assert [item["name"] for item in response.json()["skills"]] == ["plan", "playwright"]
+    assert [item["name"] for item in response.json()["tools"]] == ["read", "bash"]
     assert response.json()["models"] == ["moonshotAnthropic:kimi-k2.5", "codex_oauth:gpt-5.4"]

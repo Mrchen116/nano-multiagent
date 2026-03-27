@@ -136,6 +136,11 @@ body {
   padding: 0.95rem;
 }
 
+/* fieldset 默认 min-inline-size:min-content 会撑破 grid，子元素 text-overflow 无法生效 */
+.im-allowlist-fieldset {
+  min-width: 0;
+}
+
 @media (max-width: 900px) {
   body {
     background:

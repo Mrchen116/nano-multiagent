@@ -71,8 +71,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     relay_enabled INTEGER NOT NULL DEFAULT 1,
     reporting_enabled INTEGER NOT NULL DEFAULT 1,
     alias TEXT,
-    last_error TEXT,
-    capabilities_json TEXT NOT NULL DEFAULT '{}'
+    last_error TEXT
 );
 
 CREATE TABLE IF NOT EXISTS usage_metrics (
@@ -189,6 +188,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _migrate_messages_metadata(connection)
     _migrate_agent_profile_tables(connection)
     _migrate_nodes_metadata(connection)
+    _migrate_drop_nodes_capabilities_column(connection)
     _migrate_relay_tasks(connection)
     _migrate_usage_metrics(connection)
     _migrate_settings_policies(connection)
@@ -363,8 +363,21 @@ def _migrate_nodes_metadata(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE nodes ADD COLUMN reporting_enabled INTEGER NOT NULL DEFAULT 1")
     if rows and "alias" not in column_names:
         connection.execute("ALTER TABLE nodes ADD COLUMN alias TEXT")
-    if rows and "capabilities_json" not in column_names:
-        connection.execute("ALTER TABLE nodes ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '{}' ")
+
+
+def _migrate_drop_nodes_capabilities_column(connection: sqlite3.Connection) -> None:
+    """移除已废弃的 capabilities_json（能力改由网关按需解析，不再写入 IM）。"""
+    rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
+    if not rows:
+        return
+    names = {str(row["name"]) for row in rows}
+    if "capabilities_json" not in names:
+        return
+    try:
+        connection.execute("ALTER TABLE nodes DROP COLUMN capabilities_json")
+    except sqlite3.OperationalError:
+        # SQLite < 3.35 不支持 DROP COLUMN；列可滞留，应用层已不再读写。
+        pass
 
 
 def _migrate_relay_tasks(connection: sqlite3.Connection) -> None:

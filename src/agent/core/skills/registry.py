@@ -48,17 +48,53 @@ class SkillRegistry:
         return tuple(sorted(skills_by_name.values(), key=lambda item: item.name))
 
 
+_BLOCK_SCALAR_MARKERS = frozenset({"|", "|-", "|+", ">", ">-", ">+"})
+
+
 def _parse_skill_metadata(skill_file: Path) -> SkillMetadata:
     resolved_file = skill_file.expanduser().resolve()
     frontmatter, body_lines = _extract_frontmatter_and_body(resolved_file)
     name = _normalize_frontmatter_text(frontmatter.get("name")) or resolved_file.parent.name
-    description = _normalize_frontmatter_text(frontmatter.get("description")) or _extract_description(body_lines)
+    raw_desc = _normalize_frontmatter_text(frontmatter.get("description"))
+    # 历史 bug：`description: |` 被误解析为字面量 "|"；块标量需在 frontmatter 内吞后续缩进行的正文
+    if raw_desc in _BLOCK_SCALAR_MARKERS:
+        raw_desc = ""
+    description = raw_desc or _extract_description(body_lines)
     return SkillMetadata(
         name=name,
         description=description,
         location=resolved_file,
         base_dir=resolved_file.parent,
     )
+
+
+def _looks_like_root_frontmatter_key_line(line: str) -> bool:
+    """判定是否为 `key:` 形式的顶层 frontmatter 行（非正文续行）。"""
+    if not line.strip() or line[0].isspace():
+        return False
+    if ":" not in line:
+        return False
+    key_part = line.split(":", 1)[0].strip()
+    if not key_part:
+        return False
+    return all(ch.isalnum() or ch in "-_" for ch in key_part)
+
+
+def _dedent_indented_block(lines: Sequence[str]) -> str:
+    """去掉块标量共有前导空格，合并为一段文本。"""
+    if not lines:
+        return ""
+    non_empty = [ln for ln in lines if ln.strip()]
+    if not non_empty:
+        return ""
+    cut = min(len(ln) - len(ln.lstrip(" ")) for ln in non_empty)
+    parts: list[str] = []
+    for ln in lines:
+        if not ln.strip():
+            parts.append("")
+            continue
+        parts.append(ln[cut:].rstrip() if len(ln) >= cut else ln.strip())
+    return "\n".join(parts).strip()
 
 
 def _extract_frontmatter_and_body(skill_file: Path) -> tuple[Mapping[str, str], tuple[str, ...]]:
@@ -70,17 +106,44 @@ def _extract_frontmatter_and_body(skill_file: Path) -> tuple[Mapping[str, str], 
         return {}, tuple(lines)
 
     metadata: dict[str, str] = {}
-    body_start = 1
-    for index, line in enumerate(lines[1:], start=1):
+    i = 1
+    n = len(lines)
+
+    while i < n:
+        line = lines[i]
         stripped = line.strip()
         if stripped == "---":
-            body_start = index + 1
-            break
-        if ":" not in line:
+            return metadata, tuple(lines[i + 1 :])
+        if not stripped or stripped.startswith("#"):
+            i += 1
             continue
-        key, value = line.split(":", maxsplit=1)
-        metadata[key.strip().lower()] = value.strip()
-    return metadata, tuple(lines[body_start:])
+        if ":" not in line or line[0].isspace():
+            i += 1
+            continue
+        key, rest = line.split(":", 1)
+        key = key.strip().lower()
+        value = rest.strip()
+        if "#" in value:
+            value = value.split("#", 1)[0].strip()
+
+        if value in _BLOCK_SCALAR_MARKERS:
+            i += 1
+            block_lines: list[str] = []
+            while i < n:
+                nxt = lines[i]
+                if nxt.strip() == "---":
+                    break
+                if _looks_like_root_frontmatter_key_line(nxt):
+                    break
+                block_lines.append(nxt)
+                i += 1
+            metadata[key] = _dedent_indented_block(block_lines)
+            continue
+
+        metadata[key] = value
+        i += 1
+
+    return metadata, ()
 
 
 def _normalize_frontmatter_text(value: str | None) -> str:
@@ -92,12 +155,26 @@ def _normalize_frontmatter_text(value: str | None) -> str:
     return normalized
 
 
+def _is_markdown_table_separator_row(line: str) -> bool:
+    """识别 `| --- | --- |` 一类表格分隔行，避免当作正文摘要。"""
+    s = line.strip()
+    if not s.startswith("|") or "|" not in s[1:]:
+        return False
+    inner = s.strip("|").split("|")
+    cells = [c.strip() for c in inner if c.strip() or c == ""]
+    if not cells:
+        return False
+    return all(set(cell) <= set("-: ") for cell in cells if cell)
+
+
 def _extract_description(lines: Sequence[str]) -> str:
     for line in lines:
         stripped = line.strip()
         if not stripped:
             continue
         if stripped.startswith("#"):
+            continue
+        if stripped == "|" or _is_markdown_table_separator_row(stripped):
             continue
         return stripped
     return ""

@@ -2,10 +2,12 @@
 
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
 from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
+from IM.ws.gateway_handler import GatewayHandler
 
 
 def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None:
@@ -66,25 +68,31 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
         assert conflict.json() == {"detail": "profile_version conflict"}
 
 
-def test_node_capabilities_contract_shape(tmp_path: Path) -> None:
-    """Expose stable node capability fields for node-first agent creation."""
+def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Expose stable node capability fields for node-first agent creation (按需向网关拉取)."""
+
+    async def _fake_node_capabilities(self, *, target_node_id: str, timeout_seconds: float = 15.0):  # noqa: ARG002
+        return {
+            "models": ["codex_oauth:gpt-5.4"],
+            "skills": ["plan"],
+            "tools": ["read"],
+            "platform_default_model": None,
+            "default_system_prompt": "",
+        }
+
+    monkeypatch.setattr(GatewayHandler, "request_node_capabilities", _fake_node_capabilities)
+
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         nodes = NodeRepository(app.state.connection)
         nodes.upsert_node(node_id="node-1", node_name="MacBook")
-        app.state.connection.execute(
-            "UPDATE nodes SET capabilities_json = ? WHERE node_id = ?",
-            ('{"skills":["plan"],"tools":["read"],"models":["codex_oauth:gpt-5.4"]}', "node-1"),
-        )
-        app.state.connection.commit()
-
         response = client.get("/im/v1/nodes/node-1/capabilities")
 
     assert response.status_code == 200
     assert response.json() == {
         "node_id": "node-1",
-        "skills": ["plan"],
-        "tools": ["read"],
+        "skills": [{"name": "plan", "description": ""}],
+        "tools": [{"name": "read", "description": ""}],
         "models": ["codex_oauth:gpt-5.4"],
         "platform_default_model": None,
         "default_system_prompt": "",

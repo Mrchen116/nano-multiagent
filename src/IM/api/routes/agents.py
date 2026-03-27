@@ -59,6 +59,13 @@ class AgentSummaryResponse(BaseModel):
     updated_at: str | None = None
 
 
+class AllowlistOptionResponse(BaseModel):
+    """一项可选技能或工具的展示元数据（IM 设置页复用）。"""
+
+    name: str
+    description: str = ""
+
+
 class AgentCapabilitiesResponse(BaseModel):
     """Node-backed runtime capability data for one agent workspace."""
 
@@ -66,8 +73,10 @@ class AgentCapabilitiesResponse(BaseModel):
     node_id: str
     workspace_root: str
     models: list[str] = Field(default_factory=list)
-    skills: list[str] = Field(default_factory=list)
-    tools: list[str] = Field(default_factory=list)
+    skills: list[AllowlistOptionResponse] = Field(default_factory=list)
+    tools: list[AllowlistOptionResponse] = Field(default_factory=list)
+    platform_default_model: str | None = None
+    default_system_prompt: str = ""
 
 
 def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -> AgentConfigResponse:
@@ -185,13 +194,19 @@ async def get_agent_capabilities(
     )
     if payload is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")
+    raw_platform = payload.get("platform_default_model")
+    platform_default: str | None = raw_platform.strip() if isinstance(raw_platform, str) and raw_platform.strip() else None
+    raw_prompt = payload.get("default_system_prompt")
+    default_system_prompt = raw_prompt if isinstance(raw_prompt, str) else ""
     return AgentCapabilitiesResponse(
         agent_id=agent_id,
         node_id=profile.node_id,
         workspace_root=workspace_root,
         models=_coerce_string_list(payload.get("models")),
-        skills=_coerce_string_list(payload.get("skills")),
-        tools=_coerce_string_list(payload.get("tools")),
+        skills=coerce_allowlist_options(payload.get("skills")),
+        tools=coerce_allowlist_options(payload.get("tools")),
+        platform_default_model=platform_default,
+        default_system_prompt=default_system_prompt,
     )
 
 
@@ -228,3 +243,24 @@ def _coerce_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
+    """兼容历史心跳里 skills/tools 只为 string 列表；新节点上报 ``{name, description}`` 对象。"""
+    if not isinstance(value, list):
+        return []
+    result: list[AllowlistOptionResponse] = []
+    for item in value:
+        if isinstance(item, str):
+            name = item.strip()
+            if name:
+                result.append(AllowlistOptionResponse(name=name, description=""))
+            continue
+        if isinstance(item, dict):
+            raw_name = item.get("name")
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                continue
+            raw_desc = item.get("description")
+            desc = raw_desc.strip() if isinstance(raw_desc, str) else ""
+            result.append(AllowlistOptionResponse(name=raw_name.strip(), description=desc))
+    return result

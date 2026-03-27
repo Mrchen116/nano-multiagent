@@ -30,7 +30,7 @@ V1 采用个人 owner 模型：
 1. Agent Profile 配置：`display name`、`description`、`system prompt`、skills 白名单、工具白名单、群聊策略、默认模型。
 2. 节点中心配置：节点别名、绑定关系、目标配置版本、是否启用中继/上报。
 3. 内置 Web IM 会话配置：会话成员、会话级规则。
-4. 节点运行态看板：在线状态、最近心跳、错误摘要、节点上报的 runtime capabilities 摘要。
+4. 节点运行态看板：在线状态、最近心跳、错误摘要；完整 runtime 候选项仅在打开对应设置页时经 API 向在线节点当场拉取（看板可不展示全量目录）。
 
 ### 4.2 不放在 IM 前端（节点本地配置）
 
@@ -58,7 +58,7 @@ V1 采用个人 owner 模型：
 ## 6. 配置页路由（IM前端内）
 
 1. `/settings/agents`：Agent 列表与配置版本（只查看/进入编辑，不承担创建入口）
-2. `/settings/agents/:id`：单 Agent 配置编辑（显示所属节点，并基于该节点上报能力编辑 runtime 配置）
+2. `/settings/agents/:id`：单 Agent 配置编辑（显示所属节点，并基于 `GET .../agents/{id}/capabilities` 当场解析结果编辑 runtime 配置）
 3. `/settings/nodes`：节点状态查看、中心配置编辑、Agent 创建入口
 4. `/settings/nodes/:nodeId/agents/new`：在指定在线节点上创建 Agent
 5. `/settings/account`：账号与节点归属信息
@@ -199,13 +199,13 @@ src/IM/frontend/
 | `display_name` | string | 是 | `GET/PATCH /im/v1/agents/{id}/config` | 显示名 |
 | `description` | string | 否 | 同上 | 用途说明 |
 | `system_prompt` | text | 是 | 同上 | 系统提示词 |
-| `skills_allowlist` | array<string> | 否 | 同上 | 技能白名单；候选项来自所属节点上报/解析的能力集合 |
+| `skills_allowlist` | array<string> | 否 | 同上 | 技能白名单；候选项来自 `GET .../agents/{id}/capabilities` 当场解析 |
 | `group_reply_policy` | enum | 是 | 同上 | 群聊回复策略 |
 | `no_reply_token` | string | 否 | 同上 | 默认为 `NO_REPLY` |
 | `default_model` | string | 否 | 同上 | 默认模型；候选项来自所属节点能力 |
-| `tool_allowlist` | array<string> | 否 | 同上 | 工具白名单；候选项来自所属节点上报/解析的能力集合 |
+| `tool_allowlist` | array<string> | 否 | 同上 | 工具白名单；候选项来自 `GET .../agents/{id}/capabilities` 当场解析 |
 | `profile_version` | string | 是 | 同上 | 乐观锁版本号 |
-| `capabilities_updated_at` | datetime | 否 | `GET /im/v1/agents/{id}/capabilities` | 当前能力快照时间 |
+| `capabilities_updated_at` | datetime | 否 | `GET /im/v1/agents/{id}/capabilities` | 本次能力请求完成时间（非 IM 库内持久化快照） |
 
 ### 13.5 `P5 /settings/nodes`（节点状态与中心配置页）
 
@@ -221,7 +221,7 @@ src/IM/frontend/
 | `relay_enabled` | boolean | 否 | 同上 | 是否启用中心中继（可改） |
 | `report_enabled` | boolean | 否 | 同上 | 是否启用上报（可改） |
 | `last_error` | string | 否 | `GET /im/v1/nodes` | 最近错误摘要 |
-| `capability_summary` | string | 否 | `GET /im/v1/nodes`/`GET /im/v1/nodes/{id}/capabilities` | 节点上报的 skills/tools/models 摘要 |
+| `capability_summary` | string | 否 | 前端派生/可选 | 节点列表可不展示全量目录；需摘要时可来自最近一次 `GET /im/v1/nodes/{id}/capabilities` 的拉取结果（须节点在线） |
 | `can_create_agent` | boolean | 是 | 前端派生 | 仅在线节点允许进入创建 Agent 流程 |
 
 ### 13.6 `P5a /settings/nodes/:nodeId/agents/new`（在指定节点上创建 Agent）
@@ -231,14 +231,14 @@ src/IM/frontend/
 | `node_id` | string | 是 | 路由参数 | 创建目标节点 |
 | `node_name` | string | 是 | `GET /im/v1/nodes/{node_id}/capabilities` | 目标节点展示名 |
 | `node_status` | enum | 是 | 同上 | 创建时必须为 online |
-| `capabilities_updated_at` | datetime | 否 | 同上 | 节点能力快照时间 |
+| `capabilities_updated_at` | datetime | 否 | 可用 `GET /im/v1/nodes` 的 `last_heartbeat_at` 近似，或本次能力请求完成时间 | 能力目录非 IM 持久化字段；仅作展示辅助 |
 | `display_name` | string | 是 | 本地表单/`POST /im/v1/nodes/{node_id}/agents` | Agent 显示名 |
 | `description` | string | 否 | 同上 | 用途说明 |
 | `system_prompt` | text | 是 | 同上 | 系统提示词 |
-| `skills_allowlist` | array<string> | 否 | 同上 | 候选项仅来自该节点当前上报能力 |
+| `skills_allowlist` | array<string> | 否 | 同上 | 候选项来自该次 `GET .../capabilities` 当场解析结果 |
 | `group_reply_policy` | enum | 是 | 同上 | 群聊回复策略 |
-| `default_model` | string | 否 | 同上 | 候选项仅来自该节点当前上报能力 |
-| `tool_allowlist` | array<string> | 否 | 同上 | 候选项仅来自该节点当前上报能力 |
+| `default_model` | string | 否 | 同上 | 候选项来自该次当场解析结果 |
+| `tool_allowlist` | array<string> | 否 | 同上 | 候选项来自该次当场解析结果 |
 | `workspace_root` | string | 否 | `POST` 响应 | 由节点创建时自动分配；创建前不作为用户输入 |
 
 ### 13.7 `P6 /settings/account`（账号与归属页）
