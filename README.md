@@ -22,7 +22,7 @@ pip install -e ".[dev]"
 ```bash
 cd <repo>
 PYTHONPATH=src python -m uvicorn IM.app:app \
-  --host 127.0.0.1 --port 8011
+  --host 0.0.0.0 --port 8011
 ```
 
 默认 Web IM 入口：

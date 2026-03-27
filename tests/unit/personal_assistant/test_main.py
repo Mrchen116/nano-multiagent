@@ -1677,8 +1677,8 @@ def test_main_restart_command_stops_then_starts(
         calls.append(f"stop:{config_path}")
         return "STOPPED pid=999"
 
-    def _start(*, config_path: str) -> BackgroundLaunchResult:
-        calls.append(f"start:{config_path}")
+    def _start(*, config_path: str, im_service_url_override: str | None = None) -> BackgroundLaunchResult:
+        calls.append(f"start:{config_path}:{im_service_url_override}")
         return BackgroundLaunchResult(
             pid=1234,
             health_url="http://127.0.0.1:8100/v1/health",
@@ -1692,7 +1692,7 @@ def test_main_restart_command_stops_then_starts(
     exit_code = main(["restart", "--config", config_path])
 
     assert exit_code == 0
-    assert calls == [f"stop:{config_path}", f"start:{config_path}"]
+    assert calls == [f"stop:{config_path}", f"start:{config_path}:None"]
     out = capsys.readouterr().out
     assert "Gateway started  (pid=1234)" in out
 
@@ -1708,8 +1708,8 @@ def test_main_restart_command_continues_when_gateway_not_running(
         calls.append("stop")
         return "NOT RUNNING config=node-config.yaml"
 
-    def _start(*, config_path: str) -> BackgroundLaunchResult:
-        calls.append("start")
+    def _start(*, config_path: str, im_service_url_override: str | None = None) -> BackgroundLaunchResult:
+        calls.append(f"start:{im_service_url_override}")
         return BackgroundLaunchResult(
             pid=5678,
             health_url="http://127.0.0.1:8100/v1/health",
@@ -1722,7 +1722,7 @@ def test_main_restart_command_continues_when_gateway_not_running(
     exit_code = main(["restart", "--config", str(tmp_path / "node-config.yaml")])
 
     assert exit_code == 0
-    assert calls == ["stop", "start"]
+    assert calls == ["stop", "start:None"]
 
 
 def test_main_restart_command_stops_foreground_pid_before_start(
@@ -1736,8 +1736,8 @@ def test_main_restart_command_stops_foreground_pid_before_start(
         calls.append(f"stop:{config_path}")
         return f"STOPPED pid=2468 pid_file={tmp_path / 'gateway.pid'}"
 
-    def _start(*, config_path: str) -> BackgroundLaunchResult:
-        calls.append(f"start:{config_path}")
+    def _start(*, config_path: str, im_service_url_override: str | None = None) -> BackgroundLaunchResult:
+        calls.append(f"start:{config_path}:{im_service_url_override}")
         return BackgroundLaunchResult(
             pid=5678,
             health_url="http://127.0.0.1:8100/v1/health",
@@ -1751,7 +1751,7 @@ def test_main_restart_command_stops_foreground_pid_before_start(
     exit_code = main(["restart", "--config", config_path])
 
     assert exit_code == 0
-    assert calls == [f"stop:{config_path}", f"start:{config_path}"]
+    assert calls == [f"stop:{config_path}", f"start:{config_path}:None"]
 
 
 def test_stop_gateway_removes_pid_file_on_successful_stop(
