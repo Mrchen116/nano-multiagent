@@ -1781,7 +1781,7 @@ export async function sendMessage(input: {
 export function parseImStreamEvent(input: {
   eventType: string;
   data: string;
-}): { eventType: string; payload: ParsedPayload } | null {
+}): ParsedImStreamEvent | null {
   try {
     const payload = JSON.parse(input.data) as ParsedPayload;
     return {
@@ -1793,67 +1793,254 @@ export function parseImStreamEvent(input: {
   }
 }
 
-export async function getConversationLatestEventId(conversationId: string): Promise<number> {
-  const response = await requestJson<{ latest_event_id?: number }>(`/im/v1/conversations/${conversationId}/events/latest`);
-  return typeof response.latest_event_id === "number" && Number.isFinite(response.latest_event_id) ? response.latest_event_id : 0;
+/** @deprecated 用户流使用全局 event_id 游标；保留占位避免旧调用方类型断裂。 */
+export async function getConversationLatestEventId(_conversationId: string): Promise<number> {
+  return 0;
 }
 
-export function streamConversationEvents(input: {
-  conversationId: string;
-  afterEventId?: number;
-  onEvent: (event: ParsedImStreamEvent) => void;
-  onError?: (error: Error) => void;
-}) {
-  if (typeof window === "undefined" || typeof window.EventSource === "undefined") {
-    return () => undefined;
-  }
+function userStreamCursorStorageKey(userId: string) {
+  return `im:user_stream_cursor:${userId}`;
+}
 
-  const afterEventId = typeof input.afterEventId === "number" && Number.isFinite(input.afterEventId) ? input.afterEventId : null;
-  const streamPath =
-    afterEventId === null
-      ? `/im/v1/conversations/${input.conversationId}/events`
-      : `/im/v1/conversations/${input.conversationId}/events?after_event_id=${afterEventId}`;
-  const source = new window.EventSource(withBase(streamPath));
-  const eventTypes = [
-    "message.sent",
-    "message.delivered",
-    "relay.accepted",
-    "relay.processing",
-    "relay.completed",
-    "relay.failed",
-    "conversation.notice",
-    "message_created",
-    "text_delta",
-    "turn_end",
-    "message_status"
-  ];
-  const listeners = eventTypes.map((eventType) => {
-    const handler = (event: Event) => {
-      const messageEvent = event as MessageEvent<string>;
-      const parsed = parseImStreamEvent({ eventType, data: messageEvent.data });
+function readUserStreamCursor(userId: string): number {
+  if (typeof sessionStorage === "undefined") {
+    return 0;
+  }
+  try {
+    const raw = sessionStorage.getItem(userStreamCursorStorageKey(userId));
+    if (!raw) {
+      return 0;
+    }
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeUserStreamCursor(userId: string, eventId: number) {
+  if (typeof sessionStorage === "undefined") {
+    return;
+  }
+  try {
+    sessionStorage.setItem(userStreamCursorStorageKey(userId), String(eventId));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+function resolveUserStreamWsUrl(selfUserId: string): string {
+  const apiBase = getApiBaseUrl();
+  const pageOrigin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:8011";
+  const httpOrigin = apiBase !== "" ? new URL(apiBase, pageOrigin).origin : pageOrigin;
+  const wsUrl = new URL("/im/ws/user", httpOrigin);
+  wsUrl.searchParams.set("user_id", selfUserId);
+  const scheme = wsUrl.protocol === "https:" ? "wss:" : "ws:";
+  return `${scheme}//${wsUrl.host}${wsUrl.pathname}?${wsUrl.searchParams.toString()}`;
+}
+
+type UserStreamHandler = (event: ParsedImStreamEvent) => void;
+type UserStreamResyncHandler = () => Promise<void>;
+
+const userStreamHandlers = new Set<UserStreamHandler>();
+const userStreamResyncHandlers = new Set<UserStreamResyncHandler>();
+let userStreamSocket: WebSocket | null = null;
+let userStreamUserId: string | null = null;
+let userStreamReconnectTimer: number | null = null;
+let userStreamPingTimer: number | null = null;
+let userStreamReconnectAttempt = 0;
+
+async function runUserStreamResyncHandlers(): Promise<void> {
+  await Promise.all([...userStreamResyncHandlers].map(async (handler) => handler()));
+}
+
+async function handleUserStreamResyncCommand(userId: string): Promise<void> {
+  try {
+    const data = await requestJson<{ max_event_id?: number }>("/im/v1/sync");
+    if (typeof data.max_event_id === "number" && Number.isFinite(data.max_event_id) && data.max_event_id >= 0) {
+      writeUserStreamCursor(userId, data.max_event_id);
+    }
+  } catch {
+    /* 对齐失败时保持本地游标，依赖后续 resume */
+  }
+  await runUserStreamResyncHandlers();
+}
+
+function teardownUserStreamTimers() {
+  if (userStreamReconnectTimer !== null) {
+    window.clearTimeout(userStreamReconnectTimer);
+    userStreamReconnectTimer = null;
+  }
+  if (userStreamPingTimer !== null) {
+    window.clearInterval(userStreamPingTimer);
+    userStreamPingTimer = null;
+  }
+}
+
+function scheduleUserStreamReconnect(userId: string) {
+  if (userStreamHandlers.size === 0) {
+    return;
+  }
+  teardownUserStreamTimers();
+  const delay = Math.min(30_000, 1000 * 2 ** Math.min(userStreamReconnectAttempt, 5));
+  userStreamReconnectAttempt += 1;
+  userStreamReconnectTimer = window.setTimeout(() => {
+    userStreamReconnectTimer = null;
+    connectSharedUserStream(userId);
+  }, delay);
+}
+
+function connectSharedUserStream(userId: string) {
+  if (typeof WebSocket === "undefined") {
+    return;
+  }
+  if (userStreamUserId !== null && userStreamUserId !== userId) {
+    userStreamSocket?.close();
+    userStreamSocket = null;
+    teardownUserStreamTimers();
+    userStreamUserId = null;
+  }
+  if (
+    userStreamSocket &&
+    userStreamUserId === userId &&
+    (userStreamSocket.readyState === WebSocket.OPEN || userStreamSocket.readyState === WebSocket.CONNECTING)
+  ) {
+    return;
+  }
+  userStreamSocket?.close();
+  teardownUserStreamTimers();
+  const ws = new WebSocket(resolveUserStreamWsUrl(userId));
+  userStreamSocket = ws;
+  userStreamUserId = userId;
+
+  ws.onopen = () => {
+    userStreamReconnectAttempt = 0;
+    const after = readUserStreamCursor(userId);
+    ws.send(JSON.stringify({ op: "resume", after_event_id: after }));
+    userStreamPingTimer = window.setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ op: "ping" }));
+      }
+    }, 25_000);
+  };
+
+  ws.onmessage = (messageEvent) => {
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(messageEvent.data as string) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+    const op = msg.op;
+    if (op === "pong") {
+      return;
+    }
+    if (op === "resync_required") {
+      void handleUserStreamResyncCommand(userId);
+      return;
+    }
+    if (op === "event") {
+      const eventType = typeof msg.event_type === "string" ? msg.event_type : "";
+      const dataRaw = msg.data;
+      const dataStr =
+        typeof dataRaw === "object" && dataRaw !== null ? JSON.stringify(dataRaw) : String(dataRaw ?? "");
+      const parsed = parseImStreamEvent({ eventType, data: dataStr });
       if (!parsed) {
         return;
       }
-      const parsedEventId = Number(messageEvent.lastEventId);
-      input.onEvent({
+      const payloadObj =
+        typeof dataRaw === "object" && dataRaw !== null ? (dataRaw as Record<string, unknown>) : undefined;
+      const fromPayload =
+        payloadObj && typeof payloadObj.event_id === "number" ? (payloadObj.event_id as number) : undefined;
+      const eventId = fromPayload ?? parsed.eventId;
+      const enriched: ParsedImStreamEvent = {
         ...parsed,
-        eventId: Number.isFinite(parsedEventId) && parsedEventId > 0 ? parsedEventId : undefined
-      });
-    };
-    source.addEventListener(eventType, handler);
-    return { eventType, handler };
-  });
-
-  source.onerror = () => {
-    input.onError?.(new Error("SSE connection failed"));
-  };
-
-  return () => {
-    for (const item of listeners) {
-      source.removeEventListener(item.eventType, item.handler);
+        eventId: typeof eventId === "number" && Number.isFinite(eventId) ? eventId : parsed.eventId
+      };
+      for (const handler of userStreamHandlers) {
+        handler(enriched);
+      }
+      if (typeof enriched.eventId === "number" && enriched.eventId > 0) {
+        const cur = readUserStreamCursor(userId);
+        if (enriched.eventId > cur) {
+          writeUserStreamCursor(userId, enriched.eventId);
+        }
+      }
     }
-    source.close();
   };
+
+  ws.onerror = () => {
+    /* onclose 负责重连 */
+  };
+
+  ws.onclose = () => {
+    teardownUserStreamTimers();
+    userStreamSocket = null;
+    if (userStreamHandlers.size > 0) {
+      scheduleUserStreamReconnect(userId);
+    }
+  };
+}
+
+/**
+ * 订阅 IM 用户维 WebSocket（全局单连接多监听者）。用于侧边栏 toast 等。
+ */
+export function attachUserConversationStream(input: {
+  selfUserId: string;
+  onEvent: UserStreamHandler;
+  onResyncRequired?: UserStreamResyncHandler;
+}): () => void {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+  userStreamHandlers.add(input.onEvent);
+  if (input.onResyncRequired) {
+    userStreamResyncHandlers.add(input.onResyncRequired);
+  }
+  connectSharedUserStream(input.selfUserId);
+  return () => {
+    userStreamHandlers.delete(input.onEvent);
+    if (input.onResyncRequired) {
+      userStreamResyncHandlers.delete(input.onResyncRequired);
+    }
+    if (userStreamHandlers.size === 0) {
+      teardownUserStreamTimers();
+      userStreamSocket?.close();
+      userStreamSocket = null;
+      userStreamUserId = null;
+      userStreamReconnectAttempt = 0;
+    }
+  };
+}
+
+/** 当前会话内实时：在用户流上按 conversationId 过滤。 */
+export function streamConversationEvents(input: {
+  conversationId: string;
+  selfUserId: string | null | undefined;
+  afterEventId?: number;
+  onEvent: (event: ParsedImStreamEvent) => void;
+  onError?: (error: Error) => void;
+}): () => void {
+  if (typeof window === "undefined" || !input.selfUserId) {
+    return () => undefined;
+  }
+  if (typeof input.afterEventId === "number" && Number.isFinite(input.afterEventId) && input.afterEventId > 0) {
+    const cur = readUserStreamCursor(input.selfUserId);
+    if (input.afterEventId > cur) {
+      writeUserStreamCursor(input.selfUserId, input.afterEventId);
+    }
+  }
+  return attachUserConversationStream({
+    selfUserId: input.selfUserId,
+    onEvent: (event) => {
+      const payload = event.payload as Record<string, unknown>;
+      const cid = typeof payload.conversation_id === "string" ? payload.conversation_id : undefined;
+      if (cid !== undefined && cid !== input.conversationId) {
+        return;
+      }
+      input.onEvent(event);
+    }
+  });
 }
 
 /**

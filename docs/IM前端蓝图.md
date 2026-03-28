@@ -1,7 +1,7 @@
 # IM前端蓝图
 
-版本：v0.3  
-日期：2026-03-03
+版本：v0.4  
+日期：2026-03-27
 
 ## 1. 放置位置
 
@@ -103,15 +103,17 @@ V1 采用个人 owner 模型：
 ## 10. 前端与后端接口
 
 1. `POST /im/v1/conversations/{id}/messages`
-2. `GET /im/v1/conversations/{id}/events`（SSE）
-3. `GET /im/v1/agents/{agent_id}/config`
-4. `PATCH /im/v1/agents/{agent_id}/config`
-5. `GET /im/v1/agents/{agent_id}/capabilities`
-6. `GET /im/v1/nodes`
-7. `GET /im/v1/nodes/{node_id}/capabilities`
-8. `POST /im/v1/nodes/{node_id}/agents`
-9. `PATCH /im/v1/nodes/{node_id}/config`（中心可管配置）
-10. `GET /im/v1/metrics/usage`
+2. `GET /im/v1/conversations/{id}/messages`（历史；含 relay 合成气泡，与列表展示一致）
+3. `GET /im/v1/sync`（会话列表快照 + `max_event_id`；用户流 `resync_required` 或冷启动对齐）
+4. **WebSocket** `/im/ws/user?user_id=...`（用户维事件流：`op=event` / `resume` / `ping` / `resync_required`；**不再使用**按会话 SSE）
+5. `GET /im/v1/agents/{agent_id}/config`
+6. `PATCH /im/v1/agents/{agent_id}/config`
+7. `GET /im/v1/agents/{agent_id}/capabilities`
+8. `GET /im/v1/nodes`
+9. `GET /im/v1/nodes/{node_id}/capabilities`
+10. `POST /im/v1/nodes/{node_id}/agents`
+11. `PATCH /im/v1/nodes/{node_id}/config`（中心可管配置）
+12. `GET /im/v1/metrics/usage`
 
 ## 11. 目录建议
 
@@ -170,7 +172,7 @@ src/IM/frontend/
 | `content` | string | 否 | 同上 | 文本内容 |
 | `attachments` | array | 否 | 同上 | 附件列表 |
 | `created_at` | datetime | 是 | 同上 | 时间戳 |
-| `delivery_status` | enum | 否 | `events`/回执 | sent/running/completed/failed |
+| `delivery_status` | enum | 否 | `GET .../messages` 与用户流 relay 事件 | sent/running/completed/failed |
 | `draft_text` | string | 否 | 本地状态 | 输入草稿 |
 | `composer_attachments` | array | 否 | 本地状态 | 待发送附件 |
 
@@ -239,7 +241,7 @@ src/IM/frontend/
 | `group_reply_policy` | enum | 是 | 同上 | 群聊回复策略 |
 | `default_model` | string | 否 | 同上 | 候选项来自该次当场解析结果 |
 | `tool_allowlist` | array<string> | 否 | 同上 | 候选项来自该次当场解析结果 |
-| `workspace_root` | string | 否 | `POST` 响应 | 由节点创建时自动分配；创建前不作为用户输入 |
+| `workspace_root` | string | 否 | 表单可选、`POST` 响应 | 默认由节点分配；可选填自定义绝对路径，随创建请求下发，以节点回包与 IM 持久化为准 |
 
 ### 13.7 `P6 /settings/account`（账号与归属页）
 
@@ -256,7 +258,7 @@ src/IM/frontend/
 1. 桌面端：两栏布局可用。
 2. 手机端：列表/会话切换顺畅。
 3. 手机端可完成 Agent 配置与节点中心配置修改。
-4. 消息发送与流式回显稳定。
+4. 消息发送与实时回显稳定（用户流 WebSocket + 必要时 REST 刷新）。
 5. 视觉风格达到现代聊天应用基线。
 
 ## 15. 协同清单（IM前端）
@@ -264,16 +266,16 @@ src/IM/frontend/
 ### 15.1 与 IM 服务协同
 
 1. API 契约冻结：
-   - `conversations/messages/events`
+   - `conversations` / `messages` / **`sync`** / **用户流 WebSocket**
    - `agents config`
    - `agents capabilities`
    - `nodes config/status/capabilities`
    - `node-scoped agent creation`
    - `account`
-2. SSE 事件字典统一：
-   - 事件名（`text_delta/tool_start/tool_end/turn_end/error`）
-   - 字段必填项（`run_id/turn_id/message_id/status`）
-   - 顺序与去重规则（按 `event_id + created_at`）
+2. **用户流**与历史对齐（原按会话 SSE 已移除）：
+   - 帧形态见 `IM-SPEC` §5：Wire `data` 与持久化 `conversation_events` 的 `event_type` + payload 尽量一致
+   - 客户端以 **全局 `event_id`** 去重；多 tab 可重复收到同一事件
+   - `resync_required` 后调 `GET /im/v1/sync` 对齐游标并刷新会话列表
 3. 配置保存并发控制：
    - `profile_version` 乐观锁
    - 冲突提示与覆盖策略
@@ -312,15 +314,15 @@ src/IM/frontend/
 1. 联调环境：
    - 本地 mock + dev IM 服务 + 可选节点沙箱
 2. 回归用例：
-   - 会话列表加载、SSE 连续推流、配置保存冲突
-   - 移动端适配与断网重连
+   - 会话列表加载、**用户流**连续事件、relay 气泡与 `GET .../messages` 一致、配置保存冲突
+   - 移动端适配与断网重连（含 WebSocket 重连与 `resume`）
 3. 监控与排障：
    - 前端错误埋点字段（`trace_id/session_id/conversation_id`）
-   - 网络请求与 SSE 失败率看板
+   - 网络请求与 **WebSocket** 断连/重试率看板
 
 ### 15.5 协同产物（必须落文档）
 
 1. 《前端-IM服务 API 字段对照表》
-2. 《SSE 事件契约表》
+2. 《**用户流（WebSocket）** 事件与 payload 契约表》（替代原按会话 SSE 表）
 3. 《节点状态与回执映射表》
 4. 《配置项权限与生效时机表》

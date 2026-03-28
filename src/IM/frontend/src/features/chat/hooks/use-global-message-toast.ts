@@ -2,16 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 
-import {
-  getChatBootstrapState,
-  getConversationLatestEventId,
-  listConversations,
-  streamConversationEvents
-} from "../chat-api";
+import { attachUserConversationStream, getChatBootstrapState, listConversations } from "../chat-api";
 import { ParsedImStreamEvent, setConversationPreviewSnapshot } from "../im-chat-api";
 import { ConversationSummary } from "../types";
 
-/** Payload for a single in-app toast notification. */
+/** 应用内 toast 通知的载荷。 */
 export interface ToastPayload {
   id: string;
   conversationId: string;
@@ -27,7 +22,6 @@ interface NotificationCandidate {
 }
 
 interface ConversationNotificationState {
-  baselineEventId: number;
   lastSeenEventId: number;
   notifiedMessageKeys: Set<string>;
 }
@@ -177,19 +171,16 @@ export function buildNotificationCandidate(event: ParsedImStreamEvent): Notifica
 }
 
 /**
- * Subscribes to SSE streams for all known conversations and emits an in-app
- * toast when a true new message arrives while the user is not on that conversation's page.
+ * 通过用户维 WebSocket 订阅全局事件；在未打开对应会话时弹出应用内 toast。
  */
-export function useGlobalMessageToast(input?: { maxConversations?: number }) {
-  const maxConversations = input?.maxConversations ?? 10;
+export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   const [toast, setToast] = useState<ToastPayload | null>(null);
   const queryClient = useQueryClient();
   const location = useLocation();
   const pathnameRef = useRef(location.pathname);
   const selfUserIdRef = useRef<string | null>(null);
+  /** 按会话记录已处理 event_id，避免重复 toast。 */
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
-  const hasInitializedRef = useRef(false);
-  const [subscriptions, setSubscriptions] = useState<Array<{ conversationId: string; afterEventId: number }>>([]);
 
   useEffect(() => {
     pathnameRef.current = location.pathname;
@@ -197,137 +188,82 @@ export function useGlobalMessageToast(input?: { maxConversations?: number }) {
 
   useEffect(() => {
     let cancelled = false;
+    let detach: (() => void) | undefined;
 
-    async function refreshNotificationSubscriptions() {
+    void (async () => {
       try {
-        const [items, bootstrap] = await Promise.all([listConversations(), getChatBootstrapState()]);
-        if (cancelled) {
+        const [bootstrap] = await Promise.all([getChatBootstrapState(), listConversations()]);
+        if (cancelled || !bootstrap.selfUserId) {
           return;
         }
         selfUserIdRef.current = bootstrap.selfUserId;
-        const trackedConversations = items.slice(0, maxConversations);
-        const trackedIds = new Set(trackedConversations.map((item: ConversationSummary) => item.conversation_id));
-        const previousState = conversationStateRef.current;
-        const nextState = new Map<string, ConversationNotificationState>();
-        const subscriptionsToLoad: Array<{ conversationId: string; unreadCount: number }> = [];
+        // 预热侧边栏缓存（与用户流解耦）
+        void queryClient.ensureQueryData({ queryKey: ["chat", "conversations"], queryFn: listConversations });
 
-        for (const item of trackedConversations) {
-          const existing = previousState.get(item.conversation_id);
-          if (existing) {
-            nextState.set(item.conversation_id, existing);
-            continue;
-          }
-          subscriptionsToLoad.push({
-            conversationId: item.conversation_id,
-            unreadCount: typeof item.unread_count === "number" ? Math.max(0, Math.trunc(item.unread_count)) : 0
-          });
-        }
+        detach = attachUserConversationStream({
+          selfUserId: bootstrap.selfUserId,
+          onResyncRequired: async () => {
+            await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+          },
+          onEvent: (event) => {
+            if (typeof event.eventId !== "number") {
+              return;
+            }
+            const payload = event.payload as Record<string, unknown>;
+            const conversationIdRaw = payload.conversation_id;
+            if (typeof conversationIdRaw !== "string" || !conversationIdRaw) {
+              return;
+            }
+            const conversationId = conversationIdRaw;
+            let state = conversationStateRef.current.get(conversationId);
+            if (!state) {
+              state = { lastSeenEventId: 0, notifiedMessageKeys: new Set<string>() };
+              conversationStateRef.current.set(conversationId, state);
+            }
+            if (event.eventId <= state.lastSeenEventId) {
+              return;
+            }
+            state.lastSeenEventId = event.eventId;
 
-        const latestEventIds = await Promise.all(
-          subscriptionsToLoad.map(async ({ conversationId, unreadCount }) => ({
-            conversationId,
-            unreadCount,
-            latestEventId: await getConversationLatestEventId(conversationId)
-          }))
-        );
-        if (cancelled) {
-          return;
-        }
-
-        for (const { conversationId, unreadCount, latestEventId } of latestEventIds) {
-          const shouldReplayLatestEvent = hasInitializedRef.current && unreadCount > 0 && latestEventId > 0;
-          const baselineEventId = shouldReplayLatestEvent ? latestEventId - 1 : latestEventId;
-          nextState.set(conversationId, {
-            baselineEventId,
-            lastSeenEventId: baselineEventId,
-            notifiedMessageKeys: new Set<string>()
-          });
-        }
-
-        conversationStateRef.current = new Map(
-          [...nextState.entries()].filter(([conversationId]) => trackedIds.has(conversationId))
-        );
-        setSubscriptions(
-          [...conversationStateRef.current.entries()].map(([conversationId, state]) => ({
-            conversationId,
-            afterEventId: state.lastSeenEventId
-          }))
-        );
-        hasInitializedRef.current = true;
-      } catch {
-        if (!cancelled) {
-          conversationStateRef.current = new Map();
-          setSubscriptions([]);
-        }
-      }
-    }
-
-    void refreshNotificationSubscriptions();
-    const intervalId = window.setInterval(() => {
-      void refreshNotificationSubscriptions();
-    }, 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [maxConversations]);
-
-  useEffect(() => {
-    if (subscriptions.length === 0) {
-      return;
-    }
-
-    const teardowns = subscriptions.map(({ conversationId, afterEventId }) =>
-      streamConversationEvents({
-        conversationId,
-        afterEventId,
-        onEvent: (event) => {
-          const conversationState = conversationStateRef.current.get(conversationId);
-          if (!conversationState || typeof event.eventId !== "number") {
-            return;
-          }
-          if (event.eventId <= conversationState.baselineEventId || event.eventId <= conversationState.lastSeenEventId) {
-            return;
-          }
-          conversationState.lastSeenEventId = event.eventId;
-          const payload = event.payload as Record<string, unknown>;
-          const candidate = buildNotificationCandidate(event);
-          if (candidate) {
-            queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
-              patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt)
-            );
-            setConversationPreviewSnapshot({
+            const candidate = buildNotificationCandidate(event);
+            if (candidate) {
+              queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
+                patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt)
+              );
+              setConversationPreviewSnapshot({
+                conversationId,
+                preview: candidate.preview,
+                lastMessageAt: candidate.createdAt
+              });
+            }
+            if (isViewingConversation(pathnameRef.current, conversationId)) {
+              return;
+            }
+            if (isSelfAuthoredUserMessage(payload, selfUserIdRef.current)) {
+              return;
+            }
+            if (!candidate || state.notifiedMessageKeys.has(candidate.messageKey)) {
+              return;
+            }
+            state.notifiedMessageKeys.add(candidate.messageKey);
+            setToast({
+              id: candidate.messageKey,
               conversationId,
-              preview: candidate.preview,
-              lastMessageAt: candidate.createdAt
+              senderName: candidate.senderName,
+              preview: candidate.preview
             });
           }
-          if (isViewingConversation(pathnameRef.current, conversationId)) {
-            return;
-          }
-          if (isSelfAuthoredUserMessage(payload, selfUserIdRef.current)) {
-            return;
-          }
-          if (!candidate || conversationState.notifiedMessageKeys.has(candidate.messageKey)) {
-            return;
-          }
-          conversationState.notifiedMessageKeys.add(candidate.messageKey);
-          setToast({
-            id: candidate.messageKey,
-            conversationId,
-            senderName: candidate.senderName,
-            preview: candidate.preview
-          });
-        }
-      })
-    );
+        });
+      } catch {
+        /* bootstrap 失败时静默跳过 toast 流 */
+      }
+    })();
 
     return () => {
-      for (const teardown of teardowns) {
-        teardown();
-      }
+      cancelled = true;
+      detach?.();
     };
-  }, [queryClient, subscriptions]);
+  }, [queryClient]);
 
   const dismiss = useCallback(() => setToast(null), []);
 

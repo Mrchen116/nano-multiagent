@@ -1,10 +1,11 @@
 """Conversation routes for IM HTTP APIs."""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, model_validator
 
 from IM.api.deps import get_web_im_service
 from IM.application.web_im_service import WebIMService
 from IM.domain.models import Conversation
+from IM.ws.user_stream import global_max_event_id
 
 router = APIRouter(tags=["web-im"])
 
@@ -69,6 +70,13 @@ class ListConversationsResponse(BaseModel):
     items: list[ConversationResponse]
 
 
+class ImSyncResponse(BaseModel):
+    """用户流重连/全量对齐用的会话列表与全局事件游标。"""
+
+    items: list[ConversationResponse]
+    max_event_id: int
+
+
 def to_conversation_response(conversation: Conversation) -> ConversationResponse:
     """Convert domain conversation to API response model."""
     return ConversationResponse(
@@ -126,6 +134,14 @@ def list_conversations(
     return ListConversationsResponse(
         items=[to_conversation_response(item) for item in service.list_conversations()]
     )
+
+
+@router.get("/im/v1/sync", response_model=ImSyncResponse)
+def sync_im_state(request: Request, service: WebIMService = Depends(get_web_im_service)) -> ImSyncResponse:
+    """返回会话列表与全局 max(event_id)，供用户 WebSocket resync_required 后对齐客户端游标。"""
+    items = [to_conversation_response(item) for item in service.list_conversations()]
+    max_event_id = global_max_event_id(request.app.state.connection)
+    return ImSyncResponse(items=items, max_event_id=max_event_id)
 
 
 @router.get("/im/v1/conversations/{conversation_id}", response_model=ConversationResponse)

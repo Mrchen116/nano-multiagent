@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from IM.application.event_service import EventService
 from IM.app import create_app
 from IM.repositories import AgentProfileRepository, NodeRepository
 from personal_assistant.channels.base import OutboundMessage
@@ -100,23 +101,6 @@ def _send_delivery_receipt(
         assert frame.get("type") == "relay.message"
         assert frame.get("payload", {}).get("metadata", {}).get("background_context_only") is True
         continue
-
-
-
-def _parse_sse_blocks(raw_text: str) -> list[tuple[str, dict[str, object]]]:
-    parsed_blocks = [block for block in raw_text.split("\n\n") if block.strip() and not block.startswith(":")]
-    events: list[tuple[str, dict[str, object]]] = []
-    for block in parsed_blocks:
-        event_type = None
-        payload = None
-        for line in block.splitlines():
-            if line.startswith("event: "):
-                event_type = line.removeprefix("event: ")
-            elif line.startswith("data: "):
-                payload = json.loads(line.removeprefix("data: "))
-        if event_type is not None and isinstance(payload, dict):
-            events.append((event_type, payload))
-    return events
 
 
 
@@ -560,12 +544,14 @@ def test_group_message_mentioning_two_agents_exposes_distinct_sse_identity_for_r
                     "payload": {"message_type": "node.report", "node_id": "node-1"},
                 }
 
-        events = client.get(
-            f"/im/v1/conversations/{conversation_id}/events?max_events=20&timeout_seconds=0.05"
-        )
-        assert events.status_code == 200
+        event_service = EventService(events=client.app.state.event_repository)
+        enriched = event_service.list_events(conversation_id=conversation_id, after_event_id=0, limit=200)
+        sse_events = [
+            (ev.event_type, json.loads(ev.payload_json))
+            for ev in enriched
+            if ev.event_type in ("relay.processing", "relay.report")
+        ]
 
-    sse_events = _parse_sse_blocks(events.text)
     processing_payloads = [payload for event_type, payload in sse_events if event_type == "relay.processing"]
     report_payloads = [payload for event_type, payload in sse_events if event_type == "relay.report"]
     assert {payload["agent_id"] for payload in processing_payloads} == {"agent-q", "agent-a"}

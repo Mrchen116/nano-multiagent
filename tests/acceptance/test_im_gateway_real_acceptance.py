@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -74,7 +75,7 @@ class StubKernelClient:
 
     def __init__(self) -> None:
         self.create_session_calls: list[dict[str, str | None]] = []
-        self.send_calls: list[dict[str, str]] = []
+        self.send_calls: list[dict[str, Any]] = []
         self.run_states: dict[str, dict[str, object]] = {}
         self._session_index = 0
         self._run_index = 0
@@ -98,14 +99,30 @@ class StubKernelClient:
         )
         return {"session_id": f"sess-{self._session_index}"}
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, str]:
+    def send_message_async(
+        self,
+        *,
+        session_id: str,
+        texts: list[str],
+        image_urls: list[dict[str, Any]] | None = None,
+    ) -> dict[str, str]:
+        if not texts:
+            raise ValueError("texts must contain at least one message")
         self._run_index += 1
         run_id = f"run-{self._run_index}"
-        self.send_calls.append({"session_id": session_id, "text": text, "run_id": run_id})
+        combined_text = "\n".join(texts)
+        self.send_calls.append(
+            {
+                "session_id": session_id,
+                "texts": list(texts),
+                "image_urls": image_urls,
+                "run_id": run_id,
+            }
+        )
         self.run_states[run_id] = {
             "run_id": run_id,
             "status": "completed",
-            "output_text": f"assistant:{text}",
+            "output_text": f"assistant:{combined_text}",
         }
         return {"run_id": run_id}
 
@@ -244,9 +261,27 @@ class GatewayAcceptanceHarness:
 
             me_snapshot = client.get(f"/im/v1/me?user_id={user_id}")
             messages = client.get(f"/im/v1/conversations/{conversation_id}/messages")
-            events = client.get(
-                f"/im/v1/conversations/{conversation_id}/events?max_events=10&timeout_seconds=0.05"
-            )
+            event_rows = self.app.state.connection.execute(
+                """
+                SELECT event_id, event_type, delivery_status, payload_json
+                FROM conversation_events
+                WHERE conversation_id = ?
+                ORDER BY event_id
+                """,
+                (conversation_id,),
+            ).fetchall()
+            events = []
+            for r in event_rows:
+                raw = json.loads(str(r["payload_json"]))
+                base = raw if isinstance(raw, dict) else {}
+                # 与 IM 用户流 wire data 一致：delivery_status 来自列，不一定重复出现在 payload_json
+                events.append(
+                    {
+                        "id": int(r["event_id"]),
+                        "event": str(r["event_type"]),
+                        "data": {**base, "delivery_status": str(r["delivery_status"])},
+                    }
+                )
             nodes = client.get("/im/v1/nodes")
             relay_row = self.app.state.connection.execute(
                 "SELECT status, receipt_status, receipt_detail FROM relay_tasks WHERE relay_task_id = ?",
@@ -262,7 +297,7 @@ class GatewayAcceptanceHarness:
                 "completed_ack": completed_ack,
                 "me": me_snapshot.json(),
                 "messages": messages.json(),
-                "events": _parse_sse_payload(events.text),
+                "events": events,
                 "nodes": nodes.json(),
                 "relay_status": {
                     "status": relay_row["status"],
@@ -303,25 +338,6 @@ class GatewayAcceptanceHarness:
         )
         assert response.status_code == 201
         return response.json()["id"]
-
-
-def _parse_sse_payload(body: str) -> list[dict[str, object]]:
-    events: list[dict[str, object]] = []
-    for raw_block in body.strip().split("\n\n"):
-        block = raw_block.strip()
-        if not block or block.startswith(":"):
-            continue
-        parsed: dict[str, object] = {}
-        for line in block.splitlines():
-            if line.startswith("id: "):
-                parsed["id"] = int(line[4:])
-            elif line.startswith("event: "):
-                parsed["event"] = line[7:]
-            elif line.startswith("data: "):
-                parsed["data"] = json.loads(line[6:])
-        if parsed:
-            events.append(parsed)
-    return events
 
 
 def test_im_gateway_acceptance_covers_bind_connect_roundtrip_and_receipts(tmp_path: Path) -> None:

@@ -7,7 +7,6 @@ import {
   buildStarterPeerUsername,
   confirmBindToken,
   getConversation,
-  getConversationLatestEventId,
   listConversations,
   listDiscoverableGroupParticipants,
   normalizeItemsEnvelope,
@@ -548,43 +547,31 @@ describe("im chat api helpers", () => {
 });
 
 describe("im chat stream parser", () => {
-  it("requests latest event id for one conversation", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ latest_event_id: 42 }), { status: 200 })
-    );
-
-    await expect(getConversationLatestEventId("conv-1")).resolves.toBe(42);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/im/v1/conversations/conv-1/events/latest",
-      expect.objectContaining({
-        headers: expect.objectContaining({ "Content-Type": "application/json" })
-      })
-    );
-  });
-
-  it("passes after_event_id when opening an SSE stream", () => {
-    class FakeEventSource {
-      static instances: FakeEventSource[] = [];
+  it("opens user stream WebSocket for filtered conversation subscription", () => {
+    class FakeWebSocket {
+      static instances: Array<{ url: string; close: () => void }> = [];
       url: string;
-      onerror: (() => void) | null = null;
+      close = vi.fn();
+      send = vi.fn();
+      onopen: (() => void) | null = null;
       constructor(url: string) {
         this.url = url;
-        FakeEventSource.instances.push(this);
+        FakeWebSocket.instances.push(this);
       }
-      addEventListener() {}
-      removeEventListener() {}
-      close() {}
     }
 
-    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+    vi.spyOn(Object.getPrototypeOf(window.sessionStorage), "getItem").mockReturnValue("5");
 
     const teardown = streamConversationEvents({
       conversationId: "conv-9",
+      selfUserId: "user-1",
       afterEventId: 17,
       onEvent: () => undefined
     });
 
-    expect(FakeEventSource.instances[0]?.url).toBe("/im/v1/conversations/conv-9/events?after_event_id=17");
+    expect(FakeWebSocket.instances[0]?.url).toContain("/im/ws/user");
+    expect(FakeWebSocket.instances[0]?.url).toContain("user_id=user-1");
     teardown();
   });
 

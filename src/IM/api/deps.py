@@ -13,7 +13,7 @@ from IM.application.policy_service import PolicyService
 from IM.application.relay_service import RelayService
 from IM.application.user_service import UserService
 from IM.application.web_im_service import WebIMService
-from IM.infra.repositories import AgentProfileRepository, BindRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, SettingsPolicyRepository, UsageMetricsRepository, UserRepository
+from IM.infra.repositories import AgentProfileRepository, BindRepository, ConversationRepository, MessageRepository, NodeRepository, SettingsPolicyRepository, UsageMetricsRepository, UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -91,7 +91,7 @@ def _build_conversation_repository(request: Request) -> ConversationRepository:
 
 def _build_message_repository(request: Request) -> MessageRepository:
     """Return the canonical message repository for the running IM app."""
-    return MessageRepository(request.app.state.connection)
+    return request.app.state.message_repository
 
 
 def _build_user_repository(request: Request) -> UserRepository:
@@ -136,7 +136,7 @@ def get_web_im_service(request: Request) -> WebIMService:
 
 def get_event_service(request: Request) -> EventService:
     """Build the event application service from app-scoped dependencies."""
-    return EventService(events=EventRepository(request.app.state.connection))
+    return EventService(events=request.app.state.event_repository)
 
 
 def get_config_service(request: Request) -> ConfigService:

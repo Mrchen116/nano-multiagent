@@ -12,7 +12,9 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
-from IM.domain.models import Actor, Message, managed_workspace_root
+from collections.abc import Callable
+
+from IM.domain.models import Actor, ConversationEvent, Message, managed_workspace_root
 from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, UserRepository
 
 
@@ -56,6 +58,7 @@ class GatewayHandler:
         event_repository: EventRepository | None = None,
         metrics_service: MetricsService | None = None,
         conversation_repository: ConversationRepository | None = None,
+        user_event_notify: Callable[[ConversationEvent], None] | None = None,
     ) -> None:
         self._relay_service = relay_service
         self._node_repository = node_repository
@@ -63,7 +66,11 @@ class GatewayHandler:
         self._metrics_service = metrics_service
         self._conversation_repository = conversation_repository
         self._user_repository = UserRepository(conversation_repository._connection) if conversation_repository is not None else None
-        self._message_repository = MessageRepository(conversation_repository._connection) if conversation_repository is not None else None
+        self._message_repository = (
+            MessageRepository(conversation_repository._connection, notify=user_event_notify)
+            if conversation_repository is not None
+            else None
+        )
         self._lock = asyncio.Lock()
         self._agent_message_lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}

@@ -1,4 +1,5 @@
 """Integration tests for conversation messages APIs."""
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -181,13 +182,12 @@ def test_messages_support_sender_type_attachments_and_pagination(tmp_path: Path)
         assert conversation.json()["last_message_at"] == system_message.json()["created_at"]
 
 
-def test_sse_events_roundtrip_for_sent_message(tmp_path: Path) -> None:
-    """Emit SSE event stream entries that UI can consume for live rendering."""
+def test_user_stream_roundtrip_for_sent_message(tmp_path: Path) -> None:
+    """用户 WebSocket 推送与消息写入一致的事件载荷。"""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         sender_id = _create_user(client, "alice")
         conversation_id = _create_conversation(client, sender_id, "chat")
-
         sent = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
             json={
@@ -198,23 +198,25 @@ def test_sse_events_roundtrip_for_sent_message(tmp_path: Path) -> None:
             },
         )
         assert sent.status_code == 201
+        with client.websocket_connect(f"/im/ws/user?user_id={sender_id}") as websocket:
+            websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
+            seen: list[str] = []
+            for _ in range(6):
+                body = json.loads(websocket.receive_text())
+                if body.get("op") == "event":
+                    seen.append(json.dumps(body, ensure_ascii=True))
+                if len(seen) >= 2:
+                    break
+            blob = " ".join(seen)
+            assert "message.sent" in blob
+            assert "message.delivered" in blob
+            assert "conversation_id" in blob
+            assert "agent" in blob
+            assert "https://example.com/file.png" in blob
 
-        with client.stream(
-            "GET",
-            f"/im/v1/conversations/{conversation_id}/events?after_event_id=0&max_events=10&timeout_seconds=0.05",
-        ) as stream_response:
-            assert stream_response.status_code == 200
-            body = "".join(chunk for chunk in stream_response.iter_text())
 
-        assert "event: message.sent" in body
-        assert "event: message.delivered" in body
-        assert '"conversation_id"' in body
-        assert '"sender_type":"agent"' in body
-        assert '"attachments":[{"url":"https://example.com/file.png"' in body
-
-
-def test_latest_event_endpoint_and_cursor_skip_history(tmp_path: Path) -> None:
-    """Expose latest cursor and let clients start streaming after existing history."""
+def test_sync_returns_global_event_cursor(tmp_path: Path) -> None:
+    """/im/v1/sync 提供全局 max_event_id 供客户端对齐游标。"""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         sender_id = _create_user(client, "alice")
@@ -231,25 +233,14 @@ def test_latest_event_endpoint_and_cursor_skip_history(tmp_path: Path) -> None:
         assert first.status_code == 201
         assert second.status_code == 201
 
-        latest = client.get(f"/im/v1/conversations/{conversation_id}/events/latest")
-        assert latest.status_code == 200
-        latest_event_id = latest.json()["latest_event_id"]
-        assert latest_event_id > 0
-
-        with client.stream(
-            "GET",
-            f"/im/v1/conversations/{conversation_id}/events?after_event_id={latest_event_id}&max_events=10&timeout_seconds=0.05",
-        ) as stream_response:
-            assert stream_response.status_code == 200
-            body = "".join(chunk for chunk in stream_response.iter_text())
-
-        assert "event: message.sent" not in body
-        assert "event: message.delivered" not in body
-        assert ": keepalive" in body
+        synced = client.get("/im/v1/sync")
+        assert synced.status_code == 200
+        max_event_id = synced.json()["max_event_id"]
+        assert max_event_id >= 4
 
 
 def test_messages_endpoint_includes_visible_relay_history_on_first_load(tmp_path: Path) -> None:
-    """Return synthetic agent history rows so old conversations do not gain replies only after SSE replay."""
+    """Return synthetic agent history rows so old conversations do not gain replies only after实时回放。"""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         owner_id = _create_user(client, "owner")

@@ -1,6 +1,6 @@
 # Node Gateway SPEC — src/personal_assistant/
 
-> **版本** v1.0 | **日期** 2026-03-11
+> **版本** v1.1 | **日期** 2026-03-27
 > 本文档是 `src/personal_assistant/` 的设计权威文件，从属于顶层 `SPEC.md`。
 
 ---
@@ -37,7 +37,7 @@ Node Gateway 是一个常驻后台进程，承担控制平面角色：
 Gateway 与 IM 服务的连接方向：
   Gateway ──主动连接──→ IM 服务（WebSocket 持久连接）
   │  上行：节点注册、心跳上报、执行结果、投递回执
-  │  下行：Web IM 消息中继、配置同步通知、手动触发 heartbeat
+  │  下行：Web IM 消息中继、配置同步、Agent 创建/能力解析、手动触发 heartbeat
   （Gateway 在用户机器上，可能在 NAT 后面，不可作为服务端被 IM 服务主动连接）
 
 本地调度路径：
@@ -264,7 +264,7 @@ Gateway 运行在用户个人机器上，通常在 NAT / 防火墙后面，**不
 | `relay.message` | Web IM 消息中继（进入 WebIM Channel 适配器） |
 | `config.sync` | 配置版本通知（Gateway 按需拉取最新配置） |
 | `agent.config.get` | IM 请求当前 Agent 配置快照 |
-| `agent.create` | IM 请求在节点侧创建 Agent 工作区 |
+| `agent.create` | IM 请求在节点侧创建 Agent 工作区；**必须**在 `agent.created` 回包 `agent` 对象中返回非空 **`workspace_root`**（解析后的绝对路径字符串），否则 IM 创建流程失败 |
 | `agent.capabilities.resolve` | IM 请求按某 Agent workspace 当场解析 capabilities |
 | `node.capabilities.resolve` | IM 请求节点级当场解析 capabilities（如新建 Agent 页） |
 | `heartbeat.trigger` | 手动触发某个 Agent 的 heartbeat |

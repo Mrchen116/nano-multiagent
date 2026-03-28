@@ -175,6 +175,10 @@ class UpstreamReporter:
         self._node_name = (node_name or node.node_id).strip()
         self._version = (version or "").strip()
 
+    def replace_agents(self, agents: tuple[AgentWorkspaceConfig, ...]) -> None:
+        """在运行时在 IM 上新建 Agent 后，刷新登记到本机的 agent 列表（供 heartbeat 等使用）。"""
+        self._agents = agents
+
     @property
     def node_id(self) -> str:
         """Return the stable node identifier used for upstream IM frames."""

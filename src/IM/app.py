@@ -1,6 +1,7 @@
 """FastAPI application for the independent IM service."""
 
 from contextlib import asynccontextmanager
+import asyncio
 import os
 from pathlib import Path
 
@@ -17,11 +18,14 @@ from IM.api.routes.nodes import router as nodes_router
 from IM.api.routes.policies import router as policies_router
 from IM.api.routes.users import router as user_router
 from IM.api.routes.web_im import router as web_im_router
+from IM.application.event_service import EventService
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
+from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import ConversationRepository, EventRepository, NodeRepository, UsageMetricsRepository
+from IM.infra.repositories import ConversationRepository, EventRepository, MessageRepository, NodeRepository, UsageMetricsRepository
 from IM.ws.gateway_handler import GatewayHandler
+from IM.ws.user_stream import UserStreamRegistry, build_notify_enqueue, pump_user_stream_outbound, serve_user_websocket
 
 
 def _normalize_runtime_path(path: Path) -> Path:
@@ -216,16 +220,53 @@ def create_app(
         initialize_schema(connection)
         app_instance.state.connection = connection
         app_instance.state.upload_dir = resolved_upload_dir
+
+        registry = UserStreamRegistry()
+        outbound_queue: asyncio.Queue[tuple[frozenset[str], str]] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        # EventService 依赖 EventRepository；notify 又需 EventService 做 enrich，故用桥接稍后注入实现。
+        _user_notify_impl: list[object] = [None]
+
+        def user_event_notify(event: ConversationEvent) -> None:
+            impl = _user_notify_impl[0]
+            if impl is not None:
+                impl(event)  # type: ignore[misc]
+
+        app_instance.state.user_stream_registry = registry
+        app_instance.state.user_event_notify = user_event_notify
+
+        event_repository = EventRepository(connection, notify=user_event_notify)
+        message_repository = MessageRepository(connection, notify=user_event_notify)
+        event_service = EventService(events=event_repository)
+        _user_notify_impl[0] = build_notify_enqueue(
+            connection=connection,
+            outbound_queue=outbound_queue,
+            loop=loop,
+            event_service=event_service,
+        )
+        app_instance.state.event_repository = event_repository
+        app_instance.state.message_repository = message_repository
+
+        pump_task = asyncio.create_task(pump_user_stream_outbound(registry=registry, outbound_queue=outbound_queue))
+        app_instance.state.user_stream_pump_task = pump_task
+
         app_instance.state.gateway_handler = GatewayHandler(
             relay_service=RelayService(connection),
             node_repository=NodeRepository(connection),
-            event_repository=EventRepository(connection),
+            event_repository=event_repository,
             metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
             conversation_repository=ConversationRepository(connection),
+            user_event_notify=user_event_notify,
         )
         try:
             yield
         finally:
+            pump_task.cancel()
+            try:
+                await pump_task
+            except asyncio.CancelledError:
+                pass
             connection.close()
 
     app = FastAPI(title="Independent IM Service", version="0.1.0", lifespan=lifespan)
@@ -266,6 +307,20 @@ def create_app(
                 }
             )
             await websocket.close(code=1003)
+
+    @app.websocket("/im/ws/user")
+    async def user_stream_websocket(websocket: WebSocket) -> None:
+        """浏览器用户实时事件流（每用户一条或多标签多条连接）。"""
+        user_id = (websocket.query_params.get("user_id") or "").strip()
+        if not user_id:
+            await websocket.close(code=1008)
+            return
+        await serve_user_websocket(
+            websocket=websocket,
+            connection=app.state.connection,
+            registry=app.state.user_stream_registry,
+            user_id=user_id,
+        )
 
     return app
 

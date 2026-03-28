@@ -59,7 +59,7 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatSchedulerStateStore,
     HeartbeatTickSummary,
 )
-from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
+from personal_assistant.ws.im_connection import AgentCreateHandler, IMConnectionConfig, IMConnectionManager
 
 
 ProcessLike = subprocess.Popen[Any]
@@ -242,6 +242,7 @@ class _IMConfigSyncClient:
         pipeline: InboundPipeline,
         local_config: LocalConfig,
         workspace_root_factory: Callable[[str], Path] | None = None,
+        reporter: UpstreamReporter | None = None,
         client: httpx.Client | None = None,
         client_factory: BootstrapClientFactory | None = None,
         timeout_seconds: float = 5.0,
@@ -258,6 +259,7 @@ class _IMConfigSyncClient:
         self._pipeline = pipeline
         self._local_config = local_config
         self._workspace_root_factory = workspace_root_factory or self._default_workspace_root
+        self._reporter = reporter
         self._client_factory = client_factory
         self._client = client
         self._monotonic = monotonic
@@ -319,6 +321,73 @@ class _IMConfigSyncClient:
                 if attempt >= self._max_attempts or self._monotonic() >= deadline:
                     raise
                 self._sleep(self._retry_interval_seconds)
+
+    def handle_agent_create(self, agent_payload: Mapping[str, object]) -> dict[str, object]:
+        """在节点上落地工作区并注册 Agent，供 IM ``agent.create`` / ``agent.created`` 回包使用。"""
+        agent_id_raw = agent_payload.get("agent_id")
+        if not isinstance(agent_id_raw, str) or not agent_id_raw.strip():
+            raise ValueError("agent.create requires non-empty agent_id")
+        agent_id = agent_id_raw.strip()
+        ws_raw = agent_payload.get("workspace_root")
+        if isinstance(ws_raw, str) and ws_raw.strip():
+            workspace_root = Path(ws_raw.strip()).expanduser()
+            if not workspace_root.is_absolute():
+                raise ValueError("workspace_root must be an absolute path or start with ~/")
+            workspace_root = workspace_root.resolve()
+        else:
+            workspace_root = self._workspace_root_factory(agent_id)
+        workspace_root = ensure_workspace_defaults(workspace_root)
+        display = agent_payload.get("display_name")
+        title = display.strip() if isinstance(display, str) and display.strip() else agent_id
+        desc_val = agent_payload.get("description")
+        description_str = desc_val.strip() if isinstance(desc_val, str) else ""
+        system_prompt_val = agent_payload.get("system_prompt")
+        system_prompt = (
+            system_prompt_val.strip()
+            if isinstance(system_prompt_val, str) and system_prompt_val.strip()
+            else None
+        )
+        raw_skills = agent_payload.get("skills")
+        skills = tuple(
+            item.strip()
+            for item in (raw_skills if isinstance(raw_skills, list) else [])
+            if isinstance(item, str) and item.strip()
+        )
+        raw_tools = agent_payload.get("tool_allowlist")
+        tool_allowlist = tuple(
+            item.strip()
+            for item in (raw_tools if isinstance(raw_tools, list) else [])
+            if isinstance(item, str) and item.strip()
+        )
+        grp = agent_payload.get("group_reply_policy")
+        group_reply_policy = grp.strip() if isinstance(grp, str) and grp.strip() else "MENTION"
+        dm = agent_payload.get("default_model")
+        default_model = dm.strip() if isinstance(dm, str) and dm.strip() else None
+        agent_config = AgentWorkspaceConfig(
+            agent_id=agent_id,
+            workspace_root=workspace_root,
+            title=title,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
+            system_prompt=system_prompt,
+            group_reply_policy=group_reply_policy,
+            default_model=default_model,
+        )
+        self._pipeline.register_agent(agent_config)
+        self._persist_agent_config(agent_config)
+        if self._reporter is not None:
+            self._reporter.replace_agents(tuple(self._local_config.agents))
+        return {
+            "agent_id": agent_id,
+            "display_name": title,
+            "description": description_str,
+            "system_prompt": system_prompt or "",
+            "skills": list(skills),
+            "tool_allowlist": list(tool_allowlist),
+            "group_reply_policy": group_reply_policy,
+            "default_model": default_model,
+            "workspace_root": str(workspace_root),
+        }
 
     def close(self) -> None:
         client = self._client
@@ -1176,6 +1245,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             token=config.im_service.token,
             pipeline=pipeline,
             local_config=config,
+            reporter=reporter,
         )
         im_connection_manager = _build_im_connection_manager(
             config=config,
@@ -1187,6 +1257,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             agent_capabilities_provider=lambda _agent_id, workspace_root: build_agent_capabilities_payload(
                 workspace_root=workspace_root
             ),
+            agent_create_handler=im_config_sync_client.handle_agent_create,
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -1316,6 +1387,7 @@ def _build_im_connection_manager(
     sync_client: ConfigSyncClient | None = None,
     agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
+    agent_create_handler: AgentCreateHandler | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -1328,6 +1400,7 @@ def _build_im_connection_manager(
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
         agent_config_provider=agent_config_provider,
         agent_capabilities_provider=agent_capabilities_provider,
+        agent_create_handler=agent_create_handler,
         connect=_connect_websocket,
     )
 

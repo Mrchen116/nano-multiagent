@@ -4,13 +4,23 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const streamHandlers = new Map<string, (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void>();
+let streamHandler: ((event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void) | null = null;
 
 vi.mock("../chat-api", () => ({
   listConversations: vi.fn(),
   getChatBootstrapState: vi.fn(),
-  getConversationLatestEventId: vi.fn(),
-  streamConversationEvents: vi.fn()
+  attachUserConversationStream: vi.fn(
+    (input: {
+      selfUserId: string;
+      onEvent: (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void;
+      onResyncRequired?: () => Promise<void>;
+    }) => {
+      streamHandler = input.onEvent;
+      return () => {
+        streamHandler = null;
+      };
+    }
+  )
 }));
 
 import * as chatApi from "../chat-api";
@@ -18,8 +28,7 @@ import { useGlobalMessageToast } from "./use-global-message-toast";
 
 const listConversationsMock = vi.mocked(chatApi.listConversations);
 const getChatBootstrapStateMock = vi.mocked(chatApi.getChatBootstrapState);
-const getConversationLatestEventIdMock = vi.mocked(chatApi.getConversationLatestEventId);
-const streamConversationEventsMock = vi.mocked(chatApi.streamConversationEvents);
+const attachUserConversationStreamMock = vi.mocked(chatApi.attachUserConversationStream);
 
 function buildWrapper(queryClient: QueryClient, route = "/") {
   return function Wrapper(props: { children: ReactNode }) {
@@ -32,12 +41,14 @@ function buildWrapper(queryClient: QueryClient, route = "/") {
 }
 
 function emit(conversationId: string, event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) {
-  const handler = streamHandlers.get(conversationId);
-  if (!handler) {
-    throw new Error(`missing stream handler for ${conversationId}`);
+  if (!streamHandler) {
+    throw new Error("stream handler not attached");
   }
   act(() => {
-    handler(event);
+    streamHandler?.({
+      ...event,
+      payload: { ...event.payload, conversation_id: conversationId }
+    });
   });
 }
 
@@ -47,9 +58,11 @@ describe("useGlobalMessageToast", () => {
   });
 
   beforeEach(() => {
-    streamHandlers.clear();
+    streamHandler = null;
     vi.clearAllMocks();
-    listConversationsMock.mockResolvedValue([{ conversation_id: "conv-1", unread_count: 0, participants: [], title: "Chat" }]);
+    listConversationsMock.mockResolvedValue([
+      { conversation_id: "conv-1", unread_count: 0, participants: [], title: "Chat" }
+    ]);
     getChatBootstrapStateMock.mockResolvedValue({
       selfUserId: "self-user",
       ownerId: "owner-1",
@@ -64,26 +77,32 @@ describe("useGlobalMessageToast", () => {
         ownershipLabel: null
       }
     });
-    getConversationLatestEventIdMock.mockResolvedValue(0);
-    streamConversationEventsMock.mockImplementation(
-      ({ conversationId, onEvent }: { conversationId: string; onEvent: (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void }) => {
-        streamHandlers.set(conversationId, onEvent);
-        return () => streamHandlers.delete(conversationId);
-      }
-    );
   });
 
-  it("suppresses replayed history at the startup baseline and only toasts newer events", async () => {
-    getConversationLatestEventIdMock.mockResolvedValue(10);
+  it("只建立一条用户流订阅", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+
+    await waitFor(() => expect(attachUserConversationStreamMock).toHaveBeenCalledTimes(1));
+    expect(attachUserConversationStreamMock.mock.calls[0]?.[0].selfUserId).toBe("self-user");
+  });
+
+  it("同一会话上重复 eventId 不重复提示", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
-    await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-1", afterEventId: 10 })));
+    await waitFor(() => expect(attachUserConversationStreamMock).toHaveBeenCalled());
 
     emit("conv-1", {
       eventType: "message.sent",
-      eventId: 10,
-      payload: { message_id: "old-1", sender_type: "user", sender_user_id: "user:peer", content: "old" }
+      eventId: 11,
+      payload: { message_id: "new-1", sender_type: "user", sender_user_id: "user:peer", content: "fresh" }
+    });
+
+    expect(result.current.toast).toMatchObject({ id: "message:new-1", preview: "fresh" });
+
+    act(() => {
+      result.current.dismiss();
     });
     expect(result.current.toast).toBeNull();
 
@@ -93,14 +112,14 @@ describe("useGlobalMessageToast", () => {
       payload: { message_id: "new-1", sender_type: "user", sender_user_id: "user:peer", content: "fresh" }
     });
 
-    expect(result.current.toast).toMatchObject({ id: "message:new-1", preview: "fresh" });
+    expect(result.current.toast).toBeNull();
   });
 
   it("dedupes message_created and message.sent for the same message id", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
-    await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalled());
+    await waitFor(() => expect(attachUserConversationStreamMock).toHaveBeenCalled());
 
     emit("conv-1", {
       eventType: "message_created",
@@ -127,7 +146,7 @@ describe("useGlobalMessageToast", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
-    await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalled());
+    await waitFor(() => expect(attachUserConversationStreamMock).toHaveBeenCalled());
 
     emit("conv-1", {
       eventType: "relay.report",
@@ -139,7 +158,13 @@ describe("useGlobalMessageToast", () => {
     emit("conv-1", {
       eventType: "relay.completed",
       eventId: 2,
-      payload: { message_id: "m-1", relay_task_id: "relay-1", agent_id: "ops-bot", detail: "Done", sender_display_name: "Ops Bot" }
+      payload: {
+        message_id: "m-1",
+        relay_task_id: "relay-1",
+        agent_id: "ops-bot",
+        detail: "Done",
+        sender_display_name: "Ops Bot"
+      }
     });
 
     expect(result.current.toast).toMatchObject({ id: "relay:m-1:relay-1", senderName: "Ops Bot", preview: "Done" });
@@ -149,7 +174,7 @@ describe("useGlobalMessageToast", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
-    await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalled());
+    await waitFor(() => expect(attachUserConversationStreamMock).toHaveBeenCalled());
 
     emit("conv-1", {
       eventType: "relay.completed",
@@ -169,7 +194,7 @@ describe("useGlobalMessageToast", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/chat/conv-1") });
 
-    await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalled());
+    await waitFor(() => expect(attachUserConversationStreamMock).toHaveBeenCalled());
 
     emit("conv-1", {
       eventType: "message.sent",
@@ -194,7 +219,7 @@ describe("useGlobalMessageToast", () => {
     ]);
     const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
-    await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalled());
+    await waitFor(() => expect(attachUserConversationStreamMock).toHaveBeenCalled());
 
     emit("conv-1", {
       eventType: "message.sent",
@@ -245,7 +270,7 @@ describe("useGlobalMessageToast", () => {
     ]);
     const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
-    await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-2" })));
+    await waitFor(() => expect(attachUserConversationStreamMock).toHaveBeenCalled());
 
     emit("conv-2", {
       eventType: "relay.completed",
@@ -275,36 +300,4 @@ describe("useGlobalMessageToast", () => {
       }
     ]);
   });
-
-  it("subscribes to conversations discovered after mount and toasts the replayed latest unread event", async () => {
-    listConversationsMock
-      .mockResolvedValueOnce([{ conversation_id: "conv-1", unread_count: 0, participants: [], title: "Chat" }])
-      .mockResolvedValueOnce([
-        { conversation_id: "conv-2", unread_count: 1, participants: [], title: "New chat" },
-        { conversation_id: "conv-1", unread_count: 0, participants: [], title: "Chat" }
-      ]);
-    getConversationLatestEventIdMock.mockImplementation(async (conversationId: string) => (conversationId === "conv-2" ? 5 : 0));
-
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
-
-    await waitFor(() => expect(streamConversationEventsMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-1", afterEventId: 0 })));
-    await waitFor(
-      () => expect(streamConversationEventsMock).toHaveBeenCalledWith(expect.objectContaining({ conversationId: "conv-2", afterEventId: 4 })),
-      { timeout: 4000 }
-    );
-
-    emit("conv-2", {
-      eventType: "message.sent",
-      eventId: 5,
-      payload: { message_id: "new-direct-1", sender_type: "agent", sender_display_name: "Ops Bot", content: "fresh dm" }
-    });
-
-    expect(result.current.toast).toMatchObject({
-      id: "message:new-direct-1",
-      conversationId: "conv-2",
-      senderName: "Ops Bot",
-      preview: "fresh dm"
-    });
-  }, 10000);
 });

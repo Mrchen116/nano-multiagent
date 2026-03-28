@@ -1,5 +1,6 @@
 """SQLite repositories for IM users, conversations, and messages."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -675,14 +676,19 @@ class ConversationRepository:
 class MessageRepository:
     """Persist and query conversation messages."""
 
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        notify: Callable[[ConversationEvent], None] | None = None,
+    ) -> None:
         """Bind repository to a database connection.
 
         Args:
             connection: SQLite connection used for reads and writes.
+            notify: 可选；消息相关事件在事务提交后广播（与 EventRepository 独立写路径）。
         """
         self._connection = connection
-        self._events = EventRepository(connection)
+        self._notify = notify
 
     def create_message(
         self,
@@ -769,6 +775,7 @@ class MessageRepository:
             "progress_state": "pending",
             "semantic": "persisted_to_im",
         }
+        pending_live_events: list[ConversationEvent] = []
         with self._connection:
             self._connection.execute(
                 """
@@ -794,24 +801,28 @@ class MessageRepository:
                     created_at,
                 ),
             )
-            self._insert_event(
-                conversation_id=conversation_id,
-                message_id=message_id,
-                event_type="message.sent",
-                delivery_status=initial_status,
-                payload=sent_payload,
-            )
-            if auto_complete_delivery:
+            pending_live_events.append(
                 self._insert_event(
                     conversation_id=conversation_id,
                     message_id=message_id,
-                    event_type="message.delivered",
-                    delivery_status="completed",
-                    payload={
-                        **sent_payload,
-                        "progress_state": "completed",
-                        "semantic": "message_history_ready",
-                    },
+                    event_type="message.sent",
+                    delivery_status=initial_status,
+                    payload=sent_payload,
+                )
+            )
+            if auto_complete_delivery:
+                pending_live_events.append(
+                    self._insert_event(
+                        conversation_id=conversation_id,
+                        message_id=message_id,
+                        event_type="message.delivered",
+                        delivery_status="completed",
+                        payload={
+                            **sent_payload,
+                            "progress_state": "completed",
+                            "semantic": "message_history_ready",
+                        },
+                    )
                 )
                 self._connection.execute(
                     "UPDATE messages SET delivery_status = ? WHERE id = ?",
@@ -823,6 +834,9 @@ class MessageRepository:
                 "UPDATE conversations SET last_message_preview = ?, last_message_at = ?, unread_count = unread_count + 1 WHERE id = ?",
                 (_to_message_preview(content=content, attachments=normalized_attachments), created_at, conversation_id),
             )
+        if self._notify is not None:
+            for live_event in pending_live_events:
+                self._notify(live_event)
         return Message(
             id=message_id,
             conversation_id=conversation_id,
@@ -1039,9 +1053,10 @@ class MessageRepository:
         event_type: str,
         delivery_status: str,
         payload: dict[str, object],
-    ) -> int:
-        """Insert one persisted event row and return SQLite event id."""
+    ) -> ConversationEvent:
+        """在现有事务内插入一条 conversation_events 并返回完整实体。"""
         created_at = _utc_now()
+        payload_json = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
         cursor = self._connection.execute(
             """
             INSERT INTO conversation_events(
@@ -1058,11 +1073,19 @@ class MessageRepository:
                 message_id,
                 event_type,
                 delivery_status,
-                json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+                payload_json,
                 created_at,
             ),
         )
-        return int(cursor.lastrowid)
+        return ConversationEvent(
+            event_id=int(cursor.lastrowid),
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type=event_type,
+            delivery_status=delivery_status,
+            payload_json=payload_json,
+            created_at=created_at,
+        )
 
 
 class AgentProfileRepository:
@@ -1692,13 +1715,19 @@ class UsageMetricsRepository:
 class EventRepository:
     """Persist and query conversation events."""
 
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        notify: Callable[[ConversationEvent], None] | None = None,
+    ) -> None:
         """Bind repository to a database connection.
 
         Args:
             connection: SQLite connection used for reads and writes.
+            notify: 可选；持久化成功后同步通知用户流广播。
         """
         self._connection = connection
+        self._notify = notify
 
     def append_event(
         self,
@@ -1750,7 +1779,7 @@ class EventRepository:
                     "UPDATE conversations SET last_message_preview = ?, last_message_at = ? WHERE id = ?",
                     (preview, created_at, conversation_id),
                 )
-        return ConversationEvent(
+        event = ConversationEvent(
             event_id=int(cursor.lastrowid),
             conversation_id=conversation_id,
             message_id=message_id,
@@ -1759,6 +1788,9 @@ class EventRepository:
             payload_json=payload_json,
             created_at=created_at,
         )
+        if self._notify is not None:
+            self._notify(event)
+        return event
 
     def update_message_delivery_status(
         self,

@@ -1,4 +1,4 @@
-"""Integration tests for IM conversation SSE event streaming."""
+"""集成测试：用户维 WebSocket 实时事件。"""
 
 import json
 from pathlib import Path
@@ -26,64 +26,26 @@ def _create_conversation(client: TestClient, participant_id: str) -> str:
     return response.json()["id"]
 
 
-def _parse_sse_payload(body: str) -> list[dict[str, object]]:
-    events: list[dict[str, object]] = []
-    for raw_block in body.strip().split("\n\n"):
-        block = raw_block.strip()
-        if not block or block.startswith(":"):
-            continue
-        parsed: dict[str, object] = {}
-        for line in block.splitlines():
-            if line.startswith("id: "):
-                parsed["id"] = int(line[4:])
-            elif line.startswith("event: "):
-                parsed["event"] = line[7:]
-            elif line.startswith("data: "):
-                parsed["data"] = json.loads(line[6:])
-        if parsed:
-            events.append(parsed)
-    return events
-
-
-def test_events_sse_supports_last_event_id_reconnect(tmp_path: Path) -> None:
-    """Read initial events then reconnect and receive only incremental events."""
+def test_user_stream_resume_replays_persisted_events(tmp_path: Path) -> None:
+    """resume after_event_id=0 回放已有 message 事件。"""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         alice_id = _create_user(client, "alice")
         conversation_id = _create_conversation(client, alice_id)
-
         first = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
             json={"sender_user_id": alice_id, "content": "first"},
         )
         assert first.status_code == 201
-        first_message_id = first.json()["id"]
 
-        first_stream = client.get(
-            f"/im/v1/conversations/{conversation_id}/events?max_events=10&timeout_seconds=0.05"
-        )
-        assert first_stream.status_code == 200
-        first_events = _parse_sse_payload(first_stream.text)
-        assert len(first_events) == 2
-        assert {event["event"] for event in first_events} == {"message.sent", "message.delivered"}
-        assert {event["data"]["message_id"] for event in first_events} == {first_message_id}
-
-        last_event_id = int(first_events[-1]["id"])
-
-        second = client.post(
-            f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": alice_id, "content": "second"},
-        )
-        assert second.status_code == 201
-        second_message_id = second.json()["id"]
-
-        second_stream = client.get(
-            f"/im/v1/conversations/{conversation_id}/events?timeout_seconds=0.05",
-            headers={"Last-Event-ID": str(last_event_id)},
-        )
-        assert second_stream.status_code == 200
-        incremental_events = _parse_sse_payload(second_stream.text)
-
-        assert len(incremental_events) == 2
-        assert {event["data"]["message_id"] for event in incremental_events} == {second_message_id}
-        assert all(int(event["id"]) > last_event_id for event in incremental_events)
+        with client.websocket_connect(f"/im/ws/user?user_id={alice_id}") as websocket:
+            websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
+            event_types: list[str] = []
+            for _ in range(6):
+                body = json.loads(websocket.receive_text())
+                if body.get("op") == "event":
+                    event_types.append(str(body.get("event_type")))
+                if len(event_types) >= 2:
+                    break
+            assert "message.sent" in event_types
+            assert "message.delivered" in event_types

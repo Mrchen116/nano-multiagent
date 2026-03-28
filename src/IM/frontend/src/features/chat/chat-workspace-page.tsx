@@ -611,6 +611,7 @@ export function ChatWorkspacePage() {
     }
     return streamConversationEvents({
       conversationId,
+      selfUserId,
       onEvent: (event) => {
         const messageId = toStringValue(event.payload.message_id);
         if (!messageId) {
@@ -903,6 +904,8 @@ export function ChatWorkspacePage() {
       });
       syncConversationPreviewFromDetail({ queryClient, conversationId });
       refreshUsageQueries({ conversationId, ownerId, queryClient });
+      // 后台再拉一次历史：REST 已合并 relay 合成气泡；避免用户流未连上时界面一直停在「只有我的消息」。
+      void queryClient.invalidateQueries({ queryKey: ["chat", "conversation", conversationId] });
     }
   });
 

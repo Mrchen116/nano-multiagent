@@ -1,19 +1,13 @@
 """Message and event routes for IM HTTP APIs."""
-import asyncio
-import json
 from pathlib import Path
-from time import monotonic
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
-from IM.api.deps import assert_conversation_exists, get_event_service, get_gateway_handler, get_web_im_service
-from IM.application.event_service import EventService
+from IM.api.deps import assert_conversation_exists, get_gateway_handler, get_web_im_service
 from IM.application.web_im_service import WebIMService
-from IM.domain.models import Attachment, ConversationEvent, Message
-from IM.infra.sse import encode_sse_event_frame, encode_sse_heartbeat
+from IM.domain.models import Attachment, Message
 from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["messages"])
@@ -81,12 +75,6 @@ class ListMessagesResponse(BaseModel):
         return len(self.items)
 
 
-class LatestConversationEventResponse(BaseModel):
-    """Expose the latest persisted SSE cursor for one conversation."""
-
-    latest_event_id: int
-
-
 def to_message_response(message: Message) -> MessageResponse:
     """Convert domain message to API response model."""
     return MessageResponse(
@@ -113,24 +101,6 @@ def to_message_response(message: Message) -> MessageResponse:
     )
 
 
-def to_event_payload(event: ConversationEvent) -> dict[str, object]:
-    """Convert persisted event row to SSE payload."""
-    try:
-        raw_payload = json.loads(event.payload_json)
-        if not isinstance(raw_payload, dict):
-            raw_payload = {}
-    except json.JSONDecodeError:
-        raw_payload = {}
-    return {
-        **raw_payload,
-        "event_id": event.event_id,
-        "conversation_id": event.conversation_id,
-        "message_id": event.message_id,
-        "delivery_status": event.delivery_status,
-        "created_at": event.created_at,
-    }
-
-
 def _sanitize_upload_file_name(file_name: str) -> str:
     """Collapse user-provided upload names to a safe basename."""
     safe_name = Path(file_name.strip()).name
@@ -143,26 +113,6 @@ def _resolve_upload_content_type(request: Request) -> str:
     """Pick the content type stored alongside one uploaded attachment."""
     raw_content_type = request.headers.get("Content-Type", "application/octet-stream")
     return raw_content_type.split(";", 1)[0].strip() or "application/octet-stream"
-
-
-def parse_event_cursor(*, after_event_id: str | None, last_event_id: str | None) -> int:
-    """Parse reconnect cursor from query/header with stable 400 semantics."""
-    raw_value = after_event_id if after_event_id is not None else last_event_id
-    if raw_value is None or raw_value.strip() == "":
-        return 0
-    try:
-        cursor = int(raw_value)
-    except ValueError as exc:  # pragma: no cover - exercised by contract tests
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="after_event_id must be an integer",
-        ) from exc
-    if cursor < 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="after_event_id must be >= 0",
-        )
-    return cursor
 
 
 @router.post("/im/v1/uploads", response_model=AttachmentPayload, status_code=status.HTTP_201_CREATED)
@@ -284,74 +234,6 @@ def list_messages(
     return ListMessagesResponse(
         items=[to_message_response(item) for item in items],
         next_before_message_id=next_before_message_id,
-    )
-
-
-@router.get(
-    "/im/v1/conversations/{conversation_id}/events/latest",
-    response_model=LatestConversationEventResponse,
-)
-def get_latest_conversation_event(
-    conversation_id: str,
-    request: Request,
-    service: EventService = Depends(get_event_service),
-) -> LatestConversationEventResponse:
-    """Return the latest persisted SSE cursor for one conversation."""
-    assert_conversation_exists(request, conversation_id=conversation_id)
-    return LatestConversationEventResponse(
-        latest_event_id=service.get_latest_event_id(conversation_id=conversation_id)
-    )
-
-
-@router.get("/im/v1/conversations/{conversation_id}/events")
-async def stream_conversation_events(
-    conversation_id: str,
-    request: Request,
-    after_event_id: str | None = Query(default=None),
-    max_events: int = Query(default=50, ge=1, le=500),
-    timeout_seconds: float = Query(default=1.0, ge=0.01, le=30.0),
-    service: EventService = Depends(get_event_service),
-) -> StreamingResponse:
-    """Stream conversation events in SSE format with cursor-based replay."""
-    assert_conversation_exists(request, conversation_id=conversation_id)
-    cursor = parse_event_cursor(
-        after_event_id=after_event_id,
-        last_event_id=request.headers.get("Last-Event-ID"),
-    )
-    deadline = monotonic() + timeout_seconds
-
-    async def event_generator():
-        remaining = max_events
-        current_cursor = cursor
-        while remaining > 0:
-            if await request.is_disconnected():
-                break
-            events = service.list_events(
-                conversation_id=conversation_id,
-                after_event_id=current_cursor,
-                limit=remaining,
-            )
-            if events:
-                for item in events:
-                    yield encode_sse_event_frame(
-                        event_id=item.event_id,
-                        event_type=item.event_type,
-                        data=to_event_payload(item),
-                    )
-                    current_cursor = item.event_id
-                    remaining -= 1
-                    if remaining <= 0:
-                        break
-                continue
-            if monotonic() >= deadline:
-                break
-            yield encode_sse_heartbeat()
-            await asyncio.sleep(0.02)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache"},
     )
 
 

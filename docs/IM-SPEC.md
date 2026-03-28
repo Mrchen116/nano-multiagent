@@ -1,6 +1,6 @@
 # IM 服务 SPEC — src/IM/
 
-> **版本** v1.0 | **日期** 2026-03-11
+> **版本** v1.1 | **日期** 2026-03-27
 > 本文档是 `src/IM/` 的设计权威文件，从属于顶层 `SPEC.md`。
 
 ---
@@ -34,7 +34,7 @@
 - 用户与任意 Agent 单聊
 - 用户查看 Agent 之间的单聊会话（参与者为两个 Agent；用户是查看者而非该单聊参与者，并在自己的会话列表中可发现）
 - 用户创建群聊（手动选择若干 Agent）
-- 消息流式推送（SSE）
+- 消息与状态实时推送（**用户维 WebSocket** `/im/ws/user` + `GET /im/v1/sync` 对齐游标；不再使用按会话 SSE）
 - 多媒体/文件上传（落盘后路径透传给 Node Gateway）
 - Token / Turn 统计展示（单聊全局、群聊按 Agent 分别查看）
 
@@ -49,7 +49,7 @@
 - Web 端管理各 Agent 的显示名、描述、system prompt、skills 白名单、工具白名单、群聊策略、默认模型
 - Agent 创建入口挂在节点下：只有已绑定且在线的节点才允许创建 Agent
 - 每个 Agent 只属于一个节点（`agent -> node` 为多对一），不支持一个 Agent 绑定多个节点
-- `workspace_root` 由节点在创建时自动分配，IM 负责保存与展示，不允许前端手填本地路径
+- `workspace_root` 默认由节点按托管规则分配；创建请求可带可选自定义 **绝对路径**，经节点 `agent.create` 校验后回传，IM 持久化并以该值为准；编辑页以只读展示为主
 - 配置变更仅对新会话生效，已开始的会话保持原行为
 - 配置版本化（`profile_version` 乐观锁），支持冲突检测
 - runtime 候选项（skills / tools / models）由**在线网关节点**当场解析并由节点校验；IM 只转发请求、**不在本地持久化**完整能力目录，也不依据 IM 部署机文件系统推断节点真实可用集合
@@ -125,7 +125,8 @@ Gateway 断线后自动重连（指数退避），重连后重新注册。断线
 | PATCH | `/im/v1/conversations/{id}` | 更新会话（置顶、免打扰、标题） |
 | POST | `/im/v1/conversations/{id}/messages` | 以发送者 Actor 身份发送消息 |
 | GET | `/im/v1/conversations/{id}/messages` | 分页读取消息历史 |
-| GET | `/im/v1/conversations/{id}/events` | SSE 事件流（流式回复、状态变更） |
+| GET | `/im/v1/sync` | 会话列表快照 + 全局 `max_event_id`（用户流 `resync_required` 后对齐） |
+| WebSocket | `/im/ws/user?user_id=...` | 浏览器用户维事件流（JSON 帧：`op=event` 等；握手后发送 `{"op":"resume","after_event_id":N}`） |
 
 > 说明：IM 对外接口以 Actor 语义建模。会话参与者、消息发送者、工具目标均使用稳定业务标识（如 `user_id`、`agent_id`、`conversation_id`），不暴露 IM 内部路由主键。
 
@@ -197,7 +198,7 @@ Node Gateway
 agent 内核执行
   │ 结果/事件流回传
   ▼
-Node Gateway → IM 服务（回执/结果）→ SSE 推送到浏览器
+Node Gateway → IM 服务（回执/结果）→ 用户维 WebSocket 推送到浏览器
 ```
 
 ### 7.2 设备绑定
@@ -289,7 +290,8 @@ src/IM/
 │       ├── users.py            # 账号与设备绑定
 │       └── metrics.py          # 统计查询
 ├── ws/
-│   └── gateway_handler.py      # Gateway WebSocket 连接管理（上行/下行消息处理）
+│   ├── gateway_handler.py      # 节点 Gateway WebSocket（/im/ws/gateway）
+│   └── user_stream.py          # 浏览器用户维 WebSocket（/im/ws/user）、回放与广播
 ├── application/
 │   ├── web_im_service.py       # 会话与消息业务
 │   ├── config_service.py       # Agent 配置版本管理
@@ -301,7 +303,6 @@ src/IM/
 │   └── policies.py             # owner 范围策略、配置版本生效策略
 ├── infra/
 │   ├── db/                     # 数据库（SQLite / PostgreSQL）
-│   ├── sse.py                  # SSE 推送
 │   └── storage/                # 附件存储
 └── frontend/                   # Web IM 前端
     ├── package.json
@@ -311,7 +312,7 @@ src/IM/
     │   ├── features/
     │   │   ├── chat/           # 会话列表、消息流、输入
     │   │   └── settings/       # Agent 配置、节点管理、账号
-    │   ├── services/           # API client / SSE 消费
+    │   ├── services/           # API client；实时以用户维 WebSocket + TanStack Query 为主
     │   └── styles/             # design tokens
     └── public/
 ```
@@ -353,7 +354,7 @@ src/IM/
 
 ## 12. 验收标准
 
-1. 内置 Web IM 可完成一次完整消息往返（发送 → Agent 执行 → 流式回复展示）
+1. 内置 Web IM 可完成一次完整消息往返（发送 → Agent 执行 → 回复展示）；当前前端通过 **用户维 WebSocket** 与/或 **`GET .../messages`** 刷新观察 relay 进度与终态
 2. 用户可创建单聊和群聊，群聊中多 Agent 正确参与
 3. 设备绑定流程完成后，节点 Agent 自动归属当前用户
 4. Agent 配置变更可查询、版本化、冲突检测

@@ -439,9 +439,18 @@ export async function sendMessage(input: { conversationId: string; content: stri
 
 export function streamConversationEvents(_: {
   conversationId: string;
+  selfUserId?: string | null;
   afterEventId?: number;
   onEvent: (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void;
   onError?: (error: Error) => void;
+}) {
+  return () => undefined;
+}
+
+export function attachUserConversationStream(_: {
+  selfUserId: string;
+  onEvent: (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void;
+  onResyncRequired?: () => Promise<void>;
 }) {
   return () => undefined;
 }

@@ -11,4 +11,4 @@ def test_create_app_registers_message_routes(tmp_path: Path) -> None:
     route_paths = {route.path for route in app.routes}
 
     assert "/im/v1/conversations/{conversation_id}/messages" in route_paths
-    assert "/im/v1/conversations/{conversation_id}/events" in route_paths
+    assert "/im/ws/user" in route_paths

@@ -1,6 +1,7 @@
 """Integration tests for IM gateway websocket and relay delivery."""
 
 import asyncio
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -355,20 +356,19 @@ def test_message_post_to_disconnected_node_persists_actionable_failure_events(tm
         assert created.status_code == 503
         assert created.json()["detail"] == "target_node_id is not connected"
 
-        events = client.get(
-            f"/im/v1/conversations/{conversation_id}/events?max_events=10&timeout_seconds=0.05"
-        )
-        assert events.status_code == 200
-        parsed = [event for event in events.text.split("\n\n") if event.strip() and not event.startswith(":")]
-        payloads = []
-        for block in parsed:
-            for line in block.splitlines():
-                if line.startswith("data: "):
-                    import json
-
-                    payloads.append(json.loads(line[6:]))
-        assert any("event: relay.failed" in block for block in parsed)
-        assert any("event: conversation.notice" in block for block in parsed)
+        rows = client.app.state.connection.execute(
+            """
+            SELECT event_type, payload_json
+            FROM conversation_events
+            WHERE conversation_id = ?
+            ORDER BY event_id
+            """,
+            (conversation_id,),
+        ).fetchall()
+        types = [str(r["event_type"]) for r in rows]
+        assert "relay.failed" in types
+        assert "conversation.notice" in types
+        payloads = [json.loads(str(r["payload_json"])) for r in rows]
         assert any(payload.get("progress_state") == "failed" for payload in payloads)
         assert any(payload.get("guidance") == "检查目标节点连接状态后重试，或切换到在线节点。" for payload in payloads)
 
@@ -421,14 +421,15 @@ def test_gateway_websocket_persists_heartbeat_report_into_conversation_events(tm
             )
             report_ack = websocket.receive_json()
 
-        events = client.get(
-            f"/im/v1/conversations/{conversation_id}/events?max_events=10&timeout_seconds=0.05"
-        )
         assert report_ack == {"type": "ack", "payload": {"message_type": "node.report", "node_id": "node-1"}}
-        assert events.status_code == 200
-        assert "event: relay.report" in events.text
-        assert "agent_run_completed" in events.text
-        assert "Open your main agent thread in Web IM to review the latest heartbeat result." in events.text
+        bodies = client.app.state.connection.execute(
+            "SELECT event_type, payload_json FROM conversation_events WHERE conversation_id = ? ORDER BY event_id DESC LIMIT 5",
+            (conversation_id,),
+        ).fetchall()
+        joined = " ".join(str(b["event_type"]) + str(b["payload_json"]) for b in bodies)
+        assert "relay.report" in joined
+        assert "agent_run_completed" in joined
+        assert "Open your main agent thread in Web IM to review the latest heartbeat result." in joined
 
 
 
@@ -454,9 +455,10 @@ def test_message_post_with_broken_gateway_socket_returns_503_instead_of_500(tmp_
         assert created.json()["detail"] == "target_node_id is not connected"
         assert asyncio.run(_snapshot_gateway(app, node_id="node-1")) is None
 
-        events = client.get(
-            f"/im/v1/conversations/{conversation_id}/events?max_events=10&timeout_seconds=0.05"
-        )
-        assert events.status_code == 200
-        assert "event: relay.failed" in events.text
-        assert "event: conversation.notice" in events.text
+        rows = client.app.state.connection.execute(
+            "SELECT event_type FROM conversation_events WHERE conversation_id = ? ORDER BY event_id",
+            (conversation_id,),
+        ).fetchall()
+        types = [str(r["event_type"]) for r in rows]
+        assert "relay.failed" in types
+        assert "conversation.notice" in types

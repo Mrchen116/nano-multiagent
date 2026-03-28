@@ -1,5 +1,6 @@
-"""Contract tests for conversation events SSE endpoint."""
+"""用户流与 /im/v1/sync 的契约测试（替代按会话 SSE）。"""
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -25,8 +26,8 @@ def _create_conversation(client: TestClient, participant_id: str) -> str:
     return response.json()["id"]
 
 
-def test_events_endpoint_contract_returns_event_stream(tmp_path: Path) -> None:
-    """Return text/event-stream payload with persisted message events."""
+def test_sync_contract_returns_snapshot_and_max_event_id(tmp_path: Path) -> None:
+    """GET /im/v1/sync 返回会话列表与全局 max_event_id。"""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         alice_id = _create_user(client, "alice")
@@ -37,49 +38,35 @@ def test_events_endpoint_contract_returns_event_stream(tmp_path: Path) -> None:
         )
         assert created.status_code == 201
 
-        streamed = client.get(
-            f"/im/v1/conversations/{conversation_id}/events?max_events=10&timeout_seconds=0.05"
-        )
-
-        assert streamed.status_code == 200
-        assert streamed.headers["content-type"].startswith("text/event-stream")
-        assert "event: message.sent" in streamed.text
-        assert "event: message.delivered" in streamed.text
-        assert '"delivery_status":"completed"' in streamed.text
+        synced = client.get("/im/v1/sync")
+        assert synced.status_code == 200
+        payload = synced.json()
+        assert "items" in payload
+        assert "max_event_id" in payload
+        assert payload["max_event_id"] > 0
+        assert any(item["id"] == conversation_id for item in payload["items"])
 
 
-def test_events_endpoint_contract_rejects_invalid_cursor(tmp_path: Path) -> None:
-    """Reject non-integer cursor values with a stable 400 response."""
+def test_user_stream_contract_emits_json_events(tmp_path: Path) -> None:
+    """WebSocket /im/ws/user 在 resume 时回放已持久化消息的 event 帧。"""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         alice_id = _create_user(client, "alice")
         conversation_id = _create_conversation(client, alice_id)
-
-        response = client.get(
-            f"/im/v1/conversations/{conversation_id}/events?after_event_id=not-int"
-        )
-
-        assert response.status_code == 400
-        assert response.json()["detail"] == "after_event_id must be an integer"
-
-
-def test_latest_events_endpoint_contract_returns_latest_cursor(tmp_path: Path) -> None:
-    """Return the latest persisted conversation event id for startup baselines."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        alice_id = _create_user(client, "alice")
-        conversation_id = _create_conversation(client, alice_id)
-
-        empty = client.get(f"/im/v1/conversations/{conversation_id}/events/latest")
-        assert empty.status_code == 200
-        assert empty.json() == {"latest_event_id": 0}
-
-        created = client.post(
+        posted = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
             json={"sender_user_id": alice_id, "content": "hello"},
         )
-        assert created.status_code == 201
-
-        latest = client.get(f"/im/v1/conversations/{conversation_id}/events/latest")
-        assert latest.status_code == 200
-        assert latest.json()["latest_event_id"] > 0
+        assert posted.status_code == 201
+        with client.websocket_connect(f"/im/ws/user?user_id={alice_id}") as websocket:
+            websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
+            seen: list[dict[str, object]] = []
+            for _ in range(4):
+                raw = websocket.receive_text()
+                body = json.loads(raw)
+                seen.append(body)
+                if body.get("op") == "event" and body.get("event_type") == "message.delivered":
+                    break
+            event_types = [b.get("event_type") for b in seen if b.get("op") == "event"]
+            assert "message.sent" in event_types
+            assert "message.delivered" in event_types
