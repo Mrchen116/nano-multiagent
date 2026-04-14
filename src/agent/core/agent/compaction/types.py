@@ -19,8 +19,8 @@ class CompactionSettings:
     """Configure runtime compaction thresholds and summarization behavior."""
 
     enabled: bool = True
-    context_window: int = 100_000
-    reserve_tokens: int = 1024
+    context_window: int = 200_000
+    reserve_tokens: int = 4096
     min_kept_messages: int = 8
     summary_model: str | None = None
 

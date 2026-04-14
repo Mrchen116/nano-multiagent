@@ -23,7 +23,7 @@ from .compaction.planner import CompactionPlanner
 from .compaction.policy import should_compact
 from .compaction.summarizer import CompactionSummarizer
 from .compaction.types import CompactionReason, CompactionResult, CompactionSettings
-from .loop import AgentLoop, ToolRegistryLike
+from .loop import AgentLoop, ToolRegistryLike, _serialize_tool_result_content
 from .policies import AgentPolicies
 from .skill_commands import rewrite_skill_command
 from .state import AgentState, InputPart, parse_input_parts, render_user_text
@@ -85,11 +85,6 @@ class AgentRuntime:
         # Product default tool ids used when no per-session tool_allowlist is set.
         # None means "all tools in registry" (platform default behavior).
         self._default_tool_ids = default_tool_ids
-        # system_prompt=None uses AgentLoop's empty-string default; callers that
-        # want product-specific prompts must inject via this parameter or bootstrap.
-        loop_kwargs: dict = {}
-        if system_prompt is not None:
-            loop_kwargs["system_prompt"] = system_prompt
         self._loop = AgentLoop(
             llm_client=active_llm_client,
             model=self._llm_config.model,
@@ -98,7 +93,7 @@ class AgentRuntime:
             available_skills=resolved_skills,
             tool_registry=tool_registry,
             current_working_directory=self._repo_root,
-            **loop_kwargs,
+            system_prompt=system_prompt,
         )
         summary_model = self._compaction_settings.summary_model or self._llm_config.model
         self._compaction_planner = CompactionPlanner(
@@ -230,8 +225,6 @@ class AgentRuntime:
             parts=_serialize_input_parts(input_parts),
         )
         history_with_current_user = self._session_manager.list_turn_messages(session_id)
-        import sys
-        print(f"[DEBUG run] session={session_id[:8]} parts={len(input_parts)} user_text={user_text!r:.60} history_len_before={len(history)} history_with_current={len(history_with_current_user)}", file=sys.stderr, flush=True)
         self._preflight_compaction(
             session_id=session_id,
             history=history_with_current_user,
@@ -240,7 +233,6 @@ class AgentRuntime:
             session_id=session_id,
             message_id=user_message_id,
         )
-        print(f"[DEBUG run] history_after_strip={len(history)} roles={[m.role for m in history]}", file=sys.stderr, flush=True)
 
         # Multi-part expansion (M246): when the gateway sends N buffered messages as N parts,
         # each part must appear as an independent user message in the LLM history rather than
@@ -264,10 +256,6 @@ class AgentRuntime:
             history = history + extra_messages
             effective_user_text = render_user_text(last_part)
             effective_input_parts = last_part
-            import sys
-            print(f"[DEBUG M246] multi-part: extra={len(extra_messages)} effective_user_text={effective_user_text!r:.60}", file=sys.stderr, flush=True)
-        import sys
-        print(f"[DEBUG run] final history_len={len(history)} effective_user_text={effective_user_text!r:.60}", file=sys.stderr, flush=True)
 
         try:
             turn_result = self._execute_loop(
@@ -458,7 +446,7 @@ class AgentRuntime:
     def _resolve_session_available_skills(self, *, session: Session, workspace_root: Path) -> tuple[SkillMetadata, ...]:
         raw_skills = session.metadata.get("skills") if isinstance(session.metadata, Mapping) else None
         if not isinstance(raw_skills, list):
-            return self._loop._available_skills  # type: ignore[attr-defined]
+            return self._loop.available_skills
         requested = tuple(item.strip() for item in raw_skills if isinstance(item, str) and item.strip())
         if not requested:
             return ()
@@ -473,20 +461,14 @@ class AgentRuntime:
         if not isinstance(raw_tools, list):
             # No per-session allowlist: apply product default_tool_ids gate when present.
             # When default_tool_ids is None the platform default (all registry tools) is used.
-            all_specs = self._loop._active_tool_specs()  # type: ignore[attr-defined]
+            all_specs = self._loop.active_tool_specs()
             default_ids = self._default_tool_ids
             if default_ids is None:
                 return all_specs
             allowed_set = set(default_ids)
             return tuple(spec for spec in all_specs if spec.name in allowed_set)
         requested = {item.strip() for item in raw_tools if isinstance(item, str) and item.strip()}
-        # allowlist path: filter full registry so optional tools (e.g. send_message)
-        # that are absent from _active_tool_specs() are still discoverable.
-        if self._loop._tool_registry is None:  # type: ignore[attr-defined]
-            active_tools = self._loop._active_tool_specs()  # type: ignore[attr-defined]
-        else:
-            active_tools = self._loop._tool_registry.list_specs()  # type: ignore[attr-defined]
-        return tuple(tool for tool in active_tools if tool.name in requested)
+        return tuple(tool for tool in self._loop.active_tool_specs() if tool.name in requested)
 
     def _dispatch_intercept(
         self,
@@ -673,7 +655,6 @@ class AgentRuntime:
         dropped_messages = tuple(_message_from_turn_entry(entry) for entry in plan.dropped_events)
         summary = self._compaction_summarizer.summarize(
             session_id=session_id,
-            reason=reason,
             dropped_messages=dropped_messages,
         )
         result = self._compaction_applier.apply(
@@ -917,16 +898,3 @@ def _without_tool_calls_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     return copied
 
 
-def _serialize_tool_result_content(result: ToolResult) -> str:
-    payload: dict[str, Any] = {
-        "call_id": result.call_id,
-        "name": result.name,
-    }
-    if result.error is not None:
-        payload["error"] = result.error
-    else:
-        payload["output"] = result.output
-    try:
-        return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    except TypeError:
-        return str(payload)
