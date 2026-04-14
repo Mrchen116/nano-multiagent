@@ -2,17 +2,19 @@
 
 import os
 from dataclasses import dataclass
-from importlib import import_module
 
 import httpx
 
 from .interfaces import LLMClient
+from .retry import RetryingLLMClient
 from .model_registry import (
     DEFAULT_PROVIDER,
     get_default_base_url,
     get_default_model,
     resolve_model_metadata,
 )
+from agent.platform.llm.providers.openai_compat.client import OpenAICompatClient
+from agent.platform.llm.providers.anthropic.client import AnthropicClient
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,24 +76,24 @@ def create_llm_client(
 
     # Provider protocol details must not leak into agent/runtime layers.
     client_class = _resolve_client_class(active_config.provider)
-    return client_class(
+    client = client_class(
         base_url=active_config.base_url,
         model=metadata.model,
         api_key=active_config.api_key,
         timeout_seconds=active_config.timeout_seconds,
         transport=transport,
     )
+    return RetryingLLMClient(client)
+
+
+_PROVIDER_CLIENTS: dict[str, type[LLMClient]] = {
+    "openai_compat": OpenAICompatClient,
+    "anthropic": AnthropicClient,
+}
 
 
 def _resolve_client_class(provider: str) -> type[LLMClient]:
-    if provider == "openai_compat":
-        module = import_module(_provider_module_path("openai_compat"))
-        return module.OpenAICompatClient
-    if provider == "anthropic":
-        module = import_module(_provider_module_path("anthropic"))
-        return module.AnthropicClient
-    raise ValueError(f"unsupported llm provider: {provider}")
-
-
-def _provider_module_path(provider: str) -> str:
-    return ".".join(("agent", "platform", "llm", "providers", provider, "client"))
+    try:
+        return _PROVIDER_CLIENTS[provider]
+    except KeyError:
+        raise ValueError(f"unsupported llm provider: {provider}")
