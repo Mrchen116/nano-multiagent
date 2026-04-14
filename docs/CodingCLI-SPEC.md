@@ -52,9 +52,10 @@ coding_cli ──HTTP──→ agent (remote)
 
 | 变量 | 说明 | 默认 |
 |---|---|---|
-| `NANO_MULTIAGENT_API_TOKEN` | Bearer token | — |
+| `NANO_MULTIAGENT_API_BASE_URL` | API 服务地址 | `http://127.0.0.1:8000` |
+| `NANO_MULTIAGENT_API_TIMEOUT_SECONDS` | 请求超时（秒） | `30.0` |
 
-除 `NANO_MULTIAGENT_API_TOKEN` 外，Coding CLI 不再引入其他环境变量；新增配置应优先使用显式 CLI 参数或产品配置文件，以保持接口面简洁。
+Coding CLI 不引入 token 鉴权环境变量；新增配置应优先使用显式 CLI 参数或产品配置文件，以保持接口面简洁。
 
 ---
 
@@ -256,7 +257,7 @@ coding_cli 使用 `local_coding` 产品 profile：
 5. 输入历史按 session 隔离，命令执行不污染历史
 6. Managed 模式退出时必须清理 agent 子进程
 7. 非 TTY 环境必须可用（退化为 `input()` + 同步模式）
-8. 除 `NANO_MULTIAGENT_API_TOKEN` 外，禁止继续扩张环境变量接口面；新增配置必须优先走显式 CLI 参数或产品配置文件
+8. 禁止继续扩张环境变量接口面；新增配置必须优先走显式 CLI 参数或产品配置文件
 9. 默认交互路径必须保持无参数启动；URL、端口等内部连接参数不得成为日常使用的必填项
 
 ---

@@ -44,7 +44,6 @@ def create_app(
     tool_registry: ToolRegistry | None = None,
     hook_registry: HookRegistry | None = None,
     repo_root: Path | None = None,
-    auth_token: str | None = None,
     product_profile: "ProductProfile | None" = None,
 ) -> FastAPI:
     """Create and wire the HTTP API application.
@@ -55,7 +54,6 @@ def create_app(
         tool_registry: Optional prebuilt tool registry.
         hook_registry: Optional prebuilt hook registry.
         repo_root: Repository root used by hooks/tool loader.
-        auth_token: API bearer token override; falls back to env when omitted.
         product_profile: Optional product profile; when supplied, the app uses
             bootstrap-resolved registries instead of ad-hoc defaults. Explicit
             ``tool_registry``/``hook_registry`` args still override the profile
@@ -161,8 +159,6 @@ def create_app(
     bind_tool_registry = getattr(active_runtime, "bind_tool_registry", None)
     if callable(bind_tool_registry):
         bind_tool_registry(app.state.tool_registry)
-    app.state.auth_token = auth_token if auth_token is not None else os.getenv("NANO_MULTIAGENT_API_TOKEN")
-
     @app.middleware("http")
     async def trace_middleware(request: Request, call_next: Any):  # type: ignore[valid-type]
         """Bind/propagate `trace_id` on every HTTP request/response."""

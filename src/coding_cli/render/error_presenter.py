@@ -37,8 +37,8 @@ def suggestion_for_exception(exc: Exception, *, default: str, mode: str | None =
         if mode == "managed":
             return "managed mode could not reach the local API; check startup logs/port, then retry or switch to --mode remote."
         return "check --base-url and ensure API server is running."
-    if "missing api token" in text or "unauthorized" in text or "401" in text:
-        return "check --token or NANO_MULTIAGENT_API_TOKEN and retry."
+    if "unauthorized" in text or "401" in text:
+        return "check server configuration and retry."
     return default
 
 
@@ -70,7 +70,6 @@ def error_layer_for_exception(exc: Exception, *, default: str = "runtime") -> st
         or "nodename nor servname" in text
         or "name or service not known" in text
         or "unauthorized" in text
-        or "missing api token" in text
     ):
         return "network"
     if default in _ERROR_LAYERS:

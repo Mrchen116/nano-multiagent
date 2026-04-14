@@ -122,15 +122,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--mode", choices=("managed", "remote"), default=None)
     parser.add_argument("--base-url", default=None)
-    parser.add_argument("--token", default=None)
     parser.add_argument("--request-id", default=None)
     parser.add_argument("--api-timeout-seconds", type=float, default=None)
-    parser.add_argument("--llm-provider", default=None, help="Managed mode only: set local API LLM provider.")
-    parser.add_argument("--llm-model", default=None, help="Managed mode only: set local API LLM model.")
-    parser.add_argument("--llm-base-url", default=None, help="Managed mode only: set local API LLM base URL.")
-    parser.add_argument("--llm-api-key", default=None, help="Managed mode only: set local API LLM API key.")
+    parser.add_argument("--provider", dest="llm_provider", default=None, help="Managed mode only: set local API LLM provider.")
+    parser.add_argument("--model", dest="llm_model", default=None, help="Managed mode only: set local API LLM model.")
+    parser.add_argument("--llm-base-url", dest="llm_base_url", default=None, help="Managed mode only: set local API LLM base URL.")
+    parser.add_argument("--api-key", dest="llm_api_key", default=None, help="Managed mode only: set local API LLM API key.")
     parser.add_argument(
-        "--llm-timeout-seconds",
+        "--timeout-seconds",
+        dest="llm_timeout_seconds",
         type=float,
         default=None,
         help="Managed mode only: set local API LLM timeout in seconds.",
@@ -189,7 +189,6 @@ def run_cli(
         timeout_seconds = _resolve_timeout_seconds(mode=mode, arg_timeout_seconds=args.api_timeout_seconds, env_config=env_config)
         config = ServerClientConfig(
             base_url=base_url,
-            token=args.token if args.token is not None else env_config.token,
             request_id=args.request_id if args.request_id is not None else env_config.request_id,
             timeout_seconds=timeout_seconds,
         )
@@ -219,7 +218,7 @@ def run_cli(
             default=(
                 "check local managed API startup and retry, or switch to --mode remote."
                 if mode == "managed"
-                else "check --base-url/--token and ensure remote API server is reachable."
+                else "check --base-url and ensure remote API server is reachable."
             ),
             mode=mode,
         )
@@ -401,7 +400,7 @@ def _run_repl(
                     layer_for_exception=lambda exc: _error_layer_for_exception(exc, default="network"),
                     suggestion_for_exception=lambda exc, command: _suggestion_for_exception(
                         exc,
-                        default=f"check server status/token and retry {command}.",
+                        default=f"check server status and retry {command}.",
                     ),
                 )
                 active_session_id = command_result.active_session_id
@@ -562,7 +561,6 @@ def _build_server_lifecycle(
     managed_server = managed_server_factory(
         ManagedServerConfig(
             base_url=config.base_url,
-            token=config.token,
             llm_provider=managed_llm_overrides.provider,
             llm_model=managed_llm_overrides.model,
             llm_base_url=managed_llm_overrides.base_url,

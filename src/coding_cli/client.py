@@ -16,10 +16,9 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 
 @dataclass(frozen=True, slots=True)
 class ServerClientConfig:
-    """Configure coding_cli HTTP transport and authentication defaults."""
+    """Configure coding_cli HTTP transport defaults."""
 
     base_url: str = DEFAULT_BASE_URL
-    token: str | None = None
     request_id: str | None = None
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
 
@@ -29,7 +28,6 @@ class ServerClientConfig:
         timeout_text = os.getenv("NANO_MULTIAGENT_API_TIMEOUT_SECONDS", str(DEFAULT_TIMEOUT_SECONDS))
         return cls(
             base_url=os.getenv("NANO_MULTIAGENT_API_BASE_URL", DEFAULT_BASE_URL),
-            token=os.getenv("NANO_MULTIAGENT_API_TOKEN"),
             request_id=os.getenv("NANO_MULTIAGENT_REQUEST_ID"),
             timeout_seconds=float(timeout_text),
         )
@@ -74,14 +72,14 @@ class ServerClient:
 
     def health(self) -> dict[str, Any]:
         """Call unauthenticated health endpoint."""
-        return self._request("GET", "/v1/health", require_auth=False)
+        return self._request("GET", "/v1/health")
 
-    def create_session(self, *, title: str | None = None) -> dict[str, Any]:
+    def create_session(self, *, title: str | None = None, workspace_root: str | None = None) -> dict[str, Any]:
         """Create a session through the HTTP API."""
-        payload: dict[str, Any] = {}
+        payload: dict[str, Any] = {"workspace_root": workspace_root or os.getcwd()}
         if title is not None:
             payload["title"] = title
-        return self._request("POST", "/v1/sessions", json=payload, require_auth=True)
+        return self._request("POST", "/v1/sessions", json=payload)
 
     def send_message(self, *, session_id: str, text: str) -> dict[str, Any]:
         """Send one synchronous message turn to the agent HTTP API."""
@@ -97,7 +95,6 @@ class ServerClient:
             "POST",
             f"/v1/sessions/{session_id}/messages",
             json=payload,
-            require_auth=True,
         )
 
     def send_message_async(self, *, session_id: str, text: str) -> dict[str, Any]:
@@ -113,24 +110,19 @@ class ServerClient:
             "POST",
             f"/v1/sessions/{session_id}/messages:async",
             json=payload,
-            require_auth=True,
         )
 
     def get_run(self, *, run_id: str) -> dict[str, Any]:
         """Fetch run status snapshot for polling-based async flows."""
         if not run_id.strip():
             raise ValueError("run_id is required")
-        return self._request("GET", f"/v1/runs/{run_id}", require_auth=True)
+        return self._request("GET", f"/v1/runs/{run_id}")
 
     def list_session_tools(self, *, session_id: str) -> dict[str, Any]:
         """List tool descriptors exposed to one session."""
         if not session_id.strip():
             raise ValueError("session_id is required")
-        return self._request(
-            "GET",
-            f"/v1/sessions/{session_id}/tools",
-            require_auth=True,
-        )
+        return self._request("GET", f"/v1/sessions/{session_id}/tools")
 
     def compact_session(self, *, session_id: str) -> dict[str, Any]:
         """Trigger manual session compaction."""
@@ -140,22 +132,17 @@ class ServerClient:
             "POST",
             f"/v1/sessions/{session_id}:compact",
             json={},
-            require_auth=True,
         )
 
     def get_context_budget(self, *, session_id: str) -> dict[str, Any]:
         """Fetch context budget snapshot for REPL budget hints."""
         if not session_id.strip():
             raise ValueError("session_id is required")
-        return self._request(
-            "GET",
-            f"/v1/sessions/{session_id}/context-budget",
-            require_auth=True,
-        )
+        return self._request("GET", f"/v1/sessions/{session_id}/context-budget")
 
     def get_llm_config(self) -> dict[str, Any]:
         """Get active LLM configuration."""
-        return self._request("GET", "/v1/llm-config", require_auth=True)
+        return self._request("GET", "/v1/llm-config")
 
     def set_llm_config(
         self,
@@ -194,16 +181,11 @@ class ServerClient:
             payload["api_key"] = None
         if not payload:
             raise ValueError("llm config update requires at least one field")
-        return self._request("PATCH", "/v1/llm-config", json=payload, require_auth=True)
+        return self._request("PATCH", "/v1/llm-config", json=payload)
 
     def patch_llm_config(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Pass through partial LLM config payload without local normalization."""
-        return self._request(
-            "PATCH",
-            "/v1/llm-config",
-            json=payload,
-            require_auth=True,
-        )
+        return self._request("PATCH", "/v1/llm-config", json=payload)
 
     def stream_session_events(
         self,
@@ -220,7 +202,7 @@ class ServerClient:
         if timeout_seconds < 0:
             raise ValueError("timeout_seconds must be >= 0")
 
-        headers = self._build_headers(require_auth=True)
+        headers = self._build_headers()
         response = self._client.request(
             method="GET",
             url=f"/v1/sessions/{session_id}/events",
@@ -246,10 +228,9 @@ class ServerClient:
         path: str,
         *,
         json: Mapping[str, Any] | None = None,
-        require_auth: bool,
     ) -> dict[str, Any]:
         """Send a JSON request and map HTTP errors to RuntimeError payloads."""
-        headers = self._build_headers(require_auth=require_auth)
+        headers = self._build_headers()
         response = self._client.request(method=method, url=path, json=json, headers=headers)
 
         try:
@@ -263,15 +244,10 @@ class ServerClient:
             raise RuntimeError(f"unexpected response payload: {type(payload).__name__}")
         return payload
 
-    def _build_headers(self, *, require_auth: bool) -> dict[str, str]:
-        """Build headers with request correlation and optional bearer auth."""
+    def _build_headers(self) -> dict[str, str]:
+        """Build headers with request correlation."""
         request_id = self._config.request_id or f"req-cli-{uuid.uuid4().hex[:8]}"
-        headers = {"X-Request-Id": request_id}
-        if self._config.token:
-            headers["Authorization"] = f"Bearer {self._config.token}"
-        elif require_auth:
-            raise ValueError("missing API token: set --token or NANO_MULTIAGENT_API_TOKEN")
-        return headers
+        return {"X-Request-Id": request_id}
 
 
 def _wrap_transport(transport: httpx.BaseTransport | None) -> httpx.BaseTransport | None:

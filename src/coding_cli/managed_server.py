@@ -28,7 +28,6 @@ class ManagedServerConfig:
     """Managed local API process settings derived from CLI options."""
 
     base_url: str
-    token: str | None
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_base_url: str | None = None
@@ -82,8 +81,6 @@ class ManagedServerProcess:
             "warning",
         ]
         env = os.environ.copy()
-        if self._config.token:
-            env["NANO_MULTIAGENT_API_TOKEN"] = self._config.token
         if self._config.llm_provider:
             env["NANO_MULTIAGENT_LLM_PROVIDER"] = self._config.llm_provider
         if self._config.llm_model:
@@ -131,7 +128,7 @@ class ManagedServerProcess:
                 suffix = f" stderr={details}" if details else ""
                 raise ManagedServerError(
                     f"managed API process exited before becoming healthy.{suffix}",
-                    suggestion="check local API logs, token/env configuration, and retry.",
+                    suggestion="check local API logs and env configuration, and retry.",
                 )
             if self._health_probe(self._config.base_url):
                 return

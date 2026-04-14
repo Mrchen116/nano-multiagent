@@ -24,12 +24,11 @@ _PYTHON_EXECUTABLE = shlex.quote(sys.executable)
 def build_release_playbook_report(
     *,
     base_url: str,
-    token: str,
     execute: bool,
     runner: Callable[[str], subprocess.CompletedProcess[str]] | None = None,
 ) -> dict[str, object]:
     """Build release playbook and optionally execute acceptance steps."""
-    acceptance_steps = _build_acceptance_steps(base_url=base_url, token=token)
+    acceptance_steps = _build_acceptance_steps(base_url=base_url)
     rollback_steps = _build_rollback_steps()
     report: dict[str, object] = {
         "execute": execute,
@@ -64,7 +63,7 @@ def build_release_playbook_report(
     return report
 
 
-def _build_acceptance_steps(*, base_url: str, token: str) -> list[dict[str, str]]:
+def _build_acceptance_steps(*, base_url: str) -> list[dict[str, str]]:
     return [
         {
             "name": "cli_gate_tests",
@@ -76,7 +75,7 @@ def _build_acceptance_steps(*, base_url: str, token: str) -> list[dict[str, str]
             "command": (
                 "printf '/new\\nping\\n/exit\\n' | "
                 f"PYTHONPATH=src {_PYTHON_EXECUTABLE} -m coding_cli.main "
-                f"--mode managed --base-url {base_url} --token {token}"
+                f"--mode managed --base-url {base_url}"
             ),
             "description": "Smoke managed mode with one short conversation turn.",
         },
@@ -113,7 +112,6 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Render or execute CLI release acceptance/rollback playbook.",
     )
     parser.add_argument("--base-url", default="http://127.0.0.1:8003")
-    parser.add_argument("--token", default="test-token")
     parser.add_argument("--execute", action="store_true")
     return parser
 
@@ -123,7 +121,6 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     report = build_release_playbook_report(
         base_url=args.base_url,
-        token=args.token,
         execute=bool(args.execute),
     )
     print(json.dumps(report, ensure_ascii=False))
