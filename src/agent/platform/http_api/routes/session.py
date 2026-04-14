@@ -50,7 +50,7 @@ class CreateSessionRequest(BaseModel):
 
     title: str | None = None
     metadata: dict[str, Any] | None = None
-    workspace_root: str
+    workspace_root: str | None = None
 
 
 class SessionResponse(BaseModel):
@@ -609,12 +609,9 @@ def _build_session_metadata(*, metadata: dict[str, Any] | None, workspace_root: 
 
 def _normalize_workspace_root(workspace_root: str | None) -> str | None:
     """Normalize optional workspace root into an absolute filesystem path."""
-    if workspace_root is None:
+    if workspace_root is None or not workspace_root.strip():
         return None
-    normalized = workspace_root.strip()
-    if not normalized:
-        return None
-    candidate = Path(normalized).expanduser()
+    candidate = Path(workspace_root.strip()).expanduser()
     if not candidate.is_absolute():
         raise ValueError("workspace_root must be an absolute path or start with ~/")
     return str(candidate.resolve())

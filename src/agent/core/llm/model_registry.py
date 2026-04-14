@@ -94,18 +94,29 @@ def resolve_model_metadata(provider: str, model: str | None) -> ModelMetadata:
         model: Optional model override; defaults to provider default when omitted.
 
     Returns:
-        Capability metadata for the resolved model.
+        Capability metadata for the resolved model. Unknown models fall back to
+        provider defaults so any model string can be passed through.
 
     Raises:
-        ValueError: If provider or model is unsupported.
+        ValueError: If provider is unsupported.
     """
 
     _ensure_provider(provider)
     selected_model = model or _PROVIDER_DEFAULT_MODEL[provider]
     provider_models = _PROVIDER_MODELS[provider]
-    if selected_model not in provider_models:
-        raise ValueError(f"unsupported model for provider '{provider}': {selected_model}")
-    return provider_models[selected_model]
+    if selected_model in provider_models:
+        return provider_models[selected_model]
+    # Unknown model: return provider-level defaults with the requested model name.
+    default = provider_models[_PROVIDER_DEFAULT_MODEL[provider]]
+    return ModelMetadata(
+        provider=provider,
+        model=selected_model,
+        default_base_url=default.default_base_url,
+        supports_text=default.supports_text,
+        supports_image=default.supports_image,
+        supports_tools=default.supports_tools,
+        supports_streaming=default.supports_streaming,
+    )
 
 
 def _ensure_provider(provider: str) -> None:
