@@ -126,23 +126,10 @@ def _read_terminal_key(stdin: TextIO) -> str | None:
     first = stdin.read(1)
     if first == "":
         return None
-    if first not in {"\x1b", "\n", "\r"}:
-        return first
     if first in {"\n", "\r"}:
-        second = stdin.read(1)
-        if second == "":
-            return first
-        if second not in {"\n", "\r"}:
-            return second
-        pasted = ["\n", second]
-        while True:
-            chunk = stdin.read(1)
-            if chunk == "":
-                break
-            pasted.append(chunk)
-            if chunk in {"\n", "\r"}:
-                break
-        return "".join(pasted)
+        return first
+    if first != "\x1b":
+        return first
     second = stdin.read(1)
     if second == "":
         return first
