@@ -34,12 +34,12 @@ class _RuntimeStub:
         self.created = 0
         self.run_calls: list[dict[str, object]] = []
 
-    def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
+    async def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
         del title, metadata
         self.created += 1
         return _Session(session_id=f"sess_non_blocking_integration_{self.created}")
 
-    def run(
+    async def run(
         self,
         session_id: str,
         parts,
@@ -64,9 +64,9 @@ class _RuntimeStub:
             stop_reason="completed",
         )
 
-    def continue_turn(self, session_id: str, *, stream: bool = True, llm_session_id: str | None = None):  # noqa: ANN201
+    async def continue_turn(self, session_id: str, *, stream: bool = True, llm_session_id: str | None = None):  # noqa: ANN201
         del stream, llm_session_id
-        return self.run(session_id, [{"type": "text", "text": "continue"}], stream=False)
+        return await self.run(session_id, [{"type": "text", "text": "continue"}], stream=False)
 
 
 def _wait_for(predicate, *, timeout_seconds: float = 0.6) -> None:  # noqa: ANN001

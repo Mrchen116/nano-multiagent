@@ -285,7 +285,7 @@ def list_session_tools(
 
 
 @router.post("/{session_id}:compact", response_model=CompactSessionResponse)
-def compact_session(
+async def compact_session(
     session_id: str,
     payload: dict[str, Any],
     session_service: SessionService = Depends(get_session_service),
@@ -302,7 +302,7 @@ def compact_session(
         )
 
     try:
-        result = runtime.compact(session_id)
+        result = await runtime.compact(session_id)
     except ValueError as exc:
         raise APIError(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -407,7 +407,7 @@ def append_message(
 
 
 @router.post("/{session_id}/messages", response_model=SendMessageResponse, response_model_exclude_none=True)
-def send_message(
+async def send_message(
     session_id: str,
     payload: SendMessageRequest,
     runtime=Depends(get_agent_runtime),
@@ -422,7 +422,7 @@ def send_message(
         )
 
     try:
-        result = runtime.run(session_id, payload.parts, stream=False)
+        result = await runtime.run(session_id, payload.parts, stream=False)
     except ValueError as exc:
         # Preserve 404 vs 400 split so CLI can present actionable guidance.
         message = str(exc)

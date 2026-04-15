@@ -19,12 +19,12 @@ class _RuntimeStub:
         self.created = 0
         self.run_calls: list[dict[str, object]] = []
 
-    def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
+    async def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
         del title, metadata
         self.created += 1
         return _Session(session_id=f"sess_task_skills_{self.created}")
 
-    def run(
+    async def run(
         self,
         session_id: str,
         parts,

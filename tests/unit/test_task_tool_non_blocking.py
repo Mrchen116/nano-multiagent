@@ -22,7 +22,7 @@ class _RuntimeStub:
         self.continue_calls: list[dict[str, object]] = []
         self._sessions: set[str] = {"sess_existing"}
 
-    def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
+    async def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
         del title, metadata
         self.created += 1
         session_id = f"sess_task_non_blocking_{self.created}"
@@ -34,7 +34,7 @@ class _RuntimeStub:
             return _Session(session_id=session_id)
         return None
 
-    def run(
+    async def run(
         self,
         session_id: str,
         parts,
@@ -59,7 +59,7 @@ class _RuntimeStub:
             stop_reason="completed",
         )
 
-    def continue_turn(
+    async def continue_turn(
         self,
         session_id: str,
         *,

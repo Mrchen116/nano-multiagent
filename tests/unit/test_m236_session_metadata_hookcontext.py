@@ -76,7 +76,7 @@ def _make_runtime(manager: SessionManager, registry: HookRegistry | None = None)
 # ---------------------------------------------------------------------------
 
 
-def test_session_metadata_merged_into_hook_context() -> None:
+async def test_session_metadata_merged_into_hook_context() -> None:
     """HookContext.metadata must include conversation_type from session metadata."""
     captured_contexts: list[HookContext] = []
     registry = HookRegistry()
@@ -97,7 +97,7 @@ def test_session_metadata_merged_into_hook_context() -> None:
         }
     )
     runtime = _make_runtime(manager, registry)
-    runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
 
     assert len(captured_contexts) == 1
     ctx_meta = captured_contexts[0].metadata
@@ -106,7 +106,7 @@ def test_session_metadata_merged_into_hook_context() -> None:
     assert ctx_meta.get("agent_id") == "agent-a"
 
 
-def test_runtime_keys_not_overwritten_by_session_metadata() -> None:
+async def test_runtime_keys_not_overwritten_by_session_metadata() -> None:
     """Runtime-injected keys (cwd, run_id) must not be overwritten by session metadata."""
     captured_contexts: list[HookContext] = []
     registry = HookRegistry()
@@ -127,7 +127,7 @@ def test_runtime_keys_not_overwritten_by_session_metadata() -> None:
         }
     )
     runtime = _make_runtime(manager, registry)
-    runtime.run(session.session_id, [{"type": "text", "text": "hi"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "hi"}], stream=False)
 
     assert len(captured_contexts) == 1
     ctx_meta = captured_contexts[0].metadata
@@ -137,7 +137,7 @@ def test_runtime_keys_not_overwritten_by_session_metadata() -> None:
     assert ctx_meta.get("conversation_type") == "direct"
 
 
-def test_before_agent_start_reads_conversation_type_from_hook_context() -> None:
+async def test_before_agent_start_reads_conversation_type_from_hook_context() -> None:
     """before_agent_start hook from personal_assistant must read conversation_type and inject context."""
     from agent.products.personal_assistant.hooks import setup
 
@@ -170,7 +170,7 @@ def test_before_agent_start_reads_conversation_type_from_hook_context() -> None:
         }
     )
     runtime = _make_runtime(manager, registry)
-    runtime.run(session.session_id, [{"type": "text", "text": "hello group"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "hello group"}], stream=False)
 
     # The hook should have enriched the system_prompt with conversation context
     assert len(captured_prompts) >= 1
@@ -184,7 +184,7 @@ def test_before_agent_start_reads_conversation_type_from_hook_context() -> None:
     # reads the enriched payload AFTER the product hook runs.
 
 
-def test_before_agent_start_reads_conversation_type_end_to_end() -> None:
+async def test_before_agent_start_reads_conversation_type_end_to_end() -> None:
     """End-to-end: group session metadata flows through runtime to LLM system prompt."""
     from agent.products.personal_assistant.hooks import setup
 
@@ -214,7 +214,7 @@ def test_before_agent_start_reads_conversation_type_end_to_end() -> None:
         hook_runner=HookRunner(registry=registry),
         repo_root=Path("/tmp"),
     )
-    runtime.run(session.session_id, [{"type": "text", "text": "hello group"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "hello group"}], stream=False)
 
     assert len(llm.requests) == 1
     system_message = llm.requests[0].messages[0]
@@ -226,7 +226,7 @@ def test_before_agent_start_reads_conversation_type_end_to_end() -> None:
     assert "agent-beta" in system_message.content
 
 
-def test_before_agent_start_noop_when_no_conversation_type() -> None:
+async def test_before_agent_start_noop_when_no_conversation_type() -> None:
     """Hook must be a no-op when session has no conversation_type (safe degradation)."""
     from agent.products.personal_assistant.hooks import setup
 
@@ -251,7 +251,7 @@ def test_before_agent_start_noop_when_no_conversation_type() -> None:
         hook_runner=HookRunner(registry=registry),
         repo_root=Path("/tmp"),
     )
-    runtime.run(session.session_id, [{"type": "text", "text": "just a regular message"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "just a regular message"}], stream=False)
 
     assert len(llm.requests) == 1
     system_message = llm.requests[0].messages[0]

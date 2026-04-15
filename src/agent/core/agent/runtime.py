@@ -1,6 +1,5 @@
 """High-level runtime orchestration over sessions, hooks, loop, and compaction."""
 
-import asyncio
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
@@ -105,7 +104,7 @@ class AgentRuntime:
         )
         self._compaction_applier = CompactionApplier(session_manager=session_manager)
 
-    def run(
+    async def run(
         self,
         session_id: str,
         parts: Sequence[Mapping[str, Any]],
@@ -161,7 +160,7 @@ class AgentRuntime:
             hook_metadata["run_id"] = run_id.strip()
         hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id, metadata=hook_metadata)
 
-        input_payload, handled = self._dispatch_intercept(
+        input_payload, handled = await self._dispatch_intercept(
             "input",
             {
                 "text": user_text,
@@ -184,7 +183,7 @@ class AgentRuntime:
             raise ValueError("empty input parts are not allowed")
         user_text = rewrite_skill_command(user_text)
 
-        before_payload, _ = self._dispatch_intercept(
+        before_payload, _ = await self._dispatch_intercept(
             "before_agent_start",
             {"message": user_text, "system_prompt": None},
             hook_ctx,
@@ -206,7 +205,7 @@ class AgentRuntime:
             system_prompt_override = frozen_system_prompt
             use_frozen_system_prompt = frozen_system_prompt is not None
 
-        self._dispatch_observe(
+        await self._dispatch_observe(
             "agent_start",
             {"session_id": session_id, "turn_id": turn_id},
             hook_ctx,
@@ -225,7 +224,7 @@ class AgentRuntime:
             parts=_serialize_input_parts(input_parts),
         )
         history_with_current_user = self._session_manager.list_turn_messages(session_id)
-        self._preflight_compaction(
+        await self._preflight_compaction(
             session_id=session_id,
             history=history_with_current_user,
         )
@@ -258,7 +257,7 @@ class AgentRuntime:
             effective_input_parts = last_part
 
         try:
-            turn_result = self._execute_loop(
+            turn_result = await self._execute_loop(
                 session_id=session_id,
                 turn_id=turn_id,
                 turn_count=turn_count,
@@ -276,7 +275,7 @@ class AgentRuntime:
         except ModelError as exc:
             # Retry boundary: only context-overflow-like failures trigger one
             # compaction attempt plus one replay; all other model errors bubble up.
-            if not self._post_turn_check_overflow(session_id=session_id, error=exc):
+            if not await self._post_turn_check_overflow(session_id=session_id, error=exc):
                 raise
             base_retry_history = self._history_without_message(
                 session_id=session_id,
@@ -284,7 +283,7 @@ class AgentRuntime:
             )
             # Re-apply multi-part expansion on the compaction-adjusted retry history.
             retry_history = base_retry_history + (history[len(base_retry_history):] if len(input_parts) > 1 else ())
-            turn_result = self._execute_loop(
+            turn_result = await self._execute_loop(
                 session_id=session_id,
                 turn_id=turn_id,
                 turn_count=turn_count,
@@ -301,7 +300,7 @@ class AgentRuntime:
             )
 
         self._append_turn_events(session_id=session_id, turn_id=turn_id, turn_result=turn_result)
-        self._dispatch_observe(
+        await self._dispatch_observe(
             "agent_end",
             {
                 "session_id": session_id,
@@ -313,7 +312,7 @@ class AgentRuntime:
         )
         return turn_result
 
-    def compact(self, session_id: str) -> CompactionResult | None:
+    async def compact(self, session_id: str) -> CompactionResult | None:
         """Run manual session compaction.
 
         Args:
@@ -328,9 +327,9 @@ class AgentRuntime:
 
         if self._session_manager.get_session(session_id) is None:
             raise ValueError(f"session does not exist: {session_id}")
-        return self._compact_session(session_id=session_id, reason=CompactionReason.MANUAL)
+        return await self._compact_session(session_id=session_id, reason=CompactionReason.MANUAL)
 
-    def continue_turn(
+    async def continue_turn(
         self,
         session_id: str,
         *,
@@ -339,7 +338,7 @@ class AgentRuntime:
     ) -> TurnResult:
         """Request another assistant step by submitting synthetic `continue` input."""
 
-        return self.run(
+        return await self.run(
             session_id,
             [{"type": "text", "text": "continue"}],
             stream=stream,
@@ -431,12 +430,12 @@ class AgentRuntime:
             return None
         return self._hook_runner.registry
 
-    def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
+    async def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
         """Create a session and emit `session_start` observe hook."""
 
         session = self._session_manager.create_session(title=title, metadata=metadata)
         hook_ctx = self._build_hook_context(session_id=session.session_id)
-        self._dispatch_observe(
+        await self._dispatch_observe(
             "session_start",
             {"session_id": session.session_id},
             hook_ctx,
@@ -470,7 +469,7 @@ class AgentRuntime:
         requested = {item.strip() for item in raw_tools if isinstance(item, str) and item.strip()}
         return tuple(tool for tool in self._loop.active_tool_specs() if tool.name in requested)
 
-    def _dispatch_intercept(
+    async def _dispatch_intercept(
         self,
         event: str,
         payload: Mapping[str, Any],
@@ -479,12 +478,10 @@ class AgentRuntime:
         if self._hook_runner is None:
             return dict(payload), False
         try:
-            dispatch_result = asyncio.run(
-                self._hook_runner.dispatch_intercept(
-                    event,
-                    payload,
-                    hook_ctx,
-                )
+            dispatch_result = await self._hook_runner.dispatch_intercept(
+                event,
+                payload,
+                hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
             hook_ctx.logger.warn("hook intercept dispatch failed", event=event, error=str(exc))
@@ -492,7 +489,7 @@ class AgentRuntime:
         self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=dispatch_result.diagnostics)
         return dispatch_result.payload, dispatch_result.stopped
 
-    def _dispatch_observe(
+    async def _dispatch_observe(
         self,
         event: str,
         payload: Mapping[str, Any],
@@ -501,12 +498,10 @@ class AgentRuntime:
         if self._hook_runner is None:
             return
         try:
-            diagnostics = asyncio.run(
-                self._hook_runner.dispatch_observe(
-                    event,
-                    payload,
-                    hook_ctx,
-                )
+            diagnostics = await self._hook_runner.dispatch_observe(
+                event,
+                payload,
+                hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
             hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))
@@ -581,7 +576,7 @@ class AgentRuntime:
             raw=response.raw,
         )
 
-    def _execute_loop(
+    async def _execute_loop(
         self,
         *,
         session_id: str,
@@ -598,7 +593,7 @@ class AgentRuntime:
         session_created_at: str,
         current_working_directory_override: Path | None,
     ) -> TurnResult:
-        return self._loop.run(
+        return await self._loop.run(
             AgentState(
                 session_id=session_id,
                 turn_id=turn_id,
@@ -616,7 +611,7 @@ class AgentRuntime:
             current_working_directory_override=current_working_directory_override,
         )
 
-    def _preflight_compaction(
+    async def _preflight_compaction(
         self,
         *,
         session_id: str,
@@ -632,17 +627,17 @@ class AgentRuntime:
         )
         if decision is None:
             return None
-        return self._compact_session(session_id=session_id, reason=decision.reason)
+        return await self._compact_session(session_id=session_id, reason=decision.reason)
 
-    def _post_turn_check_overflow(self, *, session_id: str, error: ModelError) -> bool:
+    async def _post_turn_check_overflow(self, *, session_id: str, error: ModelError) -> bool:
         if not self._compaction_settings.enabled:
             return False
         if not _is_context_overflow_error(error):
             return False
-        result = self._compact_session(session_id=session_id, reason=CompactionReason.OVERFLOW)
+        result = await self._compact_session(session_id=session_id, reason=CompactionReason.OVERFLOW)
         return result is not None
 
-    def _compact_session(
+    async def _compact_session(
         self,
         *,
         session_id: str,
@@ -662,7 +657,7 @@ class AgentRuntime:
             plan=plan,
             summary=summary,
         )
-        self._dispatch_observe(
+        await self._dispatch_observe(
             "session_compact",
             {
                 "session_id": session_id,

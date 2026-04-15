@@ -23,12 +23,12 @@ class _RuntimeStub:
         self.config_resolver = config_resolver
         self.created = 0
 
-    def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
+    async def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
         del title, metadata
         self.created += 1
         return _Session(session_id=f"sess_task_with_resolver_{self.created}")
 
-    def run(
+    async def run(
         self,
         session_id: str,
         parts,
@@ -44,14 +44,14 @@ class _RuntimeStub:
             stop_reason="completed",
         )
 
-    def continue_turn(
+    async def continue_turn(
         self,
         session_id: str,
         *,
         stream: bool = True,
         llm_session_id: str | None = None,
     ) -> TurnResult:
-        return self.run(
+        return await self.run(
             session_id,
             [{"type": "text", "text": "continue"}],
             stream=stream,

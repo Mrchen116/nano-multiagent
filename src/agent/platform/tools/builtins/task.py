@@ -17,12 +17,12 @@ from agent.core.tools.base import ToolContext
 class TaskRuntime(Protocol):
     """Runtime surface required by `TaskTool` to create and execute sessions."""
 
-    def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None):  # noqa: ANN201
+    async def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None):  # noqa: ANN201
         """Create a sub-session used by a new task run."""
 
         ...
 
-    def run(
+    async def run(
         self,
         session_id: str,
         parts,
@@ -34,7 +34,7 @@ class TaskRuntime(Protocol):
 
         ...
 
-    def continue_turn(
+    async def continue_turn(
         self,
         session_id: str,
         *,
@@ -301,18 +301,19 @@ class TaskTool:
         continuation: bool,
         llm_session_id: str | None,
     ) -> TurnResult:
+        import asyncio
         if continuation and not prompt:
-            return runtime.continue_turn(
+            return asyncio.run(runtime.continue_turn(
                 task_session_id,
                 stream=False,
                 llm_session_id=llm_session_id,
-            )
-        return runtime.run(
+            ))
+        return asyncio.run(runtime.run(
             task_session_id,
             [{"type": "text", "text": prompt}],
             stream=False,
             llm_session_id=llm_session_id,
-        )
+        ))
 
     def _resolve_target_session(
         self,
@@ -326,6 +327,7 @@ class TaskTool:
         continuation = bool(task_session_id)
         inherited_metadata = _build_child_session_metadata(ctx)
 
+        import asyncio
         if continuation:
             exists = _runtime_session_exists(runtime, task_session_id)
             if exists is not False:
@@ -336,7 +338,7 @@ class TaskTool:
                     tool_name=self.name,
                     details={"session_id": task_session_id},
                 )
-            created = runtime.create_session(metadata=inherited_metadata)
+            created = asyncio.run(runtime.create_session(metadata=inherited_metadata))
             return str(created.session_id), prompt, False
 
         if not prompt:
@@ -344,7 +346,7 @@ class TaskTool:
                 "prompt is required when session_id is not provided",
                 tool_name=self.name,
             )
-        created = runtime.create_session(metadata=inherited_metadata)
+        created = asyncio.run(runtime.create_session(metadata=inherited_metadata))
         return str(created.session_id), prompt, False
 
     def _validate_task_arguments(self, args: Mapping[str, Any], *, ctx: ToolContext) -> None:

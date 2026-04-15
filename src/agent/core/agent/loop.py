@@ -72,7 +72,7 @@ class AgentLoop:
         self._llm_client = llm_client
         self._model = model
 
-    def run(
+    async def run(
         self,
         state: AgentState,
         *,
@@ -104,7 +104,7 @@ class AgentLoop:
 
         active_hook_ctx = hook_ctx or HookContext(session_id=state.session_id, turn_id=state.turn_id)
         run_id = _resolve_hook_run_id(active_hook_ctx)
-        self._dispatch_observe(
+        await self._dispatch_observe(
             "turn_start",
             _with_optional_run_id(
                 {
@@ -178,7 +178,7 @@ class AgentLoop:
                 assistant_messages.append(assistant_message)
                 llm_messages.append(normalized_response_message)
 
-                self._dispatch_observe(
+                await self._dispatch_observe(
                     "message_start",
                     _with_optional_run_id(
                         {
@@ -191,7 +191,7 @@ class AgentLoop:
                     ),
                     active_hook_ctx,
                 )
-                self._dispatch_observe(
+                await self._dispatch_observe(
                     "message_update",
                     _with_optional_run_id(
                         {
@@ -204,7 +204,7 @@ class AgentLoop:
                     ),
                     active_hook_ctx,
                 )
-                self._dispatch_observe(
+                await self._dispatch_observe(
                     "message_end",
                     _with_optional_run_id(
                         {
@@ -260,7 +260,7 @@ class AgentLoop:
                         model_caller=active_hook_ctx.model_caller,
                         session_event_publisher=active_hook_ctx.session_event_publisher,
                     )
-                    self._dispatch_observe(
+                    await self._dispatch_observe(
                         "tool_call",
                         _with_optional_run_id(
                             {
@@ -275,7 +275,7 @@ class AgentLoop:
                         tool_hook_ctx,
                     )
 
-                    result_payload, error_text = self._execute_tool_call(
+                    result_payload, error_text = await self._execute_tool_call(
                         parsed_call,
                         hook_ctx=tool_hook_ctx,
                     )
@@ -287,7 +287,7 @@ class AgentLoop:
                     )
                     tool_results.append(parsed_result)
 
-                    self._dispatch_observe(
+                    await self._dispatch_observe(
                         "tool_result",
                         _with_optional_run_id(
                             {
@@ -331,13 +331,13 @@ class AgentLoop:
                     "completion_tokens": latest_usage.completion_tokens,
                     "total_tokens": latest_usage.total_tokens,
                 }
-            self._dispatch_observe(
+            await self._dispatch_observe(
                 "turn_end",
                 turn_end_payload,
                 active_hook_ctx,
             )
 
-    def _execute_tool_call(
+    async def _execute_tool_call(
         self,
         tool_call: ToolCall,
         *,
@@ -346,7 +346,8 @@ class AgentLoop:
         if self._tool_registry is None:
             return None, "tool registry is unavailable"
         try:
-            output = self._tool_registry.execute(
+            output = await asyncio.to_thread(
+                self._tool_registry.execute,
                 tool_call.name,
                 tool_call.arguments,
                 hook_context=hook_ctx,
@@ -362,7 +363,7 @@ class AgentLoop:
             return self._available_tools
         return ()
 
-    def _dispatch_observe(
+    async def _dispatch_observe(
         self,
         event: str,
         payload: Mapping[str, Any],
@@ -371,12 +372,10 @@ class AgentLoop:
         if self._hook_runner is None:
             return
         try:
-            diagnostics = asyncio.run(
-                self._hook_runner.dispatch_observe(
-                    event,
-                    payload,
-                    hook_ctx,
-                )
+            diagnostics = await self._hook_runner.dispatch_observe(
+                event,
+                payload,
+                hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
             hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))

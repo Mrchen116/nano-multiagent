@@ -45,7 +45,7 @@ class RunRecord:
 
 
 class RuntimeRunner(Protocol):
-    def run(
+    async def run(
         self,
         session_id: str,
         parts,
@@ -166,7 +166,7 @@ class RunsRegistry:
             if self._is_cancelled(run_id):
                 return
             try:
-                result = self._runtime.run(session_id, parts, stream=False, run_id=run_id)
+                result = asyncio.run(self._runtime.run(session_id, parts, stream=False, run_id=run_id))
             except TimeoutError as exc:
                 self._mark_timed_out(run_id, message=str(exc))
                 return

@@ -81,12 +81,12 @@ def _base_state() -> AgentState:
     )
 
 
-def test_loop_builds_context_and_returns_turn_result() -> None:
+async def test_loop_builds_context_and_returns_turn_result() -> None:
     client = FakeLLMClient()
     loop = AgentLoop(llm_client=client, model="model-x", policies=AgentPolicies(max_turns=3))
     state = _base_state()
 
-    result = loop.run(state)
+    result = await loop.run(state)
 
     assert result.session_id == "sess_agent"
     assert result.turn_id == "turn_1"
@@ -97,7 +97,7 @@ def test_loop_builds_context_and_returns_turn_result() -> None:
     assert [msg.role for msg in client.requests[0].messages] == ["system", "user"]
 
 
-def test_loop_executes_tool_call_until_final_assistant_message() -> None:
+async def test_loop_executes_tool_call_until_final_assistant_message() -> None:
     client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(
@@ -124,7 +124,7 @@ def test_loop_executes_tool_call_until_final_assistant_message() -> None:
         tool_registry=registry,
     )
 
-    result = loop.run(_base_state())
+    result = await loop.run(_base_state())
 
     assert len(result.messages) == 2
     assert result.messages[0].metadata["tool_calls"][0]["name"] == "echo"
@@ -147,7 +147,7 @@ def test_loop_executes_tool_call_until_final_assistant_message() -> None:
     assert '"output":{"echoed":"ping"}' in client.requests[1].messages[3].content
 
 
-def test_loop_records_tool_calls_when_registry_is_unavailable() -> None:
+async def test_loop_records_tool_calls_when_registry_is_unavailable() -> None:
     client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(
@@ -163,7 +163,7 @@ def test_loop_records_tool_calls_when_registry_is_unavailable() -> None:
     )
     loop = AgentLoop(llm_client=client, model="model-x")
 
-    result = loop.run(_base_state())
+    result = await loop.run(_base_state())
 
     assert result.stop_reason == "tool_registry_unavailable"
     assert len(result.tool_calls) == 1
@@ -172,7 +172,7 @@ def test_loop_records_tool_calls_when_registry_is_unavailable() -> None:
     assert result.tool_results == ()
 
 
-def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
+async def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
     client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(
@@ -194,7 +194,7 @@ def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
     registry = FakeToolRegistry(fail=True)
     loop = AgentLoop(llm_client=client, model="model-x", tool_registry=registry)
 
-    result = loop.run(_base_state())
+    result = await loop.run(_base_state())
 
     assert result.messages[-1].content == "recovered"
     assert len(result.tool_results) == 1
@@ -203,7 +203,7 @@ def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
     assert '"error":"tool boom"' in client.requests[1].messages[-1].content
 
 
-def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
+async def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
     client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(
@@ -226,7 +226,7 @@ def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
     )
     loop = AgentLoop(llm_client=client, model="model-x", tool_registry=FakeToolRegistry())
 
-    result = loop.run(_base_state())
+    result = await loop.run(_base_state())
 
     assert result.usage is not None
     assert result.usage.prompt_tokens == 180
@@ -234,7 +234,7 @@ def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
     assert result.usage.total_tokens == 202
 
 
-def test_loop_propagates_session_event_publisher_to_tool_hook_context() -> None:
+async def test_loop_propagates_session_event_publisher_to_tool_hook_context() -> None:
     client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(
@@ -273,7 +273,7 @@ def test_loop_propagates_session_event_publisher_to_tool_hook_context() -> None:
         hook_runner=HookRunner(registry=hooks),
     )
 
-    result = loop.run(
+    result = await loop.run(
         _base_state(),
         hook_ctx=HookContext(
             session_id="sess_agent",
@@ -287,7 +287,7 @@ def test_loop_propagates_session_event_publisher_to_tool_hook_context() -> None:
 
 
 # R2: loop 不再调用 ensure_turn_allowed，不再因高 turn_count 抛异常
-def test_loop_does_not_raise_on_high_turn_count() -> None:
+async def test_loop_does_not_raise_on_high_turn_count() -> None:
     """loop.run() 不应因 turn_count 超过 max_turns 而抛 PolicyViolation。"""
     import pytest
     from agent.core.errors import PolicyViolation
@@ -305,12 +305,12 @@ def test_loop_does_not_raise_on_high_turn_count() -> None:
     )
 
     # 不应抛出 PolicyViolation
-    result = loop.run(state)
+    result = await loop.run(state)
     assert result.completed is True
 
 
 # R2: loop 不再调用 truncate_history，history 完整传递给 LLM
-def test_loop_passes_full_history_to_llm() -> None:
+async def test_loop_passes_full_history_to_llm() -> None:
     """loop.run() 应将完整的 history_messages 传给 LLM，不截断。"""
     client = FakeLLMClient()
     # 设置极小的 max_context_messages，但期望 history 不被截断
@@ -330,7 +330,7 @@ def test_loop_passes_full_history_to_llm() -> None:
         user_text="ping",
     )
 
-    loop.run(state)
+    await loop.run(state)
 
     # LLM 收到的消息应包含全部 5 条历史消息（+ system + user = 7 条）
     # 而非被截断为 1 条（如果 truncate_history 仍在工作则只有 3 条: system+1history+user）

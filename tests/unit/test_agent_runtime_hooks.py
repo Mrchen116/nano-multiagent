@@ -44,7 +44,7 @@ class EchoLLMClient:
         )
 
 
-def test_runtime_and_loop_emit_hook_events_in_expected_order() -> None:
+async def test_runtime_and_loop_emit_hook_events_in_expected_order() -> None:
     events: list[str] = []
     before_messages: list[str] = []
     registry = HookRegistry()
@@ -89,7 +89,7 @@ def test_runtime_and_loop_emit_hook_events_in_expected_order() -> None:
         repo_root=Path.cwd(),
     )
 
-    runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert events == [
         "input",
@@ -105,7 +105,7 @@ def test_runtime_and_loop_emit_hook_events_in_expected_order() -> None:
     assert before_messages == ["ping"]
 
 
-def test_input_transform_chain_affects_runtime_main_flow() -> None:
+async def test_input_transform_chain_affects_runtime_main_flow() -> None:
     registry = HookRegistry()
 
     async def add_prefix(event, ctx):
@@ -132,7 +132,7 @@ def test_input_transform_chain_affects_runtime_main_flow() -> None:
         repo_root=Path.cwd(),
     )
 
-    result = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert llm.requests[-1].messages[-1].content == "prefix:ping:suffix"
     assert result.messages[0].content == "ack:prefix:ping:suffix"
@@ -140,7 +140,7 @@ def test_input_transform_chain_affects_runtime_main_flow() -> None:
     assert user_event.data["content"] == "prefix:ping:suffix"
 
 
-def test_before_agent_start_message_override_affects_runtime_main_flow() -> None:
+async def test_before_agent_start_message_override_affects_runtime_main_flow() -> None:
     registry = HookRegistry()
 
     async def rewrite_before_start(event, ctx):
@@ -162,7 +162,7 @@ def test_before_agent_start_message_override_affects_runtime_main_flow() -> None
         repo_root=Path.cwd(),
     )
 
-    result = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert llm.requests[-1].messages[-1].content == "before:ping"
     assert result.messages[0].content == "ack:before:ping"
@@ -170,7 +170,7 @@ def test_before_agent_start_message_override_affects_runtime_main_flow() -> None
     assert user_event.data["content"] == "before:ping"
 
 
-def test_session_metadata_system_prompt_is_used_for_every_turn() -> None:
+async def test_session_metadata_system_prompt_is_used_for_every_turn() -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
     session = manager.create_session(metadata={"workspace_root": str(Path.cwd()), "system_prompt": "You are the prompt frozen for this chat."})
@@ -182,8 +182,8 @@ def test_session_metadata_system_prompt_is_used_for_every_turn() -> None:
         repo_root=Path.cwd(),
     )
 
-    first = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
-    second = runtime.run(session.session_id, [{"type": "text", "text": "pong"}], stream=False)
+    first = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    second = await runtime.run(session.session_id, [{"type": "text", "text": "pong"}], stream=False)
 
     assert first.messages[0].content == "ack:ping"
     assert second.messages[0].content == "ack:pong"
@@ -191,7 +191,7 @@ def test_session_metadata_system_prompt_is_used_for_every_turn() -> None:
     assert llm.requests[1].messages[0].content == "You are the prompt frozen for this chat."
 
 
-def test_before_agent_start_blank_override_does_not_drop_session_frozen_system_prompt() -> None:
+async def test_before_agent_start_blank_override_does_not_drop_session_frozen_system_prompt() -> None:
     registry = HookRegistry()
 
     async def clear_prompt(event, ctx):
@@ -212,13 +212,13 @@ def test_before_agent_start_blank_override_does_not_drop_session_frozen_system_p
         repo_root=Path.cwd(),
     )
 
-    result = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert result.messages[0].content == "ack:ping"
     assert llm.requests[-1].messages[0].content == "When mentioned in a group chat, reply exactly with NO_REPLY."
 
 
-def test_input_handled_short_circuits_runtime_flow() -> None:
+async def test_input_handled_short_circuits_runtime_flow() -> None:
     registry = HookRegistry()
 
     async def handled(event, ctx):
@@ -240,7 +240,7 @@ def test_input_handled_short_circuits_runtime_flow() -> None:
         repo_root=Path.cwd(),
     )
 
-    result = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert result.messages == ()
     assert result.stop_reason == "handled_by_hook"
@@ -248,7 +248,7 @@ def test_input_handled_short_circuits_runtime_flow() -> None:
     assert len(store.events) == 1
 
 
-def test_hook_exceptions_are_isolated_and_fail_open() -> None:
+async def test_hook_exceptions_are_isolated_and_fail_open() -> None:
     registry = HookRegistry()
 
     async def exploding(event, ctx):
@@ -270,13 +270,13 @@ def test_hook_exceptions_are_isolated_and_fail_open() -> None:
         repo_root=Path.cwd(),
     )
 
-    result = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert result.messages[0].content == "ack:ping"
     assert llm.requests[-1].messages[-1].content == "ping"
 
 
-def test_runtime_create_session_emits_session_start_observe_hook() -> None:
+async def test_runtime_create_session_emits_session_start_observe_hook() -> None:
     observed_session_ids: list[str] = []
     registry = HookRegistry()
 
@@ -296,6 +296,6 @@ def test_runtime_create_session_emits_session_start_observe_hook() -> None:
         repo_root=Path.cwd(),
     )
 
-    session = runtime.create_session()
+    session = await runtime.create_session()
 
     assert observed_session_ids == [session.session_id]

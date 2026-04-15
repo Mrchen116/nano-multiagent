@@ -90,13 +90,13 @@ class EchoTool:
         return {"echoed": args["text"]}
 
 
-def test_runtime_run_appends_user_and_assistant_events(tmp_path: Path) -> None:
+async def test_runtime_run_appends_user_and_assistant_events(tmp_path: Path) -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     runtime = AgentRuntime(session_manager=manager, llm_client=FakeLLMClient(), model="mock-model")
 
-    result = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert result.session_id == session.session_id
     assert result.messages[0].role == "assistant"
@@ -111,25 +111,25 @@ def test_runtime_run_appends_user_and_assistant_events(tmp_path: Path) -> None:
     assert assistant_event.data["content"] == "runtime-pong"
 
 
-def test_runtime_run_requires_session_workspace_root_metadata() -> None:
+async def test_runtime_run_requires_session_workspace_root_metadata() -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
     session = manager.create_session()
     runtime = AgentRuntime(session_manager=manager, llm_client=FakeLLMClient(), model="mock-model")
 
     with pytest.raises(ValueError, match="missing workspace_root metadata"):
-        runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+        await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
 
-def test_runtime_builds_followup_context_from_session_events(tmp_path: Path) -> None:
+async def test_runtime_builds_followup_context_from_session_events(tmp_path: Path) -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient()
     runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="mock-model")
 
-    runtime.run(session.session_id, [{"type": "text", "text": "first"}], stream=False)
-    runtime.run(session.session_id, [{"type": "text", "text": "second"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "first"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "second"}], stream=False)
 
     second_call_messages = llm_client.requests[-1].messages
     assert [message.role for message in second_call_messages] == [
@@ -143,7 +143,7 @@ def test_runtime_builds_followup_context_from_session_events(tmp_path: Path) -> 
     assert second_call_messages[3].content == "second"
 
 
-def test_runtime_filters_prompt_skills_from_session_metadata(tmp_path: Path) -> None:
+async def test_runtime_filters_prompt_skills_from_session_metadata(tmp_path: Path) -> None:
     skills_root = tmp_path / ".codex" / "skills"
     selected_dir = skills_root / "selected-skill"
     ignored_dir = skills_root / "ignored-skill"
@@ -164,14 +164,14 @@ def test_runtime_filters_prompt_skills_from_session_metadata(tmp_path: Path) -> 
     llm_client = FakeLLMClient()
     runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="mock-model", repo_root=workspace_root)
 
-    runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     system_prompt = llm_client.requests[-1].messages[0].content
     assert "<name>selected-skill</name>" in system_prompt
     assert "<name>ignored-skill</name>" not in system_prompt
 
 
-def test_runtime_persists_tool_events_with_metadata_and_replays_context(tmp_path: Path) -> None:
+async def test_runtime_persists_tool_events_with_metadata_and_replays_context(tmp_path: Path) -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
@@ -209,8 +209,8 @@ def test_runtime_persists_tool_events_with_metadata_and_replays_context(tmp_path
     registry.register(EchoTool())
     runtime.bind_tool_registry(registry)
 
-    runtime.run(session.session_id, [{"type": "text", "text": "first"}], stream=False)
-    runtime.run(session.session_id, [{"type": "text", "text": "second"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "first"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "second"}], stream=False)
 
     turn_events = [
         entry
@@ -254,7 +254,7 @@ def test_runtime_persists_tool_events_with_metadata_and_replays_context(tmp_path
     assert second_turn_request.messages[3].tool_call_id == "call_runtime_1"
 
 
-def test_hook_context_model_call_uses_same_session_id(tmp_path: Path) -> None:
+async def test_hook_context_model_call_uses_same_session_id(tmp_path: Path) -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
@@ -289,13 +289,13 @@ def test_hook_context_model_call_uses_same_session_id(tmp_path: Path) -> None:
         hook_runner=HookRunner(registry=hooks),
     )
 
-    runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert llm_client.requests[0].session_id == session.session_id
     assert llm_client.requests[1].session_id == session.session_id
 
 
-def test_hook_context_model_call_supports_model_override(tmp_path: Path) -> None:
+async def test_hook_context_model_call_supports_model_override(tmp_path: Path) -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
@@ -331,7 +331,7 @@ def test_hook_context_model_call_supports_model_override(tmp_path: Path) -> None
         hook_runner=HookRunner(registry=hooks),
     )
 
-    runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert llm_client.requests[0].model == "risk-model-x"
     assert llm_client.requests[0].session_id == session.session_id

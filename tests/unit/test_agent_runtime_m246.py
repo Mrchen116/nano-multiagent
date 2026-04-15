@@ -46,7 +46,7 @@ def _make_session_manager(tmp_path: Path, *, workspace_root: str | None = None) 
     return manager, session.session_id
 
 
-def test_single_part_creates_single_user_message_in_llm_history(tmp_path: Path) -> None:
+async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: Path) -> None:
     """单条 part（向后兼容路径）→ LLM history 末尾只有一条 user message。"""
     manager, session_id = _make_session_manager(tmp_path)
     llm = _FakeLLMClient()
@@ -56,7 +56,7 @@ def test_single_part_creates_single_user_message_in_llm_history(tmp_path: Path) 
         model="fake",
     )
 
-    runtime.run(session_id, [{"type": "text", "text": "hello"}])
+    await runtime.run(session_id, [{"type": "text", "text": "hello"}])
 
     assert len(llm.calls) == 1
     user_messages = [m for m in llm.calls[0].messages if m.role == "user"]
@@ -64,7 +64,7 @@ def test_single_part_creates_single_user_message_in_llm_history(tmp_path: Path) 
     assert user_messages[-1].content == "hello"
 
 
-def test_multiple_parts_become_independent_user_messages_in_llm_history(tmp_path: Path) -> None:
+async def test_multiple_parts_become_independent_user_messages_in_llm_history(tmp_path: Path) -> None:
     """多条 parts → LLM history 中每条 part 对应一条独立 user message（而非 \\n join）。"""
     manager, session_id = _make_session_manager(tmp_path)
     llm = _FakeLLMClient()
@@ -74,7 +74,7 @@ def test_multiple_parts_become_independent_user_messages_in_llm_history(tmp_path
         model="fake",
     )
 
-    runtime.run(
+    await runtime.run(
         session_id,
         [
             {"type": "text", "text": "[alice] hello"},
@@ -92,7 +92,7 @@ def test_multiple_parts_become_independent_user_messages_in_llm_history(tmp_path
     assert user_messages[2].content == "[charlie] @agent go"
 
 
-def test_two_parts_become_two_user_messages(tmp_path: Path) -> None:
+async def test_two_parts_become_two_user_messages(tmp_path: Path) -> None:
     """2 parts → 2 user messages in LLM history。"""
     manager, session_id = _make_session_manager(tmp_path)
     llm = _FakeLLMClient()
@@ -102,7 +102,7 @@ def test_two_parts_become_two_user_messages(tmp_path: Path) -> None:
         model="fake",
     )
 
-    runtime.run(
+    await runtime.run(
         session_id,
         [
             {"type": "text", "text": "[user-1] buffered message"},
@@ -116,7 +116,7 @@ def test_two_parts_become_two_user_messages(tmp_path: Path) -> None:
     assert user_messages[1].content == "[user-2] @agent respond"
 
 
-def test_multiple_parts_not_newline_joined(tmp_path: Path) -> None:
+async def test_multiple_parts_not_newline_joined(tmp_path: Path) -> None:
     """多 parts 不能被 \\n join 成一条 user message，而是分开为独立条目。"""
     manager, session_id = _make_session_manager(tmp_path)
     llm = _FakeLLMClient()
@@ -126,7 +126,7 @@ def test_multiple_parts_not_newline_joined(tmp_path: Path) -> None:
         model="fake",
     )
 
-    runtime.run(
+    await runtime.run(
         session_id,
         [
             {"type": "text", "text": "part one"},
@@ -142,7 +142,7 @@ def test_multiple_parts_not_newline_joined(tmp_path: Path) -> None:
     assert any(m.content == "part two" for m in user_messages)
 
 
-def test_single_part_user_text_unchanged_after_multi_turn(tmp_path: Path) -> None:
+async def test_single_part_user_text_unchanged_after_multi_turn(tmp_path: Path) -> None:
     """多轮对话中，单 part 的 user text 行为与之前完全一致。"""
     manager, session_id = _make_session_manager(tmp_path)
     llm = _FakeLLMClient()
@@ -152,8 +152,8 @@ def test_single_part_user_text_unchanged_after_multi_turn(tmp_path: Path) -> Non
         model="fake",
     )
 
-    runtime.run(session_id, [{"type": "text", "text": "turn one"}])
-    runtime.run(session_id, [{"type": "text", "text": "turn two"}])
+    await runtime.run(session_id, [{"type": "text", "text": "turn one"}])
+    await runtime.run(session_id, [{"type": "text", "text": "turn two"}])
 
     # First call: 1 user message
     call1_user = [m for m in llm.calls[0].messages if m.role == "user"]

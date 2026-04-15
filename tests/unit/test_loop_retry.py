@@ -63,13 +63,13 @@ def _make_state(*, session_id: str = "sess-retry-unit", user_text: str = "ping")
     )
 
 
-def test_loop_retries_generate_on_retryable_error_and_succeeds() -> None:
+async def test_loop_retries_generate_on_retryable_error_and_succeeds() -> None:
     """Loop retries generate() internally when retryable and succeeds without raising."""
     llm = _CountingLLMClient(fail_count=2)
     loop = AgentLoop(llm_client=llm, model="test-model")
     state = _make_state()
 
-    result = loop.run(state)
+    result = await loop.run(state)
 
     # 2 failures + 1 success = 3 calls total
     assert llm.call_count == 3
@@ -78,53 +78,53 @@ def test_loop_retries_generate_on_retryable_error_and_succeeds() -> None:
     assert result.messages[0].content == "ok"
 
 
-def test_loop_single_retryable_failure_then_success() -> None:
+async def test_loop_single_retryable_failure_then_success() -> None:
     """Loop handles exactly 1 retryable failure then succeeds."""
     llm = _CountingLLMClient(fail_count=1)
     loop = AgentLoop(llm_client=llm, model="test-model")
     state = _make_state()
 
-    result = loop.run(state)
+    result = await loop.run(state)
 
     assert llm.call_count == 2
     assert result.completed is True
 
 
-def test_loop_max_retries_raises_non_retryable_model_error() -> None:
+async def test_loop_max_retries_raises_non_retryable_model_error() -> None:
     """After max_retries exhausted, loop raises non-retryable ModelError."""
     llm = _AlwaysRetryableLLMClient()
     loop = AgentLoop(llm_client=llm, model="test-model")
     state = _make_state()
 
     with pytest.raises(ModelError) as exc_info:
-        loop.run(state)
+        await loop.run(state)
 
     assert exc_info.value.retryable is False
     # Must have attempted max_retries+1 times (initial + retries)
     assert llm.call_count > 1
 
 
-def test_loop_non_retryable_error_propagates_immediately() -> None:
+async def test_loop_non_retryable_error_propagates_immediately() -> None:
     """Non-retryable ModelError propagates on first attempt without retry."""
     llm = _NonRetryableErrorLLMClient()
     loop = AgentLoop(llm_client=llm, model="test-model")
     state = _make_state()
 
     with pytest.raises(ModelError) as exc_info:
-        loop.run(state)
+        await loop.run(state)
 
     assert exc_info.value.retryable is False
     # Only 1 call — no retry for non-retryable
     assert llm.call_count == 1
 
 
-def test_loop_zero_retryable_failures_calls_generate_once() -> None:
+async def test_loop_zero_retryable_failures_calls_generate_once() -> None:
     """When first call succeeds, generate() is called exactly once."""
     llm = _CountingLLMClient(fail_count=0)
     loop = AgentLoop(llm_client=llm, model="test-model")
     state = _make_state()
 
-    result = loop.run(state)
+    result = await loop.run(state)
 
     assert llm.call_count == 1
     assert result.completed is True
