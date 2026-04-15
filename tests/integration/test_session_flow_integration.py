@@ -12,7 +12,7 @@ class _RuntimeWithCompact:
     def __init__(self) -> None:
         self.compact_calls: list[str] = []
 
-    def compact(self, session_id: str) -> CompactionResult:
+    async def compact(self, session_id: str) -> CompactionResult:
         self.compact_calls.append(session_id)
         return CompactionResult(
             reason=CompactionReason.MANUAL,
@@ -42,7 +42,8 @@ class _EchoTool:
 def test_app_wires_session_service() -> None:
     app = create_app()
 
-    session = app.state.session_service.create_session()
+    from pathlib import Path
+    session = app.state.session_service.create_session(workspace_root=Path.cwd())
 
     assert session.session_id.startswith('sess_')
     assert session.status == 'active'
@@ -52,7 +53,7 @@ def test_session_routes_wire_tools_registry_and_manual_compact() -> None:
     runtime = _RuntimeWithCompact()
     registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
     registry.register(_EchoTool())
-    app = create_app(runtime=runtime, tool_registry=registry, auth_token="test-token")
+    app = create_app(runtime=runtime, tool_registry=registry)
     client = TestClient(app)
     headers = {"Authorization": "Bearer test-token", "X-Request-Id": "req-session-flow-compact-tools"}
 
@@ -81,7 +82,7 @@ def test_session_routes_wire_tools_registry_and_manual_compact() -> None:
 
 
 def test_append_message_persists_history_once_per_idempotency_key() -> None:
-    app = create_app(auth_token="test-token")
+    app = create_app()
     client = TestClient(app)
     headers = {"Authorization": "Bearer test-token", "X-Request-Id": "req-append-history-integration"}
 

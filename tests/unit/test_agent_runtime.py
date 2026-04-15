@@ -25,7 +25,7 @@ set_tool_safety_config_factory(ToolSafetyConfig)
 def _make_workspace_session(manager: SessionManager, tmp_path: Path):
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir(exist_ok=True)
-    return manager.create_session(metadata={"workspace_root": str(workspace_root.resolve())})
+    return manager.create_session(workspace_root=workspace_root.resolve())
 
 
 class InMemorySessionStore(SessionStore):
@@ -111,14 +111,16 @@ async def test_runtime_run_appends_user_and_assistant_events(tmp_path: Path) -> 
     assert assistant_event.data["content"] == "runtime-pong"
 
 
-async def test_runtime_run_requires_session_workspace_root_metadata() -> None:
+async def test_runtime_run_with_default_workspace_root() -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=Path.cwd())
     runtime = AgentRuntime(session_manager=manager, llm_client=FakeLLMClient(), model="mock-model")
 
-    with pytest.raises(ValueError, match="missing workspace_root metadata"):
-        await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+
+    assert result.session_id == session.session_id
+    assert result.messages[0].role == "assistant"
 
 
 async def test_runtime_builds_followup_context_from_session_events(tmp_path: Path) -> None:
@@ -156,10 +158,8 @@ async def test_runtime_filters_prompt_skills_from_session_metadata(tmp_path: Pat
     manager = SessionManager(store=store)
     workspace_root = tmp_path
     session = manager.create_session(
-        metadata={
-            "workspace_root": str(workspace_root.resolve()),
-            "skills": ["selected-skill"],
-        }
+        workspace_root=workspace_root.resolve(),
+        skills=("selected-skill",),
     )
     llm_client = FakeLLMClient()
     runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="mock-model", repo_root=workspace_root)
@@ -335,3 +335,100 @@ async def test_hook_context_model_call_supports_model_override(tmp_path: Path) -
 
     assert llm_client.requests[0].model == "risk-model-x"
     assert llm_client.requests[0].session_id == session.session_id
+
+
+async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(tmp_path: Path) -> None:
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    llm_client = FakeLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="mock-model",
+    )
+
+    result = await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "/skill:doc polish this paragraph"}],
+        stream=False,
+    )
+
+    rewritten = 'Use the "doc" skill for this request.\nUser input:\npolish this paragraph'
+    assert llm_client.requests[-1].messages[-1].content == rewritten
+    assert result.messages[0].content == "runtime-pong"
+
+    created_event, user_event, assistant_event = [entry for _, entry in store.events]
+    assert created_event.kind is SessionEntryKind.SESSION_CREATED
+    assert user_event.kind is SessionEntryKind.TURN_APPENDED
+    assert user_event.data["role"] == "user"
+    assert user_event.data["content"] == rewritten
+    assert assistant_event.kind is SessionEntryKind.TURN_APPENDED
+    assert assistant_event.data["role"] == "assistant"
+
+
+async def test_task_tool_is_registered_and_validated_by_registry(tmp_path: Path) -> None:
+    from agent.core.errors import ToolError
+    from agent.platform.tools.loader import build_tool_registry
+
+    registry = build_tool_registry(repo_root=tmp_path)
+
+    with pytest.raises(ToolError, match="missing required argument: load_skills"):
+        registry.execute("task", {})
+
+
+async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: Path) -> None:
+    """单条 part（向后兼容路径）→ LLM history 末尾只有一条 user message。"""
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    llm_client = FakeLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="mock-model",
+    )
+
+    await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "turn two"}], stream=False)
+
+    # First call: 1 user message
+    call1_user = [m for m in llm_client.requests[0].messages if m.role == "user"]
+    assert len(call1_user) == 1
+    assert call1_user[0].content == "hello"
+
+    # Second call: history has prior turn + current user
+    call2_user = [m for m in llm_client.requests[1].messages if m.role == "user"]
+    assert call2_user[-1].content == "turn two"
+
+
+async def test_multiple_parts_become_independent_user_messages_in_llm_history(tmp_path: Path) -> None:
+    """多条 parts → LLM history 中每条 part 对应一条独立 user message（而非 \\n join）。"""
+    store = InMemorySessionStore()
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    llm_client = FakeLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="mock-model",
+    )
+
+    await runtime.run(
+        session.session_id,
+        [
+            {"type": "text", "text": "[alice] hello"},
+            {"type": "text", "text": "[bob] world"},
+            {"type": "text", "text": "[charlie] @agent go"},
+        ],
+        stream=False,
+    )
+
+    assert len(llm_client.requests) == 1
+    user_messages = [m for m in llm_client.requests[0].messages if m.role == "user"]
+    assert len(user_messages) == 3
+    assert user_messages[0].content == "[alice] hello"
+    assert user_messages[1].content == "[bob] world"
+    assert user_messages[2].content == "[charlie] @agent go"
+    # Must NOT be joined
+    assert not any(m.content == "[alice] hello\n[bob] world\n[charlie] @agent go" for m in user_messages)

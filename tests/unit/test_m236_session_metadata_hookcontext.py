@@ -89,8 +89,8 @@ async def test_session_metadata_merged_into_hook_context() -> None:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
     session = manager.create_session(
+        workspace_root=Path("/tmp"),
         metadata={
-            "workspace_root": "/tmp",
             "conversation_type": "group",
             "participant_agent_ids": ["agent-a", "agent-b"],
             "agent_id": "agent-a",
@@ -120,8 +120,8 @@ async def test_runtime_keys_not_overwritten_by_session_metadata() -> None:
     manager = SessionManager(store=store)
     # Session metadata tries to set cwd to a fake path — runtime's cwd must win.
     session = manager.create_session(
+        workspace_root=Path("/tmp"),
         metadata={
-            "workspace_root": "/tmp",
             "cwd": "/should-not-overwrite",
             "conversation_type": "direct",
         }
@@ -135,53 +135,6 @@ async def test_runtime_keys_not_overwritten_by_session_metadata() -> None:
     assert ctx_meta.get("cwd") != "/should-not-overwrite"
     # but conversation_type from session metadata is still present
     assert ctx_meta.get("conversation_type") == "direct"
-
-
-async def test_before_agent_start_reads_conversation_type_from_hook_context() -> None:
-    """before_agent_start hook from personal_assistant must read conversation_type and inject context."""
-    from agent.products.personal_assistant.hooks import setup
-
-    captured_prompts: list[str | None] = []
-    registry = HookRegistry()
-
-    # Register the real product hook
-    class _FakeHookAPI:
-        def on(self, event: str, handler: Any, **kwargs: Any) -> None:
-            registry.on(event, handler, **kwargs)
-
-    setup(_FakeHookAPI())
-
-    # Capture what system_prompt the hook returns
-    async def capture_result(payload: Mapping[str, Any], ctx: HookContext) -> dict[str, Any] | None:
-        captured_prompts.append(payload.get("system_prompt"))
-        return None
-
-    # capture_result runs AFTER setup's hook (priority 200), so use lower priority
-    registry.on("before_agent_start", capture_result, priority=300)
-
-    store = InMemorySessionStore()
-    manager = SessionManager(store=store)
-    session = manager.create_session(
-        metadata={
-            "workspace_root": "/tmp",
-            "conversation_type": "group",
-            "participant_agent_ids": ["agent-alpha", "agent-beta"],
-            "agent_id": "agent-alpha",
-        }
-    )
-    runtime = _make_runtime(manager, registry)
-    await runtime.run(session.session_id, [{"type": "text", "text": "hello group"}], stream=False)
-
-    # The hook should have enriched the system_prompt with conversation context
-    assert len(captured_prompts) >= 1
-    # The first captured payload is before enrichment (payload.system_prompt may be None initially)
-    # What we need: the hook returned a system_prompt containing the context block
-    # Verify via the LLM request system prompt instead
-    # (The hook modifies system_prompt; runtime picks it up and passes to LLM)
-    # We verify end-to-end: if conversation_type reached the hook, the LLM got a non-None system prompt
-    # containing the context block.
-    # Use a simpler approach: inspect hook execution indirectly via a second capture hook that
-    # reads the enriched payload AFTER the product hook runs.
 
 
 async def test_before_agent_start_reads_conversation_type_end_to_end() -> None:
@@ -200,8 +153,8 @@ async def test_before_agent_start_reads_conversation_type_end_to_end() -> None:
     manager = SessionManager(store=store)
     llm = EchoLLMClient()
     session = manager.create_session(
+        workspace_root=Path("/tmp"),
         metadata={
-            "workspace_root": "/tmp",
             "conversation_type": "group",
             "participant_agent_ids": ["agent-alpha", "agent-beta"],
             "agent_id": "agent-alpha",
@@ -242,7 +195,7 @@ async def test_before_agent_start_noop_when_no_conversation_type() -> None:
     manager = SessionManager(store=store)
     llm = EchoLLMClient()
     session = manager.create_session(
-        metadata={"workspace_root": "/tmp"}  # no conversation_type
+        workspace_root=Path("/tmp"),  # no conversation_type
     )
     runtime = AgentRuntime(
         session_manager=manager,

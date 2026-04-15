@@ -52,7 +52,7 @@ class _AdvancingSessionDateTime:
         return value
 
 
-def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -> None:
+async def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -> None:
     observed_bodies: list[dict[str, object]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -76,7 +76,7 @@ def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -> None
     db_path = tmp_path / "runtime.sqlite3"
     store = SQLiteSessionStore(db_path=db_path)
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
 
     client = create_llm_client(
         config=LLMFactoryConfig(
@@ -88,8 +88,8 @@ def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -> None
     )
     runtime = AgentRuntime(session_manager=manager, llm_client=client, model="codex_oauth:gpt-5.4")
 
-    runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
-    runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
 
     loaded = store.load_session(session.session_id)
     assert loaded is not None
@@ -104,7 +104,7 @@ def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -> None
     assert messages[-1]["content"] == "Q2"
 
 
-def test_runtime_keeps_same_prompt_timestamp_within_one_session(
+async def test_runtime_keeps_same_prompt_timestamp_within_one_session(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(prompting_module, "datetime", _AdvancingPromptDateTime)
@@ -132,7 +132,7 @@ def test_runtime_keeps_same_prompt_timestamp_within_one_session(
     db_path = tmp_path / "runtime_same_session_timestamp.sqlite3"
     store = SQLiteSessionStore(db_path=db_path)
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
 
     client = create_llm_client(
         config=LLMFactoryConfig(
@@ -150,15 +150,15 @@ def test_runtime_keeps_same_prompt_timestamp_within_one_session(
         system_prompt=CODING_SYSTEM_PROMPT,
     )
 
-    runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
-    runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
 
     first_system_prompt = observed_bodies[0]["messages"][0]["content"]
     second_system_prompt = observed_bodies[1]["messages"][0]["content"]
     assert _extract_prompt_timestamp(first_system_prompt) == _extract_prompt_timestamp(second_system_prompt)
 
 
-def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
+async def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(prompting_module, "datetime", _FixedPromptDateTime)
@@ -187,8 +187,8 @@ def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
     db_path = tmp_path / "runtime_cross_session_timestamp.sqlite3"
     store = SQLiteSessionStore(db_path=db_path)
     manager = SessionManager(store=store)
-    first_session = manager.create_session()
-    second_session = manager.create_session()
+    first_session = manager.create_session(workspace_root=tmp_path)
+    second_session = manager.create_session(workspace_root=tmp_path)
 
     client = create_llm_client(
         config=LLMFactoryConfig(
@@ -206,8 +206,8 @@ def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
         system_prompt=CODING_SYSTEM_PROMPT,
     )
 
-    runtime.run(first_session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
-    runtime.run(second_session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
+    await runtime.run(first_session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
+    await runtime.run(second_session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
 
     first_system_prompt = observed_bodies[0]["messages"][0]["content"]
     second_system_prompt = observed_bodies[1]["messages"][0]["content"]
@@ -218,7 +218,7 @@ def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
     assert first_timestamp != second_timestamp
 
 
-def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path) -> None:
+async def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path) -> None:
     observed_bodies: list[dict[str, object]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -238,7 +238,7 @@ def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path) -> N
     db_path = tmp_path / "runtime_anthropic.sqlite3"
     store = SQLiteSessionStore(db_path=db_path)
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
 
     client = create_llm_client(
         config=LLMFactoryConfig(
@@ -250,8 +250,8 @@ def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path) -> N
     )
     runtime = AgentRuntime(session_manager=manager, llm_client=client, model="moonshotAnthropic:kimi-k2.5")
 
-    runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
-    runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
 
     loaded = store.load_session(session.session_id)
     assert loaded is not None

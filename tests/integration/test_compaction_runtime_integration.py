@@ -11,10 +11,10 @@ from agent.core.session.manager import SessionManager
 from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
-def test_compaction_entry_is_persisted_with_audit_anchor_and_replayable(tmp_path: Path) -> None:
+async def test_compaction_entry_is_persisted_with_audit_anchor_and_replayable(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "compaction-baseline.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
 
     first = manager.append_turn_message(
         session.session_id,
@@ -126,10 +126,10 @@ class SummaryFailingLLMClient:
         )
 
 
-def test_threshold_preflight_compacts_and_rebuilds_context(tmp_path: Path) -> None:
+async def test_threshold_preflight_compacts_and_rebuilds_context(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "compaction-threshold.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     llm_client = ThresholdAwareLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -144,8 +144,8 @@ def test_threshold_preflight_compacts_and_rebuilds_context(tmp_path: Path) -> No
         ),
     )
 
-    runtime.run(session.session_id, [{"type": "text", "text": "hello " * 20}], stream=False)
-    runtime.run(session.session_id, [{"type": "text", "text": "follow-up " * 20}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "hello " * 20}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "follow-up " * 20}], stream=False)
 
     loaded = store.load_session(session.session_id)
     assert loaded is not None
@@ -162,10 +162,10 @@ def test_threshold_preflight_compacts_and_rebuilds_context(tmp_path: Path) -> No
     assert "summary" in second_main_messages[1].content.lower()
 
 
-def test_manual_compaction_writes_auditable_entry_and_replays_from_anchor(tmp_path: Path) -> None:
+async def test_manual_compaction_writes_auditable_entry_and_replays_from_anchor(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "compaction-manual.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     llm_client = ThresholdAwareLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -180,10 +180,10 @@ def test_manual_compaction_writes_auditable_entry_and_replays_from_anchor(tmp_pa
         ),
     )
 
-    runtime.run(session.session_id, [{"type": "text", "text": "first user"}], stream=False)
-    runtime.run(session.session_id, [{"type": "text", "text": "second user"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "first user"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "second user"}], stream=False)
 
-    result = runtime.compact(session.session_id)
+    result = await runtime.compact(session.session_id)
 
     assert result is not None
     assert result.reason is CompactionReason.MANUAL
@@ -207,10 +207,10 @@ def test_manual_compaction_writes_auditable_entry_and_replays_from_anchor(tmp_pa
     assert [message.content for message in replayed[1:]] == kept_contents
 
 
-def test_session_compact_observe_hook_receives_manual_reason_event(tmp_path: Path) -> None:
+async def test_session_compact_observe_hook_receives_manual_reason_event(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "compaction-manual-hook.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     llm_client = ThresholdAwareLLMClient()
     observed_events: list[dict[str, object]] = []
     hooks = HookRegistry()
@@ -234,9 +234,9 @@ def test_session_compact_observe_hook_receives_manual_reason_event(tmp_path: Pat
         ),
     )
 
-    runtime.run(session.session_id, [{"type": "text", "text": "first user"}], stream=False)
-    runtime.run(session.session_id, [{"type": "text", "text": "second user"}], stream=False)
-    runtime.compact(session.session_id)
+    await runtime.run(session.session_id, [{"type": "text", "text": "first user"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "second user"}], stream=False)
+    await runtime.compact(session.session_id)
 
     assert observed_events
     assert any(
@@ -246,10 +246,10 @@ def test_session_compact_observe_hook_receives_manual_reason_event(tmp_path: Pat
     )
 
 
-def test_overflow_post_turn_check_compacts_then_retries(tmp_path: Path) -> None:
+async def test_overflow_post_turn_check_compacts_then_retries(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "compaction-overflow.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     llm_client = OverflowOnceLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -264,8 +264,8 @@ def test_overflow_post_turn_check_compacts_then_retries(tmp_path: Path) -> None:
         ),
     )
 
-    runtime.run(session.session_id, [{"type": "text", "text": "first turn"}], stream=False)
-    result = runtime.run(session.session_id, [{"type": "text", "text": "second turn"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "first turn"}], stream=False)
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "second turn"}], stream=False)
 
     assert result.messages[0].content == "retry-ok"
     loaded = store.load_session(session.session_id)
@@ -278,10 +278,10 @@ def test_overflow_post_turn_check_compacts_then_retries(tmp_path: Path) -> None:
     assert len(main_calls) == 3
 
 
-def test_threshold_compaction_falls_back_when_summary_model_fails(tmp_path: Path) -> None:
+async def test_threshold_compaction_falls_back_when_summary_model_fails(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "compaction-summary-failure.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     llm_client = SummaryFailingLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -296,8 +296,8 @@ def test_threshold_compaction_falls_back_when_summary_model_fails(tmp_path: Path
         ),
     )
 
-    runtime.run(session.session_id, [{"type": "text", "text": "hello " * 20}], stream=False)
-    result = runtime.run(session.session_id, [{"type": "text", "text": "follow-up " * 20}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "hello " * 20}], stream=False)
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "follow-up " * 20}], stream=False)
 
     assert result.messages[0].content == "ack-after-fallback"
     loaded = store.load_session(session.session_id)
@@ -305,4 +305,5 @@ def test_threshold_compaction_falls_back_when_summary_model_fails(tmp_path: Path
     compactions = [event for event in loaded.events if isinstance(event, CompactionEntry)]
     assert compactions
     assert compactions[-1].data["reason"] == CompactionReason.THRESHOLD.value
-    assert "触发原因为 threshold" in compactions[-1].summary
+    # Summary model fails in this test → CompactionSummarizer falls back to _fallback_summary().
+    assert "目标: 维持会话连续性" in compactions[-1].summary

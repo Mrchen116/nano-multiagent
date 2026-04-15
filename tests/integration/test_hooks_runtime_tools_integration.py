@@ -64,7 +64,7 @@ class EchoTool:
         return {"text": args["text"]}
 
 
-def test_runtime_uses_loaded_hooks_for_input_transform_chain(tmp_path: Path) -> None:
+async def test_runtime_uses_loaded_hooks_for_input_transform_chain(tmp_path: Path) -> None:
     builtins_dir = tmp_path / "builtin_hooks"
     workspace_dir = tmp_path / ".nano" / "hooks"
     builtins_dir.mkdir(parents=True, exist_ok=True)
@@ -102,7 +102,7 @@ def setup(hooks):
 
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -112,7 +112,7 @@ def setup(hooks):
         repo_root=tmp_path,
     )
 
-    result = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert llm.requests[-1].messages[-1].content == "builtin:ping:workspace"
     assert result.messages[0].content == "ack:builtin:ping:workspace"
