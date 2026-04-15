@@ -71,7 +71,7 @@ class EchoTool:
 def _runtime_with_hooks(registry: HookRegistry) -> tuple[AgentRuntime, EchoLLMClient, SessionManager, str]:
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=Path.cwd())
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,

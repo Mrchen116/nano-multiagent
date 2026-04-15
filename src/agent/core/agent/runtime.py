@@ -1,7 +1,6 @@
 """High-level runtime orchestration over sessions, hooks, loop, and compaction."""
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
 
@@ -38,82 +37,6 @@ class ConfigResolverLike(SkillRootResolver, Protocol):
 
     def user_hook_roots(self) -> tuple[Path, ...]:
         ...
-
-
-@dataclass(frozen=True)
-class SessionConfig:
-    """Typed domain fields extracted from session.metadata.
-
-    Separates the structured runtime config from the free-form ``metadata``
-    dict that carries arbitrary pass-through data (e.g. IM-layer fields like
-    ``conversation_type``).
-
-    Use ``SessionConfig.from_session()`` to parse once at turn entry; all
-    downstream code receives typed fields instead of repeated dict lookups.
-    """
-
-    workspace_root: Path
-    system_prompt: str | None
-    """None means the session has no frozen prompt; use runtime default."""
-    skills: tuple[str, ...] | None
-    """None means not configured; fall back to runtime defaults.
-    Empty tuple means the session explicitly requests no skills."""
-    tool_allowlist: tuple[str, ...] | None
-    """None means not configured; fall back to product/runtime defaults.
-    Empty tuple means no tools allowed."""
-
-    @classmethod
-    def from_session(cls, session: Session) -> "SessionConfig":
-        """Parse and validate session.metadata into a typed config object.
-
-        Raises:
-            ValueError: If ``workspace_root`` is missing, empty, or not absolute.
-        """
-        metadata = session.metadata
-
-        # workspace_root: required, must be an absolute path.
-        raw_workspace_root = metadata.get("workspace_root")
-        if not isinstance(raw_workspace_root, str):
-            raise ValueError(f"session {session.session_id} missing workspace_root metadata")
-        normalized_root = raw_workspace_root.strip()
-        if not normalized_root:
-            raise ValueError(f"session {session.session_id} has empty workspace_root metadata")
-        candidate = Path(normalized_root).expanduser()
-        if not candidate.is_absolute():
-            raise ValueError(f"session {session.session_id} has non-absolute workspace_root metadata")
-        workspace_root = candidate.resolve()
-
-        # system_prompt: optional; normalize empty/whitespace-only to None.
-        raw_system_prompt = metadata.get("system_prompt")
-        system_prompt: str | None = (
-            raw_system_prompt
-            if isinstance(raw_system_prompt, str) and raw_system_prompt.strip()
-            else None
-        )
-
-        # skills: list[str] in metadata becomes tuple[str, ...] | None.
-        # None means "not configured" (fall back to runtime defaults).
-        raw_skills = metadata.get("skills")
-        skills: tuple[str, ...] | None
-        if isinstance(raw_skills, list):
-            skills = tuple(s.strip() for s in raw_skills if isinstance(s, str) and s.strip())
-        else:
-            skills = None
-
-        # tool_allowlist: same convention as skills.
-        raw_allowlist = metadata.get("tool_allowlist")
-        tool_allowlist: tuple[str, ...] | None
-        if isinstance(raw_allowlist, list):
-            tool_allowlist = tuple(s.strip() for s in raw_allowlist if isinstance(s, str) and s.strip())
-        else:
-            tool_allowlist = None
-
-        return cls(
-            workspace_root=workspace_root,
-            system_prompt=system_prompt,
-            skills=skills,
-            tool_allowlist=tool_allowlist,
-        )
 
 
 class AgentRuntime:
@@ -215,11 +138,10 @@ class AgentRuntime:
         if session is None:
             raise ValueError(f"session does not exist: {session_id}")
         session_created_at = session.created_at
-        session_config = SessionConfig.from_session(session)
-        session_workspace_root = session_config.workspace_root
-        session_available_skills = self._resolve_session_available_skills(session_config=session_config)
-        session_available_tools = self._resolve_session_available_tools(session_config=session_config)
-        frozen_system_prompt = session_config.system_prompt
+        session_workspace_root = session.workspace_root
+        session_available_skills = self._resolve_session_available_skills(session)
+        session_available_tools = self._resolve_session_available_tools(session)
+        frozen_system_prompt = session.system_prompt
 
         input_parts = parse_input_parts(parts)
         user_text = render_user_text(input_parts)
@@ -506,10 +428,26 @@ class AgentRuntime:
             return None
         return self._hook_runner.registry
 
-    async def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
+    async def create_session(
+        self,
+        *,
+        workspace_root: Path,
+        title: str | None = None,
+        system_prompt: str | None = None,
+        skills: tuple[str, ...] | None = None,
+        tool_allowlist: tuple[str, ...] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> Session:
         """Create a session and emit `session_start` observe hook."""
 
-        session = self._session_manager.create_session(title=title, metadata=metadata)
+        session = self._session_manager.create_session(
+            workspace_root=workspace_root,
+            title=title,
+            system_prompt=system_prompt,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
+            metadata=metadata,
+        )
         hook_ctx = self._build_hook_context(session_id=session.session_id)
         await self._dispatch_observe(
             "session_start",
@@ -518,19 +456,19 @@ class AgentRuntime:
         )
         return session
 
-    def _resolve_session_available_skills(self, *, session_config: SessionConfig) -> tuple[SkillMetadata, ...]:
-        if session_config.skills is None:
+    def _resolve_session_available_skills(self, session: Session) -> tuple[SkillMetadata, ...]:
+        if session.skills is None:
             return self._loop.available_skills
-        if not session_config.skills:
+        if not session.skills:
             return ()
         return resolve_available_skills(
-            workspace_root=session_config.workspace_root,
-            include_names=session_config.skills,
+            workspace_root=session.workspace_root,
+            include_names=session.skills,
             config_resolver=self._config_resolver,
         )
 
-    def _resolve_session_available_tools(self, *, session_config: SessionConfig) -> tuple[ToolSpec, ...]:
-        if session_config.tool_allowlist is None:
+    def _resolve_session_available_tools(self, session: Session) -> tuple[ToolSpec, ...]:
+        if session.tool_allowlist is None:
             # No per-session allowlist: apply product default_tool_ids gate when present.
             # When default_tool_ids is None the platform default (all registry tools) is used.
             all_specs = self._loop.active_tool_specs()
@@ -539,7 +477,7 @@ class AgentRuntime:
                 return all_specs
             allowed_set = set(default_ids)
             return tuple(spec for spec in all_specs if spec.name in allowed_set)
-        requested = set(session_config.tool_allowlist)
+        requested = set(session.tool_allowlist)
         return tuple(tool for tool in self._loop.active_tool_specs() if tool.name in requested)
 
     async def _dispatch_intercept(

@@ -22,7 +22,8 @@ def test_create_session_appends_session_created_event() -> None:
     store = RecordingSessionStore()
     manager = SessionManager(store=store)
 
-    session = manager.create_session()
+    from pathlib import Path
+    session = manager.create_session(workspace_root=Path.cwd())
 
     assert session.session_id.startswith("sess_")
     assert session.status == "active"

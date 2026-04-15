@@ -6,6 +6,7 @@ before succeeding, the session history must contain exactly one user message.
 
 from pathlib import Path
 
+from agent.core.agent.compaction.types import CompactionSettings
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.errors import ModelError
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
@@ -24,7 +25,11 @@ class _RetryThenSucceedLLMClient:
     def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
         self.call_count += 1
         if self.call_count <= self._fail_count:
-            raise ModelError("transient upstream error", retryable=True)
+            raise ModelError(
+                "context length exceeded",
+                retryable=True,
+                details={"status_code": "413"},
+            )
         return LLMGenerateResponse(
             model=request.model,
             message=LLMMessage(role="assistant", content="hello after retry"),
@@ -32,21 +37,43 @@ class _RetryThenSucceedLLMClient:
         )
 
 
-def test_runtime_run_retryable_model_error_user_message_appears_once(tmp_path: Path) -> None:
+async def test_runtime_run_retryable_model_error_user_message_appears_once(tmp_path: Path) -> None:
     """User message is written to session history exactly once even when LLM retries."""
     store = SQLiteSessionStore(db_path=tmp_path / "retry-dedup.sqlite3")
     manager = SessionManager(store=store)
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
-    session = manager.create_session(metadata={"workspace_root": str(workspace_root.resolve())})
+    session = manager.create_session(workspace_root=workspace_root.resolve())
 
-    llm = _RetryThenSucceedLLMClient(fail_count=3)
-    runtime = AgentRuntime(session_manager=manager, llm_client=llm, model="test-model")
+    # Seed enough history so the compaction planner can produce a plan on overflow.
+    # Use assistant messages so the only user message in history is the current turn.
+    manager.append_turn_message(
+        session.session_id,
+        turn_id="turn_pre_1",
+        role="assistant",
+        content="prior assistant 1",
+        message_id="msg_pre_assistant_1",
+    )
+    manager.append_turn_message(
+        session.session_id,
+        turn_id="turn_pre_1",
+        role="assistant",
+        content="prior assistant 2",
+        message_id="msg_pre_assistant_2",
+    )
 
-    result = runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
+    llm = _RetryThenSucceedLLMClient(fail_count=1)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm,
+        model="test-model",
+        compaction_settings=CompactionSettings(min_kept_messages=1),
+    )
+
+    result = await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
 
     assert result.completed is True
-    assert llm.call_count == 4  # 3 failures + 1 success
+    assert llm.call_count == 3  # 1 failure + 1 compaction summary + 1 retry success
 
     # Verify user message appears exactly once in session history
     entries = manager.list_entries(session.session_id)

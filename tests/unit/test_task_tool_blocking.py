@@ -16,8 +16,17 @@ class _RuntimeStub:
         self.created = 0
         self.run_calls: list[dict[str, object]] = []
 
-    async def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
-        del title, metadata
+    async def create_session(
+        self,
+        *,
+        workspace_root: Path,
+        title: str | None = None,
+        system_prompt: str | None = None,
+        skills: tuple[str, ...] | None = None,
+        tool_allowlist: tuple[str, ...] | None = None,
+        metadata=None,
+    ) -> _Session:
+        del workspace_root, title, system_prompt, skills, tool_allowlist, metadata
         self.created += 1
         return _Session(session_id=f"sess_task_{self.created}")
 

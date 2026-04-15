@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from pathlib import Path
 from threading import Lock
 from time import perf_counter
 from typing import Any, Protocol
@@ -17,7 +18,16 @@ from agent.core.tools.base import ToolContext
 class TaskRuntime(Protocol):
     """Runtime surface required by `TaskTool` to create and execute sessions."""
 
-    async def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None):  # noqa: ANN201
+    async def create_session(  # noqa: ANN201
+        self,
+        *,
+        workspace_root: Path,
+        title: str | None = None,
+        system_prompt: str | None = None,
+        skills: tuple[str, ...] | None = None,
+        tool_allowlist: tuple[str, ...] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ):
         """Create a sub-session used by a new task run."""
 
         ...
@@ -325,7 +335,6 @@ class TaskTool:
         task_session_id = _normalize_optional_text(args.get("session_id")) or ""
         prompt = _normalize_optional_text(args.get("prompt")) or ""
         continuation = bool(task_session_id)
-        inherited_metadata = _build_child_session_metadata(ctx)
 
         import asyncio
         if continuation:
@@ -338,7 +347,7 @@ class TaskTool:
                     tool_name=self.name,
                     details={"session_id": task_session_id},
                 )
-            created = asyncio.run(runtime.create_session(metadata=inherited_metadata))
+            created = asyncio.run(runtime.create_session(workspace_root=ctx.cwd))
             return str(created.session_id), prompt, False
 
         if not prompt:
@@ -346,7 +355,7 @@ class TaskTool:
                 "prompt is required when session_id is not provided",
                 tool_name=self.name,
             )
-        created = asyncio.run(runtime.create_session(metadata=inherited_metadata))
+        created = asyncio.run(runtime.create_session(workspace_root=ctx.cwd))
         return str(created.session_id), prompt, False
 
     def _validate_task_arguments(self, args: Mapping[str, Any], *, ctx: ToolContext) -> None:
@@ -412,19 +421,6 @@ class TaskTool:
             return
         with self._lock:
             self._idempotent_results[idempotency_key] = str(result)
-
-
-def _build_child_session_metadata(ctx: ToolContext) -> dict[str, str]:
-    """Build inherited child-session metadata from the parent tool context.
-
-    Args:
-        ctx: Active tool context for the parent session.
-
-    Returns:
-        Metadata carrying the parent workspace root so subagent sessions do not
-        silently fall back to the code repository root.
-    """
-    return {"workspace_root": str(ctx.cwd)}
 
 
 def _resolve_timeout_seconds(args: Mapping[str, Any]) -> float:

@@ -5,19 +5,22 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from agent.core.session.models import Session
 from agent.core.types import ToolSpec
-from agent.core.agent.runtime import SessionConfig
 
 
 def _make_spec(name: str) -> ToolSpec:
     return ToolSpec(name=name, description=f"Tool {name}", input_schema={})
 
 
-def _make_config(
+def _make_session(
     tool_allowlist: list[str] | None = None,
     workspace_root: str = "/tmp",
-) -> SessionConfig:
-    return SessionConfig(
+) -> Session:
+    return Session(
+        session_id="test-session",
+        status="active",
+        created_at="2024-01-01T00:00:00Z",
         workspace_root=Path(workspace_root),
         system_prompt=None,
         skills=None,
@@ -44,8 +47,8 @@ def test_resolve_session_tools_no_allowlist_filters_by_default_tool_ids() -> Non
         tool_names=["read", "write", "send_message"],
         default_tool_ids=["read", "write"],
     )
-    config = _make_config(tool_allowlist=None)
-    result = runtime._resolve_session_available_tools(session_config=config)
+    session = _make_session(tool_allowlist=None)
+    result = runtime._resolve_session_available_tools(session)
     names = {spec.name for spec in result}
     assert names == {"read", "write"}, f"expected {{read, write}}, got {names}"
     assert "send_message" not in names
@@ -57,8 +60,8 @@ def test_resolve_session_tools_with_allowlist_includes_send_message() -> None:
         tool_names=["read", "write", "send_message"],
         default_tool_ids=["read", "write"],
     )
-    config = _make_config(tool_allowlist=["read", "send_message"])
-    result = runtime._resolve_session_available_tools(session_config=config)
+    session = _make_session(tool_allowlist=["read", "send_message"])
+    result = runtime._resolve_session_available_tools(session)
     names = {spec.name for spec in result}
     assert names == {"read", "send_message"}, f"expected {{read, send_message}}, got {names}"
 
@@ -69,8 +72,8 @@ def test_resolve_session_tools_no_allowlist_no_default_returns_all() -> None:
         tool_names=["read", "write", "send_message"],
         default_tool_ids=None,
     )
-    config = _make_config(tool_allowlist=None)
-    result = runtime._resolve_session_available_tools(session_config=config)
+    session = _make_session(tool_allowlist=None)
+    result = runtime._resolve_session_available_tools(session)
     names = {spec.name for spec in result}
     assert "read" in names
     assert "write" in names

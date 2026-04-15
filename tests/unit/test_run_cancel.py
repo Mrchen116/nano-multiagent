@@ -50,7 +50,7 @@ def _wait_for(predicate, *, timeout_seconds: float = 1.0) -> None:  # noqa: ANN0
 def test_cancel_marks_running_run_cancelled_and_is_idempotent(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "run-cancel-unit.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     runtime = _BlockingRuntime()
     registry = RunsRegistry(runtime=runtime, session_manager=manager)
 
@@ -89,7 +89,7 @@ def test_model_error_from_runtime_marks_run_failed(tmp_path: Path) -> None:
     """
     store = SQLiteSessionStore(db_path=tmp_path / "run-model-error-failed.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_FailureRuntime(), session_manager=manager)
 
     submitted = registry.submit(

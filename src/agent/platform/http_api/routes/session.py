@@ -49,8 +49,11 @@ class CreateSessionRequest(BaseModel):
     """Payload for creating a new session container."""
 
     title: str | None = None
-    metadata: dict[str, Any] | None = None
     workspace_root: str | None = None
+    system_prompt: str | None = None
+    skills: list[str] | None = None
+    tool_allowlist: list[str] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class SessionResponse(BaseModel):
@@ -209,9 +212,14 @@ def create_session(
 ) -> SessionResponse:
     """Create one session via HTTP boundary."""
     try:
+        workspace_root = _parse_workspace_root(payload.workspace_root)
         session = session_service.create_session(
+            workspace_root=workspace_root,
             title=payload.title,
-            metadata=_build_session_metadata(metadata=payload.metadata, workspace_root=payload.workspace_root),
+            system_prompt=payload.system_prompt,
+            skills=tuple(payload.skills) if payload.skills is not None else None,
+            tool_allowlist=tuple(payload.tool_allowlist) if payload.tool_allowlist is not None else None,
+            metadata=payload.metadata,
         )
     except ValueError as exc:
         raise APIError(
@@ -523,7 +531,13 @@ def _to_session_response(session: Session) -> SessionResponse:
         session_id=session.session_id,
         status=session.status,
         created_at=session.created_at,
-        metadata=dict(session.metadata),
+        metadata={
+            "workspace_root": str(session.workspace_root),
+            **({} if session.system_prompt is None else {"system_prompt": session.system_prompt}),
+            **({} if session.skills is None else {"skills": list(session.skills)}),
+            **({} if session.tool_allowlist is None else {"tool_allowlist": list(session.tool_allowlist)}),
+            **dict(session.metadata),
+        },
     )
 
 
@@ -598,23 +612,14 @@ def _iter_sse(events: Iterator[StreamEvent]) -> Iterator[str]:
         yield encode_sse_event(event_id=item.event_id, event=item.event, data=item.data)
 
 
-def _build_session_metadata(*, metadata: dict[str, Any] | None, workspace_root: str | None) -> dict[str, Any]:
-    """Merge create-session metadata with normalized workspace root when provided."""
-    merged: dict[str, Any] = dict(metadata or {})
-    normalized_workspace_root = _normalize_workspace_root(workspace_root)
-    if normalized_workspace_root is not None:
-        merged["workspace_root"] = normalized_workspace_root
-    return merged
-
-
-def _normalize_workspace_root(workspace_root: str | None) -> str | None:
-    """Normalize optional workspace root into an absolute filesystem path."""
+def _parse_workspace_root(workspace_root: str | None) -> Path:
+    """Normalize and validate workspace_root, defaulting to CWD when absent."""
     if workspace_root is None or not workspace_root.strip():
-        return None
+        return Path.cwd()
     candidate = Path(workspace_root.strip()).expanduser()
     if not candidate.is_absolute():
         raise ValueError("workspace_root must be an absolute path or start with ~/")
-    return str(candidate.resolve())
+    return candidate.resolve()
 
 
 def _resolve_context_window(runtime: object) -> int:

@@ -63,10 +63,26 @@ class SessionService:
 
         return self._manager
 
-    def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
-        """Create a session via manager using optional title/metadata."""
+    def create_session(
+        self,
+        *,
+        workspace_root: Path,
+        title: str | None = None,
+        system_prompt: str | None = None,
+        skills: tuple[str, ...] | None = None,
+        tool_allowlist: tuple[str, ...] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> Session:
+        """Create a session via manager using typed domain fields."""
 
-        return self._manager.create_session(title=title, metadata=metadata)
+        return self._manager.create_session(
+            workspace_root=workspace_root,
+            title=title,
+            system_prompt=system_prompt,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
+            metadata=metadata,
+        )
 
     def get_session(self, session_id: str) -> Session | None:
         """Return session by id or `None` when no persisted state exists."""

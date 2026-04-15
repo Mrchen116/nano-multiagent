@@ -27,7 +27,7 @@ def test_runtime_can_complete_text_only_turn_with_real_proxy(tmp_path) -> None:
 
     store = SQLiteSessionStore(db_path=tmp_path / "runtime-e2e.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
 
     with create_llm_client() as llm_client:
         runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="")

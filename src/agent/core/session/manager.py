@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from agent.core import ids
@@ -26,14 +27,29 @@ class SessionManager:
     def __init__(self, *, store: SessionStore) -> None:
         self._store = store
 
-    def create_session(self, *, title: str | None = None, metadata: Mapping[str, Any] | None = None) -> Session:
+    def create_session(
+        self,
+        *,
+        workspace_root: Path,
+        title: str | None = None,
+        system_prompt: str | None = None,
+        skills: tuple[str, ...] | None = None,
+        tool_allowlist: tuple[str, ...] | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> Session:
         """Create a new active session and persist both event and initial snapshot."""
 
         session_id = ids.make_session_id()
         created_at = datetime.now(UTC).isoformat()
-        extra_data: dict[str, Any] = {}
+        extra_data: dict[str, Any] = {"workspace_root": str(workspace_root)}
         if title is not None:
             extra_data["title"] = title
+        if system_prompt is not None:
+            extra_data["system_prompt"] = system_prompt
+        if skills is not None:
+            extra_data["skills"] = list(skills)
+        if tool_allowlist is not None:
+            extra_data["tool_allowlist"] = list(tool_allowlist)
         if metadata:
             extra_data["metadata"] = dict(metadata)
         event = new_session_created_entry(
@@ -47,6 +63,10 @@ class SessionManager:
             session_id=session_id,
             status="active",
             created_at=created_at,
+            workspace_root=workspace_root,
+            system_prompt=system_prompt,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
             metadata=dict(metadata or {}),
         )
         self._store.save_snapshot(session_id, self._to_snapshot(session))
@@ -222,11 +242,21 @@ class SessionManager:
         metadata = snapshot.get("metadata")
         if not isinstance(metadata, Mapping):
             metadata = {}
+        workspace_root, system_prompt, skills, tool_allowlist = _parse_session_fields(snapshot, metadata)
+        # Strip promoted fields from pass-through metadata so they are not duplicated.
+        clean_metadata = {
+            k: v for k, v in dict(metadata).items()
+            if k not in {"workspace_root", "system_prompt", "skills", "tool_allowlist"}
+        }
         return Session(
             session_id=str(snapshot["session_id"]),
             status=status,
             created_at=str(snapshot["created_at"]),
-            metadata=dict(metadata),
+            workspace_root=workspace_root,
+            system_prompt=system_prompt,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
+            metadata=clean_metadata,
         )
 
     def _apply_event(self, session: Session | None, entry: SessionEntry | CompactionEntry) -> Session | None:
@@ -238,23 +268,40 @@ class SessionManager:
             metadata = entry.data.get("metadata")
             if not isinstance(metadata, Mapping):
                 metadata = {}
+            workspace_root, system_prompt, skills, tool_allowlist = _parse_session_fields(entry.data, metadata)
+            clean_metadata = {
+                k: v for k, v in dict(metadata).items()
+                if k not in {"workspace_root", "system_prompt", "skills", "tool_allowlist"}
+            }
             return Session(
                 session_id=entry.session_id,
                 status=status,
                 created_at=entry.created_at,
-                metadata=dict(metadata),
+                workspace_root=workspace_root,
+                system_prompt=system_prompt,
+                skills=skills,
+                tool_allowlist=tool_allowlist,
+                metadata=clean_metadata,
             )
         if entry.kind is SessionEntryKind.SESSION_ARCHIVED and session is not None:
             return replace(session, status="archived")
         return session
 
-    def _to_snapshot(self, session: Session) -> dict[str, str]:
-        return {
+    def _to_snapshot(self, session: Session) -> dict[str, Any]:
+        snap: dict[str, Any] = {
             "session_id": session.session_id,
             "status": session.status,
             "created_at": session.created_at,
+            "workspace_root": str(session.workspace_root),
             "metadata": dict(session.metadata),
         }
+        if session.system_prompt is not None:
+            snap["system_prompt"] = session.system_prompt
+        if session.skills is not None:
+            snap["skills"] = list(session.skills)
+        if session.tool_allowlist is not None:
+            snap["tool_allowlist"] = list(session.tool_allowlist)
+        return snap
 
     def _message_from_turn_event(self, entry: SessionEntry) -> Message | None:
         message_id = entry.data.get("message_id")
@@ -271,3 +318,47 @@ class SessionManager:
             content=content,
             metadata=dict(metadata),
         )
+
+
+def _parse_session_fields(
+    data: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+) -> tuple[Path, str | None, tuple[str, ...] | None, tuple[str, ...] | None]:
+    """Extract typed session fields from a snapshot or event data dict.
+
+    Supports both the new format (fields at top level of ``data``) and the old
+    format (fields inside ``data["metadata"]``) for backward compatibility with
+    existing SQLite snapshots.
+
+    Returns:
+        (workspace_root, system_prompt, skills, tool_allowlist)
+    """
+    # workspace_root: top-level (new) or metadata (old).
+    raw_root = data.get("workspace_root")
+    if raw_root is None:
+        raw_root = metadata.get("workspace_root")
+    workspace_root = Path(str(raw_root)) if isinstance(raw_root, str) and raw_root.strip() else Path.cwd()
+
+    # system_prompt: top-level or metadata fallback.
+    raw_sp = data.get("system_prompt")
+    if raw_sp is None:
+        raw_sp = metadata.get("system_prompt")
+    system_prompt: str | None = raw_sp if isinstance(raw_sp, str) and raw_sp.strip() else None
+
+    # skills: top-level or metadata fallback.
+    raw_skills = data.get("skills")
+    if raw_skills is None:
+        raw_skills = metadata.get("skills")
+    skills: tuple[str, ...] | None = (
+        tuple(s for s in raw_skills if isinstance(s, str)) if isinstance(raw_skills, list) else None
+    )
+
+    # tool_allowlist: top-level or metadata fallback.
+    raw_allowlist = data.get("tool_allowlist")
+    if raw_allowlist is None:
+        raw_allowlist = metadata.get("tool_allowlist")
+    tool_allowlist: tuple[str, ...] | None = (
+        tuple(s for s in raw_allowlist if isinstance(s, str)) if isinstance(raw_allowlist, list) else None
+    )
+
+    return workspace_root, system_prompt, skills, tool_allowlist

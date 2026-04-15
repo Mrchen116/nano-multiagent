@@ -9,7 +9,7 @@ def test_session_service_can_rebuild_session_after_store_reopen(tmp_path: Path) 
     db_path = tmp_path / "session-runtime.sqlite3"
     first_service = SessionService(store=SQLiteSessionStore(db_path=db_path))
 
-    created = first_service.create_session()
+    created = first_service.create_session(workspace_root=tmp_path)
 
     second_store = SQLiteSessionStore(db_path=db_path)
     second_service = SessionService(store=second_store)

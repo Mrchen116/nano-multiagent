@@ -8,7 +8,7 @@ from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 def test_compaction_replay_audit_contract(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "compaction-audit-contract.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
 
     first = manager.append_turn_message(
         session.session_id,

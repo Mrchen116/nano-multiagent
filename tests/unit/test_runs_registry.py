@@ -66,7 +66,7 @@ def _wait_for(predicate, *, timeout_seconds: float = 1.0) -> None:  # noqa: ANN0
 def test_runs_registry_transitions_and_persists_status_entries(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "runs-registry.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
 
     submitted = registry.submit(
@@ -97,7 +97,7 @@ def test_runs_registry_transitions_and_persists_status_entries(tmp_path: Path) -
 def test_runs_registry_marks_failed_when_runtime_raises(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-fail.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RuntimeStub(fail=True), session_manager=manager)
 
     submitted = registry.submit(
@@ -118,7 +118,7 @@ def test_runs_registry_marks_failed_when_runtime_raises(tmp_path: Path) -> None:
 def test_runs_registry_persists_completed_run_usage(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-usage.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RuntimeWithUsageStub(), session_manager=manager)
 
     submitted = registry.submit(
@@ -162,7 +162,7 @@ def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp
 
     store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-run-error-hook.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(
         runtime=_RuntimeStub(fail=True),
         session_manager=manager,
@@ -203,7 +203,7 @@ def test_runs_registry_dispatches_run_timeout_observe_hook_when_runtime_times_ou
 
     store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-run-timeout-hook.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(
         runtime=_RuntimeStub(timeout=True),
         session_manager=manager,
@@ -244,7 +244,7 @@ def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
     """
     store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-retry.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RetryableModelErrorRuntime(), session_manager=manager)
 
     submitted = registry.submit(

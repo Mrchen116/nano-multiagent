@@ -44,7 +44,7 @@ class _EchoTool:
 def test_run_tool_hook_logs_share_correlation_fields(tmp_path: Path) -> None:
     store = SQLiteSessionStore(db_path=tmp_path / "obs-integration.sqlite3")
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=tmp_path)
 
     runs = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
 

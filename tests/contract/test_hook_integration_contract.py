@@ -72,7 +72,7 @@ def test_runtime_input_handled_short_circuit_contract() -> None:
 
     store = InMemorySessionStore()
     manager = SessionManager(store=store)
-    session = manager.create_session()
+    session = manager.create_session(workspace_root=Path.cwd())
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=StubLLMClient(),
