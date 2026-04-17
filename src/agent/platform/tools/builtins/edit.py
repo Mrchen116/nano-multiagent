@@ -13,6 +13,7 @@ class EditTool:
     """Replace exactly one text match in a file inside the sandbox."""
 
     name = "edit"
+    is_concurrency_safe = False
     description = (
         "Edit a file by replacing exact text. The oldText must match exactly (including whitespace). "
         "Use this for precise, surgical edits."

@@ -24,6 +24,7 @@ from .compaction.summarizer import CompactionSummarizer
 from .compaction.types import CompactionReason, CompactionResult, CompactionSettings
 from .loop import AgentLoop, ToolRegistryLike, _serialize_tool_result_content
 from .policies import AgentPolicies
+from .run_control import RunController
 from .skill_commands import rewrite_skill_command
 from .state import AgentState, InputPart, parse_input_parts, render_user_text
 
@@ -112,6 +113,7 @@ class AgentRuntime:
         stream: bool = True,
         llm_session_id: str | None = None,
         run_id: str | None = None,
+        controller: RunController | None = None,
     ) -> TurnResult:
         """Execute one turn for an existing session.
 
@@ -269,6 +271,7 @@ class AgentRuntime:
                 current_working_directory_override=session_workspace_root,
                 available_skills_override=() if use_frozen_system_prompt else session_available_skills,
                 available_tools_override=session_available_tools,
+                controller=controller,
             )
         except ModelError as exc:
             # Retry boundary: only context-overflow-like failures trigger one
@@ -295,6 +298,7 @@ class AgentRuntime:
                 current_working_directory_override=session_workspace_root,
                 available_skills_override=() if use_frozen_system_prompt else session_available_skills,
                 available_tools_override=session_available_tools,
+                controller=controller,
             )
 
         self._append_turn_events(session_id=session_id, turn_id=turn_id, turn_result=turn_result)
@@ -603,6 +607,7 @@ class AgentRuntime:
         llm_session_id: str | None,
         session_created_at: str,
         current_working_directory_override: Path | None,
+        controller: RunController | None = None,
     ) -> TurnResult:
         return await self._loop.run(
             AgentState(
@@ -613,6 +618,7 @@ class AgentRuntime:
                 input_parts=input_parts,
                 user_text=user_text,
             ),
+            controller=controller,
             hook_ctx=hook_ctx,
             system_prompt_override=system_prompt_override,
             available_skills_override=available_skills_override,

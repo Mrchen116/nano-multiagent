@@ -1,15 +1,16 @@
 """Session-scoped HTTP handlers covering message, SSE, tools, and compaction."""
 
-from typing import Any
+from typing import Any, Literal
 
 from collections.abc import Iterator
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
 from agent.core.agent.compaction.types import CompactionSettings
+from agent.core.llm.interfaces import LLMMessage
 from agent.core.session.entries import SessionEntry
 from agent.core.errors import ModelError
 from agent.core.hooks.registry import HookRegistry
@@ -81,6 +82,7 @@ class SendMessageRequest(BaseModel):
     parts: list[dict[str, Any]] = Field(min_length=1)
     model: str | None = None
     stream: bool = False
+    priority: Literal["now", "next"] = "next"
 
 
 class MessageResponse(BaseModel):
@@ -116,6 +118,7 @@ class SendMessageAsyncRequest(BaseModel):
     message_id: str | None = None
     parts: list[dict[str, Any]] = Field(min_length=1)
     model: str | None = None
+    priority: Literal["now", "next"] = "next"
 
 
 class SendMessageAsyncResponse(BaseModel):
@@ -419,7 +422,8 @@ async def send_message(
     session_id: str,
     payload: SendMessageRequest,
     runtime=Depends(get_agent_runtime),
-) -> SendMessageResponse:
+    runs: RunsRegistry = Depends(get_runs_registry),
+) -> SendMessageResponse | JSONResponse:
     """Execute one synchronous turn and normalize runtime errors to HTTP codes."""
     if payload.stream:
         raise APIError(
@@ -428,6 +432,25 @@ async def send_message(
             message="sync endpoint does not support stream=true",
             retryable=False,
         )
+
+    # priority='next': inject into the active run's pending queue instead of starting a new turn.
+    if payload.priority == "next" and runs.get_active_run_id(session_id) is not None:
+        user_text = " ".join(
+            part.get("text", "") for part in payload.parts if part.get("type") == "text"
+        ).strip() or "[message]"
+        injected = runs.inject_pending_message(
+            session_id,
+            LLMMessage(role="user", content=user_text),
+        )
+        if injected:
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content={"status": "injected", "session_id": session_id},
+            )
+
+    # priority='now': interrupt the active run before starting this turn.
+    if payload.priority == "now":
+        runs.interrupt(session_id)
 
     try:
         result = await runtime.run(session_id, payload.parts, stream=False)
@@ -466,9 +489,36 @@ def send_message_async(
     request: Request,
     runs: RunsRegistry = Depends(get_runs_registry),
 ) -> SendMessageAsyncResponse:
-    """Submit an async run and return polling handle (`run_id`)."""
+    """Submit an async run and return polling handle (`run_id`).
+
+    priority='next': injects into the active run's pending queue; returns a synthetic
+    record with status='injected' instead of creating a new run.
+    priority='now': interrupts the active run, then submits a new run as normal.
+    """
     del payload.message_id
     del payload.model
+
+    # priority='next': inject into active run if one exists.
+    if payload.priority == "next" and runs.get_active_run_id(session_id) is not None:
+        user_text = " ".join(
+            part.get("text", "") for part in payload.parts if part.get("type") == "text"
+        ).strip() or "[message]"
+        injected = runs.inject_pending_message(
+            session_id,
+            LLMMessage(role="user", content=user_text),
+        )
+        if injected:
+            active_run_id = runs.get_active_run_id(session_id) or "injected"
+            return SendMessageAsyncResponse(
+                run_id=active_run_id,
+                session_id=session_id,
+                status="injected",
+            )
+
+    # priority='now': interrupt active run before submitting.
+    if payload.priority == "now":
+        runs.interrupt(session_id)
+
     try:
         record = runs.submit(
             session_id=session_id,

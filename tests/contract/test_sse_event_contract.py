@@ -16,7 +16,7 @@ class _RuntimeStub:
         self.hook_registry = build_hook_registry(repo_root=Path.cwd())
         self.hook_runner = HookRunner(registry=self.hook_registry)
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del parts
         del stream
         turn_id = "turn_sse_contract"

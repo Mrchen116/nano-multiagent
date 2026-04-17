@@ -51,7 +51,7 @@ class _ScriptedReplInputReader:
 
 
 class _RuntimeStub:
-    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None):
+    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None, controller=None):
         del stream
         text = ""
         for item in parts:
@@ -87,7 +87,7 @@ class _SlowFirstTurnRuntime(_RuntimeStub):
     def __init__(self) -> None:
         self._turn_count = 0
 
-    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None):
+    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None, controller=None):
         self._turn_count += 1
         if self._turn_count == 1:
             time.sleep(0.2)
@@ -216,7 +216,7 @@ class _EchoTool:
 
 
 class _ModelTimeoutRuntime:
-    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None) -> TurnResult:  # noqa: ANN001
+    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None, controller=None) -> TurnResult:  # noqa: ANN001
         del session_id
         del parts
         del stream

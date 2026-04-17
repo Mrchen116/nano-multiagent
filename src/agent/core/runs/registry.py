@@ -5,16 +5,18 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
-from threading import Event, Lock
+from threading import Lock
 from typing import Any, Mapping, Protocol, Sequence
 
 from agent.core.ids import make_run_id
+from agent.core.llm.interfaces import LLMMessage
 from agent.core.types import TokenUsage, TurnResult
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.runner import HookExecution, HookRunner
 from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation, current_trace_id
 from agent.core.session.manager import SessionManager
+from agent.core.agent.run_control import RunController
 
 
 class RunStatus(StrEnum):
@@ -52,6 +54,7 @@ class RuntimeRunner(Protocol):
         *,
         stream: bool = True,
         run_id: str | None = None,
+        controller: RunController | None = None,
     ):  # noqa: ANN001, ANN201
         ...
 
@@ -78,7 +81,9 @@ class RunsRegistry:
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="nano-runs")
         self._lock = Lock()
         self._runs: dict[str, RunRecord] = {}
-        self._cancel_events: dict[str, Event] = {}
+        self._controllers: dict[str, RunController] = {}
+        # session_id → run_id for the currently-executing run (RUNNING state only).
+        self._active_run_by_session: dict[str, str] = {}
 
     def submit(
         self,
@@ -106,7 +111,7 @@ class RunsRegistry:
         self._persist_run_status_entry(record)
         with self._lock:
             self._runs[run_id] = record
-            self._cancel_events[run_id] = Event()
+            self._controllers[run_id] = RunController()
         self._publish_run_status_event(record)
         log_info(
             "run_submitted",
@@ -119,6 +124,39 @@ class RunsRegistry:
         self._executor.submit(self._run_worker, run_id, session_id, normalized_parts, resolved_trace_id)
         return record
 
+    def get_active_run_id(self, session_id: str) -> str | None:
+        """Return the run_id of the currently-executing run for a session, or None."""
+        with self._lock:
+            return self._active_run_by_session.get(session_id)
+
+    def interrupt(self, session_id: str) -> bool:
+        """Signal force interrupt for the active run of a session.
+
+        Returns True if an active run was found and signalled, False otherwise.
+        """
+        with self._lock:
+            run_id = self._active_run_by_session.get(session_id)
+            controller = self._controllers.get(run_id) if run_id else None
+        if controller is not None:
+            controller.abort()
+            log_info("run_interrupted", run_id=run_id, session_id=session_id)
+            return True
+        return False
+
+    def inject_pending_message(self, session_id: str, message: LLMMessage) -> bool:
+        """Enqueue a message for round-boundary injection into the active run.
+
+        Returns True if the message was enqueued, False if no active run exists
+        or the run is already being interrupted.
+        """
+        with self._lock:
+            run_id = self._active_run_by_session.get(session_id)
+            controller = self._controllers.get(run_id) if run_id else None
+        if controller is not None and not controller.is_aborted:
+            controller.enqueue_message(message)
+            return True
+        return False
+
     def get(self, run_id: str) -> RunRecord | None:
         with self._lock:
             record = self._runs.get(run_id)
@@ -129,9 +167,9 @@ class RunsRegistry:
     def cancel(self, run_id: str) -> RunRecord | None:
         with self._lock:
             current = self._runs.get(run_id)
-            cancel_event = self._cancel_events.get(run_id)
-        if cancel_event is not None:
-            cancel_event.set()
+            controller = self._controllers.get(run_id)
+        if controller is not None:
+            controller.cancel()
         if current is None:
             return None
         if current.status in _TERMINAL_STATUSES:
@@ -163,16 +201,29 @@ class RunsRegistry:
                 return
             log_info("run_started", run_id=run_id)
 
+            with self._lock:
+                controller = self._controllers.get(run_id)
+                if controller is not None and not controller.is_cancelled:
+                    self._active_run_by_session[session_id] = run_id
+
             if self._is_cancelled(run_id):
+                with self._lock:
+                    self._active_run_by_session.pop(session_id, None)
                 return
             try:
-                result = asyncio.run(self._runtime.run(session_id, parts, stream=False, run_id=run_id))
+                result = asyncio.run(
+                    self._runtime.run(session_id, parts, stream=False, run_id=run_id, controller=controller)
+                )
             except TimeoutError as exc:
                 self._mark_timed_out(run_id, message=str(exc))
                 return
             except Exception as exc:  # noqa: BLE001
                 self._mark_failed(run_id, message=str(exc))
                 return
+            finally:
+                with self._lock:
+                    if self._active_run_by_session.get(session_id) == run_id:
+                        self._active_run_by_session.pop(session_id, None)
             self._mark_completed(run_id, turn_result=result)
 
     def _set_status(
@@ -219,7 +270,10 @@ class RunsRegistry:
     def _is_cancelled(self, run_id: str) -> bool:
         with self._lock:
             current = self._runs.get(run_id)
-            return current is not None and current.status is RunStatus.CANCELLED
+            controller = self._controllers.get(run_id)
+        if current is not None and current.status is RunStatus.CANCELLED:
+            return True
+        return controller is not None and controller.is_cancelled
 
     def _mark_completed(self, run_id: str, *, turn_result: TurnResult) -> RunRecord | None:
         updated = self._set_status(

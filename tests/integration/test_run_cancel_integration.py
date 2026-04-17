@@ -15,7 +15,7 @@ class _BlockingRuntime:
     def __init__(self) -> None:
         self.release = Event()
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del session_id
         del parts
         del stream

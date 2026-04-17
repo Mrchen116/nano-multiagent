@@ -60,6 +60,7 @@ class TaskTool:
     """Schedule or execute in-process sub-agent tasks with idempotent replay."""
 
     name = "task"
+    is_concurrency_safe = False
     description = (
         "Spawn agent task with category-based or direct agent selection.\n\n"
         "MUTUALLY EXCLUSIVE: Provide EITHER category OR subagent_type, not both (unless continuing a session).\n\n"

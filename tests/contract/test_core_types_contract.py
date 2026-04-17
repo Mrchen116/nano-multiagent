@@ -19,6 +19,7 @@ def test_tool_contract_fields_are_stable() -> None:
         "name",
         "description",
         "input_schema",
+        "is_concurrency_safe",
     ]
     assert [field.name for field in fields(ToolCall)] == [
         "call_id",

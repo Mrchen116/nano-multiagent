@@ -64,6 +64,7 @@ class ToolRegistry:
                 name=tool.name,
                 description=tool.description,
                 input_schema=dict(tool.input_schema),
+                is_concurrency_safe=getattr(tool, "is_concurrency_safe", False),
             )
             for tool in self._tools.values()
         )

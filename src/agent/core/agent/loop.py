@@ -14,7 +14,9 @@ from agent.core.skills.registry import SkillMetadata
 
 from .policies import AgentPolicies
 from .prompting import build_prompt_messages
+from .run_control import RunController
 from .state import AgentState
+from .tool_executor import ToolExecutor, partition_into_batches
 
 
 class ToolRegistryLike(Protocol):
@@ -76,6 +78,7 @@ class AgentLoop:
         self,
         state: AgentState,
         *,
+        controller: RunController | None = None,
         hook_ctx: HookContext | None = None,
         system_prompt_override: str | None = None,
         available_skills_override: tuple[SkillMetadata, ...] | None = None,
@@ -139,15 +142,28 @@ class AgentLoop:
         tool_results: list[ToolResult] = []
         turn_usage: TokenUsage | None = None
         latest_usage: TokenUsage | None = None
+        tool_executor = ToolExecutor()
+
+        # Build name → is_concurrency_safe lookup from the active tool specs.
+        concurrency_map: dict[str, bool] = {
+            spec.name: spec.is_concurrency_safe for spec in active_tools
+        }
 
         try:
             # Runtime loop strategy:
             # 1) If model returns plain assistant text, finish current turn.
-            # 2) If model returns tool calls, execute them and append tool messages,
-            #    then continue the loop for the next model round.
+            # 2) If model returns tool calls, partition them into batches by
+            #    concurrency safety, execute each batch, then continue.
             # 3) If tools are unavailable, stop with explicit terminal reason instead
             #    of silently dropping tool calls.
+            # 4) Before each LLM call, drain any pending injected messages.
+            # 5) After each tool batch, check for a force-interrupt signal.
             while True:
+                # Drain pending messages injected via RunController (round-boundary injection).
+                if controller is not None:
+                    for pending_msg in controller.drain_pending():
+                        llm_messages.append(pending_msg)
+
                 response = self._llm_client.generate(
                     LLMGenerateRequest(
                         session_id=llm_session_id or state.session_id,
@@ -251,7 +267,7 @@ class AgentLoop:
                         usage=turn_usage,
                     )
 
-                for parsed_call in normalized_calls:
+                async def _run_one_call(parsed_call: ToolCall) -> ToolResult:
                     tool_hook_ctx = HookContext(
                         session_id=active_hook_ctx.session_id,
                         turn_id=active_hook_ctx.turn_id,
@@ -274,42 +290,73 @@ class AgentLoop:
                         ),
                         tool_hook_ctx,
                     )
-
                     result_payload, error_text = await self._execute_tool_call(
                         parsed_call,
                         hook_ctx=tool_hook_ctx,
                     )
-                    parsed_result = ToolResult(
+                    result = ToolResult(
                         call_id=parsed_call.call_id,
                         name=parsed_call.name,
                         output=result_payload,
                         error=error_text,
                     )
-                    tool_results.append(parsed_result)
-
                     await self._dispatch_observe(
                         "tool_result",
                         _with_optional_run_id(
                             {
                                 "session_id": state.session_id,
                                 "turn_id": state.turn_id,
-                                "call_id": parsed_result.call_id,
-                                "name": parsed_result.name,
-                                "output": parsed_result.output,
-                                "error": parsed_result.error,
+                                "call_id": result.call_id,
+                                "name": result.name,
+                                "output": result.output,
+                                "error": result.error,
                             },
                             run_id=run_id,
                         ),
                         tool_hook_ctx,
                     )
+                    return result
 
-                    llm_messages.append(
-                        LLMMessage(
-                            role="tool",
-                            content=_serialize_tool_result_content(parsed_result),
-                            tool_call_id=parsed_result.call_id,
+                batches = partition_into_batches(normalized_calls, concurrency_map)
+                interrupted = False
+                executed_call_ids: set[str] = set()
+
+                for batch in batches:
+                    batch_results = await tool_executor.execute(batch, _run_one_call)
+                    for result in batch_results:
+                        tool_results.append(result)
+                        executed_call_ids.add(result.call_id)
+                        llm_messages.append(
+                            LLMMessage(
+                                role="tool",
+                                content=_serialize_tool_result_content(result),
+                                tool_call_id=result.call_id,
+                            )
                         )
-                    )
+
+                    # After each batch, check for a force-interrupt signal.
+                    if controller is not None and controller.is_aborted:
+                        for remaining_call in normalized_calls:
+                            if remaining_call.call_id not in executed_call_ids:
+                                interrupted_result = ToolResult(
+                                    call_id=remaining_call.call_id,
+                                    name=remaining_call.name,
+                                    error="interrupted",
+                                )
+                                tool_results.append(interrupted_result)
+                                llm_messages.append(
+                                    LLMMessage(
+                                        role="tool",
+                                        content=_serialize_tool_result_content(interrupted_result),
+                                        tool_call_id=interrupted_result.call_id,
+                                    )
+                                )
+                        stop_reason = "interrupted"
+                        interrupted = True
+                        break
+
+                if interrupted:
+                    break
         finally:
             turn_end_payload: dict[str, Any] = {
                 "session_id": state.session_id,

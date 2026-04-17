@@ -13,7 +13,7 @@ class _RetryThenSuccessRuntime:
         self._fail_times = fail_times
         self._calls = 0
 
-    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None) -> TurnResult:  # noqa: ANN001
+    def run(self, session_id: str, parts, *, stream: bool = False, run_id: str | None = None, controller=None) -> TurnResult:  # noqa: ANN001
         del parts
         del stream
         del run_id

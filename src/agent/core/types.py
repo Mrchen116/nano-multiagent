@@ -35,6 +35,7 @@ class ToolSpec:
     name: str
     description: str
     input_schema: Mapping[str, Any]
+    is_concurrency_safe: bool = False
 
 
 @dataclass(frozen=True, slots=True)

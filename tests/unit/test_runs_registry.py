@@ -15,7 +15,7 @@ class _RuntimeStub:
         self._fail = fail
         self._timeout = timeout
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del parts
         del stream
         if self._timeout:
@@ -32,7 +32,7 @@ class _RuntimeStub:
 
 
 class _RuntimeWithUsageStub:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del parts
         del stream
         return TurnResult(
@@ -48,7 +48,7 @@ class _RuntimeWithUsageStub:
 class _RetryableModelErrorRuntime:
     """Runtime that raises a retryable ModelError, simulating loop-exhausted errors reaching registry."""
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id
         # After M251 retry lives in loop; retryable errors that reach registry are terminal.
         raise ModelError("transient upstream blip", retryable=True)

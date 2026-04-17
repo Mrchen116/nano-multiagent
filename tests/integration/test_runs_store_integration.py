@@ -27,7 +27,7 @@ class _RetryThenSuccessRuntime:
         self._fail_times = fail_times
         self.calls = 0
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del parts, stream, run_id
         self.calls += 1
         if self.calls <= self._fail_times:

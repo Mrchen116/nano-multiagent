@@ -14,7 +14,7 @@ class _BlockingRuntime:
         self.started = Event()
         self.release = Event()
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del session_id
         del parts
         del stream
@@ -32,7 +32,7 @@ class _BlockingRuntime:
 class _FailureRuntime:
     """Runtime that raises a non-retryable ModelError (simulates loop exhausting retries)."""
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id
         # Retryable errors are exhausted inside loop; what reaches registry is non-retryable.
         raise ModelError("retries exhausted", retryable=False)

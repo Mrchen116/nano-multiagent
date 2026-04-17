@@ -12,7 +12,7 @@ class _RecordingBlockingRuntime:
         self.calls: list[dict[str, object]] = []
         self.release = Event()
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None):  # noqa: ANN001, ANN201
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         self.calls.append({"session_id": session_id, "parts": parts, "stream": stream})
         self.release.wait(timeout=1.0)
         return TurnResult(

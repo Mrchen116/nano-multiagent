@@ -10,6 +10,7 @@ class WriteTool:
     """Write full file content and report overwrite metadata."""
 
     name = "write"
+    is_concurrency_safe = False
     description = (
         "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. "
         "Automatically creates parent directories."

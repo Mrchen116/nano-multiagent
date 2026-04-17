@@ -12,6 +12,7 @@ class BashTool:
     """Execute shell commands within `ToolSafety` command and timeout policy."""
 
     name = "bash"
+    is_concurrency_safe = False
     description = (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "
         f"Output is truncated to last {DEFAULT_MAX_LINES} lines or {DEFAULT_MAX_KILOBYTES}KB "

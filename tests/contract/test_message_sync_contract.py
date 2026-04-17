@@ -6,7 +6,7 @@ from agent.platform.http_api.app import create_app
 
 
 class StubRuntime:
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None) -> TurnResult:  # noqa: ANN001
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None) -> TurnResult:  # noqa: ANN001
         del parts
         del stream
         return TurnResult(
@@ -19,14 +19,14 @@ class StubRuntime:
 
 
 class MissingSessionRuntime:
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None) -> TurnResult:  # noqa: ANN001
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None) -> TurnResult:  # noqa: ANN001
         del parts
         del stream
         raise ValueError(f"session does not exist: {session_id}")
 
 
 class ModelTimeoutRuntime:
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None) -> TurnResult:  # noqa: ANN001
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None) -> TurnResult:  # noqa: ANN001
         del session_id
         del parts
         del stream

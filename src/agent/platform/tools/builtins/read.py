@@ -24,6 +24,7 @@ class ReadTool:
     """Read UTF-8 text with pagination or inline supported image formats."""
 
     name = "read"
+    is_concurrency_safe = True
     description = (
         "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
         f"Images are sent as attachments. For text files, output is truncated to {DEFAULT_MAX_LINES} "
