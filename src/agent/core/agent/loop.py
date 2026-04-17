@@ -12,6 +12,9 @@ from agent.core.hooks.runner import HookExecution, HookRunner
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 from agent.core.observability.tracing import span
 from agent.core.skills.registry import SkillMetadata
+from agent.core.tools.base import Tool
+from agent.core.tools.file_state_cache import FileStateCache
+from agent.core.tools.serialization import json_serialize
 
 from .policies import AgentPolicies
 from .prompting import build_prompt_messages
@@ -24,12 +27,16 @@ class ToolRegistryLike(Protocol):
     def list_specs(self) -> tuple[ToolSpec, ...]:
         ...
 
+    def get_tool(self, name: str) -> Tool | None:
+        ...
+
     def execute(
         self,
         name: str,
         args: Mapping[str, Any],
         *,
         hook_context: HookContext | None = None,
+        read_file_state: FileStateCache | None = None,
     ) -> Mapping[str, Any]:
         ...
 
@@ -87,6 +94,7 @@ class AgentLoop:
         llm_session_id: str | None = None,
         session_created_at: str | None = None,
         current_working_directory_override: Path | None = None,
+        read_file_state: FileStateCache | None = None,
     ) -> TurnResult:
         """Run one user turn until completion or terminal stop reason.
 
@@ -97,6 +105,7 @@ class AgentLoop:
             llm_session_id: Optional provider session id override.
             session_created_at: Optional session-level timestamp used to keep
                 system prompt time stable across turns in one session.
+            read_file_state: Optional session-level file read cache for mtime dedup.
 
         Returns:
             Turn result containing assistant messages, tool calls/results, and stop reason.
@@ -297,12 +306,23 @@ class AgentLoop:
                             result_payload, error_text = await self._execute_tool_call(
                                 parsed_call,
                                 hook_ctx=tool_hook_ctx,
+                                read_file_state=read_file_state,
                             )
                         result = ToolResult(
                             call_id=parsed_call.call_id,
                             name=parsed_call.name,
                             output=result_payload,
                             error=error_text,
+                            content=None,
+                        )
+                        # Materialize LLM-facing content so downstream (history, API) can reuse it.
+                        content = self._serialize_tool_result(result)
+                        result = ToolResult(
+                            call_id=result.call_id,
+                            name=result.name,
+                            output=result.output,
+                            error=result.error,
+                            content=content,
                         )
                         await self._dispatch_observe(
                             "tool_result",
@@ -334,7 +354,7 @@ class AgentLoop:
                             llm_messages.append(
                                 LLMMessage(
                                     role="tool",
-                                    content=_serialize_tool_result_content(result),
+                                    content=self._serialize_tool_result(result),
                                     tool_call_id=result.call_id,
                                 )
                             )
@@ -347,12 +367,13 @@ class AgentLoop:
                                         call_id=remaining_call.call_id,
                                         name=remaining_call.name,
                                         error="interrupted",
+                                        content=None,
                                     )
                                     tool_results.append(interrupted_result)
                                     llm_messages.append(
                                         LLMMessage(
                                             role="tool",
-                                            content=_serialize_tool_result_content(interrupted_result),
+                                            content=self._serialize_tool_result(interrupted_result),
                                             tool_call_id=interrupted_result.call_id,
                                         )
                                     )
@@ -394,6 +415,7 @@ class AgentLoop:
         tool_call: ToolCall,
         *,
         hook_ctx: HookContext,
+        read_file_state: FileStateCache | None = None,
     ) -> tuple[Any, str | None]:
         if self._tool_registry is None:
             return None, "tool registry is unavailable"
@@ -403,6 +425,7 @@ class AgentLoop:
                 tool_call.name,
                 tool_call.arguments,
                 hook_context=hook_ctx,
+                read_file_state=read_file_state,
             )
             return output, None
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
@@ -414,6 +437,19 @@ class AgentLoop:
         if self._available_tools is not None:
             return self._available_tools
         return ()
+
+    def _serialize_tool_result(self, result: ToolResult) -> str:
+        """Route tool result serialization to the tool-specific adapter."""
+
+        if result.error is not None:
+            return _fallback_serialize_tool_result(result)
+        tool = self._tool_registry.get_tool(result.name) if self._tool_registry is not None else None
+        if tool is not None and hasattr(tool, "serialize_result"):
+            try:
+                return tool.serialize_result(result.output)
+            except Exception:  # pragma: no cover - defensive fallback.
+                pass
+        return _fallback_serialize_tool_result(result)
 
     async def _dispatch_observe(
         self,
@@ -497,7 +533,7 @@ def _as_llm_tool_calls(tool_calls: tuple[ToolCall, ...]) -> tuple[LLMToolCall, .
     )
 
 
-def _serialize_tool_result_content(result: ToolResult) -> str:
+def _fallback_serialize_tool_result(result: ToolResult) -> str:
     """Serialize tool result into tool-message content delivered back to model."""
 
     payload: dict[str, Any] = {
@@ -508,10 +544,7 @@ def _serialize_tool_result_content(result: ToolResult) -> str:
         payload["error"] = result.error
     else:
         payload["output"] = result.output
-    try:
-        return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-    except TypeError:
-        return str(payload)
+    return json_serialize(payload)
 
 
 def _accumulate_usage(current: TokenUsage | None, update: TokenUsage | None) -> TokenUsage | None:
@@ -538,5 +571,3 @@ def _with_optional_run_id(payload: Mapping[str, Any], *, run_id: str | None) -> 
     if run_id is not None:
         resolved["run_id"] = run_id
     return resolved
-
-

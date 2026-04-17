@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
+from agent.core.tools.serialization import json_serialize
 from agent.platform.tools.constants import DEFAULT_MAX_KILOBYTES, DEFAULT_MAX_LINES
 
 
@@ -136,6 +137,9 @@ class BashTool:
         if execution.full_output_path is not None:
             result["fullOutputPath"] = execution.full_output_path
         return result
+
+    def serialize_result(self, output: Any) -> str:
+        return json_serialize(output)
 
 
 def _build_error_details(execution: Any) -> dict[str, Any]:

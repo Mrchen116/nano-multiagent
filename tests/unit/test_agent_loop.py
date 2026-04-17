@@ -60,7 +60,10 @@ class FakeToolRegistry:
             ),
         )
 
-    def execute(self, name, args, *, hook_context=None):  # noqa: ANN001, ANN201
+    def get_tool(self, name: str):  # noqa: ANN001, ANN201
+        return None
+
+    def execute(self, name, args, *, hook_context=None, read_file_state=None):  # noqa: ANN001, ANN201
         tool_call_id = None
         if hook_context is not None:
             tool_call_id = hook_context.metadata.get("tool_call_id")

@@ -1,11 +1,13 @@
 """Built-in `read` tool for bounded text and image loading."""
 
 import base64
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
+from agent.core.tools.serialization import json_serialize
 from agent.platform.tools.constants import (
     DEFAULT_MAX_KILOBYTES,
     DEFAULT_MAX_LINES,
@@ -55,11 +57,34 @@ class ReadTool:
                 details={"path": raw_path},
             )
 
+        offset = int(args.get("offset", 1))
+        if offset < 1:
+            raise ToolError("offset must be >= 1", tool_name=self.name)
+
+        limit = args.get("limit")
+        if limit is not None:
+            limit = int(limit)
+            if limit < 1:
+                raise ToolError("limit must be >= 1", tool_name=self.name)
+
+        display_path = _display_path(file_path, ctx.repo_root)
+        cache_key = (file_path, offset, limit)
+
+        if ctx.read_file_state is not None:
+            try:
+                stat = file_path.stat()
+                mtime_ms = math.floor(stat.st_mtime * 1000)
+                size = stat.st_size
+                cached = ctx.read_file_state.get(cache_key)
+                if cached is not None and cached == (mtime_ms, size):
+                    return {"type": "file_unchanged", "file": {"filePath": display_path}}
+            except (OSError, ValueError):
+                pass
+
         mime_type = _image_mime_type(file_path)
         if mime_type is not None:
             image_bytes = file_path.read_bytes()
             encoded = base64.b64encode(image_bytes).decode("ascii")
-            display_path = _display_path(file_path, ctx.repo_root)
             width, height = _image_dimensions(image_bytes, mime_type)
             text_note = f"Read image file [{mime_type}]"
             if width is not None and height is not None:
@@ -68,6 +93,16 @@ class ReadTool:
                     f"[Image: original {width}x{height}, displayed at {width}x{height}. "
                     "Multiply coordinates by 1.0 to map to original image.]"
                 )
+
+            if ctx.read_file_state is not None:
+                try:
+                    stat = file_path.stat()
+                    mtime_ms = math.floor(stat.st_mtime * 1000)
+                    size = stat.st_size
+                    ctx.read_file_state.set(cache_key, (mtime_ms, size))
+                except (OSError, ValueError):
+                    pass
+
             return {
                 "path": display_path,
                 "offset": 1,
@@ -86,16 +121,6 @@ class ReadTool:
                     },
                 ],
             }
-
-        offset = int(args.get("offset", 1))
-        if offset < 1:
-            raise ToolError("offset must be >= 1", tool_name=self.name)
-
-        limit = args.get("limit")
-        if limit is not None:
-            limit = int(limit)
-            if limit < 1:
-                raise ToolError("limit must be >= 1", tool_name=self.name)
 
         try:
             content = file_path.read_text(encoding="utf-8")
@@ -158,7 +183,7 @@ class ReadTool:
             rendered = f"{rendered}\n\n[{remaining} more lines in file. Use offset={next_offset} to continue.]"
 
         response: dict[str, Any] = {
-            "path": _display_path(file_path, ctx.repo_root),
+            "path": display_path,
             "offset": offset,
             "next_offset": next_offset,
             "total_lines": total_lines,
@@ -167,7 +192,28 @@ class ReadTool:
         }
         if details is not None:
             response["details"] = details
+
+        if ctx.read_file_state is not None:
+            try:
+                stat = file_path.stat()
+                mtime_ms = math.floor(stat.st_mtime * 1000)
+                size = stat.st_size
+                ctx.read_file_state.set(cache_key, (mtime_ms, size))
+            except (OSError, ValueError):
+                pass
+
         return response
+
+    def serialize_result(self, output: Any) -> str:
+        if isinstance(output, Mapping) and output.get("type") == "file_unchanged":
+            file_path = output.get("file", {}).get("filePath", "unknown")
+            return (
+                "File unchanged since last read. The content from the earlier "
+                "Read tool_result in this conversation is still current — "
+                "refer to that instead of re-reading."
+                f" ({file_path})"
+            )
+        return json_serialize(output)
 
 
 def _display_path(path: Path, repo_root: Path) -> str:

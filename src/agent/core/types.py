@@ -55,6 +55,7 @@ class ToolResult:
     name: str
     output: Any = None
     error: str | None = None
+    content: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

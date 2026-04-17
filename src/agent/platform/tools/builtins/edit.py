@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.errors import ToolError
-
 from agent.core.tools.base import ToolContext
+from agent.core.tools.serialization import json_serialize
 
 
 class EditTool:
@@ -80,6 +80,9 @@ class EditTool:
                 "firstChangedLine": first_changed_line,
             },
         }
+
+    def serialize_result(self, output: Any) -> str:
+        return json_serialize(output)
 
 
 def _display_path(path: Path, repo_root: Path) -> str:

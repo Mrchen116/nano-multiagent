@@ -10,9 +10,9 @@ from typing import Any, Protocol
 from agent.core.errors import ToolError
 from agent.core.ids import make_tool_call_id
 from agent.core.skills import resolve_available_skills
-from agent.core.types import Message, TurnResult
-
 from agent.core.tools.base import ToolContext
+from agent.core.tools.serialization import json_serialize
+from agent.core.types import Message, TurnResult
 
 
 class TaskRuntime(Protocol):
@@ -422,6 +422,11 @@ class TaskTool:
             return
         with self._lock:
             self._idempotent_results[idempotency_key] = str(result)
+
+    def serialize_result(self, output: Any) -> str:
+        if isinstance(output, str):
+            return output
+        return json_serialize(output)
 
 
 def _resolve_timeout_seconds(args: Mapping[str, Any]) -> float:

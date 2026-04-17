@@ -16,13 +16,14 @@ from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
 from agent.core.skills import SkillMetadata, resolve_available_skills
 from agent.core.skills.discovery import SkillRootResolver
+from agent.core.tools.file_state_cache import FileStateCache, SessionFileReadCache
 
 from .compaction.applier import CompactionApplier
 from .compaction.planner import CompactionPlanner
 from .compaction.policy import should_compact
 from .compaction.summarizer import CompactionSummarizer
 from .compaction.types import CompactionReason, CompactionResult, CompactionSettings
-from .loop import AgentLoop, ToolRegistryLike, _serialize_tool_result_content
+from .loop import AgentLoop, ToolRegistryLike
 from .policies import AgentPolicies
 from .run_control import RunController
 from .skill_commands import rewrite_skill_command
@@ -82,6 +83,7 @@ class AgentRuntime:
         # Product default tool ids used when no per-session tool_allowlist is set.
         # None means "all tools in registry" (platform default behavior).
         self._default_tool_ids = default_tool_ids
+        self._session_file_read_cache = SessionFileReadCache()
         self._loop = AgentLoop(
             llm_client=active_llm_client,
             model=self._llm_config.model,
@@ -606,6 +608,7 @@ class AgentRuntime:
         current_working_directory_override: Path | None,
         controller: RunController | None = None,
     ) -> TurnResult:
+        read_file_state = self._session_file_read_cache.get(session_id)
         return await self._loop.run(
             AgentState(
                 session_id=session_id,
@@ -623,6 +626,7 @@ class AgentRuntime:
             llm_session_id=llm_session_id,
             session_created_at=session_created_at,
             current_working_directory_override=current_working_directory_override,
+            read_file_state=read_file_state,
         )
 
     async def _preflight_compaction(
@@ -775,11 +779,12 @@ class AgentRuntime:
         )
 
     def _append_tool_result_event(self, *, session_id: str, turn_id: str, tool_result: ToolResult) -> None:
+        content = tool_result.content if tool_result.content is not None else ""
         self._session_manager.append_turn_message(
             session_id,
             turn_id=turn_id,
             role="tool",
-            content=_serialize_tool_result_content(tool_result),
+            content=content,
             message_id=make_message_id(),
             metadata={
                 "tool_phase": "result",
