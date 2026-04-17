@@ -39,7 +39,12 @@ def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
     )
     assert EditTool.description == (
         "Edit a file by replacing exact text. The oldText must match exactly (including whitespace). "
-        "Use this for precise, surgical edits."
+        "Use this for precise, surgical edits. "
+        "When editing text from Read tool output, ensure you preserve the exact indentation "
+        "(tabs/spaces) as it appears AFTER the line number prefix. "
+        "The line number prefix format is: 6 spaces + line number + →. "
+        "Everything after that is the actual file content to match. "
+        "Never include any part of the line number prefix in the oldText or newText."
     )
     assert WriteTool.description == (
         "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. "
@@ -454,3 +459,72 @@ def test_read_truncation_appends_next_offset_hint(tmp_path: Path) -> None:
     text_part = result["content"][0]
     assert text_part["type"] == "text"
     assert text_part["text"] == "line-1\nline-2\n\n[Showing lines 1-2 of 5. Use offset=3 to continue.]"
+
+
+def test_read_serialize_result_adds_line_numbers() -> None:
+    import json
+
+    tool = ReadTool()
+    output = {
+        "path": "test.py",
+        "offset": 3,
+        "next_offset": None,
+        "total_lines": 5,
+        "truncated": False,
+        "content": [{"type": "text", "text": "line-3\nline-4\nline-5"}],
+    }
+    result = tool.serialize_result(output)
+    parsed = json.loads(result)
+    text = parsed["content"][0]["text"]
+    assert text == "     3\u2192line-3\n     4\u2192line-4\n     5\u2192line-5"
+
+
+def test_read_serialize_result_skips_line_numbers_for_file_unchanged() -> None:
+    tool = ReadTool()
+    output = {"type": "file_unchanged", "file": {"filePath": "test.py"}}
+    result = tool.serialize_result(output)
+    assert "File unchanged since last read" in result
+    assert "\u2192" not in result
+
+
+def test_read_serialize_result_skips_line_numbers_for_images() -> None:
+    import json
+
+    tool = ReadTool()
+    output = {
+        "path": "img.png",
+        "offset": 1,
+        "next_offset": None,
+        "total_lines": 0,
+        "truncated": False,
+        "content": [
+            {"type": "text", "text": "Read image file [image/png]"},
+            {"type": "image", "data": "abc", "mimeType": "image/png"},
+        ],
+    }
+    result = tool.serialize_result(output)
+    parsed = json.loads(result)
+    text = parsed["content"][0]["text"]
+    assert text == "Read image file [image/png]"
+
+
+def test_add_line_numbers_formats_six_digit_line_without_padding() -> None:
+    from agent.platform.tools.builtins.read import _format_line_number
+
+    assert _format_line_number(1, "hello") == "     1\u2192hello"
+    assert _format_line_number(10, "world") == "    10\u2192world"
+    assert _format_line_number(999999, "x") == "999999\u2192x"
+    assert _format_line_number(1000000, "y") == "1000000\u2192y"
+
+
+def test_add_line_numbers_preserves_empty_text() -> None:
+    from agent.platform.tools.builtins.read import _add_line_numbers
+
+    assert _add_line_numbers("") == ""
+
+
+def test_add_line_numbers_handles_crlf() -> None:
+    from agent.platform.tools.builtins.read import _add_line_numbers
+
+    result = _add_line_numbers("a\r\nb\r\nc", start_line=1)
+    assert result == "     1\u2192a\n     2\u2192b\n     3\u2192c"

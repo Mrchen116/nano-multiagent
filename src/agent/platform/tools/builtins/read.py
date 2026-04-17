@@ -2,6 +2,7 @@
 
 import base64
 import math
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -213,7 +214,55 @@ class ReadTool:
                 "refer to that instead of re-reading."
                 f" ({file_path})"
             )
+
+        if isinstance(output, Mapping) and "content" in output:
+            content_blocks = output["content"]
+            if isinstance(content_blocks, list):
+                has_image = any(
+                    isinstance(block, Mapping) and block.get("type") == "image"
+                    for block in content_blocks
+                )
+                if not has_image:
+                    new_blocks: list[Any] = []
+                    found_text = False
+                    for block in content_blocks:
+                        if (
+                            not found_text
+                            and isinstance(block, Mapping)
+                            and block.get("type") == "text"
+                        ):
+                            text = block.get("text", "")
+                            if text:
+                                offset = output.get("offset", 1)
+                                new_block = dict(block)
+                                new_block["text"] = _add_line_numbers(text, offset)
+                                new_blocks.append(new_block)
+                                found_text = True
+                                continue
+                        new_blocks.append(block)
+                    if found_text:
+                        new_output = dict(output)
+                        new_output["content"] = new_blocks
+                        return json_serialize(new_output)
+
         return json_serialize(output)
+
+
+def _add_line_numbers(text: str, start_line: int = 1) -> str:
+    if not text:
+        return text
+    lines = re.split(r"\r?\n", text)
+    return "\n".join(
+        _format_line_number(index + start_line, line)
+        for index, line in enumerate(lines)
+    )
+
+
+def _format_line_number(line_num: int, line: str) -> str:
+    num_str = str(line_num)
+    if len(num_str) >= 6:
+        return f"{num_str}\u2192{line}"
+    return f"{num_str:>6}\u2192{line}"
 
 
 def _display_path(path: Path, repo_root: Path) -> str:

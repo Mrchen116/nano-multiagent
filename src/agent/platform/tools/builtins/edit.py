@@ -16,7 +16,12 @@ class EditTool:
     is_concurrency_safe = False
     description = (
         "Edit a file by replacing exact text. The oldText must match exactly (including whitespace). "
-        "Use this for precise, surgical edits."
+        "Use this for precise, surgical edits. "
+        "When editing text from Read tool output, ensure you preserve the exact indentation "
+        "(tabs/spaces) as it appears AFTER the line number prefix. "
+        "The line number prefix format is: 6 spaces + line number + →. "
+        "Everything after that is the actual file content to match. "
+        "Never include any part of the line number prefix in the oldText or newText."
     )
     input_schema = {
         "type": "object",
