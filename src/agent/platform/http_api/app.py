@@ -14,8 +14,9 @@ from agent.core.ids import make_event_id
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookExecution, HookRunner
+from agent.core.observability.exporters.console import ConsoleTracer
 from agent.core.observability.logger import log_error
-from agent.core.observability.tracing import bind_correlation
+from agent.core.observability.tracing import bind_correlation, set_tracer
 from agent.platform.hooks.loader import build_hook_registry
 from agent.platform.hooks.session_events import set_session_event_publisher_factory
 from agent.platform.http_api.sse import EventStreamHub
@@ -67,6 +68,17 @@ def create_app(
         runtime imports are required at clients.
     """
     app = FastAPI(title="nano-multiagent", version=__version__)
+
+    # Wire console tracer when threshold env is set (zero-overhead NoOpTracer by default).
+    _trace_threshold = os.getenv("NANO_MULTIAGENT_TRACE_CONSOLE_THRESHOLD_MS")
+    if _trace_threshold is not None:
+        try:
+            set_tracer(ConsoleTracer(threshold_ms=float(_trace_threshold)))
+        except ValueError:
+            set_tracer(ConsoleTracer(threshold_ms=100.0))
+    elif os.getenv("NANO_MULTIAGENT_TRACE_CONSOLE"):
+        set_tracer(ConsoleTracer(threshold_ms=100.0))
+
     resolved_repo_root = (
         repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
     ).expanduser().resolve()

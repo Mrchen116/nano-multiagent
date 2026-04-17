@@ -10,6 +10,7 @@ from agent.core.types import Message, TokenUsage, ToolCall, ToolResult, ToolSpec
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.runner import HookExecution, HookRunner
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
+from agent.core.observability.tracing import span
 from agent.core.skills.registry import SkillMetadata
 
 from .policies import AgentPolicies
@@ -150,213 +151,217 @@ class AgentLoop:
         }
 
         try:
-            # Runtime loop strategy:
-            # 1) If model returns plain assistant text, finish current turn.
-            # 2) If model returns tool calls, partition them into batches by
-            #    concurrency safety, execute each batch, then continue.
-            # 3) If tools are unavailable, stop with explicit terminal reason instead
-            #    of silently dropping tool calls.
-            # 4) Before each LLM call, drain any pending injected messages.
-            # 5) After each tool batch, check for a force-interrupt signal.
-            while True:
-                # Drain pending messages injected via RunController (round-boundary injection).
-                if controller is not None:
-                    for pending_msg in controller.drain_pending():
-                        llm_messages.append(pending_msg)
+            with span("AgentLoop.run", session_id=state.session_id, turn_id=state.turn_id):
+                # Runtime loop strategy:
+                # 1) If model returns plain assistant text, finish current turn.
+                # 2) If model returns tool calls, partition them into batches by
+                #    concurrency safety, execute each batch, then continue.
+                # 3) If tools are unavailable, stop with explicit terminal reason instead
+                #    of silently dropping tool calls.
+                # 4) Before each LLM call, drain any pending injected messages.
+                # 5) After each tool batch, check for a force-interrupt signal.
+                while True:
+                    # Drain pending messages injected via RunController (round-boundary injection).
+                    if controller is not None:
+                        for pending_msg in controller.drain_pending():
+                            llm_messages.append(pending_msg)
 
-                response = self._llm_client.generate(
-                    LLMGenerateRequest(
-                        session_id=llm_session_id or state.session_id,
-                        model=self._model,
-                        messages=tuple(llm_messages),
-                        stream=False,
-                        tools=active_tools,
-                    )
-                )
-                turn_usage = _accumulate_usage(turn_usage, response.usage)
-                latest_usage = response.usage
-                normalized_calls = tuple(_normalize_tool_call(item) for item in response.message.tool_calls)
-                normalized_response_message = LLMMessage(
-                    role=response.message.role,
-                    content=response.message.content,
-                    name=response.message.name,
-                    tool_call_id=response.message.tool_call_id,
-                    tool_calls=_as_llm_tool_calls(normalized_calls),
-                )
-
-                assistant_message = Message(
-                    message_id=make_message_id(),
-                    role=response.message.role,
-                    content=response.message.content,
-                    name=response.message.name,
-                    metadata=_assistant_metadata_from_tool_calls(normalized_calls),
-                )
-                assistant_messages.append(assistant_message)
-                llm_messages.append(normalized_response_message)
-
-                await self._dispatch_observe(
-                    "message_start",
-                    _with_optional_run_id(
-                        {
-                            "session_id": state.session_id,
-                            "turn_id": state.turn_id,
-                            "message_id": assistant_message.message_id,
-                            "role": assistant_message.role,
-                        },
-                        run_id=run_id,
-                    ),
-                    active_hook_ctx,
-                )
-                await self._dispatch_observe(
-                    "message_update",
-                    _with_optional_run_id(
-                        {
-                            "session_id": state.session_id,
-                            "turn_id": state.turn_id,
-                            "message_id": assistant_message.message_id,
-                            "delta": assistant_message.content,
-                        },
-                        run_id=run_id,
-                    ),
-                    active_hook_ctx,
-                )
-                await self._dispatch_observe(
-                    "message_end",
-                    _with_optional_run_id(
-                        {
-                            "session_id": state.session_id,
-                            "turn_id": state.turn_id,
-                            "message_id": assistant_message.message_id,
-                            "content": assistant_message.content,
-                            "role": assistant_message.role,
-                        },
-                        run_id=run_id,
-                    ),
-                    active_hook_ctx,
-                )
-
-                if not normalized_calls:
-                    completed = True
-                    stop_reason = response.finish_reason or "completed"
-                    return TurnResult(
-                        session_id=state.session_id,
-                        turn_id=state.turn_id,
-                        messages=tuple(assistant_messages),
-                        tool_calls=tuple(tool_calls),
-                        tool_results=tuple(tool_results),
-                        completed=completed,
-                        stop_reason=stop_reason,
-                        usage=turn_usage,
-                    )
-
-                for parsed_call in normalized_calls:
-                    tool_calls.append(parsed_call)
-                    self._policies.ensure_tool_calls_allowed(tool_call_count=len(tool_calls))
-
-                if self._tool_registry is None:
-                    completed = True
-                    stop_reason = "tool_registry_unavailable"
-                    return TurnResult(
-                        session_id=state.session_id,
-                        turn_id=state.turn_id,
-                        messages=tuple(assistant_messages),
-                        tool_calls=tuple(tool_calls),
-                        tool_results=tuple(tool_results),
-                        completed=completed,
-                        stop_reason=stop_reason,
-                        usage=turn_usage,
-                    )
-
-                async def _run_one_call(parsed_call: ToolCall) -> ToolResult:
-                    tool_hook_ctx = HookContext(
-                        session_id=active_hook_ctx.session_id,
-                        turn_id=active_hook_ctx.turn_id,
-                        repo_root=active_hook_ctx.repo_root,
-                        metadata={**dict(active_hook_ctx.metadata), "tool_call_id": parsed_call.call_id},
-                        model_caller=active_hook_ctx.model_caller,
-                        session_event_publisher=active_hook_ctx.session_event_publisher,
-                    )
-                    await self._dispatch_observe(
-                        "tool_call",
-                        _with_optional_run_id(
-                            {
-                                "session_id": state.session_id,
-                                "turn_id": state.turn_id,
-                                "call_id": parsed_call.call_id,
-                                "name": parsed_call.name,
-                                "arguments": dict(parsed_call.arguments),
-                            },
-                            run_id=run_id,
-                        ),
-                        tool_hook_ctx,
-                    )
-                    result_payload, error_text = await self._execute_tool_call(
-                        parsed_call,
-                        hook_ctx=tool_hook_ctx,
-                    )
-                    result = ToolResult(
-                        call_id=parsed_call.call_id,
-                        name=parsed_call.name,
-                        output=result_payload,
-                        error=error_text,
-                    )
-                    await self._dispatch_observe(
-                        "tool_result",
-                        _with_optional_run_id(
-                            {
-                                "session_id": state.session_id,
-                                "turn_id": state.turn_id,
-                                "call_id": result.call_id,
-                                "name": result.name,
-                                "output": result.output,
-                                "error": result.error,
-                            },
-                            run_id=run_id,
-                        ),
-                        tool_hook_ctx,
-                    )
-                    return result
-
-                batches = partition_into_batches(normalized_calls, concurrency_map)
-                interrupted = False
-                executed_call_ids: set[str] = set()
-
-                for batch in batches:
-                    batch_results = await tool_executor.execute(batch, _run_one_call)
-                    for result in batch_results:
-                        tool_results.append(result)
-                        executed_call_ids.add(result.call_id)
-                        llm_messages.append(
-                            LLMMessage(
-                                role="tool",
-                                content=_serialize_tool_result_content(result),
-                                tool_call_id=result.call_id,
+                    with span("llm.generate", session_id=state.session_id, turn_id=state.turn_id, model=self._model, prompt_msgs=len(llm_messages)):
+                        response = self._llm_client.generate(
+                            LLMGenerateRequest(
+                                session_id=llm_session_id or state.session_id,
+                                model=self._model,
+                                messages=tuple(llm_messages),
+                                stream=False,
+                                tools=active_tools,
                             )
                         )
+                    turn_usage = _accumulate_usage(turn_usage, response.usage)
+                    latest_usage = response.usage
+                    normalized_calls = tuple(_normalize_tool_call(item) for item in response.message.tool_calls)
+                    normalized_response_message = LLMMessage(
+                        role=response.message.role,
+                        content=response.message.content,
+                        name=response.message.name,
+                        tool_call_id=response.message.tool_call_id,
+                        tool_calls=_as_llm_tool_calls(normalized_calls),
+                    )
 
-                    # After each batch, check for a force-interrupt signal.
-                    if controller is not None and controller.is_aborted:
-                        for remaining_call in normalized_calls:
-                            if remaining_call.call_id not in executed_call_ids:
-                                interrupted_result = ToolResult(
-                                    call_id=remaining_call.call_id,
-                                    name=remaining_call.name,
-                                    error="interrupted",
+                    assistant_message = Message(
+                        message_id=make_message_id(),
+                        role=response.message.role,
+                        content=response.message.content,
+                        name=response.message.name,
+                        metadata=_assistant_metadata_from_tool_calls(normalized_calls),
+                    )
+                    assistant_messages.append(assistant_message)
+                    llm_messages.append(normalized_response_message)
+
+                    await self._dispatch_observe(
+                        "message_start",
+                        _with_optional_run_id(
+                            {
+                                "session_id": state.session_id,
+                                "turn_id": state.turn_id,
+                                "message_id": assistant_message.message_id,
+                                "role": assistant_message.role,
+                            },
+                            run_id=run_id,
+                        ),
+                        active_hook_ctx,
+                    )
+                    await self._dispatch_observe(
+                        "message_update",
+                        _with_optional_run_id(
+                            {
+                                "session_id": state.session_id,
+                                "turn_id": state.turn_id,
+                                "message_id": assistant_message.message_id,
+                                "delta": assistant_message.content,
+                            },
+                            run_id=run_id,
+                        ),
+                        active_hook_ctx,
+                    )
+                    await self._dispatch_observe(
+                        "message_end",
+                        _with_optional_run_id(
+                            {
+                                "session_id": state.session_id,
+                                "turn_id": state.turn_id,
+                                "message_id": assistant_message.message_id,
+                                "content": assistant_message.content,
+                                "role": assistant_message.role,
+                            },
+                            run_id=run_id,
+                        ),
+                        active_hook_ctx,
+                    )
+
+                    if not normalized_calls:
+                        completed = True
+                        stop_reason = response.finish_reason or "completed"
+                        return TurnResult(
+                            session_id=state.session_id,
+                            turn_id=state.turn_id,
+                            messages=tuple(assistant_messages),
+                            tool_calls=tuple(tool_calls),
+                            tool_results=tuple(tool_results),
+                            completed=completed,
+                            stop_reason=stop_reason,
+                            usage=turn_usage,
+                        )
+
+                    for parsed_call in normalized_calls:
+                        tool_calls.append(parsed_call)
+                        self._policies.ensure_tool_calls_allowed(tool_call_count=len(tool_calls))
+
+                    if self._tool_registry is None:
+                        completed = True
+                        stop_reason = "tool_registry_unavailable"
+                        return TurnResult(
+                            session_id=state.session_id,
+                            turn_id=state.turn_id,
+                            messages=tuple(assistant_messages),
+                            tool_calls=tuple(tool_calls),
+                            tool_results=tuple(tool_results),
+                            completed=completed,
+                            stop_reason=stop_reason,
+                            usage=turn_usage,
+                        )
+
+                    async def _run_one_call(parsed_call: ToolCall) -> ToolResult:
+                        tool_hook_ctx = HookContext(
+                            session_id=active_hook_ctx.session_id,
+                            turn_id=active_hook_ctx.turn_id,
+                            repo_root=active_hook_ctx.repo_root,
+                            metadata={**dict(active_hook_ctx.metadata), "tool_call_id": parsed_call.call_id},
+                            model_caller=active_hook_ctx.model_caller,
+                            session_event_publisher=active_hook_ctx.session_event_publisher,
+                        )
+                        await self._dispatch_observe(
+                            "tool_call",
+                            _with_optional_run_id(
+                                {
+                                    "session_id": state.session_id,
+                                    "turn_id": state.turn_id,
+                                    "call_id": parsed_call.call_id,
+                                    "name": parsed_call.name,
+                                    "arguments": dict(parsed_call.arguments),
+                                },
+                                run_id=run_id,
+                            ),
+                            tool_hook_ctx,
+                        )
+                        with span("tool.execute", tool_name=parsed_call.name, session_id=state.session_id, turn_id=state.turn_id):
+                            result_payload, error_text = await self._execute_tool_call(
+                                parsed_call,
+                                hook_ctx=tool_hook_ctx,
+                            )
+                        result = ToolResult(
+                            call_id=parsed_call.call_id,
+                            name=parsed_call.name,
+                            output=result_payload,
+                            error=error_text,
+                        )
+                        await self._dispatch_observe(
+                            "tool_result",
+                            _with_optional_run_id(
+                                {
+                                    "session_id": state.session_id,
+                                    "turn_id": state.turn_id,
+                                    "call_id": result.call_id,
+                                    "name": result.name,
+                                    "output": result.output,
+                                    "error": result.error,
+                                },
+                                run_id=run_id,
+                            ),
+                            tool_hook_ctx,
+                        )
+                        return result
+
+                    batches = partition_into_batches(normalized_calls, concurrency_map)
+                    interrupted = False
+                    executed_call_ids: set[str] = set()
+
+                    for batch in batches:
+                        with span("tool.batch_execute", concurrent=batch.concurrent, batch_size=len(batch.calls)):
+                            batch_results = await tool_executor.execute(batch, _run_one_call)
+                        for result in batch_results:
+                            tool_results.append(result)
+                            executed_call_ids.add(result.call_id)
+                            llm_messages.append(
+                                LLMMessage(
+                                    role="tool",
+                                    content=_serialize_tool_result_content(result),
+                                    tool_call_id=result.call_id,
                                 )
-                                tool_results.append(interrupted_result)
-                                llm_messages.append(
-                                    LLMMessage(
-                                        role="tool",
-                                        content=_serialize_tool_result_content(interrupted_result),
-                                        tool_call_id=interrupted_result.call_id,
+                            )
+
+                        # After each batch, check for a force-interrupt signal.
+                        if controller is not None and controller.is_aborted:
+                            for remaining_call in normalized_calls:
+                                if remaining_call.call_id not in executed_call_ids:
+                                    interrupted_result = ToolResult(
+                                        call_id=remaining_call.call_id,
+                                        name=remaining_call.name,
+                                        error="interrupted",
                                     )
-                                )
-                        stop_reason = "interrupted"
-                        interrupted = True
-                        break
+                                    tool_results.append(interrupted_result)
+                                    llm_messages.append(
+                                        LLMMessage(
+                                            role="tool",
+                                            content=_serialize_tool_result_content(interrupted_result),
+                                            tool_call_id=interrupted_result.call_id,
+                                        )
+                                    )
+                            stop_reason = "interrupted"
+                            interrupted = True
+                            break
 
-                if interrupted:
-                    break
+                    if interrupted:
+                        break
         finally:
             turn_end_payload: dict[str, Any] = {
                 "session_id": state.session_id,

@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from agent.core.observability.tracing import span
+
 from .context import HookContext
 from .registry import HookRegistry
 from .types import HookRegistration, HookStatus, ensure_known_hook_event
@@ -51,16 +53,17 @@ class HookRunner:
     ) -> tuple[HookExecution, ...]:
         """Run observe handlers and collect per-hook diagnostics."""
 
-        normalized_event = ensure_known_hook_event(event)
-        diagnostics: list[HookExecution] = []
-        for registration in self._registry.handlers_for(normalized_event):
-            _, record = await self._execute_handler(
-                registration=registration,
-                payload=payload,
-                ctx=ctx,
-            )
-            diagnostics.append(record)
-        return tuple(diagnostics)
+        with span("HookRunner.dispatch_observe", event=event):
+            normalized_event = ensure_known_hook_event(event)
+            diagnostics: list[HookExecution] = []
+            for registration in self._registry.handlers_for(normalized_event):
+                _, record = await self._execute_handler(
+                    registration=registration,
+                    payload=payload,
+                    ctx=ctx,
+                )
+                diagnostics.append(record)
+            return tuple(diagnostics)
 
     async def dispatch_intercept(
         self,

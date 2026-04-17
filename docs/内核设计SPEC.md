@@ -57,7 +57,7 @@ src/agent/
 | `core/llm/interfaces.py` | `LLMClient`：`generate(context, tools, stream)` |
 | `core/llm/factory.py` | 按配置选择 provider 客户端 |
 | `core/llm/model_registry.py` | Provider / model 元数据与能力描述 |
-| `core/observability/` | 结构化日志（session/turn/tool-call 关联 ID）+ 可选 tracing |
+| `core/observability/` | 结构化日志（session/turn/tool-call 关联 ID）+ 可选 tracing。<br>默认 `NoOpTracer` 零开销；通过环境变量启用 `ConsoleTracer`，将慢请求 waterfall 输出到 stderr |
 
 **规则**：core 不做文件 IO、DB 操作、Shell 执行、网络请求。这些全部委托给 platform 或 tool 实现。
 

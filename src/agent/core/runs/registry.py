@@ -14,7 +14,7 @@ from agent.core.types import TokenUsage, TurnResult
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.runner import HookExecution, HookRunner
 from agent.core.observability.logger import log_error, log_info
-from agent.core.observability.tracing import bind_correlation, current_trace_id
+from agent.core.observability.tracing import bind_correlation, current_trace_id, span
 from agent.core.session.manager import SessionManager
 from agent.core.agent.run_control import RunController
 
@@ -211,9 +211,10 @@ class RunsRegistry:
                     self._active_run_by_session.pop(session_id, None)
                 return
             try:
-                result = asyncio.run(
-                    self._runtime.run(session_id, parts, stream=False, run_id=run_id, controller=controller)
-                )
+                with span("RunsRegistry.run_worker", run_id=run_id, session_id=session_id):
+                    result = asyncio.run(
+                        self._runtime.run(session_id, parts, stream=False, run_id=run_id, controller=controller)
+                    )
             except TimeoutError as exc:
                 self._mark_timed_out(run_id, message=str(exc))
                 return
@@ -483,20 +484,8 @@ class RunsRegistry:
                     "error": tool_result.error,
                 },
             )
-        for message in turn_result.messages:
-            if message.role != "assistant":
-                continue
-            self._event_hub.publish(
-                event="text_delta",
-                session_id=record.session_id,
-                data={
-                    "event": "text_delta",
-                    "run_id": record.run_id,
-                    "turn_id": turn_result.turn_id,
-                    "message_id": message.message_id,
-                    "delta": message.content,
-                },
-            )
+        # Note: text_delta events are already emitted in real-time by the
+        # realtime_stream hook on message_update; do not double-publish here.
         self._event_hub.publish(
             event="turn_end",
             session_id=record.session_id,

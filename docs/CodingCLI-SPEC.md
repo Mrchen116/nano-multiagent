@@ -54,6 +54,8 @@ coding_cli ──HTTP──→ agent (remote)
 |---|---|---|
 | `NANO_MULTIAGENT_API_BASE_URL` | API 服务地址 | `http://127.0.0.1:8000` |
 | `NANO_MULTIAGENT_API_TIMEOUT_SECONDS` | 请求超时（秒） | `30.0` |
+| `NANO_MULTIAGENT_TRACE_CONSOLE` | 设为 `1` 启用 ConsoleTracer，慢请求 waterfall 输出到 **stderr** | 未设置（关闭） |
+| `NANO_MULTIAGENT_TRACE_CONSOLE_THRESHOLD_MS` | 自定义 ConsoleTracer 阈值（毫秒），覆盖 `100.0` | 未设置 |
 
 Coding CLI 不引入 token 鉴权环境变量；新增配置应优先使用显式 CLI 参数或产品配置文件，以保持接口面简洁。
 

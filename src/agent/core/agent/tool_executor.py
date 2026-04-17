@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 
+from agent.core.observability.tracing import span
 from agent.core.types import ToolCall, ToolResult
 
 
@@ -58,9 +59,10 @@ class ToolExecutor:
     """Execute a ToolBatch, returning results in original call order."""
 
     async def execute(self, batch: ToolBatch, execute_fn: ExecuteFn) -> tuple[ToolResult, ...]:
-        if batch.concurrent and len(batch.calls) > 1:
-            return await self._execute_concurrent(batch.calls, execute_fn)
-        return (await execute_fn(batch.calls[0]),)
+        with span("ToolExecutor.execute", concurrent=batch.concurrent, batch_size=len(batch.calls)):
+            if batch.concurrent and len(batch.calls) > 1:
+                return await self._execute_concurrent(batch.calls, execute_fn)
+            return (await execute_fn(batch.calls[0]),)
 
     async def _execute_concurrent(
         self,

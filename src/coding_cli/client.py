@@ -74,11 +74,19 @@ class ServerClient:
         """Call unauthenticated health endpoint."""
         return self._request("GET", "/v1/health")
 
-    def create_session(self, *, title: str | None = None, workspace_root: str | None = None) -> dict[str, Any]:
+    def create_session(
+        self,
+        *,
+        title: str | None = None,
+        workspace_root: str | None = None,
+        skills: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Create a session through the HTTP API."""
         payload: dict[str, Any] = {"workspace_root": workspace_root or os.getcwd()}
         if title is not None:
             payload["title"] = title
+        if skills is not None:
+            payload["skills"] = skills
         return self._request("POST", "/v1/sessions", json=payload)
 
     def send_message(self, *, session_id: str, text: str) -> dict[str, Any]:
@@ -97,15 +105,19 @@ class ServerClient:
             json=payload,
         )
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, Any]:
+    def send_message_async(
+        self, *, session_id: str, text: str, priority: str | None = None
+    ) -> dict[str, Any]:
         """Submit one asynchronous run and return the run handle payload."""
         if not session_id.strip():
             raise ValueError("session_id is required")
         if not text.strip():
             raise ValueError("text is required")
-        payload = {
+        payload: dict[str, Any] = {
             "parts": [{"type": "text", "text": text}],
         }
+        if priority is not None:
+            payload["priority"] = priority
         return self._request(
             "POST",
             f"/v1/sessions/{session_id}/messages:async",

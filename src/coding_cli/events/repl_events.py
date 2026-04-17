@@ -1,6 +1,7 @@
 """REPL helpers for async run polling and SSE event preview rendering."""
 
 import json
+import sys
 from typing import Callable
 from typing import TextIO
 
@@ -176,7 +177,8 @@ def consume_async_run_events(
         normalized_event = _normalize_session_event_from_pipeline(event)
         event_name = normalized_event.event_name
         data = normalized_event.data
-        if data.get("run_id") != run_id:
+        evt_run_id = data.get("run_id")
+        if evt_run_id != run_id:
             run_filtered += 1
             continue
         if not _consume_event_for_run(

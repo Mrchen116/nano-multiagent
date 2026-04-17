@@ -91,7 +91,7 @@ def handle_repl_command(
                     usage="/new",
                 )
                 return ReplCommandResult(handled=True, active_session_id=active_session_id)
-            payload = client.create_session()
+            payload = client.create_session(skills=[])
             next_session_id = extract_session_id(payload)
             print_session_created(out=out, session_id=next_session_id)
             print_active_session(out=out, session_id=next_session_id)

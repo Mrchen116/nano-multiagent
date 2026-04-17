@@ -240,7 +240,7 @@ def _run_single_command(*, args: argparse.Namespace, client: ServerClient) -> di
     if args.command == "health":
         return client.health()
     if args.command == "create-session":
-        return client.create_session(title=args.title)
+        return client.create_session(title=args.title, skills=[])
     if args.command == "llm-config":
         return _run_llm_config_command(args=args, client=client)
     session_id = args.session_id or os.getenv("NANO_MULTIAGENT_SESSION_ID")
@@ -457,17 +457,22 @@ def _run_repl(
                     continue
 
                 # If a run is actively executing, inject into its pending queue via priority='next'.
-                if run_queue.has_active_work():
+                has_active = run_queue.has_active_work()
+                import sys
+                sys.stderr.write(f"[DEBUG] has_active_work={has_active} line={line!r}\n")
+                if has_active:
                     try:
                         injected_resp = client.send_message_async(
                             session_id=active_session_id,
                             text=line,
                             priority="next",
                         )
+                        sys.stderr.write(f"[DEBUG] injection resp={injected_resp!r}\n")
                         if injected_resp.get("status") == "injected":
                             _emit_external_repl_block(f"Injected into active run for session {active_session_id}.")
                             continue
-                    except Exception:
+                    except Exception as exc:
+                        sys.stderr.write(f"[DEBUG] injection exception={exc!r}\n")
                         # Injection failed (e.g. race: run finished before request reached server).
                         # Fall through to normal enqueue.
                         pass
@@ -476,6 +481,8 @@ def _run_repl(
                 if backlog_before > 0:
                     _emit_external_repl_block(f"Queued message #{backlog_before} for session {active_session_id}.")
             except Exception as exc:
+                import traceback
+                traceback.print_exc()
                 layer = _error_layer_for_exception(exc)
                 suggestion = _suggestion_for_exception(
                     exc,

@@ -76,10 +76,7 @@ class AgentRuntime:
         resolved_skills = (
             tuple(available_skills)
             if available_skills is not None
-            else resolve_available_skills(
-                workspace_root=self._repo_root,
-                config_resolver=self._config_resolver,
-            )
+            else ()
         )
         self._session_manager = session_manager
         # Product default tool ids used when no per-session tool_allowlist is set.

@@ -140,11 +140,15 @@ class ManagedServerProcess:
 
 
 def _default_popen(command: list[str], *, env: dict[str, str]) -> subprocess.Popen[str]:
+    # When tracing is explicitly enabled, inherit stderr so waterfall spans are visible.
+    stderr = subprocess.PIPE
+    if env.get("NANO_MULTIAGENT_TRACE_CONSOLE") or env.get("NANO_MULTIAGENT_TRACE_CONSOLE_THRESHOLD_MS"):
+        stderr = None
     return subprocess.Popen(
         command,
         env=env,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=stderr,
         text=True,
     )
 
