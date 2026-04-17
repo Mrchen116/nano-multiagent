@@ -456,6 +456,22 @@ def _run_repl(
                     )
                     continue
 
+                # If a run is actively executing, inject into its pending queue via priority='next'.
+                if run_queue.has_active_work():
+                    try:
+                        injected_resp = client.send_message_async(
+                            session_id=active_session_id,
+                            text=line,
+                            priority="next",
+                        )
+                        if injected_resp.get("status") == "injected":
+                            _emit_external_repl_block(f"Injected into active run for session {active_session_id}.")
+                            continue
+                    except Exception:
+                        # Injection failed (e.g. race: run finished before request reached server).
+                        # Fall through to normal enqueue.
+                        pass
+
                 backlog_before = run_queue.enqueue(session_id=active_session_id, text=line)
                 if backlog_before > 0:
                     _emit_external_repl_block(f"Queued message #{backlog_before} for session {active_session_id}.")

@@ -99,15 +99,23 @@ class ServerClient:
             require_auth=True,
         )
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, Any]:
+    def send_message_async(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        priority: str | None = None,
+    ) -> dict[str, Any]:
         """Submit one asynchronous run and return run handle payload."""
         if not session_id.strip():
             raise ValueError("session_id is required")
         if not text.strip():
             raise ValueError("text is required")
-        payload = {
+        payload: dict[str, Any] = {
             "parts": [{"type": "text", "text": text}],
         }
+        if priority is not None:
+            payload["priority"] = priority
         return self._request(
             "POST",
             f"/v1/sessions/{session_id}/messages:async",

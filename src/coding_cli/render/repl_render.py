@@ -27,11 +27,16 @@ def print_repl_turn_summary(
     compact_status_updates = _compact_status_updates(status_updates, final_state=state)
     compact_tool_updates = _compact_tool_updates(tool_updates)
 
-    print("Assistant:", file=out)
-    if answer is not None:
-        print(answer, file=out)
+    text_streamed = bool(payload.get("_text_streamed"))
+    if text_streamed:
+        # Text was already streamed to out during the run; skip re-printing.
+        pass
     else:
-        print("(empty)", file=out)
+        print("Assistant:", file=out)
+        if answer is not None:
+            print(answer, file=out)
+        else:
+            print("(empty)", file=out)
 
     status_parts: list[str] = [state]
     if stop_reason is not None:

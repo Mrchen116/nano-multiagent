@@ -38,6 +38,7 @@ def send_message_with_async_events(
     seen_event_ids: set[str] | None = None
     seen_event_fingerprints: set[str] | None = None
     assistant_text = ""
+    text_streamed = False
     terminal_run: dict[str, object] | None = None
     collected_events: list[tuple[str, dict[str, object]]] = []
 
@@ -47,7 +48,7 @@ def send_message_with_async_events(
             max_events=_EVENT_POLL_MAX_EVENTS,
             timeout_seconds=_EVENT_POLL_TIMEOUT_SECONDS,
         )
-        assistant_text, _ = consume_async_run_events(
+        assistant_text, _, batch_text_streamed = consume_async_run_events(
             out=out,
             events=events,
             run_id=run_id,
@@ -61,6 +62,8 @@ def send_message_with_async_events(
             preview_writer=preview_writer,
             perf_tracker=perf_tracker,
         )
+        if batch_text_streamed:
+            text_streamed = True
 
         run_payload = client.get_run(run_id=run_id)
         status_text = str(run_payload.get("status", "")).strip().lower()
@@ -68,6 +71,10 @@ def send_message_with_async_events(
             terminal_run = run_payload
             render_phase_machine.begin_finalizing()
             break
+
+    if text_streamed:
+        out.write("\n")
+        out.flush()
 
     if terminal_run is None:
         raise RuntimeError("missing terminal async run result")
@@ -96,6 +103,7 @@ def send_message_with_async_events(
         "completed": True,
         "stop_reason": terminal_run.get("stop_reason") or "stop",
         "usage": terminal_run.get("usage"),
+        "_text_streamed": text_streamed,
         "_repl_view": {
             "status_updates": status_updates,
             "tool_updates": tool_updates,
@@ -142,12 +150,16 @@ def consume_async_run_events(
     previewed_tool_lines: set[str] | None = None,
     emitted_tool_preview_identities: set[str] | None = None,
     perf_tracker: ReplPerfTracker | None = None,
-) -> tuple[str, int]:
+) -> tuple[str, int, bool]:
     """Consume one poll batch with dedupe and run-id filtering.
+
+    Returns:
+        (updated_assistant_text, consumed_count, text_was_streamed_this_batch)
 
     Notes:
         Event id dedupe avoids replayed-history duplicates, and run-id filtering
         prevents cross-run events from polluting the current REPL turn.
+        text_delta events bypass the preview machinery and write directly to out.
     """
     delayed_terminal_run_status: dict[str, object] | None = None
     saw_terminal_run_status = False
@@ -157,6 +169,7 @@ def consume_async_run_events(
     run_filtered = 0
     polled_events = len(events)
     updated_text = assistant_text
+    text_streamed_this_batch = False
     resolved_dedupe_window = dedupe_window or EventDedupeWindow()
     resolved_phase_machine = render_phase_machine or ReplRenderPhaseMachine()
     for event in events:
@@ -211,6 +224,11 @@ def consume_async_run_events(
             delta = data.get("delta")
             if isinstance(delta, str):
                 updated_text = merge_text_delta(updated_text, delta)
+                if emit_preview and delta:
+                    out.write(delta)
+                    out.flush()
+                    text_streamed_this_batch = True
+            continue
     if saw_terminal_run_status:
         resolved_phase_machine.begin_finalizing()
     if delayed_terminal_run_status is not None:
@@ -231,7 +249,7 @@ def consume_async_run_events(
             run_filtered=run_filtered,
             dedupe_dropped=dedupe_dropped,
         )
-    return updated_text, consumed
+    return updated_text, consumed, text_streamed_this_batch
 
 
 def print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]) -> None:
