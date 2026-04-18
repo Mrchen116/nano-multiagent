@@ -32,22 +32,32 @@ class WriteTool:
         raw_path = str(args["path"])
         content = str(args["content"])
         file_path = ctx.safety.resolve_path(raw_path, cwd=ctx.cwd, tool_name=self.name)
+        file_exists = file_path.exists()
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
         display_path = _display_path(file_path, ctx.repo_root)
-        byte_count = len(content.encode("utf-8"))
 
         return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Successfully wrote {byte_count} bytes to {display_path}",
-                }
-            ]
+            "type": "update" if file_exists else "create",
+            "filePath": str(file_path),
+            "displayPath": display_path,
         }
 
-    def serialize_result(self, output: Any) -> str:
-        return json_serialize(output)
+    def serialize_result(self, output: Any, error: str | None = None) -> str:
+        if error is not None:
+            return error
+        if not isinstance(output, Mapping):
+            return json_serialize(output)
+
+        file_path = output.get("displayPath", output.get("filePath", "unknown"))
+        write_type = output.get("type")
+
+        if write_type == "create":
+            return f"File created successfully at: {file_path}"
+        elif write_type == "update":
+            return f"The file {file_path} has been updated successfully."
+        else:
+            return json_serialize(output)
 
 
 def _display_path(path: Path, repo_root: Path) -> str:

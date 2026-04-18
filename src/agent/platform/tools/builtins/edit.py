@@ -86,7 +86,9 @@ class EditTool:
             },
         }
 
-    def serialize_result(self, output: Any) -> str:
+    def serialize_result(self, output: Any, error: str | None = None) -> str:
+        if error is not None:
+            return error
         return json_serialize(output)
 
 

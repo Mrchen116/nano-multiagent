@@ -33,7 +33,7 @@ def test_read_image_contract_returns_text_plus_image_parts(tmp_path: Path) -> No
     }
 
 
-def test_read_truncation_contract_contains_next_offset_hint(tmp_path: Path) -> None:
+def test_read_truncation_contract_returns_truncated_content(tmp_path: Path) -> None:
     (tmp_path / "note.txt").write_text("a\nb\nc\nd\n", encoding="utf-8")
     result = ReadTool().run(
         {"path": "note.txt", "offset": 1, "limit": 4},
@@ -41,11 +41,11 @@ def test_read_truncation_contract_contains_next_offset_hint(tmp_path: Path) -> N
     )
 
     assert result["truncated"] is True
-    assert result["next_offset"] == 3
+    assert result["next_offset"] is None
     text_part = result["content"][0]
     assert text_part == {
         "type": "text",
-        "text": "a\nb\n\n[Showing lines 1-2 of 4. Use offset=3 to continue.]",
+        "text": "a\nb",
     }
     assert result["details"]["truncation"]["truncatedBy"] == "lines"
 

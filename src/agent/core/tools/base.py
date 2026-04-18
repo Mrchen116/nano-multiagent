@@ -56,11 +56,15 @@ class Tool(Protocol):
     def run(self, args: Mapping[str, Any], ctx: "ToolContext") -> Mapping[str, Any]:
         """Run tool with validated args and context."""
 
-    def serialize_result(self, output: Any) -> str:
-        """Serialize this tool's structured output into LLM-facing tool_message content.
+    def serialize_result(self, output: Any, error: str | None = None) -> str:
+        """Serialize tool result into LLM-facing tool_message content.
 
-        It is each tool's own responsibility to decide how its business-level result
-        is presented to the model (e.g. plain text, JSON, or a specialized stub).
+        Called for both success and error outcomes so each tool controls its
+        own presentation (plain text, JSON, or a specialized stub).
+
+        Args:
+            output: Structured output from ``run()`` (success) or None (error).
+            error: Error message when ``run()`` raised an exception; None on success.
         """
         ...
 

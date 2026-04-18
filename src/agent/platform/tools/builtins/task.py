@@ -423,7 +423,9 @@ class TaskTool:
         with self._lock:
             self._idempotent_results[idempotency_key] = str(result)
 
-    def serialize_result(self, output: Any) -> str:
+    def serialize_result(self, output: Any, error: str | None = None) -> str:
+        if error is not None:
+            return error
         if isinstance(output, str):
             return output
         return json_serialize(output)

@@ -32,7 +32,8 @@ class ReadTool:
         "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
         f"Images are sent as attachments. For text files, output is truncated to {DEFAULT_MAX_LINES} "
         f"lines or {DEFAULT_MAX_KILOBYTES}KB (whichever is hit first). Use offset/limit for large "
-        "files. When you need the full file, continue with offset until complete."
+        "files. When you need the full file, continue with offset until complete. "
+        "Results are returned using cat -n format, with line numbers starting at 1."
     )
     input_schema = {
         "type": "object",
@@ -151,48 +152,16 @@ class ReadTool:
             max_lines=ctx.safety.config.read_max_lines,
             max_bytes=ctx.safety.config.read_max_bytes,
         )
-        rendered = truncation["content"]
-        details: dict[str, Any] | None = None
-        next_offset: int | None = None
-
-        if truncation["firstLineExceedsLimit"]:
-            first_line_size = _format_size(len(selected[0].encode("utf-8")))
-            max_bytes_display = _format_size(ctx.safety.config.read_max_bytes)
-            rendered = (
-                f"[Line {offset} is {first_line_size}, exceeds {max_bytes_display} limit. "
-                f"Use bash: sed -n '{offset}p' {raw_path} | head -c {ctx.safety.config.read_max_bytes}]"
-            )
-            details = {"truncation": truncation}
-            next_offset = offset
-        elif truncation["truncated"]:
-            output_lines = int(truncation["outputLines"])
-            end_line = offset + output_lines - 1
-            next_offset = end_line + 1
-            if truncation["truncatedBy"] == "bytes":
-                max_bytes_display = _format_size(ctx.safety.config.read_max_bytes)
-                hint = (
-                    f"[Showing lines {offset}-{end_line} of {total_lines} "
-                    f"({max_bytes_display} limit). Use offset={next_offset} to continue.]"
-                )
-            else:
-                hint = f"[Showing lines {offset}-{end_line} of {total_lines}. Use offset={next_offset} to continue.]"
-            rendered = f"{rendered}\n\n{hint}" if rendered else hint
-            details = {"truncation": truncation}
-        elif limit is not None and start_index + len(selected) < total_lines:
-            remaining = total_lines - (start_index + len(selected))
-            next_offset = start_index + len(selected) + 1
-            rendered = f"{rendered}\n\n[{remaining} more lines in file. Use offset={next_offset} to continue.]"
 
         response: dict[str, Any] = {
             "path": display_path,
             "offset": offset,
-            "next_offset": next_offset,
+            "next_offset": None,
             "total_lines": total_lines,
             "truncated": bool(truncation["truncated"]),
-            "content": [{"type": "text", "text": rendered}],
+            "content": [{"type": "text", "text": truncation["content"]}],
+            "details": {"truncation": truncation},
         }
-        if details is not None:
-            response["details"] = details
 
         if ctx.read_file_state is not None:
             try:
@@ -205,7 +174,10 @@ class ReadTool:
 
         return response
 
-    def serialize_result(self, output: Any) -> str:
+    def serialize_result(self, output: Any, error: str | None = None) -> str:
+        if error is not None:
+            return error
+
         if isinstance(output, Mapping) and output.get("type") == "file_unchanged":
             file_path = output.get("file", {}).get("filePath", "unknown")
             return (
@@ -222,28 +194,21 @@ class ReadTool:
                     isinstance(block, Mapping) and block.get("type") == "image"
                     for block in content_blocks
                 )
-                if not has_image:
-                    new_blocks: list[Any] = []
-                    found_text = False
-                    for block in content_blocks:
-                        if (
-                            not found_text
-                            and isinstance(block, Mapping)
-                            and block.get("type") == "text"
-                        ):
-                            text = block.get("text", "")
-                            if text:
-                                offset = output.get("offset", 1)
-                                new_block = dict(block)
-                                new_block["text"] = _add_line_numbers(text, offset)
-                                new_blocks.append(new_block)
-                                found_text = True
-                                continue
-                        new_blocks.append(block)
-                    if found_text:
-                        new_output = dict(output)
-                        new_output["content"] = new_blocks
-                        return json_serialize(new_output)
+                if has_image:
+                    return json_serialize(output)
+
+                texts = [
+                    block.get("text", "")
+                    for block in content_blocks
+                    if isinstance(block, Mapping) and block.get("type") == "text"
+                ]
+                combined = "\n".join(texts)
+
+                if not combined:
+                    return "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>"
+
+                offset = output.get("offset", 1)
+                return _add_line_numbers(combined, offset)
 
         return json_serialize(output)
 
@@ -390,22 +355,6 @@ def _truncate_head_lines(lines: list[str], *, max_lines: int, max_bytes: int) ->
             "totalBytes": total_bytes,
             "outputLines": total_lines,
             "outputBytes": total_bytes,
-            "firstLineExceedsLimit": False,
-            "maxLines": max_lines,
-            "maxBytes": max_bytes,
-        }
-
-    first_line_bytes = len(lines[0].encode("utf-8")) if lines else 0
-    if lines and first_line_bytes > max_bytes:
-        return {
-            "content": "",
-            "truncated": True,
-            "truncatedBy": "bytes",
-            "totalLines": total_lines,
-            "totalBytes": total_bytes,
-            "outputLines": 0,
-            "outputBytes": 0,
-            "firstLineExceedsLimit": True,
             "maxLines": max_lines,
             "maxBytes": max_bytes,
         }
@@ -433,7 +382,6 @@ def _truncate_head_lines(lines: list[str], *, max_lines: int, max_bytes: int) ->
         "totalBytes": total_bytes,
         "outputLines": len(output_lines),
         "outputBytes": len(output_content.encode("utf-8")),
-        "firstLineExceedsLimit": False,
         "maxLines": max_lines,
         "maxBytes": max_bytes,
     }

@@ -203,7 +203,7 @@ async def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
     assert len(result.tool_results) == 1
     assert result.tool_results[0].error == "tool boom"
     assert result.tool_results[0].output is None
-    assert '"error":"tool boom"' in client.requests[1].messages[-1].content
+    assert "tool boom" in client.requests[1].messages[-1].content
 
 
 async def test_loop_accumulates_usage_across_multiple_model_calls() -> None:

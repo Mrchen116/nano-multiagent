@@ -18,6 +18,10 @@ from agent.platform.tools.constants import (
 from agent.platform.tools.safety import CommandExecution
 from agent.platform.tools.safety import ToolSafety
 from agent.platform.tools.safety import ToolSafetyConfig
+from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+
+set_tool_safety_factory(ToolSafety)
+set_tool_safety_config_factory(ToolSafetyConfig)
 
 
 def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolContext:
@@ -29,7 +33,8 @@ def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
         "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
         f"Images are sent as attachments. For text files, output is truncated to {DEFAULT_MAX_LINES} "
         f"lines or {DEFAULT_MAX_KILOBYTES}KB (whichever is hit first). Use offset/limit for large "
-        "files. When you need the full file, continue with offset until complete."
+        "files. When you need the full file, continue with offset until complete. "
+        "Results are returned using cat -n format, with line numbers starting at 1."
     )
     assert BashTool.description == (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "
@@ -126,12 +131,12 @@ def test_read_supports_segmented_reads(tmp_path: Path) -> None:
 
     text_part = result["content"][0]
     assert text_part["type"] == "text"
-    assert text_part["text"] == "line-3\nline-4\n\n[2 more lines in file. Use offset=5 to continue.]"
+    assert text_part["text"] == "line-3\nline-4"
     assert result["truncated"] is False
-    assert result["next_offset"] == 5
+    assert result["next_offset"] is None
 
 
-def test_read_truncates_output_and_reports_next_offset(tmp_path: Path) -> None:
+def test_read_truncates_output_by_lines(tmp_path: Path) -> None:
     content = "\n".join(f"line-{idx}" for idx in range(1, 7))
     (tmp_path / "note.txt").write_text(content, encoding="utf-8")
     ctx = _context(
@@ -143,13 +148,13 @@ def test_read_truncates_output_and_reports_next_offset(tmp_path: Path) -> None:
 
     text_part = result["content"][0]
     assert text_part["type"] == "text"
-    assert text_part["text"] == "line-1\nline-2\n\n[Showing lines 1-2 of 6. Use offset=3 to continue.]"
+    assert text_part["text"] == "line-1\nline-2"
     assert result["truncated"] is True
-    assert result["next_offset"] == 3
+    assert result["next_offset"] is None
     assert result["details"]["truncation"]["truncatedBy"] == "lines"
 
 
-def test_read_truncates_by_bytes_and_reports_limit_hint(tmp_path: Path) -> None:
+def test_read_truncates_by_bytes(tmp_path: Path) -> None:
     (tmp_path / "note.txt").write_text("1234567890\nabcdefghij\nline-3", encoding="utf-8")
     ctx = _context(
         tmp_path,
@@ -160,29 +165,10 @@ def test_read_truncates_by_bytes_and_reports_limit_hint(tmp_path: Path) -> None:
 
     text_part = result["content"][0]
     assert text_part["type"] == "text"
-    assert text_part["text"] == "1234567890\n\n[Showing lines 1-1 of 3 (16B limit). Use offset=2 to continue.]"
+    assert text_part["text"] == "1234567890"
     assert result["truncated"] is True
-    assert result["next_offset"] == 2
+    assert result["next_offset"] is None
     assert result["details"]["truncation"]["truncatedBy"] == "bytes"
-
-
-def test_read_first_line_exceeds_byte_limit_returns_bash_hint(tmp_path: Path) -> None:
-    (tmp_path / "oversized.txt").write_text(f"{'a' * 11}\nline-2", encoding="utf-8")
-    ctx = _context(
-        tmp_path,
-        config=ToolSafetyConfig(read_max_lines=200, read_max_bytes=10),
-    )
-
-    result = ReadTool().run({"path": "oversized.txt", "offset": 1}, ctx)
-
-    text_part = result["content"][0]
-    assert text_part["type"] == "text"
-    assert (
-        text_part["text"]
-        == "[Line 1 is 11B, exceeds 10B limit. Use bash: sed -n '1p' oversized.txt | head -c 10]"
-    )
-    assert result["truncated"] is True
-    assert result["details"]["truncation"]["firstLineExceedsLimit"] is True
 
 
 def test_read_offset_out_of_range_surfaces_details(tmp_path: Path) -> None:
@@ -230,7 +216,8 @@ def test_write_overwrites_existing_file(tmp_path: Path) -> None:
     result = WriteTool().run({"path": "notes/todo.txt", "content": "after"}, ctx)
 
     assert target.read_text(encoding="utf-8") == "after"
-    assert result["content"] == [{"type": "text", "text": "Successfully wrote 5 bytes to notes/todo.txt"}]
+    assert result["type"] == "update"
+    assert result["displayPath"] == "notes/todo.txt"
 
 
 def test_edit_replaces_exact_text_once(tmp_path: Path) -> None:
@@ -444,7 +431,7 @@ def test_read_returns_text_and_image_parts_for_png(tmp_path: Path) -> None:
     assert image_part["data"] == base64.b64encode(image_bytes).decode("ascii")
 
 
-def test_read_truncation_appends_next_offset_hint(tmp_path: Path) -> None:
+def test_read_truncation_returns_truncated_content(tmp_path: Path) -> None:
     content = "\n".join(f"line-{idx}" for idx in range(1, 6))
     (tmp_path / "note.txt").write_text(content, encoding="utf-8")
     ctx = _context(
@@ -455,15 +442,13 @@ def test_read_truncation_appends_next_offset_hint(tmp_path: Path) -> None:
     result = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 5}, ctx)
 
     assert result["truncated"] is True
-    assert result["next_offset"] == 3
+    assert result["next_offset"] is None
     text_part = result["content"][0]
     assert text_part["type"] == "text"
-    assert text_part["text"] == "line-1\nline-2\n\n[Showing lines 1-2 of 5. Use offset=3 to continue.]"
+    assert text_part["text"] == "line-1\nline-2"
 
 
 def test_read_serialize_result_adds_line_numbers() -> None:
-    import json
-
     tool = ReadTool()
     output = {
         "path": "test.py",
@@ -474,9 +459,7 @@ def test_read_serialize_result_adds_line_numbers() -> None:
         "content": [{"type": "text", "text": "line-3\nline-4\nline-5"}],
     }
     result = tool.serialize_result(output)
-    parsed = json.loads(result)
-    text = parsed["content"][0]["text"]
-    assert text == "     3\u2192line-3\n     4\u2192line-4\n     5\u2192line-5"
+    assert result == "     3→line-3\n     4→line-4\n     5→line-5"
 
 
 def test_read_serialize_result_skips_line_numbers_for_file_unchanged() -> None:
@@ -484,7 +467,7 @@ def test_read_serialize_result_skips_line_numbers_for_file_unchanged() -> None:
     output = {"type": "file_unchanged", "file": {"filePath": "test.py"}}
     result = tool.serialize_result(output)
     assert "File unchanged since last read" in result
-    assert "\u2192" not in result
+    assert "→" not in result
 
 
 def test_read_serialize_result_skips_line_numbers_for_images() -> None:
@@ -508,13 +491,28 @@ def test_read_serialize_result_skips_line_numbers_for_images() -> None:
     assert text == "Read image file [image/png]"
 
 
+def test_read_serialize_result_returns_empty_file_warning() -> None:
+    tool = ReadTool()
+    output = {
+        "path": "empty.txt",
+        "offset": 1,
+        "next_offset": None,
+        "total_lines": 0,
+        "truncated": False,
+        "content": [{"type": "text", "text": ""}],
+    }
+    result = tool.serialize_result(output)
+    assert "<system-reminder>" in result
+    assert "contents are empty" in result
+
+
 def test_add_line_numbers_formats_six_digit_line_without_padding() -> None:
     from agent.platform.tools.builtins.read import _format_line_number
 
-    assert _format_line_number(1, "hello") == "     1\u2192hello"
-    assert _format_line_number(10, "world") == "    10\u2192world"
-    assert _format_line_number(999999, "x") == "999999\u2192x"
-    assert _format_line_number(1000000, "y") == "1000000\u2192y"
+    assert _format_line_number(1, "hello") == "     1→hello"
+    assert _format_line_number(10, "world") == "    10→world"
+    assert _format_line_number(999999, "x") == "999999→x"
+    assert _format_line_number(1000000, "y") == "1000000→y"
 
 
 def test_add_line_numbers_preserves_empty_text() -> None:
@@ -527,4 +525,34 @@ def test_add_line_numbers_handles_crlf() -> None:
     from agent.platform.tools.builtins.read import _add_line_numbers
 
     result = _add_line_numbers("a\r\nb\r\nc", start_line=1)
-    assert result == "     1\u2192a\n     2\u2192b\n     3\u2192c"
+    assert result == "     1→a\n     2→b\n     3→c"
+
+
+def test_write_serialize_result_create() -> None:
+    tool = WriteTool()
+    output = {"type": "create", "filePath": "/tmp/foo.py", "displayPath": "foo.py"}
+    result = tool.serialize_result(output)
+    assert result == "File created successfully at: foo.py"
+
+
+def test_write_serialize_result_update() -> None:
+    tool = WriteTool()
+    output = {"type": "update", "filePath": "/tmp/bar.py", "displayPath": "bar.py"}
+    result = tool.serialize_result(output)
+    assert result == "The file bar.py has been updated successfully."
+
+
+def test_write_serialize_result_fallback_for_unknown_type() -> None:
+    tool = WriteTool()
+    output = {"type": "unknown", "filePath": "/tmp/baz.py", "displayPath": "baz.py"}
+    result = tool.serialize_result(output)
+    import json
+    assert json.loads(result) == output
+
+
+def test_write_creates_new_file(tmp_path: Path) -> None:
+    ctx = _context(tmp_path)
+    result = WriteTool().run({"path": "newfile.txt", "content": "hello"}, ctx)
+    assert result["type"] == "create"
+    assert result["displayPath"] == "newfile.txt"
+    assert (tmp_path / "newfile.txt").read_text(encoding="utf-8") == "hello"

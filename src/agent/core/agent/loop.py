@@ -441,12 +441,10 @@ class AgentLoop:
     def _serialize_tool_result(self, result: ToolResult) -> str:
         """Route tool result serialization to the tool-specific adapter."""
 
-        if result.error is not None:
-            return _fallback_serialize_tool_result(result)
         tool = self._tool_registry.get_tool(result.name) if self._tool_registry is not None else None
         if tool is not None and hasattr(tool, "serialize_result"):
             try:
-                return tool.serialize_result(result.output)
+                return tool.serialize_result(result.output, result.error)
             except Exception:  # pragma: no cover - defensive fallback.
                 pass
         return _fallback_serialize_tool_result(result)
@@ -536,14 +534,13 @@ def _as_llm_tool_calls(tool_calls: tuple[ToolCall, ...]) -> tuple[LLMToolCall, .
 def _fallback_serialize_tool_result(result: ToolResult) -> str:
     """Serialize tool result into tool-message content delivered back to model."""
 
+    if result.error is not None:
+        return result.error
     payload: dict[str, Any] = {
         "call_id": result.call_id,
         "name": result.name,
+        "output": result.output,
     }
-    if result.error is not None:
-        payload["error"] = result.error
-    else:
-        payload["output"] = result.output
     return json_serialize(payload)
 
 
