@@ -89,10 +89,20 @@ def test_task_blocking_returns_structured_success_payload(tmp_path: Path) -> Non
         _context(tmp_path),
     )
 
-    assert result.startswith("Task completed in ")
-    assert "Agent: oracle" in result
-    assert "\n---\n\ntask:hello\n" in result
-    assert "<task_metadata>\nsession_id: sess_task_1\n</task_metadata>" in result
+    assert result["status"] == "completed"
+    assert result["content"] == "task:hello"
+    assert result["agent"] == "oracle"
+    assert result["continuation"] is False
+    assert "sessionId" in result
+    assert "taskId" in result
+    assert "durationMs" in result
+
+    serialized = tool.serialize_result(result)
+    assert serialized.startswith("Task completed in ")
+    assert "Agent: oracle" in serialized
+    assert "\n---\n\ntask:hello\n" in serialized
+    assert "session_id: sess_task_1" in serialized
+    assert "task_id:" in serialized
     assert runtime.run_calls[0]["stream"] is False
 
 
@@ -111,11 +121,16 @@ def test_task_blocking_wraps_subagent_errors_without_raising(tmp_path: Path) -> 
         _context(tmp_path),
     )
 
-    assert result.startswith("Task failed")
-    assert "**Error**: subagent exploded" in result
-    assert "<task_metadata>" in result
-    assert "session_id: sess_task_1" in result
-    assert "</task_metadata>" in result
+    assert result["status"] == "failed"
+    assert result["title"] == "Task failed"
+    assert result["error"] == "subagent exploded"
+    assert result["agent"] == "oracle"
+    assert "sessionId" in result
+
+    serialized = tool.serialize_result(result)
+    assert serialized.startswith("Task failed")
+    assert "Error: subagent exploded" in serialized
+    assert "session_id: sess_task_1" in serialized
 
 
 def test_task_blocking_respects_timeout_seconds(tmp_path: Path) -> None:
@@ -134,8 +149,31 @@ def test_task_blocking_respects_timeout_seconds(tmp_path: Path) -> None:
         _context(tmp_path),
     )
 
-    assert result.startswith("Task timed out")
-    assert "**Error**: task exceeded timeout_seconds=0.05" in result
-    assert "<task_metadata>" in result
-    assert "session_id: sess_task_1" in result
-    assert "</task_metadata>" in result
+    assert result["status"] == "failed"
+    assert result["title"] == "Task timed out"
+    assert "timeout_seconds=0.05" in result["error"]
+    assert result["agent"] == "oracle"
+    assert "sessionId" in result
+
+    serialized = tool.serialize_result(result)
+    assert serialized.startswith("Task timed out")
+    assert "Error: task exceeded timeout_seconds=0.05" in serialized
+    assert "session_id: sess_task_1" in serialized
+
+
+def test_task_blocking_serialize_result_with_empty_content(tmp_path: Path) -> None:
+    runtime = _RuntimeStub()
+    tool = TaskTool(runtime=runtime)
+
+    result = {
+        "status": "completed",
+        "content": "",
+        "sessionId": "sess_empty",
+        "durationMs": 42,
+        "agent": "test",
+        "continuation": False,
+        "taskId": "tid_empty",
+    }
+    serialized = tool.serialize_result(result)
+    assert "(Subagent completed but returned no output.)" in serialized
+    assert "session_id: sess_empty" in serialized

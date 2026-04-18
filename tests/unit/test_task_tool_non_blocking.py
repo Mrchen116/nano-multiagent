@@ -119,12 +119,20 @@ def test_task_non_blocking_returns_receipt_and_executes_in_background(tmp_path: 
         _context(tmp_path),
     )
 
-    assert result.startswith("Background task launched.")
-    assert "Task ID: call_" in result
-    assert "Description: delegate task" in result
-    assert "Agent: research (category: research)" in result
-    assert "Status: queued" in result
-    assert "<task_metadata>\nsession_id: sess_task_non_blocking_1\n</task_metadata>" in result
+    assert result["status"] == "async_launched"
+    assert result["taskId"].startswith("call_")
+    assert result["description"] == "delegate task"
+    assert result["agent"] == "research (category: research)"
+    assert result["continuation"] is False
+    assert "sessionId" in result
+
+    serialized = tool.serialize_result(result)
+    assert serialized.startswith("Background task launched.")
+    assert "Task ID: call_" in serialized
+    assert "Description: delegate task" in serialized
+    assert "Agent: research (category: research)" in serialized
+    assert "Status: queued" in serialized
+
     _wait_for(lambda: len(runtime.run_calls) == 1)
 
 
@@ -195,11 +203,17 @@ def test_task_continuation_uses_existing_session_id(tmp_path: Path) -> None:
         _context(tmp_path),
     )
 
-    assert result.startswith("Task continued and completed in ")
-    assert "\n---\n\ndone\n" in result
-    assert "<task_metadata>\nsession_id: sess_existing\n</task_metadata>" in result
+    assert result["status"] == "completed"
+    assert result["content"] == "done"
+    assert result["continuation"] is True
+    assert result["sessionId"] == "sess_existing"
     assert runtime.run_calls[0]["session_id"] == "sess_existing"
     assert runtime.created == 0
+
+    serialized = tool.serialize_result(result)
+    assert serialized.startswith("Task continued and completed in ")
+    assert "\n---\n\ndone\n" in serialized
+    assert "session_id: sess_existing" in serialized
 
 
 def test_task_unknown_session_id_starts_new_task_when_prompt_present(tmp_path: Path) -> None:
@@ -219,11 +233,15 @@ def test_task_unknown_session_id_starts_new_task_when_prompt_present(tmp_path: P
         _context(tmp_path),
     )
 
-    assert result.startswith("Task completed in ")
-    assert "session_id: sess_task_non_blocking_1" in result
-    assert "session_id: joke-subagent-1" not in result
+    assert result["status"] == "completed"
+    assert result["sessionId"] == "sess_task_non_blocking_1"
+    assert result["sessionId"] != "joke-subagent-1"
     assert runtime.run_calls[0]["session_id"] == "sess_task_non_blocking_1"
     assert runtime.created == 1
+
+    serialized = tool.serialize_result(result)
+    assert serialized.startswith("Task completed in ")
+    assert "session_id: sess_task_non_blocking_1" in serialized
 
 
 def test_task_rejects_non_boolean_run_in_background(tmp_path: Path) -> None:

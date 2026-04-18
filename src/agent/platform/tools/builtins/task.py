@@ -64,18 +64,18 @@ class TaskTool:
     description = (
         "Spawn agent task with category-based or direct agent selection.\n\n"
         "MUTUALLY EXCLUSIVE: Provide EITHER category OR subagent_type, not both (unless continuing a session).\n\n"
-        "- load_skills: ALWAYS REQUIRED. Pass at least one skill name (e.g., [\"playwright\"], [\"git-master\", \"frontend-ui-ux\"]).\n"
+        '- load_skills: ALWAYS REQUIRED. Pass at least one skill name (e.g., ["playwright"], ["git-master", "frontend-ui-ux"]).\n'
         "- category: Use predefined category → Spawns Sisyphus-Junior with category config\n"
         "  Available categories:\n"
         "${categoryList}\n"
-        "- subagent_type: Use specific agent directly (e.g., \"oracle\", \"explore\")\n"
+        '- subagent_type: Use specific agent directly (e.g., "oracle", "explore")\n'
         "- run_in_background: true=async (returns task_id), false=sync (waits for result). Default: false. "
         "Use background=true ONLY for parallel exploration with 5+ independent queries.\n"
         "- session_id: Existing Task session to continue (from previous task output). Continues agent with FULL CONTEXT PRESERVED - "
         "saves tokens, maintains continuity.\n"
         "- command: The command that triggered this task (optional, for slash command tracking).\n\n"
         "**WHEN TO USE session_id:**\n"
-        "- Task failed/incomplete → session_id with \"fix: [specific issue]\"\n"
+        '- Task failed/incomplete → session_id with "fix: [specific issue]"\n'
         "- Need follow-up on previous result → session_id with additional question\n"
         "- Multi-turn conversation with same agent → always session_id instead of new task\n\n"
         "Prompts MUST be in English."
@@ -88,7 +88,7 @@ class TaskTool:
                 "items": {"type": "string"},
                 "description": (
                     "Skill names to inject. REQUIRED - pass [] if no skills needed, but IT IS HIGHLY RECOMMENDED to pass "
-                    "proper skills like [\"playwright\"], [\"git-master\"] for best results."
+                    'proper skills like ["playwright"], ["git-master"] for best results.'
                 ),
             },
             "description": {"type": "string", "description": "Short task description (3-5 words)"},
@@ -123,8 +123,8 @@ class TaskTool:
     def __init__(self, *, runtime: TaskRuntime | None = None) -> None:
         self._runtime = runtime
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="nano-task")
-        self._idempotent_results: dict[str, str] = {}
-        self._task_results: dict[str, str] = {}
+        self._idempotent_results: dict[str, Any] = {}
+        self._task_results: dict[str, Any] = {}
         self._lock = Lock()
 
     def bind_runtime(self, runtime: TaskRuntime | None) -> None:
@@ -132,7 +132,7 @@ class TaskTool:
 
         self._runtime = runtime
 
-    def run(self, args: Mapping[str, Any], ctx: ToolContext) -> str:
+    def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Any:
         """Execute one task request in blocking or non-blocking mode."""
 
         run_in_background = _normalize_run_in_background(args.get("run_in_background"))
@@ -158,12 +158,11 @@ class TaskTool:
         ctx: ToolContext,
         *,
         run_in_background: bool,
-    ) -> str:
+    ) -> dict[str, Any]:
         runtime = self._require_runtime()
         task_id = make_tool_call_id()
         timeout_seconds = _resolve_timeout_seconds(args)
         task_session_id, prompt, continuation = self._resolve_target_session(args, runtime=runtime, ctx=ctx)
-        description = _normalize_optional_text(args.get("description")) or ""
         agent = _resolve_agent_name(args)
 
         start = perf_counter()
@@ -178,34 +177,35 @@ class TaskTool:
         try:
             turn = future.result(timeout=timeout_seconds)
         except FutureTimeoutError:
-            return _error_message(
-                title="Task timed out",
-                message=f"task exceeded timeout_seconds={timeout_seconds}",
-                task_id=task_id,
-                session_id=task_session_id,
-                continuation=continuation,
-                subagent=_resolve_subagent(args),
-            )
+            return {
+                "status": "failed",
+                "title": "Task timed out",
+                "error": f"task exceeded timeout_seconds={timeout_seconds}",
+                "sessionId": task_session_id,
+                "agent": agent,
+                "continuation": continuation,
+                "taskId": task_id,
+            }
         except Exception as exc:  # noqa: BLE001
-            return _error_message(
-                title="Task failed",
-                message=str(exc),
-                task_id=task_id,
-                session_id=task_session_id,
-                continuation=continuation,
-                subagent=_resolve_subagent(args),
-            )
+            return {
+                "status": "failed",
+                "title": "Task failed",
+                "error": str(exc),
+                "sessionId": task_session_id,
+                "agent": agent,
+                "continuation": continuation,
+                "taskId": task_id,
+            }
 
-        return _sync_success_message(
-            task_id=task_id,
-            description=description,
-            agent=agent,
-            session_id=task_session_id,
-            continuation=continuation,
-            duration_ms=_elapsed_ms(start),
-            turn=turn,
-            subagent=_resolve_subagent(args),
-        )
+        return {
+            "status": "completed",
+            "content": _pick_assistant_text(turn.messages),
+            "sessionId": task_session_id,
+            "durationMs": _elapsed_ms(start),
+            "agent": agent,
+            "continuation": continuation,
+            "taskId": task_id,
+        }
 
     def _run_non_blocking(
         self,
@@ -213,21 +213,22 @@ class TaskTool:
         ctx: ToolContext,
         *,
         run_in_background: bool,
-    ) -> str:
+    ) -> dict[str, Any]:
         runtime = self._require_runtime()
         timeout_seconds = _resolve_timeout_seconds(args)
         task_id = make_tool_call_id()
         task_session_id, prompt, continuation = self._resolve_target_session(args, runtime=runtime, ctx=ctx)
         description = _normalize_optional_text(args.get("description")) or ""
         agent = _resolve_agent_name(args)
-        receipt = _background_receipt_message(
-            task_id=task_id,
-            description=description,
-            session_id=task_session_id,
-            continuation=continuation,
-            agent=agent,
-            subagent=_resolve_subagent(args),
-        )
+
+        receipt = {
+            "status": "async_launched",
+            "taskId": task_id,
+            "sessionId": task_session_id,
+            "description": description,
+            "agent": agent,
+            "continuation": continuation,
+        }
         with self._lock:
             self._task_results[task_id] = receipt
 
@@ -266,39 +267,40 @@ class TaskTool:
                 llm_session_id=llm_session_id,
             )
         except Exception as exc:  # noqa: BLE001
-            payload = _error_message(
-                title="Task failed",
-                message=str(exc),
-                task_id=task_id,
-                session_id=task_session_id,
-                continuation=continuation,
-                subagent=None,
-            )
+            payload = {
+                "status": "failed",
+                "title": "Task failed",
+                "error": str(exc),
+                "sessionId": task_session_id,
+                "agent": "background",
+                "continuation": continuation,
+                "taskId": task_id,
+            }
             with self._lock:
                 self._task_results[task_id] = payload
             return
 
         duration_ms = _elapsed_ms(start)
         if duration_ms > int(timeout_seconds * 1000):
-            payload = _error_message(
-                title="Task timed out",
-                message=f"task exceeded timeout_seconds={timeout_seconds}",
-                task_id=task_id,
-                session_id=task_session_id,
-                continuation=continuation,
-                subagent=None,
-            )
+            payload = {
+                "status": "failed",
+                "title": "Task timed out",
+                "error": f"task exceeded timeout_seconds={timeout_seconds}",
+                "sessionId": task_session_id,
+                "agent": "background",
+                "continuation": continuation,
+                "taskId": task_id,
+            }
         else:
-            payload = _sync_success_message(
-                task_id=task_id,
-                description="background worker result",
-                agent="background",
-                session_id=task_session_id,
-                continuation=continuation,
-                duration_ms=duration_ms,
-                turn=turn,
-                subagent=None,
-            )
+            payload = {
+                "status": "completed",
+                "content": _pick_assistant_text(turn.messages),
+                "sessionId": task_session_id,
+                "durationMs": duration_ms,
+                "agent": "background",
+                "continuation": continuation,
+                "taskId": task_id,
+            }
 
         with self._lock:
             self._task_results[task_id] = payload
@@ -313,18 +315,23 @@ class TaskTool:
         llm_session_id: str | None,
     ) -> TurnResult:
         import asyncio
+
         if continuation and not prompt:
-            return asyncio.run(runtime.continue_turn(
+            return asyncio.run(
+                runtime.continue_turn(
+                    task_session_id,
+                    stream=False,
+                    llm_session_id=llm_session_id,
+                )
+            )
+        return asyncio.run(
+            runtime.run(
                 task_session_id,
+                [{"type": "text", "text": prompt}],
                 stream=False,
                 llm_session_id=llm_session_id,
-            ))
-        return asyncio.run(runtime.run(
-            task_session_id,
-            [{"type": "text", "text": prompt}],
-            stream=False,
-            llm_session_id=llm_session_id,
-        ))
+            )
+        )
 
     def _resolve_target_session(
         self,
@@ -338,6 +345,7 @@ class TaskTool:
         continuation = bool(task_session_id)
 
         import asyncio
+
         if continuation:
             exists = _runtime_session_exists(runtime, task_session_id)
             if exists is not False:
@@ -408,27 +416,92 @@ class TaskTool:
             raise ToolError("task runtime is not configured", tool_name=self.name)
         return runtime
 
-    def _get_cached_result(self, idempotency_key: str | None) -> str | None:
+    def _get_cached_result(self, idempotency_key: str | None) -> Any | None:
         if not idempotency_key:
             return None
         with self._lock:
-            cached = self._idempotent_results.get(idempotency_key)
-            if cached is None:
-                return None
-            return str(cached)
+            return self._idempotent_results.get(idempotency_key)
 
-    def _cache_result(self, idempotency_key: str | None, result: str) -> None:
+    def _cache_result(self, idempotency_key: str | None, result: Any) -> None:
         if not idempotency_key:
             return
         with self._lock:
-            self._idempotent_results[idempotency_key] = str(result)
+            self._idempotent_results[idempotency_key] = result
 
     def serialize_result(self, output: Any, error: str | None = None) -> str:
         if error is not None:
             return error
-        if isinstance(output, str):
-            return output
+        if not isinstance(output, Mapping):
+            if isinstance(output, str):
+                return output
+            return json_serialize(output)
+
+        status = output.get("status")
+        if status == "completed":
+            return self._format_completed(output)
+        if status == "async_launched":
+            return self._format_async_launched(output)
+        if status == "failed":
+            return self._format_failed(output)
         return json_serialize(output)
+
+    def _format_completed(self, output: Mapping[str, Any]) -> str:
+        content = output.get("content", "")
+        session_id = output.get("sessionId", "unknown")
+        duration_ms = output.get("durationMs", 0)
+        agent = output.get("agent", "unknown")
+        continuation = output.get("continuation", False)
+        task_id = output.get("taskId", "unknown")
+
+        if not content or not content.strip():
+            content = "(Subagent completed but returned no output.)"
+
+        if continuation:
+            return (
+                f"Task continued and completed in {duration_ms}ms.\n\n"
+                f"---\n\n"
+                f"{content}\n\n"
+                f"session_id: {session_id} (use task with session_id='{session_id}' to continue)\n"
+                f"Agent: {agent}\n"
+                f"task_id: {task_id}"
+            )
+        return (
+            f"Task completed in {duration_ms}ms.\n\n"
+            f"Agent: {agent}\n\n"
+            f"---\n\n"
+            f"{content}\n\n"
+            f"session_id: {session_id} (use task with session_id='{session_id}' to continue)\n"
+            f"task_id: {task_id}"
+        )
+
+    def _format_async_launched(self, output: Mapping[str, Any]) -> str:
+        task_id = output.get("taskId", "unknown")
+        session_id = output.get("sessionId", "unknown")
+        description = output.get("description", "")
+        agent = output.get("agent", "unknown")
+        continuation = output.get("continuation", False)
+
+        status_line = "Background task continued." if continuation else "Background task launched."
+        guidance = (
+            f"Agent continues with full previous context preserved.\n"
+            f"Use `task` with session_id='{session_id}' to continue or check progress."
+            if continuation
+            else f"System notifies on completion. Use `task` with session_id='{session_id}' to check."
+        )
+        return (
+            f"{status_line}\n\n"
+            f"Task ID: {task_id}\n"
+            f"Description: {description}\n"
+            f"Agent: {agent}\n"
+            "Status: queued\n\n"
+            f"{guidance}"
+        )
+
+    def _format_failed(self, output: Mapping[str, Any]) -> str:
+        title = output.get("title", "Task failed")
+        error = output.get("error", "Unknown error")
+        session_id = output.get("sessionId", "unknown")
+        return f"{title}\n\nError: {error}\n\nsession_id: {session_id}"
 
 
 def _resolve_timeout_seconds(args: Mapping[str, Any]) -> float:
@@ -513,92 +586,11 @@ def _resolve_subagent(args: Mapping[str, Any]) -> str | None:
     return _normalize_optional_text(args.get("category"))
 
 
-def _background_receipt_message(
-    *,
-    task_id: str,
-    description: str,
-    agent: str,
-    session_id: str,
-    continuation: bool,
-    subagent: str | None,
-) -> str:
-    status_line = "Background task continued." if continuation else "Background task launched."
-    guidance = (
-        'Agent continues with full previous context preserved.\nUse `background_output` with task_id="{task_id}" to check progress.'
-        if continuation
-        else 'System notifies on completion. Use `background_output` with task_id="{task_id}" to check.'
-    )
-    return (
-        f"{status_line}\n\n"
-        f"Task ID: {task_id}\n"
-        f"Description: {description}\n"
-        f"Agent: {agent}\n"
-        "Status: queued\n\n"
-        f"{guidance.format(task_id=task_id)}\n\n"
-        f"{_task_metadata_block(session_id=session_id, subagent=subagent if continuation else None)}"
-    )
-
-
-def _sync_success_message(
-    *,
-    task_id: str,
-    description: str,
-    agent: str,
-    session_id: str,
-    continuation: bool,
-    duration_ms: int,
-    turn: TurnResult,
-    subagent: str | None,
-) -> str:
-    del task_id, description
-    output_text = _pick_assistant_text(turn.messages)
-    if continuation:
-        return (
-            f"Task continued and completed in {duration_ms}ms.\n\n"
-            "---\n\n"
-            f"{output_text}\n\n"
-            f"{_task_metadata_block(session_id=session_id, subagent=subagent)}"
-        )
-    return (
-        f"Task completed in {duration_ms}ms.\n\n"
-        f"Agent: {agent}\n\n"
-        "---\n\n"
-        f"{output_text}\n\n"
-        f"{_task_metadata_block(session_id=session_id, subagent=None)}"
-    )
-
-
-def _error_message(
-    *,
-    title: str,
-    message: str,
-    task_id: str,
-    session_id: str,
-    continuation: bool,
-    subagent: str | None,
-) -> str:
-    del task_id, continuation
-    return (
-        f"{title}\n\n"
-        f"**Error**: {message}\n\n"
-        f"{_task_metadata_block(session_id=session_id, subagent=subagent)}"
-    )
-
-
 def _pick_assistant_text(messages: tuple[Message, ...]) -> str:
     for message in reversed(messages):
         if message.role == "assistant":
-            content = message.content.strip()
-            return content or "(No text output)"
-    return "(No text output)"
-
-
-def _task_metadata_block(*, session_id: str, subagent: str | None) -> str:
-    lines = ["<task_metadata>", f"session_id: {session_id}"]
-    if subagent is not None:
-        lines.append(f"subagent: {subagent}")
-    lines.append("</task_metadata>")
-    return "\n".join(lines)
+            return message.content.strip()
+    return ""
 
 
 def _elapsed_ms(start: float) -> int:
