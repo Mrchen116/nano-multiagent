@@ -168,7 +168,12 @@ def _normalize_content(content: Any) -> str:
     return str(content)
 
 
-def _map_tool_content(content: str) -> Any:
+def _map_tool_content(content: str | list[dict[str, Any]]) -> Any:
+    if isinstance(content, list):
+        normalized = _normalize_tool_output_parts(content)
+        if normalized:
+            return normalized
+        return ""
     payload = _parse_tool_payload(content)
     if payload is None:
         return content

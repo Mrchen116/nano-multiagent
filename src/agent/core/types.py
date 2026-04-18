@@ -55,7 +55,7 @@ class ToolResult:
     name: str
     output: Any = None
     error: str | None = None
-    content: str | None = None
+    content: str | list[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -307,7 +307,9 @@ class SessionManager:
         message_id = entry.data.get("message_id")
         role = entry.data.get("role")
         content = entry.data.get("content")
-        if not isinstance(message_id, str) or not isinstance(role, str) or not isinstance(content, str):
+        if not isinstance(message_id, str) or not isinstance(role, str):
+            return None
+        if not isinstance(content, str) and not isinstance(content, list):
             return None
         metadata = entry.data.get("metadata")
         if not isinstance(metadata, Mapping):

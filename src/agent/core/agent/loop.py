@@ -438,7 +438,7 @@ class AgentLoop:
             return self._available_tools
         return ()
 
-    def _serialize_tool_result(self, result: ToolResult) -> str:
+    def _serialize_tool_result(self, result: ToolResult) -> str | list[dict[str, Any]]:
         """Route tool result serialization to the tool-specific adapter."""
 
         tool = self._tool_registry.get_tool(result.name) if self._tool_registry is not None else None

@@ -124,7 +124,12 @@ class AnthropicMapper:
         }
 
 
-def _map_tool_result_content(content: str) -> list[dict[str, Any]]:
+def _map_tool_result_content(content: str | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if isinstance(content, list):
+        normalized = _normalize_tool_result_parts(content)
+        if normalized:
+            return normalized
+        return [{"type": "text", "text": ""}]
     payload = _parse_tool_payload(content)
     if payload is None:
         return [{"type": "text", "text": content}]

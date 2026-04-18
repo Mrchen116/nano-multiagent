@@ -174,7 +174,7 @@ class ReadTool:
 
         return response
 
-    def serialize_result(self, output: Any, error: str | None = None) -> str:
+    def serialize_result(self, output: Any, error: str | None = None) -> str | list[dict[str, Any]]:
         if error is not None:
             return error
 
@@ -195,7 +195,7 @@ class ReadTool:
                     for block in content_blocks
                 )
                 if has_image:
-                    return json_serialize(output)
+                    return list(content_blocks)
 
                 texts = [
                     block.get("text", "")

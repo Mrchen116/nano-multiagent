@@ -85,25 +85,19 @@ def test_read_image_parts_survive_tool_result_content_rewrite(tmp_path: Path) ->
     assert result["content"][1]["data"] == base64.b64encode(image_bytes).decode("ascii")
 
 
-def test_anthropic_mapper_accepts_read_image_data_part() -> None:
+def test_anthropic_mapper_accepts_read_image_blocks_directly() -> None:
     mapper = AnthropicMapper()
     base64_data = "QUJDRA=="
-    tool_payload = json.dumps(
-        {
-            "output": {
-                "content": [
-                    {"type": "text", "text": "Read image file [image/png]"},
-                    {"type": "image", "data": base64_data, "mimeType": "image/png"},
-                ]
-            }
-        }
-    )
+    blocks = [
+        {"type": "text", "text": "Read image file [image/png]"},
+        {"type": "image", "data": base64_data, "mimeType": "image/png"},
+    ]
     request = LLMGenerateRequest(
         session_id="sess-read-image",
         model="anthropic-test",
         messages=(
             LLMMessage(role="user", content="show image"),
-            LLMMessage(role="tool", content=tool_payload, tool_call_id="call-read-image"),
+            LLMMessage(role="tool", content=blocks, tool_call_id="call-read-image"),
         ),
         stream=False,
     )
@@ -124,25 +118,19 @@ def test_anthropic_mapper_accepts_read_image_data_part() -> None:
     ]
 
 
-def test_openai_compat_mapper_accepts_read_image_data_part() -> None:
+def test_openai_compat_mapper_accepts_read_image_blocks_directly() -> None:
     mapper = OpenAICompatMapper()
     base64_data = "QUJDRA=="
-    tool_payload = json.dumps(
-        {
-            "output": {
-                "content": [
-                    {"type": "text", "text": "Read image file [image/png]"},
-                    {"type": "image", "data": base64_data, "mimeType": "image/png"},
-                ]
-            }
-        }
-    )
+    blocks = [
+        {"type": "text", "text": "Read image file [image/png]"},
+        {"type": "image", "data": base64_data, "mimeType": "image/png"},
+    ]
     request = LLMGenerateRequest(
         session_id="sess-read-image",
         model="openai-test",
         messages=(
             LLMMessage(role="user", content="show image"),
-            LLMMessage(role="tool", content=tool_payload, tool_call_id="call-read-image"),
+            LLMMessage(role="tool", content=blocks, tool_call_id="call-read-image"),
         ),
         stream=False,
     )

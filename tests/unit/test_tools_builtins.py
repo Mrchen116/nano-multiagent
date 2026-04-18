@@ -468,9 +468,7 @@ def test_read_serialize_result_skips_line_numbers_for_file_unchanged() -> None:
     assert "→" not in result
 
 
-def test_read_serialize_result_skips_line_numbers_for_images() -> None:
-    import json
-
+def test_read_serialize_result_returns_blocks_for_images() -> None:
     tool = ReadTool()
     output = {
         "path": "img.png",
@@ -484,9 +482,12 @@ def test_read_serialize_result_skips_line_numbers_for_images() -> None:
         ],
     }
     result = tool.serialize_result(output)
-    parsed = json.loads(result)
-    text = parsed["content"][0]["text"]
-    assert text == "Read image file [image/png]"
+    assert isinstance(result, list)
+    assert result[0]["type"] == "text"
+    assert result[0]["text"] == "Read image file [image/png]"
+    assert result[1]["type"] == "image"
+    assert result[1]["data"] == "abc"
+    assert result[1]["mimeType"] == "image/png"
 
 
 def test_read_serialize_result_returns_empty_file_warning() -> None:

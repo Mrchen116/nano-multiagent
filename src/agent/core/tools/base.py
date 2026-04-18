@@ -56,11 +56,13 @@ class Tool(Protocol):
     def run(self, args: Mapping[str, Any], ctx: "ToolContext") -> Mapping[str, Any]:
         """Run tool with validated args and context."""
 
-    def serialize_result(self, output: Any, error: str | None = None) -> str:
-        """Serialize tool result into LLM-facing tool_message content.
+    def serialize_result(self, output: Any, error: str | None = None) -> str | list[dict[str, Any]]:
+        """Serialize tool result into LLM-facing content.
 
-        Called for both success and error outcomes so each tool controls its
-        own presentation (plain text, JSON, or a specialized stub).
+        Returns either a plain string (text-only tools) or a list of
+        provider-neutral content blocks (multimodal tools like read).
+        The kernel loop forwards this directly to mappers without JSON
+        round-tripping.
 
         Args:
             output: Structured output from ``run()`` (success) or None (error).

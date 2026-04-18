@@ -20,7 +20,7 @@ class LLMMessage:
     """Represent one message exchanged with the model provider."""
 
     role: str
-    content: str
+    content: str | list[dict[str, Any]]
     name: str | None = None
     tool_call_id: str | None = None
     tool_calls: tuple[LLMToolCall, ...] = ()
