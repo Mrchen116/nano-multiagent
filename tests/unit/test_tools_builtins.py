@@ -231,7 +231,8 @@ def test_edit_replaces_exact_text_once(tmp_path: Path) -> None:
     )
 
     assert target.read_text(encoding="utf-8") == "alpha\nBETA\ngamma\n"
-    assert result["content"] == [{"type": "text", "text": "Successfully replaced text in config.txt."}]
+    assert result["displayPath"] == "config.txt"
+    assert result["replaceAll"] is False
     assert result["details"]["firstChangedLine"] == 2
     assert "--- a/config.txt" in result["details"]["diff"]
     assert "+++ b/config.txt" in result["details"]["diff"]
@@ -556,3 +557,32 @@ def test_write_creates_new_file(tmp_path: Path) -> None:
     assert result["type"] == "create"
     assert result["displayPath"] == "newfile.txt"
     assert (tmp_path / "newfile.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_edit_serialize_result_success() -> None:
+    tool = EditTool()
+    output = {"filePath": "/tmp/foo.py", "displayPath": "foo.py", "replaceAll": False}
+    result = tool.serialize_result(output)
+    assert result == "The file foo.py has been updated successfully."
+
+
+def test_edit_serialize_result_replace_all() -> None:
+    tool = EditTool()
+    output = {"filePath": "/tmp/bar.py", "displayPath": "bar.py", "replaceAll": True}
+    result = tool.serialize_result(output)
+    assert result == (
+        "The file bar.py has been updated. "
+        "All occurrences were successfully replaced."
+    )
+
+
+def test_edit_serialize_result_error() -> None:
+    tool = EditTool()
+    result = tool.serialize_result(None, error="file does not exist")
+    assert result == "file does not exist"
+
+
+def test_edit_serialize_result_fallback() -> None:
+    tool = EditTool()
+    result = tool.serialize_result("unexpected string")
+    assert result == '"unexpected string"'

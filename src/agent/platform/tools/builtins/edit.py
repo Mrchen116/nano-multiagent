@@ -74,12 +74,9 @@ class EditTool:
         )
 
         return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"Successfully replaced text in {display_path}.",
-                }
-            ],
+            "filePath": str(file_path),
+            "displayPath": display_path,
+            "replaceAll": False,
             "details": {
                 "diff": diff,
                 "firstChangedLine": first_changed_line,
@@ -89,7 +86,16 @@ class EditTool:
     def serialize_result(self, output: Any, error: str | None = None) -> str:
         if error is not None:
             return error
-        return json_serialize(output)
+        if not isinstance(output, Mapping):
+            return json_serialize(output)
+
+        file_path = output.get("displayPath", output.get("filePath", "unknown"))
+        if output.get("replaceAll"):
+            return (
+                f"The file {file_path} has been updated. "
+                "All occurrences were successfully replaced."
+            )
+        return f"The file {file_path} has been updated successfully."
 
 
 def _display_path(path: Path, repo_root: Path) -> str:
