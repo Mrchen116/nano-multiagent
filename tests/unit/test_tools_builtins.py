@@ -333,11 +333,9 @@ def test_bash_truncation_returns_full_output_path(tmp_path: Path) -> None:
     )
 
     assert result["truncated"] is True
-    assert "Showing lines" in result["content"]
-    assert "Full output:" in result["content"]
+    assert "stdout" in result
+    assert isinstance(result["fullOutputPath"], str)
     full_output_path = result["fullOutputPath"]
-    assert full_output_path in result["content"]
-    assert isinstance(full_output_path, str)
     content = Path(full_output_path).read_text(encoding="utf-8")
     assert "line-0" in content
     assert "line-5" in content
@@ -367,11 +365,11 @@ def test_bash_without_timeout_does_not_inject_default(monkeypatch: pytest.Monkey
     result = BashTool().run({"command": "python -c \"print('ok')\""}, ctx)
 
     assert captured["timeout"] is None
-    assert result["content"] == "ok"
+    assert result["stdout"] == "ok"
     assert result["exitCode"] == 0
 
 
-def test_bash_success_merges_stdout_and_stderr_into_content(tmp_path: Path) -> None:
+def test_bash_success_merges_stdout_and_stderr_into_stdout(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
 
     result = BashTool().run(
@@ -386,12 +384,11 @@ def test_bash_success_merges_stdout_and_stderr_into_content(tmp_path: Path) -> N
         ctx,
     )
 
-    assert result["content"]
-    assert "out-1" in result["content"]
-    assert "err-1" in result["content"]
-    assert "out-2" in result["content"]
-    assert "stdout" not in result
-    assert "stderr" not in result
+    assert result["stdout"]
+    assert "out-1" in result["stdout"]
+    assert "err-1" in result["stdout"]
+    assert "out-2" in result["stdout"]
+    assert "stderr" in result
 
 
 def test_bash_aborted_contract_message_and_details(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -586,3 +583,43 @@ def test_edit_serialize_result_fallback() -> None:
     tool = EditTool()
     result = tool.serialize_result("unexpected string")
     assert result == '"unexpected string"'
+
+
+def test_bash_serialize_result_success() -> None:
+    tool = BashTool()
+    output = {"stdout": "line-1\nline-2", "exitCode": 0, "truncated": False}
+    result = tool.serialize_result(output)
+    assert result == "line-1\nline-2"
+
+
+def test_bash_serialize_result_empty() -> None:
+    tool = BashTool()
+    output = {"stdout": "", "exitCode": 0, "truncated": False}
+    result = tool.serialize_result(output)
+    assert result == "(no output)"
+
+
+def test_bash_serialize_result_truncated() -> None:
+    tool = BashTool()
+    output = {
+        "stdout": "line-4\nline-5\nline-6",
+        "exitCode": 0,
+        "truncated": True,
+        "fullOutputPath": "/tmp/bash-output-xxx.log",
+    }
+    result = tool.serialize_result(output)
+    assert "(Output truncated." in result
+    assert "/tmp/bash-output-xxx.log" in result
+
+
+def test_bash_serialize_result_strips_leading_newlines() -> None:
+    tool = BashTool()
+    output = {"stdout": "\n\nhello", "exitCode": 0, "truncated": False}
+    result = tool.serialize_result(output)
+    assert result == "hello"
+
+
+def test_bash_serialize_result_error() -> None:
+    tool = BashTool()
+    result = tool.serialize_result(None, error="Command timed out")
+    assert result == "Command timed out"

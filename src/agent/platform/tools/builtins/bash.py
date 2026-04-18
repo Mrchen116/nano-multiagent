@@ -129,9 +129,9 @@ class BashTool:
             )
 
         result: dict[str, Any] = {
-            "command": command,
+            "stdout": execution.text,
+            "stderr": "",
             "exitCode": execution.exit_code,
-            "content": execution.text if execution.text else "(no output)",
             "truncated": execution.truncated,
         }
         if execution.full_output_path is not None:
@@ -141,7 +141,25 @@ class BashTool:
     def serialize_result(self, output: Any, error: str | None = None) -> str:
         if error is not None:
             return error
-        return json_serialize(output)
+        if not isinstance(output, Mapping):
+            return json_serialize(output)
+
+        stdout = output.get("stdout", "") or ""
+        truncated = output.get("truncated", False)
+        full_output_path = output.get("fullOutputPath")
+
+        if stdout:
+            stdout = stdout.lstrip("\n")
+            stdout = stdout.rstrip()
+
+        if truncated and full_output_path:
+            preview = stdout[:500] if stdout else ""
+            stdout = (
+                f"{preview}\n"
+                f"(Output truncated. Full output written to: {full_output_path})"
+            )
+
+        return stdout or "(no output)"
 
 
 def _build_error_details(execution: Any) -> dict[str, Any]:

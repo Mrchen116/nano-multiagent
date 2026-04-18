@@ -428,22 +428,11 @@ class ToolSafety:
             max_bytes=self.config.bash_max_output_bytes,
         )
         full_output_path = None
-        rendered_output = tail_output
         if truncated:
             full_output_path = self._persist_full_output(content=full_output)
-            rendered_output = _append_truncation_hint(
-                content=tail_output,
-                full_output_path=full_output_path,
-                start_line=start_line,
-                end_line=end_line,
-                total_lines=total_lines,
-                max_bytes=self.config.bash_max_output_bytes,
-                byte_limited=byte_limited,
-                showing_last=showing_last,
-            )
         return CommandExecution(
             exit_code=exit_code,
-            text=rendered_output,
+            text=tail_output,
             truncated=truncated,
             full_output_path=full_output_path,
             timed_out=timed_out,
@@ -563,26 +552,3 @@ def _truncate_tail_output(
     )
 
 
-def _append_truncation_hint(
-    *,
-    content: str,
-    full_output_path: str,
-    start_line: int,
-    end_line: int,
-    total_lines: int,
-    max_bytes: int,
-    byte_limited: bool,
-    showing_last: bool,
-) -> str:
-    if showing_last:
-        hint = f"[Showing last {max_bytes} bytes of line {end_line}. Full output: {full_output_path}]"
-    elif byte_limited:
-        hint = (
-            f"[Showing lines {start_line}-{end_line} of {total_lines} "
-            f"({max_bytes / 1024:.1f}KB limit). Full output: {full_output_path}]"
-        )
-    else:
-        hint = f"[Showing lines {start_line}-{end_line} of {total_lines}. Full output: {full_output_path}]"
-    if not content:
-        return hint
-    return f"{content}\n\n{hint}"

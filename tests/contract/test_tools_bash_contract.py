@@ -4,9 +4,13 @@ import signal
 import pytest
 
 from agent.core.errors import ToolError
+from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
-from agent.platform.tools.safety import ToolSafetyConfig
+from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+
+set_tool_safety_factory(ToolSafety)
+set_tool_safety_config_factory(ToolSafetyConfig)
 
 
 def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolContext:
@@ -23,17 +27,15 @@ def test_bash_truncation_contract_exposes_full_output_path(tmp_path: Path) -> No
     )
 
     assert set(result.keys()) == {
-        "command",
+        "stdout",
+        "stderr",
         "exitCode",
-        "content",
         "truncated",
         "fullOutputPath",
     }
     assert result["truncated"] is True
     assert isinstance(result["fullOutputPath"], str)
-    assert result["fullOutputPath"] in result["content"]
-    assert "[Showing lines " in result["content"]
-    assert "Full output: " in result["content"]
+    assert result["stdout"]
     assert Path(result["fullOutputPath"]).exists()
 
 
