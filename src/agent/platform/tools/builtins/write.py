@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any, Mapping
 
+from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 
@@ -33,9 +34,41 @@ class WriteTool:
         content = str(args["content"])
         file_path = ctx.safety.resolve_path(raw_path, cwd=ctx.cwd, tool_name=self.name)
         file_exists = file_path.exists()
+        display_path = _display_path(file_path, ctx.repo_root)
+
+        # -- Read-Before-Write enforcement (only when overwriting existing file) --
+        if file_exists and ctx.session_file_state is not None:
+            can_write, error_code = ctx.session_file_state.can_write(str(file_path.resolve()))
+            if not can_write:
+                if error_code == 6:
+                    raise ToolError(
+                        f"Cannot overwrite {display_path} because it has not been read yet. "
+                        "Please read the file first to ensure you are aware of its current contents.",
+                        tool_name=self.name,
+                        details={"errorCode": 6, "filePath": display_path},
+                    )
+                elif error_code == 7:
+                    raise ToolError(
+                        f"Cannot overwrite {display_path} because it was modified externally "
+                        "since it was last read. Please re-read the file to get the latest contents.",
+                        tool_name=self.name,
+                        details={"errorCode": 7, "filePath": display_path},
+                    )
+
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
-        display_path = _display_path(file_path, ctx.repo_root)
+
+        # Update session file state to prevent self-edit stale false positives.
+        if ctx.session_file_state is not None:
+            try:
+                stat = file_path.stat()
+                ctx.session_file_state.record_write(
+                    file_path=str(file_path.resolve()),
+                    mtime_ns=stat.st_mtime_ns,
+                    size=stat.st_size,
+                )
+            except (OSError, ValueError):
+                pass
 
         return {
             "type": "update" if file_exists else "create",

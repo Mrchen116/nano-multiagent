@@ -2,9 +2,8 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, Protocol, runtime_checkable
+from typing import Any, Callable, Mapping, Optional, Protocol, runtime_checkable
 
-from .file_state_cache import FileStateCache
 from .safety_types import (
     ToolSafetyConfigFactory,
     ToolSafetyConfigLike,
@@ -86,8 +85,8 @@ class ToolContext:
     # (e.g. send_message) can read runtime-injected fields such as
     # ``gateway_dispatch_url`` without requiring a separate registry lookup.
     session_metadata: Mapping[str, Any] = field(default_factory=dict)
-    # Session-scoped read-file state cache for mtime-based deduplication.
-    read_file_state: FileStateCache | None = None
+    # Session-scoped file state tracker for deduplication and Read-Before-Write.
+    session_file_state: Optional["SessionFileState"] = None
 
     @classmethod
     def create(
@@ -113,7 +112,7 @@ class ToolContext:
         safety_overrides: Mapping[str, Any] | None = None,
         execution_event_callback: Callable[[Mapping[str, Any]], None] | None = None,
         session_metadata: Mapping[str, Any] | None = None,
-        read_file_state: FileStateCache | None = None,
+        session_file_state: Optional["SessionFileState"] = None,
     ) -> "ToolContext":
         """Clone context with session/call metadata and per-call safety overrides."""
 
@@ -126,7 +125,7 @@ class ToolContext:
             safety_overrides=dict(safety_overrides or {}),
             execution_event_callback=execution_event_callback,
             session_metadata=dict(session_metadata) if session_metadata is not None else dict(self.session_metadata),
-            read_file_state=read_file_state,
+            session_file_state=session_file_state,
         )
 
     def emit_execution_event(self, payload: Mapping[str, Any]) -> None:

@@ -1,7 +1,6 @@
 """Built-in `read` tool for bounded text and image loading."""
 
 import base64
-import math
 import re
 from pathlib import Path
 from typing import Any, Mapping
@@ -70,15 +69,13 @@ class ReadTool:
                 raise ToolError("limit must be >= 1", tool_name=self.name)
 
         display_path = _display_path(file_path, ctx.repo_root)
-        cache_key = (file_path, offset, limit)
+        normalized_offset = offset if offset > 1 else None
 
-        if ctx.read_file_state is not None:
+        if ctx.session_file_state is not None:
             try:
-                stat = file_path.stat()
-                mtime_ms = math.floor(stat.st_mtime * 1000)
-                size = stat.st_size
-                cached = ctx.read_file_state.get(cache_key)
-                if cached is not None and cached == (mtime_ms, size):
+                if ctx.session_file_state.check_unchanged(
+                    str(file_path.resolve()), normalized_offset, limit
+                ):
                     return {"type": "file_unchanged", "file": {"filePath": display_path}}
             except (OSError, ValueError):
                 pass
@@ -96,12 +93,16 @@ class ReadTool:
                     "Multiply coordinates by 1.0 to map to original image.]"
                 )
 
-            if ctx.read_file_state is not None:
+            if ctx.session_file_state is not None:
                 try:
                     stat = file_path.stat()
-                    mtime_ms = math.floor(stat.st_mtime * 1000)
-                    size = stat.st_size
-                    ctx.read_file_state.set(cache_key, (mtime_ms, size))
+                    ctx.session_file_state.record_read(
+                        file_path=str(file_path.resolve()),
+                        mtime_ns=stat.st_mtime_ns,
+                        size=stat.st_size,
+                        offset=normalized_offset,
+                        limit=limit,
+                    )
                 except (OSError, ValueError):
                     pass
 
@@ -163,12 +164,16 @@ class ReadTool:
             "details": {"truncation": truncation},
         }
 
-        if ctx.read_file_state is not None:
+        if ctx.session_file_state is not None:
             try:
                 stat = file_path.stat()
-                mtime_ms = math.floor(stat.st_mtime * 1000)
-                size = stat.st_size
-                ctx.read_file_state.set(cache_key, (mtime_ms, size))
+                ctx.session_file_state.record_read(
+                    file_path=str(file_path.resolve()),
+                    mtime_ns=stat.st_mtime_ns,
+                    size=stat.st_size,
+                    offset=normalized_offset,
+                    limit=limit,
+                )
             except (OSError, ValueError):
                 pass
 

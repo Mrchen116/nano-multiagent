@@ -48,6 +48,27 @@ class EditTool:
         if not file_path.exists() or not file_path.is_file():
             raise ToolError("file does not exist", tool_name=self.name, details={"path": raw_path})
 
+        display_path = _display_path(file_path, ctx.repo_root)
+
+        # -- Read-Before-Write enforcement (always checked for edits) --
+        if ctx.session_file_state is not None:
+            can_write, error_code = ctx.session_file_state.can_write(str(file_path.resolve()))
+            if not can_write:
+                if error_code == 6:
+                    raise ToolError(
+                        f"Cannot edit {display_path} because it has not been read yet. "
+                        "Please read the file first to ensure you are aware of its current contents.",
+                        tool_name=self.name,
+                        details={"errorCode": 6, "filePath": display_path},
+                    )
+                elif error_code == 7:
+                    raise ToolError(
+                        f"Cannot edit {display_path} because it was modified externally "
+                        "since it was last read. Please re-read the file to get the latest contents.",
+                        tool_name=self.name,
+                        details={"errorCode": 7, "filePath": display_path},
+                    )
+
         source = file_path.read_text(encoding="utf-8")
         matches = source.count(old_text)
         if matches == 0:
@@ -60,7 +81,6 @@ class EditTool:
             raise ToolError("No changes made", tool_name=self.name)
 
         file_path.write_text(updated, encoding="utf-8")
-        display_path = _display_path(file_path, ctx.repo_root)
         first_offset = source.index(old_text)
         first_changed_line = source[:first_offset].count("\n") + 1
         diff = "\n".join(
@@ -72,6 +92,18 @@ class EditTool:
                 lineterm="",
             )
         )
+
+        # Update session file state to prevent self-edit stale false positives.
+        if ctx.session_file_state is not None:
+            try:
+                stat = file_path.stat()
+                ctx.session_file_state.record_write(
+                    file_path=str(file_path.resolve()),
+                    mtime_ns=stat.st_mtime_ns,
+                    size=stat.st_size,
+                )
+            except (OSError, ValueError):
+                pass
 
         return {
             "filePath": str(file_path),

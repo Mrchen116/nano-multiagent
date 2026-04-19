@@ -19,6 +19,7 @@ from agent.platform.tools.safety import CommandExecution
 from agent.platform.tools.safety import ToolSafety
 from agent.platform.tools.safety import ToolSafetyConfig
 from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.session_file_state import SessionFileState
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
@@ -26,6 +27,13 @@ set_tool_safety_config_factory(ToolSafetyConfig)
 
 def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolContext:
     return ToolContext.create(repo_root=tmp_path, safety_config=config)
+
+
+def _context_with_state(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> tuple[ToolContext, SessionFileState]:
+    base = ToolContext.create(repo_root=tmp_path, safety_config=config)
+    state = SessionFileState()
+    ctx = base.with_session("test-session", session_file_state=state)
+    return ctx, state
 
 
 def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
@@ -739,3 +747,144 @@ def test_task_serialize_result_non_mapping_fallback() -> None:
     tool = TaskTool()
     result = tool.serialize_result("plain string")
     assert result == "plain string"
+
+
+# ---------------------------------------------------------------------------
+# SessionFileState / Read-Before-Write tests
+# ---------------------------------------------------------------------------
+
+class TestWriteReadBeforeWrite:
+    def test_rejects_overwrite_when_file_never_read(self, tmp_path: Path) -> None:
+        (tmp_path / "existing.txt").write_text("original", encoding="utf-8")
+        ctx, _state = _context_with_state(tmp_path)
+
+        with pytest.raises(ToolError) as exc_info:
+            WriteTool().run({"path": "existing.txt", "content": "new"}, ctx)
+
+        assert exc_info.value.details.get("errorCode") == 6
+        assert "has not been read yet" in str(exc_info.value)
+
+    def test_rejects_overwrite_when_file_stale(self, tmp_path: Path) -> None:
+        (tmp_path / "existing.txt").write_text("original", encoding="utf-8")
+        ctx, state = _context_with_state(tmp_path)
+        stat = (tmp_path / "existing.txt").stat()
+        state.record_read(str(tmp_path / "existing.txt"), stat.st_mtime_ns, stat.st_size, offset=1, limit=None)
+
+        # Simulate external modification
+        (tmp_path / "existing.txt").write_text("externally changed", encoding="utf-8")
+
+        with pytest.raises(ToolError) as exc_info:
+            WriteTool().run({"path": "existing.txt", "content": "new"}, ctx)
+
+        assert exc_info.value.details.get("errorCode") == 7
+        assert "modified externally" in str(exc_info.value)
+
+    def test_allows_create_without_read(self, tmp_path: Path) -> None:
+        ctx, _state = _context_with_state(tmp_path)
+
+        result = WriteTool().run({"path": "newfile.txt", "content": "hello"}, ctx)
+
+        assert result["type"] == "create"
+
+    def test_allows_overwrite_after_read(self, tmp_path: Path) -> None:
+        (tmp_path / "existing.txt").write_text("original", encoding="utf-8")
+        ctx, state = _context_with_state(tmp_path)
+        # Simulate prior read
+        ReadTool().run({"path": "existing.txt"}, ctx)
+
+        result = WriteTool().run({"path": "existing.txt", "content": "new"}, ctx)
+
+        assert result["type"] == "update"
+        assert (tmp_path / "existing.txt").read_text(encoding="utf-8") == "new"
+
+    def test_allows_second_write_after_first(self, tmp_path: Path) -> None:
+        (tmp_path / "existing.txt").write_text("v1", encoding="utf-8")
+        ctx, _state = _context_with_state(tmp_path)
+        ReadTool().run({"path": "existing.txt"}, ctx)
+        WriteTool().run({"path": "existing.txt", "content": "v2"}, ctx)
+
+        # Second write should succeed because first write updated the state.
+        result = WriteTool().run({"path": "existing.txt", "content": "v3"}, ctx)
+        assert result["type"] == "update"
+
+
+class TestEditReadBeforeWrite:
+    def test_rejects_edit_when_file_never_read(self, tmp_path: Path) -> None:
+        (tmp_path / "existing.txt").write_text("hello world", encoding="utf-8")
+        ctx, _state = _context_with_state(tmp_path)
+
+        with pytest.raises(ToolError) as exc_info:
+            EditTool().run({"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx)
+
+        assert exc_info.value.details.get("errorCode") == 6
+        assert "has not been read yet" in str(exc_info.value)
+
+    def test_rejects_edit_when_file_stale(self, tmp_path: Path) -> None:
+        (tmp_path / "existing.txt").write_text("hello world", encoding="utf-8")
+        ctx, state = _context_with_state(tmp_path)
+        stat = (tmp_path / "existing.txt").stat()
+        state.record_read(str(tmp_path / "existing.txt"), stat.st_mtime_ns, stat.st_size, offset=1, limit=None)
+
+        (tmp_path / "existing.txt").write_text("externally changed", encoding="utf-8")
+
+        with pytest.raises(ToolError) as exc_info:
+            EditTool().run({"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx)
+
+        assert exc_info.value.details.get("errorCode") == 7
+        assert "modified externally" in str(exc_info.value)
+
+    def test_allows_edit_after_read(self, tmp_path: Path) -> None:
+        (tmp_path / "existing.txt").write_text("hello world", encoding="utf-8")
+        ctx, _state = _context_with_state(tmp_path)
+        ReadTool().run({"path": "existing.txt"}, ctx)
+
+        result = EditTool().run({"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx)
+
+        assert result["displayPath"] == "existing.txt"
+        assert (tmp_path / "existing.txt").read_text(encoding="utf-8") == "hi world"
+
+    def test_allows_second_edit_after_first(self, tmp_path: Path) -> None:
+        (tmp_path / "existing.txt").write_text("hello world", encoding="utf-8")
+        ctx, _state = _context_with_state(tmp_path)
+        ReadTool().run({"path": "existing.txt"}, ctx)
+        EditTool().run({"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx)
+
+        # Second edit should succeed because first edit updated the state.
+        result = EditTool().run({"path": "existing.txt", "oldText": "hi", "newText": "hey"}, ctx)
+        assert result["displayPath"] == "existing.txt"
+
+
+class TestReadDedup:
+    def test_returns_file_unchanged_on_exact_range_match(self, tmp_path: Path) -> None:
+        (tmp_path / "note.txt").write_text("line-1\nline-2\nline-3\n", encoding="utf-8")
+        ctx, _state = _context_with_state(tmp_path)
+
+        # First read
+        result1 = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 2}, ctx)
+        assert result1.get("type") != "file_unchanged"
+
+        # Second read with same range
+        result2 = ReadTool().run({"path": "note.txt", "offset": 1, "limit": 2}, ctx)
+        assert result2["type"] == "file_unchanged"
+
+    def test_re_reads_when_range_differs(self, tmp_path: Path) -> None:
+        (tmp_path / "note.txt").write_text("line-1\nline-2\nline-3\n", encoding="utf-8")
+        ctx, _state = _context_with_state(tmp_path)
+
+        ReadTool().run({"path": "note.txt", "offset": 1, "limit": 2}, ctx)
+        result = ReadTool().run({"path": "note.txt", "offset": 3, "limit": 1}, ctx)
+
+        assert result.get("type") != "file_unchanged"
+        assert result["content"][0]["text"] == "line-3"
+
+    def test_re_reads_after_external_modification(self, tmp_path: Path) -> None:
+        (tmp_path / "note.txt").write_text("line-1\nline-2\n", encoding="utf-8")
+        ctx, _state = _context_with_state(tmp_path)
+
+        ReadTool().run({"path": "note.txt"}, ctx)
+        (tmp_path / "note.txt").write_text("changed\n", encoding="utf-8")
+        result = ReadTool().run({"path": "note.txt"}, ctx)
+
+        assert result.get("type") != "file_unchanged"
+        assert result["content"][0]["text"] == "changed"
+

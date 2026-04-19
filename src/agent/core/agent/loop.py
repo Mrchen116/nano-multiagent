@@ -13,7 +13,7 @@ from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMGenerate
 from agent.core.observability.tracing import span
 from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.base import Tool
-from agent.core.tools.file_state_cache import FileStateCache
+from agent.core.tools.session_file_state import SessionFileState
 from agent.core.tools.serialization import json_serialize
 
 from .policies import AgentPolicies
@@ -36,7 +36,7 @@ class ToolRegistryLike(Protocol):
         args: Mapping[str, Any],
         *,
         hook_context: HookContext | None = None,
-        read_file_state: FileStateCache | None = None,
+        session_file_state: SessionFileState | None = None,
     ) -> Mapping[str, Any]:
         ...
 
@@ -94,7 +94,7 @@ class AgentLoop:
         llm_session_id: str | None = None,
         session_created_at: str | None = None,
         current_working_directory_override: Path | None = None,
-        read_file_state: FileStateCache | None = None,
+        session_file_state: SessionFileState | None = None,
     ) -> TurnResult:
         """Run one user turn until completion or terminal stop reason.
 
@@ -105,7 +105,8 @@ class AgentLoop:
             llm_session_id: Optional provider session id override.
             session_created_at: Optional session-level timestamp used to keep
                 system prompt time stable across turns in one session.
-            read_file_state: Optional session-level file read cache for mtime dedup.
+            session_file_state: Optional session-level file state for dedup and
+                Read-Before-Write enforcement.
 
         Returns:
             Turn result containing assistant messages, tool calls/results, and stop reason.
@@ -306,7 +307,7 @@ class AgentLoop:
                             result_payload, error_text = await self._execute_tool_call(
                                 parsed_call,
                                 hook_ctx=tool_hook_ctx,
-                                read_file_state=read_file_state,
+                                session_file_state=session_file_state,
                             )
                         result = ToolResult(
                             call_id=parsed_call.call_id,
@@ -415,7 +416,7 @@ class AgentLoop:
         tool_call: ToolCall,
         *,
         hook_ctx: HookContext,
-        read_file_state: FileStateCache | None = None,
+        session_file_state: SessionFileState | None = None,
     ) -> tuple[Any, str | None]:
         if self._tool_registry is None:
             return None, "tool registry is unavailable"
@@ -425,7 +426,7 @@ class AgentLoop:
                 tool_call.name,
                 tool_call.arguments,
                 hook_context=hook_ctx,
-                read_file_state=read_file_state,
+                session_file_state=session_file_state,
             )
             return output, None
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.

@@ -12,7 +12,7 @@ from agent.core.observability.tracing import bind_correlation
 from agent.core.types import ToolSpec
 
 from .base import Tool, ToolContext, _build_default_tool_safety_config, _require_tool_safety_factory
-from .file_state_cache import FileStateCache
+from .session_file_state import SessionFileState
 
 
 class ToolRegistry:
@@ -92,7 +92,7 @@ class ToolRegistry:
         args: Mapping[str, Any],
         *,
         hook_context: HookContext | None = None,
-        read_file_state: FileStateCache | None = None,
+        session_file_state: SessionFileState | None = None,
     ) -> Mapping[str, Any]:
         """Execute one tool call and apply hook intercept/observe semantics."""
 
@@ -166,7 +166,7 @@ class ToolRegistry:
                 safety_overrides=safety_overrides,
                 execution_event_callback=_emit_execution_update,
                 session_metadata=dict(active_hook_context.metadata) if active_hook_context.metadata else {},
-                read_file_state=read_file_state,
+                session_file_state=session_file_state,
             )
             log_info("tool_execution_start", tool_name=name)
             self._dispatch_observe(
