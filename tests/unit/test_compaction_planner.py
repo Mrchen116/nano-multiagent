@@ -32,7 +32,7 @@ def _turn_entry(
     )
 
 
-def test_planner_keeps_tool_call_and_result_together_when_cutting() -> None:
+def test_planner_collects_all_turn_events_after_latest_compaction() -> None:
     planner = CompactionPlanner(min_kept_messages=2)
     events = (
         _turn_entry(entry_id="evt_1", role="user", content="old user"),
@@ -56,19 +56,49 @@ def test_planner_keeps_tool_call_and_result_together_when_cutting() -> None:
     plan = planner.plan(events=events, reason=CompactionReason.THRESHOLD)
 
     assert plan is not None
-    assert plan.first_kept_event_id == "evt_2"
-    assert [entry.entry_id for entry in plan.kept_events] == ["evt_2", "evt_3", "evt_4"]
-    assert [entry.entry_id for entry in plan.dropped_events] == ["evt_1"]
+    # In the full-compact design, first_kept_event_id is always empty
+    # and kept_events is always empty.
+    assert plan.first_kept_event_id == ""
+    assert plan.kept_events == ()
+    assert [entry.entry_id for entry in plan.dropped_events] == [
+        "evt_1",
+        "evt_2",
+        "evt_3",
+        "evt_4",
+    ]
 
 
-def test_planner_returns_none_when_not_enough_messages_to_compact() -> None:
+def test_planner_returns_none_when_no_turn_events_to_compact() -> None:
     planner = CompactionPlanner(min_kept_messages=3)
-    events = (
-        _turn_entry(entry_id="evt_1", role="user", content="u1"),
-        _turn_entry(entry_id="evt_2", role="assistant", content="a1"),
-        _turn_entry(entry_id="evt_3", role="user", content="u2"),
-    )
+    events = ()
 
     plan = planner.plan(events=events, reason=CompactionReason.THRESHOLD)
 
     assert plan is None
+
+
+def test_planner_skips_events_before_latest_compaction() -> None:
+    from agent.core.session.entries import CompactionEntry, new_compaction_entry
+
+    planner = CompactionPlanner(min_kept_messages=2)
+    compaction = new_compaction_entry(
+        session_id="sess_compact",
+        first_kept_event_id="",
+        summary="old summary",
+    )
+    events = (
+        _turn_entry(entry_id="evt_1", role="user", content="before compaction"),
+        compaction,
+        _turn_entry(entry_id="evt_2", role="user", content="after compaction"),
+        _turn_entry(entry_id="evt_3", role="assistant", content="latest answer"),
+    )
+
+    plan = planner.plan(events=events, reason=CompactionReason.THRESHOLD)
+
+    assert plan is not None
+    assert plan.first_kept_event_id == ""
+    assert plan.kept_events == ()
+    assert [entry.entry_id for entry in plan.dropped_events] == [
+        "evt_2",
+        "evt_3",
+    ]

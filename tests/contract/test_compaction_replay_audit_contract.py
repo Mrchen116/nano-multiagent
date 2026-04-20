@@ -27,7 +27,7 @@ def test_compaction_replay_audit_contract(tmp_path: Path) -> None:
 
     entry = manager.append_compaction(
         session.session_id,
-        first_kept_event_id=second.entry_id,
+        first_kept_event_id="",
         summary="summary: replay anchor",
         data={"reason": "threshold"},
     )
@@ -37,11 +37,14 @@ def test_compaction_replay_audit_contract(tmp_path: Path) -> None:
     compactions = [event for event in loaded.events if isinstance(event, CompactionEntry)]
     assert len(compactions) == 1
     assert compactions[0].entry_id == entry.entry_id
-    assert compactions[0].first_kept_event_id == second.entry_id
+    assert compactions[0].first_kept_event_id == ""
     assert compactions[0].data["reason"] == "threshold"
 
     replayed = manager.list_turn_messages(session.session_id)
-    assert replayed[0].role == "system"
-    assert replayed[0].content == "summary: replay anchor"
-    assert replayed[1].content == "legacy answer"
+    # In the full-compact design, old history is replaced by a summary user message.
+    # No original messages are kept (kept_events is empty).
+    assert len(replayed) == 1
+    assert replayed[0].role == "user"
+    assert "summary: replay anchor" in replayed[0].content
+    assert "Continue the conversation" in replayed[0].content
     assert first.entry_id != second.entry_id

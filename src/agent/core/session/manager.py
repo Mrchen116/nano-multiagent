@@ -168,48 +168,58 @@ class SessionManager:
         return tuple(loaded.events)
 
     def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
-        """Materialize chat messages, applying compaction summary semantics."""
+        """Materialize chat messages, applying compaction summary semantics.
+
+        When a CompactionEntry exists, all TURN_APPENDED events before it are
+        dropped (replaced by the summary + restored files). Only events after
+        the latest CompactionEntry are retained as original messages.
+        """
 
         loaded = self._store.load_session(session_id)
         if loaded is None:
             return ()
 
-        latest_compaction: CompactionEntry | None = None
-        for entry in loaded.events:
+        # Find the latest CompactionEntry by index (entry_id is not sortable).
+        latest_compaction_idx = -1
+        for i, entry in enumerate(loaded.events):
             if isinstance(entry, CompactionEntry):
-                latest_compaction = entry
+                latest_compaction_idx = i
 
+        # Collect only TURN_APPENDED events after the latest compaction.
         messages: list[Message] = []
-        collecting_kept_messages = latest_compaction is None
-        for entry in loaded.events:
-            if isinstance(entry, CompactionEntry):
-                continue
+        for entry in loaded.events[latest_compaction_idx + 1:]:
             if entry.kind is not SessionEntryKind.TURN_APPENDED:
                 continue
-            if (
-                latest_compaction is not None
-                and not collecting_kept_messages
-                and entry.entry_id == latest_compaction.first_kept_event_id
-            ):
-                collecting_kept_messages = True
-            if not collecting_kept_messages:
-                continue
-            # Compaction boundary: only messages at/after first_kept_event_id are replayed.
             message = self._message_from_turn_event(entry)
             if message is not None:
                 messages.append(message)
 
-        if latest_compaction is not None:
+        if latest_compaction_idx >= 0:
+            latest_compaction = loaded.events[latest_compaction_idx]
+            from agent.core.agent.compaction.prompts import get_compact_user_summary_message
+
+            # 1. Summary user message (insert at front)
+            summary_content = get_compact_user_summary_message(latest_compaction.summary)
             summary_message = Message(
                 message_id=f"{latest_compaction.entry_id}:summary",
-                role="system",
-                content=latest_compaction.summary,
-                metadata={
-                    "compaction_entry_id": latest_compaction.entry_id,
-                    "first_kept_event_id": latest_compaction.first_kept_event_id,
-                },
+                role="user",
+                content=summary_content,
+                metadata={"compaction_summary": True},
             )
             messages.insert(0, summary_message)
+
+            # 2. Restored files user message (after summary)
+            restored_files = latest_compaction.data.get("restored_files", [])
+            if restored_files:
+                files_content = "\n\n".join(restored_files)
+                files_message = Message(
+                    message_id=f"{latest_compaction.entry_id}:files",
+                    role="user",
+                    content=files_content,
+                    metadata={"compaction_files": True},
+                )
+                messages.insert(1, files_message)
+
         return tuple(messages)
 
     def list_sessions(self, *, limit: int, offset: int) -> tuple[tuple[Session, ...], bool]:

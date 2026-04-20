@@ -5,10 +5,7 @@ from typing import Sequence
 from agent.core.types import Message
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 
-SUMMARY_SYSTEM_PROMPT = (
-    "Summarize conversation context with fixed sections: "
-    "目标, 约束, 进展, 决策, 下一步, 关键上下文. Keep it concise."
-)
+from .prompts import COMPACT_MAX_OUTPUT_TOKENS, format_compact_summary, get_compact_prompt
 
 
 class CompactionSummarizer:
@@ -22,12 +19,18 @@ class CompactionSummarizer:
         self,
         *,
         session_id: str,
+        system_prompt: str | None,
         dropped_messages: Sequence[Message],
     ) -> str:
         """Summarize dropped messages for compaction record.
 
+        Builds the LLM request by reusing the main agent's context prefix:
+        system_prompt + dropped_messages + summary user message.
+
         Args:
             session_id: Session id used for provider tracing.
+            system_prompt: Rendered system prompt (with tools/skills/cwd/datetime)
+                           matching the main agent's actual context.
             dropped_messages: Messages that will be removed from active context.
 
         Returns:
@@ -37,35 +40,39 @@ class CompactionSummarizer:
         if not dropped_messages:
             return _fallback_summary()
 
-        transcript_lines = [
-            f"- {message.role}: {message.content}"
-            for message in dropped_messages
-        ]
-        prompt = "Conversation slice:\n" + "\n".join(transcript_lines)
+        messages: list[LLMMessage] = []
+        if system_prompt:
+            messages.append(LLMMessage(role="system", content=system_prompt))
+        for msg in dropped_messages:
+            messages.append(LLMMessage(role=msg.role, content=msg.content))
+        messages.append(LLMMessage(role="user", content=get_compact_prompt()))
+
         try:
             response = self._llm_client.generate(
                 LLMGenerateRequest(
                     session_id=session_id,
                     model=self._model,
-                    messages=(
-                        LLMMessage(role="system", content=SUMMARY_SYSTEM_PROMPT),
-                        LLMMessage(role="user", content=prompt),
-                    ),
+                    messages=tuple(messages),
                     stream=False,
+                    max_tokens=COMPACT_MAX_OUTPUT_TOKENS,
                 )
             )
             summary = response.message.content.strip()
-            return summary or _fallback_summary()
+            return format_compact_summary(summary) if summary else _fallback_summary()
         except Exception:
             return _fallback_summary()
 
 
 def _fallback_summary() -> str:
     return (
-        "目标: 维持会话连续性\n"
-        "约束: 上下文窗口受限\n"
-        "进展: 已完成历史压缩\n"
-        "决策: 已压缩较早对话片段\n"
-        "下一步: 继续处理最新用户请求\n"
-        "关键上下文: 仅保留近期消息"
+        "Summary:\n"
+        "1. Primary Request and Intent: Session continuity maintained.\n"
+        "2. Key Technical Concepts: None.\n"
+        "3. Files and Code Sections: None.\n"
+        "4. Errors and fixes: None.\n"
+        "5. Problem Solving: None.\n"
+        "6. All user messages: None.\n"
+        "7. Pending Tasks: Continue the latest user request.\n"
+        "8. Current Work: Context compaction was performed.\n"
+        "9. Optional Next Step: Resume directly from the latest user request."
     )

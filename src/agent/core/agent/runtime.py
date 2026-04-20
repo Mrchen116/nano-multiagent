@@ -26,6 +26,7 @@ from .compaction.types import CompactionReason, CompactionResult, CompactionSett
 from .loop import AgentLoop, ToolRegistryLike
 from .policies import AgentPolicies
 from .run_control import RunController
+from .prompting import build_system_prompt
 from .skill_commands import rewrite_skill_command
 from .state import AgentState, InputPart, parse_input_parts, render_user_text
 
@@ -665,15 +666,53 @@ class AgentRuntime:
         plan = self._compaction_planner.plan(events=entries, reason=reason)
         if plan is None:
             return None
+
+        session = self._session_manager.get_session(session_id)
+        rendered_system_prompt: str | None = None
+        if session is not None:
+            active_skills = self._resolve_session_available_skills(session)
+            active_tools = self._resolve_session_available_tools(session)
+            rendered_system_prompt = build_system_prompt(
+                system_prompt=session.system_prompt or self._loop._system_prompt,
+                available_skills=active_skills,
+                available_tools=active_tools,
+                current_working_directory=session.workspace_root,
+            )
+
         dropped_messages = tuple(_message_from_turn_entry(entry) for entry in plan.dropped_events)
         summary = self._compaction_summarizer.summarize(
             session_id=session_id,
+            system_prompt=rendered_system_prompt,
             dropped_messages=dropped_messages,
         )
+
+        # Post-compact file restore: read up to 5 most recently accessed files.
+        file_state = self._session_file_states.get(session_id)
+        restored_files: list[str] = []
+        if file_state is not None:
+            for state in reversed(file_state._states.values()):
+                content = _read_file_slice(
+                    file_path=state.file_path,
+                    offset=state.offset,
+                    limit=state.limit,
+                )
+                if content is not None:
+                    lines_str = (
+                        f"lines {state.offset}-{state.offset + state.limit - 1}"
+                        if state.offset is not None and state.limit is not None
+                        else "full file"
+                    )
+                    restored_files.append(
+                        f"[Post-compact file restore] {state.file_path} ({lines_str}):\n{content}"
+                    )
+                if len(restored_files) >= 5:
+                    break
+
         result = self._compaction_applier.apply(
             session_id=session_id,
             plan=plan,
             summary=summary,
+            restored_files=restored_files,
         )
         await self._dispatch_observe(
             "session_compact",
@@ -687,12 +726,7 @@ class AgentRuntime:
             },
             self._build_hook_context(session_id=session_id),
         )
-        # Compaction drops Read tool_results from history; the model can no longer
-        # see file contents. Clear the state so it must re-read before editing.
-        # NOTE: This is an intentional divergence from claude-code, which keeps
-        # readFileState across compactions. We prefer correctness (model must
-        # actually see the content) over convenience. Review carefully before
-        # changing this behavior.
+        # Clear file state after extracting restore info.
         self._session_file_states.pop(session_id, None)
         return result
 
@@ -904,5 +938,26 @@ def _without_tool_calls_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     copied = dict(metadata)
     copied.pop("tool_calls", None)
     return copied
+
+
+def _read_file_slice(
+    file_path: str,
+    offset: int | None,
+    limit: int | None,
+) -> str | None:
+    """Read a file or a slice of it (offset/limit are 1-indexed line numbers)."""
+    try:
+        path = Path(file_path)
+        if not path.exists():
+            return None
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if offset is None or limit is None:
+            return text
+        lines = text.splitlines()
+        start = max(0, offset - 1)
+        end = start + limit
+        return "\n".join(lines[start:end])
+    except (OSError, ValueError):
+        return None
 
 

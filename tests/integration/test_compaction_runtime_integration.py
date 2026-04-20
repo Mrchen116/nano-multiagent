@@ -39,7 +39,7 @@ async def test_compaction_entry_is_persisted_with_audit_anchor_and_replayable(tm
     )
     manager.append_compaction(
         session.session_id,
-        first_kept_event_id=second.entry_id,
+        first_kept_event_id="",
         summary="summary: old context compacted",
         data={"reason": "manual"},
     )
@@ -49,14 +49,16 @@ async def test_compaction_entry_is_persisted_with_audit_anchor_and_replayable(tm
     compaction_entries = [event for event in loaded.events if isinstance(event, CompactionEntry)]
     assert len(compaction_entries) == 1
     compaction = compaction_entries[0]
-    assert compaction.first_kept_event_id == second.entry_id
+    assert compaction.first_kept_event_id == ""
     assert compaction.summary == "summary: old context compacted"
     assert compaction.data["reason"] == "manual"
 
     replayed = manager.list_turn_messages(session.session_id)
-    assert [message.role for message in replayed] == ["system", "assistant", "user"]
-    assert replayed[0].content == "summary: old context compacted"
-    assert [message.content for message in replayed[1:]] == ["old-answer", "new-question"]
+    # Full-compact design: no kept tail, summary is a user message.
+    assert len(replayed) == 1
+    assert replayed[0].role == "user"
+    assert "summary: old context compacted" in replayed[0].content
+    assert "Continue the conversation" in replayed[0].content
     assert first.entry_id != third.entry_id
 
 
@@ -153,13 +155,16 @@ async def test_threshold_preflight_compacts_and_rebuilds_context(tmp_path: Path)
     assert compactions
     entry = compactions[-1]
     assert entry.data["reason"] == CompactionReason.THRESHOLD.value
-    assert isinstance(entry.first_kept_event_id, str) and entry.first_kept_event_id
+    assert isinstance(entry.first_kept_event_id, str)
 
     main_requests = [request for request in llm_client.requests if request.model == "main-model"]
     assert len(main_requests) >= 2
     second_main_messages = main_requests[-1].messages
-    assert second_main_messages[1].role == "system"
-    assert "summary" in second_main_messages[1].content.lower()
+    # Summary is now a user message, not system.
+    # Find the first user message after the system prompt.
+    user_messages = [m for m in second_main_messages if m.role == "user"]
+    assert user_messages
+    assert "summary" in user_messages[0].content.lower() or "continue" in user_messages[0].content.lower()
 
 
 async def test_manual_compaction_writes_auditable_entry_and_replays_from_anchor(tmp_path: Path) -> None:
@@ -192,19 +197,12 @@ async def test_manual_compaction_writes_auditable_entry_and_replays_from_anchor(
     compactions = [event for event in loaded.events if isinstance(event, CompactionEntry)]
     assert compactions
     entry = compactions[-1]
-    assert entry.first_kept_event_id == result.first_kept_event_id
+    assert entry.first_kept_event_id == result.first_kept_event_id == ""
 
-    turn_events = [event for event in loaded.events if event.kind.value == "session.turn.appended"]
-    first_kept_index = next(
-        index
-        for index, event in enumerate(turn_events)
-        if event.entry_id == entry.first_kept_event_id
-    )
-    kept_contents = [event.data["content"] for event in turn_events[first_kept_index:]]
+    # Full-compact design: no kept tail, replayed is just summary user message.
     replayed = manager.list_turn_messages(session.session_id)
-    assert replayed[0].role == "system"
-    assert replayed[0].content == entry.summary
-    assert [message.content for message in replayed[1:]] == kept_contents
+    assert replayed[0].role == "user"
+    assert entry.summary in replayed[0].content
 
 
 async def test_session_compact_observe_hook_receives_manual_reason_event(tmp_path: Path) -> None:
@@ -306,4 +304,4 @@ async def test_threshold_compaction_falls_back_when_summary_model_fails(tmp_path
     assert compactions
     assert compactions[-1].data["reason"] == CompactionReason.THRESHOLD.value
     # Summary model fails in this test → CompactionSummarizer falls back to _fallback_summary().
-    assert "目标: 维持会话连续性" in compactions[-1].summary
+    assert "Session continuity maintained" in compactions[-1].summary
