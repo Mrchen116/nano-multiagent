@@ -9,6 +9,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from agent.core.hooks.runner import HookRunner
+from agent.core.llm.interfaces import LLMClient
 from agent.core.tools.base import (
     Tool,
     ToolContext,
@@ -31,6 +32,7 @@ def build_tool_registry(
     runtime: Any | None = None,
     config_resolver: ConfigResolver | None = None,
     product_tool_dir: Path | None = None,
+    llm_client: LLMClient | None = None,
 ) -> ToolRegistry:
     """Build a tool registry containing built-ins and user-provided tool plugins.
 
@@ -45,6 +47,8 @@ def build_tool_registry(
             legacy location for backward compatibility.
         product_tool_dir: Optional product-owned tool directory loaded after
             built-ins and before user global/workspace layers.
+        llm_client: Optional LLM client injected into ToolContext for tools
+            that need on-the-fly model calls (e.g. web_fetch prompt processing).
 
     Returns:
         Wired ToolRegistry with built-ins and any discovered user tools loaded.
@@ -55,6 +59,7 @@ def build_tool_registry(
     context = ToolContext.create(
         repo_root=repo_root,
         safety_config=load_tool_safety_config(repo_root=repo_root),
+        llm_client=llm_client,
     )
     registry = ToolRegistry(context=context, hook_runner=hook_runner)
     register_builtin_tools(registry, runtime=runtime)

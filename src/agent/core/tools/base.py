@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional, Protocol, runtime_checkable
 
 from .safety_types import (
     ToolSafetyConfigFactory,
@@ -10,6 +10,9 @@ from .safety_types import (
     ToolSafetyFactory,
     ToolSafetyLike,
 )
+
+if TYPE_CHECKING:
+    from agent.core.llm.interfaces import LLMClient
 
 _TOOL_SAFETY_FACTORY: ToolSafetyFactory | None = None
 _TOOL_SAFETY_CONFIG_FACTORY: ToolSafetyConfigFactory | None = None
@@ -87,6 +90,8 @@ class ToolContext:
     session_metadata: Mapping[str, Any] = field(default_factory=dict)
     # Session-scoped file state tracker for deduplication and Read-Before-Write.
     session_file_state: Optional["SessionFileState"] = None
+    # Optional LLM client for tools that need on-the-fly model calls (e.g. web_fetch prompt processing).
+    llm_client: Optional["LLMClient"] = None
 
     @classmethod
     def create(
@@ -95,6 +100,7 @@ class ToolContext:
         repo_root: Path,
         cwd: Path | None = None,
         safety_config: ToolSafetyConfigLike | None = None,
+        llm_client: Optional["LLMClient"] = None,
     ) -> "ToolContext":
         """Build a context rooted at the resolved repository sandbox."""
 
@@ -102,7 +108,7 @@ class ToolContext:
         resolved_cwd = (cwd or resolved_root).expanduser().resolve()
         effective_config = safety_config if safety_config is not None else _build_default_tool_safety_config()
         safety = _require_tool_safety_factory()(repo_root=resolved_root, config=effective_config)
-        return cls(repo_root=resolved_root, cwd=resolved_cwd, safety=safety)
+        return cls(repo_root=resolved_root, cwd=resolved_cwd, safety=safety, llm_client=llm_client)
 
     def with_session(
         self,
@@ -126,6 +132,7 @@ class ToolContext:
             execution_event_callback=execution_event_callback,
             session_metadata=dict(session_metadata) if session_metadata is not None else dict(self.session_metadata),
             session_file_state=session_file_state,
+            llm_client=self.llm_client,
         )
 
     def emit_execution_event(self, payload: Mapping[str, Any]) -> None:

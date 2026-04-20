@@ -479,6 +479,7 @@ def _resolve_execution_context(base_context: ToolContext, hook_context: HookCont
         tool_call_id=base_context.tool_call_id,
         safety_overrides=base_context.safety_overrides,
         execution_event_callback=base_context.execution_event_callback,
+        llm_client=base_context.llm_client,
     )
 
 

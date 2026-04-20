@@ -162,6 +162,7 @@ def create_app(
         hook_runner=active_hook_runner,
         runtime=active_runtime,
         config_resolver=active_config_resolver,
+        llm_client=getattr(active_runtime, "_llm_client", None),
     )
     _bind_runtime_to_tool_registry(
         tool_registry=app.state.tool_registry,
