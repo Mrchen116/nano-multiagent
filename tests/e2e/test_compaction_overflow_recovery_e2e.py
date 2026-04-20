@@ -12,6 +12,10 @@ from agent.core.session.manager import SessionManager
 from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
+def _is_compaction_request(request: LLMGenerateRequest) -> bool:
+    return any("Do NOT call any tools" in (m.content or "") for m in request.messages)
+
+
 class OverflowRetryLLMClient:
     def __init__(self) -> None:
         self.calls: list[LLMGenerateRequest] = []
@@ -19,7 +23,7 @@ class OverflowRetryLLMClient:
 
     def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
         self.calls.append(request)
-        if request.model == "summary-model":
+        if _is_compaction_request(request):
             return LLMGenerateResponse(
                 model=request.model,
                 message=LLMMessage(role="assistant", content="summary for overflow recovery"),
@@ -48,7 +52,7 @@ class SummaryFailingOverflowLLMClient:
 
     def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
         self.calls.append(request)
-        if request.model == "summary-model":
+        if _is_compaction_request(request):
             raise ModelError(
                 "summary backend unavailable",
                 details={"status_code": 503, "response": "summary service unavailable"},
@@ -120,7 +124,8 @@ def test_message_route_recovers_from_overflow_via_compaction(tmp_path: Path) -> 
     assert isinstance(compactions[-1].first_kept_event_id, str)
 
     main_calls = [request for request in llm_client.calls if request.model == "main-model"]
-    assert len(main_calls) == 3
+    # 1st turn + 2nd turn (overflow) + compaction summary + retry = 4
+    assert len(main_calls) == 4
 
 
 def test_message_route_recovers_even_if_summary_model_fails(tmp_path: Path) -> None:

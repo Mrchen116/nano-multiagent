@@ -10,12 +10,117 @@
 
 ---
 
+## 架构演进保障：AgentContextFork
+
+当前压缩实现中，`CompactionSummarizer` 直接在内部拼 `system_prompt + history + user message` 后调 `llm_client.generate()`。这不是一个可复用的抽象——后续实验性功能（如记忆更新、推测性推理）都需要**复用主 agent 上下文前缀 + 追加新消息**的能力。
+
+**目标**：引入 `AgentContextFork` 作为通用抽象，不只为压缩，而是为所有需要 fork 当前 agent 上下文并追加消息的实验性功能提供基础设施。
+
+### 为什么用独立类（不是 AgentLoop.run() 参数）
+
+| 维度 | 独立类 `AgentContextFork` | AgentLoop.run() 加参数 |
+|------|--------------------------|----------------------|
+| **语义** | `AgentLoop.run()` = 主对话一个 turn；`AgentContextFork.execute()` = 隔离的 side-chain 执行 | 同一个方法既要表达主 turn 又要表达 fork，语义模糊 |
+| **参数膨胀** | fork 特有参数封装在类中 | `run()` 签名会从 9 个参数膨胀到 13+ |
+| **扩展性** | 未来加 canUseTool、content replacement 等有地方扩展 | 直接污染 loop 签名 |
+| **和 CC 对齐** | CC 的 `runForkedAgent` 是独立模块 | - |
+| **稳定性** | loop 的变更不影响 fork | 互相耦合 |
+
+### AgentContextFork 设计
+
+```python
+class AgentContextFork:
+    """Execute a side-chain LLM call reusing the parent agent's context prefix.
+
+    Reuses AgentLoop.run() with isolated side effects.
+    Used for: compaction, memory extraction, speculative reasoning, etc.
+    """
+
+    def __init__(
+        self,
+        *,
+        llm_client: LLMClient,
+        model: str,
+        system_prompt: str | None = None,
+        available_skills: tuple[SkillMetadata, ...] = (),
+        available_tools: tuple[ToolSpec, ...] | None = None,
+        tool_registry: ToolRegistryLike | None = None,
+        current_working_directory: Path | None = None,
+    ) -> None:
+        self._loop = AgentLoop(
+            llm_client=llm_client,
+            model=model,
+            system_prompt=system_prompt,
+            available_skills=available_skills,
+            available_tools=available_tools,
+            tool_registry=tool_registry,
+            current_working_directory=current_working_directory,
+        )
+
+    async def execute(
+        self,
+        *,
+        state: AgentState,
+        max_turns: int = 1,
+        session_file_state: SessionFileState | None = None,
+        hook_runner: HookRunner | None = None,
+    ) -> TurnResult:
+        """Fork the agent context and execute with isolated side effects.
+
+        Args:
+            state: AgentState with history_messages + prompt_messages + user_text.
+            max_turns: Max tool-calling rounds (default 1 for single-shot).
+            session_file_state: Default creates an isolated empty instance.
+            hook_runner: Default None = no hooks dispatched.
+        """
+        return await self._loop.run(
+            state,
+            session_file_state=session_file_state or SessionFileState(),
+            hook_runner=hook_runner,
+            max_turns=max_turns,
+        )
+```
+
+### AgentLoop.run() 需要加的改动
+
+当前 `run()` 的 while loop 是 `while True` 直到 `completed=True`。需要加 `max_turns` 参数：
+
+```python
+# AgentLoop.run() 签名新增
+max_turns: int | None = None,
+
+# while loop 中增加 turn 计数器
+api_round_count = 0
+while True:
+    api_round_count += 1
+    if max_turns is not None and api_round_count > max_turns:
+        stop_reason = "max_turns_reached"
+        break
+    # ... existing logic
+```
+
+**副作用隔离策略（统一）**：
+- `session_file_state`：不传时用新的空 `SessionFileState()`，与主 agent 隔离
+- `hook_runner`：不传时不触发 hook，与主 agent 隔离
+- `tool_registry`：复用主 agent 的（工具本身可执行，但 file state 隔离保证写操作受控）
+
+### 复用场景
+
+| 功能 | 用法 |
+|------|------|
+| **压缩（当前）** | `AgentContextFork.execute(state=..., max_turns=1)` |
+| **记忆更新** | `AgentContextFork.execute(state=..., max_turns=3)` — 允许 Read 工具读取记忆文件后生成更新 |
+| **推测性推理** | `AgentContextFork.execute(state=..., max_turns=1)` — 基于当前上下文做下一步预测 |
+| **session memory** | `AgentContextFork.execute(state=..., max_turns=1)` — 提取关键信息写入记忆文件 |
+
+---
+
 ## 当前架构速览
 
 ```
 AgentRuntime._compact_session()
   ├── CompactionPlanner.plan()      → 选择安全切点，保证不分割 tool call/result 对
-  ├── CompactionSummarizer.summarize() → LLM 生成总结（当前：独立请求，极简 prompt）
+  ├── CompactionSummarizer.summarize() → LLM 生成总结（当前：直接调 llm_client.generate()）
   └── CompactionApplier.apply()     → 调用 session_manager.append_compaction() 写入 CompactionEntry
 
 SessionManager.list_turn_messages() 的 compaction 语义：
@@ -35,6 +140,7 @@ SessionManager.list_turn_messages() 的 compaction 语义：
 | 输出格式处理 | 剥离 `<analysis>`，只保留 `<summary>` 内容 |
 | 文件恢复 | 压缩后恢复最近读取的最多 5 个文件内容到 context |
 | 不保留原始尾巴 | 对标 CC 完整 compact：旧历史整体替换为 summary + attachments，无 kept_events |
+| **架构演进** | 压缩 summarizer 用 `AgentContextFork` 复用 `AgentLoop.run()`，为后续实验性功能提供通用 fork 能力 |
 
 ---
 
@@ -47,6 +153,9 @@ SessionManager.list_turn_messages() 的 compaction 语义：
 | Q3 | 从 `SessionFileState` 按 offset/limit 恢复 | 取最近 5 个文件，按记录的行范围读取，不是全文 |
 | Q4 | 改为 user message | 对标 CC，加续接前缀 |
 | Q5 | **不保留 kept_events** | 对标 CC 完整 compact：旧历史整体替换为 summary + attachments |
+| Q6 | **AgentContextFork 为独立类** | 不放在 AgentLoop.run() 参数中，语义清晰、参数整洁、可扩展 |
+| Q7 | **副作用统一隔离** | fork 的 SessionFileState 和 hook 默认与主 agent 隔离 |
+| Q8 | **max_turns 在 AgentLoop.run() 层面支持** | while loop 中增加 api_round_count 计数器 |
 
 ---
 
@@ -95,46 +204,87 @@ systemPrompt + systemContext
 COMPACT_MAX_OUTPUT_TOKENS = 20_000
 ```
 
-### 3. Summarizer 签名变更（`src/agent/core/agent/compaction/summarizer.py`）
+### 3. Summarizer 重构：用 AgentContextFork（Phase 2）
 
-当前签名：
+**Phase 1（当前已实现）**：`CompactionSummarizer` 直接拼消息调 `llm_client.generate()`。
+
+**Phase 2（重构目标）**：`CompactionSummarizer` 委托 `AgentContextFork.execute()`，复用 `AgentLoop.run()`。
+
 ```python
-def summarize(self, *, session_id: str, dropped_messages: Sequence[Message]) -> str:
+class CompactionSummarizer:
+    """Summarize dropped history via LLM with deterministic fallback."""
+
+    def __init__(self, *, fork: AgentContextFork) -> None:
+        self._fork = fork
+
+    async def summarize(
+        self,
+        *,
+        session_id: str,
+        system_prompt: str | None,
+        dropped_messages: Sequence[Message],
+    ) -> str:
+        if not dropped_messages:
+            return _fallback_summary()
+
+        # Build history + summary prompt as AgentState
+        history = list(dropped_messages)
+        summary_prompt = get_compact_prompt()
+        state = AgentState(
+            session_id=session_id,
+            turn_id="compact",
+            turn_count=0,
+            history_messages=tuple(history),
+            input_parts=[InputPart(type="text", text="")],
+            user_text=summary_prompt,
+        )
+
+        try:
+            result = await self._fork.execute(
+                state=state,
+                max_turns=1,
+                session_file_state=SessionFileState(),  # 隔离
+                hook_runner=None,                        # 隔离
+            )
+            summary = result.messages[-1].content.strip() if result.messages else ""
+            return format_compact_summary(summary) if summary else _fallback_summary()
+        except Exception:
+            return _fallback_summary()
 ```
 
-新签名：
+**关键变化**：
+- `CompactionSummarizer` 不再持有 `llm_client` 和 `model`，而是持有 `AgentContextFork`
+- `AgentRuntime.__init__()` 中创建 `AgentContextFork` 实例传给 summarizer
+- 压缩请求通过 `AgentLoop.run()` 执行，自然支持 tool calling（虽然压缩时 max_turns=1 且 prompt 禁止工具调用，但 loop 本身有能力处理）
+
+### 4. AgentLoop.run() 的 max_turns 支持
+
 ```python
-def summarize(
+async def run(
     self,
+    state: AgentState,
     *,
-    session_id: str,
-    system_prompt: str | None,
-    dropped_messages: Sequence[Message],
-) -> str:
+    # ... existing params ...
+    max_turns: int | None = None,  # 新增
+) -> TurnResult:
+    # ... setup ...
+    api_round_count = 0
+    while True:
+        api_round_count += 1
+        if max_turns is not None and api_round_count > max_turns:
+            stop_reason = "max_turns_reached"
+            completed = False
+            break
+
+        # ... existing LLM call + tool execution logic ...
 ```
 
-**请求构建逻辑**（复用主 agent 上下文前缀）：
+**说明**：
+- `max_turns` 控制的是 **API round 数**（assistant → tool call → tool result → assistant 算一轮）
+- 默认值 `None` = 无限制（backward compatible，主对话不受影响）
+- 压缩时 `max_turns=1`：模型最多生成一次 assistant response，如果有 tool call 也不继续
 
-```python
-messages: list[LLMMessage] = []
-if system_prompt:
-    messages.append(LLMMessage(role="system", content=system_prompt))
-for msg in dropped_messages:
-    messages.append(LLMMessage(role=msg.role, content=msg.content))
-messages.append(LLMMessage(role="user", content=get_compact_prompt()))
-
-response = self._llm_client.generate(
-    LLMGenerateRequest(
-        session_id=session_id,
-        model=self._model,
-        messages=tuple(messages),
-        stream=False,
-        max_tokens=COMPACT_MAX_OUTPUT_TOKENS,
-    )
-)
-```
-
-### 4. 输出格式处理（`src/agent/core/agent/compaction/prompts.py`）
+### 5. 输出格式处理（`src/agent/core/agent/compaction/prompts.py`）
 
 新增 `format_compact_summary(summary: str) -> str`：
 
@@ -146,7 +296,7 @@ response = self._llm_client.generate(
 新增 `get_compact_user_summary_message(summary: str) -> str`：
 - 包装 formatted summary，前加 continuation prefix，后加 resume instruction
 
-### 5. 文件恢复（Post-Compact File Restore）
+### 6. 文件恢复（Post-Compact File Restore）
 
 **流程**：先取出信息，再清空状态。
 
@@ -167,7 +317,7 @@ AgentRuntime._compact_session()
 
 **恢复文件在 context 中的形态**：作为额外的 **user message** 跟在 summary 之后。每个文件可单独一条 message，或合并成一条 message（"Here are the recently accessed files:\n\n[file1]...\n\n[file2]..."）。
 
-### 6. CompactionPlanner：只总结最新 compaction 之后的消息
+### 7. CompactionPlanner：只总结最新 compaction 之后的消息
 
 **问题**：如果 session 已经被 compact 过一次，旧的 turn_appended events 仍然存在于 events 列表中。如果不做过滤，summarizer 会把**所有历史**（包括已被 summary 过的）重新发给模型，导致输入 token 随 compact 次数线性膨胀。
 
@@ -177,13 +327,11 @@ AgentRuntime._compact_session()
 
 ```python
 def plan(self, *, events: Sequence[SessionEntry | CompactionEntry], reason: CompactionReason) -> CompactionPlan | None:
-    # 找到最新 CompactionEntry 的索引
     latest_compaction_idx = -1
     for i, event in enumerate(events):
         if isinstance(event, CompactionEntry):
             latest_compaction_idx = i
 
-    # 只取最新 compaction 之后的 TURN_APPENDED events
     turn_events = tuple(
         event for event in events[latest_compaction_idx + 1:]
         if isinstance(event, SessionEntry) and event.kind is SessionEntryKind.TURN_APPENDED
@@ -192,7 +340,6 @@ def plan(self, *, events: Sequence[SessionEntry | CompactionEntry], reason: Comp
     if not turn_events:
         return None
 
-    # 不保留 kept_events，旧历史整体被 summary 替代
     return CompactionPlan(
         reason=reason,
         first_kept_event_id="",           # 无保留消息
@@ -201,7 +348,7 @@ def plan(self, *, events: Sequence[SessionEntry | CompactionEntry], reason: Comp
     )
 ```
 
-### 7. 消息插入方式（list_turn_messages）
+### 8. 消息插入方式（list_turn_messages）
 
 **当前行为**：
 - 找到最新 CompactionEntry
@@ -229,7 +376,6 @@ def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
         if isinstance(entry, CompactionEntry):
             latest_compaction_idx = i
 
-    # 只收集最新 compaction 之后的 TURN_APPENDED events
     messages: list[Message] = []
     for entry in loaded.events[latest_compaction_idx + 1:]:
         if entry.kind is not SessionEntryKind.TURN_APPENDED:
@@ -240,7 +386,8 @@ def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
 
     if latest_compaction_idx >= 0:
         latest_compaction = loaded.events[latest_compaction_idx]
-        # 1. Summary user message（插在最前面）
+        from agent.core.agent.compaction.prompts import get_compact_user_summary_message
+
         summary_content = get_compact_user_summary_message(latest_compaction.summary)
         summary_message = Message(
             message_id=f"{latest_compaction.entry_id}:summary",
@@ -250,7 +397,6 @@ def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
         )
         messages.insert(0, summary_message)
 
-        # 2. 恢复文件 user message（跟在 summary 后面）
         restored_files = latest_compaction.data.get("restored_files", [])
         if restored_files:
             files_content = "\n\n".join(restored_files)
@@ -265,7 +411,7 @@ def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
     return tuple(messages)
 ```
 
-### 8. CompactionApplier 签名扩展
+### 9. CompactionApplier 签名扩展
 
 ```python
 def apply(
@@ -291,44 +437,56 @@ def apply(
         first_kept_event_id=entry.first_kept_event_id,
         summary=entry.summary,
         dropped_event_ids=tuple(event.entry_id for event in plan.dropped_events),
-        kept_event_ids=(),  # 始终为空
+        kept_event_ids=(),
     )
 ```
 
-### 9. 调用链路变更
+### 10. 调用链路变更
 
+**Phase 1（当前已实现）**：
 ```
 AgentRuntime._compact_session()
   ├── build_system_prompt(...)                    ← 渲染完整 system prompt
   ├── CompactionPlanner.plan()
-  │      └── dropped_events = 所有 turn_appended events
-  │      └── kept_events = ()
   ├── CompactionSummarizer.summarize(
   │      system_prompt=rendered_system_prompt,
-  │      dropped_messages=...,                     ← 全部历史消息
+  │      dropped_messages=...,
   │   )
-  │      └── 构建 LLM 请求：system + history + summary user message
-  │      └── format_compact_summary() 处理输出
+  │      └── 直接调 llm_client.generate()
   ├── 从 SessionFileState 取出最近 5 个文件
-  ├── pop session_file_states（清空）
-  ├── CompactionApplier.apply(
-  │      summary=...,
-  │      restored_files=[file1_content, file2_content, ...],
-  │   )
+  ├── pop session_file_states
+  ├── CompactionApplier.apply(summary=..., restored_files=...)
   └── 触发 "session_compact" observe hook
-
-SessionManager.list_turn_messages()
-  └── 忽略 compaction 之前的所有 TURN_APPENDED events（无 kept 尾巴）
-  └── 在保留消息之前插入：
-      1. summary user message（continuation prefix + resume instruction）
-      2. restored files user message
-
-AgentLoop.build_prompt_messages()
-  └── 正常处理 history_messages（其中已包含 summary + files + 当前 turn 消息）
-  └── 在开头插入 system prompt（不受 compact 影响）
 ```
 
-### 10. 回退策略
+**Phase 2（重构目标，用 AgentContextFork）**：
+```
+AgentRuntime.__init__()
+  └── self._context_fork = AgentContextFork(
+          llm_client=active_llm_client,
+          model=self._llm_config.model,
+          system_prompt=system_prompt,
+          available_skills=resolved_skills,
+          tool_registry=tool_registry,
+      )
+      └── self._compaction_summarizer = CompactionSummarizer(fork=self._context_fork)
+
+AgentRuntime._compact_session()
+  ├── build_system_prompt(...)                    ← 渲染完整 system prompt
+  ├── CompactionPlanner.plan()
+  ├── CompactionSummarizer.summarize(
+  │      system_prompt=rendered_system_prompt,
+  │      dropped_messages=...,
+  │   )
+  │      └── AgentContextFork.execute(state=..., max_turns=1)
+  │          └── AgentLoop.run() 复用主 loop 逻辑
+  ├── 从 SessionFileState 取出最近 5 个文件
+  ├── pop session_file_states
+  ├── CompactionApplier.apply(summary=..., restored_files=...)
+  └── 触发 "session_compact" observe hook
+```
+
+### 11. 回退策略
 
 如果模型未按格式输出（无 `<summary>` 标签）：
 - `format_compact_summary()` 直接返回原始文本（strip 后）
@@ -338,14 +496,25 @@ AgentLoop.build_prompt_messages()
 
 ## 改动范围
 
+### Phase 1（已完成）
+
 | 文件 | 改动内容 |
 |------|----------|
 | `src/agent/core/agent/compaction/prompts.py`（新建） | 完整英文 prompt、输出格式处理、continuation wrapper |
 | `src/agent/core/agent/compaction/summarizer.py` | 新签名（+system_prompt）、复用上下文前缀构建请求、调用 format_compact_summary |
 | `src/agent/core/agent/compaction/applier.py` | 扩展签名（+restored_files）、写入 data |
-| `src/agent/core/agent/compaction/planner.py` | kept_events 始终为空 |
+| `src/agent/core/agent/compaction/planner.py` | 只取最新 compaction 之后的消息，kept_events 为空 |
 | `src/agent/core/session/manager.py` | list_turn_messages：不保留 kept 尾巴、summary 改 user message、插入 restored files |
 | `src/agent/core/agent/runtime.py` | _compact_session：渲染 system prompt、文件恢复、传 restored_files |
+
+### Phase 2（待实现：AgentContextFork 重构）
+
+| 文件 | 改动内容 |
+|------|----------|
+| `src/agent/core/agent/context_fork.py`（新建） | `AgentContextFork` 类：复用 `AgentLoop.run()`，隔离副作用 |
+| `src/agent/core/agent/loop.py` | `run()` 新增 `max_turns` 参数，while loop 中加 api_round_count |
+| `src/agent/core/agent/compaction/summarizer.py` | 改为持有 `AgentContextFork` 而非 `llm_client` |
+| `src/agent/core/agent/runtime.py` | `__init__` 中创建 `AgentContextFork` 并传给 summarizer |
 
 ---
 

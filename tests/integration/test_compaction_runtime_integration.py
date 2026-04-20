@@ -116,7 +116,7 @@ class SummaryFailingLLMClient:
 
     def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
         self.requests.append(request)
-        if request.model == "summary-model":
+        if _is_compaction_request(request):
             raise ModelError(
                 "summary backend unavailable",
                 details={"status_code": 503, "response": "summary service unavailable"},
@@ -126,6 +126,10 @@ class SummaryFailingLLMClient:
             message=LLMMessage(role="assistant", content="ack-after-fallback"),
             finish_reason="stop",
         )
+
+
+def _is_compaction_request(request: LLMGenerateRequest) -> bool:
+    return any("Do NOT call any tools" in (m.content or "") for m in request.messages)
 
 
 async def test_threshold_preflight_compacts_and_rebuilds_context(tmp_path: Path) -> None:
@@ -273,7 +277,8 @@ async def test_overflow_post_turn_check_compacts_then_retries(tmp_path: Path) ->
     assert compactions[-1].data["reason"] == CompactionReason.OVERFLOW.value
 
     main_calls = [request for request in llm_client.requests if request.model == "main-model"]
-    assert len(main_calls) == 3
+    # 1st turn + 2nd turn (overflow) + compaction summary + retry = 4
+    assert len(main_calls) == 4
 
 
 async def test_threshold_compaction_falls_back_when_summary_model_fails(tmp_path: Path) -> None:

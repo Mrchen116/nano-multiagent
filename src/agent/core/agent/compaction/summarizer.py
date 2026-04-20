@@ -2,20 +2,21 @@
 
 from typing import Sequence
 
+from agent.core.agent.state import AgentState, InputPart
+from agent.core.tools.session_file_state import SessionFileState
 from agent.core.types import Message
-from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 
-from .prompts import COMPACT_MAX_OUTPUT_TOKENS, format_compact_summary, get_compact_prompt
+from agent.core.agent.context_fork import AgentContextFork
+from .prompts import format_compact_summary, get_compact_prompt
 
 
 class CompactionSummarizer:
     """Summarize dropped history via LLM with deterministic fallback."""
 
-    def __init__(self, *, llm_client: LLMClient, model: str) -> None:
-        self._llm_client = llm_client
-        self._model = model
+    def __init__(self, *, fork: AgentContextFork) -> None:
+        self._fork = fork
 
-    def summarize(
+    async def summarize(
         self,
         *,
         session_id: str,
@@ -40,24 +41,28 @@ class CompactionSummarizer:
         if not dropped_messages:
             return _fallback_summary()
 
-        messages: list[LLMMessage] = []
-        if system_prompt:
-            messages.append(LLMMessage(role="system", content=system_prompt))
-        for msg in dropped_messages:
-            messages.append(LLMMessage(role=msg.role, content=msg.content))
-        messages.append(LLMMessage(role="user", content=get_compact_prompt()))
+        history = list(dropped_messages)
+        summary_prompt = get_compact_prompt()
+
+        state = AgentState(
+            session_id=session_id,
+            turn_id="compact",
+            turn_count=0,
+            history_messages=tuple(history),
+            input_parts=(InputPart(type="text", text=""),),
+            user_text=summary_prompt,
+        )
 
         try:
-            response = self._llm_client.generate(
-                LLMGenerateRequest(
-                    session_id=session_id,
-                    model=self._model,
-                    messages=tuple(messages),
-                    stream=False,
-                    max_tokens=COMPACT_MAX_OUTPUT_TOKENS,
-                )
+            result = await self._fork.execute(
+                state=state,
+                max_turns=1,
+                session_file_state=SessionFileState(),
+                system_prompt_override=system_prompt,
+                available_skills_override=(),
+                available_tools_override=(),
             )
-            summary = response.message.content.strip()
+            summary = result.messages[-1].content.strip() if result.messages else ""
             return format_compact_summary(summary) if summary else _fallback_summary()
         except Exception:
             return _fallback_summary()

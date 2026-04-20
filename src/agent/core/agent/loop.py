@@ -95,6 +95,7 @@ class AgentLoop:
         session_created_at: str | None = None,
         current_working_directory_override: Path | None = None,
         session_file_state: SessionFileState | None = None,
+        max_turns: int | None = None,
     ) -> TurnResult:
         """Run one user turn until completion or terminal stop reason.
 
@@ -170,7 +171,13 @@ class AgentLoop:
                 #    of silently dropping tool calls.
                 # 4) Before each LLM call, drain any pending injected messages.
                 # 5) After each tool batch, check for a force-interrupt signal.
+                api_round_count = 0
                 while True:
+                    api_round_count += 1
+                    if max_turns is not None and api_round_count > max_turns:
+                        stop_reason = "max_turns_reached"
+                        completed = False
+                        break
                     # Drain pending messages injected via RunController (round-boundary injection).
                     if controller is not None:
                         for pending_msg in controller.drain_pending():
@@ -410,6 +417,17 @@ class AgentLoop:
                 turn_end_payload,
                 active_hook_ctx,
             )
+
+        return TurnResult(
+            session_id=state.session_id,
+            turn_id=state.turn_id,
+            messages=tuple(assistant_messages),
+            tool_calls=tuple(tool_calls),
+            tool_results=tuple(tool_results),
+            completed=completed,
+            stop_reason=stop_reason,
+            usage=turn_usage,
+        )
 
     async def _execute_tool_call(
         self,

@@ -23,6 +23,7 @@ from .compaction.planner import CompactionPlanner
 from .compaction.policy import should_compact
 from .compaction.summarizer import CompactionSummarizer
 from .compaction.types import CompactionReason, CompactionResult, CompactionSettings
+from .context_fork import AgentContextFork
 from .loop import AgentLoop, ToolRegistryLike
 from .policies import AgentPolicies
 from .run_control import RunController
@@ -84,6 +85,7 @@ class AgentRuntime:
         # Product default tool ids used when no per-session tool_allowlist is set.
         # None means "all tools in registry" (platform default behavior).
         self._default_tool_ids = default_tool_ids
+        self._tool_registry = tool_registry
         self._session_file_states: dict[str, SessionFileState] = {}
         self._loop = AgentLoop(
             llm_client=active_llm_client,
@@ -95,13 +97,20 @@ class AgentRuntime:
             current_working_directory=self._repo_root,
             system_prompt=system_prompt,
         )
-        summary_model = self._compaction_settings.summary_model or self._llm_config.model
+        self._context_fork = AgentContextFork(
+            llm_client=active_llm_client,
+            model=self._llm_config.model,
+            policies=policies,
+            system_prompt=system_prompt,
+            available_skills=resolved_skills,
+            tool_registry=tool_registry,
+            current_working_directory=self._repo_root,
+        )
         self._compaction_planner = CompactionPlanner(
             min_kept_messages=self._compaction_settings.min_kept_messages
         )
         self._compaction_summarizer = CompactionSummarizer(
-            llm_client=active_llm_client,
-            model=summary_model,
+            fork=self._context_fork,
         )
         self._compaction_applier = CompactionApplier(session_manager=session_manager)
 
@@ -401,9 +410,16 @@ class AgentRuntime:
             llm_client=active_llm_client,
             model=next_config.model,
         )
-        self._compaction_summarizer = CompactionSummarizer(
+        self._context_fork = AgentContextFork(
             llm_client=active_llm_client,
-            model=self._compaction_settings.summary_model or next_config.model,
+            model=next_config.model,
+            system_prompt=self._loop._system_prompt,
+            available_skills=self._loop.available_skills,
+            tool_registry=self._tool_registry,
+            current_working_directory=self._repo_root,
+        )
+        self._compaction_summarizer = CompactionSummarizer(
+            fork=self._context_fork,
         )
         return self._llm_config
 
@@ -680,7 +696,7 @@ class AgentRuntime:
             )
 
         dropped_messages = tuple(_message_from_turn_entry(entry) for entry in plan.dropped_events)
-        summary = self._compaction_summarizer.summarize(
+        summary = await self._compaction_summarizer.summarize(
             session_id=session_id,
             system_prompt=rendered_system_prompt,
             dropped_messages=dropped_messages,
