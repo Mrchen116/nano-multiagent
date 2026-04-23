@@ -14,40 +14,19 @@ from agent.core.llm.interfaces import (
     LLMToolCall,
 )
 from agent.core.session.entries import SessionEntryKind
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.core.session.store import LoadedSession, SessionStore
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.registry import ToolRegistry
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
 
+
 def _make_workspace_session(manager: SessionManager, tmp_path: Path):
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir(exist_ok=True)
     return manager.create_session(workspace_root=workspace_root.resolve())
-
-
-class InMemorySessionStore(SessionStore):
-    def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-        self.snapshots: dict[str, dict[str, object]] = {}
-
-    def append_event(self, session_id: str, entry: object) -> None:
-        self.events.append((session_id, entry))
-
-    def load_session(self, session_id: str) -> LoadedSession | None:
-        session_events = tuple(entry for sid, entry in self.events if sid == session_id)
-        if not session_events and session_id not in self.snapshots:
-            return None
-        return LoadedSession(
-            session_id=session_id,
-            events=session_events,
-            snapshot=self.snapshots.get(session_id),
-        )
-
-    def save_snapshot(self, session_id: str, snapshot: dict[str, object]) -> None:
-        self.snapshots[session_id] = snapshot
 
 
 class FakeLLMClient:
@@ -91,17 +70,19 @@ class EchoTool:
 
 
 async def test_runtime_run_appends_user_and_assistant_events(tmp_path: Path) -> None:
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     runtime = AgentRuntime(session_manager=manager, llm_client=FakeLLMClient(), model="mock-model")
 
     result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    manager.writer.flush()
 
     assert result.session_id == session.session_id
     assert result.messages[0].role == "assistant"
     assert result.messages[0].content == "runtime-pong"
-    created_event, user_event, assistant_event = [entry for _, entry in store.events]
+    entries = manager.list_entries(session.session_id)
+    created_event, user_event, assistant_event = entries
     assert created_event.kind is SessionEntryKind.SESSION_CREATED
     assert user_event.kind is SessionEntryKind.TURN_APPENDED
     assert user_event.data["role"] == "user"
@@ -112,7 +93,7 @@ async def test_runtime_run_appends_user_and_assistant_events(tmp_path: Path) -> 
 
 
 async def test_runtime_run_with_default_workspace_root() -> None:
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=Path.cwd())
     runtime = AgentRuntime(session_manager=manager, llm_client=FakeLLMClient(), model="mock-model")
@@ -124,7 +105,7 @@ async def test_runtime_run_with_default_workspace_root() -> None:
 
 
 async def test_runtime_builds_followup_context_from_session_events(tmp_path: Path) -> None:
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient()
@@ -154,7 +135,7 @@ async def test_runtime_filters_prompt_skills_from_session_metadata(tmp_path: Pat
     (selected_dir / "SKILL.md").write_text("---\nname: selected-skill\ndescription: selected skill\n---\n", encoding="utf-8")
     (ignored_dir / "SKILL.md").write_text("---\nname: ignored-skill\ndescription: ignored skill\n---\n", encoding="utf-8")
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     workspace_root = tmp_path
     session = manager.create_session(
@@ -172,7 +153,7 @@ async def test_runtime_filters_prompt_skills_from_session_metadata(tmp_path: Pat
 
 
 async def test_runtime_persists_tool_events_with_metadata_and_replays_context(tmp_path: Path) -> None:
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient(
@@ -211,28 +192,28 @@ async def test_runtime_persists_tool_events_with_metadata_and_replays_context(tm
 
     await runtime.run(session.session_id, [{"type": "text", "text": "first"}], stream=False)
     await runtime.run(session.session_id, [{"type": "text", "text": "second"}], stream=False)
+    manager.writer.flush()
 
+    entries = manager.list_entries(session.session_id)
     turn_events = [
         entry
-        for _, entry in store.events
+        for entry in entries
         if entry.kind is SessionEntryKind.TURN_APPENDED
     ]
     call_events = [
         entry
         for entry in turn_events
-        if entry.data["metadata"].get("tool_phase") == "call"
+        if entry.data["metadata"].get("tool_calls")
     ]
     result_events = [
         entry
         for entry in turn_events
-        if entry.data["metadata"].get("tool_phase") == "result"
+        if entry.data["metadata"].get("tool_name")
     ]
     assert len(call_events) == 1
     assert len(result_events) == 1
     assert call_events[0].data["role"] == "assistant"
     assert result_events[0].data["role"] == "tool"
-    assert call_events[0].data["metadata"]["tool_call_id"] == "call_runtime_1"
-    assert result_events[0].data["metadata"]["tool_call_id"] == "call_runtime_1"
     assert call_events[0].data["metadata"]["tool_calls"] == [
         {
             "call_id": "call_runtime_1",
@@ -240,6 +221,7 @@ async def test_runtime_persists_tool_events_with_metadata_and_replays_context(tm
             "arguments": {"text": "first"},
         }
     ]
+    assert result_events[0].data["metadata"]["tool_name"] == "echo"
 
     second_turn_request = llm_client.requests[-1]
     assert [message.role for message in second_turn_request.messages] == [
@@ -255,7 +237,7 @@ async def test_runtime_persists_tool_events_with_metadata_and_replays_context(tm
 
 
 async def test_hook_context_model_call_uses_same_session_id(tmp_path: Path) -> None:
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient(
@@ -296,7 +278,7 @@ async def test_hook_context_model_call_uses_same_session_id(tmp_path: Path) -> N
 
 
 async def test_hook_context_model_call_supports_model_override(tmp_path: Path) -> None:
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient(
@@ -338,7 +320,7 @@ async def test_hook_context_model_call_supports_model_override(tmp_path: Path) -
 
 
 async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(tmp_path: Path) -> None:
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient()
@@ -353,12 +335,14 @@ async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(tmp_pa
         [{"type": "text", "text": "/skill:doc polish this paragraph"}],
         stream=False,
     )
+    manager.writer.flush()
 
     rewritten = 'Use the "doc" skill for this request.\nUser input:\npolish this paragraph'
     assert llm_client.requests[-1].messages[-1].content == rewritten
     assert result.messages[0].content == "runtime-pong"
 
-    created_event, user_event, assistant_event = [entry for _, entry in store.events]
+    entries = manager.list_entries(session.session_id)
+    created_event, user_event, assistant_event = entries
     assert created_event.kind is SessionEntryKind.SESSION_CREATED
     assert user_event.kind is SessionEntryKind.TURN_APPENDED
     assert user_event.data["role"] == "user"
@@ -379,7 +363,7 @@ async def test_task_tool_is_registered_and_validated_by_registry(tmp_path: Path)
 
 async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: Path) -> None:
     """单条 part（向后兼容路径）→ LLM history 末尾只有一条 user message。"""
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient()
@@ -404,7 +388,7 @@ async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: 
 
 async def test_multiple_parts_become_independent_user_messages_in_llm_history(tmp_path: Path) -> None:
     """多条 parts → LLM history 中每条 part 对应一条独立 user message（而非 \\n join）。"""
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient()

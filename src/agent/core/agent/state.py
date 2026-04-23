@@ -27,6 +27,7 @@ class AgentState:
     history_messages: tuple[Message, ...]
     input_parts: tuple[InputPart, ...]
     user_text: str
+    user_message_id: str | None = None
 
 
 def parse_input_parts(parts: Sequence[Mapping[str, Any]]) -> tuple[InputPart, ...]:

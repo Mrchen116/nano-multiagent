@@ -54,6 +54,19 @@ def _is_tty_output(out: TextIO) -> bool:
         return False
 
 
+def _use_rich_live(out: TextIO) -> bool:
+    """Return whether to use rich Live rendering for the given output stream."""
+    if not _is_tty_output(out):
+        return False
+    if os.getenv("CODING_CLI_NO_RICH"):
+        return False
+    try:
+        import rich.live  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
 def _emit_plain_repl_block(*, out: TextIO, text: str) -> None:
     """Emit REPL block for non-TTY outputs without terminal control sequences."""
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -123,6 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=("managed", "remote"), default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--request-id", default=None)
+    parser.add_argument("--resume", default=None, help="Resume an existing session by id in REPL mode.")
     parser.add_argument("--api-timeout-seconds", type=float, default=None)
     parser.add_argument("--provider", dest="llm_provider", default=None, help="Managed mode only: set local API LLM provider.")
     parser.add_argument("--model", dest="llm_model", default=None, help="Managed mode only: set local API LLM model.")
@@ -205,6 +219,7 @@ def run_cli(
             with factory(config) as client:
                 if args.command is None:
                     return _run_repl(
+                        args=args,
                         out=out,
                         client=client,
                         input_fn=input_fn,
@@ -243,9 +258,9 @@ def _run_single_command(*, args: argparse.Namespace, client: ServerClient) -> di
         return client.create_session(title=args.title, skills=[])
     if args.command == "llm-config":
         return _run_llm_config_command(args=args, client=client)
-    session_id = args.session_id or os.getenv("NANO_MULTIAGENT_SESSION_ID")
+    session_id = args.session_id
     if not isinstance(session_id, str) or not session_id.strip():
-        raise ValueError("session id is required: use --session-id or NANO_MULTIAGENT_SESSION_ID")
+        raise ValueError("session id is required: use --session-id")
     return client.send_message(session_id=session_id, text=args.text)
 
 
@@ -289,12 +304,13 @@ def _run_llm_config_command(*, args: argparse.Namespace, client: ServerClient) -
 
 def _run_repl(
     *,
+    args: argparse.Namespace,
     out: TextIO,
     client: ServerClient,
     input_fn: Callable[[str], str] | None,
     repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None = None,
 ) -> int:
-    active_session_id = _resolve_initial_session_id()
+    active_session_id = _resolve_initial_session_id(args)
     history_by_session: dict[str, list[tuple[str, str]]] = {}
     input_history_by_session: dict[str, list[str]] = {}
     async_repl_enabled = _supports_async_repl_events(client)
@@ -458,8 +474,6 @@ def _run_repl(
 
                 # If a run is actively executing, inject into its pending queue via priority='next'.
                 has_active = run_queue.has_active_work()
-                import sys
-                sys.stderr.write(f"[DEBUG] has_active_work={has_active} line={line!r}\n")
                 if has_active:
                     try:
                         injected_resp = client.send_message_async(
@@ -467,12 +481,10 @@ def _run_repl(
                             text=line,
                             priority="next",
                         )
-                        sys.stderr.write(f"[DEBUG] injection resp={injected_resp!r}\n")
                         if injected_resp.get("status") == "injected":
                             _emit_external_repl_block(f"Injected into active run for session {active_session_id}.")
                             continue
-                    except Exception as exc:
-                        sys.stderr.write(f"[DEBUG] injection exception={exc!r}\n")
+                    except Exception:
                         # Injection failed (e.g. race: run finished before request reached server).
                         # Fall through to normal enqueue.
                         pass
@@ -508,6 +520,25 @@ def _send_message_from_repl(
 ) -> dict[str, object]:
     if not _supports_async_repl_events(client):
         return client.send_message(session_id=session_id, text=text)
+
+    if _use_rich_live(out):
+        import io
+        from coding_cli.render.repl_live import ReplLiveRenderer
+
+        with ReplLiveRenderer(out=out) as live:
+            # Redirect direct out writes to a dummy buffer; all rendering goes
+            # through the Live callbacks to avoid ANSI corruption.
+            payload = _send_message_with_async_events(
+                out=io.StringIO(),
+                client=client,
+                session_id=session_id,
+                text=text,
+                preview_writer=live.on_text_delta,
+                event_preview_writer=live.on_tool_event,
+            )
+            payload["_live_rendered"] = True
+            return payload
+
     return _send_message_with_async_events(
         out=out,
         client=client,
@@ -624,14 +655,7 @@ def _append_input_history_entry(
     entries.append(line)
 
 
-def _extract_message_content(payload: dict[str, object]) -> str | None:
-    message = payload.get("message")
-    if not isinstance(message, dict):
-        return None
-    content = message.get("content")
-    if not isinstance(content, str):
-        return None
-    return content
+from coding_cli.render.repl_summary import _extract_message_content
 
 
 def _print_tools_summary(*, out: TextIO, payload: dict[str, object]) -> None:
@@ -678,9 +702,9 @@ def _print_compact_summary(*, out: TextIO, payload: dict[str, object]) -> None:
         print(f"Dropped events: {len(dropped_event_ids)}", file=out)
 
 
-def _resolve_initial_session_id() -> str | None:
-    value = os.getenv("NANO_MULTIAGENT_SESSION_ID", "").strip()
-    return value or None
+def _resolve_initial_session_id(args: argparse.Namespace) -> str | None:
+    value = args.resume if args.resume is not None else ""
+    return value.strip() or None
 
 
 def _extract_session_id(payload: dict[str, object]) -> str:

@@ -5,8 +5,8 @@ from pathlib import Path
 from agent.core.errors import ModelError
 from agent.core.types import Message, TurnResult
 from agent.core.runs.registry import RunStatus, RunsRegistry
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class _BlockingRuntime:
@@ -48,7 +48,7 @@ def _wait_for(predicate, *, timeout_seconds: float = 1.0) -> None:  # noqa: ANN0
 
 
 def test_cancel_marks_running_run_cancelled_and_is_idempotent(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "run-cancel-unit.sqlite3")
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=tmp_path)
     runtime = _BlockingRuntime()
@@ -74,7 +74,7 @@ def test_cancel_marks_running_run_cancelled_and_is_idempotent(tmp_path: Path) ->
 
 
 def test_cancel_unknown_run_returns_none(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "run-cancel-missing.sqlite3")
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     registry = RunsRegistry(runtime=_BlockingRuntime(), session_manager=manager)
 
@@ -87,7 +87,7 @@ def test_model_error_from_runtime_marks_run_failed(tmp_path: Path) -> None:
     After M251, retry is handled inside loop._generate_with_retry(); any ModelError
     that reaches _run_worker means all retries are exhausted and the run is terminal.
     """
-    store = SQLiteSessionStore(db_path=tmp_path / "run-model-error-failed.sqlite3")
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_FailureRuntime(), session_manager=manager)

@@ -25,6 +25,8 @@ class Message:
     content: str
     name: str | None = None
     tool_call_id: str | None = None
+    parent_message_id: str | None = None
+    group_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 

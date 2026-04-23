@@ -1,5 +1,6 @@
 from agent.core.agent.loop import AgentLoop
 from agent.core.agent.policies import AgentPolicies
+from agent.core.agent.runtime import build_turn_result
 from agent.core.agent.state import AgentState, InputPart
 from agent.core.types import TokenUsage, ToolSpec
 from agent.core.hooks.context import HookContext
@@ -84,12 +85,20 @@ def _base_state() -> AgentState:
     )
 
 
+async def _run_loop(loop: AgentLoop, state: AgentState, **kwargs):
+    """Consume AgentLoop async generator and build TurnResult."""
+    messages = []
+    async for msg in loop.run(state, **kwargs):
+        messages.append(msg)
+    return build_turn_result(state.session_id, state.turn_id, messages)
+
+
 async def test_loop_builds_context_and_returns_turn_result() -> None:
     client = FakeLLMClient()
     loop = AgentLoop(llm_client=client, model="model-x", policies=AgentPolicies(max_turns=3))
     state = _base_state()
 
-    result = await loop.run(state)
+    result = await _run_loop(loop, state)
 
     assert result.session_id == "sess_agent"
     assert result.turn_id == "turn_1"
@@ -127,7 +136,7 @@ async def test_loop_executes_tool_call_until_final_assistant_message() -> None:
         tool_registry=registry,
     )
 
-    result = await loop.run(_base_state())
+    result = await _run_loop(loop, _base_state())
 
     assert len(result.messages) == 2
     assert result.messages[0].metadata["tool_calls"][0]["name"] == "echo"
@@ -166,7 +175,7 @@ async def test_loop_records_tool_calls_when_registry_is_unavailable() -> None:
     )
     loop = AgentLoop(llm_client=client, model="model-x")
 
-    result = await loop.run(_base_state())
+    result = await _run_loop(loop, _base_state())
 
     assert result.stop_reason == "tool_registry_unavailable"
     assert len(result.tool_calls) == 1
@@ -197,7 +206,7 @@ async def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
     registry = FakeToolRegistry(fail=True)
     loop = AgentLoop(llm_client=client, model="model-x", tool_registry=registry)
 
-    result = await loop.run(_base_state())
+    result = await _run_loop(loop, _base_state())
 
     assert result.messages[-1].content == "recovered"
     assert len(result.tool_results) == 1
@@ -229,7 +238,7 @@ async def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
     )
     loop = AgentLoop(llm_client=client, model="model-x", tool_registry=FakeToolRegistry())
 
-    result = await loop.run(_base_state())
+    result = await _run_loop(loop, _base_state())
 
     assert result.usage is not None
     assert result.usage.prompt_tokens == 180
@@ -276,7 +285,8 @@ async def test_loop_propagates_session_event_publisher_to_tool_hook_context() ->
         hook_runner=HookRunner(registry=hooks),
     )
 
-    result = await loop.run(
+    result = await _run_loop(
+        loop,
         _base_state(),
         hook_ctx=HookContext(
             session_id="sess_agent",
@@ -308,7 +318,7 @@ async def test_loop_does_not_raise_on_high_turn_count() -> None:
     )
 
     # 不应抛出 PolicyViolation
-    result = await loop.run(state)
+    result = await _run_loop(loop, state)
     assert result.completed is True
 
 
@@ -333,7 +343,7 @@ async def test_loop_passes_full_history_to_llm() -> None:
         user_text="ping",
     )
 
-    await loop.run(state)
+    await _run_loop(loop, state)
 
     # LLM 收到的消息应包含全部 5 条历史消息（+ system + user = 7 条）
     # 而非被截断为 1 条（如果 truncate_history 仍在工作则只有 3 条: system+1history+user）
@@ -345,3 +355,100 @@ async def test_loop_passes_full_history_to_llm() -> None:
     assert len(non_system_non_user) == 6, (
         f"期望 6 条（5 history + 1 user），实际 {len(non_system_non_user)} 条"
     )
+
+
+class _FakeToolRegistryConcurrent:
+    """Tool registry with two concurrency-safe tools."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def list_specs(self) -> tuple[ToolSpec, ...]:
+        return (
+            ToolSpec(
+                name="echo",
+                description="echo text",
+                input_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+                is_concurrency_safe=True,
+            ),
+            ToolSpec(
+                name="reverse",
+                description="reverse text",
+                input_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+                is_concurrency_safe=True,
+            ),
+        )
+
+    def get_tool(self, name: str):  # noqa: ANN001, ANN201
+        return None
+
+    def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
+        self.calls.append((name, dict(args)))
+        return {"result": args["text"]}
+
+
+async def test_loop_parallel_tool_calls_share_parent_and_group_id() -> None:
+    """同一 assistant 发出的并发 tool_calls，其 tool result 的 parent_uuid 都指向该 assistant，且 group_id 相同。"""
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        LLMToolCall(call_id="call_1", name="echo", arguments={"text": "hello"}),
+                        LLMToolCall(call_id="call_2", name="reverse", arguments={"text": "world"}),
+                    ),
+                ),
+                finish_reason="tool_calls",
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    registry = _FakeToolRegistryConcurrent()
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        policies=AgentPolicies(max_turns=3),
+        tool_registry=registry,
+    )
+
+    # Collect raw yielded messages (includes tool messages)
+    raw_messages: list = []
+    async for msg in loop.run(_base_state()):
+        raw_messages.append(msg)
+
+    # Filter out turn_meta
+    body = [m for m in raw_messages if m.role != "turn_meta"]
+    # assistant (with tools) + tool1 + tool2 + assistant (done)
+    assert len(body) == 4
+
+    assistant_msg = body[0]
+    tool_msg_1 = body[1]
+    tool_msg_2 = body[2]
+    assistant_done = body[3]
+
+    assert assistant_msg.role == "assistant"
+    assert tool_msg_1.role == "tool"
+    assert tool_msg_2.role == "tool"
+    assert assistant_done.role == "assistant"
+
+    # Both tool results point to the assistant as parent
+    assert tool_msg_1.parent_message_id == assistant_msg.message_id
+    assert tool_msg_2.parent_message_id == assistant_msg.message_id
+
+    # All share the same group_id (the assistant's message_id)
+    assert assistant_msg.group_id == assistant_msg.message_id
+    assert tool_msg_1.group_id == assistant_msg.message_id
+    assert tool_msg_2.group_id == assistant_msg.message_id
+
+    # Tool results are siblings, not a chain
+    assert tool_msg_1.parent_message_id == tool_msg_2.parent_message_id
+
+    # Second assistant's parent is the last tool result (linear chain resumes)
+    assert assistant_done.parent_message_id == tool_msg_2.message_id

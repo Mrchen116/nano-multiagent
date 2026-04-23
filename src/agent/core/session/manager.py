@@ -1,5 +1,6 @@
-"""Canonical session aggregate manager built on event store plus optional snapshots."""
+"""Canonical session aggregate manager built on JSONL event store."""
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,15 +18,27 @@ from .entries import (
     new_session_created_entry,
     new_turn_appended_entry,
 )
+from .jsonl_store import JsonlSessionStore, JsonlWriter, LoadResult, SessionConfig, SessionNotFoundError
 from .models import Session
-from .store import SessionStore
 
 
 class SessionManager:
-    """Create/query/update sessions by appending immutable session events."""
+    """Create/query/update sessions via JSONL append-only storage."""
 
-    def __init__(self, *, store: SessionStore) -> None:
+    def __init__(self, *, store: JsonlSessionStore) -> None:
         self._store = store
+
+    @property
+    def writer(self) -> JsonlWriter:
+        return self._store.writer
+
+    @property
+    def store(self) -> JsonlSessionStore:
+        return self._store
+
+    # ------------------------------------------------------------------
+    # CRUD
+    # ------------------------------------------------------------------
 
     def create_session(
         self,
@@ -37,29 +50,26 @@ class SessionManager:
         tool_allowlist: tuple[str, ...] | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> Session:
-        """Create a new active session and persist both event and initial snapshot."""
+        """Create a new session and persist session_created line."""
 
         session_id = ids.make_session_id()
         created_at = datetime.now(UTC).isoformat()
-        extra_data: dict[str, Any] = {"workspace_root": str(workspace_root)}
+        clean_metadata = dict(metadata or {})
         if title is not None:
-            extra_data["title"] = title
-        if system_prompt is not None:
-            extra_data["system_prompt"] = system_prompt
-        if skills is not None:
-            extra_data["skills"] = list(skills)
-        if tool_allowlist is not None:
-            extra_data["tool_allowlist"] = list(tool_allowlist)
-        if metadata:
-            extra_data["metadata"] = dict(metadata)
-        event = new_session_created_entry(
+            clean_metadata["title"] = title
+
+        config = SessionConfig(
             session_id=session_id,
             created_at=created_at,
-            status="active",
-            data=extra_data,
+            workspace_root=workspace_root,
+            system_prompt=system_prompt,
+            skills=skills,
+            tool_allowlist=tool_allowlist,
+            metadata=clean_metadata,
         )
-        self._store.append_event(session_id, event)
-        session = Session(
+        self._store.create(session_id, config)
+
+        return Session(
             session_id=session_id,
             status="active",
             created_at=created_at,
@@ -67,22 +77,42 @@ class SessionManager:
             system_prompt=system_prompt,
             skills=skills,
             tool_allowlist=tool_allowlist,
-            metadata=dict(metadata or {}),
+            metadata=clean_metadata,
         )
-        self._store.save_snapshot(session_id, self._to_snapshot(session))
-        return session
+
+    def load(self, session_id: str, *, parent_session_id: str | None = None) -> LoadResult:
+        """Load raw config + messages from JSONL."""
+        return self._store.load(session_id, parent_session_id=parent_session_id)
 
     def get_session(self, session_id: str) -> Session | None:
-        """Rebuild a session from snapshot + ordered events."""
+        """Load session config from JSONL and return Session model."""
 
-        loaded = self._store.load_session(session_id)
-        if loaded is None:
+        try:
+            result = self._store.load(session_id)
+        except SessionNotFoundError:
             return None
+        return _session_from_config(result.config)
 
-        session = self._from_snapshot(loaded.snapshot)
-        for entry in loaded.events:
-            session = self._apply_event(session, entry)
-        return session
+    def list_sessions(self, *, limit: int, offset: int) -> tuple[tuple[Session, ...], bool]:
+        """List sessions with pagination and `has_more` sentinel."""
+
+        if limit <= 0:
+            raise ValueError("limit must be greater than 0")
+        if offset < 0:
+            raise ValueError("offset must be greater than or equal to 0")
+
+        session_ids = self._store.list_session_ids(limit=limit + 1, offset=offset)
+        has_more = len(session_ids) > limit
+        sessions: list[Session] = []
+        for sid in session_ids[:limit]:
+            session = self.get_session(sid)
+            if session is not None:
+                sessions.append(session)
+        return tuple(sessions), has_more
+
+    # ------------------------------------------------------------------
+    # Messages
+    # ------------------------------------------------------------------
 
     def append_turn_message(
         self,
@@ -95,11 +125,38 @@ class SessionManager:
         parts: Sequence[Mapping[str, Any]] | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> SessionEntry:
-        """Append one turn message event for an existing session."""
+        """Append one turn message as a JSONL turn entry.
 
-        if self.get_session(session_id) is None:
-            raise ValueError(f"session does not exist: {session_id}")
-        entry = new_turn_appended_entry(
+        Returns a backward-compatible SessionEntry for callers that expect it.
+        """
+
+        entry: dict[str, Any] = {
+            "type": "turn",
+            "uuid": message_id,
+            "parent_uuid": None,
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "timestamp": _utc_now_iso(),
+        }
+        meta = dict(metadata or {})
+        if meta.get("is_meta"):
+            entry["is_meta"] = True
+        if meta.get("is_compact_summary"):
+            entry["is_compact_summary"] = True
+        if meta.get("entrypoint"):
+            entry["entrypoint"] = meta["entrypoint"]
+        if parts:
+            entry["parts"] = [dict(p) for p in parts]
+        if meta.get("tool_calls"):
+            entry["tool_calls"] = meta["tool_calls"]
+        if meta.get("tool_call_id"):
+            entry["tool_call_id"] = meta["tool_call_id"]
+
+        self._store.append(session_id, entry)
+
+        # Backward-compatible return value
+        return new_turn_appended_entry(
             session_id=session_id,
             turn_id=turn_id,
             role=role,
@@ -108,8 +165,19 @@ class SessionManager:
             parts=parts,
             metadata=metadata,
         )
-        self._store.append_event(session_id, entry)
-        return entry
+
+    def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
+        """Materialize chat messages from JSONL, applying compact_boundary skip."""
+
+        try:
+            result = self._store.load(session_id)
+        except SessionNotFoundError:
+            return ()
+        return tuple(result.messages)
+
+    # ------------------------------------------------------------------
+    # Compaction (backward-compatible adapter)
+    # ------------------------------------------------------------------
 
     def append_compaction(
         self,
@@ -119,18 +187,112 @@ class SessionManager:
         summary: str,
         data: Mapping[str, Any] | None = None,
     ) -> CompactionEntry:
-        """Append a compaction checkpoint event for an existing session."""
+        """Persist compaction as compact_boundary + summary turn in JSONL.
 
-        if self.get_session(session_id) is None:
-            raise ValueError(f"session does not exist: {session_id}")
-        entry = new_compaction_entry(
+        Returns a backward-compatible CompactionEntry.
+        """
+
+        summary_uuid = ids.make_message_id()
+        # 1. compact_boundary (marks the cut; turns after this are retained)
+        self._store.append(session_id, {
+            "type": "compact_boundary",
+            "session_id": session_id,
+            "timestamp": _utc_now_iso(),
+            "summary_uuid": summary_uuid,
+            "data": dict(data or {}),
+        })
+        # 2. Summary turn (is_compact_summary + is_meta) — written AFTER boundary
+        self._store.append(session_id, {
+            "type": "turn",
+            "uuid": summary_uuid,
+            "parent_uuid": first_kept_event_id,
+            "session_id": session_id,
+            "role": "user",
+            "content": summary,
+            "timestamp": _utc_now_iso(),
+            "is_meta": True,
+            "is_compact_summary": True,
+        })
+
+        # Backward-compatible return value
+        return new_compaction_entry(
             session_id=session_id,
             first_kept_event_id=first_kept_event_id,
             summary=summary,
             data=data,
         )
-        self._store.append_event(session_id, entry)
-        return entry
+
+    def list_entries(self, session_id: str) -> tuple[SessionEntry | CompactionEntry, ...]:
+        """Return persisted events in backward-compatible SessionEntry format.
+
+        This is a transitional adapter used by CompactionPlanner until M2
+        refactors compaction to work directly on in-memory Message history.
+        """
+
+        path = self._store.resolve_path(session_id)
+        if not path.exists():
+            return ()
+
+        raw_lines: list[dict[str, Any]] = []
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    raw_lines.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+
+        # uuid -> turn entry lookup for compact_boundary resolution
+        turn_by_uuid: dict[str, dict[str, Any]] = {
+            line["uuid"]: line for line in raw_lines
+            if line.get("type") == "turn" and "uuid" in line
+        }
+
+        entries: list[SessionEntry | CompactionEntry] = []
+        for raw in raw_lines:
+            etype = raw.get("type")
+            if etype == "session_created":
+                entries.append(new_session_created_entry(
+                    session_id=raw.get("session_id", session_id),
+                    created_at=raw.get("created_at") or raw.get("timestamp", _utc_now_iso()),
+                    data=raw,
+                ))
+            elif etype == "turn":
+                entries.append(new_turn_appended_entry(
+                    session_id=raw.get("session_id", session_id),
+                    turn_id=raw.get("turn_id", ""),
+                    role=raw["role"],
+                    content=raw["content"],
+                    message_id=raw["uuid"],
+                    metadata=_build_turn_metadata(raw),
+                    created_at=raw.get("timestamp", _utc_now_iso()),
+                ))
+            elif etype == "compact_boundary":
+                summary_uuid = raw.get("summary_uuid")
+                summary_text = ""
+                if summary_uuid and summary_uuid in turn_by_uuid:
+                    summary_text = turn_by_uuid[summary_uuid].get("content", "")
+                entries.append(new_compaction_entry(
+                    session_id=raw.get("session_id", session_id),
+                    first_kept_event_id=summary_uuid or "",
+                    summary=summary_text,
+                    data=raw.get("data", {}),
+                    created_at=raw.get("timestamp", _utc_now_iso()),
+                ))
+            elif etype == "config_update":
+                entries.append(new_session_created_entry(
+                    session_id=raw.get("session_id", session_id),
+                    created_at=raw.get("timestamp", _utc_now_iso()),
+                    data=raw,
+                ))
+
+        return tuple(entries)
+
+    # ------------------------------------------------------------------
+    # Run status (no-op: RUN_STATUS is not persisted in JSONL)
+    # ------------------------------------------------------------------
 
     def append_run_status(
         self,
@@ -143,11 +305,12 @@ class SessionManager:
         error: Mapping[str, Any] | None = None,
         data: Mapping[str, Any] | None = None,
     ) -> SessionEntry:
-        """Append one run status event for an existing session."""
+        """No-op in JSONL architecture: RUN_STATUS is memory-only via event hub.
 
-        if self.get_session(session_id) is None:
-            raise ValueError(f"session does not exist: {session_id}")
-        entry = new_run_status_entry(
+        Returns a backward-compatible dummy SessionEntry.
+        """
+
+        return new_run_status_entry(
             session_id=session_id,
             run_id=run_id,
             status=status,
@@ -156,221 +319,39 @@ class SessionManager:
             error=error,
             data=data,
         )
-        self._store.append_event(session_id, entry)
-        return entry
-
-    def list_entries(self, session_id: str) -> tuple[SessionEntry | CompactionEntry, ...]:
-        """Return persisted events for one session in store order."""
-
-        loaded = self._store.load_session(session_id)
-        if loaded is None:
-            return ()
-        return tuple(loaded.events)
-
-    def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
-        """Materialize chat messages, applying compaction summary semantics.
-
-        When a CompactionEntry exists, all TURN_APPENDED events before it are
-        dropped (replaced by the summary + restored files). Only events after
-        the latest CompactionEntry are retained as original messages.
-        """
-
-        loaded = self._store.load_session(session_id)
-        if loaded is None:
-            return ()
-
-        # Find the latest CompactionEntry by index (entry_id is not sortable).
-        latest_compaction_idx = -1
-        for i, entry in enumerate(loaded.events):
-            if isinstance(entry, CompactionEntry):
-                latest_compaction_idx = i
-
-        # Collect only TURN_APPENDED events after the latest compaction.
-        messages: list[Message] = []
-        for entry in loaded.events[latest_compaction_idx + 1:]:
-            if entry.kind is not SessionEntryKind.TURN_APPENDED:
-                continue
-            message = self._message_from_turn_event(entry)
-            if message is not None:
-                messages.append(message)
-
-        if latest_compaction_idx >= 0:
-            latest_compaction = loaded.events[latest_compaction_idx]
-            from agent.core.agent.compaction.prompts import get_compact_user_summary_message
-
-            # 1. Summary user message (insert at front)
-            summary_content = get_compact_user_summary_message(latest_compaction.summary)
-            summary_message = Message(
-                message_id=f"{latest_compaction.entry_id}:summary",
-                role="user",
-                content=summary_content,
-                metadata={"compaction_summary": True},
-            )
-            messages.insert(0, summary_message)
-
-            # 2. Restored files user message (after summary)
-            restored_files = latest_compaction.data.get("restored_files", [])
-            if restored_files:
-                files_content = "\n\n".join(restored_files)
-                files_message = Message(
-                    message_id=f"{latest_compaction.entry_id}:files",
-                    role="user",
-                    content=files_content,
-                    metadata={"compaction_files": True},
-                )
-                messages.insert(1, files_message)
-
-        return tuple(messages)
-
-    def list_sessions(self, *, limit: int, offset: int) -> tuple[tuple[Session, ...], bool]:
-        """List sessions with pagination and `has_more` sentinel."""
-
-        if limit <= 0:
-            raise ValueError("limit must be greater than 0")
-        if offset < 0:
-            raise ValueError("offset must be greater than or equal to 0")
-
-        list_ids = getattr(self._store, "list_session_ids", None)
-        if not callable(list_ids):
-            return (), False
-
-        session_ids = tuple(list_ids(limit=limit + 1, offset=offset))
-        has_more = len(session_ids) > limit
-        sessions: list[Session] = []
-        for session_id in session_ids[:limit]:
-            session = self.get_session(session_id)
-            if session is not None:
-                sessions.append(session)
-        return tuple(sessions), has_more
-
-    def _from_snapshot(self, snapshot: Mapping[str, Any] | None) -> Session | None:
-        if snapshot is None:
-            return None
-        if "session_id" not in snapshot or "created_at" not in snapshot:
-            return None
-        status = str(snapshot.get("status", "active"))
-        metadata = snapshot.get("metadata")
-        if not isinstance(metadata, Mapping):
-            metadata = {}
-        workspace_root, system_prompt, skills, tool_allowlist = _parse_session_fields(snapshot, metadata)
-        # Strip promoted fields from pass-through metadata so they are not duplicated.
-        clean_metadata = {
-            k: v for k, v in dict(metadata).items()
-            if k not in {"workspace_root", "system_prompt", "skills", "tool_allowlist"}
-        }
-        return Session(
-            session_id=str(snapshot["session_id"]),
-            status=status,
-            created_at=str(snapshot["created_at"]),
-            workspace_root=workspace_root,
-            system_prompt=system_prompt,
-            skills=skills,
-            tool_allowlist=tool_allowlist,
-            metadata=clean_metadata,
-        )
-
-    def _apply_event(self, session: Session | None, entry: SessionEntry | CompactionEntry) -> Session | None:
-        if isinstance(entry, CompactionEntry):
-            return session
-
-        if entry.kind is SessionEntryKind.SESSION_CREATED:
-            status = str(entry.data.get("status", "active"))
-            metadata = entry.data.get("metadata")
-            if not isinstance(metadata, Mapping):
-                metadata = {}
-            workspace_root, system_prompt, skills, tool_allowlist = _parse_session_fields(entry.data, metadata)
-            clean_metadata = {
-                k: v for k, v in dict(metadata).items()
-                if k not in {"workspace_root", "system_prompt", "skills", "tool_allowlist"}
-            }
-            return Session(
-                session_id=entry.session_id,
-                status=status,
-                created_at=entry.created_at,
-                workspace_root=workspace_root,
-                system_prompt=system_prompt,
-                skills=skills,
-                tool_allowlist=tool_allowlist,
-                metadata=clean_metadata,
-            )
-        if entry.kind is SessionEntryKind.SESSION_ARCHIVED and session is not None:
-            return replace(session, status="archived")
-        return session
-
-    def _to_snapshot(self, session: Session) -> dict[str, Any]:
-        snap: dict[str, Any] = {
-            "session_id": session.session_id,
-            "status": session.status,
-            "created_at": session.created_at,
-            "workspace_root": str(session.workspace_root),
-            "metadata": dict(session.metadata),
-        }
-        if session.system_prompt is not None:
-            snap["system_prompt"] = session.system_prompt
-        if session.skills is not None:
-            snap["skills"] = list(session.skills)
-        if session.tool_allowlist is not None:
-            snap["tool_allowlist"] = list(session.tool_allowlist)
-        return snap
-
-    def _message_from_turn_event(self, entry: SessionEntry) -> Message | None:
-        message_id = entry.data.get("message_id")
-        role = entry.data.get("role")
-        content = entry.data.get("content")
-        if not isinstance(message_id, str) or not isinstance(role, str):
-            return None
-        if not isinstance(content, str) and not isinstance(content, list):
-            return None
-        metadata = entry.data.get("metadata")
-        if not isinstance(metadata, Mapping):
-            metadata = {}
-        return Message(
-            message_id=message_id,
-            role=role,
-            content=content,
-            metadata=dict(metadata),
-        )
 
 
-def _parse_session_fields(
-    data: Mapping[str, Any],
-    metadata: Mapping[str, Any],
-) -> tuple[Path, str | None, tuple[str, ...] | None, tuple[str, ...] | None]:
-    """Extract typed session fields from a snapshot or event data dict.
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
 
-    Supports both the new format (fields at top level of ``data``) and the old
-    format (fields inside ``data["metadata"]``) for backward compatibility with
-    existing SQLite snapshots.
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat()
 
-    Returns:
-        (workspace_root, system_prompt, skills, tool_allowlist)
-    """
-    # workspace_root: top-level (new) or metadata (old).
-    raw_root = data.get("workspace_root")
-    if raw_root is None:
-        raw_root = metadata.get("workspace_root")
-    workspace_root = Path(str(raw_root)) if isinstance(raw_root, str) and raw_root.strip() else Path.cwd()
 
-    # system_prompt: top-level or metadata fallback.
-    raw_sp = data.get("system_prompt")
-    if raw_sp is None:
-        raw_sp = metadata.get("system_prompt")
-    system_prompt: str | None = raw_sp if isinstance(raw_sp, str) and raw_sp.strip() else None
-
-    # skills: top-level or metadata fallback.
-    raw_skills = data.get("skills")
-    if raw_skills is None:
-        raw_skills = metadata.get("skills")
-    skills: tuple[str, ...] | None = (
-        tuple(s for s in raw_skills if isinstance(s, str)) if isinstance(raw_skills, list) else None
+def _session_from_config(config: SessionConfig) -> Session:
+    metadata = dict(config.metadata)
+    return Session(
+        session_id=config.session_id,
+        status="active",
+        created_at=config.created_at,
+        workspace_root=config.workspace_root,
+        system_prompt=config.system_prompt,
+        skills=config.skills,
+        tool_allowlist=config.tool_allowlist,
+        metadata=metadata,
     )
 
-    # tool_allowlist: top-level or metadata fallback.
-    raw_allowlist = data.get("tool_allowlist")
-    if raw_allowlist is None:
-        raw_allowlist = metadata.get("tool_allowlist")
-    tool_allowlist: tuple[str, ...] | None = (
-        tuple(s for s in raw_allowlist if isinstance(s, str)) if isinstance(raw_allowlist, list) else None
-    )
 
-    return workspace_root, system_prompt, skills, tool_allowlist
+def _build_turn_metadata(raw: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild metadata dict from flattened JSONL turn fields."""
+
+    meta: dict[str, Any] = {}
+    for key in ("is_meta", "is_compact_summary", "entrypoint", "tool_calls", "tool_name", "tool_error", "tool_output"):
+        if key in raw:
+            meta[key] = raw[key]
+    if "tool_call_id" in raw:
+        meta["tool_call_id"] = raw["tool_call_id"]
+    if "parts" in raw:
+        meta["parts"] = raw["parts"]
+    return meta

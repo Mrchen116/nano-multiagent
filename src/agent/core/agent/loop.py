@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
@@ -96,8 +97,11 @@ class AgentLoop:
         current_working_directory_override: Path | None = None,
         session_file_state: SessionFileState | None = None,
         max_turns: int | None = None,
-    ) -> TurnResult:
+    ) -> AsyncIterator[Message]:
         """Run one user turn until completion or terminal stop reason.
+
+        Yields assistant messages, tool messages, and finally a turn_meta message
+        carrying stop_reason, completed flag, and usage.
 
         Args:
             state: Immutable per-turn state.
@@ -109,12 +113,8 @@ class AgentLoop:
             session_file_state: Optional session-level file state for dedup and
                 Read-Before-Write enforcement.
 
-        Returns:
-            Turn result containing assistant messages, tool calls/results, and stop reason.
-
-        Raises:
-            ModelError: Propagated from the LLM client when provider calls fail.
-            PolicyViolation: When turn/tool-call policies are exceeded.
+        Yields:
+            Message objects: assistant, tool, and turn_meta.
         """
 
         active_hook_ctx = hook_ctx or HookContext(session_id=state.session_id, turn_id=state.turn_id)
@@ -156,6 +156,12 @@ class AgentLoop:
         latest_usage: TokenUsage | None = None
         tool_executor = ToolExecutor()
 
+        # Track parent_uuid chain for this turn.
+        # user_message_id is the current turn's user message (not in history).
+        last_parent_id = state.user_message_id or (
+            state.history_messages[-1].message_id if state.history_messages else None
+        )
+
         # Build name → is_concurrency_safe lookup from the active tool specs.
         concurrency_map: dict[str, bool] = {
             spec.name: spec.is_concurrency_safe for spec in active_tools
@@ -163,22 +169,20 @@ class AgentLoop:
 
         try:
             with span("AgentLoop.run", session_id=state.session_id, turn_id=state.turn_id):
-                # Runtime loop strategy:
-                # 1) If model returns plain assistant text, finish current turn.
-                # 2) If model returns tool calls, partition them into batches by
-                #    concurrency safety, execute each batch, then continue.
-                # 3) If tools are unavailable, stop with explicit terminal reason instead
-                #    of silently dropping tool calls.
-                # 4) Before each LLM call, drain any pending injected messages.
-                # 5) After each tool batch, check for a force-interrupt signal.
                 api_round_count = 0
                 while True:
                     api_round_count += 1
                     if max_turns is not None and api_round_count > max_turns:
                         stop_reason = "max_turns_reached"
                         completed = False
-                        break
-                    # Drain pending messages injected via RunController (round-boundary injection).
+                        yield self._make_turn_meta(
+                            stop_reason=stop_reason,
+                            completed=completed,
+                            usage=turn_usage,
+                        )
+                        return
+
+                    # Drain pending messages injected via RunController.
                     if controller is not None:
                         for pending_msg in controller.drain_pending():
                             llm_messages.append(pending_msg)
@@ -204,13 +208,16 @@ class AgentLoop:
                         tool_calls=_as_llm_tool_calls(normalized_calls),
                     )
 
+                    assistant_msg_id = make_message_id()
                     assistant_message = Message(
-                        message_id=make_message_id(),
+                        message_id=assistant_msg_id,
+                        parent_message_id=last_parent_id,
+                        group_id=assistant_msg_id,
                         role=response.message.role,
                         content=response.message.content,
-                        name=response.message.name,
                         metadata=_assistant_metadata_from_tool_calls(normalized_calls),
                     )
+                    last_parent_id = assistant_message.message_id
                     assistant_messages.append(assistant_message)
                     llm_messages.append(normalized_response_message)
 
@@ -255,19 +262,17 @@ class AgentLoop:
                         active_hook_ctx,
                     )
 
+                    yield assistant_message
+
                     if not normalized_calls:
                         completed = True
                         stop_reason = response.finish_reason or "completed"
-                        return TurnResult(
-                            session_id=state.session_id,
-                            turn_id=state.turn_id,
-                            messages=tuple(assistant_messages),
-                            tool_calls=tuple(tool_calls),
-                            tool_results=tuple(tool_results),
-                            completed=completed,
+                        yield self._make_turn_meta(
                             stop_reason=stop_reason,
+                            completed=completed,
                             usage=turn_usage,
                         )
+                        return
 
                     for parsed_call in normalized_calls:
                         tool_calls.append(parsed_call)
@@ -276,16 +281,12 @@ class AgentLoop:
                     if self._tool_registry is None:
                         completed = True
                         stop_reason = "tool_registry_unavailable"
-                        return TurnResult(
-                            session_id=state.session_id,
-                            turn_id=state.turn_id,
-                            messages=tuple(assistant_messages),
-                            tool_calls=tuple(tool_calls),
-                            tool_results=tuple(tool_results),
-                            completed=completed,
+                        yield self._make_turn_meta(
                             stop_reason=stop_reason,
+                            completed=completed,
                             usage=turn_usage,
                         )
+                        return
 
                     async def _run_one_call(parsed_call: ToolCall) -> ToolResult:
                         tool_hook_ctx = HookContext(
@@ -323,7 +324,6 @@ class AgentLoop:
                             error=error_text,
                             content=None,
                         )
-                        # Materialize LLM-facing content so downstream (history, API) can reuse it.
                         content = self._serialize_tool_result(result)
                         result = ToolResult(
                             call_id=result.call_id,
@@ -356,6 +356,8 @@ class AgentLoop:
                     for batch in batches:
                         with span("tool.batch_execute", concurrent=batch.concurrent, batch_size=len(batch.calls)):
                             batch_results = await tool_executor.execute(batch, _run_one_call)
+                        # All tool results in the same batch share the assistant as parent.
+                        batch_parent_id = last_parent_id
                         for result in batch_results:
                             tool_results.append(result)
                             executed_call_ids.add(result.call_id)
@@ -366,6 +368,21 @@ class AgentLoop:
                                     tool_call_id=result.call_id,
                                 )
                             )
+                            tool_msg = Message(
+                                message_id=make_message_id(),
+                                parent_message_id=batch_parent_id,
+                                group_id=assistant_msg_id,
+                                role="tool",
+                                content=result.content if result.content is not None else "",
+                                tool_call_id=result.call_id,
+                                metadata={
+                                    "tool_name": result.name,
+                                    "tool_error": result.error,
+                                    "tool_output": result.output,
+                                },
+                            )
+                            last_parent_id = tool_msg.message_id
+                            yield tool_msg
 
                         # After each batch, check for a force-interrupt signal.
                         if controller is not None and controller.is_aborted:
@@ -385,12 +402,31 @@ class AgentLoop:
                                             tool_call_id=interrupted_result.call_id,
                                         )
                                     )
+                                    tool_msg = Message(
+                                        message_id=make_message_id(),
+                                        parent_message_id=batch_parent_id,
+                                        group_id=assistant_msg_id,
+                                        role="tool",
+                                        content=self._serialize_tool_result(interrupted_result),
+                                        tool_call_id=interrupted_result.call_id,
+                                        metadata={
+                                            "tool_name": remaining_call.name,
+                                            "tool_error": "interrupted",
+                                        },
+                                    )
+                                    last_parent_id = tool_msg.message_id
+                                    yield tool_msg
                             stop_reason = "interrupted"
                             interrupted = True
                             break
 
                     if interrupted:
-                        break
+                        yield self._make_turn_meta(
+                            stop_reason=stop_reason,
+                            completed=False,
+                            usage=turn_usage,
+                        )
+                        return
         finally:
             turn_end_payload: dict[str, Any] = {
                 "session_id": state.session_id,
@@ -418,15 +454,12 @@ class AgentLoop:
                 active_hook_ctx,
             )
 
-        return TurnResult(
-            session_id=state.session_id,
-            turn_id=state.turn_id,
-            messages=tuple(assistant_messages),
-            tool_calls=tuple(tool_calls),
-            tool_results=tuple(tool_results),
-            completed=completed,
-            stop_reason=stop_reason,
-            usage=turn_usage,
+    def _make_turn_meta(self, *, stop_reason: str, completed: bool, usage: TokenUsage | None) -> Message:
+        return Message(
+            message_id=make_message_id(),
+            role="turn_meta",
+            content="",
+            metadata={"stop_reason": stop_reason, "completed": completed, "usage": usage},
         )
 
     async def _execute_tool_call(

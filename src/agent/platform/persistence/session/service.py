@@ -9,10 +9,9 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from agent.core import ids
 from agent.core.session.entries import SessionEntry, SessionEntryKind
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
-from agent.core.session.store import SessionStore
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 if TYPE_CHECKING:
     from agent.products.base import ProductProfile
@@ -30,32 +29,29 @@ class SessionService:
     """Expose session APIs while hiding store/manager construction details.
 
     Args:
-        store: Explicit session store; takes priority over both ``profile`` and
-            the default path when provided.
+        store: Explicit JSONL session store; takes priority over both ``profile``
+            and the default path when provided.
         manager: Explicit session manager; bypasses all store construction when
             provided.
         profile: Optional product profile; when given and ``store`` is not
-            explicitly provided, the session database is placed at
-            ``ConfigResolver(profile).session_db_path()`` only when the profile
+            explicitly provided, the session data directory is placed at
+            ``ConfigResolver(profile).session_data_dir()`` only when the profile
             declares ``global_config_home``. Otherwise, or when profile is
-            absent, falls back to legacy ``_default_sqlite_store_path()``
-            behavior.
+            absent, falls back to legacy ``_default_data_dir()`` behavior.
     """
 
     def __init__(
         self,
         *,
-        store: SessionStore | None = None,
+        store: JsonlSessionStore | None = None,
         manager: SessionManager | None = None,
         profile: ProductProfile | None = None,
     ) -> None:
-        if store is not None:
-            active_store = store
-        elif profile is not None and profile.global_config_home is not None:
-            active_store = _store_from_profile(profile)
+        if manager is not None:
+            self._manager = manager
         else:
-            active_store = SQLiteSessionStore(db_path=_default_sqlite_store_path())
-        self._manager = manager or SessionManager(store=active_store)
+            active_store = store or _resolve_store(profile)
+            self._manager = SessionManager(store=active_store)
 
     @property
     def manager(self) -> SessionManager:
@@ -148,36 +144,27 @@ class SessionService:
         return None
 
 
-def _store_from_profile(profile: ProductProfile) -> SQLiteSessionStore:
-    """Construct a SQLiteSessionStore at the profile's resolved session db path.
+def _resolve_store(profile: ProductProfile | None = None) -> JsonlSessionStore:
+    """Construct a JsonlSessionStore at the resolved data directory."""
 
-    Args:
-        profile: Product profile with ``global_config_home`` set.
+    data_dir = _resolve_data_dir(profile)
+    return JsonlSessionStore(data_dir=data_dir)
 
-    Returns:
-        SQLiteSessionStore whose database file lives in the product's global
-        config directory (never in the workspace).
 
-    Raises:
-        ValueError: When ``profile.global_config_home`` is not set.
+def _resolve_data_dir(profile: ProductProfile | None = None) -> Path:
+    """Resolve the session data directory.
+
+    The returned path is the *base* directory; ``JsonlSessionStore`` appends
+    ``sessions/`` internally via ``_resolve_path``.
+
+    Priority:
+    1. ``NANO_MULTIAGENT_DATA_DIR`` env var
+    2. Profile's ``global_config_home``
+    3. ``.nano`` relative to CWD
     """
 
-    from agent.platform.config.resolver import ConfigResolver
+    env_dir = os.getenv("NANO_MULTIAGENT_DATA_DIR")
+    if env_dir:
+        return Path(env_dir)
 
-    resolver = ConfigResolver(profile=profile)
-    db_path = resolver.session_db_path()
-    return SQLiteSessionStore(db_path=db_path)
-
-
-def _default_sqlite_store_path() -> Path:
-    """Return the legacy default SQLite path, respecting env override.
-
-    Returns:
-        Path from ``NANO_MULTIAGENT_SESSION_DB`` env var when set; otherwise
-        ``.agent/sessions.sqlite3`` relative to CWD.
-    """
-
-    configured_path = os.getenv("NANO_MULTIAGENT_SESSION_DB")
-    if configured_path:
-        return Path(configured_path)
-    return Path(".agent") / "sessions.sqlite3"
+    return Path(".nano")

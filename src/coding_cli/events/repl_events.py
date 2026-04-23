@@ -29,6 +29,7 @@ def send_message_with_async_events(
     session_id: str,
     text: str,
     preview_writer: Callable[[str], None] | None = None,
+    event_preview_writer: Callable[[str, dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
     """Send message through async endpoint and aggregate structured turn view."""
     submitted = client.send_message_async(session_id=session_id, text=text)
@@ -61,6 +62,7 @@ def send_message_with_async_events(
             emit_preview=True,
             collected_events=collected_events,
             preview_writer=preview_writer,
+            event_preview_writer=event_preview_writer,
             perf_tracker=perf_tracker,
         )
         if batch_text_streamed:
@@ -148,6 +150,7 @@ def consume_async_run_events(
     emit_preview: bool = True,
     collected_events: list[tuple[str, dict[str, object]]] | None = None,
     preview_writer: Callable[[str], None] | None = None,
+    event_preview_writer: Callable[[str, dict[str, object]], None] | None = None,
     previewed_tool_lines: set[str] | None = None,
     emitted_tool_preview_identities: set[str] | None = None,
     perf_tracker: ReplPerfTracker | None = None,
@@ -160,7 +163,8 @@ def consume_async_run_events(
     Notes:
         Event id dedupe avoids replayed-history duplicates, and run-id filtering
         prevents cross-run events from polluting the current REPL turn.
-        text_delta events bypass the preview machinery and write directly to out.
+        text_delta events bypass the preview machinery and write directly to out
+        unless a ``preview_writer`` is provided.
     """
     delayed_terminal_run_status: dict[str, object] | None = None
     saw_terminal_run_status = False
@@ -205,12 +209,15 @@ def consume_async_run_events(
             if emitted_tool_preview_identities is not None and preview_identity is not None:
                 if preview_identity in emitted_tool_preview_identities:
                     should_emit_preview = False
-            if (
-                not should_emit_preview
-            ):
+            if not should_emit_preview:
                 emitted_line = None
             else:
-                emitted_line = _emit_preview_line(out=out, event_name=event_name, data=data, preview_writer=preview_writer)
+                if event_preview_writer is not None:
+                    event_preview_writer(event_name, data)
+                    # Still compute the line so the phase machine can track identity.
+                    emitted_line = _event_preview_line(event_name=event_name, data=data)
+                else:
+                    emitted_line = _emit_preview_line(out=out, event_name=event_name, data=data, preview_writer=preview_writer)
                 if emitted_line is not None:
                     preview_emitted += 1
                     preview_line_identity = _tool_line_identity(emitted_line) if event_name.startswith("tool_") else ""
@@ -227,8 +234,11 @@ def consume_async_run_events(
             if isinstance(delta, str):
                 updated_text = merge_text_delta(updated_text, delta)
                 if emit_preview and delta:
-                    out.write(delta)
-                    out.flush()
+                    if preview_writer is not None:
+                        preview_writer(delta)
+                    else:
+                        out.write(delta)
+                        out.flush()
                     text_streamed_this_batch = True
             continue
     if saw_terminal_run_status:
@@ -237,12 +247,15 @@ def consume_async_run_events(
         if collected_events is not None:
             collected_events.append(("run_status", delayed_terminal_run_status))
         if emit_preview and _is_live_preview_event("run_status"):
-            _emit_preview_line(
-                out=out,
-                event_name="run_status",
-                data=delayed_terminal_run_status,
-                preview_writer=preview_writer,
-            )
+            if event_preview_writer is not None:
+                event_preview_writer("run_status", delayed_terminal_run_status)
+            else:
+                _emit_preview_line(
+                    out=out,
+                    event_name="run_status",
+                    data=delayed_terminal_run_status,
+                    preview_writer=preview_writer,
+                )
     if perf_tracker is not None:
         perf_tracker.record_batch(
             polled_events=polled_events,

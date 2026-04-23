@@ -242,18 +242,28 @@ def print_actionable_error(
 
 
 def print_session_created(*, out: TextIO, session_id: str) -> None:
-    print(f"Started new session {session_id}.", file=out)
+    _write_line(out, f"Started new session {session_id}.")
 
 
 def print_session_switched(*, out: TextIO, session_id: str) -> None:
-    print(f"Switched to session {session_id}.", file=out)
+    _write_line(out, f"Switched to session {session_id}.")
 
 
 def print_active_session(*, out: TextIO, session_id: str | None) -> None:
     if isinstance(session_id, str) and session_id.strip():
-        print(f"Active session: {session_id}.", file=out)
-        return
-    print("Active session: none.", file=out)
+        _write_line(out, f"Active session: {session_id}.")
+    else:
+        _write_line(out, "Active session: none.")
+
+
+def _write_line(out: TextIO, text: str) -> None:
+    """Write one line, using \\r\\n on TTY and \\n on non-TTY to avoid extra \\r in tests."""
+    isatty = getattr(out, "isatty", None)
+    is_tty = callable(isatty) and bool(isatty())
+    out.write(f"{text}\r\n" if is_tty else f"{text}\n")
+    flush = getattr(out, "flush", None)
+    if callable(flush):
+        flush()
 
 
 def _split_argument_tokens(argument: str | None) -> list[str]:

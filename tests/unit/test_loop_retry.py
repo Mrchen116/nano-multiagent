@@ -1,15 +1,24 @@
-"""Tests for AgentLoop.run() internal retry on retryable ModelError.
+"""Tests for AgentLoop.run() error propagation (retry removed in M251).
 
-Retry logic lives inside loop.py wrapping only LLMClient.generate();
-session history writes are not repeated on retry.
+Retry logic previously lived inside loop.py but was removed; errors now
+propagate immediately. Retry is handled at a higher layer if needed.
 """
 
 import pytest
 
 from agent.core.errors import ModelError
 from agent.core.agent.loop import AgentLoop
+from agent.core.agent.runtime import build_turn_result
 from agent.core.agent.state import AgentState
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+
+
+async def _run_loop(loop: AgentLoop, state: AgentState):
+    """Consume AgentLoop async generator and build TurnResult."""
+    messages = []
+    async for msg in loop.run(state):
+        messages.append(msg)
+    return build_turn_result(state.session_id, state.turn_id, messages)
 
 
 class _CountingLLMClient:
@@ -63,45 +72,43 @@ def _make_state(*, session_id: str = "sess-retry-unit", user_text: str = "ping")
     )
 
 
-async def test_loop_retries_generate_on_retryable_error_and_succeeds() -> None:
-    """Loop retries generate() internally when retryable and succeeds without raising."""
+async def test_loop_propagates_retryable_error_immediately() -> None:
+    """Loop does NOT retry; retryable errors propagate on first call."""
     llm = _CountingLLMClient(fail_count=2)
     loop = AgentLoop(llm_client=llm, model="test-model")
     state = _make_state()
 
-    result = await loop.run(state)
+    with pytest.raises(ModelError) as exc_info:
+        await _run_loop(loop, state)
 
-    # 2 failures + 1 success = 3 calls total
-    assert llm.call_count == 3
-    assert result.completed is True
-    assert result.stop_reason == "stop"
-    assert result.messages[0].content == "ok"
+    assert llm.call_count == 1
+    assert exc_info.value.retryable is True
 
 
-async def test_loop_single_retryable_failure_then_success() -> None:
-    """Loop handles exactly 1 retryable failure then succeeds."""
+async def test_loop_propagates_single_retryable_error_immediately() -> None:
+    """Loop does NOT retry; exactly 1 call is made before error propagates."""
     llm = _CountingLLMClient(fail_count=1)
     loop = AgentLoop(llm_client=llm, model="test-model")
     state = _make_state()
 
-    result = await loop.run(state)
+    with pytest.raises(ModelError) as exc_info:
+        await _run_loop(loop, state)
 
-    assert llm.call_count == 2
-    assert result.completed is True
+    assert llm.call_count == 1
+    assert exc_info.value.retryable is True
 
 
-async def test_loop_max_retries_raises_non_retryable_model_error() -> None:
-    """After max_retries exhausted, loop raises non-retryable ModelError."""
+async def test_loop_propagates_always_retryable_error() -> None:
+    """Loop does NOT retry; always-failing retryable errors propagate as-is."""
     llm = _AlwaysRetryableLLMClient()
     loop = AgentLoop(llm_client=llm, model="test-model")
     state = _make_state()
 
     with pytest.raises(ModelError) as exc_info:
-        await loop.run(state)
+        await _run_loop(loop, state)
 
-    assert exc_info.value.retryable is False
-    # Must have attempted max_retries+1 times (initial + retries)
-    assert llm.call_count > 1
+    assert exc_info.value.retryable is True
+    assert llm.call_count == 1
 
 
 async def test_loop_non_retryable_error_propagates_immediately() -> None:
@@ -111,7 +118,7 @@ async def test_loop_non_retryable_error_propagates_immediately() -> None:
     state = _make_state()
 
     with pytest.raises(ModelError) as exc_info:
-        await loop.run(state)
+        await _run_loop(loop, state)
 
     assert exc_info.value.retryable is False
     # Only 1 call — no retry for non-retryable
@@ -124,7 +131,7 @@ async def test_loop_zero_retryable_failures_calls_generate_once() -> None:
     loop = AgentLoop(llm_client=llm, model="test-model")
     state = _make_state()
 
-    result = await loop.run(state)
+    result = await _run_loop(loop, state)
 
     assert llm.call_count == 1
     assert result.completed is True

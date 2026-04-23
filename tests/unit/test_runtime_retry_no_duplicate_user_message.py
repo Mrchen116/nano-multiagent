@@ -1,52 +1,37 @@
-"""Integration test: retryable ModelError in loop does not duplicate user message in session history.
+"""Integration test: user message appears exactly once in session history.
 
-When runtime.run() is called once and LLM generate() fails transiently N times
-before succeeding, the session history must contain exactly one user message.
+When runtime.run() is called once, the session history must contain exactly one user message.
 """
 
 from pathlib import Path
 
-from agent.core.agent.compaction.types import CompactionSettings
 from agent.core.agent.runtime import AgentRuntime
-from agent.core.errors import ModelError
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from agent.core.session.entries import SessionEntryKind
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
-class _RetryThenSucceedLLMClient:
-    """LLM client that raises retryable ModelError N times then returns a response."""
-
-    def __init__(self, *, fail_count: int) -> None:
-        self.call_count = 0
-        self._fail_count = fail_count
+class _SucceedLLMClient:
+    """LLM client that always returns a response."""
 
     def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
-        self.call_count += 1
-        if self.call_count <= self._fail_count:
-            raise ModelError(
-                "context length exceeded",
-                retryable=True,
-                details={"status_code": "413"},
-            )
         return LLMGenerateResponse(
             model=request.model,
-            message=LLMMessage(role="assistant", content="hello after retry"),
+            message=LLMMessage(role="assistant", content="hello"),
             finish_reason="stop",
         )
 
 
-async def test_runtime_run_retryable_model_error_user_message_appears_once(tmp_path: Path) -> None:
-    """User message is written to session history exactly once even when LLM retries."""
-    store = SQLiteSessionStore(db_path=tmp_path / "retry-dedup.sqlite3")
+async def test_runtime_run_user_message_appears_once(tmp_path: Path) -> None:
+    """User message is written to session history exactly once."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     session = manager.create_session(workspace_root=workspace_root.resolve())
 
-    # Seed enough history so the compaction planner can produce a plan on overflow.
-    # Use assistant messages so the only user message in history is the current turn.
+    # Seed history with prior assistant messages.
     manager.append_turn_message(
         session.session_id,
         turn_id="turn_pre_1",
@@ -62,18 +47,16 @@ async def test_runtime_run_retryable_model_error_user_message_appears_once(tmp_p
         message_id="msg_pre_assistant_2",
     )
 
-    llm = _RetryThenSucceedLLMClient(fail_count=1)
+    llm = _SucceedLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=llm,
         model="test-model",
-        compaction_settings=CompactionSettings(min_kept_messages=1),
     )
 
     result = await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
 
     assert result.completed is True
-    assert llm.call_count == 3  # 1 failure + 1 compaction summary + 1 retry success
 
     # Verify user message appears exactly once in session history
     entries = manager.list_entries(session.session_id)

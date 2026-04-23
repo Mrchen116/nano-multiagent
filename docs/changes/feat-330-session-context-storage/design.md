@@ -82,6 +82,7 @@ AgentRuntime (singleton HTTP server)
   "type": "turn",
   "uuid": "msg_...",
   "parent_uuid": "msg_...",
+  "group_id": "msg_...",
   "session_id": "sess_...",
   "role": "user",
   "content": "帮我写一个排序函数",
@@ -96,6 +97,7 @@ AgentRuntime (singleton HTTP server)
 |------|------|
 | `uuid` | 消息唯一 ID（对应现有 `message_id`） |
 | `parent_uuid` | 父消息 UUID；`null` = 链头。正常对话是线性链，rewind 后产生分支（DAG） |
+| `group_id` | **同一 assistant response 产生的消息分组 ID**。assistant message 的 `group_id` = 自己的 `uuid`；该 assistant 产生的所有 tool results 共享此 `group_id`。用于 resume 时区分"当前路径的 parallel tool results"与"rewind 后旧路径的死分支" |
 | `entrypoint` | `"coding_cli"` / `"agent_core"` 区分入口产品 |
 | `is_meta` | harness 注入的合成 user 消息（不显示给用户，但发给 LLM）。场景：max_output_tokens 恢复指令、compaction 触发消息 |
 | `is_compact_summary` | compaction 生成的摘要 user 消息（新历史上下文起点）；`is_meta` 同为 true |
@@ -296,15 +298,63 @@ def load(session_id: str, parent_session_id: str | None = None) -> LoadResult:
     # 正常情况下只有一个 terminal；有分支时取 timestamp 最新的
     leaf = max(terminals, key=lambda t: t["timestamp"])
 
-    # 沿 parent_uuid 回溯到根，收集链上消息（逆序）
+    # 沿 parent_uuid 回溯到根，收集主链消息（逆序）
     chain: list[dict] = []
+    seen: set[str] = set()
     current: dict | None = leaf
     while current is not None:
         chain.append(current)
+        seen.add(current["uuid"])
         parent_uuid = current.get("parent_uuid")
         current = entry_by_uuid.get(parent_uuid) if parent_uuid else None
 
     chain.reverse()   # 从旧到新
+
+    # --- DAG Recovery: 收集主链上遗漏的 parallel tool results ---
+    # 问题：写入是 DAG（同一 assistant 的多个 tool results 都指向它），
+    # 但 backtrack 是链表遍历，只能走一条分支，会丢失同组的 siblings。
+    # 同时必须避免把 rewind 后旧路径（死分支）的 tool results 带进来。
+    # 解决：只恢复和主链上节点同 group_id 的 orphans。
+    #
+    # 示例（rewind 后）：
+    #   user_1 → asst_1(group=g1) → tool_A(g1) → asst_2(g2)   (旧路径)
+    #            ↘
+    #              user_2 → asst_3(g3) → tool_B(g3), tool_C(g3) → asst_4(g4)  (新路径)
+    # backtrack 从 asst_4: [user_1, asst_1, user_2, tool_B, asst_4]
+    #   tool_C(g3) 的 parent = asst_3(g3)，asst_3 在主链上 → 恢复 tool_C
+    #   tool_A(g1) 的 parent = asst_1(g1)，asst_1 在主链上但 group_id 不同 → 不恢复
+
+    # 收集主链上所有出现过的 group_id
+    active_groups: set[str] = {
+        t["group_id"]
+        for t in chain
+        if t.get("group_id")
+    }
+
+    # 多轮收集：orphan 的 parent 在主链 seen 中，且 orphan 的 group_id 在 active_groups 中
+    recovered: list[dict] = []
+    while True:
+        newly_found = False
+        for turn in turns:
+            if turn["uuid"] in seen:
+                continue
+            parent_uuid = turn.get("parent_uuid")
+            group_id = turn.get("group_id")
+            if (
+                parent_uuid
+                and parent_uuid in seen
+                and group_id
+                and group_id in active_groups
+            ):
+                recovered.append(turn)
+                seen.add(turn["uuid"])
+                newly_found = True
+        if not newly_found:
+            break
+
+    # 主链 + 恢复的 orphans 按时间戳排序（JSONL append-only，时间戳 = 写入顺序）
+    all_entries = chain + recovered
+    all_entries.sort(key=lambda t: t.get("timestamp", ""))
 
     # 转成 Message 对象
     messages = [_to_message(t) for t in chain]
@@ -377,14 +427,18 @@ class AgentLoop:
                     )
                     return
 
+                # Batch 内所有 tool results 共享同一个 parent（产生它们的 assistant），
+                # 形成 DAG 语义。batch 结束后 last_parent_id 更新为最后一个 tool result。
+                batch_parent_id = last_parent_id
                 for parsed_call in normalized_calls:
                     result = await self._execute_tool_call(parsed_call)
                     tool_msg = Message(
                         message_id=make_message_id(),
-                        parent_message_id=last_parent_id,
+                        parent_message_id=batch_parent_id,
                         role="tool",
                         content=result.content,
                         tool_call_id=result.call_id,
+                        group_id=assistant_msg.message_id,  # 继承产生 tool 的 assistant 的 group_id
                         metadata={
                             "tool_name": result.name,
                             "tool_error": result.error,
@@ -614,6 +668,7 @@ class Message:
     role: str
     content: str | list
     parent_message_id: str | None = None   # = JSONL parent_uuid（新增）
+    group_id: str | None = None            # = JSONL group_id（新增）
     metadata: dict[str, Any] = field(default_factory=dict)
 ```
 
@@ -634,6 +689,8 @@ def _message_to_entry(msg: Message, session_id: str) -> dict:
     }
     if msg.tool_call_id:
         entry["tool_call_id"] = msg.tool_call_id
+    if msg.group_id:
+        entry["group_id"] = msg.group_id
     # 从 metadata 提取需要持久化的字段
     if msg.metadata.get("is_meta"):
         entry["is_meta"] = True

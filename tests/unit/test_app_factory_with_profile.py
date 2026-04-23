@@ -8,7 +8,7 @@ from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.products.base import ProductProfile
 from agent.products.local_coding import LOCAL_CODING_PROFILE
 from agent.platform.http_api.app import create_app
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.session.jsonl_store import JsonlSessionStore
 
 
 def _make_profile(global_home: Path) -> ProductProfile:
@@ -22,10 +22,10 @@ def _make_profile(global_home: Path) -> ProductProfile:
     )
 
 
-def _session_store_path(app: FastAPI) -> Path:
+def _session_store_data_dir(app: FastAPI) -> Path:
     store = app.state.session_service.manager._store  # type: ignore[attr-defined]
-    assert isinstance(store, SQLiteSessionStore)
-    return store._db_path.resolve()
+    assert isinstance(store, JsonlSessionStore)
+    return store._data_dir.resolve()
 
 
 def test_create_app_with_local_coding_profile_returns_fastapi() -> None:
@@ -74,11 +74,11 @@ def test_create_app_with_profile_uses_resolved_system_prompt() -> None:
     assert loop._system_prompt == CODING_SYSTEM_PROMPT
 
 
-def test_create_app_with_profile_uses_profile_session_store_path(tmp_path: Path) -> None:
-    """create_app should pass product_profile into SessionService path resolution."""
+def test_create_app_with_profile_uses_workspace_local_session_store(tmp_path: Path) -> None:
+    """create_app with profile should place session store under repo_root/.nano."""
     profile = _make_profile(tmp_path / ".testproduct")
-    app = create_app(product_profile=profile)
-    assert _session_store_path(app) == (tmp_path / ".testproduct" / "sessions.sqlite3").resolve()
+    app = create_app(product_profile=profile, repo_root=tmp_path)
+    assert _session_store_data_dir(app) == (tmp_path / ".nano").resolve()
 
 
 def test_create_app_with_profile_exposes_runtime_config_resolver(tmp_path: Path) -> None:

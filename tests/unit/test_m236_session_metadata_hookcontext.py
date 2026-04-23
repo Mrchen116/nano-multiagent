@@ -10,37 +10,8 @@ from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.core.session.store import LoadedSession, SessionStore
-
-
-# ---------------------------------------------------------------------------
-# Shared test infrastructure
-# ---------------------------------------------------------------------------
-
-
-class InMemorySessionStore(SessionStore):
-    """Minimal in-memory store for unit tests."""
-
-    def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-        self.snapshots: dict[str, dict[str, object]] = {}
-
-    def append_event(self, session_id: str, entry: object) -> None:
-        self.events.append((session_id, entry))
-
-    def load_session(self, session_id: str) -> LoadedSession | None:
-        session_events = tuple(e for sid, e in self.events if sid == session_id)
-        if not session_events and session_id not in self.snapshots:
-            return None
-        return LoadedSession(
-            session_id=session_id,
-            events=session_events,
-            snapshot=self.snapshots.get(session_id),
-        )
-
-    def save_snapshot(self, session_id: str, snapshot: dict[str, object]) -> None:
-        self.snapshots[session_id] = snapshot
 
 
 class EchoLLMClient:
@@ -60,7 +31,7 @@ class EchoLLMClient:
 
 
 def _make_runtime(manager: SessionManager, registry: HookRegistry | None = None) -> AgentRuntime:
-    """Create an AgentRuntime wired to an in-memory store and echo LLM."""
+    """Create an AgentRuntime wired to a JSONL store and echo LLM."""
     hook_runner = HookRunner(registry=registry or HookRegistry()) if registry is not None else None
     return AgentRuntime(
         session_manager=manager,
@@ -69,11 +40,6 @@ def _make_runtime(manager: SessionManager, registry: HookRegistry | None = None)
         hook_runner=hook_runner or HookRunner(registry=HookRegistry()),
         repo_root=Path("/tmp"),
     )
-
-
-# ---------------------------------------------------------------------------
-# R2 tests
-# ---------------------------------------------------------------------------
 
 
 async def test_session_metadata_merged_into_hook_context() -> None:
@@ -86,7 +52,7 @@ async def test_session_metadata_merged_into_hook_context() -> None:
 
     registry.on("before_agent_start", capture_ctx)
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path("/tmp") / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(
         workspace_root=Path("/tmp"),
@@ -116,7 +82,7 @@ async def test_runtime_keys_not_overwritten_by_session_metadata() -> None:
 
     registry.on("before_agent_start", capture_ctx)
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path("/tmp") / "sessions")
     manager = SessionManager(store=store)
     # Session metadata tries to set cwd to a fake path — runtime's cwd must win.
     session = manager.create_session(
@@ -149,7 +115,7 @@ async def test_before_agent_start_reads_conversation_type_end_to_end() -> None:
 
     setup(_FakeHookAPI())
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path("/tmp") / "sessions")
     manager = SessionManager(store=store)
     llm = EchoLLMClient()
     session = manager.create_session(
@@ -191,7 +157,7 @@ async def test_before_agent_start_noop_when_no_conversation_type() -> None:
 
     setup(_FakeHookAPI())
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path("/tmp") / "sessions")
     manager = SessionManager(store=store)
     llm = EchoLLMClient()
     session = manager.create_session(

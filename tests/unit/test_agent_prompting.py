@@ -3,11 +3,11 @@ from pathlib import Path
 from agent.core.agent.prompting import CODING_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT, build_prompt_messages
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 from agent.core.types import Message
 from agent.core.types import ToolSpec
 from agent.core.skills.registry import SkillMetadata
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 def test_default_system_prompt_is_generic_fallback() -> None:
@@ -120,7 +120,7 @@ async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path
                 finish_reason="stop",
             )
 
-    store = SQLiteSessionStore(db_path=tmp_path / "prompt-runtime-fill.sqlite3")
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=tmp_path)
     llm = CapturePromptLLM()

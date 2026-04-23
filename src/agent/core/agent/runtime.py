@@ -1,17 +1,20 @@
 """High-level runtime orchestration over sessions, hooks, loop, and compaction."""
 
+import asyncio
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
 
 from agent.core.errors import ModelError
 from agent.core.ids import make_message_id, make_turn_id
-from agent.core.types import Message, ToolCall, ToolResult, ToolSpec, TurnResult
+from agent.core.types import Message, TokenUsage, ToolCall, ToolResult, ToolSpec, TurnResult
 from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from agent.core.hooks.runner import HookExecution, HookRunner
 from agent.core.llm.factory import LLMFactoryConfig, create_llm_client
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from agent.core.session.entries import SessionEntry
+from agent.core.session.jsonl_store import SessionConfig
 from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
 from agent.core.skills import SkillMetadata, resolve_available_skills
@@ -87,6 +90,11 @@ class AgentRuntime:
         self._default_tool_ids = default_tool_ids
         self._tool_registry = tool_registry
         self._session_file_states: dict[str, SessionFileState] = {}
+        # In-memory session state: primary data source during normal operation.
+        self._session_histories: dict[str, list[Message]] = {}
+        self._session_configs: dict[str, SessionConfig] = {}
+        self._session_paths: dict[str, Path] = {}
+        self._session_locks: dict[str, asyncio.Lock] = {}
         self._loop = AgentLoop(
             llm_client=active_llm_client,
             model=self._llm_config.model,
@@ -123,6 +131,7 @@ class AgentRuntime:
         llm_session_id: str | None = None,
         run_id: str | None = None,
         controller: RunController | None = None,
+        parent_session_id: str | None = None,
     ) -> TurnResult:
         """Execute one turn for an existing session.
 
@@ -131,6 +140,7 @@ class AgentRuntime:
             parts: Structured input parts (`text` or `image`).
             stream: Reserved compatibility flag (currently ignored).
             llm_session_id: Optional provider session id override.
+            parent_session_id: Optional parent session id for subagent path resolution.
 
         Returns:
             Turn result containing assistant output, tool calls/results, and stop reason.
@@ -145,14 +155,51 @@ class AgentRuntime:
 
         del stream  # M4 minimal runtime only supports non-stream flow.
 
-        session = self._session_manager.get_session(session_id)
-        if session is None:
-            raise ValueError(f"session does not exist: {session_id}")
-        session_created_at = session.created_at
-        session_workspace_root = session.workspace_root
-        session_available_skills = self._resolve_session_available_skills(session)
-        session_available_tools = self._resolve_session_available_tools(session)
-        frozen_system_prompt = session.system_prompt
+        lock = self._session_locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            return await self._run_locked(
+                session_id=session_id,
+                parts=parts,
+                llm_session_id=llm_session_id,
+                run_id=run_id,
+                controller=controller,
+                parent_session_id=parent_session_id,
+            )
+
+    async def _run_locked(
+        self,
+        session_id: str,
+        parts: Sequence[Mapping[str, Any]],
+        *,
+        llm_session_id: str | None = None,
+        run_id: str | None = None,
+        controller: RunController | None = None,
+        parent_session_id: str | None = None,
+    ) -> TurnResult:
+        """Internal run implementation (assumes session lock is held)."""
+
+        # --- Cache-first load: miss reads JSONL once, hit uses memory ---
+        if session_id not in self._session_histories:
+            path = self._session_manager.store.resolve_path(
+                session_id, parent_session_id=parent_session_id
+            )
+            try:
+                result = self._session_manager.load(session_id, parent_session_id=parent_session_id)
+            except Exception as exc:
+                raise ValueError(f"session does not exist: {session_id}") from exc
+            self._session_histories[session_id] = list(result.messages)
+            self._session_configs[session_id] = result.config
+            self._session_paths[session_id] = path
+
+        history = self._session_histories[session_id]
+        config = self._session_configs[session_id]
+        path = self._session_paths[session_id]
+
+        session_created_at = config.created_at
+        session_workspace_root = config.workspace_root
+        session_available_skills = self._resolve_session_available_skills_from_config(config)
+        session_available_tools = self._resolve_session_available_tools_from_config(config)
+        frozen_system_prompt = config.system_prompt
 
         input_parts = parse_input_parts(parts)
         user_text = render_user_text(input_parts)
@@ -160,10 +207,7 @@ class AgentRuntime:
             raise ValueError("empty input parts are not allowed")
 
         turn_id = make_turn_id()
-        # Seed hook_metadata from session metadata so hooks (e.g. before_agent_start)
-        # can read conversation_type, participant_agent_ids, agent_id, etc.
-        # Runtime-injected keys (cwd, run_id) are applied after and always take priority.
-        hook_metadata: dict[str, Any] = dict(session.metadata) if isinstance(session.metadata, Mapping) else {}
+        hook_metadata: dict[str, Any] = dict(config.metadata) if isinstance(config.metadata, Mapping) else {}
         hook_metadata["cwd"] = str(session_workspace_root)
         if isinstance(run_id, str) and run_id.strip():
             hook_metadata["run_id"] = run_id.strip()
@@ -220,33 +264,31 @@ class AgentRuntime:
             hook_ctx,
         )
 
-        history = self._session_manager.list_turn_messages(session_id)
         turn_count = sum(1 for message in history if message.role == "user")
         user_message_id = make_message_id()
 
-        self._session_manager.append_turn_message(
-            session_id,
-            turn_id=turn_id,
+        user_msg = Message(
+            message_id=user_message_id,
+            parent_message_id=history[-1].message_id if history else None,
             role="user",
             content=user_text,
-            message_id=user_message_id,
-            parts=_serialize_input_parts(input_parts),
         )
-        history_with_current_user = self._session_manager.list_turn_messages(session_id)
+        history.append(user_msg)
+        self._session_manager.writer.enqueue(path, _message_to_entry(user_msg, session_id))
+        await self._session_manager.writer.flush_async()
+
+        history_with_current_user = tuple(history)
         await self._preflight_compaction(
             session_id=session_id,
             history=history_with_current_user,
         )
-        history = self._history_without_message(
-            session_id=session_id,
-            message_id=user_message_id,
-        )
 
-        # Multi-part expansion (M246): when the gateway sends N buffered messages as N parts,
-        # each part must appear as an independent user message in the LLM history rather than
-        # being \n-joined into a single message.  Parts 0..N-2 are injected into history;
-        # the last part becomes the current user_text consumed by the loop.
-        # Single-part paths (N=1) are unchanged — backward compatible.
+        # Re-fetch history: compaction may have replaced the in-memory list.
+        history = self._session_histories.get(session_id, [])
+        # Remove the user message we just added from history passed to loop.
+        loop_history = tuple(history[:-1])
+
+        # Multi-part expansion (M246)
         effective_user_text = user_text
         effective_input_parts = input_parts
         if len(input_parts) > 1:
@@ -255,24 +297,27 @@ class AgentRuntime:
             extra_messages = tuple(
                 Message(
                     message_id=make_message_id(),
+                    parent_message_id=loop_history[-1].message_id if loop_history else None,
                     role="user",
                     content=render_user_text([part]),
                 )
                 for part in extra_parts
                 if render_user_text([part])
             )
-            history = history + extra_messages
+            loop_history = loop_history + extra_messages
             effective_user_text = render_user_text(last_part)
             effective_input_parts = last_part
 
+        all_messages: list[Message] = [user_msg]
         try:
-            turn_result = await self._execute_loop(
+            async for msg in self._execute_loop(
                 session_id=session_id,
                 turn_id=turn_id,
                 turn_count=turn_count,
-                history=history,
+                history=loop_history,
                 input_parts=effective_input_parts,
                 user_text=effective_user_text,
+                user_message_id=user_msg.message_id,
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
                 llm_session_id=llm_session_id,
@@ -281,36 +326,25 @@ class AgentRuntime:
                 available_skills_override=() if use_frozen_system_prompt else session_available_skills,
                 available_tools_override=session_available_tools,
                 controller=controller,
-            )
-        except ModelError as exc:
-            # Retry boundary: only context-overflow-like failures trigger one
-            # compaction attempt plus one replay; all other model errors bubble up.
-            if not await self._post_turn_check_overflow(session_id=session_id, error=exc):
-                raise
-            base_retry_history = self._history_without_message(
-                session_id=session_id,
-                message_id=user_message_id,
-            )
-            # Re-apply multi-part expansion on the compaction-adjusted retry history.
-            retry_history = base_retry_history + (history[len(base_retry_history):] if len(input_parts) > 1 else ())
-            turn_result = await self._execute_loop(
-                session_id=session_id,
-                turn_id=turn_id,
-                turn_count=turn_count,
-                history=retry_history,
-                input_parts=effective_input_parts,
-                user_text=effective_user_text,
-                hook_ctx=hook_ctx,
-                system_prompt_override=system_prompt_override,
-                llm_session_id=llm_session_id,
-                session_created_at=session_created_at,
-                current_working_directory_override=session_workspace_root,
-                available_skills_override=() if use_frozen_system_prompt else session_available_skills,
-                available_tools_override=session_available_tools,
-                controller=controller,
-            )
+            ):
+                if msg.role == "turn_meta":
+                    all_messages.append(msg)
+                    continue
+                history.append(msg)
+                all_messages.append(msg)
+                entry = _message_to_entry(msg, session_id)
+                if msg.role == "tool":
+                    self._session_manager.writer.enqueue(path, entry)
+                    await self._session_manager.writer.flush_async()
+                else:
+                    self._session_manager.writer.enqueue(path, entry)
+            await self._session_manager.writer.flush_async()
+        except ModelError:
+            await self._session_manager.writer.flush_async()
+            raise
 
-        self._append_turn_events(session_id=session_id, turn_id=turn_id, turn_result=turn_result)
+        turn_result = build_turn_result(session_id, turn_id, all_messages)
+
         await self._dispatch_observe(
             "agent_end",
             {
@@ -338,7 +372,9 @@ class AgentRuntime:
 
         if self._session_manager.get_session(session_id) is None:
             raise ValueError(f"session does not exist: {session_id}")
-        return await self._compact_session(session_id=session_id, reason=CompactionReason.MANUAL)
+        lock = self._session_locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            return await self._compact_session(session_id=session_id, reason=CompactionReason.MANUAL)
 
     async def continue_turn(
         self,
@@ -476,6 +512,115 @@ class AgentRuntime:
         )
         return session
 
+    async def close_session(self, session_id: str) -> None:
+        """Close a session: cancel active run, flush JSONL, evict memory."""
+
+        # Cancel active run if any (runs registry handles this externally).
+        # Flush + evict under lock.
+        lock = self._session_locks.get(session_id)
+        if lock:
+            async with lock:
+                await self._session_manager.writer.flush_async()
+                self._session_histories.pop(session_id, None)
+                self._session_configs.pop(session_id, None)
+                self._session_paths.pop(session_id, None)
+        else:
+            await self._session_manager.writer.flush_async()
+
+        self._session_file_states.pop(session_id, None)
+        self._session_locks.pop(session_id, None)
+
+    async def fork_session(self, source_session_id: str) -> Session:
+        """Fork a session: create a new session with an independent copy of source history.
+
+        The fork copies the linear conversation chain from the source session,
+        re-stamping all message UUIDs and recalculating parent_uuid links.
+        The new session has its own JSONL file and in-memory history.
+        """
+
+        # Ensure source is loaded into memory
+        if source_session_id not in self._session_histories:
+            result = self._session_manager.load(source_session_id)
+            self._session_histories[source_session_id] = list(result.messages)
+            self._session_configs[source_session_id] = result.config
+            self._session_paths[source_session_id] = self._session_manager.store.resolve_path(source_session_id)
+
+        source_config = self._session_configs[source_session_id]
+        source_history = self._session_histories[source_session_id]
+
+        # Acquire source lock to prevent concurrent modification during fork
+        source_lock = self._session_locks.get(source_session_id)
+        if source_lock:
+            async with source_lock:
+                return await self._fork_locked(source_session_id, source_config, list(source_history))
+        return await self._fork_locked(source_session_id, source_config, list(source_history))
+
+    async def _fork_locked(
+        self,
+        source_session_id: str,
+        source_config: SessionConfig,
+        source_history: list[Message],
+    ) -> Session:
+        """Internal fork implementation (source lock held if applicable)."""
+
+        new_metadata = dict(source_config.metadata)
+        new_metadata["forked_from"] = source_session_id
+
+        new_session = self._session_manager.create_session(
+            workspace_root=source_config.workspace_root,
+            system_prompt=source_config.system_prompt,
+            skills=source_config.skills,
+            tool_allowlist=source_config.tool_allowlist,
+            metadata=new_metadata,
+        )
+        new_session_id = new_session.session_id
+        new_path = self._session_manager.store.resolve_path(new_session_id)
+
+        # Re-stamp messages: new UUIDs, recalculated parent chain
+        if source_history:
+            old_to_new_uuid: dict[str, str] = {}
+            new_history: list[Message] = []
+
+            for msg in source_history:
+                new_uuid = make_message_id()
+                old_to_new_uuid[msg.message_id] = new_uuid
+
+                old_parent = msg.parent_message_id
+                new_parent = old_to_new_uuid.get(old_parent) if old_parent else None
+
+                new_msg = Message(
+                    message_id=new_uuid,
+                    role=msg.role,
+                    content=msg.content,
+                    parent_message_id=new_parent,
+                    group_id=old_to_new_uuid.get(msg.group_id) if msg.group_id else None,
+                    tool_call_id=msg.tool_call_id,
+                    metadata=dict(msg.metadata),
+                )
+                new_history.append(new_msg)
+
+                entry = _message_to_entry(new_msg, new_session_id)
+                self._session_manager.store.writer.enqueue(new_path, entry)
+
+            await self._session_manager.store.writer.flush_async()
+            self._session_histories[new_session_id] = new_history
+        else:
+            self._session_histories[new_session_id] = []
+
+        self._session_configs[new_session_id] = SessionConfig(
+            session_id=new_session_id,
+            created_at=new_session.created_at,
+            workspace_root=source_config.workspace_root,
+            system_prompt=source_config.system_prompt,
+            skills=source_config.skills,
+            tool_allowlist=source_config.tool_allowlist,
+            metadata=new_metadata,
+        )
+        self._session_paths[new_session_id] = new_path
+        self._session_locks[new_session_id] = asyncio.Lock()
+
+        return new_session
+
     def _resolve_session_available_skills(self, session: Session) -> tuple[SkillMetadata, ...]:
         if session.skills is None:
             return self._loop.available_skills
@@ -487,10 +632,19 @@ class AgentRuntime:
             config_resolver=self._config_resolver,
         )
 
+    def _resolve_session_available_skills_from_config(self, config: SessionConfig) -> tuple[SkillMetadata, ...]:
+        if config.skills is None:
+            return self._loop.available_skills
+        if not config.skills:
+            return ()
+        return resolve_available_skills(
+            workspace_root=config.workspace_root,
+            include_names=config.skills,
+            config_resolver=self._config_resolver,
+        )
+
     def _resolve_session_available_tools(self, session: Session) -> tuple[ToolSpec, ...]:
         if session.tool_allowlist is None:
-            # No per-session allowlist: apply product default_tool_ids gate when present.
-            # When default_tool_ids is None the platform default (all registry tools) is used.
             all_specs = self._loop.active_tool_specs()
             default_ids = self._default_tool_ids
             if default_ids is None:
@@ -498,6 +652,17 @@ class AgentRuntime:
             allowed_set = set(default_ids)
             return tuple(spec for spec in all_specs if spec.name in allowed_set)
         requested = set(session.tool_allowlist)
+        return tuple(tool for tool in self._loop.active_tool_specs() if tool.name in requested)
+
+    def _resolve_session_available_tools_from_config(self, config: SessionConfig) -> tuple[ToolSpec, ...]:
+        if config.tool_allowlist is None:
+            all_specs = self._loop.active_tool_specs()
+            default_ids = self._default_tool_ids
+            if default_ids is None:
+                return all_specs
+            allowed_set = set(default_ids)
+            return tuple(spec for spec in all_specs if spec.name in allowed_set)
+        requested = set(config.tool_allowlist)
         return tuple(tool for tool in self._loop.active_tool_specs() if tool.name in requested)
 
     async def _dispatch_intercept(
@@ -616,6 +781,7 @@ class AgentRuntime:
         history: tuple[Message, ...],
         input_parts: Sequence[InputPart],
         user_text: str,
+        user_message_id: str | None,
         hook_ctx: HookContext,
         system_prompt_override: str | None,
         available_skills_override: tuple[SkillMetadata, ...] | None,
@@ -624,9 +790,9 @@ class AgentRuntime:
         session_created_at: str,
         current_working_directory_override: Path | None,
         controller: RunController | None = None,
-    ) -> TurnResult:
+    ):
         session_file_state = self._session_file_states.setdefault(session_id, SessionFileState())
-        return await self._loop.run(
+        async for msg in self._loop.run(
             AgentState(
                 session_id=session_id,
                 turn_id=turn_id,
@@ -634,6 +800,7 @@ class AgentRuntime:
                 history_messages=history,
                 input_parts=input_parts,
                 user_text=user_text,
+                user_message_id=user_message_id,
             ),
             controller=controller,
             hook_ctx=hook_ctx,
@@ -644,7 +811,8 @@ class AgentRuntime:
             session_created_at=session_created_at,
             current_working_directory_override=current_working_directory_override,
             session_file_state=session_file_state,
-        )
+        ):
+            yield msg
 
     async def _preflight_compaction(
         self,
@@ -683,16 +851,16 @@ class AgentRuntime:
         if plan is None:
             return None
 
-        session = self._session_manager.get_session(session_id)
+        config = self._session_configs.get(session_id)
         rendered_system_prompt: str | None = None
-        if session is not None:
-            active_skills = self._resolve_session_available_skills(session)
-            active_tools = self._resolve_session_available_tools(session)
+        if config is not None:
+            active_skills = self._resolve_session_available_skills_from_config(config)
+            active_tools = self._resolve_session_available_tools_from_config(config)
             rendered_system_prompt = build_system_prompt(
-                system_prompt=session.system_prompt or self._loop._system_prompt,
+                system_prompt=config.system_prompt or self._loop._system_prompt,
                 available_skills=active_skills,
                 available_tools=active_tools,
-                current_working_directory=session.workspace_root,
+                current_working_directory=config.workspace_root,
             )
 
         dropped_messages = tuple(_message_from_turn_entry(entry) for entry in plan.dropped_events)
@@ -724,6 +892,35 @@ class AgentRuntime:
                 if len(restored_files) >= 5:
                     break
 
+        # Write compact_boundary + summary directly via JSONL writer and update memory.
+        path = self._session_paths.get(session_id)
+        if path is not None:
+            # Generate summary message
+            last_preserved_id = None
+            history = self._session_histories.get(session_id, [])
+            if history:
+                last_preserved_id = history[-1].message_id
+
+            summary_msg = Message(
+                message_id=make_message_id(),
+                parent_message_id=last_preserved_id,
+                role="user",
+                content=summary,
+                metadata={"is_compact_summary": True, "is_meta": True},
+            )
+            self._session_histories[session_id] = [summary_msg]
+            self._session_manager.writer.enqueue(path, _message_to_entry(summary_msg, session_id))
+
+            self._session_manager.writer.enqueue(path, {
+                "type": "compact_boundary",
+                "session_id": session_id,
+                "timestamp": _utc_now_iso(),
+                "summary_uuid": summary_msg.message_id,
+                "data": {"reason": reason.value, "restored_files": list(restored_files)},
+            })
+            await self._session_manager.writer.flush_async()
+
+        # Use applier for backward-compatible result object.
         result = self._compaction_applier.apply(
             session_id=session_id,
             plan=plan,
@@ -752,102 +949,11 @@ class AgentRuntime:
         session_id: str,
         message_id: str,
     ) -> tuple[Message, ...]:
-        messages = list(self._session_manager.list_turn_messages(session_id))
+        history = self._session_histories.get(session_id, [])
+        messages = list(history)
         if messages and messages[-1].message_id == message_id:
             messages.pop()
         return tuple(messages)
-
-    def _append_turn_events(self, *, session_id: str, turn_id: str, turn_result: TurnResult) -> None:
-        call_by_id = {item.call_id: item for item in turn_result.tool_calls}
-        result_by_id = {item.call_id: item for item in turn_result.tool_results}
-        emitted_call_ids: set[str] = set()
-        emitted_result_ids: set[str] = set()
-
-        for assistant_message in turn_result.messages:
-            tool_call_ids = _extract_tool_call_ids(assistant_message.metadata)
-            if not tool_call_ids:
-                self._session_manager.append_turn_message(
-                    session_id,
-                    turn_id=turn_id,
-                    role=assistant_message.role,
-                    content=assistant_message.content,
-                    message_id=assistant_message.message_id,
-                    metadata=assistant_message.metadata,
-                )
-                continue
-
-            if assistant_message.content:
-                self._session_manager.append_turn_message(
-                    session_id,
-                    turn_id=turn_id,
-                    role=assistant_message.role,
-                    content=assistant_message.content,
-                    message_id=assistant_message.message_id,
-                    metadata=_without_tool_calls_metadata(assistant_message.metadata),
-                )
-
-            for call_id in tool_call_ids:
-                tool_call = call_by_id.get(call_id)
-                if tool_call is None:
-                    continue
-                self._append_tool_call_event(session_id=session_id, turn_id=turn_id, tool_call=tool_call)
-                emitted_call_ids.add(call_id)
-                tool_result = result_by_id.get(call_id)
-                if tool_result is None:
-                    continue
-                self._append_tool_result_event(session_id=session_id, turn_id=turn_id, tool_result=tool_result)
-                emitted_result_ids.add(call_id)
-
-        for tool_call in turn_result.tool_calls:
-            if tool_call.call_id in emitted_call_ids:
-                continue
-            self._append_tool_call_event(session_id=session_id, turn_id=turn_id, tool_call=tool_call)
-            emitted_call_ids.add(tool_call.call_id)
-            tool_result = result_by_id.get(tool_call.call_id)
-            if tool_result is None or tool_result.call_id in emitted_result_ids:
-                continue
-            self._append_tool_result_event(session_id=session_id, turn_id=turn_id, tool_result=tool_result)
-            emitted_result_ids.add(tool_result.call_id)
-
-        for tool_result in turn_result.tool_results:
-            if tool_result.call_id in emitted_result_ids:
-                continue
-            self._append_tool_result_event(session_id=session_id, turn_id=turn_id, tool_result=tool_result)
-            emitted_result_ids.add(tool_result.call_id)
-
-    def _append_tool_call_event(self, *, session_id: str, turn_id: str, tool_call: ToolCall) -> None:
-        self._session_manager.append_turn_message(
-            session_id,
-            turn_id=turn_id,
-            role="assistant",
-            content="",
-            message_id=make_message_id(),
-            metadata={
-                "tool_phase": "call",
-                "tool_call_id": tool_call.call_id,
-                "tool_calls": [
-                    {
-                        "call_id": tool_call.call_id,
-                        "name": tool_call.name,
-                        "arguments": dict(tool_call.arguments),
-                    }
-                ],
-            },
-        )
-
-    def _append_tool_result_event(self, *, session_id: str, turn_id: str, tool_result: ToolResult) -> None:
-        content = tool_result.content if tool_result.content is not None else ""
-        self._session_manager.append_turn_message(
-            session_id,
-            turn_id=turn_id,
-            role="tool",
-            content=content,
-            message_id=make_message_id(),
-            metadata={
-                "tool_phase": "result",
-                "tool_call_id": tool_result.call_id,
-            },
-        )
 
 
 _SESSION_EVENT_PUBLISHER_FACTORY_STATE_KEY = "session_event_publisher_factory"
@@ -928,32 +1034,111 @@ def _is_context_overflow_error(error: ModelError) -> bool:
     return any(marker in response_text or marker in message_text for marker in markers)
 
 
+def build_turn_result(session_id: str, turn_id: str, messages: list[Message]) -> TurnResult:
+    """Assemble TurnResult from a stream of messages yielded by AgentLoop.
+
+    The last message is expected to be a turn_meta message carrying stop_reason,
+    completed flag, and usage. If absent, sensible defaults are applied.
+    """
+    if not messages:
+        return TurnResult(
+            session_id=session_id,
+            turn_id=turn_id,
+            completed=False,
+            stop_reason="error",
+        )
+
+    *body, turn_meta = messages
+    if turn_meta.role != "turn_meta":
+        meta: dict[str, Any] = {}
+        body = messages
+    else:
+        meta = dict(turn_meta.metadata)
+
+    assistant_msgs = [m for m in body if m.role == "assistant"]
+    tool_calls: list[ToolCall] = []
+    tool_results: list[ToolResult] = []
+
+    for msg in body:
+        if msg.role == "assistant":
+            for tc in msg.metadata.get("tool_calls", []):
+                tool_calls.append(
+                    ToolCall(
+                        call_id=tc["call_id"],
+                        name=tc["name"],
+                        arguments=tc.get("arguments", {}),
+                    )
+                )
+        elif msg.role == "tool":
+            tool_results.append(
+                ToolResult(
+                    call_id=msg.tool_call_id or "",
+                    name=msg.metadata.get("tool_name", ""),
+                    content=msg.content,
+                    output=msg.metadata.get("tool_output"),
+                    error=msg.metadata.get("tool_error"),
+                )
+            )
+
+    usage = meta.get("usage")
+    if usage is not None and not isinstance(usage, TokenUsage):
+        usage = None
+
+    return TurnResult(
+        session_id=session_id,
+        turn_id=turn_id,
+        messages=tuple(assistant_msgs),
+        tool_calls=tuple(tool_calls),
+        tool_results=tuple(tool_results),
+        completed=meta.get("completed", False),
+        stop_reason=meta.get("stop_reason", "completed"),
+        usage=usage,
+    )
+
+
+def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
+    """Convert a Message to a JSONL turn entry."""
+    entry: dict[str, Any] = {
+        "type": "turn",
+        "uuid": msg.message_id,
+        "parent_uuid": msg.parent_message_id,
+        "session_id": session_id,
+        "role": msg.role,
+        "content": msg.content,
+        "timestamp": _utc_now_iso(),
+    }
+    if msg.tool_call_id is not None:
+        entry["tool_call_id"] = msg.tool_call_id
+    if msg.group_id is not None:
+        entry["group_id"] = msg.group_id
+    meta = dict(msg.metadata)
+    if meta.get("is_meta"):
+        entry["is_meta"] = True
+    if meta.get("is_compact_summary"):
+        entry["is_compact_summary"] = True
+    if meta.get("entrypoint"):
+        entry["entrypoint"] = meta["entrypoint"]
+    if meta.get("tool_calls"):
+        entry["tool_calls"] = meta["tool_calls"]
+    if meta.get("tool_name"):
+        entry["tool_name"] = meta["tool_name"]
+    if meta.get("tool_error"):
+        entry["tool_error"] = meta["tool_error"]
+    if meta.get("tool_output") is not None:
+        entry["tool_output"] = meta["tool_output"]
+    return entry
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
 def _message_from_turn_entry(entry: SessionEntry) -> Message:
     return Message(
         message_id=str(entry.data.get("message_id", "")),
         role=str(entry.data.get("role", "")),
         content=str(entry.data.get("content", "")),
     )
-
-
-def _extract_tool_call_ids(metadata: Mapping[str, Any]) -> tuple[str, ...]:
-    raw_calls = metadata.get("tool_calls")
-    if not isinstance(raw_calls, list):
-        return ()
-    call_ids: list[str] = []
-    for item in raw_calls:
-        if not isinstance(item, Mapping):
-            continue
-        call_id = item.get("call_id")
-        if isinstance(call_id, str) and call_id:
-            call_ids.append(call_id)
-    return tuple(call_ids)
-
-
-def _without_tool_calls_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
-    copied = dict(metadata)
-    copied.pop("tool_calls", None)
-    return copied
 
 
 def _read_file_slice(

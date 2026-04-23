@@ -4,30 +4,8 @@ from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
-from agent.core.session.store import LoadedSession, SessionStore
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-
-
-class InMemorySessionStore(SessionStore):
-    def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-        self.snapshots: dict[str, dict[str, object]] = {}
-
-    def append_event(self, session_id: str, entry: object) -> None:
-        self.events.append((session_id, entry))
-
-    def load_session(self, session_id: str) -> LoadedSession | None:
-        session_events = tuple(entry for sid, entry in self.events if sid == session_id)
-        if not session_events and session_id not in self.snapshots:
-            return None
-        return LoadedSession(
-            session_id=session_id,
-            events=session_events,
-            snapshot=self.snapshots.get(session_id),
-        )
-
-    def save_snapshot(self, session_id: str, snapshot: dict[str, object]) -> None:
-        self.snapshots[session_id] = snapshot
 
 
 class EchoLLMClient:
@@ -77,7 +55,7 @@ async def test_runtime_and_loop_emit_hook_events_in_expected_order() -> None:
     registry.on("turn_end", _observe("turn_end"))
     registry.on("agent_end", _observe("agent_end"))
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=Path.cwd())
     runtime = AgentRuntime(
@@ -118,7 +96,7 @@ async def test_input_transform_chain_affects_runtime_main_flow() -> None:
     registry.on("input", add_prefix, priority=10)
     registry.on("input", add_suffix, priority=20)
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=Path.cwd())
     llm = EchoLLMClient()
@@ -134,7 +112,8 @@ async def test_input_transform_chain_affects_runtime_main_flow() -> None:
 
     assert llm.requests[-1].messages[-1].content == "prefix:ping:suffix"
     assert result.messages[0].content == "ack:prefix:ping:suffix"
-    user_event = [entry for _, entry in store.events][1]
+    entries = manager.list_entries(session.session_id)
+    user_event = [entry for entry in entries][1]
     assert user_event.data["content"] == "prefix:ping:suffix"
 
 
@@ -147,7 +126,7 @@ async def test_before_agent_start_message_override_affects_runtime_main_flow() -
 
     registry.on("before_agent_start", rewrite_before_start)
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=Path.cwd())
     llm = EchoLLMClient()
@@ -163,12 +142,13 @@ async def test_before_agent_start_message_override_affects_runtime_main_flow() -
 
     assert llm.requests[-1].messages[-1].content == "before:ping"
     assert result.messages[0].content == "ack:before:ping"
-    user_event = [entry for _, entry in store.events][1]
+    entries = manager.list_entries(session.session_id)
+    user_event = [entry for entry in entries][1]
     assert user_event.data["content"] == "before:ping"
 
 
 async def test_session_metadata_system_prompt_is_used_for_every_turn() -> None:
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=Path.cwd(), system_prompt="You are the prompt frozen for this chat.")
     llm = EchoLLMClient()
@@ -197,7 +177,7 @@ async def test_before_agent_start_blank_override_does_not_drop_session_frozen_sy
 
     registry.on("before_agent_start", clear_prompt)
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=Path.cwd(), system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.")
     llm = EchoLLMClient()
@@ -224,7 +204,7 @@ async def test_input_handled_short_circuits_runtime_flow() -> None:
 
     registry.on("input", handled)
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=Path.cwd())
     llm = EchoLLMClient()
@@ -241,7 +221,8 @@ async def test_input_handled_short_circuits_runtime_flow() -> None:
     assert result.messages == ()
     assert result.stop_reason == "handled_by_hook"
     assert llm.requests == []
-    assert len(store.events) == 1
+    entries = manager.list_entries(session.session_id)
+    assert len(entries) == 1
 
 
 async def test_hook_exceptions_are_isolated_and_fail_open() -> None:
@@ -253,7 +234,7 @@ async def test_hook_exceptions_are_isolated_and_fail_open() -> None:
 
     registry.on("input", exploding)
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=Path.cwd())
     llm = EchoLLMClient()
@@ -281,7 +262,7 @@ async def test_runtime_create_session_emits_session_start_observe_hook() -> None
 
     registry.on("session_start", on_session_start)
 
-    store = InMemorySessionStore()
+    store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
     runtime = AgentRuntime(
         session_manager=manager,

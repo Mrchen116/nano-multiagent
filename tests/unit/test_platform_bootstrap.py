@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.bootstrap import bootstrap_product
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 from agent.products.base import ProductProfile, ResolvedProductConfig
 
 
@@ -109,5 +109,5 @@ def test_bootstrap_product_builds_profile_session_store(tmp_path: Path) -> None:
 
     resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
 
-    assert isinstance(resolved.session_store, SQLiteSessionStore)
-    assert resolved.session_store._db_path.resolve() == (tmp_path / ".test-global" / "profile.sqlite3").resolve()
+    assert isinstance(resolved.session_store, JsonlSessionStore)
+    assert resolved.session_store._data_dir.resolve() == (tmp_path / ".nano").resolve()

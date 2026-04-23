@@ -86,7 +86,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
         if run_id is None:
             return
         name = event.get("name")
-        call_id = event.get("call_id")
+        call_id = event.get("call_id") or event.get("tool_call_id")
         turn_id = event.get("turn_id") if event.get("turn_id") is not None else ctx.turn_id
         phase = event.get("phase")
         if not isinstance(phase, str):

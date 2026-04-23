@@ -295,6 +295,24 @@ def list_session_tools(
     )
 
 
+@router.post("/{session_id}:fork", response_model=SessionResponse)
+async def fork_session(
+    session_id: str,
+    session_service: SessionService = Depends(get_session_service),
+    runtime=Depends(get_agent_runtime),
+) -> SessionResponse:
+    """Fork a session: create a new independent session with copied history."""
+    if session_service.get_session(session_id) is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message=f"session does not exist: {session_id}",
+            retryable=False,
+        )
+    new_session = await runtime.fork_session(session_id)
+    return _to_session_response(new_session)
+
+
 @router.post("/{session_id}:compact", response_model=CompactSessionResponse)
 async def compact_session(
     session_id: str,

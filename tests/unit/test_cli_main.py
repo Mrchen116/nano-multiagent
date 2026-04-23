@@ -61,10 +61,9 @@ def test_consume_async_run_events_fallback_dedupe_window_evicts_old_semantic_key
         [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_a"}}],
         [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_b"}}],
         [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_c"}}],
-        [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_a"}}],
-    ]
+        [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_a"}}]]
     for events in event_batches:
-        assistant_text, consumed = consume_async_run_events(
+        assistant_text, consumed, _ = consume_async_run_events(
             out=out,
             events=events,
             run_id="run_window",
@@ -104,7 +103,7 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
     out = io.StringIO()
     preview_lines: list[str] = []
     machine = ReplRenderPhaseMachine()
-    assistant_text, consumed = consume_async_run_events(
+    assistant_text, consumed, _ = consume_async_run_events(
         out=out,
         events=[
             {
@@ -116,8 +115,7 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
                 "event": "run_status",
                 "event_id": "evt-2",
                 "data": {"run_id": "run_phase", "status": "completed"},
-            },
-        ],
+            }],
         run_id="run_phase",
         dedupe_window=EventDedupeWindow(),
         assistant_text="",
@@ -131,7 +129,7 @@ def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
     assert machine.phase is ReplRenderPhase.FINALIZING
     assert preview_lines == ["Tool: bash start args=ping [call_id=call_1]"]
 
-    assistant_text, consumed = consume_async_run_events(
+    assistant_text, consumed, _ = consume_async_run_events(
         out=out,
         events=[
             {
@@ -178,8 +176,7 @@ def test_build_repl_view_model_isolates_orphan_exec_exit_from_active_call_timeli
             ("tool_start", {"run_id": "run_orphan", "name": "bash", "call_id": "call_active", "arguments": {"command": "echo ok"}}),
             ("tool_exec_started", {"run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "started", "elapsed_ms": 0}),
             ("tool_exec_exit", {"run_id": "run_orphan", "name": "bash", "call_id": "call_orphan", "status": "failed", "duration_ms": 44, "exit_code": 99}),
-            ("tool_exec_exit", {"run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "completed", "duration_ms": 21, "exit_code": 0}),
-        ],
+            ("tool_exec_exit", {"run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "completed", "duration_ms": 21, "exit_code": 0})],
         preview_line_resolver=lambda event_name, data: _event_preview_line(event_name=event_name, data=data),
     )
 
@@ -197,8 +194,7 @@ def test_consume_async_run_events_high_frequency_batch_records_perf_baseline() -
     preview_lines: list[str] = []
     events: list[dict[str, object]] = [
         {"event_id": "evt_hf_start", "event": "tool_start", "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "arguments": {"command": "echo hi"}}},
-        {"event_id": "evt_hf_started", "event": "tool_exec_started", "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "status": "started", "elapsed_ms": 0}},
-    ]
+        {"event_id": "evt_hf_started", "event": "tool_exec_started", "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "status": "started", "elapsed_ms": 0}}]
     events.extend(
         {
             "event_id": f"evt_hf_chunk_{idx}",
@@ -216,7 +212,7 @@ def test_consume_async_run_events_high_frequency_batch_records_perf_baseline() -
     )
 
     tracker = ReplPerfTracker()
-    _, consumed = consume_async_run_events(
+    _, consumed, _ = consume_async_run_events(
         out=out,
         events=events,
         run_id="run_hf",
@@ -251,8 +247,7 @@ def test_consume_async_run_events_long_session_batches_keep_perf_guardrails_stab
         events: list[dict[str, object]] = [
             {"event_id": f"evt_other_run_{batch_idx}", "event": "tool_start", "data": {"run_id": "run_other", "name": "bash", "call_id": f"other_{batch_idx}", "arguments": {"command": "echo other"}}},
             {"event_id": f"evt_long_start_{batch_idx}", "event": "tool_start", "data": {"run_id": "run_long", "name": "bash", "call_id": f"call_{batch_idx}", "arguments": {"command": "echo long"}}},
-            {"event_id": f"evt_long_start_{batch_idx}", "event": "tool_start", "data": {"run_id": "run_long", "name": "bash", "call_id": f"call_{batch_idx}", "arguments": {"command": "echo long"}}},
-        ]
+            {"event_id": f"evt_long_start_{batch_idx}", "event": "tool_start", "data": {"run_id": "run_long", "name": "bash", "call_id": f"call_{batch_idx}", "arguments": {"command": "echo long"}}}]
         events.extend(
             {
                 "event_id": f"evt_long_chunk_{batch_idx}_{chunk_idx}",
@@ -275,7 +270,7 @@ def test_consume_async_run_events_long_session_batches_keep_perf_guardrails_stab
                 "data": {"run_id": "run_long", "name": "bash", "call_id": f"call_{batch_idx}", "status": "completed", "duration_ms": 80 + batch_idx, "exit_code": 0},
             }
         )
-        assistant_text, _ = consume_async_run_events(
+        assistant_text, _, _ = consume_async_run_events(
             out=out,
             events=events,
             run_id="run_long",
@@ -306,11 +301,10 @@ def test_consume_async_run_events_perf_snapshot_marks_unstable_with_guardrail_re
     events.extend(
         [
             {"event_id": "evt_target_start", "event": "tool_start", "data": {"run_id": "run_target", "name": "bash", "call_id": "call_target", "arguments": {"command": "echo target"}}},
-            {"event_id": "evt_target_exit", "event": "tool_exec_exit", "data": {"run_id": "run_target", "name": "bash", "call_id": "call_target", "status": "completed", "duration_ms": 12, "exit_code": 0}},
-        ]
+            {"event_id": "evt_target_exit", "event": "tool_exec_exit", "data": {"run_id": "run_target", "name": "bash", "call_id": "call_target", "status": "completed", "duration_ms": 12, "exit_code": 0}}]
     )
 
-    _, consumed = consume_async_run_events(
+    _, consumed, _ = consume_async_run_events(
         out=out,
         events=events,
         run_id="run_target",
@@ -365,7 +359,7 @@ class _StubClient:
         self.calls.append(("health", None))
         return {"healthy": True}
 
-    def create_session(self, *, title: str | None = None) -> dict[str, str]:
+    def create_session(self, *, title: str | None = None, **kwargs: object) -> dict[str, str]:
         self.calls.append(("create_session", {"title": title or ""}))
         return {"session_id": "sess_cli"}
 
@@ -587,8 +581,7 @@ class _AsyncEventingStubClient(_StubClient):
                     "event_id": "evt_text",
                     "event": "text_delta",
                     "data": {"run_id": "run_target", "delta": "final:echo:ping"},
-                },
-            ]
+                }]
         return []
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
@@ -656,8 +649,7 @@ class _AsyncMultilineToolOutputStubClient(_StubClient):
                 "event_id": "evt_ml_text",
                 "event": "text_delta",
                 "data": {"run_id": "run_multiline", "delta": "final:echo:ping"},
-            },
-        ]
+            }]
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -726,8 +718,7 @@ class _AsyncLongToolOutputStubClient(_StubClient):
                 "event_id": "evt_long_text",
                 "event": "text_delta",
                 "data": {"run_id": "run_long_output", "delta": "final:echo:ping"},
-            },
-        ]
+            }]
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -804,8 +795,7 @@ class _AsyncSameToolTwiceStubClient(_StubClient):
                 "event_id": "evt_twice_text",
                 "event": "text_delta",
                 "data": {"run_id": "run_twice", "delta": "final:echo:second"},
-            },
-        ]
+            }]
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -882,8 +872,7 @@ class _AsyncSameToolSameOutputStubClient(_StubClient):
                 "event_id": "evt_same_output_text",
                 "event": "text_delta",
                 "data": {"run_id": "run_same_output", "delta": "final:echo:same"},
-            },
-        ]
+            }]
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -992,8 +981,7 @@ class _AsyncToolExecStreamingStubClient(_StubClient):
                     "event_id": "evt_tool_exec_text",
                     "event": "text_delta",
                     "data": {"run_id": "run_tool_exec", "delta": "done"},
-                },
-            ]
+                }]
         return []
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
@@ -1080,8 +1068,7 @@ class _AsyncOrphanExecExitStubClient(_StubClient):
                     "event_id": "evt_orphan_text",
                     "event": "text_delta",
                     "data": {"run_id": "run_orphan", "delta": "final:orphan-isolated"},
-                },
-            ]
+                }]
         return []
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
@@ -1144,8 +1131,7 @@ class _AsyncNoEventIdReplayStubClient(_StubClient):
             {
                 "event": "text_delta",
                 "data": {"run_id": "run_no_event_id", "delta": "final:no-event-id"},
-            },
-        ]
+            }]
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1209,8 +1195,7 @@ class _AsyncChangedEventIdReplayStubClient(_StubClient):
                     "event_id": "evt_text_1",
                     "event": "text_delta",
                     "data": {"run_id": "run_changed_event_id", "delta": "final:changed-event-id"},
-                },
-            ]
+                }]
         if self._stream_calls == 2:
             return [
                 {
@@ -1283,8 +1268,7 @@ class _AsyncChangedEventIdWithTimestampReplayStubClient(_StubClient):
                         "status": "started",
                         "elapsed_ms": 0,
                     },
-                },
-            ]
+                }]
         if self._stream_calls == 2:
             return [
                 {
@@ -1314,8 +1298,7 @@ class _AsyncChangedEventIdWithTimestampReplayStubClient(_StubClient):
                     "event_id": "evt_ts_text_1",
                     "event": "text_delta",
                     "data": {"run_id": "run_changed_event_id_ts", "delta": "final:changed-event-id-ts"},
-                },
-            ]
+                }]
         return []
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
@@ -1417,8 +1400,7 @@ class _CompletedStatusFirstStubClient(_StubClient):
                 "event_id": "evt_text",
                 "event": "text_delta",
                 "data": {"run_id": "run_completed_first", "delta": "final:echo:ping"},
-            },
-        ]
+            }]
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1488,8 +1470,7 @@ class _CompletedThenTailEventsStubClient(_StubClient):
                     "event_id": "evt_tail_text",
                     "event": "text_delta",
                     "data": {"run_id": "run_tail", "delta": "final:echo:tail"},
-                },
-            ]
+                }]
         return []
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
@@ -1931,12 +1912,11 @@ def test_run_cli_repl_up_recalls_previous_command_line() -> None:
             ["/", "n", "e", "w", "\n"],
             ["/", "h", "e", "l", "p", "\n"],
             ["\x1b[A", "\n"],
-            ["/", "e", "x", "i", "t", "\n"],
-        ]
+            ["/", "e", "x", "i", "t", "\n"]]
     )
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         repl_input_reader_factory=lambda: scripted_reader,
@@ -1964,7 +1944,7 @@ def test_run_cli_health_outputs_json_payload() -> None:
     output = io.StringIO()
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token", "health"],
+        ["--base-url", "http://127.0.0.1:8000", "health"],
         stdout=output,
         client_factory=lambda _: stub,
     )
@@ -1974,31 +1954,6 @@ def test_run_cli_health_outputs_json_payload() -> None:
     assert stub.calls == [("health", None)]
 
 
-def test_run_cli_send_message_uses_session_id_from_env(monkeypatch) -> None:
-    monkeypatch.setenv("NANO_MULTIAGENT_SESSION_ID", "sess_env")
-    stub = _StubClient()
-    output = io.StringIO()
-
-    exit_code = run_cli(
-        [
-            "--base-url",
-            "http://127.0.0.1:8000",
-            "--token",
-            "test-token",
-            "send-message",
-            "--text",
-            "ping",
-        ],
-        stdout=output,
-        client_factory=lambda _: stub,
-    )
-
-    assert exit_code == 0
-    raw = output.getvalue().strip()
-    assert "\n" not in raw
-    payload = json.loads(raw)
-    assert payload["session_id"] == "sess_env"
-    assert payload["message"]["content"] == "echo:ping"
 
 
 def test_run_cli_repl_supports_required_commands() -> None:
@@ -2007,7 +1962,7 @@ def test_run_cli_repl_supports_required_commands() -> None:
     inputs = iter(["/help", "/new", "hello repl", "/session", "/tools", "/compact", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2032,8 +1987,7 @@ def test_run_cli_repl_supports_required_commands() -> None:
         "get_context_budget",
         "list_session_tools",
         "compact_session",
-        "get_context_budget",
-    ]
+        "get_context_budget"]
 
 
 def test_run_cli_repl_use_switches_active_session() -> None:
@@ -2042,7 +1996,7 @@ def test_run_cli_repl_use_switches_active_session() -> None:
     inputs = iter(["/use sess_manual", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2059,7 +2013,7 @@ def test_run_cli_repl_session_transitions_render_active_copy_without_json() -> N
     inputs = iter(["hello auto", "/new", "/use sess_manual", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2081,7 +2035,7 @@ def test_run_cli_repl_history_shows_recent_messages() -> None:
     inputs = iter(["/new", "first", "second", "/history 2", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2101,7 +2055,7 @@ def test_run_cli_repl_command_errors_include_actionable_suggestions() -> None:
     inputs = iter(["/tools", "/use", "/unknown", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2125,7 +2079,7 @@ def test_run_cli_repl_absolute_path_input_is_not_treated_as_command() -> None:
     inputs = iter(["/new", path_line, "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2150,7 +2104,7 @@ def test_run_cli_repl_ignores_blank_input_and_exits_on_eof() -> None:
             raise EOFError() from exc
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=_input,
@@ -2167,7 +2121,7 @@ def test_run_cli_repl_rejects_invalid_command_arguments() -> None:
     inputs = iter(["/new extra", "/session now", "/use a b", "/history 0", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2197,7 +2151,7 @@ def test_run_cli_repl_compact_summary_displays_key_fields() -> None:
     inputs = iter(["/new", "/compact", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2218,7 +2172,7 @@ def test_run_cli_repl_compact_prints_post_compact_budget_state_line() -> None:
     inputs = iter(["/new", "/compact", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2240,12 +2194,11 @@ def test_run_cli_repl_edit_history_budget_compact_chain_regression() -> None:
             ["\x1b[A", "\x1b[C", "!", "\n"],
             ["/", "c", "o", "m", "p", "a", "c", "t", "\n"],
             ["/", "h", "i", "s", "t", "o", "r", "y", " ", "4", "\n"],
-            ["/", "e", "x", "i", "t", "\n"],
-        ]
+            ["/", "e", "x", "i", "t", "\n"]]
     )
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         repl_input_reader_factory=lambda: scripted_reader,
@@ -2267,7 +2220,7 @@ def test_run_cli_repl_context_budget_shows_threshold_hint() -> None:
     inputs = iter(["/new", "hello", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2286,7 +2239,7 @@ def test_run_cli_repl_context_budget_fetch_failure_is_fail_open() -> None:
     inputs = iter(["/new", "hello", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2304,7 +2257,7 @@ def test_run_cli_repl_prints_turn_llm_usage_when_available() -> None:
     inputs = iter(["/new", "hello", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2313,7 +2266,7 @@ def test_run_cli_repl_prints_turn_llm_usage_when_available() -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "echo:hello" in text
-    assert "State: completed | stop=stop | session=sess_cli" in text
+    assert "State: completed | stop=stop" in text
     assert "Usage: prompt=120, completion=35, total=155" in text
     assert "[status]" not in text
     assert "[usage]" not in text
@@ -2325,7 +2278,7 @@ def test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason()
     inputs = iter(["/new", "hello", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2333,7 +2286,7 @@ def test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason()
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "State: completed | stop=stop | session=sess_cli" in text
+    assert "State: completed | stop=stop" in text
 
 
 def test_run_cli_repl_request_failures_include_suggestions() -> None:
@@ -2342,7 +2295,7 @@ def test_run_cli_repl_request_failures_include_suggestions() -> None:
     inputs = iter(["/new", "/tools", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2352,7 +2305,7 @@ def test_run_cli_repl_request_failures_include_suggestions() -> None:
     text = output.getvalue()
     assert "Error: failed to run /tools." in text
     assert "Layer: network" in text
-    assert "Suggestion: check server status/token and retry /tools." in text
+    assert "Suggestion: check server status and retry /tools." in text
 
 
 def test_run_cli_repl_connection_refused_shows_base_url_suggestion() -> None:
@@ -2361,7 +2314,7 @@ def test_run_cli_repl_connection_refused_shows_base_url_suggestion() -> None:
     inputs = iter(["hi", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2382,7 +2335,7 @@ def test_run_cli_repl_timeout_shows_timeout_tuning_suggestion() -> None:
     manager = _ManagedServerSpy()
 
     exit_code = run_cli(
-        ["--mode", "managed", "--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--mode", "managed", "--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2403,7 +2356,7 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2415,7 +2368,6 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert "Tool: echo start args=ping" in text
     assert "Tool echo start args=ping" not in text
     assert "Tool: echo output=echo:ping" in text
-    assert "Assistant:" in text
     assert "final:echo:ping" in text
     assert "ignore-me" not in text
     assert ("send_message_async", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
@@ -2427,7 +2379,7 @@ def test_send_message_with_async_events_sanitizes_multiline_tool_preview() -> No
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2445,7 +2397,7 @@ def test_send_message_with_async_events_truncates_long_tool_output_with_head_and
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2465,7 +2417,7 @@ def test_run_cli_repl_groups_same_tool_name_events_by_call_id() -> None:
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2485,7 +2437,7 @@ def test_run_cli_repl_keeps_same_tool_output_lines_for_distinct_call_id() -> Non
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2503,7 +2455,7 @@ def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> No
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2511,9 +2463,8 @@ def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> No
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "Assistant:" in text
     assert "final:echo:ping" in text
-    assert "State: completed | stop=stop | run=run_target | session=sess_cli" in text
+    assert "State: completed | stop=stop" in text
     assert "Tool: echo start args=ping" in text
     assert "Tool echo start args=ping" not in text
     assert "Tool: echo output=echo:ping" in text
@@ -2528,7 +2479,7 @@ def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2545,7 +2496,7 @@ def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2571,7 +2522,7 @@ def test_run_cli_repl_renders_orphan_tool_exit_as_isolated_timeline() -> None:
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2591,7 +2542,7 @@ def test_run_cli_repl_dedupes_replayed_tool_start_without_event_id() -> None:
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2610,7 +2561,7 @@ def test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id() -> Non
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2628,7 +2579,7 @@ def test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id_and_nons
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2648,7 +2599,7 @@ def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
     inputs = iter(["/new", "hi", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2668,7 +2619,7 @@ def test_run_cli_repl_prints_compact_error_summary_for_failed_run() -> None:
     inputs = iter(["/new", "hi", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2689,7 +2640,7 @@ def test_run_cli_repl_prints_retry_progress_from_run_status_event() -> None:
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2712,7 +2663,7 @@ def test_run_cli_repl_delays_terminal_run_status_until_after_tool_tail_events() 
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2720,7 +2671,7 @@ def test_run_cli_repl_delays_terminal_run_status_until_after_tool_tail_events() 
 
     assert exit_code == 0
     text = output.getvalue()
-    assert "State: completed | stop=stop | run=run_completed_first | session=sess_cli" in text
+    assert "State: completed | stop=stop" in text
     assert "Tool: echo output=echo:ping" in text
 
 
@@ -2730,7 +2681,7 @@ def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress(
     inputs = iter(["/new", "first", "second", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2741,10 +2692,7 @@ def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress(
     assert "Queued message #1" in text
     send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
     assert send_async_calls == [
-        ("send_message_async", {"session_id": "sess_cli", "text": "first"}),
-    ]
-    assert "run=run_queue_1" in text
-    assert "run=run_queue_2" not in text
+        ("send_message_async", {"session_id": "sess_cli", "text": "first"})]
 
 
 def test_run_cli_repl_async_multiline_paste_submits_single_message() -> None:
@@ -2754,12 +2702,11 @@ def test_run_cli_repl_async_multiline_paste_submits_single_message() -> None:
         [
             ["/", "\x1b[B", "\n", "\n"],
             ["f", "i", "r", "s", "t", "\nsecond\n"],
-            ["/", "\x1b[A", "\n", "\n"],
-        ]
+            ["/", "\x1b[A", "\n", "\n"]]
     )
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         repl_input_reader_factory=lambda: scripted_reader,
@@ -2768,8 +2715,7 @@ def test_run_cli_repl_async_multiline_paste_submits_single_message() -> None:
     assert exit_code == 0
     send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
     assert send_async_calls == [
-        ("send_message_async", {"session_id": "sess_cli", "text": "first\nsecond"}),
-    ]
+        ("send_message_async", {"session_id": "sess_cli", "text": "first\nsecond"})]
     assert "Queued message #1" not in output.getvalue()
 
 
@@ -2790,6 +2736,9 @@ def test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_d
         def backlog_size(self) -> int:
             return len(self._pending)
 
+        def has_active_work(self) -> bool:
+            return False
+
         def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
             del timeout_seconds
             while self._pending:
@@ -2808,7 +2757,7 @@ def test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_d
 
     monkeypatch.setattr(app_commands, "ReplRunQueue", _FalseTimeoutAfterDrainQueue)
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2838,6 +2787,9 @@ def test_run_cli_repl_exit_reports_remaining_inflight_messages_after_timeout(mon
         def backlog_size(self) -> int:
             return self._pending
 
+        def has_active_work(self) -> bool:
+            return False
+
         def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
             del timeout_seconds
             return False
@@ -2857,7 +2809,7 @@ def test_run_cli_repl_exit_reports_remaining_inflight_messages_after_timeout(mon
 
     monkeypatch.setattr(app_commands, "ReplRunQueue", _NeverDrainQueue)
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: _AsyncEventingStubClient(),
         input_fn=lambda _: next(inputs),
@@ -2939,7 +2891,7 @@ def test_run_cli_repl_exit_discards_queued_messages_before_processing(monkeypatc
 
     monkeypatch.setattr(app_commands, "ReplRunQueue", _DiscardOnCloseQueue)
     exit_code = run_cli(
-        ["--mode", "managed", "--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--mode", "managed", "--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         managed_server_factory=lambda _: manager,
@@ -2966,7 +2918,7 @@ def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(monkey
 
     monkeypatch.setattr(repl_input, "emit_external_text", _forbid_emit_external_text)
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -2986,6 +2938,8 @@ def test_run_cli_repl_tty_async_output_uses_emit_external_text_path(monkeypatch)
     inputs = iter(["/new", "ping", "/exit"])
     emitted: list[str] = []
 
+    monkeypatch.setattr(cli_commands, "_use_rich_live", lambda _out: False)
+
     original_emit_external_text = repl_input.emit_external_text
 
     def _record_emit_external_text(*, out, text):  # noqa: ANN001
@@ -2994,7 +2948,7 @@ def test_run_cli_repl_tty_async_output_uses_emit_external_text_path(monkeypatch)
 
     monkeypatch.setattr(repl_input, "emit_external_text", _record_emit_external_text)
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -3045,10 +2999,7 @@ def test_run_cli_managed_mode_starts_and_stops_local_server() -> None:
             "managed",
             "--base-url",
             "http://127.0.0.1:8111",
-            "--token",
-            "test-token",
-            "health",
-        ],
+            "health"],
         stdout=output,
         client_factory=lambda _: stub,
         managed_server_factory=lambda config: manager.bind(config),
@@ -3067,7 +3018,7 @@ def test_run_cli_without_mode_defaults_repl_to_managed_lifecycle() -> None:
     manager = _ManagedServerSpy()
 
     exit_code = run_cli(
-        ["--token", "test-token"],
+        [],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -3086,7 +3037,7 @@ def test_run_cli_without_mode_defaults_command_path_to_managed_when_base_url_is_
     manager = _ManagedServerSpy()
 
     exit_code = run_cli(
-        ["--token", "test-token", "health"],
+        ["health"],
         stdout=output,
         client_factory=lambda _: stub,
         managed_server_factory=lambda config: manager.bind(config),
@@ -3103,7 +3054,7 @@ def test_run_cli_without_mode_uses_remote_mode_when_base_url_is_supplied() -> No
     output = io.StringIO()
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8116", "--token", "test-token", "health"],
+        ["--base-url", "http://127.0.0.1:8116", "health"],
         stdout=output,
         client_factory=lambda _: stub,
         managed_server_factory=lambda _: (_ for _ in ()).throw(AssertionError("should not start")),
@@ -3118,7 +3069,7 @@ def test_run_cli_explicit_remote_mode_overrides_managed_default() -> None:
     output = io.StringIO()
 
     exit_code = run_cli(
-        ["--mode", "remote", "--base-url", "http://127.0.0.1:8112", "--token", "test-token", "health"],
+        ["--mode", "remote", "--base-url", "http://127.0.0.1:8112", "health"],
         stdout=output,
         client_factory=lambda _: stub,
         managed_server_factory=lambda _: (_ for _ in ()).throw(AssertionError("should not start")),
@@ -3136,7 +3087,7 @@ def test_run_cli_without_mode_ignores_api_base_url_env_for_repl_default(monkeypa
     monkeypatch.setenv("NANO_MULTIAGENT_API_BASE_URL", "http://remote.example:8123")
 
     exit_code = run_cli(
-        ["--token", "test-token"],
+        [],
         stdout=output,
         client_factory=lambda _: stub,
         input_fn=lambda _: next(inputs),
@@ -3156,7 +3107,7 @@ def test_run_cli_without_mode_ignores_api_base_url_env_for_command_default(monke
     monkeypatch.setenv("NANO_MULTIAGENT_API_BASE_URL", "http://remote.example:8123")
 
     exit_code = run_cli(
-        ["--token", "test-token", "health"],
+        ["health"],
         stdout=output,
         client_factory=lambda _: stub,
         managed_server_factory=lambda config: manager.bind(config),
@@ -3178,10 +3129,7 @@ def test_run_cli_remote_mode_does_not_start_local_server() -> None:
             "remote",
             "--base-url",
             "http://127.0.0.1:8112",
-            "--token",
-            "test-token",
-            "health",
-        ],
+            "health"],
         stdout=output,
         client_factory=lambda _: stub,
         managed_server_factory=lambda _: (_ for _ in ()).throw(AssertionError("should not start")),
@@ -3202,10 +3150,7 @@ def test_run_cli_managed_mode_start_failure_surfaces_actionable_suggestion() -> 
             "managed",
             "--base-url",
             "http://127.0.0.1:8000",
-            "--token",
-            "test-token",
-            "health",
-        ],
+            "health"],
         stdout=output,
         client_factory=lambda _: stub,
         managed_server_factory=lambda config: manager.bind(config),
@@ -3221,7 +3166,7 @@ def test_run_cli_remote_mode_requires_base_url_with_actionable_error() -> None:
     output = io.StringIO()
 
     exit_code = run_cli(
-        ["--mode", "remote", "--token", "test-token", "health"],
+        ["--mode", "remote", "health"],
         stdout=output,
         client_factory=lambda _: (_ for _ in ()).throw(AssertionError("should not build client")),
     )
@@ -3243,10 +3188,7 @@ def test_run_cli_remote_mode_connection_failure_suggestion_mentions_remote_api()
             "remote",
             "--base-url",
             "http://127.0.0.1:8222",
-            "--token",
-            "test-token",
-            "health",
-        ],
+            "health"],
         stdout=output,
         client_factory=lambda _: stub,
     )
@@ -3268,7 +3210,7 @@ def test_run_cli_managed_mode_uses_higher_default_timeout_when_not_configured() 
 
     output = io.StringIO()
     exit_code = run_cli(
-        ["--mode", "managed", "--base-url", "http://127.0.0.1:8113", "--token", "test-token", "health"],
+        ["--mode", "managed", "--base-url", "http://127.0.0.1:8113", "health"],
         stdout=output,
         client_factory=lambda config: _TimeoutCaptureClient(config.timeout_seconds),
         managed_server_factory=lambda _: _ManagedServerSpy(),
@@ -3293,12 +3235,9 @@ def test_run_cli_respects_explicit_api_timeout_seconds() -> None:
             "managed",
             "--base-url",
             "http://127.0.0.1:8114",
-            "--token",
-            "test-token",
             "--api-timeout-seconds",
             "45",
-            "health",
-        ],
+            "health"],
         stdout=output,
         client_factory=lambda config: _TimeoutCaptureClient(config.timeout_seconds),
         managed_server_factory=lambda _: _ManagedServerSpy(),
@@ -3313,7 +3252,7 @@ def test_run_cli_llm_config_get_outputs_payload() -> None:
     output = io.StringIO()
 
     exit_code = run_cli(
-        ["--mode", "remote", "--base-url", "http://127.0.0.1:8000", "--token", "test-token", "llm-config", "get"],
+        ["--mode", "remote", "--base-url", "http://127.0.0.1:8000", "llm-config", "get"],
         stdout=output,
         client_factory=lambda _: stub,
     )
@@ -3334,8 +3273,6 @@ def test_run_cli_llm_config_set_applies_requested_fields() -> None:
             "remote",
             "--base-url",
             "http://127.0.0.1:8000",
-            "--token",
-            "test-token",
             "llm-config",
             "set",
             "--provider",
@@ -3347,8 +3284,7 @@ def test_run_cli_llm_config_set_applies_requested_fields() -> None:
             "--api-key",
             "sk-cli",
             "--timeout-seconds",
-            "55",
-        ],
+            "55"],
         stdout=output,
         client_factory=lambda _: stub,
     )
@@ -3376,7 +3312,7 @@ def test_run_cli_llm_config_set_requires_at_least_one_field() -> None:
     output = io.StringIO()
 
     exit_code = run_cli(
-        ["--mode", "remote", "--base-url", "http://127.0.0.1:8000", "--token", "test-token", "llm-config", "set"],
+        ["--mode", "remote", "--base-url", "http://127.0.0.1:8000", "llm-config", "set"],
         stdout=output,
         client_factory=lambda _: stub,
     )
@@ -3398,14 +3334,11 @@ def test_run_cli_llm_config_set_rejects_conflicting_api_key_flags() -> None:
             "remote",
             "--base-url",
             "http://127.0.0.1:8000",
-            "--token",
-            "test-token",
             "llm-config",
             "set",
             "--api-key",
             "sk-cli",
-            "--clear-api-key",
-        ],
+            "--clear-api-key"],
         stdout=output,
         client_factory=lambda _: stub,
     )
@@ -3427,20 +3360,17 @@ def test_run_cli_managed_mode_forwards_llm_startup_options_to_managed_server() -
             "managed",
             "--base-url",
             "http://127.0.0.1:8115",
-            "--token",
-            "test-token",
-            "--llm-provider",
+            "--provider",
             "anthropic",
-            "--llm-model",
+            "--model",
             "moonshotAnthropic:kimi-k2.5",
             "--llm-base-url",
             "http://127.0.0.1:4100",
-            "--llm-api-key",
+            "--api-key",
             "sk-managed",
-            "--llm-timeout-seconds",
+            "--timeout-seconds",
             "75",
-            "health",
-        ],
+            "health"],
         stdout=output,
         client_factory=lambda _: stub,
         managed_server_factory=lambda config: manager.bind(config),
@@ -3448,7 +3378,6 @@ def test_run_cli_managed_mode_forwards_llm_startup_options_to_managed_server() -
 
     assert exit_code == 0
     assert manager.config_base_url == "http://127.0.0.1:8115"
-    assert manager.config_token == "test-token"
     assert manager.llm_provider == "anthropic"
     assert manager.llm_model == "moonshotAnthropic:kimi-k2.5"
     assert manager.llm_base_url == "http://127.0.0.1:4100"

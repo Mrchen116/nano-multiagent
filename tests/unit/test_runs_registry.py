@@ -6,8 +6,8 @@ from agent.core.types import Message, TokenUsage, TurnResult
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
 from agent.core.runs.registry import RunStatus, RunsRegistry
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class _RuntimeStub:
@@ -63,8 +63,9 @@ def _wait_for(predicate, *, timeout_seconds: float = 1.0) -> None:  # noqa: ANN0
     raise AssertionError("condition not met before timeout")
 
 
-def test_runs_registry_transitions_and_persists_status_entries(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "runs-registry.sqlite3")
+def test_runs_registry_transitions_status_entries(tmp_path: Path) -> None:
+    """Run status transitions through registry memory; JSONL does not persist RUN_STATUS."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
@@ -85,17 +86,18 @@ def test_runs_registry_transitions_and_persists_status_entries(tmp_path: Path) -
     assert completed.turn_id == "turn_async_unit"
     assert completed.output_text == "ok"
 
+    # RUN_STATUS is not persisted in JSONL architecture
     entries = manager.list_entries(session.session_id)
     run_statuses = [
         event.data["status"]
         for event in entries
         if getattr(event.kind, "value", "") == "session.run.status"
     ]
-    assert run_statuses == ["queued", "running", "completed"]
+    assert run_statuses == []
 
 
 def test_runs_registry_marks_failed_when_runtime_raises(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-fail.sqlite3")
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RuntimeStub(fail=True), session_manager=manager)
@@ -115,8 +117,9 @@ def test_runs_registry_marks_failed_when_runtime_raises(tmp_path: Path) -> None:
     assert failed.error["message"] == "runtime boom"
 
 
-def test_runs_registry_persists_completed_run_usage(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-usage.sqlite3")
+def test_runs_registry_tracks_completed_run_usage(tmp_path: Path) -> None:
+    """Registry tracks usage in memory; JSONL does not persist RUN_STATUS."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RuntimeWithUsageStub(), session_manager=manager)
@@ -135,19 +138,14 @@ def test_runs_registry_persists_completed_run_usage(tmp_path: Path) -> None:
     assert completed.usage is not None
     assert completed.usage.total_tokens == 220
 
+    # RUN_STATUS is not persisted in JSONL architecture
     entries = manager.list_entries(session.session_id)
     completed_entries = [
         event
         for event in entries
         if getattr(event.kind, "value", "") == "session.run.status" and event.data.get("status") == "completed"
     ]
-    assert completed_entries
-    assert completed_entries[-1].data.get("output_text") == "ok"
-    assert completed_entries[-1].data.get("usage") == {
-        "prompt_tokens": 200,
-        "completion_tokens": 20,
-        "total_tokens": 220,
-    }
+    assert completed_entries == []
 
 
 def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp_path: Path) -> None:
@@ -160,7 +158,7 @@ def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp
 
     hooks.on("run_error", on_run_error)
 
-    store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-run-error-hook.sqlite3")
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(
@@ -201,7 +199,7 @@ def test_runs_registry_dispatches_run_timeout_observe_hook_when_runtime_times_ou
 
     hooks.on("run_timeout", on_run_timeout)
 
-    store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-run-timeout-hook.sqlite3")
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(
@@ -242,7 +240,7 @@ def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
     The registry no longer contains a while-True retry loop. Any ModelError that
     propagates out of runtime.run() (including retryable=True) is treated as terminal.
     """
-    store = SQLiteSessionStore(db_path=tmp_path / "runs-registry-retry.sqlite3")
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RetryableModelErrorRuntime(), session_manager=manager)
@@ -262,6 +260,7 @@ def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
     assert final is not None
     assert final.status is RunStatus.FAILED
 
+    # RUN_STATUS is not persisted in JSONL architecture
     entries = manager.list_entries(session.session_id)
     run_statuses = [
         event.data["status"]
@@ -269,7 +268,6 @@ def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
         if getattr(event.kind, "value", "") == "session.run.status"
         and event.data.get("run_id") == submitted.run_id
     ]
-    # Should transition queued -> running -> failed with no retry-running entries
-    assert run_statuses[-1] == "failed"
+    assert run_statuses == []
     retry_attempts = [e for e in entries if e.data.get("attempt") is not None]
     assert retry_attempts == [], "registry must not emit retry attempt entries after M251"

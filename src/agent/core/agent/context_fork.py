@@ -64,11 +64,17 @@ class AgentContextFork:
         Returns:
             Turn result from the forked execution.
         """
-        return await self._loop.run(
+        from .runtime import build_turn_result
+
+        messages: list = []
+        async for msg in self._loop.run(
             state,
             max_turns=max_turns,
             session_file_state=session_file_state or SessionFileState(),
             system_prompt_override=system_prompt_override,
             available_skills_override=available_skills_override,
             available_tools_override=available_tools_override,
-        )
+        ):
+            messages.append(msg)
+
+        return build_turn_result(state.session_id, state.turn_id, messages)

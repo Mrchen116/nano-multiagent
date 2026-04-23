@@ -117,6 +117,14 @@ def _stdin_raw_mode(stdin: TextIO):
     original_mode = termios.tcgetattr(file_descriptor)
     try:
         tty.setraw(file_descriptor)
+        # Re-enable ONLCR so that \n written by print() / Console.line()
+        # still maps to \r\n on output.  Without this, raw-mode disables
+        # OPOST and every \n becomes a bare LF, leaving the cursor in the
+        # middle of the next line and producing progressive indentation.
+        mode = termios.tcgetattr(file_descriptor)
+        # termios attr list: [iflag, oflag, cflag, lflag, ispeed, ospeed, cc]
+        mode[1] = mode[1] | termios.ONLCR
+        termios.tcsetattr(file_descriptor, termios.TCSADRAIN, mode)
         yield
     finally:
         termios.tcsetattr(file_descriptor, termios.TCSADRAIN, original_mode)

@@ -16,7 +16,7 @@ from agent.core.skills.discovery import default_skill_search_roots
 from agent.core.skills.registry import SkillRegistry
 from agent.platform.config.resolver import ConfigResolver
 from agent.platform.hooks.loader import build_hook_registry
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.tools.loader import build_tool_registry
 from agent.platform.tools.registry import ToolRegistry
 
@@ -102,9 +102,7 @@ def bootstrap_product(
     else:
         tool_registry = full_tool_registry
 
-    session_store = None
-    if config_resolver is not None:
-        session_store = SQLiteSessionStore(db_path=config_resolver.session_db_path())
+    session_store = JsonlSessionStore(data_dir=resolved_root / ".nano")
 
     skill_registry = SkillRegistry(
         search_roots=default_skill_search_roots(
