@@ -28,6 +28,7 @@ def send_message_with_async_events(
     client: ServerClient,
     session_id: str,
     text: str,
+    emit_preview: bool = True,
     preview_writer: Callable[[str], None] | None = None,
     event_preview_writer: Callable[[str, dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
@@ -44,12 +45,18 @@ def send_message_with_async_events(
     terminal_run: dict[str, object] | None = None
     collected_events: list[tuple[str, dict[str, object]]] = []
 
+    last_sequence_num = 0
     while True:
         events = client.stream_session_events(
             session_id=session_id,
+            after_sequence=last_sequence_num,
             max_events=_EVENT_POLL_MAX_EVENTS,
             timeout_seconds=_EVENT_POLL_TIMEOUT_SECONDS,
         )
+        for event in events:
+            seq = event.get("sequence_num")
+            if isinstance(seq, int) and seq > last_sequence_num:
+                last_sequence_num = seq
         assistant_text, _, batch_text_streamed = consume_async_run_events(
             out=out,
             events=events,
@@ -59,7 +66,7 @@ def send_message_with_async_events(
             dedupe_window=dedupe_window,
             render_phase_machine=render_phase_machine,
             assistant_text=assistant_text,
-            emit_preview=True,
+            emit_preview=emit_preview,
             collected_events=collected_events,
             preview_writer=preview_writer,
             event_preview_writer=event_preview_writer,

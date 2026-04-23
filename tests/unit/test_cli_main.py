@@ -378,6 +378,10 @@ class _StubClient:
         self.calls.append(("compact_session", {"session_id": session_id}))
         return {"session_id": session_id, "compacted": False, "result": None}
 
+    def get_session_messages(self, *, session_id: str, limit: int = 20) -> dict[str, object]:
+        self.calls.append(("get_session_messages", {"session_id": session_id, "limit": limit}))
+        return {"session_id": session_id, "messages": []}
+
     def get_context_budget(self, *, session_id: str) -> dict[str, object]:
         self.calls.append(("get_context_budget", {"session_id": session_id}))
         return {
@@ -502,6 +506,20 @@ class _FailingToolsStubClient(_StubClient):
         raise RuntimeError("request failed (500): {'error': 'tools unavailable'}")
 
 
+class _ResumeHistoryStubClient(_StubClient):
+    def get_session_messages(self, *, session_id: str, limit: int = 20) -> dict[str, object]:
+        self.calls.append(("get_session_messages", {"session_id": session_id, "limit": limit}))
+        return {
+            "session_id": session_id,
+            "messages": [
+                {"role": "user", "content": "first question"},
+                {"role": "assistant", "content": "first answer"},
+                {"role": "tool", "content": "tool output should stay hidden"},
+                {"role": "assistant", "content": "second line 1\nsecond line 2"},
+            ],
+        }
+
+
 class _ConnectionRefusedOnSendStubClient(_StubClient):
     def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
         self.calls.append(("send_message", {"session_id": session_id, "text": text}))
@@ -533,10 +551,11 @@ class _AsyncEventingStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls == 1:
@@ -618,10 +637,11 @@ class _AsyncMultilineToolOutputStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         return [
             {
@@ -686,10 +706,11 @@ class _AsyncLongToolOutputStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         long_output = "HEAD-" + ("x" * 200) + "-TAIL"
         return [
@@ -743,10 +764,11 @@ class _AsyncSameToolTwiceStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         return [
             {
@@ -820,10 +842,11 @@ class _AsyncSameToolSameOutputStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         return [
             {
@@ -901,10 +924,11 @@ class _AsyncToolExecStreamingStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls == 1:
@@ -1011,10 +1035,11 @@ class _AsyncOrphanExecExitStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls == 1:
@@ -1099,10 +1124,11 @@ class _AsyncNoEventIdReplayStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls > 2:
@@ -1161,10 +1187,11 @@ class _AsyncChangedEventIdReplayStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls == 1:
@@ -1239,10 +1266,11 @@ class _AsyncChangedEventIdWithTimestampReplayStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls == 1:
@@ -1325,10 +1353,11 @@ class _AsyncFailedRunStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         return [
             {
@@ -1364,10 +1393,11 @@ class _CompletedStatusFirstStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         return [
             {
@@ -1429,10 +1459,11 @@ class _CompletedThenTailEventsStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls == 1:
@@ -1500,10 +1531,11 @@ class _AsyncRetryingStatusStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         self._poll_count += 1
         if self._poll_count == 1:
@@ -1579,10 +1611,11 @@ class _AsyncQueueingStubClient(_StubClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del max_events, timeout_seconds
+        del after_sequence, max_events, timeout_seconds
         self.calls.append(("stream_session_events", {"session_id": session_id}))
         return []
 
@@ -2932,21 +2965,10 @@ def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(monkey
     assert "\x1b[" not in text
 
 
-def test_run_cli_repl_tty_async_output_uses_emit_external_text_path(monkeypatch) -> None:
+def test_run_cli_repl_tty_async_output_disables_live_preview_until_renderer_is_stable() -> None:
     stub = _AsyncToolExecStreamingStubClient()
     output = _TTYStringIO()
     inputs = iter(["/new", "ping", "/exit"])
-    emitted: list[str] = []
-
-    monkeypatch.setattr(cli_commands, "_use_rich_live", lambda _out: False)
-
-    original_emit_external_text = repl_input.emit_external_text
-
-    def _record_emit_external_text(*, out, text):  # noqa: ANN001
-        emitted.append(text)
-        return original_emit_external_text(out=out, text=text)
-
-    monkeypatch.setattr(repl_input, "emit_external_text", _record_emit_external_text)
     exit_code = run_cli(
         ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
@@ -2955,7 +2977,35 @@ def test_run_cli_repl_tty_async_output_uses_emit_external_text_path(monkeypatch)
     )
 
     assert exit_code == 0
-    assert emitted
+    text = output.getvalue()
+    assert "done" in text
+    assert "Tool: bash progress chunks=2 (stdout=1, stderr=1)" in text
+    assert "Tool: bash exit code=0 status=completed duration=210ms" in text
+    assert text.count("done") == 1
+
+
+def test_run_cli_repl_resume_batches_history_into_single_emit(monkeypatch) -> None:
+    output = _TTYStringIO()
+    emitted: list[str] = []
+    original_emit_external_text = repl_input.emit_external_text
+
+    def _record_emit_external_text(*, out, text):  # noqa: ANN001
+        emitted.append(text)
+        return original_emit_external_text(out=out, text=text)
+
+    monkeypatch.setattr(repl_input, "emit_external_text", _record_emit_external_text)
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--resume", "sess_hist"],
+        stdout=output,
+        client_factory=lambda _: _ResumeHistoryStubClient(),
+        input_fn=lambda _: "/exit",
+    )
+
+    assert exit_code == 0
+    history_emits = [text for text in emitted if "first question" in text]
+    assert history_emits == [
+        "> first question\nAssistant:\nfirst answer\nAssistant:\nsecond line 1\nsecond line 2"
+    ]
 
 class _ManagedServerSpy:
     def __init__(self, *, fail_on_start: Exception | None = None) -> None:

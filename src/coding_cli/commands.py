@@ -81,6 +81,24 @@ def _emit_plain_repl_block(*, out: TextIO, text: str) -> None:
         flush()
 
 
+def _format_resume_history_block(messages: Sequence[dict[str, object]]) -> str:
+    """Format resume history as one stable block so prior lines stay visible."""
+    lines: list[str] = []
+    for msg in messages:
+        role = str(msg.get("role", "")).strip()
+        content = str(msg.get("content", "")).strip()
+        if not content:
+            continue
+        if role == "user":
+            lines.extend(f"> {line}" for line in content.splitlines() or ("",))
+            continue
+        if role == "assistant":
+            lines.append("Assistant:")
+            lines.extend(content.splitlines())
+            continue
+    return "\n".join(lines)
+
+
 def _wait_for_inflight_messages(
     *,
     run_queue: ReplRunQueue,
@@ -362,6 +380,17 @@ def _run_repl(
                 suggestion=suggestion,
             )
 
+    if active_session_id:
+        try:
+            history_payload = client.get_session_messages(session_id=active_session_id, limit=100)
+            messages = history_payload.get("messages", [])
+            if isinstance(messages, list):
+                history_block = _format_resume_history_block(messages)
+                if history_block:
+                    _emit_external_repl_block(history_block)
+        except Exception as exc:
+            _emit_external_repl_block(f"[history load failed: {exc}]")
+
     run_queue = ReplRunQueue(process_message=_process_queued_message) if async_repl_enabled else None
 
     read_line = repl_input.build_repl_input_reader(
@@ -521,23 +550,16 @@ def _send_message_from_repl(
     if not _supports_async_repl_events(client):
         return client.send_message(session_id=session_id, text=text)
 
-    if _use_rich_live(out):
+    if _is_tty_output(out):
         import io
-        from coding_cli.render.repl_live import ReplLiveRenderer
-
-        with ReplLiveRenderer(out=out) as live:
-            # Redirect direct out writes to a dummy buffer; all rendering goes
-            # through the Live callbacks to avoid ANSI corruption.
-            payload = _send_message_with_async_events(
-                out=io.StringIO(),
-                client=client,
-                session_id=session_id,
-                text=text,
-                preview_writer=live.on_text_delta,
-                event_preview_writer=live.on_tool_event,
-            )
-            payload["_live_rendered"] = True
-            return payload
+        payload = _send_message_with_async_events(
+            out=io.StringIO(),
+            client=client,
+            session_id=session_id,
+            text=text,
+            emit_preview=False,
+        )
+        return payload
 
     return _send_message_with_async_events(
         out=out,
