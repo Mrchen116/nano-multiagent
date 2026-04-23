@@ -2,59 +2,116 @@
 
 ## 修复范围
 
-- **M1** SSE 序列号 + 客户端高水位线 — 根治重复事件
-- **M2** TTY 多行 assistant 输出清除 — 修复终端残留
-- **M3** REPL resume 加载并打印历史 — 恢复上下文
+本次最终落地的修复包含 4 个点：
+
+1. TTY 已完成输出改成 append-only，避免后一轮覆盖前一轮
+2. `--resume` 启动时把历史稳定地渲染成一个 block
+3. async turn 在 `assistant/tool/assistant` 交错时按真实事件顺序渲染
+4. `turn_end` 之后 replay 的工具事件被截断，不再污染最终 summary
 
 ---
 
-## 复现验证
+## 自动化验证
 
-### 验证 1：序列号过滤
+执行命令：
 
-EventStreamHub 单元测试验证：
-- `sequence_num` 从 1 开始单调递增
-- `stream(after_sequence=N)` 只返回 `sequence_num > N` 的事件
-- `encode_sse_event` 的 `id:` 字段为 `str(sequence_num)`
+```bash
+uv run pytest \
+  tests/unit/test_cli_main.py \
+  tests/unit/test_repl_summary.py \
+  tests/e2e/test_cli_text_streaming_and_injection_e2e.py \
+  -q
+```
 
-### 验证 2：客户端高水位线
+结果：
 
-- coding_cli `send_message_with_async_events` 每次 poll 传递 `after_sequence=last_sequence_num`
-- gateway `InboundPipeline._await_terminal_run` 同样跟踪 `last_sequence_num`
-- 连续 poll 不再收到已消费的历史事件
+```text
+109 passed
+```
 
-### 验证 3：TTY 多行清除
+### 本次新增/更新的关键约束
 
-- `emit_external_text` 在写入新文本前，发送 N 次 `\x1b[A\x1b[2K` 清除上方已输出的 assistant 内容
-- 非 TTY 环境（无法获取终端宽度）fallback 到不清除，不影响行为
-
-### 验证 4：REPL resume 历史
-
-- `_run_repl()` 在 resume 模式下调用 `client.get_session_messages(limit=20)`
-- user 消息前缀 `>`，assistant 消息前缀 `<`
-- 空内容跳过
+- `emit_persistent_text()` 不允许清除已完成 block
+- `resume` 历史仍然只发出一个稳定 block
+- `assistant/tool/assistant` 回合必须生成 `ordered_updates`
+- `turn_end` 后 replay 的 `tool_start/tool_end` 必须被忽略
+- ordered rendering 已经输出工具行时，summary 末尾不能再重复打印同一工具结果
 
 ---
 
-## 回归测试结论
+## 真实测试
 
-| 测试集 | 结果 | 说明 |
-|--------|------|------|
-| `tests/unit/test_sse_encoder.py` | 4 passed | SSE 编码器更新序列号 |
-| `tests/unit/test_app_factory.py` | 2 passed | App factory 事件流兼容 |
-| `tests/unit/test_cli_main.py` | 92 passed | CLI 主流程无回归 |
-| `tests/unit/personal_assistant/test_kernel_api_client.py` | passed | Gateway 客户端解析序列号 |
-| `tests/unit/personal_assistant/test_gateway_pipeline.py` | passed | Gateway pipeline 兼容 |
+## 真实测试 1：真实 managed 后端 + 真实模型 + TTY 渲染路径
 
-已知与本次修复无关的预存失败：
-- `test_app_factory_with_profile.py::test_create_app_with_profile_uses_resolver_skill_roots_over_legacy_codex`
-- `test_cli_managed_server.py` x 6
-- `test_cli_refactor_boundaries.py` x 3
-- `test_server_global_routes.py` x 5
-- `test_server_message_route.py` x 2
+方法：
+
+- 启动新的 managed 端口
+- 通过真实 `ServerClient` 发送消息
+- 走与 TTY 一致的 `_send_message_from_repl(..., out=TTY-like stream)` 路径
+- 对最终 `print_repl_turn_summary()` 输出做顺序检查
+
+本次真实结果满足：
+
+1. `Assistant: Let's first check ...`
+2. `Tool: bash output=...`
+3. `Assistant: Now let's read ...`
+4. `Tool: read output=...`
+5. `Assistant: I've read the README ...`
+6. `State: completed | stop=stop`
+
+且同时满足：
+
+- 没有 `Tool: bash start`
+- 没有 `Tool: read start`
+- 没有重复 `Tool: read output`
+
+## 真实测试 2：真实 CLI 进程 + 真 PTY
+
+执行命令（示例端口）：
+
+```bash
+PYTHONPATH=src ./.venv/bin/python3 -m coding_cli.main \
+  --mode managed \
+  --base-url http://127.0.0.1:54237 \
+  --model volcanoArk:doubao-seed-2-0-code-preview-260215
+```
+
+输入：
+
+```text
+Look at the readme.
+```
+
+真实 PTY 输出确认：
+
+- 先出现 assistant 第一段说明
+- 再出现 `Tool: bash output=...`
+- 再出现 assistant 第二段说明
+- 再出现 `Tool: read output=...`
+- 最后出现 assistant 总结
+- `State:` 之前不再有 replay 的工具尾巴
+
+这条验证是最终验收标准。
+
+---
+
+## 修复后不再出现的错误表现
+
+以下现象在真实测试中已消失：
+
+- 第二轮 assistant 覆盖第一轮 assistant
+- `assistant/tool/assistant` 被压扁成 “整段 assistant + 工具摘要”
+- `turn_end` 之后再次出现 `Tool: ... start/output`
+- 同一 `Tool: read output=...` 在同一回合中重复打印
 
 ---
 
 ## Verdict
 
-Bugfix-331 的两个核心问题已修复，无引入新回归。
+Bugfix-331 当前结论：
+
+- 代码路径已修复
+- 自动化测试通过
+- 真实 managed + 真实模型 + 真实 PTY 验收通过
+
+该 bugfix 可关闭。
