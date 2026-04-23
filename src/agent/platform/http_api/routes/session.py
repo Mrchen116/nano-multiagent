@@ -208,6 +208,14 @@ class ContextBudgetResponse(BaseModel):
     usage_ratio: float
 
 
+class InterruptSessionResponse(BaseModel):
+    """Result of a force-interrupt request against a session."""
+
+    session_id: str
+    interrupted: bool
+    run_id: str | None = None
+
+
 @router.post("", status_code=201, response_model=SessionResponse)
 def create_session(
     payload: CreateSessionRequest,
@@ -387,6 +395,28 @@ def get_context_budget(
         max_tokens=max_tokens,
         remaining_tokens=remaining_tokens,
         usage_ratio=usage_ratio,
+    )
+
+
+@router.post("/{session_id}/interrupt", response_model=InterruptSessionResponse)
+def interrupt_session(
+    session_id: str,
+    session_service: SessionService = Depends(get_session_service),
+    runs: RunsRegistry = Depends(get_runs_registry),
+) -> InterruptSessionResponse:
+    """Force-interrupt the active run for a session."""
+    if session_service.get_session(session_id) is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message=f"session does not exist: {session_id}",
+            retryable=False,
+        )
+    run_id = runs.interrupt(session_id)
+    return InterruptSessionResponse(
+        session_id=session_id,
+        interrupted=run_id is not None,
+        run_id=run_id,
     )
 
 

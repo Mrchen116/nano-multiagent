@@ -227,6 +227,12 @@ class KernelApiClient:
         run = _require_non_empty_string(run_id, field_name="run_id")
         return self._request("POST", f"/v1/runs/{run}/cancel", json={}, require_auth=True)
 
+    def interrupt_session(self, *, session_id: str) -> dict[str, Any]:
+        """Force-interrupt the active run for a session and return interrupt result."""
+
+        session = _require_non_empty_string(session_id, field_name="session_id")
+        return self._request("POST", f"/v1/sessions/{session}/interrupt", json={}, require_auth=True)
+
     def _request(
         self,
         method: str,

@@ -117,6 +117,8 @@ class InboundPipeline:
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._group_context_store = group_context_store
         self._gateway_internal_port = gateway_internal_port
+        self._active_runs: dict[str, str] = {}
+        self._active_runs_lock = asyncio.Lock()
 
     async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
         """Process one inbound message through route, session, queue, and reply steps.
@@ -151,6 +153,9 @@ class InboundPipeline:
             return None
         session_key = build_session_key(message, agent_id=agent_id)
 
+        if self._is_stop_command(message, agent_id=agent_id):
+            return await self._handle_stop_command(message, agent_id=agent_id, session_key=session_key)
+
         async def _run() -> PipelineResult:
             run_id: str | None = None
             try:
@@ -184,6 +189,9 @@ class InboundPipeline:
                     image_urls=image_urls,
                 )
                 run_id = str(run_payload.get("run_id", "")).strip()
+                if run_id:
+                    async with self._active_runs_lock:
+                        self._active_runs[session_key] = run_id
                 await self._emit_relay_lifecycle(
                     message,
                     RelayLifecycleUpdate(
@@ -249,6 +257,11 @@ class InboundPipeline:
                     ),
                 )
                 raise
+            finally:
+                if run_id:
+                    async with self._active_runs_lock:
+                        if self._active_runs.get(session_key) == run_id:
+                            self._active_runs.pop(session_key, None)
 
         return await self._run_queue.submit(session_key, _run)
 
@@ -416,6 +429,59 @@ class InboundPipeline:
     @classmethod
     def _should_suppress_no_reply(cls, message: InboundMessage, *, reply_text: str) -> bool:
         return message.is_group and cls._is_no_reply_token(reply_text)
+
+    def _is_stop_command(self, message: InboundMessage, *, agent_id: str) -> bool:
+        """Check whether the inbound message is a /stop control command.
+
+        Supports ``/stop``, ``@agent /stop``, and ``/stop @agent`` forms.
+        """
+        text = message.text.strip()
+        mention = f"@{agent_id}"
+        text = text.replace(mention, "").strip()
+        return text == "/stop"
+
+    async def _handle_stop_command(
+        self,
+        message: InboundMessage,
+        *,
+        agent_id: str,
+        session_key: str,
+    ) -> PipelineResult:
+        """Handle /stop: interrupt active run or return friendly no-op message."""
+        active_run_id: str | None = None
+        async with self._active_runs_lock:
+            active_run_id = self._active_runs.get(session_key)
+
+        binding = self._ensure_binding(message, agent_id=agent_id, session_key=session_key)
+
+        if active_run_id is None:
+            reply_text = "当前没有正在执行的操作。"
+            outbound = self._outbound_router.send_text(text=reply_text, reply_context=binding.reply_context)
+            return PipelineResult(
+                agent_id=agent_id,
+                session_key=session_key,
+                kernel_session_id=binding.kernel_session_id,
+                run_id="",
+                reply_text=reply_text,
+                outbound=outbound,
+            )
+
+        self._kernel_client.interrupt_session(session_id=binding.kernel_session_id)
+        self._kernel_client.append_message(
+            session_id=binding.kernel_session_id,
+            role="user",
+            content="用户发送了 /stop 命令，要求终止当前操作。",
+        )
+        reply_text = "已停止当前操作。"
+        outbound = self._outbound_router.send_text(text=reply_text, reply_context=binding.reply_context)
+        return PipelineResult(
+            agent_id=agent_id,
+            session_key=session_key,
+            kernel_session_id=binding.kernel_session_id,
+            run_id=active_run_id,
+            reply_text=reply_text,
+            outbound=outbound,
+        )
 
     def register_agent(self, agent: AgentWorkspaceConfig) -> None:
         """Add or replace one live agent workspace binding for future sessions."""

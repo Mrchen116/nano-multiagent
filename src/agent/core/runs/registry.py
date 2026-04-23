@@ -129,10 +129,10 @@ class RunsRegistry:
         with self._lock:
             return self._active_run_by_session.get(session_id)
 
-    def interrupt(self, session_id: str) -> bool:
+    def interrupt(self, session_id: str) -> str | None:
         """Signal force interrupt for the active run of a session.
 
-        Returns True if an active run was found and signalled, False otherwise.
+        Returns the run_id if an active run was found and signalled, None otherwise.
         """
         with self._lock:
             run_id = self._active_run_by_session.get(session_id)
@@ -140,8 +140,8 @@ class RunsRegistry:
         if controller is not None:
             controller.abort()
             log_info("run_interrupted", run_id=run_id, session_id=session_id)
-            return True
-        return False
+            return run_id
+        return None
 
     def inject_pending_message(self, session_id: str, message: LLMMessage) -> bool:
         """Enqueue a message for round-boundary injection into the active run.
