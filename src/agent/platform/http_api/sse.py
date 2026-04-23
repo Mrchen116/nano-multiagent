@@ -17,6 +17,7 @@ from agent.core.ids import make_event_id
 class StreamEvent:
     """Canonical SSE event payload stored in stream history."""
 
+    sequence_num: int
     event_id: str
     event: str
     session_id: str
@@ -43,6 +44,7 @@ class EventStreamHub:
         self._history: list[StreamEvent] = []
         self._subscribers: list[_Subscriber] = []
         self._lock = Lock()
+        self._next_sequence_num: int = 1
 
     def publish(
         self,
@@ -64,15 +66,18 @@ class EventStreamHub:
         payload = dict(data)
         payload.setdefault("event", event)
         payload.setdefault("session_id", session_id)
-        stream_event = StreamEvent(
-            event_id=make_event_id(),
-            event=event,
-            session_id=session_id,
-            created_at=_utc_now_iso(),
-            data=payload,
-        )
 
         with self._lock:
+            sequence_num = self._next_sequence_num
+            self._next_sequence_num += 1
+            stream_event = StreamEvent(
+                sequence_num=sequence_num,
+                event_id=make_event_id(),
+                event=event,
+                session_id=session_id,
+                created_at=_utc_now_iso(),
+                data=payload,
+            )
             self._history.append(stream_event)
             if len(self._history) > self._history_limit:
                 overflow = len(self._history) - self._history_limit
@@ -92,13 +97,15 @@ class EventStreamHub:
         self,
         *,
         session_id: str | None,
+        after_sequence: int,
         max_events: int,
         timeout_seconds: float,
     ) -> Iterator[StreamEvent]:
-        """Yield history replay followed by live events for one subscriber.
+        """Yield events after sequence number followed by live events.
 
         Args:
             session_id: Session filter; `None` subscribes to global stream.
+            after_sequence: Only yield events with sequence_num greater than this.
             max_events: Maximum number of events yielded in this poll window.
             timeout_seconds: Long-poll timeout for waiting on new events.
         """
@@ -111,12 +118,13 @@ class EventStreamHub:
             history = [
                 event
                 for event in self._history[:history_cut]
-                if session_id is None or event.session_id == session_id
+                if event.sequence_num > after_sequence
+                and (session_id is None or event.session_id == session_id)
             ]
 
         yielded = 0
         try:
-            for event in history[-max_events:]:
+            for event in history:
                 yield event
                 yielded += 1
                 if yielded >= max_events:
@@ -138,10 +146,10 @@ class EventStreamHub:
                 self._subscribers = [item for item in self._subscribers if item is not subscriber]
 
 
-def encode_sse_event(*, event_id: str, event: str, data: dict[str, Any]) -> str:
+def encode_sse_event(*, sequence_num: int, event_id: str, event: str, data: dict[str, Any]) -> str:
     """Encode one event in SSE wire format expected by HTTP clients."""
     encoded_data = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
-    return f"id: {event_id}\nevent: {event}\ndata: {encoded_data}\n\n"
+    return f"id: {sequence_num}\nevent: {event}\ndata: {encoded_data}\n\n"
 
 
 def _utc_now_iso() -> str:

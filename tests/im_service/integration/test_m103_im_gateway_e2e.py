@@ -82,7 +82,8 @@ class _FakeKernelClient:
         self.run_states[run_id] = {"run_id": run_id, "status": "completed", "output_text": output_text}
         return {"run_id": run_id}
 
-    def stream_session_events(self, *, session_id: str, max_events: int = 20, timeout_seconds: float = 0.25):
+    def stream_session_events(self, *, session_id: str, after_sequence: int = 0, max_events: int = 20, timeout_seconds: float = 0.25):
+        del after_sequence
         del max_events
         del timeout_seconds
         batches = self.session_events.get(session_id, [])

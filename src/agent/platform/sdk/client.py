@@ -216,12 +216,15 @@ class ServerClient:
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, Any]]:
         """Fetch one SSE poll window and parse it into structured events."""
         if not session_id.strip():
             raise ValueError("session_id is required")
+        if after_sequence < 0:
+            raise ValueError("after_sequence must be >= 0")
         if max_events <= 0:
             raise ValueError("max_events must be > 0")
         if timeout_seconds < 0:
@@ -232,6 +235,7 @@ class ServerClient:
             method="GET",
             url=f"/v1/sessions/{session_id}/events",
             params={
+                "after_sequence": after_sequence,
                 "max_events": max_events,
                 "timeout_seconds": timeout_seconds,
             },
@@ -333,8 +337,15 @@ def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
             continue
         if not isinstance(parsed, dict):
             continue
+        sequence_num: int | None = None
+        if event_id is not None:
+            try:
+                sequence_num = int(event_id)
+            except ValueError:
+                pass
         events.append(
             {
+                "sequence_num": sequence_num if sequence_num is not None else 0,
                 "event_id": event_id or "",
                 "event": event,
                 "data": parsed,

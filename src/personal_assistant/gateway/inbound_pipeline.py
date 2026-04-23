@@ -532,18 +532,21 @@ class InboundPipeline:
             return run_state, self._extract_reply_text(run_state)
 
         reply_text = ""
+        last_sequence_num = 0
         seen_event_ids: set[str] = set()
         seen_event_fingerprints: set[str] = set()
         while True:
             events = stream_session_events(
                 session_id=kernel_session_id,
+                after_sequence=last_sequence_num,
                 max_events=_EVENT_POLL_MAX_EVENTS,
                 timeout_seconds=_EVENT_POLL_TIMEOUT_SECONDS,
             )
-            reply_text = self._merge_reply_text_from_events(
+            reply_text, last_sequence_num = self._merge_reply_text_from_events(
                 events,
                 run_id=run_id,
                 current=reply_text,
+                last_sequence_num=last_sequence_num,
                 seen_event_ids=seen_event_ids,
                 seen_event_fingerprints=seen_event_fingerprints,
             )
@@ -561,11 +564,16 @@ class InboundPipeline:
         *,
         run_id: str,
         current: str,
+        last_sequence_num: int,
         seen_event_ids: set[str],
         seen_event_fingerprints: set[str],
-    ) -> str:
+    ) -> tuple[str, int]:
         reply_text = current
+        max_sequence_num = last_sequence_num
         for event in events:
+            seq = event.get("sequence_num")
+            if isinstance(seq, int) and seq > max_sequence_num:
+                max_sequence_num = seq
             data = event.get("data")
             if not isinstance(data, dict) or data.get("run_id") != run_id:
                 continue
@@ -581,7 +589,7 @@ class InboundPipeline:
             delta = data.get("delta")
             if isinstance(delta, str) and delta:
                 reply_text = InboundPipeline._merge_text_delta(reply_text, delta)
-        return reply_text
+        return reply_text, max_sequence_num
 
     @staticmethod
     def _event_dedupe_key(

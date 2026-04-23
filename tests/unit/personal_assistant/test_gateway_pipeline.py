@@ -84,7 +84,8 @@ class _FakeKernelClient:
         self.session_events.setdefault(session_id, [])
         return {"run_id": run_id}
 
-    def stream_session_events(self, *, session_id: str, max_events: int = 20, timeout_seconds: float = 0.25):
+    def stream_session_events(self, *, session_id: str, after_sequence: int = 0, max_events: int = 20, timeout_seconds: float = 0.25):
+        del after_sequence
         del max_events
         del timeout_seconds
         batches = self.session_events.get(session_id, [])

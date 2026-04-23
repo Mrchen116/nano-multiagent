@@ -22,6 +22,7 @@ router.__module__ = __name__
 
 @router.get("/events")
 def stream_global_events(
+    after_sequence: int = Query(ge=0),
     max_events: int = Query(default=20, ge=1, le=200),
     timeout_seconds: float = Query(default=0.25, ge=0.0, le=5.0),
     event_hub: EventStreamHub = Depends(get_event_stream_hub),
@@ -31,6 +32,7 @@ def stream_global_events(
         _iter_sse(
             event_hub.stream(
                 session_id=None,
+                after_sequence=after_sequence,
                 max_events=max_events,
                 timeout_seconds=timeout_seconds,
             )
@@ -42,4 +44,9 @@ def stream_global_events(
 def _iter_sse(events: Iterator[StreamEvent]) -> Iterator[str]:
     """Encode hub events into wire-level SSE text chunks."""
     for item in events:
-        yield encode_sse_event(event_id=item.event_id, event=item.event, data=item.data)
+        yield encode_sse_event(
+            sequence_num=item.sequence_num,
+            event_id=item.event_id,
+            event=item.event,
+            data=item.data,
+        )

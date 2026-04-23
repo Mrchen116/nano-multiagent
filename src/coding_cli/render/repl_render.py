@@ -15,15 +15,39 @@ def print_repl_turn_summary(
     from coding_cli.render.repl_summary import _extract_message_content
 
     text_streamed = bool(payload.get("_text_streamed"))
-    if not text_streamed:
-        answer = _extract_message_content(payload)
-        print("Assistant:", file=out)
-        if answer is not None:
-            print(answer, file=out)
-        else:
-            print("(empty)", file=out)
+    ordered_updates: list[dict[str, str]] = []
+    view = payload.get("_repl_view")
+    if isinstance(view, dict):
+        raw_updates = view.get("ordered_updates")
+        if isinstance(raw_updates, list):
+            for item in raw_updates:
+                if not isinstance(item, dict):
+                    continue
+                kind = item.get("kind")
+                text = item.get("text")
+                if isinstance(kind, str) and kind in {"assistant", "tool"} and isinstance(text, str) and text:
+                    ordered_updates.append({"kind": kind, "text": text})
 
-    print_turn_summary(out=out, payload=payload, context_budget_client=context_budget_client)
+    if not text_streamed:
+        if ordered_updates:
+            for item in ordered_updates:
+                if item["kind"] == "assistant":
+                    print("Assistant:", file=out)
+                    print(item["text"], file=out)
+                else:
+                    print(item["text"], file=out)
+        else:
+            answer = _extract_message_content(payload)
+            print("Assistant:", file=out)
+            if answer is not None:
+                print(answer, file=out)
+            else:
+                print("(empty)", file=out)
+
+    summary_payload = dict(payload) if ordered_updates else payload
+    if ordered_updates:
+        summary_payload["_ordered_rendered"] = True
+    print_turn_summary(out=out, payload=summary_payload, context_budget_client=context_budget_client)
 
 
 def print_repl_turn_error(

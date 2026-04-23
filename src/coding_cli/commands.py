@@ -334,21 +334,21 @@ def _run_repl(
     async_repl_enabled = _supports_async_repl_events(client)
 
     if _is_tty_output(out):
-        def _emit_external_repl_block(text: str) -> None:
-            repl_input.emit_external_text(out=out, text=text)
+        def _emit_repl_block(text: str) -> None:
+            repl_input.emit_persistent_text(out=out, text=text)
     else:
-        def _emit_external_repl_block(text: str) -> None:
+        def _emit_repl_block(text: str) -> None:
             _emit_plain_repl_block(out=out, text=text)
 
     def _print_repl_turn_summary_block(payload: dict[str, object], *, context_budget_client: object | None = None) -> None:
         buffer = io.StringIO()
         _print_repl_turn_summary(out=buffer, payload=payload, context_budget_client=context_budget_client)
-        _emit_external_repl_block(buffer.getvalue())
+        _emit_repl_block(buffer.getvalue())
 
     def _print_repl_turn_error_block(*, error: Exception, layer: str, suggestion: str) -> None:
         buffer = io.StringIO()
         _print_repl_turn_error(out=buffer, error=error, layer=layer, suggestion=suggestion)
-        _emit_external_repl_block(buffer.getvalue())
+        _emit_repl_block(buffer.getvalue())
 
     def _process_queued_message(item: QueuedReplMessage) -> None:
         try:
@@ -357,7 +357,7 @@ def _run_repl(
                 client=client,
                 session_id=item.session_id,
                 text=item.text,
-                preview_writer=_emit_external_repl_block,
+                preview_writer=_emit_repl_block,
             )
             response_content = _extract_message_content(payload)
             if response_content is not None:
@@ -387,9 +387,9 @@ def _run_repl(
             if isinstance(messages, list):
                 history_block = _format_resume_history_block(messages)
                 if history_block:
-                    _emit_external_repl_block(history_block)
+                    _emit_repl_block(history_block)
         except Exception as exc:
-            _emit_external_repl_block(f"[history load failed: {exc}]")
+            _emit_repl_block(f"[history load failed: {exc}]")
 
     run_queue = ReplRunQueue(process_message=_process_queued_message) if async_repl_enabled else None
 
@@ -407,11 +407,11 @@ def _run_repl(
                 if run_queue is not None:
                     _wait_for_inflight_messages(
                         run_queue=run_queue,
-                        emit_block=_emit_external_repl_block,
+                        emit_block=_emit_repl_block,
                         before_action="exit",
                         timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS,
                     )
-                _emit_external_repl_block("bye")
+                _emit_repl_block("bye")
                 return 0
 
             line = raw.strip()
@@ -423,12 +423,12 @@ def _run_repl(
                 if run_queue is not None and command_name != "/exit":
                     drained = _wait_for_inflight_messages(
                         run_queue=run_queue,
-                        emit_block=_emit_external_repl_block,
+                        emit_block=_emit_repl_block,
                         before_action=command_name,
                         timeout_seconds=_REPL_DRAIN_TIMEOUT_SECONDS,
                     )
                     if not drained:
-                        _emit_external_repl_block(f"Skipping {command_name} for now.")
+                        _emit_repl_block(f"Skipping {command_name} for now.")
                         continue
                 if active_session_id:
                     _append_input_history_entry(input_history_by_session, active_session_id, line)
@@ -511,7 +511,7 @@ def _run_repl(
                             priority="next",
                         )
                         if injected_resp.get("status") == "injected":
-                            _emit_external_repl_block(f"Injected into active run for session {active_session_id}.")
+                            _emit_repl_block(f"Injected into active run for session {active_session_id}.")
                             continue
                     except Exception:
                         # Injection failed (e.g. race: run finished before request reached server).
@@ -520,7 +520,7 @@ def _run_repl(
 
                 backlog_before = run_queue.enqueue(session_id=active_session_id, text=line)
                 if backlog_before > 0:
-                    _emit_external_repl_block(f"Queued message #{backlog_before} for session {active_session_id}.")
+                    _emit_repl_block(f"Queued message #{backlog_before} for session {active_session_id}.")
             except Exception as exc:
                 import traceback
                 traceback.print_exc()

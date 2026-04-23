@@ -1,5 +1,6 @@
 """Interactive terminal input helpers used by CLI REPL."""
 
+import os
 import sys
 import unicodedata
 from contextlib import contextmanager
@@ -37,6 +38,7 @@ class _ActiveRenderState:
 
 _RENDER_LOCK = RLock()
 _ACTIVE_RENDER_STATE: _ActiveRenderState | None = None
+_LAST_EXTERNAL_TEXT_LINES: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,13 +495,22 @@ def render_interactive_line(
         )
 
 
-def emit_external_text(*, out: TextIO, text: str) -> None:
-    """Emit one external message block without corrupting interactive prompt layout."""
+def _emit_terminal_text_block(*, out: TextIO, text: str, replace_previous: bool) -> None:
+    """Emit one terminal message block without corrupting interactive prompt layout."""
+    global _LAST_EXTERNAL_TEXT_LINES
     with _RENDER_LOCK:
         active = _ACTIVE_RENDER_STATE
         should_restore_prompt = active is not None and active.out is out
         if should_restore_prompt:
             _clear_interactive_line_locked(out=out)
+
+        # Clear prior multi-line assistant output above the prompt when the
+        # caller is updating the current live block rather than appending
+        # completed output to terminal history.
+        if replace_previous and _LAST_EXTERNAL_TEXT_LINES > 0:
+            for _ in range(_LAST_EXTERNAL_TEXT_LINES):
+                out.write("\x1b[A\x1b[2K")
+            out.write("\r")
 
         normalized_text = _normalize_terminal_multiline_text(text)
         if normalized_text:
@@ -523,6 +534,40 @@ def emit_external_text(*, out: TextIO, text: str) -> None:
         flush = getattr(out, "flush", None)
         if callable(flush):
             flush()
+
+        _LAST_EXTERNAL_TEXT_LINES = _count_terminal_lines(normalized_text) if replace_previous else 0
+
+
+def emit_external_text(*, out: TextIO, text: str) -> None:
+    """Emit one replaceable external message block."""
+    _emit_terminal_text_block(out=out, text=text, replace_previous=True)
+
+
+def emit_persistent_text(*, out: TextIO, text: str) -> None:
+    """Emit one append-only external message block."""
+    _emit_terminal_text_block(out=out, text=text, replace_previous=False)
+
+
+def _count_terminal_lines(text: str) -> int:
+    """Return number of terminal rows occupied by text, or 0 if unavailable."""
+    if not text:
+        return 0
+    try:
+        width = os.get_terminal_size().columns
+    except OSError:
+        return 0
+    if width <= 0:
+        return 0
+    lines = text.split("\r\n")
+    total = 0
+    for line in lines:
+        line_width = sum(
+            2 if unicodedata.east_asian_width(ch) in {"F", "W"} else 1
+            for ch in line
+            if not unicodedata.combining(ch)
+        )
+        total += max(1, (line_width + width - 1) // width)
+    return total
 
 
 def _render_interactive_line_locked(

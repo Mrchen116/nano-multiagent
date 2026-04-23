@@ -53,6 +53,7 @@ def send_message_with_async_events(
             max_events=_EVENT_POLL_MAX_EVENTS,
             timeout_seconds=_EVENT_POLL_TIMEOUT_SECONDS,
         )
+        events = _clip_events_after_turn_end(events=events, run_id=run_id)
         for event in events:
             seq = event.get("sequence_num")
             if isinstance(seq, int) and seq > last_sequence_num:
@@ -100,6 +101,7 @@ def send_message_with_async_events(
         tool_updates,
         line_identity_resolver=_tool_line_identity,
     )
+    ordered_updates = _build_ordered_repl_updates(collected_events)
     render_phase_machine.mark_finalized()
     return {
         "session_id": session_id,
@@ -117,6 +119,7 @@ def send_message_with_async_events(
         "_repl_view": {
             "status_updates": status_updates,
             "tool_updates": tool_updates,
+            "ordered_updates": ordered_updates,
             "perf_metrics": perf_tracker.snapshot(),
         },
     }
@@ -137,6 +140,27 @@ def _extract_run_id(payload: dict[str, object]) -> str:
     if not isinstance(run_id, str) or not run_id.strip():
         raise RuntimeError("missing run_id in async response")
     return run_id
+
+
+def _clip_events_after_turn_end(*, events: list[dict[str, object]], run_id: str) -> list[dict[str, object]]:
+    """Ignore replayed non-status events that appear after turn_end for this run."""
+    clipped: list[dict[str, object]] = []
+    turn_ended = False
+    for event in events:
+        normalized_event = _normalize_session_event_from_pipeline(event)
+        event_name = normalized_event.event_name
+        data = normalized_event.data
+        if data.get("run_id") != run_id:
+            clipped.append(event)
+            continue
+        if turn_ended:
+            if event_name == "run_status":
+                clipped.append(event)
+            continue
+        clipped.append(event)
+        if event_name == "turn_end":
+            turn_ended = True
+    return clipped
 
 
 def _normalize_session_event(event: object) -> tuple[str, str, dict[str, object]]:
@@ -305,6 +329,71 @@ def _build_repl_view(events: list[tuple[str, dict[str, object]]]) -> tuple[list[
         status_line_resolver=_format_status_progress,
     )
     return model.status_updates, model.tool_updates
+
+
+def _build_ordered_repl_updates(events: list[tuple[str, dict[str, object]]]) -> list[dict[str, str]]:
+    updates: list[dict[str, str]] = []
+    assistant_buffer = ""
+    pending_tool_identity: str | None = None
+    pending_tool_line: str | None = None
+
+    def _flush_assistant() -> None:
+        nonlocal assistant_buffer
+        if assistant_buffer:
+            updates.append({"kind": "assistant", "text": assistant_buffer})
+            assistant_buffer = ""
+
+    def _flush_tool() -> None:
+        nonlocal pending_tool_identity, pending_tool_line
+        if pending_tool_line:
+            updates.append({"kind": "tool", "text": pending_tool_line})
+        pending_tool_identity = None
+        pending_tool_line = None
+
+    for event_name, data in events:
+        if event_name == "text_delta":
+            delta = data.get("delta")
+            if isinstance(delta, str) and delta:
+                _flush_tool()
+                assistant_buffer = merge_text_delta(assistant_buffer, delta)
+            continue
+
+        tool_line = _ordered_tool_update_line(event_name=event_name, data=data)
+        if tool_line is None:
+            continue
+        tool_identity = _ordered_tool_identity(event_name=event_name, data=data)
+        if pending_tool_identity is not None and pending_tool_identity != tool_identity:
+            _flush_tool()
+        _flush_assistant()
+        pending_tool_identity = tool_identity
+        pending_tool_line = tool_line
+
+    _flush_tool()
+    _flush_assistant()
+    assistant_count = sum(1 for item in updates if item["kind"] == "assistant")
+    has_tool = any(item["kind"] == "tool" for item in updates)
+    if assistant_count >= 2 and has_tool:
+        return updates
+    return []
+
+
+def _ordered_tool_update_line(*, event_name: str, data: dict[str, object]) -> str | None:
+    preview = _event_preview_line(event_name=event_name, data=data)
+    if preview is None:
+        return None
+    if not preview.startswith("Tool:"):
+        return None
+    return preview
+
+
+def _ordered_tool_identity(*, event_name: str, data: dict[str, object]) -> str:
+    call_id = data.get("call_id")
+    if isinstance(call_id, str) and call_id.strip():
+        return call_id
+    name = data.get("name")
+    if isinstance(name, str) and name.strip():
+        return f"{name}:{event_name}"
+    return event_name
 
 
 def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | None:

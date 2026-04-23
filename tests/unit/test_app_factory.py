@@ -28,6 +28,7 @@ def test_create_app_binds_session_event_publisher_with_session_consistency() -> 
     own_events = list(
         app.state.event_stream_hub.stream(
             session_id="sess_app_factory",
+            after_sequence=0,
             max_events=5,
             timeout_seconds=0.0,
         )

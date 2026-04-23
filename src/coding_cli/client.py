@@ -152,6 +152,18 @@ class ServerClient:
             raise ValueError("session_id is required")
         return self._request("GET", f"/v1/sessions/{session_id}/context-budget")
 
+    def get_session_messages(self, *, session_id: str, limit: int = 20) -> dict[str, Any]:
+        """Fetch persisted message history for one session."""
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        if limit <= 0:
+            raise ValueError("limit must be > 0")
+        return self._request(
+            "GET",
+            f"/v1/sessions/{session_id}/messages",
+            params={"limit": limit},
+        )
+
     def get_llm_config(self) -> dict[str, Any]:
         """Get active LLM configuration."""
         return self._request("GET", "/v1/llm-config")
@@ -203,12 +215,15 @@ class ServerClient:
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, Any]]:
         """Fetch one SSE poll window and parse it into structured events."""
         if not session_id.strip():
             raise ValueError("session_id is required")
+        if after_sequence < 0:
+            raise ValueError("after_sequence must be >= 0")
         if max_events <= 0:
             raise ValueError("max_events must be > 0")
         if timeout_seconds < 0:
@@ -219,6 +234,7 @@ class ServerClient:
             method="GET",
             url=f"/v1/sessions/{session_id}/events",
             params={
+                "after_sequence": after_sequence,
                 "max_events": max_events,
                 "timeout_seconds": timeout_seconds,
             },
@@ -240,10 +256,11 @@ class ServerClient:
         path: str,
         *,
         json: Mapping[str, Any] | None = None,
+        params: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Send a JSON request and map HTTP errors to RuntimeError payloads."""
         headers = self._build_headers()
-        response = self._client.request(method=method, url=path, json=json, headers=headers)
+        response = self._client.request(method=method, url=path, json=json, headers=headers, params=params)
 
         try:
             payload = response.json()
@@ -314,8 +331,15 @@ def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
             continue
         if not isinstance(parsed, dict):
             continue
+        sequence_num: int | None = None
+        if event_id is not None:
+            try:
+                sequence_num = int(event_id)
+            except ValueError:
+                pass
         events.append(
             {
+                "sequence_num": sequence_num if sequence_num is not None else 0,
                 "event_id": event_id or "",
                 "event": event,
                 "data": parsed,

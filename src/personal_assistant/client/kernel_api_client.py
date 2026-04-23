@@ -183,6 +183,7 @@ class KernelApiClient:
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, Any]]:
@@ -190,11 +191,12 @@ class KernelApiClient:
 
         Args:
             session_id: Existing kernel session id.
+            after_sequence: Only request events after this sequence number.
             max_events: Maximum number of events requested in this poll window.
             timeout_seconds: Long-poll wait time used by the server before returning.
 
         Returns:
-            Parsed event dictionaries with `id`, `event`, and decoded JSON `data`.
+            Parsed event dictionaries with `sequence_num`, `event`, and decoded JSON `data`.
 
         Raises:
             ValueError: When call arguments are semantically invalid.
@@ -202,6 +204,8 @@ class KernelApiClient:
         """
 
         session = _require_non_empty_string(session_id, field_name="session_id")
+        if after_sequence < 0:
+            raise ValueError("after_sequence must be >= 0")
         if max_events <= 0:
             raise ValueError("max_events must be > 0")
         if timeout_seconds < 0:
@@ -210,7 +214,11 @@ class KernelApiClient:
             method="GET",
             url=f"/v1/sessions/{session}/events",
             headers=self._build_headers(require_auth=True),
-            params={"max_events": max_events, "timeout_seconds": timeout_seconds},
+            params={
+                "after_sequence": after_sequence,
+                "max_events": max_events,
+                "timeout_seconds": timeout_seconds,
+            },
         )
         _raise_for_error_response(response)
         return _parse_sse_events(response.text)
@@ -298,7 +306,20 @@ def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
             data = json.loads("\n".join(data_lines))
         except json.JSONDecodeError:
             continue
-        events.append({"id": event_id, "event": event, "data": data})
+        sequence_num: int | None = None
+        if event_id is not None:
+            try:
+                sequence_num = int(event_id)
+            except ValueError:
+                pass
+        events.append(
+            {
+                "sequence_num": sequence_num if sequence_num is not None else 0,
+                "id": event_id,
+                "event": event,
+                "data": data,
+            }
+        )
     return events
 
 

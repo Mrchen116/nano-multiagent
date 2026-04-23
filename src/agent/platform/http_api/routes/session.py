@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from agent.core.agent.compaction.types import CompactionSettings
 from agent.core.llm.interfaces import LLMMessage
-from agent.core.session.entries import SessionEntry
+from agent.core.session.entries import SessionEntry, SessionEntryKind
 from agent.core.errors import ModelError
 from agent.core.hooks.registry import HookRegistry
 from agent.core.session.models import Session
@@ -196,6 +196,23 @@ class CompactSessionResponse(BaseModel):
     session_id: str
     compacted: bool
     result: CompactResultResponse | None
+
+
+class SessionMessageItem(BaseModel):
+    """One message in session history."""
+
+    role: str
+    content: str
+    message_id: str | None = None
+    turn_id: str | None = None
+    created_at: str | None = None
+
+
+class SessionMessagesResponse(BaseModel):
+    """Paginated session message history."""
+
+    session_id: str
+    messages: list[SessionMessageItem]
 
 
 class ContextBudgetResponse(BaseModel):
@@ -465,6 +482,41 @@ def append_message(
     return _to_append_message_response(entry)
 
 
+@router.get("/{session_id}/messages", response_model=SessionMessagesResponse)
+def get_session_messages(
+    session_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    session_service: SessionService = Depends(get_session_service),
+) -> SessionMessagesResponse:
+    """List persisted message entries for one session."""
+    if session_service.get_session(session_id) is None:
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message=f"session does not exist: {session_id}",
+            retryable=False,
+        )
+    entries = session_service.manager.list_entries(session_id)
+    messages: list[SessionMessageItem] = []
+    for entry in entries:
+        if entry.kind != SessionEntryKind.TURN_APPENDED:
+            continue
+        data = entry.data
+        messages.append(
+            SessionMessageItem(
+                role=str(data.get("role", "")),
+                content=str(data.get("content", "")),
+                message_id=data.get("message_id") if isinstance(data.get("message_id"), str) else None,
+                turn_id=data.get("turn_id") if isinstance(data.get("turn_id"), str) else None,
+                created_at=entry.created_at,
+            )
+        )
+    return SessionMessagesResponse(
+        session_id=session_id,
+        messages=messages[-limit:] if len(messages) > limit else messages,
+    )
+
+
 @router.post("/{session_id}/messages", response_model=SendMessageResponse, response_model_exclude_none=True)
 async def send_message(
     session_id: str,
@@ -598,6 +650,7 @@ def send_message_async(
 @router.get("/{session_id}/events")
 def stream_session_events(
     session_id: str,
+    after_sequence: int = Query(ge=0),
     max_events: int = Query(default=20, ge=1, le=200),
     timeout_seconds: float = Query(default=0.25, ge=0.0, le=5.0),
     session_service: SessionService = Depends(get_session_service),
@@ -615,6 +668,7 @@ def stream_session_events(
         _iter_sse(
             event_hub.stream(
                 session_id=session_id,
+                after_sequence=after_sequence,
                 max_events=max_events,
                 timeout_seconds=timeout_seconds,
             )
@@ -707,7 +761,12 @@ def _select_assistant_message(messages: tuple[Message, ...]) -> Message:
 def _iter_sse(events: Iterator[StreamEvent]) -> Iterator[str]:
     """Encode hub events into text/event-stream payload chunks."""
     for item in events:
-        yield encode_sse_event(event_id=item.event_id, event=item.event, data=item.data)
+        yield encode_sse_event(
+            sequence_num=item.sequence_num,
+            event_id=item.event_id,
+            event=item.event,
+            data=item.data,
+        )
 
 
 def _parse_workspace_root(workspace_root: str | None) -> Path:

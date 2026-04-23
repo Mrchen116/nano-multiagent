@@ -150,8 +150,8 @@ def test_kernel_api_client_parses_sse_events() -> None:
     events = client.stream_session_events(session_id="sess-1", max_events=2, timeout_seconds=0.1)
 
     assert events == [
-        {"id": "evt-1", "event": "run.update", "data": {"status": "running"}},
-        {"id": "evt-2", "event": "message", "data": {"status": "completed"}},
+        {"sequence_num": 0, "id": "evt-1", "event": "run.update", "data": {"status": "running"}},
+        {"sequence_num": 0, "id": "evt-2", "event": "message", "data": {"status": "completed"}},
     ]
 
 

@@ -232,10 +232,11 @@ class _AsyncMethodsMustNotBeCalledServerClient(ServerClient):
         self,
         *,
         session_id: str,
+        after_sequence: int = 0,
         max_events: int = 20,
         timeout_seconds: float = 0.25,
     ) -> list[dict[str, object]]:
-        del session_id, max_events, timeout_seconds
+        del session_id, after_sequence, max_events, timeout_seconds
         raise AssertionError("send-message command must not stream repl events")
 
     def get_run(self, *, run_id: str) -> dict[str, object]:

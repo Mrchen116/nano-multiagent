@@ -20,7 +20,8 @@ class _FakeClient:
         self.calls.append({"method": "send_message_async", "session_id": session_id, "text": text, "priority": priority})
         return {"run_id": "run_stream_e2e", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(self, *, session_id: str, max_events: int, timeout_seconds: float) -> list[dict[str, Any]]:
+    def stream_session_events(self, *, session_id: str, after_sequence: int = 0, max_events: int, timeout_seconds: float) -> list[dict[str, Any]]:
+        del after_sequence
         if self._events_batches:
             return self._events_batches.pop(0)
         return []

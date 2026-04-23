@@ -345,6 +345,48 @@ def test_send_message_with_async_events_exposes_perf_metrics_snapshot() -> None:
     assert "stable" in perf_metrics
 
 
+def test_send_message_with_async_events_preserves_assistant_tool_assistant_order() -> None:
+    from coding_cli.events.repl_events import send_message_with_async_events
+
+    payload = send_message_with_async_events(
+        out=io.StringIO(),
+        client=_AsyncAssistantToolAssistantStubClient(),
+        session_id="sess_cli",
+        text="Look at the readme.",
+        emit_preview=False,
+    )
+
+    view = payload.get("_repl_view")
+    assert isinstance(view, dict)
+    ordered_updates = view.get("ordered_updates")
+    assert ordered_updates == [
+        {"kind": "assistant", "text": "Let's check the README file."},
+        {"kind": "tool", "text": "Tool: read output={\"path\": \"README.md\"} [call_id=call_read_1]"},
+        {"kind": "assistant", "text": "Okay, I've checked the README!"},
+    ]
+
+
+def test_send_message_with_async_events_ignores_replayed_tool_events_after_turn_end() -> None:
+    from coding_cli.events.repl_events import send_message_with_async_events
+
+    payload = send_message_with_async_events(
+        out=io.StringIO(),
+        client=_AsyncReplayAfterTurnEndStubClient(),
+        session_id="sess_cli",
+        text="Look at the readme.",
+        emit_preview=False,
+    )
+
+    view = payload.get("_repl_view")
+    assert isinstance(view, dict)
+    assert view.get("ordered_updates") == [
+        {"kind": "assistant", "text": "First assistant."},
+        {"kind": "tool", "text": "Tool: read output={\"path\": \"README.md\"} [call_id=call_tail_1]"},
+        {"kind": "assistant", "text": "Second assistant."},
+    ]
+    assert view.get("tool_updates") == ['Tool: read output={"path": "README.md"} [call_id=call_tail_1]']
+
+
 class _StubClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object] | None]] = []
@@ -1111,6 +1153,106 @@ class _AsyncOrphanExecExitStubClient(_StubClient):
         }
 
 
+class _AsyncAssistantToolAssistantStubClient(_StubClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self._stream_calls = 0
+
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_ordered", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        after_sequence: int = 0,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del session_id, after_sequence, max_events, timeout_seconds
+        self._stream_calls += 1
+        if self._stream_calls == 1:
+            return [
+                {
+                    "event_id": "evt_ordered_text_1",
+                    "event": "text_delta",
+                    "data": {"run_id": "run_ordered", "delta": "Let's check the README file."},
+                },
+                {
+                    "event_id": "evt_ordered_tool_start",
+                    "event": "tool_start",
+                    "data": {"run_id": "run_ordered", "name": "read", "call_id": "call_read_1", "arguments": {"path": "README.md"}},
+                },
+                {
+                    "event_id": "evt_ordered_tool_end",
+                    "event": "tool_end",
+                    "data": {"run_id": "run_ordered", "name": "read", "call_id": "call_read_1", "output": {"path": "README.md"}},
+                },
+                {
+                    "event_id": "evt_ordered_text_2",
+                    "event": "text_delta",
+                    "data": {"run_id": "run_ordered", "delta": "Okay, I've checked the README!"},
+                },
+            ]
+        return []
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "completed",
+            "turn_id": "turn_ordered",
+            "stop_reason": "stop",
+            "error": None,
+        }
+
+
+class _AsyncReplayAfterTurnEndStubClient(_StubClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self._stream_calls = 0
+
+    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        return {"run_id": "run_replay_tail", "session_id": session_id, "status": "queued"}
+
+    def stream_session_events(
+        self,
+        *,
+        session_id: str,
+        after_sequence: int = 0,
+        max_events: int = 20,
+        timeout_seconds: float = 0.25,
+    ) -> list[dict[str, object]]:
+        del session_id, after_sequence, max_events, timeout_seconds
+        self._stream_calls += 1
+        if self._stream_calls == 1:
+            return [
+                {"event_id": "evt_tail_text_1", "event": "text_delta", "data": {"run_id": "run_replay_tail", "delta": "First assistant."}},
+                {"event_id": "evt_tail_tool_start", "event": "tool_start", "data": {"run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "arguments": {"path": "README.md"}}},
+                {"event_id": "evt_tail_tool_end", "event": "tool_end", "data": {"run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "output": {"path": "README.md"}}},
+                {"event_id": "evt_tail_text_2", "event": "text_delta", "data": {"run_id": "run_replay_tail", "delta": "Second assistant."}},
+                {"event_id": "evt_tail_turn_end", "event": "turn_end", "data": {"run_id": "run_replay_tail"}},
+                {"event_id": "evt_tail_completed", "event": "run_status", "data": {"run_id": "run_replay_tail", "status": "completed"}},
+                {"event_id": "evt_tail_replay_start", "event": "tool_start", "data": {"run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "arguments": {"path": "README.md"}}},
+                {"event_id": "evt_tail_replay_end", "event": "tool_end", "data": {"run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "output": {"path": "README.md"}}},
+            ]
+        return []
+
+    def get_run(self, *, run_id: str) -> dict[str, object]:
+        self.calls.append(("get_run", {"run_id": run_id}))
+        return {
+            "run_id": run_id,
+            "session_id": "sess_cli",
+            "status": "completed",
+            "turn_id": "turn_replay_tail",
+            "stop_reason": "stop",
+            "error": None,
+        }
+
+
 class _AsyncNoEventIdReplayStubClient(_StubClient):
     def __init__(self) -> None:
         super().__init__()
@@ -1814,6 +1956,19 @@ def test_repl_input_external_multiline_output_uses_terminal_safe_line_endings() 
     text = output.getvalue()
     assert "line-1\r\nline-2\r\n" in text
     assert text.count("nano> ping") >= 2
+
+
+def test_repl_input_persistent_output_does_not_clear_prior_completed_blocks(monkeypatch) -> None:
+    output = io.StringIO()
+    monkeypatch.setattr(repl_input, "_count_terminal_lines", lambda text: 2 if text else 0)
+
+    repl_input.emit_persistent_text(out=output, text="Assistant:\nfirst turn")
+    repl_input.emit_persistent_text(out=output, text="Assistant:\nsecond turn")
+
+    text = output.getvalue()
+    assert "Assistant:\r\nfirst turn\r\n" in text
+    assert "Assistant:\r\nsecond turn\r\n" in text
+    assert "\x1b[A\x1b[2K" not in text
 
 
 def test_repl_input_engine_supports_cjk_cursor_movement_for_visible_characters() -> None:
@@ -2987,13 +3142,13 @@ def test_run_cli_repl_tty_async_output_disables_live_preview_until_renderer_is_s
 def test_run_cli_repl_resume_batches_history_into_single_emit(monkeypatch) -> None:
     output = _TTYStringIO()
     emitted: list[str] = []
-    original_emit_external_text = repl_input.emit_external_text
+    original_emit_persistent_text = repl_input.emit_persistent_text
 
-    def _record_emit_external_text(*, out, text):  # noqa: ANN001
+    def _record_emit_persistent_text(*, out, text):  # noqa: ANN001
         emitted.append(text)
-        return original_emit_external_text(out=out, text=text)
+        return original_emit_persistent_text(out=out, text=text)
 
-    monkeypatch.setattr(repl_input, "emit_external_text", _record_emit_external_text)
+    monkeypatch.setattr(repl_input, "emit_persistent_text", _record_emit_persistent_text)
     exit_code = run_cli(
         ["--base-url", "http://127.0.0.1:8000", "--resume", "sess_hist"],
         stdout=output,

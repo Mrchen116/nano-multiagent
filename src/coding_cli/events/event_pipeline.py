@@ -16,6 +16,7 @@ _REPLAY_FALLBACK_DEDUPE_EVENTS = {
     "tool_exec_running",
     "tool_exec_chunk",
     "tool_exec_exit",
+    "text_delta",
 }
 
 
@@ -277,17 +278,28 @@ def consume_event_for_run(
     if event_id:
         if dedupe_window.has_event_id(event_id):
             return False
-        dedupe_window.record_event_id(event_id)
-        # Keep legacy sink in sync for compatibility callers that inspect this set.
-        if seen_event_ids is not None:
-            seen_event_ids.add(event_id)
 
-    replay_key = replay_fallback_dedupe_key(event_name=normalized_event.event_name, data=data)
+    # Always check semantic fallback key for text_delta events, even with event_id
+    # to prevent duplicate deltas from being streamed
+    replay_key = None
+    if normalized_event.event_name == "text_delta":
+        replay_key = replay_fallback_dedupe_key(event_name=normalized_event.event_name, data=data)
+    else:
+        if not event_id:
+            replay_key = replay_fallback_dedupe_key(event_name=normalized_event.event_name, data=data)
+    
     if replay_key is not None:
         if dedupe_window.has_fallback_key(run_id=run_id, key=replay_key):
             return False
+
+    # Now record everything
+    if event_id:
+        dedupe_window.record_event_id(event_id)
+        if seen_event_ids is not None:
+            seen_event_ids.add(event_id)
+    
+    if replay_key is not None:
         dedupe_window.record_fallback_key(run_id=run_id, key=replay_key)
-        # Keep legacy sink in sync for compatibility callers that inspect this set.
         if seen_event_fingerprints is not None:
             seen_event_fingerprints.add(replay_key)
 
@@ -302,6 +314,10 @@ def replay_fallback_dedupe_key(*, event_name: str, data: dict[str, object]) -> s
         "event": event_name,
         "run_id": _read_str(data.get("run_id")) or "<unknown-run>",
     }
+
+    if event_name == "text_delta":
+        semantic_payload["delta"] = data.get("delta")
+        return _stable_key(semantic_payload)
 
     if event_name == "run_status":
         semantic_payload["status"] = _read_str(data.get("status")) or "<unknown-status>"
