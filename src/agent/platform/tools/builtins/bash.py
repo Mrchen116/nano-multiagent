@@ -1,6 +1,7 @@
 """Built-in `bash` tool with policy and output guardrails."""
 
 import signal
+from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.errors import ToolError
@@ -14,10 +15,10 @@ class BashTool:
 
     name = "bash"
     is_concurrency_safe = False
+    max_result_size_chars = 30_000
     description = (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "
-        f"Output is truncated to last {DEFAULT_MAX_LINES} lines or {DEFAULT_MAX_KILOBYTES}KB "
-        "(whichever is hit first). If truncated, full output is saved to a temp file. Optionally "
+        "Output larger than 30K chars is compressed by the result budget system. Optionally "
         "provide a timeout in seconds."
     )
     input_schema = {
@@ -82,26 +83,36 @@ class BashTool:
                 ) from exc
             raise
 
+        # 从文件模式读取 stdout，回退到 execution.text（兼容旧 mock）
+        stdout = ""
+        if execution.output_file_path:
+            file_path = Path(execution.output_file_path)
+            if file_path.exists():
+                stdout = file_path.read_text(encoding="utf-8")
+                file_path.unlink(missing_ok=True)
+        elif execution.text:
+            stdout = execution.text
+
         if execution.aborted:
             raise ToolError(
                 _render_error_message(
-                    content=execution.text,
+                    content=stdout,
                     suffix="Command aborted",
                 ),
                 tool_name=self.name,
-                details=_build_error_details(execution),
+                details=_build_error_details(execution, stdout),
             )
 
         if execution.timed_out:
             timeout_seconds = _resolve_timeout_seconds(execution.timeout, timeout_value)
             raise ToolError(
                 _render_error_message(
-                    content=execution.text,
+                    content=stdout,
                     suffix=f"Command timed out after {_format_timeout_seconds(timeout_seconds)} seconds",
                 ),
                 tool_name=self.name,
                 details={
-                    **_build_error_details(execution),
+                    **_build_error_details(execution, stdout),
                     "timedOut": True,
                     "timed_out": True,
                     "timeout": timeout_seconds,
@@ -109,7 +120,7 @@ class BashTool:
             )
 
         if execution.exit_code != 0:
-            details = _build_error_details(execution)
+            details = _build_error_details(execution, stdout)
             if execution.exit_code < 0:
                 signal_number = -execution.exit_code
                 try:
@@ -121,7 +132,7 @@ class BashTool:
                 details["signal_number"] = signal_number
             raise ToolError(
                 _render_error_message(
-                    content=execution.text,
+                    content=stdout,
                     suffix=f"Command exited with code {execution.exit_code}",
                 ),
                 tool_name=self.name,
@@ -129,13 +140,11 @@ class BashTool:
             )
 
         result: dict[str, Any] = {
-            "stdout": execution.text,
+            "stdout": stdout,
             "stderr": "",
             "exitCode": execution.exit_code,
             "truncated": execution.truncated,
         }
-        if execution.full_output_path is not None:
-            result["fullOutputPath"] = execution.full_output_path
         return result
 
     def serialize_result(self, output: Any, error: str | None = None) -> str:
@@ -145,33 +154,21 @@ class BashTool:
             return json_serialize(output)
 
         stdout = output.get("stdout", "") or ""
-        truncated = output.get("truncated", False)
-        full_output_path = output.get("fullOutputPath")
 
         if stdout:
             stdout = stdout.lstrip("\n")
             stdout = stdout.rstrip()
 
-        if truncated and full_output_path:
-            preview = stdout[:500] if stdout else ""
-            stdout = (
-                f"{preview}\n"
-                f"(Output truncated. Full output written to: {full_output_path})"
-            )
-
         return stdout or "(no output)"
 
 
-def _build_error_details(execution: Any) -> dict[str, Any]:
+def _build_error_details(execution: Any, stdout: str) -> dict[str, Any]:
     details: dict[str, Any] = {
         "exitCode": execution.exit_code,
         "exit_code": execution.exit_code,
-        "content": execution.text,
+        "content": stdout,
         "truncated": execution.truncated,
     }
-    if execution.full_output_path is not None:
-        details["fullOutputPath"] = execution.full_output_path
-        details["full_output_path"] = execution.full_output_path
     return details
 
 

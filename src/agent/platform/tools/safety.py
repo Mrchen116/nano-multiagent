@@ -133,6 +133,8 @@ class CommandExecution:
     text: str
     truncated: bool
     full_output_path: str | None = None
+    output_file_path: str | None = None  # 新增：原始输出文件路径（文件模式）
+    file_size: int = 0  # 新增：输出文件大小
     timed_out: bool = False
     aborted: bool = False
     timeout: float | None = None
@@ -312,19 +314,26 @@ class ToolSafety:
             allow_unlisted=allow_unlisted,
         )
 
+        # 创建临时输出文件（文件模式）
+        output_dir = self.repo_root / ".agent" / "tmp"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        tmp_fd, tmp_path = tempfile.mkstemp(prefix="bash-stdout-", suffix=".log", dir=output_dir)
+        os.close(tmp_fd)
+
+        MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB 硬上限
+
         process = subprocess.Popen(  # noqa: S603
             ["bash", "-c", command],
             cwd=str(cwd),
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=False,
         )
-        if process.stdout is None or process.stderr is None:
+        if process.stdout is None:
             raise ToolError("command stream unavailable", tool_name=tool_name)
 
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ, data="stdout")
-        selector.register(process.stderr, selectors.EVENT_READ, data="stderr")
 
         start_monotonic = time.monotonic()
         deadline = start_monotonic + timeout if timeout is not None else None
@@ -332,7 +341,8 @@ class ToolSafety:
         seq = 0
         timed_out = False
         aborted = False
-        merged_parts: list[str] = []
+        bytes_written = 0
+        was_limited = False
 
         _emit_command_event(
             on_event,
@@ -343,65 +353,77 @@ class ToolSafety:
             },
         )
 
-        try:
-            while True:
-                now = time.monotonic()
-                if deadline is not None and now >= deadline and process.poll() is None:
-                    timed_out = True
+        with open(tmp_path, "w", encoding="utf-8") as out_f:
+            try:
+                while True:
+                    now = time.monotonic()
+                    if deadline is not None and now >= deadline and process.poll() is None:
+                        timed_out = True
+                        process.kill()
+
+                    wait_timeout = heartbeat_interval
+                    if deadline is not None:
+                        wait_timeout = min(wait_timeout, max(0.0, deadline - now))
+
+                    for key, _ in selector.select(timeout=wait_timeout):
+                        chunk_bytes = os.read(key.fileobj.fileno(), 4096)
+                        if not chunk_bytes:
+                            selector.unregister(key.fileobj)
+                            continue
+                        chunk = _decode_stream_bytes(chunk_bytes)
+
+                        # 实时写入文件，1MB 硬上限
+                        if bytes_written < MAX_FILE_BYTES:
+                            out_f.write(chunk)
+                            out_f.flush()
+                            bytes_written += len(chunk.encode("utf-8"))
+                        else:
+                            was_limited = True
+
+                        seq += 1
+                        _emit_command_event(
+                            on_event,
+                            {
+                                "phase": "chunk",
+                                "chunk": chunk,
+                                "seq": seq,
+                            },
+                        )
+
+                    current = time.monotonic()
+                    if process.poll() is not None and not selector.get_map():
+                        break
+                    if process.poll() is None and current - last_heartbeat >= heartbeat_interval:
+                        last_heartbeat = current
+                        _emit_command_event(
+                            on_event,
+                            {
+                                "phase": "running",
+                                "status": "running",
+                                "elapsed_ms": int((current - start_monotonic) * 1000),
+                            },
+                        )
+            except KeyboardInterrupt:
+                aborted = True
+                if process.poll() is None:
                     process.kill()
+            finally:
+                selector.close()
 
-                wait_timeout = heartbeat_interval
-                if deadline is not None:
-                    wait_timeout = min(wait_timeout, max(0.0, deadline - now))
+            # 排空剩余 stdout
+            remaining_stdout = process.stdout.read()
+            if remaining_stdout:
+                chunk = _decode_stream_bytes(remaining_stdout)
+                if bytes_written < MAX_FILE_BYTES:
+                    out_f.write(chunk)
+                    out_f.flush()
+                    bytes_written += len(chunk.encode("utf-8"))
+                else:
+                    was_limited = True
 
-                for key, _ in selector.select(timeout=wait_timeout):
-                    stream_name = str(key.data)
-                    chunk_bytes = os.read(key.fileobj.fileno(), 4096)
-                    if not chunk_bytes:
-                        selector.unregister(key.fileobj)
-                        continue
-                    chunk = _decode_stream_bytes(chunk_bytes)
-                    merged_parts.append(chunk)
-                    seq += 1
-                    _emit_command_event(
-                        on_event,
-                        {
-                            "phase": "chunk",
-                            "stream": stream_name,
-                            "chunk": chunk,
-                            "seq": seq,
-                        },
-                    )
+            process.wait()
 
-                current = time.monotonic()
-                if process.poll() is not None and not selector.get_map():
-                    break
-                if process.poll() is None and current - last_heartbeat >= heartbeat_interval:
-                    last_heartbeat = current
-                    _emit_command_event(
-                        on_event,
-                        {
-                            "phase": "running",
-                            "status": "running",
-                            "elapsed_ms": int((current - start_monotonic) * 1000),
-                        },
-                    )
-        except KeyboardInterrupt:
-            aborted = True
-            if process.poll() is None:
-                process.kill()
-        finally:
-            selector.close()
-
-        tail_stdout_bytes, tail_stderr_bytes = process.communicate()
-        if tail_stdout_bytes:
-            tail_stdout = _decode_stream_bytes(tail_stdout_bytes)
-            merged_parts.append(tail_stdout)
-        if tail_stderr_bytes:
-            tail_stderr = _decode_stream_bytes(tail_stderr_bytes)
-            merged_parts.append(tail_stderr)
-
-        exit_code = int(process.returncode if process.returncode is not None else process.wait())
+        exit_code = int(process.returncode if process.returncode is not None else 0)
         duration_ms = int((time.monotonic() - start_monotonic) * 1000)
         if aborted:
             status_text = "aborted"
@@ -421,20 +443,13 @@ class ToolSafety:
             },
         )
 
-        full_output = "".join(merged_parts)
-        tail_output, truncated, byte_limited, start_line, end_line, total_lines, showing_last = _truncate_tail_output(
-            full_output,
-            max_lines=self.config.bash_max_output_lines,
-            max_bytes=self.config.bash_max_output_bytes,
-        )
-        full_output_path = None
-        if truncated:
-            full_output_path = self._persist_full_output(content=full_output)
+        file_size = os.path.getsize(tmp_path)
         return CommandExecution(
             exit_code=exit_code,
-            text=tail_output,
-            truncated=truncated,
-            full_output_path=full_output_path,
+            text="",
+            truncated=was_limited,
+            output_file_path=tmp_path,
+            file_size=file_size,
             timed_out=timed_out,
             aborted=aborted,
             timeout=timeout,

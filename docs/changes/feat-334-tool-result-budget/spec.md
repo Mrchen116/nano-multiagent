@@ -51,7 +51,8 @@ Claude Code 通过 `maxResultSizeChars` + `persisted-output` preview 机制解�
    - 替换为 `<persisted-output>` 包裹的 preview 消息发给 LLM
 3. Preview 取前 2000 字符，优先在换行处截断，保留尾部 `...` 提示。
 4. Read 工具设为无限，确保文件内容永远完整进入上下文（避免 Read → 截断 → 再 Read 的循环浪费）。
-5. 压缩发生在 `AgentLoop._serialize_tool_result()` 阶段，对 `Message.content` 和 `LLMMessage.content` 同时生效。
+5. **Bash 工具特殊处理**：为避免内存爆炸，Bash 执行器（safety 层）改为文件模式——stdout 实时写入临时文件，内存只留 4KB buffer。BashTool 从文件读取完整内容（最多 1MB 硬上限保护）后返回字符串，再由 compressor 按 `30_000` 阈值统一压缩。
+6. 压缩发生在 `AgentLoop._serialize_tool_result()` 阶段，对 `Message.content` 和 `LLMMessage.content` 同时生效。
 
 ### 不做什么
 
@@ -60,10 +61,13 @@ Claude Code 通过 `maxResultSizeChars` + `persisted-output` preview 机制解�
 3. **不做图片内容压缩**：含图片 block 的结果直接跳过（当前仅 Read 工具返回图片，它已豁免）。
 4. **不做运行时动态阈值调整**：常量配置，重启生效。
 5. **不做子 agent / sidechain 的特殊路径**：统一走 session-scoped 落盘。
+6. **Safety 层不做精细化输出截断**：文件模式下的 1MB 硬上限是内存/磁盘保护，不是功能逻辑。超出 1MB 的命令输出尾部被丢弃。
 
 ---
 
 ## 当前架构
+
+### 通用工具（字符串模式）
 
 ```
 AgentLoop.run()
@@ -72,6 +76,7 @@ AgentLoop.run()
   │
   ├── _serialize_tool_result(result)
   │      → 调用 tool.serialize_result() → str | list[dict]
+  │      → compressor.maybe_compress(raw_content, limit=50K/30K/None)
   │      → 写入 result.content
   │
   ├── 构造 LLMMessage(role="tool", content=result.content)
@@ -79,7 +84,25 @@ AgentLoop.run()
   └── yield Message(role="tool", content=result.content, metadata={"tool_output": result.output})
 ```
 
-当前 `Message.content` 和 `LLMMessage.content` 都使用同一序列化结果，无中间压缩层。
+### Bash 工具（文件模式）
+
+```
+AgentLoop.run()
+  │
+  ├── BashTool.run()
+  │      → safety.run_command_stream() → stdout 实时写入临时文件
+  │      → BashTool 读取文件内容（≤1MB）到字符串
+  │      → 清理临时文件
+  │
+  ├── _serialize_tool_result(result)
+  │      → BashTool.serialize_result() → str
+  │      → compressor.maybe_compress(raw_content, limit=30K)
+  │      → 写入 result.content
+  │
+  └── ...
+```
+
+`Message.content` 和 `LLMMessage.content` 使用同一序列化结果，compressor 在 `_serialize_tool_result` 阶段透明插入。
 
 ---
 
@@ -106,12 +129,22 @@ AgentLoop.run()
 # 则 LLM 收到完整 10 万字符，不触发压缩
 ```
 
-### A3 — 默认值生效
+### A3 — Bash 30K 阈值生效
 
 ```python
-# Bash 工具未声明 max_result_size_chars
+# Bash 工具 max_result_size_chars = 30_000
+# Safety 层文件模式，输出写入临时文件
 # 当返回 6 万字符的输出
-# 则触发压缩（默认 50K limit）
+# 则 BashTool 读取文件内容（60K），serialize_result 返回 60K 字符串
+# 然后 compressor 触发压缩（30K limit），LLM 收到 <persisted-output> preview
+```
+
+### A3b — Bash 内存安全
+
+```python
+# 运行 python -c "print('x' * 10_000_000)"（10MB 输出）
+# Safety 层文件模式下，进程 RSS 不显著增长（只增加 4KB buffer）
+# 落盘文件大小 ≤ 1MB（硬上限）
 ```
 
 ### A4 — 含图片结果不压缩
@@ -156,7 +189,8 @@ AgentLoop.run()
 | `agent.core.agent.loop.AgentLoop` | 修改 | `_serialize_tool_result()` 集成压缩 |
 | `agent.core.tools.result_budget` | 新增 | `ToolResultCompressor` |
 | `agent.platform.tools.builtins.read` | 修改 | 显式声明 `max_result_size_chars = None` |
-| `agent.platform.tools.builtins.bash` | 修改 | 显式声明或接受默认值 |
+| `agent.platform.tools.safety` | 修改 | `run_command_stream` 改为文件模式，1MB 硬上限 |
+| `agent.platform.tools.builtins.bash` | 修改 | `max_result_size_chars = 30_000`，`run()` 读取文件，`serialize_result` 简化 |
 | `agent.platform.tools.builtins.web_fetch` | 修改 | 显式声明或接受默认值 |
 | `agent.platform.tools.builtins.write` | 修改 | 显式声明或接受默认值 |
 | `agent.platform.tools.builtins.edit` | 修改 | 显式声明或接受默认值 |

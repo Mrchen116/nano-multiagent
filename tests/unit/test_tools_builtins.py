@@ -46,8 +46,7 @@ def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
     )
     assert BashTool.description == (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "
-        f"Output is truncated to last {DEFAULT_MAX_LINES} lines or {DEFAULT_MAX_KILOBYTES}KB "
-        "(whichever is hit first). If truncated, full output is saved to a temp file. Optionally "
+        "Output larger than 30K chars is compressed by the result budget system. Optionally "
         "provide a timeout in seconds."
     )
     assert EditTool.description == (
@@ -315,38 +314,31 @@ def test_bash_rejects_disallowed_command(tmp_path: Path) -> None:
         BashTool().run({"command": "rm -rf /tmp/forbidden"}, ctx)
 
 
-def test_bash_truncates_large_output(tmp_path: Path) -> None:
-    ctx = _context(
-        tmp_path,
-        config=ToolSafetyConfig(bash_max_output_lines=3, bash_max_output_bytes=200),
-    )
+def test_bash_file_mode_no_truncation_for_small_output(tmp_path: Path) -> None:
+    # 文件模式下，小输出（<1MB）不被 safety 层截断
+    ctx = _context(tmp_path)
 
     result = BashTool().run(
         {"command": "python -c \"[print(f'line-{i}') for i in range(10)]\""},
         ctx,
     )
 
-    assert result["truncated"] is True
+    assert result["truncated"] is False
+    assert "line-0" in result["stdout"]
+    assert "line-9" in result["stdout"]
 
 
-def test_bash_truncation_returns_full_output_path(tmp_path: Path) -> None:
-    ctx = _context(
-        tmp_path,
-        config=ToolSafetyConfig(bash_max_output_lines=2, bash_max_output_bytes=200),
-    )
+def test_bash_file_mode_1mb_hard_limit(tmp_path: Path) -> None:
+    # 文件模式下，超过 1MB 的输出被硬上限截断
+    ctx = _context(tmp_path)
 
     result = BashTool().run(
-        {"command": "python -c \"[print(f'line-{i}') for i in range(6)]\""},
+        {"command": "python -c \"print('x' * (2 * 1024 * 1024))\""},
         ctx,
     )
 
     assert result["truncated"] is True
-    assert "stdout" in result
-    assert isinstance(result["fullOutputPath"], str)
-    full_output_path = result["fullOutputPath"]
-    content = Path(full_output_path).read_text(encoding="utf-8")
-    assert "line-0" in content
-    assert "line-5" in content
+    assert len(result["stdout"]) <= 2 * 1024 * 1024
 
 
 def test_bash_without_timeout_does_not_inject_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -608,17 +600,16 @@ def test_bash_serialize_result_empty() -> None:
     assert result == "(no output)"
 
 
-def test_bash_serialize_result_truncated() -> None:
+def test_bash_serialize_result_no_longer_adds_truncation_hint() -> None:
+    # serialize_result 已简化，截断/落盘由 loop 层 compressor 统一处理
     tool = BashTool()
     output = {
         "stdout": "line-4\nline-5\nline-6",
         "exitCode": 0,
         "truncated": True,
-        "fullOutputPath": "/tmp/bash-output-xxx.log",
     }
     result = tool.serialize_result(output)
-    assert "(Output truncated." in result
-    assert "/tmp/bash-output-xxx.log" in result
+    assert result == "line-4\nline-5\nline-6"
 
 
 def test_bash_serialize_result_strips_leading_newlines() -> None:

@@ -16,6 +16,11 @@ AgentLoop
   ├── _tool_registry.get_tool(name) → Tool 实例
   │        • max_result_size_chars: int | None
   │
+  ├── 工具执行（Bash 特殊路径）
+  │        → safety.run_command_stream() → stdout 实时写入临时文件
+  │        → BashTool.run() 读取文件内容（≤1MB）到字符串，清理临时文件
+  │        → 返回 ToolResult(output={"stdout": str, ...}, content=None)
+  │
   ├── _serialize_tool_result(result)
   │        → tool.serialize_result() → raw_content: str | list[dict]
   │        → _compressor.maybe_compress(raw_content, ...)
@@ -30,7 +35,7 @@ AgentLoop
               ↑ UI 可从 metadata["tool_output"] 读取原始结构化数据
 ```
 
-**新增/修改组件**（5 个文件）：
+**新增/修改组件**（6 个文件）：
 
 | 文件 | 动作 | 职责 |
 |------|------|------|
@@ -39,12 +44,14 @@ AgentLoop
 | `agent/core/tools/base.py` | 修改 | `Tool` Protocol 增加同名属性 |
 | `agent/core/tools/registry.py` | 修改 | `list_specs()` 传递新字段 |
 | `agent/core/agent/loop.py` | 修改 | `_serialize_tool_result()` 调用压缩器 |
+| `agent/platform/tools/safety.py` | 修改 | `run_command_stream` 改为文件模式，1MB 硬上限 |
 
-**仅声明变更**（builtin tools）：
+**Builtin tools 变更**：
 
 | 文件 | 动作 | 变更 |
 |------|------|------|
 | `agent/platform/tools/builtins/read.py` | 修改 | `max_result_size_chars = None` |
+| `agent/platform/tools/builtins/bash.py` | 修改 | `max_result_size_chars = 30_000`，文件读取，serialize_result 简化 |
 | `agent/platform/tools/builtins/*.py` | 可选修改 | 显式声明或接受默认值 50K |
 
 ---
@@ -106,13 +113,13 @@ class ReadTool:
     ...
 ```
 
-Bash 工具（接受默认值）：
+Bash 工具（显式声明 30K）：
 
 ```python
 class BashTool:
     name = "bash"
     is_concurrency_safe = False
-    # max_result_size_chars 省略 → 使用默认 50K
+    max_result_size_chars = 30_000   # 低于默认 50K，更早触发压缩
     ...
 ```
 
@@ -337,31 +344,141 @@ result = ToolResult(
 
 这段逻辑**无需修改**，`_serialize_tool_result` 内部完成压缩后返回的就是压缩后的 content。
 
+### 6. Safety 层文件模式（Bash 专用）
+
+**文件**：`src/agent/platform/tools/safety.py`
+
+`run_command_stream` 改为 stdout 实时写入临时文件，不收集到内存列表：
+
+```python
+def run_command_stream(self, *, command, cwd, timeout, ...):
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        prefix="bash-stdout-", suffix=".log",
+        dir=self.repo_root / ".agent" / "tmp"
+    )
+    os.close(tmp_fd)
+
+    MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB 硬上限
+
+    with open(tmp_path, "w", encoding="utf-8") as out_f:
+        process = subprocess.Popen(
+            ["bash", "-c", command],
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=False,
+        )
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ, data="stdout")
+
+        bytes_written = 0
+        while True:
+            # timeout / abort / heartbeat 检查保持不变...
+            for key, _ in selector.select(timeout=wait_timeout):
+                chunk_bytes = os.read(key.fileobj.fileno(), 4096)
+                if not chunk_bytes:
+                    selector.unregister(key.fileobj)
+                    continue
+                chunk = _decode_stream_bytes(chunk_bytes)
+
+                # 硬上限：超过 1MB 后不再写入，继续排空 stdout
+                if bytes_written < MAX_FILE_BYTES:
+                    out_f.write(chunk)
+                    out_f.flush()
+                    bytes_written += len(chunk.encode("utf-8"))
+
+                # on_event 仍发送 chunk（内容来自刚读取的 chunk）
+                ...
+
+    file_size = min(os.path.getsize(tmp_path), MAX_FILE_BYTES)
+    return CommandExecution(
+        exit_code=exit_code,
+        text="",                    # 文件模式下为空
+        truncated=file_size >= MAX_FILE_BYTES,
+        output_file_path=tmp_path,  # 新增
+        file_size=file_size,        # 新增
+        timed_out=timed_out,
+        aborted=aborted,
+        timeout=timeout,
+    )
+```
+
+**设计决策**：
+- **为什么是 1MB**：绝大多数正常命令（`ls`, `git log`, `pytest`）输出在几十 KB 以内；1MB 能 cover 99% 的场景，同时保证内存/磁盘安全。
+- **为什么继续排空 stdout**：超过 1MB 后如果直接 close stdout，子进程可能因 PIPE 满而阻塞。继续读取但不写入，让子进程自然结束。
+- **为什么 `_truncate_tail_output` 保留但 `run_command_stream` 不再调用**：保留给其他可能使用它的代码；`run_command_stream` 自己的截断逻辑由文件大小控制取代。
+
+### 7. BashTool 文件读取 + 30K 阈值
+
+**文件**：`src/agent/platform/tools/builtins/bash.py`
+
+```python
+class BashTool:
+    max_result_size_chars = 30_000
+
+    def run(self, args, ctx):
+        execution = ctx.safety.run_command_stream(...)
+        stdout = ""
+        if execution.output_file_path:
+            path = Path(execution.output_file_path)
+            if path.exists():
+                stdout = path.read_text(encoding="utf-8")
+                path.unlink(missing_ok=True)  # 清理临时文件
+
+        return {
+            "stdout": stdout,
+            "stderr": "",
+            "exitCode": execution.exit_code,
+        }
+
+    def serialize_result(self, output, error=None):
+        if error is not None:
+            return error
+        if not isinstance(output, Mapping):
+            return json_serialize(output)
+        stdout = output.get("stdout", "") or ""
+        if stdout:
+            stdout = stdout.lstrip("\n").rstrip()
+        return stdout or "(no output)"
+```
+
+**设计决策**：
+- `serialize_result` 彻底简化：只做文本清洗，不再处理截断/落盘。所有压缩逻辑统一由 loop 层 compressor 处理。
+- 临时文件在 `run()` 中读取后立即删除，避免残留。
+- `max_result_size_chars = 30_000` 与 CC 的 bash `getMaxOutputLength()`（默认 30K）对齐。
+
 ---
 
 ## 数据流
 
-### 正常 turn（工具结果未超限）
+### 正常 turn（Bash 小输出，未超限）
 
 ```
 用户输入 → AgentLoop.run()
   → LLM 返回 tool_calls
-  → _execute_tool_call() → tool.run() → ToolResult(output=...)
+  → _execute_tool_call() → BashTool.run()
+       → safety.run_command_stream() → stdout 写入临时文件（10K）
+       → BashTool 读取文件 → stdout="x"*10K
+       → ToolResult(output={"stdout": "x"*10K}, content=None)
   → _serialize_tool_result()
-       → tool.serialize_result() → raw_content (40K chars)
-       → compressor.maybe_compress(limit=50K) → 未触发，原样返回
+       → BashTool.serialize_result() → raw_content (10K)
+       → compressor.maybe_compress(limit=30K) → 未触发，原样返回
   → LLMMessage(content=raw_content)
   → yield Message(content=raw_content, metadata={"tool_output": output})
 ```
 
-### 正常 turn（工具结果超限）
+### 正常 turn（Bash 大输出，触发压缩）
 
 ```
-... → _serialize_tool_result()
-       → tool.serialize_result() → raw_content (120K chars)
-       → compressor.maybe_compress(limit=50K)
-            → len=120K > 50K
-            → write .nano/tool-results/{session_id}/{call_id}.txt (120K)
+... → BashTool.run()
+       → safety.run_command_stream() → stdout 写入临时文件（60K）
+       → BashTool 读取文件 → stdout="x"*60K
+       → ToolResult(output={"stdout": "x"*60K}, content=None)
+  → _serialize_tool_result()
+       → BashTool.serialize_result() → raw_content (60K)
+       → compressor.maybe_compress(limit=30K)
+            → len=60K > 30K
+            → write .nano/tool-results/{session_id}/{call_id}.txt (60K)
             → preview = 前 2000 字符
             → return "<persisted-output>...Preview..."
   → LLMMessage(content="<persisted-output>...")
@@ -375,6 +492,24 @@ result = ToolResult(
        → ReadTool.serialize_result() → raw_content (200K chars)
        → compressor.maybe_compress(limit=None) → 直接返回，不检查大小
   → LLMMessage(content=完整 200K)
+```
+
+### Bash 极端输出（>1MB，safety 硬上限截断）
+
+```
+... → BashTool.run()
+       → safety.run_command_stream() → stdout 写入文件，超过 1MB 后停止写入
+       → 文件大小 = 1MB
+       → BashTool 读取 1MB 到字符串
+       → ToolResult(output={"stdout": "x"*1MB}, content=None)
+  → _serialize_tool_result()
+       → BashTool.serialize_result() → raw_content (1MB)
+       → compressor.maybe_compress(limit=30K)
+            → len=1MB > 30K
+            → write .nano/tool-results/{session_id}/{call_id}.txt (1MB)
+            → preview = 前 2000 字符
+            → return "<persisted-output>..."
+  → LLMMessage(content="<persisted-output>...")
 ```
 
 ---
@@ -392,7 +527,7 @@ result = ToolResult(
 4. `src/agent/core/tools/registry.py` — `list_specs()` 传递新字段
 5. 单元测试：`maybe_compress` 的各种分支（未超限、超限、None limit、list content、空字符串）
 
-### M2 — AgentLoop 集成 + 工具声明
+### M2 — AgentLoop 集成 + 工具声明（已完成）
 
 6. `src/agent/core/agent/loop.py`
    - `__init__` 接收 `tool_result_compressor`
@@ -403,9 +538,31 @@ result = ToolResult(
 8. Builtin tools 声明 `max_result_size_chars`
    - `read.py` → `None`
    - `bash.py` → 默认（省略）或显式 `50_000`
-   - `web_fetch.py` → 可显式 `30_000`（网页通常不需要全文）
+   - `web_fetch.py` → 可显式 `30_000`
    - 其余工具 → 默认或按需
 9. 集成测试：模拟 oversized bash 输出，验证 LLMMessage 收到 preview、文件落盘、metadata 保留原始 output
+
+### M3 — Bash 文件模式 + 30K 阈值 + 真实用户旅程
+
+10. `src/agent/platform/tools/safety.py`
+    - `run_command_stream` 改为文件模式
+    - 1MB 硬上限
+    - `_truncate_tail_output` 从 `run_command_stream` 中移除
+11. `src/agent/platform/tools/builtins/bash.py`
+    - `max_result_size_chars = 30_000`
+    - `run()` 读取文件内容，清理临时文件
+    - `serialize_result` 简化
+12. 单元测试
+    - Safety 文件模式：验证大输出不爆内存、文件 ≤1MB
+    - Bash 30K 触发 compressor
+    - Bash 小输出不触发
+    - 临时文件不泄漏
+13. 集成测试
+    - AgentLoop + Bash 文件模式 + compressor 端到端
+14. CLI 真实用户旅程测试
+    - 运行大输出命令（`python -c "print('x'*60000)"`）
+    - 验证 `.nano/tool-results/` 落盘、`<persisted-output>` 格式
+    - 运行正常命令（`ls`, `read README.md`）验证无回归
 
 ---
 
@@ -414,7 +571,7 @@ result = ToolResult(
 | 方案 | 拒绝原因 |
 |------|---------|
 | 在 `build_prompt_messages()` 阶段压缩 | 太晚了，`Message.content` 已经确定；需要同时修改 `Message` 和 `LLMMessage`，引入不一致风险 |
-| 在 `Tool.serialize_result()` 内部各自实现压缩 | 重复代码；每个 tool 都要处理落盘、preview 格式；违背 DRY |
+| 在 `Tool.serialize_result()` 内部各自实现压缩 | Bash 尝试过此方案，但发现与 compressor 逻辑重复。最终改为 Bash 只做文件读取，压缩统一走 compressor |
 | 使用 SQLite 存储 oversized 结果 | SQLite 不适合存大段文本；JSONL 已经用文件存储，工具结果也应该用文件 |
 | 内存缓存压缩结果避免重复写入 | 同一 `tool_call_id` 不会在同一会话中出现两次；resume 时重新压缩即可 |
 | 基于 token 数而非字符数限制 | token 计数需要 tiktoken 等依赖，增加复杂度；字符数是足够好的启发式 |
