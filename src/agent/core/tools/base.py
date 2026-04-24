@@ -54,6 +54,7 @@ class Tool(Protocol):
     description: str
     input_schema: Mapping[str, Any]
     is_concurrency_safe: bool
+    max_result_size_chars: int | None = None
 
     def run(self, args: Mapping[str, Any], ctx: "ToolContext") -> Mapping[str, Any]:
         """Run tool with validated args and context."""

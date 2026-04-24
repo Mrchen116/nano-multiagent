@@ -66,6 +66,7 @@ class ToolRegistry:
                 description=tool.description,
                 input_schema=dict(tool.input_schema),
                 is_concurrency_safe=getattr(tool, "is_concurrency_safe", False),
+                max_result_size_chars=getattr(tool, "max_result_size_chars", None),
             )
             for tool in self._tools.values()
         )

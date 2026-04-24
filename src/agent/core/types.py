@@ -38,6 +38,7 @@ class ToolSpec:
     description: str
     input_schema: Mapping[str, Any]
     is_concurrency_safe: bool = False
+    max_result_size_chars: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
