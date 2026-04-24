@@ -19,6 +19,7 @@ from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
 from agent.core.skills import SkillMetadata, resolve_available_skills
 from agent.core.skills.discovery import SkillRootResolver
+from agent.core.tools.result_budget import ToolResultCompressor
 from agent.core.tools.session_file_state import SessionFileState
 
 from .compaction.applier import CompactionApplier
@@ -95,6 +96,8 @@ class AgentRuntime:
         self._session_configs: dict[str, SessionConfig] = {}
         self._session_paths: dict[str, Path] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
+        tool_results_dir = self._repo_root / ".nano" / "tool-results"
+        self._tool_result_compressor = ToolResultCompressor(tool_results_dir)
         self._loop = AgentLoop(
             llm_client=active_llm_client,
             model=self._llm_config.model,
@@ -104,6 +107,7 @@ class AgentRuntime:
             tool_registry=tool_registry,
             current_working_directory=self._repo_root,
             system_prompt=system_prompt,
+            tool_result_compressor=self._tool_result_compressor,
         )
         self._context_fork = AgentContextFork(
             llm_client=active_llm_client,

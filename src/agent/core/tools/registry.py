@@ -12,6 +12,7 @@ from agent.core.observability.tracing import bind_correlation
 from agent.core.types import ToolSpec
 
 from .base import Tool, ToolContext, _build_default_tool_safety_config, _require_tool_safety_factory
+from .result_budget import DEFAULT_MAX_RESULT_SIZE_CHARS
 from .session_file_state import SessionFileState
 
 
@@ -66,7 +67,7 @@ class ToolRegistry:
                 description=tool.description,
                 input_schema=dict(tool.input_schema),
                 is_concurrency_safe=getattr(tool, "is_concurrency_safe", False),
-                max_result_size_chars=getattr(tool, "max_result_size_chars", None),
+                max_result_size_chars=getattr(tool, "max_result_size_chars", DEFAULT_MAX_RESULT_SIZE_CHARS),
             )
             for tool in self._tools.values()
         )

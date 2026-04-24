@@ -15,6 +15,7 @@ from agent.core.observability.tracing import span
 from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.base import Tool
 from agent.core.tools.session_file_state import SessionFileState
+from agent.core.tools.result_budget import DEFAULT_MAX_RESULT_SIZE_CHARS, ToolResultCompressor
 from agent.core.tools.serialization import json_serialize
 
 from .policies import AgentPolicies
@@ -57,6 +58,7 @@ class AgentLoop:
         available_tools: tuple[ToolSpec, ...] | None = None,
         tool_registry: ToolRegistryLike | None = None,
         current_working_directory: Path | None = None,
+        tool_result_compressor: "ToolResultCompressor | None" = None,
     ) -> None:
         self._llm_client = llm_client
         self._model = model
@@ -67,6 +69,8 @@ class AgentLoop:
         self._available_tools = available_tools
         self._tool_registry = tool_registry
         self._current_working_directory = current_working_directory
+        self._tool_result_compressor = tool_result_compressor
+        self._active_session_id: str | None = None
 
     @property
     def available_skills(self) -> tuple[SkillMetadata, ...]:
@@ -117,6 +121,7 @@ class AgentLoop:
             Message objects: assistant, tool, and turn_meta.
         """
 
+        self._active_session_id = state.session_id
         active_hook_ctx = hook_ctx or HookContext(session_id=state.session_id, turn_id=state.turn_id)
         run_id = _resolve_hook_run_id(active_hook_ctx)
         await self._dispatch_observe(
@@ -428,6 +433,7 @@ class AgentLoop:
                         )
                         return
         finally:
+            self._active_session_id = None
             turn_end_payload: dict[str, Any] = {
                 "session_id": state.session_id,
                 "turn_id": state.turn_id,
@@ -491,15 +497,33 @@ class AgentLoop:
         return ()
 
     def _serialize_tool_result(self, result: ToolResult) -> str | list[dict[str, Any]]:
-        """Route tool result serialization to the tool-specific adapter."""
+        """Route tool result serialization to the tool-specific adapter, then apply budget."""
 
         tool = self._tool_registry.get_tool(result.name) if self._tool_registry is not None else None
         if tool is not None and hasattr(tool, "serialize_result"):
             try:
-                return tool.serialize_result(result.output, result.error)
+                raw_content = tool.serialize_result(result.output, result.error)
             except Exception:  # pragma: no cover - defensive fallback.
-                pass
-        return _fallback_serialize_tool_result(result)
+                raw_content = _fallback_serialize_tool_result(result)
+        else:
+            raw_content = _fallback_serialize_tool_result(result)
+
+        compressor = self._tool_result_compressor
+        if (
+            compressor is not None
+            and result.call_id
+            and self._active_session_id is not None
+        ):
+            max_size = getattr(tool, "max_result_size_chars", DEFAULT_MAX_RESULT_SIZE_CHARS)
+            raw_content = compressor.maybe_compress(
+                raw_content,
+                tool_name=result.name,
+                tool_call_id=result.call_id,
+                session_id=self._active_session_id,
+                max_size_chars=max_size,
+            )
+
+        return raw_content
 
     async def _dispatch_observe(
         self,

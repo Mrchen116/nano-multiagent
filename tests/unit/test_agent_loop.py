@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from agent.core.agent.loop import AgentLoop
 from agent.core.agent.policies import AgentPolicies
 from agent.core.agent.runtime import build_turn_result
@@ -452,3 +454,207 @@ async def test_loop_parallel_tool_calls_share_parent_and_group_id() -> None:
 
     # Second assistant's parent is the last tool result (linear chain resumes)
     assert assistant_done.parent_message_id == tool_msg_2.message_id
+
+
+import tempfile
+from agent.core.tools.result_budget import ToolResultCompressor, PERSISTED_OUTPUT_TAG
+
+
+class _OversizedTool:
+    name = "oversized"
+    is_concurrency_safe = True
+    max_result_size_chars = 100
+    description = "returns large text"
+    input_schema = {"type": "object", "properties": {"size": {"type": "integer"}}, "required": ["size"]}
+
+    def run(self, args, ctx):  # noqa: ANN001
+        return {"text": "x" * args["size"]}
+
+    def serialize_result(self, output, error=None):  # noqa: ANN001
+        if error:
+            return error
+        return output["text"]
+
+
+class _UnlimitedTool:
+    name = "unlimited"
+    is_concurrency_safe = True
+    max_result_size_chars = None
+    description = "returns large text without limit"
+    input_schema = {"type": "object", "properties": {"size": {"type": "integer"}}, "required": ["size"]}
+
+    def run(self, args, ctx):  # noqa: ANN001
+        return {"text": "x" * args["size"]}
+
+    def serialize_result(self, output, error=None):  # noqa: ANN001
+        if error:
+            return error
+        return output["text"]
+
+
+class _BudgetToolRegistry:
+    def __init__(self) -> None:
+        self.oversized = _OversizedTool()
+        self.unlimited = _UnlimitedTool()
+
+    def list_specs(self) -> tuple[ToolSpec, ...]:
+        return (
+            ToolSpec(
+                name=self.oversized.name,
+                description=self.oversized.description,
+                input_schema=self.oversized.input_schema,
+                is_concurrency_safe=True,
+                max_result_size_chars=100,
+            ),
+            ToolSpec(
+                name=self.unlimited.name,
+                description=self.unlimited.description,
+                input_schema=self.unlimited.input_schema,
+                is_concurrency_safe=True,
+                max_result_size_chars=None,
+            ),
+        )
+
+    def get_tool(self, name: str):  # noqa: ANN001, ANN201
+        if name == self.oversized.name:
+            return self.oversized
+        if name == self.unlimited.name:
+            return self.unlimited
+        return None
+
+    def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
+        tool = self.get_tool(name)
+        if tool is None:
+            raise RuntimeError(f"unknown tool: {name}")
+        return tool.run(args, None)
+
+
+async def test_loop_compresses_oversized_tool_result() -> None:
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id="call_1", name="oversized", arguments={"size": 500}),),
+                ),
+                finish_reason="tool_calls",
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        compressor = ToolResultCompressor(base_dir=Path(tmpdir))
+        registry = _BudgetToolRegistry()
+        loop = AgentLoop(
+            llm_client=client,
+            model="model-x",
+            policies=AgentPolicies(max_turns=3),
+            tool_registry=registry,
+            tool_result_compressor=compressor,
+        )
+
+        result = await _run_loop(loop, _base_state())
+
+        assert len(result.tool_results) == 1
+        tr = result.tool_results[0]
+        # metadata retains original structured output
+        assert tr.output == {"text": "x" * 500}
+        # content is compressed preview
+        assert isinstance(tr.content, str)
+        assert PERSISTED_OUTPUT_TAG in tr.content
+        assert "Output too large" in tr.content
+
+        # LLM received the compressed content
+        llm_tool_msg = client.requests[1].messages[-1]
+        assert llm_tool_msg.role == "tool"
+        assert PERSISTED_OUTPUT_TAG in llm_tool_msg.content
+
+        # File persisted
+        filepath = Path(tmpdir) / "sess_agent" / "call_1.txt"
+        assert filepath.exists()
+        assert filepath.read_text() == "x" * 500
+
+
+async def test_loop_skips_compression_for_unlimited_tool() -> None:
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id="call_2", name="unlimited", arguments={"size": 500}),),
+                ),
+                finish_reason="tool_calls",
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        compressor = ToolResultCompressor(base_dir=Path(tmpdir))
+        registry = _BudgetToolRegistry()
+        loop = AgentLoop(
+            llm_client=client,
+            model="model-x",
+            policies=AgentPolicies(max_turns=3),
+            tool_registry=registry,
+            tool_result_compressor=compressor,
+        )
+
+        result = await _run_loop(loop, _base_state())
+
+        tr = result.tool_results[0]
+        assert tr.content == "x" * 500
+        assert PERSISTED_OUTPUT_TAG not in tr.content
+
+        llm_tool_msg = client.requests[1].messages[-1]
+        assert llm_tool_msg.content == "x" * 500
+
+        assert not (Path(tmpdir) / "sess_agent" / "call_2.txt").exists()
+
+
+async def test_loop_under_limit_no_compression() -> None:
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id="call_3", name="oversized", arguments={"size": 50}),),
+                ),
+                finish_reason="tool_calls",
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        compressor = ToolResultCompressor(base_dir=Path(tmpdir))
+        registry = _BudgetToolRegistry()
+        loop = AgentLoop(
+            llm_client=client,
+            model="model-x",
+            policies=AgentPolicies(max_turns=3),
+            tool_registry=registry,
+            tool_result_compressor=compressor,
+        )
+
+        result = await _run_loop(loop, _base_state())
+
+        tr = result.tool_results[0]
+        assert tr.content == "x" * 50
+        assert PERSISTED_OUTPUT_TAG not in tr.content

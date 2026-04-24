@@ -27,6 +27,7 @@ class ReadTool:
 
     name = "read"
     is_concurrency_safe = True
+    max_result_size_chars = None  # Infinity — read results are never compressed
     description = (
         "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). "
         f"Images are sent as attachments. For text files, output is truncated to {DEFAULT_MAX_LINES} "
