@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 
 
 @dataclass(frozen=True, slots=True)

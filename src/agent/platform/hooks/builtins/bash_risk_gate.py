@@ -12,7 +12,7 @@ from agent.platform.tools.safety import ToolSafety, load_tool_safety_config
 def setup(hooks):  # noqa: ANN001, ANN201
     """Register tool-call intercept hook for bash risk gating."""
 
-    def on_tool_call(event: Mapping[str, Any], ctx):  # noqa: ANN001
+    async def on_tool_call(event: Mapping[str, Any], ctx):  # noqa: ANN001
         if str(event.get("name", "")).strip() != "bash":
             return None
         args = event.get("args")
@@ -34,7 +34,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
             return None
 
         try:
-            review = ctx.call_model(
+            review = await ctx.call_model(
                 system_prompt=(
                     "You are a shell safety gate. "
                     "Return strict JSON only with keys: risk, reason. "

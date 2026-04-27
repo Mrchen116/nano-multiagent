@@ -15,7 +15,7 @@ from agent.platform.tools.registry import ToolRegistry
 
 
 class _RuntimeStub:
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del parts, stream
         return TurnResult(
             session_id=session_id,
@@ -97,3 +97,5 @@ def test_run_tool_hook_logs_share_correlation_fields(tmp_path: Path) -> None:
     assert hook_fields["turn_id"] == "turn_obs_integration"
     assert hook_fields["tool_call_id"] == "call_obs_integration"
     assert hook_fields["trace_id"] == "trace_obs_integration"
+
+    runs.shutdown()

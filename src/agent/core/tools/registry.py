@@ -88,7 +88,7 @@ class ToolRegistry:
         """Alias for ``get`` to satisfy the ``ToolRegistryLike`` protocol."""
         return self.get(name)
 
-    def execute(
+    async def execute(
         self,
         name: str,
         args: Mapping[str, Any],
@@ -118,7 +118,7 @@ class ToolRegistry:
             turn_id=active_hook_context.turn_id,
             tool_call_id=tool_call_id,
         ):
-            tool_call_payload, _ = self._dispatch_intercept(
+            tool_call_payload, _ = await self._dispatch_intercept(
                 "tool_call",
                 {"name": name, "args": dict(args), "block": False, "reason": None},
                 active_hook_context,
@@ -149,15 +149,12 @@ class ToolRegistry:
                 tool_call_id=tool_call_id,
             )
 
+            # Collect execution updates emitted during tool.run() and flush them
+            # after the synchronous run completes.
+            _pending_updates: list[dict[str, Any]] = []
+
             def _emit_execution_update(update_payload: Mapping[str, Any]) -> None:
-                self._dispatch_observe(
-                    "tool_execution_update",
-                    {
-                        **event_base_payload,
-                        **dict(update_payload),
-                    },
-                    active_hook_context,
-                )
+                _pending_updates.append({**event_base_payload, **dict(update_payload)})
 
             execution_base_context = _resolve_execution_context(self._context, active_hook_context)
             # Forward session metadata from hook context so product tools (e.g.
@@ -171,7 +168,7 @@ class ToolRegistry:
                 session_file_state=session_file_state,
             )
             log_info("tool_execution_start", tool_name=name)
-            self._dispatch_observe(
+            await self._dispatch_observe(
                 "tool_execution_start",
                 dict(event_base_payload),
                 active_hook_context,
@@ -180,7 +177,7 @@ class ToolRegistry:
             execution_error: ToolError | None = None
             raw_result: Mapping[str, Any] | Any | None = None
             try:
-                raw_result = tool.run(normalized_args, execution_context)
+                raw_result = await asyncio.to_thread(tool.run, normalized_args, execution_context)
             except ToolError as exc:
                 execution_error = exc
             except Exception as exc:
@@ -190,8 +187,12 @@ class ToolRegistry:
                     details={"exception_type": type(exc).__name__},
                 )
 
+            # Flush any tool-execution updates that accumulated during the run.
+            for update in _pending_updates:
+                await self._dispatch_observe("tool_execution_update", update, active_hook_context)
+
             if execution_error is None:
-                self._dispatch_observe(
+                await self._dispatch_observe(
                     "tool_execution_update",
                     {
                         **event_base_payload,
@@ -199,7 +200,7 @@ class ToolRegistry:
                     },
                     active_hook_context,
                 )
-                self._dispatch_observe(
+                await self._dispatch_observe(
                     "tool_execution_end",
                     {
                         **event_base_payload,
@@ -209,7 +210,7 @@ class ToolRegistry:
                 )
                 log_info("tool_execution_end", tool_name=name, is_error=False)
             else:
-                self._dispatch_observe(
+                await self._dispatch_observe(
                     "tool_execution_end",
                     {
                         **event_base_payload,
@@ -238,7 +239,7 @@ class ToolRegistry:
                 tool_result_payload["error"] = str(execution_error)
                 tool_result_payload["details"] = execution_error.details
 
-            rewritten_payload, _ = self._dispatch_intercept(
+            rewritten_payload, _ = await self._dispatch_intercept(
                 "tool_result",
                 tool_result_payload,
                 active_hook_context,
@@ -272,7 +273,7 @@ class ToolRegistry:
                 return dict(rewritten_output)
             return {"result": rewritten_output}
 
-    def _dispatch_intercept(
+    async def _dispatch_intercept(
         self,
         event: str,
         payload: Mapping[str, Any],
@@ -283,12 +284,10 @@ class ToolRegistry:
         if self._hook_runner is None:
             return dict(payload), False
         try:
-            dispatch_result = asyncio.run(
-                self._hook_runner.dispatch_intercept(
-                    event,
-                    payload,
-                    hook_ctx,
-                )
+            dispatch_result = await self._hook_runner.dispatch_intercept(
+                event,
+                payload,
+                hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
             hook_ctx.logger.warn("hook intercept dispatch failed", event=event, error=str(exc))
@@ -296,7 +295,7 @@ class ToolRegistry:
         self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=dispatch_result.diagnostics)
         return dispatch_result.payload, dispatch_result.stopped
 
-    def _dispatch_observe(
+    async def _dispatch_observe(
         self,
         event: str,
         payload: Mapping[str, Any],
@@ -307,12 +306,10 @@ class ToolRegistry:
         if self._hook_runner is None:
             return
         try:
-            diagnostics = asyncio.run(
-                self._hook_runner.dispatch_observe(
-                    event,
-                    payload,
-                    hook_ctx,
-                )
+            diagnostics = await self._hook_runner.dispatch_observe(
+                event,
+                payload,
+                hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
             hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))

@@ -137,7 +137,7 @@ class HookContext:
             ),
         )
 
-    def call_model(
+    async def call_model(
         self,
         *,
         system_prompt: str,
@@ -154,7 +154,7 @@ class HookContext:
         caller = self.model_caller
         if caller is None:
             raise RuntimeError("model caller is unavailable in this hook context")
-        return caller(
+        result = caller(
             HookModelCall(
                 session_id=self.session_id,
                 system_prompt=system_prompt,
@@ -163,6 +163,9 @@ class HookContext:
                 metadata=dict(metadata or {}),
             )
         )
+        if hasattr(result, "__await__"):
+            return await result
+        return result  # type: ignore[return-value]
 
     def publish_session_event(
         self,

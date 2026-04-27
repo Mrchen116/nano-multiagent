@@ -88,7 +88,7 @@ def _write_skill(root: Path, name: str) -> None:
     )
 
 
-def test_task_tool_accepts_resolver_workspace_skill(tmp_path: Path) -> None:
+async def test_task_tool_accepts_resolver_workspace_skill(tmp_path: Path) -> None:
     profile = _make_profile(tmp_path / ".resolver-global")
     resolver = ConfigResolver(profile=profile, workspace_root=tmp_path)
     _write_skill(tmp_path / ".resolver-task" / "skills", "resolver-skill")
@@ -96,7 +96,7 @@ def test_task_tool_accepts_resolver_workspace_skill(tmp_path: Path) -> None:
 
     app = create_app(runtime=_RuntimeStub(config_resolver=resolver), repo_root=tmp_path, product_profile=profile)
 
-    result = app.state.tool_registry.execute(
+    result = await app.state.tool_registry.execute(
         "task",
         {
             "run_in_background": False,
@@ -108,10 +108,11 @@ def test_task_tool_accepts_resolver_workspace_skill(tmp_path: Path) -> None:
         hook_context=HookContext(session_id="sess_main", repo_root=tmp_path),
     )
 
-    assert "Task completed" in result["result"]
+    assert result["status"] == "completed"
+    assert result["content"] == "ok"
 
 
-def test_task_tool_rejects_legacy_codex_skill_when_runtime_has_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_task_tool_rejects_legacy_codex_skill_when_runtime_has_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex-home"))
     profile = _make_profile(tmp_path / ".resolver-global")
     resolver = ConfigResolver(profile=profile, workspace_root=tmp_path)
@@ -121,7 +122,7 @@ def test_task_tool_rejects_legacy_codex_skill_when_runtime_has_resolver(tmp_path
     app = create_app(runtime=_RuntimeStub(config_resolver=resolver), repo_root=tmp_path, product_profile=profile)
 
     with pytest.raises(ToolError, match="unknown skills requested"):
-        app.state.tool_registry.execute(
+        await app.state.tool_registry.execute(
             "task",
             {
                 "run_in_background": False,

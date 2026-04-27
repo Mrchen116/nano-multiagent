@@ -185,6 +185,7 @@ def create_app(
     @app.on_event("shutdown")
     async def emit_session_shutdown_hooks() -> None:
         """Dispatch `session_shutdown` observe hooks before process exits."""
+        app.state.runs_registry.shutdown()
         await _dispatch_session_shutdown(
             session_service=session_service,
             hook_runner=active_hook_runner,

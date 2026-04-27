@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from agent.core.agent.prompting import CODING_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT, build_prompt_messages
@@ -112,12 +113,19 @@ async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path
         def __init__(self) -> None:
             self.requests: list[LLMGenerateRequest] = []
 
-        def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+        async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
             self.requests.append(request)
-            return LLMGenerateResponse(
+            response = LLMGenerateResponse(
                 model=request.model,
                 message=LLMMessage(role="assistant", content="ok"),
                 finish_reason="stop",
+            )
+            yield response.message
+            yield LLMMessage(
+                role="assistant",
+                content="",
+                finish_reason=response.finish_reason,
+                usage=response.usage,
             )
 
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")

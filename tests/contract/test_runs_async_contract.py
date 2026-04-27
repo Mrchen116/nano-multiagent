@@ -8,7 +8,7 @@ from agent.platform.http_api.app import create_app
 
 
 class _RuntimeStub:
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del parts
         del stream
         return TurnResult(
@@ -25,7 +25,7 @@ class _RetryThenSuccessRuntime:
         self._fail_times = fail_times
         self._calls = 0
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del parts
         del stream
         del run_id

@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from agent.core.agent.loop import AgentLoop
@@ -30,17 +31,17 @@ class FakeLLMClient:
             )
         )
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         self.requests.append(request)
         if not self._responses:
             raise AssertionError("unexpected llm call")
         response = self._responses.pop(0)
-        return LLMGenerateResponse(
-            model=request.model,
-            message=response.message,
+        yield response.message
+        yield LLMMessage(
+            role="assistant",
+            content="",
             finish_reason=response.finish_reason,
             usage=response.usage,
-            raw=response.raw,
         )
 
 
@@ -63,10 +64,13 @@ class FakeToolRegistry:
             ),
         )
 
+    def get(self, name: str):  # noqa: ANN001, ANN201
+        return self.get_tool(name)
+
     def get_tool(self, name: str):  # noqa: ANN001, ANN201
         return None
 
-    def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
+    async def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
         tool_call_id = None
         if hook_context is not None:
             tool_call_id = hook_context.metadata.get("tool_call_id")
@@ -381,10 +385,13 @@ class _FakeToolRegistryConcurrent:
             ),
         )
 
+    def get(self, name: str):  # noqa: ANN001, ANN201
+        return self.get_tool(name)
+
     def get_tool(self, name: str):  # noqa: ANN001, ANN201
         return None
 
-    def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
+    async def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
         self.calls.append((name, dict(args)))
         return {"result": args["text"]}
 
@@ -515,6 +522,9 @@ class _BudgetToolRegistry:
             ),
         )
 
+    def get(self, name: str):  # noqa: ANN001, ANN201
+        return self.get_tool(name)
+
     def get_tool(self, name: str):  # noqa: ANN001, ANN201
         if name == self.oversized.name:
             return self.oversized
@@ -522,7 +532,7 @@ class _BudgetToolRegistry:
             return self.unlimited
         return None
 
-    def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
+    async def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
         tool = self.get_tool(name)
         if tool is None:
             raise RuntimeError(f"unknown tool: {name}")

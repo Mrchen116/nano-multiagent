@@ -283,6 +283,63 @@ async def test_discard_does_not_affect_already_completed(registry: _FakeRegistry
 
 
 # ---------------------------------------------------------------------------
+# Bash sibling abort cascade
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_bash_error_cancels_sibling_bash(registry: _FakeRegistry) -> None:
+    """One bash failing triggers sibling abort for other parallel bash tools.
+
+    Both bash tools must be concurrency-safe so they start in parallel;
+    otherwise FIFO blocking prevents the second from ever starting.
+    """
+    registry.register(_FakeTool(name="bash", is_concurrency_safe=True, delay=0.15))
+    registry.register(_FakeTool(name="bash", is_concurrency_safe=True, delay=0.0, raise_error=True))
+    executor = StreamingToolExecutor(registry)
+
+    executor.add_tool(ToolCall(call_id="call_bash_1", name="bash", arguments={"cmd": "sleep 1"}))
+    executor.add_tool(ToolCall(call_id="call_bash_2", name="bash", arguments={"cmd": "false"}))
+    await asyncio.sleep(0.05)  # bash2 fails quickly
+
+    # bash1 should be cancelled by sibling abort
+    items = []
+    async for r in executor.get_remaining_results():
+        items.append(r)
+
+    assert len(items) == 2
+    results_by_call_id = {r.call_id: r for r in items}
+    # One of them failed (the one that raised), the other was cancelled by sibling abort
+    errors = [r.error for r in items if r.error is not None]
+    assert len(errors) == 2
+    assert any("cancelled by sibling bash error" in e for e in errors)
+
+
+@pytest.mark.asyncio
+async def test_non_bash_error_does_not_cancel_siblings(registry: _FakeRegistry) -> None:
+    """Non-bash tool error does not trigger sibling abort."""
+    registry.register(_FakeTool(name="read", is_concurrency_safe=True, delay=0.15))
+    registry.register(_FakeTool(name="bad", is_concurrency_safe=True, delay=0.0, raise_error=True))
+    executor = StreamingToolExecutor(registry)
+
+    executor.add_tool(_call("read"))
+    executor.add_tool(_call("bad"))
+    await asyncio.sleep(0.05)
+
+    items = []
+    async for r in executor.get_remaining_results():
+        items.append(r)
+
+    assert len(items) == 2
+    bad_result = [r for r in items if r.name == "bad"][0]
+    read_result = [r for r in items if r.name == "read"][0]
+    assert bad_result.error is not None
+    assert "bad failed" in bad_result.error
+    # read should complete normally despite bad failing
+    assert read_result.output is not None
+    assert read_result.error is None
+
+
+# ---------------------------------------------------------------------------
 # get_completed_results is non-blocking
 # ---------------------------------------------------------------------------
 

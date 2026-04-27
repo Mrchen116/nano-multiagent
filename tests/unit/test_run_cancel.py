@@ -1,3 +1,4 @@
+import asyncio
 import time
 from threading import Event
 from pathlib import Path
@@ -14,7 +15,7 @@ class _BlockingRuntime:
         self.started = Event()
         self.release = Event()
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del session_id
         del parts
         del stream
@@ -29,10 +30,39 @@ class _BlockingRuntime:
         )
 
 
+class _AbortableBlockingRuntime:
+    """Runtime that checks controller.is_aborted and exits early."""
+
+    def __init__(self) -> None:
+        self.started = Event()
+
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+        del session_id, parts, stream, run_id
+        self.started.set()
+        # Poll abort signal with short sleeps
+        for _ in range(50):
+            if controller is not None and controller.is_aborted:
+                return TurnResult(
+                    session_id="sess_abort_unit",
+                    turn_id="turn_abort_unit",
+                    messages=(Message(message_id="msg_abort", role="assistant", content="interrupted"),),
+                    completed=False,
+                    stop_reason="aborted",
+                )
+            await asyncio.sleep(0.01)
+        return TurnResult(
+            session_id="sess_abort_unit",
+            turn_id="turn_abort_unit",
+            messages=(Message(message_id="msg_timeout", role="assistant", content="ok"),),
+            completed=True,
+            stop_reason="completed",
+        )
+
+
 class _FailureRuntime:
     """Runtime that raises a non-retryable ModelError (simulates loop exhausting retries)."""
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id
         # Retryable errors are exhausted inside loop; what reaches registry is non-retryable.
         raise ModelError("retries exhausted", retryable=False)
@@ -54,23 +84,27 @@ def test_cancel_marks_running_run_cancelled_and_is_idempotent(tmp_path: Path) ->
     runtime = _BlockingRuntime()
     registry = RunsRegistry(runtime=runtime, session_manager=manager)
 
-    submitted = registry.submit(
-        session_id=session.session_id,
-        parts=[{"type": "text", "text": "cancel me"}],
-    )
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "cancel me"}],
+        )
 
-    _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.RUNNING)
+        _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.RUNNING)
 
-    first = registry.cancel(submitted.run_id)
-    second = registry.cancel(submitted.run_id)
+        first = registry.cancel(submitted.run_id)
+        second = registry.cancel(submitted.run_id)
 
-    assert first is not None
-    assert second is not None
-    assert first.status is RunStatus.CANCELLED
-    assert second.status is RunStatus.CANCELLED
+        assert first is not None
+        assert second is not None
+        assert first.status is RunStatus.CANCELLED
+        assert second.status is RunStatus.CANCELLED
 
-    runtime.release.set()
-    _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.CANCELLED)
+        runtime.release.set()
+        _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.CANCELLED)
+    finally:
+        registry.shutdown()
+        runtime.release.set()
 
 
 def test_cancel_unknown_run_returns_none(tmp_path: Path) -> None:
@@ -78,7 +112,52 @@ def test_cancel_unknown_run_returns_none(tmp_path: Path) -> None:
     manager = SessionManager(store=store)
     registry = RunsRegistry(runtime=_BlockingRuntime(), session_manager=manager)
 
-    assert registry.cancel("run_missing") is None
+    try:
+        assert registry.cancel("run_missing") is None
+    finally:
+        registry.shutdown()
+
+
+def test_interrupt_signals_active_run_to_abort(tmp_path: Path) -> None:
+    """interrupt() signals the active run's controller to abort."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    runtime = _AbortableBlockingRuntime()
+    registry = RunsRegistry(runtime=runtime, session_manager=manager)
+
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "interrupt me"}],
+        )
+
+        _wait_for(lambda: runtime.started.is_set())
+
+        run_id = registry.interrupt(session.session_id)
+        assert run_id == submitted.run_id
+
+        _wait_for(
+            lambda: registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED},
+            timeout_seconds=2.0,
+        )
+
+        final = registry.get(submitted.run_id)
+        assert final is not None
+        assert final.stop_reason == "aborted"
+    finally:
+        registry.shutdown()
+
+
+def test_interrupt_no_active_run_returns_none(tmp_path: Path) -> None:
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    registry = RunsRegistry(runtime=_AbortableBlockingRuntime(), session_manager=manager)
+
+    try:
+        assert registry.interrupt("sess_no_active") is None
+    finally:
+        registry.shutdown()
 
 
 def test_model_error_from_runtime_marks_run_failed(tmp_path: Path) -> None:
@@ -92,13 +171,16 @@ def test_model_error_from_runtime_marks_run_failed(tmp_path: Path) -> None:
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_FailureRuntime(), session_manager=manager)
 
-    submitted = registry.submit(
-        session_id=session.session_id,
-        parts=[{"type": "text", "text": "will fail"}],
-    )
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "will fail"}],
+        )
 
-    _wait_for(lambda: registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED}, timeout_seconds=2.0)
+        _wait_for(lambda: registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED}, timeout_seconds=2.0)
 
-    final = registry.get(submitted.run_id)
-    assert final is not None
-    assert final.status is RunStatus.FAILED
+        final = registry.get(submitted.run_id)
+        assert final is not None
+        assert final.status is RunStatus.FAILED
+    finally:
+        registry.shutdown()

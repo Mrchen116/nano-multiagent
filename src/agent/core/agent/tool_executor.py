@@ -1,81 +1,195 @@
-"""Tool batch partitioning and concurrent execution."""
-
-from __future__ import annotations
+"""Streaming tool executor with FIFO queue and dynamic concurrency safety."""
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Mapping, Protocol
 
-from agent.core.observability.tracing import span
-from agent.core.types import ToolCall, ToolResult
-
-
-@dataclass(frozen=True)
-class ToolBatch:
-    """One atomic unit of tool execution: either a single unsafe call or N concurrent safe calls."""
-
-    calls: tuple[ToolCall, ...]
-    concurrent: bool
+from agent.core.types import Message, ToolCall, ToolResult
 
 
-def partition_into_batches(
-    calls: Sequence[ToolCall],
-    concurrency_map: Mapping[str, bool],
-) -> list[ToolBatch]:
-    """Partition tool calls into ordered batches preserving relative order.
+class _ToolRegistryLike(Protocol):
+    """Minimal registry surface needed by StreamingToolExecutor."""
 
-    Consecutive concurrency-safe calls form one ConcurrentBatch; each unsafe
-    call forms its own SerialBatch. Batches execute sequentially; calls within
-    a ConcurrentBatch execute in parallel.
+    def get(self, name: str) -> Any | None:
+        ...
 
-    Example: [safe, safe, unsafe, safe] →
-        [Batch(safe safe, concurrent=True), Batch(unsafe, concurrent=False), Batch(safe, concurrent=True)]
-    """
-    if not calls:
-        return []
-
-    batches: list[ToolBatch] = []
-    safe_buffer: list[ToolCall] = []
-
-    for call in calls:
-        if concurrency_map.get(call.name, False):
-            safe_buffer.append(call)
-        else:
-            if safe_buffer:
-                batches.append(ToolBatch(calls=tuple(safe_buffer), concurrent=True))
-                safe_buffer = []
-            batches.append(ToolBatch(calls=(call,), concurrent=False))
-
-    if safe_buffer:
-        batches.append(ToolBatch(calls=tuple(safe_buffer), concurrent=True))
-
-    return batches
-
-
-ExecuteFn = Callable[[ToolCall], Awaitable[ToolResult]]
-
-
-class ToolExecutor:
-    """Execute a ToolBatch, returning results in original call order."""
-
-    async def execute(self, batch: ToolBatch, execute_fn: ExecuteFn) -> tuple[ToolResult, ...]:
-        with span("ToolExecutor.execute", concurrent=batch.concurrent, batch_size=len(batch.calls)):
-            if batch.concurrent and len(batch.calls) > 1:
-                return await self._execute_concurrent(batch.calls, execute_fn)
-            return (await execute_fn(batch.calls[0]),)
-
-    async def _execute_concurrent(
+    async def execute(
         self,
-        calls: tuple[ToolCall, ...],
-        execute_fn: ExecuteFn,
-    ) -> tuple[ToolResult, ...]:
-        raw = await asyncio.gather(
-            *[execute_fn(call) for call in calls],
-            return_exceptions=True,
+        name: str,
+        args: Mapping[str, Any],
+        *,
+        hook_context: Any | None = None,
+        session_file_state: Any | None = None,
+    ) -> Mapping[str, Any]:
+        ...
+
+
+@dataclass
+class _QueuedTool:
+    tool_call: ToolCall
+    status: str = "queued"  # queued | executing | completed | yielded
+    is_safe: bool = False
+    result: ToolResult | None = None
+    _event: asyncio.Event = field(default_factory=asyncio.Event)
+    task: asyncio.Task | None = None
+    _cancelled: bool = False
+    hook_context: Any | None = None
+
+
+class StreamingToolExecutor:
+    """FIFO queue that executes tools with dynamic concurrency safety.
+
+    Safe tools run in parallel. Non-safe tools block all subsequent
+    queued items until they complete, matching Claude Code behaviour.
+    """
+
+    def __init__(
+        self,
+        tool_registry: _ToolRegistryLike,
+        *,
+        hook_context: Any | None = None,
+        session_file_state: Any | None = None,
+    ) -> None:
+        self._queue: list[_QueuedTool] = []
+        self._registry = tool_registry
+        self._hook_context = hook_context
+        self._session_file_state = session_file_state
+        self._lock = asyncio.Lock()
+        self._has_errored = False
+        self._errored_tool_name = ""
+        self._sibling_event = asyncio.Event()
+
+    def add_tool(
+        self, tool_call: ToolCall, *, hook_context: Any | None = None
+    ) -> None:
+        """Enqueue a tool call when its content_block completes in the stream."""
+        tool = self._registry.get(tool_call.name)
+        safe_method = getattr(tool, "is_concurrency_safe", None)
+        is_safe = (
+            tool.is_concurrency_safe(tool_call.arguments)
+            if tool is not None and callable(safe_method)
+            else bool(safe_method)
         )
-        return tuple(
-            r
-            if isinstance(r, ToolResult)
-            else ToolResult(call_id=call.call_id, name=call.name, error=str(r))
-            for call, r in zip(calls, raw)
+        item = _QueuedTool(tool_call=tool_call, is_safe=is_safe, hook_context=hook_context)
+        self._queue.append(item)
+        asyncio.create_task(self._process_queue())
+
+    async def _process_queue(self) -> None:
+        """Start queued tools when concurrency rules allow."""
+        async with self._lock:
+            for item in self._queue:
+                if item.status != "queued":
+                    continue
+                if self._can_execute(item.is_safe):
+                    item.status = "executing"
+                    item.task = asyncio.create_task(self._execute_one(item))
+                elif not item.is_safe:
+                    # A non-safe tool blocks everything after it.
+                    break
+
+    def _can_execute(self, is_safe: bool) -> bool:
+        executing = [t for t in self._queue if t.status == "executing"]
+        if not executing:
+            return True
+        return is_safe and all(t.is_safe for t in executing)
+
+    def _should_cancel(self, item: _QueuedTool) -> bool:
+        if not self._has_errored:
+            return False
+        if item.tool_call.name != "bash":
+            return False
+        return True
+
+    def _synthetic_error(self, item: _QueuedTool, reason: str) -> ToolResult:
+        return ToolResult(
+            call_id=item.tool_call.call_id,
+            name=item.tool_call.name,
+            output=None,
+            error=f"aborted: {reason}",
         )
+
+    async def _execute_one(self, item: _QueuedTool) -> None:
+        """Run a single tool call and record its result."""
+        try:
+            if self._should_cancel(item):
+                item.result = self._synthetic_error(item, "cancelled by sibling bash error")
+                item.status = "completed"
+                item._event.set()
+                await self._process_queue()
+                return
+
+            output = await self._registry.execute(
+                item.tool_call.name,
+                item.tool_call.arguments,
+                hook_context=item.hook_context or self._hook_context,
+                session_file_state=self._session_file_state,
+            )
+            if self._should_cancel(item):
+                item.result = self._synthetic_error(item, "cancelled by sibling bash error")
+            else:
+                item.result = ToolResult(
+                    call_id=item.tool_call.call_id,
+                    name=item.tool_call.name,
+                    output=output,
+                )
+            item.status = "completed"
+        except asyncio.CancelledError:
+            item.result = self._synthetic_error(item, "tool execution discarded")
+            item.status = "completed"
+            raise
+        except Exception as exc:
+            item.result = ToolResult(
+                call_id=item.tool_call.call_id,
+                name=item.tool_call.name,
+                output=None,
+                error=str(exc),
+            )
+            item.status = "completed"
+            # Bash error triggers sibling abort.
+            if item.tool_call.name == "bash":
+                self._has_errored = True
+                self._errored_tool_name = item.tool_call.name
+                self._sibling_event.set()
+        item._event.set()
+        await self._process_queue()
+
+    def get_completed_results(self) -> list[ToolResult]:
+        """Non-blocking: return tool_results for completed tools in order."""
+        results: list[ToolResult] = []
+        for item in self._queue:
+            if item.status == "completed":
+                item.status = "yielded"
+                results.append(item.result)
+            elif item.status == "executing" and not item.is_safe:
+                # Non-safe tool executing: subsequent results must wait.
+                break
+        return results
+
+    async def get_remaining_results(self) -> AsyncIterator[ToolResult]:
+        """Blocking: wait for all unfinished tools, yield results in order."""
+        for item in self._queue:
+            if item.status in ("queued", "executing"):
+                await item._event.wait()
+            if item.status == "completed":
+                item.status = "yielded"
+                yield item.result
+
+    def has_unfinished(self) -> bool:
+        """Return True while any tool is still queued or executing."""
+        return any(t.status in ("queued", "executing") for t in self._queue)
+
+    def discard(self) -> None:
+        """Abort all queued/executing tools (fallback scenario)."""
+        for item in self._queue:
+            if item.status in ("queued", "executing"):
+                if item.task is not None:
+                    item.task.cancel()
+                item._cancelled = True
+                item.status = "completed"
+                item.result = ToolResult(
+                    call_id=item.tool_call.call_id,
+                    name=item.tool_call.name,
+                    output=None,
+                    error="aborted: tool execution discarded",
+                )
+                item._event.set()

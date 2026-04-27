@@ -9,12 +9,17 @@ from agent.core.hooks.runner import HookRunner
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.registry import ToolRegistry
+from agent.core.tools.base import set_tool_safety_config_factory, set_tool_safety_factory
+from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+
+set_tool_safety_factory(ToolSafety)
+set_tool_safety_config_factory(ToolSafetyConfig)
 
 
-def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(tmp_path: Path) -> None:
+async def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(tmp_path: Path) -> None:
     captured: dict[str, object] = {}
 
-    def model_caller(call: HookModelCall) -> HookModelResult:
+    async def model_caller(call: HookModelCall) -> HookModelResult:
         captured["session_id"] = call.session_id
         captured["user_prompt"] = call.user_prompt
         return HookModelResult(
@@ -30,7 +35,7 @@ def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(tmp_pa
     )
     registry.register(BashTool())
 
-    result = registry.execute(
+    result = await registry.execute(
         "bash",
         {"command": "uname -s"},
         hook_context=HookContext(
@@ -42,13 +47,13 @@ def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(tmp_pa
     )
 
     assert result["exitCode"] == 0
-    assert "Darwin" in str(result["content"])
+    assert "Darwin" in str(result.get("stdout", result.get("content", "")))
     assert captured["session_id"] == "sess-risk-1"
     assert str(captured["user_prompt"]).endswith("command: uname -s")
 
 
-def test_builtin_bash_risk_hook_blocks_unlisted_unsafe_command(tmp_path: Path) -> None:
-    def model_caller(call: HookModelCall) -> HookModelResult:
+async def test_builtin_bash_risk_hook_blocks_unlisted_unsafe_command(tmp_path: Path) -> None:
+    async def model_caller(call: HookModelCall) -> HookModelResult:
         del call
         return HookModelResult(
             model="mock-risk",
@@ -64,7 +69,7 @@ def test_builtin_bash_risk_hook_blocks_unlisted_unsafe_command(tmp_path: Path) -
     registry.register(BashTool())
 
     with pytest.raises(ToolError, match="tool blocked by hook") as exc_info:
-        registry.execute(
+        await registry.execute(
             "bash",
             {"command": "uname -a"},
             hook_context=HookContext(
@@ -79,7 +84,7 @@ def test_builtin_bash_risk_hook_blocks_unlisted_unsafe_command(tmp_path: Path) -
     assert "modifies system state" in reason
 
 
-def test_builtin_bash_risk_hook_blocks_when_model_caller_is_missing(tmp_path: Path) -> None:
+async def test_builtin_bash_risk_hook_blocks_when_model_caller_is_missing(tmp_path: Path) -> None:
     hooks = build_hook_registry(repo_root=tmp_path)
     registry = ToolRegistry(
         context=ToolContext.create(repo_root=tmp_path),
@@ -88,7 +93,7 @@ def test_builtin_bash_risk_hook_blocks_when_model_caller_is_missing(tmp_path: Pa
     registry.register(BashTool())
 
     with pytest.raises(ToolError, match="tool blocked by hook") as exc_info:
-        registry.execute(
+        await registry.execute(
             "bash",
             {"command": "uname -a"},
             hook_context=HookContext(

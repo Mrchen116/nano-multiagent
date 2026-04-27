@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -34,7 +35,7 @@ class FakeLLMClient:
         self.requests: list[LLMGenerateRequest] = []
         self._responses = list(responses) if responses is not None else None
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         self.requests.append(request)
         if self._responses is None:
             response = LLMGenerateResponse(
@@ -46,11 +47,12 @@ class FakeLLMClient:
             if not self._responses:
                 raise AssertionError("unexpected llm call")
             response = self._responses.pop(0)
-        return LLMGenerateResponse(
-            model=request.model,
-            message=response.message,
+        yield response.message
+        yield LLMMessage(
+            role="assistant",
+            content="",
             finish_reason=response.finish_reason,
-            raw=response.raw,
+            usage=response.usage,
         )
 
 
@@ -256,8 +258,8 @@ async def test_hook_context_model_call_uses_same_session_id(tmp_path: Path) -> N
     )
     hooks = HookRegistry()
 
-    def on_input(payload, ctx):  # noqa: ANN001
-        _ = ctx.call_model(
+    async def on_input(payload, ctx):  # noqa: ANN001
+        _ = await ctx.call_model(
             system_prompt="risk-system",
             user_prompt="risk-user",
         )
@@ -297,8 +299,8 @@ async def test_hook_context_model_call_supports_model_override(tmp_path: Path) -
     )
     hooks = HookRegistry()
 
-    def on_input(payload, ctx):  # noqa: ANN001
-        _ = ctx.call_model(
+    async def on_input(payload, ctx):  # noqa: ANN001
+        _ = await ctx.call_model(
             system_prompt="risk-system",
             user_prompt="risk-user",
             model="risk-model-x",
@@ -358,7 +360,7 @@ async def test_task_tool_is_registered_and_validated_by_registry(tmp_path: Path)
     registry = build_tool_registry(repo_root=tmp_path)
 
     with pytest.raises(ToolError, match="missing required argument: load_skills"):
-        registry.execute("task", {})
+        await registry.execute("task", {})
 
 
 async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: Path) -> None:

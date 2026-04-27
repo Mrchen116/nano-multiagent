@@ -23,6 +23,8 @@ def test_llm_message_contract() -> None:
         "name",
         "tool_call_id",
         "tool_calls",
+        "finish_reason",
+        "usage",
     ]
 
 
@@ -32,7 +34,6 @@ def test_llm_generate_request_contract() -> None:
         "session_id",
         "model",
         "messages",
-        "stream",
         "temperature",
         "max_tokens",
         "tools",

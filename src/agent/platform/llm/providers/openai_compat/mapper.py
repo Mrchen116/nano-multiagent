@@ -20,7 +20,7 @@ class OpenAICompatMapper:
         payload: dict[str, Any] = {
             "model": request.model,
             "messages": [self._map_message(message) for message in request.messages],
-            "stream": request.stream,
+            "stream": True,
         }
         if request.temperature is not None:
             payload["temperature"] = request.temperature

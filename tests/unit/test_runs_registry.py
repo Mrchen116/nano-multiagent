@@ -70,30 +70,33 @@ def test_runs_registry_transitions_status_entries(tmp_path: Path) -> None:
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
 
-    submitted = registry.submit(
-        session_id=session.session_id,
-        parts=[{"type": "text", "text": "hello"}],
-    )
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "hello"}],
+        )
 
-    assert submitted.status is RunStatus.QUEUED
+        assert submitted.status is RunStatus.QUEUED
 
-    _wait_for(
-        lambda: registry.get(submitted.run_id) is not None
-        and registry.get(submitted.run_id).status is RunStatus.COMPLETED
-    )
-    completed = registry.get(submitted.run_id)
-    assert completed is not None
-    assert completed.turn_id == "turn_async_unit"
-    assert completed.output_text == "ok"
+        _wait_for(
+            lambda: registry.get(submitted.run_id) is not None
+            and registry.get(submitted.run_id).status is RunStatus.COMPLETED
+        )
+        completed = registry.get(submitted.run_id)
+        assert completed is not None
+        assert completed.turn_id == "turn_async_unit"
+        assert completed.output_text == "ok"
 
-    # RUN_STATUS is not persisted in JSONL architecture
-    entries = manager.list_entries(session.session_id)
-    run_statuses = [
-        event.data["status"]
-        for event in entries
-        if getattr(event.kind, "value", "") == "session.run.status"
-    ]
-    assert run_statuses == []
+        # RUN_STATUS is not persisted in JSONL architecture
+        entries = manager.list_entries(session.session_id)
+        run_statuses = [
+            event.data["status"]
+            for event in entries
+            if getattr(event.kind, "value", "") == "session.run.status"
+        ]
+        assert run_statuses == []
+    finally:
+        registry.shutdown()
 
 
 def test_runs_registry_marks_failed_when_runtime_raises(tmp_path: Path) -> None:
@@ -102,19 +105,22 @@ def test_runs_registry_marks_failed_when_runtime_raises(tmp_path: Path) -> None:
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RuntimeStub(fail=True), session_manager=manager)
 
-    submitted = registry.submit(
-        session_id=session.session_id,
-        parts=[{"type": "text", "text": "hello"}],
-    )
-    _wait_for(
-        lambda: registry.get(submitted.run_id) is not None
-        and registry.get(submitted.run_id).status is RunStatus.FAILED
-    )
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "hello"}],
+        )
+        _wait_for(
+            lambda: registry.get(submitted.run_id) is not None
+            and registry.get(submitted.run_id).status is RunStatus.FAILED
+        )
 
-    failed = registry.get(submitted.run_id)
-    assert failed is not None
-    assert failed.error is not None
-    assert failed.error["message"] == "runtime boom"
+        failed = registry.get(submitted.run_id)
+        assert failed is not None
+        assert failed.error is not None
+        assert failed.error["message"] == "runtime boom"
+    finally:
+        registry.shutdown()
 
 
 def test_runs_registry_tracks_completed_run_usage(tmp_path: Path) -> None:
@@ -124,28 +130,31 @@ def test_runs_registry_tracks_completed_run_usage(tmp_path: Path) -> None:
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RuntimeWithUsageStub(), session_manager=manager)
 
-    submitted = registry.submit(
-        session_id=session.session_id,
-        parts=[{"type": "text", "text": "hello"}],
-    )
-    _wait_for(
-        lambda: registry.get(submitted.run_id) is not None
-        and registry.get(submitted.run_id).status is RunStatus.COMPLETED
-    )
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "hello"}],
+        )
+        _wait_for(
+            lambda: registry.get(submitted.run_id) is not None
+            and registry.get(submitted.run_id).status is RunStatus.COMPLETED
+        )
 
-    completed = registry.get(submitted.run_id)
-    assert completed is not None
-    assert completed.usage is not None
-    assert completed.usage.total_tokens == 220
+        completed = registry.get(submitted.run_id)
+        assert completed is not None
+        assert completed.usage is not None
+        assert completed.usage.total_tokens == 220
 
-    # RUN_STATUS is not persisted in JSONL architecture
-    entries = manager.list_entries(session.session_id)
-    completed_entries = [
-        event
-        for event in entries
-        if getattr(event.kind, "value", "") == "session.run.status" and event.data.get("status") == "completed"
-    ]
-    assert completed_entries == []
+        # RUN_STATUS is not persisted in JSONL architecture
+        entries = manager.list_entries(session.session_id)
+        completed_entries = [
+            event
+            for event in entries
+            if getattr(event.kind, "value", "") == "session.run.status" and event.data.get("status") == "completed"
+        ]
+        assert completed_entries == []
+    finally:
+        registry.shutdown()
 
 
 def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp_path: Path) -> None:
@@ -167,26 +176,29 @@ def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp
         hook_runner=HookRunner(registry=hooks),
     )
 
-    submitted = registry.submit(
-        session_id=session.session_id,
-        parts=[{"type": "text", "text": "hello"}],
-    )
-    _wait_for(
-        lambda: registry.get(submitted.run_id) is not None
-        and registry.get(submitted.run_id).status is RunStatus.FAILED
-    )
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "hello"}],
+        )
+        _wait_for(
+            lambda: registry.get(submitted.run_id) is not None
+            and registry.get(submitted.run_id).status is RunStatus.FAILED
+        )
 
-    failed = registry.get(submitted.run_id)
-    assert failed is not None
-    assert failed.error is not None
-    _wait_for(lambda: len(observed_events) == 1)
-    assert observed_events == [
-        {
-            "session_id": session.session_id,
-            "run_id": submitted.run_id,
-            "error": failed.error,
-        }
-    ]
+        failed = registry.get(submitted.run_id)
+        assert failed is not None
+        assert failed.error is not None
+        _wait_for(lambda: len(observed_events) == 1)
+        assert observed_events == [
+            {
+                "session_id": session.session_id,
+                "run_id": submitted.run_id,
+                "error": failed.error,
+            }
+        ]
+    finally:
+        registry.shutdown()
 
 
 def test_runs_registry_dispatches_run_timeout_observe_hook_when_runtime_times_out(tmp_path: Path) -> None:
@@ -208,28 +220,31 @@ def test_runs_registry_dispatches_run_timeout_observe_hook_when_runtime_times_ou
         hook_runner=HookRunner(registry=hooks),
     )
 
-    submitted = registry.submit(
-        session_id=session.session_id,
-        parts=[{"type": "text", "text": "hello"}],
-    )
-    _wait_for(
-        lambda: registry.get(submitted.run_id) is not None
-        and registry.get(submitted.run_id).status is RunStatus.FAILED
-    )
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "hello"}],
+        )
+        _wait_for(
+            lambda: registry.get(submitted.run_id) is not None
+            and registry.get(submitted.run_id).status is RunStatus.FAILED
+        )
 
-    failed = registry.get(submitted.run_id)
-    assert failed is not None
-    assert failed.error is not None
-    assert failed.error["code"] == "run_timeout"
-    assert failed.stop_reason == "timeout"
-    _wait_for(lambda: len(observed_events) == 1)
-    assert observed_events == [
-        {
-            "session_id": session.session_id,
-            "run_id": submitted.run_id,
-            "error": failed.error,
-        }
-    ]
+        failed = registry.get(submitted.run_id)
+        assert failed is not None
+        assert failed.error is not None
+        assert failed.error["code"] == "run_timeout"
+        assert failed.stop_reason == "timeout"
+        _wait_for(lambda: len(observed_events) == 1)
+        assert observed_events == [
+            {
+                "session_id": session.session_id,
+                "run_id": submitted.run_id,
+                "error": failed.error,
+            }
+        ]
+    finally:
+        registry.shutdown()
 
 
 def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
@@ -245,29 +260,32 @@ def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
     session = manager.create_session(workspace_root=tmp_path)
     registry = RunsRegistry(runtime=_RetryableModelErrorRuntime(), session_manager=manager)
 
-    submitted = registry.submit(
-        session_id=session.session_id,
-        parts=[{"type": "text", "text": "retry me"}],
-    )
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "retry me"}],
+        )
 
-    _wait_for(
-        lambda: registry.get(submitted.run_id) is not None
-        and registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED},
-        timeout_seconds=2.0,
-    )
+        _wait_for(
+            lambda: registry.get(submitted.run_id) is not None
+            and registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED},
+            timeout_seconds=2.0,
+        )
 
-    final = registry.get(submitted.run_id)
-    assert final is not None
-    assert final.status is RunStatus.FAILED
+        final = registry.get(submitted.run_id)
+        assert final is not None
+        assert final.status is RunStatus.FAILED
 
-    # RUN_STATUS is not persisted in JSONL architecture
-    entries = manager.list_entries(session.session_id)
-    run_statuses = [
-        event.data["status"]
-        for event in entries
-        if getattr(event.kind, "value", "") == "session.run.status"
-        and event.data.get("run_id") == submitted.run_id
-    ]
-    assert run_statuses == []
-    retry_attempts = [e for e in entries if e.data.get("attempt") is not None]
-    assert retry_attempts == [], "registry must not emit retry attempt entries after M251"
+        # RUN_STATUS is not persisted in JSONL architecture
+        entries = manager.list_entries(session.session_id)
+        run_statuses = [
+            event.data["status"]
+            for event in entries
+            if getattr(event.kind, "value", "") == "session.run.status"
+            and event.data.get("run_id") == submitted.run_id
+        ]
+        assert run_statuses == []
+        retry_attempts = [e for e in entries if e.data.get("attempt") is not None]
+        assert retry_attempts == [], "registry must not emit retry attempt entries after M251"
+    finally:
+        registry.shutdown()

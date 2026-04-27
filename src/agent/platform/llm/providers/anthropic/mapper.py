@@ -41,7 +41,7 @@ class AnthropicMapper:
         payload: dict[str, Any] = {
             "model": request.model,
             "messages": messages,
-            "stream": request.stream,
+            "stream": True,
             "max_tokens": request.max_tokens if request.max_tokens is not None else _DEFAULT_MAX_TOKENS,
         }
         if request.temperature is not None:

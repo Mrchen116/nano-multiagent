@@ -6,6 +6,8 @@ propagate immediately. Retry is handled at a higher layer if needed.
 
 import pytest
 
+from collections.abc import AsyncIterator
+
 from agent.core.errors import ModelError
 from agent.core.agent.loop import AgentLoop
 from agent.core.agent.runtime import build_turn_result
@@ -28,14 +30,21 @@ class _CountingLLMClient:
         self.call_count = 0
         self._fail_count = fail_count
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         self.call_count += 1
         if self.call_count <= self._fail_count:
             raise ModelError("upstream blip", retryable=True)
-        return LLMGenerateResponse(
+        response = LLMGenerateResponse(
             model=request.model,
             message=LLMMessage(role="assistant", content="ok"),
             finish_reason="stop",
+        )
+        yield response.message
+        yield LLMMessage(
+            role="assistant",
+            content="",
+            finish_reason=response.finish_reason,
+            usage=response.usage,
         )
 
 
@@ -45,7 +54,9 @@ class _AlwaysRetryableLLMClient:
     def __init__(self) -> None:
         self.call_count = 0
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+        if False:
+            yield LLMMessage(role="assistant", content="")
         self.call_count += 1
         raise ModelError("always fails", retryable=True)
 
@@ -56,7 +67,9 @@ class _NonRetryableErrorLLMClient:
     def __init__(self) -> None:
         self.call_count = 0
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+        if False:
+            yield LLMMessage(role="assistant", content="")
         self.call_count += 1
         raise ModelError("fatal error", retryable=False)
 

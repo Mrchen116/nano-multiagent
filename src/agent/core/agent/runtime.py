@@ -749,7 +749,7 @@ class AgentRuntime:
             session_event_publisher=session_event_publisher,
         )
 
-    def _call_hook_model(self, call: HookModelCall) -> HookModelResult:
+    async def _call_hook_model(self, call: HookModelCall) -> HookModelResult:
         """Execute one hook-initiated model call under runtime configuration."""
 
         normalized_session = call.session_id.strip()
@@ -758,11 +758,11 @@ class AgentRuntime:
         model = (call.model or self._llm_config.model).strip()
         if not model:
             raise ValueError("model is required")
-        response = self._llm_client.generate(
+
+        stream = self._llm_client.generate(
             LLMGenerateRequest(
                 session_id=normalized_session,
                 model=model,
-                stream=False,
                 messages=(
                     LLMMessage(role="system", content=call.system_prompt),
                     LLMMessage(role="user", content=call.user_prompt),
@@ -770,10 +770,32 @@ class AgentRuntime:
                 metadata=dict(call.metadata),
             )
         )
+
+        content_parts: list[str] = []
+        raw: dict[str, Any] = {}
+        finish_reason: str | None = None
+        usage = None
+        async for msg in stream:
+            if msg.finish_reason is not None:
+                finish_reason = msg.finish_reason
+                usage = msg.usage
+                raw["finish_reason"] = finish_reason
+                if usage is not None:
+                    raw["usage"] = {
+                        "prompt_tokens": usage.prompt_tokens,
+                        "completion_tokens": usage.completion_tokens,
+                        "total_tokens": usage.total_tokens,
+                    }
+                continue
+            if isinstance(msg.content, str):
+                content_parts.append(msg.content)
+            raw["role"] = msg.role
+
+        content = "".join(content_parts)
         return HookModelResult(
-            model=response.model,
-            content=response.message.content,
-            raw=response.raw,
+            model=model,
+            content=content,
+            raw=raw,
         )
 
     async def _execute_loop(

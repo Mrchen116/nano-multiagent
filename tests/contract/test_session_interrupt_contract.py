@@ -1,5 +1,5 @@
+import asyncio
 import time
-from threading import Event
 
 from fastapi.testclient import TestClient
 
@@ -9,11 +9,14 @@ from agent.platform.http_api.app import create_app
 
 class _BlockingRuntime:
     def __init__(self) -> None:
-        self.release = Event()
+        self.release = asyncio.Event()
 
-    def run(self, session_id, parts, *, stream=True, run_id=None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id, controller
-        self.release.wait(timeout=1.0)
+        try:
+            await asyncio.wait_for(self.release.wait(), timeout=1.0)
+        except TimeoutError:
+            pass
         return TurnResult(
             session_id="sess_interrupt_contract",
             turn_id="turn_interrupt_contract",

@@ -90,6 +90,7 @@ def build_prompt_messages(
                 tool_calls=_extract_tool_calls(metadata),
             )
         )
+    messages = _merge_adjacent_assistant(messages)
     messages.append(LLMMessage(role="user", content=user_text))
     return tuple(messages)
 
@@ -204,3 +205,22 @@ def _extract_tool_calls(metadata: Mapping[str, Any]) -> tuple[LLMToolCall, ...]:
             )
         )
     return tuple(parsed)
+
+
+def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:
+    """Merge adjacent assistant role messages into one (multi-content-blocks)."""
+    result: list[LLMMessage] = []
+    for msg in messages:
+        if msg.role == "assistant" and result and result[-1].role == "assistant":
+            prev = result[-1]
+            merged_content = (prev.content or "") + (msg.content or "")
+            merged_tool_calls = tuple(prev.tool_calls) + tuple(msg.tool_calls)
+            result[-1] = LLMMessage(
+                role="assistant",
+                content=merged_content,
+                tool_calls=merged_tool_calls,
+                tool_call_id=prev.tool_call_id,
+            )
+        else:
+            result.append(msg)
+    return result

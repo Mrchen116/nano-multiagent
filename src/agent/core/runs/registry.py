@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+import threading
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -72,18 +72,37 @@ class RunsRegistry:
         session_manager: SessionManager,
         event_hub: EventHubLike | None = None,
         hook_runner: HookRunner | None = None,
-        max_workers: int = 4,
     ) -> None:
         self._runtime = runtime
         self._session_manager = session_manager
         self._event_hub = event_hub
         self._hook_runner = hook_runner
-        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="nano-runs")
         self._lock = Lock()
         self._runs: dict[str, RunRecord] = {}
         self._controllers: dict[str, RunController] = {}
         # session_id → run_id for the currently-executing run (RUNNING state only).
         self._active_run_by_session: dict[str, str] = {}
+        # Dedicated async event-loop thread so that httpx.AsyncClient transport
+        # is not torn down by per-call asyncio.run() (feat-335).
+        self._async_loop: asyncio.AbstractEventLoop | None = None
+        self._async_thread: threading.Thread | None = None
+        self._start_async_loop()
+
+    def _start_async_loop(self) -> None:
+        self._async_loop = asyncio.new_event_loop()
+        self._async_thread = threading.Thread(target=self._run_async_loop, daemon=True)
+        self._async_thread.start()
+
+    def _run_async_loop(self) -> None:
+        asyncio.set_event_loop(self._async_loop)
+        self._async_loop.run_forever()
+
+    def shutdown(self) -> None:
+        """Stop the dedicated async loop and join its thread."""
+        if self._async_loop is not None and self._async_loop.is_running():
+            self._async_loop.call_soon_threadsafe(self._async_loop.stop)
+        if self._async_thread is not None:
+            self._async_thread.join(timeout=5.0)
 
     def submit(
         self,
@@ -121,7 +140,8 @@ class RunsRegistry:
         )
 
         normalized_parts = [dict(part) for part in parts]
-        self._executor.submit(self._run_worker, run_id, session_id, normalized_parts, resolved_trace_id)
+        coro = self._run_worker_async(run_id, session_id, normalized_parts, resolved_trace_id)
+        asyncio.run_coroutine_threadsafe(coro, self._async_loop)
         return record
 
     def get_active_run_id(self, session_id: str) -> str | None:
@@ -181,7 +201,7 @@ class RunsRegistry:
             only_if={RunStatus.QUEUED, RunStatus.RUNNING},
         )
 
-    def _run_worker(
+    async def _run_worker_async(
         self,
         run_id: str,
         session_id: str,
@@ -212,14 +232,14 @@ class RunsRegistry:
                 return
             try:
                 with span("RunsRegistry.run_worker", run_id=run_id, session_id=session_id):
-                    result = asyncio.run(
-                        self._runtime.run(session_id, parts, stream=False, run_id=run_id, controller=controller)
+                    result = await self._runtime.run(
+                        session_id, parts, stream=False, run_id=run_id, controller=controller
                     )
             except TimeoutError as exc:
-                self._mark_timed_out(run_id, message=str(exc))
+                await self._mark_timed_out_async(run_id, message=str(exc))
                 return
             except Exception as exc:  # noqa: BLE001
-                self._mark_failed(run_id, message=str(exc))
+                await self._mark_failed_async(run_id, message=str(exc))
                 return
             finally:
                 with self._lock:
@@ -298,7 +318,7 @@ class RunsRegistry:
             self._emit_turn_events(record=updated, turn_result=turn_result)
         return updated
 
-    def _mark_failed(self, run_id: str, *, message: str) -> RunRecord | None:
+    async def _mark_failed_async(self, run_id: str, *, message: str) -> RunRecord | None:
         updated = self._set_status(
             run_id,
             status=RunStatus.FAILED,
@@ -325,7 +345,7 @@ class RunsRegistry:
                     session_id=updated.session_id,
                 ),
             )
-            self._dispatch_observe(
+            await self._dispatch_observe_async(
                 "run_error",
                 {
                     "session_id": updated.session_id,
@@ -336,7 +356,7 @@ class RunsRegistry:
             )
         return updated
 
-    def _mark_timed_out(self, run_id: str, *, message: str) -> RunRecord | None:
+    async def _mark_timed_out_async(self, run_id: str, *, message: str) -> RunRecord | None:
         updated = self._set_status(
             run_id,
             status=RunStatus.FAILED,
@@ -364,7 +384,7 @@ class RunsRegistry:
                     session_id=updated.session_id,
                 ),
             )
-            self._dispatch_observe(
+            await self._dispatch_observe_async(
                 "run_timeout",
                 {
                     "session_id": updated.session_id,
@@ -375,7 +395,7 @@ class RunsRegistry:
             )
         return updated
 
-    def _dispatch_observe(
+    async def _dispatch_observe_async(
         self,
         event: str,
         payload: Mapping[str, Any],
@@ -384,12 +404,10 @@ class RunsRegistry:
         if self._hook_runner is None:
             return
         try:
-            diagnostics = asyncio.run(
-                self._hook_runner.dispatch_observe(
-                    event,
-                    payload,
-                    hook_ctx,
-                )
+            diagnostics = await self._hook_runner.dispatch_observe(
+                event,
+                payload,
+                hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
             hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))

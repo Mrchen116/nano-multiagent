@@ -1,5 +1,6 @@
 """M3: Session fork creates independent copy with re-stamped message history."""
 
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -17,13 +18,20 @@ class _EchoLLMClient:
     def __init__(self) -> None:
         self.requests: list[LLMGenerateRequest] = []
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         self.requests.append(request)
         last_user_text = request.messages[-1].content
-        return LLMGenerateResponse(
+        response = LLMGenerateResponse(
             model=request.model,
             message=LLMMessage(role="assistant", content=f"ack:{last_user_text}"),
             finish_reason="stop",
+        )
+        yield response.message
+        yield LLMMessage(
+            role="assistant",
+            content="",
+            finish_reason=response.finish_reason,
+            usage=response.usage,
         )
 
 

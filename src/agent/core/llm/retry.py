@@ -1,10 +1,11 @@
 """Retry wrapper for LLM clients that handles transient failures transparently."""
 
-import time
+import asyncio
+from collections.abc import AsyncIterator
 
 from agent.core.errors import ModelError
 
-from .interfaces import LLMClient, LLMGenerateRequest, LLMGenerateResponse
+from .interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 
 # Delays cycle through these values; after every _COOLDOWN_EVERY consecutive
 # failures an extra _COOLDOWN_SECONDS pause is inserted before resuming.
@@ -25,14 +26,18 @@ class RetryingLLMClient:
     def __init__(self, client: LLMClient) -> None:
         self._client = client
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         backoff_index = 0
+        last_error: ModelError | None = None
         for attempt in range(_MAX_RETRIES + 1):
             try:
-                return self._client.generate(request)
+                async for msg in self._client.generate(request):
+                    yield msg
+                return
             except ModelError as exc:
                 if not exc.retryable:
                     raise
+                last_error = exc
                 if attempt >= _MAX_RETRIES:
                     raise ModelError(
                         f"LLM generate exceeded {_MAX_RETRIES} retries: {exc.message}",
@@ -41,14 +46,14 @@ class RetryingLLMClient:
                     ) from exc
                 delay = _BACKOFF_DELAYS[backoff_index]
                 backoff_index = (backoff_index + 1) % len(_BACKOFF_DELAYS)
-                self._sleep(delay)
+                await self._sleep(delay)
                 failed_attempts = attempt + 1
                 if failed_attempts % _COOLDOWN_EVERY == 0:
                     backoff_index = 0
-                    self._sleep(_COOLDOWN_SECONDS)
+                    await self._sleep(_COOLDOWN_SECONDS)
 
         raise AssertionError("unreachable")  # pragma: no cover
 
-    def _sleep(self, seconds: float) -> None:
+    async def _sleep(self, seconds: float) -> None:
         """Extracted for test monkeypatching."""
-        time.sleep(seconds)
+        await asyncio.sleep(seconds)

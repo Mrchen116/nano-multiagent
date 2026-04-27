@@ -16,7 +16,7 @@ class _RuntimeStub:
         self.hook_registry = build_hook_registry(repo_root=Path.cwd())
         self.hook_runner = HookRunner(registry=self.hook_registry)
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
         del parts
         del stream
         turn_id = "turn_sse_contract"
@@ -29,97 +29,85 @@ class _RuntimeStub:
                 session_id=session_id,
             ),
         )
-        asyncio.run(
-            self.hook_runner.dispatch_observe(
-                "tool_execution_update",
-                {
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "run_id": run_id,
-                    "call_id": "call_sse_contract",
-                    "name": "bash",
-                    "phase": "started",
-                    "status": "started",
-                    "elapsed_ms": 0,
-                },
-                hook_ctx,
-            )
+        await self.hook_runner.dispatch_observe(
+            "tool_execution_update",
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "run_id": run_id,
+                "call_id": "call_sse_contract",
+                "name": "bash",
+                "phase": "started",
+                "status": "started",
+                "elapsed_ms": 0,
+            },
+            hook_ctx,
         )
-        asyncio.run(
-            self.hook_runner.dispatch_observe(
-                "tool_execution_update",
-                {
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "run_id": run_id,
-                    "call_id": "call_sse_contract",
-                    "name": "bash",
-                    "phase": "running",
-                    "status": "running",
-                    "elapsed_ms": 120,
-                },
-                hook_ctx,
-            )
+        await self.hook_runner.dispatch_observe(
+            "tool_execution_update",
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "run_id": run_id,
+                "call_id": "call_sse_contract",
+                "name": "bash",
+                "phase": "running",
+                "status": "running",
+                "elapsed_ms": 120,
+            },
+            hook_ctx,
         )
-        asyncio.run(
-            self.hook_runner.dispatch_observe(
-                "tool_execution_update",
-                {
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "run_id": run_id,
-                    "call_id": "call_sse_contract",
-                    "name": "bash",
-                    "phase": "chunk",
-                    "stream": "stdout",
-                    "chunk": "chunk-1",
-                    "seq": 1,
-                },
-                hook_ctx,
-            )
+        await self.hook_runner.dispatch_observe(
+            "tool_execution_update",
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "run_id": run_id,
+                "call_id": "call_sse_contract",
+                "name": "bash",
+                "phase": "chunk",
+                "stream": "stdout",
+                "chunk": "chunk-1",
+                "seq": 1,
+            },
+            hook_ctx,
         )
-        asyncio.run(
-            self.hook_runner.dispatch_observe(
-                "tool_execution_update",
-                {
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "run_id": run_id,
-                    "call_id": "call_sse_contract",
-                    "name": "bash",
-                    "phase": "exit",
-                    "status": "completed",
-                    "duration_ms": 220,
-                    "exit_code": 0,
-                },
-                hook_ctx,
-            )
+        await self.hook_runner.dispatch_observe(
+            "tool_execution_update",
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "run_id": run_id,
+                "call_id": "call_sse_contract",
+                "name": "bash",
+                "phase": "exit",
+                "status": "completed",
+                "duration_ms": 220,
+                "exit_code": 0,
+            },
+            hook_ctx,
         )
-        asyncio.run(
-            self.hook_runner.dispatch_observe(
-                "message_update",
-                {
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "message_id": "msg_sse_contract",
-                    "delta": "contract-sse",
-                    "run_id": run_id,
-                },
-                hook_ctx,
-            )
+        await self.hook_runner.dispatch_observe(
+            "message_update",
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "message_id": "msg_sse_contract",
+                "delta": "contract-sse",
+                "run_id": run_id,
+            },
+            hook_ctx,
         )
-        asyncio.run(
-            self.hook_runner.dispatch_observe(
-                "turn_end",
-                {
-                    "session_id": session_id,
-                    "turn_id": turn_id,
-                    "completed": True,
-                    "stop_reason": "completed",
-                    "run_id": run_id,
-                },
-                hook_ctx,
-            )
+        await self.hook_runner.dispatch_observe(
+            "turn_end",
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "completed": True,
+                "stop_reason": "completed",
+                "run_id": run_id,
+            },
+            hook_ctx,
         )
         return TurnResult(
             session_id=session_id,

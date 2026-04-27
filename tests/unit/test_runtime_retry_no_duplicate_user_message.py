@@ -3,6 +3,7 @@
 When runtime.run() is called once, the session history must contain exactly one user message.
 """
 
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from agent.core.agent.runtime import AgentRuntime
@@ -15,11 +16,18 @@ from agent.core.session.manager import SessionManager
 class _SucceedLLMClient:
     """LLM client that always returns a response."""
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
-        return LLMGenerateResponse(
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+        response = LLMGenerateResponse(
             model=request.model,
             message=LLMMessage(role="assistant", content="hello"),
             finish_reason="stop",
+        )
+        yield response.message
+        yield LLMMessage(
+            role="assistant",
+            content="",
+            finish_reason=response.finish_reason,
+            usage=response.usage,
         )
 
 

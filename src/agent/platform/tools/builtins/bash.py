@@ -10,6 +10,18 @@ from agent.core.tools.serialization import json_serialize
 from agent.platform.tools.constants import DEFAULT_MAX_KILOBYTES, DEFAULT_MAX_LINES
 
 
+_READ_ONLY_COMMANDS = frozenset({
+    "ls", "cat", "grep", "rg", "find", "head", "tail", "echo", "pwd", "wc",
+    "file", "stat", "readlink", "sort", "uniq", "cut", "tr", "which", "whoami",
+    "id", "uname", "date", "ps", "df", "du", "env", "printenv", "hostname",
+})
+
+_READ_ONLY_GIT_SUBCOMMANDS = frozenset({
+    "status", "log", "diff", "show", "branch", "remote", "config", "rev-parse",
+    "ls-files", "blame", "stash", "tag", "describe",
+})
+
+
 class BashTool:
     """Execute shell commands within `ToolSafety` command and timeout policy."""
 
@@ -30,6 +42,36 @@ class BashTool:
         "required": ["command"],
         "additionalProperties": False,
     }
+
+    def is_concurrency_safe(self, args: Mapping[str, Any]) -> bool:
+        """Dynamic safety: read-only commands are safe; anything with side-effects is not."""
+        command = str(args.get("command", "")).strip()
+        if not command:
+            return False
+
+        # Redirections, pipes, background execution, or command separators imply side-effects.
+        if any(c in command for c in (">", ">>", "|", "&", ";", "`", "$(")):
+            return False
+
+        tokens = command.split()
+        if not tokens:
+            return False
+
+        first = tokens[0].lower()
+
+        # Explicit read-only commands.
+        if first in _READ_ONLY_COMMANDS:
+            return True
+
+        # Git commands need fine-grained classification.
+        if first == "git":
+            if len(tokens) >= 2:
+                sub = tokens[1].lower()
+                if sub in _READ_ONLY_GIT_SUBCOMMANDS:
+                    return True
+            return False
+
+        return False
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         """Run one shell command and normalize non-zero exits into `ToolError`."""

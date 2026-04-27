@@ -1,5 +1,6 @@
 """Provider-agnostic request/response contracts for LLM calls."""
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 
@@ -24,6 +25,8 @@ class LLMMessage:
     name: str | None = None
     tool_call_id: str | None = None
     tool_calls: tuple[LLMToolCall, ...] = ()
+    finish_reason: str | None = None
+    usage: TokenUsage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +36,6 @@ class LLMGenerateRequest:
     session_id: str
     model: str
     messages: tuple[LLMMessage, ...]
-    stream: bool = False
     temperature: float | None = None
     max_tokens: int | None = None
     tools: tuple[ToolSpec, ...] = ()
@@ -42,7 +44,11 @@ class LLMGenerateRequest:
 
 @dataclass(frozen=True, slots=True)
 class LLMGenerateResponse:
-    """Describe one normalized model generation response."""
+    """Describe one normalized model generation response (legacy sync wrapper).
+
+    Deprecated: streaming clients yield AsyncIterator[LLMMessage] directly.
+    Retained for provider mappers and transitional callers.
+    """
 
     model: str
     message: LLMMessage
@@ -54,14 +60,15 @@ class LLMGenerateResponse:
 class LLMClient(Protocol):
     """Protocol implemented by provider-specific generation clients."""
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
-        """Generate one response for the given normalized request.
+    def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+        """Generate one streaming response for the given normalized request.
+
+        Yields one LLMMessage per completed content block.
+        The final yielded message is a terminal metadata message carrying
+        finish_reason and usage (content="").
 
         Args:
             request: Provider-agnostic request payload.
-
-        Returns:
-            Normalized provider response.
         """
 
         ...

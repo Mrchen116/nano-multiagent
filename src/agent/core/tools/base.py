@@ -56,6 +56,15 @@ class Tool(Protocol):
     is_concurrency_safe: bool
     max_result_size_chars: int | None = None
 
+    def is_concurrency_safe(self, args: Mapping[str, Any]) -> bool:  # noqa: ANN001
+        """Return whether this tool call may execute concurrently with others.
+
+        Defaults to the class-level ``is_concurrency_safe`` flag. Subclasses
+        may override for dynamic decisions based on arguments (e.g. read-only
+        bash commands vs. destructive ones).
+        """
+        return bool(getattr(self, "is_concurrency_safe", False))
+
     def run(self, args: Mapping[str, Any], ctx: "ToolContext") -> Mapping[str, Any]:
         """Run tool with validated args and context."""
 

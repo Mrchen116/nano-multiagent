@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import AsyncIterator
 
 import json
 from dataclasses import replace
@@ -11,7 +12,8 @@ from urllib.parse import urlparse
 import httpx
 
 from agent.core.errors import ModelError
-from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMGenerateResponse
+from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
+from agent.core.types import TokenUsage
 from agent.platform.llm.providers.translator import LLMTranslator
 
 from .mapper import AnthropicMapper
@@ -28,25 +30,22 @@ class AnthropicClient(LLMClient):
         api_key: str | None = None,
         anthropic_version: str = "2023-06-01",
         timeout_seconds: float = 30.0,
-        transport: httpx.BaseTransport | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._default_model = model
         self._api_key = api_key
         self._anthropic_version = anthropic_version
         self._translator = LLMTranslator(AnthropicMapper())
         trust_env = _should_trust_env(base_url)
-        self._http_client = httpx.Client(
+        self._http_client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=timeout_seconds,
             transport=transport,
             trust_env=trust_env,
         )
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
-        """Execute one generation call."""
-
-        if request.stream:
-            raise ModelError("streaming generation is not implemented yet", retryable=False)
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+        """Execute one streaming generation call."""
 
         active_request = request
         if not active_request.model:
@@ -59,13 +58,15 @@ class AnthropicClient(LLMClient):
             headers["x-api-key"] = self._api_key
 
         try:
-            response = self._http_client.request(
+            async with self._http_client.stream(
                 provider_request.method,
                 provider_request.path,
                 headers=headers,
                 content=json.dumps(provider_request.json_body, separators=(",", ":")),
-            )
-            response.raise_for_status()
+            ) as response:
+                response.raise_for_status()
+                async for msg in self._stream_response(response):
+                    yield msg
         except httpx.HTTPStatusError as exc:
             raise ModelError(
                 "anthropic request failed",
@@ -80,27 +81,147 @@ class AnthropicClient(LLMClient):
                 details={"error": str(exc)},
             ) from exc
 
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            raise ModelError(
-                "anthropic response is not valid json",
-                retryable=False,
-                details={"response": response.text},
-            ) from exc
+    async def _stream_response(self, response: httpx.Response) -> AsyncIterator[LLMMessage]:
+        """Parse Anthropic SSE stream and yield LLMMessage per content block."""
 
-        return self._translator.from_provider_response(payload)
+        content_blocks: dict[int, dict[str, Any]] = {}
+        finish_reason: str | None = None
+        usage: dict[str, Any] | None = None
 
-    def close(self) -> None:
+        async for event in _iter_sse_events(response):
+            event_type = event.get("type")
+
+            if event_type == "content_block_start":
+                idx = event.get("index", 0)
+                block = event.get("content_block", {})
+                content_blocks[idx] = dict(block)
+
+            elif event_type == "content_block_delta":
+                idx = event.get("index", 0)
+                delta = event.get("delta", {})
+                block = content_blocks.get(idx)
+                if block is not None:
+                    _apply_anthropic_delta(block, delta)
+
+            elif event_type == "content_block_stop":
+                idx = event.get("index", 0)
+                block = content_blocks.pop(idx, None)
+                if block is not None:
+                    yield _anthropic_block_to_llm_message(block)
+
+            elif event_type == "message_delta":
+                delta = event.get("delta", {})
+                if "stop_reason" in delta:
+                    finish_reason = delta["stop_reason"]
+                usage = event.get("usage")
+
+            elif event_type == "message_stop":
+                yield LLMMessage(
+                    role="assistant",
+                    content="",
+                    finish_reason=finish_reason,
+                    usage=_parse_anthropic_usage(usage),
+                )
+
+    async def close(self) -> None:
         """Close underlying HTTP resources."""
 
-        self._http_client.close()
+        await self._http_client.aclose()
 
-    def __enter__(self) -> "AnthropicClient":
+    async def __aenter__(self) -> "AnthropicClient":
         return self
 
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
-        self.close()
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        await self.close()
+
+
+async def _iter_sse_events(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
+    """Iterate over SSE data lines and yield parsed JSON events."""
+
+    buffer = ""
+    async for line in response.aiter_lines():
+        if line.startswith("data: "):
+            data = line.removeprefix("data: ").strip()
+            if data == "[DONE]":
+                continue
+            try:
+                yield json.loads(data)
+            except ValueError:
+                continue
+
+
+def _apply_anthropic_delta(block: dict[str, Any], delta: dict[str, Any]) -> None:
+    """Apply a delta update to an in-flight content block."""
+
+    delta_type = delta.get("type")
+    if delta_type == "text_delta":
+        block["text"] = block.get("text", "") + delta.get("text", "")
+    elif delta_type == "input_json_delta":
+        block["input"] = block.get("input", "") + delta.get("partial_json", "")
+
+
+def _anthropic_block_to_llm_message(block: dict[str, Any]) -> LLMMessage:
+    """Convert one completed Anthropic content block into an LLMMessage."""
+
+    block_type = block.get("type")
+    if block_type == "text":
+        return LLMMessage(
+            role="assistant",
+            content=block.get("text", ""),
+        )
+    if block_type == "tool_use":
+        raw_input = block.get("input", "")
+        if isinstance(raw_input, str):
+            try:
+                parsed_input = json.loads(raw_input)
+            except ValueError:
+                parsed_input = {}
+        elif isinstance(raw_input, Mapping):
+            parsed_input = dict(raw_input)
+        else:
+            parsed_input = {}
+        return LLMMessage(
+            role="assistant",
+            content="",
+            tool_calls=(
+                LLMToolCall(
+                    call_id=block.get("id", ""),
+                    name=block.get("name", ""),
+                    arguments=parsed_input,
+                ),
+            ),
+        )
+    return LLMMessage(role="assistant", content="")
+
+
+def _parse_anthropic_usage(payload: dict[str, Any] | None) -> TokenUsage | None:
+    """Parse Anthropic usage payload into TokenUsage."""
+
+    if not isinstance(payload, dict):
+        return None
+
+    input_tokens = _extract_non_negative_int(payload.get("input_tokens"))
+    output_tokens = _extract_non_negative_int(payload.get("output_tokens"))
+    cache_creation_tokens = _extract_non_negative_int(payload.get("cache_creation_input_tokens")) or 0
+    cache_read_tokens = _extract_non_negative_int(payload.get("cache_read_input_tokens")) or 0
+    if input_tokens is None and output_tokens is None:
+        return None
+
+    prompt_tokens = (input_tokens or 0) + cache_creation_tokens + cache_read_tokens
+    completion_tokens = output_tokens or 0
+    return TokenUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=prompt_tokens + completion_tokens,
+    )
+
+
+def _extract_non_negative_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    return None
 
 
 def _should_trust_env(base_url: str) -> bool:
