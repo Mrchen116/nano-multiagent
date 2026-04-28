@@ -18,3 +18,7 @@ LLM交互日志：/Users/czj/Repos/LLM_PROXY/logs/<session_id>/
 ## 常用命令
 coding agent cli：
 PYTHONPATH=src python3 -m coding_cli.main --model volcanoArk:doubao-seed-2-0-code-preview-260215
+
+IM启动：
+
+Gateway启动：
