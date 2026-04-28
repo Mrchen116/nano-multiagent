@@ -1,5 +1,6 @@
 # Claude Code hook state (runtime only)
 .claude/state/
+CLAUDE.local.md
 .codex/
 *.sqlite3
 
