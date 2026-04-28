@@ -5,6 +5,8 @@ EXPECTED_METHODS = {
     "health",
     "create_session",
     "append_message",
+    "submit_message",
+    "stream_session",
     "send_message_async",
     "stream_session_events",
     "get_run",

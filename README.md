@@ -135,8 +135,7 @@ Managed mode (CLI starts/stops local API automatically):
 ```bash
 PYTHONPATH=src python3 -m coding_cli.main \
   --mode managed \
-  --base-url http://127.0.0.1:8000 \
-  --token test-token
+  --base-url http://127.0.0.1:8000
 ```
 
 Managed mode can inject LLM runtime config into the managed API process:
@@ -145,7 +144,6 @@ Managed mode can inject LLM runtime config into the managed API process:
 PYTHONPATH=src python3 -m coding_cli.main \
   --mode managed \
   --base-url http://127.0.0.1:8000 \
-  --token test-token \
   --llm-provider anthropic \
   --llm-model claude-3-5-sonnet-20241022 \
   --llm-base-url http://127.0.0.1:4100 \
@@ -160,14 +158,13 @@ Remote mode (connect existing API, never starts local process):
 ```bash
 PYTHONPATH=src python3 -m coding_cli.main \
   --mode remote \
-  --base-url http://127.0.0.1:8000 \
-  --token test-token
+  --base-url http://127.0.0.1:8000
 ```
 
 If you are not using editable install, run with `PYTHONPATH=src`:
 
 ```bash
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token
+PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000
 ```
 
 ### REPL commands
@@ -270,18 +267,17 @@ Playbook output is JSON and includes:
 ### Non-interactive commands
 
 ```bash
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token health
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token create-session --title "demo"
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token send-message --session-id <session_id> --text "hello"
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token llm-config get
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 --token test-token llm-config set --provider anthropic --model claude-3-5-sonnet-20241022 --base-url http://127.0.0.1:4100 --timeout-seconds 60
+PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 health
+PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 create-session --title "demo"
+PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 send-message --session-id <session_id> --text "hello"
+PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 llm-config get
+PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 llm-config set --provider anthropic --model claude-3-5-sonnet-20241022 --base-url http://127.0.0.1:4100 --timeout-seconds 60
 ```
 
 ### Environment variables
 
 - `NANO_MULTIAGENT_CLI_MODE` (`managed` or `remote`, default `remote`)
 - `NANO_MULTIAGENT_API_BASE_URL` (default `http://127.0.0.1:8000`)
-- `NANO_MULTIAGENT_API_TOKEN` (required for protected endpoints)
 - `NANO_MULTIAGENT_REQUEST_ID` (optional)
 - `NANO_MULTIAGENT_SESSION_ID` (optional default session for `send-message` and REPL startup)
 - `NANO_MULTIAGENT_API_TIMEOUT_SECONDS` (default `30`)

@@ -28,6 +28,36 @@ def test_sdk_client_module_keeps_backward_compatible_aliases() -> None:
     assert LegacySDKServerClientConfig is PlatformServerClientConfig
 
 
+def test_submit_message_posts_http_payload_with_auth_and_request_id() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["auth"] = request.headers.get("Authorization")
+        seen["request_id"] = request.headers.get("X-Request-Id")
+        seen["payload"] = json.loads(request.content.decode("utf-8"))
+        return httpx.Response(
+            status_code=200,
+            json={"run_id": "run_1", "anchor_sequence": 5, "injected": False, "status": "queued"},
+        )
+
+    config = ServerClientConfig(base_url="http://test.local", token="secret", request_id="req-fixed")
+    with ServerClient(config=config, transport=httpx.MockTransport(handler)) as client:
+        payload = client.submit_message(session_id="sess_1", text="hello")
+
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/v1/sessions/sess_1/messages"
+    assert seen["auth"] == "Bearer secret"
+    assert seen["request_id"] == "req-fixed"
+    assert seen["payload"] == {
+        "parts": [{"type": "text", "text": "hello"}],
+        "priority": "next",
+    }
+    assert payload["run_id"] == "run_1"
+    assert payload["anchor_sequence"] == 5
+
+
 def test_send_message_posts_http_payload_with_auth_and_request_id() -> None:
     seen: dict[str, object] = {}
 
@@ -241,3 +271,38 @@ def test_patch_llm_config_calls_v1_llm_config_endpoint() -> None:
     assert seen["path"] == "/v1/llm-config"
     assert seen["payload"] == {"model": "gpt-5-mini", "timeout_seconds": 45.0}
     assert payload["model"] == "gpt-5-mini"
+
+
+def test_incremental_sse_parser_emits_event() -> None:
+    from agent.platform.sdk.client import _IncrementalSseParser
+
+    parser = _IncrementalSseParser()
+    chunk = b'id: 42\nevent: run_status\ndata: {"status":"running"}\n\n'
+    events = parser.feed(chunk)
+    assert len(events) == 1
+    assert events[0]["event"] == "run_status"
+    assert events[0]["_id"] == 42
+    assert events[0]["status"] == "running"
+
+
+def test_incremental_sse_parser_across_chunks() -> None:
+    from agent.platform.sdk.client import _IncrementalSseParser
+
+    parser = _IncrementalSseParser()
+    events = parser.feed(b'id: 1\nevent: a\ndata: {"x":1}\n\n')
+    assert len(events) == 1
+    events = parser.feed(b'id: 2\nevent: b\ndata: {"x":2}\n\n')
+    assert len(events) == 1
+    assert events[0]["event"] == "b"
+    assert events[0]["_id"] == 2
+
+
+def test_incremental_sse_parser_skips_comments_and_empty() -> None:
+    from agent.platform.sdk.client import _IncrementalSseParser
+
+    parser = _IncrementalSseParser()
+    chunk = b':comment\n\nid: 3\nevent: ok\ndata: {"y":true}\n\n'
+    events = parser.feed(chunk)
+    assert len(events) == 1
+    assert events[0]["event"] == "ok"
+    assert events[0]["_id"] == 3

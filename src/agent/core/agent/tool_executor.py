@@ -1,6 +1,7 @@
 """Streaming tool executor with FIFO queue and dynamic concurrency safety."""
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping, Protocol
 
@@ -34,6 +35,8 @@ class _QueuedTool:
     task: asyncio.Task | None = None
     _cancelled: bool = False
     hook_context: Any | None = None
+    duration_ms: int = 0
+    _started_at_ns: int = 0
 
 
 class StreamingToolExecutor:
@@ -110,6 +113,7 @@ class StreamingToolExecutor:
 
     async def _execute_one(self, item: _QueuedTool) -> None:
         """Run a single tool call and record its result."""
+        item._started_at_ns = time.perf_counter_ns()
         try:
             if self._should_cancel(item):
                 item.result = self._synthetic_error(item, "cancelled by sibling bash error")
@@ -131,6 +135,7 @@ class StreamingToolExecutor:
                     call_id=item.tool_call.call_id,
                     name=item.tool_call.name,
                     output=output,
+                    duration_ms=item.duration_ms,
                 )
             item.status = "completed"
         except asyncio.CancelledError:
@@ -143,6 +148,7 @@ class StreamingToolExecutor:
                 name=item.tool_call.name,
                 output=None,
                 error=str(exc),
+                duration_ms=item.duration_ms,
             )
             item.status = "completed"
             # Bash error triggers sibling abort.
@@ -150,6 +156,18 @@ class StreamingToolExecutor:
                 self._has_errored = True
                 self._errored_tool_name = item.tool_call.name
                 self._sibling_event.set()
+        finally:
+            item.duration_ms = (time.perf_counter_ns() - item._started_at_ns) // 1_000_000
+            if item.result is not None:
+                # update result with final duration
+                item.result = ToolResult(
+                    call_id=item.result.call_id,
+                    name=item.result.name,
+                    output=item.result.output,
+                    error=item.result.error,
+                    content=item.result.content,
+                    duration_ms=item.duration_ms,
+                )
         item._event.set()
         await self._process_queue()
 

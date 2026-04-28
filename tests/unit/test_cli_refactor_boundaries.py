@@ -35,10 +35,9 @@ def test_repl_command_catalog_remains_stable() -> None:
 
 
 
-def test_commands_delegates_async_event_consumption_to_apps_module() -> None:
-    assert cli_commands._supports_async_repl_events is repl_events.supports_async_repl_events
-    assert cli_commands._send_message_with_async_events is repl_events.send_message_with_async_events
-    assert cli_commands._consume_async_run_events is repl_events.consume_async_run_events
+def test_commands_delegates_repl_event_helpers_to_apps_module() -> None:
+    assert cli_commands._build_ordered_repl_updates is repl_events._build_ordered_repl_updates
+    assert cli_commands._event_preview_line is repl_events._event_preview_line
     assert cli_commands._print_event_preview is repl_events.print_event_preview
     assert cli_commands._merge_text_delta is repl_events.merge_text_delta
 

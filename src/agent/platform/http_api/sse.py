@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import queue
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import Lock
-from typing import Any, Iterator
+from typing import Any, AsyncIterator, Iterator
 
 from agent.core.ids import make_event_id
 
@@ -25,10 +26,15 @@ class StreamEvent:
     data: dict[str, Any]
 
 
+class SubscriberOverflowError(Exception):
+    """Raised when a subscriber's queue overflows and events are being dropped."""
+
+
 @dataclass(slots=True)
 class _Subscriber:
     queue: queue.Queue[StreamEvent]
     session_id: str | None
+    overflow_marked: bool = False
 
 
 class EventStreamHub:
@@ -90,6 +96,7 @@ class EventStreamHub:
             try:
                 subscriber.queue.put_nowait(stream_event)
             except queue.Full:
+                subscriber.overflow_marked = True
                 continue
         return stream_event
 
@@ -145,11 +152,114 @@ class EventStreamHub:
             with self._lock:
                 self._subscribers = [item for item in self._subscribers if item is not subscriber]
 
+    def current_sequence(self) -> int:
+        """Return the last published sequence atomically; used as anchor for POST."""
+        with self._lock:
+            return self._next_sequence_num - 1
+
+    def has_sequence(self, sequence_num: int) -> bool:
+        """Return True if events after sequence_num are replayable from history."""
+        with self._lock:
+            if not self._history:
+                return sequence_num < self._next_sequence_num
+            return sequence_num >= self._history[0].sequence_num - 1
+
+    async def stream_session(
+        self,
+        *,
+        session_id: str,
+        after_sequence: int,
+        tick_seconds: float = 1.0,
+        max_empty_ticks: int | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        """Long-lived session-scoped stream.
+
+        Behavior:
+          - Replays history events with sequence > after_sequence (subject to history_limit).
+          - Then switches to real-time queue.
+          - Does NOT close on terminal run_status — keeps yielding until caller cancels.
+          - On subscriber overflow, raises SubscriberOverflowError; caller emits
+            stream-level error frame and closes.
+
+        Args:
+            max_empty_ticks: When given, the stream closes after this many consecutive
+                empty queue polls.  Used only by tests; production callers leave it
+                as ``None`` for a truly persistent stream.
+        """
+        buffer: queue.Queue[StreamEvent] = queue.Queue(maxsize=256)
+        subscriber = _Subscriber(queue=buffer, session_id=session_id)
+
+        with self._lock:
+            self._subscribers.append(subscriber)
+            history = [
+                event
+                for event in self._history
+                if event.sequence_num > after_sequence and event.session_id == session_id
+            ]
+
+        empty_ticks = 0
+        try:
+            for event in history:
+                if subscriber.overflow_marked:
+                    raise SubscriberOverflowError()
+                yield event
+
+            while True:
+                if subscriber.overflow_marked:
+                    raise SubscriberOverflowError()
+                try:
+                    event = buffer.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(tick_seconds)
+                    if subscriber.overflow_marked:
+                        raise SubscriberOverflowError()
+                    if max_empty_ticks is not None:
+                        empty_ticks += 1
+                        if empty_ticks >= max_empty_ticks:
+                            return
+                    continue
+                empty_ticks = 0
+                yield event
+        finally:
+            with self._lock:
+                self._subscribers = [item for item in self._subscribers if item is not subscriber]
+
 
 def encode_sse_event(*, sequence_num: int, event_id: str, event: str, data: dict[str, Any]) -> str:
     """Encode one event in SSE wire format expected by HTTP clients."""
     encoded_data = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
     return f"id: {sequence_num}\nevent: {event}\ndata: {encoded_data}\n\n"
+
+
+def encode_sse_event_from_stream_event(stream_event: StreamEvent) -> str:
+    """Encode a StreamEvent into SSE wire format."""
+    return encode_sse_event(
+        sequence_num=stream_event.sequence_num,
+        event_id=stream_event.event_id,
+        event=stream_event.event,
+        data=stream_event.data,
+    )
+
+
+def encode_stream_error(
+    *,
+    session_id: str,
+    run_id: str | None,
+    code: str,
+    message: str,
+) -> bytes:
+    """Encode a stream-level error frame (not published into hub)."""
+    retryable = code == "subscriber_overflow"
+    payload = {
+        "event": "error",
+        "session_id": session_id,
+        "run_id": run_id,
+        "code": code,
+        "message": message,
+        "retryable": retryable,
+    }
+    encoded_data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    return f"event: error\ndata: {encoded_data}\n\n".encode()
 
 
 def _utc_now_iso() -> str:

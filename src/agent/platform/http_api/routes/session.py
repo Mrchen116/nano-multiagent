@@ -1,8 +1,8 @@
 """Session-scoped HTTP handlers covering message, SSE, tools, and compaction."""
 
-from typing import Any, Literal
+from typing import Any, Mapping
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -11,13 +11,20 @@ from pydantic import BaseModel, Field, model_validator
 
 from agent.core.agent.compaction.types import CompactionSettings
 from agent.core.llm.interfaces import LLMMessage
+from agent.core.runs.origin import RunOrigin
 from agent.core.session.entries import SessionEntry, SessionEntryKind
 from agent.core.errors import ModelError
 from agent.core.hooks.registry import HookRegistry
 from agent.core.session.models import Session
 from agent.core.types import Message, TurnResult
 from agent.platform.hooks.session_usage import get_session_usage_snapshot
-from agent.platform.http_api.sse import EventStreamHub, StreamEvent, encode_sse_event
+from agent.platform.http_api.sse import (
+    EventStreamHub,
+    StreamEvent,
+    SubscriberOverflowError,
+    encode_sse_event,
+    encode_stream_error,
+)
 from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.registry import ToolRegistry
 from agent.core.runs.registry import RunsRegistry
@@ -81,51 +88,15 @@ class SendMessageRequest(BaseModel):
     message_id: str | None = None
     parts: list[dict[str, Any]] = Field(min_length=1)
     model: str | None = None
-    stream: bool = False
-    priority: Literal["now", "next"] = "next"
+    priority: str = "next"
 
 
-class MessageResponse(BaseModel):
-    """Assistant message projection for sync response payload."""
-
-    message_id: str
-    role: str
-    content: str
-
-
-class UsageResponse(BaseModel):
-    """Canonical per-turn model usage counters."""
-
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
-
-
-class SendMessageResponse(BaseModel):
-    """Synchronous turn execution response payload."""
-
-    session_id: str
-    turn_id: str
-    message: MessageResponse
-    completed: bool
-    stop_reason: str
-    usage: UsageResponse | None = None
-
-
-class SendMessageAsyncRequest(BaseModel):
-    """Asynchronous message submission payload."""
-
-    message_id: str | None = None
-    parts: list[dict[str, Any]] = Field(min_length=1)
-    model: str | None = None
-    priority: Literal["now", "next"] = "next"
-
-
-class SendMessageAsyncResponse(BaseModel):
-    """Accepted async run record reference."""
+class SubmitMessageResponse(BaseModel):
+    """JSON RPC response for message submit."""
 
     run_id: str
-    session_id: str
+    anchor_sequence: int
+    injected: bool
     status: str
 
 
@@ -191,7 +162,7 @@ class CompactResultResponse(BaseModel):
 
 
 class CompactSessionResponse(BaseModel):
-    """Response envelope for manual compaction request."""
+    """Compaction details when session history was compacted."""
 
     session_id: str
     compacted: bool
@@ -517,89 +488,32 @@ def get_session_messages(
     )
 
 
-@router.post("/{session_id}/messages", response_model=SendMessageResponse, response_model_exclude_none=True)
-async def send_message(
+@router.post("/{session_id}/messages", response_model=SubmitMessageResponse)
+async def submit_message(
     session_id: str,
     payload: SendMessageRequest,
-    runtime=Depends(get_agent_runtime),
     runs: RunsRegistry = Depends(get_runs_registry),
-) -> SendMessageResponse | JSONResponse:
-    """Execute one synchronous turn and normalize runtime errors to HTTP codes."""
-    if payload.stream:
+    event_hub: EventStreamHub = Depends(get_event_stream_hub),
+    session_service: SessionService = Depends(get_session_service),
+    request: Request = None,  # type: ignore[assignment]
+) -> SubmitMessageResponse:
+    """Submit a message turn and return run handle (JSON RPC, no SSE)."""
+    if session_service.get_session(session_id) is None:
         raise APIError(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            code="invalid_request",
-            message="sync endpoint does not support stream=true",
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="session_not_found",
+            message=f"session does not exist: {session_id}",
             retryable=False,
         )
 
-    # priority='next': inject into the active run's pending queue instead of starting a new turn.
-    if payload.priority == "next" and runs.get_active_run_id(session_id) is not None:
-        user_text = " ".join(
-            part.get("text", "") for part in payload.parts if part.get("type") == "text"
-        ).strip() or "[message]"
-        injected = runs.inject_pending_message(
-            session_id,
-            LLMMessage(role="user", content=user_text),
-        )
-        if injected:
-            return JSONResponse(
-                status_code=status.HTTP_202_ACCEPTED,
-                content={"status": "injected", "session_id": session_id},
-            )
-
-    # priority='now': interrupt the active run before starting this turn.
+    # priority='now': interrupt active run before starting new one
     if payload.priority == "now":
         runs.interrupt(session_id)
 
-    try:
-        result = await runtime.run(session_id, payload.parts, stream=False)
-    except ValueError as exc:
-        # Preserve 404 vs 400 split so CLI can present actionable guidance.
-        message = str(exc)
-        if message.startswith("session does not exist:"):
-            raise APIError(
-                status_code=status.HTTP_404_NOT_FOUND,
-                code="session_not_found",
-                message=message,
-                retryable=False,
-            ) from exc
-        raise APIError(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            code="invalid_request",
-            message=message,
-            retryable=False,
-        ) from exc
-    except ModelError as exc:
-        # Provider/model upstream failures are surfaced as 502 gateway errors.
-        raise APIError(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            code=exc.code,
-            message=exc.message,
-            retryable=exc.retryable,
-        ) from exc
-
-    return SendMessageResponse(**_to_message_response(result))
-
-
-@router.post("/{session_id}/messages:async", status_code=202, response_model=SendMessageAsyncResponse)
-def send_message_async(
-    session_id: str,
-    payload: SendMessageAsyncRequest,
-    request: Request,
-    runs: RunsRegistry = Depends(get_runs_registry),
-) -> SendMessageAsyncResponse:
-    """Submit an async run and return polling handle (`run_id`).
-
-    priority='next': injects into the active run's pending queue; returns a synthetic
-    record with status='injected' instead of creating a new run.
-    priority='now': interrupts the active run, then submits a new run as normal.
-    """
-    del payload.message_id
-    del payload.model
-
-    # priority='next': inject into active run if one exists.
+    # priority='next': inject into active run if one exists
     if payload.priority == "next" and runs.get_active_run_id(session_id) is not None:
+        anchor = event_hub.current_sequence()
+        active_run_id = runs.get_active_run_id(session_id)
         user_text = " ".join(
             part.get("text", "") for part in payload.parts if part.get("type") == "text"
         ).strip() or "[message]"
@@ -608,21 +522,19 @@ def send_message_async(
             LLMMessage(role="user", content=user_text),
         )
         if injected:
-            active_run_id = runs.get_active_run_id(session_id) or "injected"
-            return SendMessageAsyncResponse(
+            return SubmitMessageResponse(
                 run_id=active_run_id,
-                session_id=session_id,
+                anchor_sequence=anchor,
+                injected=True,
                 status="injected",
             )
 
-    # priority='now': interrupt active run before submitting.
-    if payload.priority == "now":
-        runs.interrupt(session_id)
-
+    anchor = event_hub.current_sequence()
     try:
         record = runs.submit(
             session_id=session_id,
             parts=payload.parts,
+            origin=RunOrigin.USER,
             trace_id=get_trace_id(request),
         )
     except ValueError as exc:
@@ -640,23 +552,22 @@ def send_message_async(
             message=message,
             retryable=False,
         ) from exc
-    return SendMessageAsyncResponse(
+    return SubmitMessageResponse(
         run_id=record.run_id,
-        session_id=record.session_id,
+        anchor_sequence=anchor,
+        injected=False,
         status=record.status.value,
     )
 
 
-@router.get("/{session_id}/events")
-def stream_session_events(
+@router.get("/{session_id}/stream")
+async def session_stream(
     session_id: str,
-    after_sequence: int = Query(ge=0),
-    max_events: int = Query(default=20, ge=1, le=200),
-    timeout_seconds: float = Query(default=0.25, ge=0.0, le=5.0),
-    session_service: SessionService = Depends(get_session_service),
+    request: Request,
     event_hub: EventStreamHub = Depends(get_event_stream_hub),
+    session_service: SessionService = Depends(get_session_service),
 ) -> StreamingResponse:
-    """Stream SSE events for one session with bounded long-poll semantics."""
+    """Persistent session-scoped SSE stream."""
     if session_service.get_session(session_id) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -664,15 +575,21 @@ def stream_session_events(
             message=f"session does not exist: {session_id}",
             retryable=False,
         )
-    return StreamingResponse(
-        _iter_sse(
-            event_hub.stream(
+
+    last_event_id = _parse_last_event_id(request.headers)
+    if last_event_id is not None and not event_hub.has_sequence(last_event_id):
+        async def _err_only():
+            yield encode_stream_error(
                 session_id=session_id,
-                after_sequence=after_sequence,
-                max_events=max_events,
-                timeout_seconds=timeout_seconds,
+                run_id=None,
+                code="resume_window_exceeded",
+                message="event history pruned beyond Last-Event-ID",
             )
-        ),
+        return StreamingResponse(_err_only(), media_type="text/event-stream")
+
+    after = last_event_id if last_event_id is not None else event_hub.current_sequence()
+    return StreamingResponse(
+        _session_stream_generator(session_id=session_id, after_sequence=after, event_hub=event_hub),
         media_type="text/event-stream",
     )
 
@@ -722,53 +639,6 @@ def _session_entry_payload(entry: SessionEntry) -> dict[str, Any]:
     }
 
 
-def _to_message_response(result: TurnResult) -> dict[str, Any]:
-    """Convert runtime turn result into sync response payload."""
-    message = _select_assistant_message(result.messages)
-    payload: dict[str, Any] = {
-        "session_id": result.session_id,
-        "turn_id": result.turn_id,
-        "message": {
-            "message_id": message.message_id,
-            "role": message.role,
-            "content": message.content,
-        },
-        "completed": result.completed,
-        "stop_reason": result.stop_reason,
-    }
-    if result.usage is not None:
-        payload["usage"] = {
-            "prompt_tokens": result.usage.prompt_tokens,
-            "completion_tokens": result.usage.completion_tokens,
-            "total_tokens": result.usage.total_tokens,
-        }
-    return payload
-
-
-def _select_assistant_message(messages: tuple[Message, ...]) -> Message:
-    """Select latest assistant message or raise contract violation error."""
-    for message in reversed(messages):
-        if message.role == "assistant":
-            return message
-    raise APIError(
-        status_code=status.HTTP_502_BAD_GATEWAY,
-        code="invalid_runtime_response",
-        message="runtime did not return assistant message",
-        retryable=False,
-    )
-
-
-def _iter_sse(events: Iterator[StreamEvent]) -> Iterator[str]:
-    """Encode hub events into text/event-stream payload chunks."""
-    for item in events:
-        yield encode_sse_event(
-            sequence_num=item.sequence_num,
-            event_id=item.event_id,
-            event=item.event,
-            data=item.data,
-        )
-
-
 def _parse_workspace_root(workspace_root: str | None) -> Path:
     """Normalize and validate workspace_root, defaulting to CWD when absent."""
     if workspace_root is None or not workspace_root.strip():
@@ -791,3 +661,37 @@ def _resolve_context_window(runtime: object) -> int:
     if isinstance(context_window, int) and not isinstance(context_window, bool) and context_window > 0:
         return context_window
     return _CONTEXT_BUDGET_MAX_TOKENS
+
+
+def _parse_last_event_id(headers: Mapping[str, str]) -> int | None:
+    """Extract Last-Event-ID from request headers."""
+    raw = headers.get("last-event-id")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+async def _session_stream_generator(
+    *,
+    session_id: str,
+    after_sequence: int,
+    event_hub: EventStreamHub,
+) -> AsyncIterator[str]:
+    try:
+        async for event in event_hub.stream_session(session_id=session_id, after_sequence=after_sequence):
+            yield encode_sse_event(
+                sequence_num=event.sequence_num,
+                event_id=event.event_id,
+                event=event.event,
+                data=event.data,
+            )
+    except SubscriberOverflowError:
+        yield encode_stream_error(
+            session_id=session_id,
+            run_id=None,
+            code="subscriber_overflow",
+            message="server backlog overflow; reconnect with Last-Event-ID",
+        )

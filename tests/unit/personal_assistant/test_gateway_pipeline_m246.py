@@ -40,11 +40,16 @@ class _FakeKernelClient:
         self._session_count += 1
         return {"session_id": f"sess-{self._session_count}"}
 
-    def send_message_async(self, *, session_id, texts, image_urls=None):
+    def submit_message(self, *, session_id, texts, image_urls=None, priority="next"):
         self._run_count += 1
         run_id = f"run-{self._run_count}"
         self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
-        return {"run_id": run_id}
+        return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
+
+    async def stream_session(self, *, session_id, last_event_id=None):
+        del session_id, last_event_id
+        yield {"event": "assistant_message", "run_id": f"run-{self._run_count}", "content": "ok"}
+        yield {"event": "run_status", "run_id": f"run-{self._run_count}", "status": "completed"}
 
     def get_run(self, *, run_id):
         return {"status": "completed", "output_text": "ok"}

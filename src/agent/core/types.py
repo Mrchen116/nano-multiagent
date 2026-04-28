@@ -59,6 +59,7 @@ class ToolResult:
     output: Any = None
     error: str | None = None
     content: str | list[dict[str, Any]] | None = None
+    duration_ms: int = 0
 
 
 @dataclass(frozen=True, slots=True)

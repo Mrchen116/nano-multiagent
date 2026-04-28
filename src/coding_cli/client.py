@@ -5,6 +5,7 @@ import json
 import os
 import uuid
 from dataclasses import dataclass
+from collections.abc import AsyncIterator
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
@@ -89,40 +90,65 @@ class ServerClient:
             payload["skills"] = skills
         return self._request("POST", "/v1/sessions", json=payload)
 
-    def send_message(self, *, session_id: str, text: str) -> dict[str, Any]:
-        """Send one synchronous message turn to the agent HTTP API."""
-        if not session_id.strip():
-            raise ValueError("session_id is required")
-        if not text.strip():
-            raise ValueError("text is required")
-        payload = {
-            "parts": [{"type": "text", "text": text}],
-            "stream": False,
-        }
-        return self._request(
-            "POST",
-            f"/v1/sessions/{session_id}/messages",
-            json=payload,
-        )
-
-    def send_message_async(
-        self, *, session_id: str, text: str, priority: str | None = None
+    def submit_message(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        priority: str = "next",
+        message_id: str | None = None,
     ) -> dict[str, Any]:
-        """Submit one asynchronous run and return the run handle payload."""
+        """POST /messages. Returns {run_id, anchor_sequence, injected, status}."""
         if not session_id.strip():
             raise ValueError("session_id is required")
         if not text.strip():
             raise ValueError("text is required")
         payload: dict[str, Any] = {
             "parts": [{"type": "text", "text": text}],
+            "priority": priority,
         }
-        if priority is not None:
-            payload["priority"] = priority
+        if message_id is not None:
+            payload["message_id"] = message_id
         return self._request(
             "POST",
-            f"/v1/sessions/{session_id}/messages:async",
+            f"/v1/sessions/{session_id}/messages",
             json=payload,
         )
+
+    async def stream_session(
+        self,
+        *,
+        session_id: str,
+        last_event_id: int | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """GET /stream as persistent SSE iterator.
+
+        Yields decoded events {"event": str, "_id": int, **payload}.
+        Closes only when HTTP connection closes.
+        """
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        headers = self._build_headers()
+        headers["Accept"] = "text/event-stream"
+        if last_event_id is not None:
+            headers["Last-Event-ID"] = str(last_event_id)
+
+        async with httpx.AsyncClient(
+            base_url=self._config.base_url,
+            transport=self._transport,
+        ) as client:
+            async with client.stream(
+                "GET",
+                f"/v1/sessions/{session_id}/stream",
+                headers=headers,
+                timeout=None,
+            ) as resp:
+                if resp.status_code >= 400:
+                    raise RuntimeError(f"stream_session failed: {resp.status_code}")
+                parser = _IncrementalSseParser()
+                async for chunk in resp.aiter_bytes():
+                    for event in parser.feed(chunk):
+                        yield event
 
     def get_run(self, *, run_id: str) -> dict[str, Any]:
         """Fetch run status snapshot for polling-based async flows."""
@@ -211,45 +237,6 @@ class ServerClient:
         """Pass through partial LLM config payload without local normalization."""
         return self._request("PATCH", "/v1/llm-config", json=payload)
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, Any]]:
-        """Fetch one SSE poll window and parse it into structured events."""
-        if not session_id.strip():
-            raise ValueError("session_id is required")
-        if after_sequence < 0:
-            raise ValueError("after_sequence must be >= 0")
-        if max_events <= 0:
-            raise ValueError("max_events must be > 0")
-        if timeout_seconds < 0:
-            raise ValueError("timeout_seconds must be >= 0")
-
-        headers = self._build_headers()
-        response = self._client.request(
-            method="GET",
-            url=f"/v1/sessions/{session_id}/events",
-            params={
-                "after_sequence": after_sequence,
-                "max_events": max_events,
-                "timeout_seconds": timeout_seconds,
-            },
-            headers=headers,
-        )
-
-        if response.status_code >= 400:
-            try:
-                payload: Any = response.json()
-            except ValueError:
-                payload = {"raw": response.text}
-            raise RuntimeError(f"request failed ({response.status_code}): {payload}")
-
-        return _parse_sse_events(response.text)
-
     def _request(
         self,
         method: str,
@@ -297,55 +284,70 @@ def _should_trust_env(base_url: str) -> bool:
     return host not in local_hosts
 
 
-def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
-    """Parse raw SSE response text into event dictionaries.
+class _IncrementalSseParser:
+    """Line-level SSE parser that consumes byte chunks and yields complete events.
 
-    Notes:
-        Invalid or non-JSON event blocks are skipped intentionally so transient
-        malformed frames do not break CLI polling loops.
+    Supports multi-line data, comment skipping, and cross-chunk frame boundaries.
     """
-    events: list[dict[str, Any]] = []
-    for block in raw.split("\n\n"):
-        segment = block.strip()
-        if not segment:
-            continue
-        event_id: str | None = None
-        event = "message"
-        data_lines: list[str] = []
-        for line in segment.splitlines():
-            if line.startswith("id:"):
-                event_id = line[3:].strip()
-                continue
-            if line.startswith("event:"):
-                event = line[6:].strip() or "message"
-                continue
-            if line.startswith("data:"):
-                data_lines.append(line[5:].strip())
-                continue
-        if not data_lines:
-            continue
-        data_text = "\n".join(data_lines)
+
+    def __init__(self) -> None:
+        self._buffer = bytearray()
+        self._event_name: str = "message"
+        self._event_id: str | None = None
+        self._data_lines: list[str] = []
+        self._events: list[dict[str, Any]] = []
+
+    def feed(self, chunk: bytes) -> list[dict[str, Any]]:
+        """Feed a byte chunk and return any newly completed events."""
+        self._buffer.extend(chunk)
+        while b"\n" in self._buffer:
+            idx = self._buffer.index(b"\n")
+            line = self._buffer[:idx]
+            del self._buffer[: idx + 1]
+            self._process_line(line.decode("utf-8", errors="replace").rstrip("\r"))
+        completed = list(self._events)
+        self._events.clear()
+        return completed
+
+    def _process_line(self, line: str) -> None:
+        if line == "":
+            # Empty line terminates one event frame
+            if self._data_lines:
+                self._emit_event()
+            self._event_name = "message"
+            self._event_id = None
+            self._data_lines = []
+            return
+        if line.startswith(":"):
+            return  # comment
+        if ":" in line:
+            field, value = line.split(":", 1)
+            value = value.lstrip(" ")
+        else:
+            field = line
+            value = ""
+        if field == "event":
+            self._event_name = value or "message"
+        elif field == "id":
+            self._event_id = value
+        elif field == "data":
+            self._data_lines.append(value)
+
+    def _emit_event(self) -> None:
+        data_text = "\n".join(self._data_lines)
         try:
             parsed = json.loads(data_text)
         except ValueError:
-            continue
+            return
         if not isinstance(parsed, dict):
-            continue
-        sequence_num: int | None = None
-        if event_id is not None:
+            return
+        event: dict[str, Any] = {"event": self._event_name, **parsed}
+        if self._event_id is not None:
             try:
-                sequence_num = int(event_id)
+                event["_id"] = int(self._event_id)
             except ValueError:
-                pass
-        events.append(
-            {
-                "sequence_num": sequence_num if sequence_num is not None else 0,
-                "event_id": event_id or "",
-                "event": event,
-                "data": parsed,
-            }
-        )
-    return events
+                event["_id"] = self._event_id
+        self._events.append(event)
 
 
 class _AsyncTransportBridge(httpx.BaseTransport):

@@ -50,6 +50,8 @@ class _JSONTransport(httpx.BaseTransport):
                     "metadata": {"idempotency_key": "idem-1"},
                 },
             )
+        if request.url.path == "/v1/sessions/sess-1/messages" and request.method == "POST":
+            return httpx.Response(200, json={"run_id": "run-1", "session_id": "sess-1", "anchor_sequence": 1, "injected": False, "status": "queued"})
         if request.url.path == "/v1/sessions/sess-1/messages:async":
             return httpx.Response(202, json={"run_id": "run-1", "session_id": "sess-1", "status": "queued"})
         if request.url.path == "/v1/runs/run-1":
@@ -63,8 +65,8 @@ EXPECTED_METHODS = {
     "health",
     "create_session",
     "append_message",
-    "send_message_async",
-    "stream_session_events",
+    "submit_message",
+    "stream_session",
     "get_run",
     "cancel_run",
 }
@@ -92,14 +94,14 @@ def test_kernel_api_client_calls_required_http_subset() -> None:
         metadata={"source": "gateway"},
         idempotency_key="idem-1",
     )["entry_id"] == "evt-1"
-    assert client.send_message_async(session_id="sess-1", texts=["hello"])["run_id"] == "run-1"
+    assert client.submit_message(session_id="sess-1", texts=["hello"])["run_id"] == "run-1"
     assert client.get_run(run_id="run-1")["status"] == "running"
     assert client.cancel_run(run_id="run-1")["status"] == "cancelled"
 
     create_request = next(request for request in transport.requests if request.url.path == "/v1/sessions")
     get_request = next(request for request in transport.requests if request.url.path == "/v1/sessions/sess-1")
     append_request = next(request for request in transport.requests if request.url.path.endswith("messages:append"))
-    async_request = next(request for request in transport.requests if request.url.path.endswith("messages:async"))
+    submit_request = next(request for request in transport.requests if request.url.path.endswith("messages") and request.method == "POST")
     assert create_request.headers["authorization"] == "Bearer secret-token"
     assert create_request.headers["x-request-id"] == "req-fixed"
     assert get_request.headers["authorization"] == "Bearer secret-token"
@@ -109,7 +111,8 @@ def test_kernel_api_client_calls_required_http_subset() -> None:
     assert b'"role":"assistant"' in append_request.content
     assert b'"content":"hello"' in append_request.content
     assert b'"idempotency_key":"idem-1"' in append_request.content
-    assert b'"parts":[{"type":"text","text":"hello"}]' in async_request.content
+    assert b'"parts":[{"type":"text","text":"hello"}]' in submit_request.content
+    assert b'"priority":"next"' in submit_request.content
 
 
 def test_kernel_api_client_forwards_session_metadata_when_creating_sessions() -> None:
@@ -139,20 +142,6 @@ def test_kernel_api_client_forwards_session_metadata_when_creating_sessions() ->
     assert b'"conversation_id":"conv-1"' in create_request.content
     assert b'"config_profile_version":2' in create_request.content
     assert b'"system_prompt":"You are Agent A v2."' in create_request.content
-
-
-def test_kernel_api_client_parses_sse_events() -> None:
-    client = KernelApiClient(
-        config=KernelApiClientConfig(base_url="http://kernel.local", token="secret-token", request_id="req-fixed"),
-        transport=_SSETransport(),
-    )
-
-    events = client.stream_session_events(session_id="sess-1", max_events=2, timeout_seconds=0.1)
-
-    assert events == [
-        {"sequence_num": 0, "id": "evt-1", "event": "run.update", "data": {"status": "running"}},
-        {"sequence_num": 0, "id": "evt-2", "event": "message", "data": {"status": "completed"}},
-    ]
 
 
 def test_kernel_api_client_maps_error_payload_to_exception() -> None:
@@ -188,7 +177,7 @@ def test_send_message_async_includes_image_parts_when_image_urls_provided() -> N
         transport=httpx.MockTransport(handler),
     )
 
-    client.send_message_async(
+    client.submit_message(
         session_id="sess-1",
         texts=["describe this image"],
         image_urls=[
@@ -207,8 +196,8 @@ def test_send_message_async_includes_image_parts_when_image_urls_provided() -> N
     assert parts[2] == {"type": "image", "image_url": "http://im.local/im/uploads/doc.jpg"}
 
 
-def test_send_message_async_without_image_urls_sends_only_text_parts() -> None:
-    """send_message_async without image_urls must produce only text parts (backward compat)."""
+def test_submit_message_without_image_urls_sends_only_text_parts() -> None:
+    """submit_message without image_urls must produce only text parts."""
     captured_requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -220,10 +209,99 @@ def test_send_message_async_without_image_urls_sends_only_text_parts() -> None:
         transport=httpx.MockTransport(handler),
     )
 
-    client.send_message_async(session_id="sess-1", texts=["hello"])
+    client.submit_message(session_id="sess-1", texts=["hello"])
 
     import json as _json
     parsed = _json.loads(captured_requests[0].content)
     parts = parsed["parts"]
     assert len(parts) == 1
     assert parts[0] == {"type": "text", "text": "hello"}
+
+
+def test_submit_message_includes_image_parts_when_image_urls_provided() -> None:
+    captured_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        return httpx.Response(200, json={"run_id": "run-1", "session_id": "sess-1", "anchor_sequence": 1, "injected": False, "status": "queued"})
+
+    client = KernelApiClient(
+        config=KernelApiClientConfig(base_url="http://kernel.local", token="tok", request_id="req-1"),
+        transport=httpx.MockTransport(handler),
+    )
+
+    client.submit_message(
+        session_id="sess-1",
+        texts=["describe this image"],
+        image_urls=[
+            {"url": "http://im.local/im/uploads/photo.png", "content_type": "image/png"},
+            {"url": "http://im.local/im/uploads/doc.jpg"},
+        ],
+    )
+
+    assert len(captured_requests) == 1
+    body = captured_requests[0].content
+    import json as _json
+    parsed = _json.loads(body)
+    parts = parsed["parts"]
+    assert parts[0] == {"type": "text", "text": "describe this image"}
+    assert parts[1] == {"type": "image", "image_url": "http://im.local/im/uploads/photo.png", "mime_type": "image/png"}
+    assert parts[2] == {"type": "image", "image_url": "http://im.local/im/uploads/doc.jpg"}
+    assert parsed["priority"] == "next"
+
+
+def test_submit_message_without_image_urls_sends_only_text_parts() -> None:
+    captured_requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        return httpx.Response(200, json={"run_id": "run-1", "session_id": "sess-1", "anchor_sequence": 1, "injected": False, "status": "queued"})
+
+    client = KernelApiClient(
+        config=KernelApiClientConfig(base_url="http://kernel.local", token="tok", request_id="req-1"),
+        transport=httpx.MockTransport(handler),
+    )
+
+    client.submit_message(session_id="sess-1", texts=["hello"])
+
+    import json as _json
+    parsed = _json.loads(captured_requests[0].content)
+    parts = parsed["parts"]
+    assert len(parts) == 1
+    assert parts[0] == {"type": "text", "text": "hello"}
+    assert parsed["priority"] == "next"
+
+
+def test_incremental_sse_parser_emits_event() -> None:
+    from personal_assistant.client.kernel_api_client import _IncrementalSseParser
+
+    parser = _IncrementalSseParser()
+    chunk = b"id: 42\nevent: run_status\ndata: {\"status\":\"running\"}\n\n"
+    events = parser.feed(chunk)
+    assert len(events) == 1
+    assert events[0]["event"] == "run_status"
+    assert events[0]["_id"] == 42
+    assert events[0]["status"] == "running"
+
+
+def test_incremental_sse_parser_across_chunks() -> None:
+    from personal_assistant.client.kernel_api_client import _IncrementalSseParser
+
+    parser = _IncrementalSseParser()
+    events = parser.feed(b"id: 1\nevent: a\ndata: {\"x\":1}\n\n")
+    assert len(events) == 1
+    events = parser.feed(b"id: 2\nevent: b\ndata: {\"x\":2}\n\n")
+    assert len(events) == 1
+    assert events[0]["event"] == "b"
+    assert events[0]["_id"] == 2
+
+
+def test_incremental_sse_parser_skips_comments_and_empty() -> None:
+    from personal_assistant.client.kernel_api_client import _IncrementalSseParser
+
+    parser = _IncrementalSseParser()
+    chunk = b":comment\n\nid: 3\nevent: ok\ndata: {\"y\":true}\n\n"
+    events = parser.feed(chunk)
+    assert len(events) == 1
+    assert events[0]["event"] == "ok"
+    assert events[0]["_id"] == 3

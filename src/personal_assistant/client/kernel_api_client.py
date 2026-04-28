@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -45,6 +46,7 @@ class KernelApiClient:
         *,
         config: KernelApiClientConfig | None = None,
         transport: httpx.BaseTransport | None = None,
+        async_transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._config = config or KernelApiClientConfig()
         self._client = httpx.Client(
@@ -53,6 +55,7 @@ class KernelApiClient:
             transport=transport,
             trust_env=_should_trust_env(self._config.base_url),
         )
+        self._async_transport = async_transport
 
     def close(self) -> None:
         """Release underlying HTTP resources.
@@ -138,25 +141,15 @@ class KernelApiClient:
             require_auth=True,
         )
 
-    def send_message_async(
+    def submit_message(
         self,
         *,
         session_id: str,
         texts: list[str],
         image_urls: list[dict[str, Any]] | None = None,
+        priority: str = "next",
     ) -> dict[str, Any]:
-        """Submit one or more asynchronous text messages to an existing session.
-
-        Args:
-            session_id: Existing kernel session id.
-            texts: Non-empty list of message texts sent as ordered ``parts``.
-                   When the list contains a single item this is equivalent to
-                   the previous single-text API.
-            image_urls: Optional list of image attachment dicts (each with ``url`` and
-                        optionally ``content_type``) appended as ``type=image`` parts
-                        after all text parts.
-        """
-
+        """POST /messages. Returns {run_id, anchor_sequence, injected, status}."""
         if not texts:
             raise ValueError("texts must contain at least one message")
         parts: list[dict[str, Any]] = [
@@ -170,58 +163,48 @@ class KernelApiClient:
                 if isinstance(mime, str) and mime.strip():
                     image_part["mime_type"] = mime.strip()
                 parts.append(image_part)
-        payload: dict[str, Any] = {"parts": parts}
+        payload: dict[str, Any] = {"parts": parts, "priority": priority}
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request(
             "POST",
-            f"/v1/sessions/{session}/messages:async",
+            f"/v1/sessions/{session}/messages",
             json=payload,
             require_auth=True,
         )
 
-    def stream_session_events(
+    async def stream_session(
         self,
         *,
         session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, Any]]:
-        """Fetch one bounded SSE poll window and decode structured events.
+        last_event_id: int | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """GET /stream as persistent SSE iterator.
 
-        Args:
-            session_id: Existing kernel session id.
-            after_sequence: Only request events after this sequence number.
-            max_events: Maximum number of events requested in this poll window.
-            timeout_seconds: Long-poll wait time used by the server before returning.
-
-        Returns:
-            Parsed event dictionaries with `sequence_num`, `event`, and decoded JSON `data`.
-
-        Raises:
-            ValueError: When call arguments are semantically invalid.
-            RuntimeError: When the server returns an error response.
+        Yields decoded events {"event": str, "_id": int, **payload}.
         """
-
+        import asyncio
         session = _require_non_empty_string(session_id, field_name="session_id")
-        if after_sequence < 0:
-            raise ValueError("after_sequence must be >= 0")
-        if max_events <= 0:
-            raise ValueError("max_events must be > 0")
-        if timeout_seconds < 0:
-            raise ValueError("timeout_seconds must be >= 0")
-        response = self._client.request(
-            method="GET",
-            url=f"/v1/sessions/{session}/events",
-            headers=self._build_headers(require_auth=True),
-            params={
-                "after_sequence": after_sequence,
-                "max_events": max_events,
-                "timeout_seconds": timeout_seconds,
-            },
-        )
-        _raise_for_error_response(response)
-        return _parse_sse_events(response.text)
+        headers = self._build_headers(require_auth=True)
+        headers["Accept"] = "text/event-stream"
+        if last_event_id is not None:
+            headers["Last-Event-ID"] = str(last_event_id)
+
+        async with httpx.AsyncClient(
+            base_url=self._config.base_url,
+            transport=self._async_transport,
+        ) as client:
+            async with client.stream(
+                "GET",
+                f"/v1/sessions/{session}/stream",
+                headers=headers,
+                timeout=None,
+            ) as resp:
+                if resp.status_code >= 400:
+                    raise RuntimeError(f"stream_session failed: {resp.status_code}")
+                parser = _IncrementalSseParser()
+                async for chunk in resp.aiter_bytes():
+                    for event in parser.feed(chunk):
+                        yield event
 
     def get_run(self, *, run_id: str) -> dict[str, Any]:
         """Fetch current async run status snapshot for polling flows."""
@@ -266,6 +249,72 @@ class KernelApiClient:
         return headers
 
 
+class _IncrementalSseParser:
+    """Line-level SSE parser that consumes byte chunks and yields complete events.
+
+    Supports multi-line data, comment skipping, and cross-chunk frame boundaries.
+    """
+
+    def __init__(self) -> None:
+        self._buffer = bytearray()
+        self._event_name: str = "message"
+        self._event_id: str | None = None
+        self._data_lines: list[str] = []
+        self._events: list[dict[str, Any]] = []
+
+    def feed(self, chunk: bytes) -> list[dict[str, Any]]:
+        """Feed a byte chunk and return any newly completed events."""
+        self._buffer.extend(chunk)
+        while b"\n" in self._buffer:
+            idx = self._buffer.index(b"\n")
+            line = self._buffer[:idx]
+            del self._buffer[: idx + 1]
+            self._process_line(line.decode("utf-8", errors="replace").rstrip("\r"))
+        completed = list(self._events)
+        self._events.clear()
+        return completed
+
+    def _process_line(self, line: str) -> None:
+        if line == "":
+            # Empty line terminates one event frame
+            if self._data_lines:
+                self._emit_event()
+            self._event_name = "message"
+            self._event_id = None
+            self._data_lines = []
+            return
+        if line.startswith(":"):
+            return  # comment
+        if ":" in line:
+            field, value = line.split(":", 1)
+            value = value.lstrip(" ")
+        else:
+            field = line
+            value = ""
+        if field == "event":
+            self._event_name = value or "message"
+        elif field == "id":
+            self._event_id = value
+        elif field == "data":
+            self._data_lines.append(value)
+
+    def _emit_event(self) -> None:
+        data_text = "\n".join(self._data_lines)
+        try:
+            parsed = json.loads(data_text)
+        except ValueError:
+            return
+        if not isinstance(parsed, dict):
+            return
+        event: dict[str, Any] = {"event": self._event_name, **parsed}
+        if self._event_id is not None:
+            try:
+                event["_id"] = int(self._event_id)
+            except ValueError:
+                event["_id"] = self._event_id
+        self._events.append(event)
+
+
 def _raise_for_error_response(response: httpx.Response) -> None:
     try:
         payload: Any = response.json()
@@ -280,47 +329,6 @@ def _raise_for_error_response(response: httpx.Response) -> None:
         trace_id = error.get("trace_id")
         raise RuntimeError(f"kernel request failed ({response.status_code}) code={code} message={message} trace_id={trace_id}")
     raise RuntimeError(f"kernel request failed ({response.status_code}): {payload}")
-
-
-def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for block in raw.split("\n\n"):
-        segment = block.strip()
-        if not segment:
-            continue
-        event_id: str | None = None
-        event = "message"
-        data_lines: list[str] = []
-        for line in segment.splitlines():
-            if line.startswith("id:"):
-                event_id = line[3:].strip() or None
-                continue
-            if line.startswith("event:"):
-                event = line[6:].strip() or "message"
-                continue
-            if line.startswith("data:"):
-                data_lines.append(line[5:].strip())
-        if not data_lines:
-            continue
-        try:
-            data = json.loads("\n".join(data_lines))
-        except json.JSONDecodeError:
-            continue
-        sequence_num: int | None = None
-        if event_id is not None:
-            try:
-                sequence_num = int(event_id)
-            except ValueError:
-                pass
-        events.append(
-            {
-                "sequence_num": sequence_num if sequence_num is not None else 0,
-                "id": event_id,
-                "event": event,
-                "data": data,
-            }
-        )
-    return events
 
 
 def _should_trust_env(base_url: str) -> bool:

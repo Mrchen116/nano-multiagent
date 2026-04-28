@@ -141,6 +141,7 @@ class AgentLoop:
 
         all_tool_calls: list[ToolCall] = []
         all_tool_results: list[ToolResult] = []
+        call_id_to_arguments: dict[str, Mapping[str, Any]] = {}
         turn_usage: TokenUsage | None = None
         last_parent_id = state.user_message_id or (
             state.history_messages[-1].message_id if state.history_messages else None
@@ -240,6 +241,7 @@ class AgentLoop:
                             for tc in normalized_calls:
                                 iteration_tool_calls.append(tc)
                                 all_tool_calls.append(tc)
+                                call_id_to_arguments[tc.call_id] = dict(tc.arguments)
                                 tool_hook_ctx = HookContext(
                                     session_id=active_hook_ctx.session_id,
                                     turn_id=active_hook_ctx.turn_id,
@@ -427,8 +429,10 @@ class AgentLoop:
                     "turn_id": hook_ctx.turn_id,
                     "call_id": result.call_id,
                     "name": result.name,
+                    "arguments": dict(result.arguments) if hasattr(result, "arguments") and result.arguments else {},
                     "output": result.output,
                     "error": result.error,
+                    "duration_ms": result.duration_ms,
                 },
                 run_id=run_id,
             ),

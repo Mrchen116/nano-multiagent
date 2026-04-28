@@ -111,7 +111,7 @@ class HeartbeatSchedulerStateStore:
 class _KernelClientLike(Protocol):
     def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, object]: ...
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]: ...
+    def submit_message(self, *, session_id: str, texts: list[str]) -> dict[str, object]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,7 +192,7 @@ class HeartbeatScheduler:
         if not session_id:
             raise RuntimeError("kernel session creation did not return session_id")
         message = _build_heartbeat_message(agent_id=agent.agent_id, due_at=due_at, instructions=instructions)
-        run_payload = self._kernel_client.send_message_async(session_id=session_id, text=message)
+        run_payload = self._kernel_client.submit_message(session_id=session_id, texts=[message])
         run_id = str(run_payload.get("run_id", "")).strip()
         if not run_id:
             raise RuntimeError("heartbeat submission did not return run_id")

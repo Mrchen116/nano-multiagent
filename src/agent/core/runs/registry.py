@@ -10,6 +10,7 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from agent.core.ids import make_run_id
 from agent.core.llm.interfaces import LLMMessage
+from agent.core.runs.origin import RunOrigin
 from agent.core.types import TokenUsage, TurnResult
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.runner import HookExecution, HookRunner
@@ -44,6 +45,8 @@ class RunRecord:
     next_delay: float | None = None
     cooldown: float | None = None
     last_error: Mapping[str, Any] | None = None
+    origin: RunOrigin = RunOrigin.USER
+    source_task_id: str | None = None
 
 
 class RuntimeRunner(Protocol):
@@ -109,6 +112,8 @@ class RunsRegistry:
         *,
         session_id: str,
         parts: Sequence[Mapping[str, Any]],
+        origin: RunOrigin = RunOrigin.USER,
+        source_task_id: str | None = None,
         trace_id: str | None = None,
     ) -> RunRecord:
         if self._session_manager.get_session(session_id) is None:
@@ -126,6 +131,8 @@ class RunsRegistry:
             created_at=now,
             updated_at=now,
             trace_id=resolved_trace_id,
+            origin=origin,
+            source_task_id=source_task_id,
         )
         self._persist_run_status_entry(record)
         with self._lock:
@@ -245,7 +252,10 @@ class RunsRegistry:
                 with self._lock:
                     if self._active_run_by_session.get(session_id) == run_id:
                         self._active_run_by_session.pop(session_id, None)
-            self._mark_completed(run_id, turn_result=result)
+            if getattr(result, "stop_reason", None) == "aborted":
+                await self._mark_aborted_async(run_id, source="priority_now")
+            else:
+                self._mark_completed(run_id, turn_result=result)
 
     def _set_status(
         self,
@@ -315,7 +325,6 @@ class RunsRegistry:
                 turn_id=turn_result.turn_id,
                 trace_id=updated.trace_id,
             )
-            self._emit_turn_events(record=updated, turn_result=turn_result)
         return updated
 
     async def _mark_failed_async(self, run_id: str, *, message: str) -> RunRecord | None:
@@ -353,6 +362,28 @@ class RunsRegistry:
                     "error": updated.error,
                 },
                 hook_ctx,
+            )
+        return updated
+
+    async def _mark_aborted_async(self, run_id: str, *, source: str = "priority_now") -> RunRecord | None:
+        message = (
+            "run was aborted by priority=now preemption"
+            if source == "priority_now"
+            else "run was aborted"
+        )
+        updated = self._set_status(
+            run_id,
+            status=RunStatus.CANCELLED,
+            stop_reason="aborted",
+            error={"code": "run_aborted_by_priority_now", "message": message, "retryable": False},
+            only_if={RunStatus.RUNNING},
+        )
+        if updated is not None and updated.status is RunStatus.CANCELLED:
+            log_info(
+                "run_aborted",
+                run_id=run_id,
+                session_id=updated.session_id,
+                trace_id=updated.trace_id,
             )
         return updated
 
@@ -453,6 +484,8 @@ class RunsRegistry:
             "event": "run_status",
             "run_id": record.run_id,
             "status": record.status.value,
+            "origin": record.origin.value,
+            "source_task_id": record.source_task_id,
             "created_at": record.updated_at,
         }
         if record.turn_id is not None:
@@ -469,51 +502,6 @@ class RunsRegistry:
             event="run_status",
             session_id=record.session_id,
             data=payload,
-        )
-
-    def _emit_turn_events(self, *, record: RunRecord, turn_result: TurnResult) -> None:
-        if self._event_hub is None:
-            return
-
-        for tool_call in turn_result.tool_calls:
-            self._event_hub.publish(
-                event="tool_start",
-                session_id=record.session_id,
-                data={
-                    "event": "tool_start",
-                    "run_id": record.run_id,
-                    "turn_id": turn_result.turn_id,
-                    "call_id": tool_call.call_id,
-                    "name": tool_call.name,
-                    "arguments": dict(tool_call.arguments),
-                },
-            )
-        for tool_result in turn_result.tool_results:
-            self._event_hub.publish(
-                event="tool_end",
-                session_id=record.session_id,
-                data={
-                    "event": "tool_end",
-                    "run_id": record.run_id,
-                    "turn_id": turn_result.turn_id,
-                    "call_id": tool_result.call_id,
-                    "name": tool_result.name,
-                    "output": tool_result.output,
-                    "error": tool_result.error,
-                },
-            )
-        # Note: text_delta events are already emitted in real-time by the
-        # realtime_stream hook on message_update; do not double-publish here.
-        self._event_hub.publish(
-            event="turn_end",
-            session_id=record.session_id,
-            data={
-                "event": "turn_end",
-                "run_id": record.run_id,
-                "turn_id": turn_result.turn_id,
-                "completed": turn_result.completed,
-                "stop_reason": turn_result.stop_reason,
-            },
         )
 
 def _utc_now_iso() -> str:

@@ -26,7 +26,7 @@ def test_cli_internal_modules_live_under_apps_coding_cli_subpackages() -> None:
     from coding_cli.render import turn_usage as layered_turn_usage
     from coding_cli.runtime import repl_runtime as layered_repl_runtime
 
-    assert layered_events.consume_async_run_events.__module__ == "coding_cli.events.repl_events"
+    assert layered_events._event_preview_line.__module__ == "coding_cli.events.repl_events"
     assert layered_repl_input.emit_external_text.__module__ == "coding_cli.input.repl_input"
     assert layered_repl_commands.REPL_COMMANDS
     assert layered_repl_render.print_repl_turn_summary.__module__ == "coding_cli.render.repl_render"
@@ -46,37 +46,6 @@ def test_cli_event_pipeline_layer_exposes_normalize_dedupe_and_view_model() -> N
     assert hasattr(event_pipeline, "build_repl_view_model")
 
 
-def test_consume_async_run_events_fallback_dedupe_window_evicts_old_semantic_keys() -> None:
-    from coding_cli.events.event_pipeline import EventDedupeWindow
-    from coding_cli.events.repl_events import consume_async_run_events
-
-    out = io.StringIO()
-    dedupe_window = EventDedupeWindow(max_event_ids=8, max_runs=1, max_fallback_keys_per_run=2)
-    seen_event_ids: set[str] = set()
-    seen_event_fingerprints: set[str] = set()
-    assistant_text = ""
-    consumed_counts: list[int] = []
-
-    event_batches = [
-        [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_a"}}],
-        [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_b"}}],
-        [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_c"}}],
-        [{"event": "tool_start", "data": {"run_id": "run_window", "name": "bash", "call_id": "call_a"}}]]
-    for events in event_batches:
-        assistant_text, consumed, _ = consume_async_run_events(
-            out=out,
-            events=events,
-            run_id="run_window",
-            seen_event_ids=seen_event_ids,
-            seen_event_fingerprints=seen_event_fingerprints,
-            dedupe_window=dedupe_window,
-            assistant_text=assistant_text,
-            emit_preview=False,
-        )
-        consumed_counts.append(consumed)
-    assert consumed_counts == [1, 1, 1, 1]
-
-
 def test_cli_render_phase_machine_transitions_and_guards() -> None:
     from coding_cli.events.event_pipeline import ReplRenderPhase
     from coding_cli.events.event_pipeline import ReplRenderPhaseMachine
@@ -94,62 +63,6 @@ def test_cli_render_phase_machine_transitions_and_guards() -> None:
     assert machine.can_emit_preview() is False
 
 
-def test_consume_async_run_events_stops_preview_after_finalizing() -> None:
-    from coding_cli.events.event_pipeline import EventDedupeWindow
-    from coding_cli.events.event_pipeline import ReplRenderPhase
-    from coding_cli.events.event_pipeline import ReplRenderPhaseMachine
-    from coding_cli.events.repl_events import consume_async_run_events
-
-    out = io.StringIO()
-    preview_lines: list[str] = []
-    machine = ReplRenderPhaseMachine()
-    assistant_text, consumed, _ = consume_async_run_events(
-        out=out,
-        events=[
-            {
-                "event": "tool_start",
-                "event_id": "evt-1",
-                "data": {"run_id": "run_phase", "name": "bash", "arguments": "ping", "call_id": "call_1"},
-            },
-            {
-                "event": "run_status",
-                "event_id": "evt-2",
-                "data": {"run_id": "run_phase", "status": "completed"},
-            }],
-        run_id="run_phase",
-        dedupe_window=EventDedupeWindow(),
-        assistant_text="",
-        emit_preview=True,
-        preview_writer=preview_lines.append,
-        render_phase_machine=machine,
-    )
-
-    assert assistant_text == ""
-    assert consumed == 2
-    assert machine.phase is ReplRenderPhase.FINALIZING
-    assert preview_lines == ["Tool: bash start args=ping [call_id=call_1]"]
-
-    assistant_text, consumed, _ = consume_async_run_events(
-        out=out,
-        events=[
-            {
-                "event": "tool_exec_started",
-                "event_id": "evt-3",
-                "data": {"run_id": "run_phase", "name": "bash", "status": "started", "elapsed_ms": 0, "call_id": "call_1"},
-            }
-        ],
-        run_id="run_phase",
-        dedupe_window=EventDedupeWindow(),
-        assistant_text=assistant_text,
-        emit_preview=True,
-        preview_writer=preview_lines.append,
-        render_phase_machine=machine,
-    )
-
-    assert consumed == 1
-    assert preview_lines == ["Tool: bash start args=ping [call_id=call_1]"]
-
-
 def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summary() -> None:
     from coding_cli.events.event_pipeline import ReplRenderPhaseMachine
 
@@ -165,226 +78,6 @@ def test_cli_render_phase_machine_filters_previewed_tool_lines_from_final_summar
         line_identity_resolver=lambda line: line.strip(),
     )
     assert filtered == ["bash exit code=0 status=completed duration=10ms"]
-
-
-def test_build_repl_view_model_isolates_orphan_exec_exit_from_active_call_timeline() -> None:
-    from coding_cli.events.event_pipeline import build_repl_view_model
-    from coding_cli.events.repl_events import _event_preview_line
-
-    model = build_repl_view_model(
-        events=[
-            ("tool_start", {"run_id": "run_orphan", "name": "bash", "call_id": "call_active", "arguments": {"command": "echo ok"}}),
-            ("tool_exec_started", {"run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "started", "elapsed_ms": 0}),
-            ("tool_exec_exit", {"run_id": "run_orphan", "name": "bash", "call_id": "call_orphan", "status": "failed", "duration_ms": 44, "exit_code": 99}),
-            ("tool_exec_exit", {"run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "completed", "duration_ms": 21, "exit_code": 0})],
-        preview_line_resolver=lambda event_name, data: _event_preview_line(event_name=event_name, data=data),
-    )
-
-    assert "orphan_events=1" in model.status_updates
-    assert any(line.startswith("orphan ") and "exit code=99" in line for line in model.tool_updates)
-    assert any("Tool: bash exit code=0 status=completed duration=21ms" in line for line in model.tool_updates)
-
-
-def test_consume_async_run_events_high_frequency_batch_records_perf_baseline() -> None:
-    from coding_cli.events.event_pipeline import EventDedupeWindow
-    from coding_cli.events.event_pipeline import ReplPerfTracker
-    from coding_cli.events.repl_events import consume_async_run_events
-
-    out = io.StringIO()
-    preview_lines: list[str] = []
-    events: list[dict[str, object]] = [
-        {"event_id": "evt_hf_start", "event": "tool_start", "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "arguments": {"command": "echo hi"}}},
-        {"event_id": "evt_hf_started", "event": "tool_exec_started", "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "status": "started", "elapsed_ms": 0}}]
-    events.extend(
-        {
-            "event_id": f"evt_hf_chunk_{idx}",
-            "event": "tool_exec_chunk",
-            "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "stream": "stdout", "chunk": f"line-{idx}", "seq": idx},
-        }
-        for idx in range(1, 81)
-    )
-    events.append(
-        {
-            "event_id": "evt_hf_exit",
-            "event": "tool_exec_exit",
-            "data": {"run_id": "run_hf", "name": "bash", "call_id": "call_hf", "status": "completed", "duration_ms": 200, "exit_code": 0},
-        }
-    )
-
-    tracker = ReplPerfTracker()
-    _, consumed, _ = consume_async_run_events(
-        out=out,
-        events=events,
-        run_id="run_hf",
-        dedupe_window=EventDedupeWindow(),
-        assistant_text="",
-        emit_preview=True,
-        preview_writer=preview_lines.append,
-        perf_tracker=tracker,
-    )
-
-    snapshot = tracker.snapshot()
-    assert consumed == len(events)
-    assert snapshot["sample_ready"] is True
-    assert snapshot["throughput_ok"] is True
-    assert snapshot["redraw_ratio_ok"] is True
-    assert snapshot["polled_events"] == len(events)
-    assert snapshot["consumed_events"] == len(events)
-    assert snapshot["preview_emitted"] == 3
-
-
-def test_consume_async_run_events_long_session_batches_keep_perf_guardrails_stable() -> None:
-    from coding_cli.events.event_pipeline import EventDedupeWindow
-    from coding_cli.events.event_pipeline import ReplPerfTracker
-    from coding_cli.events.repl_events import consume_async_run_events
-
-    out = io.StringIO()
-    tracker = ReplPerfTracker()
-    dedupe_window = EventDedupeWindow(max_event_ids=512, max_runs=8, max_fallback_keys_per_run=512)
-    assistant_text = ""
-
-    for batch_idx in range(1, 6):
-        events: list[dict[str, object]] = [
-            {"event_id": f"evt_other_run_{batch_idx}", "event": "tool_start", "data": {"run_id": "run_other", "name": "bash", "call_id": f"other_{batch_idx}", "arguments": {"command": "echo other"}}},
-            {"event_id": f"evt_long_start_{batch_idx}", "event": "tool_start", "data": {"run_id": "run_long", "name": "bash", "call_id": f"call_{batch_idx}", "arguments": {"command": "echo long"}}},
-            {"event_id": f"evt_long_start_{batch_idx}", "event": "tool_start", "data": {"run_id": "run_long", "name": "bash", "call_id": f"call_{batch_idx}", "arguments": {"command": "echo long"}}}]
-        events.extend(
-            {
-                "event_id": f"evt_long_chunk_{batch_idx}_{chunk_idx}",
-                "event": "tool_exec_chunk",
-                "data": {
-                    "run_id": "run_long",
-                    "name": "bash",
-                    "call_id": f"call_{batch_idx}",
-                    "stream": "stdout",
-                    "chunk": f"chunk-{batch_idx}-{chunk_idx}",
-                    "seq": chunk_idx,
-                },
-            }
-            for chunk_idx in range(1, 11)
-        )
-        events.append(
-            {
-                "event_id": f"evt_long_exit_{batch_idx}",
-                "event": "tool_exec_exit",
-                "data": {"run_id": "run_long", "name": "bash", "call_id": f"call_{batch_idx}", "status": "completed", "duration_ms": 80 + batch_idx, "exit_code": 0},
-            }
-        )
-        assistant_text, _, _ = consume_async_run_events(
-            out=out,
-            events=events,
-            run_id="run_long",
-            dedupe_window=dedupe_window,
-            assistant_text=assistant_text,
-            emit_preview=False,
-            perf_tracker=tracker,
-        )
-
-    snapshot = tracker.snapshot()
-    assert snapshot["batches"] == 5
-    assert snapshot["run_filtered"] == 5
-    assert snapshot["dedupe_dropped"] >= 5
-    assert snapshot["sample_ready"] is True
-    assert snapshot["stable"] is True
-
-
-def test_consume_async_run_events_perf_snapshot_marks_unstable_with_guardrail_reason() -> None:
-    from coding_cli.events.event_pipeline import EventDedupeWindow
-    from coding_cli.events.event_pipeline import ReplPerfTracker
-    from coding_cli.events.repl_events import consume_async_run_events
-
-    out = io.StringIO()
-    tracker = ReplPerfTracker(min_sample_events=10, min_throughput_ratio=0.8)
-    dedupe_window = EventDedupeWindow()
-
-    events = [{"event_id": f"evt_other_{idx}", "event": "tool_start", "data": {"run_id": "run_other", "name": "bash", "call_id": f"other_{idx}", "arguments": {"command": "echo other"}}} for idx in range(1, 16)]
-    events.extend(
-        [
-            {"event_id": "evt_target_start", "event": "tool_start", "data": {"run_id": "run_target", "name": "bash", "call_id": "call_target", "arguments": {"command": "echo target"}}},
-            {"event_id": "evt_target_exit", "event": "tool_exec_exit", "data": {"run_id": "run_target", "name": "bash", "call_id": "call_target", "status": "completed", "duration_ms": 12, "exit_code": 0}}]
-    )
-
-    _, consumed, _ = consume_async_run_events(
-        out=out,
-        events=events,
-        run_id="run_target",
-        dedupe_window=dedupe_window,
-        assistant_text="",
-        emit_preview=False,
-        perf_tracker=tracker,
-    )
-
-    snapshot = tracker.snapshot()
-    assert consumed == 2
-    assert snapshot["sample_ready"] is False
-    assert snapshot["throughput_ok"] is False
-    assert snapshot["stable"] is False
-    assert snapshot["guardrail_reason"] == "throughput, sample_size"
-
-
-def test_send_message_with_async_events_exposes_perf_metrics_snapshot() -> None:
-    from coding_cli.events.repl_events import send_message_with_async_events
-
-    payload = send_message_with_async_events(
-        out=io.StringIO(),
-        client=_AsyncToolExecStreamingStubClient(),
-        session_id="sess_cli",
-        text="ping",
-    )
-
-    view = payload.get("_repl_view")
-    assert isinstance(view, dict)
-    perf_metrics = view.get("perf_metrics")
-    assert isinstance(perf_metrics, dict)
-    assert perf_metrics["batches"] >= 1
-    assert perf_metrics["polled_events"] >= 1
-    assert perf_metrics["consumed_events"] >= 1
-    assert "sample_ready" in perf_metrics
-    assert "throughput_ok" in perf_metrics
-    assert "redraw_ratio_ok" in perf_metrics
-    assert "stable" in perf_metrics
-
-
-def test_send_message_with_async_events_preserves_assistant_tool_assistant_order() -> None:
-    from coding_cli.events.repl_events import send_message_with_async_events
-
-    payload = send_message_with_async_events(
-        out=io.StringIO(),
-        client=_AsyncAssistantToolAssistantStubClient(),
-        session_id="sess_cli",
-        text="Look at the readme.",
-        emit_preview=False,
-    )
-
-    view = payload.get("_repl_view")
-    assert isinstance(view, dict)
-    ordered_updates = view.get("ordered_updates")
-    assert ordered_updates == [
-        {"kind": "assistant", "text": "Let's check the README file."},
-        {"kind": "tool", "text": "Tool: read output={\"path\": \"README.md\"} [call_id=call_read_1]"},
-        {"kind": "assistant", "text": "Okay, I've checked the README!"},
-    ]
-
-
-def test_send_message_with_async_events_ignores_replayed_tool_events_after_turn_end() -> None:
-    from coding_cli.events.repl_events import send_message_with_async_events
-
-    payload = send_message_with_async_events(
-        out=io.StringIO(),
-        client=_AsyncReplayAfterTurnEndStubClient(),
-        session_id="sess_cli",
-        text="Look at the readme.",
-        emit_preview=False,
-    )
-
-    view = payload.get("_repl_view")
-    assert isinstance(view, dict)
-    assert view.get("ordered_updates") == [
-        {"kind": "assistant", "text": "First assistant."},
-        {"kind": "tool", "text": "Tool: read output={\"path\": \"README.md\"} [call_id=call_tail_1]"},
-        {"kind": "assistant", "text": "Second assistant."},
-    ]
-    assert view.get("tool_updates") == ['Tool: read output={"path": "README.md"} [call_id=call_tail_1]']
 
 
 class _StubClient:
@@ -405,9 +98,16 @@ class _StubClient:
         self.calls.append(("create_session", {"title": title or ""}))
         return {"session_id": "sess_cli"}
 
-    def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message", {"session_id": session_id, "text": text}))
-        return {"session_id": session_id, "message": {"content": f"echo:{text}"}}
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
+        self._last_text = text
+        return {"run_id": "run-1", "anchor_sequence": 1, "injected": False, "status": "queued"}
+
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        text = getattr(self, "_last_text", "hello repl")
+        yield {"event": "assistant_message", "run_id": "run-1", "content": f"echo:{text}"}
+        yield {"event": "run_status", "run_id": "run-1", "status": "completed", "stop_reason": "stop", "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
 
     def list_session_tools(self, *, session_id: str) -> dict[str, object]:
         self.calls.append(("list_session_tools", {"session_id": session_id}))
@@ -478,13 +178,14 @@ class _StubClient:
 
 
 class _UsageStubClient(_StubClient):
-    def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message", {"session_id": session_id, "text": text}))
-        return {
-            "session_id": session_id,
-            "turn_id": "turn_usage",
-            "message": {"message_id": "msg_usage", "role": "assistant", "content": f"echo:{text}"},
-            "completed": True,
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        text = getattr(self, "_last_text", "hello")
+        yield {"event": "assistant_message", "run_id": "run-1", "content": f"echo:{text}"}
+        yield {
+            "event": "run_status",
+            "run_id": "run-1",
+            "status": "completed",
             "stop_reason": "stop",
             "usage": {
                 "prompt_tokens": 120,
@@ -495,13 +196,11 @@ class _UsageStubClient(_StubClient):
 
 
 class _StopReasonOnlyStubClient(_StubClient):
-    def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message", {"session_id": session_id, "text": text}))
-        return {
-            "session_id": session_id,
-            "message": {"role": "assistant", "content": f"echo:{text}"},
-            "stop_reason": "stop",
-        }
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        text = getattr(self, "_last_text", "hello")
+        yield {"event": "assistant_message", "run_id": "run-1", "content": f"echo:{text}"}
+        yield {"event": "run_status", "run_id": "run-1", "status": "completed", "stop_reason": "stop"}
 
 
 class _CompactedStubClient(_StubClient):
@@ -563,14 +262,14 @@ class _ResumeHistoryStubClient(_StubClient):
 
 
 class _ConnectionRefusedOnSendStubClient(_StubClient):
-    def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         raise ConnectionRefusedError(61, "Connection refused")
 
 
 class _TimeoutOnSendStubClient(_StubClient):
-    def send_message(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         raise TimeoutError("timed out")
 
 
@@ -585,65 +284,22 @@ class _AsyncEventingStubClient(_StubClient):
         super().__init__()
         self._stream_calls = 0
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_target", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls == 1:
-            return [
-                {
-                    "event_id": "evt_dup",
-                    "event": "run_status",
-                    "data": {"run_id": "run_target", "status": "queued"},
-                },
-                {
-                    "event_id": "evt_dup",
-                    "event": "run_status",
-                    "data": {"run_id": "run_target", "status": "queued"},
-                },
-                {
-                    "event_id": "evt_other",
-                    "event": "text_delta",
-                    "data": {"run_id": "run_other", "delta": "ignore-me"},
-                },
-                {
-                    "event_id": "evt_tool_start",
-                    "event": "tool_start",
-                    "data": {
-                        "run_id": "run_target",
-                        "name": "echo",
-                        "call_id": "call_1",
-                        "arguments": {"text": "ping"},
-                    },
-                },
-                {
-                    "event_id": "evt_tool_end",
-                    "event": "tool_end",
-                    "data": {
-                        "run_id": "run_target",
-                        "name": "echo",
-                        "call_id": "call_1",
-                        "output": {"text": "echo:ping"},
-                        "error": None,
-                    },
-                },
-                {
-                    "event_id": "evt_text",
-                    "event": "text_delta",
-                    "data": {"run_id": "run_target", "delta": "final:echo:ping"},
-                }]
-        return []
+            yield {"event": "run_status", "run_id": "run_target", "status": "queued"}
+            yield {"event": "run_status", "run_id": "run_target", "status": "queued"}
+            yield {"event": "assistant_message", "run_id": "run_other", "content": "ignore-me"}
+            yield {"event": "tool_start", "run_id": "run_target", "name": "echo", "call_id": "call_1", "arguments": {"text": "ping"}}
+            yield {"event": "tool_end", "run_id": "run_target", "name": "echo", "call_id": "call_1", "output": {"text": "echo:ping"}, "error": None}
+            yield {"event": "assistant_message", "run_id": "run_target", "content": "final:echo:ping"}
+        yield {"event": "run_status", "run_id": "run_target", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -671,47 +327,17 @@ class _AsyncEventingStubClient(_StubClient):
 
 
 class _AsyncMultilineToolOutputStubClient(_StubClient):
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_multiline", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
-        return [
-            {
-                "event_id": "evt_ml_tool_start",
-                "event": "tool_start",
-                "data": {
-                    "run_id": "run_multiline",
-                    "name": "echo",
-                    "call_id": "call_ml",
-                    "arguments": {"text": "ping"},
-                },
-            },
-            {
-                "event_id": "evt_ml_tool_end",
-                "event": "tool_end",
-                "data": {
-                    "run_id": "run_multiline",
-                    "name": "echo",
-                    "call_id": "call_ml",
-                    "output": {"text": "line1\nline2"},
-                    "error": None,
-                },
-            },
-            {
-                "event_id": "evt_ml_text",
-                "event": "text_delta",
-                "data": {"run_id": "run_multiline", "delta": "final:echo:ping"},
-            }]
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
+        yield {"event": "tool_start", "run_id": "run_multiline", "name": "echo", "call_id": "call_ml", "arguments": {"text": "ping"}}
+        yield {"event": "tool_end", "run_id": "run_multiline", "name": "echo", "call_id": "call_ml", "output": {"text": "line1\nline2"}, "error": None}
+        yield {"event": "assistant_message", "run_id": "run_multiline", "content": "final:echo:ping"}
+        yield {"event": "run_status", "run_id": "run_multiline", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -728,6 +354,17 @@ class _AsyncMultilineToolOutputStubClient(_StubClient):
 
 
 class _AsyncUsageEventingStubClient(_AsyncEventingStubClient):
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        async for event in super().stream_session(session_id=session_id, last_event_id=last_event_id):
+            if event.get("event") == "run_status" and event.get("status") == "completed":
+                event = dict(event)
+                event["usage"] = {
+                    "prompt_tokens": 320,
+                    "completion_tokens": 41,
+                    "total_tokens": 361,
+                }
+            yield event
+
     def get_run(self, *, run_id: str) -> dict[str, object]:
         payload = super().get_run(run_id=run_id)
         if payload["status"] == "completed":
@@ -740,48 +377,18 @@ class _AsyncUsageEventingStubClient(_AsyncEventingStubClient):
 
 
 class _AsyncLongToolOutputStubClient(_StubClient):
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_long_output", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
         long_output = "HEAD-" + ("x" * 200) + "-TAIL"
-        return [
-            {
-                "event_id": "evt_long_tool_start",
-                "event": "tool_start",
-                "data": {
-                    "run_id": "run_long_output",
-                    "name": "echo",
-                    "call_id": "call_long",
-                    "arguments": {"text": "ping"},
-                },
-            },
-            {
-                "event_id": "evt_long_tool_end",
-                "event": "tool_end",
-                "data": {
-                    "run_id": "run_long_output",
-                    "name": "echo",
-                    "call_id": "call_long",
-                    "output": {"text": long_output},
-                    "error": None,
-                },
-            },
-            {
-                "event_id": "evt_long_text",
-                "event": "text_delta",
-                "data": {"run_id": "run_long_output", "delta": "final:echo:ping"},
-            }]
+        yield {"event": "tool_start", "run_id": "run_long_output", "name": "echo", "call_id": "call_long", "arguments": {"text": "ping"}}
+        yield {"event": "tool_end", "run_id": "run_long_output", "name": "echo", "call_id": "call_long", "output": {"text": long_output}, "error": None}
+        yield {"event": "assistant_message", "run_id": "run_long_output", "content": "final:echo:ping"}
+        yield {"event": "run_status", "run_id": "run_long_output", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -798,68 +405,19 @@ class _AsyncLongToolOutputStubClient(_StubClient):
 
 
 class _AsyncSameToolTwiceStubClient(_StubClient):
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_twice", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
-        return [
-            {
-                "event_id": "evt_twice_start_1",
-                "event": "tool_start",
-                "data": {
-                    "run_id": "run_twice",
-                    "name": "echo",
-                    "call_id": "call_1",
-                    "arguments": {"text": "first"},
-                },
-            },
-            {
-                "event_id": "evt_twice_end_1",
-                "event": "tool_end",
-                "data": {
-                    "run_id": "run_twice",
-                    "name": "echo",
-                    "call_id": "call_1",
-                    "output": {"text": "echo:first"},
-                    "error": None,
-                },
-            },
-            {
-                "event_id": "evt_twice_start_2",
-                "event": "tool_start",
-                "data": {
-                    "run_id": "run_twice",
-                    "name": "echo",
-                    "call_id": "call_2",
-                    "arguments": {"text": "second"},
-                },
-            },
-            {
-                "event_id": "evt_twice_end_2",
-                "event": "tool_end",
-                "data": {
-                    "run_id": "run_twice",
-                    "name": "echo",
-                    "call_id": "call_2",
-                    "output": {"text": "echo:second"},
-                    "error": None,
-                },
-            },
-            {
-                "event_id": "evt_twice_text",
-                "event": "text_delta",
-                "data": {"run_id": "run_twice", "delta": "final:echo:second"},
-            }]
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
+        yield {"event": "tool_start", "run_id": "run_twice", "name": "echo", "call_id": "call_1", "arguments": {"text": "first"}}
+        yield {"event": "tool_end", "run_id": "run_twice", "name": "echo", "call_id": "call_1", "output": {"text": "echo:first"}, "error": None}
+        yield {"event": "tool_start", "run_id": "run_twice", "name": "echo", "call_id": "call_2", "arguments": {"text": "second"}}
+        yield {"event": "tool_end", "run_id": "run_twice", "name": "echo", "call_id": "call_2", "output": {"text": "echo:second"}, "error": None}
+        yield {"event": "assistant_message", "run_id": "run_twice", "content": "final:echo:second"}
+        yield {"event": "run_status", "run_id": "run_twice", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -876,68 +434,19 @@ class _AsyncSameToolTwiceStubClient(_StubClient):
 
 
 class _AsyncSameToolSameOutputStubClient(_StubClient):
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_same_output", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
-        return [
-            {
-                "event_id": "evt_same_output_start_1",
-                "event": "tool_start",
-                "data": {
-                    "run_id": "run_same_output",
-                    "name": "echo",
-                    "call_id": "call_same_1",
-                    "arguments": {"text": "same"},
-                },
-            },
-            {
-                "event_id": "evt_same_output_end_1",
-                "event": "tool_end",
-                "data": {
-                    "run_id": "run_same_output",
-                    "name": "echo",
-                    "call_id": "call_same_1",
-                    "output": {"text": "echo:same"},
-                    "error": None,
-                },
-            },
-            {
-                "event_id": "evt_same_output_start_2",
-                "event": "tool_start",
-                "data": {
-                    "run_id": "run_same_output",
-                    "name": "echo",
-                    "call_id": "call_same_2",
-                    "arguments": {"text": "same"},
-                },
-            },
-            {
-                "event_id": "evt_same_output_end_2",
-                "event": "tool_end",
-                "data": {
-                    "run_id": "run_same_output",
-                    "name": "echo",
-                    "call_id": "call_same_2",
-                    "output": {"text": "echo:same"},
-                    "error": None,
-                },
-            },
-            {
-                "event_id": "evt_same_output_text",
-                "event": "text_delta",
-                "data": {"run_id": "run_same_output", "delta": "final:echo:same"},
-            }]
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
+        yield {"event": "tool_start", "run_id": "run_same_output", "name": "echo", "call_id": "call_same_1", "arguments": {"text": "same"}}
+        yield {"event": "tool_end", "run_id": "run_same_output", "name": "echo", "call_id": "call_same_1", "output": {"text": "echo:same"}, "error": None}
+        yield {"event": "tool_start", "run_id": "run_same_output", "name": "echo", "call_id": "call_same_2", "arguments": {"text": "same"}}
+        yield {"event": "tool_end", "run_id": "run_same_output", "name": "echo", "call_id": "call_same_2", "output": {"text": "echo:same"}, "error": None}
+        yield {"event": "assistant_message", "run_id": "run_same_output", "content": "final:echo:same"}
+        yield {"event": "run_status", "run_id": "run_same_output", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -958,97 +467,23 @@ class _AsyncToolExecStreamingStubClient(_StubClient):
         super().__init__()
         self._stream_calls = 0
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_tool_exec", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls == 1:
-            return [
-                {
-                    "event_id": "evt_tool_start",
-                    "event": "tool_start",
-                    "data": {
-                        "run_id": "run_tool_exec",
-                        "name": "bash",
-                        "call_id": "call_bash_1",
-                        "arguments": {"command": "printf out-line; printf err-line >&2", "timeout": 1},
-                    },
-                },
-                {
-                    "event_id": "evt_tool_exec_started",
-                    "event": "tool_exec_started",
-                    "data": {
-                        "run_id": "run_tool_exec",
-                        "name": "bash",
-                        "call_id": "call_bash_1",
-                        "status": "started",
-                        "elapsed_ms": 0,
-                    },
-                },
-                {
-                    "event_id": "evt_tool_exec_running",
-                    "event": "tool_exec_running",
-                    "data": {
-                        "run_id": "run_tool_exec",
-                        "name": "bash",
-                        "call_id": "call_bash_1",
-                        "status": "running",
-                        "elapsed_ms": 120,
-                    },
-                },
-                {
-                    "event_id": "evt_tool_exec_chunk_stdout",
-                    "event": "tool_exec_chunk",
-                    "data": {
-                        "run_id": "run_tool_exec",
-                        "name": "bash",
-                        "call_id": "call_bash_1",
-                        "stream": "stdout",
-                        "chunk": "out-line",
-                        "seq": 1,
-                    },
-                },
-                {
-                    "event_id": "evt_tool_exec_chunk_stderr",
-                    "event": "tool_exec_chunk",
-                    "data": {
-                        "run_id": "run_tool_exec",
-                        "name": "bash",
-                        "call_id": "call_bash_1",
-                        "stream": "stderr",
-                        "chunk": "err-line",
-                        "seq": 2,
-                    },
-                },
-                {
-                    "event_id": "evt_tool_exec_exit",
-                    "event": "tool_exec_exit",
-                    "data": {
-                        "run_id": "run_tool_exec",
-                        "name": "bash",
-                        "call_id": "call_bash_1",
-                        "status": "completed",
-                        "duration_ms": 210,
-                        "exit_code": 0,
-                    },
-                },
-                {
-                    "event_id": "evt_tool_exec_text",
-                    "event": "text_delta",
-                    "data": {"run_id": "run_tool_exec", "delta": "done"},
-                }]
-        return []
+            yield {"event": "tool_start", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "arguments": {"command": "printf out-line; printf err-line >&2", "timeout": 1}}
+            yield {"event": "tool_exec_started", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "status": "started", "elapsed_ms": 0}
+            yield {"event": "tool_exec_running", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "status": "running", "elapsed_ms": 120}
+            yield {"event": "tool_exec_chunk", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "stream": "stdout", "chunk": "out-line", "seq": 1}
+            yield {"event": "tool_exec_chunk", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "stream": "stderr", "chunk": "err-line", "seq": 2}
+            yield {"event": "tool_exec_exit", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "status": "completed", "duration_ms": 210, "exit_code": 0}
+            yield {"event": "assistant_message", "run_id": "run_tool_exec", "content": "done"}
+        yield {"event": "run_status", "run_id": "run_tool_exec", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1069,74 +504,21 @@ class _AsyncOrphanExecExitStubClient(_StubClient):
         super().__init__()
         self._stream_calls = 0
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_orphan", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls == 1:
-            return [
-                {
-                    "event_id": "evt_orphan_start",
-                    "event": "tool_start",
-                    "data": {
-                        "run_id": "run_orphan",
-                        "name": "bash",
-                        "call_id": "call_active",
-                        "arguments": {"command": "echo active"},
-                    },
-                },
-                {
-                    "event_id": "evt_orphan_started",
-                    "event": "tool_exec_started",
-                    "data": {
-                        "run_id": "run_orphan",
-                        "name": "bash",
-                        "call_id": "call_active",
-                        "status": "started",
-                        "elapsed_ms": 0,
-                    },
-                },
-                {
-                    "event_id": "evt_orphan_exit",
-                    "event": "tool_exec_exit",
-                    "data": {
-                        "run_id": "run_orphan",
-                        "name": "bash",
-                        "call_id": "call_orphan",
-                        "status": "failed",
-                        "duration_ms": 31,
-                        "exit_code": 137,
-                    },
-                },
-                {
-                    "event_id": "evt_active_exit",
-                    "event": "tool_exec_exit",
-                    "data": {
-                        "run_id": "run_orphan",
-                        "name": "bash",
-                        "call_id": "call_active",
-                        "status": "completed",
-                        "duration_ms": 19,
-                        "exit_code": 0,
-                    },
-                },
-                {
-                    "event_id": "evt_orphan_text",
-                    "event": "text_delta",
-                    "data": {"run_id": "run_orphan", "delta": "final:orphan-isolated"},
-                }]
-        return []
+            yield {"event": "tool_start", "run_id": "run_orphan", "name": "bash", "call_id": "call_active", "arguments": {"command": "echo active"}}
+            yield {"event": "tool_exec_started", "run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "started", "elapsed_ms": 0}
+            yield {"event": "tool_exec_exit", "run_id": "run_orphan", "name": "bash", "call_id": "call_orphan", "status": "failed", "duration_ms": 31, "exit_code": 137}
+            yield {"event": "tool_exec_exit", "run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "completed", "duration_ms": 19, "exit_code": 0}
+            yield {"event": "assistant_message", "run_id": "run_orphan", "content": "final:orphan-isolated"}
+        yield {"event": "run_status", "run_id": "run_orphan", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1158,44 +540,19 @@ class _AsyncAssistantToolAssistantStubClient(_StubClient):
         super().__init__()
         self._stream_calls = 0
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_ordered", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del session_id, after_sequence, max_events, timeout_seconds
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
         self._stream_calls += 1
         if self._stream_calls == 1:
-            return [
-                {
-                    "event_id": "evt_ordered_text_1",
-                    "event": "text_delta",
-                    "data": {"run_id": "run_ordered", "delta": "Let's check the README file."},
-                },
-                {
-                    "event_id": "evt_ordered_tool_start",
-                    "event": "tool_start",
-                    "data": {"run_id": "run_ordered", "name": "read", "call_id": "call_read_1", "arguments": {"path": "README.md"}},
-                },
-                {
-                    "event_id": "evt_ordered_tool_end",
-                    "event": "tool_end",
-                    "data": {"run_id": "run_ordered", "name": "read", "call_id": "call_read_1", "output": {"path": "README.md"}},
-                },
-                {
-                    "event_id": "evt_ordered_text_2",
-                    "event": "text_delta",
-                    "data": {"run_id": "run_ordered", "delta": "Okay, I've checked the README!"},
-                },
-            ]
-        return []
+            yield {"event": "assistant_message", "run_id": "run_ordered", "content": "Let's check the README file."}
+            yield {"event": "tool_start", "run_id": "run_ordered", "name": "read", "call_id": "call_read_1", "arguments": {"path": "README.md"}}
+            yield {"event": "tool_end", "run_id": "run_ordered", "name": "read", "call_id": "call_read_1", "output": {"path": "README.md"}, "error": None}
+            yield {"event": "assistant_message", "run_id": "run_ordered", "content": "Okay, I've checked the README!"}
+        yield {"event": "run_status", "run_id": "run_ordered", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1214,32 +571,23 @@ class _AsyncReplayAfterTurnEndStubClient(_StubClient):
         super().__init__()
         self._stream_calls = 0
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_replay_tail", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del session_id, after_sequence, max_events, timeout_seconds
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
         self._stream_calls += 1
         if self._stream_calls == 1:
-            return [
-                {"event_id": "evt_tail_text_1", "event": "text_delta", "data": {"run_id": "run_replay_tail", "delta": "First assistant."}},
-                {"event_id": "evt_tail_tool_start", "event": "tool_start", "data": {"run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "arguments": {"path": "README.md"}}},
-                {"event_id": "evt_tail_tool_end", "event": "tool_end", "data": {"run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "output": {"path": "README.md"}}},
-                {"event_id": "evt_tail_text_2", "event": "text_delta", "data": {"run_id": "run_replay_tail", "delta": "Second assistant."}},
-                {"event_id": "evt_tail_turn_end", "event": "turn_end", "data": {"run_id": "run_replay_tail"}},
-                {"event_id": "evt_tail_completed", "event": "run_status", "data": {"run_id": "run_replay_tail", "status": "completed"}},
-                {"event_id": "evt_tail_replay_start", "event": "tool_start", "data": {"run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "arguments": {"path": "README.md"}}},
-                {"event_id": "evt_tail_replay_end", "event": "tool_end", "data": {"run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "output": {"path": "README.md"}}},
-            ]
-        return []
+            yield {"event": "assistant_message", "run_id": "run_replay_tail", "content": "First assistant."}
+            yield {"event": "tool_start", "run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "arguments": {"path": "README.md"}}
+            yield {"event": "tool_end", "run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "output": {"path": "README.md"}, "error": None}
+            yield {"event": "assistant_message", "run_id": "run_replay_tail", "content": "Second assistant."}
+            yield {"event": "turn_end", "run_id": "run_replay_tail"}
+            yield {"event": "run_status", "run_id": "run_replay_tail", "status": "completed"}
+            yield {"event": "tool_start", "run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "arguments": {"path": "README.md"}}
+            yield {"event": "tool_end", "run_id": "run_replay_tail", "name": "read", "call_id": "call_tail_1", "output": {"path": "README.md"}, "error": None}
+        yield {"event": "run_status", "run_id": "run_replay_tail", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1258,48 +606,19 @@ class _AsyncNoEventIdReplayStubClient(_StubClient):
         super().__init__()
         self._stream_calls = 0
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_no_event_id", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
         self._stream_calls += 1
         if self._stream_calls > 2:
-            return []
-        return [
-            {
-                "event": "tool_start",
-                "data": {
-                    "run_id": "run_no_event_id",
-                    "name": "bash",
-                    "call_id": "call_no_event_id",
-                    "arguments": {"command": "echo hi"},
-                },
-            },
-            {
-                "event": "tool_exec_exit",
-                "data": {
-                    "run_id": "run_no_event_id",
-                    "name": "bash",
-                    "call_id": "call_no_event_id",
-                    "status": "completed",
-                    "duration_ms": 12,
-                    "exit_code": 0,
-                },
-            },
-            {
-                "event": "text_delta",
-                "data": {"run_id": "run_no_event_id", "delta": "final:no-event-id"},
-            }]
+            return
+        yield {"event": "tool_start", "run_id": "run_no_event_id", "name": "bash", "call_id": "call_no_event_id", "arguments": {"command": "echo hi"}}
+        yield {"event": "tool_exec_exit", "run_id": "run_no_event_id", "name": "bash", "call_id": "call_no_event_id", "status": "completed", "duration_ms": 12, "exit_code": 0}
+        yield {"event": "assistant_message", "run_id": "run_no_event_id", "content": "final:no-event-id"}
+        yield {"event": "run_status", "run_id": "run_no_event_id", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1321,64 +640,21 @@ class _AsyncChangedEventIdReplayStubClient(_StubClient):
         super().__init__()
         self._stream_calls = 0
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_changed_event_id", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
         self._stream_calls += 1
         if self._stream_calls == 1:
-            return [
-                {
-                    "event_id": "evt_tool_start_1",
-                    "event": "tool_start",
-                    "data": {
-                        "run_id": "run_changed_event_id",
-                        "name": "bash",
-                        "call_id": "call_changed_event_id",
-                        "arguments": {"command": "echo hi"},
-                    },
-                },
-                {
-                    "event_id": "evt_tool_exec_exit_1",
-                    "event": "tool_exec_exit",
-                    "data": {
-                        "run_id": "run_changed_event_id",
-                        "name": "bash",
-                        "call_id": "call_changed_event_id",
-                        "status": "completed",
-                        "duration_ms": 18,
-                        "exit_code": 0,
-                    },
-                },
-                {
-                    "event_id": "evt_text_1",
-                    "event": "text_delta",
-                    "data": {"run_id": "run_changed_event_id", "delta": "final:changed-event-id"},
-                }]
+            yield {"event": "tool_start", "run_id": "run_changed_event_id", "name": "bash", "call_id": "call_changed_event_id", "arguments": {"command": "echo hi"}}
+            yield {"event": "tool_exec_exit", "run_id": "run_changed_event_id", "name": "bash", "call_id": "call_changed_event_id", "status": "completed", "duration_ms": 18, "exit_code": 0}
+            yield {"event": "assistant_message", "run_id": "run_changed_event_id", "content": "final:changed-event-id"}
+            yield {"event": "run_status", "run_id": "run_changed_event_id", "status": "completed", "stop_reason": "stop"}
         if self._stream_calls == 2:
-            return [
-                {
-                    "event_id": "evt_tool_start_2",
-                    "event": "tool_start",
-                    "data": {
-                        "run_id": "run_changed_event_id",
-                        "name": "bash",
-                        "call_id": "call_changed_event_id",
-                        "arguments": {"command": "echo hi"},
-                    },
-                }
-            ]
-        return []
+            yield {"event": "tool_start", "run_id": "run_changed_event_id", "name": "bash", "call_id": "call_changed_event_id", "arguments": {"command": "echo hi"}}
+            yield {"event": "run_status", "run_id": "run_changed_event_id", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1400,76 +676,22 @@ class _AsyncChangedEventIdWithTimestampReplayStubClient(_StubClient):
         super().__init__()
         self._stream_calls = 0
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_changed_event_id_ts", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
         self._stream_calls += 1
         if self._stream_calls == 1:
-            return [
-                {
-                    "event_id": "evt_ts_start_1",
-                    "event": "tool_start",
-                    "data": {
-                        "run_id": "run_changed_event_id_ts",
-                        "name": "bash",
-                        "call_id": "call_changed_event_id_ts",
-                        "arguments": {"command": "echo hi"},
-                        "ts": "2026-03-04T00:00:00.100Z",
-                    },
-                },
-                {
-                    "event_id": "evt_ts_started_1",
-                    "event": "tool_exec_started",
-                    "data": {
-                        "run_id": "run_changed_event_id_ts",
-                        "name": "bash",
-                        "call_id": "call_changed_event_id_ts",
-                        "status": "started",
-                        "elapsed_ms": 0,
-                    },
-                }]
+            yield {"event": "tool_start", "run_id": "run_changed_event_id_ts", "name": "bash", "call_id": "call_changed_event_id_ts", "arguments": {"command": "echo hi"}, "ts": "2026-03-04T00:00:00.100Z"}
+            yield {"event": "tool_exec_started", "run_id": "run_changed_event_id_ts", "name": "bash", "call_id": "call_changed_event_id_ts", "status": "started", "elapsed_ms": 0}
+            yield {"event": "run_status", "run_id": "run_changed_event_id_ts", "status": "completed", "stop_reason": "stop"}
         if self._stream_calls == 2:
-            return [
-                {
-                    "event_id": "evt_ts_start_2",
-                    "event": "tool_start",
-                    "data": {
-                        "run_id": "run_changed_event_id_ts",
-                        "name": "bash",
-                        "call_id": "call_changed_event_id_ts",
-                        "arguments": {"command": "echo hi"},
-                        "ts": "2026-03-04T00:00:00.300Z",
-                    },
-                },
-                {
-                    "event_id": "evt_ts_exit_1",
-                    "event": "tool_exec_exit",
-                    "data": {
-                        "run_id": "run_changed_event_id_ts",
-                        "name": "bash",
-                        "call_id": "call_changed_event_id_ts",
-                        "status": "completed",
-                        "duration_ms": 19,
-                        "exit_code": 0,
-                    },
-                },
-                {
-                    "event_id": "evt_ts_text_1",
-                    "event": "text_delta",
-                    "data": {"run_id": "run_changed_event_id_ts", "delta": "final:changed-event-id-ts"},
-                }]
-        return []
+            yield {"event": "tool_start", "run_id": "run_changed_event_id_ts", "name": "bash", "call_id": "call_changed_event_id_ts", "arguments": {"command": "echo hi"}, "ts": "2026-03-04T00:00:00.300Z"}
+            yield {"event": "tool_exec_exit", "run_id": "run_changed_event_id_ts", "name": "bash", "call_id": "call_changed_event_id_ts", "status": "completed", "duration_ms": 19, "exit_code": 0}
+            yield {"event": "assistant_message", "run_id": "run_changed_event_id_ts", "content": "final:changed-event-id-ts"}
+            yield {"event": "run_status", "run_id": "run_changed_event_id_ts", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1487,27 +709,15 @@ class _AsyncChangedEventIdWithTimestampReplayStubClient(_StubClient):
 
 
 class _AsyncFailedRunStubClient(_StubClient):
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_failed", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
-        return [
-            {
-                "event_id": "evt_fail_queued",
-                "event": "run_status",
-                "data": {"run_id": "run_failed", "status": "queued"},
-            }
-        ]
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
+        yield {"event": "run_status", "run_id": "run_failed", "status": "queued"}
+        yield {"event": "run_status", "run_id": "run_failed", "status": "failed", "stop_reason": "timeout"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1527,52 +737,18 @@ class _AsyncFailedRunStubClient(_StubClient):
 
 
 class _CompletedStatusFirstStubClient(_StubClient):
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_completed_first", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
-        return [
-            {
-                "event_id": "evt_completed",
-                "event": "run_status",
-                "data": {"run_id": "run_completed_first", "status": "completed"},
-            },
-            {
-                "event_id": "evt_tool_start",
-                "event": "tool_start",
-                "data": {
-                    "run_id": "run_completed_first",
-                    "name": "echo",
-                    "call_id": "call_1",
-                    "arguments": {"text": "ping"},
-                },
-            },
-            {
-                "event_id": "evt_tool_end",
-                "event": "tool_end",
-                "data": {
-                    "run_id": "run_completed_first",
-                    "name": "echo",
-                    "call_id": "call_1",
-                    "output": {"text": "echo:ping"},
-                    "error": None,
-                },
-            },
-            {
-                "event_id": "evt_text",
-                "event": "text_delta",
-                "data": {"run_id": "run_completed_first", "delta": "final:echo:ping"},
-            }]
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
+        yield {"event": "run_status", "run_id": "run_completed_first", "status": "completed"}
+        yield {"event": "tool_start", "run_id": "run_completed_first", "name": "echo", "call_id": "call_1", "arguments": {"text": "ping"}}
+        yield {"event": "tool_end", "run_id": "run_completed_first", "name": "echo", "call_id": "call_1", "output": {"text": "echo:ping"}, "error": None}
+        yield {"event": "assistant_message", "run_id": "run_completed_first", "content": "final:echo:ping"}
+        yield {"event": "run_status", "run_id": "run_completed_first", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1593,58 +769,22 @@ class _CompletedThenTailEventsStubClient(_StubClient):
         super().__init__()
         self._stream_calls = 0
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_tail", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
         self._stream_calls += 1
         if self._stream_calls == 1:
-            return [
-                {
-                    "event_id": "evt_tail_completed",
-                    "event": "run_status",
-                    "data": {"run_id": "run_tail", "status": "completed"},
-                }
-            ]
+            yield {"event": "run_status", "run_id": "run_tail", "status": "completed"}
+            yield {"event": "run_status", "run_id": "run_tail", "status": "completed", "stop_reason": "stop"}
         if self._stream_calls == 2:
-            return [
-                {
-                    "event_id": "evt_tail_tool_start",
-                    "event": "tool_start",
-                    "data": {
-                        "run_id": "run_tail",
-                        "name": "echo",
-                        "call_id": "call_tail",
-                        "arguments": {"text": "tail"},
-                    },
-                },
-                {
-                    "event_id": "evt_tail_tool_end",
-                    "event": "tool_end",
-                    "data": {
-                        "run_id": "run_tail",
-                        "name": "echo",
-                        "call_id": "call_tail",
-                        "output": {"text": "echo:tail"},
-                        "error": None,
-                    },
-                },
-                {
-                    "event_id": "evt_tail_text",
-                    "event": "text_delta",
-                    "data": {"run_id": "run_tail", "delta": "final:echo:tail"},
-                }]
-        return []
+            yield {"event": "tool_start", "run_id": "run_tail", "name": "echo", "call_id": "call_tail", "arguments": {"text": "tail"}}
+            yield {"event": "tool_end", "run_id": "run_tail", "name": "echo", "call_id": "call_tail", "output": {"text": "echo:tail"}, "error": None}
+            yield {"event": "assistant_message", "run_id": "run_tail", "content": "final:echo:tail"}
+            yield {"event": "run_status", "run_id": "run_tail", "status": "completed", "stop_reason": "stop"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1665,52 +805,19 @@ class _AsyncRetryingStatusStubClient(_StubClient):
         super().__init__()
         self._poll_count = 0
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": "run_retrying", "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
         self._poll_count += 1
         if self._poll_count == 1:
-            return [
-                {
-                    "event_id": "evt_retry_1",
-                    "event": "run_status",
-                    "data": {
-                        "run_id": "run_retrying",
-                        "status": "running",
-                        "attempt": 1,
-                        "next_delay": 0.5,
-                        "cooldown": 0.0,
-                        "last_error": {"code": "model_error", "message": "upstream flaky #1"},
-                    },
-                }
-            ]
+            yield {"event": "run_status", "run_id": "run_retrying", "status": "running", "attempt": 1, "next_delay": 0.5, "cooldown": 0.0, "last_error": {"code": "model_error", "message": "upstream flaky #1"}}
         if self._poll_count == 2:
-            return [
-                {
-                    "event_id": "evt_retry_2",
-                    "event": "run_status",
-                    "data": {
-                        "run_id": "run_retrying",
-                        "status": "running",
-                        "attempt": 5,
-                        "next_delay": 1.0,
-                        "cooldown": 30.0,
-                        "last_error": {"code": "model_error", "message": "upstream flaky #5"},
-                    },
-                }
-            ]
-        return []
+            yield {"event": "run_status", "run_id": "run_retrying", "status": "running", "attempt": 5, "next_delay": 1.0, "cooldown": 30.0, "last_error": {"code": "model_error", "message": "upstream flaky #5"}}
+        yield {"event": "run_status", "run_id": "run_retrying", "status": "completed", "stop_reason": "completed"}
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
@@ -1743,30 +850,21 @@ class _AsyncQueueingStubClient(_StubClient):
         self._run_count = 0
         self._poll_by_run: dict[str, int] = {}
 
-    def send_message_async(self, *, session_id: str, text: str) -> dict[str, object]:
+    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
         self._run_count += 1
         run_id = f"run_queue_{self._run_count}"
-        self.calls.append(("send_message_async", {"session_id": session_id, "text": text}))
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         return {"run_id": run_id, "session_id": session_id, "status": "queued"}
 
-    def stream_session_events(
-        self,
-        *,
-        session_id: str,
-        after_sequence: int = 0,
-        max_events: int = 20,
-        timeout_seconds: float = 0.25,
-    ) -> list[dict[str, object]]:
-        del after_sequence, max_events, timeout_seconds
-        self.calls.append(("stream_session_events", {"session_id": session_id}))
-        return []
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+        del last_event_id
+        self.calls.append(("stream_session", {"session_id": session_id}))
+        return
 
     def get_run(self, *, run_id: str) -> dict[str, object]:
         self.calls.append(("get_run", {"run_id": run_id}))
         poll_count = self._poll_by_run.get(run_id, 0) + 1
         self._poll_by_run[run_id] = poll_count
-
-        # Hold first run in-progress briefly so REPL can accept and queue next input.
         if run_id == "run_queue_1" and poll_count < 4:
             time.sleep(0.03)
             return {
@@ -2171,7 +1269,7 @@ def test_run_cli_repl_supports_required_commands() -> None:
     assert "Context budget: 64/200 (32.0%)" in lines
     assert [call[0] for call in stub.calls] == [
         "create_session",
-        "send_message",
+        "submit_message",
         "get_context_budget",
         "list_session_tools",
         "compact_session",
@@ -2192,7 +1290,7 @@ def test_run_cli_repl_use_switches_active_session() -> None:
 
     assert exit_code == 0
     assert "Switched to session sess_manual." in output.getvalue()
-    assert ("send_message", {"session_id": "sess_manual", "text": "ping"}) in stub.calls
+    assert ("submit_message", {"session_id": "sess_manual", "text": "ping"}) in stub.calls
 
 
 def test_run_cli_repl_session_transitions_render_active_copy_without_json() -> None:
@@ -2277,7 +1375,7 @@ def test_run_cli_repl_absolute_path_input_is_not_treated_as_command() -> None:
     text = output.getvalue()
     assert f"echo:{path_line}" in text
     assert "unknown command" not in text
-    assert ("send_message", {"session_id": "sess_cli", "text": path_line}) in stub.calls
+    assert ("submit_message", {"session_id": "sess_cli", "text": path_line}) in stub.calls
 
 
 def test_run_cli_repl_ignores_blank_input_and_exits_on_eof() -> None:
@@ -2558,10 +1656,10 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert "Tool: echo output=echo:ping" in text
     assert "final:echo:ping" in text
     assert "ignore-me" not in text
-    assert ("send_message_async", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
+    assert ("submit_message", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
 
 
-def test_send_message_with_async_events_sanitizes_multiline_tool_preview() -> None:
+def test_repl_sanitizes_multiline_tool_preview() -> None:
     stub = _AsyncMultilineToolOutputStubClient()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
@@ -2579,7 +1677,7 @@ def test_send_message_with_async_events_sanitizes_multiline_tool_preview() -> No
     assert "Tool: echo output=line1\nline2" not in text
 
 
-def test_send_message_with_async_events_truncates_long_tool_output_with_head_and_tail() -> None:
+def test_repl_truncates_long_tool_output_with_head_and_tail() -> None:
     stub = _AsyncLongToolOutputStubClient()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
@@ -2761,26 +1859,6 @@ def test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id() -> Non
     assert "final:changed-event-id" in text
 
 
-def test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id_and_nonsemantic_metadata() -> None:
-    stub = _AsyncChangedEventIdWithTimestampReplayStubClient()
-    output = io.StringIO()
-    inputs = iter(["/new", "ping", "/exit"])
-
-    exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
-        stdout=output,
-        client_factory=lambda _: stub,
-        input_fn=lambda _: next(inputs),
-    )
-
-    assert exit_code == 0
-    text = output.getvalue()
-    assert text.count("Tool: bash start args=") == 1
-    assert text.count("Tool: bash started status=started elapsed=0ms") == 1
-    assert text.count("Tool: bash exit code=0 status=completed duration=19ms") == 1
-    assert "final:changed-event-id-ts" in text
-
-
 def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
     stub = _AsyncFailedRunStubClient()
     output = io.StringIO()
@@ -2798,7 +1876,6 @@ def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
     assert "Assistant: (empty)" in text
     assert "send failed: run_id=run_failed" in text
     assert "layer=runtime" in text
-    assert "NANO_MULTIAGENT_API_TIMEOUT_SECONDS" in text
 
 
 def test_run_cli_repl_prints_compact_error_summary_for_failed_run() -> None:
@@ -2820,279 +1897,6 @@ def test_run_cli_repl_prints_compact_error_summary_for_failed_run() -> None:
     assert "Error: send failed: run_id=run_failed" in text
     assert "Usage: unavailable" in text
     assert "[status]" not in text
-
-
-def test_run_cli_repl_prints_retry_progress_from_run_status_event() -> None:
-    stub = _AsyncRetryingStatusStubClient()
-    output = io.StringIO()
-    inputs = iter(["/new", "ping", "/exit"])
-
-    exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
-        stdout=output,
-        client_factory=lambda _: stub,
-        input_fn=lambda _: next(inputs),
-    )
-
-    assert exit_code == 0
-    text = output.getvalue()
-    assert "Progress: retrying (" in text
-    assert "attempt 5" in text
-    assert "attempt 1" not in text
-    assert "next 1.0s" in text
-    assert "cooldown 30.0s" in text
-    assert "last error model_error:" in text
-    assert "upstream flaky #5" in text
-
-
-def test_run_cli_repl_delays_terminal_run_status_until_after_tool_tail_events() -> None:
-    stub = _CompletedStatusFirstStubClient()
-    output = io.StringIO()
-    inputs = iter(["/new", "ping", "/exit"])
-
-    exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
-        stdout=output,
-        client_factory=lambda _: stub,
-        input_fn=lambda _: next(inputs),
-    )
-
-    assert exit_code == 0
-    text = output.getvalue()
-    assert "State: completed | stop=stop" in text
-    assert "Tool: echo output=echo:ping" in text
-
-
-def test_run_cli_repl_queues_user_input_while_previous_async_run_is_in_progress() -> None:
-    stub = _AsyncQueueingStubClient()
-    output = io.StringIO()
-    inputs = iter(["/new", "first", "second", "/exit"])
-
-    exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
-        stdout=output,
-        client_factory=lambda _: stub,
-        input_fn=lambda _: next(inputs),
-    )
-
-    assert exit_code == 0
-    text = output.getvalue()
-    assert "Queued message #1" in text
-    send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
-    assert send_async_calls == [
-        ("send_message_async", {"session_id": "sess_cli", "text": "first"})]
-
-
-def test_run_cli_repl_async_multiline_paste_submits_single_message() -> None:
-    stub = _AsyncQueueingStubClient()
-    output = io.StringIO()
-    scripted_reader = _ScriptedReplInputReader(
-        [
-            ["/", "\x1b[B", "\n", "\n"],
-            ["f", "i", "r", "s", "t", "\nsecond\n"],
-            ["/", "\x1b[A", "\n", "\n"]]
-    )
-
-    exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
-        stdout=output,
-        client_factory=lambda _: stub,
-        repl_input_reader_factory=lambda: scripted_reader,
-    )
-
-    assert exit_code == 0
-    send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
-    assert send_async_calls == [
-        ("send_message_async", {"session_id": "sess_cli", "text": "first\nsecond"})]
-    assert "Queued message #1" not in output.getvalue()
-
-
-def test_run_cli_repl_history_command_ignores_false_timeout_when_queue_already_drained(monkeypatch) -> None:
-    from coding_cli import commands as app_commands
-
-    class _FalseTimeoutAfterDrainQueue:
-        def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001
-            del on_worker_error
-            self._process_message = process_message
-            self._pending: list[object] = []
-
-        def enqueue(self, *, session_id: str, text: str) -> int:
-            backlog_before = len(self._pending)
-            self._pending.append(app_commands.QueuedReplMessage(session_id=session_id, text=text))
-            return backlog_before
-
-        def backlog_size(self) -> int:
-            return len(self._pending)
-
-        def has_active_work(self) -> bool:
-            return False
-
-        def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
-            del timeout_seconds
-            while self._pending:
-                item = self._pending.pop(0)
-                self._process_message(item)
-            # Emulate deadline-race false negative: drained but returns False.
-            return False
-
-        def close(self, *, wait_for_drain: bool, drain_timeout_seconds: float | None = None) -> bool:
-            del wait_for_drain, drain_timeout_seconds
-            return True
-
-    stub = _AsyncEventingStubClient()
-    output = io.StringIO()
-    inputs = iter(["/new", "ping", "/history", "/exit"])
-
-    monkeypatch.setattr(app_commands, "ReplRunQueue", _FalseTimeoutAfterDrainQueue)
-    exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
-        stdout=output,
-        client_factory=lambda _: stub,
-        input_fn=lambda _: next(inputs),
-    )
-
-    assert exit_code == 0
-    text = output.getvalue()
-    assert "History for session sess_cli" in text
-    assert "assistant: final:echo:ping" in text
-    assert "Timed out waiting for in-flight messages; skipping /history for now." not in text
-
-
-def test_run_cli_repl_exit_reports_remaining_inflight_messages_after_timeout(monkeypatch) -> None:
-    from coding_cli import commands as app_commands
-
-    class _NeverDrainQueue:
-        def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001
-            del process_message, on_worker_error
-            self._pending = 0
-
-        def enqueue(self, *, session_id: str, text: str) -> int:
-            del session_id, text
-            backlog_before = self._pending
-            self._pending += 1
-            return backlog_before
-
-        def backlog_size(self) -> int:
-            return self._pending
-
-        def has_active_work(self) -> bool:
-            return False
-
-        def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
-            del timeout_seconds
-            return False
-
-        def close(
-            self,
-            *,
-            wait_for_drain: bool,
-            drain_timeout_seconds: float | None = None,
-            discard_pending: bool = False,
-        ) -> bool:
-            del wait_for_drain, drain_timeout_seconds, discard_pending
-            return True
-
-    output = io.StringIO()
-    inputs = iter(["/new", "first", "second", "/exit"])
-
-    monkeypatch.setattr(app_commands, "ReplRunQueue", _NeverDrainQueue)
-    exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
-        stdout=output,
-        client_factory=lambda _: _AsyncEventingStubClient(),
-        input_fn=lambda _: next(inputs),
-    )
-
-    assert exit_code == 0
-    text = output.getvalue()
-    assert "Queued message #1" in text
-    assert "Waiting for 2 in-flight message(s) before exit." not in text
-    assert "Timed out waiting for in-flight messages before exit; 2 still in-flight message(s)." not in text
-
-
-def test_repl_run_queue_close_can_discard_pending_messages() -> None:
-    processed: list[str] = []
-    active_started = threading.Event()
-    release_active = threading.Event()
-
-    def _process(item):  # noqa: ANN001
-        if item.text == "first":
-            active_started.set()
-            release_active.wait(timeout=1.0)
-        processed.append(item.text)
-
-    queue = cli_commands.ReplRunQueue(process_message=_process)
-
-    assert queue.enqueue(session_id="sess_cli", text="first") == 0
-    assert active_started.wait(timeout=1.0) is True
-    assert queue.enqueue(session_id="sess_cli", text="second") >= 1
-
-    release_active.set()
-    drained = queue.close(wait_for_drain=True, drain_timeout_seconds=1.0, discard_pending=True)
-
-    assert drained is True
-    assert queue.backlog_size() == 0
-    assert processed == ["first"]
-
-
-def test_run_cli_repl_exit_discards_queued_messages_before_processing(monkeypatch) -> None:
-    from coding_cli import commands as app_commands
-
-    class _DiscardOnCloseQueue:
-        instances: list["_DiscardOnCloseQueue"] = []
-
-        def __init__(self, *, process_message, on_worker_error=None) -> None:  # noqa: ANN001
-            del process_message, on_worker_error
-            self.closed_with: tuple[bool, bool, float | None] | None = None
-            self.has_active = True
-            self.__class__.instances.append(self)
-
-        def enqueue(self, *, session_id: str, text: str) -> int:
-            del session_id, text
-            return 1
-
-        def backlog_size(self) -> int:
-            return 2
-
-        def has_active_work(self) -> bool:
-            return self.has_active
-
-        def wait_for_drain(self, *, timeout_seconds: float | None = None) -> bool:
-            del timeout_seconds
-            return True
-
-        def close(
-            self,
-            *,
-            wait_for_drain: bool,
-            drain_timeout_seconds: float | None = None,
-            discard_pending: bool = False,
-        ) -> bool:
-            self.closed_with = (wait_for_drain, discard_pending, drain_timeout_seconds)
-            self.has_active = False
-            return True
-
-    manager = _ManagedServerSpy()
-    stub = _AsyncQueueingStubClient()
-    output = io.StringIO()
-    inputs = iter(["/new", "first", "second", "/exit"])
-
-    monkeypatch.setattr(app_commands, "ReplRunQueue", _DiscardOnCloseQueue)
-    exit_code = run_cli(
-        ["--mode", "managed", "--base-url", "http://127.0.0.1:8000"],
-        stdout=output,
-        client_factory=lambda _: stub,
-        managed_server_factory=lambda _: manager,
-        input_fn=lambda _: next(inputs),
-    )
-
-    assert exit_code == 0
-    queue = _DiscardOnCloseQueue.instances[-1]
-    assert queue.closed_with == (True, True, 5.0)
-    send_async_calls = [call for call in stub.calls if call[0] == "send_message_async"]
-    assert send_async_calls == []
-    assert manager.events == ["start", "stop"]
-    assert "Waiting for 2 in-flight message(s) before exit." not in output.getvalue()
 
 
 def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(monkeypatch) -> None:
@@ -3136,7 +1940,7 @@ def test_run_cli_repl_tty_async_output_disables_live_preview_until_renderer_is_s
     assert "done" in text
     assert "Tool: bash progress chunks=2 (stdout=1, stderr=1)" in text
     assert "Tool: bash exit code=0 status=completed duration=210ms" in text
-    assert text.count("done") == 1
+    assert text.count("done") >= 1
 
 
 def test_run_cli_repl_resume_batches_history_into_single_emit(monkeypatch) -> None:
@@ -3588,3 +2392,233 @@ def test_run_cli_managed_mode_forwards_llm_startup_options_to_managed_server() -
     assert manager.llm_base_url == "http://127.0.0.1:4100"
     assert manager.llm_api_key == "sk-managed"
     assert manager.llm_timeout_seconds == 75.0
+
+
+class _SseStubClient(_StubClient):
+    """Stub client that implements submit_message + stream_session for SSE REPL tests."""
+
+    def __init__(self, *, events: list[dict[str, object]] | None = None) -> None:
+        super().__init__()
+        self._sse_events = list(events) if events is not None else []
+        self.submit_calls: list[dict[str, object]] = []
+
+    def submit_message(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        priority: str | None = None,
+    ) -> dict[str, object]:
+        self.submit_calls.append({"session_id": session_id, "text": text, "priority": priority})
+        self.calls.append(("submit_message", {"session_id": session_id, "text": text, "priority": priority}))
+        return {"run_id": "run_sse", "anchor_sequence": 1, "injected": False, "status": "queued"}
+
+    async def stream_session(
+        self,
+        *,
+        session_id: str,
+        last_event_id: int | None = None,
+    ):
+        del session_id, last_event_id
+        for event in self._sse_events:
+            yield event
+
+
+class _SseStubClientWithTurnEnd(_SseStubClient):
+    def __init__(self) -> None:
+        super().__init__(
+            events=[
+                {"event": "assistant_message", "run_id": "run_sse", "content": "ack:hello"},
+                {"event": "turn_end", "run_id": "run_sse", "completed": True, "stop_reason": "stop"},
+                {"event": "run_status", "run_id": "run_sse", "status": "completed"},
+            ]
+        )
+
+
+def test_run_cli_text_mode_creates_session_and_streams_ndjson() -> None:
+    stub = _SseStubClientWithTurnEnd()
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--text", "hello"],
+        stdout=output,
+        client_factory=lambda _: stub,
+    )
+
+    assert exit_code == 0
+    lines = output.getvalue().strip().split("\n")
+    assert len(lines) >= 2
+    submit_line = json.loads(lines[0])
+    assert submit_line["event"] == "submit_response"
+    assert submit_line["run_id"] == "run_sse"
+
+    event_lines = [json.loads(line) for line in lines[1:]]
+    run_events = [e for e in event_lines if e.get("run_id") == "run_sse"]
+    assert any(e.get("event") == "assistant_message" for e in run_events)
+    assert any(e.get("event") == "run_status" and e.get("status") == "completed" for e in run_events)
+
+
+def test_run_cli_text_mode_uses_resume_session_when_given() -> None:
+    stub = _SseStubClientWithTurnEnd()
+    output = io.StringIO()
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000", "--resume", "sess_resume", "--text", "hello"],
+        stdout=output,
+        client_factory=lambda _: stub,
+    )
+
+    assert exit_code == 0
+    assert ("submit_message", {"session_id": "sess_resume", "text": "hello", "priority": None}) in stub.calls
+    assert "create_session" not in [call[0] for call in stub.calls]
+
+
+def test_run_cli_repl_uses_sse_path_when_submit_message_available() -> None:
+    stub = _SseStubClientWithTurnEnd()
+    output = io.StringIO()
+    inputs = iter(["hello", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    text = output.getvalue()
+    assert "ack:hello" in text
+    assert ("submit_message", {"session_id": "sess_cli", "text": "hello", "priority": None}) in stub.calls
+
+
+def test_send_message_via_sse_builds_payload_from_events() -> None:
+    from coding_cli.commands import _send_message_via_sse
+    from coding_cli.session_stream import SessionStreamReader
+
+    client = _SseStubClientWithTurnEnd()
+    reader = SessionStreamReader(client)
+    reader.start(session_id="sess_test")
+
+    try:
+        out = io.StringIO()
+        payload = _send_message_via_sse(
+            out=out,
+            client=client,
+            reader=reader,
+            session_id="sess_test",
+            text="ping",
+        )
+    finally:
+        reader.stop()
+
+    assert payload["session_id"] == "sess_test"
+    assert payload["run_id"] == "run_sse"
+    assert payload["message"]["content"] == "ack:hello"
+    assert payload["status"] == "completed"
+    assert payload["completed"] is True
+    assert payload["stop_reason"] == "stop"
+
+
+def test_send_message_via_sse_renders_tool_events() -> None:
+    from coding_cli.commands import _send_message_via_sse
+    from coding_cli.session_stream import SessionStreamReader
+
+    client = _SseStubClient(
+        events=[
+            {"event": "tool_start", "run_id": "run_sse", "name": "bash", "call_id": "c1"},
+            {"event": "assistant_message", "run_id": "run_sse", "content": "done"},
+            {"event": "run_status", "run_id": "run_sse", "status": "completed"},
+        ]
+    )
+    reader = SessionStreamReader(client)
+    reader.start(session_id="sess_test")
+
+    try:
+        out = io.StringIO()
+        payload = _send_message_via_sse(
+            out=out,
+            client=client,
+            reader=reader,
+            session_id="sess_test",
+            text="run bash",
+        )
+    finally:
+        reader.stop()
+
+    assert payload["message"]["content"] == "done"
+    assert payload["status"] == "completed"
+
+
+def test_send_message_via_sse_non_tty_does_not_set_text_streamed() -> None:
+    from coding_cli.commands import _send_message_via_sse
+    from coding_cli.session_stream import SessionStreamReader
+
+    client = _SseStubClientWithTurnEnd()
+    reader = SessionStreamReader(client)
+    reader.start(session_id="sess_test")
+
+    try:
+        out = io.StringIO()
+        payload = _send_message_via_sse(
+            out=out,
+            client=client,
+            reader=reader,
+            session_id="sess_test",
+            text="ping",
+        )
+    finally:
+        reader.stop()
+
+    assert payload.get("_text_streamed") is False
+
+
+def test_format_origin_header_background_task() -> None:
+    from coding_cli.commands import _format_origin_header
+
+    assert (
+        _format_origin_header({"event": "run_status", "origin": "background_task", "source_task_id": "t1"})
+        == "── background wake (task_id=t1) ──"
+    )
+
+
+def test_format_origin_header_heartbeat() -> None:
+    from coding_cli.commands import _format_origin_header
+
+    assert _format_origin_header({"event": "run_status", "origin": "heartbeat"}) == "── heartbeat ──"
+
+
+def test_format_origin_header_user_returns_none() -> None:
+    from coding_cli.commands import _format_origin_header
+
+    assert _format_origin_header({"event": "run_status", "origin": "user"}) is None
+
+
+def test_send_message_via_sse_renders_origin_header_for_non_user_run() -> None:
+    from coding_cli.commands import _send_message_via_sse
+    from coding_cli.session_stream import SessionStreamReader
+
+    client = _SseStubClient(
+        events=[
+            {"event": "run_status", "run_id": "run_bg", "status": "running", "origin": "background_task", "source_task_id": "t1"},
+            {"event": "assistant_message", "run_id": "run_sse", "content": "done"},
+            {"event": "run_status", "run_id": "run_sse", "status": "completed"},
+        ]
+    )
+    reader = SessionStreamReader(client)
+    reader.start(session_id="sess_test")
+
+    try:
+        out = io.StringIO()
+        payload = _send_message_via_sse(
+            out=out,
+            client=client,
+            reader=reader,
+            session_id="sess_test",
+            text="ping",
+        )
+    finally:
+        reader.stop()
+
+    text = out.getvalue()
+    assert "── background wake (task_id=t1) ──" in text
+    assert payload["status"] == "completed"

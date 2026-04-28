@@ -52,12 +52,17 @@ class _FakeKernelClient:
         )
         return {"session_id": f"sess-{self._session_index}"}
 
-    def send_message_async(self, *, session_id: str, texts: list[str], image_urls=None):
+    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
         self.run_states[run_id] = {"run_id": run_id, "output_text": self.default_output_text.format(text=texts[-1] if texts else "")}
-        return {"run_id": run_id}
+        return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
+
+    async def stream_session(self, *, session_id, last_event_id=None):
+        run_id = list(self.run_states.keys())[-1] if self.run_states else "run-1"
+        yield {"event": "assistant_message", "run_id": run_id, "content": self.run_states.get(run_id, {}).get("output_text", "")}
+        yield {"event": "run_status", "run_id": run_id, "status": "completed", "output_text": self.run_states.get(run_id, {}).get("output_text", "")}
 
     def get_run(self, *, run_id: str):
         return self.run_states[run_id]

@@ -44,6 +44,7 @@ class _FakeKernelClient:
         self._run_index = 0
         self._get_run_calls: dict[str, int] = {}
         self._stream_calls: dict[str, int] = {}
+        self._last_run_id_by_session: dict[str, str] = {}
 
     def create_session(
         self,
@@ -72,7 +73,7 @@ class _FakeKernelClient:
         self._session_metadata_by_id[session_id] = dict(metadata or {})
         self.session_events.setdefault(session_id, [])
 
-    def send_message_async(self, *, session_id: str, texts: list[str], image_urls=None):
+    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None, priority="next"):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         text = texts[-1] if texts else ""
@@ -82,18 +83,31 @@ class _FakeKernelClient:
         self.send_calls.append(call)
         self.run_states.setdefault(run_id, {"run_id": run_id, "status": "completed", "output_text": f"reply:{text}"})
         self.session_events.setdefault(session_id, [])
-        return {"run_id": run_id}
+        self._last_run_id_by_session[session_id] = run_id
+        return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
 
-    def stream_session_events(self, *, session_id: str, after_sequence: int = 0, max_events: int = 20, timeout_seconds: float = 0.25):
-        del after_sequence
-        del max_events
-        del timeout_seconds
+    async def stream_session(self, *, session_id: str, last_event_id=None):
+        del last_event_id
         batches = self.session_events.get(session_id, [])
-        index = self._stream_calls.get(session_id, 0)
-        self._stream_calls[session_id] = index + 1
-        if index >= len(batches):
-            return []
-        return batches[index]
+        for batch in batches:
+            for event in batch:
+                yield dict(event)
+        run_id = self._last_run_id_by_session.get(session_id)
+        if run_id is not None:
+            raw_state = self.run_states.get(run_id, {})
+            if isinstance(raw_state, list):
+                state = raw_state[-1] if raw_state else {}
+            else:
+                state = raw_state
+            output_text = state.get("output_text", "")
+            if output_text:
+                yield {"event": "assistant_message", "run_id": run_id, "content": output_text}
+            status = state.get("status", "completed")
+            run_status: dict[str, object] = {"event": "run_status", "run_id": run_id, "status": status}
+            usage = state.get("usage")
+            if usage is not None:
+                run_status["usage"] = usage
+            yield run_status
 
     def get_run(self, *, run_id: str):
         payload = self.run_states[run_id]
@@ -104,6 +118,75 @@ class _FakeKernelClient:
                 return payload[-1]
             return payload[index]
         return payload
+
+
+class _FakeSseKernelClient:
+    """Kernel client double that exposes submit_message + stream_session (feat-338 SSE path)."""
+
+    def __init__(self, *, events: list[dict[str, object]] | None = None) -> None:
+        self.create_session_calls: list[dict[str, object | None]] = []
+        self.submit_calls: list[dict[str, object]] = []
+        self._events: list[dict[str, object]] = list(events or [])
+        self._session_index = 0
+        self._session_metadata_by_id: dict[str, dict[str, object]] = {}
+        self.run_states: dict[str, dict[str, object]] = {}
+
+    def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ):
+        self._session_index += 1
+        session_id = f"sess-{self._session_index}"
+        self.create_session_calls.append(
+            {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
+        )
+        self._session_metadata_by_id[session_id] = {**dict(metadata or {}), "workspace_root": workspace_root}
+        return {"session_id": session_id}
+
+    def get_session(self, *, session_id: str):
+        metadata = self._session_metadata_by_id.get(session_id)
+        if metadata is None:
+            raise RuntimeError(f"missing session: {session_id}")
+        return {"session_id": session_id, "status": "active", "created_at": "now", "metadata": dict(metadata)}
+
+    def submit_message(
+        self,
+        *,
+        session_id: str,
+        texts: list[str],
+        image_urls: list[dict[str, object]] | None = None,
+        priority: str = "next",
+    ):
+        run_id = f"run-{len(self.submit_calls) + 1}"
+        call: dict[str, object] = {"session_id": session_id, "texts": texts, "run_id": run_id, "priority": priority}
+        if image_urls is not None:
+            call["image_urls"] = image_urls
+        self.submit_calls.append(call)
+        self.run_states[run_id] = {"run_id": run_id, "status": "completed"}
+        return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
+
+    async def stream_session(
+        self,
+        *,
+        session_id: str,
+        last_event_id: int | None = None,
+    ):
+        del session_id
+        del last_event_id
+        for event in self._events:
+            yield dict(event)
+
+    def interrupt_session(self, *, session_id: str):
+        del session_id
+        return {"status": "interrupted"}
+
+    def append_message(self, *, session_id: str, role: str, content: str):
+        del session_id, role, content
+        return {"status": "appended"}
 
 
 def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
@@ -499,12 +582,11 @@ def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapsho
     )
     kernel_client.session_events["sess-1"] = [
         [
-            {"id": "evt-old", "event": "text_delta", "data": {"run_id": "run-old", "delta": "ignore me"}},
-            {"id": "evt-1", "event": "text_delta", "data": {"run_id": "run-1", "delta": "Hello"}},
+            {"event": "assistant_message", "run_id": "run-old", "content": "ignore me"},
+            {"event": "assistant_message", "run_id": "run-1", "content": "Hello"},
         ],
         [
-            {"id": "evt-1", "event": "text_delta", "data": {"run_id": "run-1", "delta": "Hello"}},
-            {"id": "evt-2", "event": "text_delta", "data": {"run_id": "run-1", "delta": " world"}},
+            {"event": "assistant_message", "run_id": "run-1", "content": "Hello world"},
         ],
     ]
     kernel_client.run_states["run-1"] = [
@@ -1383,3 +1465,212 @@ def test_session_metadata_direct_fields(tmp_path: Path) -> None:
     created_metadata = kernel_client.create_session_calls[0]["metadata"]
     assert created_metadata["conversation_type"] == "direct"
     assert "participant_agent_ids" not in created_metadata
+
+
+# ---------------------------------------------------------------------------
+# M8: Gateway SSE cutover (feat-338)
+# ---------------------------------------------------------------------------
+
+
+def test_inbound_pipeline_uses_sse_path_when_submit_and_stream_available(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeSseKernelClient(
+        events=[
+            {"event": "assistant_message", "run_id": "run-1", "content": "sse reply"},
+            {"event": "run_status", "run_id": "run-1", "status": "completed"},
+        ]
+    )
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web",
+        text="ping",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.agent_id == "agent-a"
+    assert result.reply_text == "sse reply"
+    assert kernel_client.submit_calls == [{"session_id": "sess-1", "texts": ["ping"], "run_id": "run-1", "priority": "next"}]
+    assert channel.sent == [
+        OutboundMessage(
+            channel_name="web",
+            text="sse reply",
+            target_chat_id="chat-1",
+            thread_id=None,
+            metadata={},
+        )
+    ]
+
+
+def test_inbound_pipeline_sse_path_extracts_reply_from_assistant_message(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeSseKernelClient(
+        events=[
+            {"event": "tool_start", "run_id": "run-1", "tool_name": "web_search"},
+            {"event": "assistant_message", "run_id": "run-1", "content": "found it"},
+            {"event": "tool_end", "run_id": "run-1", "tool_name": "web_search"},
+            {"event": "run_status", "run_id": "run-1", "status": "completed"},
+        ]
+    )
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="search",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "found it"
+
+
+def test_inbound_pipeline_sse_path_raises_on_failed_run(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeSseKernelClient(
+        events=[
+            {"event": "assistant_message", "run_id": "run-1", "content": "oops"},
+            {"event": "run_status", "run_id": "run-1", "status": "failed", "error": "boom"},
+        ]
+    )
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web",
+        text="fail",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+
+    try:
+        asyncio.run(pipeline.handle_inbound(inbound))
+        raise AssertionError("expected exception")
+    except Exception as exc:
+        assert "boom" in str(exc)
+
+
+def test_inbound_pipeline_sse_path_routes_non_user_origin_events(tmp_path: Path) -> None:
+    """Events with origin != user and mismatched run_id are routed outbound.
+
+    This verifies the session_key serial queue handles background-wake / cron
+    events while the user run is in progress.
+    """
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeSseKernelClient(
+        events=[
+            {"event": "assistant_message", "run_id": "run-other", "content": "background", "origin": "background_task"},
+            {"event": "assistant_message", "run_id": "run-1", "content": "user reply"},
+            {"event": "run_status", "run_id": "run-1", "status": "completed"},
+        ]
+    )
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web",
+        text="ping",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "user reply"
+    assert "background" in [msg.text for msg in channel.sent]
+
+
+def test_inbound_pipeline_sse_path_relay_lifecycle_emits_completed_with_usage(tmp_path: Path) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeSseKernelClient(
+        events=[
+            {"event": "assistant_message", "run_id": "run-1", "content": "ok"},
+            {"event": "run_status", "run_id": "run-1", "status": "completed", "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}},
+        ]
+    )
+    seen: list[RelayLifecycleUpdate] = []
+
+    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+        del message
+        seen.append(update)
+
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        relay_lifecycle_callback=_capture,
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="ping",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    phases = [u.phase for u in seen]
+    assert phases == ["accepted", "running", "completed"]
+    assert seen[-1].usage == {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
+
+
+def test_map_kernel_event_to_run_activity() -> None:
+    from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+
+    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "run_status", "status": "running"}) == "agent.run.started"
+    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "run_status", "status": "completed"}) == "agent.run.completed"
+    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "run_status", "status": "failed"}) == "agent.run.failed"
+    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "run_status", "status": "cancelled"}) == "agent.run.failed"
+    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "assistant_message"}) == "agent.text.message"
+    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "tool_start"}) == "agent.tool.started"
+    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "tool_end"}) == "agent.tool.completed"
+    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "turn_end"}) is None
+    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "error"}) is None

@@ -63,8 +63,6 @@ class RelayLifecycleUpdate:
 RelayLifecycleCallback = Callable[[InboundMessage, RelayLifecycleUpdate], Awaitable[None]]
 
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
-_EVENT_POLL_MAX_EVENTS = 200
-_EVENT_POLL_TIMEOUT_SECONDS = 0.25
 # Default port for the Gateway's internal HTTP dispatch endpoint.
 _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
 
@@ -183,7 +181,7 @@ class InboundPipeline:
                         item for item in attachments
                         if isinstance(item, dict) and isinstance(item.get("url"), str)
                     ] or None
-                run_payload = self._kernel_client.send_message_async(
+                run_payload = self._kernel_client.submit_message(
                     session_id=binding.kernel_session_id,
                     texts=texts,
                     image_urls=image_urls,
@@ -201,12 +199,20 @@ class InboundPipeline:
                         run_id=run_id or None,
                     ),
                 )
-                run_state, reply_text = await asyncio.get_running_loop().run_in_executor(
-                    None,
-                    lambda: self._await_terminal_run(
-                        kernel_session_id=binding.kernel_session_id,
-                        run_id=run_id,
-                    ),
+                async def _on_other_event(event: Mapping[str, object]) -> None:
+                    origin = event.get("origin")
+                    if origin == "user" or not origin:
+                        return
+                    event_name = event.get("event")
+                    if event_name == "assistant_message":
+                        content = event.get("content")
+                        if isinstance(content, str) and content.strip():
+                            self._outbound_router.send_text(text=content.strip(), reply_context=binding.reply_context)
+
+                run_state, reply_text = await self._await_terminal_run_async(
+                    kernel_session_id=binding.kernel_session_id,
+                    run_id=run_id,
+                    on_other=_on_other_event,
                 )
                 await self._emit_relay_lifecycle(
                     message,
@@ -522,94 +528,69 @@ class InboundPipeline:
             raise LookupError(f"unknown agent_id: {agent_id}")
         return agent_id
 
-    def _await_terminal_run(self, *, kernel_session_id: str, run_id: str) -> tuple[Mapping[str, object], str]:
-        stream_session_events = getattr(self._kernel_client, "stream_session_events", None)
-        if not callable(stream_session_events):
-            run_state = self._kernel_client.get_run(run_id=run_id)
-            status = self._run_status(run_state)
-            if status in _TERMINAL_RUN_STATUSES and status != "completed":
-                raise RuntimeError(self._extract_run_error(run_state, fallback_status=status))
-            return run_state, self._extract_reply_text(run_state)
-
-        reply_text = ""
-        last_sequence_num = 0
-        seen_event_ids: set[str] = set()
-        seen_event_fingerprints: set[str] = set()
-        while True:
-            events = stream_session_events(
-                session_id=kernel_session_id,
-                after_sequence=last_sequence_num,
-                max_events=_EVENT_POLL_MAX_EVENTS,
-                timeout_seconds=_EVENT_POLL_TIMEOUT_SECONDS,
-            )
-            reply_text, last_sequence_num = self._merge_reply_text_from_events(
-                events,
-                run_id=run_id,
-                current=reply_text,
-                last_sequence_num=last_sequence_num,
-                seen_event_ids=seen_event_ids,
-                seen_event_fingerprints=seen_event_fingerprints,
-            )
-            run_state = self._kernel_client.get_run(run_id=run_id)
-            status = self._run_status(run_state)
-            if status not in _TERMINAL_RUN_STATUSES:
-                continue
-            if status != "completed":
-                raise RuntimeError(self._extract_run_error(run_state, fallback_status=status))
-            return run_state, self._extract_reply_text(run_state, streamed_text=reply_text)
-
-    @staticmethod
-    def _merge_reply_text_from_events(
-        events: list[dict[str, object]],
+    async def _await_terminal_run_async(
+        self,
         *,
+        kernel_session_id: str,
         run_id: str,
-        current: str,
-        last_sequence_num: int,
-        seen_event_ids: set[str],
-        seen_event_fingerprints: set[str],
-    ) -> tuple[str, int]:
-        reply_text = current
-        max_sequence_num = last_sequence_num
-        for event in events:
-            seq = event.get("sequence_num")
-            if isinstance(seq, int) and seq > max_sequence_num:
-                max_sequence_num = seq
-            data = event.get("data")
-            if not isinstance(data, dict) or data.get("run_id") != run_id:
+        on_other: Callable[[Mapping[str, object]], Awaitable[None] | None] | None = None,
+    ) -> tuple[Mapping[str, object], str]:
+        """Consume persistent SSE stream until terminal run_status for run_id.
+
+        Non-target events are passed to ``on_other`` if provided.  This lets
+        callers route background-task or heartbeat runs through the same
+        session-key serial queue while the user run is in progress.
+        """
+        reply_text = ""
+        run_state: Mapping[str, object] | None = None
+
+        async for event in self._kernel_client.stream_session(session_id=kernel_session_id):
+            if event.get("run_id") != run_id:
+                if on_other is not None:
+                    result = on_other(event)
+                    if asyncio.iscoroutine(result):
+                        await result
                 continue
-            dedupe_key = InboundPipeline._event_dedupe_key(
-                event,
-                seen_event_ids=seen_event_ids,
-                seen_event_fingerprints=seen_event_fingerprints,
-            )
-            if dedupe_key is None:
-                continue
-            if str(event.get("event", "")).strip() != "text_delta":
-                continue
-            delta = data.get("delta")
-            if isinstance(delta, str) and delta:
-                reply_text = InboundPipeline._merge_text_delta(reply_text, delta)
-        return reply_text, max_sequence_num
+            event_name = event.get("event")
+            if event_name == "assistant_message":
+                content = event.get("content")
+                if isinstance(content, str):
+                    reply_text = content
+            elif event_name == "run_status":
+                status = event.get("status")
+                if status in _TERMINAL_RUN_STATUSES:
+                    run_state = event
+                    if status != "completed":
+                        raise RuntimeError(self._extract_run_error(event, fallback_status=status))
+                    break
+
+        if run_state is None:
+            raise RuntimeError("stream ended without terminal run_status")
+
+        return run_state, reply_text
 
     @staticmethod
-    def _event_dedupe_key(
-        event: Mapping[str, object],
-        *,
-        seen_event_ids: set[str],
-        seen_event_fingerprints: set[str],
-    ) -> str | None:
-        event_id = event.get("id")
-        if isinstance(event_id, str) and event_id.strip():
-            normalized_event_id = event_id.strip()
-            if normalized_event_id in seen_event_ids:
-                return None
-            seen_event_ids.add(normalized_event_id)
-            return normalized_event_id
-        fingerprint = json.dumps(event, sort_keys=True, ensure_ascii=False)
-        if fingerprint in seen_event_fingerprints:
-            return None
-        seen_event_fingerprints.add(fingerprint)
-        return fingerprint
+    def _map_kernel_event_to_run_activity(event: Mapping[str, object]) -> str | None:
+        """Map a kernel SSE event to the feat-336 Run Activity event name.
+
+        Returns ``None`` for events that have no Run Activity equivalent.
+        """
+        event_name = event.get("event")
+        if event_name == "run_status":
+            status = event.get("status")
+            if status == "running":
+                return "agent.run.started"
+            if status == "completed":
+                return "agent.run.completed"
+            if status in {"failed", "cancelled"}:
+                return "agent.run.failed"
+        if event_name == "assistant_message":
+            return "agent.text.message"
+        if event_name == "tool_start":
+            return "agent.tool.started"
+        if event_name == "tool_end":
+            return "agent.tool.completed"
+        return None
 
     @staticmethod
     def _run_status(run_state: Mapping[str, object]) -> str:
