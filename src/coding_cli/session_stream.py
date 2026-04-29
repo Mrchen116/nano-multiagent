@@ -105,12 +105,14 @@ class SessionStreamReader:
         timeout: float = 0.5,
         terminal_timeout: float = 120.0,
         on_other: Callable[[dict[str, Any]], None] | None = None,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
     ) -> list[dict[str, Any]]:
         """Block until terminal run_status for run_id, collecting all matching events.
 
         Non-matching events are passed to ``on_other`` if provided, otherwise
-        discarded.  This lets callers render origin headers for background runs
-        that interleave on the same session stream.
+        discarded.  Matching events are passed to ``on_event`` immediately as
+        they arrive (before being appended to the returned list), enabling
+        real-time rendering during the drain loop.
 
         Raises TimeoutError if terminal status not seen within terminal_timeout.
         """
@@ -125,6 +127,8 @@ class SessionStreamReader:
                 if on_other is not None:
                     on_other(evt)
                 continue
+            if on_event is not None:
+                on_event(evt)
             events.append(evt)
             if evt.get("event") == "run_status" and evt.get("status") in _TERMINAL_STATUSES:
                 return events

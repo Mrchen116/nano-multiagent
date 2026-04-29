@@ -364,29 +364,65 @@ def _send_message_via_sse(
 
     live_rendered = False
     if _is_tty_output(out):
-        from coding_cli.render.repl_live import ReplLiveRenderer
+        from coding_cli.render.repl_tool_lines import format_tool_done, format_tool_running
 
-        renderer = ReplLiveRenderer(out)
-        with renderer:
-            events = reader.drain_run(run_id=run_id, timeout=0.5, terminal_timeout=120.0, on_other=_on_other_event)
-            for event in events:
-                event_name = event.get("event")
-                if event_name == "assistant_message":
-                    renderer.on_text_delta(event.get("content", ""))
-                elif event_name in ("tool_start", "tool_end"):
-                    # Map tool_end to tool_exec_exit for renderer compatibility.
-                    mapped_name = "tool_exec_exit" if event_name == "tool_end" else event_name
-                    renderer.on_tool_event(mapped_name, event)
+        # Print events sequentially as they arrive so text and tool lines
+        # appear in true execution order.  Rich Live groups ALL tool lines
+        # into one persistent block at the bottom, preventing interleaving.
+        _thinking_shown = [True]
+        print("⠋ Thinking...", end="\r", file=out, flush=True)
+
+        def _erase_thinking() -> None:
+            if _thinking_shown[0]:
+                # ANSI: carriage-return + erase to end-of-line
+                print("\r\033[K", end="", file=out, flush=True)
+                _thinking_shown[0] = False
+
+        def _on_run_event_tty(event: dict[str, object]) -> None:
+            _erase_thinking()
+            event_name = event.get("event")
+            if event_name == "assistant_message":
+                content = event.get("content") or ""
+                if content:
+                    lines = content.split("\n")
+                    # Strip trailing empty lines caused by LLM trailing newlines,
+                    # but preserve internal blank lines as paragraph separators.
+                    while lines and lines[-1] == "":
+                        lines.pop()
+                    for line in lines:
+                        print(f"> {line}", file=out)
+                    out.flush()
+            elif event_name == "tool_start":
+                name = str(event.get("name") or "?")
+                # No newline: tool_end will overwrite this line.
+                print(format_tool_running(name), end="\r", file=out, flush=True)
+            elif event_name == "tool_end":
+                name = str(event.get("name") or "?")
+                duration_ms = event.get("duration_ms")
+                # \r\033[K clears the tool_start line before printing completion.
+                print(f"\r\033[K{format_tool_done(name, duration_ms)}", file=out, flush=True)
+
+        events = reader.drain_run(
+            run_id=run_id, timeout=0.5, terminal_timeout=120.0,
+            on_other=_on_other_event, on_event=_on_run_event_tty,
+        )
+        _erase_thinking()
         live_rendered = True
     else:
-        events = []
-        for event in reader.drain_run(run_id=run_id, timeout=0.5, terminal_timeout=120.0, on_other=_on_other_event):
+        events: list[dict[str, object]] = []
+
+        def _on_run_event_plain(event: dict[str, object]) -> None:
             events.append(event)
             event_name = event.get("event")
             if event_name in ("tool_start", "tool_exec_started"):
                 line = _event_preview_line(event_name=event_name, data=event)
                 if line:
                     print(line, file=out)
+
+        reader.drain_run(
+            run_id=run_id, timeout=0.5, terminal_timeout=120.0,
+            on_other=_on_other_event, on_event=_on_run_event_plain,
+        )
 
     assistant_text = ""
     turn_end_payload: dict[str, object] | None = None
