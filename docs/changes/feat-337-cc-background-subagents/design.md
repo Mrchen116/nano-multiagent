@@ -535,15 +535,43 @@ def _deliver_completion_notification(record: BackgroundTaskRecord) -> None:
 - 如果希望合并为一个 run，可以在 `_deliver_completion_notification` 加一个短窗口（例如 50ms）合并器：把同 session 内 50ms 内到达的多条 notification 合并到一个 `parts=[{type:text,text:joined_xmls}]` 提交。
 - 实现可选；首版采用"一通知一 run"，简单且与 feat-338 的 `/stream` fan-out 配合自然。后续观察体验再决定是否合并。
 
-### 9.4 产品交付（不属于本 feature 实现范围）
+### 9.4 产品交付契约
 
-REPL / Gateway / Web IM 看到唤醒输出的能力**全部由 feat-338 提供**：
+REPL / Gateway / Web IM 看到唤醒输出的能力以 feat-338 `/stream` 为基础，但 feat 337 必须把客户端交付前提验收清楚。不能只假设“常驻 reader 已就位”，因为后台任务的核心体验是“用户无新输入时也能看到主 agent 被后台结果唤醒后的输出”。
 
 - REPL：常驻 `/stream` reader 看到 `run_status{origin=background_task, source_task_id=...}`，渲染 background 标头，逐帧渲染该 run 的 assistant_message / tool_start / tool_end，直到 terminal `run_status`。
 - Gateway：per-session `/stream` 订阅识别 `origin != user` 的 run，按 session_key 串行队列调度 outbound 回 IM channel，`upstream_reporter.report` 携带 `origin` / `source_task_id`。
 - 离线 / 重连：客户端通过 `Last-Event-ID` 续传，或调用消息历史 API 拉取 transcript。
 
-本 feature 不写、不改任何客户端、HTTP 路由或 SSE 编码。落地工作量集中在 `core/background_tasks/` 和 `platform/background_tasks/`，加上把 wake-up 调用点接入。
+HTTP 路由和 SSE 编码不需要新增。但如果现有 REPL / Gateway 不满足下列交付契约，必须作为本 feature 的补齐范围，而不是把后台任务停在“内核已发事件”的半成品状态。
+
+REPL delivery contract：
+
+- Session active 后必须保持 per-session `/stream` reader。
+- 当前用户 run drain 时，非当前 run 的 `origin != user` 事件不能丢弃。
+- 用户停在 prompt 等输入时，REPL 必须周期性 poll reader；后台唤醒输出不能依赖用户下一次按键才显示。
+- 同一个 background run 的 seen/pending 状态必须跨 main-run drain、post-turn grace drain、prompt-idle drain 共享。`run_status` 在一个阶段到达、assistant/tool 事件在另一个阶段到达时不能丢消息。
+- `run_status` 之前到达的 assistant/tool 事件必须按 `run_id` buffer，等 origin 被确认后再渲染。
+- Grace drain 只能是短促 opportunistic drain，不能每轮固定等待数秒；prompt idle callback 才是持续后台可见性的主路径。
+
+TTY rendering contract：
+
+- Raw terminal mode 下必须恢复 `OPOST | ONLCR`，否则 `print()` 的 `\n` 可能成为 bare LF。
+- 所有 assistant/tool/background/summary/context/error 输出必须经统一 terminal-safe renderer 或显式 CRLF；裸 `\n` 会继承当前光标列，造成阶梯缩进。
+- 在已有 prompt/input 正在显示时，外部输出必须 clear 当前输入行、输出完整 block、再恢复 prompt 和草稿。
+- `State`、`Usage`、`Context budget` 等 turn summary 行必须从第 0 列开始。
+
+IME/input contract：
+
+- Prompt idle polling 不得混用 `select(fd)` 和 `TextIO.read(1)`。Python TextIO 可能已经缓冲输入法一次 commit 的后续字符，导致 `select(fd)` 认为无新数据。
+- Idle key reader 必须从 fd 读取 bytes、增量解码并排入 token queue。中文输入法一次提交 `你好吗` 时，三个字符必须连续进入输入缓冲，不依赖下一次按键触发刷新。
+
+M10 将 CLI 侧补齐为明确架构：
+
+- `coding_cli.events.background_runs`：识别非 user run、维护 seen/pending、输出 display lines。
+- `coding_cli.render.terminal_output`：TTY-safe CRLF line emission。
+- `coding_cli.input.repl_input`：idle-aware, IME-safe raw key reader。
+- `coding_cli.commands`：只编排 reader、processor、renderer，不直接拥有后台 run 状态机。
 
 ### 9.5 Prompt 约束
 

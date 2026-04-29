@@ -2707,27 +2707,6 @@ def test_send_message_via_sse_tty_output_uses_terminal_safe_line_endings() -> No
             assert text[index - 1] == "\r"
 
 
-def test_format_origin_header_background_task() -> None:
-    from coding_cli.commands import _format_origin_header
-
-    assert (
-        _format_origin_header({"event": "run_status", "origin": "background_task", "source_task_id": "t1"})
-        == "── background wake (task_id=t1) ──"
-    )
-
-
-def test_format_origin_header_heartbeat() -> None:
-    from coding_cli.commands import _format_origin_header
-
-    assert _format_origin_header({"event": "run_status", "origin": "heartbeat"}) == "── heartbeat ──"
-
-
-def test_format_origin_header_user_returns_none() -> None:
-    from coding_cli.commands import _format_origin_header
-
-    assert _format_origin_header({"event": "run_status", "origin": "user"}) is None
-
-
 def test_send_message_via_sse_renders_origin_header_for_non_user_run() -> None:
     from coding_cli.commands import _send_message_via_sse
     from coding_cli.session_stream import SessionStreamReader
