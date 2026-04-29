@@ -13,7 +13,7 @@ Provide production implementations of core background-task protocols.
 
 ### RP2: File Output
 - `file_output.py`: `BashTaskOutput` implementation
-- Path resolution under `<workspace>/tasks/<parent_session_id>/<task_id>.output`
+- Path resolution under `<workspace>/.nano/background-tasks/<parent_session_id>/<task_id>.output`
 - Thread-safe append/flush, 256 MiB hard cap
 - Auto-creates file with status header on open
 

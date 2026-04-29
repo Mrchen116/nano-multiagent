@@ -164,7 +164,7 @@ ID 规则：
 bash：
 
 ```text
-<workspace_root>/tasks/<parent_session_id>/<task_id>.output
+<workspace_root>/.nano/background-tasks/<parent_session_id>/<task_id>.output
 ```
 
 subagent：不另开文件。`output_file` 直接指向该 subagent session 的 transcript JSONL，由现有 `core/session/jsonl_store.py` 写入；路径由 `JsonlSessionStore` 已有逻辑决定，后台任务只读取它的真实路径并暴露给主 agent。

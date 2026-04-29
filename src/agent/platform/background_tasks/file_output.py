@@ -14,7 +14,7 @@ BACKGROUND_BASH_MAX_OUTPUT_BYTES = 256 * 1024 * 1024  # 256 MiB
 class BashFileOutput:
     """Append-only file output for background bash tasks.
 
-    Paths are resolved under ``<workspace_root>/tasks/<parent_session_id>/<task_id>.output``.
+    Paths are resolved under ``<workspace_root>/.nano/background-tasks/<parent_session_id>/<task_id>.output``.
     Writes are thread-safe and capped at 256 MiB.
     """
 
@@ -58,7 +58,7 @@ class BashFileOutput:
         pass
 
     def _resolve_path(self, parent_session_id: str, task_id: str) -> Path:
-        return self._workspace_root / "tasks" / parent_session_id / f"{task_id}.output"
+        return self._workspace_root / ".nano" / "background-tasks" / parent_session_id / f"{task_id}.output"
 
 
 class _OutputHandle:
