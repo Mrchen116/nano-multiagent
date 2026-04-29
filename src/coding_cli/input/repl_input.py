@@ -1,6 +1,8 @@
 """Interactive terminal input helpers used by CLI REPL."""
 
+import codecs
 import os
+import select
 import sys
 import unicodedata
 from contextlib import contextmanager
@@ -24,6 +26,7 @@ _KEY_BACKSPACE = {"\x7f", "\b"}
 _MENU_MARKER_SELECTED = "▶"
 _MENU_MARKER_IDLE = " "
 _KEEP_STATE = object()
+_KEY_IDLE = object()
 
 
 @dataclass(slots=True)
@@ -76,24 +79,28 @@ def build_repl_input_reader(
     input_fn: Callable[[str], str] | None,
     repl_input_reader_factory: Callable[[], ReplInputReader] | None,
     command_suggestions: Sequence[str] = (),
-) -> Callable[[str, Sequence[str]], str]:
+    on_idle: Callable[[], None] | None = None,
+    idle_interval_seconds: float = 0.5,
+) -> Callable[..., str]:
     """Build line-reader adapter for tests, plain input, or editable terminal."""
     if repl_input_reader_factory is not None:
         reader = repl_input_reader_factory()
         return reader.read_line
 
     if input_fn is not None:
-        return lambda prompt, history: input_fn(prompt)
+        return lambda prompt, history, **kwargs: input_fn(prompt)
 
     if supports_editable_terminal_input(sys.stdin):
-        return lambda prompt, history: read_interactive_line_from_terminal(
+        return lambda prompt, history, **kwargs: read_interactive_line_from_terminal(
             prompt=prompt,
             history=history,
             out=out,
             command_suggestions=command_suggestions,
+            on_idle=on_idle,
+            idle_interval_seconds=idle_interval_seconds,
         )
 
-    return lambda prompt, history: input(prompt)
+    return lambda prompt, history, **kwargs: input(prompt)
 
 
 def supports_editable_terminal_input(stdin: TextIO) -> bool:
@@ -119,13 +126,13 @@ def _stdin_raw_mode(stdin: TextIO):
     original_mode = termios.tcgetattr(file_descriptor)
     try:
         tty.setraw(file_descriptor)
-        # Re-enable ONLCR so that \n written by print() / Console.line()
+        # Re-enable OPOST+ONLCR so that \n written by print() / Console.line()
         # still maps to \r\n on output.  Without this, raw-mode disables
         # OPOST and every \n becomes a bare LF, leaving the cursor in the
         # middle of the next line and producing progressive indentation.
         mode = termios.tcgetattr(file_descriptor)
         # termios attr list: [iflag, oflag, cflag, lflag, ispeed, ospeed, cc]
-        mode[1] = mode[1] | termios.ONLCR
+        mode[1] = mode[1] | termios.OPOST | termios.ONLCR
         termios.tcsetattr(file_descriptor, termios.TCSADRAIN, mode)
         yield
     finally:
@@ -149,6 +156,77 @@ def _read_terminal_key(stdin: TextIO) -> str | None:
     if third == "":
         return f"{first}{second}"
     return f"{first}{second}{third}"
+
+
+def _build_key_reader(
+    stdin: TextIO,
+    *,
+    on_idle: Callable[[], None] | None,
+    idle_interval_seconds: float,
+) -> Callable[[], str | None]:
+    """Build a key reader that returns _KEY_IDLE when no input arrives within the interval."""
+    if on_idle is not None:
+        return _IdleFdKeyReader(stdin=stdin, idle_interval_seconds=idle_interval_seconds).read_key
+
+    def _read_key() -> str | None:
+        return _read_terminal_key(stdin)
+
+    return _read_key
+
+
+class _IdleFdKeyReader:
+    """Read raw terminal bytes without losing IME text buffered above the fd."""
+
+    def __init__(self, *, stdin: TextIO, idle_interval_seconds: float) -> None:
+        self._stdin = stdin
+        self._idle_interval_seconds = idle_interval_seconds
+        encoding = getattr(stdin, "encoding", None) or sys.getdefaultencoding() or "utf-8"
+        self._decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
+        self._tokens: list[str] = []
+        self._pending_escape = ""
+
+    def read_key(self) -> str | None:
+        """Return one decoded key token, or _KEY_IDLE when the fd is quiet."""
+        if self._tokens:
+            return self._tokens.pop(0)
+
+        fd = self._stdin.fileno()
+        ready, _, _ = select.select([fd], [], [], self._idle_interval_seconds)
+        if not ready:
+            return _KEY_IDLE  # type: ignore[return-value]
+
+        data = os.read(fd, 4096)
+        if data == b"":
+            return None
+        self._extend_tokens(self._decoder.decode(data, final=False))
+        if self._tokens:
+            return self._tokens.pop(0)
+        return _KEY_IDLE  # type: ignore[return-value]
+
+    def _extend_tokens(self, text: str) -> None:
+        pending = f"{self._pending_escape}{text}"
+        self._pending_escape = ""
+        index = 0
+        while index < len(pending):
+            char = pending[index]
+            if char != "\x1b":
+                self._tokens.append(char)
+                index += 1
+                continue
+
+            remaining = pending[index:]
+            if len(remaining) < 2:
+                self._pending_escape = remaining
+                break
+            if remaining[1] != "[":
+                self._tokens.append(remaining[:2])
+                index += 2
+                continue
+            if len(remaining) < 3:
+                self._pending_escape = remaining
+                break
+            self._tokens.append(remaining[:3])
+            index += 3
 
 
 def _split_pasted_key(key: str) -> tuple[str, ...]:
@@ -192,16 +270,20 @@ def read_interactive_line_from_terminal(
     history: Sequence[str],
     out: TextIO,
     command_suggestions: Sequence[str] = (),
+    on_idle: Callable[[], None] | None = None,
+    idle_interval_seconds: float = 0.5,
 ) -> str:
     """Read one line from real terminal with raw-key handling."""
     with _stdin_raw_mode(sys.stdin):
+        key_reader = _build_key_reader(sys.stdin, on_idle=on_idle, idle_interval_seconds=idle_interval_seconds)
         return read_interactive_line(
             prompt=prompt,
             history=history,
-            key_reader=lambda: _read_terminal_key(sys.stdin),
+            key_reader=key_reader,
             out=out,
             command_suggestions=command_suggestions,
             line_break="\r\n",
+            on_idle=on_idle,
         )
 
 
@@ -213,6 +295,7 @@ def read_interactive_line(
     out: TextIO,
     command_suggestions: Sequence[str] = (),
     line_break: str = "\n",
+    on_idle: Callable[[], None] | None = None,
 ) -> str:
     """Read/edit one logical input, keeping multiline paste as one submission.
 
@@ -220,9 +303,12 @@ def read_interactive_line(
         prompt: Prompt prefix rendered for the active REPL session.
         history: Per-session history candidates available to arrow navigation.
         key_reader: Raw key supplier that returns one decoded terminal token at a time.
+            When *on_idle* is active, the key_reader may return _KEY_IDLE to signal
+            no key was pressed within the idle interval.
         out: Terminal-like stream used for redraws.
         command_suggestions: Slash commands shown in the inline suggestion menu.
         line_break: Physical line break written when the logical input is submitted.
+        on_idle: Optional callback invoked when no key arrives within the idle interval.
 
     Returns:
         One logical user submission. When terminal paste injects embedded newlines,
@@ -242,6 +328,10 @@ def read_interactive_line(
         )
         while True:
             key = key_reader()
+            if key is _KEY_IDLE:
+                if on_idle is not None:
+                    on_idle()
+                continue
             if key is None:
                 if pending_paste_submit:
                     out.write(line_break)

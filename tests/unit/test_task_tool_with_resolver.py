@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from unittest.mock import MagicMock
+
 from agent.core.errors import ToolError
 from agent.core.types import Message, TurnResult
 from agent.core.hooks.context import HookContext
@@ -18,10 +20,23 @@ class _Session:
     session_id: str
 
 
+class _FakeStore:
+    def __init__(self, tmp_path: Path) -> None:
+        self._tmp_path = tmp_path
+
+    def resolve_path(self, session_id: str, *, parent_session_id: str | None = None) -> Path:
+        return self._tmp_path / f"{session_id}.jsonl"
+
+    def find_session_by_metadata(self, *, parent_session_id, match):
+        return None
+
+
 class _RuntimeStub:
-    def __init__(self, *, config_resolver: ConfigResolver) -> None:
+    def __init__(self, *, config_resolver: ConfigResolver, tmp_path: Path | None = None) -> None:
         self.config_resolver = config_resolver
         self.created = 0
+        self._session_manager = MagicMock()
+        self._session_manager.store = _FakeStore(tmp_path or Path("/tmp"))
 
     async def create_session(
         self,
@@ -44,7 +59,10 @@ class _RuntimeStub:
         *,
         stream: bool = True,
         llm_session_id: str | None = None,
+        controller=None,
+        parent_session_id: str | None = None,
     ) -> TurnResult:
+        del stream, llm_session_id, controller, parent_session_id
         return TurnResult(
             session_id=session_id,
             turn_id="turn_task_with_resolver",
@@ -65,16 +83,17 @@ class _RuntimeStub:
             [{"type": "text", "text": "continue"}],
             stream=stream,
             llm_session_id=llm_session_id,
+            parent_session_id=None,
         )
 
 
 def _make_profile(global_home: Path) -> ProductProfile:
     return ProductProfile(
-        product_id="resolver_task",
-        display_name="Resolver Task",
-        config_namespace="resolver-task",
+        product_id="resolver_agent",
+        display_name="Resolver Agent",
+        config_namespace="resolver-agent",
         global_config_home=global_home,
-        workspace_config_dirname=".resolver-task",
+        workspace_config_dirname=".resolver-agent",
         session_db_filename="sessions.sqlite3",
     )
 
@@ -88,16 +107,16 @@ def _write_skill(root: Path, name: str) -> None:
     )
 
 
-async def test_task_tool_accepts_resolver_workspace_skill(tmp_path: Path) -> None:
+async def test_agent_tool_accepts_resolver_workspace_skill(tmp_path: Path) -> None:
     profile = _make_profile(tmp_path / ".resolver-global")
     resolver = ConfigResolver(profile=profile, workspace_root=tmp_path)
-    _write_skill(tmp_path / ".resolver-task" / "skills", "resolver-skill")
+    _write_skill(tmp_path / ".resolver-agent" / "skills", "resolver-skill")
     _write_skill(tmp_path / ".codex" / "skills", "legacy-only")
 
-    app = create_app(runtime=_RuntimeStub(config_resolver=resolver), repo_root=tmp_path, product_profile=profile)
+    app = create_app(runtime=_RuntimeStub(config_resolver=resolver, tmp_path=tmp_path), repo_root=tmp_path, product_profile=profile)
 
     result = await app.state.tool_registry.execute(
-        "task",
+        "agent",
         {
             "run_in_background": False,
             "load_skills": ["resolver-skill"],
@@ -112,18 +131,18 @@ async def test_task_tool_accepts_resolver_workspace_skill(tmp_path: Path) -> Non
     assert result["content"] == "ok"
 
 
-async def test_task_tool_rejects_legacy_codex_skill_when_runtime_has_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_agent_tool_rejects_legacy_codex_skill_when_runtime_has_resolver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex-home"))
     profile = _make_profile(tmp_path / ".resolver-global")
     resolver = ConfigResolver(profile=profile, workspace_root=tmp_path)
-    _write_skill(tmp_path / ".codex" / "skills", "legacy-only")
+    _write_skill(tmp_path / ".resolver-agent" / "skills", "legacy-only")
     _write_skill(tmp_path / ".codex-home" / "skills", "legacy-home-only")
 
-    app = create_app(runtime=_RuntimeStub(config_resolver=resolver), repo_root=tmp_path, product_profile=profile)
+    app = create_app(runtime=_RuntimeStub(config_resolver=resolver, tmp_path=tmp_path), repo_root=tmp_path, product_profile=profile)
 
     with pytest.raises(ToolError, match="unknown skills requested"):
         await app.state.tool_registry.execute(
-            "task",
+            "agent",
             {
                 "run_in_background": False,
                 "load_skills": ["legacy-only", "legacy-home-only"],

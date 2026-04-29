@@ -49,7 +49,7 @@ def test_local_coding_profile_compat_skill_roots_contains_codex() -> None:
 def test_local_coding_package_exports_default_modules() -> None:
     assert local_coding_defaults.CONFIG_NAMESPACE == "nanocode"
     assert local_coding_prompts.LOCAL_CODING_SYSTEM_PROMPT == LOCAL_CODING_PROFILE.default_system_prompt
-    assert set(local_coding_toolsets.DEFAULT_TOOL_IDS) == {"read", "write", "edit", "bash", "task"}
+    assert set(local_coding_toolsets.DEFAULT_TOOL_IDS) == {"read", "write", "edit", "bash", "agent", "task_stop"}
     assert "bash_risk_gate" in local_coding_hooks.DEFAULT_HOOK_MODULES
 
 
@@ -75,7 +75,7 @@ def test_personal_assistant_package_exports_default_modules() -> None:
         personal_assistant_prompts.PERSONAL_ASSISTANT_SYSTEM_PROMPT
         == PERSONAL_ASSISTANT_PROFILE.default_system_prompt
     )
-    assert {"read", "write", "edit", "bash", "task", "web_fetch", "web_search"} <= set(personal_assistant_toolsets.DEFAULT_TOOL_IDS)
+    assert {"read", "write", "edit", "bash", "agent", "web_fetch", "web_search"} <= set(personal_assistant_toolsets.DEFAULT_TOOL_IDS)
     assert set(personal_assistant_toolsets.OPTIONAL_TOOL_IDS) == {"send_message"}
     assert set(PERSONAL_ASSISTANT_PROFILE.optional_tool_ids) == {"send_message"}
     assert "communication_context" in personal_assistant_hooks.DEFAULT_HOOK_MODULES

@@ -48,7 +48,7 @@ You may have a `HEARTBEAT.md` file in your workspace describing scheduled tasks.
 - Use `edit` for precise changes (old text must match exactly).
 - Use `write` only for new files or complete rewrites.
 - Use `bash` for shell operations like ls, find, grep.
-- Use `task` to delegate complex or multi-step work to sub-agents.
+- Use `Agent` to delegate complex or multi-step work to sub-agents.
 - Use `web_search` to find information on the web. Summarize results; do not dump raw output.
 - Use `web_fetch` to retrieve and read the content of a specific URL. The output is automatically truncated for safety.
 - If you have the `send_message` tool, you can message users, other agents, or groups. Set `to` to `user_id`, `agent_id`, or `conversation_id`.

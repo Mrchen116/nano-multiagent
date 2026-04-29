@@ -56,7 +56,7 @@ def test_personal_assistant_profile_default_tool_ids() -> None:
     """personal_assistant includes full set of default tools; send_message remains opt-in."""
     assert PERSONAL_ASSISTANT_PROFILE.default_tool_ids is not None
     tool_ids = set(PERSONAL_ASSISTANT_PROFILE.default_tool_ids)
-    assert {"read", "write", "edit", "bash", "task", "web_fetch", "web_search"} <= tool_ids
+    assert {"read", "write", "edit", "bash", "agent", "web_fetch", "web_search"} <= tool_ids
     assert "send_message" not in tool_ids
 
 

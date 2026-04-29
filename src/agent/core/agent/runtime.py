@@ -497,6 +497,7 @@ class AgentRuntime:
         skills: tuple[str, ...] | None = None,
         tool_allowlist: tuple[str, ...] | None = None,
         metadata: Mapping[str, Any] | None = None,
+        parent_session_id: str | None = None,
     ) -> Session:
         """Create a session and emit `session_start` observe hook."""
 
@@ -507,6 +508,7 @@ class AgentRuntime:
             skills=skills,
             tool_allowlist=tool_allowlist,
             metadata=metadata,
+            parent_session_id=parent_session_id,
         )
         hook_ctx = self._build_hook_context(session_id=session.session_id)
         await self._dispatch_observe(

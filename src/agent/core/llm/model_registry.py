@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 
-DEFAULT_PROVIDER = "openai_compat"
+DEFAULT_PROVIDER = "anthropic"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,12 +41,21 @@ _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
             supports_tools=False,
             supports_streaming=False,
         ),
+        "volcanoArk:doubao-seed-2-0-code-preview-260215": ModelMetadata(
+            provider="anthropic",
+            model="volcanoArk:doubao-seed-2-0-code-preview-260215",
+            default_base_url="http://127.0.0.1:4000",
+            supports_text=True,
+            supports_image=False,
+            supports_tools=True,
+            supports_streaming=True,
+        ),
     },
 }
 
 _PROVIDER_DEFAULT_MODEL: dict[str, str] = {
     "openai_compat": "codex_oauth:gpt-5.4",
-    "anthropic": "moonshotAnthropic:kimi-k2.5",
+    "anthropic": "volcanoArk:doubao-seed-2-0-code-preview-260215",
 }
 
 

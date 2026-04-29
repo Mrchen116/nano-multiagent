@@ -42,7 +42,8 @@ _CLI_HELP_EPILOG = (
     "Error layers: input / network / runtime."
 )
 _DEFAULT_CLI_MODE = "remote"
-_REPL_DRAIN_TIMEOUT_SECONDS = 5.0
+_REPL_DRAIN_TIMEOUT_SECONDS = 0.1
+_REPL_BACKGROUND_TAIL_DRAIN_SECONDS = 0.2
 
 
 def _is_tty_output(out: TextIO) -> bool:
@@ -332,6 +333,145 @@ def _format_origin_header(event: dict[str, object]) -> str | None:
     return f"── origin: {origin.strip()} ──"
 
 
+def _write_tty_line(out: TextIO, text: str = "") -> None:
+    """Write one terminal line with an explicit carriage return."""
+    out.write(f"\r{text}\r\n")
+    flush = getattr(out, "flush", None)
+    if callable(flush):
+        flush()
+
+
+def _render_background_event(event: dict[str, object], out: TextIO) -> None:
+    """Render one background-run event (assistant_message, tool_start, tool_end)."""
+    is_tty = _is_tty_output(out)
+    event_name = event.get("event")
+    if event_name == "assistant_message":
+        content = event.get("content") or ""
+        if content:
+            lines = content.split("\n")
+            while lines and lines[-1] == "":
+                lines.pop()
+            for line in lines:
+                if is_tty:
+                    _write_tty_line(out, f"> {line}")
+                else:
+                    print(f"> {line}", file=out)
+            if not is_tty:
+                out.flush()
+        return
+    if event_name == "tool_start":
+        name = str(event.get("name") or "?")
+        if is_tty:
+            _write_tty_line(out, f"  ▸ {name}")
+        else:
+            print(f"  ▸ {name}", file=out, flush=True)
+        return
+    if event_name == "tool_end":
+        name = str(event.get("name") or "?")
+        duration_ms = event.get("duration_ms")
+        duration_str = ""
+        if isinstance(duration_ms, (int, float)) and duration_ms >= 0:
+            duration_str = f" ({int(duration_ms)}ms)"
+        if is_tty:
+            _write_tty_line(out, f"  ✓ {name}{duration_str}")
+        else:
+            print(f"  ✓ {name}{duration_str}", file=out, flush=True)
+        return
+
+
+_TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def _process_background_event(
+    event: dict[str, object],
+    *,
+    out: TextIO,
+    seen_non_user_runs: set[str],
+    pending_events: dict[str, list[dict[str, object]]],
+) -> None:
+    """Render one event if it belongs to a non-user run.
+
+    Events for runs whose origin is not yet known are buffered in
+    *pending_events* and flushed once the run_status arrives.
+    """
+    event_name = event.get("event")
+    run_id = event.get("run_id")
+    if event_name == "run_status":
+        origin = event.get("origin")
+        if isinstance(origin, str) and origin.strip() not in ("", "user"):
+            if isinstance(run_id, str) and run_id.strip():
+                if run_id not in seen_non_user_runs:
+                    seen_non_user_runs.add(run_id)
+                    header = _format_origin_header(event)
+                    if header:
+                        if _is_tty_output(out):
+                            _write_tty_line(out, header)
+                        else:
+                            print(header, file=out, flush=True)
+                # Flush any events that arrived before the run_status.
+                for pending in pending_events.pop(run_id, []):
+                    _render_background_event(pending, out)
+        return
+    if isinstance(run_id, str):
+        if run_id in seen_non_user_runs:
+            _render_background_event(event, out)
+        else:
+            pending_events.setdefault(run_id, []).append(event)
+
+
+def _drain_queued_background_events(
+    reader: SessionStreamReader,
+    *,
+    out: TextIO,
+) -> set[str]:
+    """Non-blocking drain of all queued background events."""
+    seen_non_user_runs: set[str] = set()
+    pending_events: dict[str, list[dict[str, object]]] = {}
+    while True:
+        evt = reader.poll(timeout=0.0)
+        if evt is None:
+            break
+        _process_background_event(evt, out=out, seen_non_user_runs=seen_non_user_runs, pending_events=pending_events)
+    return seen_non_user_runs
+
+
+def _grace_period_drain(
+    reader: SessionStreamReader,
+    *,
+    out: TextIO,
+    max_wait_seconds: float = _REPL_DRAIN_TIMEOUT_SECONDS,
+) -> None:
+    """Briefly drain queued background completions before returning to prompt."""
+    import time
+
+    seen_non_user_runs: set[str] = set()
+    pending_events: dict[str, list[dict[str, object]]] = {}
+    deadline = time.monotonic() + max_wait_seconds
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        evt = reader.poll(timeout=min(remaining, 0.5))
+        if evt is None:
+            continue
+        _process_background_event(evt, out=out, seen_non_user_runs=seen_non_user_runs, pending_events=pending_events)
+        # If we just saw a terminal background run, give it a moment for
+        # trailing events (assistant_message, tool_end) then exit.
+        if (
+            evt.get("event") == "run_status"
+            and evt.get("status") in _TERMINAL_RUN_STATUSES
+            and evt.get("run_id") in seen_non_user_runs
+        ):
+            # Short tail drain for trailing events of this background run.
+            tail_deadline = time.monotonic() + _REPL_BACKGROUND_TAIL_DRAIN_SECONDS
+            while time.monotonic() < tail_deadline:
+                tail_evt = reader.poll(timeout=0.1)
+                if tail_evt is None:
+                    continue
+                _process_background_event(tail_evt, out=out, seen_non_user_runs=seen_non_user_runs, pending_events=pending_events)
+            break
+
+
 def _send_message_via_sse(
     *,
     out: TextIO,
@@ -347,20 +487,26 @@ def _send_message_via_sse(
     seen_non_user_runs: set[str] = set()
 
     def _on_other_event(event: dict[str, object]) -> None:
-        if event.get("event") != "run_status":
-            return
-        origin = event.get("origin")
-        if not isinstance(origin, str) or origin.strip() == "" or origin == "user":
-            return
+        event_name = event.get("event")
         other_run_id = event.get("run_id")
-        if not isinstance(other_run_id, str) or not other_run_id.strip():
+
+        if event_name == "run_status":
+            origin = event.get("origin")
+            if isinstance(origin, str) and origin.strip() not in ("", "user"):
+                if isinstance(other_run_id, str) and other_run_id.strip():
+                    if other_run_id not in seen_non_user_runs:
+                        seen_non_user_runs.add(other_run_id)
+                        header = _format_origin_header(event)
+                        if header:
+                            if _is_tty_output(out):
+                                _write_tty_line(out, header)
+                            else:
+                                print(header, file=out, flush=True)
             return
-        if other_run_id in seen_non_user_runs:
-            return
-        seen_non_user_runs.add(other_run_id)
-        header = _format_origin_header(event)
-        if header:
-            print(header, file=out, flush=True)
+
+        # Only render non-run_status events for runs we already know are non-user.
+        if isinstance(other_run_id, str) and other_run_id in seen_non_user_runs:
+            _render_background_event(event, out)
 
     live_rendered = False
     if _is_tty_output(out):
@@ -390,8 +536,7 @@ def _send_message_via_sse(
                     while lines and lines[-1] == "":
                         lines.pop()
                     for line in lines:
-                        print(f"> {line}", file=out)
-                    out.flush()
+                        _write_tty_line(out, f"> {line}")
             elif event_name == "tool_start":
                 name = str(event.get("name") or "?")
                 # No newline: tool_end will overwrite this line.
@@ -400,7 +545,8 @@ def _send_message_via_sse(
                 name = str(event.get("name") or "?")
                 duration_ms = event.get("duration_ms")
                 # \r\033[K clears the tool_start line before printing completion.
-                print(f"\r\033[K{format_tool_done(name, duration_ms)}", file=out, flush=True)
+                out.write(f"\r\033[K{format_tool_done(name, duration_ms)}\r\n")
+                out.flush()
 
         events = reader.drain_run(
             run_id=run_id, timeout=0.5, terminal_timeout=120.0,
@@ -543,14 +689,96 @@ def _run_repl(
         if sse_supported:
             _ensure_reader_for_session(active_session_id)
 
+    # Persistent state for background event tracking across idle drains and main drains.
+    _bg_seen_runs: set[str] = set()
+    _bg_pending: dict[str, list[dict[str, object]]] = {}
+
+    def _process_one_bg_event(event: dict[str, object], *, emit_fn: Callable[[str], None]) -> None:
+        event_name = event.get("event")
+        run_id = event.get("run_id")
+        if event_name == "run_status":
+            origin = event.get("origin")
+            if isinstance(origin, str) and origin.strip() not in ("", "user"):
+                if isinstance(run_id, str) and run_id.strip():
+                    if run_id not in _bg_seen_runs:
+                        _bg_seen_runs.add(run_id)
+                        header = _format_origin_header(event)
+                        if header:
+                            emit_fn(header)
+                    for pending in _bg_pending.pop(run_id, []):
+                        _emit_bg_event_text(pending, emit_fn=emit_fn)
+            return
+        if isinstance(run_id, str):
+            if run_id in _bg_seen_runs:
+                _emit_bg_event_text(event, emit_fn=emit_fn)
+            else:
+                _bg_pending.setdefault(run_id, []).append(event)
+
+    def _emit_bg_event_text(event: dict[str, object], *, emit_fn: Callable[[str], None]) -> None:
+        event_name = event.get("event")
+        if event_name == "assistant_message":
+            content = event.get("content") or ""
+            if content:
+                lines = content.split("\n")
+                while lines and lines[-1] == "":
+                    lines.pop()
+                for line in lines:
+                    emit_fn(f"> {line}")
+        elif event_name == "tool_start":
+            name = str(event.get("name") or "?")
+            emit_fn(f"  ▸ {name}")
+        elif event_name == "tool_end":
+            name = str(event.get("name") or "?")
+            duration_ms = event.get("duration_ms")
+            duration_str = ""
+            if isinstance(duration_ms, (int, float)) and duration_ms >= 0:
+                duration_str = f" ({int(duration_ms)}ms)"
+            emit_fn(f"  ✓ {name}{duration_str}")
+
+    def _idle_callback() -> None:
+        if reader is None:
+            return
+        lines: list[str] = []
+
+        def _emit_line(text: str) -> None:
+            lines.append(text)
+
+        while True:
+            evt = reader.poll(timeout=0.0)
+            if evt is None:
+                break
+            _process_one_bg_event(evt, emit_fn=_emit_line)
+
+        if lines:
+            _emit_repl_block("\n".join(lines))
+
     read_line = repl_input.build_repl_input_reader(
         out=out,
         input_fn=input_fn,
         repl_input_reader_factory=repl_input_reader_factory,
         command_suggestions=repl_commands.REPL_COMMANDS,
+        on_idle=_idle_callback,
+        idle_interval_seconds=0.5,
     )
     try:
         while True:
+            # Drain any background events that arrived while we were idle.
+            # (The idle callback also drains during prompt waits; this catches
+            # any stragglers right before we start the next read.)
+            if reader is not None:
+                lines: list[str] = []
+
+                def _emit_line(text: str) -> None:
+                    lines.append(text)
+
+                while True:
+                    evt = reader.poll(timeout=0.0)
+                    if evt is None:
+                        break
+                    _process_one_bg_event(evt, emit_fn=_emit_line)
+                if lines:
+                    _emit_repl_block("\n".join(lines))
+
             try:
                 raw = read_line(_prompt(active_session_id), input_history_by_session.get(active_session_id or "", ()))
             except EOFError:
@@ -610,6 +838,10 @@ def _run_repl(
                     text=line,
                 )
 
+                # Grace-period drain: background tasks that complete shortly
+                # after the main run will have their events rendered here.
+                _grace_period_drain(reader, out=out)
+
                 response_content = _extract_message_content(payload)
                 if response_content is not None:
                     _append_history_entry(
@@ -618,11 +850,7 @@ def _run_repl(
                         role="assistant",
                         content=response_content,
                     )
-                _print_repl_turn_summary(
-                    out=out,
-                    payload=payload,
-                    context_budget_client=client,
-                )
+                _print_repl_turn_summary_block(payload, context_budget_client=client)
             except Exception as exc:
                 import traceback
                 traceback.print_exc()
@@ -631,8 +859,7 @@ def _run_repl(
                     exc,
                     default="run /new to start a session, then retry.",
                 )
-                _print_repl_turn_error(
-                    out=out,
+                _print_repl_turn_error_block(
                     error=RuntimeError(f"send failed: {exc}"),
                     layer=layer,
                     suggestion=suggestion,

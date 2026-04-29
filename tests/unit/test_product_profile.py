@@ -28,7 +28,7 @@ def test_product_profile_accepts_all_fields() -> None:
         config_namespace="nanocode",
         default_system_prompt="You are a coding assistant.",
         default_tool_ids=["read", "bash", "edit", "write", "glob"],
-        optional_tool_ids=["task"],
+        optional_tool_ids=["agent"],
         default_hook_modules=[],
         skill_search_policy="workspace",
         session_store_policy="sqlite",
@@ -39,7 +39,7 @@ def test_product_profile_accepts_all_fields() -> None:
     )
     assert profile.product_id == "coding"
     assert profile.default_tool_ids == ["read", "bash", "edit", "write", "glob"]
-    assert profile.optional_tool_ids == ["task"]
+    assert profile.optional_tool_ids == ["agent"]
     assert profile.memory_layout == {"kind": "ephemeral"}
     assert profile.heartbeat_layout == {"transport": "manual"}
     assert profile.safety_defaults == {"allow_network": False}

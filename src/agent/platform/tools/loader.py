@@ -33,6 +33,7 @@ def build_tool_registry(
     config_resolver: ConfigResolver | None = None,
     product_tool_dir: Path | None = None,
     llm_client: LLMClient | None = None,
+    wiring: Any | None = None,
 ) -> ToolRegistry:
     """Build a tool registry containing built-ins and user-provided tool plugins.
 
@@ -62,7 +63,7 @@ def build_tool_registry(
         llm_client=llm_client,
     )
     registry = ToolRegistry(context=context, hook_runner=hook_runner)
-    register_builtin_tools(registry, runtime=runtime)
+    register_builtin_tools(registry, runtime=runtime, wiring=wiring)
 
     if product_tool_dir is not None:
         _load_tools_from_single_dir(tool_root=product_tool_dir, registry=registry, replace=True)

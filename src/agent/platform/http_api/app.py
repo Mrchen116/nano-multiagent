@@ -20,6 +20,7 @@ from agent.core.observability.tracing import bind_correlation, set_tracer
 from agent.platform.hooks.loader import build_hook_registry
 from agent.platform.hooks.session_events import set_session_event_publisher_factory
 from agent.platform.http_api.sse import EventStreamHub
+from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.persistence.session.base import SessionStore
 from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.loader import build_tool_registry
@@ -156,6 +157,14 @@ def create_app(
         event_hub=app.state.event_stream_hub,
         hook_runner=active_hook_runner,
     )
+
+    # Wire background task infrastructure
+    app.state.background_task_wiring = wire_background_tasks(
+        workspace_root=resolved_repo_root,
+        runtime=active_runtime,
+        runs_registry=app.state.runs_registry,
+    )
+
     active_config_resolver = getattr(active_runtime, "config_resolver", None) or resolved_config_resolver
     app.state.tool_registry = tool_registry or build_tool_registry(
         repo_root=resolved_repo_root,
@@ -163,11 +172,13 @@ def create_app(
         runtime=active_runtime,
         config_resolver=active_config_resolver,
         llm_client=getattr(active_runtime, "_llm_client", None),
+        wiring=app.state.background_task_wiring,
     )
     _bind_runtime_to_tool_registry(
         tool_registry=app.state.tool_registry,
         runtime=active_runtime,
         hook_runner=active_hook_runner,
+        wiring=app.state.background_task_wiring,
     )
     bind_tool_registry = getattr(active_runtime, "bind_tool_registry", None)
     if callable(bind_tool_registry):
@@ -308,13 +319,19 @@ def _bind_runtime_to_tool_registry(
     tool_registry: ToolRegistry,
     runtime: AgentRuntime,
     hook_runner: HookRunner | None,
+    wiring: Any | None = None,
 ) -> None:
     """Backfill runtime/hook wiring onto pre-bootstrapped tool registries."""
     setattr(tool_registry, "_hook_runner", hook_runner)
-    task_tool = getattr(tool_registry, "_tools", {}).get("task")
-    bind_runtime = getattr(task_tool, "bind_runtime", None)
-    if callable(bind_runtime):
-        bind_runtime(runtime)
+    tools = getattr(tool_registry, "_tools", {})
+    for tool_name in ("agent", "bash", "task_stop"):
+        tool = tools.get(tool_name)
+        bind_runtime = getattr(tool, "bind_runtime", None)
+        if callable(bind_runtime):
+            bind_runtime(runtime)
+        bind_wiring = getattr(tool, "bind_wiring", None)
+        if callable(bind_wiring):
+            bind_wiring(wiring)
 
 
 

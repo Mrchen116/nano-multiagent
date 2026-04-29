@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from agent.core.background_tasks.notifications import BACKGROUND_TASK_PROMPT_BLOCK
 from agent.core.types import ToolSpec
 from agent.core.types import Message
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
@@ -42,7 +43,8 @@ _DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
     ToolSpec(name="write", description="Write content to a file.", input_schema={}),
     ToolSpec(name="edit", description="Edit a file by replacing exact text.", input_schema={}),
     ToolSpec(name="bash", description="Execute a bash command in the current working directory.", input_schema={}),
-    ToolSpec(name="task", description="Spawn agent tasks for delegated work.", input_schema={}),
+    ToolSpec(name="agent", description="Launch a new agent to handle complex, multi-step tasks autonomously.", input_schema={}),
+    ToolSpec(name="task_stop", description="Stop a running background task by its task_id.", input_schema={}),
 )
 
 
@@ -125,10 +127,15 @@ def build_system_prompt(
         current_working_directory=current_working_directory,
     )
     if "<RUNTIME_FILL:SKILLS_SECTION>" in system_prompt:
-        return with_runtime_fill
-    if not skills_section:
-        return with_runtime_fill
-    return f"{with_runtime_fill}\n\n{skills_section}"
+        result = with_runtime_fill
+    elif not skills_section:
+        result = with_runtime_fill
+    else:
+        result = f"{with_runtime_fill}\n\n{skills_section}"
+
+    # Append background task handling instructions so the model knows how to
+    # treat <task-notification> messages delivered from completed workers.
+    return f"{result}\n\n{BACKGROUND_TASK_PROMPT_BLOCK}"
 
 
 def _fill_runtime_placeholders(

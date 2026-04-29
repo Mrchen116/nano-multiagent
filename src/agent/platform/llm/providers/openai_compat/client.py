@@ -59,7 +59,12 @@ class OpenAICompatClient(LLMClient):
                 headers=headers,
                 content=json.dumps(provider_request.json_body, separators=(",", ":")),
             ) as response:
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError:
+                    # Read body while stream is still open inside the context manager.
+                    await response.aread()
+                    raise
                 async for msg in self._stream_response(response):
                     yield msg
         except httpx.HTTPStatusError as exc:

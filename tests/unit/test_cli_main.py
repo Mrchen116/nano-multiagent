@@ -930,6 +930,47 @@ class _TTYStringIO(io.StringIO):
         return True
 
 
+def _simulate_terminal_rows(text: str) -> list[str]:
+    """Render enough terminal behavior to catch bare-LF indentation bugs."""
+    rows: list[dict[int, str]] = [{}]
+    row = 0
+    col = 0
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\x1b":
+            index += 1
+            if index < len(text) and text[index] == "[":
+                index += 1
+                while index < len(text) and not text[index].isalpha():
+                    index += 1
+                if index < len(text):
+                    index += 1
+            continue
+        if char == "\r":
+            col = 0
+            index += 1
+            continue
+        if char == "\n":
+            row += 1
+            while len(rows) <= row:
+                rows.append({})
+            index += 1
+            continue
+        rows[row][col] = char
+        col += 1
+        index += 1
+
+    rendered: list[str] = []
+    for cells in rows:
+        if not cells:
+            rendered.append("")
+            continue
+        max_col = max(cells)
+        rendered.append("".join(cells.get(i, " ") for i in range(max_col + 1)).rstrip())
+    return rendered
+
+
 def test_repl_input_engine_supports_inline_insert_at_cursor() -> None:
     typed = repl_input.read_interactive_line(
         prompt="nano> ",
@@ -1054,6 +1095,42 @@ def test_repl_input_external_multiline_output_uses_terminal_safe_line_endings() 
     text = output.getvalue()
     assert "line-1\r\nline-2\r\n" in text
     assert text.count("nano> ping") >= 2
+
+
+def test_repl_input_raw_mode_reenables_output_postprocessing(monkeypatch) -> None:
+    class _FakeTermios:
+        ONLCR = 0b01
+        OPOST = 0b10
+        TCSADRAIN = 0
+
+        def __init__(self) -> None:
+            self.set_modes: list[list[object]] = []
+
+        def tcgetattr(self, file_descriptor: int) -> list[object]:
+            del file_descriptor
+            return [0, 0, 0, 0, 0, 0, []]
+
+        def tcsetattr(self, file_descriptor: int, when: int, mode: list[object]) -> None:
+            del file_descriptor, when
+            self.set_modes.append(list(mode))
+
+    class _FakeTty:
+        def setraw(self, file_descriptor: int) -> None:
+            del file_descriptor
+
+    class _FakeStdin:
+        def fileno(self) -> int:
+            return 0
+
+    fake_termios = _FakeTermios()
+    monkeypatch.setattr(repl_input, "termios", fake_termios)
+    monkeypatch.setattr(repl_input, "tty", _FakeTty())
+
+    with repl_input._stdin_raw_mode(_FakeStdin()):  # noqa: SLF001 - focused terminal-mode regression
+        pass
+
+    raw_mode = fake_termios.set_modes[0]
+    assert raw_mode[1] == fake_termios.OPOST | fake_termios.ONLCR
 
 
 def test_repl_input_persistent_output_does_not_clear_prior_completed_blocks(monkeypatch) -> None:
@@ -1943,6 +2020,28 @@ def test_run_cli_repl_tty_async_output_disables_live_preview_until_renderer_is_s
     assert text.count("done") >= 1
 
 
+def test_run_cli_repl_tty_turn_summary_starts_each_line_at_column_zero() -> None:
+    stub = _SseStubClientWithTurnEnd()
+    output = _TTYStringIO()
+    inputs = iter(["/new", "ping", "/exit"])
+
+    exit_code = run_cli(
+        ["--base-url", "http://127.0.0.1:8000"],
+        stdout=output,
+        client_factory=lambda _: stub,
+        input_fn=lambda _: next(inputs),
+    )
+
+    assert exit_code == 0
+    rows = _simulate_terminal_rows(output.getvalue())
+    summary_rows = [
+        row for row in rows
+        if row.lstrip().startswith(("State:", "Usage:", "Context budget:"))
+    ]
+    assert summary_rows
+    assert all(row.startswith(("State:", "Usage:", "Context budget:")) for row in summary_rows)
+
+
 def test_run_cli_repl_resume_batches_history_into_single_emit(monkeypatch) -> None:
     output = _TTYStringIO()
     emitted: list[str] = []
@@ -2570,6 +2669,42 @@ def test_send_message_via_sse_non_tty_does_not_set_text_streamed() -> None:
         reader.stop()
 
     assert payload.get("_text_streamed") is False
+
+
+def test_send_message_via_sse_tty_output_uses_terminal_safe_line_endings() -> None:
+    from coding_cli.commands import _send_message_via_sse
+    from coding_cli.session_stream import SessionStreamReader
+
+    client = _SseStubClient(
+        events=[
+            {"event": "tool_start", "run_id": "run_sse", "name": "agent"},
+            {"event": "tool_end", "run_id": "run_sse", "name": "agent", "duration_ms": 22},
+            {"event": "assistant_message", "run_id": "run_sse", "content": "line one\nline two"},
+            {"event": "run_status", "run_id": "run_sse", "status": "completed"},
+        ]
+    )
+    reader = SessionStreamReader(client)
+    reader.start(session_id="sess_test")
+
+    try:
+        out = _TTYStringIO()
+        payload = _send_message_via_sse(
+            out=out,
+            client=client,
+            reader=reader,
+            session_id="sess_test",
+            text="ping",
+        )
+    finally:
+        reader.stop()
+
+    text = out.getvalue()
+    assert payload["status"] == "completed"
+    assert "> line one" in text
+    for index, char in enumerate(text):
+        if char == "\n":
+            assert index > 0
+            assert text[index - 1] == "\r"
 
 
 def test_format_origin_header_background_task() -> None:

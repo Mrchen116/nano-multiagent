@@ -59,7 +59,7 @@ Claude Code 中已确认的具体交互语义：
 - `LocalAgentTask` 与 `LocalShellTask` 都注册到同一个 task registry，并由同一个 `TaskStopTool` 停止。
 - foreground agent 通过 `backgroundSignal` 与 `Promise.race(nextMessage, backgroundSignal)` 切到后台；切后台后立刻返回 `async_launched`，后台继续消费 agent stream，完成时再发 `<task-notification>`。
 - foreground agent 在 Claude Code 中运行 2 秒后显示后台化提示；自动后台化逻辑是 120 秒后切后台，但在 Claude Code 中受 `CLAUDE_AUTO_BACKGROUND_TASKS` 或 feature gate 控制。本项目不实现 2 秒提示，120 秒自动后台化默认开启。
-- bash 显式 `run_in_background=true` 时直接后台运行；在 Claude Code assistant mode 中，主线程阻塞 bash 会在 15 秒后自动后台化。本项目对齐该 15 秒默认后台化语义。
+- bash 显式 `run_in_background=true` 时直接后台运行；在 Claude Code assistant mode 中，主线程阻塞 bash 会在 120 秒后自动后台化。本项目对齐该 120 秒默认后台化语义。
 
 ## 3. 产品目标
 
@@ -209,8 +209,8 @@ Use task_stop with task_id="b1b2c3d4e5f6a7b8" to stop it.
 - 后台 bash 的 `task_id` 格式使用 `b` + 16 位 hex，例如 `b1b2c3d4e5f6a7b8`。
 - 后台 bash 必须写入稳定 `output_file`，内容为 stdout/stderr。
 - 后台 bash 完成、失败或停止后必须向父会话发送 `<task-notification>`。
-- 主线程 foreground bash 运行超过 15 秒后，默认自动转后台并返回后台回执。
-- bash 的 `timeout` 仍表示命令自身超时策略；因 15 秒前台预算转后台不是命令失败。
+- 主线程 foreground bash 运行超过 120 秒后，默认自动转后台并返回后台回执。
+- bash 的 `timeout` 仍表示命令自身超时策略；因 120 秒前台预算转后台不是命令失败。
 
 ### 4.4 读取后台输出
 
@@ -250,7 +250,7 @@ Use task_stop with task_id="b1b2c3d4e5f6a7b8" to stop it.
 参考 Claude Code 的 foreground → background 体验，本项目应支持：
 
 - foreground subagent 运行超过 120 秒后，默认自动转后台并返回 `async_launched` 回执。
-- foreground bash 在主线程运行超过 15 秒后，默认自动转后台并返回后台回执。
+- foreground bash 在主线程运行超过 120 秒后，默认自动转后台并返回后台回执。
 - 不实现 Claude Code 的 2 秒 background hint。它是给人看的 UI 提示，不是本项目需要的运行语义。
 - 用户显式要求后台时直接后台运行。
 - 转后台不是失败，不应返回 `Task timed out`。
@@ -405,7 +405,7 @@ Use `Agent` with agent_id="<agent_id>" only to continue the agent conversation.
 - 用户和主 agent 必须能通过 `output_file` 读取后台输出。
 - 用户必须能停止后台任务。
 - foreground subagent 必须默认在 120 秒后自动转后台。
-- foreground bash 必须默认在 15 秒后自动转后台。
+- foreground bash 必须默认在 120 秒后自动转后台。
 - 后台任务 live registry 必须服务同进程内的状态、停止和通知；不要求用 SQLite 或持久 job queue 恢复本地 running task。
 - `output_file` 必须稳定存在，并持续追加 subagent JSONL transcript。
 - `output_file` 必须稳定存在，并持续追加 bash stdout/stderr。
@@ -463,7 +463,7 @@ Use `Agent` with agent_id="<agent_id>" only to continue the agent conversation.
 5. 命令完成后，父会话收到 `<task-notification>`。
 6. 父会话空闲时自动启动新的 main agent turn，主 agent 可读取 `output_file` 并继续工作。
 
-当 foreground bash 在主线程运行超过 15 秒：
+当 foreground bash 在主线程运行超过 120 秒：
 
 1. 该 bash 任务自动转后台。
 2. tool result 返回后台回执，而不是 timeout failure。

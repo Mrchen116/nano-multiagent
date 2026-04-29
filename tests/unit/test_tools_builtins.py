@@ -46,8 +46,13 @@ def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
     )
     assert BashTool.description == (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "
-        "Output larger than 30K chars is compressed by the result budget system. Optionally "
-        "provide a timeout in seconds."
+        "Output larger than 30K chars is compressed by the result budget system. "
+        "Optionally provide a timeout in seconds, or run in the background.\n\n"
+        "- command: The bash command to execute.\n"
+        "- description: Short description (3-5 words) for background task tracking.\n"
+        "- timeout: Timeout in seconds for the command itself.\n"
+        "- run_in_background: true=run in background (returns task_id immediately); "
+        "false=wait for result. Default: false. Foreground commands auto-background after 15s."
     )
     assert EditTool.description == (
         "Edit a file by replacing exact text. The oldText must match exactly (including whitespace). "
@@ -91,7 +96,9 @@ def test_builtin_tool_parameter_descriptions_align_with_tool_design_doc() -> Non
 
     bash_properties = BashTool.input_schema["properties"]
     assert bash_properties["command"]["description"] == "Bash command to execute"
+    assert bash_properties["description"]["description"] == "Short description for background task tracking (3-5 words)."
     assert bash_properties["timeout"]["description"] == "Timeout in seconds (optional, no default timeout)"
+    assert "run_in_background" in bash_properties
 
     edit_properties = EditTool.input_schema["properties"]
     assert edit_properties["path"]["description"] == "Path to the file to edit (relative or absolute)"

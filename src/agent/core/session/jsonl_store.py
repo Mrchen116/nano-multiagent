@@ -48,15 +48,24 @@ class JsonlSessionStore:
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._writer = writer or JsonlWriter()
+        # agent_id -> list[(session_id, parent_session_id)] secondary index.
+        # Rebuilt lazily on first metadata query.
+        self._agent_index: dict[str, list[tuple[str, str | None]]] | None = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def create(self, session_id: str, config: SessionConfig) -> None:
+    def create(
+        self,
+        session_id: str,
+        config: SessionConfig,
+        *,
+        parent_session_id: str | None = None,
+    ) -> None:
         """Write the session_created line for a new session (synchronous, immediate)."""
 
-        path = self._resolve_path(session_id)
+        path = self._resolve_path(session_id, parent_session_id=parent_session_id)
         entry = {
             "type": "session_created",
             "session_id": session_id,
@@ -74,6 +83,12 @@ class JsonlSessionStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+        # Incrementally update agent_id index if present.
+        agent_id = config.metadata.get("agent_id") if config.metadata else None
+        if isinstance(agent_id, str) and agent_id:
+            if self._agent_index is not None:
+                self._agent_index.setdefault(agent_id, []).append((session_id, parent_session_id))
 
     def append(self, session_id: str, entry: dict, *, parent_session_id: str | None = None) -> None:
         """Enqueue one JSONL entry for background flush."""
@@ -226,6 +241,87 @@ class JsonlSessionStore:
         if parent_session_id:
             return self._data_dir / "sessions" / parent_session_id / "subagents" / f"{session_id}.jsonl"
         return self._data_dir / "sessions" / f"{session_id}.jsonl"
+
+    def find_session_by_metadata(
+        self,
+        *,
+        parent_session_id: str | None,
+        match: Mapping[str, Any],
+    ) -> str | None:
+        """Return session_id whose metadata matches all key/value pairs in ``match``.
+
+        Used by background tasks to resolve agent_id → runtime session_id when
+        the in-memory mapping has been lost (kernel restart, parent agent resume).
+        """
+        if self._agent_index is None:
+            self._build_agent_index()
+
+        agent_id = match.get("agent_id")
+        if not isinstance(agent_id, str) or not agent_id:
+            return None
+
+        results = self._agent_index.get(agent_id) if self._agent_index else None
+        if not results:
+            return None
+
+        for found_session_id, found_parent in results:
+            if parent_session_id is not None and found_parent != parent_session_id:
+                continue
+            return found_session_id
+        return None
+
+    def _build_agent_index(self) -> None:
+        """Scan all session files and rebuild agent_id → session_id index."""
+        self._agent_index = {}
+        sessions_dir = self._data_dir / "sessions"
+        for path in sessions_dir.glob("*.jsonl"):
+            session_id = path.stem
+            parent_id = self._infer_parent_from_path(path)
+            agent_id = self._read_agent_id_from_file(path)
+            if agent_id:
+                self._agent_index.setdefault(agent_id, []).append((session_id, parent_id))
+        for path in sessions_dir.glob("*/subagents/*.jsonl"):
+            session_id = path.stem
+            parent_id = self._infer_parent_from_path(path)
+            agent_id = self._read_agent_id_from_file(path)
+            if agent_id:
+                self._agent_index.setdefault(agent_id, []).append((session_id, parent_id))
+
+    @staticmethod
+    def _infer_parent_from_path(path: Path) -> str | None:
+        parts = path.parts
+        try:
+            subagents_idx = parts.index("subagents")
+            if subagents_idx >= 2:
+                return parts[subagents_idx - 1]
+        except ValueError:
+            pass
+        return None
+
+    @staticmethod
+    def _read_agent_id_from_file(path: Path) -> str | None:
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if entry.get("type") == "session_created":
+                        metadata = entry.get("metadata")
+                        if isinstance(metadata, dict):
+                            agent_id = metadata.get("agent_id")
+                            if isinstance(agent_id, str) and agent_id:
+                                return agent_id
+                        return None
+                    # Only check the first non-empty line.
+                    return None
+        except (OSError, ValueError):
+            return None
+        return None
 
 
 # ------------------------------------------------------------------

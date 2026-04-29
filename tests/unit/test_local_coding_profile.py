@@ -37,7 +37,7 @@ def test_local_coding_profile_has_display_name() -> None:
 def test_local_coding_profile_default_tool_ids() -> None:
     """local_coding profile must explicitly declare the 5 built-in tool ids."""
     assert LOCAL_CODING_PROFILE.default_tool_ids is not None
-    assert set(LOCAL_CODING_PROFILE.default_tool_ids) == {"read", "write", "edit", "bash", "task"}
+    assert set(LOCAL_CODING_PROFILE.default_tool_ids) == {"read", "write", "edit", "bash", "agent", "task_stop"}
 
 
 def test_local_coding_profile_default_hook_modules() -> None:

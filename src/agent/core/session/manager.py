@@ -49,6 +49,7 @@ class SessionManager:
         skills: tuple[str, ...] | None = None,
         tool_allowlist: tuple[str, ...] | None = None,
         metadata: Mapping[str, Any] | None = None,
+        parent_session_id: str | None = None,
     ) -> Session:
         """Create a new session and persist session_created line."""
 
@@ -67,7 +68,7 @@ class SessionManager:
             tool_allowlist=tool_allowlist,
             metadata=clean_metadata,
         )
-        self._store.create(session_id, config)
+        self._store.create(session_id, config, parent_session_id=parent_session_id)
 
         return Session(
             session_id=session_id,

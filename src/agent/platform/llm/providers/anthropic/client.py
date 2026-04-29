@@ -64,7 +64,11 @@ class AnthropicClient(LLMClient):
                 headers=headers,
                 content=json.dumps(provider_request.json_body, separators=(",", ":")),
             ) as response:
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError:
+                    await response.aread()
+                    raise
                 async for msg in self._stream_response(response):
                     yield msg
         except httpx.HTTPStatusError as exc:
@@ -157,7 +161,10 @@ def _apply_anthropic_delta(block: dict[str, Any], delta: dict[str, Any]) -> None
     if delta_type == "text_delta":
         block["text"] = block.get("text", "") + delta.get("text", "")
     elif delta_type == "input_json_delta":
-        block["input"] = block.get("input", "") + delta.get("partial_json", "")
+        existing = block.get("input", "")
+        if isinstance(existing, dict):
+            existing = ""
+        block["input"] = existing + delta.get("partial_json", "")
 
 
 def _anthropic_block_to_llm_message(block: dict[str, Any]) -> LLMMessage:

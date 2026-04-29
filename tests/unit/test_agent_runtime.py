@@ -360,7 +360,7 @@ async def test_task_tool_is_registered_and_validated_by_registry(tmp_path: Path)
     registry = build_tool_registry(repo_root=tmp_path)
 
     with pytest.raises(ToolError, match="missing required argument: load_skills"):
-        await registry.execute("task", {})
+        await registry.execute("agent", {})
 
 
 async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: Path) -> None:

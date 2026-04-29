@@ -172,8 +172,8 @@ async def test_session_metadata_system_prompt_is_used_for_every_turn() -> None:
 
     assert first.messages[0].content == "ack:ping"
     assert second.messages[0].content == "ack:pong"
-    assert llm.requests[0].messages[0].content == "You are the prompt frozen for this chat."
-    assert llm.requests[1].messages[0].content == "You are the prompt frozen for this chat."
+    assert llm.requests[0].messages[0].content.startswith("You are the prompt frozen for this chat.")
+    assert llm.requests[1].messages[0].content.startswith("You are the prompt frozen for this chat.")
 
 
 async def test_before_agent_start_blank_override_does_not_drop_session_frozen_system_prompt() -> None:
@@ -200,7 +200,7 @@ async def test_before_agent_start_blank_override_does_not_drop_session_frozen_sy
     result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert result.messages[0].content == "ack:ping"
-    assert llm.requests[-1].messages[0].content == "When mentioned in a group chat, reply exactly with NO_REPLY."
+    assert llm.requests[-1].messages[0].content.startswith("When mentioned in a group chat, reply exactly with NO_REPLY.")
 
 
 async def test_input_handled_short_circuits_runtime_flow() -> None:

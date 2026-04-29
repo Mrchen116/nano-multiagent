@@ -5,6 +5,7 @@ import selectors
 import shlex
 import subprocess
 import tempfile
+import threading
 import time
 import tomllib
 from dataclasses import dataclass
@@ -138,6 +139,68 @@ class CommandExecution:
     timed_out: bool = False
     aborted: bool = False
     timeout: float | None = None
+
+
+class _BackgroundCommandHandle:
+    """Handle for a background shell process."""
+
+    def __init__(
+        self,
+        process: subprocess.Popen,
+        *,
+        output_file: Path,
+        timeout: float | None,
+    ) -> None:
+        self._process = process
+        self.output_file = output_file
+        self.pid = process.pid
+        self._timeout = timeout
+
+    def poll(self) -> int | None:
+        return self._process.poll()
+
+    def wait(self) -> CommandExecution:
+        try:
+            exit_code = self._process.wait(timeout=self._timeout)
+        except subprocess.TimeoutExpired:
+            self.terminate_tree()
+            try:
+                exit_code = self._process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                exit_code = -9
+            text = self._read_output()
+            return CommandExecution(
+                exit_code=exit_code,
+                text=text,
+                truncated=False,
+                timed_out=True,
+            )
+
+        text = self._read_output()
+        return CommandExecution(
+            exit_code=exit_code,
+            text=text,
+            truncated=False,
+        )
+
+    def terminate_tree(self) -> None:
+        try:
+            self._process.terminate()
+            try:
+                self._process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait()
+        except Exception:
+            pass
+
+    def _read_output(self) -> str:
+        try:
+            if self.output_file.exists():
+                return self.output_file.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+        return ""
 
 
 class ToolSafety:
@@ -462,6 +525,57 @@ class ToolSafety:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(content)
         return str(Path(tmp_path))
+
+    def start_command_background(
+        self,
+        command: str,
+        *,
+        cwd: Path,
+        tool_name: str,
+        output_file: Path,
+        timeout: float | None,
+    ) -> _BackgroundCommandHandle:
+        """Start a shell command in the background and pump output to ``output_file``."""
+
+        self.enforce_command_policy(
+            command,
+            tool_name=tool_name,
+            allow_unlisted=False,
+        )
+
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        process = subprocess.Popen(
+            ["bash", "-c", command],
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+        )
+
+        def _pump(stream: Any, label: str) -> None:
+            buffer = ""
+            try:
+                while True:
+                    chunk_bytes = stream.read(4096)
+                    if not chunk_bytes:
+                        if buffer:
+                            with output_file.open("a", encoding="utf-8") as f:
+                                prefix = "[stderr] " if label == "stderr" else ""
+                                f.write(prefix + buffer)
+                        break
+                    buffer += chunk_bytes.decode("utf-8", errors="replace")
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        with output_file.open("a", encoding="utf-8") as f:
+                            prefix = "[stderr] " if label == "stderr" else ""
+                            f.write(prefix + line + "\n")
+            except Exception:
+                pass
+
+        threading.Thread(target=_pump, args=(process.stdout, "stdout"), daemon=True).start()
+        threading.Thread(target=_pump, args=(process.stderr, "stderr"), daemon=True).start()
+
+        return _BackgroundCommandHandle(process, output_file=output_file, timeout=timeout)
 
 
 def _ensure_command_parseable(*, command: str, tool_name: str) -> None:

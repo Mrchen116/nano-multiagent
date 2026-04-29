@@ -151,6 +151,10 @@ class RunsRegistry:
         asyncio.run_coroutine_threadsafe(coro, self._async_loop)
         return record
 
+    def get_event_loop(self) -> asyncio.AbstractEventLoop | None:
+        """Return the dedicated async event loop used by this registry."""
+        return self._async_loop
+
     def get_active_run_id(self, session_id: str) -> str | None:
         """Return the run_id of the currently-executing run for a session, or None."""
         with self._lock:
@@ -256,6 +260,17 @@ class RunsRegistry:
                 await self._mark_aborted_async(run_id, source="priority_now")
             else:
                 self._mark_completed(run_id, turn_result=result)
+            # Race safety: background tasks that completed while this run was
+            # still in _active_run_by_session may have injected messages that
+            # were never consumed. Drain them and start a continuation run.
+            if controller is not None:
+                stranded = controller.drain_pending()
+                if stranded:
+                    self.submit(
+                        session_id=session_id,
+                        parts=[{"type": "text", "text": msg.content} for msg in stranded],
+                        origin=RunOrigin.BACKGROUND_TASK,
+                    )
 
     def _set_status(
         self,

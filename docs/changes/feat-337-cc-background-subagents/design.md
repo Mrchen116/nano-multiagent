@@ -17,7 +17,7 @@
 - 后台 subagent：`Agent(run_in_background=true)`
 - 后台 bash：`bash(run_in_background=true)`
 - foreground subagent 运行超过 120 秒后自动转后台
-- foreground bash 在主线程运行超过 15 秒后自动转后台
+- foreground bash 在主线程运行超过 120 秒后自动转后台
 - 后台任务完成后通过 `<task-notification>` 自动唤醒父会话
 - `task_stop(task_id=...)` 停止后台 subagent 或后台 bash
 - 通过 `output_file` 读取后台输出，不引入 `TaskOutputTool` 或 `background_output`
