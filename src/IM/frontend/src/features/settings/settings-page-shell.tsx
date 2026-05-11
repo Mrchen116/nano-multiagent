@@ -1,15 +1,17 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
-const navItems = [
-  { to: "/settings/agents", label: "Agents" },
-  { to: "/settings/nodes", label: "Nodes" },
-  { to: "/settings/policies", label: "Policies" },
-  { to: "/settings/account", label: "Account" }
-];
+import { useTranslation } from "../../i18n";
 
 export function SettingsPageShell() {
+  const { t } = useTranslation();
   const location = useLocation();
   const isAgentSubpage = location.pathname.startsWith("/settings/agents/");
+
+  const navItems = [
+    { to: "/settings/agents", label: t("settings.nav.agents") },
+    { to: "/settings/nodes", label: t("settings.nav.nodes") },
+    { to: "/settings/account", label: t("settings.nav.account") }
+  ];
 
   return (
     <section className="grid h-full w-full gap-4 overflow-hidden lg:grid-cols-[240px_1fr]">

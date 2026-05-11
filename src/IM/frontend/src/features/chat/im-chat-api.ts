@@ -1,3 +1,4 @@
+import { authFetch } from "../auth/auth-fetch";
 import {
   ChatAttachment,
   ChatMessage,
@@ -610,7 +611,7 @@ class ChatRequestError extends Error {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withBase(path), {
+  const response = await authFetch(withBase(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -638,7 +639,7 @@ async function requestUpload(path: string, input: {
   body: Blob;
   contentType: string;
 }): Promise<ChatAttachment> {
-  const response = await fetch(withBase(path), {
+  const response = await authFetch(withBase(path), {
     method: "POST",
     body: input.body,
     headers: {
@@ -2066,7 +2067,7 @@ export async function deleteConversation(input: {
   conversationId: string;
   requesterId: string;
 }): Promise<void> {
-  const response = await fetch(withBase(`/im/v1/conversations/${input.conversationId}`), {
+  const response = await authFetch(withBase(`/im/v1/conversations/${input.conversationId}`), {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ requester_id: input.requesterId })
@@ -2095,7 +2096,7 @@ export async function leaveConversation(input: {
   conversationId: string;
   userId: string;
 }): Promise<void> {
-  const response = await fetch(withBase(`/im/v1/conversations/${input.conversationId}/participants/${input.userId}`), {
+  const response = await authFetch(withBase(`/im/v1/conversations/${input.conversationId}/participants/${input.userId}`), {
     method: "DELETE"
   });
   if (!response.ok) {
