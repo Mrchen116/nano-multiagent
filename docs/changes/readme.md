@@ -124,7 +124,7 @@ worker 不许悄悄绕过设计；必须：
 | 阶段 | 主导角色 | 产出 | 不允许做 |
 |---|---|---|---|
 | 探索 / spec / design | 人 + 主 agent（可调研子 agent） | `spec.md`, `design.md`, `motivation.md`, `incident.md` | 写产品代码、派 worker |
-| 派单 | `project-lead-orchestrator` | milestone 派发包 | 自己写代码 |
+| 派单 | `change-orchestrator` | milestone 派发包 | 自己写代码 |
 | 实施 | `tdd-execution-worker`（每 milestone 一个 worktree，可并行） | `progress.md` + 代码 + 测试 | 越界改 design（必须走暂停流程） |
 | 验收 | `product-acceptance-reviewer`（独立视角） | `acceptance.md` / `regression.md` + 上层文档同步 | 与实施 agent 是同一个 |
 

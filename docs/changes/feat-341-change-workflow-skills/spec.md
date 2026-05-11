@@ -80,7 +80,7 @@ A. 立项                          B. 设计                          C. 实施
 
 **在范围**:
 
-- 5 个 skill(`change-spec-author`, `change-design-author`, `tdd-execution-worker`, `product-acceptance-reviewer`, `project-lead-orchestrator`)+ 各自 assets 模板
+- 5 个 skill(`change-spec-author`, `change-design-author`, `tdd-execution-worker`, `product-acceptance-reviewer`, `change-orchestrator`)+ 各自 assets 模板
 - `docs/changes/readme.md` 配套规范(已存在,本 unit 复用)
 - 命名 / 路径 / 派发包字段约定
 

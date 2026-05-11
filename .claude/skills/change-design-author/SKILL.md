@@ -1,6 +1,6 @@
 ---
 name: change-design-author
-description: 用于在首文档(spec/incident/motivation)定稿后,和人交互式对齐"怎么做",产出 design.md + Milestone 拆分表 + 空目录骨架。触发条件:用户在某 unit 已有 spec/incident/motivation 的前提下提到"出方案 / 写设计 / 拆 milestone / 该怎么做 / 准备开搞"等任何"开始落地"的信号;或 `change-spec-author` 完成时给出"门禁 1 通过"提示后用户继续推进。这是门禁 2 之前唯一允许动笔的阶段,定稿后由 `project-lead-orchestrator` 接手实施。不要用于:写代码、立 git 分支、预填 milestone 内的 tasks.md(那是 worker 的事)、回头改用户场景(那要回 change-spec-author)。
+description: 用于在首文档(spec/incident/motivation)定稿后,和人交互式对齐"怎么做",产出 design.md + Milestone 拆分表 + 空目录骨架。触发条件:用户在某 unit 已有 spec/incident/motivation 的前提下提到"出方案 / 写设计 / 拆 milestone / 该怎么做 / 准备开搞"等任何"开始落地"的信号;或 `change-spec-author` 完成时给出"门禁 1 通过"提示后用户继续推进。这是门禁 2 之前唯一允许动笔的阶段,定稿后由 `change-orchestrator` 接手实施。不要用于:写代码、立 git 分支、预填 milestone 内的 tasks.md(那是 worker 的事)、回头改用户场景(那要回 change-spec-author)。
 ---
 
 # Change Design Author
@@ -14,7 +14,7 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 1. **首文档没定稿,不能启动**。检查 `docs/changes/<unit>/<首文档>.md` 是否还有 `<!-- 模板说明 -->` 注释块、TBD、空 Q/A——任一存在,提示用户先回 `change-spec-author` 收口,**本 skill 退出**。
 2. **不回头改用户场景 / 验收标准**。如果对齐过程中发现用户视角层面有疏漏,**停下来**,提示用户回 `change-spec-author` 修订首文档,然后再回来。这条边界比方便重要——一旦混着改,门禁 1 就形同虚设。
 3. **交互式,一次一个问题**。每个关键决策、每条 milestone 拆分理由,逐个问用户确认 + 给推荐。不要一次性出完整 design.md 让用户"看一下行不行"——这种是给自己签字,不是对齐。
-4. **不创建 git 分支**。`unit/<unit-id>` 由 `project-lead-orchestrator` 在接手时创建。design.md 顶部只写"Unit branch: `unit/<unit-id>` (will be created by orchestrator)"作为意图声明。
+4. **不创建 git 分支**。`unit/<unit-id>` 由 `change-orchestrator` 在接手时创建。design.md 顶部只写"Unit branch: `unit/<unit-id>` (will be created by orchestrator)"作为意图声明。
 5. **只 mkdir milestone 空目录,不预填 tasks.md / progress.md**。这两个文件由 worker 自己 explore 代码后写,你预填的会被推翻,纯浪费。
 6. **默认单 milestone**。颗粒度规则是反向门槛——拆分要举证,不拆是默认(详见 §3)。
 
@@ -52,7 +52,7 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 
 `fix.md` 模板的 unit 是 lite 路径——**没有独立 design 阶段**。如果首文档是 `fix.md`,告诉用户:
 
-> bugfix lite 不需要独立 design。可以直接启动 `project-lead-orchestrator` 进入实施(默认单 milestone),worker 会在 progress.md 里规划修复路径,并回填 fix.md 的"修复 + 验证"两段。
+> bugfix lite 不需要独立 design。可以直接启动 `change-orchestrator` 进入实施(默认单 milestone),worker 会在 progress.md 里规划修复路径,并回填 fix.md 的"修复 + 验证"两段。
 
 然后退出。lite 路径不走本 skill。
 
@@ -331,7 +331,7 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
 
 通过后告诉用户:
 
-> Design 定稿,门禁 2 通过。可以启动 `project-lead-orchestrator` 进入实施。
+> Design 定稿,门禁 2 通过。可以启动 `change-orchestrator` 进入实施。
 > Orchestrator 会做 sync gate、创建 unit 分支 `unit/<unit-id>`、按 Milestone 表派发 worker。
 
 ---
@@ -355,7 +355,7 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
 
 - `docs/changes/<unit>/<首文档>.md` 通过门禁 1 检查
 
-**输出**(下游 `project-lead-orchestrator` 会读):
+**输出**(下游 `change-orchestrator` 会读):
 
 - `docs/changes/<unit_dir>/design.md`,含:
   - Unit branch 声明(意图,orchestrator 据此创建分支)

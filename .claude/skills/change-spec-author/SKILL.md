@@ -195,7 +195,7 @@ Q1: <一句话问题>
 
 **bugfix lite 特殊**:lite 没有 design 阶段。spec-author 只写 fix.md 的**前两段**(`现象 / 复现` + `根因`)。完成后提示用户:
 
-> bugfix lite 首文档完成,fix.md 的"现象 / 根因"两段已写。可以直接启动 `project-lead-orchestrator` 进入实施(orchestrator 自动按单 M1 处理 lite 路径),worker 会回填 fix.md 的"修复 / 验证"两段。
+> bugfix lite 首文档完成,fix.md 的"现象 / 根因"两段已写。可以直接启动 `change-orchestrator` 进入实施(orchestrator 自动按单 M1 处理 lite 路径),worker 会回填 fix.md 的"修复 / 验证"两段。
 
 ---
 
