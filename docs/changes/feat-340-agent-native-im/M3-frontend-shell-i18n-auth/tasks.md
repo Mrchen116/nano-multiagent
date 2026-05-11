@@ -34,7 +34,7 @@
 - 写 `features/auth/auth-store.ts`:Zustand store 含 `accessToken / refreshToken / user / status`,持久化到 localStorage(单 key `im_auth_v1`)
 - 写 `features/auth/auth-fetch.ts`:全局 `authFetch(path, init)` wrapper:自动注入 `Authorization: Bearer <access>`;401 → 调 refresh → 重试一次 → 仍失败则清 store + emit `auth:expired`
 - 测试:`auth-store.test.ts`(set/clear/persist round-trip)、`auth-fetch.test.ts`(注入 header、401 触发 refresh、refresh 失败清空)
-- 状态:TODO
+- 状态:DONE
 
 ### R2 — i18n (en/zh) + LanguageProvider
 
