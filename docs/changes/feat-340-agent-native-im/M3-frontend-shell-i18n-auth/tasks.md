@@ -67,4 +67,4 @@
 - 删除 `features/settings/mock-settings-api.ts` 中 `user_id: "owner-1001"` 等硬码引用,统一从测试 fixture 注入
 - 改 `features/chat/im-chat-api.ts` 里 `selfUserId` 的获取方式:从 auth-store `getState().user.id` 取,不再从 `/im/v1/users` 兜底
 - 测试:`me-page.test.tsx`(EN/中 切换实际改变文案)、回归 account/settings 旧测试在新 mock 注入下仍通过
-- 状态:TODO
+- 状态:DONE
