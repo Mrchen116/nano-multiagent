@@ -43,3 +43,23 @@
 - Rollback: 删 `src/IM/application/event_bridge.py`(尚无外部引用)。
 - Commits: C1=f0afa9f, C2=d3f5dab, C3=(this)
 - Next: R4 Gateway 桥接钩子 + 集成测试。
+
+## R4 — Gateway integration + integration test
+
+- Context: M2 退出标准要求"端到端测试:用户发消息 → kernel mock 出 MESSAGE_UPDATE 增量 + TOOL_CALL + TokenUsage → 浏览器 WS 收到对应事件,DB messages 行落库"。需要(1)把 kernel 流式事件穿过 gateway pipeline 露出到一个可消费的 seam;(2)证明 EventBridge 在面对真实 kernel SSE 形状的事件流时仍正确产出 DB + 广播。
+- Decision:
+  - InboundPipeline 加可选 `kernel_event_observer: Callable[[Mapping], None]`,在 `_await_terminal_run_async` 里逐 event 调用,默认 None 保持产品无关。
+  - 不在本 milestone 里把 bridge 接到 personal_assistant bootstrap(那是 M3 的范围,需要 IM HTTP 桥接,跨包不在 M2 文件清单)。本 milestone 只立 seam 并证明 bridge 端可用。
+  - 集成测试 `tests/im_service/integration/test_event_bridge_kernel_stream.py` 直接驱动 EventBridge,模拟一段完整 kernel 流(message_update 增量 ×4 + tool_start/tool_end + run_status completed 带 usage)。
+- Rationale:
+  - 不让 pipeline 自己翻译事件:翻译是 IM 的事(design 决策 5),pipeline 只是事件搬运工。observer 是 1 行 hook,改动外溢极小。
+  - bridge 直驱集成测试,在不引入跨包 HTTP 的前提下,把 M2 退出标准要的"完整链路"证完。pipeline 测试单独证 seam 不丢事件。
+  - 不顺手扩范围去碰 personal_assistant 的 main.py wiring——那不在 design.md 的 M2 文件清单(改了会破坏 forbidden_scope 规则,等 M3 wiring auth/JWT 时一起做)。
+- Evidence:
+  - Tests: `tests/unit/personal_assistant/test_pipeline_kernel_event_observer.py`(1)+ `tests/im_service/integration/test_event_bridge_kernel_stream.py`(1)全绿。
+  - 全 IM 套件:166 passed,8 pre-existing failures(`_FakeKernelClient missing submit_message`,与本 milestone 无关,baseline 就有)。
+  - 全 personal_assistant unit:235 passed。
+  - Entry-level 验证:观察者实际收到一整轮 SSE 事件(6 个)按顺序;EventBridge 把它们落库为 messages.tool_calls/token_usage JSON + conversation_events 行,前端 WS 帧的 payload 形状由 R2 的 builder 函数保证。
+- Rollback: revert `1b8628a`(pipeline seam + integration test)。
+- Commits: C1=(R4 test commit), C2=1b8628a, C3=(this)
+- Next: 本 milestone 全部 roadpoint DONE,准备 §6 集成到 unit 分支。
