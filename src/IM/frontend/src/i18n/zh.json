@@ -195,5 +195,56 @@
       "cancel": "取消",
       "errorGeneric": "创建失败"
     }
+  },
+  "chat": {
+    "list": {
+      "header": "消息",
+      "newGroup": "+ 群聊",
+      "search": "搜索…",
+      "filters": {
+        "all": "全部",
+        "agent": "Agent",
+        "group": "群聊",
+        "network": "Agent 网络"
+      },
+      "empty": "暂无会话"
+    },
+    "kindBadge": {
+      "agent": "Agent",
+      "group": "群聊",
+      "network": "Agent↔Agent",
+      "direct-user": "私聊"
+    },
+    "newGroup": {
+      "title": "新建群聊",
+      "subtitle": "选择 agent,然后给群起个名字。",
+      "sectionAgents": "Agents",
+      "groupName": "群名(可选)",
+      "groupNamePlaceholder": "默认按参与者名字拼接",
+      "create": "创建群聊",
+      "cancel": "取消",
+      "online": "在线",
+      "offline": "离线"
+    },
+    "messagePane": {
+      "emptyTitle": "暂无消息",
+      "emptySubtitle": "发出第一条消息。",
+      "placeholderDirect": "给 {{title}} 发消息…",
+      "placeholderGroup": "发消息…(输入 @ 召唤 agent)",
+      "helpDesktop": "Enter 发送 · Shift+Enter 换行",
+      "helpDesktopGroup": "Enter 发送 · Shift+Enter 换行 · @ 召唤 agent",
+      "config": "配置",
+      "tokenSuffix": "tok",
+      "tokenContext": "{{used}}/{{window}} ({{pct}}%)",
+      "toolCall": "次工具调用",
+      "toolCalls": "次工具调用",
+      "running": "运行中",
+      "selectConversationTitle": "选择一个会话",
+      "selectConversationSubtitle": "挑一条会话开始与 agent 协作。"
+    },
+    "mention": {
+      "header": "选择 agent",
+      "empty": "没有可召唤的 agent"
+    }
   }
 }
