@@ -177,3 +177,24 @@ def test_metrics_usage_requires_token_and_scopes_to_owner(tmp_path: Path) -> Non
         # Every returned row must belong to alice's tenant. Empty list is acceptable.
         for row in response.json():
             assert row["owner_id"] in {alice.owner_id, None}
+
+
+def test_patch_me_persists_locale(tmp_path: Path) -> None:
+    """``PATCH /im/v1/me`` accepts and persists the ``locale`` field for M7."""
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username="alice")
+        authorize(client, alice)
+        response = client.patch(
+            "/im/v1/me",
+            json={
+                "display_name": alice.display_name,
+                "default_entry_node_id": None,
+                "locale": "zh",
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["locale"] == "zh"
+        # Round-trip: GET reflects the persisted locale
+        again = client.get("/im/v1/me").json()
+        assert again["locale"] == "zh"
