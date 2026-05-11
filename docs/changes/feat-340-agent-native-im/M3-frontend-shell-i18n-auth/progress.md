@@ -42,4 +42,9 @@
 
 ## R5 — Me page + remove hardcoded owner-1001 / resolveCurrentUserId
 
-_pending_
+- Context: 移动 Me 聚合页 + 移除一切 `owner-1001` / `resolveCurrentUserId` 硬码;前端必须从 auth store / Bearer 取身份。
+- Decision: `MePage` 在 R3 已写;R5 补完它的行为测试。`im-settings-api.ts` 整体重写:用 `authFetch` 替代裸 fetch,`getAccount/updateAccount` 直接打 `/im/v1/me`(无 query),删除 `listUsers` / `resolveCurrentUserId`。`mock-settings-api.ts` 把 `owner-1001` 改为 `mock-user`。`chat/im-chat-api.ensureSelfUser` 优先从 auth store 取 user(M4 会彻底迁,M3 留 legacy fallback 不破 bootstrap)。
+- Rationale: 决策 1(JWT)+ 决策 10(开发态无后向兼容);把 query 模式收敛到 Bearer 是 M1 已立的契约。chat 那块只动 `ensureSelfUser`,不顺手扩 M4 范围。
+- Evidence: `npx vitest run src/features/me/ src/features/settings/im-settings-api.test.ts` → 6/6 pass;`npm test` → 174/174 pass;`grep -r owner-1001` 仅剩测试名作回归标记。
+- Rollback: 还原 `im-settings-api.ts` 旧版本 + `mock-settings-api.ts` + `im-chat-api.ts` 的 `ensureSelfUser` + `account-page.test.tsx`。
+- Commits: C1=(R5 test 添加), C2=7fd7060f, C3=(下一提交)
