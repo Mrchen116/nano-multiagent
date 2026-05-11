@@ -33,8 +33,10 @@ def _make_bridge(tmp_path: Path):
         notify=notify,
     )
     alice = users.create_user(username="alice", display_name="Alice")
-    # Register a synthetic agent user so the bridge can address it as sender.
+    # Register a synthetic agent user under alice's owner scope so the bridge can address it as sender.
     agent_user = users.create_user(username="agent:planner", display_name="Planner")
+    connection.execute("UPDATE users SET owner_id = ? WHERE id = ?", (alice.owner_id, agent_user.id))
+    connection.commit()
     conv = conversations.create_conversation(title="t", participant_ids=[alice.id])
     return bridge, conv.id, agent_user.id, messages, captured
 
