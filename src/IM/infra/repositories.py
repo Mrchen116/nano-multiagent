@@ -7,7 +7,7 @@ import json
 import sqlite3
 from uuid import uuid4
 
-from IM.domain.models import Actor, AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, SettingsPolicy, UsageMetric, User
+from IM.domain.models import Actor, AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, SettingsPolicy, TokenUsage, ToolCall, UsageMetric, User
 from IM.infra.db import DEFAULT_SETTINGS_POLICIES
 
 
@@ -699,6 +699,9 @@ class MessageRepository:
         sender_type: str = "user",
         attachments: list[Attachment] | None = None,
         auto_complete_delivery: bool = True,
+        tool_calls: list[ToolCall] | None = None,
+        token_usage: TokenUsage | None = None,
+        allow_empty: bool = False,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -720,7 +723,9 @@ class MessageRepository:
                 or sender is not a participant for user-originated messages.
         """
         normalized_attachments = _normalize_attachments(attachments)
-        if not content.strip() and not normalized_attachments:
+        # feat-340-M2: agent-runtime messages start empty and stream content via update_runtime_state;
+        # callers opt in with allow_empty so we don't break the user-message invariant.
+        if not allow_empty and not content.strip() and not normalized_attachments:
             raise ValueError("message must include content or attachments")
         if sender_type not in {"user", "agent", "system"}:
             raise ValueError("sender_type must be one of: user, agent, system")
@@ -776,6 +781,9 @@ class MessageRepository:
             "semantic": "persisted_to_im",
         }
         pending_live_events: list[ConversationEvent] = []
+        normalized_tool_calls = _normalize_tool_calls(tool_calls)
+        tool_calls_json = _encode_tool_calls(normalized_tool_calls) if normalized_tool_calls is not None else None
+        token_usage_json = _encode_token_usage(token_usage)
         with self._connection:
             self._connection.execute(
                 """
@@ -787,8 +795,10 @@ class MessageRepository:
                     content,
                     attachments_json,
                     delivery_status,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at,
+                    tool_calls_json,
+                    token_usage_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
@@ -799,6 +809,8 @@ class MessageRepository:
                     attachments_json,
                     initial_status,
                     created_at,
+                    tool_calls_json,
+                    token_usage_json,
                 ),
             )
             pending_live_events.append(
@@ -847,7 +859,118 @@ class MessageRepository:
             attachments=normalized_attachments,
             delivery_status=final_status,
             created_at=created_at,
+            tool_calls=normalized_tool_calls,
+            token_usage=token_usage,
         )
+
+    def update_runtime_state(
+        self,
+        *,
+        message_id: str,
+        content_append: str | None = None,
+        content_replace: str | None = None,
+        tool_calls_upsert: list[ToolCall] | None = None,
+        token_usage: TokenUsage | None = None,
+        delivery_status: str | None = None,
+    ) -> Message:
+        """Apply one runtime-stream patch to an agent message.
+
+        Designed for feat-340-M2 event bridge: kernel emits incremental deltas which
+        we accumulate into the persisted message row, so that ``list_messages`` can
+        reconstruct the final agent reply (text + tool calls + token usage) on reload
+        without replaying every event.
+
+        Args:
+            message_id: Target message identifier.
+            content_append: When provided, concatenated onto current message content.
+                Mutually exclusive with ``content_replace``.
+            content_replace: When provided, overwrites current message content.
+            tool_calls_upsert: Tool calls to upsert by ``id`` into ``tool_calls_json``.
+                New ids append; existing ids replace in place to preserve display order.
+            token_usage: When provided, overwrites ``token_usage_json``.
+            delivery_status: When provided, updates ``delivery_status`` column.
+
+        Returns:
+            Refreshed Message entity reflecting the patch.
+
+        Raises:
+            ValueError: When ``message_id`` does not exist or arguments conflict.
+        """
+        if content_append is not None and content_replace is not None:
+            raise ValueError("content_append and content_replace are mutually exclusive")
+        row = self._connection.execute(
+            "SELECT content, tool_calls_json, token_usage_json, conversation_id FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"message_id not found: {message_id}")
+
+        next_content: str | None = None
+        if content_replace is not None:
+            next_content = content_replace
+        elif content_append is not None:
+            next_content = (str(row["content"]) if row["content"] is not None else "") + content_append
+
+        next_tool_calls_json: str | None | object = _UNSET
+        if tool_calls_upsert is not None:
+            existing = _decode_tool_calls(row["tool_calls_json"]) or []
+            existing_by_id = {tc.id: tc for tc in existing}
+            order: list[str] = [tc.id for tc in existing]
+            for upsert in _normalize_tool_calls(tool_calls_upsert) or []:
+                if upsert.id not in existing_by_id:
+                    order.append(upsert.id)
+                existing_by_id[upsert.id] = upsert
+            merged = [existing_by_id[tcid] for tcid in order]
+            next_tool_calls_json = _encode_tool_calls(merged)
+
+        next_token_usage_json: str | None | object = _UNSET
+        if token_usage is not None:
+            next_token_usage_json = _encode_token_usage(token_usage)
+
+        sets: list[str] = []
+        values: list[object] = []
+        if next_content is not None:
+            sets.append("content = ?")
+            values.append(next_content)
+        if next_tool_calls_json is not _UNSET:
+            sets.append("tool_calls_json = ?")
+            values.append(next_tool_calls_json)
+        if next_token_usage_json is not _UNSET:
+            sets.append("token_usage_json = ?")
+            values.append(next_token_usage_json)
+        if delivery_status is not None:
+            sets.append("delivery_status = ?")
+            values.append(delivery_status)
+        if not sets:
+            raise ValueError("update_runtime_state requires at least one field to change")
+        values.append(message_id)
+        with self._connection:
+            self._connection.execute(
+                f"UPDATE messages SET {', '.join(sets)} WHERE id = ?",
+                tuple(values),
+            )
+        refreshed = self._connection.execute(
+            """
+            SELECT
+                messages.id,
+                messages.conversation_id,
+                messages.sender_user_id,
+                messages.sender_type,
+                messages.content,
+                messages.attachments_json,
+                messages.delivery_status,
+                messages.created_at,
+                messages.tool_calls_json,
+                messages.token_usage_json,
+                users.username AS sender_username,
+                users.display_name AS sender_display_name
+            FROM messages
+            LEFT JOIN users ON users.id = messages.sender_user_id
+            WHERE messages.id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+        return self._message_from_row(refreshed)
 
     def list_messages(
         self,
@@ -900,6 +1023,8 @@ class MessageRepository:
                 messages.attachments_json,
                 messages.delivery_status,
                 messages.created_at,
+                messages.tool_calls_json,
+                messages.token_usage_json,
                 users.username AS sender_username,
                 users.display_name AS sender_display_name
             FROM messages
@@ -928,6 +1053,8 @@ class MessageRepository:
 
     def _message_from_row(self, row: sqlite3.Row) -> Message:
         """Convert one stored SQLite row into a Message domain model."""
+        tool_calls_value = row["tool_calls_json"] if "tool_calls_json" in row.keys() else None
+        token_usage_value = row["token_usage_json"] if "token_usage_json" in row.keys() else None
         return Message(
             id=row["id"],
             conversation_id=row["conversation_id"],
@@ -945,6 +1072,8 @@ class MessageRepository:
             attachments=_decode_attachments(row["attachments_json"]),
             delivery_status=row["delivery_status"],
             created_at=row["created_at"],
+            tool_calls=_decode_tool_calls(tool_calls_value),
+            token_usage=_decode_token_usage(token_usage_value),
         )
 
     def _message_from_visible_event_row(self, row: sqlite3.Row) -> Message | None:
@@ -1934,6 +2063,103 @@ def _encode_attachments(attachments: list[Attachment]) -> str:
     """Encode attachments JSON with stable field ordering."""
     payload = [_attachment_to_dict(item) for item in attachments]
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+
+
+_UNSET: object = object()
+
+
+def _normalize_tool_calls(tool_calls: list[ToolCall] | None) -> list[ToolCall] | None:
+    """Return tool_calls list passthrough, validating non-None entries by construction."""
+    if tool_calls is None:
+        return None
+    return list(tool_calls)
+
+
+def _tool_call_to_dict(tool_call: ToolCall) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "id": tool_call.id,
+        "name": tool_call.name,
+        "status": tool_call.status,
+        "input": tool_call.input,
+    }
+    if tool_call.duration_ms is not None:
+        payload["duration_ms"] = tool_call.duration_ms
+    if tool_call.output is not None:
+        payload["output"] = tool_call.output
+    return payload
+
+
+def _encode_tool_calls(tool_calls: list[ToolCall]) -> str:
+    return json.dumps([_tool_call_to_dict(tc) for tc in tool_calls], ensure_ascii=True, separators=(",", ":"))
+
+
+def _decode_tool_calls(value: object) -> list[ToolCall] | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+    out: list[ToolCall] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        try:
+            out.append(
+                ToolCall(
+                    id=str(item.get("id", "")),
+                    name=str(item.get("name", "")),
+                    status=str(item.get("status", "")),
+                    duration_ms=(
+                        int(item["duration_ms"]) if isinstance(item.get("duration_ms"), (int, float)) else None
+                    ),
+                    input=dict(item.get("input")) if isinstance(item.get("input"), dict) else {},
+                    output=item.get("output") if isinstance(item.get("output"), str) else None,
+                )
+            )
+        except ValueError:
+            # Malformed historical row — surface loudly: better than silently dropping a row's tool history.
+            raise
+    return out
+
+
+def _encode_token_usage(usage: TokenUsage | None) -> str | None:
+    if usage is None:
+        return None
+    return json.dumps(
+        {
+            "output": int(usage.output),
+            "context_used": int(usage.context_used),
+            "context_window": int(usage.context_window),
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+
+
+def _decode_token_usage(value: object) -> TokenUsage | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    try:
+        return TokenUsage(
+            output=int(parsed["output"]),
+            context_used=int(parsed["context_used"]),
+            context_window=int(parsed["context_window"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _optional_text(value: object) -> str | None:
