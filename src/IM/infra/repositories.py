@@ -506,6 +506,31 @@ class ConversationRepository:
         ).fetchall()
         return [self._row_to_conversation(row) for row in conversation_rows]
 
+    def list_conversations_for_owner(self, *, owner_id: str) -> list[Conversation]:
+        """Owner-scoped list — filters at the SQL layer to prevent cross-tenant leakage."""
+        conversation_rows = self._connection.execute(
+            """
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_profile_version, created_at
+            FROM conversations
+            WHERE owner_id = ?
+            ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
+            """,
+            (owner_id,),
+        ).fetchall()
+        return [self._row_to_conversation(row) for row in conversation_rows]
+
+    def get_conversation_for_owner(self, *, conversation_id: str, owner_id: str) -> Conversation | None:
+        """Return the conversation only when it is owned by ``owner_id``; else None.
+
+        Notes:
+            Returning None (not raising) lets API routes translate the absence to a
+            404 without leaking whether the resource exists under a different owner.
+        """
+        conversation = self.get_conversation(conversation_id=conversation_id)
+        if conversation is None or conversation.owner_id != owner_id:
+            return None
+        return conversation
+
     def delete_conversation(self, *, conversation_id: str, requester_id: str) -> None:
         """Dissolve a conversation and cascade-delete all messages and participants.
 
@@ -1300,6 +1325,35 @@ class AgentProfileRepository:
         ).fetchall()
         return [self._row_to_profile(row) for row in rows]
 
+    def list_runtime_selectable_profiles_for_owner(self, *, owner_id: str) -> list[AgentProfile]:
+        """Owner-scoped runtime-selectable profile list (cross-tenant safe).
+
+        Filters strictly by ``agent_profiles.owner_id`` to guarantee the IM HTTP layer
+        only ever returns profiles belonging to the authenticated caller.
+        """
+        rows = self._connection.execute(
+            """
+            SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
+                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version
+            FROM agent_profiles ap
+            JOIN nodes n ON n.node_id = ap.node_id
+            WHERE ap.node_id IS NOT NULL
+              AND ap.node_id != ''
+              AND ap.owner_id = ?
+              AND COALESCE(n.owner_id, '') IN ('', ?)
+            ORDER BY ap.created_at, ap.rowid
+            """,
+            (owner_id, owner_id),
+        ).fetchall()
+        return [self._row_to_profile(row) for row in rows]
+
+    def get_profile_for_owner(self, *, agent_id: str, owner_id: str) -> AgentProfile | None:
+        """Return the profile only when it is owned by ``owner_id``; else None."""
+        profile = self.get_profile(agent_id=agent_id)
+        if profile is None or profile.owner_id != owner_id:
+            return None
+        return profile
+
     def get_updated_at(self, *, agent_id: str) -> str | None:
         """Return the last update timestamp for one agent profile."""
         row = self._connection.execute(
@@ -1612,6 +1666,29 @@ class NodeRepository:
         if row is None:
             return None
         return self._row_to_node(row)
+
+    def list_nodes_for_owner(self, *, owner_id: str) -> list[NodeStatus]:
+        """Owner-scoped list — guarantees no cross-tenant leakage at the SQL layer."""
+        rows = self._connection.execute(
+            """
+            SELECT node_id, owner_id, node_name, status, last_heartbeat_at, agent_count, version,
+                   relay_enabled, reporting_enabled, alias, last_error
+            FROM nodes
+            WHERE owner_id = ?
+            ORDER BY CASE status WHEN 'online' THEN 0 WHEN 'degraded' THEN 1 ELSE 2 END,
+                     COALESCE(last_heartbeat_at, '') DESC,
+                     rowid DESC
+            """,
+            (owner_id,),
+        ).fetchall()
+        return [self._row_to_node(row) for row in rows]
+
+    def get_node_for_owner(self, *, node_id: str, owner_id: str) -> NodeStatus | None:
+        """Return the node only when its owner_id matches; else None."""
+        node = self.get_node(node_id=node_id)
+        if node is None or node.owner_id != owner_id:
+            return None
+        return node
 
     def assign_owner(self, *, node_id: str, owner_id: str) -> NodeStatus:
         """Bind a node to an owner and return the updated snapshot."""
