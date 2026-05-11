@@ -70,10 +70,11 @@ asyncio task run_offline_guard:
   - `disconnect`:`prior = node_repo.get_node`;`mark_disconnected`;若 `prior is not None and prior.status != "offline"` → emit offline。
 - Rationale: status 由 NodeRepository 内 `_normalize_node_status` 派生,直接在 record_xx 前后取
   before/after 是最简单 truthful 的 diff 方式。
-- Evidence: `test_gateway_status_broadcast.py` 覆盖单 owner 翻转 + 跨 owner 隔离 +
-  diff 不变不广播。
-- Rollback: revert 该 R 的 C2 即可。
-- Commits: C1=<填>, C2=<填>, C3=<填>
+- Evidence: `test_gateway_status_broadcast.py` 7 用例全绿:首次 register 广播 / 多 agent
+  并发 emit / heartbeat 稳定不广播 / heartbeat 翻转广播 / disconnect 翻转广播 / 跨 owner
+  隔离 / 孤儿节点(无 owner_id)不广播。
+- Rollback: revert C2(811fdc02)。
+- Commits: C1=c8323554, C2=811fdc02, C3=见 R4 一并 doc 收尾
 
 ## R3 — offline guard 异步任务
 
@@ -84,13 +85,34 @@ asyncio task run_offline_guard:
   `_connections`——心跳超时 worker 之所以会发生,往往是连接已经物理失效但 finally 还没跑,
   所以两条路径都覆盖一次,接受幂等)。
 - Rationale: design 风险 1 明确要求"asyncio task 每 10s 扫一次",参数提取出来便于单测。
-- Evidence: `test_offline_guard.py` 直接构造一次扫描,断言 broadcast 调用 + DB 翻转。
-- Commits: C1=<填>, C2=<填>, C3=<填>
+- Evidence: `test_offline_guard.py` 3 用例:翻转 stale 节点并广播 / 新鲜节点不动 /
+  已 offline 节点幂等。`run_offline_guard` 经 `app.py` lifespan 注册并在 shutdown 取消。
+- Commits: C1=a76e1f14, C2=f8c4e5b5
 
 ## R4 — e2e + 文档收尾
 
 - Decision: `tests/im_service/integration/test_status_broadcast_e2e.py` 用 FastAPI TestClient
   起 app,两个 owner 的 token 各开一条 `/im/ws/user`,PA 在 `/im/ws/gateway` 发 register,断言
   正确 owner 收到帧、另一个 owner 没收到。
-- Evidence: 集成测试绿,acceptance 命令通过。
-- Commits: C1=<填>, C2=<填>, C3=<填>
+- Evidence:
+  - `pytest tests/im_service/integration/test_status_broadcast_e2e.py` → 2 passed。
+  - 全量 `pytest tests/im_service --deselect ...test_m103_im_gateway_e2e --deselect ...test_m136_group_chat_flow` → 193 passed,0 regression。
+  - **基线既有 4 个失败**(`test_m103_im_gateway_e2e.py::test_web_im_message_roundtrip_browserless` +
+    `test_m136_group_chat_flow.py::{3 个}`)均由 `_FakeKernelClient` 缺 `submit_message`
+    引起,根因在 `src/personal_assistant/gateway/inbound_pipeline.py`,与本 M10 完全无关。
+    已记录,out-of-unit,不在本 milestone 范围。
+- Commits: C1+C2=0dc3810f(测试即验证,无独立 impl 提交), C3=见末段 docs commit
+
+## Out-of-unit 发现(不在 M10 范围)
+
+- `tests/im_service/integration/test_m103_im_gateway_e2e.py::test_web_im_message_roundtrip_browserless`
+- `tests/im_service/integration/test_m136_group_chat_flow.py` 3 个用例
+
+根因:`src/personal_assistant/gateway/inbound_pipeline.py:188` 调用
+`self._kernel_client.submit_message(...)`,但测试 fixture `_FakeKernelClient`
+没有 `submit_message` 方法。该路径与 M10(status 广播)完全无关,且基线本就红
+(在 `origin/unit/feat-340-agent-native-im` 上同样复现)。
+
+按工人手册 §0.8,worker 不顺手修。建议 reviewer/orchestrator 后续单独开 issue
+或在合并 unit 前指派一个 milestone 修。
+
