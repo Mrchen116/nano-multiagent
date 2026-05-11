@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import get_config_service, get_gateway_handler, get_node_service
+from IM.api.deps import current_user, get_config_service, get_gateway_handler, get_node_service
 from IM.api.routes.agents import (
     AgentConfigResponse,
     AllowlistOptionResponse,
@@ -12,7 +12,7 @@ from IM.api.routes.agents import (
 )
 from IM.application.config_service import ConfigService
 from IM.application.node_service import NodeService
-from IM.domain.models import NodeStatus
+from IM.domain.models import NodeStatus, User
 from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["nodes"])
@@ -87,22 +87,29 @@ def to_node_response(node: NodeStatus) -> NodeResponse:
 
 @router.get("/im/v1/nodes", response_model=list[NodeResponse])
 async def list_nodes(
+    user: User = Depends(current_user),
     service: NodeService = Depends(get_node_service),
     gateway_handler: GatewayHandler = Depends(get_gateway_handler),
 ) -> list[NodeResponse]:
-    """List node board snapshots with canonical online/offline/degraded status."""
+    """List node board snapshots visible to the caller's tenant (+ ownerless fresh nodes)."""
     connected_node_ids = await gateway_handler.list_connected_node_ids()
-    return [to_node_response(item) for item in service.list_nodes(connected_node_ids=connected_node_ids)]
+    return [
+        to_node_response(item)
+        for item in service.list_nodes_for_owner(
+            owner_id=user.owner_id, connected_node_ids=connected_node_ids
+        )
+    ]
 
 
 @router.get("/im/v1/nodes/{node_id}/capabilities", response_model=NodeCapabilitiesResponse)
 async def get_node_capabilities(
     node_id: str,
+    user: User = Depends(current_user),
     service: NodeService = Depends(get_node_service),
     gateway_handler: GatewayHandler = Depends(get_gateway_handler),
 ) -> NodeCapabilitiesResponse:
     """向已连接的网关节点当场请求运行时能力（不在 IM 库中缓存目录数据）。"""
-    if service.get_node(node_id=node_id) is None:
+    if service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found")
     live = await gateway_handler.request_node_capabilities(target_node_id=node_id)
     if live is None:
@@ -124,10 +131,18 @@ async def get_node_capabilities(
 async def create_node_agent(
     node_id: str,
     payload: CreateNodeAgentRequest,
+    user: User = Depends(current_user),
+    node_service: NodeService = Depends(get_node_service),
     service: ConfigService = Depends(get_config_service),
     gateway_handler: GatewayHandler = Depends(get_gateway_handler),
 ) -> AgentConfigResponse:
-    """Create one agent under the requested node using node-managed workspace allocation."""
+    """Create one agent under the requested node using node-managed workspace allocation.
+
+    The target node must belong to the authenticated tenant (or be an ownerless
+    fresh runtime). Cross-tenant access returns 404.
+    """
+    if node_service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found")
     created_payload = await gateway_handler.request_agent_create(
         target_node_id=node_id,
         payload={
@@ -173,9 +188,12 @@ async def create_node_agent(
 def update_node_config(
     node_id: str,
     payload: UpdateNodeConfigRequest,
+    user: User = Depends(current_user),
     service: NodeService = Depends(get_node_service),
 ) -> NodeResponse:
-    """Update one node's center-config knobs and return the new snapshot."""
+    """Update one node's center-config knobs and return the new snapshot (owner-scoped)."""
+    if service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found")
     try:
         updated = service.update_node_config(
             node_id=node_id,

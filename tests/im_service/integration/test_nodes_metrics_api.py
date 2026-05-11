@@ -5,17 +5,22 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from IM.app import create_app
 from IM.infra.repositories import NodeRepository
+
+from .conftest import authorize, make_app_client, register_user, seed_user_under_owner
 
 
 def _create_user(client: TestClient, username: str) -> str:
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": username.title()},
+    """Auth-aware user creation: first call registers + authorizes, subsequent calls seed."""
+    auth = client.headers.get("Authorization")
+    if auth is None:
+        user = register_user(client, username=username, display_name=username.title())
+        authorize(client, user)
+        return user.id
+    me = client.get("/im/v1/me").json()
+    return seed_user_under_owner(
+        client, username=username, display_name=username.title(), owner_id=me["owner_id"]
     )
-    assert response.status_code == 201
-    return response.json()["id"]
 
 
 def _create_conversation(client: TestClient, participant_id: str) -> str:
@@ -23,15 +28,16 @@ def _create_conversation(client: TestClient, participant_id: str) -> str:
         "/im/v1/conversations",
         json={"title": "chat", "participant_ids": [participant_id]},
     )
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
     return response.json()["id"]
 
 
 def test_nodes_list_and_config_update(tmp_path: Path) -> None:
     """List nodes and update node center-config fields."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        repo = NodeRepository(app.state.connection)
+    with make_app_client(tmp_path) as client:
+        viewer = register_user(client, username="viewer")
+        authorize(client, viewer)
+        repo = NodeRepository(client.app.state.connection)
         repo.upsert_node(node_id="node-1", node_name="MacBook", status="online", version="1.0.0")
 
         listed = client.get("/im/v1/nodes")
@@ -64,12 +70,13 @@ def test_nodes_list_and_config_update(tmp_path: Path) -> None:
 
 def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(tmp_path: Path) -> None:
     """Show offline when stored online snapshots are stale or not live-connected."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        repo = NodeRepository(app.state.connection)
+    with make_app_client(tmp_path) as client:
+        viewer = register_user(client, username="viewer")
+        authorize(client, viewer)
+        repo = NodeRepository(client.app.state.connection)
         stale_heartbeat = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat().replace("+00:00", "Z")
         fresh_heartbeat = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        app.state.connection.execute(
+        client.app.state.connection.execute(
             """
             INSERT INTO nodes(
                 node_id,
@@ -87,7 +94,7 @@ def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(tmp_path
             """,
             ("node-stale", "", "Stale Node", "online", stale_heartbeat, 1, "1.0.0", 1, 1, None, None),
         )
-        app.state.connection.execute(
+        client.app.state.connection.execute(
             """
             INSERT INTO nodes(
                 node_id,
@@ -105,7 +112,7 @@ def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(tmp_path
             """,
             ("node-fresh-but-disconnected", "", "Fresh Node", "online", fresh_heartbeat, 1, "1.0.1", 1, 1, None, None),
         )
-        app.state.connection.commit()
+        client.app.state.connection.commit()
 
         listed = client.get("/im/v1/nodes")
         assert listed.status_code == 200
@@ -128,22 +135,16 @@ def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(tmp_path
 
 def test_usage_metrics_aggregate_messages_by_scope(tmp_path: Path) -> None:
     """Aggregate token and turn usage for user and agent messages."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
+    with make_app_client(tmp_path) as client:
         alice_id = _create_user(client, "alice")
         conversation_id = _create_conversation(client, alice_id)
 
-        agent_create = client.post(
-            "/im/v1/users",
-            json={"username": "agent-alpha", "display_name": "Agent Alpha"},
-        )
-        assert agent_create.status_code == 201
-        agent_id = agent_create.json()["id"]
-        app.state.connection.execute(
+        agent_id = _create_user(client, "agent-alpha")
+        client.app.state.connection.execute(
             "INSERT INTO conversation_participants(conversation_id, user_id) VALUES (?, ?)",
             (conversation_id, agent_id),
         )
-        app.state.connection.commit()
+        client.app.state.connection.commit()
 
         created_user_message = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
@@ -175,7 +176,8 @@ def test_usage_metrics_aggregate_messages_by_scope(tmp_path: Path) -> None:
         assert agent_row["total_tokens"] == 3
         assert agent_row["agent_id"] == agent_id
 
-        workspace_metrics = client.get(f"/im/v1/metrics/usage?owner_id={alice_id}")
+        # owner_id is now derived from the bearer token; ?owner_id= is no longer accepted.
+        workspace_metrics = client.get("/im/v1/metrics/usage")
         assert workspace_metrics.status_code == 200
         workspace_payload = workspace_metrics.json()
         assert any(item["scope"] == "owner" and item["total_tokens"] == 6 for item in workspace_payload)
@@ -185,12 +187,9 @@ def test_usage_metrics_aggregate_messages_by_scope(tmp_path: Path) -> None:
 
 def test_usage_metrics_follow_real_relay_usage_by_owner_conversation_and_agent(tmp_path: Path) -> None:
     """Delay relay-backed usage until completed reports deliver real kernel usage."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
+    with make_app_client(tmp_path) as client:
         owner_id = _create_user(client, "alice")
         agent_id = _create_user(client, "agent-alpha")
-        app.state.connection.execute("UPDATE users SET owner_id = ? WHERE id = ?", (owner_id, agent_id))
-        app.state.connection.commit()
         conversation_id = client.post(
             "/im/v1/conversations",
             json={"title": "chat", "participant_ids": [owner_id, agent_id]},
@@ -268,7 +267,7 @@ def test_usage_metrics_follow_real_relay_usage_by_owner_conversation_and_agent(t
         assert agent_row["agent_id"] == agent_id
         assert agent_row["total_tokens"] == 18
 
-        workspace_metrics = client.get(f"/im/v1/metrics/usage?owner_id={owner_id}")
+        workspace_metrics = client.get("/im/v1/metrics/usage")
         assert workspace_metrics.status_code == 200
         workspace_payload = workspace_metrics.json()
         assert any(item["scope"] == "owner" and item["total_tokens"] == 18 for item in workspace_payload)

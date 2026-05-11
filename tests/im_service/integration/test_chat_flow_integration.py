@@ -1,40 +1,31 @@
 """Integration tests for end-to-end human chat API chain."""
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from IM.app import create_app
-
-
-def _create_user(client: TestClient, username: str, display_name: str) -> str:
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": display_name},
-    )
-    assert response.status_code == 201
-    return response.json()["id"]
+from .conftest import authorize, make_app_client, register_user, seed_user_under_owner
 
 
 def test_human_chat_roundtrip_with_history_and_conversation_list(tmp_path: Path) -> None:
     """Cover create->send->history->conversations chain through HTTP API."""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        alice_id = _create_user(client, "alice", "Alice")
-        bob_id = _create_user(client, "bob", "Bob")
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username="alice", display_name="Alice")
+        authorize(client, alice)
+        bob_id = seed_user_under_owner(
+            client, username="bob", display_name="Bob", owner_id=alice.owner_id
+        )
 
         created_conversation = client.post(
             "/im/v1/conversations",
             json={
                 "title": "Alice & Bob",
-                "participant_ids": [alice_id, bob_id],
+                "participant_ids": [alice.id, bob_id],
             },
         )
-        assert created_conversation.status_code == 201
+        assert created_conversation.status_code == 201, created_conversation.text
         conversation_id = created_conversation.json()["id"]
 
         first = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": alice_id, "content": "hello"},
+            json={"sender_user_id": alice.id, "content": "hello"},
         )
         second = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",

@@ -64,12 +64,17 @@ class _FakeKernelClient:
 
 
 def _seed_user(client: TestClient, username: str) -> str:
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": username.title()},
+    """Auth-aware seeding: first call registers + authorizes; subsequent calls seed under tenant."""
+    from tests.im_service._auth_helpers import authorize, register_user, seed_user_under_owner
+
+    if client.headers.get("Authorization") is None:
+        user = register_user(client, username=username, display_name=username.title())
+        authorize(client, user)
+        return user.id
+    me = client.get("/im/v1/me").json()
+    return seed_user_under_owner(
+        client, username=username, display_name=username.title(), owner_id=me["owner_id"]
     )
-    assert response.status_code == 201
-    return response.json()["id"]
 
 
 

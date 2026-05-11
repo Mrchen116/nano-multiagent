@@ -78,6 +78,10 @@ class ConfigService:
         """List agent profiles that are selectable in the current runtime."""
         return self._profiles.list_runtime_selectable_profiles()
 
+    def list_runtime_selectable_profiles_for_owner(self, *, owner_id: str) -> list[AgentProfile]:
+        """Owner-scoped variant used by IM routes after multi-user auth (feat-340-M1)."""
+        return self._profiles.list_runtime_selectable_profiles_for_owner(owner_id=owner_id)
+
     def get_updated_at(self, *, agent_id: str) -> str | None:
         """Return the last update timestamp for one agent."""
         return self._profiles.get_updated_at(agent_id=agent_id)
@@ -85,6 +89,10 @@ class ConfigService:
     def get_profile(self, *, agent_id: str) -> AgentProfile | None:
         """Return one agent profile, or None when missing."""
         return self._profiles.get_profile(agent_id=agent_id)
+
+    def get_profile_for_owner(self, *, agent_id: str, owner_id: str) -> AgentProfile | None:
+        """Return one agent profile when it belongs to ``owner_id`` or is ownerless."""
+        return self._profiles.get_profile_for_owner(agent_id=agent_id, owner_id=owner_id)
 
     def update_profile(
         self,
