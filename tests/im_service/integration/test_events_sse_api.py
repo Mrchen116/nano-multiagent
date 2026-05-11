@@ -23,7 +23,7 @@ def test_user_stream_resume_replays_persisted_events(tmp_path: Path) -> None:
         )
         assert first.status_code == 201
 
-        with client.websocket_connect(f"/im/ws/user?user_id={alice.id}") as websocket:
+        with client.websocket_connect(f"/im/ws/user?token={alice.access_token}") as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             event_types: list[str] = []
             for _ in range(6):

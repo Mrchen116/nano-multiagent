@@ -37,4 +37,20 @@ describe("i18n", () => {
     setLanguage("zh");
     expect(i18n.t("shell.tabs.chat")).toBe("聊天");
   });
+
+  it("zh shell.tabs.agents is translated (not left as English)", () => {
+    setLanguage("zh");
+    expect(i18n.t("shell.tabs.agents")).toBe("智能体");
+  });
+
+  it("zh shell.* namespace has no untranslated English-only strings", () => {
+    setLanguage("zh");
+    // All shell tab keys must be non-English translations
+    const chat = i18n.t("shell.tabs.chat");
+    const agents = i18n.t("shell.tabs.agents");
+    const me = i18n.t("shell.tabs.me");
+    expect(chat).toBe("聊天");
+    expect(agents).toBe("智能体");
+    expect(me).toBe("我");
+  });
 });
