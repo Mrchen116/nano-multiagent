@@ -1,5 +1,8 @@
+// @ts-expect-error node builtins are available in vitest runtime even without @types/node
 import { readFileSync, readdirSync, statSync } from "node:fs";
+// @ts-expect-error see above
 import { dirname, join } from "node:path";
+// @ts-expect-error see above
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
