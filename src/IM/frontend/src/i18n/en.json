@@ -1,0 +1,69 @@
+{
+  "auth": {
+    "login": {
+      "title": "Sign in",
+      "subtitle": "Welcome back to nano IM.",
+      "username": "Username",
+      "password": "Password",
+      "submit": "Sign in",
+      "submitting": "Signing in…",
+      "noAccount": "No account yet?",
+      "registerLink": "Create one",
+      "errorInvalid": "Invalid username or password.",
+      "errorGeneric": "Sign in failed. Please try again."
+    },
+    "register": {
+      "title": "Create your account",
+      "subtitle": "Pick a username and password to get started.",
+      "username": "Username",
+      "password": "Password",
+      "displayName": "Display name",
+      "submit": "Create account",
+      "submitting": "Creating…",
+      "haveAccount": "Already have an account?",
+      "loginLink": "Sign in",
+      "errorUsernameTaken": "That username is taken.",
+      "errorGeneric": "Could not create account."
+    },
+    "logout": "Sign out"
+  },
+  "shell": {
+    "appName": "nano IM",
+    "tabs": {
+      "chat": "Chat",
+      "agents": "Agents",
+      "me": "Me"
+    },
+    "userMenu": {
+      "newAgent": "New agent",
+      "account": "Account",
+      "language": "Language",
+      "signOut": "Sign out"
+    }
+  },
+  "me": {
+    "title": "Me",
+    "sections": {
+      "account": "Account",
+      "nodes": "Nodes",
+      "language": "Language",
+      "signOut": "Sign out"
+    },
+    "language": {
+      "en": "English",
+      "zh": "中文"
+    }
+  },
+  "common": {
+    "loading": "Loading…",
+    "save": "Save",
+    "saving": "Saving…",
+    "discard": "Discard",
+    "cancel": "Cancel",
+    "create": "Create",
+    "delete": "Delete",
+    "back": "Back",
+    "retry": "Retry",
+    "empty": "Nothing here yet."
+  }
+}
