@@ -77,6 +77,6 @@
 
 ### R7 — i18n 增量 + tsc + 全套测试 + entry verification
 
-- 步骤: 把 R3/R4 引入的新 t() 文案 key 增量补 `en.json` / `zh.json`(只追加,不重写);跑 tsc + 全套 vitest;手测启动 vite dev(可选)
-- 验证: `npx tsc -b` 通过;`npm test` 全套绿;`grep` 无未补 key
-- 状态: TODO
+- 步骤: chat namespace i18n 在 R3 已一次性写满(双写 EN/中);R7 只做 tsc + 全套 vitest 收尾,并把 `legacy-isolation.test.ts` 的 node: imports 加 @ts-expect-error 让 tsc 干净
+- 验证: `npx tsc -b` 通过;`npx vitest run` 177/177 绿;v2 surface 50 个测试全绿
+- 状态: DONE
