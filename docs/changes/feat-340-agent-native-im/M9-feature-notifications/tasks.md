@@ -37,4 +37,4 @@
 | R2 | document-visibility 订阅 + 谓词 | DONE |
 | R3 | agent-completion-notifier(订 WS + 综合 gating + 点击聚焦/跳转) | DONE |
 | R4 | App.tsx 挂载 + Me 页 toggle | DONE |
-| R5 | progress.md 收尾 + e2e build 验证 | TODO |
+| R5 | progress.md 收尾 + e2e build 验证 | DONE |

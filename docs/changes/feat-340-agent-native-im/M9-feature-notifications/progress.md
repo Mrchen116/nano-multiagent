@@ -56,3 +56,15 @@ M7 已落地 `notification-preference.ts`(localStorage + `useSyncExternalStore` 
 - Rollback: revert d9da2a95 → 05b7cfa1。
 - Commits: C1=05b7cfa1, C2=d9da2a95, C3=<本提交>
 - Next: R5 收尾。
+
+### R5 — 收尾 + rebase + 集成验证
+
+- Context: 所有 R1-R4 已 DONE,需 rebase 到最新 unit branch 验证。
+- Decision: rebase 到 `origin/unit/feat-340-agent-native-im`(吸纳 M5+M6 后续合入),无冲突;全量 frontend vitest 49 文件 / 221 通过。
+- Rationale: M9 范围限于 `features/notifications/` + `App.tsx` + `me-page.tsx` + i18n key,M5/M6 改动在 `settings/agents/` 与 `settings/nodes/`,文件零交集——预期无冲突,事实如此。
+- Evidence:
+  - Tests(post-rebase): `vitest run` — 49 文件 / 221 通过(原 220 + 2 新增 M9 + 余为 M5/M6 合入)。
+  - Entry: agent-completion-notifier 集成测试 + Me 页 toggle 测试 + App 挂载测试,全 green。
+- Rollback: 整支 milestone branch 已存档于 git。
+- Commits: 整 milestone 13 个 commit,从 7bb0d67d(plan)到本提交。
+- Next: 集成到 unit branch。
