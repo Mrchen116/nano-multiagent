@@ -61,7 +61,7 @@
 - 验证:
   - 单元测试 `tests/im_service/unit/test_event_bridge.py`:每个方法都断言 DB 状态 + notify 收到了正确 event。
 
-### R4 — Gateway integration
+### R4 — Gateway integration — DONE
 
 - 步骤:
   - 新增可选回调签名 `KernelEventBridgeCallback`,在 `InboundPipeline._consume_kernel_stream`(或等价处)逐事件传递 `tool_start`/`tool_end`/`assistant_message`(增量)/`run_status` 给回调。
