@@ -158,3 +158,117 @@ M4b 报告过 "M7 留下 pre-existing tsc 错误 `account-page.test.tsx:126:9`" 
 ## 第一轮验收禁用 revise-design 闸的说明
 
 本轮所有 issue 都明显是**实现遗漏**(missing CSS、漏接 authFetch、WS query 名笔误、SPA 路由没补、i18n 漏抽),没有任何"design 写错了"的证据。design.md 决策 1/3/6 与现状完全一致,只是 worker 实现时漏抽/对错。
+
+---
+
+# Round 2 — 2026-05-11
+
+## Verdict
+
+**pass-with-issues**
+
+## Highest Required Action
+
+**fix-implementation**
+
+## Issues Count
+
+- blocking: 0
+- major: 1
+- minor: 1
+
+## Top Concern
+
+顶栏 "Agents" tab 在中文模式下仍为英文:`zh.json` line 34 `shell.tabs.agents` 值仍是 "Agents" 而非 "智能体"。M11 R5 只修了 Settings 侧栏 nav 的 i18n,漏了顶栏同名 key。
+
+## R1 Issues 验证状态
+
+| R1 # | 原描述 | M11 修复状态 | R2 验证结果 |
+|---|---|---|---|
+| #1 | Chat workspace 整页无样式 | R1 补 CSS | ✅ 通过 — 桌面 1440px 侧栏 + 消息面板完整渲染 |
+| #2 | im-chat-api.ts 不带 Authorization | R2 接入 authFetch | ✅ 通过 — /im/v1/agents /nodes /conversations 全部 200 |
+| #3 | WS access_token= vs token= 错配 | R3 改前端 query 名 | ✅ 通过 — server logs 显示 ?token= [accepted],?access_token= 403 |
+| #4 | /login /register /me 直链 404 | R4 补 SPA routes | ✅ 通过 — 三条路由全部 HTTP 200 返回 SPA shell HTML |
+| #5 | i18n 顶栏 + Settings 侧栏未抽 | R5 修 Settings 侧栏 | ⚠️ 部分修复 — Settings 侧栏"智能体/节点/账户"✅;顶栏"Agents"仍 EN ❌ |
+| #6 | account-page.test.tsx tsc 错误 | R6 修 fixture 类型 | ✅ 通过 — `npx tsc -b` 0 errors |
+| #7 | Settings 侧栏多出 Policies 链接 | R7 删除 Policies | ✅ 通过 — 侧栏仅剩 Agents/Nodes/Account |
+| #8 | Chat group/@ mention 无法测 | 依赖 #2 解锁 | ⚠️ 无法深测 — 无 agent 可用(需 Gateway 注册节点),但 + Group 按钮渲染正常 |
+
+## 旅程体验
+
+平台:Chrome headless + 真实 IM 服务 port 8012 (fresh DB) + `alex` 用户注册/登录 + 真实前端 dist。
+
+### 旅程清单
+
+| # | 旅程 | 结果 |
+|---|---|---|
+| J1 | /login /register /me 直链 | ✅ 全部 200 SPA shell;无 raw JSON |
+| J2 | 登录后 Chat workspace @1440px | ✅ 262px 侧栏 + 右侧空态"Select a conversation";正确 CSS |
+| J5 | API 鉴权:/im/v1/agents /nodes /conversations | ✅ 登录后全部 200,无 401 |
+| J6 | WS /im/ws/user?token= 握手 | ✅ server log [accepted];?access_token= 被拒 403 |
+| J9 | Settings 侧栏无 Policies | ✅ 仅 Agents/Nodes/Account |
+| i18n | 中文模式全界面 | ⚠️ Settings 侧栏 ✅;顶栏 Agents tab 仍 EN |
+
+### 关键截图
+
+- `/tmp/feat340-r2-02-chat.png` — Chat 页登录后(首次加载,注意浏览器 session 残留导致旧 console error,后清除)
+- `/tmp/feat340-r2-04-chat-fresh.png` — 1280px Chat 工作区样式正常
+- `/tmp/feat340-r2-05-settings.png` — Settings 侧栏无 Policies
+- `/tmp/feat340-r2-07-zh.png` — 中文模式 Account 页全部翻译正确;顶栏"Agents"仍 EN
+- `/tmp/feat340-r2-08-chat-zh.png` — 中文模式 Chat 页,侧栏翻译正确;顶栏"Agents" EN 漏翻
+- `/tmp/feat340-r2-09-me.png` — /me 直链正常渲染(SPA fallback 生效)
+- `/tmp/feat340-r2-11-chat-1440.png` — 1440px Chat 完整布局
+
+## 问题清单
+
+| # | 严重度 | 现象 | Recommended Action | Action Rationale |
+|---|---|---|---|---|
+| R2-1 | major | 中文模式顶栏 "Agents" tab 未翻译。`src/IM/frontend/src/i18n/zh.json` line 34:`"agents": "Agents"` — M11 R5 只改了 Settings 侧栏的 `settings.nav.agents`,但 `shell.tabs.agents` 的中文值仍为 "Agents"。截图 `/tmp/feat340-r2-07-zh.png` / `feat340-r2-08-chat-zh.png` 可见。 | fix-implementation | 单行修改:zh.json `shell.tabs.agents` 改为 "智能体"。已证明 R5 修了 settings.nav 路径,只是漏了 shell.tabs 同名 key |
+| R2-2 | minor | `?user_id=` legacy WS fallback 仍在 `app.py:351-365`。R1 记录 "kept temporarily so M2 worker tests don't break; it will be removed in a follow-up before the unit lands"。unit 即将合 main,此遗留清理尚未完成。 | fix-implementation | M1 注释明确说"unit lands 前删除",当前临到 merge 还未执行。删除 app.py WS fallback 里的 user_id 分支即可 |
+
+## 验收标准覆盖(对照 spec.md §验收标准,仅列变化项)
+
+### 视觉对齐
+- ✅ 桌面 Chat 页左 262px 侧栏 + 右消息面板 (R1 #1 已修)
+
+### Chat 页交互
+- ✅ 分类标签 All/Agent/Group/Network 渲染 (R1 #1+#2 已修,空态可见)
+- ✅ 搜索框渲染 (样式正常)
+
+### 实时与状态
+- ✅ WS /im/ws/user 连接 [accepted] (R1 #3 已修)
+
+### SPA 路由
+- ✅ /login /register /me 直链 200 SPA shell (R1 #4 已修)
+
+### i18n
+- ⚠️ 全 UI EN/中 — Settings 侧栏 ✅;顶栏 Agents tab ❌ (R2-1)
+
+### TypeScript
+- ✅ npx tsc -b 0 errors (R1 #6 已修)
+
+### Settings
+- ✅ 侧栏无 Policies (R1 #7 已修)
+
+## 上层文档同步
+
+(延续 R1 结论,无新变化)
+
+- [x] `SPEC.md`:无需更新
+- [x] `docs/内核设计SPEC.md`:无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`:需更新(R1 已标记,待 PR 阶段处理)
+- [x] `docs/IM-SPEC.md`:需更新(R1 已标记,待 PR 阶段处理)
+
+## Side Findings
+
+- Side-F3 (minor):浏览器 console 可见两条 `/im/v1/users` → 404 错误,该端点已在 M1 删除但前端仍周期性请求(见 `im-chat-api.ts`)。不影响主路径功能,属技术债,可后续清理。
+- Side-F1 沿用:8 个 IM integration tests 仍 fail(baseline,与 feat-340 无关)。
+
+## Recommended Action 路由建议
+
+| Issue | Action | 给谁 |
+|---|---|---|
+| R2-1 顶栏 Agents 未翻 | fix-implementation | M3 或 M11 follow-up worker |
+| R2-2 user_id fallback 清理 | fix-implementation | M1 或 M11 follow-up worker |
+
+建议 orchestrator 派一个小 fix milestone,把 R2-1 + R2-2 一起做完,然后 R3 验收可快速通过。
