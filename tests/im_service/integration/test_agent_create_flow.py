@@ -8,6 +8,8 @@ from fastapi.testclient import TestClient
 from IM.app import create_app
 from IM.repositories import NodeRepository, UserRepository
 
+from .conftest import authorize, register_user
+
 _WORKSPACE_PATH_SETTING = "/Users/czj/nano-assistant/workspace/fuck"
 
 
@@ -16,9 +18,15 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(tmp_path
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
-        owner = users.create_user(username="owner", display_name="Owner")
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         human_user = users.create_user(username="alice", display_name="Alice")
         agent_user = users.create_user(username="agent:agent-new", display_name="Agent New")
+        app.state.connection.execute(
+            "UPDATE users SET owner_id = ? WHERE id IN (?, ?)",
+            (owner.owner_id, human_user.id, agent_user.id),
+        )
+        app.state.connection.commit()
         NodeRepository(app.state.connection).upsert_node(node_id="node-1", node_name="MacBook")
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
@@ -206,7 +214,8 @@ def test_create_agent_without_workspace_persists_managed_default_workspace_root(
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
-        owner = users.create_user(username="owner", display_name="Owner")
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         agent_user = users.create_user(username="agent:agent-default", display_name="Agent Default")
         NodeRepository(app.state.connection).upsert_node(node_id="node-1", node_name="MacBook")
 
@@ -259,7 +268,8 @@ def test_create_agent_pushes_config_sync_to_connected_gateway(tmp_path: Path) ->
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
-        owner = users.create_user(username="owner", display_name="Owner")
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         agent_user = users.create_user(username="agent:agent-live", display_name="Agent Live")
         NodeRepository(app.state.connection).upsert_node(node_id="node-1", node_name="MacBook")
 

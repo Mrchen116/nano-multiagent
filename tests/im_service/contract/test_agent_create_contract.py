@@ -5,15 +5,17 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.repositories import NodeRepository, UserRepository
+from IM.repositories import NodeRepository
+
+from tests.im_service._auth_helpers import authorize, register_user
 
 
 def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
     """Expose stable node-scoped create response fields and reject unknown/disconnected nodes."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        users = UserRepository(app.state.connection)
-        owner = users.create_user(username="owner", display_name="Owner")
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         NodeRepository(app.state.connection).upsert_node(node_id="node-1", node_name="MacBook")
 
         async def fake_request_agent_create(*, target_node_id: str, payload: dict[str, object], timeout_seconds: float = 5.0):
@@ -102,5 +104,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
                 "default_model": None,
             },
         )
-        assert missing_node.status_code == 503
-        assert missing_node.json() == {"detail": "target_node_id is not connected"}
+        # Post feat-340-M1: unknown node_id 404s at the owner-scope gate before
+        # reaching the gateway dispatch.
+        assert missing_node.status_code == 404
+        assert missing_node.json() == {"detail": "node_id not found"}

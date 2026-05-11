@@ -5,14 +5,14 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 
+from tests.im_service._auth_helpers import authorize, register_user
+
 
 def _create_user(client: TestClient, username: str) -> str:
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": username.title()},
-    )
-    assert response.status_code == 201
-    return response.json()["id"]
+    """Register and authorize once; subsequent calls in the same test seed under tenant."""
+    user = register_user(client, username=username)
+    authorize(client, user)
+    return user.id
 
 
 def _create_conversation(client: TestClient, participant_id: str) -> str:

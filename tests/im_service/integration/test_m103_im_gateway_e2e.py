@@ -171,12 +171,17 @@ def _receive_group_relays(websocket) -> dict[str, dict[str, object]]:
 
 
 def _seed_user(client: TestClient, username: str, display_name: str | None = None) -> str:
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": display_name or username.title()},
+    """Auth-aware seeding: first call registers + authorizes; subsequent calls seed under tenant."""
+    from tests.im_service._auth_helpers import authorize, register_user, seed_user_under_owner
+
+    if client.headers.get("Authorization") is None:
+        user = register_user(client, username=username, display_name=display_name)
+        authorize(client, user)
+        return user.id
+    me = client.get("/im/v1/me").json()
+    return seed_user_under_owner(
+        client, username=username, display_name=display_name, owner_id=me["owner_id"]
     )
-    assert response.status_code == 201
-    return response.json()["id"]
 
 
 def _seed_node_and_profiles(app, *, owner_id: str = "", agent_ids: tuple[str, ...] = ("agent-a",)) -> None:
@@ -221,9 +226,20 @@ def _agents(tmp_path: Path, *agent_ids: str) -> tuple[AgentWorkspaceConfig, ...]
 
 def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(tmp_path: Path) -> None:
     """Gateway-advertised agents should be selectable in fresh runtime and reassigned after bind."""
+    from tests.im_service._auth_helpers import authorize, register_user
+
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        user = client.post("/im/v1/users", json={"username": "you", "display_name": "You"})
+        authed = register_user(client, username="you", display_name="You")
+        authorize(client, authed)
+        # Shim so the rest of the test can still reference ``user.json()['id']`` etc.
+        class _UserShim:
+            status_code = 201
+
+            def json(self):
+                return {"id": authed.id, "owner_id": authed.owner_id}
+
+        user = _UserShim()
         assert user.status_code == 201
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
@@ -261,7 +277,6 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
                 json={
                     "action": "confirm",
                     "bind_id": bind_start.json()["bind_id"],
-                    "user_id": user.json()["id"],
                 },
             )
             assert bind_confirm.status_code == 201
@@ -275,8 +290,12 @@ def test_gateway_registration_materializes_runtime_agents_before_and_after_bind(
 
 def test_gateway_reregistration_preserves_canonical_agent_labels_after_restart(tmp_path: Path) -> None:
     """Fresh re-registration should rebuild canonical agent labels instead of leaving raw ids in the picker."""
+    from tests.im_service._auth_helpers import authorize, register_user
+
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
+        viewer = register_user(client, username="viewer", display_name="Viewer")
+        authorize(client, viewer)
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
                 {
@@ -346,8 +365,14 @@ def test_fresh_runtime_agents_can_back_group_creation_before_bind(tmp_path: Path
             assert listed.status_code == 200
             assert [item["agent_id"] for item in listed.json()] == ["Alpha", "Beta"]
 
-            agent_a_user = client.post("/im/v1/users", json={"username": "agent:Alpha", "display_name": "Alpha"})
-            agent_b_user = client.post("/im/v1/users", json={"username": "agent:Beta", "display_name": "Beta"})
+            agent_a_user_id = _seed_user(client, "agent:Alpha", "Alpha")
+            agent_b_user_id = _seed_user(client, "agent:Beta", "Beta")
+            class _Shim:
+                def __init__(self, uid: str) -> None: self._uid = uid
+                status_code = 201
+                def json(self): return {"id": self._uid}
+            agent_a_user = _Shim(agent_a_user_id)
+            agent_b_user = _Shim(agent_b_user_id)
             assert agent_a_user.status_code == 201
             assert agent_b_user.status_code == 201
 

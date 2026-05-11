@@ -5,9 +5,9 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, model_validator
 
-from IM.api.deps import assert_conversation_exists, get_gateway_handler, get_web_im_service
+from IM.api.deps import current_user, get_gateway_handler, get_web_im_service
 from IM.application.web_im_service import WebIMService
-from IM.domain.models import Attachment, Message
+from IM.domain.models import Attachment, Message, User
 from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["messages"])
@@ -115,8 +115,26 @@ def _resolve_upload_content_type(request: Request) -> str:
     return raw_content_type.split(";", 1)[0].strip() or "application/octet-stream"
 
 
+def _assert_conversation_in_owner_scope(
+    *, service: WebIMService, conversation_id: str, owner_id: str
+) -> None:
+    """Raise 404 when the conversation is missing or owned by a different tenant."""
+    conversation = service.get_conversation_for_owner(
+        conversation_id=conversation_id, owner_id=owner_id
+    )
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="conversation_id not found"
+        )
+
+
 @router.post("/im/v1/uploads", response_model=AttachmentPayload, status_code=status.HTTP_201_CREATED)
-async def create_upload(request: Request, file_name: str = Query(min_length=1)) -> AttachmentPayload:
+async def create_upload(
+    request: Request,
+    file_name: str = Query(min_length=1),
+    user: User = Depends(current_user),
+) -> AttachmentPayload:
+    del user  # auth-gated only; uploads themselves are tenant-agnostic by URL design
     """Persist one raw upload body and return the IM-hosted attachment descriptor."""
     safe_name = _sanitize_upload_file_name(file_name)
     suffix = Path(safe_name).suffix
@@ -142,11 +160,15 @@ async def create_message(
     payload: CreateMessageRequest,
     request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
     gateway_handler: GatewayHandler = Depends(get_gateway_handler),
 ) -> MessageResponse:
     """Create a message in a conversation and optionally relay it to one gateway."""
-    assert_conversation_exists(request, conversation_id=conversation_id)
+    del request
+    _assert_conversation_in_owner_scope(
+        service=service, conversation_id=conversation_id, owner_id=user.owner_id
+    )
     try:
         sender_user_id, sender_type = _resolve_create_message_sender(payload)
         resolved_target_node_id = payload.target_node_id or service.resolve_target_node_id(
@@ -211,14 +233,16 @@ async def create_message(
 )
 def list_messages(
     conversation_id: str,
-    request: Request,
     limit: int = Query(default=50, ge=1, le=200),
     before_message_id: str | None = Query(default=None),
     mark_as_read: bool = Query(default=False),
+    user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
 ) -> ListMessagesResponse:
-    """List messages for one conversation in insertion order."""
-    assert_conversation_exists(request, conversation_id=conversation_id)
+    """List messages for one conversation in insertion order (owner-scoped)."""
+    _assert_conversation_in_owner_scope(
+        service=service, conversation_id=conversation_id, owner_id=user.owner_id
+    )
     try:
         items = service.list_messages(
             conversation_id=conversation_id,

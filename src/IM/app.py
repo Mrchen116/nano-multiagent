@@ -17,7 +17,6 @@ from IM.api.routes.messages import router as message_router
 from IM.api.routes.metrics import router as metrics_router
 from IM.api.routes.nodes import router as nodes_router
 from IM.api.routes.policies import router as policies_router
-from IM.api.routes.users import router as user_router
 from IM.api.routes.web_im import router as web_im_router
 from IM.application.auth_service import AuthService, resolve_jwt_secret
 from IM.application.event_service import EventService
@@ -290,7 +289,6 @@ def create_app(
     )
     app.mount("/im/uploads", StaticFiles(directory=resolved_upload_dir), name="im-uploads")
     app.include_router(auth_router)
-    app.include_router(user_router)
     app.include_router(account_router)
     app.include_router(agent_router)
     app.include_router(web_im_router)

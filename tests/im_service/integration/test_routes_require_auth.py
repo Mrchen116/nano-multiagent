@@ -125,7 +125,7 @@ def test_create_message_cross_tenant_returns_404(tmp_path: Path) -> None:
             ).json()
             response = bob_client.post(
                 f"/im/v1/conversations/{alice_conv['id']}/messages",
-                json={"content": "intrude"},
+                json={"sender_user_id": bob.id, "content": "intrude"},
             )
             assert response.status_code == 404
 

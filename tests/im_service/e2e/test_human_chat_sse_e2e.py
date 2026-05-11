@@ -7,22 +7,17 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 
-
-def _create_user(client: TestClient, username: str) -> str:
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": username.title()},
-    )
-    assert response.status_code == 201
-    return response.json()["id"]
+from tests.im_service._auth_helpers import authorize, register_user, seed_user_under_owner
 
 
 def test_human_chat_chain_and_user_stream_incremental(tmp_path: Path) -> None:
     """完整发消息链，经单用户 WebSocket 回放历史并接收增量。"""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        alice_id = _create_user(client, "alice")
-        bob_id = _create_user(client, "bob")
+        alice = register_user(client, username="alice")
+        authorize(client, alice)
+        alice_id = alice.id
+        bob_id = seed_user_under_owner(client, username="bob", owner_id=alice.owner_id)
 
         first_conversation = client.post(
             "/im/v1/conversations",

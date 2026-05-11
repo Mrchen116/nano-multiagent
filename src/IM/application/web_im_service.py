@@ -58,6 +58,16 @@ class WebIMService:
         """List conversations visible in the current storage scope."""
         return self._conversations.list_conversations()
 
+    def list_conversations_for_owner(self, *, owner_id: str) -> list[Conversation]:
+        """List conversations owned by ``owner_id`` (SQL-level tenant filter)."""
+        return self._conversations.list_conversations_for_owner(owner_id=owner_id)
+
+    def get_conversation_for_owner(self, *, conversation_id: str, owner_id: str) -> Conversation | None:
+        """Return the conversation iff it belongs to ``owner_id`` (else None)."""
+        return self._conversations.get_conversation_for_owner(
+            conversation_id=conversation_id, owner_id=owner_id
+        )
+
     def delete_conversation(self, *, conversation_id: str, requester_id: str) -> None:
         """Dissolve a conversation; only the creator may do this.
 

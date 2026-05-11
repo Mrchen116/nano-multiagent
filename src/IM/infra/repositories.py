@@ -1328,8 +1328,12 @@ class AgentProfileRepository:
     def list_runtime_selectable_profiles_for_owner(self, *, owner_id: str) -> list[AgentProfile]:
         """Owner-scoped runtime-selectable profile list (cross-tenant safe).
 
-        Filters strictly by ``agent_profiles.owner_id`` to guarantee the IM HTTP layer
-        only ever returns profiles belonging to the authenticated caller.
+        Filters to either:
+        - profiles owned by the caller (``ap.owner_id = owner_id``), OR
+        - ownerless profiles advertised by ownerless runtimes (fresh nodes pre-bind),
+          so any authenticated user can discover and bind them.
+
+        A profile owned by another tenant is never returned, regardless of node state.
         """
         rows = self._connection.execute(
             """
@@ -1339,8 +1343,10 @@ class AgentProfileRepository:
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
               AND ap.node_id != ''
-              AND ap.owner_id = ?
-              AND COALESCE(n.owner_id, '') IN ('', ?)
+              AND (
+                    (ap.owner_id = ? AND COALESCE(n.owner_id, '') IN ('', ?))
+                 OR (ap.owner_id = '' AND COALESCE(n.owner_id, '') = '')
+              )
             ORDER BY ap.created_at, ap.rowid
             """,
             (owner_id, owner_id),
@@ -1348,11 +1354,13 @@ class AgentProfileRepository:
         return [self._row_to_profile(row) for row in rows]
 
     def get_profile_for_owner(self, *, agent_id: str, owner_id: str) -> AgentProfile | None:
-        """Return the profile only when it is owned by ``owner_id``; else None."""
+        """Return the profile when owned by ``owner_id`` or ownerless (fresh, pre-bind); else None."""
         profile = self.get_profile(agent_id=agent_id)
-        if profile is None or profile.owner_id != owner_id:
+        if profile is None:
             return None
-        return profile
+        if profile.owner_id == owner_id or profile.owner_id == "":
+            return profile
+        return None
 
     def get_updated_at(self, *, agent_id: str) -> str | None:
         """Return the last update timestamp for one agent profile."""
