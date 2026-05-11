@@ -59,9 +59,9 @@
 
 ### R4 — MessagePane + ToolCallsPanel + TokenChip + MentionPicker
 
-- 步骤: 写 `components/message-pane.tsx`(消息列表 + bubble 渲染 + 头部 + composer)、`components/tool-calls-panel.tsx`、`components/token-chip.tsx`、`components/mention-picker.tsx`、`components/node-chip.tsx`、`components/kind-badge.tsx`
-- 验证: RTL 模拟 keystroke "@P" → picker 出现 candidates 过滤;↑↓/Enter/Esc;send 触发 onSend(text);TokenChip 70%/90% 切换 className;ToolCallsPanel 折叠展开
-- 状态: TODO
+- 步骤: 写 `components/message-pane.tsx`(消息列表 + bubble 渲染 + 头部 + composer)、`components/tool-calls-panel.tsx`、`components/token-chip.tsx`、`components/mention-picker.tsx`、`components/node-chip.tsx`(kind-badge R3 已建)
+- 验证: RTL 模拟 keystroke "@P" → picker 出现 candidates 过滤;Enter 提交触发 onSend(text);TokenChip 70%/90% 切换 className;ToolCallsPanel 折叠展开
+- 状态: DONE
 
 ### R5 — chat-workspace-page 重写(组合 + 路由 + 移动响应式)
 
