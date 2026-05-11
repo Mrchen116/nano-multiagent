@@ -39,7 +39,7 @@
   - 新增单元测试:create → list → 字段完整。
   - 旧测试无回归。
 
-### R2 — WS event_types module
+### R2 — WS event_types module — DONE
 
 - 步骤:
   - 新增 `src/IM/api/ws/__init__.py` + `src/IM/api/ws/event_types.py`,把 design §4 中 IM→Browser 事件类型常量化。事件名称:`message.created` / `message.delta` / `message.completed` / `tool_call.upserted` / `tool_call.completed` / `node.status_changed` / `agent.status_changed`。
