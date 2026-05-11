@@ -272,3 +272,105 @@ M4b 报告过 "M7 留下 pre-existing tsc 错误 `account-page.test.tsx:126:9`" 
 | R2-2 user_id fallback 清理 | fix-implementation | M1 或 M11 follow-up worker |
 
 建议 orchestrator 派一个小 fix milestone,把 R2-1 + R2-2 一起做完,然后 R3 验收可快速通过。
+
+---
+
+# Round 3 — 2026-05-11
+
+## Verdict
+
+**fail**
+
+## Highest Required Action
+
+**fix-implementation**
+
+## Issues Count
+
+- blocking: 0
+- major: 1
+- minor: 0
+
+## Top Concern
+
+新建群聊会话创建成功（POST 201）但侧栏永远不显示该会话：`create_conversation` 路由（`web_im.py:136`）`del user` 丢弃了认证用户身份，会话 `owner_id` 从参与者 owner_id 集合计算——当用户（`owner_id=176effb9...`）和无主 agent（`owner_id=''`）参与同一会话时，`len(owner_ids) > 1` 触发随机 UUID，导致 `list_conversations_for_owner(owner_id=user.owner_id)` 永远查不到该会话。
+
+## R2 Issues 验证状态
+
+| R2 # | 原描述 | M12 修复状态 | R3 验证结果 |
+|---|---|---|---|
+| R2-1 | 中文模式顶栏 "Agents" tab 未翻译 | R1: zh.json shell.tabs.agents → "智能体" | ✅ 通过 — 顶栏显示"聊天"/"智能体"，截图 `/tmp/feat340-r3-05-zh-topbar.png` |
+| R2-2 | `?user_id=` legacy WS fallback 仍在 app.py | R2: 删除 else 分支 + 更新 4 个测试 | ✅ 通过 — `?user_id=` 连接被 403 拒绝（python3 asyncio/websockets 直连验证）；`?token=<jwt>` 连接正常 accepted |
+
+## 旅程体验
+
+平台：Chrome headless (gstack-browse) + 真实 IM 服务 port 8013 (fresh user alexr3) + 真实前端 dist（tsc + vite build 干净）。
+
+### 旅程清单
+
+| # | 旅程 | 结果 |
+|---|---|---|
+| J1 | /login /register /me 直链 + 登录流 | ✅ 全部 200 SPA shell；登录 → 跳转 /chat；截图 `/tmp/feat340-r3-01-login.png` |
+| J2 | 登录后 Chat workspace @1440px | ✅ 侧栏 + 消息面板完整渲染，中英文均可；截图 `/tmp/feat340-r3-11-chat-1440.png` |
+| J5 (新建群聊) | "+ 群聊" 模态 → 选 agent → 创建 | ❌ major — 见 R3-1：POST 201 成功但会话不显示在侧栏 |
+| J9 (Notifications) | 账户页启用桌面通知 checkbox | ✅ checkbox 可勾选，保存后生效；截图 `/tmp/feat340-r3-10-notifications.png` |
+| J11 (跨租户) | Bob 用自己 token 访问 Alex 资源 | ✅ 404（正确拒绝）；ownerless 节点两者均可见（设计决策 2a：pre-bind 发现） |
+| i18n R2-1 | 中文模式顶栏 Agents tab | ✅ 显示"智能体"；截图 `/tmp/feat340-r3-05-zh-topbar.png` |
+| WS R2-2 | ?user_id= 被拒 / ?token= 被接受 | ✅ python asyncio 直连验证 |
+
+### 关键截图
+
+- `/tmp/feat340-r3-01-login.png` — 登录页
+- `/tmp/feat340-r3-02-after-login.png` — 登录后 Chat 页
+- `/tmp/feat340-r3-05-zh-topbar.png` — 中文模式顶栏"智能体"（R2-1 修复确认）
+- `/tmp/feat340-r3-07-new-group-modal.png` — 新建群聊模态（UI 渲染正常）
+- `/tmp/feat340-r3-08-group-created.png` — 创建后侧栏仍"暂无会话"（R3-1 现象）
+- `/tmp/feat340-r3-10-notifications.png` — 通知 checkbox 启用态
+- `/tmp/feat340-r3-11-chat-1440.png` — 1440px Chat 完整布局
+
+## 问题清单
+
+| # | 严重度 | 现象 | Recommended Action | Action Rationale |
+|---|---|---|---|---|
+| R3-1 | major | 新建群聊 POST /im/v1/conversations 返回 201（会话已写库），但侧栏和 GET /im/v1/conversations 均不显示该会话。根因：`web_im.py:136` `del user`，`create_conversation` 路由不将认证用户的 `owner_id` 传给 repository；`repositories.py:377` 当参与者来自不同 owner_id（用户 `176effb9…` 与无主 agent `''`）时生成随机 UUID 作为 conversation `owner_id`，导致 `list_conversations_for_owner(owner_id=user.owner_id)` 永远查不到该会话。DB 直查确认 `owner_id='c68e4cb9…'` 既不属于 alex 也无对应用户。 | fix-implementation | M1 R4 commit（4c0ca50b）引入 `del user` 模式，设计 §决策 2a 要求"所有 /im/v1/* 路由从 token 提取 owner_id"。修复方向：在 `create_conversation` 路由中传入 `caller_owner_id=user.owner_id`，repository 层用调用者 owner_id 覆盖/指定 conversation 归属，保证同一 owner_id 下参与者无论是否有主都不触发随机 UUID。 |
+
+## 验收标准覆盖（对照 spec.md §验收标准）
+
+### R2 Issues（已修复项）
+- ✅ i18n 全 UI EN/中 — R2-1 已修（顶栏"智能体"）
+- ✅ WS ?user_id= legacy fallback 删除 — R2-2 已修
+- ✅ vitest 52f/238t 全绿（含新增 2 个 i18n 断言）
+- ✅ pytest 207 passed（8 pre-existing failures 不变）
+- ✅ tsc -b 0 errors
+- ✅ vite build 干净
+
+### 本轮新发现
+- ❌ 新建群聊会话不可见 — R3-1 (major)
+- ✅ SPA 直链 /login /register /me 全部 200
+- ✅ Chat workspace 1440px 完整渲染
+- ✅ WS ?token= 握手正常
+- ✅ 跨租户隔离 (404 正确拒绝)
+- ✅ Notifications checkbox UI 正常
+
+## 上层文档同步
+
+（延续 R1/R2 结论，无新变化）
+
+- [x] `SPEC.md`：无需更新
+- [x] `docs/内核设计SPEC.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：需更新（R1 已标记）
+- [x] `docs/IM-SPEC.md`：需更新（R1 已标记）
+
+## Side Findings
+
+- Side-F4 (minor, in-unit)：`/im/v1/conversations` GET 返回 `{"items": []}` 而不是 `[]`，包装层 `ListConversationsResponse` 格式与前端期望可能有细微差异（前端网络日志显示 200 + 614B 但侧栏空）——但这是 R3-1 的次级现象，修 R3-1 后需要复验。
+- Side-F3 沿用：`/im/v1/users` 404 周期性请求仍在（pre-existing）。
+- Side-F1 沿用：8 个 IM integration tests pre-existing failure。
+
+## Recommended Action 路由建议
+
+| Issue | Action | 给谁 |
+|---|---|---|
+| R3-1 新建群聊 owner_id 错误 | fix-implementation | M1 或 web_im/conversations worker |
+
+建议 orchestrator 派一个小 fix milestone 修 R3-1（`create_conversation` 传入 caller owner_id），完成后 R4 验收只需重测 J5 New Group Chat 流程。
