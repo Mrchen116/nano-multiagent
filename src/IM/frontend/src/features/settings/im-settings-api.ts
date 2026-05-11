@@ -1,4 +1,4 @@
-import { normalizeItemsEnvelope } from "../chat/im-chat-api";
+import { authFetch } from "../auth/auth-fetch";
 
 export interface NodeSettingsProfile {
   node_id: string;
@@ -34,20 +34,6 @@ export interface PolicyProfile {
   rate_limit_per_min: number;
 }
 
-interface ImUserSummary {
-  id: string;
-  username: string;
-  display_name: string;
-}
-
-function getApiBaseUrl() {
-  return (import.meta.env.VITE_IM_API_BASE_URL ?? "").replace(/\/$/, "");
-}
-
-function withBase(path: string) {
-  return `${getApiBaseUrl()}${path}`;
-}
-
 class SettingsRequestError extends Error {
   status: number;
   detail: string;
@@ -61,13 +47,7 @@ class SettingsRequestError extends Error {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withBase(path), {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
-  });
+  const response = await authFetch(path, init);
   if (!response.ok) {
     const method = init?.method ?? "GET";
     let detail = response.statusText || "request failed";
@@ -85,21 +65,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function listUsers() {
-  const payload = await requestJson<{ items: ImUserSummary[] } | ImUserSummary[]>("/im/v1/users");
-  return normalizeItemsEnvelope(payload);
-}
-
-async function resolveCurrentUserId() {
-  const users = await listUsers();
-  return users.find((item) => item.username === "you")?.id ?? users[0]?.id ?? null;
-}
-
 export async function listNodes() {
   return requestJson<NodeSettingsProfile[]>("/im/v1/nodes");
 }
 
-export async function updateNode(nodeId: string, patch: Pick<NodeSettingsProfile, "alias" | "relay_enabled" | "reporting_enabled">) {
+export async function updateNode(
+  nodeId: string,
+  patch: Pick<NodeSettingsProfile, "alias" | "relay_enabled" | "reporting_enabled">
+) {
   return requestJson<NodeSettingsProfile>(`/im/v1/nodes/${nodeId}/config`, {
     method: "PATCH",
     body: JSON.stringify(patch)
@@ -107,19 +80,14 @@ export async function updateNode(nodeId: string, patch: Pick<NodeSettingsProfile
 }
 
 export async function getAccount() {
-  const userId = await resolveCurrentUserId();
-  if (!userId) {
-    throw new Error("no IM user available for account settings");
-  }
-  return requestJson<AccountProfile>(`/im/v1/me?user_id=${encodeURIComponent(userId)}`);
+  // owner_id is derived from the Bearer token server-side; no query parameter needed.
+  return requestJson<AccountProfile>(`/im/v1/me`);
 }
 
-export async function updateAccount(next: Pick<AccountProfile, "display_name" | "default_entry_node_id">) {
-  const userId = await resolveCurrentUserId();
-  if (!userId) {
-    throw new Error("no IM user available for account settings");
-  }
-  return requestJson<AccountProfile>(`/im/v1/me?user_id=${encodeURIComponent(userId)}`, {
+export async function updateAccount(
+  next: Pick<AccountProfile, "display_name" | "default_entry_node_id">
+) {
+  return requestJson<AccountProfile>(`/im/v1/me`, {
     method: "PATCH",
     body: JSON.stringify({
       display_name: next.display_name,
