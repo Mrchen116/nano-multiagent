@@ -102,6 +102,100 @@
       }
     }
   },
+  "agents": {
+    "title": "Agents",
+    "newButton": "+ 新建",
+    "loadError": "无法加载 Agent 列表。",
+    "retry": "重试",
+    "openNodes": "前往节点",
+    "empty": {
+      "title": "还没有 Agent",
+      "body": "前往节点页,在在线的已绑定节点上创建第一个运行时配置。"
+    },
+    "rowStatus": {
+      "online": "{{id}} 在线",
+      "offline": "{{id}} 离线"
+    },
+    "detail": {
+      "selectPrompt": "选择一个 Agent",
+      "selectHint": "选择一个 Agent 以查看或编辑其配置。",
+      "openChat": "打开聊天 ↗",
+      "openChatPending": "正在打开直聊…",
+      "saveAgent": "保存 Agent",
+      "save": "保存",
+      "saving": "保存中…",
+      "saved": "✓ 已保存",
+      "noChanges": "无改动",
+      "unsavedChanges": "● 有未保存改动",
+      "discard": "放弃",
+      "version": "v{{version}}",
+      "loading": "加载 Agent 配置中..."
+    },
+    "form": {
+      "identity": {
+        "title": "身份",
+        "subEdit": "向用户与其他 agent 展示的名称与用途。",
+        "subNew": "Agent ID 创建后不可更改,会用于 @ 与 API 调用。",
+        "agentId": "Agent ID",
+        "agentIdRequired": "Agent ID *",
+        "agentIdHelp": "小写字母、数字、_ 和 -",
+        "agentIdPlaceholder": "例如 my_agent",
+        "displayName": "显示名",
+        "displayNameRequired": "显示名 *",
+        "displayNamePlaceholder": "例如 我的 Agent",
+        "description": "描述",
+        "descriptionHelp": "在群聊中显示的简短说明。",
+        "descriptionPlaceholder": "这个 agent 做什么?",
+        "owner": "所有者",
+        "owningNodeRequired": "所属节点 *",
+        "owningNodeHelp": "承载与运行该 agent 的节点。",
+        "owningNodeSelect": "— 选择节点 —"
+      },
+      "behavior": {
+        "title": "行为",
+        "sub": "系统提示词是行为的主要契约。",
+        "systemPrompt": "系统提示词",
+        "systemPromptRequired": "系统提示词 *",
+        "systemPromptHelp": "定义角色、语气与约束。",
+        "systemPromptPlaceholder": "你是一个有帮助的助手。你的工作是...\n\n保持简洁,必要时主动澄清。",
+        "policy": "群聊回复策略",
+        "policyHelp": "在群聊中何时回复。",
+        "policyOptionMention": "MENTION — 仅当被 @ 时回复",
+        "policyOptionAlways": "ALWAYS — 每条群消息都回复",
+        "policyOptionNoReply": "NO_REPLY — 在群里保持沉默"
+      },
+      "access": {
+        "title": "访问与模型",
+        "sub": "允许列表保持最小。",
+        "skills": "技能",
+        "tools": "工具允许列表",
+        "model": "默认模型",
+        "modelPlatformDefault": "平台默认 ({{model}})",
+        "modelPlatformDefaultPlain": "平台默认",
+        "modelDefaultSuffix": "(默认)"
+      },
+      "workspace": {
+        "title": "工作区与运行时",
+        "sub": "只读。由所属节点托管。",
+        "workspaceRoot": "工作区路径",
+        "profileVersion": "Profile 版本",
+        "owningNode": "所属节点",
+        "lastUpdated": "最后更新"
+      },
+      "errors": {
+        "required": "必填",
+        "agentIdInvalid": "仅允许小写字母、数字、_ 和 -"
+      }
+    },
+    "create": {
+      "title": "新建 Agent",
+      "subtitle": "配置身份、行为与工具访问。",
+      "submit": "创建 Agent",
+      "submitArrow": "创建 Agent →",
+      "cancel": "取消",
+      "errorGeneric": "创建失败"
+    }
+  },
   "chat": {
     "list": {
       "header": "消息",
