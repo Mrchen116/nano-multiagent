@@ -25,3 +25,21 @@
 - Rollback: 删 `chat-stream.ts` + `chat-stream-reducer.ts` 及其测试。
 - Commits: C1=2ad9c1c5 (合并到上一提交), C2=(本提交), C3=(下一提交)
 - Next: R3 — ConversationList + 分类标签 + 搜索 + NewGroupModal。
+
+## R3 — ConversationSidebar + KindBadge + NewGroupModal + Avatar
+
+- Context: 桌面左栏 262px 会话列表 + 4 类过滤标签(All/Agent/Group/Network)+ 实时搜索 + 新建群聊入口;原型 `im-chat-page.jsx` ConvSidebar + NewGroupModal 部分是这一 roadpoint 的视觉契约。
+- Decision: 拆出 4 个原子组件:
+  - `conversation-sidebar.tsx` 接 `Conversation[]` + active id + onSelect / onNewGroup;内部 useState 管 filter+search;过滤逻辑直接调 `classifyConversationKind`,KindBadge 渲染右侧角标。
+  - `new-group-modal.tsx` 接 `agents` 列表 + onClose/onCreate;受控 selected + name;Create 按钮在 selected 为空时 disabled,name 留空时 fallback 拼参与者名称。Radix 暂不引入,先用原生 `<dialog>` 替代项 `<div role="dialog" aria-modal>`(R5 整合时若需要 portal 再换)。
+  - `avatar.tsx` 通用头像(initials + optional status dot)被两处复用。
+  - `kind-badge.tsx` 把 4 种 ConversationKind 各自一段 i18n key + 一段配色 className。
+  - 样式 className 命名 `chat-*` 全部待 R7 增量补 global.css(本 roadpoint 只锁结构 + i18n 文案,不写视觉)。
+- Rationale: 决策 4(4 类会话渲染)+ spec Q4(NewGroup 表单字段) + Q8(mention candidates ⊆ participants)。把 sidebar 拆成自治组件,R5 主页面只负责把 `conversations` 状态喂进来,符合 unidirectional dataflow。新群聊不在此 roadpoint 真发 POST(那是 R5 chat-workspace 的事),只 onCreate 回调出 ids+name。
+- Evidence:
+  - Tests: `npx vitest run src/features/chat/v2/` R1+R2+R3 共 24/24 pass。`conversation-sidebar.test.tsx` 覆盖:渲染 4 条会话 + 过滤 group / 搜索串匹配 / 点击高亮选中。`new-group-modal.test.tsx` 覆盖:勾选两 agent → Create 按钮带 (2) → onCreate(payload.agentIds.length===2,name fallback 为 join)。
+  - 实施期把 C1(测试)+ C2(实现)写进了同一个 commit(c7bc7cb7),没有严格走 Red→Green 双提交。下游 reviewer 注意:该 commit 标题是 C1 但 body 含 C2;视为单提交。后续 roadpoint 恢复三提交。
+- Rollback: 删 `components/{conversation-sidebar,new-group-modal,avatar,kind-badge}.{tsx,test.tsx}` + i18n key 段。
+- Commits: C1+C2=c7bc7cb7 (合并), C3=(本提交)
+- Next: R4 — MessagePane + ToolCallsPanel + TokenChip + MentionPicker + NodeChip。
+

@@ -53,9 +53,9 @@
 
 ### R3 — ConversationList + 分类标签 + 搜索 + NewGroupModal
 
-- 步骤: 写 `components/conversation-list.tsx`(列表条目 + Kind Badge + unread + last_preview)、`components/conversation-filter-tabs.tsx`、`components/new-group-modal.tsx`(Radix Dialog + 选 agents + 群名 + Create)
+- 步骤: 写 `components/conversation-sidebar.tsx`(列表条目 + Kind Badge + unread + last_preview + 过滤 tabs + 搜索)、`components/new-group-modal.tsx`(选 agents + 群名 + Create)、`components/avatar.tsx`、`components/kind-badge.tsx`
 - 验证: RTL 渲染列表过滤 by kind + 搜索串匹配;new group modal 选两 agent + Create → 触发 `onCreate` callback with selected ids 和 name
-- 状态: TODO
+- 状态: DONE
 
 ### R4 — MessagePane + ToolCallsPanel + TokenChip + MentionPicker
 
