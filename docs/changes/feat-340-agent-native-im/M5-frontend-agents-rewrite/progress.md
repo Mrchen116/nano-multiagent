@@ -11,7 +11,7 @@
 - R2 detail page four-card rewrite — DONE
 - R3 create page three-card rewrite — DONE
 - R4 i18n zh translations + UI 切换断言 — DONE
-- R5 status-broadcast 消费(WS reducer + React Query cache patch) — TODO(新增 roadpoint,见上方 design 修订)
+- R5 status-broadcast 消费(WS reducer + React Query cache patch) — DONE
 
 ---
 
@@ -98,5 +98,27 @@
   - Full suite: `npm run test -- --run` → **33 test files / 183 tests** 全绿
   - Entry: 三个测试都走真实路由 `/settings/agents` / `/settings/agents/agent-zh-1` / `/settings/nodes/node-1/agents/new`,等同于浏览器切到中文后访问这三个路径。
 - Rollback: `git reset --hard a44544c5`(R4 C1 测试已存在)
-- Commits: C1=a44544c5(测试文件即落地;R2/R3 已完成实现侧),C3=<this>
+- Commits: C1=a44544c5(测试文件即落地;R2/R3 已完成实现侧),C3=48da8121
 - Next: R5 status-broadcast WS reducer 消费
+
+### R5 — status-broadcast WS reducer 消费
+
+- Context: M10 producer 在并行落地,M5 消费侧需要在 list / detail 订阅 WS hub 的 `agent.status_changed` 事件,把事件 patch 进 react-query cache 让 status pill 实时刷新。design 决策 11 与 M5/M10 退出标准都列了这一点。
+- Decision:
+  - 新建 `src/features/settings/agents/agent-status-ws-consumer.ts`,导出两个 API:
+    - `applyAgentStatusEvent(client, event)` 纯函数 — 把 `agent.status_changed` 事件 patch 进 `["settings","agents"]` 列表 cache 和 `["settings","agents",agentId,"detail-state"]` 详情 cache。设计成纯函数,让单测可以脱开真实 WS 喂事件断言 cache 变化。
+    - `useAgentStatusBroadcastConsumer()` hook — 包 `attachUserConversationStream(selfUserId, onEvent)`,自动绑/解 subscriber。selfUserId 取 `useAuthStore(s => s.user?.id)`,未登录直接 noop。
+  - 列表的 `statusOf` 改成"优先取 agent.node_status,缺则回退到 nodes 表的 status" — 让 WS patch 后 AgentSummary.node_status 的覆盖能立刻反映在 row 状态点。详情已经直接读 draft.node_status,patch 之后 useEffect 同步到 draft,UI 自动跟随。
+  - `agents-list-page.tsx` / `agent-detail-page.tsx` 顶部各加一行 `useAgentStatusBroadcastConsumer()`。
+  - **不依赖 M10 真实推送** — 单测用 fixture 模拟事件直接灌进 `applyAgentStatusEvent`,断言 cache 内容变化;M10 producer 合并后由 reviewer 走 e2e 联调。
+- Rationale:
+  - 把"事件 → cache patch"做成纯函数而非把逻辑塞进 hook,让单测脱开 hooks API + WebSocket runtime,断言点更稳定也更快(整套 4 个 case 2ms 完成)。
+  - 列表的 `statusOf` 用"agent.node_status 优先 + nodes 表回退"的两段策略,而非直接覆盖 nodes 状态:nodes 表上的 status 是 `node.status_changed` 事件的目标(node-level),agents 表上的 node_status 是 `agent.status_changed` 事件的目标(agent-level,可能因 agent 进程崩溃而独立于 node);两者语义不同,不要交叉污染。
+  - hook 用 `useAuthStore(s => s.user?.id ?? null)` 而非自己读 token —— 与 `use-global-message-toast` 用法对齐,登录态变化时 effect 自动重订阅。
+- Evidence:
+  - Tests: `npm run test -- --run agent-status-ws-consumer` → 4/4 通过(list patch / detail patch / 忽略 node.status_changed + 未知 agent / 拒绝 malformed payload)
+  - Full suite: `npm run test -- --run` → **34 test files / 187 tests** 全绿
+  - Entry: 单测直接喂 fixture 事件到 `applyAgentStatusEvent`,与 WS 链路上 `parseImStreamEvent → onEvent` 给出来的 `ParsedImStreamEvent` 形状一致;hook 侧用真 `attachUserConversationStream` 接入,M10 上线后无需再改 M5。
+- Rollback: `git reset --hard a2dc5e53`(R5 C1 测试已存在)
+- Commits: C1=a2dc5e53, C2=687c3aec, C3=<this>
+- Next: 本 milestone 已完成,等 orchestrator 派 reviewer 验收

@@ -71,7 +71,7 @@ dirty 检测正确驱动 Save/Discard;详情顶部 Open chat ↗ 跳直聊。
 - 验证:测试切语言后关键字显示中文
 - 备注:R1 已完成 list 部分 zh(empty.title);详情/新建页 i18n 在 R2/R3 同步追加;R4 主要做端到端切换断言。
 
-### R5 — status-broadcast 消费(WS reducer + React Query cache patch)
+### R5 — status-broadcast 消费(WS reducer + React Query cache patch) — DONE
 
 - 起因:design.md 决策 11 + M5 退出标准追加 — agent status pill 必须由 `agent.status_changed` WS 实时反映(M10 producer 并行落地)
 - 步骤:
