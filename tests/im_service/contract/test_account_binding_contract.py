@@ -29,6 +29,7 @@ def test_me_and_bind_contract_shapes(tmp_path: Path) -> None:
             "owner_id",
             "owned_node_ids",
             "default_entry_node_id",
+            "locale",
             "created_at",
         }
         assert me_response.json()["user_id"] == owner.id

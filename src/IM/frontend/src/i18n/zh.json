@@ -65,5 +65,41 @@
     "back": "返回",
     "retry": "重试",
     "empty": "暂无内容。"
+  },
+  "settings": {
+    "account": {
+      "title": "账号",
+      "identity": {
+        "heading": "身份",
+        "subtitle": "你在 nano IM 中的账号身份。",
+        "displayName": "显示名",
+        "username": "用户名",
+        "userId": "用户 ID",
+        "createdAt": "创建时间"
+      },
+      "defaults": {
+        "heading": "默认值",
+        "subtitle": "新会话和 agent 默认归属的节点。",
+        "defaultEntryNode": "默认入口节点",
+        "defaultEntryNodeHint": "选择一个你拥有的节点。",
+        "selectNode": "请选择节点",
+        "ownedNodes": "已拥有节点",
+        "ownedNodesEmpty": "尚未绑定任何节点。"
+      },
+      "preferences": {
+        "heading": "偏好",
+        "subtitle": "界面语言与桌面通知。",
+        "language": "语言",
+        "notifications": "启用桌面通知",
+        "notificationsHint": "标签未激活时,Agent 回复完成会弹出系统通知。"
+      },
+      "actions": {
+        "save": "保存",
+        "saving": "保存中…",
+        "discard": "放弃",
+        "savedJustNow": "已保存。",
+        "saveFailed": "保存失败:{{detail}}"
+      }
+    }
   }
 }

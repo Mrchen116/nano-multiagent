@@ -65,5 +65,41 @@
     "back": "Back",
     "retry": "Retry",
     "empty": "Nothing here yet."
+  },
+  "settings": {
+    "account": {
+      "title": "Account",
+      "identity": {
+        "heading": "Identity",
+        "subtitle": "Your account identity inside nano IM.",
+        "displayName": "Display name",
+        "username": "Username",
+        "userId": "User ID",
+        "createdAt": "Created at"
+      },
+      "defaults": {
+        "heading": "Defaults",
+        "subtitle": "Where new chats and agents land by default.",
+        "defaultEntryNode": "Default entry node",
+        "defaultEntryNodeHint": "Pick one node you own.",
+        "selectNode": "Select one node",
+        "ownedNodes": "Owned nodes",
+        "ownedNodesEmpty": "No nodes bound yet."
+      },
+      "preferences": {
+        "heading": "Preferences",
+        "subtitle": "Language and desktop notifications.",
+        "language": "Language",
+        "notifications": "Enable desktop notifications",
+        "notificationsHint": "Show a system banner when an agent reply arrives while this tab is in the background."
+      },
+      "actions": {
+        "save": "Save",
+        "saving": "Saving…",
+        "discard": "Discard",
+        "savedJustNow": "Saved.",
+        "saveFailed": "Save failed: {{detail}}"
+      }
+    }
   }
 }

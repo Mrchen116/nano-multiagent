@@ -22,6 +22,7 @@ class MeResponse(BaseModel):
     owner_id: str
     owned_node_ids: list[str]
     default_entry_node_id: str | None
+    locale: str
     created_at: str
 
 
@@ -30,6 +31,8 @@ class UpdateMeRequest(BaseModel):
 
     display_name: str = Field(min_length=1)
     default_entry_node_id: str | None = None
+    # Locale is optional so existing clients (M1) keep working unchanged.
+    locale: str | None = Field(default=None, max_length=8)
 
 
 class StartBindRequest(BaseModel):
@@ -79,6 +82,7 @@ def to_me_response(user: User) -> MeResponse:
         owner_id=user.owner_id,
         owned_node_ids=user.owned_node_ids,
         default_entry_node_id=user.default_entry_node_id,
+        locale=user.locale,
         created_at=user.created_at,
     )
 
@@ -127,6 +131,7 @@ def update_me(
             user_id=user.id,
             display_name=payload.display_name,
             default_entry_node_id=payload.default_entry_node_id,
+            locale=payload.locale,
         )
     except ValueError as exc:
         detail = str(exc)
