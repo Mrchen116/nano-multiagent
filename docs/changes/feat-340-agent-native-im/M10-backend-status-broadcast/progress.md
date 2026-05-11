@@ -50,10 +50,10 @@ asyncio task run_offline_guard:
   - `user_stream.py` 加 `UserStreamRegistry.broadcast_to_user(user_id, text)` —
     单参数,内部委托 `broadcast_to_users` 既有路径。
 - Rationale: 复用既有 fan-out + 死连接清理路径,符合决策 11 "不引入新索引"。
-- Evidence: `pytest tests/im_service/unit/test_ws_event_types.py tests/im_service/unit/test_user_stream.py`
-  全绿(新增用例 + 原有 19 个用例)。
+- Evidence: `pytest tests/im_service/unit/test_ws_event_types.py tests/im_service/unit/test_user_stream.py` → 14 passed。
+  `pytest tests/im_service/unit` → 93 passed,无回归。
 - Rollback: revert C1+C2 commit。
-- Commits: C1=<填>, C2=<填>, C3=<填>
+- Commits: C1=54cd9184, C2=b0259e21, C3=R1-doc
 
 ## R2 — GatewayHandler 状态 diff + emit
 
