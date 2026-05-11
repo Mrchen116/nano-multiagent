@@ -8,6 +8,8 @@
 
 <!-- 按时间倒序追加。格式:YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-11 (M10 立项): 补 M10 backend-status-broadcast,闭合 §5 映射表"heartbeat scheduler"未归属的 producer 与 §接口 2a 中 `node.status_changed` / `agent.status_changed` 的 owner-scoped 推送路径;M6 依赖追加 M10、M5 退出标准追加 agent status WS 实时反映。原因:M2 完成后 M6 worker 启动时发现 producer 与无 conversation_id 的 owner-scoped 旁路 dispatcher 都没归任何既有 milestone,需补一个。
+
 ## 架构总览
 
 ### 现状(before)
@@ -162,6 +164,13 @@
 - **拒绝**: 渐进迁移脚本(本期负担无价值);auth dev bypass(留隐患)。
 - **风险**: 现有本地 db 重启会丢——开发态可接受;用户 README 提示。
 
+### 决策 11: 状态事件(node/agent)的 owner-scoped 广播路径
+
+- **选择**: 在 `src/IM/ws/user_stream.py` 的 `UserStreamRegistry` 上新增便利函数 `broadcast_to_user(user_id, frame)`(直接复用既有 `user_id → set[WebSocket]` 索引,不引入新索引);在 `src/IM/ws/gateway_handler.py` 的 `_handle_register` / `_handle_heartbeat` / 节点断连路径上,接 PA 上行帧之后做 node 状态 diff(`record_heartbeat` 返回的 before/after status 或显式比较),变化时 build `node.status_changed` 帧并 `broadcast_to_user(owner_id, frame)`(owner_id 从 `nodes` 行查出);agent.status_changed 同路径——agent_profiles 的 status 字段在 `_handle_register` 写入 agent_count 之后做 agent 维度 diff(若实施期发现 agent.status 没有显式字段,M10 worker 在 progress.md 记决策:把 `agent_profiles.status` 用 `last_heartbeat_at_node_status` 派生,或与 node.status 一致折叠)。offline 判定阈值:连续 `heartbeat_interval × 4 ≈ 60s` 未收到 → offline 边界事件(M10 worker 在 progress.md 钉死实际数值)。
+- **理由**: `UserStreamRegistry` 已经是 user-keyed(M1 装好),不需要新机制;diff 放 receive 端最自然,不需要单独 scheduler;复用已有 `broadcast_to_users` 路径(同一个出口 → 一致的死连接清理与 fan-out 语义)。
+- **拒绝**: (a) 单独 scheduler 周期轮询所有 nodes 推 status——多一个常驻协程、状态权威源容易撕裂(scheduler vs receive 两个写点)。(b) 引入内部 event bus / pub-sub 抽象——本 unit 唯二订阅方(node.status / agent.status)+ 一处生产端,抽象无价值。(c) 把 producer 塞进 M2 event_bridge——bridge 是 kernel → IM 翻译,PA heartbeat 不是 kernel 事件,语义不一致。
+- **风险**: (1) heartbeat 失踪 → offline 判定依赖 timeout 任务,M10 必须实现 timeout 触发器(asyncio task 每 10s 扫一次 `nodes` 表,过期则 emit offline + broadcast);(2) 同一 owner 多连接(多 tab)→ 现有 `broadcast_to_users` 已 fan-out 处理;(3) seq 号给 node/agent 事件 — design §4 说"per conversation 或全局",node/agent 无 conversation,M10 用 owner-scoped 单调递增(从 `nodes.last_heartbeat_at` 派生或简单 monotonic 计数,worker 决定)。
+
 ## 接口与数据流
 
 ### 1. 新增 HTTP 端点(IM 服务)
@@ -248,7 +257,16 @@ type WsEvent =
 | `MESSAGE_UPDATE`(完成,含 TokenUsage) | 写 `messages.token_usage` + status=completed | `message.completed` |
 | `TOOL_CALL`(running) | 插入到 `messages.tool_calls` JSON 数组 | `tool_call.upserted` |
 | `TOOL_RESULT` | 更新 `messages.tool_calls` 对应项 status/output/duration_ms | `tool_call.completed` |
-| heartbeat scheduler | 更新 `node_status` 表 + `agent_profiles.status` | `node.status_changed` / `agent.status_changed` |
+
+PA gateway 上行帧 → IM 状态广播(M10 落地,见决策 11):
+
+| PA 上行 / IM 内部触发 | IM 持久化 | WS 广播(owner-scoped,经 `broadcast_to_user(owner_id, frame)`)|
+|---|---|---|
+| `node.register`(首次或重连) | `nodes` 行 upsert + status=online | `node.status_changed: online` |
+| `node.heartbeat`(状态变化:status 字段或 last_error 翻转) | `node_status` 表更新 | `node.status_changed`(仅状态翻转时,稳态不广播) |
+| `node.heartbeat`(`agent_count` 变化或 agent 维度 diff) | `agent_profiles.status` 更新 | `agent.status_changed`(diff) |
+| offline 守护任务(asyncio,扫 `nodes.last_heartbeat_at` 过期 60s) | `nodes.status=offline` | `node.status_changed: offline` |
+| WS 连接断开(`gateway_handler` finally 块) | `nodes.status=offline`(立即,不等 timeout) | `node.status_changed: offline` |
 
 ### 6. 前端数据流(浏览器内)
 
@@ -308,11 +326,12 @@ type WsEvent =
 | feat-340-M2 | backend-event-schema | — | A | `src/IM/domain/models.py`(Message.tool_calls/token_usage)、`src/IM/infra/db.py`(messages 表 2 列)、`src/IM/application/event_bridge.py`(新)、`src/IM/api/ws/event_types.py`(新)、`src/personal_assistant/gateway/inbound_pipeline.py`(转发 TOOL_CALL/TOOL_RESULT/TokenUsage) | 跑端到端测试:用户发消息 → kernel mock 出 MESSAGE_UPDATE 增量 + TOOL_CALL + TokenUsage → 浏览器 WS 收到 `message.delta` / `tool_call.upserted` / `message.completed`,DB messages 行写入 tool_calls/token_usage JSON |
 | feat-340-M3 | frontend-shell-i18n-auth | M1, M2 | B | `src/IM/frontend/src/styles/global.css`(token 重写)、`src/IM/frontend/src/i18n/{en,zh}.json` + i18next 配置、`src/IM/frontend/src/features/auth/`(登录/注册/refresh)、`src/IM/frontend/src/app/{shell, router, providers}.tsx`(暗顶栏 + 移动底栏 + UserMenu + 路由)、`src/IM/frontend/src/features/me/me-page.tsx`(新)、移除 hardcoded `owner-1001` / `resolveCurrentUserId` | 启动应用,看到登录页(EN/中 可切);登录后看到暗顶栏 + Chat/Agents/UserMenu;移动断点切到底栏 + Me 聚合;路由 `/login` `/register` `/me` 工作;无 hardcoded user;旧测试更新或重写 |
 | feat-340-M4 | frontend-chat-rewrite | M3 | C | `src/IM/frontend/src/features/chat/`(全部子文件:chat-overview / chat-detail / message-pane / conversation-list / 各组件)+ 4 类会话渲染 + Tool Calls 面板 + Token Chip + @mention picker + 新建群聊模态 + 分类标签 + 搜索 + 会话头部 chip/badge/⚙ + 流式 WS reducer | 端到端:可看到原型 4 种会话样式;发消息触发流式渲染(消息逐字 + tool_call running 动画 + 完成 token chip);群聊 @ 触发 picker 200ms 内出现;新建群聊真创建;桌面 + 移动两端像素级对齐原型 |
-| feat-340-M5 | frontend-agents-rewrite | M3 | C | `src/IM/frontend/src/features/settings/agents/`(全部:list / detail / create + Identity/Behavior/Access&Model/Workspace&Runtime 四卡 + dirty/Save/Discard + Open chat) | Agents 列表/详情/新建桌面+移动像素级对齐;字段全部真存盘;dirty 检测正确;Open chat 跳直聊 |
-| feat-340-M6 | frontend-nodes-rewrite | M3 | C | `src/IM/frontend/src/features/settings/nodes/` + 列表 + relay/reporting toggle + 节点视角列 agents/新建 agent + heartbeat 实时驱动 status | Nodes 页像素级对齐;toggle 真存盘;status 由 `node.status_changed` WS 实时反映 |
+| feat-340-M5 | frontend-agents-rewrite | M3 | C | `src/IM/frontend/src/features/settings/agents/`(全部:list / detail / create + Identity/Behavior/Access&Model/Workspace&Runtime 四卡 + dirty/Save/Discard + Open chat) | Agents 列表/详情/新建桌面+移动像素级对齐;字段全部真存盘;dirty 检测正确;Open chat 跳直聊;status pill 由 `agent.status_changed` WS 实时反映(M10 完成后端,M5 消费即可) |
+| feat-340-M6 | frontend-nodes-rewrite | M3, M10 | C | `src/IM/frontend/src/features/settings/nodes/` + 列表 + relay/reporting toggle + 节点视角列 agents/新建 agent + heartbeat 实时驱动 status | Nodes 页像素级对齐;toggle 真存盘;status 由 `node.status_changed` WS 实时反映 |
 | feat-340-M7 | frontend-account-rewrite | M3 | C | `src/IM/frontend/src/features/settings/account/` + Account 页字段表单 + locale 切换 + 通知开关 | Account 页像素级对齐;display_name/default_entry_node/locale/通知开关全部真存盘 |
 | feat-340-M8 | feature-attachments | M4 | D | `src/IM/frontend/src/features/chat/attachments/`(上传 hook + chip 组件 + drag&drop)、`src/IM/api/routes/uploads.py`(白名单 + size 校验加固)、Message.attachments 渲染 | 桌面拖入图片/PDF → chip 出现 → 发送 → agent 气泡显示附件 + tool 能读到附件路径;白名单/大小限制起效 |
 | feat-340-M9 | feature-notifications | M3, M4 | D | `src/IM/frontend/src/features/notifications/`(Notification API 封装 + Account/Me toggle + permission flow + visibility 判断 + 点击聚焦) | 标签未激活时 agent 完成回复 → 系统通知弹出;点击 → 窗口聚焦 + 跳到对应会话;toggle 关闭后不再弹 |
+| feat-340-M10 | backend-status-broadcast | M1, M2 | A | `src/IM/ws/user_stream.py` 新增 `broadcast_to_user(user_id, frame)` + node/agent 事件 builder(在 `src/IM/api/ws/event_types.py` 补 `build_node_status_changed` / `build_agent_status_changed`)、`src/IM/ws/gateway_handler.py` `_handle_register` / `_handle_heartbeat` / WS disconnect finally 块插入状态 diff + emit、新增 asyncio offline 守护任务(每 10s 扫 `nodes.last_heartbeat_at` 过期 60s)、跨租户隔离单测(owner A 不收 owner B 节点事件)+ 端到端集成测试(PA gateway 起 → IM 收 register → 浏览器 owner WS 收 online;PA 断 → 收 offline) | PA gateway 起一个 node 发 register/heartbeat → 浏览器 owner WS 收到 `node.status_changed: online`;PA 断开或心跳超时 → 收到 `node.status_changed: offline`;agent 维度 status 翻转 → 收到 `agent.status_changed`;owner A WS 收不到 owner B 的事件;单测覆盖 diff 不变不广播、跨租户隔离 |
 
 依赖图:
 
@@ -320,9 +339,12 @@ type WsEvent =
 graph LR
   M1[M1: backend-auth-multiuser] --> M3[M3: frontend-shell-i18n-auth]
   M2[M2: backend-event-schema] --> M3
+  M1 --> M10[M10: backend-status-broadcast]
+  M2 --> M10
   M3 --> M4[M4: chat-rewrite]
   M3 --> M5[M5: agents-rewrite]
   M3 --> M6[M6: nodes-rewrite]
+  M10 --> M6
   M3 --> M7[M7: account-rewrite]
   M4 --> M8[M8: attachments]
   M3 --> M9[M9: notifications]
@@ -330,9 +352,9 @@ graph LR
 ```
 
 并行编排:
-- **并行组 A**:M1 + M2(纯后端,改动文件完全不交集)
+- **并行组 A**:M1 + M2 + M10(纯后端,改动文件完全不交集;M10 需 M1+M2 合并后才启动,故实际是 A 内的第二波)
 - **并行组 B**:M3(只有一个,因为它是壳)
-- **并行组 C**:M4 + M5 + M6 + M7(四页前端重写,文件完全不交集 — chat/ vs settings/agents/ vs settings/nodes/ vs settings/account/)
+- **并行组 C**:M4 + M5 + M6 + M7(四页前端重写,文件完全不交集 — chat/ vs settings/agents/ vs settings/nodes/ vs settings/account/;M6 额外依赖 M10 后端 producer,需等 M10 完才能验"WS 实时反映";M5 消费 agent.status_changed 也需 M10,但 M5 主体 UI/字段保存不依赖,可与 M10 并行,只在收尾消费事件)
 - **并行组 D**:M8 + M9(M8 改 chat 输入框扩展、M9 加新 features/ 目录,M9 还需读 M4 的消息事件 hook 名做 reducer 订阅,实际多半串行但勉强可并行)
 
 ## 风险与回退
@@ -373,11 +395,8 @@ graph LR
 - **缓解**:`OwnerScopedRepository` 基类强制把过滤封装在底层,业务代码拿到的 repo 实例本身就绑定 owner_id,**无法**写出跨 owner 查询(API 层不提供绕过);WS 分发器按 owner_id 路由,绝不全员广播;跨租户隔离单元测试覆盖每一种资源(用户 A 用 token A 访问 owner_id=B 的资源应返回 404)。
 - **回退**:若发现实现期某条路径绕过 OwnerScopedRepository(例如直接拼 SQL),CI 用 grep 规则禁止 `SELECT ... FROM (messages|agent_profiles|conversations|nodes|conversation_participants)` 出现在 repository 基类以外的位置。
 
+### 风险 7:M10 状态广播 producer 复杂度被低估(新)
 
-## Milestones
-
-<!-- 待对齐 -->
-
-## 风险与回退
-
-<!-- 待对齐 -->
+- **描述**:owner-scoped 旁路看似只补一个广播函数,但实际牵涉(a) heartbeat receive 端状态 diff、(b) offline timeout 守护任务、(c) WS 连接断开 finally 块、(d) agent 维度 status 派生(agent_profiles.status 字段语义在现有代码里不明确)。任一点漏了,reviewer 验"online↔offline 实时反映"会 fail。
+- **缓解**:M10 worker 启动时先 explore `record_heartbeat` 返回值 + `gateway_handler._handle_register/_handle_heartbeat` + finally 路径,写一份 5 行 diagram 钉死 4 个触发点和数据流后再动手;agent.status 派生策略若 explore 发现不可行,在 progress.md 钉死"folding into node.status"做最小决策。
+- **回退**:若 owner-scoped 旁路实施期发现现有 `UserStreamRegistry.broadcast_to_users` 行为有意外副作用,新增 producer 暂用 `broadcast_to_users({owner_id}, frame)` 直接调既有路径(不引新函数),不破坏既有 conversation-scoped 流量。
