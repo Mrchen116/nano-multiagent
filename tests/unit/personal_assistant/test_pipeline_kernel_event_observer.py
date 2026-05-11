@@ -114,6 +114,7 @@ def test_kernel_event_observer_receives_each_run_event_in_order(tmp_path: Path) 
         text="hello",
         external_user_id="user-1",
         external_chat_id="chat-1",
+        is_group=False,
     )
 
     asyncio.run(pipeline.handle_inbound(message))

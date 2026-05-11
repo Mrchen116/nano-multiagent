@@ -166,10 +166,22 @@ def test_full_kernel_stream_persists_and_broadcasts(tmp_path: Path) -> None:
     assert completed_payload["content"] == "Let me check the file. Reading... Done."
 
     # 6. /sync replay backed by conversation_events sees the right rows for this conversation.
+    # MessageRepository.create_message emits its own ``message.sent`` event when the placeholder
+    # row is inserted; the bridge then layers M2's event types on top. The browser ignores
+    # ``message.sent`` and relies on ``message.created`` for the new-bubble signal, so we
+    # assert only the M2 events here in lifecycle order.
     rows = connection.execute(
         "SELECT event_type FROM conversation_events WHERE conversation_id = ? ORDER BY event_id",
         (conv.id,),
     ).fetchall()
     persisted_types = [r["event_type"] for r in rows]
-    assert persisted_types[0] == EVENT_MESSAGE_CREATED
-    assert persisted_types[-1] == EVENT_MESSAGE_COMPLETED
+    m2_event_types = {
+        EVENT_MESSAGE_CREATED,
+        EVENT_MESSAGE_DELTA,
+        EVENT_MESSAGE_COMPLETED,
+        EVENT_TOOL_CALL_UPSERTED,
+        EVENT_TOOL_CALL_COMPLETED,
+    }
+    m2_persisted = [t for t in persisted_types if t in m2_event_types]
+    assert m2_persisted[0] == EVENT_MESSAGE_CREATED
+    assert m2_persisted[-1] == EVENT_MESSAGE_COMPLETED

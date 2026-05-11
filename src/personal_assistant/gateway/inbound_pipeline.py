@@ -104,6 +104,7 @@ class InboundPipeline:
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         group_context_store: GroupContextStore | None = None,
         gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
+        kernel_event_observer: Callable[[Mapping[str, Any]], None] | None = None,
     ) -> None:
         self._kernel_client = kernel_client
         self._agents = {agent.agent_id: agent for agent in agents}
@@ -117,6 +118,9 @@ class InboundPipeline:
         self._gateway_internal_port = gateway_internal_port
         self._active_runs: dict[str, str] = {}
         self._active_runs_lock = asyncio.Lock()
+        # feat-340-M2: bootstrap wires this to an IM event_bridge consumer so the browser
+        # sees live tool_call / token_usage events; default None keeps pipeline product-agnostic.
+        self._kernel_event_observer = kernel_event_observer
 
     async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
         """Process one inbound message through route, session, queue, and reply steps.
@@ -551,6 +555,10 @@ class InboundPipeline:
                     if asyncio.iscoroutine(result):
                         await result
                 continue
+            if self._kernel_event_observer is not None:
+                # Bridge consumer raises if it cannot translate — let it propagate so we don't
+                # silently swallow malformed kernel events.
+                self._kernel_event_observer(event)
             event_name = event.get("event")
             if event_name == "assistant_message":
                 content = event.get("content")
