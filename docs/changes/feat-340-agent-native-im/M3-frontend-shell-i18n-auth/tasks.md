@@ -50,7 +50,7 @@
 - 写 `features/auth/require-auth.tsx`:guard 组件,未登录 → `<Navigate to="/login" replace />`
 - 改 `app/router.tsx`:增 `/login` `/register` 公开路由 + 其余路由包 `<RequireAuth>`
 - 测试:`auth-gate.test.tsx` 验证未登录访问 `/chat` 跳 `/login`;`login-page.test.tsx` 验证表单提交、loading、错误状态、成功跳转
-- 状态:TODO
+- 状态:DONE
 
 ### R4 — Design token 重写 + AppShell(顶栏/底栏/UserMenu)
 
