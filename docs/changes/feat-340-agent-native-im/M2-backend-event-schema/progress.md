@@ -14,3 +14,17 @@
 - Rollback: revert C2 commit `5e090da`(列可滞留,domain 类型不被使用即可)。
 - Commits: C1=3781e2b, C2=5e090da, C3=(this)
 - Next: R2 WS event_types module。
+
+## R2 — WS event_types module
+
+- Context: design §4 列了 7 个 IM→Browser WS 事件名 (`message.created/delta/completed`, `tool_call.upserted/completed`, `node.status_changed`, `agent.status_changed`)。需要在一处把名字 + payload 形状定型,producer (event_bridge) 和 consumer (前端 M3+) 才不会漂移。
+- Decision: 单文件 `src/IM/api/ws/event_types.py`,导出常量字符串 + `build_*_payload(...)` builder。tool_call 序列化复用 `IM.infra.repositories._tool_call_to_dict` 的形状,前端一套 parser 同时处理 replay JSON 列和 live WS 帧。
+- Rationale:
+  - 不引入新 enum/typeddict 框架,常量 + dict 就够(测试断言 dict 形态,前端 TS 自定义类型即可)。
+  - builder 函数显式 keyword-only,避免位置参数顺序错误。
+  - `tool_call.upserted` payload 在 running 状态省略 `duration_ms` / `output`,前端可直接判断字段缺失=未完成,无需 sentinel。
+- Evidence:
+  - Tests: 65 passed(58 → 65,新增 7 个 builder/常量测试)。
+- Rollback: 删 `src/IM/api/ws/` 目录;event_bridge 尚未引用。
+- Commits: C1=c9376b9, C2=(latest), C3=(this)
+- Next: R3 event_bridge 实现。
