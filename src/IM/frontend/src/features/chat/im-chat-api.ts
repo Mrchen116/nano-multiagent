@@ -859,6 +859,19 @@ async function ensureUser(username: string, displayName: string): Promise<ImUser
 }
 
 async function ensureSelfUser() {
+  // feat-340-M3: prefer the authenticated user from the auth store; fall back to the
+  // legacy "you" lookup only when no session is present (e.g. unauthenticated tests).
+  // M4 will fully migrate bootstrap onto the auth store and remove the fallback.
+  const { useAuthStore } = await import("../auth/auth-store");
+  const session = useAuthStore.getState().user;
+  if (session) {
+    return {
+      id: session.id,
+      username: session.username,
+      display_name: session.display_name,
+      owner_id: session.owner_id
+    } as ImUser;
+  }
   return ensureUser(SELF_USERNAME, "You");
 }
 
@@ -1002,7 +1015,7 @@ function findStarterConversation(input: {
 async function ensureBootstrap(): Promise<BootstrapState> {
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
-      const [self, agents, nodes] = await Promise.all([ensureUser(SELF_USERNAME, "You"), listAgentsRaw(), listNodesRaw()]);
+      const [self, agents, nodes] = await Promise.all([ensureSelfUser(), listAgentsRaw(), listNodesRaw()]);
       const starterAgent = pickStarterAgent(agents);
       const starterPeer = await ensureUser(
         buildStarterPeerUsername(starterAgent.agent_id),
