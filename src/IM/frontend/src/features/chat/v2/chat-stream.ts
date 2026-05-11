@@ -53,9 +53,23 @@ export function openChatStream(opts: ChatStreamOptions): ChatStreamHandle {
       return;
     }
     if (!parsed || typeof parsed !== "object") return;
-    const type = (parsed as { type?: unknown }).type;
-    if (typeof type !== "string" || !KNOWN_TYPES.has(type)) return;
-    opts.onEvent(parsed as WsEvent);
+    const envelope = parsed as Record<string, unknown>;
+
+    // IM user-stream frames use {op:"event", event_type:..., data:{...}} envelope.
+    // Reconstruct a flat WsEvent by merging data fields with the event_type as `type`.
+    const eventType = envelope.event_type;
+    if (typeof eventType === "string" && KNOWN_TYPES.has(eventType)) {
+      const data = (typeof envelope.data === "object" && envelope.data !== null)
+        ? (envelope.data as Record<string, unknown>)
+        : {};
+      opts.onEvent({ ...data, type: eventType } as WsEvent);
+      return;
+    }
+    // Fallback: some frames may already carry a flat `type` field (e.g. direct pushes).
+    const type = envelope.type;
+    if (typeof type === "string" && KNOWN_TYPES.has(type)) {
+      opts.onEvent(envelope as unknown as WsEvent);
+    }
   };
   ws.onerror = () => opts.onError?.(new Error("chat stream socket error"));
 
