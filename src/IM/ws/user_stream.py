@@ -148,6 +148,15 @@ class UserStreamRegistry:
             if not sockets:
                 del self._by_user[user_id]
 
+    async def broadcast_to_user(self, user_id: str, text: str) -> None:
+        """Send one text frame to all connections owned by ``user_id``.
+
+        Convenience wrapper around ``broadcast_to_users`` for the single-owner case
+        used by node/agent status events (feat-340-M10 决策 11). Reusing the
+        multi-user path keeps dead-connection pruning and fan-out semantics consistent.
+        """
+        await self.broadcast_to_users((user_id,), text)
+
     async def broadcast_to_users(self, user_ids: Iterable[str], text: str) -> None:
         """向给定用户下的所有连接发送同一文本帧（忽略已断开）。"""
         id_set = frozenset(user_ids)

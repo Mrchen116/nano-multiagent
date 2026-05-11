@@ -138,3 +138,38 @@ def build_tool_call_completed_payload(
         "message_id": message_id,
         "tool_call": tool_call_to_dict(tool_call),
     }
+
+
+def build_node_status_changed_payload(
+    *,
+    seq: int,
+    node_id: str,
+    status: str,
+    last_heartbeat_at: str | None,
+    last_error: str | None,
+) -> dict[str, Any]:
+    """Build payload for the ``node.status_changed`` event (feat-340 §4).
+
+    Emitted by ``GatewayHandler`` on register / heartbeat status flip / disconnect
+    / offline-timeout. ``seq`` is owner-scoped monotonic — frontend uses it to
+    detect gaps. ``last_error`` is None when status is online or no error context.
+    """
+    return {
+        "seq": seq,
+        "node_id": node_id,
+        "status": status,
+        "last_heartbeat_at": last_heartbeat_at,
+        "last_error": last_error,
+    }
+
+
+def build_agent_status_changed_payload(
+    *, seq: int, agent_id: str, status: str
+) -> dict[str, Any]:
+    """Build payload for the ``agent.status_changed`` event.
+
+    Per feat-340 决策 11: agent status folds onto the hosting node.status — when
+    the node flips, all agents advertised by that node emit a status change with
+    the same value. ``seq`` shares the owner-scoped counter with node events.
+    """
+    return {"seq": seq, "agent_id": agent_id, "status": status}
