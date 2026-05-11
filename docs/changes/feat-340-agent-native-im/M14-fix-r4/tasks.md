@@ -25,8 +25,8 @@
 
 | ID | 标题 | 状态 |
 |----|------|------|
-| R1 | gateway 端 kernel_event_observer → node.streaming_delta 发送 | TODO |
-| R2 | IM gateway_handler 处理 node.streaming_delta → EventBridge → WS 推送 | TODO |
-| R3 | relay.report 补 token_usage + message.completed 双侧携带 | TODO |
+| R1 | gateway 端 kernel_event_observer → node.streaming_delta 发送 | DONE |
+| R2 | IM gateway_handler 处理 node.streaming_delta → EventBridge → WS 推送 | DONE |
+| R3 | relay.report 补 token_usage + message.completed 双侧携带 | DONE |
 | R4 | 前端验证：bubble 逐字 + Token Chip 渲染 | TODO |
 | R5 | 端到端真跑验证 | TODO |
