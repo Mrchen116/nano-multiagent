@@ -43,6 +43,13 @@ describe("App shell", () => {
   });
 
   it("mounts AgentCompletionNotifier so it can fire desktop notifications even off the chat route", () => {
+    const fake = vi.fn(() => ({ onclick: null, close: vi.fn() })) as unknown as typeof Notification & {
+      permission: NotificationPermission;
+      requestPermission: () => Promise<NotificationPermission>;
+    };
+    fake.permission = "granted";
+    fake.requestPermission = vi.fn(async (): Promise<NotificationPermission> => "granted");
+    (globalThis as unknown as { Notification: unknown }).Notification = fake;
     const spy = vi.spyOn(streamModule, "openChatStream").mockImplementation(() => ({ close: () => {} }));
     render(
       <AppProviders>
@@ -53,6 +60,7 @@ describe("App shell", () => {
     );
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+    delete (globalThis as unknown as { Notification?: unknown }).Notification;
   });
 
   it("renders a banner and a main region so the shell wraps routed content", () => {

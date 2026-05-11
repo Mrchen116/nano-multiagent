@@ -47,11 +47,16 @@
       "account": "Account",
       "nodes": "Nodes",
       "language": "Language",
+      "notifications": "Notifications",
       "signOut": "Sign out"
     },
     "language": {
       "en": "English",
       "zh": "中文"
+    },
+    "notifications": {
+      "toggle": "Enable desktop notifications",
+      "hint": "Show a system banner when an agent reply arrives while this tab is in the background."
     }
   },
   "common": {
