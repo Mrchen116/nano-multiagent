@@ -14,7 +14,7 @@
 
 第二段(立项 5 个 skill):
 
-> Project Lead Orchestrator、TDD Execution Worker、product-acceptance-reviewer 是之前设计的 skills。当时,没有考虑 spec,没有意识到需要人和 agent 共同明确 design。以及之前的文档体系和现在有差异,我想做一轮重构。不过当时识别到了一些问题,做了很多经验,在 skill 中有体现,比如小需求被分了多个 milestone,导致主要在写文档等等。现在要根据现有的我们的讨论重新设计。首先明确下,我觉得我们这里需要 4-5 个 skill,在生成 spec 和 design 阶段需要 1-2 个 skill,我没想好是否应该拆开两个还是合并成一个。先捋一遍流程,我以新 feature 为例,人和 agent 先明确 spec,明确 design,拆分好了 milestone 以及他们之间的依赖关系,然后进入到全 agent,无人参与的实现工作,Project Lead Orchestrator 接收整个 feature 任务,根据 milestone 依赖关系,并行/串行安排 TDD Execution Worker 在 worktree 实现 milestone。最终,Project Lead Orchestrator 再安排 product-acceptance-reviewer 做端到端使用,并给出明确的 feature 完成独立审查意见。如果有问题,Project Lead Orchestrator 安排继续解决。(大部分情况下会有问题,可能是实现没对,可能是设计漏导致实现不对,或者有优化改进问题)。直到最终 product-acceptance-reviewer 通过。
+> Project Lead Orchestrator、TDD Execution Worker、change-reviewer 是之前设计的 skills。当时,没有考虑 spec,没有意识到需要人和 agent 共同明确 design。以及之前的文档体系和现在有差异,我想做一轮重构。不过当时识别到了一些问题,做了很多经验,在 skill 中有体现,比如小需求被分了多个 milestone,导致主要在写文档等等。现在要根据现有的我们的讨论重新设计。首先明确下,我觉得我们这里需要 4-5 个 skill,在生成 spec 和 design 阶段需要 1-2 个 skill,我没想好是否应该拆开两个还是合并成一个。先捋一遍流程,我以新 feature 为例,人和 agent 先明确 spec,明确 design,拆分好了 milestone 以及他们之间的依赖关系,然后进入到全 agent,无人参与的实现工作,Project Lead Orchestrator 接收整个 feature 任务,根据 milestone 依赖关系,并行/串行安排 TDD Execution Worker 在 worktree 实现 milestone。最终,Project Lead Orchestrator 再安排 change-reviewer 做端到端使用,并给出明确的 feature 完成独立审查意见。如果有问题,Project Lead Orchestrator 安排继续解决。(大部分情况下会有问题,可能是实现没对,可能是设计漏导致实现不对,或者有优化改进问题)。直到最终 change-reviewer 通过。
 
 ## 澄清记录(产品/用户视角)
 
@@ -80,7 +80,7 @@ A. 立项                          B. 设计                          C. 实施
 
 **在范围**:
 
-- 5 个 skill(`change-spec-author`, `change-design-author`, `tdd-execution-worker`, `product-acceptance-reviewer`, `change-orchestrator`)+ 各自 assets 模板
+- 5 个 skill(`change-spec-author`, `change-design-author`, `change-impl-worker`, `change-reviewer`, `change-orchestrator`)+ 各自 assets 模板
 - `docs/changes/readme.md` 配套规范(已存在,本 unit 复用)
 - 命名 / 路径 / 派发包字段约定
 

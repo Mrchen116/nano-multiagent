@@ -221,7 +221,7 @@ graph LR
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-341-M1 | skill-suite-impl | — | A | `.claude/skills/{change-spec-author,change-design-author,tdd-execution-worker,product-acceptance-reviewer,change-orchestrator}/`、`docs/changes/readme.md`、各 skill `assets/` 模板 | 5 个 skill 文件 + 模板就位、工作流端到端贯通无明显不自洽、用户能至少在一个真实 unit 上启动 spec-author(本 unit 自己就是首个) |
+| feat-341-M1 | skill-suite-impl | — | A | `.claude/skills/{change-spec-author,change-design-author,change-impl-worker,change-reviewer,change-orchestrator}/`、`docs/changes/readme.md`、各 skill `assets/` 模板 | 5 个 skill 文件 + 模板就位、工作流端到端贯通无明显不自洽、用户能至少在一个真实 unit 上启动 spec-author(本 unit 自己就是首个) |
 
 **追溯说明**:本 milestone 在 spec/design 写下来之前已实施完毕(skill 文件、模板、整体自检节都已落 main)。Changelog 段记录了实施期发现并修复的不一致。
 

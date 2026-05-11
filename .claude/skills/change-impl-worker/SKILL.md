@@ -1,6 +1,6 @@
 ---
-name: tdd-execution-worker
-description: 用于作为 subagent 在独立 worktree 内执行单个 milestone 的编码实现。触发条件:被 `change-orchestrator` 派发一个含 unit_id / milestone_id / worktree_dir / branch 的派发包,需要在 worktree 中完成 TDD 三提交循环(C1 测试 / C2 实现 / C3 文档)并合并到 unit 集成分支。不要用于:调度多个 milestone(那是 orchestrator)、写架构方案(那是 change-design-author)、产品验收(那是 product-acceptance-reviewer)、不需要 TDD 流程的简单文档/配置修改。
+name: change-impl-worker
+description: 用于作为 subagent 在独立 worktree 内执行单个 milestone 的编码实现。触发条件:被 `change-orchestrator` 派发一个含 unit_id / milestone_id / worktree_dir / branch 的派发包,需要在 worktree 中完成 TDD 三提交循环(C1 测试 / C2 实现 / C3 文档)并合并到 unit 集成分支。不要用于:调度多个 milestone(那是 orchestrator)、写架构方案(那是 change-design-author)、产品验收(那是 change-reviewer)、不需要 TDD 流程的简单文档/配置修改。
 ---
 
 # TDD Execution Worker

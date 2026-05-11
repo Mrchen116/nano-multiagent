@@ -46,8 +46,8 @@
 |---|---|---|
 | `spec.md` / `incident.md` / `motivation.md` / `fix.md` | `change-spec-author` | `.claude/skills/change-spec-author/assets/` |
 | `design.md` | `change-design-author` | `.claude/skills/change-design-author/assets/` |
-| `tasks.md` / `progress.md` | `tdd-execution-worker` | `.claude/skills/tdd-execution-worker/assets/` |
-| `acceptance.md` / `regression.md` | `product-acceptance-reviewer` | `.claude/skills/product-acceptance-reviewer/assets/` |
+| `tasks.md` / `progress.md` | `change-impl-worker` | `.claude/skills/change-impl-worker/assets/` |
+| `acceptance.md` / `regression.md` | `change-reviewer` | `.claude/skills/change-reviewer/assets/` |
 
 ---
 
@@ -93,7 +93,7 @@ agent 应该把澄清问题一轮一轮抛给用户，每轮记录 Q/A 到首文
 
 ### 阶段 3：实施（Apply）
 
-由 `tdd-execution-worker` 在 worktree 里跑 TDD 三提交循环（C1 测试 / C2 实现 / C3 文档）。每完成一个 roadpoint 实时更新 `progress.md`。
+由 `change-impl-worker` 在 worktree 里跑 TDD 三提交循环（C1 测试 / C2 实现 / C3 文档）。每完成一个 roadpoint 实时更新 `progress.md`。
 
 **硬约束：实现期发现 design 偏差，立即暂停。**
 
@@ -115,7 +115,7 @@ worker 不许悄悄绕过设计；必须：
 
 ### 阶段 4：验收 / 归档
 
-由 `product-acceptance-reviewer`（独立视角，不能是写代码的同一 agent）写 `acceptance.md` / `regression.md`。验收必须包含**上层文档同步检查**：本 unit 是否需要更新 `SPEC.md` / `内核设计SPEC.md` / `AGENTS.md` / 各产品 SPEC？需要就在验收报告里列出并改掉。
+由 `change-reviewer`（独立视角，不能是写代码的同一 agent）写 `acceptance.md` / `regression.md`。验收必须包含**上层文档同步检查**：本 unit 是否需要更新 `SPEC.md` / `内核设计SPEC.md` / `AGENTS.md` / 各产品 SPEC？需要就在验收报告里列出并改掉。
 
 ---
 
@@ -125,8 +125,8 @@ worker 不许悄悄绕过设计；必须：
 |---|---|---|---|
 | 探索 / spec / design | 人 + 主 agent（可调研子 agent） | `spec.md`, `design.md`, `motivation.md`, `incident.md` | 写产品代码、派 worker |
 | 派单 | `change-orchestrator` | milestone 派发包 | 自己写代码 |
-| 实施 | `tdd-execution-worker`（每 milestone 一个 worktree，可并行） | `progress.md` + 代码 + 测试 | 越界改 design（必须走暂停流程） |
-| 验收 | `product-acceptance-reviewer`（独立视角） | `acceptance.md` / `regression.md` + 上层文档同步 | 与实施 agent 是同一个 |
+| 实施 | `change-impl-worker`（每 milestone 一个 worktree，可并行） | `progress.md` + 代码 + 测试 | 越界改 design（必须走暂停流程） |
+| 验收 | `change-reviewer`（独立视角） | `acceptance.md` / `regression.md` + 上层文档同步 | 与实施 agent 是同一个 |
 
 关键原则：**写代码的 agent 不做验收**。验收角色独立才能给出真实判断。这一条比任何模板格式都重要。
 

@@ -185,7 +185,7 @@ def main_loop(unit_id):
 prompt 含完整派发包:
 
 ```
-请使用 skill: tdd-execution-worker
+请使用 skill: change-impl-worker
 
 派发包:
   unit_id: <unit_id>
@@ -273,7 +273,7 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
 所有实现型 milestone 都 DONE 后,派 reviewer:
 
 ```
-请使用 skill: product-acceptance-reviewer
+请使用 skill: change-reviewer
 
 派发包:
   unit_id: <unit_id>

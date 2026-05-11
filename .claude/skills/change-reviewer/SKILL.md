@@ -1,5 +1,5 @@
 ---
-name: product-acceptance-reviewer
+name: change-reviewer
 description: 用于从产品视角独立验收一个 unit 的所有 milestone 完成后是否对用户真正可用。触发条件:被 `change-orchestrator` 在 unit 全部 milestone 合到 unit 集成分支后派发;或用户要求"验收 / 审视 / 体验一下这个功能 / 帮我看看 X 能不能用"。读 spec/design/runbook + 真实走用户旅程,产出 `acceptance.md`(feat/refactor/perf)或 `regression.md`(bugfix full),含 verdict、问题清单、Recommended Action 路由建议。out-of-unit 严重问题立即 `gh issue create`。不要用于:编码实现(那是 worker)、代码审查、调度多个 milestone(那是 orchestrator)。
 ---
 
