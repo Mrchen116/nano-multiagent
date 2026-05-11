@@ -65,9 +65,9 @@
 
 ### R5 — chat-workspace-page 重写(组合 + 路由 + 移动响应式)
 
-- 步骤: 重写 `chat-workspace-page.tsx`(react-query 拉 conversations / messages + WS 订阅 + reducer 应用 + 桌面双栏 / 移动堆叠切换 by `useIsMobile`)、清理 `chat-overview-page` / `chat-detail-page` / `chat-layout.test` 旧文件
-- 验证: integration test 端到端模拟"登录 → 打开 chat → 选择会话 → 收到流式增量"
-- 状态: TODO
+- 步骤: 新建 `v2/chat-workspace-page.tsx`(react-query 拉 conversations / messages + WS 订阅 + reducer 应用 + 桌面双栏 / 移动堆叠切换 by `useIsMobile`),router.tsx 切到 v2,清理 `chat-layout.test` / `chat-routes.test` / router.test 旧 case
+- 验证: integration test 端到端模拟"打开 /chat/c1 → 看到列表+历史 → WS 推 created/delta/completed → 看到最终内容 → Send 后 composer 清空"
+- 状态: DONE
 
 ### R6 — 切断 legacy /im/v1/users + 删 WorkspaceTabs orphan
 
