@@ -38,5 +38,19 @@ streaming delta 由 gateway 在收到 `assistant_message` 时推全文作为单�
   - personal_assistant 单元测试 15 个通过
 - Rollback: C1 commit `86592d08`
 - Commits: C1=86592d08, C2=69c1ab3b, C3=TBD
-- Next: R4 前端验证 + R5 端到端真跑
+- Next: R5 端到端真跑验证
+
+---
+
+### R4 — 前端 WS 事件解析修复
+
+- Context: chat-stream.ts 检查 `parsed.type` 但 IM WS 帧格式为 `{op:"event", event_type:..., data:{...}}`，`type` 字段在顶层 envelope 中不存在 → 前端静默丢弃所有 streaming 事件
+- Decision: 改读 `envelope.event_type`，将 `data` 字段展开合并为扁平 WsEvent；保留对直接推送帧（携带顶层 `type`）的回退处理
+- Rationale: 最小改动；不改 WsEvent 类型定义，只修解包逻辑；fallback 确保向后兼容
+- Evidence:
+  - `npm run build`（tsc + vite）无 error，仅一个动态/静态混合导入 warning（pre-existing）
+  - `npm run test`（vitest）: 52 test files，238 tests 全通
+  - 后端单元测试 251 passed，无回归（5 失败均 pre-existing SOCKS proxy 环境问题）
+- Rollback: revert commit `1a7bd2b2`
+- Commits: C2=1a7bd2b2, C3=TBD
 
