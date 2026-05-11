@@ -46,7 +46,7 @@ dirty 检测正确驱动 Save/Discard;详情顶部 Open chat ↗ 跳直聊。
   4. 列表展示在线状态点(需结合 nodes 列表)
 - 验证:列表展示桌面 / 移动两布局,点击进入详情链接生效
 
-### R2 — detail page four-card rewrite
+### R2 — detail page four-card rewrite — DONE
 
 - 步骤:
   1. 重写 `agent-detail-page.tsx`:四卡(Identity / Behavior / Access&Model / Workspace&Runtime)
