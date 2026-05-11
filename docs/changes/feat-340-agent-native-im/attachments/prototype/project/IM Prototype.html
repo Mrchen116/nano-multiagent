@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Nano IM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="im-data.js?v=2"></script>
+<script src="im-i18n.js?v=1"></script>
+<script src="https://unpkg.com/marked@9.1.6/marked.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body, #root { height: 100%; overflow: hidden; }
+  body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: oklch(0.22 0.012 240);
+    color: oklch(0.14 0.01 240);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: oklch(0.30 0.01 240); border-radius: 99px; }
+  @keyframes im-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  @keyframes im-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
+  /* ── Markdown rendered inside agent bubbles ── */
+  .im-md { line-height: 1.65; font-size: 13.5px; color: inherit; }
+  .im-md p { margin: 0 0 8px; }
+  .im-md p:last-child { margin-bottom: 0; }
+  .im-md strong { font-weight: 700; }
+  .im-md em { font-style: italic; }
+  .im-md h1, .im-md h2, .im-md h3 { font-weight: 700; margin: 12px 0 5px; line-height: 1.3; color: oklch(0.18 0.01 240); }
+  .im-md h1 { font-size: 16px; } .im-md h2 { font-size: 14.5px; } .im-md h3 { font-size: 13.5px; }
+  .im-md ul, .im-md ol { padding-left: 20px; margin: 4px 0 8px; }
+  .im-md li { margin-bottom: 3px; }
+  .im-md code {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    background: oklch(0.86 0.008 240); color: oklch(0.25 0.01 240);
+    padding: 1px 5px; border-radius: 4px;
+  }
+  .im-md pre {
+    background: oklch(0.14 0.014 240); border-radius: 8px;
+    padding: 10px 13px; margin: 8px 0; overflow-x: auto;
+    border: 1px solid oklch(0.22 0.015 240);
+  }
+  .im-md pre code {
+    background: none; color: oklch(0.82 0.04 180); font-size: 12px;
+    padding: 0; border-radius: 0;
+  }
+  .im-md blockquote {
+    border-left: 3px solid oklch(0.75 0.10 180); padding-left: 10px;
+    margin: 6px 0; color: oklch(0.45 0.01 240); font-style: italic;
+  }
+  .im-md hr { border: none; border-top: 1px solid oklch(0.85 0.006 240); margin: 10px 0; }
+  .im-md a { color: oklch(0.45 0.14 180); text-decoration: underline; }
+  .im-md table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12.5px; }
+  .im-md th, .im-md td { border: 1px solid oklch(0.85 0.006 240); padding: 5px 9px; text-align: left; }
+  .im-md th { background: oklch(0.93 0.006 240); font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="im-components.jsx"></script>
+<script type="text/babel" src="im-chat-page.jsx"></script>
+<script type="text/babel" src="im-settings-page.jsx"></script>
+<script type="text/babel" src="im-extra-pages.jsx"></script>
+<script type="text/babel" src="im-mypage.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+
+<script type="text/babel">
+
+
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "accentColor": "oklch(0.52 0.14 180)",
+  "sidebarDark": true,
+  "compactMessages": false,
+  "showAvatars": true
+} /*EDITMODE-END*/;
+
+function useIsMobile() {
+  const [mobile, setMobile] = React.useState(() => window.innerWidth < 768);
+  React.useEffect(() => {
+    const h = () => setMobile(window.innerWidth < 768);
+    window.addEventListener('resize', h);
+    return () => window.removeEventListener('resize', h);
+  }, []);
+  return mobile;
+}
+
+function MobileTabBar({ page, setPage, unread }) {
+  // "me" tab is the root; sub-pages (account, nodes) keep the Me tab highlighted.
+  const meActive = page === "me" || page === "account" || page === "nodes";
+  const tabs = [
+  { key: "chat", icon: "💬", label: t("Chat"), badge: unread, isActive: page === "chat" },
+  { key: "settings", icon: "🤖", label: t("Agents"), badge: 0, isActive: page === "settings" },
+  { key: "me", icon: "👤", label: t("Me"), badge: 0, isActive: meActive }];
+
+  return (
+    <div style={{
+      display: "flex", background: "oklch(0.19 0.012 240)",
+      borderTop: "1px solid oklch(0.26 0.010 240)",
+      paddingBottom: "env(safe-area-inset-bottom, 0px)", flexShrink: 0
+    }}>
+      {tabs.map((tab) => {
+        const active = tab.isActive;
+        return (
+          <button key={tab.key} onClick={() => setPage(tab.key)} style={{
+            flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+            gap: 3, padding: "10px 0 8px", border: "none", cursor: "pointer",
+            background: "none", fontFamily: "inherit", position: "relative",
+            color: active ? "#fff" : "oklch(0.52 0.01 240)", transition: "color 0.12s"
+          }}>
+            {active && <div style={{ position: "absolute", top: 0, left: "30%", right: "30%", height: 2, borderRadius: "0 0 2px 2px", background: "oklch(0.52 0.14 180)" }} />}
+            <span style={{ fontSize: 20 }}>{tab.icon}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: "0.03em" }}>{tab.label}</span>
+            {tab.badge > 0 &&
+            <span style={{ position: "absolute", top: 8, left: "50%", marginLeft: 8, minWidth: 16, height: 16, borderRadius: 99, background: "oklch(0.52 0.14 180)", color: "#fff", fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{tab.badge}</span>
+            }
+          </button>);
+
+      })}
+    </div>);
+
+}
+
+// ─── User Menu (avatar dropdown) — desktop ────────────────────────────────────
+function UserMenu({ onNavigate, lang, setLang }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  const acct = IM_DATA.account;
+  const ownedNodes = IM_DATA.nodes.filter((n) => acct.owned_node_ids.includes(n.node_id));
+  const onlineCount = ownedNodes.filter((n) => n.status === "online").length;
+  const offlineCount = ownedNodes.length - onlineCount;
+
+  React.useEffect(() => {
+    function onDoc(e) {if (ref.current && !ref.current.contains(e.target)) setOpen(false);}
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  function go(page) {setOpen(false);onNavigate(page);}
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen((o) => !o)} style={{
+        display: "flex", alignItems: "center", gap: 8, padding: "4px 8px 4px 4px",
+        borderRadius: 99, border: "1px solid " + (open ? "oklch(0.40 0.015 240)" : "transparent"),
+        background: open ? "oklch(0.26 0.012 240)" : "transparent",
+        cursor: "pointer", fontFamily: "inherit", transition: "all 0.12s"
+      }}
+      onMouseEnter={(e) => {if (!open) e.currentTarget.style.background = "oklch(0.24 0.012 240)";}}
+      onMouseLeave={(e) => {if (!open) e.currentTarget.style.background = "transparent";}}>
+        <Avatar initials={acct.display_name.slice(0, 2).toUpperCase()} color="oklch(0.52 0.14 270)" size={28} status="online" />
+        <span style={{ fontSize: 13, fontWeight: 600, color: "oklch(0.85 0.01 240)" }}>{acct.display_name}</span>
+        <span style={{ fontSize: 9, color: "oklch(0.55 0.01 240)", marginLeft: -2 }}>▾</span>
+      </button>
+
+      {open &&
+      <div style={{
+        position: "absolute", top: "calc(100% + 6px)", right: 0, width: 260,
+        background: "#fff", borderRadius: 12,
+        boxShadow: "0 16px 48px oklch(0.05 0.01 240 / 0.32), 0 0 0 1px oklch(0.85 0.006 240)",
+        overflow: "hidden", zIndex: 100
+      }}>
+          {/* Identity strip */}
+          <div style={{ padding: "14px 14px 12px", borderBottom: "1px solid oklch(0.93 0.005 240)", display: "flex", alignItems: "center", gap: 11 }}>
+            <Avatar initials={acct.display_name.slice(0, 2).toUpperCase()} color="oklch(0.52 0.14 270)" size={38} />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <p style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "oklch(0.14 0.01 240)" }}>{acct.display_name}</p>
+              <p style={{ margin: "2px 0 0", fontSize: 11, color: "oklch(0.55 0.01 240)", fontFamily: "'IBM Plex Mono', monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{acct.user_id}</p>
+            </div>
+          </div>
+
+          {/* Menu items */}
+          <div style={{ padding: "6px 0" }}>
+            <MenuRow icon="👤" label={t("Account")} sub={t("Profile and gateway")} onClick={() => go("account")} />
+            <MenuRow icon="🖥" label={t("Nodes")}
+          sub={`${ownedNodes.length} ${t("owned")} · ${onlineCount} ${t("online")}${offlineCount ? ` · ${offlineCount} ${t("offline")}` : ""}`}
+          onClick={() => go("nodes")}
+          trailing={offlineCount > 0 ?
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "oklch(0.60 0.01 240)" }} /> :
+          null} />
+          
+          </div>
+
+          <div style={{ borderTop: "1px solid oklch(0.93 0.005 240)", padding: "6px 0" }} data-comment-anchor="59d56523a8-div-115-11">
+            <LangMenuRow lang={lang} setLang={setLang} />
+            <MenuRow icon="↗" label={t("Sign out")} sub={null} muted onClick={() => setOpen(false)} />
+          </div>
+        </div>
+      }
+    </div>);
+
+}
+
+function MenuRow({ icon, label, sub, onClick, trailing, muted }) {
+  return (
+    <button onClick={onClick} style={{
+      width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "9px 14px",
+      border: "none", background: "transparent", cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+      transition: "background 0.1s"
+    }}
+    onMouseEnter={(e) => e.currentTarget.style.background = "oklch(0.96 0.005 240)"}
+    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+      <span style={{ width: 24, height: 24, borderRadius: 7, background: "oklch(0.95 0.006 240)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{icon}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: muted ? "oklch(0.45 0.01 240)" : "oklch(0.18 0.01 240)" }}>{label}</p>
+        {sub && <p style={{ margin: "1px 0 0", fontSize: 11.5, color: "oklch(0.55 0.01 240)" }}>{sub}</p>}
+      </div>
+      {trailing}
+    </button>);
+
+}
+
+// ─── Language Toggle (segmented EN / 中) ──────────────────────────────────────
+function LangMenuRow({ lang, setLang }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 14px", fontFamily: "inherit" }}>
+      <span style={{ width: 24, height: 24, borderRadius: 7, background: "oklch(0.95 0.006 240)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0, color: "oklch(0.30 0.01 240)" }}>文</span>
+      <p style={{ flex: 1, margin: 0, fontSize: 13, fontWeight: 600, color: "oklch(0.18 0.01 240)" }}>{t("Language")}</p>
+      <div style={{ display: "inline-flex", alignItems: "center", fontSize: 12.5, fontWeight: 600 }}>
+        {[{ k: "en", l: "EN" }, { k: "zh", l: "中" }].map((o, i) =>
+          <React.Fragment key={o.k}>
+            {i > 0 && <span style={{ color: "oklch(0.80 0.005 240)", margin: "0 7px" }}>│</span>}
+            <button type="button" onClick={() => setLang(o.k)} style={{
+              background: "none", border: "none", padding: 0, cursor: "pointer",
+              fontFamily: "inherit", fontSize: 12.5,
+              fontWeight: lang === o.k ? 800 : 500,
+              color: lang === o.k ? "oklch(0.18 0.01 240)" : "oklch(0.55 0.01 240)"
+            }}>{o.l}</button>
+          </React.Fragment>
+        )}
+      </div>
+    </div>);
+
+}
+
+function LangToggle(props) { return <LangMenuRow {...props} />; }
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const isMobile = useIsMobile();
+  const [page, setPage] = React.useState("chat");
+  const [activeConvId, setActiveConvId] = React.useState(IM_DATA.conversations[0].id);
+  const [settingsAgentId, setSettingsAgentId] = React.useState(null);
+  const [newAgentNodeId, setNewAgentNodeId] = React.useState(null);
+  const [newAgentNonce, setNewAgentNonce] = React.useState(0);
+  const [lang, setLangState] = React.useState(() => window.__imLang || "en");
+  window.__imLang = lang; // every render mirrors the React state into the global the t() helper reads
+  const setLang = React.useCallback((next) => {
+    window.__imLang = next;
+    try {localStorage.setItem("im_lang", next);} catch {}
+    document.documentElement.lang = next === "zh" ? "zh" : "en";
+    setLangState(next);
+  }, []);
+  React.useEffect(() => {document.documentElement.lang = lang === "zh" ? "zh" : "en";}, [lang]);
+
+  window.__imNav = (targetPage, agentId, opts) => {
+    setPage(targetPage);
+    if (agentId) setSettingsAgentId(agentId);
+    if (opts && opts.newAgent) {
+      setNewAgentNodeId(opts.nodeId || null);
+      setNewAgentNonce((n) => n + 1); // force re-trigger even if same node clicked twice
+      setSettingsAgentId(null);
+    }
+  };
+
+  const totalUnread = IM_DATA.conversations.reduce((s, c) => s + (c.unread || 0), 0);
+  const accentStyle = { "--im-accent": tweaks.accentColor };
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", ...accentStyle }}>
+      {/* Top bar — desktop only */}
+      {!isMobile &&
+      <div style={{
+        height: 48, flexShrink: 0, display: "flex", alignItems: "center",
+        background: "oklch(0.19 0.012 240)",
+        borderBottom: "1px solid oklch(0.26 0.010 240)",
+        padding: "0 16px", gap: 12, zIndex: 10
+      }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, width: 200 }}>
+            <div style={{ width: 26, height: 26, borderRadius: 7, background: "oklch(0.52 0.14 180)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#fff" }}>N</div>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#fff", letterSpacing: "-0.02em" }}>{t("nano IM")}</span>
+            <span style={{ fontSize: 10, fontWeight: 600, color: "oklch(0.45 0.01 240)", background: "oklch(0.25 0.01 240)", borderRadius: 99, padding: "2px 6px" }}>{t("internal")}</span>
+          </div>
+          <div style={{ flex: 1, display: "flex", justifyContent: "center", gap: 2 }} data-comment-anchor="6b5b854e3f-div-116-11">
+            {[
+          { key: "chat", label: t("Chat"), badge: totalUnread },
+          { key: "settings", label: t("Agents"), badge: 0 }].
+          map((n) =>
+          <button key={n.key} onClick={() => setPage(n.key)} style={{
+            padding: "6px 18px", borderRadius: 8, border: "none", cursor: "pointer",
+            fontFamily: "inherit", fontSize: 13, fontWeight: 600,
+            background: page === n.key ? "oklch(0.28 0.015 240)" : "transparent",
+            color: page === n.key ? "#fff" : "oklch(0.60 0.01 240)",
+            display: "flex", alignItems: "center", gap: 7, transition: "all 0.12s"
+          }}
+          onMouseEnter={(e) => {if (page !== n.key) e.currentTarget.style.color = "oklch(0.85 0.01 240)";}}
+          onMouseLeave={(e) => {if (page !== n.key) e.currentTarget.style.color = "oklch(0.60 0.01 240)";}}>
+                <span>{n.label}</span>
+                {n.badge > 0 && <span style={{ background: "oklch(0.52 0.14 180)", color: "#fff", borderRadius: 99, fontSize: 10, fontWeight: 800, padding: "1px 6px" }}>{n.badge}</span>}
+              </button>
+          )}
+          </div>
+          <div style={{ width: 200, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
+            <UserMenu onNavigate={setPage} lang={lang} setLang={setLang} />
+          </div>
+        </div>
+      }
+
+      {/* Mobile top status bar spacer */}
+      {isMobile &&
+      <div style={{ height: "env(safe-area-inset-top, 0px)", background: "oklch(0.19 0.012 240)", flexShrink: 0 }} />
+      }
+
+      {/* Main content */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
+        {page === "chat" &&
+        <ChatPage activeConvId={activeConvId} setActiveConvId={(id) => setActiveConvId(id)} isMobile={isMobile} />
+        }
+        {page === "settings" &&
+        <SettingsPage initialAgentId={settingsAgentId} initialNewAgentNodeId={newAgentNodeId} newAgentNonce={newAgentNonce} isMobile={isMobile}
+        onOpenChat={(agentId) => {
+          const conv = IM_DATA.conversations.find((c) => c.agent_id === agentId && c.kind === "direct-agent");
+          if (conv) {setActiveConvId(conv.id);setPage("chat");}
+        }} />
+        }
+        {page === "nodes" && <NodesPage isMobile={isMobile} onBack={isMobile ? () => setPage("me") : null} />}
+        {page === "account" && <AccountPage isMobile={isMobile} onBack={isMobile ? () => setPage("me") : null} />}
+        {page === "me" && <MyPage isMobile={isMobile} onNavigate={setPage} lang={lang} setLang={setLang} />}
+      </div>
+
+      {/* Bottom tab bar — mobile only */}
+      {isMobile && <MobileTabBar page={page} setPage={setPage} unread={totalUnread} />}
+
+      <TweaksPanel>
+        <TweakSection title={t("Appearance")}>
+          <TweakColor id="accentColor" label={t("Accent color")} />
+          <TweakToggle id="sidebarDark" label={t("Dark sidebar")} />
+          <TweakToggle id="compactMessages" label={t("Compact messages")} />
+          <TweakToggle id="showAvatars" label={t("Show avatars")} />
+        </TweakSection>
+      </TweaksPanel>
+    </div>);
+
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
