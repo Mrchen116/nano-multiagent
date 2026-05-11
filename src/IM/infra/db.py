@@ -114,6 +114,8 @@ CREATE TABLE IF NOT EXISTS messages (
     attachments_json TEXT NOT NULL DEFAULT '[]',
     delivery_status TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    tool_calls_json TEXT,
+    token_usage_json TEXT,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -325,6 +327,12 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE messages ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'completed'"
         )
+    # feat-340-M2: persist agent-runtime tool_calls / token_usage as nullable JSON columns.
+    # Nullable because legacy user messages have neither; bridge writes populate them per-message.
+    if "tool_calls_json" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN tool_calls_json TEXT")
+    if "token_usage_json" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN token_usage_json TEXT")
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:

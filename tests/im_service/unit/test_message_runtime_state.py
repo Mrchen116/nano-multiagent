@@ -75,6 +75,7 @@ def test_update_runtime_state_appends_content_and_upserts_tool_call(tmp_path: Pa
         conversation_id=conversation.id,
         sender_user_id=alice.id,
         content="",
+        allow_empty=True,
     )
 
     # Append text + upsert a running tool call
