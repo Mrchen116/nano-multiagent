@@ -101,5 +101,56 @@
         "saveFailed": "Save failed: {{detail}}"
       }
     }
+  },
+  "chat": {
+    "list": {
+      "header": "Messages",
+      "newGroup": "+ Group",
+      "search": "Search…",
+      "filters": {
+        "all": "All",
+        "agent": "Agent",
+        "group": "Group",
+        "network": "Network"
+      },
+      "empty": "No conversations"
+    },
+    "kindBadge": {
+      "agent": "Agent",
+      "group": "Group",
+      "network": "Agent↔Agent",
+      "direct-user": "Direct"
+    },
+    "newGroup": {
+      "title": "New group chat",
+      "subtitle": "Select agents, then give the group a name.",
+      "sectionAgents": "Agents",
+      "groupName": "Group name (optional)",
+      "groupNamePlaceholder": "Auto-generated from participants",
+      "create": "Create group",
+      "cancel": "Cancel",
+      "online": "online",
+      "offline": "offline"
+    },
+    "messagePane": {
+      "emptyTitle": "No messages yet",
+      "emptySubtitle": "Send the first message.",
+      "placeholderDirect": "Message {{title}}…",
+      "placeholderGroup": "Message… (type @ to mention)",
+      "helpDesktop": "Enter to send · Shift+Enter new line",
+      "helpDesktopGroup": "Enter to send · Shift+Enter new line · @ to mention",
+      "config": "Config",
+      "tokenSuffix": "tok",
+      "tokenContext": "{{used}}/{{window}} ({{pct}}%)",
+      "toolCall": "tool call",
+      "toolCalls": "tool calls",
+      "running": "running",
+      "selectConversationTitle": "Select a conversation",
+      "selectConversationSubtitle": "Pick a thread to chat with your agents."
+    },
+    "mention": {
+      "header": "Mention agent",
+      "empty": "No agents to mention"
+    }
   }
 }

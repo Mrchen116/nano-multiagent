@@ -2,7 +2,7 @@ import { createBrowserRouter, Navigate, RouteObject } from "react-router-dom";
 
 import { App } from "./App";
 import { BindConfirmPage } from "../features/chat/bind-confirm-page";
-import { ChatWorkspacePage } from "../features/chat/chat-workspace-page";
+import { ChatWorkspacePageV2 as ChatWorkspacePage } from "../features/chat/v2/chat-workspace-page";
 import { LoginPage } from "../features/auth/login-page";
 import { RegisterPage } from "../features/auth/register-page";
 import { RequireAuth } from "../features/auth/require-auth";
