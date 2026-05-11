@@ -8,6 +8,7 @@
 
 <!-- 按时间倒序追加。格式:YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-11 (M11 立项,post-acceptance fix round 1): reviewer round 1 输出 8 个 in-unit fix-implementation issues(4 blocking + 3 major + 1 minor),打包为单个 fix milestone M11。覆盖 chat CSS 缺失、im-chat-api 不带 Bearer、WS token query 名错配、SPA fallback 404、i18n 漏抽、tsc 失败、Settings 多余 Policies 链接。
 - 2026-05-11 (M10 立项): 补 M10 backend-status-broadcast,闭合 §5 映射表"heartbeat scheduler"未归属的 producer 与 §接口 2a 中 `node.status_changed` / `agent.status_changed` 的 owner-scoped 推送路径;M6 依赖追加 M10、M5 退出标准追加 agent status WS 实时反映。原因:M2 完成后 M6 worker 启动时发现 producer 与无 conversation_id 的 owner-scoped 旁路 dispatcher 都没归任何既有 milestone,需补一个。
 
 ## 架构总览
@@ -332,6 +333,7 @@ PA gateway 上行帧 → IM 状态广播(M10 落地,见决策 11):
 | feat-340-M8 | feature-attachments | M4 | D | `src/IM/frontend/src/features/chat/attachments/`(上传 hook + chip 组件 + drag&drop)、`src/IM/api/routes/uploads.py`(白名单 + size 校验加固)、Message.attachments 渲染 | 桌面拖入图片/PDF → chip 出现 → 发送 → agent 气泡显示附件 + tool 能读到附件路径;白名单/大小限制起效 |
 | feat-340-M9 | feature-notifications | M3, M4 | D | `src/IM/frontend/src/features/notifications/`(Notification API 封装 + Account/Me toggle + permission flow + visibility 判断 + 点击聚焦) | 标签未激活时 agent 完成回复 → 系统通知弹出;点击 → 窗口聚焦 + 跳到对应会话;toggle 关闭后不再弹 |
 | feat-340-M10 | backend-status-broadcast | M1, M2 | A | `src/IM/ws/user_stream.py` 新增 `broadcast_to_user(user_id, frame)` + node/agent 事件 builder(在 `src/IM/api/ws/event_types.py` 补 `build_node_status_changed` / `build_agent_status_changed`)、`src/IM/ws/gateway_handler.py` `_handle_register` / `_handle_heartbeat` / WS disconnect finally 块插入状态 diff + emit、新增 asyncio offline 守护任务(每 10s 扫 `nodes.last_heartbeat_at` 过期 60s)、跨租户隔离单测(owner A 不收 owner B 节点事件)+ 端到端集成测试(PA gateway 起 → IM 收 register → 浏览器 owner WS 收 online;PA 断 → 收 offline) | PA gateway 起一个 node 发 register/heartbeat → 浏览器 owner WS 收到 `node.status_changed: online`;PA 断开或心跳超时 → 收到 `node.status_changed: offline`;agent 维度 status 翻转 → 收到 `agent.status_changed`;owner A WS 收不到 owner B 的事件;单测覆盖 diff 不变不广播、跨租户隔离 |
+| feat-340-M11 | fix-r1 (post-acceptance fix, round 1) | M3, M4, M5, M7 | E | reviewer round 1 的 8 个 in-unit issues:`src/IM/frontend/src/styles/global.css`(补 chat-* 类规则或改用 utility)、`src/IM/frontend/src/features/chat/im-chat-api.ts`(切 authFetch)、`src/IM/frontend/src/features/chat/v2/chat-stream.ts`(WS query `access_token` → `token`)、`src/IM/app.py`(加 `/login` `/register` `/me` SPA fallback)、shell + Settings 侧栏 + agents 操作的 hardcoded 字符串切 `t()`、`src/IM/frontend/src/features/settings/account/account-page.test.tsx`(fixture 类型修)、Settings 侧栏移除/注释 Policies 链接 | 重跑 reviewer R2,J2/J5/J6/J9 旅程全通(Chat workspace 有样式、API 有 Bearer、WS 真连、SPA 直链 OK)、`npx tsc -b` 无错、i18n 中文模式无 EN 漏字、Settings 侧栏与 spec 一致 |
 
 依赖图:
 
