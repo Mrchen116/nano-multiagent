@@ -616,3 +616,36 @@ def test_user_nodes_and_bind_roundtrip(tmp_path: Path) -> None:
     assert user.owned_node_ids == ["node-1"]
     assert confirmed.status == "confirmed"
     assert profiles.get_profile(agent_id="agent-1").owner_id == owner.owner_id
+
+
+def test_create_group_conversation_owner_id_uses_caller(tmp_path: Path) -> None:
+    """create_conversation must use caller_owner_id when participants span multiple owners.
+
+    Regression for R3-1: multi-owner participants previously generated a random UUID
+    as the conversation owner_id, making list_conversations_for_owner unable to find it.
+    """
+    users, conversations, _, _, _, _ = _build_repositories(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    # Agent user with empty owner_id simulates an unbound/ownerless agent participant
+    agent_user = users.create_user(username="agent:bot", display_name="Bot")
+    # Ensure agent has no owner (owner_id='')
+    from IM.infra.db import connect as _connect  # already imported via fixture
+    conversations._connection.execute(
+        "UPDATE users SET owner_id = '' WHERE id = ?", (agent_user.id,)
+    )
+    conversations._connection.commit()
+
+    created = conversations.create_conversation(
+        title="Alice + Bot group",
+        participant_ids=[alice.id, agent_user.id],
+        caller_owner_id=alice.owner_id,
+    )
+
+    assert created.owner_id == alice.owner_id, (
+        f"Expected owner_id={alice.owner_id!r}, got {created.owner_id!r}; "
+        "multi-owner participants must use caller_owner_id, not a random UUID"
+    )
+    visible = conversations.list_conversations_for_owner(owner_id=alice.owner_id)
+    assert any(c.id == created.id for c in visible), (
+        "Newly created group conversation must appear in caller's conversation list"
+    )
