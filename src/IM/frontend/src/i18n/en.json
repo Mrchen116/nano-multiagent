@@ -101,5 +101,99 @@
         "saveFailed": "Save failed: {{detail}}"
       }
     }
+  },
+  "agents": {
+    "title": "Agents",
+    "newButton": "+ New",
+    "loadError": "Could not load agents.",
+    "retry": "Retry",
+    "openNodes": "Open Nodes",
+    "empty": {
+      "title": "No agents yet",
+      "body": "Open Nodes to create your first runtime profile on an online bound node."
+    },
+    "rowStatus": {
+      "online": "{{id}} online",
+      "offline": "{{id}} offline"
+    },
+    "detail": {
+      "selectPrompt": "Select an agent",
+      "selectHint": "Choose an agent to view or edit its configuration.",
+      "openChat": "Open chat ↗",
+      "openChatPending": "Opening direct chat…",
+      "saveAgent": "Save Agent",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "✓ Saved",
+      "noChanges": "No changes",
+      "unsavedChanges": "● Unsaved changes",
+      "discard": "Discard",
+      "version": "v{{version}}",
+      "loading": "Loading agent profile..."
+    },
+    "form": {
+      "identity": {
+        "title": "Identity",
+        "subEdit": "Name and purpose shown to users and other agents.",
+        "subNew": "Agent ID is permanent and used in mentions and API calls.",
+        "agentId": "Agent ID",
+        "agentIdRequired": "Agent ID *",
+        "agentIdHelp": "Lowercase letters, numbers, _ and -",
+        "agentIdPlaceholder": "e.g. my_agent",
+        "displayName": "Display Name",
+        "displayNameRequired": "Display Name *",
+        "displayNamePlaceholder": "e.g. My Agent",
+        "description": "Description",
+        "descriptionHelp": "Short summary shown in group chats.",
+        "descriptionPlaceholder": "What does this agent do?",
+        "owner": "Owner",
+        "owningNodeRequired": "Owning Node *",
+        "owningNodeHelp": "The node that will host and run this agent.",
+        "owningNodeSelect": "— Select a node —"
+      },
+      "behavior": {
+        "title": "Behavior",
+        "sub": "System prompt is the primary behavior contract.",
+        "systemPrompt": "System Prompt",
+        "systemPromptRequired": "System Prompt *",
+        "systemPromptHelp": "Defines role, tone, and constraints.",
+        "systemPromptPlaceholder": "You are a helpful assistant. Your job is to...\n\nBe concise and ask clarifying questions when needed.",
+        "policy": "Group Reply Policy",
+        "policyHelp": "When this agent replies in group conversations.",
+        "policyOptionMention": "MENTION — Reply only when @-mentioned",
+        "policyOptionAlways": "ALWAYS — Reply to every group message",
+        "policyOptionNoReply": "NO_REPLY — Stay silent in groups"
+      },
+      "access": {
+        "title": "Access & Model",
+        "sub": "Keep allowlists minimal.",
+        "skills": "Skills",
+        "tools": "Tool Allowlist",
+        "model": "Default Model",
+        "modelPlatformDefault": "Platform default ({{model}})",
+        "modelPlatformDefaultPlain": "Platform default",
+        "modelDefaultSuffix": "(default)"
+      },
+      "workspace": {
+        "title": "Workspace & Runtime",
+        "sub": "Read-only. Managed by the owning node.",
+        "workspaceRoot": "Workspace Root",
+        "profileVersion": "Profile Version",
+        "owningNode": "Owning Node",
+        "lastUpdated": "Last Updated"
+      },
+      "errors": {
+        "required": "Required",
+        "agentIdInvalid": "Lowercase letters, numbers, _ and - only"
+      }
+    },
+    "create": {
+      "title": "New agent",
+      "subtitle": "Configure identity, behavior, and tool access.",
+      "submit": "Create agent",
+      "submitArrow": "Create agent →",
+      "cancel": "Cancel",
+      "errorGeneric": "Create failed"
+    }
   }
 }

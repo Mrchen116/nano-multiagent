@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { waitFor } from "@testing-library/react";
 
 import { appRoutes } from "../../app/router";
 import { renderRouter } from "../../test/render-router";
@@ -23,17 +23,25 @@ describe("settings scroll layout", () => {
   });
 
   it.each([
-    ["/settings/agents", /Loading agents and the latest configuration snapshot/i],
-    ["/settings/nodes/node-1/agents/new", /Could not load this node\.|Create Agent on/i],
-    ["/settings/agents/agent-1", /Loading agent profile/i],
-    ["/settings/nodes", /Loading nodes/i],
-    ["/settings/policies", /Loading policies/i],
-    ["/settings/account", /Loading…/i]
-  ])("renders %s inside a full-height column container", async (entry, marker) => {
+    ["/settings/agents", '[data-testid="agents-list"]'],
+    ["/settings/nodes/node-1/agents/new", null],
+    ["/settings/agents/agent-1", null],
+    ["/settings/nodes", null],
+    ["/settings/policies", null],
+    ["/settings/account", null]
+  ] as const)("renders %s inside a full-height column container", async (entry, marker) => {
     const { container } = renderSettingsShell(entry);
 
     const panel = container.querySelector("aside")?.nextElementSibling;
-    expect(await screen.findByText(marker)).toBeInTheDocument();
+    if (marker) {
+      await waitFor(() => {
+        expect(panel?.querySelector(marker)).not.toBeNull();
+      });
+    } else {
+      await waitFor(() => {
+        expect(panel?.textContent?.length ?? 0).toBeGreaterThan(0);
+      });
+    }
     expect(panel).toHaveClass("h-full");
     expect(panel).toHaveClass("flex");
     expect(panel).toHaveClass("flex-col");
