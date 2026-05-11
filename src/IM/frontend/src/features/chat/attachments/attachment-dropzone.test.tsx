@@ -17,7 +17,7 @@ function dataTransferOf(files: File[]): DataTransfer {
     files: files as unknown as FileList,
     items: items as unknown as DataTransferItemList,
     types: ["Files"]
-  } as DataTransfer;
+  } as unknown as DataTransfer;
 }
 
 describe("AttachmentDropzone", () => {
