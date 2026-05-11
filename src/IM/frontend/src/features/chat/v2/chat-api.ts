@@ -12,6 +12,7 @@ import { authFetch } from "../../auth/auth-fetch";
 import { useAuthStore } from "../../auth/auth-store";
 import type {
   Actor,
+  Attachment,
   Conversation,
   MentionCandidate,
   Message
@@ -59,7 +60,7 @@ export async function listMessages(
 export interface CreateMessageRequest {
   conversationId: string;
   content: string;
-  attachments?: { url: string; content_type?: string; file_name?: string }[];
+  attachments?: Attachment[];
 }
 
 function requireSelfUser(): { id: string } {

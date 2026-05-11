@@ -19,7 +19,7 @@ import {
   type ConversationState
 } from "./chat-stream-reducer";
 import { authFetch } from "../../auth/auth-fetch";
-import type { Conversation, Message, WsEvent } from "./chat-types";
+import type { Attachment, Conversation, Message, WsEvent } from "./chat-types";
 import { ConversationSidebar } from "./components/conversation-sidebar";
 import { MessagePane } from "./components/message-pane";
 import { NewGroupModal } from "./components/new-group-modal";
@@ -110,8 +110,12 @@ export function ChatWorkspacePageV2() {
   }, []);
 
   const sendMutation = useMutation({
-    mutationFn: (text: string) =>
-      createMessage({ conversationId: conversationId!, content: text }),
+    mutationFn: (payload: { text: string; attachments: Attachment[] }) =>
+      createMessage({
+        conversationId: conversationId!,
+        content: payload.text,
+        attachments: payload.attachments
+      }),
     onSuccess: () => {
       // Bump conversation list ordering on next refetch; the WS echo will fill
       // in the new message in-place so we only need cache invalidation here.
@@ -148,7 +152,7 @@ export function ChatWorkspacePageV2() {
             conversation={activeConversation}
             messages={streamState.messages}
             mentionCandidates={mentionQuery.data ?? []}
-            onSend={(text) => sendMutation.mutate(text)}
+            onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
             onBack={isMobile ? () => navigate("/chat") : undefined}
           />
         ) : (
