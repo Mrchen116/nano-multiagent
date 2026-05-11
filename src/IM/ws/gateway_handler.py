@@ -16,11 +16,12 @@ from IM.api.ws.event_types import (
     build_agent_status_changed_payload,
     build_node_status_changed_payload,
 )
+from IM.application.event_bridge import EventBridge
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from collections.abc import Callable
 
-from IM.domain.models import Actor, ConversationEvent, Message, NodeStatus, managed_workspace_root
+from IM.domain.models import Actor, ConversationEvent, Message, NodeStatus, TokenUsage, ToolCall, managed_workspace_root
 from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, UserRepository
 from IM.ws.user_stream import UserStreamRegistry
 
@@ -67,6 +68,7 @@ class GatewayHandler:
         conversation_repository: ConversationRepository | None = None,
         user_event_notify: Callable[[ConversationEvent], None] | None = None,
         user_stream_registry: UserStreamRegistry | None = None,
+        event_bridge: EventBridge | None = None,
     ) -> None:
         self._relay_service = relay_service
         self._node_repository = node_repository
@@ -80,6 +82,17 @@ class GatewayHandler:
             else None
         )
         self._user_stream_registry = user_stream_registry
+        # EventBridge wires kernel events → IM WS streaming events (feat-340-M14).
+        # External injection takes priority (tests / explicit wiring); auto-build from repos as fallback.
+        if event_bridge is not None:
+            self._event_bridge: EventBridge | None = event_bridge
+        elif self._message_repository is not None and self._event_repository is not None:
+            self._event_bridge = EventBridge(
+                message_repository=self._message_repository,
+                event_repository=self._event_repository,
+            )
+        else:
+            self._event_bridge = None
         self._status_seq_by_owner: dict[str, int] = {}
         self._status_seq_lock = asyncio.Lock()
         self._lock = asyncio.Lock()
@@ -143,6 +156,8 @@ class GatewayHandler:
             return await self._handle_node_capabilities(payload=payload)
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
+        if message_type == "node.streaming_delta":
+            return await self._handle_streaming_delta(payload=payload)
         return {
             "type": "error",
             "payload": {"code": "unsupported_message_type", "message": message_type},
@@ -539,6 +554,73 @@ class GatewayHandler:
         self._persist_report_event(payload=payload)
         self._persist_report_usage(payload=payload)
         return {"type": "ack", "payload": {"message_type": "node.report", "node_id": node_id}}
+
+    async def _handle_streaming_delta(self, *, payload: dict[str, object]) -> dict[str, object]:
+        """Translate gateway streaming events into IM WS fan-out via EventBridge.
+
+        The gateway (personal_assistant) calls this with sub-types keyed by ``kind``:
+        - ``turn_start``: agent begins a reply; EventBridge inserts placeholder message.
+        - ``message_delta``: incremental text chunk; EventBridge appends content.
+        - ``message_completed``: run finished; EventBridge marks message completed with token_usage.
+        - ``tool_call_upserted``: tool call started; EventBridge upserts tool_calls JSON.
+        - ``tool_call_completed``: tool call done; EventBridge settles tool_calls JSON.
+
+        Cross-tenant isolation: every frame carries ``owner_id``; EventBridge → notify callback
+        → build_notify_enqueue reads conversation_participants which already gates by owner.
+        The broadcast_to_users path is never called here (streaming delta is owner-scoped only).
+        """
+        if self._event_bridge is None:
+            return {"type": "ack", "payload": {"message_type": "node.streaming_delta"}}
+
+        kind = _optional_text(payload.get("kind")) or ""
+
+        if kind == "turn_start":
+            conversation_id = _require_text(payload.get("conversation_id"), field_name="conversation_id")
+            agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
+            # Resolve IM user ID from agent_id; gateway sends agent_id (e.g. "alpha"),
+            # IM stores the agent as username="agent:<agent_id>" in the users table.
+            agent_user_id = _optional_text(payload.get("agent_user_id"))
+            if agent_user_id is None and self._user_repository is not None:
+                row = self._user_repository._connection.execute(  # noqa: SLF001
+                    "SELECT id FROM users WHERE username = ?",
+                    (f"agent:{agent_id}",),
+                ).fetchone()
+                if row is not None:
+                    agent_user_id = str(row["id"])
+            if agent_user_id is None:
+                return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "agent_user_id_not_found"}}
+            self._event_bridge.on_turn_start(
+                conversation_id=conversation_id,
+                agent_user_id=agent_user_id,
+                agent_id=agent_id,
+            )
+
+        elif kind == "message_delta":
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            delta_text = _optional_text(payload.get("delta_text")) or ""
+            self._event_bridge.on_message_delta(message_id=message_id, delta_text=delta_text)
+
+        elif kind == "message_completed":
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            final_content = _optional_text(payload.get("final_content"))
+            token_usage = _parse_token_usage(payload.get("token_usage"))
+            self._event_bridge.on_message_completed(
+                message_id=message_id,
+                final_content=final_content,
+                token_usage=token_usage,
+            )
+
+        elif kind == "tool_call_upserted":
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            tc = _parse_tool_call(payload.get("tool_call"))
+            self._event_bridge.on_tool_call_upserted(message_id=message_id, tool_call=tc)
+
+        elif kind == "tool_call_completed":
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            tc = _parse_tool_call(payload.get("tool_call"))
+            self._event_bridge.on_tool_call_completed(message_id=message_id, tool_call=tc)
+
+        return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind}}
 
     async def _handle_delivery_receipt(self, *, payload: dict[str, object]) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
@@ -1230,22 +1312,31 @@ class GatewayHandler:
         semantic = "agent_run_processing" if progress_state == "processing" else (
             "agent_run_completed" if progress_state == "completed" else "agent_run_failed"
         )
+        report_payload: dict[str, object] = {
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "node_id": _require_text(payload.get("node_id"), field_name="node_id"),
+            "run_id": run_id,
+            "summary": summary,
+            "status": status,
+            "progress_state": progress_state,
+            "semantic": semantic,
+            "guidance": guidance,
+        }
+        # Carry token_usage in relay.report so the browser Token Chip can render real counts.
+        usage = _optional_usage(payload.get("usage"))
+        if usage is not None and progress_state == "completed":
+            report_payload["token_usage"] = {
+                "prompt": usage["prompt_tokens"],
+                "completion": usage["completion_tokens"],
+                "total": usage["total_tokens"],
+            }
         self._event_repository.append_event(
             conversation_id=conversation_id,
             message_id=message_id,
             event_type="relay.processing" if progress_state == "processing" else "relay.report",
             delivery_status=status,
-            payload={
-                "conversation_id": conversation_id,
-                "message_id": message_id,
-                "node_id": _require_text(payload.get("node_id"), field_name="node_id"),
-                "run_id": run_id,
-                "summary": summary,
-                "status": status,
-                "progress_state": progress_state,
-                "semantic": semantic,
-                "guidance": guidance,
-            },
+            payload=report_payload,
         )
         if progress_state == "failed":
             self._event_repository.append_event(
@@ -1394,6 +1485,44 @@ def _optional_usage(value: object) -> dict[str, int] | None:
         "completion_tokens": max(completion_tokens, 0),
         "total_tokens": max(total_tokens, 0),
     }
+
+
+def _parse_token_usage(value: object) -> TokenUsage | None:
+    """Parse a streaming_delta token_usage dict into a TokenUsage domain object."""
+    if value is None or not isinstance(value, dict):
+        return None
+    prompt = value.get("prompt") or value.get("prompt_tokens")
+    completion = value.get("completion") or value.get("completion_tokens")
+    total = value.get("total") or value.get("total_tokens")
+    if not isinstance(prompt, int) or not isinstance(completion, int):
+        return None
+    if not isinstance(total, int):
+        total = prompt + completion
+    # TokenUsage domain model uses output/context_used/context_window mapping.
+    # completion → output; prompt → context_used (closest semantic fit for token chip).
+    return TokenUsage(output=max(completion, 0), context_used=max(prompt, 0), context_window=max(total, 0))
+
+
+def _parse_tool_call(value: object) -> ToolCall:
+    """Parse a streaming_delta tool_call dict into a ToolCall domain object."""
+    if not isinstance(value, dict):
+        raise ValueError("tool_call must be an object")
+    tc_id = str(value.get("id") or "")
+    name = str(value.get("name") or "")
+    status = str(value.get("status") or "running")
+    input_data = value.get("input") or {}
+    if not isinstance(input_data, dict):
+        input_data = {}
+    duration_ms = value.get("duration_ms")
+    output = value.get("output")
+    return ToolCall(
+        id=tc_id,
+        name=name,
+        status=status,  # type: ignore[arg-type]
+        input=input_data,
+        duration_ms=int(duration_ms) if isinstance(duration_ms, (int, float)) else None,
+        output=str(output) if output is not None else None,
+    )
 
 
 def _not_registered_error(*, node_id: str) -> dict[str, object]:

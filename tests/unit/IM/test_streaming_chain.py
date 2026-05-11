@@ -182,8 +182,10 @@ class TestNodeStreamingDeltaHandling:
 
     @pytest.mark.asyncio
     async def test_streaming_delta_without_bridge_returns_ack(self):
-        """Without EventBridge, node.streaming_delta still returns ack (no crash)."""
-        handler = _make_minimal_handler(event_bridge=None)
+        """Without EventBridge (no repos wired), node.streaming_delta returns ack without crash."""
+        # Build a handler with no conversation/event repos so event_bridge auto-creation is skipped.
+        relay_service = MagicMock()
+        handler = GatewayHandler(relay_service=relay_service)
         ws = AsyncMock()
         payload = {
             "kind": "message_delta",
