@@ -337,6 +337,7 @@ class ConversationRepository:
         title: str,
         participant_ids: list[str],
         creator_id: str | None = None,
+        caller_owner_id: str | None = None,
     ) -> Conversation:
         """Create a conversation with participant membership.
 
@@ -345,12 +346,17 @@ class ConversationRepository:
             participant_ids: User IDs that belong to the conversation.
             creator_id: User ID of the creator; defaults to the first participant when omitted.
                 Used for dissolve-permission checks (M234).
+            caller_owner_id: The authenticated caller's owner_id. When participants span
+                multiple owner scopes (e.g., human + ownerless agent), this value is used
+                as the conversation owner_id so the caller can find the conversation via
+                list_conversations_for_owner. Without it the old code fell back to a random
+                UUID, making the conversation invisible to the creator.
 
         Returns:
             Created conversation entity.
 
         Raises:
-            ValueError: When participant list is empty, references missing users, or mixes owners.
+            ValueError: When participant list is empty or references missing users.
         """
         normalized_references = list(
             dict.fromkeys(participant_id.strip() for participant_id in participant_ids if participant_id.strip())
@@ -374,7 +380,15 @@ class ConversationRepository:
         owner_ids = {str(row["owner_id"]) for row in ordered_rows}
         conversation_id = uuid4().hex
         created_at = _utc_now()
-        owner_id = uuid4().hex if len(owner_ids) > 1 else next(iter(owner_ids))
+        if caller_owner_id is not None:
+            # When the authenticated caller is known, always use their owner_id so the
+            # conversation is discoverable via list_conversations_for_owner, regardless of
+            # whether participants span owner scopes (e.g. human + ownerless agent).
+            owner_id = caller_owner_id
+        elif len(owner_ids) == 1:
+            owner_id = next(iter(owner_ids))
+        else:
+            owner_id = uuid4().hex
         conversation_type = "direct" if len(normalized_participants) == 2 else "group"
         if creator_id is None:
             resolved_creator_id = normalized_participants[0]
