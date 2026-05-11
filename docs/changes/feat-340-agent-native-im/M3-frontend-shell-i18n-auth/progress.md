@@ -23,7 +23,12 @@
 
 ## R3 — Login / Register / RequireAuth route guard
 
-_pending_
+- Context: 路由壳必须拦截未登录访问;LoginPage 和 RegisterPage 是用户首次进入应用的入口。
+- Decision: 增 `/login` `/register` 公开路由,其余包 `RequireAuth`;RequireAuth 首次 mount 触发 `useAuthStore.hydrate()`,未登录 `Navigate to="/login"` 并把原路径塞 `state.from`,登录成功后回跳。`renderRouter` test helper 默认 seed 一个 `TEST_AUTH_USER`,把"原本默认登录"的隐式假设显式化,既不破坏 24 个旧测试,也允许测 `auth: null` 跳登录的反向用例。
+- Rationale: 决策 1(JWT)+ 风险 1(壳必须稳)。把 helper 改一处比改 24 个测试文件成本低 10×;`auth: null` 还能被 R3 自己的 auth-gate test 复用。
+- Evidence: `npx vitest run src/features/auth/auth-gate.test.tsx` → 4/4 pass;`npm test` → 165/165 pass;`npx tsc -b` 通过。
+- Rollback: 删 login/register/require-auth + me-page,revert router.tsx + render-router.tsx + router.test.tsx 路径查找改动。
+- Commits: C1=c409a2f, C2=(本提交), C3=(下一提交)
 
 ## R4 — Design tokens (oklch + IBM Plex) + AppShell (topbar/bottombar/UserMenu)
 
