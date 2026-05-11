@@ -67,6 +67,28 @@
     "empty": "暂无内容。"
   },
   "settings": {
+    "nodes": {
+      "title": "节点",
+      "loading": "节点加载中…",
+      "empty": "尚未接入任何节点。",
+      "aliasLabel": "{{nodeId}} 别名",
+      "liveSnapshot": "实时快照",
+      "heartbeat": "心跳",
+      "version": "版本",
+      "lastError": "最近错误",
+      "relayEnabled": "启用消息中继",
+      "reportingEnabled": "启用使用上报",
+      "save": "保存 {{nodeId}}",
+      "saving": "保存中…",
+      "createAgentOn": "在 {{nodeId}} 上新建 agent",
+      "agentsOnNode": "本节点上的 agents",
+      "agentsOnNodeEmpty": "本节点上还没有 agent。",
+      "liveName": "节点名: {{name}}",
+      "agentsCount": "agents: {{count}}",
+      "statusOnline": "在线",
+      "statusOffline": "离线",
+      "statusDegraded": "异常"
+    },
     "account": {
       "title": "账号",
       "identity": {
