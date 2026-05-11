@@ -18,3 +18,14 @@ M7 已落地 `notification-preference.ts`(localStorage + `useSyncExternalStore` 
 - Rollback: revert C2(93741624) → C1(347164f0)。
 - Commits: C1=347164f0, C2=93741624, C3=<本提交>
 - Next: R2 visibility 谓词。
+
+### R2 — document-visibility 谓词 + 订阅
+
+- Context: Notification 触发条件之一是"标签未激活",需要稳定可测的边界。
+- Decision: `document-visibility.ts` 暴露 `isDocumentHidden()` 和 `subscribeDocumentVisibility(cb)`,SSR/无 document 时退化为永远可见 + 空订阅。
+- Rationale: 抽边界使 notifier 调用方无需自己 polyfill;订阅 unsubscribe 在卸载时归零监听。
+- Evidence:
+  - Tests: `vitest run src/features/notifications/document-visibility.test.ts` — 2 通过。
+- Rollback: revert 7eaa3d9b → d6bc801e。
+- Commits: C1=d6bc801e, C2=7eaa3d9b, C3=<本提交>
+- Next: R3 agent-completion-notifier。
