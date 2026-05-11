@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
     display_name TEXT NOT NULL,
     owner_id TEXT NOT NULL,
     default_entry_node_id TEXT,
+    password_hash TEXT,
+    locale TEXT NOT NULL DEFAULT 'en',
     created_at TEXT NOT NULL
 );
 
@@ -208,6 +210,11 @@ def _migrate_users_owner_id(connection: sqlite3.Connection) -> None:
         connection.execute("UPDATE users SET owner_id = id WHERE owner_id IS NULL OR owner_id = ''")
     if "default_entry_node_id" not in column_names:
         connection.execute("ALTER TABLE users ADD COLUMN default_entry_node_id TEXT")
+    # feat-340-M1: multi-user auth — credentials and i18n locale per user.
+    if "password_hash" not in column_names:
+        connection.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+    if "locale" not in column_names:
+        connection.execute("ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'")
 
 
 

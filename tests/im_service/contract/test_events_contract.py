@@ -7,14 +7,7 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 
-
-def _create_user(client: TestClient, username: str) -> str:
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": username.title()},
-    )
-    assert response.status_code == 201
-    return response.json()["id"]
+from tests.im_service._auth_helpers import authorize, register_user
 
 
 def _create_conversation(client: TestClient, participant_id: str) -> str:
@@ -22,7 +15,7 @@ def _create_conversation(client: TestClient, participant_id: str) -> str:
         "/im/v1/conversations",
         json={"title": "chat", "participant_ids": [participant_id]},
     )
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
     return response.json()["id"]
 
 
@@ -30,11 +23,12 @@ def test_sync_contract_returns_snapshot_and_max_event_id(tmp_path: Path) -> None
     """GET /im/v1/sync 返回会话列表与全局 max_event_id。"""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        alice_id = _create_user(client, "alice")
-        conversation_id = _create_conversation(client, alice_id)
+        alice = register_user(client, username="alice")
+        authorize(client, alice)
+        conversation_id = _create_conversation(client, alice.id)
         created = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": alice_id, "content": "hello"},
+            json={"sender_user_id": alice.id, "content": "hello"},
         )
         assert created.status_code == 201
 
@@ -51,14 +45,15 @@ def test_user_stream_contract_emits_json_events(tmp_path: Path) -> None:
     """WebSocket /im/ws/user 在 resume 时回放已持久化消息的 event 帧。"""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        alice_id = _create_user(client, "alice")
-        conversation_id = _create_conversation(client, alice_id)
+        alice = register_user(client, username="alice")
+        authorize(client, alice)
+        conversation_id = _create_conversation(client, alice.id)
         posted = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": alice_id, "content": "hello"},
+            json={"sender_user_id": alice.id, "content": "hello"},
         )
         assert posted.status_code == 201
-        with client.websocket_connect(f"/im/ws/user?user_id={alice_id}") as websocket:
+        with client.websocket_connect(f"/im/ws/user?user_id={alice.id}") as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             seen: list[dict[str, object]] = []
             for _ in range(4):

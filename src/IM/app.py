@@ -12,18 +12,19 @@ from fastapi.staticfiles import StaticFiles
 
 from IM.api.routes.account import router as account_router
 from IM.api.routes.agents import router as agent_router
+from IM.api.routes.auth import router as auth_router
 from IM.api.routes.messages import router as message_router
 from IM.api.routes.metrics import router as metrics_router
 from IM.api.routes.nodes import router as nodes_router
 from IM.api.routes.policies import router as policies_router
-from IM.api.routes.users import router as user_router
 from IM.api.routes.web_im import router as web_im_router
+from IM.application.auth_service import AuthService, resolve_jwt_secret
 from IM.application.event_service import EventService
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import ConversationRepository, EventRepository, MessageRepository, NodeRepository, UsageMetricsRepository
+from IM.infra.repositories import ConversationRepository, EventRepository, MessageRepository, NodeRepository, UsageMetricsRepository, UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 from IM.ws.user_stream import UserStreamRegistry, build_notify_enqueue, pump_user_stream_outbound, serve_user_websocket
 
@@ -212,6 +213,9 @@ def create_app(
     resolved_frontend_dev_base_url = frontend_dev_base_url or os.getenv("IM_FRONTEND_DEV_BASE_URL", "http://127.0.0.1:4173")
     resolved_upload_dir = _resolve_upload_dir(upload_dir=upload_dir, db_path=resolved_db_path)
     resolved_upload_dir.mkdir(parents=True, exist_ok=True)
+    # One AuthService per FastAPI app instance so each TestClient gets an isolated
+    # refresh-token blacklist; production runs as a single instance.
+    resolved_jwt_secret = resolve_jwt_secret()
 
     @asynccontextmanager
     async def lifespan(app_instance: FastAPI):
@@ -220,6 +224,10 @@ def create_app(
         initialize_schema(connection)
         app_instance.state.connection = connection
         app_instance.state.upload_dir = resolved_upload_dir
+        app_instance.state.auth_service = AuthService(
+            users=UserRepository(connection),
+            jwt_secret=resolved_jwt_secret,
+        )
 
         registry = UserStreamRegistry()
         outbound_queue: asyncio.Queue[tuple[frozenset[str], str]] = asyncio.Queue()
@@ -280,7 +288,7 @@ def create_app(
         allow_headers=["*"],
     )
     app.mount("/im/uploads", StaticFiles(directory=resolved_upload_dir), name="im-uploads")
-    app.include_router(user_router)
+    app.include_router(auth_router)
     app.include_router(account_router)
     app.include_router(agent_router)
     app.include_router(web_im_router)
@@ -310,11 +318,29 @@ def create_app(
 
     @app.websocket("/im/ws/user")
     async def user_stream_websocket(websocket: WebSocket) -> None:
-        """浏览器用户实时事件流（每用户一条或多标签多条连接）。"""
-        user_id = (websocket.query_params.get("user_id") or "").strip()
-        if not user_id:
-            await websocket.close(code=1008)
-            return
+        """浏览器用户实时事件流（每用户一条或多标签多条连接）。
+
+        Auth(feat-340-M1 R5): user identity is derived from the bearer token passed
+        as ``?token=<jwt>`` (FastAPI/Starlette WS hooks do not expose
+        ``Authorization`` headers reliably). Invalid or missing tokens close 1008.
+        The legacy ``?user_id=`` parameter is honored as a fallback only when
+        ``token`` is absent — kept temporarily so M2 worker tests don't break;
+        it will be removed in a follow-up before the unit lands.
+        """
+        from IM.application.auth_service import InvalidTokenError
+
+        raw_token = (websocket.query_params.get("token") or "").strip()
+        if raw_token:
+            try:
+                user_id = app.state.auth_service.verify_access_token(raw_token)
+            except InvalidTokenError:
+                await websocket.close(code=1008)
+                return
+        else:
+            user_id = (websocket.query_params.get("user_id") or "").strip()
+            if not user_id:
+                await websocket.close(code=1008)
+                return
         await serve_user_websocket(
             websocket=websocket,
             connection=app.state.connection,

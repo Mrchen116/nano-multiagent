@@ -6,17 +6,30 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.infra.repositories import AgentProfileRepository, NodeRepository
+from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
+
+from .conftest import authorize, make_app_client, register_user, seed_user_under_owner
 
 
 def _create_user(client: TestClient, username: str) -> str:
-    """Create a user and return its identifier."""
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": username.title()},
+    """Create a user for the IM tests, transparently handling multi-tenant auth.
+
+    First call → registers a fresh tenant and authorizes the client.
+    Subsequent calls → seed additional participant users sharing the first caller's
+    tenant (so conversations involving multiple users are all owned by the caller).
+    The behavior keeps legacy test code working without rewriting each test, while
+    still going through the new auth gate on the actual route layer.
+    """
+    auth_header = client.headers.get("Authorization")
+    if auth_header is None:
+        user = register_user(client, username=username)
+        authorize(client, user)
+        return user.id
+    # Reuse the existing tenant's owner_id by reading /im/v1/me
+    me = client.get("/im/v1/me").json()
+    return seed_user_under_owner(
+        client, username=username, owner_id=me["owner_id"]
     )
-    assert response.status_code == 201
-    return response.json()["id"]
 
 
 def _create_conversation(client: TestClient, user_id: str, title: str) -> str:
@@ -25,7 +38,7 @@ def _create_conversation(client: TestClient, user_id: str, title: str) -> str:
         "/im/v1/conversations",
         json={"title": title, "participant_ids": [user_id]},
     )
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
     return response.json()["id"]
 
 
@@ -401,12 +414,7 @@ def test_direct_chat_reports_node_offline_when_relay_not_live_connected(tmp_path
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         owner_id = _create_user(client, "alice")
-        agent_user_response = client.post(
-            "/im/v1/users",
-            json={"username": "agent:ops-bot", "display_name": "Ops Bot"},
-        )
-        assert agent_user_response.status_code == 201
-        agent_user_id = agent_user_response.json()["id"]
+        agent_user_id = _create_user(client, "agent:ops-bot")
 
         profile_repo = AgentProfileRepository(app.state.connection)
         profile_repo.upsert_profile(

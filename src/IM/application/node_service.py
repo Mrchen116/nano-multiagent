@@ -27,9 +27,35 @@ class NodeService:
             for node in nodes
         ]
 
+    def list_nodes_for_owner(
+        self, *, owner_id: str, connected_node_ids: set[str] | None = None
+    ) -> list[NodeStatus]:
+        """Owner-scoped variant. Also surfaces ownerless nodes (fresh pre-bind runtimes).
+
+        A user must be able to see and bind an ownerless node advertised by a fresh
+        runtime; once bound the node carries ``owner_id`` and stops appearing for
+        other tenants.
+        """
+        nodes = self._nodes.list_nodes_for_owner(owner_id=owner_id)
+        ownerless = [item for item in self._nodes.list_nodes() if not item.owner_id]
+        merged = list(nodes) + [item for item in ownerless if item.node_id not in {n.node_id for n in nodes}]
+        return [
+            self._project_effective_node_status(node=node, connected_node_ids=connected_node_ids)
+            for node in merged
+        ]
+
     def get_node(self, *, node_id: str) -> NodeStatus | None:
         """Return one node snapshot, or None when missing."""
         return self._nodes.get_node(node_id=node_id)
+
+    def get_node_for_owner(self, *, node_id: str, owner_id: str) -> NodeStatus | None:
+        """Owner-scoped variant. Ownerless nodes are visible to any caller."""
+        node = self._nodes.get_node(node_id=node_id)
+        if node is None:
+            return None
+        if node.owner_id == owner_id or not node.owner_id:
+            return node
+        return None
 
     def update_node_config(
         self,

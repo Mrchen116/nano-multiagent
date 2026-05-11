@@ -3,9 +3,9 @@
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from IM.api.deps import get_metrics_service
+from IM.api.deps import current_user, get_metrics_service
 from IM.application.metrics_service import MetricsService
-from IM.domain.models import UsageMetric
+from IM.domain.models import UsageMetric, User
 
 router = APIRouter(tags=["metrics"])
 
@@ -43,16 +43,20 @@ def to_usage_metric_response(metric: UsageMetric) -> UsageMetricResponse:
 
 @router.get("/im/v1/metrics/usage", response_model=list[UsageMetricResponse])
 def list_usage_metrics(
-    owner_id: str | None = Query(default=None),
     conversation_id: str | None = Query(default=None),
     agent_id: str | None = Query(default=None),
+    user: User = Depends(current_user),
     service: MetricsService = Depends(get_metrics_service),
 ) -> list[UsageMetricResponse]:
-    """List aggregated token/turn usage rows for the requested scope filters."""
+    """List aggregated token/turn usage rows scoped to the caller's tenant.
+
+    ``owner_id`` is no longer accepted as a query parameter — it is always taken
+    from the authenticated subject so callers cannot probe another tenant.
+    """
     return [
         to_usage_metric_response(item)
         for item in service.list_usage(
-            owner_id=owner_id,
+            owner_id=user.owner_id,
             conversation_id=conversation_id,
             agent_id=agent_id,
         )
