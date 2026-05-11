@@ -92,10 +92,20 @@ function mockFetch(): ReturnType<typeof vi.fn> {
         sender_user_id: "u-self",
         sender_type: "user",
         content: body.content,
-        attachments: [],
+        attachments: body.attachments ?? [],
         delivery_status: "sent",
         created_at: "2026-05-01T00:00:02Z"
       });
+    }
+    if (/\/im\/v1\/uploads/.test(url) && init?.method === "POST") {
+      return jsonResponse(
+        {
+          url: "http://im.local/im/uploads/dropped.png",
+          content_type: "image/png",
+          file_name: "dropped.png"
+        },
+        { status: 201 }
+      );
     }
     return new Response("not found", { status: 404 });
   });
@@ -217,5 +227,48 @@ describe("ChatWorkspacePage v2 — integration", () => {
       expect(posted).toBeDefined();
     });
     expect(composer.value).toBe("");
+  });
+
+  it("drops an image into the composer, uploads it, and sends with attachments in the payload", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const dropZone = composer.closest("[data-dragging]") as HTMLElement;
+    expect(dropZone).toBeTruthy();
+
+    const file = new File([new Uint8Array(8)], "dropped.png", { type: "image/png" });
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.drop(dropZone, {
+      dataTransfer: { files: [file], items: [], types: ["Files"] }
+    });
+
+    const chipImg = await screen.findByRole("img", { name: "dropped.png" });
+    expect(chipImg).toHaveAttribute("src", "http://im.local/im/uploads/dropped.png");
+
+    await user.type(composer, "see image");
+    await user.click(screen.getByRole("button", { name: /Send/i }));
+
+    await waitFor(() => {
+      const sent = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent;
+      const posted = sent.find(
+        (r) => /\/conversations\/c1\/messages$/.test(r.url) && r.init?.method === "POST"
+      );
+      expect(posted).toBeDefined();
+      const body = JSON.parse(String(posted!.init!.body));
+      expect(body.attachments).toEqual([
+        {
+          url: "http://im.local/im/uploads/dropped.png",
+          content_type: "image/png",
+          file_name: "dropped.png"
+        }
+      ]);
+      expect(body.content).toBe("see image");
+    });
+
+    // composer + chip strip both reset after send
+    expect(composer.value).toBe("");
+    expect(screen.queryByRole("img", { name: "dropped.png" })).not.toBeInTheDocument();
   });
 });
