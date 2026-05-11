@@ -6,6 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "../../../i18n";
 import { createDirectConversation } from "../../chat/chat-api";
 import { AllowlistSelector } from "./allowlist-selector";
+import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { AgentConfig, getAgentDetailState, updateAgentConfig } from "./im-agent-config-api";
 
 type AgentConfigFormState = AgentConfig;
@@ -61,6 +62,7 @@ export function AgentDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  useAgentStatusBroadcastConsumer();
   const [draft, setDraft] = useState<AgentConfigFormState | null>(null);
   const [saved, setSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
