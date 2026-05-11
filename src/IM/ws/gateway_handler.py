@@ -10,12 +10,19 @@ from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from IM.api.ws.event_types import (
+    EVENT_AGENT_STATUS_CHANGED,
+    EVENT_NODE_STATUS_CHANGED,
+    build_agent_status_changed_payload,
+    build_node_status_changed_payload,
+)
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from collections.abc import Callable
 
-from IM.domain.models import Actor, ConversationEvent, Message, managed_workspace_root
+from IM.domain.models import Actor, ConversationEvent, Message, NodeStatus, managed_workspace_root
 from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, UserRepository
+from IM.ws.user_stream import UserStreamRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +66,7 @@ class GatewayHandler:
         metrics_service: MetricsService | None = None,
         conversation_repository: ConversationRepository | None = None,
         user_event_notify: Callable[[ConversationEvent], None] | None = None,
+        user_stream_registry: UserStreamRegistry | None = None,
     ) -> None:
         self._relay_service = relay_service
         self._node_repository = node_repository
@@ -71,6 +79,9 @@ class GatewayHandler:
             if conversation_repository is not None
             else None
         )
+        self._user_stream_registry = user_stream_registry
+        self._status_seq_by_owner: dict[str, int] = {}
+        self._status_seq_lock = asyncio.Lock()
         self._lock = asyncio.Lock()
         self._agent_message_lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
@@ -293,11 +304,110 @@ class GatewayHandler:
                 self._node_capabilities_waiters.pop(request_id, None)
 
     async def disconnect(self, *, node_id: str) -> None:
-        """Remove one node from the active connection map."""
+        """Remove one node from the active connection map and broadcast offline if needed."""
         async with self._lock:
             self._connections.pop(node_id, None)
-        if self._node_repository is not None:
-            self._node_repository.mark_disconnected(node_id=node_id)
+        if self._node_repository is None:
+            return
+        prior = self._node_repository.get_node(node_id=node_id)
+        agent_ids = self._list_node_agent_ids(node_id=node_id)
+        self._node_repository.mark_disconnected(node_id=node_id)
+        next_node = self._node_repository.get_node(node_id=node_id)
+        if prior is not None and next_node is not None and prior.status != next_node.status:
+            await self._broadcast_status_change(
+                owner_id=next_node.owner_id,
+                node=next_node,
+                agent_ids=agent_ids,
+            )
+
+    async def force_mark_offline(self, *, node_id: str, reason: str) -> None:
+        """Flip a stale node to offline (called by the heartbeat-timeout guard task).
+
+        Args:
+            node_id: Identifier of the node whose last heartbeat is past the timeout.
+            reason: Diagnostic tag stored as ``last_error`` to surface why it flipped.
+
+        Notes:
+            Idempotent — if the node is already offline, this is a no-op aside from
+            persisting ``last_error``. The active in-memory ``self._connections``
+            entry is also dropped, matching the WS-disconnect path semantics.
+        """
+        if self._node_repository is None:
+            return
+        prior = self._node_repository.get_node(node_id=node_id)
+        if prior is None or prior.status == "offline":
+            return
+        agent_ids = self._list_node_agent_ids(node_id=node_id)
+        async with self._lock:
+            self._connections.pop(node_id, None)
+        # Record last_error then flip to offline. mark_disconnected handles status flip;
+        # write last_error via a heartbeat-style update so it surfaces in /im/v1/nodes.
+        self._node_repository._connection.execute(  # noqa: SLF001
+            "UPDATE nodes SET last_error = ? WHERE node_id = ?",
+            (reason, node_id),
+        )
+        self._node_repository._connection.commit()  # noqa: SLF001
+        self._node_repository.mark_disconnected(node_id=node_id)
+        next_node = self._node_repository.get_node(node_id=node_id)
+        if next_node is not None and prior.status != next_node.status:
+            await self._broadcast_status_change(
+                owner_id=next_node.owner_id,
+                node=next_node,
+                agent_ids=agent_ids,
+            )
+
+    def _list_node_agent_ids(self, *, node_id: str) -> list[str]:
+        """Return agent ids currently advertised by the given node, in stable order."""
+        if self._node_repository is None:
+            return []
+        rows = self._node_repository._connection.execute(  # noqa: SLF001
+            "SELECT agent_id FROM agent_profiles WHERE node_id = ? ORDER BY agent_id",
+            (node_id,),
+        ).fetchall()
+        return [str(row["agent_id"]) for row in rows]
+
+    async def _next_status_seq(self, *, owner_id: str) -> int:
+        """Allocate one monotonically increasing seq number per owner."""
+        async with self._status_seq_lock:
+            current = self._status_seq_by_owner.get(owner_id, 0) + 1
+            self._status_seq_by_owner[owner_id] = current
+            return current
+
+    async def _broadcast_status_change(
+        self,
+        *,
+        owner_id: str,
+        node: NodeStatus,
+        agent_ids: list[str],
+    ) -> None:
+        """Push one node.status_changed (+ per-agent agent.status_changed) frame to owner WS."""
+        if self._user_stream_registry is None:
+            return
+        if not owner_id or not owner_id.strip():
+            return  # orphan node — no audience.
+        node_seq = await self._next_status_seq(owner_id=owner_id)
+        node_payload = build_node_status_changed_payload(
+            seq=node_seq,
+            node_id=node.node_id,
+            status=node.status,
+            last_heartbeat_at=node.last_heartbeat_at,
+            last_error=node.last_error,
+        )
+        await self._user_stream_registry.broadcast_to_user(
+            owner_id,
+            _encode_status_frame(event_type=EVENT_NODE_STATUS_CHANGED, payload=node_payload),
+        )
+        for agent_id in agent_ids:
+            agent_seq = await self._next_status_seq(owner_id=owner_id)
+            agent_payload = build_agent_status_changed_payload(
+                seq=agent_seq,
+                agent_id=agent_id,
+                status=node.status,
+            )
+            await self._user_stream_registry.broadcast_to_user(
+                owner_id,
+                _encode_status_frame(event_type=EVENT_AGENT_STATUS_CHANGED, payload=agent_payload),
+            )
 
     async def is_connected(self, *, node_id: str) -> bool:
         """Report whether one node currently has an active websocket."""
@@ -334,7 +444,9 @@ class GatewayHandler:
         )
         async with self._lock:
             self._connections[node_id] = connection
+        prior_node: NodeStatus | None = None
         if self._node_repository is not None:
+            prior_node = self._node_repository.get_node(node_id=node_id)
             node = self._node_repository.record_gateway_registration(
                 node_id=node_id,
                 node_name=node_name,
@@ -382,6 +494,13 @@ class GatewayHandler:
                     (node_id, agent_id),
                 )
             self._node_repository._connection.commit()
+            prior_status = prior_node.status if prior_node is not None else None
+            if prior_status != node.status:
+                await self._broadcast_status_change(
+                    owner_id=node.owner_id,
+                    node=node,
+                    agent_ids=list(agents),
+                )
         return {"type": "ack", "payload": {"message_type": "node.register", "node_id": node_id}}
 
     async def _handle_heartbeat(self, *, payload: dict[str, object]) -> dict[str, object]:
@@ -392,13 +511,21 @@ class GatewayHandler:
                 return _not_registered_error(node_id=node_id)
             connection.heartbeats.append(payload)
         if self._node_repository is not None:
-            self._node_repository.record_heartbeat(
+            prior_node = self._node_repository.get_node(node_id=node_id)
+            next_node = self._node_repository.record_heartbeat(
                 node_id=node_id,
                 reported_status=_optional_text(payload.get("status")),
                 agent_count=_optional_int(payload.get("agent_count")),
                 last_error=_optional_text(payload.get("last_error")),
                 version=_optional_text(payload.get("version")),
             )
+            prior_status = prior_node.status if prior_node is not None else None
+            if prior_status != next_node.status:
+                await self._broadcast_status_change(
+                    owner_id=next_node.owner_id,
+                    node=next_node,
+                    agent_ids=self._list_node_agent_ids(node_id=node_id),
+                )
         return {"type": "ack", "payload": {"message_type": "node.heartbeat", "node_id": node_id}}
 
     async def _handle_report(self, *, payload: dict[str, object]) -> dict[str, object]:
@@ -1180,6 +1307,16 @@ class GatewayHandler:
                 completion_tokens=usage["completion_tokens"],
                 turns=1,
             )
+
+
+def _encode_status_frame(*, event_type: str, payload: dict[str, object]) -> str:
+    """Encode one status-change frame for the browser user stream.
+
+    Mirrors ``encode_user_stream_event_frame`` shape (op=event, event_type, data)
+    so the SPA reducer can dispatch by ``event_type`` without a separate parser.
+    """
+    body = {"op": "event", "event_type": event_type, "data": payload}
+    return json.dumps(body, ensure_ascii=True, separators=(",", ":"))
 
 
 def _decode_message(raw_message: str) -> dict[str, Any]:
