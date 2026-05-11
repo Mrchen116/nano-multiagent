@@ -43,3 +43,24 @@
 - Commits: C1+C2=c7bc7cb7 (合并), C3=(本提交)
 - Next: R4 — MessagePane + ToolCallsPanel + TokenChip + MentionPicker + NodeChip。
 
+## R4 — MessagePane + ToolCallsPanel + TokenChip + MentionPicker + NodeChip
+
+- Context: 右栏消息面板需要满足:消息列表(含 tool_calls 折叠 sidecar)、composer(Enter 发送/Shift+Enter 换行)、@mention picker(只在 group / agent-network 触发)、头部 token chip(70%/90% 阈值)、node chip(在线/离线 dot)、KindBadge、⚙ Config 入口。原型 `im-chat-page.jsx` line 217-315(MessagePaneView) + line 109-133(MentionDropdown) + line 135-151(NodeChip) 是视觉契约。
+- Decision: 拆 5 个原子组件 + 1 个聚合组件:
+  - `token-chip.tsx`:三档 variant(normal/warn/critical),pct = context_used/context_window,>=0.9 critical / >=0.7 warn,usage=null 渲染 null。`button` 元素方便 hover tooltip。
+  - `tool-calls-panel.tsx`:顶层 toggle 显示 "N tool call(s)" + 任意 running 时显示 running hint;展开后每行单独可折叠 input/output(JSON.stringify)。空数组渲染 null。
+  - `mention-picker.tsx`:prefix-startsWith filter(对齐原型);`onMouseDown + preventDefault` 替代 click 防止 textarea 失焦。无匹配渲染 null(避免空 dropdown 推动 layout)。
+  - `node-chip.tsx`:online 时 chat-node-chip--online;无 nodeName 渲染 null。
+  - `message-pane.tsx`:聚合所有原子。复用 chat-types `classifyConversationKind` 判 isGroup;`MENTION_RE = /@(\w*)$/` 匹配末尾 @ 段,选中时把末段 token 替换为 `@DisplayName ` 并 focus textarea。`latestUsage` 取最后一条带 token_usage 的消息(对齐 spec — 最新状态优先)。Enter 提交 / Shift+Enter 换行。direct conversations 不激活 mention picker,即使输 @ 也不弹。
+- Rationale: 决策 5(@mention picker UI 必备)+ 决策 6(tool_call 状态可视化)+ spec Q5(mention 只在 group)+ spec Q7(token chip 三档)。组件全部受控、纯 props,不引入内部 fetch,所以 R5 chat-workspace-page 才是唯一懂 react-query / WS 的地方。
+  - prototype 在 button 内层用 div 嵌套(原 JSX);RTL 测 `getByRole("button", { name })` 时按"accessible name"匹配,所以我用 `<button>` 容纳所有 nested span 而非两层 button。
+  - tool-call OUTPUT 时 prototype 是字符串;但 wire schema 没强制 string,所以做了 `typeof === 'string'` 兜底 + JSON.stringify(非吞错,JSON.stringify 失败由 React 抛错,合规 §0.2)。
+- Evidence:
+  - Tests: `npx vitest run src/features/chat/v2/` 45/45 pass;`npx vitest run` 全套 219/219 pass。
+  - Coverage: token-chip 4 / tool-calls-panel 4 / mention-picker 4 / node-chip 3 / message-pane 6 = 21 新增 tests。
+  - Entry: 整页 integration test 留给 R5(组合 chat-workspace-page)。
+- Rollback: 删 `components/{token-chip,tool-calls-panel,mention-picker,node-chip,message-pane}.{tsx,test.tsx}`。
+- Commits: C1=d5542102, C2=71d991a5, C3=(本提交)
+- Next: R5 — chat-workspace-page 重写(react-query + WS + 桌面 / 移动响应式)。
+
+
