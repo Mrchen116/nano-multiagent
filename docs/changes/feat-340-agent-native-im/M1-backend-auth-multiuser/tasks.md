@@ -42,7 +42,7 @@ IM 后端从"单用户硬编码"切到"多用户 JWT auth + 严格 owner_id 租�
 
 ## Roadpoints
 
-### R1 — auth domain + service:用户 password_hash/locale + JWT + bcrypt
+### R1 — auth domain + service:用户 password_hash/locale + JWT + bcrypt [DONE]
 
 - 步骤:
   - 加 User.password_hash / locale 字段(domain model)
