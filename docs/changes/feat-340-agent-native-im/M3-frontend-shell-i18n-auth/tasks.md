@@ -58,7 +58,7 @@
 - 写 `app/shell/app-shell.tsx`:替换 `app/App.tsx` 现有 header,变成 48px 暗顶栏(Logo + Chat/Agents tab + UserMenu)+ 移动断点底栏(Chat/Agents/Me)
 - 写 `app/shell/user-menu.tsx`:头像 dropdown,包含 New Agent / Account / Language / Sign out
 - 测试:`app-shell.test.tsx` 验证桌面 banner + tabs + UserMenu 存在;移动断点(`useIsMobile` mock)下底栏出现、顶栏退化
-- 状态:TODO
+- 状态:DONE
 
 ### R5 — Me 聚合页 + i18n 切换实际生效 + 移除 hardcoded owner-1001
 
