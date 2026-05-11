@@ -65,4 +65,14 @@ describe("MePage", () => {
     expect(useAuthStore.getState().user).toBeNull();
     expect(screen.getByTestId("login-page")).toBeInTheDocument();
   });
+
+  it("notification toggle persists preference to localStorage", async () => {
+    renderMe();
+    const toggle = screen.getByRole("checkbox", { name: /notifications|通知/i });
+    expect(toggle).not.toBeChecked();
+    await userEvent.click(toggle);
+    expect(localStorage.getItem("im_notifications_enabled")).toBe("1");
+    await userEvent.click(toggle);
+    expect(localStorage.getItem("im_notifications_enabled")).toBe("0");
+  });
 });
