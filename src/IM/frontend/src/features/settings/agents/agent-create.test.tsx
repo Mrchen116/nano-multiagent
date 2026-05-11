@@ -121,13 +121,13 @@ describe("agent create page (three-card)", () => {
 
     expect(screen.getByLabelText(/Owning Node/i)).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the personal_assistant default template.");
+      expect(screen.getByLabelText(/^System Prompt/)).toHaveValue("You are the personal_assistant default template.");
     });
 
-    fireEvent.change(screen.getByLabelText("Agent ID"), { target: { value: "agent-new" } });
-    fireEvent.change(screen.getByLabelText("Display Name"), { target: { value: "Agent New" } });
+    fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
+    fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "runtime-created helper" } });
-    fireEvent.change(screen.getByLabelText("System Prompt"), { target: { value: "You are Agent New." } });
+    fireEvent.change(screen.getByLabelText(/^System Prompt/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Default Model"), "moonshotAnthropic:kimi-k2.5");
@@ -190,7 +190,7 @@ describe("agent create page (three-card)", () => {
     renderCreatePage();
 
     await screen.findByRole("heading", { name: /New agent/i });
-    const promptInput = screen.getByLabelText("System Prompt");
+    const promptInput = screen.getByLabelText(/^System Prompt/);
     fireEvent.change(promptInput, { target: { value: "" } });
     await user.click(screen.getByRole("button", { name: /Create agent/i }));
 
@@ -232,9 +232,9 @@ describe("agent create page (three-card)", () => {
 
     renderCreatePage();
 
-    fireEvent.change(await screen.findByLabelText("Agent ID"), { target: { value: "agent-new" } });
-    fireEvent.change(screen.getByLabelText("Display Name"), { target: { value: "Agent New" } });
-    fireEvent.change(screen.getByLabelText("System Prompt"), { target: { value: "You are Agent New." } });
+    fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
+    fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
+    fireEvent.change(screen.getByLabelText(/^System Prompt/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /Create agent/i }));
 
     expect(await screen.findByText(/409.*agent already exists/i)).toBeInTheDocument();
