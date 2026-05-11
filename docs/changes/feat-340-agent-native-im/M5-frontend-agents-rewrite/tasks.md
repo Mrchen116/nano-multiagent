@@ -55,14 +55,14 @@ dirty 检测正确驱动 Save/Discard;详情顶部 Open chat ↗ 跳直聊。
   4. 沿用 `AllowlistSelector` 但 wrap 进新 Section 样式
 - 验证:打开详情、改字段触发 dirty、Save PATCH、Discard 回滚、Open chat 跳转
 
-### R3 — create page three-card rewrite
+### R3 — create page three-card rewrite — DONE
 
 - 步骤:
   1. 重写 `agent-create-page.tsx`:三卡(Identity 含 Owning Node 下拉、Behavior、Access&Model)
   2. 必填校验 + Save 后跳详情
 - 验证:Save 成功跳 `/settings/agents/:newId`,失败显示错误
 
-### R4 — i18n: zh translations + UI 切换断言 — DOING
+### R4 — i18n: zh translations + UI 切换断言 — DONE
 
 - 步骤:
   1. 在 `en.json` / `zh.json` 增量追加 `agents.*` namespace 全部 key
