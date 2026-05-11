@@ -86,7 +86,8 @@ describe("app routes", () => {
   });
 
   it("declares the root entry redirect to /chat", () => {
-    const rootIndexRoute = appRoutes[0]?.children?.find((route) => route.index);
+    const rootRoute = appRoutes.find((route) => route.path === "/");
+    const rootIndexRoute = rootRoute?.children?.find((route) => route.index);
     const rootElement = rootIndexRoute?.element;
 
     expect(rootIndexRoute).toBeDefined();
