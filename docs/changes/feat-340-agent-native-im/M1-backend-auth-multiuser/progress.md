@@ -80,6 +80,23 @@
 - Commits: C1=c4eb179, C2=4c0ca50, C3 待跟进
 - Next: R5(WS token 鉴权)→ R6(init_admin CLI + 跨租户 e2e)→ R7(收尾、合并到 unit 分支)
 
+## R5 — `/im/ws/user` JWT 鉴权
+
+- Context: R4 把 HTTP 路由全切到 token 之后,WS 入口 `/im/ws/user?user_id=` 还在用明文 user_id,等于一个没鉴权的后门(任意人填别人的 user_id 都能订阅)。R5 把它接到 AuthService 上。
+- Decision:
+  - WS 优先接受 `?token=<jwt>` query 解 user_id(浏览器 WS 无法可靠传 Authorization header,token 走 query 是 starlette/FastAPI 上唯一稳定的选项;`Sec-WebSocket-Protocol: bearer.<jwt>` 暂未实现,留作前端工程师按需开启)
+  - 无 token 但有 `?user_id=` 的旧路径暂保留 兼容,但写注释标"R5 后续要拆";不破坏 M2 worker 的桥接测试
+  - 无 token 也无 user_id 或 token 无效 → `close(code=1008)`(starlette 把它翻译成 `WebSocketDisconnect`)
+- Rationale:
+  - 完全删 `?user_id=` 会让 R4 阶段尚未跟进的几个旧测试(pre-existing PA 桥接相关)死得更难看;桥接修好那条线路属于 M2 后续,不应在 M1 内一锤子改
+  - Token 走 query 而非 protocol:浏览器原生 `new WebSocket(url)` 无法塞 header / cookie 不会从 wss 跨域带过来,query 是最普适方案
+- Evidence:
+  - `tests/im_service/integration/test_user_stream_auth.py` 3 个测试:无 token 关闭、垃圾 token 关闭、有效 token 收到 resume 回放
+  - IM 全套:**174 passed**(R4 末 171,新增 3 个);8 个 pre-existing PA 桥接失败不变
+- Rollback: revert C2(4d530f0)
+- Commits: C1=48746e2, C2=4d530f0, C3 待跟进
+- Next: R6 — init_admin CLI + cross-tenant isolation e2e
+
 ## [Handoff after R3] 余下工作清单(供下一 worker 继续)
 
 实现期内 budget 限制,M1 在 R3 截止。下面的 roadpoint 由后续 worker 接同一 worktree+branch 续跑(`change-impl-worker` 的"继续派发"语义):

@@ -78,7 +78,7 @@ IM 后端从"单用户硬编码"切到"多用户 JWT auth + 严格 owner_id 租�
   - 改既有测试 fixture:加 `register_and_login()` helper 在每个 IM 集成测试里建 user + 拿 token + 注入 header
 - 验证: `pytest tests/im_service -k "not e2e and not personal_assistant"` 全绿
 
-### R5 — WS owner-scoped 广播 + token query / protocol 鉴权
+### R5 — WS owner-scoped 广播 + token query / protocol 鉴权 [DONE]
 
 - 步骤:
   - `serve_user_websocket`:从 `?token=` query(开发环境最简)或 `Sec-WebSocket-Protocol` 拿 token 解出 user_id;无效 → close 1008
