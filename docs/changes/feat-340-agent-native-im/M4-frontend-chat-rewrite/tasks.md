@@ -43,7 +43,7 @@
 
 - 步骤: 写 `chat-types.ts`(对齐 M2 WS payload + 后端 message schema)、`chat-api.ts`(authFetch 封装,conversations 列表 / 单会话 / 历史消息 / 创建消息 / 创建群聊 / 列出 mention 候选 agents)、删除 `mock-chat-api.ts` 中无依赖部分
 - 验证: 单元测试每个 API 函数(stub fetch);verify URL/method/payload/error;cover 401 路径(authFetch 已经处理)
-- 状态: TODO
+- 状态: DONE
 
 ### R2 — chat-stream-reducer + WS 订阅
 
