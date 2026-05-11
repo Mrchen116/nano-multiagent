@@ -22,7 +22,14 @@ export interface AccountProfile {
   owner_id: string;
   owned_node_ids: string[];
   default_entry_node_id: string | null;
+  locale: string;
   created_at: string;
+}
+
+export interface UpdateAccountInput {
+  display_name: string;
+  default_entry_node_id: string | null;
+  locale?: string;
 }
 
 export interface PolicyProfile {
@@ -84,15 +91,15 @@ export async function getAccount() {
   return requestJson<AccountProfile>(`/im/v1/me`);
 }
 
-export async function updateAccount(
-  next: Pick<AccountProfile, "display_name" | "default_entry_node_id">
-) {
+export async function updateAccount(next: UpdateAccountInput) {
+  const body: Record<string, unknown> = {
+    display_name: next.display_name,
+    default_entry_node_id: next.default_entry_node_id
+  };
+  if (next.locale !== undefined) body.locale = next.locale;
   return requestJson<AccountProfile>(`/im/v1/me`, {
     method: "PATCH",
-    body: JSON.stringify({
-      display_name: next.display_name,
-      default_entry_node_id: next.default_entry_node_id
-    })
+    body: JSON.stringify(body)
   });
 }
 
