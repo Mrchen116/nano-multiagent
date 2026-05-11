@@ -67,6 +67,28 @@
     "empty": "Nothing here yet."
   },
   "settings": {
+    "nodes": {
+      "title": "Nodes",
+      "loading": "Loading nodes…",
+      "empty": "No nodes connected yet.",
+      "aliasLabel": "Alias {{nodeId}}",
+      "liveSnapshot": "Live Snapshot",
+      "heartbeat": "Heartbeat",
+      "version": "Version",
+      "lastError": "Last Error",
+      "relayEnabled": "Relay Enabled",
+      "reportingEnabled": "Reporting Enabled",
+      "save": "Save {{nodeId}}",
+      "saving": "Saving…",
+      "createAgentOn": "Create agent on {{nodeId}}",
+      "agentsOnNode": "Agents on this node",
+      "agentsOnNodeEmpty": "No agents on this node yet.",
+      "liveName": "live name: {{name}}",
+      "agentsCount": "agents: {{count}}",
+      "statusOnline": "online",
+      "statusOffline": "offline",
+      "statusDegraded": "degraded"
+    },
     "account": {
       "title": "Account",
       "identity": {
