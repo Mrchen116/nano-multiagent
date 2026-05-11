@@ -82,5 +82,24 @@
 - Commits: C1=de2c2b2b, C2=02697458, C3=(本提交)
 - Next: R6 — 切断 legacy `/im/v1/users` + 删 WorkspaceTabs orphan + 清 legacy chat 文件残骸。
 
+## R6 — 删 legacy chat-workspace + orphan 文件 + 加 legacy-isolation 回归门禁
+
+- Context: M4 退出标准要求 `ensureSelfUser` 与 `/im/v1/users` 完全切断、旧 `chat-workspace-page` / `chat-overview-page` / `chat-detail-page` 残余清除、`components/workspace-tabs.tsx`(M3 标记 orphan)删除。
+- Decision:
+  - 删 5 个文件:`features/chat/chat-workspace-page.{tsx,test.ts}`、`features/chat/chat-overview-page.tsx`、`features/chat/chat-detail-page.tsx`、`components/workspace-tabs.tsx`。
+  - 不动 `chat-api.ts` / `im-chat-api.ts` —— settings/agents 还在用它们(`createDirectConversation` / `getConversationPreviewSnapshot` / `confirmBindToken`),要等 M5(agents-rewrite)和 M6(nodes-rewrite)把这些依赖剥离后才能整体删除。这是显式的范围分割,不是遗漏。
+  - 加 `v2/legacy-isolation.test.ts` 作为 contract test:扫描 `features/chat/v2/` 所有非测试源文件,断言无 `/im/v1/users` 字符串、无对 `im-chat-api` / `chat-api` / `mock-chat-api` 的 import。未来若有人偷偷把 legacy 引回 v2,vitest 立即失败。
+- Rationale: 范围控制 + 回归门禁双保险。代码删了不写门禁,半年后有人误"复用"legacy 又会重新长出依赖。门禁写死才是真切断。
+  - 这一 R 严格按 Red→Green→Refactor 流程不太自然(测试一上来就 Green,因为代码已经干净);但 contract test 的价值是回归门禁,本身值得 commit。在 progress 中显式说明这点,reviewer 不必当作"假 Red"误判。
+- Evidence:
+  - Tests: `npx vitest run` 175/175 pass(从 214 减 39 是 legacy `chat-workspace-page.test.ts` 单元测试集消失。)
+  - 新增:`legacy-isolation.test.ts` 2/2 pass。
+  - tsc: `npx tsc -b` 无报错。
+  - Grep 验证:`grep -rn "/im/v1/users" src/IM/frontend/src/features/chat/v2/` 空;`grep -rn "ensureSelfUser" src/IM/frontend/src/features/{auth,me,settings}/` 空(legacy `im-chat-api.ts` 内部还在调,但已无路由引用)。
+- Rollback: `git revert <C2 hash>` 即可恢复 5 个删除文件;若 contract test 误伤新代码可单独 revert C1。
+- Commits: C1=26742f7c, C2=118c97cb, C3=(本提交)
+- Next: R7 — i18n 增量 + 最终 tsc + 全套测试 + 入口验证。
+
+
 
 

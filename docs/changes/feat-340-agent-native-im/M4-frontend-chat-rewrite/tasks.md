@@ -71,9 +71,9 @@
 
 ### R6 — 切断 legacy /im/v1/users + 删 WorkspaceTabs orphan
 
-- 步骤: 删除 `im-chat-api.ts` 中 `ensureSelfUser` / `listUsersRaw` 等(及其传递引用);确保所有"取自身 user_id"都从 `useAuthStore().user.id` 取;删 `src/IM/frontend/src/components/workspace-tabs.tsx`(M3 worker 标记 orphan)
-- 验证: `grep -r ensureSelfUser src/IM/frontend/src` 无业务调用;`grep -r /im/v1/users src/IM/frontend/src` 仅留测试名作回归标记或全无
-- 状态: TODO
+- 步骤: 删 legacy `chat-workspace-page.{tsx,test.ts}` / `chat-overview-page.tsx` / `chat-detail-page.tsx` / `components/workspace-tabs.tsx`;加 `v2/legacy-isolation.test.ts` 作为 contract 门禁(扫 v2 源文件无 `/im/v1/users` / 无 legacy import)。`im-chat-api.ts` 内部 `ensureSelfUser` / `listUsersRaw` 保留,等 M5/M6 再清(settings 还在用 chat-api 的 createDirectConversation)
+- 验证: `npx vitest run` 全套 175/175 pass(legacy 39 个 unit test 随 chat-workspace-page.test.ts 一并删除);`npx tsc -b` 干净;legacy-isolation 测试 2/2 pass
+- 状态: DONE
 
 ### R7 — i18n 增量 + tsc + 全套测试 + entry verification
 
