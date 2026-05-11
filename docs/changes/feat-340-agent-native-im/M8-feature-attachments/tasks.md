@@ -49,7 +49,7 @@
   - `src/IM/frontend/src/features/chat/attachments/attachment-chip.tsx`:图片缩略 / 文件 icon + name + onRemove
   - `src/IM/frontend/src/features/chat/attachments/attachment-dropzone.tsx`:`onDragOver` / `onDrop` 包装容器,emit `files`
 - 验证:vitest unit 9 tests
-- 状态: TODO
+- 状态: DONE
 
 ### R3 — MessagePane composer 接 dropzone + chip 列表 + onSend 携带
 
@@ -57,14 +57,14 @@
   - 在 `message-pane.tsx`:textarea 外包 `AttachmentDropzone`,状态 `pendingAttachments: Attachment[]`,handleSubmit 把 attachments 传给 `onSend(text, attachments)`;chip 列表渲染在 composer 上方
   - 兼容现有 `onSend(text)` 签名:扩展为 `onSend(text: string, attachments?: Attachment[])`
 - 验证:vitest 增加 message-pane 测试
-- 状态: TODO
+- 状态: DONE
 
 ### R4 — MessageBubble 渲染 attachments
 
 - 步骤:
   - `message-pane.tsx` `MessageBubble`:`message.attachments` 中 `content_type` 以 `image/` 开头 → `<img>` 缩略;否则 `<a>` 含 file_name
 - 验证:vitest 单测
-- 状态: TODO
+- 状态: DONE
 
 ### R5 — chat-workspace-page 接通 + integration test
 
@@ -72,4 +72,4 @@
   - `chat-workspace-page.tsx` 把 `onSend` 改成 `(text, attachments)` 传给 `createMessage({ ..., attachments })`
   - integration test 增量:模拟 fetch upload + send → 验证 chip + attachments POST payload
 - 验证:vitest integration 跑通
-- 状态: TODO
+- 状态: DONE
