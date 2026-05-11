@@ -40,7 +40,7 @@
   - 在 `create_message`:校验 `len(payload.attachments) <= 5` → 400 (走 `map_message_write_error`)
 - 验证:
   - 新增 4 个 integration test
-- 状态: TODO
+- 状态: DONE
 
 ### R2 — 前端 attachments hook + 原子组件 (useAttachmentUpload / AttachmentChip / AttachmentDropzone)
 
