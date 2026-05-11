@@ -26,7 +26,7 @@
 
 ## Roadpoints
 
-### R1 — Domain + Persistence
+### R1 — Domain + Persistence — DONE
 
 - 步骤:
   - `Message` 加 `tool_calls: list[ToolCall] | None = None` + `token_usage: TokenUsage | None = None`(可空,旧 message 默认 None)。
