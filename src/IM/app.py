@@ -348,24 +348,18 @@ def create_app(
         Auth(feat-340-M1 R5): user identity is derived from the bearer token passed
         as ``?token=<jwt>`` (FastAPI/Starlette WS hooks do not expose
         ``Authorization`` headers reliably). Invalid or missing tokens close 1008.
-        The legacy ``?user_id=`` parameter is honored as a fallback only when
-        ``token`` is absent — kept temporarily so M2 worker tests don't break;
-        it will be removed in a follow-up before the unit lands.
         """
         from IM.application.auth_service import InvalidTokenError
 
         raw_token = (websocket.query_params.get("token") or "").strip()
-        if raw_token:
-            try:
-                user_id = app.state.auth_service.verify_access_token(raw_token)
-            except InvalidTokenError:
-                await websocket.close(code=1008)
-                return
-        else:
-            user_id = (websocket.query_params.get("user_id") or "").strip()
-            if not user_id:
-                await websocket.close(code=1008)
-                return
+        if not raw_token:
+            await websocket.close(code=1008)
+            return
+        try:
+            user_id = app.state.auth_service.verify_access_token(raw_token)
+        except InvalidTokenError:
+            await websocket.close(code=1008)
+            return
         await serve_user_websocket(
             websocket=websocket,
             connection=app.state.connection,

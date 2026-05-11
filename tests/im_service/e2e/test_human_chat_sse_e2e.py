@@ -47,7 +47,7 @@ def test_human_chat_chain_and_user_stream_incremental(tmp_path: Path) -> None:
         assert first_msg.status_code == 201
         assert second_msg.status_code == 201
 
-        with client.websocket_connect(f"/im/ws/user?user_id={alice_id}") as websocket:
+        with client.websocket_connect(f"/im/ws/user?token={alice.access_token}") as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             initial_events: list[dict[str, object]] = []
             while len(initial_events) < 4:
