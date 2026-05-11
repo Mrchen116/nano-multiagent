@@ -49,7 +49,7 @@
 
 - 步骤: 写 `chat-stream.ts`(打开 `/im/ws/user`,带 Authorization,断线重连;转发原始 WS 事件给监听者)+ `chat-stream-reducer.ts`(纯函数,接受一个 conversation 当前 messages 状态 + WS event → 新状态)
 - 验证: reducer 100% 单元覆盖(一系列事件 sequence → 期望快照);stream 模块 with mocked WebSocket → 断言连接 URL、消息派发
-- 状态: TODO
+- 状态: DONE
 
 ### R3 — ConversationList + 分类标签 + 搜索 + NewGroupModal
 
