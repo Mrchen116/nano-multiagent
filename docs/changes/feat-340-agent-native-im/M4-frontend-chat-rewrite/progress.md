@@ -100,6 +100,23 @@
 - Commits: C1=26742f7c, C2=118c97cb, C3=(本提交)
 - Next: R7 — i18n 增量 + 最终 tsc + 全套测试 + 入口验证。
 
+## R7 — i18n + tsc + 全套测试通过
+
+- Context: M4 收尾。退出标准两条:`vitest run` 全绿、`tsc -b` 通过。i18n EN/中文 chat namespace 已由 R3 一并补齐(`list` / `kindBadge` / `newGroup` / `messagePane` / `mention`),R4 引入的 token / tool-call / mention / config 文案都已落在那一轮(原型化设计:R3 写组件前先把整个 chat namespace 文案表填好,后续 roadpoint 直接 t() 即可)。
+- Decision:
+  - 不再追加 i18n key —— R3 提交时已经把整个 chat namespace 一次性写满(53 个 key,EN/中文双写)。后续 roadpoint 复查时无缺。
+  - `legacy-isolation.test.ts` 用 `node:fs`/`node:path`/`node:url`,但 `@types/node` 未在 frontend tsconfig 安装,tsc 报错。修法:三行 `@ts-expect-error` 注释逐行抑制,而不是引入 `@types/node`(那会扩大 lint 面、且 vitest 已经在 node runtime 跑这些代码)。
+  - 这一 R 没有"新功能",只有 tsc 修复 + 全套验证;为遵循三提交契约把 C1 测试和 C2 实现合并为单 commit(fix),C3 走 docs。skill §3 允许"R 太小不够拆出三档时合并"。
+- Rationale: 决策 7(国际化 EN/中 双写)+ 退出标准。i18n key 一次写完比逐 roadpoint 增量补更不容易漏。
+- Evidence:
+  - tsc: `npx tsc -b` 干净退出(0 error)。
+  - vitest: 全套 177/177 pass(40 个 test files)。其中 chat v2 surface: chat-api 5 / chat-stream-reducer 6 / chat-stream 3 / conversation-sidebar 6 / new-group-modal 4 / token-chip 4 / tool-calls-panel 4 / mention-picker 4 / node-chip 3 / message-pane 6 / chat-workspace integration 3 / legacy-isolation 2 = 50 个 v2 测试。
+  - 入口验证:`chat-workspace.integration.test.tsx` 是 SPA 顶层入口的真实测试(MemoryRouter + QueryClient + 替身 fetch/WS),已覆盖"打开会话 → 看历史 → WS 流 → 发消息"完整链路。本地 vite dev 起服跳过(M10 backend-status-broadcast 还在跑,backend WS 可能不完整;reviewer 阶段联调验)。
+- Rollback: revert C2 即可(只是一个 @ts-expect-error 注释)。
+- Commits: C1+C2=fd8edc40 (合并), C3=(本提交)
+- Next: M4 全部 roadpoint DONE,准备合并到 unit 集成分支。
+
+
 
 
 
