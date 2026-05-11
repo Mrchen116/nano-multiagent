@@ -1,9 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import "../../../../i18n";
-import type { Conversation, MentionCandidate, Message } from "../chat-types";
+import type { Attachment, Conversation, MentionCandidate, Message } from "../chat-types";
 import { MessagePane } from "./message-pane";
 
 const DIRECT_CONV: Conversation = {
@@ -108,7 +108,103 @@ describe("MessagePane", () => {
     const composer = screen.getByRole("textbox");
     await user.type(composer, "  hello world  ");
     await user.click(screen.getByRole("button", { name: /Send/i }));
-    expect(onSend).toHaveBeenCalledWith("hello world");
+    expect(onSend).toHaveBeenCalledWith("hello world", []);
+  });
+
+  it("uploads dropped files and surfaces chips in the composer", async () => {
+    const onSend = vi.fn();
+    const uploaded: Attachment = {
+      url: "http://im.local/im/uploads/dropped.png",
+      content_type: "image/png",
+      file_name: "dropped.png"
+    };
+    const uploader = vi.fn(async (_file: File): Promise<Attachment> => uploaded);
+    render(
+      <MessagePane
+        conversation={DIRECT_CONV}
+        messages={[]}
+        mentionCandidates={[]}
+        onSend={onSend}
+        uploadAttachment={uploader}
+      />
+    );
+    const composer = screen.getByRole("textbox");
+    await userEvent.type(composer, "see image");
+
+    const file = new File([new Uint8Array(4)], "dropped.png", { type: "image/png" });
+    const dropZone = composer.closest("[data-dragging]") as HTMLElement;
+    fireEvent.drop(dropZone, {
+      dataTransfer: { files: [file], items: [], types: ["Files"] }
+    });
+
+    // wait for chip to render after upload resolves
+    const chipImg = await screen.findByRole("img", { name: "dropped.png" });
+    expect(chipImg).toBeInTheDocument();
+    expect(uploader).toHaveBeenCalledWith(file);
+
+    await userEvent.click(screen.getByRole("button", { name: /Send/i }));
+    expect(onSend).toHaveBeenCalledWith("see image", [uploaded]);
+
+    // After send, chips should clear
+    expect(screen.queryByRole("img", { name: "dropped.png" })).not.toBeInTheDocument();
+  });
+
+  it("removes a pending attachment when its chip × is clicked", async () => {
+    const uploaded: Attachment = {
+      url: "http://im.local/im/uploads/a.pdf",
+      content_type: "application/pdf",
+      file_name: "a.pdf"
+    };
+    const uploader = vi.fn(async () => uploaded);
+    render(
+      <MessagePane
+        conversation={DIRECT_CONV}
+        messages={[]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+        uploadAttachment={uploader}
+      />
+    );
+    const composer = screen.getByRole("textbox");
+    const dropZone = composer.closest("[data-dragging]") as HTMLElement;
+    fireEvent.drop(dropZone, {
+      dataTransfer: {
+        files: [new File([new Uint8Array(4)], "a.pdf", { type: "application/pdf" })],
+        items: [],
+        types: ["Files"]
+      }
+    });
+    const removeBtn = await screen.findByRole("button", { name: /Remove a\.pdf/i });
+    await userEvent.click(removeBtn);
+    expect(screen.queryByText("a.pdf")).not.toBeInTheDocument();
+  });
+
+  it("renders received-message attachments inside the bubble (image + doc)", () => {
+    const withAttach: Message = {
+      ...SAMPLE_MESSAGES[1]!,
+      id: "m3",
+      content: "see",
+      attachments: [
+        { url: "http://im.local/im/uploads/x.png", content_type: "image/png", file_name: "x.png" },
+        { url: "http://im.local/im/uploads/y.pdf", content_type: "application/pdf", file_name: "y.pdf" }
+      ]
+    };
+    render(
+      <MessagePane
+        conversation={DIRECT_CONV}
+        messages={[withAttach]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+      />
+    );
+    expect(screen.getByRole("img", { name: "x.png" })).toHaveAttribute(
+      "src",
+      "http://im.local/im/uploads/x.png"
+    );
+    expect(screen.getByText("y.pdf").closest("a")).toHaveAttribute(
+      "href",
+      "http://im.local/im/uploads/y.pdf"
+    );
   });
 
   it("shows mention picker after typing '@' inside a group conversation", async () => {
