@@ -33,7 +33,7 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | notification-api 封装(权限/show/click) | TODO |
+| R1 | notification-api 封装(权限/show/click) | DONE |
 | R2 | document-visibility 订阅 + 谓词 | TODO |
 | R3 | agent-completion-notifier(订 WS + 综合 gating + 点击聚焦/跳转) | TODO |
 | R4 | App.tsx 挂载 + Me 页 toggle | TODO |
