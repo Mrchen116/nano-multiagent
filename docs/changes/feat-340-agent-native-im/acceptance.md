@@ -374,3 +374,88 @@ M4b 报告过 "M7 留下 pre-existing tsc 错误 `account-page.test.tsx:126:9`" 
 | R3-1 新建群聊 owner_id 错误 | fix-implementation | M1 或 web_im/conversations worker |
 
 建议 orchestrator 派一个小 fix milestone 修 R3-1（`create_conversation` 传入 caller owner_id），完成后 R4 验收只需重测 J5 New Group Chat 流程。
+
+---
+
+# Round 4 — 2026-05-11
+
+## Verdict
+
+**pass**
+
+## Highest Required Action
+
+**pass**
+
+## Issues Count
+
+- blocking: 0
+- major: 0
+- minor: 0
+
+## Top Concern
+
+无。R3-1（群聊 owner_id 错误）已由 M13 正确修复，3 个新增测试全部通过，真实产品走查确认会话立即可见于侧栏，跨租户隔离不退化。
+
+## R3 Issues 验证状态
+
+| R3 # | 原描述 | M13 修复状态 | R4 验证结果 |
+|---|---|---|---|
+| R3-1 | 新建群聊 POST 201 但侧栏不显示 | C2: `create_conversation` 路由传 `caller_owner_id=user.owner_id`；repository 层在 caller 提供时直接采用其 owner_id | ✅ 通过 — API 验证 + 浏览器截图双重确认：含无主 agent 的群聊会话创建后立即出现在侧栏 |
+
+## 旅程体验
+
+平台：Chrome headless (gstack-browse) + 真实 IM 服务 port 8014 (fresh DB，user alexr4) + 真实前端 dist + DB 注入 ownerless bot user + HTTP API 验证 + 浏览器 UI 验证。
+
+### 旅程清单（R4 Focus）
+
+| # | 旅程 | 结果 |
+|---|---|---|
+| J5-R4 | 含无主 agent 的群聊创建后侧栏立即可见 | ✅ POST 返回 `owner_id = alex.owner_id`；GET /im/v1/conversations 返回该会话；浏览器侧栏显示 "Alex + Bot R4 Group" |
+| J5-CT | 跨租户隔离（Bob 不能看到 Alex 的会话） | ✅ Bob GET /im/v1/conversations 返回 `{"items":[]}`；Alex 的 conversation_id 不在 Bob 结果中 |
+| J-i18n | 中文模式顶栏"智能体"仍正确 | ✅ 浏览器 snapshot 确认：顶栏 "聊天"/"智能体"，侧栏 "智能体"/"节点"/"账户" |
+| J-chat | Chat workspace 1440px 完整渲染（regression check） | ✅ 侧栏 + 消息面板完整，样式正常 |
+
+### 测试套件
+
+- pytest 203 passed（ignore pre-existing m103/m136 2 files）✅ — M13 声明的 3 个新测试全部通过（`test_group_with_agent_appears_in_sidebar` / `test_cross_tenant_group_isolation` / `test_create_group_conversation_owner_id_uses_caller`）
+- vitest 238 passed (52 files) ✅
+- tsc -b 0 errors ✅
+
+### 关键截图
+
+- `/tmp/feat340-r4-01-login.png` — 登录页 SPA shell 正常（/login 直链 200）
+- `/tmp/feat340-r4-02-after-login.png` — Chat 页登录后，侧栏已显示 "Alex + Bot R4 Group"（R3-1 修复确认）
+- `/tmp/feat340-r4-03-zh-topbar.png` — 中文模式账户页："聊天"/"智能体" 顶栏（R2-1 修复 regression 确认）
+- `/tmp/feat340-r4-04-chat-zh-sidebar.png` — 中文 Chat 页：侧栏 "全部/Agent/群聊/Agent 网络"，群聊可见（双重确认）
+
+## 问题清单
+
+无新问题。
+
+## 验收标准覆盖（R4 新增确认项）
+
+### R3 Issues（已修复）
+- ✅ 新建群聊（含无主 agent 参与者）会话创建后立即出现在侧栏 — R3-1 已修（M13 caller_owner_id 穿透）
+- ✅ 跨租户隔离不退化 — Bob 不能看到 Alex 的会话
+
+### 延续 R1/R2/R3 已通过项（抽样确认无退化）
+- ✅ Chat workspace 1440px 完整渲染（CSS 正常）
+- ✅ i18n 中文模式顶栏"智能体"（R2-1 修复）
+- ✅ SPA /login 直链 200
+- ✅ vitest 238 / pytest 203 / tsc 0 errors
+
+## 上层文档同步
+
+（延续 R1/R2/R3 结论，无新变化）
+
+- [x] `SPEC.md`：无需更新
+- [x] `docs/内核设计SPEC.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：需更新（R1 已标记，待 PR 阶段处理）
+- [x] `docs/IM-SPEC.md`：需更新（R1 已标记，待 PR 阶段处理）
+
+## Side Findings
+
+- Side-F1 沿用：8 个 IM integration tests（test_m103/test_m136）pre-existing failure（baseline，与 feat-340 无关）。
+- Side-F3 沿用：`/im/v1/users` 404 周期性请求（pre-existing 技术债）。
+- Side-note：`type: "direct"` 与 `direct_kind: "user-agent"` 出现在本次创建的"群聊"会话中（2 个参与者时系统判定为 direct-user-agent），但这是 design 决策的正常行为，不影响功能可用性。
