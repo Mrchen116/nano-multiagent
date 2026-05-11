@@ -56,6 +56,30 @@
 - Commits: C1=e245862, C2=9e464f0, C3 待跟进
 - Next: R4(剩余):把路由层切到 `current_user` 派发的 owner_id;并发文 issue 提示 reviewer/orchestrator
 
+## R4 — IM routes 全部切到 current_user;remove /im/v1/users
+
+- Context: R3 把数据层 owner-scoped 读方法铺好后,真正把"路由按 token 派发的 owner_id 过滤数据"这一层接通才能形成端到端的多租户隔离。同时 legacy 单用户 fixture (`POST /im/v1/users`) 必须移除,避免出现"没 token 也能造用户"的口子。
+- Decision:
+  - 全部 9 个数据面路由 (account.me/update_me/bind, web_im.list/get/update/delete_conversation + leave + sync, messages.create/list + uploads, agents.list/get/get_capabilities/patch, nodes.list/get_capabilities/create_node_agent/update_node_config, metrics.list_usage) 加 `user: User = Depends(current_user)`,owner_id 从 token 派发。
+  - 跨租户访问统一翻 **404** (不抛 403/不暴露资源是否存在)——design §2a 的存在性 oracle 规约。
+  - `delete_conversation` 不再读 `DeleteConversationRequest.requester_id`(模型直接删);从 token 取 requester_id。
+  - `bind_device` confirm 不再读 body `user_id`;从 token 取。
+  - 删 `src/IM/api/routes/users.py` 文件 + app.py 不再 include 该 router。
+  - **ownerless 资源策略**:fresh runtime 上报的 `owner_id=""` 节点 / agent 对任何已登录用户可见 + 可绑定(`list_runtime_selectable_profiles_for_owner` / `list_nodes_for_owner` / `get_*_for_owner` 都把 `owner_id=""` 列入 OR 条件)。一旦 bind 完成 owner_id 写入,其他租户立即看不到。
+  - 添加 `WebIMService.{list,get}_conversations_for_owner` / `ConfigService.{list,get_*}_for_owner` / `NodeService.{list,get}_*_for_owner` 应用层薄包装。
+  - 删 `/im/v1/metrics/usage?owner_id=` query 参数 — 改为从 token 强派发(避免一个用户拿别人 owner_id 来探测)。
+- Rationale:
+  - 现有 test 体量大(9 集成 + 7 contract + 1 e2e),为了不重写所有 fixture,引入 `tests/im_service/_auth_helpers.py` 共享 helper(register_user / authorize / seed_user_under_owner / register_and_authorize);老 `_create_user` helper 改造成"第一次调用 register+authorize、后续调用 seed under tenant"(保持调用语义,迁移成本最低)。
+  - 选 404 而非 403:design §2a 写明 — 让客户端无法用 status code 探测"是否存在"。
+  - `_load_owner_scoped_conversation` 在 web_im 内部、`_assert_conversation_in_owner_scope` 在 messages 内部:owner 校验放在路由层、SQL 层的 `_for_owner` 是兜底,两层防御。
+- Evidence:
+  - 新文件 `tests/im_service/integration/test_routes_require_auth.py` 12 个测试覆盖:`/me 401`, `/conversations 401`, `/agents 401`, `/nodes 401`, `/metrics 401 + 强制 token-owner`, 跨租户 conversation 404, 跨租户 message 404, legacy `/im/v1/users` 404/405。全部由 Red(C1)→ Green(C2)。
+  - 整 IM 套件:**171 passed, 8 failed**。8 failure 与 pre-existing 完全一致(`_FakeKernelClient.submit_message` PA 桥接破损,M1 前已存在,已在 progress.md handoff 段列出)。R3 之前是 130 passed → R4 后 171 passed,无回归。
+  - 入口测试覆盖:test_routes_require_auth.py 跑真实 HTTP request 经 FastAPI dep + AuthService.verify_access_token → 真 DB owner_id 过滤 → 真响应。不是 mock 链路。
+- Rollback: revert C2(4c0ca50) — 一次 revert 同步回退路由 + 应用服务 + 测试 fixture + users.py 删除。
+- Commits: C1=c4eb179, C2=4c0ca50, C3 待跟进
+- Next: R5(WS token 鉴权)→ R6(init_admin CLI + 跨租户 e2e)→ R7(收尾、合并到 unit 分支)
+
 ## [Handoff after R3] 余下工作清单(供下一 worker 继续)
 
 实现期内 budget 限制,M1 在 R3 截止。下面的 roadpoint 由后续 worker 接同一 worktree+branch 续跑(`change-impl-worker` 的"继续派发"语义):

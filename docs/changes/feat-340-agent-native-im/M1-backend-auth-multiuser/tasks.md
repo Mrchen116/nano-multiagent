@@ -60,7 +60,7 @@ IM 后端从"单用户硬编码"切到"多用户 JWT auth + 严格 owner_id 租�
   - 集成测试 `tests/im_service/integration/test_auth_routes.py`:注册→登录→me→refresh→logout 全链路真请求
 - 验证: 集成测试全绿
 
-### R3 — OwnerScopedRepository 基类 + UserRepository.create_user 接收 password/locale
+### R3 — owner-scoped repository reads [DONE]
 
 - 步骤:
   - `src/IM/infra/repository_scope.py`:`OwnerScopedRepository` (装饰已有 repos,绑定 owner_id);提供 list/get/update/delete 自动加 `WHERE owner_id = ?` 的方法签名。实际做法:在现有 repo 上新增"owner-scoped"读方法(list_conversations_for_owner、get_conversation_for_owner 等)+在 deps.py 改 factory 返回绑定 owner_id 的瘦包装。
@@ -68,7 +68,7 @@ IM 后端从"单用户硬编码"切到"多用户 JWT auth + 严格 owner_id 租�
   - 单元测试:跨租户过滤行为
 - 验证: 单元测试
 
-### R4 — 路由切到 token-derived owner_id;删 GET /im/v1/users
+### R4 — 路由切到 token-derived owner_id;删 GET /im/v1/users [DONE]
 
 - 步骤:
   - account/me, messages, web_im(conversations), agents, nodes 路由全部把 user_id query 改成 `current_user = Depends(current_user_dep)`,从中取 owner_id
