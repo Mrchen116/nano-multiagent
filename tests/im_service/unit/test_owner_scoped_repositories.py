@@ -74,9 +74,11 @@ def test_get_conversation_for_owner_returns_none_for_other_owner(repos) -> None:
 
 def test_list_runtime_selectable_profiles_for_owner_filters(repos) -> None:
     """Agents listed must be owner-scoped (no cross-owner leakage)."""
-    users, _, _, profiles, _ = repos
+    users, _, _, profiles, nodes = repos
     alice = users.create_user(username="alice", display_name="Alice")
     bob = users.create_user(username="bob", display_name="Bob")
+    nodes.upsert_node(node_id="node-A", owner_id=alice.owner_id, node_name="Alice Mac", version="1.0.0")
+    nodes.upsert_node(node_id="node-B", owner_id=bob.owner_id, node_name="Bob Mac", version="1.0.0")
     profiles.upsert_profile(
         agent_id="agent-A",
         owner_id=alice.owner_id,
