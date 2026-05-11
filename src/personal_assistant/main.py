@@ -1264,10 +1264,17 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             token=config.im_service.token,
         )
         post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(node_id=config.node.node_id)
+    _run_context_store: dict[str, dict[str, str]] = {}
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
+        run_context_store=_run_context_store,
     )
+    if config.im_service is not None:
+        pipeline._kernel_event_observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: im_connection_manager,
+            run_context_store=_run_context_store,
+        )
     inbound_dispatcher = _InboundDispatcher(pipeline)
     closers: list[Callable[[], None]] = [kernel_client.close]
     if im_bootstrap_client is not None:
@@ -1409,6 +1416,7 @@ def _build_relay_lifecycle_callback(
     *,
     reporter: UpstreamReporter | None,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
+    run_context_store: dict[str, dict[str, str]] | None = None,
 ):
     async def _callback(message: InboundMessage, update: RelayLifecycleUpdate) -> None:
         if reporter is None:
@@ -1420,6 +1428,15 @@ def _build_relay_lifecycle_callback(
         if manager is None:
             return
         if update.phase == "accepted":
+            # Store run context so kernel_event_observer can look up conversation/message by run_id.
+            if run_context_store is not None and update.run_id:
+                message_id = _metadata_text(message.metadata, key="message_id")
+                agent_id_meta = _metadata_text(message.metadata, key="agent_id") or update.agent_id
+                run_context_store[update.run_id] = {
+                    "conversation_id": message.external_chat_id or "",
+                    "message_id": message_id or "",
+                    "agent_id": agent_id_meta or "",
+                }
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
                 delivery_status="sent",
@@ -1443,6 +1460,8 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.report", payload)
             return
         if update.phase == "completed":
+            if run_context_store is not None and update.run_id:
+                run_context_store.pop(update.run_id, None)
             message_id = _metadata_text(message.metadata, key="message_id")
             send_report = getattr(reporter, "send_report", None)
             if callable(send_report) and message_id is not None and update.run_id is not None:
@@ -1475,6 +1494,8 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.delivery_receipt", payload)
             return
         if update.phase == "failed":
+            if run_context_store is not None and update.run_id:
+                run_context_store.pop(update.run_id, None)
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
                 delivery_status="failed",
@@ -1483,6 +1504,137 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.delivery_receipt", payload)
 
     return _callback
+
+
+def _build_kernel_event_observer(
+    *,
+    im_connection_manager_factory: Callable[[], IMConnectionManager | None],
+    run_context_store: dict[str, dict[str, str]],
+) -> Callable[[Mapping[str, Any]], None]:
+    """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
+
+    The observer is called synchronously during _await_terminal_run_async; it schedules
+    async WS sends via asyncio.create_task so the caller's event loop handles dispatch.
+
+    Kernel SSE events translated:
+    - run_status=running  → node.streaming_delta kind=turn_start (creates placeholder message)
+    - assistant_message   → node.streaming_delta kind=message_delta + kind=message_completed
+    - tool_start          → node.streaming_delta kind=tool_call_upserted
+    - tool_end            → node.streaming_delta kind=tool_call_completed
+    - turn_end            → node.streaming_delta kind=message_completed (with token_usage if available)
+    """
+
+    async def _send(manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]) -> None:
+        try:
+            await manager.send_json(message_type, payload)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def observer(event: Mapping[str, Any]) -> None:
+        manager = im_connection_manager_factory()
+        if manager is None or not manager.connected:
+            return
+        run_id = str(event.get("run_id") or "").strip()
+        if not run_id:
+            return
+        ctx = run_context_store.get(run_id)
+        if ctx is None:
+            return
+        conversation_id = ctx.get("conversation_id") or ""
+        message_id = ctx.get("message_id") or ""
+        agent_id = ctx.get("agent_id") or ""
+
+        event_name = str(event.get("event") or "").strip()
+        loop = asyncio.get_event_loop()
+
+        if event_name == "run_status" and event.get("status") == "running":
+            # Kernel started the agent turn; ask IM to create a placeholder message.
+            if conversation_id and agent_id:
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "turn_start",
+                    "conversation_id": conversation_id,
+                    "agent_id": agent_id,
+                    "run_id": run_id,
+                }))
+
+        elif event_name == "assistant_message":
+            content = str(event.get("content") or "").strip()
+            if content and message_id:
+                # Single delta frame containing the full text (kernel has no sub-token streaming via SSE).
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "message_delta",
+                    "message_id": message_id,
+                    "delta_text": content,
+                    "run_id": run_id,
+                }))
+
+        elif event_name == "turn_end":
+            # Finalize message with token_usage if present.
+            usage_raw = event.get("usage")
+            token_usage_payload: dict[str, object] | None = None
+            if isinstance(usage_raw, Mapping):
+                prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens")
+                completion = usage_raw.get("completion_tokens") or usage_raw.get("output_tokens")
+                if isinstance(prompt, int) and isinstance(completion, int):
+                    token_usage_payload = {
+                        "prompt": prompt,
+                        "completion": completion,
+                        "total": prompt + completion,
+                    }
+            if message_id:
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "message_completed",
+                    "message_id": message_id,
+                    "final_content": None,
+                    "token_usage": token_usage_payload,
+                    "run_id": run_id,
+                }))
+
+        elif event_name == "tool_start":
+            call_id = str(event.get("call_id") or "").strip() or run_id
+            tool_name = str(event.get("name") or "")
+            arguments = event.get("arguments") or {}
+            if message_id:
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "tool_call_upserted",
+                    "message_id": message_id,
+                    "tool_call": {
+                        "id": call_id,
+                        "name": tool_name,
+                        "status": "running",
+                        "input": arguments if isinstance(arguments, dict) else {},
+                    },
+                    "run_id": run_id,
+                }))
+
+        elif event_name == "tool_end":
+            call_id = str(event.get("call_id") or "").strip() or run_id
+            tool_name = str(event.get("name") or "")
+            arguments = event.get("arguments") or {}
+            duration_ms = event.get("duration_ms")
+            status = "failed" if event.get("error") else "completed"
+            output_parts = []
+            if event.get("error"):
+                output_parts.append(str(event["error"]))
+            pres = event.get("presentation")
+            if isinstance(pres, Mapping) and pres.get("summary"):
+                output_parts.append(str(pres["summary"]))
+            if message_id:
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "tool_call_completed",
+                    "message_id": message_id,
+                    "tool_call": {
+                        "id": call_id,
+                        "name": tool_name,
+                        "status": status,
+                        "input": arguments if isinstance(arguments, dict) else {},
+                        "output": " | ".join(output_parts) if output_parts else None,
+                        "duration_ms": int(duration_ms) if isinstance(duration_ms, (int, float)) else None,
+                    },
+                    "run_id": run_id,
+                }))
+
+    return observer
 
 
 def _build_heartbeat_product_reports(summary: HeartbeatTickSummary) -> list[dict[str, object]]:
