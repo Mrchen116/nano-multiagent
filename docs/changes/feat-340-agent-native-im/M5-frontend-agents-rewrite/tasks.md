@@ -20,6 +20,7 @@ dirty 检测正确驱动 Save/Discard;详情顶部 Open chat ↗ 跳直聊。
 - [ ] 文案全部 i18n,英文 + 中文两套 key 增量追加
 - [ ] 桌面 + 移动两套布局均通过自动化测试断言
 - [ ] 既有 174 个测试全部继续通过,新增测试也全绿
+- [ ] agent status pill 由 `agent.status_changed` WS 实时反映(M10 producer 落地后用单测 fixture 模拟事件断言 react-query cache patch 触发 UI 重渲染)
 
 ## 测试策略
 
@@ -36,7 +37,7 @@ dirty 检测正确驱动 Save/Discard;详情顶部 Open chat ↗ 跳直聊。
 
 ## Roadpoints
 
-### R1 — list page rewrite (desktop sidebar + mobile)
+### R1 — list page rewrite (desktop sidebar + mobile) — DONE
 
 - 步骤:
   1. 改 `im-agent-config-api.ts` 全部 fetch 调用切到 authFetch(透明加 Authorization 头)
@@ -61,10 +62,20 @@ dirty 检测正确驱动 Save/Discard;详情顶部 Open chat ↗ 跳直聊。
   2. 必填校验 + Save 后跳详情
 - 验证:Save 成功跳 `/settings/agents/:newId`,失败显示错误
 
-### R4 — i18n: zh translations + UI 切换断言
+### R4 — i18n: zh translations + UI 切换断言 — DOING
 
 - 步骤:
   1. 在 `en.json` / `zh.json` 增量追加 `agents.*` namespace 全部 key
   2. 所有页面用 `useTranslation()` 包裹文案
   3. 用 setLanguage("zh") 后断言中文关键字
 - 验证:测试切语言后关键字显示中文
+- 备注:R1 已完成 list 部分 zh(empty.title);详情/新建页 i18n 在 R2/R3 同步追加;R4 主要做端到端切换断言。
+
+### R5 — status-broadcast 消费(WS reducer + React Query cache patch)
+
+- 起因:design.md 决策 11 + M5 退出标准追加 — agent status pill 必须由 `agent.status_changed` WS 实时反映(M10 producer 并行落地)
+- 步骤:
+  1. 在 list / detail 处订阅已有 WS hub 的 `agent.status_changed` 事件
+  2. 写一个 reducer,收到事件后 patch `["settings","agents"]` 和 `["settings","agent",agentId]` React Query cache(改 `node_status` / 派生 status),触发 UI 重渲染
+  3. 单测用 fixture 模拟事件 → 断言列表/详情上的 status 标记从 offline 变 online
+- 验证:不依赖 M10 真实推送 — 单测注入事件即可证明消费侧正确;M10 合并后由 reviewer 走 e2e 联调
