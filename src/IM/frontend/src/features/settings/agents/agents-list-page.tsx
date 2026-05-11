@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
+import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { listAgentSummaries, listNodes, type AgentSummary, type NodeSummary } from "./im-agent-config-api";
 
 function initialsOf(displayName: string): string {
@@ -12,6 +13,8 @@ function initialsOf(displayName: string): string {
 }
 
 function statusOf(agent: AgentSummary, nodes: NodeSummary[]): "online" | "offline" {
+  if (agent.node_status === "online") return "online";
+  if (agent.node_status === "offline") return "offline";
   if (!agent.node_id) return "offline";
   const node = nodes.find((n) => n.node_id === agent.node_id);
   return node?.status === "online" ? "online" : "offline";
@@ -45,6 +48,7 @@ function AgentRow(props: { agent: AgentSummary; status: "online" | "offline"; is
 export function AgentsListPage() {
   const isMobile = useIsMobile();
   const { t } = useTranslation();
+  useAgentStatusBroadcastConsumer();
   const agentsQuery = useQuery({ queryKey: ["settings", "agents"], queryFn: listAgentSummaries });
   const nodesQuery = useQuery({ queryKey: ["settings", "agents", "nodes-status"], queryFn: listNodes });
 
