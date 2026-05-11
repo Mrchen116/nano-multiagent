@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
-import { listAgents, type AgentSummary } from "../agents/im-agent-config-api";
+import { listAgentSummaries, type AgentSummary } from "../agents/im-agent-config-api";
 import { NodeSettingsProfile, listNodes, updateNode } from "../im-settings-api";
 
 const STATUS_DOT_CLASS: Record<string, string> = {
@@ -34,7 +34,7 @@ export function NodesPage() {
   });
   const agentsQuery = useQuery({
     queryKey: ["settings", "nodes", "agents"],
-    queryFn: listAgents
+    queryFn: listAgentSummaries
   });
 
   const [drafts, setDrafts] = useState<Record<string, NodeSettingsProfile>>({});
