@@ -64,3 +64,13 @@ def test_user_stream_accepts_valid_token_and_replays_owners_events(tmp_path: Pat
                 if len(seen) >= 2:
                     break
             assert "message.sent" in seen
+
+
+@pytest.mark.timeout(5)
+def test_user_stream_rejects_legacy_user_id_param(tmp_path: Path) -> None:
+    """?user_id= fallback must be removed; connection with only user_id= is rejected."""
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username="alice")
+        with pytest.raises(Exception):  # noqa: PT011
+            with client.websocket_connect(f"/im/ws/user?user_id={alice.id}") as websocket:
+                websocket.receive_text()
