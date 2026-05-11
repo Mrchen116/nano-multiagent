@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
+import { useAuthStore } from "../../auth/auth-store";
+import { attachUserConversationStream } from "../../chat/im-chat-api";
 import { listAgentSummaries, type AgentSummary } from "../agents/im-agent-config-api";
 import { NodeSettingsProfile, listNodes, updateNode } from "../im-settings-api";
 
@@ -54,6 +56,73 @@ export function NodesPage() {
     }
     return grouped;
   }, [agentsQuery.data]);
+
+  const selfUserId = useAuthStore((state) => state.user?.id ?? null);
+
+  // node.status_changed is emitted by M10 (owner-scoped) and patched into React
+  // Query cache so the status pill / last_heartbeat / last_error reflect heartbeat
+  // state in real time without forcing a refetch round trip.
+  useEffect(() => {
+    if (!selfUserId) return;
+    const detach = attachUserConversationStream({
+      selfUserId,
+      onEvent: (event) => {
+        if (event.eventType !== "node.status_changed") return;
+        const payload = event.payload as {
+          node_id?: unknown;
+          status?: unknown;
+          last_heartbeat_at?: unknown;
+          last_error?: unknown;
+        };
+        const nodeId = typeof payload.node_id === "string" ? payload.node_id : null;
+        const status = typeof payload.status === "string" ? payload.status : null;
+        if (!nodeId || !status) return;
+        queryClient.setQueryData<NodeSettingsProfile[] | undefined>(["settings", "nodes"], (prev) => {
+          if (!prev) return prev;
+          let changed = false;
+          const next = prev.map((node) => {
+            if (node.node_id !== nodeId) return node;
+            changed = true;
+            return {
+              ...node,
+              status,
+              last_heartbeat_at:
+                typeof payload.last_heartbeat_at === "string" ? payload.last_heartbeat_at : node.last_heartbeat_at,
+              last_error:
+                payload.last_error === null
+                  ? null
+                  : typeof payload.last_error === "string"
+                    ? payload.last_error
+                    : node.last_error
+            } satisfies NodeSettingsProfile;
+          });
+          return changed ? next : prev;
+        });
+        // Live status fields override the draft's read-only snapshot without dropping
+        // user-in-progress alias / toggle edits.
+        setDrafts((prev) => {
+          const draft = prev[nodeId];
+          if (!draft) return prev;
+          return {
+            ...prev,
+            [nodeId]: {
+              ...draft,
+              status,
+              last_heartbeat_at:
+                typeof payload.last_heartbeat_at === "string" ? payload.last_heartbeat_at : draft.last_heartbeat_at,
+              last_error:
+                payload.last_error === null
+                  ? null
+                  : typeof payload.last_error === "string"
+                    ? payload.last_error
+                    : draft.last_error
+            }
+          };
+        });
+      }
+    });
+    return detach;
+  }, [selfUserId, queryClient]);
 
   const mutation = useMutation({
     mutationFn: (row: NodeSettingsProfile) =>
