@@ -12,6 +12,26 @@ from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["messages"])
 
+# Upload safety: white-list mirrors design.md decision 8 — image families,
+# PDFs, and a handful of plaintext-style documents the agent can read with
+# the existing tool surface. Anything else returns 415 so an agent can never
+# be coerced into running an arbitrary blob downloaded by the user.
+_UPLOAD_ALLOWED_PREFIXES = ("image/",)
+_UPLOAD_ALLOWED_EXACT = frozenset({
+    "application/pdf",
+    "text/plain",
+    "text/markdown",
+    "application/json",
+})
+_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+_MESSAGE_MAX_ATTACHMENTS = 5
+
+
+def _is_allowed_upload_content_type(content_type: str) -> bool:
+    if content_type in _UPLOAD_ALLOWED_EXACT:
+        return True
+    return any(content_type.startswith(prefix) for prefix in _UPLOAD_ALLOWED_PREFIXES)
+
 
 class AttachmentPayload(BaseModel):
     """Serialized attachment payload accepted and returned by the API."""
@@ -137,15 +157,26 @@ async def create_upload(
     del user  # auth-gated only; uploads themselves are tenant-agnostic by URL design
     """Persist one raw upload body and return the IM-hosted attachment descriptor."""
     safe_name = _sanitize_upload_file_name(file_name)
+    content_type = _resolve_upload_content_type(request)
+    if not _is_allowed_upload_content_type(content_type):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"unsupported content_type: {content_type}",
+        )
+    body = await request.body()
+    if len(body) > _UPLOAD_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"upload exceeds {_UPLOAD_MAX_BYTES} bytes",
+        )
     suffix = Path(safe_name).suffix
     stored_name = f"{uuid4().hex}{suffix}"
     upload_dir = Path(request.app.state.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
-    body = await request.body()
     (upload_dir / stored_name).write_bytes(body)
     return AttachmentPayload(
         url=f"{str(request.base_url).rstrip('/')}/im/uploads/{stored_name}",
-        content_type=_resolve_upload_content_type(request),
+        content_type=content_type,
         file_name=safe_name,
     )
 
@@ -169,6 +200,11 @@ async def create_message(
     _assert_conversation_in_owner_scope(
         service=service, conversation_id=conversation_id, owner_id=user.owner_id
     )
+    if len(payload.attachments) > _MESSAGE_MAX_ATTACHMENTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"too many attachments: max {_MESSAGE_MAX_ATTACHMENTS} per message",
+        )
     try:
         sender_user_id, sender_type = _resolve_create_message_sender(payload)
         resolved_target_node_id = payload.target_node_id or service.resolve_target_node_id(
