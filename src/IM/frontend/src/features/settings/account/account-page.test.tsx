@@ -105,9 +105,9 @@ describe("AccountPage rewrite", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
 
     expect(await screen.findByRole("heading", { name: /account/i, level: 2 })).toBeInTheDocument();
-    expect(screen.getByText(/identity/i)).toBeInTheDocument();
-    expect(screen.getByText(/defaults/i)).toBeInTheDocument();
-    expect(screen.getByText(/preferences/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /identity/i, level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /defaults/i, level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /preferences/i, level: 3 })).toBeInTheDocument();
     expect(screen.getByLabelText(/display name/i)).toHaveValue("Alex Chen");
     void mePayload;
   });

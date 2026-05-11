@@ -27,12 +27,20 @@ class BindService:
         """Return the current user snapshot for account APIs."""
         return self._users.get_user(user_id=user_id)
 
-    def update_me(self, *, user_id: str, display_name: str, default_entry_node_id: str | None) -> User:
+    def update_me(
+        self,
+        *,
+        user_id: str,
+        display_name: str,
+        default_entry_node_id: str | None,
+        locale: str | None = None,
+    ) -> User:
         """Update mutable current-user settings."""
         return self._users.update_user(
             user_id=user_id,
             display_name=display_name,
             default_entry_node_id=default_entry_node_id,
+            locale=locale,
         )
 
     def start_bind(self, *, node_id: str) -> DeviceBindRequest:

@@ -28,7 +28,7 @@ describe("settings scroll layout", () => {
     ["/settings/agents/agent-1", /Loading agent profile/i],
     ["/settings/nodes", /Loading nodes/i],
     ["/settings/policies", /Loading policies/i],
-    ["/settings/account", /Loading account/i]
+    ["/settings/account", /Loading…/i]
   ])("renders %s inside a full-height column container", async (entry, marker) => {
     const { container } = renderSettingsShell(entry);
 
