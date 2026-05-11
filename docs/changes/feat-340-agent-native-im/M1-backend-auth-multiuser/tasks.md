@@ -86,7 +86,7 @@ IM 后端从"单用户硬编码"切到"多用户 JWT auth + 严格 owner_id 租�
   - 新增 e2e 隔离测试:用户 A 的 WS 不收到用户 B 的会话事件
 - 验证: 集成测试
 
-### R6 — init_admin CLI + 跨租户 e2e 全套测试
+### R6 — init_admin CLI + 跨租户 e2e 全套测试 [DONE]
 
 - 步骤:
   - `src/IM/cli/__init__.py` + `init_admin.py`:`python -m IM.cli init_admin --username X --password Y` 直接调 UserRepository.create_user_with_credentials
