@@ -211,7 +211,8 @@ def test_user_stream_roundtrip_for_sent_message(tmp_path: Path) -> None:
             },
         )
         assert sent.status_code == 201
-        with client.websocket_connect(f"/im/ws/user?user_id={sender_id}") as websocket:
+        token = client.headers["Authorization"].removeprefix("Bearer ")
+        with client.websocket_connect(f"/im/ws/user?token={token}") as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             seen: list[str] = []
             for _ in range(6):

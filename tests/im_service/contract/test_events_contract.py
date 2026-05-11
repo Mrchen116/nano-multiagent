@@ -53,7 +53,7 @@ def test_user_stream_contract_emits_json_events(tmp_path: Path) -> None:
             json={"sender_user_id": alice.id, "content": "hello"},
         )
         assert posted.status_code == 201
-        with client.websocket_connect(f"/im/ws/user?user_id={alice.id}") as websocket:
+        with client.websocket_connect(f"/im/ws/user?token={alice.access_token}") as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             seen: list[dict[str, object]] = []
             for _ in range(4):
