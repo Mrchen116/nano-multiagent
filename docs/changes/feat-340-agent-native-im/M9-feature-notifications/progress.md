@@ -7,3 +7,14 @@ M7 已落地 `notification-preference.ts`(localStorage + `useSyncExternalStore` 
 ## Roadpoints
 
 <!-- 每个 R 完成后追加 -->
+
+### R1 — notification-api 封装
+
+- Context: 需要一处稳定的边界封装 `Notification` 全局,以便其余代码不到处 `typeof Notification` + 让单测注入 fake。
+- Decision: `notification-api.ts` 暴露 `isNotificationSupported / ensureNotificationPermission / showAgentNotification`;`ensureNotificationPermission` 已 denied 不再追问。
+- Rationale: 把"浏览器是否支持""权限态机""点击 handler 绑定"三件易出错的事集中收口。
+- Evidence:
+  - Tests: `vitest run src/features/notifications/notification-api.test.ts` — 9 通过。
+- Rollback: revert C2(93741624) → C1(347164f0)。
+- Commits: C1=347164f0, C2=93741624, C3=<本提交>
+- Next: R2 visibility 谓词。
