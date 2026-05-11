@@ -133,12 +133,12 @@ def create_conversation(
     service: WebIMService = Depends(get_web_im_service),
 ) -> ConversationResponse:
     """Create a conversation with validated participants under the caller's tenant."""
-    del user  # current_user dep gates the route; conversation owner derives from participants
     try:
         participant_refs = _resolve_create_conversation_participants(payload)
         created = service.create_conversation(
             title=payload.title,
             participant_ids=participant_refs,
+            caller_owner_id=user.owner_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

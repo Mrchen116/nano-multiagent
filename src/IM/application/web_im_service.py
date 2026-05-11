@@ -30,9 +30,19 @@ class WebIMService:
         self._relay_service = relay_service
         self._metrics_service = metrics_service
 
-    def create_conversation(self, *, title: str, participant_ids: list[str]) -> Conversation:
+    def create_conversation(
+        self,
+        *,
+        title: str,
+        participant_ids: list[str],
+        caller_owner_id: str | None = None,
+    ) -> Conversation:
         """Create one conversation with validated participants."""
-        return self._conversations.create_conversation(title=title, participant_ids=participant_ids)
+        return self._conversations.create_conversation(
+            title=title,
+            participant_ids=participant_ids,
+            caller_owner_id=caller_owner_id,
+        )
 
     def get_conversation(self, *, conversation_id: str) -> Conversation | None:
         """Load one conversation snapshot by identifier."""
