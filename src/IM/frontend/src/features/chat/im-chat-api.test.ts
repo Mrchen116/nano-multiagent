@@ -627,6 +627,31 @@ describe("im chat stream parser", () => {
   });
 });
 
+describe("requestJson Authorization (issue #2)", () => {
+  it("getUsageMetrics sends Authorization: Bearer header derived from auth store", async () => {
+    const { useAuthStore } = await import("../auth/auth-store");
+    useAuthStore.getState().setSession({
+      access_token: "test-bearer-token",
+      refresh_token: "r",
+      user: {
+        id: "user-1", username: "alex", display_name: "Alex", owner_id: "user-1",
+        locale: "en", default_entry_node_id: null, owned_node_ids: [], created_at: "2026-01-01T00:00:00Z"
+      }
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } })
+    );
+
+    const { getUsageMetrics } = await import("./im-chat-api");
+    await getUsageMetrics();
+
+    const callHeaders = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    const headers = new Headers(callHeaders?.headers ?? {});
+    expect(headers.get("Authorization")).toBe("Bearer test-bearer-token");
+    useAuthStore.getState().clear();
+  });
+});
+
 // M234: group chat delete API
 describe("deleteConversation / leaveConversation", () => {
   it("deleteConversation sends DELETE to /im/v1/conversations/{id} with requester_id", async () => {

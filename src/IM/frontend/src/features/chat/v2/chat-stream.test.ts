@@ -45,11 +45,12 @@ describe("chat-stream", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens a WebSocket against /im/ws/user with the access token as query param", () => {
+  it("opens a WebSocket against /im/ws/user with the access token as ?token= query param", () => {
     const handle = openChatStream({ onEvent: () => {} });
     const ws = FakeWebSocket.last();
     expect(ws.url).toContain("/im/ws/user");
-    expect(ws.url).toContain("access_token=access-test");
+    expect(ws.url).toContain("token=access-test");
+    expect(ws.url).not.toContain("access_token=");
     handle.close();
   });
 

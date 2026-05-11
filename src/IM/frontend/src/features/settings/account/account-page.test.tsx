@@ -114,7 +114,8 @@ describe("AccountPage rewrite", () => {
 
   it("saves display_name + default_entry_node_id + locale + notifications through PATCH /im/v1/me with Bearer auth", async () => {
     const user = userEvent.setup();
-    let stored = meBody();
+    type StoredBody = Omit<ReturnType<typeof meBody>, "default_entry_node_id"> & { default_entry_node_id: string | null };
+    let stored: StoredBody = meBody();
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url === "/im/v1/me" && init?.method === "PATCH") {

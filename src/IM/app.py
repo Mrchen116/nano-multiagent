@@ -186,6 +186,21 @@ def _install_frontend_entrypoints(
         """Serve or forward the bind confirmation shell on the IM host."""
         return frontend_entry_response(request)
 
+    @app.get("/login", include_in_schema=False)
+    async def frontend_login_entry(request: Request):
+        """Serve or forward the SPA login route shell."""
+        return frontend_entry_response(request)
+
+    @app.get("/register", include_in_schema=False)
+    async def frontend_register_entry(request: Request):
+        """Serve or forward the SPA register route shell."""
+        return frontend_entry_response(request)
+
+    @app.get("/me", include_in_schema=False)
+    async def frontend_me_entry(request: Request):
+        """Serve or forward the SPA mobile Me page shell."""
+        return frontend_entry_response(request)
+
 
 def create_app(
     *,

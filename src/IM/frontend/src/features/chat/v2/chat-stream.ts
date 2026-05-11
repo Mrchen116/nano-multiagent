@@ -18,11 +18,11 @@ const KNOWN_TYPES = new Set([
 ]);
 
 function resolveWsUrl(token: string): string {
-  if (typeof window === "undefined") return `/im/ws/user?access_token=${encodeURIComponent(token)}`;
+  if (typeof window === "undefined") return `/im/ws/user?token=${encodeURIComponent(token)}`;
   const httpOrigin = window.location.origin;
   const url = new URL("/im/ws/user", httpOrigin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.searchParams.set("access_token", token);
+  url.searchParams.set("token", token);
   return url.toString();
 }
 

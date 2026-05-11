@@ -72,6 +72,11 @@
     "empty": "Nothing here yet."
   },
   "settings": {
+    "nav": {
+      "agents": "Agents",
+      "nodes": "Nodes",
+      "account": "Account"
+    },
     "nodes": {
       "title": "Nodes",
       "loading": "Loading nodes…",

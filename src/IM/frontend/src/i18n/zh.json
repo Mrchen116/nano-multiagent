@@ -72,6 +72,11 @@
     "empty": "暂无内容。"
   },
   "settings": {
+    "nav": {
+      "agents": "智能体",
+      "nodes": "节点",
+      "account": "账户"
+    },
     "nodes": {
       "title": "节点",
       "loading": "节点加载中…",
