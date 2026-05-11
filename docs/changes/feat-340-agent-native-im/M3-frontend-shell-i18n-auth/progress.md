@@ -32,7 +32,13 @@
 
 ## R4 — Design tokens (oklch + IBM Plex) + AppShell (topbar/bottombar/UserMenu)
 
-_pending_
+- Context: 整个产品视觉切换 + Chat/Agents 双 tab + UserMenu 下拉 + 移动底栏 都是 M4-M7 的运行壳。
+- Decision: `styles/global.css` 重写为 oklch + IBM Plex + Tailwind v4 `@theme` 暴露 token;旧 `im-card/im-input/...` 保留为新 token 的 thin alias(决策 6 风险 3:不要让 M4-M7 启动时旧页面全裂)。`app/shell/{app-shell,user-menu}.tsx` 实装 48px 暗顶栏 + 移动底栏 + 头像菜单。`useIsMobile` 断点从 900 → 768(spec 锁的)。`WorkspaceTabs` 旧组件保留为 orphan,M4-M7 重写各自页面时一并清理。
+- Rationale: 决策 6 锁定 token + Tailwind utility,不引入新样式库;为下游 worker 不让"视觉切换 = 大爆炸"。
+- Evidence: `npx vitest run src/app/shell/` → 3/3 pass;`npm test` → 168/168 pass;`npx tsc -b` 通过。App.test 老断言改为基于 role,符合决策 6 "behavior > snapshot"。
+- 顺手:App.test.tsx 旧 `Tab=Chat|Settings` 断言已过时(新壳是 NavLink "Chat|Agents"),改为 `role=link / role=banner / role=main` 行为测试。
+- Rollback: 删 `app/shell/` + 还原 `styles/global.css` 旧版本 + 还原 `app/App.tsx` + 还原 `hooks/use-is-mobile.ts` 断点。
+- Commits: C1=57bf264d, C2=(本提交), C3=(下一提交)
 
 ## R5 — Me page + remove hardcoded owner-1001 / resolveCurrentUserId
 
