@@ -97,6 +97,24 @@
 - Commits: C1=48746e2, C2=4d530f0, C3 待跟进
 - Next: R6 — init_admin CLI + cross-tenant isolation e2e
 
+## R6 — init_admin CLI + cross-tenant isolation e2e
+
+- Context: 多用户化后,fresh deployment 启动时 db 是空的,操作员必须先有"种子用户"才能登录。HTTP `/im/v1/auth/register` 当然能创建用户但暴露在公网风险大;一个 CLI 子命令最安全。
+- Decision:
+  - `src/IM/cli/{__init__,__main__,init_admin}.py` —— argparse,subcommand `init_admin --username --password --display-name [--db-path] [--locale]`
+  - 直接 instantiate `AuthService` 调 `register`,而不是 `UserRepository.create_user` 裸建,确保 password_hash / locale / `owner_id=user_id` 跟 HTTP register 路径一致(单一真理来源)
+  - 退出码:0 成功 / 1 username 已存在 / 2 其他错(密码太短等)
+  - 跨租户 e2e (`tests/im_service/integration/test_auth_multiuser_isolation.py`):5 测试覆盖 conversation/message/agent/node/me 跨租户全部 404,且 list 接口不返回别人的资源
+- Rationale:
+  - 不复用 `AuthService.register` 会让"密码哈希规则"二份实现,日后改 bcrypt cost 时两边漂移
+  - 用 `subprocess` 跑 CLI 而非 import 调用 — 真实使用场景就是命令行,集成测试也走真子进程,捕到 `argparse` 错或路径问题
+- Evidence:
+  - `pytest tests/im_service/integration/test_init_admin_cli.py tests/im_service/integration/test_auth_multiuser_isolation.py` 7/7 通过
+  - IM 全套:**181 passed**(R5 末 174,新增 7);8 个 pre-existing PA 桥接失败不变
+- Rollback: revert C2(<待生成>) + 删 `src/IM/cli/` 目录
+- Commits: C1=<待生成>, C2=<待生成>, C3 待跟进
+- Next: R7 — 收尾(更新 runbook + 合并到 unit 集成分支)
+
 ## [Handoff after R3] 余下工作清单(供下一 worker 继续)
 
 实现期内 budget 限制,M1 在 R3 截止。下面的 roadpoint 由后续 worker 接同一 worktree+branch 续跑(`change-impl-worker` 的"继续派发"语义):
