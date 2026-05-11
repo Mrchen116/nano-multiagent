@@ -26,7 +26,7 @@ from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories import ConversationRepository, EventRepository, MessageRepository, NodeRepository, UsageMetricsRepository, UserRepository
 from IM.ws.gateway_handler import GatewayHandler
-from IM.ws.user_stream import UserStreamRegistry, build_notify_enqueue, pump_user_stream_outbound, serve_user_websocket
+from IM.ws.user_stream import UserStreamRegistry, build_notify_enqueue, pump_user_stream_outbound, run_offline_guard, serve_user_websocket
 
 
 def _normalize_runtime_path(path: Path) -> Path:
@@ -259,22 +259,32 @@ def create_app(
         pump_task = asyncio.create_task(pump_user_stream_outbound(registry=registry, outbound_queue=outbound_queue))
         app_instance.state.user_stream_pump_task = pump_task
 
+        node_repository = NodeRepository(connection)
         app_instance.state.gateway_handler = GatewayHandler(
             relay_service=RelayService(connection),
-            node_repository=NodeRepository(connection),
+            node_repository=node_repository,
             event_repository=event_repository,
             metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
             conversation_repository=ConversationRepository(connection),
             user_event_notify=user_event_notify,
+            user_stream_registry=registry,
         )
+        offline_guard_task = asyncio.create_task(
+            run_offline_guard(
+                handler=app_instance.state.gateway_handler,
+                node_repository=node_repository,
+            )
+        )
+        app_instance.state.offline_guard_task = offline_guard_task
         try:
             yield
         finally:
-            pump_task.cancel()
-            try:
-                await pump_task
-            except asyncio.CancelledError:
-                pass
+            for task in (pump_task, offline_guard_task):
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
             connection.close()
 
     app = FastAPI(title="Independent IM Service", version="0.1.0", lifespan=lifespan)
