@@ -1,0 +1,176 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useReducer, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+
+import { useIsMobile } from "../../../hooks/use-is-mobile";
+import { useTranslation } from "../../../i18n";
+import {
+  createConversation,
+  createMessage,
+  listConversations,
+  listMentionCandidates,
+  listMessages,
+  type AgentRow
+} from "./chat-api";
+import { openChatStream } from "./chat-stream";
+import {
+  applyWsEvent,
+  emptyConversationState,
+  type ConversationState
+} from "./chat-stream-reducer";
+import { authFetch } from "../../auth/auth-fetch";
+import type { Conversation, Message, WsEvent } from "./chat-types";
+import { ConversationSidebar } from "./components/conversation-sidebar";
+import { MessagePane } from "./components/message-pane";
+import { NewGroupModal } from "./components/new-group-modal";
+
+function streamReducer(
+  state: ConversationState,
+  action: { type: "reset"; conversationId: string; messages: Message[] } | { type: "event"; event: WsEvent }
+): ConversationState {
+  if (action.type === "reset") {
+    return { conversation_id: action.conversationId, messages: action.messages };
+  }
+  return applyWsEvent(state, action.event);
+}
+
+async function fetchAgents(): Promise<AgentRow[]> {
+  const res = await authFetch("/im/v1/agents");
+  if (!res.ok) throw new Error(`listAgents failed: ${res.status}`);
+  return (await res.json()) as AgentRow[];
+}
+
+/**
+ * Top-level chat workspace — composes ConversationSidebar (left) and
+ * MessagePane (right) on desktop, and either-or (list vs detail) on mobile.
+ *
+ * Data flow:
+ *  - `listConversations` / `listMessages` via react-query for the historical
+ *    backbone.
+ *  - `openChatStream` for the live WS feed; events are pushed through
+ *    `applyWsEvent` (pure reducer from R2) into a local conversation state
+ *    keyed by active conversation. When the user switches conversations we
+ *    `reset` the reducer with the freshly fetched history.
+ *  - Send / create-group go through the v2 chat-api → backend → echoes back as
+ *    WS `message.created`; reducer dedupes the echo, so no optimistic insert
+ *    is required here.
+ */
+export function ChatWorkspacePageV2() {
+  const { conversationId } = useParams();
+  const navigate = useNavigate();
+  const isMobile = useIsMobile();
+  const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  const [showNewGroup, setShowNewGroup] = useState(false);
+
+  const conversationsQuery = useQuery({
+    queryKey: ["chat-v2", "conversations"],
+    queryFn: listConversations
+  });
+
+  const activeConversation: Conversation | null = useMemo(() => {
+    if (!conversationId) return null;
+    return conversationsQuery.data?.find((c) => c.id === conversationId) ?? null;
+  }, [conversationId, conversationsQuery.data]);
+
+  const messagesQuery = useQuery({
+    enabled: Boolean(conversationId),
+    queryKey: ["chat-v2", "messages", conversationId],
+    queryFn: () => listMessages(conversationId!, { markAsRead: true })
+  });
+
+  const mentionQuery = useQuery({
+    enabled: Boolean(activeConversation),
+    queryKey: ["chat-v2", "mention-candidates", conversationId],
+    queryFn: () => listMentionCandidates({ conversation: activeConversation! })
+  });
+
+  const agentsQuery = useQuery({
+    enabled: showNewGroup,
+    queryKey: ["chat-v2", "agents"],
+    queryFn: fetchAgents
+  });
+
+  const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
+
+  // Seed the reducer with REST history whenever the active conversation or its
+  // historical fetch changes.
+  useEffect(() => {
+    if (!conversationId || !messagesQuery.data) return;
+    dispatch({ type: "reset", conversationId, messages: messagesQuery.data.items });
+  }, [conversationId, messagesQuery.data]);
+
+  // Open the WS stream once for the workspace lifetime; events flow into the
+  // reducer which ignores any not matching the active conversation.
+  useEffect(() => {
+    const handle = openChatStream({
+      onEvent: (ev) => dispatch({ type: "event", event: ev })
+    });
+    return () => handle.close();
+  }, []);
+
+  const sendMutation = useMutation({
+    mutationFn: (text: string) =>
+      createMessage({ conversationId: conversationId!, content: text }),
+    onSuccess: () => {
+      // Bump conversation list ordering on next refetch; the WS echo will fill
+      // in the new message in-place so we only need cache invalidation here.
+      void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+    }
+  });
+
+  const createGroupMutation = useMutation({
+    mutationFn: (payload: { agentIds: string[]; name: string }) =>
+      createConversation({ title: payload.name, agentIds: payload.agentIds }),
+    onSuccess: (conv) => {
+      setShowNewGroup(false);
+      void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+      navigate(`/chat/${conv.id}`);
+    }
+  });
+
+  const showList = !isMobile || !conversationId;
+  const showDetail = !isMobile || Boolean(conversationId);
+
+  return (
+    <div className="chat-workspace">
+      {showList && (
+        <ConversationSidebar
+          conversations={conversationsQuery.data ?? []}
+          activeConversationId={conversationId ?? null}
+          onSelect={(id) => navigate(`/chat/${id}`)}
+          onNewGroup={() => setShowNewGroup(true)}
+        />
+      )}
+      {showDetail && (
+        activeConversation ? (
+          <MessagePane
+            conversation={activeConversation}
+            messages={streamState.messages}
+            mentionCandidates={mentionQuery.data ?? []}
+            onSend={(text) => sendMutation.mutate(text)}
+            onBack={isMobile ? () => navigate("/chat") : undefined}
+          />
+        ) : (
+          !isMobile && (
+            <div className="chat-empty-pane">
+              <p className="chat-empty-pane-title">{t("chat.messagePane.selectConversationTitle")}</p>
+              <p className="chat-empty-pane-sub">{t("chat.messagePane.selectConversationSubtitle")}</p>
+            </div>
+          )
+        )
+      )}
+      {showNewGroup && (
+        <NewGroupModal
+          agents={(agentsQuery.data ?? []).map((a) => ({
+            agent_id: a.agent_id,
+            display_name: a.display_name,
+            description: a.description
+          }))}
+          onClose={() => setShowNewGroup(false)}
+          onCreate={(payload) => createGroupMutation.mutate(payload)}
+        />
+      )}
+    </div>
+  );
+}

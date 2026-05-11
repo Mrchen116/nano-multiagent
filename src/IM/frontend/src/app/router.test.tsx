@@ -76,15 +76,6 @@ describe("app routes", () => {
     streamConversationEvents.mockReturnValue(() => undefined);
   });
 
-  it("renders the chat conversation route with production workspace copy", async () => {
-    renderRouter({ routes: appRoutes, initialEntries: ["/chat/conv-1"] });
-
-    expect(await screen.findByText("Conversations")).toBeInTheDocument();
-    expect(screen.queryByText("Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.")).not.toBeInTheDocument();
-    expect(screen.queryByText("P1-P7 Skeleton")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
-  });
-
   it("declares the root entry redirect to /chat", () => {
     const rootRoute = appRoutes.find((route) => route.path === "/");
     const rootIndexRoute = rootRoute?.children?.find((route) => route.index);

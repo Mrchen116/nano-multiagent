@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -167,7 +167,8 @@ describe("ChatWorkspacePage v2 — integration", () => {
     await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
     const ws = FakeWebSocket.instances[0]!;
 
-    ws.emit({
+    act(() => {
+      ws.emit({
       type: "message.created",
       conversation_id: "c1",
       message_id: "m99",
@@ -197,6 +198,7 @@ describe("ChatWorkspacePage v2 — integration", () => {
       message_id: "m99",
       content: "Hello there",
       token_usage: { output: 12, context_used: 200, context_window: 200_000 }
+    });
     });
 
     await waitFor(() => expect(screen.getByText(/Hello there/)).toBeInTheDocument());
