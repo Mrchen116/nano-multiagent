@@ -204,41 +204,83 @@ SHUTDOWN exit_code=0
 
 下面的 HTTP API 只用于调试或脚本化验证，不是正常用户默认主链路。
 
+### 8.0 多用户认证（feat-340-M1）
+
+IM 现在所有数据面 API 都需要 Bearer token。空库部署后先用 CLI 种一个管理员：
+
+```bash
+PYTHONPATH=src python -m IM.cli init_admin \
+  --username root \
+  --password '<set-strong-password>' \
+  --display-name Root
+```
+
+之后通过 HTTP 注册 / 登录获取 access_token：
+
+```bash
+# 登录已存在的用户
+curl -s -X POST http://127.0.0.1:8011/im/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "root", "password": "<password>"}' | python -m json.tool
+
+# 注册新用户（生产环境可关闭此端点）
+curl -s -X POST http://127.0.0.1:8011/im/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "alice", "password": "<password>", "display_name": "Alice", "locale": "zh"}' \
+  | python -m json.tool
+```
+
+把返回的 `access_token` 作为 `Authorization: Bearer <token>` header 用于后续所有调用。
+JWT 签名密钥优先读环境变量 `IM_JWT_SECRET`（生产必须显式设置）。
+
 ### 8.1 手工检查绑定状态
 
 ```bash
-curl -s http://127.0.0.1:8011/im/v1/nodes | python -m json.tool
-curl -s "http://127.0.0.1:8011/im/v1/me?user_id=<user_id>" | python -m json.tool
+TOKEN=<access_token>
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8011/im/v1/nodes | python -m json.tool
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8011/im/v1/me | python -m json.tool
 ```
 
 ### 8.2 手工发起 / 确认绑定
 
 ```bash
 curl -s -X POST http://127.0.0.1:8011/im/v1/bind \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"action": "start", "node_id": "my-macbook"}' | python -m json.tool
 
+# 确认操作不再带 user_id —— current_user 从 token 派发
 curl -s -X POST http://127.0.0.1:8011/im/v1/bind \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"action": "confirm", "bind_id": "<bind_id>", "user_id": "<user_id>"}' | python -m json.tool
+  -d '{"action": "confirm", "bind_id": "<bind_id>"}' | python -m json.tool
 ```
 
 ### 8.3 手工创建会话并发消息
 
 ```bash
-curl -s -X POST http://127.0.0.1:8011/im/v1/users \
-  -H "Content-Type: application/json" \
-  -d '{"username": "operator", "display_name": "Operator"}' | python -m json.tool
+# /im/v1/users 已删除，登录后直接用 me 接口拿到 user_id
+USER_ID=$(curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8011/im/v1/me | python -c "import json,sys;print(json.load(sys.stdin)['id'])")
 
 curl -s -X POST http://127.0.0.1:8011/im/v1/conversations \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"title": "Test Chat", "participant_ids": ["<user_id>"]}' | python -m json.tool
+  -d "{\"title\": \"Test Chat\", \"participant_ids\": [\"$USER_ID\"]}" | python -m json.tool
 
 curl -s -X POST http://127.0.0.1:8011/im/v1/conversations/<conversation_id>/messages \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: debug-1" \
-  -d '{"sender_user_id": "<user_id>", "content": "Hello Agent", "target_node_id": "my-macbook"}' \
+  -d "{\"sender_user_id\": \"$USER_ID\", \"content\": \"Hello Agent\", \"target_node_id\": \"my-macbook\"}" \
   | python -m json.tool
+```
+
+### 8.4 用户事件 WebSocket
+
+浏览器订阅实时事件流时把 token 放到 query：
+
+```bash
+wscat -c "ws://127.0.0.1:8011/im/ws/user?token=$TOKEN"
 ```
 
 ## 9. 自动化验收测试

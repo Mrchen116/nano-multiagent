@@ -93,7 +93,7 @@ IM 后端从"单用户硬编码"切到"多用户 JWT auth + 严格 owner_id 租�
   - `tests/im_service/integration/test_auth_multiuser_isolation.py`:覆盖每种资源(conversation / message / agent / node / me)的跨租户 404
 - 验证: `pytest tests/im_service --ignore=tests/im_service/e2e -k "not test_m103_im_gateway_e2e and not test_m136_group_chat_flow"` 全绿(后两个是 pre-existing personal_assistant 桥接破损,不在本 milestone 范围)
 
-### R7 — 文档收尾
+### R7 — 文档收尾 [DONE]
 
 - 步骤: 回填 progress.md + 更新 AGENTS.md/docs/operator-runbook(若需要)说明 init_admin 用法
 - 验证: 自检

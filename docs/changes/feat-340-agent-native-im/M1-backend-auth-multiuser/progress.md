@@ -115,6 +115,32 @@
 - Commits: C1=<待生成>, C2=<待生成>, C3 待跟进
 - Next: R7 — 收尾(更新 runbook + 合并到 unit 集成分支)
 
+## R7 — 文档收尾 + 合并到 unit 集成分支
+
+- Context: 整个 M1 落地后,操作员视角的运行手册必须同步多用户化的实际调用方式(否则 reviewer 走 runbook 跑出来的命令全是 401)。
+- Decision:
+  - 在 `docs/operator-runbook.md` 加 §8.0 介绍 init_admin / register / login,后续 §8.1-8.3 全部加 `Authorization: Bearer $TOKEN`,删旧的 `?user_id=` 调用;新加 §8.4 描述 WS token query
+  - 不再单独写"M1 完成总结"文档 — progress.md 各 R 段就是审计轨迹
+- Evidence:
+  - IM 全套(最后跑):**181 passed, 8 failed**(8 个 pre-existing PA 桥接失败,handoff doc 已声明,base 一致)
+- Rollback: revert C2(<待生成>)
+- Commits: C1=N/A(纯文档,无 Red 测试), C2=<待生成>, C3=<待生成>
+- Next: M1 合并到 `unit/feat-340-agent-native-im`,清理 worktree + 删 milestone 分支,通知 orchestrator DONE
+
+## [M1 完成回报] 最终状态总览
+
+| 模块 | 状态 |
+|---|---|
+| R1 auth_service (bcrypt + JWT + jti blacklist) | DONE — 12 unit tests |
+| R2 `/im/v1/auth/{register,login,refresh,logout,me}` + current_user dep | DONE — 8 integration tests |
+| R3 owner-scoped repo reads (Conversation/AgentProfile/Node) | DONE — 5 unit tests |
+| R4 HTTP routes 全切 current_user + 删 `/im/v1/users` | DONE — 12 new tests + 9 legacy 集成测试改造完毕 |
+| R5 `/im/ws/user` JWT 鉴权 | DONE — 3 integration tests |
+| R6 init_admin CLI + cross-tenant isolation e2e | DONE — 7 integration tests |
+| R7 runbook 更新 + 合并到 unit 集成分支 | DONE |
+
+IM 全套(`pytest tests/im_service`):**181 passed, 8 failed**(8 个 pre-existing PA 桥接破损;M1 范围外)。
+
 ## [Handoff after R3] 余下工作清单(供下一 worker 继续)
 
 实现期内 budget 限制,M1 在 R3 截止。下面的 roadpoint 由后续 worker 接同一 worktree+branch 续跑(`change-impl-worker` 的"继续派发"语义):
