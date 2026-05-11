@@ -172,3 +172,28 @@ def test_create_app_serves_built_frontend_shell_on_im_routes(tmp_path: Path) -> 
     assert favicon_response.text == "<svg></svg>"
     assert asset_response.status_code == 200
     assert asset_response.text == "console.log('IM shell');"
+
+
+def test_create_app_serves_spa_shell_on_login_register_me_routes(tmp_path: Path) -> None:
+    """SPA routes /login /register /me must return the index.html shell, not a 404."""
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir(parents=True)
+    (dist_dir / "index.html").write_text("<!doctype html><title>IM shell</title>", encoding="utf-8")
+
+    app = create_app(
+        db_path=tmp_path / "im.db",
+        frontend_dist_dir=dist_dir,
+        frontend_dev_base_url="http://127.0.0.1:4173",
+    )
+
+    with TestClient(app) as client:
+        login_response = client.get("/login")
+        register_response = client.get("/register")
+        me_response = client.get("/me")
+
+    assert login_response.status_code == 200, "/login must serve SPA shell, not 404"
+    assert login_response.text == "<!doctype html><title>IM shell</title>"
+    assert register_response.status_code == 200, "/register must serve SPA shell, not 404"
+    assert register_response.text == "<!doctype html><title>IM shell</title>"
+    assert me_response.status_code == 200, "/me must serve SPA shell, not 404"
+    assert me_response.text == "<!doctype html><title>IM shell</title>"
