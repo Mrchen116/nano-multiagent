@@ -63,4 +63,24 @@
 - Commits: C1=d5542102, C2=71d991a5, C3=(本提交)
 - Next: R5 — chat-workspace-page 重写(react-query + WS + 桌面 / 移动响应式)。
 
+## R5 — chat-workspace-page v2(组合 + 路由 + 移动响应式)
+
+- Context: 把 R1-R4 写好的零件装配成 `/chat` 页面;桌面双栏 / 移动堆叠;接 `useParams` / `useNavigate` 走真实路由。legacy `chat-workspace-page.tsx`(1185 行)和它的 chat-layout/chat-routes 测试是上一代实现,路由切换后必须清掉,不能两套并存让 reviewer 困惑。
+- Decision:
+  - 新文件 `features/chat/v2/chat-workspace-page.tsx`,导出 `ChatWorkspacePageV2`。`router.tsx` 用 alias `as ChatWorkspacePage` 替换 import 源,保持 `<ChatWorkspacePage />` JSX 引用不变,降低修改面。
+  - 数据流:react-query 拉 `listConversations` / `listMessages` / `listMentionCandidates` / `fetchAgents(NewGroup 模态用)`;WS 通过 `openChatStream`(R2)开一次,事件喂进 `useReducer(streamReducer)`,reducer 内部直接调 R2 的 `applyWsEvent`。切会话时 `dispatch({type:"reset",messages:history})` 一次性 seed,WS 流持续追加。
+  - 不做 optimistic insert——`createMessage` POST 返回后 backend 也会 echo `message.created`,reducer 已去重(R2),所以页面只需 invalidate conversations 列表,不操作 detail 缓存。
+  - 移动响应式:`useIsMobile() && conversationId` 时只渲染 MessagePane 并传 `onBack=>navigate("/chat")`;`!conversationId` 在桌面时显示 empty-pane,在移动时只显示 sidebar。
+  - integration test 用 `FakeWebSocket` + `vi.stubGlobal("fetch", ...)`,覆盖三个真实入口:进入 `/chat/c1` 看到列表 + 历史消息、WS 推 created+delta+delta+completed 看到最终内容、Send 按钮 POST 后 composer 清空。
+  - 清理:删 `features/chat/chat-layout.test.tsx`、`chat-routes.test.tsx` —— 它们 mock 的全是 legacy chat-api endpoint(`getChatBootstrapState` / `streamConversationEvents` 等),与 v2 不再对齐。`router.test.tsx` 删 1 个 case(也针对 legacy copy);保留路由声明断言。
+- Rationale: 决策 1+3+6+10 全部命中。把 stream 入口和 reducer 分离意味着:WS 协议改 / 加 sync 兜底时只动 `chat-stream.ts` + reducer,UI 零改。`MessagePane` / `ConversationSidebar` 全部受控,workspace 是唯一拿到 react-query / WS 的层 —— 测试时也只需要 mock 这两个外界。
+- Evidence:
+  - Tests: `npx vitest run` 全套 214/214 pass(从 219 减 5 是因为 chat-layout 5 个 + chat-routes 2 个 + router 1 个 - 新增 3 个 integration = -5)。
+  - Integration: 3/3 pass。其中 WS sequence 端到端验证了"用户进会话 → 列表渲染 → 历史显示 → 推流 → 文本逐字增长 → 完成时 token_usage 入 reducer";Send 测试断言 POST URL/payload + composer 清空。
+  - 入口验证:用 RTL 渲染整个 `<MemoryRouter><Routes>...` + `QueryClientProvider`,这是 SPA 的真实顶层入口,fetch + WS 全替身但内部走完整 react-query / reducer / 组件树。
+- Rollback: revert router.tsx 一行 import + 恢复 chat-layout/chat-routes 测试文件即可回到 legacy。
+- Commits: C1=de2c2b2b, C2=02697458, C3=(本提交)
+- Next: R6 — 切断 legacy `/im/v1/users` + 删 WorkspaceTabs orphan + 清 legacy chat 文件残骸。
+
+
 
