@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] POST /im/v1/conversations (含无主 agent 参与者) → 201; GET /im/v1/conversations 返回该会话
-- [ ] 单测覆盖 `caller_owner_id` 被正确写入 conversation.owner_id
-- [ ] 跨租户隔离:owner A 创群,owner B GET 不到
-- [ ] npx tsc -b 干净
-- [ ] vitest 全绿
-- [ ] pytest tests/im_service/ 全绿(pre-existing m103/m136 ignore)
+- [x] POST /im/v1/conversations (含无主 agent 参与者) → 201; GET /im/v1/conversations 返回该会话
+- [x] 单测覆盖 `caller_owner_id` 被正确写入 conversation.owner_id
+- [x] 跨租户隔离:owner A 创群,owner B GET 不到
+- [x] npx tsc -b 干净
+- [x] vitest 全绿
+- [x] pytest tests/im_service/ 全绿(pre-existing m103/m136 ignore)
 
 ## 测试策略
 
@@ -32,18 +32,18 @@ HTTP 集成测试(真打 TestClient):
 
 ### R1 — C1 红测试:HTTP 入口 + repository 单测
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 在 tests/im_service/integration/test_chat_flow_integration.py 追加 test_group_with_agent_appears_in_sidebar; 在 tests/im_service/unit/test_repositories.py 追加 test_create_group_conversation_owner_id_uses_caller
-- 验证: pytest 这两个测试文件 → 两个新测试 FAIL
+- 验证: pytest 这两个测试文件 → 两个新测试 FAIL ✓
 
 ### R2 — C2 实现:web_im.py + repositories.py + web_im_service.py
 
-- 状态: TODO
-- 步骤: routes/web_im.py 移除 del user,改传 caller_owner_id; web_im_service.py 透传; repositories.py create_conversation 接受 caller_owner_id 参数,multi-owner 时用之代替 uuid4
-- 验证: pytest tests/im_service/ (ignore m103/m136) → 全绿
+- 状态: DONE
+- 步骤: routes/web_im.py 移除 del user,改传 caller_owner_id; web_im_service.py 透传; repositories.py create_conversation 接受 caller_owner_id 参数,caller 提供时直接使用
+- 验证: pytest tests/im_service/ (ignore m103/m136) → 203 passed ✓; vitest 238 passed ✓; tsc -b 干净 ✓
 
 ### R3 — C3 文档:tasks.md 更新 + progress.md 补齐
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 更新本文件状态;补 progress.md 各段
 - 验证: git log --oneline 显示 C1/C2/C3 三提交
