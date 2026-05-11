@@ -111,8 +111,8 @@
 - Evidence:
   - `pytest tests/im_service/integration/test_init_admin_cli.py tests/im_service/integration/test_auth_multiuser_isolation.py` 7/7 通过
   - IM 全套:**181 passed**(R5 末 174,新增 7);8 个 pre-existing PA 桥接失败不变
-- Rollback: revert C2(<待生成>) + 删 `src/IM/cli/` 目录
-- Commits: C1=<待生成>, C2=<待生成>, C3 待跟进
+- Rollback: revert C2(b4c7f44) + 删 `src/IM/cli/` 目录
+- Commits: C1=16aeb09, C2=b4c7f44, C3=5c419f1
 - Next: R7 — 收尾(更新 runbook + 合并到 unit 集成分支)
 
 ## R7 — 文档收尾 + 合并到 unit 集成分支
