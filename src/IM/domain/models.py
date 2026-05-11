@@ -84,6 +84,8 @@ class User:
     owned_node_ids: list[str] = field(default_factory=list)
     default_entry_node_id: str | None = None
     created_at: str = ""
+    password_hash: str | None = None
+    locale: str = "en"
 
 
 @dataclass(frozen=True, slots=True)

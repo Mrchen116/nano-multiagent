@@ -38,12 +38,26 @@ class UserRepository:
         """
         self._connection = connection
 
-    def create_user(self, *, username: str, display_name: str) -> User:
+    _USER_SELECT_COLUMNS = (
+        "id, username, display_name, owner_id, default_entry_node_id, "
+        "password_hash, locale, created_at"
+    )
+
+    def create_user(
+        self,
+        *,
+        username: str,
+        display_name: str,
+        password_hash: str | None = None,
+        locale: str = "en",
+    ) -> User:
         """Create a user record.
 
         Args:
             username: Stable unique username for the user.
             display_name: Display name shown in conversation UI.
+            password_hash: Optional bcrypt hash used by the auth flow; None for legacy fixtures.
+            locale: Initial UI locale; defaults to ``en``.
 
         Returns:
             Created user entity.
@@ -61,10 +75,10 @@ class UserRepository:
             with self._connection:
                 self._connection.execute(
                     """
-                    INSERT INTO users(id, username, display_name, owner_id, default_entry_node_id, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO users(id, username, display_name, owner_id, default_entry_node_id, password_hash, locale, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (user_id, username, display_name, owner_id, None, created_at),
+                    (user_id, username, display_name, owner_id, None, password_hash, locale, created_at),
                 )
         except sqlite3.IntegrityError as error:
             _raise_constraint_error(error)
@@ -76,6 +90,8 @@ class UserRepository:
             owned_node_ids=[],
             default_entry_node_id=None,
             created_at=created_at,
+            password_hash=password_hash,
+            locale=locale,
         )
 
     def list_users(self) -> list[User]:
@@ -85,21 +101,38 @@ class UserRepository:
             Users ordered by creation timestamp and insertion order.
         """
         rows = self._connection.execute(
-            "SELECT id, username, display_name, owner_id, default_entry_node_id, created_at FROM users ORDER BY created_at, rowid"
+            f"SELECT {self._USER_SELECT_COLUMNS} FROM users ORDER BY created_at, rowid"
         ).fetchall()
         return [self._row_to_user(row) for row in rows]
 
     def get_user(self, *, user_id: str) -> User | None:
         """Return one user with owned node ids, or None when missing."""
         row = self._connection.execute(
-            "SELECT id, username, display_name, owner_id, default_entry_node_id, created_at FROM users WHERE id = ?",
+            f"SELECT {self._USER_SELECT_COLUMNS} FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         if row is None:
             return None
         return self._row_to_user(row)
 
-    def update_user(self, *, user_id: str, display_name: str, default_entry_node_id: str | None) -> User:
+    def get_user_by_username(self, *, username: str) -> User | None:
+        """Return one user by username (auth login lookup)."""
+        row = self._connection.execute(
+            f"SELECT {self._USER_SELECT_COLUMNS} FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_user(row)
+
+    def update_user(
+        self,
+        *,
+        user_id: str,
+        display_name: str,
+        default_entry_node_id: str | None,
+        locale: str | None = None,
+    ) -> User:
         """Update mutable user settings and return the latest snapshot."""
         if not display_name.strip():
             raise ValueError("display_name must be non-empty")
@@ -111,10 +144,11 @@ class UserRepository:
             next_default_entry_node_id = next_default_entry_node_id.strip() or None
             if next_default_entry_node_id and next_default_entry_node_id not in user.owned_node_ids:
                 raise ValueError("default_entry_node_id not owned by user")
+        next_locale = user.locale if locale is None else locale.strip() or user.locale
         with self._connection:
             cursor = self._connection.execute(
-                "UPDATE users SET display_name = ?, default_entry_node_id = ? WHERE id = ?",
-                (display_name, next_default_entry_node_id, user_id),
+                "UPDATE users SET display_name = ?, default_entry_node_id = ?, locale = ? WHERE id = ?",
+                (display_name, next_default_entry_node_id, next_locale, user_id),
             )
         if cursor.rowcount == 0:
             raise ValueError("user_id not found")
@@ -148,6 +182,9 @@ class UserRepository:
         default_entry_node_id = row["default_entry_node_id"]
         if default_entry_node_id not in owned_node_ids:
             default_entry_node_id = owned_node_ids[0] if owned_node_ids else None
+        row_keys = row.keys() if hasattr(row, "keys") else []
+        password_hash = row["password_hash"] if "password_hash" in row_keys else None
+        locale = row["locale"] if "locale" in row_keys and row["locale"] else "en"
         return User(
             id=row["id"],
             username=row["username"],
@@ -156,6 +193,8 @@ class UserRepository:
             owned_node_ids=owned_node_ids,
             default_entry_node_id=default_entry_node_id,
             created_at=row["created_at"],
+            password_hash=password_hash,
+            locale=locale,
         )
 
 
