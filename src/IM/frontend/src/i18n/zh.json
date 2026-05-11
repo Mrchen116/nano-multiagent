@@ -47,11 +47,16 @@
       "account": "账号",
       "nodes": "节点",
       "language": "语言",
+      "notifications": "通知",
       "signOut": "退出登录"
     },
     "language": {
       "en": "English",
       "zh": "中文"
+    },
+    "notifications": {
+      "toggle": "启用桌面通知",
+      "hint": "标签未激活时,Agent 回复完成会弹出系统通知。"
     }
   },
   "common": {
