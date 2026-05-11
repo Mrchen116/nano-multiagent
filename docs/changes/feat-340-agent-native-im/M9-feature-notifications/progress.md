@@ -44,3 +44,15 @@ M7 已落地 `notification-preference.ts`(localStorage + `useSyncExternalStore` 
 - Rollback: revert 0cbb6c1c → 1d0ceb53。
 - Commits: C1=1d0ceb53, C2=0cbb6c1c, C3=<本提交>
 - Next: R4 App.tsx 挂载 + Me 页 toggle。
+
+### R4 — App 挂载 + Me 页 toggle + i18n
+
+- Context: 通知组件需要在所有授权过的路由上常驻;Me 页(移动聚合)也要有 toggle 与 spec 对齐。
+- Decision: 在 `App.tsx` 顶层挂 `<AgentCompletionNotifier />`(空 DOM);Me 页加 `notifications` 区,勾选时 ensureNotificationPermission 触发授权弹窗;i18n 补 `me.sections.notifications` / `me.notifications.toggle` / `hint` 三个 key(EN/中)。
+- Rationale: Me 页是移动端聚合入口,Account 已有同样 toggle(M7),两处都改 = 用户在桌面/移动任一路径都能开关,共享同一 `localStorage` key,行为一致。
+- Evidence:
+  - Tests: 完整 `vitest run` — 44 文件 / 208 通过。
+  - Entry: Me 页测试 `notification toggle persists preference to localStorage` 真点击 checkbox → localStorage `im_notifications_enabled` 翻转;App 测试 `mounts AgentCompletionNotifier` 真断言 `openChatStream` 被调用。
+- Rollback: revert d9da2a95 → 05b7cfa1。
+- Commits: C1=05b7cfa1, C2=d9da2a95, C3=<本提交>
+- Next: R5 收尾。
