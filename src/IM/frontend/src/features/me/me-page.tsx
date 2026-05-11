@@ -2,6 +2,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
+import { ensureNotificationPermission } from "../notifications/notification-api";
+import { useNotificationPreference } from "../notifications/notification-preference";
 
 /**
  * Mobile-only aggregated entry page that bundles Account / Nodes / Language / Sign out.
@@ -12,6 +14,7 @@ export function MePage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const lang = getCurrentLanguage();
+  const [notificationsEnabled, setNotificationsEnabled] = useNotificationPreference();
 
   const handleSignOut = () => {
     useAuthStore.getState().clear();
@@ -59,6 +62,28 @@ export function MePage() {
             onChange={() => handleLanguageChange("zh")}
           />
           {t("me.language.zh")}
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>{t("me.sections.notifications")}</legend>
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            checked={notificationsEnabled}
+            onChange={(event) => {
+              const next = event.target.checked;
+              setNotificationsEnabled(next);
+              if (next) {
+                void ensureNotificationPermission();
+              }
+            }}
+          />
+          <span>
+            {t("me.notifications.toggle")}
+            <span className="block text-xs text-slate-500">
+              {t("me.notifications.hint")}
+            </span>
+          </span>
         </label>
       </fieldset>
       <button type="button" onClick={handleSignOut} className="im-me-signout">
