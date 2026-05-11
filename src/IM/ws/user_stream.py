@@ -148,6 +148,15 @@ class UserStreamRegistry:
             if not sockets:
                 del self._by_user[user_id]
 
+    async def broadcast_to_user(self, user_id: str, text: str) -> None:
+        """Send one text frame to all connections owned by ``user_id``.
+
+        Convenience wrapper around ``broadcast_to_users`` for the single-owner case
+        used by node/agent status events (feat-340-M10 决策 11). Reusing the
+        multi-user path keeps dead-connection pruning and fan-out semantics consistent.
+        """
+        await self.broadcast_to_users((user_id,), text)
+
     async def broadcast_to_users(self, user_ids: Iterable[str], text: str) -> None:
         """向给定用户下的所有连接发送同一文本帧（忽略已断开）。"""
         id_set = frozenset(user_ids)
@@ -200,6 +209,55 @@ def build_notify_enqueue(
         loop.call_soon_threadsafe(outbound_queue.put_nowait, (users, text))
 
     return notify
+
+
+async def scan_and_flip_stale_nodes(
+    *,
+    handler,  # type: GatewayHandler — late-imported to avoid circular ref
+    node_repository,  # type: NodeRepository
+    timeout_seconds: int = 60,
+) -> int:
+    """Scan the nodes table once and flip any stale online node to offline.
+
+    Pulled out of the long-running task so unit tests can invoke a single pass
+    directly without sleeping. The loop in ``run_offline_guard`` wraps this.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds)).isoformat().replace("+00:00", "Z")
+    rows = node_repository._connection.execute(  # noqa: SLF001
+        """
+        SELECT node_id FROM nodes
+        WHERE status = 'online'
+          AND last_heartbeat_at IS NOT NULL
+          AND last_heartbeat_at < ?
+        """,
+        (cutoff,),
+    ).fetchall()
+    flipped = 0
+    for row in rows:
+        await handler.force_mark_offline(node_id=str(row["node_id"]), reason="heartbeat_timeout")
+        flipped += 1
+    return flipped
+
+
+async def run_offline_guard(
+    *,
+    handler,  # type: GatewayHandler
+    node_repository,  # type: NodeRepository
+    interval_seconds: int = 10,
+    timeout_seconds: int = 60,
+) -> None:
+    """Background task — scan stale nodes every ``interval_seconds``.
+
+    Cancellation via ``asyncio.Task.cancel`` is the normal stop path; FastAPI
+    lifespan owns the task handle and cancels on shutdown.
+    """
+    while True:
+        await scan_and_flip_stale_nodes(
+            handler=handler,
+            node_repository=node_repository,
+            timeout_seconds=timeout_seconds,
+        )
+        await asyncio.sleep(interval_seconds)
 
 
 async def pump_user_stream_outbound(
