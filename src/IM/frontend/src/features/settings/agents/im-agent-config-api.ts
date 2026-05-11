@@ -1,3 +1,4 @@
+import { authFetch } from "../../auth/auth-fetch";
 import { normalizeItemsEnvelope } from "../../chat/im-chat-api";
 
 export interface AgentSummary {
@@ -233,7 +234,7 @@ class AgentConfigRequestError extends Error {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withBase(path), {
+  const response = await authFetch(withBase(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",
