@@ -28,3 +28,18 @@
 - Rollback: 删 `src/IM/api/ws/` 目录;event_bridge 尚未引用。
 - Commits: C1=c9376b9, C2=(latest), C3=(this)
 - Next: R3 event_bridge 实现。
+
+## R3 — EventBridge
+
+- Context: 把 kernel 5 个生命周期事件(turn_start / message_delta / tool_call upsert / tool_call complete / message completed)翻译为 IM 的"messages 行 + conversation_events 行 + notify 广播"。该 bridge 是 design 决策 5 的体现:翻译逻辑放 IM 里,kernel/Gateway 不动。
+- Decision: `IM.application.event_bridge.EventBridge` 类 + 5 个 `on_*` 方法。MessageRepository.update_runtime_state 已在 R1 准备好,bridge 只是 thin orchestrator;每个 on_* 同时干两件事:patch messages 行 + append conversation_events 行 + notify。turn_start 后再次 update_runtime_state(delivery_status="running") 让 /sync 回放时能看到未完成的 turn(原型的 pulse/spinner 要靠这个驱动)。
+- Rationale:
+  - 一组 keyword-only API,事件名字与 ws/event_types 常量耦合,producer/consumer 一处定义。
+  - 空 delta 短路:避免无意义的 DB 写 + 空 broadcast。
+  - 不在 bridge 内部做 retry/降级:符合"禁止兜底/防御性编程"——event_repository 内部已经事务化,失败大声 raise。
+- Evidence:
+  - Tests: 4 个 unit 测试覆盖每个 on_* 方法(DB 状态 + notify 收到的 ConversationEvent)。
+  - 全 unit 套件: 69 passed。
+- Rollback: 删 `src/IM/application/event_bridge.py`(尚无外部引用)。
+- Commits: C1=f0afa9f, C2=d3f5dab, C3=(this)
+- Next: R4 Gateway 桥接钩子 + 集成测试。
