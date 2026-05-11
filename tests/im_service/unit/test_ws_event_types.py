@@ -10,9 +10,11 @@ from IM.api.ws.event_types import (
     EVENT_NODE_STATUS_CHANGED,
     EVENT_TOOL_CALL_COMPLETED,
     EVENT_TOOL_CALL_UPSERTED,
+    build_agent_status_changed_payload,
     build_message_completed_payload,
     build_message_created_payload,
     build_message_delta_payload,
+    build_node_status_changed_payload,
     build_tool_call_completed_payload,
     build_tool_call_upserted_payload,
 )
@@ -126,3 +128,37 @@ def test_build_message_completed_payload_without_token_usage() -> None:
         conversation_id="c1", message_id="m1", content="x", token_usage=None
     )
     assert payload["token_usage"] is None
+
+
+def test_build_node_status_changed_payload_online() -> None:
+    payload = build_node_status_changed_payload(
+        seq=7,
+        node_id="node-1",
+        status="online",
+        last_heartbeat_at="2026-05-11T10:00:00Z",
+        last_error=None,
+    )
+    assert payload == {
+        "seq": 7,
+        "node_id": "node-1",
+        "status": "online",
+        "last_heartbeat_at": "2026-05-11T10:00:00Z",
+        "last_error": None,
+    }
+
+
+def test_build_node_status_changed_payload_offline_with_error() -> None:
+    payload = build_node_status_changed_payload(
+        seq=8,
+        node_id="node-1",
+        status="offline",
+        last_heartbeat_at="2026-05-11T10:00:00Z",
+        last_error="heartbeat_timeout",
+    )
+    assert payload["status"] == "offline"
+    assert payload["last_error"] == "heartbeat_timeout"
+
+
+def test_build_agent_status_changed_payload() -> None:
+    payload = build_agent_status_changed_payload(seq=3, agent_id="agent-x", status="online")
+    assert payload == {"seq": 3, "agent_id": "agent-x", "status": "online"}
