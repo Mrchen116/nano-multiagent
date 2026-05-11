@@ -25,4 +25,4 @@
 | ID | 标题 | 状态 |
 |----|------|------|
 | R1 | zh.json shell.tabs.agents 改为 "智能体" | DONE |
-| R2 | 删除 app.py WS ?user_id= legacy fallback | TODO |
+| R2 | 删除 app.py WS ?user_id= legacy fallback | DONE |
