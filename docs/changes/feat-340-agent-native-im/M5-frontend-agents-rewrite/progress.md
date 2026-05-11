@@ -9,8 +9,8 @@
 
 - R1 list page rewrite — DONE
 - R2 detail page four-card rewrite — DONE
-- R3 create page three-card rewrite — TODO
-- R4 i18n zh translations + UI 切换断言 — DOING(R1/R2 已落地 agents 部分 zh,新建页 zh 在 R3 继续追加;R4 收尾做端到端切换断言)
+- R3 create page three-card rewrite — DONE
+- R4 i18n zh translations + UI 切换断言 — DONE
 - R5 status-broadcast 消费(WS reducer + React Query cache patch) — TODO(新增 roadpoint,见上方 design 修订)
 
 ---
@@ -59,5 +59,44 @@
   - Full suite: `npm run test -- --run` → **32 test files / 179 tests** 全绿
   - Entry: `agent-edit.test.tsx` 用 `renderRouter` 跑真实路由 `/settings/agents/agent-core-1`,走完整 router + QueryClient + fetchMock(/im/v1/nodes、/im/v1/agents/:id/capabilities、:id/config GET/PATCH) — 等同浏览器加载详情。
 - Rollback: `git reset --hard fdc6bb03`(R2 C1 测试已存在)
-- Commits: C1=fdc6bb03, C2=733bd8d8, C3=<this>
+- Commits: C1=fdc6bb03, C2=733bd8d8, C3=8d2e2d5b
 - Next: R3 新建页三卡重写
+
+### R3 — create page three-card rewrite
+
+- Context: 旧新建页 505 行有 5 张 `im-section-card`(Owning node + Identity + Behavior + Access & Model + Workspace),Save 后留在原页显示成功 CTA + 手动跳直聊。原型与 design 规定:新建页只显示 3 张卡(Identity 含 Owning Node、Behavior、Access & Model),没有 Workspace 卡,Save 成功直接跳详情(`/settings/agents/<new-id>`),Cancel 回列表(`/settings/agents`)。
+- Decision:
+  - 整页重写为 `<form data-testid="agent-create" className="im-agent-panel">`,Header 上是 `agents.create.title`("新建 Agent")+ node 状态 pill,3 张 `<section className="im-agent-card">`(身份/行为/访问与模型),`im-agent-footer` 内 Cancel `<Link to="/settings/agents">` + Create `<button type="submit">`。
+  - Workspace 卡片**整体删除**,`workspace_root` 在 `normalizeDraft` 里强制为 `null`(后端按节点 managed default 分配工作区路径) — payload 里固定送 `workspace_root: null`,无 UI 控件露出。
+  - 删除原"成功后留页 + Open direct chat" 逻辑;`onSuccess` 直接 `navigate(`/settings/agents/${created.agent_id}`)`,符合 design"一次性引导用户进入正式编辑面板"。
+  - 全文 i18n,`agents.form.*` / `agents.create.*` key 全量接管;label 加 `*` 标记必填(`Agent ID *`/`Display Name *`/`System Prompt *`/`Owning Node *`)— 测试用 `/^Agent ID/` 等 prefix 正则匹配 `getByLabelText`,稳健应对 i18n 文案差异。
+  - 同步修复 `src/app/router.test.tsx` 一处 obsoleted 断言:旧文案 "Create Agent on" → 新文案 "New agent",error fallback 文案 "Could not load this node." → "Could not load agents.";仍允许 error/normal 两条路径之一通过,符合 router smoke 测试意图。
+- Rationale:
+  - 移除 Workspace 字段而非"保留但 hide" — design 决策明确"Workspace 是 owning node 的 runtime 属性,新建期间用户无能力填一个有效的本地路径",留 UI 只会诱导出错的输入。强制 `workspace_root: null` 让后端走 managed default,与旧"用户填空白则用 default"行为等价但 UI 更干净。
+  - Save → navigate 而非留页:原型希望"一次创建 → 立刻进入完整编辑面板",避免双步骤(成功 CTA → 手动点 Open chat 跳)— 详情页本身已含 Open chat 按钮,留页只是冗余。
+  - Cancel 用 `<Link>` 而非 navigate(-1):新建页可能从 Nodes/Agents/UserMenu 三入口进入,后退路径不确定;直接回 `/settings/agents` 与列表→ + New → 列表 的产品心智模型一致。
+  - Label 带 `*` 走 i18n 而非纯 CSS pseudo-element — 测试时能直接看到 required 标记,屏幕阅读器也能朗读,a11y 友好。
+- Evidence:
+  - Tests: `npm run test -- --run agent-create` → 4/4 通过(三卡渲染 + 无 Workspace + Save 跳 `/settings/agents/agent-new` + 必填校验 + 409 错误 + Cancel 链接 `/settings/agents`)
+  - Full suite: `npm run test -- --run` → **32 test files / 180 tests** 全绿(含修复后的 router smoke test)
+  - Entry: 通过 `/settings/nodes/node-1/agents/new` 真实路由进入新建页,fetchMock 模拟节点 capabilities + listNodes,断言 createNodeAgent 真请求载荷 + navigate 真调用。
+- Rollback: `git reset --hard 373dee82`(R3 C1 测试已存在)
+- Commits: C1=373dee82, C2=26c5f96c, C3=<this>
+- Next: R4 i18n end-to-end switch 断言
+
+### R4 — i18n zh translations + UI 切换断言
+
+- Context: R1 已落地列表 i18n;R2 已把详情页所有英文文案搬到 `t("agents.detail.*")` / `t("agents.form.*")`;R3 已把新建页文案搬到同 namespace 下;`agents.*` 在 en.json/zh.json 中已完整对齐(190+ keys)。R4 只剩一个事:用一个独立的端到端测试文件,在 `setLanguage("zh")` 后跑真实路由,断言关键中文文案出现在屏幕上。
+- Decision:
+  - 新建 `agents-i18n-switch.test.tsx`,beforeEach 调 `setLanguage("zh")`,afterEach 还原到 `setLanguage("en")`,三个 case:(a) 列表 zh — 断言"还没有 Agent" / "前往节点" / "Agents" 标题;(b) 详情 zh — 断言"身份/行为/访问与模型/工作区与运行时"四卡标题 + "打开聊天" + "保存";(c) 新建 zh — 断言"新建 Agent" 标题 + 三卡 + "取消" + "创建 Agent",并 `queryByRole("heading", { name: /工作区/ })` 不存在 — 双重锁定"新建页无 Workspace"。
+  - 由于 R2/R3 已经把页面整体 i18n 化,本 R 不需要改 production 代码,只新增测试 — 这是"R 的边界"实际划在 R2/R3,R4 收口断言。tasks.md 已标 R4 DOING 的"R1/R2 已落地详情/新建 zh,R4 主要做端到端切换断言",与最终落地一致。
+- Rationale:
+  - 不退而求其次写"假端到端"(setLanguage 后只测一个组件):用 `renderRouter({ routes: appRoutes, initialEntries: [...] })` + 真 fetchMock 跑完整路由 + Settings 外壳,确保 i18n 真的从 lookup 一直传到屏幕。三页都验证、不留盲区。
+  - afterEach 还原为 en,避免污染后续测试(其他用例默认走 en 文案断言)。
+- Evidence:
+  - Tests: `npm run test -- --run agents-i18n-switch` → 3/3 通过(列表 / 详情 / 新建 全部 zh 文案断言通过)
+  - Full suite: `npm run test -- --run` → **33 test files / 183 tests** 全绿
+  - Entry: 三个测试都走真实路由 `/settings/agents` / `/settings/agents/agent-zh-1` / `/settings/nodes/node-1/agents/new`,等同于浏览器切到中文后访问这三个路径。
+- Rollback: `git reset --hard a44544c5`(R4 C1 测试已存在)
+- Commits: C1=a44544c5(测试文件即落地;R2/R3 已完成实现侧),C3=<this>
+- Next: R5 status-broadcast WS reducer 消费
