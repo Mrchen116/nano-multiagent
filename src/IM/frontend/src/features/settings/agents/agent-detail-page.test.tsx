@@ -103,22 +103,18 @@ describe("agent detail page", () => {
 
     renderDetailPage();
 
-    expect(await screen.findByRole("heading", { name: "Agent settings" })).toBeInTheDocument();
-    expect(screen.getByText("Review the saved role, access, and runtime details without losing the current profile state.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Core Planner" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Access & model" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Workspace" })).toBeInTheDocument();
-    expect(screen.getByText("Current workspace")).toBeInTheDocument();
-    expect(screen.getByText("Owning node")).toBeInTheDocument();
-    expect(screen.getByText("Capabilities updated")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Workspace setting")).not.toBeInTheDocument();
-    expect(screen.getByText(/Read-only runtime path/i)).toBeInTheDocument();
-    expect(screen.queryByText("Start chatting now")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open direct chat" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Default Model")).toHaveDisplayValue("codex_oauth:gpt-5.4 (platform default)");
+    expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Workspace & Runtime" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open chat/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Open direct chat" }));
+    const panel = screen.getByTestId("agent-detail");
+    expect(panel.className).toContain("im-agent-panel");
+    expect(panel.querySelectorAll(".im-agent-card").length).toBeGreaterThanOrEqual(4);
+
+    await user.click(screen.getByRole("button", { name: /Open chat/i }));
 
     await waitFor(() => {
       expect(apiMocks.createDirectConversationMock).toHaveBeenCalledWith({ agentId: "agent-core-1" });

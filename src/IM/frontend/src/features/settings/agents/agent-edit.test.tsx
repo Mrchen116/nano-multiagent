@@ -145,17 +145,20 @@ describe("agent edit page", () => {
 
     const input = await screen.findByLabelText("Display Name");
     expect(screen.getByLabelText("System Prompt")).toHaveValue("You are the planning core for IM and SDK tasks.");
-    expect(screen.getByText("Review the saved role, access, and runtime details without losing the current profile state.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Access & model" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Workspace & Runtime" })).toBeInTheDocument();
     expect(screen.getByText("MacBook")).toBeInTheDocument();
-    expect(screen.getByText("online")).toBeInTheDocument();
-    expect(screen.getByText("Owning node")).toBeInTheDocument();
-    expect(screen.getByText("Capabilities updated")).toBeInTheDocument();
-    expect(screen.getByText("Current workspace")).toBeInTheDocument();
     expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
+
+    const panel = screen.getByTestId("agent-detail");
+    expect(panel.className).toContain("im-agent-panel");
+    const statusPill = screen.getByTestId("agent-detail-status-pill");
+    expect(statusPill.className).toContain("im-agent-panel-status-chip");
+    expect(statusPill.className).toContain("online");
+    expect(panel.querySelectorAll(".im-agent-card").length).toBeGreaterThanOrEqual(4);
+    expect(panel.querySelector(".im-agent-footer")).not.toBeNull();
     expect(screen.queryByLabelText("Workspace setting")).not.toBeInTheDocument();
     expect(screen.queryByText(/^Selected 2$/)).not.toBeInTheDocument();
     expect(screen.queryByText("Needs review")).not.toBeInTheDocument();
@@ -164,16 +167,16 @@ describe("agent edit page", () => {
     expect(screen.getByRole("checkbox", { name: /bash/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /read_file/i })).toBeChecked();
     expect(screen.queryByText(/Show advanced options/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "No Changes to Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
 
     fireEvent.change(input, { target: { value: "Core Planner X" } });
     await user.click(screen.getByRole("checkbox", { name: /playwright/i }));
     await user.click(screen.getByRole("checkbox", { name: /plan/i }));
     await user.click(screen.getByRole("checkbox", { name: /bash/i }));
-    await user.click(screen.getByRole("button", { name: "Save Agent" }));
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
-    expect(await screen.findByText("Saved")).toBeInTheDocument();
-    expect(await screen.findByText("Profile Version: 13")).toBeInTheDocument();
+    expect(await screen.findByText("✓ Saved")).toBeInTheDocument();
+    expect(await screen.findByText(/v13/)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -255,10 +258,9 @@ describe("agent edit page", () => {
 
     const input = await screen.findByLabelText("Display Name");
     await user.clear(input);
-    await user.click(screen.getByRole("button", { name: "Save Agent" }));
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
-    expect(await screen.findByText("Display name is required.")).toBeInTheDocument();
-    expect(screen.getByText("Fix the required fields before saving.")).toBeInTheDocument();
+    expect(await screen.findByText(/Display name is required\./i)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -329,9 +331,9 @@ describe("agent edit page", () => {
 
     const input = await screen.findByLabelText("Display Name");
     fireEvent.change(input, { target: { value: "Core Planner X" } });
-    await user.click(screen.getByRole("button", { name: "Save Agent" }));
+    await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
-    expect(await screen.findByText("409 (profile_version conflict)")).toBeInTheDocument();
-    expect(screen.getByText("Profile Version: 12")).toBeInTheDocument();
+    expect(await screen.findByText(/409.*profile_version conflict/i)).toBeInTheDocument();
+    expect(screen.getByText(/v12/)).toBeInTheDocument();
   });
 });
