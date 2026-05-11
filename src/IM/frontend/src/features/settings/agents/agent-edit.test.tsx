@@ -149,8 +149,10 @@ describe("agent edit page", () => {
     expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Workspace & Runtime" })).toBeInTheDocument();
-    expect(screen.getByText("MacBook")).toBeInTheDocument();
-    expect(screen.getByText("/Users/demo/nano-assistant/workspace/agent-core-1")).toBeInTheDocument();
+    expect(screen.getByText(/MacBook/)).toBeInTheDocument();
+    expect((screen.getByLabelText("Workspace Root") as HTMLInputElement).value).toBe(
+      "/Users/demo/nano-assistant/workspace/agent-core-1"
+    );
 
     const panel = screen.getByTestId("agent-detail");
     expect(panel.className).toContain("im-agent-panel");
@@ -176,7 +178,9 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
     expect(await screen.findByText("✓ Saved")).toBeInTheDocument();
-    expect(await screen.findByText(/v13/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v13");
+    });
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -334,6 +338,6 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
     expect(await screen.findByText(/409.*profile_version conflict/i)).toBeInTheDocument();
-    expect(screen.getByText(/v12/)).toBeInTheDocument();
+    expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v12");
   });
 });
