@@ -42,7 +42,7 @@
 - 写 `i18n/en.json` + `i18n/zh.json`:覆盖本 milestone 文案 key (auth/shell/me 页),其它页面 key 占位、由 M4-M7 worker 增量补
 - 写 `i18n/index.ts`:初始化 i18next、`useLanguage()` hook 返回 `{ lang, setLang }`(localStorage `im_lang` + 同步 `users.locale` 可选,后端调用留给 Account 页)
 - 测试:`i18n.test.ts` 验证默认 EN、`setLang("zh")` 后 t() 返回 zh 串、localStorage 持久化、刷新后载入
-- 状态:TODO
+- 状态:DONE
 
 ### R3 — Login + Register + auth-gate 路由守卫
 
