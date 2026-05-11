@@ -82,6 +82,8 @@ git pull --ff-only origin "unit/<unit_id>"
 
 旅程清单写到报告"User Journeys Exercised"段。
 
+同时建立一张**验收标准覆盖表**:把首文档里的每条验收标准逐条列出来,每条标记为 `pass / fail / inconclusive / not-applicable`。第 2 轮起必须继承上一轮所有 `fail` 和 `inconclusive` 项,直到它们被明确关闭。后续 fix round 可以聚焦修复项,但**最终给 pass 前必须确认所有必验项都有有效结论**。
+
 ### §3.2 真实跑
 
 用真实入口(浏览器 / CLI / HTTP),不要 curl 替代浏览器,不要 stub 替代真后端。每条旅程:
@@ -91,6 +93,8 @@ git pull --ff-only origin "unit/<unit_id>"
 - 记录每一步耗时(主观感受到延迟也算 issue)
 
 发现问题立即开始填报告(不要等全跑完)。
+
+如果某条验收标准要求用户观察到某个结果,你必须验证这个用户可观察结果本身。单测全绿、API 200、页面元素出现、代码里有实现,都只能作为辅助证据;除非首文档或验收报告明确说明替代验证足以证明该用户结果成立,否则不能把替代验证计为 `pass`。
 
 ### §3.3 判定每条问题的归属
 
@@ -143,6 +147,7 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
 
 - **Highest Required Action**: `fix-implementation | revise-design | out-of-unit | pass`
 - **Verdict**: `pass | fail | pass-with-issues`
+- **验收标准覆盖**:逐条列出首文档验收标准,记录验证方式、证据、结果(`pass / fail / inconclusive / not-applicable`)和备注
 - **Issues** 段每条:
   - `Severity`: blocking | major | minor
   - **`Recommended Action`**: fix-implementation | revise-design | out-of-unit
@@ -155,11 +160,12 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
 | 条件 | Verdict |
 |---|---|
 | 任意 blocking issue 存在 | `fail` |
+| 任意必验项为 `fail` 或 `inconclusive` | `fail` |
 | 无 blocking,有 major issue | `pass-with-issues` 或 `fail`(看 caller 的 acceptance bar,默认 `fail`) |
 | 只有 minor issue | `pass` |
 | 完全无 issue | `pass` |
 
-第 1 轮验收的 acceptance bar 默认严格(major 也算 fail);第 3 轮起 caller 可放宽到 `pass-with-issues`。
+第 1 轮验收的 acceptance bar 默认严格(major 也算 fail);第 3 轮起 caller 可放宽到 `pass-with-issues`。但只要首文档的必验项仍是 `fail` 或 `inconclusive`,就不能给 `pass`;必须继续 fix / 复验,或把该项明确标成 `not-applicable` 并写清理由。
 
 ---
 
@@ -309,6 +315,8 @@ orchestrator 据此决定:
 - **不要轻易给 revise-design**。三道闸全过才行。给不出闸 3 的引用 → 改成 fix-implementation。
 - **不要在第 1 轮把 minor 写成 blocking** 来逼修。严重度判定要诚实——blocking 是"用户主路径走不通",不是"我觉得这里不爽"。
 - **不要靠记忆写报告**。一边走旅程一边写,不要等全跑完再回忆——细节会丢。
+- **不要把局部证据当成用户故事成立**。单测绿、API 200、页面元素出现、局部替代验证,都不能自动替代首文档里的用户可观察验收标准。
+- **不要让后续 focus round 冲掉未验证项**。上一轮留下的 `inconclusive` / `fail` 必须继续出现在覆盖表里,直到被有效证据关闭。
 - **不要修代码改 git**。哪怕是为了"快速验证"。reviewer 永远只读不写(除了写报告)。
 
 ---
