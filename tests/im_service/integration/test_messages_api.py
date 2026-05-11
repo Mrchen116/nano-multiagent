@@ -458,3 +458,67 @@ def test_direct_chat_reports_node_offline_when_relay_not_live_connected(tmp_path
         )
         assert created.status_code == 503
         assert created.json()["detail"] == "target_node_id is not connected"
+
+
+def test_upload_rejects_disallowed_mime_type(tmp_path: Path) -> None:
+    """Block uploads outside the MIME white-list to keep agent intake bounded (M8 decision 8)."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        _create_user(client, "alice")
+
+        response = client.post(
+            "/im/v1/uploads?file_name=evil.sh",
+            content=b"#!/bin/sh\necho hi\n",
+            headers={"Content-Type": "application/x-sh"},
+        )
+        assert response.status_code == 415
+        assert "unsupported" in response.json()["detail"].lower()
+
+
+def test_upload_accepts_whitelisted_text_markdown(tmp_path: Path) -> None:
+    """Accept all white-listed text and document types (text/markdown is in white-list)."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        _create_user(client, "alice")
+
+        response = client.post(
+            "/im/v1/uploads?file_name=notes.md",
+            content=b"# notes\n",
+            headers={"Content-Type": "text/markdown"},
+        )
+        assert response.status_code == 201
+        assert response.json()["content_type"] == "text/markdown"
+
+
+def test_upload_rejects_body_above_size_limit(tmp_path: Path) -> None:
+    """Reject upload bodies above the 10 MB per-file ceiling (M8 decision 8)."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        _create_user(client, "alice")
+
+        oversized = b"x" * (10 * 1024 * 1024 + 1)
+        response = client.post(
+            "/im/v1/uploads?file_name=big.txt",
+            content=oversized,
+            headers={"Content-Type": "text/plain"},
+        )
+        assert response.status_code == 413
+
+
+def test_create_message_rejects_more_than_five_attachments(tmp_path: Path) -> None:
+    """Cap one message at 5 attachments to keep agent intake bounded (M8 decision 8)."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        user_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, user_id, "chat")
+
+        too_many = [
+            {"url": f"http://testserver/im/uploads/{i}.txt", "content_type": "text/plain", "file_name": f"{i}.txt"}
+            for i in range(6)
+        ]
+        response = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": user_id, "content": "", "attachments": too_many},
+        )
+        assert response.status_code == 400
+        assert "attachments" in response.json()["detail"].lower()
