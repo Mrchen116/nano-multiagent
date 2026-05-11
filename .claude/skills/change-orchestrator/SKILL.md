@@ -180,7 +180,7 @@ def main_loop(unit_id):
 
 ### §3.1 派发 worker(实现型 milestone)
 
-通过 Claude Code 的 Agent 工具派发,**不设置 isolation 参数**。subagent_type 选 general-purpose 或预设的 worker agent(若 harness 配了)。
+通过 Claude Code 的 Agent 工具派发,**不设置 isolation 参数**。model 选 sonnet。subagent_type 选 general-purpose 或预设的 worker agent(若 harness 配了)。
 
 prompt 含完整派发包:
 
