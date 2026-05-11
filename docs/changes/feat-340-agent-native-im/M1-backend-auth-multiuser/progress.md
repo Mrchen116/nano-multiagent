@@ -124,7 +124,7 @@
 - Evidence:
   - IM 全套(最后跑):**181 passed, 8 failed**(8 个 pre-existing PA 桥接失败,handoff doc 已声明,base 一致)
 - Rollback: revert C2(<待生成>)
-- Commits: C1=N/A(纯文档,无 Red 测试), C2=<待生成>, C3=<待生成>
+- Commits: C1=N/A(纯文档,无 Red 测试), C2=85fb14e, C3 自身即本提交
 - Next: M1 合并到 `unit/feat-340-agent-native-im`,清理 worktree + 删 milestone 分支,通知 orchestrator DONE
 
 ## [M1 完成回报] 最终状态总览
