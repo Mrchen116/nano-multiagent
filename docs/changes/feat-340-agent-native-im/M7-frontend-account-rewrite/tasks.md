@@ -25,28 +25,15 @@ EN/中 双语,移动端 Me 页也可触达。Account 提供的 locale 切换与 
 
 ## Roadpoints
 
-### R1 — 重写 Account 页面 UI + dirty/Save/Discard
+### R1 — Account 页重写 + locale 真存盘 + 通知偏好 hook  [DONE]
 
-- 步骤:
-  - 重写 `account-page.tsx`,改为按原型布局的三组卡片
-  - dirty 检测(任一字段改 → Save 高亮),Discard 回滚,Save 调 PATCH
-  - 重写 `account-page.test.tsx` 覆盖新交互
-  - i18n key 追加(`settings.account.*`)
-- 验证: vitest account-page.test.tsx 通过;手测桌面布局
+实际执行合并了原 R1/R2/R3(理由见 progress.md "Roadpoint 合并说明")。一次性交付:
 
-### R2 — Locale 切换打通 + 同步到后端 + auth-store
+- 后端 `UpdateMeRequest.locale` + `MeResponse.locale` + `bind_service.update_me(locale)` 透传
+- 前端 `account-page.tsx` 重写(Identity / Defaults / Preferences 三组卡片 + dirty/Save/Discard)
+- 新增 `features/notifications/notification-preference.ts`(localStorage + `useSyncExternalStore` hook)
+- i18n `settings.account.*` EN/中 追加;`me.language.*` 复用
+- 入口测试 `account-page.test.tsx` + 单测 `notification-preference.test.tsx` + 后端
+  `test_patch_me_persists_locale` 全部通过
 
-- 步骤:
-  - 扩展 `updateAccount` API + 后端 `UpdateMeRequest` 支持 `locale`
-  - Account 页加 locale 选择 segment;Save 时 PATCH `locale` 一并提交
-  - 成功后调用 i18n `setLanguage(next)` 并同步 auth-store user.locale
-  - 后端单测覆盖 locale 字段更新
-- 验证: vitest + pytest 通过;手测切换语言后刷新仍为新语言
-
-### R3 — Notifications 偏好 hook + Account 页开关
-
-- 步骤:
-  - 新增 `features/notifications/notification-preference.ts`(`useNotificationPreference` + `setNotificationPreference`,localStorage 持久化)
-  - Account 页加通知开关,勾选 → 持久化 + 触发 `Notification.requestPermission()` 提示
-  - 单元测试:开关切换写 localStorage;Account 集成测试断言 toggle 可见且响应点击
-- 验证: vitest 全绿
+验证: 前端 178 vitest 全绿,后端 IM 175 pytest 全绿(15 个 deselect 为 base 分支预存在的 M2 fake-kernel 问题)。
