@@ -1,17 +1,57 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
+/*
+ * feat-340 design tokens.
+ *
+ * Light content surface; dark top-bar; cyan accent.  oklch chosen over hex so future
+ * theme/contrast tweaks can be done by shifting L/C without re-picking hues.  Kept
+ * legacy `--im-*` aliases so feature pages that have not yet been rewritten (M4-M7
+ * will land them) continue to render in the new palette without visual breakage.
+ */
 :root {
-  --im-bg: #f5f1e8;
-  --im-surface: #fcfaf5;
-  --im-surface-2: #f1ebdf;
-  --im-accent: #0f766e;
-  --im-accent-2: #334155;
-  --im-text: #1f2937;
-  --im-text-muted: #6b7280;
-  --im-border: #d6d0c4;
-  --im-danger: #b91c1c;
-  --im-shadow: 0 24px 45px -28px rgba(30, 41, 59, 0.45);
+  --im-bg: oklch(0.98 0.005 240);
+  --im-surface: oklch(1 0 0);
+  --im-surface-2: oklch(0.965 0.006 240);
+  --im-topbar: oklch(0.19 0.012 240);
+  --im-topbar-fg: oklch(0.96 0.004 240);
+  --im-accent: oklch(0.52 0.14 180);
+  --im-accent-fg: oklch(0.99 0 0);
+  --im-accent-2: oklch(0.42 0.13 180);
+  --im-text: oklch(0.21 0.012 240);
+  --im-text-muted: oklch(0.5 0.012 240);
+  --im-border: oklch(0.9 0.008 240);
+  --im-border-strong: oklch(0.82 0.01 240);
+  --im-danger: oklch(0.58 0.18 25);
+  --im-warning: oklch(0.78 0.16 80);
+  --im-success: oklch(0.65 0.15 150);
+  --im-shadow: 0 12px 32px -22px oklch(0.2 0.012 240 / 0.45);
+  --im-shadow-strong: 0 18px 40px -18px oklch(0.2 0.012 240 / 0.55);
+
+  --im-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --im-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/*
+ * Tailwind v4 @theme: expose tokens as utility-class colors so feature code can
+ * write e.g. `bg-im-surface text-im-text` without re-declaring hex literals.
+ */
+@theme {
+  --color-im-bg: var(--im-bg);
+  --color-im-surface: var(--im-surface);
+  --color-im-surface-2: var(--im-surface-2);
+  --color-im-topbar: var(--im-topbar);
+  --color-im-topbar-fg: var(--im-topbar-fg);
+  --color-im-accent: var(--im-accent);
+  --color-im-accent-fg: var(--im-accent-fg);
+  --color-im-text: var(--im-text);
+  --color-im-text-muted: var(--im-text-muted);
+  --color-im-border: var(--im-border);
+  --color-im-danger: var(--im-danger);
+  --color-im-warning: var(--im-warning);
+  --color-im-success: var(--im-success);
+  --font-sans: var(--im-font-sans);
+  --font-mono: var(--im-font-mono);
 }
 
 * {
@@ -20,12 +60,9 @@
 
 body {
   margin: 0;
-  font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: var(--im-font-sans);
   color: var(--im-text);
-  background:
-    radial-gradient(circle at 0% 0%, #fef5e6 0%, transparent 45%),
-    radial-gradient(circle at 100% 20%, #dbeafe 0%, transparent 36%),
-    var(--im-bg);
+  background: var(--im-bg);
   min-height: 100vh;
 }
 
@@ -33,44 +70,369 @@ body {
   min-height: 100vh;
 }
 
+/* App shell */
+.im-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--im-bg);
+}
+
+.im-shell-topbar {
+  height: 48px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0 1rem;
+  background: var(--im-topbar);
+  color: var(--im-topbar-fg);
+}
+
+.im-shell-brand {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.im-shell-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex: 1;
+  justify-content: center;
+}
+
+.im-shell-tabs a {
+  color: oklch(0.78 0.01 240);
+  text-decoration: none;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.im-shell-tabs a:hover {
+  background: oklch(0.27 0.012 240);
+  color: var(--im-topbar-fg);
+}
+
+.im-shell-tabs a.active {
+  background: oklch(0.27 0.012 240);
+  color: var(--im-topbar-fg);
+}
+
+.im-shell-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.im-shell-bottombar {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  height: 56px;
+  border-top: 1px solid var(--im-border);
+  background: var(--im-surface);
+}
+
+.im-shell-bottombar a {
+  color: var(--im-text-muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.25rem 0.5rem;
+}
+
+.im-shell-bottombar a.active {
+  color: var(--im-accent);
+}
+
+/* User menu */
+.im-user-menu {
+  position: relative;
+}
+
+.im-user-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: 0;
+  color: var(--im-topbar-fg);
+  font: inherit;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+}
+
+.im-user-menu-trigger:hover {
+  background: oklch(0.27 0.012 240);
+}
+
+.im-user-menu-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--im-accent);
+  color: var(--im-accent-fg);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.im-user-menu-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 200px;
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 0.75rem;
+  box-shadow: var(--im-shadow-strong);
+  padding: 0.25rem;
+  z-index: 50;
+  color: var(--im-text);
+}
+
+.im-user-menu-popover a,
+.im-user-menu-popover button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: var(--im-text);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.im-user-menu-popover a:hover,
+.im-user-menu-popover button:hover {
+  background: var(--im-surface-2);
+}
+
+.im-user-menu-language {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.im-user-menu-language button {
+  padding: 0.2rem 0.5rem;
+  width: auto;
+  border: 1px solid var(--im-border);
+  border-radius: 0.4rem;
+}
+
+.im-user-menu-language button[aria-checked="true"] {
+  background: var(--im-accent);
+  color: var(--im-accent-fg);
+  border-color: var(--im-accent);
+}
+
+.im-user-menu-signout {
+  color: var(--im-danger) !important;
+}
+
+/* Auth pages */
+.im-auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--im-bg);
+  padding: 2rem 1rem;
+}
+
+.im-auth-card {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 1rem;
+  padding: 2rem;
+  box-shadow: var(--im-shadow);
+}
+
+.im-auth-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.im-auth-header p {
+  margin: 0;
+  color: var(--im-text-muted);
+  font-size: 0.9rem;
+}
+
+.im-auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.875rem;
+}
+
+.im-auth-field input {
+  width: 100%;
+  border: 1px solid var(--im-border);
+  border-radius: 0.5rem;
+  background: var(--im-surface);
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  color: var(--im-text);
+}
+
+.im-auth-field input:focus-visible {
+  outline: 2px solid var(--im-accent);
+  outline-offset: 1px;
+  border-color: var(--im-accent);
+}
+
+.im-auth-error {
+  background: oklch(0.96 0.04 25);
+  border: 1px solid var(--im-danger);
+  color: var(--im-danger);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.im-auth-submit {
+  background: var(--im-accent);
+  color: var(--im-accent-fg);
+  border: 0;
+  border-radius: 0.5rem;
+  padding: 0.7rem;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.im-auth-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.im-auth-footer {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: var(--im-text-muted);
+}
+
+.im-auth-footer a {
+  color: var(--im-accent);
+}
+
+/* Me page */
+.im-me-page {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.im-me-page h1 {
+  margin: 0;
+}
+
+.im-me-page nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 0.75rem;
+}
+
+.im-me-page nav a {
+  display: block;
+  padding: 0.75rem 1rem;
+  color: var(--im-text);
+  text-decoration: none;
+  border-bottom: 1px solid var(--im-border);
+}
+
+.im-me-page nav li:last-child a {
+  border-bottom: 0;
+}
+
+.im-me-page fieldset {
+  border: 1px solid var(--im-border);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.im-me-signout {
+  background: transparent;
+  color: var(--im-danger);
+  border: 1px solid var(--im-danger);
+  padding: 0.6rem;
+  border-radius: 0.5rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/*
+ * Legacy class names preserved so unrewritten feature pages render against the new
+ * tokens until M4-M7 land. Each class is intentionally a thin alias over the new tokens.
+ */
 .im-title {
-  font-family: "Space Grotesk", "Manrope", sans-serif;
+  font-family: var(--im-font-sans);
+  font-weight: 700;
   letter-spacing: 0.01em;
 }
 
 .im-card {
-  background: color-mix(in oklab, var(--im-surface) 96%, white 4%);
-  border: 1px solid color-mix(in oklab, var(--im-border) 88%, white 12%);
-  border-radius: 1.1rem;
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 0.875rem;
   box-shadow: var(--im-shadow);
 }
 
 .im-input {
   width: 100%;
   border: 1px solid var(--im-border);
-  border-radius: 0.75rem;
-  background: #fff;
-  padding: 0.6rem 0.8rem;
+  border-radius: 0.5rem;
+  background: var(--im-surface);
+  padding: 0.55rem 0.75rem;
   font: inherit;
+  color: var(--im-text);
 }
 
 .im-input:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--im-accent) 40%, white 60%);
+  outline: 2px solid var(--im-accent);
   outline-offset: 1px;
 }
 
 .im-btn {
   border: 0;
-  border-radius: 0.75rem;
-  padding: 0.56rem 0.9rem;
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.85rem;
   font: inherit;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
 }
 
 .im-btn-primary {
-  background: linear-gradient(140deg, var(--im-accent), #2563eb);
-  color: #fff;
+  background: var(--im-accent);
+  color: var(--im-accent-fg);
 }
 
 .im-btn:disabled {
@@ -79,29 +441,30 @@ body {
 }
 
 .im-btn-muted {
-  background: #ece7dc;
-  color: var(--im-accent-2);
+  background: var(--im-surface-2);
+  color: var(--im-text);
+  border: 1px solid var(--im-border);
 }
 
 .im-section-card {
   display: grid;
-  gap: 1rem;
-  border: 1px solid color-mix(in oklab, var(--im-border) 86%, white 14%);
-  border-radius: 1.25rem;
-  background: color-mix(in oklab, var(--im-surface) 94%, white 6%);
-  padding: 1.1rem;
+  gap: 0.85rem;
+  border: 1px solid var(--im-border);
+  border-radius: 0.875rem;
+  background: var(--im-surface);
+  padding: 1rem;
 }
 
 .im-section-heading {
-  font-family: "Space Grotesk", "Manrope", sans-serif;
+  font-family: var(--im-font-sans);
   font-size: 1rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--im-text);
 }
 
 .im-section-copy {
   font-size: 0.875rem;
-  color: #64748b;
+  color: var(--im-text-muted);
 }
 
 .im-badge {
@@ -109,11 +472,11 @@ body {
   align-items: center;
   gap: 0.35rem;
   border-radius: 999px;
-  background: #eef8f8;
-  padding: 0.32rem 0.72rem;
+  background: oklch(0.94 0.04 180);
+  padding: 0.25rem 0.6rem;
   font-size: 0.75rem;
-  font-weight: 700;
-  color: #0f766e;
+  font-weight: 600;
+  color: var(--im-accent-2);
 }
 
 .im-chip {
@@ -121,31 +484,21 @@ body {
   align-items: center;
   gap: 0.35rem;
   border-radius: 999px;
-  border: 1px solid #b9e3e1;
-  background: #f3fbfb;
-  padding: 0.38rem 0.72rem;
+  border: 1px solid oklch(0.85 0.05 180);
+  background: oklch(0.97 0.02 180);
+  padding: 0.3rem 0.6rem;
   font-size: 0.75rem;
-  font-weight: 700;
-  color: #0f766e;
+  font-weight: 600;
+  color: var(--im-accent-2);
 }
 
 .im-subtle-card {
-  border: 1px solid color-mix(in oklab, var(--im-border) 85%, white 15%);
-  border-radius: 1rem;
-  background: color-mix(in oklab, white 90%, var(--im-surface-2) 10%);
-  padding: 0.95rem;
+  border: 1px solid var(--im-border);
+  border-radius: 0.75rem;
+  background: var(--im-surface);
+  padding: 0.85rem;
 }
 
-/* fieldset 默认 min-inline-size:min-content 会撑破 grid，子元素 text-overflow 无法生效 */
 .im-allowlist-fieldset {
   min-width: 0;
-}
-
-@media (max-width: 900px) {
-  body {
-    background:
-      radial-gradient(circle at 80% 0%, #dbeafe 0%, transparent 28%),
-      radial-gradient(circle at 0% 100%, #fde68a 0%, transparent 30%),
-      var(--im-bg);
-  }
 }
