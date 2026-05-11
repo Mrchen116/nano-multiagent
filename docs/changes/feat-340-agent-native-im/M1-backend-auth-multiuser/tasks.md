@@ -51,7 +51,7 @@ IM 后端从"单用户硬编码"切到"多用户 JWT auth + 严格 owner_id 租�
   - 单元测试 `tests/im_service/unit/test_auth_service.py`:hash/verify、JWT 签发/解码、refresh 轮换、过期、错密码、错 token、黑名单
 - 验证: 单元测试全绿;`pytest tests/im_service/unit/test_auth_service.py`
 
-### R2 — auth HTTP routes + Bearer 依赖
+### R2 — auth HTTP routes + Bearer 依赖 [DONE]
 
 - 步骤:
   - 新 `src/IM/api/routes/auth.py`:5 个端点
