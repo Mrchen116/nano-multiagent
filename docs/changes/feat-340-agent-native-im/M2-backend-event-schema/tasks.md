@@ -47,7 +47,7 @@
 - 验证:
   - 单元测试 `tests/im_service/unit/test_ws_event_types.py`: 构造 payload → 断言 keys/values。
 
-### R3 — event_bridge.EventBridge
+### R3 — event_bridge.EventBridge — DONE
 
 - 步骤:
   - 新模块 `src/IM/application/event_bridge.py`。
