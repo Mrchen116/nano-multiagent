@@ -284,6 +284,12 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
 - [ ] 风险段提到的风险,在 design 里都有对应应对(或在退路里明示"无对策,接受风险")
 - [ ] 命名一致:同一个东西不要在 §架构总览叫 A、在 §接口叫 B、在 milestone 表叫 C
 
+**Runbook for Reviewer**:
+
+- [ ] `§Runbook for Reviewer` 段已填(或显式"无常驻服务");列出本 unit 真正改动的所有常驻服务,每条有停止命令 + 启动命令 + 健康检查方式
+- [ ] 没有把不归本 unit 的基础设施(数据库/MQ/第三方)塞进清单
+- [ ] 命令是可直接照搬的(不是"按 README 操作"或"问开发者"这种空话)——reviewer 拿到这段不需要再读源码
+
 **Milestone 表 ↔ design 对齐**:
 
 - [ ] 每个 milestone 的"范围"列里的文件,确实属于 design 决策涉及的模块
@@ -326,6 +332,7 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
 - [ ] design.md 无 `<!-- 模板说明 -->` 注释块
 - [ ] 标题、对齐行、Unit branch 声明、Changelog 段(空)都齐
 - [ ] 架构总览(配图)、关键决策、接口与数据流、风险与回退 都写了实质内容
+- [ ] `§Runbook for Reviewer` 段已填(列出本 unit 涉及的常驻服务 + 停止/启动/健康检查命令,或显式"无常驻服务")
 - [ ] Milestone 表完整(每行字段都填),数量 = mkdir 出的子目录数
 - [ ] 子目录全空(没有预填 tasks.md / progress.md)
 
@@ -363,11 +370,12 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
   - 空 Changelog(orchestrator 在实施期偏差时由 worker 维护)
 - `docs/changes/<unit_dir>/M*/` 空目录(orchestrator 据此校验 milestone 数量一致)
 
-下游(orchestrator + worker)对你的依赖:
+下游(orchestrator + worker + reviewer)对你的依赖:
 
 - worker 会读 design.md 的"架构总览 / 关键决策 / 接口与数据流"理解架构意图
 - worker 的"范围"边界来自 Milestone 表对应行的"范围"列
 - worker 的退出标准来自 Milestone 表对应行的"退出标准"列
 - orchestrator 的派发顺序来自"依赖"列 + "并行组"列
+- reviewer 走旅程前会照 `§Runbook for Reviewer` 段无脑重启 unit 涉及的常驻服务——这段不写或写不实,reviewer 会卡住要求回头补
 
 任一字段写得不实,worker 就会瞎走 / 越界 / 跑错方向。设计阶段多花 30 分钟把表写实,实施阶段省几小时。

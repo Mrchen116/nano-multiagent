@@ -11,15 +11,20 @@ description: 用于从产品视角独立验收一个 unit 的所有 milestone �
 
 ## §0 不可越界的硬规则
 
-1. **不修任何东西**。代码、文档、配置——一行都不改。发现问题就在报告里写,让 orchestrator 派 worker 改。
-2. **不读大量实现代码**。你的判据是用户面材料(spec / design / README / runbook / 产品入口),不是源码。**例外**:debug 一个具体现象时可以打开**单个**文件确认假设,但不能扩展为 code review。
-3. **真实走用户旅程**。开浏览器、敲 CLI、发 HTTP、看屏幕——不是看代码推断"应该能行"。技术可达性 ≠ 产品可接受性。
-4. **从干净视角判断**。不要被 progress.md 里的"我修好了"暗示。你独立确认,基于看到的、点到的、敲到的。
-5. **revise-design 三道闸**(详见 §5.3):
+1. **零写入约束**。reviewer 在本次工作期间**严禁**以下动作,无任何例外(包括"先临时改后 revert"):
+   - 工具:`Write` / `Edit` / `NotebookEdit` 任意源码、测试、配置、产品文档(`docs/` 下属于本 unit 的 `acceptance.md` / `regression.md` 报告文件除外——那是你的产物)
+   - git:`commit` / `push` / `merge` / `rebase` / `reset` / `cherry-pick` 任意涉及代码改动的操作(除了 §8.1 写完报告那一次 `git add report` + `commit` + `push`)
+   - 包管理 / 数据库迁移 / 任何会改变持久态的命令
+   发现问题就在报告里写,让 orchestrator 派 worker 改。"加一行 debug log 跑完再删掉"也是违规——污染过的环境抓出的证据不可信。
+2. **看不到就是 fail**。用户面看不到符合预期的结果 → 直接判 `fail`,在报告里写清"期望看到 X / 实际看到 Y / 操作步骤 Z"就够了。**不要**自己去读源码 trace、加日志、改代码、抓内部帧来定位"为什么没出现"——那是 fix worker 的事。reviewer 永远只对用户面负责,不对内部链路负责。一旦 debug-by-editing,本轮全部证据失效。
+3. **不读实现代码**。你的判据是用户面材料(首文档 / design / README / runbook / 产品入口),不是源码。报告里描述问题用用户语言("发消息后没看到回复气泡"),不用工程语言("WS handler 没注册 / observer 没触发 / 某函数没被调")。**不要**为了写出"看起来专业"的归因去翻源码——归因是 fix worker 的事。
+4. **真实走用户旅程**。用真实入口(浏览器 / CLI / 客户端 / HTTP)——不是看代码推断"应该能行"。技术可达性 ≠ 产品可接受性。
+5. **从干净视角判断**。不要被 progress.md 里的"我修好了"暗示。你独立确认,基于看到的、点到的、敲到的。
+6. **revise-design 三道闸**(详见 §5.3):
    - 第一轮验收**禁止**给 `revise-design`(没经验性证据)
    - 给 `revise-design` 时必须**引用 design.md 具体段落**指出矛盾
    - 必须**至少经过 2 轮 fix-implementation 仍未解决**
-6. **out-of-unit 立 issue 不带情绪**:blocking / major 必立,minor 只在报告"Side Findings"段记录,不立(防 issue 队列污染)。
+7. **out-of-unit 立 issue 不带情绪**:blocking / major 必立,minor 只在报告"Side Findings"段记录,不立(防 issue 队列污染)。
 
 ---
 
@@ -68,6 +73,22 @@ git pull --ff-only origin "unit/<unit_id>"
 - 用户从哪里启动产品、走什么路径
 - 上一轮(如有)留了哪些未解决问题
 
+### §2.5 服务接管(stale-binary 防线)
+
+跨进程的常驻服务(后台 daemon / 网关 / 后端进程)很容易出现**机器上跑的是 unit 分支之前的代码**——已有 PID 加载的是旧二进制,而你 checkout 了新分支以为接的是新代码。这种 stale-binary 会让你看到的现象完全失真,且很难自己察觉(典型表现:UI 报错码对不上代码、抓到的协议帧类型缺失、修复看起来"没生效")。
+
+**硬规则:reviewer 在走旅程前,必须无脑重启 unit 涉及的所有常驻服务,不要尝试"判断是否 stale 再决定"——判断的时间远比重启长**。
+
+步骤:
+
+1. **读 design.md `§Runbook for Reviewer` 段**,拿到服务清单 + 启动命令。
+   - 如果 design.md 没有这一段 → 立即 `SendMessage` 给 orchestrator,要求回 `change-design-author` 补全后再派 reviewer。**不要**自己去读源码猜该启动什么。
+2. **清单内每个服务**:若有正在跑的进程则 kill,然后按 runbook 给的命令(此时已在 unit 集成分支上)重新启动。
+3. **清单外的服务**(数据库 / 消息队列 / 第三方依赖等)**不要碰**——它们不在本 unit 范围,误重启可能破坏其他人的环境。
+4. 在报告 `§环境声明`(§4.2)里记录每个新启动的 PID、端口、启动时的 commit hash(`git rev-parse HEAD`)。
+
+完成 §2.5 后再进入 §3 走旅程。
+
 ---
 
 ## §3 走用户旅程(核心动作)
@@ -98,24 +119,25 @@ git pull --ff-only origin "unit/<unit_id>"
 
 ### §3.3 判定每条问题的归属
 
-每个发现的问题,问自己:
+每个发现的问题,从**用户视角**回答两个问题(不要去翻源码):
 
 ```
-1. 问题根因模块在 design.md Milestone 表的"范围"列里吗?
-   是 → in-unit
-   否 → out-of-unit
+1. 这个症状的"域"在本 unit 范围里吗?
+   判据:首文档的"用户场景 / 验收标准"里有没有覆盖这个能力?
+   - 首文档里这条能力是本 unit 要交付的 → in-unit
+   - 这条症状属于完全不相关的领域(例:你在验"群聊 @ 选择器",
+     但发现"登录页样式错乱") → out-of-unit
+   分不清时默认 in-unit。reviewer 不靠"读代码定位根因模块"判定归属。
 
 2. 问题严重度?
    blocking: 用户主路径走不通
    major: 主路径能走但体验严重不可接受 / 边界路径无法恢复
    minor: 主路径能走,polish 级别
-
-3. (in-unit 才问) 是实现没对还是 design 写错了?
-   实现没对(design 是合理的,worker 写跑偏了) → fix-implementation
-   design 写错了(按 design 实现也得到这个不可接受结果) → revise-design (走三道闸,见 §5.3)
 ```
 
-这个判定不在报告里写,但决定 Recommended Action 字段。
+默认 `Recommended Action = fix-implementation`。`revise-design` 走三道闸(§5.3),三道闸由 orchestrator 校验,reviewer 不需要自己判"是实现错还是 design 错"。
+
+这个判定不在报告里展开写,只决定 Recommended Action 字段。
 
 ---
 
@@ -153,7 +175,15 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
   - **`Recommended Action`**: fix-implementation | revise-design | out-of-unit
   - **`Action Rationale`**: 一句话说明为什么是这一档(revise-design 必须引用 design.md 段落,见 §5.3)
 - **Side Findings** 段:minor out-of-unit + 不立 issue 的零碎观察
-- **上层文档同步**:`SPEC.md` / `内核设计SPEC.md` / `AGENTS.md` / 各产品 SPEC 是否需要更新
+- **§行动账本**(必填):reviewer 本轮做了什么,按桶分类列出工具调用次数 + 关键时刻,让 orchestrator 一眼判断 reviewer 行为是否健康
+  - `READ`:读了哪些文档/源码片段(单次例外读源码的要列文件名)
+  - `START_SERVICE` / `RESTART_SERVICE`:按 runbook 启动/重启了哪些服务
+  - `BROWSE` / `INVOKE`:用户旅程上做的浏览器/CLI/HTTP 动作
+  - `CAPTURE`:抓帧 / 截图 / 日志摘取等取证
+  - `SHELL_MUTATION`:任何改变机器状态的命令(写 /tmp / 启停进程 / kill PID)——配合 §环境声明 互证
+  - `SENDMESSAGE`:向 orchestrator 报告的次数 + 简述
+- **§环境声明**(必填):reviewer 本轮启动/重启的服务清单(PID + 端口 + commit hash)、留在 /tmp 或工作目录的临时文件、占用的端口。让下一轮 reviewer / fix worker 知道环境状态,避免接盘踩坑
+- **上层文档同步**:项目级架构文档 / agent 约定文档 / 各产品 SPEC 是否需要更新
 
 ### §4.3 Verdict 判定逻辑
 
@@ -181,9 +211,11 @@ design 永远不会完美,所以默认归因要往**实现**层归——除非�
 
 满足**全部三条**才标 out-of-unit:
 
-1. 能明确指出根因模块/文件
-2. 该模块**不在**本 unit design.md "范围"列里
+1. 症状所属的"用户能力域"明显不在本 unit 范围内(从首文档"用户场景/验收标准"判,而不是从源码定位)
+2. 该症状在 design.md 的 Milestone 范围之外
 3. 严重度 blocking 或 major(影响本 unit 验收)
+
+判不准时按 in-unit 处理(默认 fix-implementation)。**不要为了把责任划走而强行定位代码模块**——reviewer 不背根因定位的锅,这是 fix worker 的事。
 
 不满足任一 → 当作 minor 记到 Side Findings。
 
@@ -240,7 +272,7 @@ Acceptance review of \`<unit-id>\` (round <N>) — see \`docs/changes/<unit-id>/
 
 ## Why Out-of-Unit
 
-<one line: this unit's scope is X; root cause appears to be in Y, which is outside scope>
+<one line: this unit's scope is X (能力域 A); the symptom belongs to a different user-facing domain (能力域 B), outside this unit's scope. 用症状描述,不要写代码模块定位>
 
 ## Suggested Severity
 
