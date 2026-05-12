@@ -1,3 +1,9 @@
+// @deprecated v1 chat surface. Production router (src/app/router.tsx:5) mounts
+// `features/chat/v2/components/conversation-sidebar.tsx`; this file remains
+// only to keep its v1 test suite compiling. M19/R6 ConvItem rewrite landed
+// here by mistake — superseded by R8.5 on the v2 path.
+// TODO(feat-340-v2-cleanup): drop this file + v1 test suite after the v2
+// surface fully replaces it.
 import clsx from "clsx";
 import { UIEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
