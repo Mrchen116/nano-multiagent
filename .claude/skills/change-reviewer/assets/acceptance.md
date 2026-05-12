@@ -31,11 +31,12 @@
 逐条复制首文档的验收标准。结果只能是 pass / fail / inconclusive / not-applicable。
 第 2 轮起必须继承上一轮所有 fail / inconclusive 项,直到有证据关闭。
 任一必验项 fail 或 inconclusive 时,Verdict 不能是 pass。
+若验收项引用原型/设计稿/reference/screenshot/视觉一致性,期望来源必须写对应路径或名称,证据必须包含真实产品截图/录屏/对照结论。
 -->
 
-| ID | 验收项 | 验证方式 | 证据 | 结果 | 备注 |
-|---|---|---|---|---|---|
-| A1 | <从 spec.md 复制验收标准> | <真实入口/操作步骤/替代验证理由> | <截图/日志/输出/报告位置> | pass / fail / inconclusive / not-applicable |  |
+| ID | 验收项 | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|---|
+| A1 | <从 spec.md 复制验收标准> | <spec/design/reference 路径或 N/A> | <真实入口/操作步骤/替代验证理由> | <截图/日志/输出/报告位置> | pass / fail / inconclusive / not-applicable |  |
 
 ## 行动账本
 
@@ -67,7 +68,7 @@
 
 留下的临时文件 / 占用端口 / 后续 reviewer 需要知道的状态:
 
-- 
+-
 
 ## 上层文档同步
 
