@@ -7,7 +7,10 @@ import { useNotificationPreference } from "../notifications/notification-prefere
 
 /**
  * Mobile-only aggregated entry page that bundles Account / Nodes / Language / Sign out.
- * Desktop renders the same links inline within the user menu instead.
+ * Layout mirrors the WeChat-style "我的" tab from the design prototype
+ * (`docs/changes/feat-340-agent-native-im/attachments/prototype/project/im-mypage.jsx`):
+ * full-width identity card, then grouped action cards each carrying a leading
+ * icon glyph and a chevron, plus a pill toggle for the language picker.
  */
 export function MePage() {
   const { t } = useTranslation();
@@ -25,48 +28,77 @@ export function MePage() {
     setLanguage(next);
   };
 
+  const initials = (user?.display_name || user?.username || "U").slice(0, 2).toUpperCase();
+
   return (
     <section className="im-me-page" data-testid="me-page">
       <header>
         <h1>{t("me.title")}</h1>
-        {user && <p>{user.display_name}</p>}
       </header>
-      <nav aria-label="me-sections">
-        <ul>
-          <li>
-            <Link to="/settings/account">{t("me.sections.account")}</Link>
-          </li>
-          <li>
-            <Link to="/settings/nodes">{t("me.sections.nodes")}</Link>
-          </li>
-        </ul>
-      </nav>
-      <fieldset>
-        <legend>{t("me.sections.language")}</legend>
-        <label>
-          <input
-            type="radio"
-            name="lang"
-            value="en"
-            checked={lang === "en"}
-            onChange={() => handleLanguageChange("en")}
-          />
-          {t("me.language.en")}
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="lang"
-            value="zh"
-            checked={lang === "zh"}
-            onChange={() => handleLanguageChange("zh")}
-          />
-          {t("me.language.zh")}
-        </label>
-      </fieldset>
-      <fieldset>
-        <legend>{t("me.sections.notifications")}</legend>
-        <label className="flex items-start gap-2">
+
+      <Link
+        to="/settings/account"
+        className="im-me-identity-card"
+        data-testid="me-identity-card"
+      >
+        <span className="im-me-identity-avatar" aria-hidden="true">{initials}</span>
+        <div className="im-me-identity-body">
+          <p className="im-me-identity-name">{user?.display_name ?? user?.username ?? ""}</p>
+          <p
+            className="im-me-identity-id font-mono"
+            data-testid="me-identity-user-id"
+          >
+            {user?.id ?? ""}
+          </p>
+        </div>
+        <span className="im-me-row-chevron" aria-hidden="true">›</span>
+      </Link>
+
+      <div className="im-me-card">
+        <Link to="/settings/nodes" className="im-me-row" data-testid="me-row-nodes">
+          <span className="im-me-row-icon" aria-hidden="true">🖥</span>
+          <span className="im-me-row-label">{t("me.sections.nodes")}</span>
+          <span className="im-me-row-chevron" aria-hidden="true">›</span>
+        </Link>
+      </div>
+
+      <div className="im-me-card">
+        <Link to="/settings/account" className="im-me-row" data-testid="me-row-account">
+          <span className="im-me-row-icon" aria-hidden="true">👤</span>
+          <span className="im-me-row-label">{t("me.sections.account")}</span>
+          <span className="im-me-row-chevron" aria-hidden="true">›</span>
+        </Link>
+      </div>
+
+      <div className="im-me-card">
+        <div className="im-me-row" data-testid="me-row-language">
+          <span className="im-me-row-icon" aria-hidden="true">文</span>
+          <span className="im-me-row-label">{t("me.sections.language")}</span>
+          <div className="im-me-lang-pill" role="group" aria-label={t("me.sections.language")}>
+            <button
+              type="button"
+              className={lang === "en" ? "im-me-lang-pill-btn active" : "im-me-lang-pill-btn"}
+              aria-pressed={lang === "en"}
+              onClick={() => handleLanguageChange("en")}
+            >
+              EN
+            </button>
+            <button
+              type="button"
+              className={lang === "zh" ? "im-me-lang-pill-btn active" : "im-me-lang-pill-btn"}
+              aria-pressed={lang === "zh"}
+              onClick={() => handleLanguageChange("zh")}
+            >
+              中
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="im-me-card">
+        <label className="im-me-row" data-testid="me-row-notifications">
+          <span className="im-me-row-icon" aria-hidden="true">🔔</span>
+          <span className="im-me-row-label">{t("me.notifications.toggle")}</span>
           <input
             type="checkbox"
             checked={notificationsEnabled}
@@ -78,17 +110,20 @@ export function MePage() {
               }
             }}
           />
-          <span>
-            {t("me.notifications.toggle")}
-            <span className="block text-xs text-slate-500">
-              {t("me.notifications.hint")}
-            </span>
-          </span>
         </label>
-      </fieldset>
-      <button type="button" onClick={handleSignOut} className="im-me-signout">
-        {t("me.sections.signOut")}
-      </button>
+      </div>
+
+      <div className="im-me-card">
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="im-me-row im-me-row--danger"
+          data-testid="me-row-signout"
+        >
+          <span className="im-me-row-icon" aria-hidden="true">↗</span>
+          <span className="im-me-row-label">{t("me.sections.signOut")}</span>
+        </button>
+      </div>
     </section>
   );
 }

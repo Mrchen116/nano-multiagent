@@ -123,4 +123,62 @@ describe("agent detail page", () => {
       expect(apiMocks.navigateMock).toHaveBeenCalledWith("/chat/conv-agent-core-1");
     });
   });
+
+  it("R7-4: invalidates the v2 chat conversations cache so the freshly created conv is visible after navigation", async () => {
+    const user = userEvent.setup();
+
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      config: {
+        agent_id: "agent-core-1",
+        owner_id: "owner-1",
+        display_name: "Core Planner",
+        description: "",
+        system_prompt: "",
+        skills: [],
+        tool_allowlist: [],
+        group_reply_policy: "MENTION",
+        default_model: null,
+        workspace_root: "/tmp",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        bound_nodes: ["node-1"],
+        updated_at: "2026-03-13T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: ""
+      },
+      owningNode: null
+    });
+    apiMocks.createDirectConversationMock.mockResolvedValue({ conversation_id: "conv-x" });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AgentDetailPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await screen.findByRole("heading", { name: "Core Planner" });
+    await user.click(screen.getByRole("button", { name: /Open chat/i }));
+
+    await waitFor(() => {
+      const calls = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
+      const hitV2 = calls.some((s) => s.includes(`"chat-v2"`) && s.includes(`"conversations"`));
+      expect(hitV2, `Expected chat-v2/conversations invalidation; got ${calls.join(" | ")}`).toBe(true);
+    });
+  });
 });

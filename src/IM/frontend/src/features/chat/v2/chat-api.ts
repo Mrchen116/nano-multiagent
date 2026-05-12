@@ -114,6 +114,8 @@ export interface AgentRow {
   display_name: string;
   node_id?: string;
   description?: string;
+  /** IM user UUID for ``agent:<agent_id>`` — used to map WS sender_user_id → display_name. */
+  user_id?: string | null;
 }
 
 function initialsFrom(name: string): string {

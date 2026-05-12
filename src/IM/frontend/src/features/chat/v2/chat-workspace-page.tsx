@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
@@ -26,18 +26,32 @@ import { NewGroupModal } from "./components/new-group-modal";
 
 function streamReducer(
   state: ConversationState,
-  action: { type: "reset"; conversationId: string; messages: Message[] } | { type: "event"; event: WsEvent }
+  action:
+    | { type: "reset"; conversationId: string; messages: Message[] }
+    | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
 ): ConversationState {
   if (action.type === "reset") {
     return { conversation_id: action.conversationId, messages: action.messages };
   }
-  return applyWsEvent(state, action.event);
+  return applyWsEvent(state, action.event, { sendersById: action.sendersById });
 }
 
 async function fetchAgents(): Promise<AgentRow[]> {
   const res = await authFetch("/im/v1/agents");
   if (!res.ok) throw new Error(`listAgents failed: ${res.status}`);
   return (await res.json()) as AgentRow[];
+}
+
+interface NodeRow {
+  node_id: string;
+  node_name: string;
+  status: string;
+}
+
+async function fetchNodes(): Promise<NodeRow[]> {
+  const res = await authFetch("/im/v1/nodes");
+  if (!res.ok) throw new Error(`listNodes failed: ${res.status}`);
+  return (await res.json()) as NodeRow[];
 }
 
 /**
@@ -86,10 +100,35 @@ export function ChatWorkspacePageV2() {
   });
 
   const agentsQuery = useQuery({
-    enabled: showNewGroup,
     queryKey: ["chat-v2", "agents"],
     queryFn: fetchAgents
   });
+
+  const nodesQuery = useQuery({
+    queryKey: ["chat-v2", "nodes"],
+    queryFn: fetchNodes
+  });
+
+  const sendersById = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const agent of agentsQuery.data ?? []) {
+      if (agent.user_id) map[agent.user_id] = agent.display_name;
+    }
+    return map;
+  }, [agentsQuery.data]);
+
+  // For direct-agent conversations, surface the agent's owning node (name +
+  // online status) and the agent_id used by the ⚙ Config navigation.
+  const headerAgentContext = useMemo<{ agentId: string | null; nodeName: string | null; nodeStatus: "online" | "offline" }>(() => {
+    if (!activeConversation) return { agentId: null, nodeName: null, nodeStatus: "offline" };
+    const agentParticipant = activeConversation.participants.find((p) => p.type === "agent");
+    if (!agentParticipant) return { agentId: null, nodeName: null, nodeStatus: "offline" };
+    const agentRow = (agentsQuery.data ?? []).find((a) => a.agent_id === agentParticipant.id);
+    if (!agentRow) return { agentId: agentParticipant.id, nodeName: null, nodeStatus: "offline" };
+    const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === agentRow.node_id);
+    const nodeStatus = nodeRow?.status === "online" ? "online" : "offline";
+    return { agentId: agentRow.agent_id, nodeName: nodeRow?.node_name ?? null, nodeStatus };
+  }, [activeConversation, agentsQuery.data, nodesQuery.data]);
 
   const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
 
@@ -102,9 +141,13 @@ export function ChatWorkspacePageV2() {
 
   // Open the WS stream once for the workspace lifetime; events flow into the
   // reducer which ignores any not matching the active conversation.
+  // Captures the latest sendersById via a ref so a fresh agents fetch becomes
+  // visible to in-flight reducer dispatches without recreating the WS handle.
+  const sendersByIdRef = useRef(sendersById);
+  sendersByIdRef.current = sendersById;
   useEffect(() => {
     const handle = openChatStream({
-      onEvent: (ev) => dispatch({ type: "event", event: ev })
+      onEvent: (ev) => dispatch({ type: "event", event: ev, sendersById: sendersByIdRef.current })
     });
     return () => handle.close();
   }, []);
@@ -152,8 +195,15 @@ export function ChatWorkspacePageV2() {
             conversation={activeConversation}
             messages={streamState.messages}
             mentionCandidates={mentionQuery.data ?? []}
+            nodeName={headerAgentContext.nodeName}
+            nodeStatus={headerAgentContext.nodeStatus}
             onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
             onBack={isMobile ? () => navigate("/chat") : undefined}
+            onOpenConfig={
+              headerAgentContext.agentId
+                ? () => navigate(`/settings/agents/${headerAgentContext.agentId}`)
+                : undefined
+            }
           />
         ) : (
           !isMobile && (

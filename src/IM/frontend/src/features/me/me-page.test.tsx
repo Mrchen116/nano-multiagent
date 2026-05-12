@@ -54,7 +54,7 @@ describe("MePage", () => {
 
   it("switching language to 中文 changes visible copy and persists to localStorage", async () => {
     renderMe();
-    await userEvent.click(screen.getByLabelText(/中文/));
+    await userEvent.click(screen.getByRole("button", { name: /^中$/ }));
     expect(screen.getByRole("heading", { name: "我" })).toBeInTheDocument();
     expect(localStorage.getItem(I18N_STORAGE_KEY)).toBe("zh");
   });
@@ -74,5 +74,29 @@ describe("MePage", () => {
     expect(localStorage.getItem("im_notifications_enabled")).toBe("1");
     await userEvent.click(toggle);
     expect(localStorage.getItem("im_notifications_enabled")).toBe("0");
+  });
+
+  it("R8-4: surfaces the user identity card with display_name + user_id in monospace", () => {
+    renderMe();
+    const identity = screen.getByTestId("me-identity-card");
+    expect(identity.textContent).toMatch(/Alex Chen/);
+    expect(identity.textContent).toMatch(/user-1/);
+    const idElement = screen.getByTestId("me-identity-user-id");
+    // user_id should be set in monospace per prototype.
+    expect(idElement.className).toMatch(/mono|font-mono/);
+  });
+
+  it("R8-4: language picker renders a pill toggle (buttons), not radio inputs", () => {
+    renderMe();
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.getByRole("button", { name: /^EN$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^中$/ })).toBeInTheDocument();
+  });
+
+  it("R8-4: each menu row carries a leading icon glyph", () => {
+    renderMe();
+    expect(screen.getByTestId("me-row-nodes").textContent).toMatch(/🖥/);
+    expect(screen.getByTestId("me-row-account").textContent).toMatch(/👤/);
+    expect(screen.getByTestId("me-row-signout").textContent).toMatch(/↗/);
   });
 });

@@ -201,11 +201,14 @@ class TokenUsage:
 
     ``context_used`` / ``context_window`` are the model's request-side context
     accounting; ``output`` is the completion tokens for this single message.
+    ``total`` (M17/R8-3) is the per-turn prompt+completion sum surfaced by the
+    chip so users see actual token consumption, not just the completion size.
     """
 
     output: int
     context_used: int
     context_window: int
+    total: int = 0
 
 
 @dataclass(frozen=True, slots=True)

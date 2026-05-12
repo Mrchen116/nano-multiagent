@@ -1113,6 +1113,12 @@ class MessageRepository:
             (conversation_id,),
         ).fetchall()
         merged = [self._message_from_row(row) for row in message_rows]
+        # M17/R8-1: once a turn produces a real agent message (M16 streaming chain),
+        # the relay.completed mirror becomes a duplicate. Suppress synthetic rows
+        # whenever the conversation already has any real agent-typed message —
+        # keeps legacy threads that only have relay events intact (no real agent
+        # row → still synthesise from events).
+        has_real_agent_message = any(m.sender_type == "agent" for m in merged)
         event_rows = self._connection.execute(
             """
             SELECT event_id, conversation_id, message_id, event_type, delivery_status, payload_json, created_at
@@ -1125,6 +1131,8 @@ class MessageRepository:
         for row in event_rows:
             synthetic_message = self._message_from_visible_event_row(row)
             if synthetic_message is None:
+                continue
+            if has_real_agent_message and ":relay:" in synthetic_message.id:
                 continue
             merged = _upsert_message(merged, synthetic_message)
         return merged
@@ -2273,6 +2281,7 @@ def _encode_token_usage(usage: TokenUsage | None) -> str | None:
             "output": int(usage.output),
             "context_used": int(usage.context_used),
             "context_window": int(usage.context_window),
+            "total": int(usage.total),
         },
         ensure_ascii=True,
         separators=(",", ":"),
@@ -2295,6 +2304,7 @@ def _decode_token_usage(value: object) -> TokenUsage | None:
             output=int(parsed["output"]),
             context_used=int(parsed["context_used"]),
             context_window=int(parsed["context_window"]),
+            total=int(parsed.get("total", 0)),
         )
     except (KeyError, TypeError, ValueError):
         return None

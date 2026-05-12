@@ -81,7 +81,31 @@ function mockFetch(): ReturnType<typeof vi.fn> {
       return jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null });
     }
     if (url.endsWith("/im/v1/agents")) {
-      return jsonResponse([{ agent_id: "a-planner", display_name: "Planner" }]);
+      return jsonResponse([
+        {
+          agent_id: "a-planner",
+          display_name: "Planner",
+          node_id: "node-prod",
+          user_id: "user-uuid-planner"
+        }
+      ]);
+    }
+    if (url.endsWith("/im/v1/nodes")) {
+      return jsonResponse([
+        {
+          node_id: "node-prod",
+          owner_id: "u-self",
+          node_name: "laptop-prod",
+          status: "online",
+          last_heartbeat_at: "2026-05-01T00:00:00Z",
+          agent_count: 1,
+          version: "1.0",
+          relay_enabled: true,
+          reporting_enabled: true,
+          alias: null,
+          last_error: null
+        }
+      ]);
     }
     if (/\/im\/v1\/conversations\/c1\/messages$/.test(url) && init?.method === "POST") {
       const body = JSON.parse(String(init.body));
@@ -270,5 +294,54 @@ describe("ChatWorkspacePage v2 — integration", () => {
     // composer + chip strip both reset after send
     expect(composer.value).toBe("");
     expect(screen.queryByRole("img", { name: "dropped.png" })).not.toBeInTheDocument();
+  });
+
+  it("R7-5: header shows the agent's Node chip and a ⚙ Config button that navigates to /settings/agents/<id>", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+
+    // Node chip with the agent's node name; status pill marks it online.
+    const chip = await screen.findByText(/laptop-prod/);
+    expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+
+    // ⚙ Config button navigates to the agent settings page.
+    const configButton = screen.getByRole("button", { name: /Config/i });
+    await user.click(configButton);
+    await waitFor(() => {
+      // The MemoryRouter test rig doesn't mount /settings; we just assert the
+      // workspace stops rendering the chat title because navigate("/settings/...")
+      // unmounted the route.
+      expect(screen.queryByRole("heading", { name: "Planner" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("R8-2: WS message.created with sender_user_id UUID renders the agent display_name (Planner), not the UUID", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+    const ws = FakeWebSocket.instances[0]!;
+
+    act(() => {
+      ws.emit({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m-live-1",
+        sender_user_id: "user-uuid-planner",
+        sender_type: "agent",
+        content: "live reply",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "running",
+        created_at: "2026-05-01T00:00:09Z"
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText(/live reply/)).toBeInTheDocument());
+    // Bubble meta line shows "Planner", not the raw UUID.
+    const bubble = screen.getByText(/live reply/).closest(".chat-bubble");
+    expect(bubble).not.toBeNull();
+    expect(bubble!.textContent).toMatch(/Planner/);
+    expect(bubble!.textContent).not.toMatch(/user-uuid-planner/);
   });
 });
