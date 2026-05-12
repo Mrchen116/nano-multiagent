@@ -107,3 +107,18 @@ fix-visual-alignment (post-acceptance fix round 11) — 5 页视觉重写按 pro
 - Rollback: `git revert 577af524` (C2) + `git revert b4d37ce5` (C1)
 - Commits: C1=b4d37ce5, C2=577af524
 
+## R7 — Mobile chat thread compact header (R11-8 major)
+
+- Context: R11-8 (major) — prototype `attachments/prototype/project/im-chat-page.jsx::MessagePaneView` 在 isMobile 分支 (< 768px) 走紧凑头:返回按钮 (36×36 圆角) + 34px avatar + 标题 (单行省略) + NodeChip — 隐藏 participants 副文案 / KindBadge / 顶部 TokenChip / "⚙ Config" 文字按钮。Config 在移动模式退化为 ⚙ icon-only 方块。当前 v2 `MessagePane` 头部无视 viewport,所有 chrome 全开,移动端横向挤爆,内容区被压扁。
+- Decision: 给 v2 `MessagePane` 加可选 prop `isMobile?: boolean`,默认 `false`(桌面保持现状)。header 内部按 `isMobile` 分支:(a) participants `<span>` 包在 `!isMobile &&` 内;(b) `<KindBadge>` 包在 `!isMobile &&` 内;(c) 顶部 `<TokenChip usage={latestUsage}>` 包在 `!isMobile &&` 内(token chip per-bubble 已在 R6 落,顶部 chip 在 mobile 是冗余);(d) Config 按钮分支:`isMobile` 渲染 `className="chat-pane-config chat-pane-config-icon"` + 只显 `⚙`,否则保持原 `⚙ Config` 文字。`chat-workspace-page.tsx` 把现有 `isMobile`(useIsMobile hook 已存在 — R10 旅程也用它)透传给 MessagePane。
+- Rationale: 单 prop 控制最小破坏面,桌面分支完全不动 → R7-5 (chat-detail Node chip + ⚙) 与 R10 桌面 split 旅程 100% 不回归。`chat-pane-config-icon` 新 class 留给 CSS 进一步收紧尺寸/padding,本 round 只做 markup 层契约,样式微调可在 R8 polish round 顺手做。Back btn 与 onBack 解耦(`onBack && ...`)逻辑不变 — 已经由 R10 验证。
+- Evidence:
+  - Tests: `v2/components/message-pane.test.tsx` 加 5 个 R11-8 测试 (hides participants / hides KindBadge keeps NodeChip / hides header TokenChip / compact ⚙ icon-only / desktop fallback 仍带 participants + "Config" 文字) C1 RED 4/5 → C2 GREEN 5/5(desktop fallback 测试一开始就 pass,因为 isMobile 默认 false)。全套 vitest 52 files / 275 tests GREEN(270→275, +5)。
+  - Build: `npm run build` 通过,dist 502.55 kB(无 ts 错)。
+  - Entry: 视觉确认延后至 R9 双 viewport 截图(移动 viewport 必走 thread 视图,断 onBack + 紧凑头是否成立)。
+  - Visual/Interaction: 单测断言层 — 移动头部 participants/KindBadge/顶部 TokenChip 全消失,Config 退化为 `⚙` icon-only;桌面仍含 participants + "Config" 文字。
+- Side effect: 无(旧测试 desktop 路径未触动,新 prop 默认 false 保留旧行为)。
+- Out-of-unit: `chat-pane-config-icon` CSS 类样式细节(尺寸/padding/active)R8 polish round 顺带补;移动头部 Sub-title 显 `agent_id` 副文案需 Conversation 类型暴露 agent_id 字段,独立 issue。
+- Rollback: `git revert 0aa0538c` (C2) + `git revert 0a73ba8f` (C1)
+- Commits: C1=0a73ba8f, C2=0aa0538c
+
