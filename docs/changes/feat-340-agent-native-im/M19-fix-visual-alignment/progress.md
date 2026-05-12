@@ -64,3 +64,17 @@ fix-visual-alignment (post-acceptance fix round 11) — 5 页视觉重写按 pro
 - Rollback: `git revert 442c726c` (C2) + `git revert 01d9cc15` (C1)
 - Commits: C1=01d9cc15, C2=442c726c
 
+## R4 — Nodes 4 KPI cards + 🖥/💤 icon + version badge (R11-5 major)
+
+- Context: R11-5 (major) — prototype `attachments/prototype/project/im-extra-pages.jsx::NodesPage` 顶部是 4 张 KPI stat 卡 (Total nodes / Online / Offline / Total agents),NodeCard 头部是 38×38 圆角 icon (🖥 online / 💤 offline) + alias + status badge,右上是 agent_count + `vXXX` 双 stat 组。当前实现是裸 list 无 KPI + 无 icon + 一堆 `Relay Enabled` / `Reporting Enabled` 平铺 checkbox (prototype 完全没有这俩 toggle)。
+- Decision: `nodes-page.tsx` 在 list 上加 4 列 KPI grid (mobile 2×2 / desktop 4×1),`data-testid="nodes-kpi-{total,online,offline,agents}"`。NodeCard 头部 row: 38×38 圆角 icon 块 (oklch 145 绿底 online / oklch 240 灰底 offline) + alias + status pill + node_id mono;右侧双 stat (`agent_count` / `v{version}`)。removed relay/reporting checkboxes 从 UI (mutation 仍按 row.relay_enabled / reporting_enabled 透传后端契约不变,只是不暴露在 UI)。i18n 加 5 个新 key (`subtitle`, `kpiTotal/Online/Offline/Agents`, `agentsShort`, `versionShort`)。
+- Rationale: Tailwind arbitrary value 直接落 prototype oklch (`bg-[oklch(0.92_0.08_145)]` / `bg-[oklch(0.95_0.005_240)]` / `border-[oklch(0.87_0.006_240)]`),延续 R2/R3 "类名空规则" 修复路径。Relay/reporting toggle 不在 prototype,从 UI 移除而不删后端字段 — 视觉契约对齐,后端契约保留。
+- Evidence:
+  - Tests: `nodes-page.test.tsx` 加 3 个 R11-5 测试 C1 RED 3/4 → C2 GREEN 4/4;`nodes-page-status.test.tsx` 1 处旧 `text-red-` 匹配翻转为含 oklch alternative,GREEN;全套 vitest 52 files / 259 tests GREEN。
+  - Entry: 视觉确认延后至 R9 双 viewport 截图。
+  - Visual/Interaction: 🖥/💤 icon、KPI 4 列、version badge、relay/reporting 已从 UI 消失 — 单测层断言通过。
+- Side effect: `nodes-page-status.test.tsx` 1 处 last_error 颜色断言放宽以兼容 oklch 字面值。
+- Out-of-unit: nodes mutation 仍透传 relay_enabled / reporting_enabled (默认值,无 UI 修改入口);未来若产品决定彻底废弃此字段需独立 issue。
+- Rollback: `git revert e9eefae6` (C2) + `git revert 74d3f973` (C1)
+- Commits: C1=74d3f973, C2=e9eefae6
+
