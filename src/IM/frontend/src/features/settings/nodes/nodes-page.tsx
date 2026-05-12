@@ -153,145 +153,171 @@ export function NodesPage() {
     );
   }
 
+  // M19/R11-5: prototype `im-extra-pages.jsx::NodesPage` 顶部 4 KPI 卡 — 视觉契约
+  // 用 Tailwind utility 直接落 (white card / oklch border / 24px bold 数字 / 12px 灰 label)。
+  const totalNodes = rows.length;
+  const onlineCount = rows.filter((r) => r.status === "online").length;
+  const offlineCount = rows.filter((r) => r.status === "offline").length;
+  const totalAgents = rows.reduce((s, r) => s + (r.agent_count ?? 0), 0);
+
   return (
-    <div className="flex h-full flex-col gap-3">
-      <h2 className="im-title text-xl font-bold">{t("settings.nodes.title")}</h2>
+    <div className="flex h-full flex-col gap-4 overflow-y-auto bg-[oklch(0.95_0.005_240)] p-[24px_28px]">
+      <div>
+        <h1 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.nodes.title")}</h1>
+        <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.subtitle")}</p>
+      </div>
+      <div
+        data-testid="nodes-kpi-grid"
+        className="grid grid-cols-2 gap-[10px] md:grid-cols-4"
+      >
+        <div data-testid="nodes-kpi-total" className="rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-white px-[14px] py-[12px]">
+          <p className="m-0 text-[24px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{totalNodes}</p>
+          <p className="mt-[3px] text-[12px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.kpiTotal")}</p>
+        </div>
+        <div data-testid="nodes-kpi-online" className="rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-white px-[14px] py-[12px]">
+          <p className="m-0 text-[24px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{onlineCount}</p>
+          <p className="mt-[3px] text-[12px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.kpiOnline")}</p>
+        </div>
+        <div data-testid="nodes-kpi-offline" className="rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-white px-[14px] py-[12px]">
+          <p className="m-0 text-[24px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{offlineCount}</p>
+          <p className="mt-[3px] text-[12px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.kpiOffline")}</p>
+        </div>
+        <div data-testid="nodes-kpi-agents" className="rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-white px-[14px] py-[12px]">
+          <p className="m-0 text-[24px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{totalAgents}</p>
+          <p className="mt-[3px] text-[12px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.kpiAgents")}</p>
+        </div>
+      </div>
       {rows.map((row) => {
         const dotClass = STATUS_DOT_CLASS[row.status] ?? STATUS_DOT_CLASS.offline;
         const pillClass = STATUS_PILL_CLASS[row.status] ?? STATUS_PILL_CLASS.offline;
         const statusText = t(statusLabelKey(row.status));
         const nodeAgents = agentsByNode.get(row.node_id) ?? [];
+        const isOnline = row.status === "online";
 
         return (
-          <section key={row.node_id} className="rounded-xl border border-[var(--im-border)] bg-white p-3">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm">
-              <div>
-                <p className="font-semibold">{row.node_id}</p>
-                <p className="text-xs text-slate-500">{t("settings.nodes.liveName", { name: row.node_name })}</p>
-              </div>
-              <div className="flex flex-col items-end gap-1 text-right text-xs text-slate-500">
+          <section
+            key={row.node_id}
+            className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white overflow-hidden"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[oklch(0.87_0.006_240)] px-[18px] py-[14px]">
+              <div className="flex items-center gap-3">
                 <span
-                  data-testid={`node-status-pill-${row.node_id}`}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${pillClass}`}
-                >
-                  <span
-                    data-status-dot={row.status}
-                    className={`inline-block h-2 w-2 rounded-full ${dotClass}`}
-                  />
-                  {statusText}
-                </span>
-                <span>{t("settings.nodes.agentsCount", { count: row.agent_count })}</span>
-              </div>
-            </div>
-
-            <div className="grid gap-2 md:grid-cols-2">
-              <label
-                className="grid gap-1 text-xs font-semibold text-slate-600"
-                htmlFor={`alias-${row.node_id}`}
-              >
-                {t("settings.nodes.aliasLabel", { nodeId: row.node_id })}
-                <input
-                  id={`alias-${row.node_id}`}
-                  className="im-input"
-                  value={row.alias ?? row.node_name}
-                  onChange={(event) =>
-                    setDrafts((prev) => ({
-                      ...prev,
-                      [row.node_id]: { ...row, alias: event.target.value }
-                    }))
+                  data-testid={`node-icon-${row.node_id}`}
+                  className={
+                    "flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] text-[16px] " +
+                    (isOnline ? "bg-[oklch(0.92_0.08_145)]" : "bg-[oklch(0.92_0.005_240)]")
                   }
-                />
-              </label>
-
-              <div className="grid gap-1 text-xs font-semibold text-slate-600">
-                <span>{t("settings.nodes.liveSnapshot")}</span>
-                <div className="rounded-lg border border-[var(--im-border)] bg-slate-50 px-3 py-2 text-xs font-normal text-slate-600">
-                  <p>
-                    {t("settings.nodes.heartbeat")}: {row.last_heartbeat_at || "-"}
-                  </p>
-                  <p>
-                    {t("settings.nodes.version")}: {row.version || "-"}
-                  </p>
-                  <p>
-                    {t("settings.nodes.lastError")}:{" "}
-                    {row.last_error ? (
+                  aria-hidden="true"
+                >
+                  {isOnline ? "🖥" : "💤"}
+                </span>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="m-0 text-[14px] font-extrabold text-[oklch(0.14_0.01_240)]">{row.alias ?? row.node_name}</h3>
+                    <span
+                      data-testid={`node-status-pill-${row.node_id}`}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${pillClass}`}
+                    >
                       <span
-                        data-testid={`node-last-error-${row.node_id}`}
-                        className="font-medium text-red-600"
-                      >
-                        {row.last_error}
-                      </span>
-                    ) : (
-                      "-"
-                    )}
-                  </p>
+                        data-status-dot={row.status}
+                        className={`inline-block h-2 w-2 rounded-full ${dotClass}`}
+                      />
+                      {statusText}
+                    </span>
+                  </div>
+                  <p className="m-0 mt-[2px] font-mono text-[11.5px] text-[oklch(0.55_0.01_240)]">{row.node_id}</p>
                 </div>
               </div>
+              <div className="flex shrink-0 gap-[14px] text-right text-[12px] text-[oklch(0.55_0.01_240)]">
+                <span>
+                  <b data-testid={`node-agent-count-${row.node_id}`} className="text-[15px] text-[oklch(0.25_0.01_240)]">{row.agent_count}</b><br />
+                  {t("settings.nodes.agentsShort")}
+                </span>
+                <span>
+                  <b data-testid={`node-version-${row.node_id}`} className="text-[15px] text-[oklch(0.25_0.01_240)]">v{row.version}</b><br />
+                  {t("settings.nodes.versionShort")}
+                </span>
+              </div>
             </div>
 
-            <div className="mt-2 flex items-center gap-4 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={row.relay_enabled}
-                  onChange={(event) =>
-                    setDrafts((prev) => ({
-                      ...prev,
-                      [row.node_id]: { ...row, relay_enabled: event.target.checked }
-                    }))
-                  }
-                />
-                {t("settings.nodes.relayEnabled")}
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={row.reporting_enabled}
-                  onChange={(event) =>
-                    setDrafts((prev) => ({
-                      ...prev,
-                      [row.node_id]: { ...row, reporting_enabled: event.target.checked }
-                    }))
-                  }
-                />
-                {t("settings.nodes.reportingEnabled")}
-              </label>
-            </div>
+            <div className="grid gap-[14px] px-[18px] py-[14px]">
+              <div className="grid items-start gap-[14px] md:grid-cols-2">
+                <label
+                  className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]"
+                  htmlFor={`alias-${row.node_id}`}
+                >
+                  {t("settings.nodes.aliasLabel", { nodeId: row.node_id })}
+                  <input
+                    id={`alias-${row.node_id}`}
+                    className="im-input"
+                    value={row.alias ?? row.node_name}
+                    onChange={(event) =>
+                      setDrafts((prev) => ({
+                        ...prev,
+                        [row.node_id]: { ...row, alias: event.target.value }
+                      }))
+                    }
+                  />
+                </label>
 
-            <div className="mt-3" data-testid={`node-agents-${row.node_id}`}>
-              <p className="mb-1 text-xs font-semibold text-slate-600">{t("settings.nodes.agentsOnNode")}</p>
-              {nodeAgents.length === 0 ? (
-                <p className="text-xs text-slate-400">{t("settings.nodes.agentsOnNodeEmpty")}</p>
-              ) : (
-                <ul className="flex flex-col gap-1 text-xs">
-                  {nodeAgents.map((agent) => (
-                    <li key={agent.agent_id}>
-                      <Link
-                        to={`/settings/agents/${agent.agent_id}`}
-                        className="text-slate-700 underline-offset-2 hover:underline"
+                <div className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
+                  <span>{t("settings.nodes.liveSnapshot")}</span>
+                  <div className="rounded-[8px] border border-[oklch(0.87_0.006_240)] bg-[oklch(0.95_0.005_240)] px-3 py-2 font-mono text-[12px] font-normal text-[oklch(0.25_0.01_240)]">
+                    <div className="flex justify-between">
+                      <span className="text-[oklch(0.55_0.01_240)]">{t("settings.nodes.heartbeat")}</span>
+                      <span>{row.last_heartbeat_at ? new Date(row.last_heartbeat_at).toLocaleTimeString() : "—"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[oklch(0.55_0.01_240)]">{t("settings.nodes.version")}</span>
+                      <span>{row.version || "—"}</span>
+                    </div>
+                    {row.last_error ? (
+                      <div
+                        data-testid={`node-last-error-${row.node_id}`}
+                        className="mt-1 rounded-[6px] bg-[oklch(0.96_0.06_25)] px-2 py-1 text-[11px] leading-snug text-[oklch(0.45_0.14_25)]"
                       >
-                        {agent.display_name || agent.agent_id}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+                        ⚠ {row.last_error}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              {row.status === "online" ? (
-                <Link className="im-btn im-btn-muted" to={`/settings/nodes/${row.node_id}/agents/new`}>
-                  {t("settings.nodes.createAgentOn", { nodeId: row.node_id })}
-                </Link>
-              ) : null}
-              <button
-                type="button"
-                className="im-btn im-btn-primary"
-                onClick={() => mutation.mutate(row)}
-                disabled={mutation.isPending}
-              >
-                {mutation.isPending ? t("settings.nodes.saving") : t("settings.nodes.save", { nodeId: row.node_id })}
-              </button>
+              <div data-testid={`node-agents-${row.node_id}`}>
+                <p className="mb-1 text-[12px] font-semibold text-[oklch(0.30_0.01_240)]">{t("settings.nodes.agentsOnNode")}</p>
+                {nodeAgents.length === 0 ? (
+                  <p className="text-[12px] text-[oklch(0.65_0.01_240)]">{t("settings.nodes.agentsOnNodeEmpty")}</p>
+                ) : (
+                  <ul className="flex flex-col gap-1 text-[12px]">
+                    {nodeAgents.map((agent) => (
+                      <li key={agent.agent_id}>
+                        <Link
+                          to={`/settings/agents/${agent.agent_id}`}
+                          className="text-[oklch(0.30_0.01_240)] underline-offset-2 hover:underline"
+                        >
+                          {agent.display_name || agent.agent_id}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 border-t border-[oklch(0.91_0.005_240)] pt-2">
+                {isOnline ? (
+                  <Link className="im-btn im-btn-muted" to={`/settings/nodes/${row.node_id}/agents/new`}>
+                    {t("settings.nodes.createAgentOn", { nodeId: row.node_id })}
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  className="im-btn im-btn-primary"
+                  onClick={() => mutation.mutate(row)}
+                  disabled={mutation.isPending}
+                >
+                  {mutation.isPending ? t("settings.nodes.saving") : t("settings.nodes.save", { nodeId: row.node_id })}
+                </button>
+              </div>
             </div>
           </section>
         );

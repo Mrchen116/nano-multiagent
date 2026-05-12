@@ -79,6 +79,7 @@
     },
     "nodes": {
       "title": "节点",
+      "subtitle": "已接入此工作区的 Gateway 节点。",
       "loading": "节点加载中…",
       "empty": "尚未接入任何节点。",
       "aliasLabel": "{{nodeId}} 别名",
@@ -95,6 +96,12 @@
       "agentsOnNodeEmpty": "本节点上还没有 agent。",
       "liveName": "节点名: {{name}}",
       "agentsCount": "agents: {{count}}",
+      "agentsShort": "agents",
+      "versionShort": "版本",
+      "kpiTotal": "节点总数",
+      "kpiOnline": "在线",
+      "kpiOffline": "离线",
+      "kpiAgents": "Agent 总数",
       "statusOnline": "在线",
       "statusOffline": "离线",
       "statusDegraded": "异常"
