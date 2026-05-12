@@ -2281,6 +2281,7 @@ def _encode_token_usage(usage: TokenUsage | None) -> str | None:
             "output": int(usage.output),
             "context_used": int(usage.context_used),
             "context_window": int(usage.context_window),
+            "total": int(usage.total),
         },
         ensure_ascii=True,
         separators=(",", ":"),
@@ -2303,6 +2304,7 @@ def _decode_token_usage(value: object) -> TokenUsage | None:
             output=int(parsed["output"]),
             context_used=int(parsed["context_used"]),
             context_window=int(parsed["context_window"]),
+            total=int(parsed.get("total", 0)),
         )
     except (KeyError, TypeError, ValueError):
         return None

@@ -1503,7 +1503,14 @@ def _parse_token_usage(value: object) -> TokenUsage | None:
         total = prompt + completion
     # TokenUsage domain model uses output/context_used/context_window mapping.
     # completion → output; prompt → context_used (closest semantic fit for token chip).
-    return TokenUsage(output=max(completion, 0), context_used=max(prompt, 0), context_window=max(total, 0))
+    # M17/R8-3: total = prompt+completion is also surfaced so the chip can show
+    # actual per-turn usage instead of the (often tiny) completion number alone.
+    return TokenUsage(
+        output=max(completion, 0),
+        context_used=max(prompt, 0),
+        context_window=max(total, 0),
+        total=max(total, 0),
+    )
 
 
 def _parse_tool_call(value: object) -> ToolCall:
