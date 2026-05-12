@@ -253,4 +253,92 @@ describe("MessagePane", () => {
     await user.click(await screen.findByRole("button", { name: /Planner/ }));
     expect(composer.value).toBe("ping @Planner ");
   });
+
+  // M19/R11-8: prototype `im-chat-page.jsx::MessagePaneView` 移动模式头部紧凑 —
+  // 隐藏 participants / KindBadge / 顶部 TokenChip,Config 退化为 ⚙ icon-only 方块。
+  // 桌面模式 (>= 768px) 全部保留 (不回归 R7-5 Node chip + ⚙ 桌面布局)。
+  describe("R11-8: mobile compact header", () => {
+    it("hides participants line on mobile", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          onBack={() => {}}
+          isMobile
+        />
+      );
+      expect(screen.queryByText("Planner", { selector: ".chat-pane-participants" })).not.toBeInTheDocument();
+    });
+
+    it("hides KindBadge on mobile but keeps NodeChip", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          onBack={() => {}}
+          isMobile
+          nodeName="laptop-prod"
+          nodeStatus="online"
+        />
+      );
+      expect(document.querySelector(".chat-kind-badge")).toBeNull();
+      expect(screen.getByText("laptop-prod")).toBeInTheDocument();
+    });
+
+    it("hides the header TokenChip on mobile (token chip lives under each bubble per R6)", () => {
+      const msg: Message = {
+        ...SAMPLE_MESSAGES[1],
+        token_usage: { output: 100, context_used: 5000, context_window: 20000 }
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[msg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          onBack={() => {}}
+          isMobile
+        />
+      );
+      const header = document.querySelector(".chat-pane-header");
+      expect(header).not.toBeNull();
+      expect(header!.querySelector(".chat-token-chip")).toBeNull();
+    });
+
+    it("renders compact icon-only Config button on mobile (no Config text)", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          onBack={() => {}}
+          onOpenConfig={() => {}}
+          isMobile
+        />
+      );
+      const configBtn = screen.getByRole("button", { name: /config/i });
+      expect(configBtn.className).toMatch(/compact|icon|chat-pane-config-icon/);
+      expect(configBtn.textContent?.trim()).toBe("⚙");
+    });
+
+    it("keeps participants + KindBadge + text Config on desktop (isMobile=false)", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          onOpenConfig={() => {}}
+        />
+      );
+      expect(document.querySelector(".chat-pane-participants")).not.toBeNull();
+      const configBtn = screen.getByRole("button", { name: /config/i });
+      expect(configBtn.textContent).toMatch(/Config/i);
+    });
+  });
 });
