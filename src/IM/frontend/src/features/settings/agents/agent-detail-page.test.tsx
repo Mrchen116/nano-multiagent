@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   createDirectConversationMock: vi.fn(),
   createDirectChatByAgentUserIdMock: vi.fn(),
   listAgentsMock: vi.fn(),
+  listAgentSummariesMock: vi.fn(),
   navigateMock: vi.fn()
 }));
 
@@ -28,9 +29,14 @@ vi.mock("../../chat/chat-api", () => ({
   listAgents: apiMocks.listAgentsMock
 }));
 
+vi.mock("../../../hooks/use-is-mobile", () => ({
+  useIsMobile: () => false
+}));
+
 vi.mock("./im-agent-config-api", () => ({
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
-  updateAgentConfig: apiMocks.updateAgentConfigMock
+  updateAgentConfig: apiMocks.updateAgentConfigMock,
+  listAgentSummaries: apiMocks.listAgentSummariesMock
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
@@ -57,7 +63,15 @@ afterEach(() => {
   apiMocks.createDirectConversationMock.mockReset();
   apiMocks.createDirectChatByAgentUserIdMock.mockReset();
   apiMocks.listAgentsMock.mockReset();
+  apiMocks.listAgentSummariesMock.mockReset();
   apiMocks.navigateMock.mockReset();
+});
+
+// Default listAgentSummaries so the desktop rail (R12-bis-1) doesn't break tests.
+beforeEach(() => {
+  apiMocks.listAgentSummariesMock.mockResolvedValue([
+    { agent_id: "agent-core-1", display_name: "Core Planner", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
+  ]);
 });
 
 describe("agent detail page", () => {
