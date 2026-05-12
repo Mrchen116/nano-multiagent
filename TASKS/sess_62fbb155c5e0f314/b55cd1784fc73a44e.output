@@ -1,0 +1,30 @@
+# Background task b55cd1784fc73a44e — output will appear here
+src/agent/platform/tools/builtins:
+total 240
+-rw-r--r--@  1 czj  staff   1031  4月 29 14:23 __init__.py
+drwxr-xr-x@ 11 czj  staff    352  4月 29 14:24 __pycache__
+drwxr-xr-x@ 12 czj  staff    384  4月 29 14:23 .
+drwxr-xr-x@ 11 czj  staff    352  4月 29 14:23 ..
+-rw-r--r--@  1 czj  staff  26227  4月 29 10:29 agent.py
+-rw-r--r--@  1 czj  staff  19020  4月 29 14:23 bash.py
+-rw-r--r--@  1 czj  staff   5653  4月 27 20:02 edit.py
+-rw-r--r--@  1 czj  staff  14230  4月 27 20:02 read.py
+-rw-r--r--@  1 czj  staff   3870  4月 29 08:43 task_stop.py
+-rw-r--r--@  1 czj  staff  21663  4月 27 20:02 task.py
+-rw-r--r--@  1 czj  staff  10975  4月 20 12:51 web_fetch.py
+-rw-r--r--@  1 czj  staff   3984  4月 27 20:02 write.py
+
+src/agent/products/local_coding/tools:
+total 8
+-rw-r--r--@  1 czj  staff   58  3月 11 17:21 __init__.py
+drwxr-xr-x@  3 czj  staff   96  3月 11 17:21 .
+drwxr-xr-x@ 11 czj  staff  352  4月 29 14:23 ..
+
+src/agent/products/personal_assistant/tools:
+total 40
+-rw-r--r--@  1 czj  staff   193  4月 20 10:07 __init__.py
+drwxr-xr-x@  5 czj  staff   160  4月 23 23:25 __pycache__
+drwxr-xr-x@  6 czj  staff   192  4月 23 23:25 .
+drwxr-xr-x@ 11 czj  staff   352  4月 29 14:23 ..
+-rw-r--r--@  1 czj  staff  5439  3月 25 23:39 send_message.py
+-rw-r--r--@  1 czj  staff  4583  3月 16 21:09 web_search.py

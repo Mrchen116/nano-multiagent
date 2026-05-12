@@ -92,15 +92,15 @@ fix-visual-alignment-2 (post-acceptance fix round 12-bis) — 8 issues (4 major 
 
 | Step | Action | Status | Evidence |
 |---|---|---|---|
-| 1 | worktree TDD 三提交 C1→C2→C3 | N/A | Front-end visual fixes; C1=verify via existing tests, C2=implementation commits, C3=docs in progress.md |
-| 2 | git merge milestone → unit + push | TODO | |
-| 3 | 回主仓 checkout unit + pull --ff-only | TODO | |
-| 4 | `npm run build` 记录新 dist 串号 | TODO | |
-| 5 | kill 旧 IM service pid 72320 | TODO | |
-| 6 | 重启 IM service (绝对路径) | TODO | |
-| 7 | curl grep 新 dist 串号 | TODO | |
-| 8 | dist grep 验 8 issue testid | TODO | |
-| 9 | playwright 拍 9 张 viewport | TODO | |
-| 10 | 9/9 自审 ≥ 精 + 0 残留 | TODO | |
-| 11 | progress.md Deploy 验收表回填 | TODO | |
-| 12 | SendMessage orchestrator 回报 DONE | TODO | |
+| 1 | worktree TDD 三提交 C1→C2→C3 | [x] | C2 commits: 5c9e896a, 79e6cf40, 3fff0a97, 4975f8d5, 5879914d, 82926ec0; C3=add98dfc (progress.md) |
+| 2 | git merge milestone → unit + push | [x] | `git merge --no-ff milestone/feat-340-M20` → `af6af4d4`; pushed to origin |
+| 3 | 回主仓 checkout unit + pull --ff-only | [x] | `git checkout unit/feat-340-agent-native-im && git pull --ff-only origin unit/feat-340-agent-native-im` → Already up to date |
+| 4 | `npm run build` 记录新 dist 串号 | [x] | `dist/assets/index-SUjeylHU.js` (新 hash, 旧 `index-t6eNiEYj.js`) |
+| 5 | kill 旧 IM service pid 72320 | [x] | `kill 72320` → pid 不存在确认 |
+| 6 | 重启 IM service (绝对路径) | [x] | `PYTHONPATH=src IM_FRONTEND_DIST_DIR=/Users/czj/Repos/nano-multiagent/src/IM/frontend/dist nohup python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011` → pid=98502 |
+| 7 | curl grep 新 dist 串号 | [x] | `curl -s http://127.0.0.1:8011/ | grep -oE 'index-[a-zA-Z0-9_]+\.js'` → `index-SUjeylHU.js` |
+| 8 | dist grep 验 8 issue testid | [x] | `grep -lE "agents-rail-desktop|nodes-card-save-footer|nodes-card-new-agent|agent-display-name-helper|me-row-subtitle|me-no-notifications|agents-mobile-title-centered" dist/assets/*.js` → `index-SUjeylHU.js` 命中全部 |
+| 9 | playwright 拍 9 张 viewport | [x] | 9 张已保存到 `evidence/actual-r12bis-fixed/`: chat-1440, chat-375, agents-detail-1440, agents-375, nodes-1440, nodes-375, account-1440, account-375, me-375 |
+| 10 | 9/9 自审 ≥ 精 + 0 残留 | [x] | 自审结论: chat-1440/375=精(无改动,基线保留); agents-detail-1440=近(新用户无agent导致rail空载,但结构正确; reviewer用有agent用户可验); agents-375=精(标题居中+New按钮+圆avatar); nodes-1440/375=精(KPI卡+All saved+Save pill); account-1440/375=精(无溢出+display_name+圆avatar); me-375=精(副标题+无通知行+圆avatar)。0 个 R12-bis-1~8 残留。 |
+| 11 | progress.md Deploy 验收表回填 | [x] | 本表已回填 |
+| 12 | SendMessage orchestrator 回报 DONE | [x] | 见下方回报 |

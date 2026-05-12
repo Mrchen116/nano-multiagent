@@ -1,0 +1,17 @@
+# Background task ba0a2c8038f408dc1 — output will appear here
+total 192
+-rw-r--r--@  1 czj  staff     42  3月 11 19:00 __init__.py
+drwxr-xr-x@  6 czj  staff    192  4月 29 00:23 __pycache__
+drwxr-xr-x@ 15 czj  staff    480  4月 23 23:25 .
+drwxr-xr-x@  8 czj  staff    256  4月  9 16:37 ..
+-rw-r--r--@  1 czj  staff   8196  4月  9 16:37 .DS_Store
+drwxr-xr-x@  6 czj  staff    192  4月 23 23:25 channels
+drwxr-xr-x@  5 czj  staff    160  4月 28 23:21 client
+drwxr-xr-x@  6 czj  staff    192  4月 23 23:25 config
+drwxr-xr-x@ 12 czj  staff    384  4月 29 01:05 gateway
+-rw-r--r--@  1 czj  staff    524  3月 19 11:23 kernel_app.py
+-rw-r--r--@  1 czj  staff  71642  3月 27 18:28 main.py
+drwxr-xr-x@  4 czj  staff    128  4月 23 23:25 reporter
+drwxr-xr-x@  5 czj  staff    160  4月 28 23:20 scheduler
+-rw-r--r--@  1 czj  staff   3866  3月 12 11:41 smoke_runtime.py
+drwxr-xr-x@  4 czj  staff    128  4月 23 23:25 ws

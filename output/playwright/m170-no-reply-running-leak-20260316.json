@@ -1,0 +1,128 @@
+{
+  "conversation_id": "dbc37a914d7246ec8f52b65ad3cf1eff",
+  "message_id": "cae30b384eca427996ac6f14945d1721",
+  "issue": "NO_REPLY still visible in UI as running bubble",
+  "events": [
+    {
+      "event_type": "message.sent",
+      "delivery_status": "sent",
+      "payload_json": {
+        "conversation_id": "dbc37a914d7246ec8f52b65ad3cf1eff",
+        "message_id": "cae30b384eca427996ac6f14945d1721",
+        "sender_user_id": "567b3da5651d4baf992003541349e71f",
+        "sender_type": "user",
+        "attachments": [],
+        "progress_state": "pending",
+        "semantic": "persisted_to_im"
+      },
+      "created_at": "2026-03-16T03:12:56.629807Z"
+    },
+    {
+      "event_type": "relay.accepted",
+      "delivery_status": "sent",
+      "payload_json": {
+        "conversation_id": "dbc37a914d7246ec8f52b65ad3cf1eff",
+        "message_id": "cae30b384eca427996ac6f14945d1721",
+        "relay_task_id": "3746ecdd1e874b369ccc851e66499f6b",
+        "target_node_id": "m170-node",
+        "node_id": "m170-node",
+        "agent_id": "agent-m170-alpha",
+        "idempotency_key": "relay:cae30b384eca427996ac6f14945d1721:m170-node",
+        "relay_metadata": {
+          "conversation_type": "group",
+          "mentioned_agent_ids": [
+            "agent-m170-alpha"
+          ],
+          "config_profile_version": 2,
+          "system_prompt": "Reply exactly with NO_REPLY."
+        },
+        "detail": "run_id=run_13461d2a9ec295e4",
+        "progress_state": "accepted",
+        "semantic": "accepted_by_gateway"
+      },
+      "created_at": "2026-03-16T03:12:56.650593Z"
+    },
+    {
+      "event_type": "relay.processing",
+      "delivery_status": "running",
+      "payload_json": {
+        "conversation_id": "dbc37a914d7246ec8f52b65ad3cf1eff",
+        "message_id": "cae30b384eca427996ac6f14945d1721",
+        "node_id": "m170-node",
+        "run_id": "run_13461d2a9ec295e4",
+        "summary": "NO_REPLY",
+        "status": "running",
+        "progress_state": "processing",
+        "semantic": "agent_run_processing",
+        "guidance": null
+      },
+      "created_at": "2026-03-16T03:13:03.704086Z"
+    },
+    {
+      "event_type": "relay.report",
+      "delivery_status": "completed",
+      "payload_json": {
+        "conversation_id": "dbc37a914d7246ec8f52b65ad3cf1eff",
+        "message_id": "cae30b384eca427996ac6f14945d1721",
+        "node_id": "m170-node",
+        "run_id": "run_13461d2a9ec295e4",
+        "summary": "NO_REPLY",
+        "status": "completed",
+        "progress_state": "completed",
+        "semantic": "agent_run_completed",
+        "guidance": null
+      },
+      "created_at": "2026-03-16T03:13:03.705013Z"
+    },
+    {
+      "event_type": "relay.completed",
+      "delivery_status": "completed",
+      "payload_json": {
+        "conversation_id": "dbc37a914d7246ec8f52b65ad3cf1eff",
+        "message_id": "cae30b384eca427996ac6f14945d1721",
+        "relay_task_id": "3746ecdd1e874b369ccc851e66499f6b",
+        "target_node_id": "m170-node",
+        "node_id": "m170-node",
+        "agent_id": "agent-m170-alpha",
+        "idempotency_key": "relay:cae30b384eca427996ac6f14945d1721:m170-node",
+        "relay_metadata": {
+          "conversation_type": "group",
+          "mentioned_agent_ids": [
+            "agent-m170-alpha"
+          ],
+          "config_profile_version": 2,
+          "system_prompt": "Reply exactly with NO_REPLY."
+        },
+        "detail": "suppressed_by=no_reply_token",
+        "progress_state": "completed",
+        "semantic": "agent_run_completed"
+      },
+      "created_at": "2026-03-16T03:13:03.707565Z"
+    },
+    {
+      "event_type": "message.delivered",
+      "delivery_status": "completed",
+      "payload_json": {
+        "conversation_id": "dbc37a914d7246ec8f52b65ad3cf1eff",
+        "message_id": "cae30b384eca427996ac6f14945d1721",
+        "relay_task_id": "3746ecdd1e874b369ccc851e66499f6b",
+        "target_node_id": "m170-node",
+        "node_id": "m170-node",
+        "agent_id": "agent-m170-alpha",
+        "idempotency_key": "relay:cae30b384eca427996ac6f14945d1721:m170-node",
+        "relay_metadata": {
+          "conversation_type": "group",
+          "mentioned_agent_ids": [
+            "agent-m170-alpha"
+          ],
+          "config_profile_version": 2,
+          "system_prompt": "Reply exactly with NO_REPLY."
+        },
+        "detail": "suppressed_by=no_reply_token",
+        "progress_state": "completed",
+        "semantic": "agent_run_completed"
+      },
+      "created_at": "2026-03-16T03:13:03.708080Z"
+    }
+  ]
+}

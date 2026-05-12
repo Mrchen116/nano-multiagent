@@ -1,0 +1,9 @@
+# Background task bfc37739ed69670eb — output will appear here
+src/agent/core/tools/__init__.py
+src/agent/core/tools/base.py
+src/agent/core/tools/presentation.py
+src/agent/core/tools/registry.py
+src/agent/core/tools/result_budget.py
+src/agent/core/tools/safety_types.py
+src/agent/core/tools/serialization.py
+src/agent/core/tools/session_file_state.py
