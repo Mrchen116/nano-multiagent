@@ -285,3 +285,42 @@ class TestCrossTenantStreamingIsolation:
 
         # broadcast_to_users (all users) must not be called for streaming frames
         registry.broadcast_to_users.assert_not_called()
+
+
+# ─── R2 tests: turn_start ack returns message_id (M16) ───────────────────────
+
+
+class TestTurnStartAckReturnsMessageId:
+    """gateway turn_start ack must include message_id so observer can update run_context_store."""
+
+    @pytest.mark.asyncio
+    async def test_turn_start_ack_includes_message_id_from_event_bridge(self):
+        """_handle_streaming_delta(turn_start) ack payload must carry message_id from created placeholder."""
+        bridge = MagicMock(spec=EventBridge)
+        bridge.on_turn_start.return_value = Message(
+            id="agent-placeholder-msg-42",
+            conversation_id="conv-1",
+            sender_user_id="agent-user-1",
+            sender_type="agent",
+            content="",
+            attachments=[],
+            delivery_status="running",
+            created_at="2026-01-01T00:00:00Z",
+        )
+        handler = _make_minimal_handler(event_bridge=bridge)
+        ws = AsyncMock()
+        payload = {
+            "kind": "turn_start",
+            "conversation_id": "conv-1",
+            "agent_user_id": "agent-user-1",
+            "agent_id": "alpha",
+            "owner_id": "owner-A",
+        }
+        result = await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
+        assert result is not None
+        assert result.get("type") == "ack"
+        # message_id must appear in the ack payload so the PA observer can update run_context_store
+        ack_payload = result.get("payload", {})
+        assert ack_payload.get("message_id") == "agent-placeholder-msg-42", (
+            f"turn_start ack must carry message_id, got: {ack_payload}"
+        )
