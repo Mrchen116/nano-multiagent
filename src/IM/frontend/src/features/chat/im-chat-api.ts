@@ -1843,12 +1843,12 @@ function writeUserStreamCursor(userId: string, eventId: number) {
   }
 }
 
-function resolveUserStreamWsUrl(selfUserId: string): string {
+function resolveUserStreamWsUrl(token: string): string {
   const apiBase = getApiBaseUrl();
   const pageOrigin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:8011";
   const httpOrigin = apiBase !== "" ? new URL(apiBase, pageOrigin).origin : pageOrigin;
   const wsUrl = new URL("/im/ws/user", httpOrigin);
-  wsUrl.searchParams.set("user_id", selfUserId);
+  wsUrl.searchParams.set("token", token);
   const scheme = wsUrl.protocol === "https:" ? "wss:" : "ws:";
   return `${scheme}//${wsUrl.host}${wsUrl.pathname}?${wsUrl.searchParams.toString()}`;
 }
@@ -1860,6 +1860,7 @@ const userStreamHandlers = new Set<UserStreamHandler>();
 const userStreamResyncHandlers = new Set<UserStreamResyncHandler>();
 let userStreamSocket: WebSocket | null = null;
 let userStreamUserId: string | null = null;
+let userStreamToken: string | null = null;
 let userStreamReconnectTimer: number | null = null;
 let userStreamPingTimer: number | null = null;
 let userStreamReconnectAttempt = 0;
@@ -1891,7 +1892,7 @@ function teardownUserStreamTimers() {
   }
 }
 
-function scheduleUserStreamReconnect(userId: string) {
+function scheduleUserStreamReconnect(userId: string, token: string) {
   if (userStreamHandlers.size === 0) {
     return;
   }
@@ -1900,11 +1901,11 @@ function scheduleUserStreamReconnect(userId: string) {
   userStreamReconnectAttempt += 1;
   userStreamReconnectTimer = window.setTimeout(() => {
     userStreamReconnectTimer = null;
-    connectSharedUserStream(userId);
+    connectSharedUserStream(userId, token);
   }, delay);
 }
 
-function connectSharedUserStream(userId: string) {
+function connectSharedUserStream(userId: string, token: string) {
   if (typeof WebSocket === "undefined") {
     return;
   }
@@ -1913,6 +1914,7 @@ function connectSharedUserStream(userId: string) {
     userStreamSocket = null;
     teardownUserStreamTimers();
     userStreamUserId = null;
+    userStreamToken = null;
   }
   if (
     userStreamSocket &&
@@ -1923,7 +1925,8 @@ function connectSharedUserStream(userId: string) {
   }
   userStreamSocket?.close();
   teardownUserStreamTimers();
-  const ws = new WebSocket(resolveUserStreamWsUrl(userId));
+  userStreamToken = token;
+  const ws = new WebSocket(resolveUserStreamWsUrl(token));
   userStreamSocket = ws;
   userStreamUserId = userId;
 
@@ -1991,7 +1994,7 @@ function connectSharedUserStream(userId: string) {
     teardownUserStreamTimers();
     userStreamSocket = null;
     if (userStreamHandlers.size > 0) {
-      scheduleUserStreamReconnect(userId);
+      scheduleUserStreamReconnect(userId, token);
     }
   };
 }
@@ -2001,6 +2004,7 @@ function connectSharedUserStream(userId: string) {
  */
 export function attachUserConversationStream(input: {
   selfUserId: string;
+  token: string;
   onEvent: UserStreamHandler;
   onResyncRequired?: UserStreamResyncHandler;
 }): () => void {
@@ -2011,7 +2015,7 @@ export function attachUserConversationStream(input: {
   if (input.onResyncRequired) {
     userStreamResyncHandlers.add(input.onResyncRequired);
   }
-  connectSharedUserStream(input.selfUserId);
+  connectSharedUserStream(input.selfUserId, input.token);
   return () => {
     userStreamHandlers.delete(input.onEvent);
     if (input.onResyncRequired) {
@@ -2022,6 +2026,7 @@ export function attachUserConversationStream(input: {
       userStreamSocket?.close();
       userStreamSocket = null;
       userStreamUserId = null;
+      userStreamToken = null;
       userStreamReconnectAttempt = 0;
     }
   };
@@ -2031,6 +2036,7 @@ export function attachUserConversationStream(input: {
 export function streamConversationEvents(input: {
   conversationId: string;
   selfUserId: string | null | undefined;
+  token: string;
   afterEventId?: number;
   onEvent: (event: ParsedImStreamEvent) => void;
   onError?: (error: Error) => void;
@@ -2046,6 +2052,7 @@ export function streamConversationEvents(input: {
   }
   return attachUserConversationStream({
     selfUserId: input.selfUserId,
+    token: input.token,
     onEvent: (event) => {
       const payload = event.payload as Record<string, unknown>;
       const cid = typeof payload.conversation_id === "string" ? payload.conversation_id : undefined;
