@@ -8,6 +8,7 @@
 
 <!-- 按时间倒序追加。格式:YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-12 (Runbook for Reviewer 补齐): 新版 change-design-author skill 要求 design.md 必填 §Runbook for Reviewer(列本 unit 涉及的所有常驻服务 + 停止/启动/健康检查命令),让 reviewer 进旅程前无脑重启服务以避免 stale-binary 让证据失真。补 3 个常驻服务:Agent Kernel(:8000)、IM(:8011)、PA Gateway;明示 LLM_PROXY 外部不动。背景见 R5 案例。
 - 2026-05-12 (M15 立项,post-acceptance fix round 5): R5 验收发现 message.created 不触发 + message_id 指向用户消息而非 agent 占位（R5-1/R5-2）。修法：_build_relay_lifecycle_callback accepted 阶段通过 IM REST 预创建 agent 占位消息，将 agent message_id 存入 run_context_store；observer turn_start 分支改为 pass。详见 M15-fix-r5/progress.md。
 - 2026-05-11 (M14 立项,post-acceptance fix round 4): e2e 实跑(真 LLM moonshot:kimi-k2.5 + 起 IM/Gateway/Kernel)发现 R1-R3 reviewer 均未真验 streaming 链:`src/IM/application/event_bridge.py` 整类是 dead code(无任何实例化/调用);`src/personal_assistant/main.py` 构造 `InboundPipeline` 时从不传 `kernel_event_observer`,该 hook 永远 None;`src/IM/ws/gateway_handler.py._persist_report_event()` 仅产 `relay.processing/report`,从不产 `message.created/delta/completed` 与 `tool_call.upserted/completed`;`node.report` 不带 `token_usage`,Token Chip 无源数据。M14 闭合 streaming 链。详见 acceptance-e2e.md。
 - 2026-05-11 (M13 立项,post-acceptance fix round 3): reviewer R3 发现新 major bug R3-1: `src/IM/api/routes/web_im.py:136` create_conversation 路由 `del user` 丢失 caller owner_id;`src/IM/infra/repositories.py:377` 在 multi-owner participants 时随机生成 UUID 作为 conversation owner_id,导致 list_conversations_for_owner 查不到。修法:create_conversation 路由把 caller_owner_id 显式传入 repository。
