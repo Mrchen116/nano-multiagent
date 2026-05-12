@@ -45,7 +45,9 @@
     "title": "Me",
     "sections": {
       "account": "Account",
+      "accountSubtitle": "Profile and gateway",
       "nodes": "Nodes",
+      "nodesSubtitle": "Nodes and agents",
       "language": "Language",
       "notifications": "Notifications",
       "signOut": "Sign out"
@@ -91,6 +93,8 @@
       "reportingEnabled": "Reporting Enabled",
       "save": "Save {{nodeId}}",
       "saving": "Saving…",
+      "allSaved": "All saved",
+      "unsavedChanges": "Unsaved changes",
       "createAgentOn": "Create agent on {{nodeId}}",
       "agentsOnNode": "Agents on this node",
       "agentsOnNodeEmpty": "No agents on this node yet.",
@@ -185,6 +189,7 @@
         "displayName": "Display Name",
         "displayNameRequired": "Display Name *",
         "displayNamePlaceholder": "e.g. My Agent",
+        "displayNameHelper": "Shown in conversations and group chats.",
         "description": "Description",
         "descriptionHelp": "Short summary shown in group chats.",
         "descriptionPlaceholder": "What does this agent do?",

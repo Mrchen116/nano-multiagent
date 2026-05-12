@@ -70,12 +70,30 @@ export function AgentsListPage() {
 
   return (
     <div className={`im-agents-list${isMobile ? " is-mobile" : ""}`} data-testid="agents-list">
-      <header className="im-agents-list-header">
-        <h2 className="im-agents-list-title">{t("agents.title")}</h2>
-        <Link className="im-btn im-btn-primary im-agents-new-btn" to="/settings/nodes">
-          {t("agents.newButton")}
-        </Link>
-      </header>
+      {/* M20/R12-bis-7: mobile title centered with absolute-positioned + New button. */}
+      {isMobile ? (
+        <header className="relative flex h-12 items-center justify-center border-b border-[oklch(0.91_0.005_240)] px-3">
+          <h2
+            data-testid="agents-mobile-title-centered"
+            className="m-0 text-[17px] font-bold tracking-tight text-[oklch(0.14_0.01_240)]"
+          >
+            {t("agents.title")}
+          </h2>
+          <Link
+            className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center rounded-lg bg-[oklch(0.52_0.14_180)] px-3 py-1.5 text-[13px] font-semibold text-white"
+            to="/settings/nodes"
+          >
+            {t("agents.newButton")}
+          </Link>
+        </header>
+      ) : (
+        <header className="im-agents-list-header">
+          <h2 className="im-agents-list-title">{t("agents.title")}</h2>
+          <Link className="im-btn im-btn-primary im-agents-new-btn" to="/settings/nodes">
+            {t("agents.newButton")}
+          </Link>
+        </header>
+      )}
 
       <div className="im-agents-list-body">
         {agentsQuery.isLoading ? (

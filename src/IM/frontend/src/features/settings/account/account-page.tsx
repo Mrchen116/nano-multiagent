@@ -164,10 +164,14 @@ export function AccountPage() {
             <p className="m-0 text-[16px] font-extrabold text-[oklch(0.14_0.01_240)] truncate">
               {profile.display_name}
             </p>
+            {/* M20/R12-bis-4: show display_name as primary; user_id as small gray note. */}
             <p
               data-testid="account-user-id"
-              className="m-0 mt-[3px] font-mono text-[12px] text-[oklch(0.55_0.01_240)] truncate"
+              className="m-0 mt-[3px] text-[12px] text-[oklch(0.30_0.01_240)] truncate"
             >
+              {profile.display_name}
+            </p>
+            <p className="m-0 font-mono text-[11px] text-[oklch(0.65_0.01_240)] truncate">
               {profile.user_id || profile.id}
             </p>
           </div>
@@ -230,11 +234,11 @@ export function AccountPage() {
               <div
                 key={node.node_id}
                 data-testid={`account-owned-node-${node.node_id}`}
-                className="flex items-center gap-3 rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-[oklch(0.96_0.005_240)] px-3 py-[10px]"
+                className="flex flex-wrap items-center gap-2 rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-[oklch(0.96_0.005_240)] px-3 py-[10px]"
               >
                 <span
                   className={
-                    "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-bold " +
+                    "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-bold " +
                     (isOnline
                       ? "bg-[oklch(0.93_0.07_145)] text-[oklch(0.32_0.14_145)] border-[oklch(0.80_0.12_145)]"
                       : "bg-[oklch(0.92_0.005_240)] text-[oklch(0.50_0.01_240)] border-[oklch(0.85_0.005_240)]")
@@ -252,7 +256,7 @@ export function AccountPage() {
                   <p className="m-0 text-[13px] font-bold text-[oklch(0.18_0.01_240)] truncate">{node.alias || node.node_name}</p>
                   <p className="m-0 font-mono text-[11px] text-[oklch(0.55_0.01_240)] truncate">{node.node_id}</p>
                 </div>
-                <div className="text-right text-[12px] text-[oklch(0.55_0.01_240)]">
+                <div className="shrink-0 text-right text-[12px] text-[oklch(0.55_0.01_240)]">
                   <p className="m-0">
                     {node.agent_count} {t("settings.account.defaults.agentsShort")}
                   </p>
@@ -261,7 +265,7 @@ export function AccountPage() {
                 {isDefault ? (
                   <span
                     data-testid={`account-owned-node-default-chip-${node.node_id}`}
-                    className="rounded-full border border-[oklch(0.78_0.12_180)] bg-[oklch(0.93_0.06_180)] px-2 py-0.5 text-[11px] font-bold text-[oklch(0.35_0.12_180)]"
+                    className="shrink-0 rounded-full border border-[oklch(0.78_0.12_180)] bg-[oklch(0.93_0.06_180)] px-2 py-0.5 text-[11px] font-bold text-[oklch(0.35_0.12_180)]"
                   >
                     {t("settings.account.defaults.defaultChip")}
                   </span>
