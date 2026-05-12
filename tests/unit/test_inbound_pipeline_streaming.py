@@ -261,3 +261,148 @@ class TestObserverSkipsTurnStart:
         assert delta_calls[0]["message_id"] == "agent-msg-999", (
             f"message_delta must use agent message_id, got {delta_calls[0].get('message_id')}"
         )
+
+
+# ─── R2 tests: observer sends turn_start + updates run_context_store (M16) ────
+
+
+class TestObserverSendsTurnStartAndUpdatesStore:
+    """Observer must send turn_start frame and update run_context_store with ack message_id."""
+
+    @pytest.mark.asyncio
+    async def test_observer_sends_turn_start_on_run_status_running(self):
+        """run_status=running must emit kind=turn_start frame to gateway."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json_await_ack(message_type, payload):
+            send_calls.append((message_type, payload))
+            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "agent-msg-from-gw"}}
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+        manager.send_json_await_ack = mock_send_json_await_ack
+
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-001": {
+                "conversation_id": "conv-abc",
+                "message_id": "",   # empty = not yet created
+                "agent_id": "alpha",
+            }
+        }
+
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        observer({
+            "event": "run_status",
+            "status": "running",
+            "run_id": "run-001",
+        })
+        await asyncio.sleep(0.05)
+
+        turn_start_frames = [p for _, p in send_calls if p.get("kind") == "turn_start"]
+        assert len(turn_start_frames) >= 1, (
+            f"Observer must send turn_start on run_status=running, got: {send_calls}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_observer_updates_run_context_store_with_ack_message_id(self):
+        """After turn_start ack, run_context_store must have the agent message_id from ack."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json_await_ack(message_type, payload):
+            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "agent-placeholder-555"}}
+
+        manager.send_json = AsyncMock()
+        manager.send_json_await_ack = mock_send_json_await_ack
+
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-001": {
+                "conversation_id": "conv-abc",
+                "message_id": "",
+                "agent_id": "alpha",
+            }
+        }
+
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        observer({
+            "event": "run_status",
+            "status": "running",
+            "run_id": "run-001",
+        })
+        await asyncio.sleep(0.1)
+
+        assert run_context_store["run-001"]["message_id"] == "agent-placeholder-555", (
+            f"run_context_store must be updated with ack message_id, got: {run_context_store}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_delta_uses_message_id_from_turn_start_ack(self):
+        """After turn_start ack updates run_context_store, message_delta must use the new message_id."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json_await_ack(message_type, payload):
+            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "agent-placeholder-777"}}
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+        manager.send_json_await_ack = mock_send_json_await_ack
+
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-001": {
+                "conversation_id": "conv-abc",
+                "message_id": "",
+                "agent_id": "alpha",
+            }
+        }
+
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        # Simulate run_status=running (sends turn_start and updates store)
+        observer({
+            "event": "run_status",
+            "status": "running",
+            "run_id": "run-001",
+        })
+        # Wait for turn_start ack to update store
+        await asyncio.sleep(0.1)
+
+        # Now send assistant_message: should use the new agent message_id
+        observer({
+            "event": "assistant_message",
+            "content": "The answer is 42.",
+            "run_id": "run-001",
+        })
+        await asyncio.sleep(0.05)
+
+        delta_calls = [p for _, p in send_calls if p.get("kind") == "message_delta"]
+        assert len(delta_calls) >= 1, f"Expected message_delta, got: {send_calls}"
+        assert delta_calls[0]["message_id"] == "agent-placeholder-777", (
+            f"message_delta must use agent message_id from turn_start ack, got: {delta_calls[0].get('message_id')}"
+        )
