@@ -1565,3 +1565,168 @@ reviewer 一连 4 轮把"功能 ✅"等同"视觉 ✅",orchestrator 没在 §6.1
 - 同 issue 指纹累计 ≥ 5 轮升级 escalate;同 unit 7 轮硬上限不变(R7-R10 已耗 4 轮视觉线;R11 是第 5 轮视觉对齐回合,留 2 轮余量给 fix 验证)。
 
 > 本注记**不修改**上方任一历史轮次的报告内容,只追加。reviewer round 11 在本注记之后新开 `# Round 11 — <date>` 区段。
+
+---
+
+# Round 11 — 2026-05-12 (post-R10-void, visual-alignment reset)
+
+## Top Concern
+
+5 页**全部不达 spec §22 "像素级对齐 / 精"**。Chat 桌面最接近("近"档,差距集中在 timestamp 缺失 / avatar 配色 / token chip 位置 / "internal" 徽标 / UserMenu chevron),其余 4 页(Agents / Nodes / Account / Mobile Me)**结构性偏离**——actual 引入了 prototype 完全没有的 `Settings` 二级侧边栏(Agents/Nodes/Account 三 tab),把原本 prototype 通过 UserMenu / 移动 Me 页聚合分发的三页强行塞进一个 settings 容器;Mobile Me 页几乎**没有视觉样式**(无卡片、无 padding、无 chevron、无分组),与 prototype `im-mypage.jsx` AggregatedMePage 的卡片式 list 风马牛不相及。R10 reviewer 用"功能修通 = 视觉达标"的论据 pass 是错的;本轮重判后**全 5 页 fail**,Highest Required Action = **fix-implementation**,建议派 **M19-fix-visual-alignment** 同根重写 5 页布局。
+
+## §用户旅程体验
+
+按 spec.md §用户场景 抽 3 条快速复测,只为确认功能没回归;**视觉对照是本轮主线**(下一节)。
+
+| 旅程 | 步骤 | 结果 |
+|---|---|---|
+| A 桌面进 Chat → Open chat ↗ → 发消息 | `/register r11alex` → `/chat`(空)→ `/settings/agents/R11Gamma` → 点 "Open chat ↗" → `/chat/ac8c81...` 进直聊空态 → fill "Hello R11" + Enter → 12s 后看到自己气泡(右、accent)+ R11Gamma 气泡 "Hello! How can I help you today?"(左、浅色)+ token chip "2223 tok"(头部右侧) | 功能 ✅。视觉:见 §原型对照-Chat,近。 |
+| B Agents 详情编辑 | `/settings/agents/R11Gamma` → 看到 Identity / Behavior / Access & Model / Workspace & Runtime 四组卡片 → System Prompt 改文本 → footer "Discard / Save" 由灰转绿 | 功能 ✅(dirty 检测 + footer Save 已通)。视觉:见 §原型对照-Agents,偏(Skills 60+ 项 grid + Owner 字段裸露 + Settings 侧栏)。 |
+| C Nodes/Account 浏览 | `/settings/nodes` → 看到 feat340-r11-node 在线 + m224-fuck-node / m134-browser-node 离线(Side-F11 沿用泄漏);`/settings/account` → 看到 Display name / Username / User ID / Default entry node / Language 字段 | 功能 ✅。视觉:Nodes 偏(无 4 KPI 卡 / 无 🖥 图标),Account 偏(3 卡 vs 原型 2 卡 + Settings 侧栏 + 宽度差)。 |
+
+## §原型对照(5 页,本轮全新双 viewport,**不继承前轮**)
+
+| 页 | viewport | proto 截图 | actual 截图 | 对照结论 | 关键差异 |
+|---|---|---|---|---|---|
+| **Chat(直聊)** | 1440x900 | `acceptance-r11-evidence/proto/chat-1440.png` | `acceptance-r11-evidence/actual/chat-1440-with-message.png` | **近**(不达"精") | (1) 消息时间戳缺失(proto 每条都有 "18:38");(2) Agent avatar 用 agent_id hash 出橙/棕色方块,proto 是统一青色圆角;(3) Token chip 在头部右侧 "2223 tok",proto 在气泡下方 "312 tok · ctx 7%" 含进度条 / 7%/70%/90% 预警阈值看不到;(4) 顶栏 "nano IM" 旁无 "internal" 徽标;(5) UserMenu 缺 ▾ 下拉箭头;(6) 会话列表行多了 "Agent" kind badge(proto 无)+ 缺 avatar 上的 online/offline 圆点。 |
+| **Chat(移动)** | 375x812 | `proto/chat-375.png` | `actual/chat-375.png`(空态) | **偏** | proto 进直聊有顶部"返回 / avatar / 名 / Node Chip / ⚙"五元素的紧凑 chat header;actual 移动 `/chat` 路径仍显示 sidebar+filter+空状态,**没有移动专用的 chat-thread 视图模板**(只是窄了的桌面布局)。底部三 tab:proto 有 💬🤖👤 emoji icon + Chat 上的 unread 数字徽标;actual 是纯文字 tab(R8 改过 emoji 但当前 bundle 已退化)。 |
+| **Agents 详情** | 1440x900 + 1440x2400 | `proto/agents-detail-1440-full.png`(双卡列 Identity / Behavior / Access & Model / Workspace & Runtime,Skills 显示为 5 颗 selected 青色 pill,Tool Allowlist 7 颗,Default Model 单选下拉,Open chat ↗ + Save 在头部) | `actual/agents-detail-1440-top.png` + `actual/agents-detail-1440-bottom.png` | **偏** | (1) **新增 Settings 二级侧栏(Agents/Nodes/Account)**,prototype 完全没有;(2) Identity 卡 row1 是 `Agent ID` + **`Owner`(裸 UUID 9d2afbba…)**,proto row1 是 `Agent ID` + `Display Name`,无 Owner 字段;(3) **Skills 是 60+ checkbox grid**(qa / refactor-playbook / review / setup-deploy / skill-creator / tdd-execution-worker / unfreeze …),每项 hover 弹黑底 tooltip,proto 是 compact selected-only pills + 多选 picker;Tool Allowlist 同样是 12+ checkbox grid;(4) 头部右侧 actual = "online 圆点 + Open chat ↗",proto = "Open chat ↗ + Save Agent",Save/Discard 在 footer(actual)vs 头部(proto);(5) 顶栏 "nano IM" 无 "internal" 徽标;(6) Agent 列表(左 240px)在 actual 被 Settings 侧栏顶替,丢失,proto 的"列表 + 详情" split layout 没了。 |
+| **Agents 列表(移动)** | 375x812 | `proto/agents-375.png`(纯列表 + "+ New" 右上 + 底部三 tab) | `actual/agents-list-375.png` | **偏** | actual 移动版**同样保留了 Settings 二级 tab pill**(Agents / Nodes / Account)在列表上方,proto 没有这一层;列表行内容(avatar + name + description + 状态点 + ›)近似,但顶部多了一个 sub-nav 容器和 "Agents" heading 卡。底部三 tab 文字 + 颜色对齐,但**无 emoji icon**。 |
+| **Nodes 桌面** | 1440x900 + 1440x2400 | `proto/nodes-1440.png`(顶部 4 KPI 卡 Total/Online/Offline/Total agents,每节点行 🖥 icon + 大粗体名 + status pill + alias + Live Snapshot 含 last_error 红字 + agent_count + version 大粗体 + "+ New agent on node" + Save) | `actual/nodes-1440-top.png` | **偏** | (1) **4 KPI 卡完全缺失**(spec/proto 必有);(2) 每节点行**无 🖥 计算机图标**,只有纯文字标题;(3) 状态 pill 在右上角,proto 是紧贴 node 名;(4) 行字段:actual 暴露 `Relay Enabled` + `Reporting Enabled` 两个独立 checkbox 标签,proto **不暴露**这两个 toggle 为视觉文本,在 prototype JSX 里它们是隐藏属性或编辑表单内的开关;(5) 子标题用 "live name: feat340-r11-node",proto 显示 alias(mono);(6) `Version: -` 在 Live Snapshot 内,proto 单独 `v0.9.4` 大字号右上;(7) Settings 二级侧栏依旧存在(proto 无);(8) Side-F11 沿用:旧 seed 节点 m224-fuck-node / m134-browser-node 仍展示给 r11alex(owner_id="" 跨用户泄漏,与 §多用户严格隔离冲突,但是 R9 已记 Side-F,本轮不重复立 issue)。 |
+| **Nodes 移动** | 375x812 | `proto/nodes-375.png` | `actual/nodes-375-top.png` | **偏** | 同桌面问题缩窄重现;移动顶部依旧是 Settings 二级 tab pill(proto 无)。proto 的 KPI 卡在移动也保留,actual 完全缺失。 |
+| **Account 桌面** | 1440x900 | `proto/account-1440.png`(窄居中 max-w≈720px,2 卡:Profile [avatar + User ID + Display Name + 副文案] + Gateway [Default Entry Node 下拉 + 3 节点状态 list + Default 徽标 + Member since / Owned nodes 小卡],footer "Save account" 右下) | `actual/account-1440.png` | **偏** | (1) **3 卡而不是 2 卡**:Identity / Defaults / Preferences(新增),Preferences 含 Language radio + Enable desktop notifications checkbox — proto 的 Language 在 UserMenu,不在 Account 页,Preferences 卡为 actual 自创;(2) 全宽 ~1140px 内容区 vs proto 窄居中;(3) **缺 avatar 圆**(proto Profile 卡顶部有大 AL 圆形 avatar);(4) Defaults 卡只有下拉,proto 还展示 owned nodes 的 status / agent count / version / Default 徽标三行卡式列表;(5) Settings 二级侧栏存在(proto 无);(6) Save / Discard 在头部右侧,proto Save 在底部右下 footer;(7) 字段名差异:`Display name` vs proto `Display Name`,`Created at: ...Z`(裸 ISO 时间戳)vs proto `Member since: 2025/11/1`(本地化日期)。 |
+| **Account 移动** | 375x812 | `proto/account-375.png`(同桌面窄居中,继承) | `actual/account-375.png` | **偏** | 同桌面问题 + 移动顶部 Settings 二级 tab pill;Defaults 卡 owned nodes 折叠为单行 "Owned nodes: feat340-r11-node" 文本,proto 是卡式列表。 |
+| **Mobile Me** | 375x812 | `proto/me-375.png`(白卡 list:大 AL avatar 顶部 + 名 + ID,然后分组 list rows:Nodes / Account / Language toggle / Sign out,每行白色卡片 + 左 icon + 右 ›,Sign out 红色) | `actual/me-375.png` | **偏(严重)** | actual `/me` 几乎**没有任何视觉样式**:纯灰色背景上裸文字 "Me / R1 / R11 Alex / 9d2afbba...",`💻Nodes›`(图标和文字粘连无 padding)、`👤Account›`、`文Language EN中`、`🔔Enable desktop notifications☐`、`↗Sign out`,无白卡背景、无 padding、无 row 分隔、无 chevron 对齐、Sign out 不是红色、Language 不是分段控件而是 `EN中` 两字相邻。这是**视觉 0 实现**,不是"差距小"。proto `im-mypage.jsx` 的 `AggregatedMePage` 用 `.rounded-2xl bg-white shadow-sm` + 每行 padding 16/20 + chevron 右对齐 + 分组 divider — actual 一项不剩。 |
+
+**综合**:0 页"精",1 页"近"(Chat 桌面),9 页(剩余 viewport)"偏";达 spec §22 "像素级"标准 = 0 页。
+
+## 问题清单(in-unit,均 Severity ≥ major 或 blocking 视觉)
+
+| ID | Severity | Recommended Action | 描述(用户视角) | Action Rationale |
+|---|---|---|---|---|
+| R11-1 | **blocking** | fix-implementation | Mobile Me 页(`/me`)几乎无视觉样式:裸文字粘连、无白卡、无 padding、无 chevron、Sign out 非红、Language 非分段控件。原型 `im-mypage.jsx` `AggregatedMePage` 是产品移动端首页之一(spec §场景 D),当前实现等于"功能能跳,视觉为 0",违反 spec §22 像素级对齐与 §83 移动布局条目。 | proto/me-375.png vs actual/me-375.png 一眼可见;非"近"档差距,是结构性 0。 |
+| R11-2 | **blocking** | fix-implementation | Agents / Nodes / Account 三页**共同携带 Settings 二级侧栏 / sub-nav pill**,prototype 5 页里完全没有这一层导航(prototype 用 UserMenu / 移动 Me 页直达三页)。这层多余的 chrome 直接破坏 spec §83 "桌面布局" + §95 Agents split layout"左 240px 列表 + 右详情" — 列表被 Settings 侧栏顶替了。 | 影响 3 页桌面 + 3 页移动 = 6 视觉证据。这是结构性偏差,不是 polish。 |
+| R11-3 | major | fix-implementation | Agents 详情 Skills / Tool Allowlist 是 60+ checkbox grid + tooltip,proto 是 compact selected pills + picker。spec §102 写明"skills 多选 + tool_allowlist 多选" — 多选语义没错,但视觉范式与原型 `im-settings-page.jsx` AgentDetailPanel 的 PillSelector(`bg-accent/15 text-accent rounded-full px-2 py-0.5 text-xs`)完全不同。 | proto/agents-detail-1440-full.png 显示 5/7 颗 selected pills;actual 显示满屏 checkbox + tooltip。同一字段两种 UX。 |
+| R11-4 | major | fix-implementation | Agents 详情 Identity row1 字段:actual = Agent ID + **Owner(裸 UUID)**,proto = Agent ID + Display Name(Display Name 在 row1)。Owner UUID 对用户毫无意义,与 spec §102 列出的字段表 `agent_id/owner_id 只读` 冲突 — proto 把 owner_id 隐藏或并入头部,没有作为 row1 主字段。 | spec §102 + proto agents-detail 截图反证。 |
+| R11-5 | major | fix-implementation | Nodes 桌面 / 移动**缺 4 张顶部 KPI 卡**(Total nodes / Online / Offline / Total agents)。这是 prototype Nodes 页第一屏的视觉锚点(`im-extra-pages.jsx` NodeStatRow 上方的 4 个 stat card),actual 没有。spec §83 "Nodes 页与原型一致"。 | proto/nodes-1440.png 顶部 4 KPI 卡 vs actual/nodes-1440-top.png 无,直接缺。 |
+| R11-6 | major | fix-implementation | Account 桌面 / 移动**多了 Preferences 卡 + 缺 avatar 圆 + 全宽布局**,proto 是 2 卡窄居中。Language 在 proto 是 UserMenu 项,actual 移到 Account 页 Preferences 卡。Desktop notification toggle 视觉风格与原型整体不一致(spec §138 "通知视觉风格与原型整体一致")。 | proto/account-1440.png(窄 720px 2 卡)vs actual/account-1440.png(全宽 3 卡)。 |
+| R11-7 | major | fix-implementation | Chat 桌面消息**无 timestamp**(proto 每条 "18:38");Agent avatar 用 hash 颜色,proto 是统一青色;Token chip 在头部右侧 "2223 tok",proto 在气泡下方 "312 tok · ctx 7%" 且需要 70%/90% 预警染色 — actual 看不到预警阈值(spec §94 "≥70% 黄色预警,≥90% 红色预警")。 | spec §94 + proto/chat-1440.png 第二条气泡下方 token chip 截图。 |
+| R11-8 | major | fix-implementation | Mobile Chat(`/chat` on 375x812)**没有移动专用的 chat-thread 视图**;进直聊后仍展示窄了的 sidebar+filter+空状态,proto 是顶部紧凑 chat header(返回 / avatar / 名 / Node Chip / ⚙)+ 全屏消息流。spec §83 "移动布局"。 | proto/chat-375.png 顶部紧凑 header vs actual/chat-375.png 退化 sidebar。 |
+| R11-9 | minor | fix-implementation | 顶栏 "nano IM" 旁缺 "internal" 徽标(proto 有 `bg-bg-soft text-[10px]` 小灰底标签);UserMenu 缺 ▾ chevron;移动底部 tab 缺 💬🤖👤 emoji icon 与 Chat tab unread 数字徽标。 | 视觉细节,逐项可见 proto/chat-1440.png 顶栏 + proto/me-375.png 底部 tab。 |
+| R11-10 | minor | fix-implementation | 会话列表 list item 多了 "Agent" kind badge(proto 没有),avatar 缺 online/offline 圆点(proto 有)。 | proto vs actual chat-1440 sidebar 行对照。 |
+
+## 验收标准覆盖
+
+| spec.md 条目 | 期望来源 | 实际证据 | 结果 |
+|---|---|---|---|
+| §83 桌面布局:48px 暗色顶栏 + 左 262px 会话栏 + 右消息面板 | proto/chat-1440.png | actual/chat-1440-with-message.png | **fail**(顶栏缺 internal 徽标 + UserMenu ▾;会话栏 ok) |
+| §83 桌面 Agents 页 左 240px agent 列表 + 右详情 | proto/agents-detail-1440-full.png(左 240px agent list:Assistant/Planner/Reviewer) | actual/agents-detail-1440-top.png(左 240px 是 Settings 侧栏,不是 agent list) | **fail** |
+| §84 移动布局:退顶栏为状态栏 spacer + 底部三 tab + Me 页聚合 | proto/me-375.png | actual/me-375.png | **fail**(Me 页无视觉样式) |
+| §85 配色 + 字体(青 accent / 暗顶栏 / IBM Plex Sans/Mono) | proto 全部截图 | actual 顶栏 + 字体大体一致 | **inconclusive→近**(字体未做 diff,主色一致但应用范围有限) |
+| §86 用户气泡 16/16/4/16 accent 右,Agent 气泡 16/16/16/4 左 | proto/chat-1440.png | actual/chat-1440-with-message.png | **pass(近)**(气泡形状与对齐方向 ok;缺 markdown 富文本 / timestamp) |
+| §90 会话列表 All/Agent/Group/Network 实时过滤 | proto/chat-1440.png 左侧 | actual/chat-1440-with-message.png 左侧 | **pass**(4 tab 存在,选中态 ok) |
+| §91 会话列表搜索框实时过滤 | proto sidebar 搜索框 | actual sidebar 搜索框 | **pass**(R7 已验,本轮未重测过滤逻辑) |
+| §92 4 种会话类型 kind badge | proto chat 截图 + im-data.js | actual 仅看到 direct-agent 一种(`Agent` badge 多余) | **inconclusive**(只测 1 种) |
+| §93 Tool Calls 面板 状态点 + duration + 折叠 input/output | proto chat 截图("4 tool calls · 1.9s" 折叠) | 本轮未触发 tool call(简单聊天),无 actual | **inconclusive** |
+| §94 Token Chip 含 70%/90% 预警进度条 | proto/chat-1440.png 气泡下 312 tok · ctx 7% | actual 头部 "2223 tok" 无进度条无阈值 | **fail** |
+| §95 群聊 `@` mention picker 200ms / ↑↓ / Enter / Esc | proto im-chat-page.jsx + R7 验过 | 本轮未测群聊(单 agent 用户) | **inconclusive**(继承 R7-R10 验证) |
+| §96 新建群聊模态 真存盘 | R7 验过 | 本轮未测 | **inconclusive** |
+| §97 会话头部 头像/标题/参与者/Node chip/Kind badge/⚙ | proto chat 头部 | actual chat 头部("R11Gamma / R11 Alex · R11Gamma / feat340-r11-node / Agent / Config") | **pass(近)** |
+| §101 Agents 列表 `+`/头像/display_name/agent_id/status 点 | proto/agents-detail 左 240px | actual/agents-list-1440.png(+ New / 头像 / display_name / agent_id / status 点) | **pass(近)**(R9 修过 status 点) |
+| §102 Agents 详情四组卡片字段 | proto/agents-detail-1440-full.png | actual/agents-detail-1440-top+bottom.png | **fail**(Owner 裸 UUID / Skills grid / Settings 侧栏 / Save 位置) |
+| §103 dirty 检测 + Save accent / Discard 回滚 / 真存盘 | R10 验过 | actual footer "No changes / Discard / Save"(灰→绿)R10 已通 | **pass**(沿用 R10) |
+| §104 顶部 Open chat ↗ 跳直聊 | R9/R10 验过 | actual:点 Open chat ↗ → `/chat/ac8c81...` | **pass**(R10 已通) |
+| §105 新建 Agent UserMenu + Nodes 双入口 | proto UserMenu(实际只有 Account/Nodes,无 New agent;Nodes 入口"+ Create agent on node" 有) | actual Agents 页 `+ New` → `/settings/nodes`(强制走 Nodes);Nodes 卡 "Create agent on node" 有 | **inconclusive**(UserMenu 没有 New agent 入口符合 proto,但 spec §105 表述"UserMenu 入口" 与 proto 不符,这是 spec/proto 自身张力,本轮按 proto 判) |
+| §108 Nodes 列表 node_name + alias + status + agent_count + version + last_heartbeat + last_error | proto/nodes-1440.png(全 + 4 KPI) | actual/nodes-1440-top.png(全部字段在,**但 4 KPI 缺**) | **fail**(KPI 缺 + 🖥 icon 缺 + version 位置错) |
+| §110 relay/reporting toggle 实时存盘 | R10 验过 | actual checkbox 存在(R10 已通) | **pass(近)**(视觉差:proto 不暴露文本标签) |
+| §111 从节点视角新建 agent | R10 验过 | actual "Create agent on node feat340-r11-node" 按钮 | **pass** |
+| §115 Account 字段 display_name / user_id / default_entry_node_id / owned_node_ids / created_at | proto/account-1440.png | actual/account-1440.png(全部在) | **pass(近)**(字段全,布局偏) |
+| §116 可改字段走表单 Save 真存盘 | R9 验过 | actual 头部 Discard/Save | **pass(近)** |
+| §118-125 实时与状态(SSE / pulse / heartbeat / 空错状态 / toast) | R6-R10 验过 | actual streaming + R11Gamma 回复 12s 内到 | **pass(近)** |
+| §128 i18n EN/中 | proto UserMenu Language toggle + Account Preferences | actual Account Preferences "English / 中文" radio + UserMenu 无切换 | **pass(near)**(语义在,位置/视觉与 proto 不同) |
+| §132-135 附件 | R8 验过 | 本轮未测 | **inconclusive** |
+| §139-142 桌面通知 | R8 验过(Account 有 toggle) | actual Account "Enable desktop notifications" checkbox 存在 | **pass(near)**(视觉风格与 proto 不一致 — proto 无此 toggle) |
+| §146-150 多用户 | R6-R10 验过 + Side-F11 沿用 | r11alex 注册成功 + 自有 agent 隔离 ok,但 nodes leak (m224-fuck-node / m134-browser-node owner=""持续暴露) | **pass-with-side-leak**(沿用 R9 Side-F11) |
+| §154 全栈接通(真存盘 / 真状态 / 真流式) | R9/R10 验过 | actual 发消息 → R11Gamma 12s 内回复"Hello! How can I help you today?" | **pass** |
+| §22 像素级对齐范围(布局/配色/字体/间距/组件细节) | 所有 proto 截图 vs actual | 5 页全偏(0 精 / 1 近 / 9 viewport 偏) | **fail**(本轮核心 fail 项) |
+
+**覆盖表汇总**:pass 12 / pass-near 4 / fail 8 / inconclusive 5(其中 §93 §95 §96 §132-135 因聊天场景太简单未触发,继承 R7-R10;§85 字体 diff 未做)。
+
+## 上层文档同步
+
+- [x] `SPEC.md`(架构总览):无需更新
+- [x] `docs/内核设计SPEC.md`:无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`:沿用 R1-R10 既定标记
+- [x] `docs/IM-SPEC.md`:沿用 R10(M18 R4 加 §7.5 agent users 行契约,无需新增)
+- [x] `docs/changes/feat-340-agent-native-im/design.md`:无需变更(设计与 prototype 对齐;问题在实现侧,不在 design)
+
+## Side Findings
+
+- Side-F R11-A(in-unit minor):UserMenu 现有项只有 Account / Nodes / Language / Sign out,**没有 "New agent" 入口**;但 spec.md §105 写"新建 Agent:UserMenu 入口 + Nodes 节点条目入口两条路径";prototype `im-mypage.jsx` UserMenu 实际**也没有** New agent 入口(我读了 snapshot)。这是 **spec 文本 vs proto 自身**的张力,不算 fix-implementation 任务,留 PR description note,**不立 issue**。
+- Side-F11 沿用(out-of-unit minor):`/im/v1/nodes` 仍 leak m134-browser-node / m224-fuck-node 两个 owner_id="" 旧 seed 节点给所有用户(r11alex 全新账户也看得到)。R9 已记,**不立 issue**(legacy DB 数据,非本 unit 引入)。
+- Side-F R11-B(in-unit minor):actual `/me` 视觉 0 实现,正好覆盖在 R11-1 blocking 里,不重复立 Side。
+- Side-F R11-C(in-unit minor):agent avatar 颜色由 `agent_id` hash 出,产生"棕/橙"等不在原型色板内的颜色 — proto 用统一青色或角色专属色板(AS 青 / SP 蓝 / PL 蓝 / RV 红)。归入 R11-7 一并修。
+
+## Recommended Action 路由建议
+
+5 页全面 fail,核心问题集中在**布局结构**(R11-1 Mobile Me / R11-2 Settings 侧栏 / R11-5 Nodes KPI 卡 / R11-6 Account 卡数 / R11-8 Mobile Chat 视图)和**组件视觉**(R11-3 Skills grid / R11-4 Owner 字段 / R11-7 Token chip + timestamp / R11-9 顶栏 / R11-10 列表行)。
+
+**verdict = fail + highest_required_action = fix-implementation**
+
+orchestrator **不应**提 PR `unit/feat-340-agent-native-im` → `main`;应:
+1. 打包 R11-1 ~ R11-10 为 **M19-fix-visual-alignment** milestone,goal = "5 页按 prototype JSX(`im-{chat,settings,mypage,extra,components}-page.jsx`)+ `IM Prototype.html` 重做视觉,达 spec §22 像素级 / 精;Mobile Me 页从 0 重写;移除 Settings 二级侧栏改回 UserMenu / Me 直达;Agents 详情 Skills/Tool Allowlist 改 PillSelector;Nodes 加 4 KPI 卡 + 🖥 icon;Account 改 2 卡窄居中 + avatar 圆;Chat 加 timestamp + token chip 进气泡 + 预警阈值"。
+2. **不要给 revise-design**:design.md 各 §1-§11 决策与 prototype 对齐;问题全在实现侧偏离 prototype JSX,不是 design 的设计错。三道闸闸 3(design 引用)不成立。
+3. R12 reviewer 接力**只重判 R11 列出的 fail 视觉项 + spec §22 像素级**,不必重跑功能旅程(R10 已闭合)。
+4. **同 issue 指纹累计**:R7 → R11 已是第 5 轮视觉对齐回合(R7 提出 5 页偏 / R8-R10 未真正修,R11 重立基线);若 M19 修后 R12 仍 fail,本 unit 触发 §§ 7 轮硬上限 escalate 给人。
+
+## Verdict
+
+**fail**
+
+## Highest Required Action
+
+**fix-implementation**(派 M19-fix-visual-alignment milestone,worker 重写 5 页视觉)
+
+## Issues Count
+
+- blocking: 2(R11-1 / R11-2)
+- major: 6(R11-3 ~ R11-8)
+- minor: 2(R11-9 / R11-10)
+- Side Findings: 4(R11-A / Side-F11 沿用 / R11-B 已合并 / R11-C 已合并)
+- `gh issue create`: 0(所有 in-unit,无 out-of-unit 阻塞)
+
+## §行动账本
+
+| 桶 | 内容 |
+|---|---|
+| READ | SKILL.md(change-reviewer §0/§2.5/§3/§4/§5); design.md §Runbook for Reviewer; acceptance.md R10 段 + Orchestrator Note(post-R10); spec.md(§用户场景 + §验收标准 + §22 像素级对齐); proto JSX 通过 `IM Prototype.html` 渲染对照(未读 JSX 源码) |
+| START_SERVICE | Agent Kernel PID=40646 :8000(HEAD 357789b1,代码 = 006d2834 因 357789b1 只改 acceptance.md, 17:42 启动); IM Service PID=40674 :8011(同 HEAD, 17:42 启动); PA Gateway PID=40833(feat340-r11-node, owner=r11alex 9d2afbba…, 17:44 启动 + bind confirm); Prototype HTTP server PID=41338 :9090(`docs/changes/feat-340-agent-native-im/attachments/prototype/project/`, 17:46 启动) |
+| BROWSE | r11app session: /login → fill r11alex/r11alexpw → /chat(empty) → /settings/agents(列表) → /settings/agents/R11Gamma → 1440x900 + 1440x2400 双截图 → /settings/nodes(列表)→ /settings/account → 切 375x812 → /chat 移动 → /settings/agents 移动 → /me → /settings/nodes 移动 → /settings/account 移动 → 切回 1440x900 + /settings/agents/R11Gamma → click "Open chat ↗" → /chat/ac8c81... → fill+Enter "Hello R11" + wait 12s 拍带消息截图。r11proto session: http://127.0.0.1:9090/IM%20Prototype.html → 1440x900 chat → 1440x900 Agents → 1440x2400 Agents detail full → 1440x900 UserMenu open → 1440x2400 Nodes → 1440x2400 Account → 375x812 移动 Me → Chat → Agents → 切回 Me → Nodes 375x2400 → Account 375x2400(共约 30 次浏览器操作,跨 2 session) |
+| CAPTURE | 25 张截图:`acceptance-r11-evidence/proto/` 11 张(chat/agents/agents-detail-full/usermenu/nodes/account 各 1440;chat/agents/me/nodes/account 各 375)+ `acceptance-r11-evidence/actual/` 14 张(chat-1440 empty/chat-1440-direct-empty/chat-1440-with-message; agents-list-1440/agents-detail-1440-full/top/bottom; nodes-1440-top; account-1440; chat-375/agents-list-375/me-375/nodes-375-top/account-375)。无 JSON dump(本轮无需)。 |
+| SHELL_MUTATION | pkill uvicorn / personal_assistant.main 清旧进程; lsof:8000:8011 xargs kill -9; 写 /tmp/feat340-r11-gw-config.yaml + /tmp/feat340-r11-alex-token; mkdir /tmp/feat340-r11-workspace/R11Gamma; POST /im/v1/auth/register r11alex; POST /im/v1/auth/login(拿 access_token);POST /im/v1/bind {action:confirm, bind_token}(确认节点绑定); cd attachments/prototype/project + python3 -m http.server 9090; mkdir docs/changes/feat-340-agent-native-im/acceptance-r11-evidence/{proto,actual}/。**无任何源码修改 / 无 commit / 无 push**(零写入约束遵守,本份 acceptance.md commit 在最后)。 |
+| SENDMESSAGE | 本轮 2 次 sub-progress sync 回 orchestrator(写报告前) |
+
+**§0 零写入合规声明**:本轮未 Write/Edit `src/**` `tests/**` 任何文件;未读取任何源码(prototype JSX 通过浏览器渲染对照,不读源);唯一 commit 是本份 acceptance.md(orchestrator 派发授权)。
+
+## §环境声明
+
+| 服务 | PID | 端口 | 启动时 commit | 启动时间(本地) |
+|---|---|---|---|---|
+| Agent Kernel | 40646 | :8000 | 357789b1(= 006d2834 二进制)| 2026-05-12 17:42 |
+| IM Service | 40674 | :8011 | 357789b1 | 2026-05-12 17:42 |
+| PA Gateway | 40833 | — | 357789b1 | 2026-05-12 17:44(feat340-r11-node,owner=r11alex 9d2afbba…)|
+| Prototype HTTP | 41338 | :9090 | n/a(静态 JSX/HTML) | 2026-05-12 17:46 |
+| LLM_PROXY | 外部,未动 | :4000 | — | — |
+
+**前置检查清单**:
+- ✅ LLM_PROXY :4000 健康(`{"ok":true}`)
+- ✅ `git rev-parse HEAD = 357789b1`(unit/feat-340-agent-native-im,acceptance.md 文本改动,二进制 = 006d2834);worktree 报告新建/未跟踪文件均与 R11 evidence 相关
+- ✅ pkill uvicorn / personal_assistant.main 一次性清旧 R10 进程
+- ✅ `dist/index.html` mtime = 2026-05-12 16:41(R10 M18 worker rebuild,bundle 含 `open-chat-error` + `append_optimistic`)— R10..R11 无前端代码改动,bundle 沿用合规
+- ✅ kernel → IM → Gateway 启停顺序遵循 design.md §Runbook 表
+- ✅ Prototype HTTP server 与 actual app 同时跑,2 个浏览器 session(`r11app` http://127.0.0.1:8011 + `r11proto` http://127.0.0.1:9090/IM%20Prototype.html)隔离独立
+
+**临时文件(遗留 /tmp/)**:`feat340-r11-gw-config.yaml`, `feat340-r11-alex-token`, `feat340-r11-kernel.log`, `feat340-r11-im.log`, `feat340-r11-gw-stdout.log`, `feat340-r11-proto.log`, `feat340-r11-workspace/R11Gamma/`(空)。
+
+**IM DB 新增(本轮)**:用户 r11alex(id=9d2afbba4c274f65a92da8e255e10a4d);节点 feat340-r11-node(owner=r11alex,bind_id=f85701c3…);agent R11Gamma(owner=r11alex,user_id=4465548806304a7e93f209a2022d0397);直聊对话 ac8c81327e9a4f8d8f8b40d241844e7d(R11 Alex × R11Gamma);消息 2 条(user "Hello R11" + agent "Hello! How can I help you today?")。
+
