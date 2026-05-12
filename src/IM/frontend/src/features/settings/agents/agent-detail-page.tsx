@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
-import { createDirectConversation } from "../../chat/chat-api";
+import { createDirectChatByAgentUserId, listAgents } from "../../chat/chat-api";
 import { AllowlistSelector } from "./allowlist-selector";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { AgentConfig, getAgentDetailState, updateAgentConfig } from "./im-agent-config-api";
@@ -75,6 +75,20 @@ export function AgentDetailPage() {
     staleTime: 30_000
   });
 
+  // feat-340-M18 R9-2: fetch the agent summary list to obtain ``user_id``.
+  // ``getAgentDetailState`` only returns the AgentConfig shape (no user_id), so we
+  // pair it with the list endpoint. Using a separate query keeps cache invalidation
+  // simple and lets the Open chat button re-attempt after a transient miss.
+  const agentsSummaryQuery = useQuery({
+    queryKey: ["settings", "agents", "summary"],
+    queryFn: () => listAgents(),
+    staleTime: 30_000
+  });
+  const currentAgentSummary = useMemo(
+    () => agentsSummaryQuery.data?.find((item) => item.agent_id === agentId) ?? null,
+    [agentsSummaryQuery.data, agentId]
+  );
+
   useEffect(() => {
     if (detailQuery.data?.config) {
       setDraft(detailQuery.data.config);
@@ -143,7 +157,22 @@ export function AgentDetailPage() {
   });
 
   const openDirectChatMutation = useMutation({
-    mutationFn: () => createDirectConversation({ agentId }),
+    mutationFn: async () => {
+      // feat-340-M18 R9-2: drive the create directly off agent.user_id (returned
+      // by /im/v1/agents since R9-1). Bypassing the legacy bootstrap path
+      // sidesteps the /im/v1/users 404 that previously made this button
+      // appear broken in fresh sessions.
+      if (!currentAgentSummary || !currentAgentSummary.user_id) {
+        throw new Error(
+          "This agent has no associated IM user yet. Try refreshing the page in a moment."
+        );
+      }
+      return createDirectChatByAgentUserId({
+        agentId,
+        agentUserId: currentAgentSummary.user_id,
+        agentDisplayName: currentAgentSummary.display_name || draft?.display_name || agentId
+      });
+    },
     onSuccess: async ({ conversation_id }) => {
       setErrorMessage(null);
       // Invalidate both legacy and v2 conversation caches so whichever chat
@@ -157,6 +186,9 @@ export function AgentDetailPage() {
       navigate(`/chat/${conversation_id}`);
     },
     onError: (error) => {
+      // R9-2: surface the failure prominently instead of swallowing it. Older
+      // builds left the user staring at an unresponsive button after a 404 on
+      // /im/v1/users; that "broken-feeling" silence is now an explicit banner.
       setErrorMessage(
         error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Open direct chat failed"
       );
@@ -268,6 +300,16 @@ export function AgentDetailPage() {
             {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
           </button>
         </div>
+        {openDirectChatMutation.isError && errorMessage ? (
+          <p
+            data-testid="open-chat-error"
+            role="alert"
+            className="im-agent-footer-status error"
+            aria-live="polite"
+          >
+            {errorMessage}
+          </p>
+        ) : null}
       </header>
 
       <div className="im-agent-panel-body">
