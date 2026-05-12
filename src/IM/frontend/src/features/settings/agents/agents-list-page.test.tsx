@@ -135,6 +135,23 @@ describe("agents list page (M5 rewrite)", () => {
     expect(screen.getByRole("link", { name: /\+ New/i })).toHaveAttribute("href", "/settings/nodes");
   });
 
+  // M19/R10-AgentsList: prototype `im-mypage.jsx` / `im-settings-page.jsx` 中所有
+  // 行式导航项尾部都带一个浅灰 "›" chevron 表示"可点开二级页",AgentsList 在 mobile
+  // 当作 navigation list 必须保持同一视觉契约。
+  it("R10-AgentsList: each mobile row carries a trailing '›' chevron", async () => {
+    mockAgentsAndNodes();
+    await setViewport(375);
+
+    renderRouter({
+      routes: appRoutes,
+      initialEntries: ["/settings/agents"]
+    });
+
+    await screen.findByText("Core Planner");
+    expect(screen.getByTestId("agent-row-chevron-agent-core-1").textContent).toMatch(/›/);
+    expect(screen.getByTestId("agent-row-chevron-agent-writer-1").textContent).toMatch(/›/);
+  });
+
   it("renders empty state with CTA to nodes when no agents", async () => {
     mockAgentsAndNodes([], []);
 

@@ -214,6 +214,7 @@ export function ChatWorkspacePageV2() {
             nodeStatus={headerAgentContext.nodeStatus}
             onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
             onBack={isMobile ? () => navigate("/chat") : undefined}
+            isMobile={isMobile}
             onOpenConfig={
               headerAgentContext.agentId
                 ? () => navigate(`/settings/agents/${headerAgentContext.agentId}`)

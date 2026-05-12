@@ -93,7 +93,7 @@ afterEach(() => {
 });
 
 describe("AccountPage rewrite", () => {
-  it("renders Identity / Defaults / Preferences cards with i18n EN copy", async () => {
+  it("renders Identity / Defaults cards with i18n EN copy (Preferences removed in M19/R11-6)", async () => {
     let mePayload = meBody();
     fetchMock.mockImplementation(async (input) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -105,14 +105,13 @@ describe("AccountPage rewrite", () => {
     renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
 
     expect(await screen.findByRole("heading", { name: /account/i, level: 2 })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /identity/i, level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /defaults/i, level: 3 })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /preferences/i, level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /identity|profile/i, level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /defaults|gateway/i, level: 3 })).toBeInTheDocument();
     expect(screen.getByLabelText(/display name/i)).toHaveValue("Alex Chen");
     void mePayload;
   });
 
-  it("saves display_name + default_entry_node_id + locale + notifications through PATCH /im/v1/me with Bearer auth", async () => {
+  it("saves display_name + default_entry_node_id through PATCH /im/v1/me with Bearer auth", async () => {
     const user = userEvent.setup();
     type StoredBody = Omit<ReturnType<typeof meBody>, "default_entry_node_id"> & { default_entry_node_id: string | null };
     let stored: StoredBody = meBody();
@@ -138,8 +137,6 @@ describe("AccountPage rewrite", () => {
     await user.clear(displayNameInput);
     await user.type(displayNameInput, "Alex Ops");
     await user.selectOptions(screen.getByLabelText(/default entry node/i), "node-app-02");
-    await user.click(screen.getByLabelText(/中文/));
-    await user.click(screen.getByLabelText(/enable desktop notifications/i));
 
     const saveBtn = screen.getByRole("button", { name: /save/i });
     expect(saveBtn).not.toBeDisabled();
@@ -154,15 +151,10 @@ describe("AccountPage rewrite", () => {
       expect(body).toEqual({
         display_name: "Alex Ops",
         default_entry_node_id: "node-app-02",
-        locale: "zh"
+        locale: "en"
       });
     });
 
-    await waitFor(() => {
-      expect(localStorage.getItem(I18N_STORAGE_KEY)).toBe("zh");
-    });
-    expect(localStorage.getItem(NOTIFICATION_PREFERENCE_STORAGE_KEY)).toBe("1");
-    expect(useAuthStore.getState().user?.locale).toBe("zh");
     expect(useAuthStore.getState().user?.display_name).toBe("Alex Ops");
 
     for (const call of fetchMock.mock.calls) {
@@ -190,6 +182,114 @@ describe("AccountPage rewrite", () => {
     await user.click(screen.getByRole("button", { name: /discard/i }));
     expect(await screen.findByDisplayValue("Alex Chen")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /save/i })).toBeDisabled();
+  });
+
+  // M19/R11-6: prototype `im-extra-pages.jsx::AccountPage` 是 2 张卡 (Profile +
+  // Gateway) 窄居中 (maxWidth 620px, 24/28 padding),Profile 头部有 54×54 圆 avatar +
+  // mono user_id。Preferences 卡 (Language radio + Notifications checkbox) 不在
+  // prototype — Language 走 UserMenu / Me 页, Notifications 走 Me 页 toggle。
+  it("R11-6: form is constrained to a narrow centered column (max-w ~620px)", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/me") return jsonResponse(meBody());
+      if (url === "/im/v1/nodes") return jsonResponse(nodesBody());
+      return new Response(null, { status: 404 });
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
+
+    const form = await screen.findByRole("form", { name: "account-form" });
+    // narrow column container 应带 max-w-[620px] 或同等 class
+    expect(form.className).toMatch(/max-w-\[620px\]|max-w-\[620\]|mx-auto/);
+  });
+
+  it("R11-6: Profile card surfaces a 54px round avatar with initials + mono user_id", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/me") return jsonResponse(meBody());
+      if (url === "/im/v1/nodes") return jsonResponse(nodesBody());
+      return new Response(null, { status: 404 });
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
+
+    const avatar = await screen.findByTestId("account-avatar");
+    expect(avatar.className).toMatch(/rounded-full/);
+    expect(avatar.textContent).toMatch(/AL/);
+    const idEl = screen.getByTestId("account-user-id");
+    expect(idEl.className).toMatch(/font-mono|mono/);
+  });
+
+  // M19/R10-Account: prototype `im-extra-pages.jsx::AccountPage` section labels
+  // 是 "Profile" / "Gateway",owned-node 列表是 row cards 带 NodeStatusBadge +
+  // Default chip,Save 按钮在 Gateway card 底部 footer 而非页面 header。
+  it("R10-Account: section headings are Profile and Gateway (not Identity/Defaults)", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/me") return jsonResponse(meBody());
+      if (url === "/im/v1/nodes") return jsonResponse(nodesBody());
+      return new Response(null, { status: 404 });
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
+
+    expect(await screen.findByRole("heading", { name: /^profile$/i, level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^gateway$/i, level: 3 })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /^identity$/i, level: 3 })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^defaults$/i, level: 3 })).toBeNull();
+  });
+
+  it("R10-Account: each owned node is rendered as a row card with status badge and Default chip", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/me") return jsonResponse(meBody());
+      if (url === "/im/v1/nodes") return jsonResponse(nodesBody());
+      return new Response(null, { status: 404 });
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
+
+    const row1 = await screen.findByTestId("account-owned-node-node-app-01");
+    const row2 = screen.getByTestId("account-owned-node-node-app-02");
+    expect(row1.textContent).toMatch(/MacBook/);
+    expect(row1.textContent).toMatch(/node-app-01/);
+    expect(row1.textContent).toMatch(/v1\.0\.0/);
+    expect(row1.textContent).toMatch(/online/i);
+    expect(row2.textContent).toMatch(/Mini/);
+    expect(screen.getByTestId("account-owned-node-default-chip-node-app-01")).toBeInTheDocument();
+    expect(screen.queryByTestId("account-owned-node-default-chip-node-app-02")).toBeNull();
+  });
+
+  it("R10-Account: Save button lives in Gateway card footer, not the page header", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/me") return jsonResponse(meBody());
+      if (url === "/im/v1/nodes") return jsonResponse(nodesBody());
+      return new Response(null, { status: 404 });
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
+
+    const footer = await screen.findByTestId("account-save-footer");
+    expect(footer).toBeInTheDocument();
+    const saveBtn = screen.getByRole("button", { name: /^save account$/i });
+    expect(footer.contains(saveBtn)).toBe(true);
+  });
+
+  it("R11-6: Preferences card is gone (Language and Notifications live in Me / UserMenu)", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/me") return jsonResponse(meBody());
+      if (url === "/im/v1/nodes") return jsonResponse(nodesBody());
+      return new Response(null, { status: 404 });
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/account"] });
+
+    await screen.findByLabelText(/display name/i);
+    expect(screen.queryByRole("heading", { name: /preferences/i, level: 3 })).toBeNull();
+    expect(screen.queryByLabelText(/enable desktop notifications/i)).toBeNull();
+    expect(screen.queryByLabelText(/^中文$/)).toBeNull();
   });
 });
 

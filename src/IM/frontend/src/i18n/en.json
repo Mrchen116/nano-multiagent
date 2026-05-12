@@ -79,6 +79,7 @@
     },
     "nodes": {
       "title": "Nodes",
+      "subtitle": "Gateway nodes connected to this workspace.",
       "loading": "Loading nodes…",
       "empty": "No nodes connected yet.",
       "aliasLabel": "Alias {{nodeId}}",
@@ -95,6 +96,12 @@
       "agentsOnNodeEmpty": "No agents on this node yet.",
       "liveName": "live name: {{name}}",
       "agentsCount": "agents: {{count}}",
+      "agentsShort": "agents",
+      "versionShort": "version",
+      "kpiTotal": "Total nodes",
+      "kpiOnline": "Online",
+      "kpiOffline": "Offline",
+      "kpiAgents": "Total agents",
       "statusOnline": "online",
       "statusOffline": "offline",
       "statusDegraded": "degraded"
@@ -102,21 +109,23 @@
     "account": {
       "title": "Account",
       "identity": {
-        "heading": "Identity",
-        "subtitle": "Your account identity inside nano IM.",
+        "heading": "Profile",
+        "subtitle": "Your identity inside the workspace.",
         "displayName": "Display name",
         "username": "Username",
         "userId": "User ID",
-        "createdAt": "Created at"
+        "createdAt": "Member since"
       },
       "defaults": {
-        "heading": "Defaults",
-        "subtitle": "Where new chats and agents land by default.",
+        "heading": "Gateway",
+        "subtitle": "Controls which node routes your messages by default.",
         "defaultEntryNode": "Default entry node",
-        "defaultEntryNodeHint": "Pick one node you own.",
-        "selectNode": "Select one node",
+        "defaultEntryNodeHint": "Choose from your owned nodes.",
+        "selectNode": "— Select a node —",
         "ownedNodes": "Owned nodes",
-        "ownedNodesEmpty": "No nodes bound yet."
+        "ownedNodesEmpty": "No nodes bound yet.",
+        "defaultChip": "Default",
+        "agentsShort": "agents"
       },
       "preferences": {
         "heading": "Preferences",
@@ -127,6 +136,7 @@
       },
       "actions": {
         "save": "Save",
+        "saveAccount": "Save account",
         "saving": "Saving…",
         "discard": "Discard",
         "savedJustNow": "Saved.",

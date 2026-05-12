@@ -253,4 +253,216 @@ describe("MessagePane", () => {
     await user.click(await screen.findByRole("button", { name: /Planner/ }));
     expect(composer.value).toBe("ping @Planner ");
   });
+
+  // M19/R11-8: prototype `im-chat-page.jsx::MessagePaneView` 移动模式头部紧凑 —
+  // 隐藏 participants / KindBadge / 顶部 TokenChip,Config 退化为 ⚙ icon-only 方块。
+  // 桌面模式 (>= 768px) 全部保留 (不回归 R7-5 Node chip + ⚙ 桌面布局)。
+  describe("R11-8: mobile compact header", () => {
+    it("hides participants line on mobile", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          onBack={() => {}}
+          isMobile
+        />
+      );
+      expect(screen.queryByText("Planner", { selector: ".chat-pane-participants" })).not.toBeInTheDocument();
+    });
+
+    it("hides KindBadge on mobile but keeps NodeChip", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          onBack={() => {}}
+          isMobile
+          nodeName="laptop-prod"
+          nodeStatus="online"
+        />
+      );
+      expect(document.querySelector(".chat-kind-badge")).toBeNull();
+      expect(screen.getByText("laptop-prod")).toBeInTheDocument();
+    });
+
+    it("hides the header TokenChip on mobile (token chip lives under each bubble per R6)", () => {
+      const msg: Message = {
+        ...SAMPLE_MESSAGES[1],
+        token_usage: { output: 100, context_used: 5000, context_window: 20000 }
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[msg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          onBack={() => {}}
+          isMobile
+        />
+      );
+      const header = document.querySelector(".chat-pane-header");
+      expect(header).not.toBeNull();
+      expect(header!.querySelector(".chat-token-chip")).toBeNull();
+    });
+
+    it("renders compact icon-only Config button on mobile (no Config text)", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          onBack={() => {}}
+          onOpenConfig={() => {}}
+          isMobile
+        />
+      );
+      const configBtn = screen.getByRole("button", { name: /config/i });
+      expect(configBtn.className).toMatch(/compact|icon|chat-pane-config-icon/);
+      expect(configBtn.textContent?.trim()).toBe("⚙");
+    });
+
+    it("keeps participants + KindBadge + text Config on desktop (isMobile=false)", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          onOpenConfig={() => {}}
+        />
+      );
+      expect(document.querySelector(".chat-pane-participants")).not.toBeNull();
+      const configBtn = screen.getByRole("button", { name: /config/i });
+      expect(configBtn.textContent).toMatch(/Config/i);
+    });
+  });
+
+  // R8.5 — R11-7 MessageBubble visual rewrite on v2 production path.
+  // Prototype source: docs/changes/feat-340-agent-native-im/attachments/prototype/project/im-components.jsx::MessageBubble
+  //   avatar 30×30 outside bubble (row-reverse for user) + timestamp + per-bubble TokenChip in status row below bubble
+  describe("R11-7 v2 MessageBubble visual", () => {
+    const TS_USER: Message = {
+      id: "mt-user",
+      conversation_id: "c1",
+      sender: { type: "user", id: "u1", display_name: "You" },
+      sender_user_id: "u1",
+      sender_type: "user",
+      content: "User bubble",
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-05-12T14:30:00Z"
+    };
+    const TS_AGENT_LOW: Message = {
+      id: "mt-agent-low",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "u1",
+      sender_type: "agent",
+      content: "Agent bubble low usage",
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-05-12T14:30:01Z",
+      token_usage: { output: 1234, context_used: 30000, context_window: 200000 }
+    };
+    const TS_AGENT_WARN: Message = {
+      ...TS_AGENT_LOW,
+      id: "mt-agent-warn",
+      token_usage: { output: 2000, context_used: 150000, context_window: 200000 }
+    };
+    const TS_AGENT_CRIT: Message = {
+      ...TS_AGENT_LOW,
+      id: "mt-agent-crit",
+      token_usage: { output: 5000, context_used: 185000, context_window: 200000 }
+    };
+
+    it("renders avatar OUTSIDE the bubble for both user + agent", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_USER, TS_AGENT_LOW]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const userAvatar = screen.getByTestId(`message-avatar-${TS_USER.id}`);
+      const userBubble = screen.getByTestId(`message-bubble-${TS_USER.id}`);
+      expect(userBubble.contains(userAvatar)).toBe(false);
+      const agentAvatar = screen.getByTestId(`message-avatar-${TS_AGENT_LOW.id}`);
+      const agentBubble = screen.getByTestId(`message-bubble-${TS_AGENT_LOW.id}`);
+      expect(agentBubble.contains(agentAvatar)).toBe(false);
+    });
+
+    it("renders a timestamp BELOW the bubble (not inside) in HH:MM format", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_USER]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const ts = screen.getByTestId(`message-timestamp-${TS_USER.id}`);
+      const bubble = screen.getByTestId(`message-bubble-${TS_USER.id}`);
+      expect(bubble.contains(ts)).toBe(false);
+      expect(ts.textContent ?? "").toMatch(/\d{1,2}:\d{2}/);
+    });
+
+    it("renders a per-bubble TokenChip when token_usage is present", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_AGENT_LOW]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_LOW.id}`);
+      expect(chip).toBeInTheDocument();
+      const bubble = screen.getByTestId(`message-bubble-${TS_AGENT_LOW.id}`);
+      expect(bubble.contains(chip)).toBe(false);
+    });
+
+    it("token chip flips to warn color at >=70% context", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_AGENT_WARN]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_WARN.id}`);
+      expect(chip.className).toMatch(/oklch\(0\.55_0\.16_60\)|oklch\(0\.55_0\.18_60\)|warn/);
+    });
+
+    it("token chip flips to critical color at >=90% context", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_AGENT_CRIT]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_CRIT.id}`);
+      expect(chip.className).toMatch(/oklch\(0\.55_0\.15_25\)|critical/);
+    });
+
+    it("does not render a per-bubble TokenChip when token_usage is absent", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_USER]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.queryByTestId(`message-token-chip-${TS_USER.id}`)).not.toBeInTheDocument();
+    });
+  });
 });

@@ -101,16 +101,20 @@ describe("app routes", () => {
   });
 
   it("renders the settings agents entry", async () => {
-    renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
+    const { container } = renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
 
     expect(await screen.findByRole("heading", { name: "Agents" })).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "Settings Sections" })).toBeInTheDocument();
+    // M19/R11-2: Settings 二级 sub-nav 已移除 — 每子页直渲。
+    expect(container.querySelector('nav[aria-label="Settings Sections"]')).toBeNull();
   });
 
   it("renders the node-scoped agent creation route", async () => {
-    renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes/node-1/agents/new"] });
+    const { container } = renderRouter({
+      routes: appRoutes,
+      initialEntries: ["/settings/nodes/node-1/agents/new"]
+    });
 
     expect(await screen.findByText(/Could not load agents\.|New agent/i)).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "Settings Sections" })).toBeInTheDocument();
+    expect(container.querySelector('nav[aria-label="Settings Sections"]')).toBeNull();
   });
 });
