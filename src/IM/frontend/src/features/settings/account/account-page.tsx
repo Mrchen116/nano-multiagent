@@ -1,9 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
-import { setLanguage, useTranslation, type Locale } from "../../../i18n";
+import { useTranslation, type Locale } from "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
-import { useNotificationPreference } from "../../notifications/notification-preference";
 import {
   AccountProfile,
   UpdateAccountInput,
@@ -12,28 +11,32 @@ import {
   updateAccount
 } from "../im-settings-api";
 
+// M19/R11-6: prototype `im-extra-pages.jsx::AccountPage` 是 2 张窄居中卡 (Profile +
+// Gateway, maxWidth 620px),Profile 头部带 54×54 圆 avatar + initials + mono user_id。
+// Preferences 卡 (Language radio + Notifications checkbox) 不在 prototype —
+// Language 入口在 Me 页 / UserMenu (R2 已落),Notifications toggle 在 Me 页 (R2 已落)。
+
 interface DraftState {
   display_name: string;
   default_entry_node_id: string | null;
-  locale: Locale;
 }
 
 function toDraft(profile: AccountProfile): DraftState {
-  const locale: Locale = profile.locale === "zh" ? "zh" : "en";
   return {
     display_name: profile.display_name,
-    default_entry_node_id: profile.default_entry_node_id,
-    locale
+    default_entry_node_id: profile.default_entry_node_id
   };
 }
 
-function isDirty(draft: DraftState, profile: AccountProfile, notificationsDirty: boolean): boolean {
+function isDirty(draft: DraftState, profile: AccountProfile): boolean {
   return (
     draft.display_name !== profile.display_name ||
-    draft.default_entry_node_id !== profile.default_entry_node_id ||
-    draft.locale !== (profile.locale === "zh" ? "zh" : "en") ||
-    notificationsDirty
+    draft.default_entry_node_id !== profile.default_entry_node_id
   );
+}
+
+function initialsOf(name: string): string {
+  return (name || "U").trim().slice(0, 2).toUpperCase();
 }
 
 export function AccountPage() {
@@ -45,8 +48,6 @@ export function AccountPage() {
 
   const profile = accountQuery.data;
   const [draft, setDraft] = useState<DraftState | null>(null);
-  const [notificationsPref, setNotificationsPref] = useNotificationPreference();
-  const [initialNotifications, setInitialNotifications] = useState<boolean | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,12 +55,6 @@ export function AccountPage() {
       setDraft(toDraft(profile));
     }
   }, [profile]);
-
-  useEffect(() => {
-    if (initialNotifications === null) {
-      setInitialNotifications(notificationsPref);
-    }
-  }, [initialNotifications, notificationsPref]);
 
   const ownedNodeOptions = useMemo(() => {
     if (!profile) return [];
@@ -69,7 +64,6 @@ export function AccountPage() {
   const mutation = useMutation({
     mutationFn: async (input: UpdateAccountInput) => updateAccount(input),
     onSuccess: async (updated) => {
-      // Sync auth-store user so display_name + locale stay consistent across the shell.
       const auth = useAuthStore.getState();
       if (auth.user) {
         auth.setSession({
@@ -78,8 +72,6 @@ export function AccountPage() {
           user: { ...auth.user, display_name: updated.display_name, locale: updated.locale }
         });
       }
-      setLanguage(updated.locale === "zh" ? "zh" : "en");
-      setInitialNotifications(notificationsPref);
       setErrorDetail(null);
       await queryClient.invalidateQueries({ queryKey: ["settings", "account"] });
     },
@@ -92,14 +84,11 @@ export function AccountPage() {
     return <p className="text-sm text-slate-500">{t("common.loading")}</p>;
   }
 
-  const notificationsDirty = initialNotifications !== null && initialNotifications !== notificationsPref;
-  const dirty = isDirty(draft, profile, notificationsDirty);
+  const dirty = isDirty(draft, profile);
+  const currentLocale: Locale = profile.locale === "zh" ? "zh" : "en";
 
   const onDiscard = () => {
     setDraft(toDraft(profile));
-    if (initialNotifications !== null && initialNotifications !== notificationsPref) {
-      setNotificationsPref(initialNotifications);
-    }
     setErrorDetail(null);
   };
 
@@ -109,25 +98,22 @@ export function AccountPage() {
     mutation.mutate({
       display_name: draft.display_name.trim(),
       default_entry_node_id: draft.default_entry_node_id,
-      locale: draft.locale
+      locale: currentLocale
     });
-    // Trigger notification permission prompt the first time the user opts in.
-    if (notificationsPref && typeof window !== "undefined" && "Notification" in window) {
-      const w = window as Window & {
-        Notification: { permission: NotificationPermission; requestPermission: () => Promise<NotificationPermission> };
-      };
-      if (w.Notification.permission === "default") {
-        void w.Notification.requestPermission();
-      }
-    }
   };
 
   return (
-    <form className="im-account-page grid gap-4" onSubmit={onSubmit} aria-label="account-form">
+    <form
+      className="im-account-page grid gap-4 mx-auto w-full max-w-[620px] p-[24px_28px]"
+      onSubmit={onSubmit}
+      aria-label="account-form"
+    >
       <header className="flex items-end justify-between gap-3">
         <div>
-          <h2 className="im-title text-xl font-bold">{t("settings.account.title")}</h2>
-          <p className="im-section-copy">{profile.username}</p>
+          <h2 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">
+            {t("settings.account.title")}
+          </h2>
+          <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{profile.username}</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -149,45 +135,71 @@ export function AccountPage() {
       </header>
 
       {errorDetail && (
-        <div role="alert" className="im-section-card text-sm" style={{ borderColor: "var(--im-danger, #c33)" }}>
+        <div
+          role="alert"
+          className="rounded-[12px] border border-[oklch(0.78_0.15_25)] bg-[oklch(0.97_0.03_25)] px-4 py-3 text-sm text-[oklch(0.45_0.14_25)]"
+        >
           {t("settings.account.actions.saveFailed", { detail: errorDetail })}
         </div>
       )}
 
-      <section className="im-section-card">
+      <section className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white p-[18px] grid gap-3">
         <header>
-          <h3 className="im-section-heading">{t("settings.account.identity.heading")}</h3>
-          <p className="im-section-copy">{t("settings.account.identity.subtitle")}</p>
+          <h3 className="m-0 text-[15px] font-extrabold text-[oklch(0.14_0.01_240)]">
+            {t("settings.account.identity.heading")}
+          </h3>
+          <p className="mt-1 text-[12.5px] text-[oklch(0.55_0.01_240)]">
+            {t("settings.account.identity.subtitle")}
+          </p>
         </header>
-        <label className="grid gap-1 text-xs font-semibold text-slate-600">
-          {t("settings.account.identity.displayName")}
-          <input
-            className="im-input"
-            value={draft.display_name}
-            onChange={(event) => setDraft({ ...draft, display_name: event.target.value })}
-            required
-            minLength={1}
-          />
-        </label>
-        <label className="grid gap-1 text-xs font-semibold text-slate-600">
-          {t("settings.account.identity.username")}
-          <input className="im-input" value={profile.username} disabled />
-        </label>
-        <label className="grid gap-1 text-xs font-semibold text-slate-600">
-          {t("settings.account.identity.userId")}
-          <input className="im-input" value={profile.user_id || profile.id} disabled />
-        </label>
-        <p className="im-section-copy">
-          {t("settings.account.identity.createdAt")}: {profile.created_at || "-"}
-        </p>
+        <div className="flex items-center gap-4 pb-1">
+          <span
+            data-testid="account-avatar"
+            className="flex w-[54px] h-[54px] shrink-0 items-center justify-center rounded-full bg-[oklch(0.52_0.14_270)] text-white text-[20px] font-extrabold"
+            aria-hidden="true"
+          >
+            {initialsOf(profile.display_name)}
+          </span>
+          <div className="min-w-0">
+            <p className="m-0 text-[16px] font-extrabold text-[oklch(0.14_0.01_240)] truncate">
+              {profile.display_name}
+            </p>
+            <p
+              data-testid="account-user-id"
+              className="m-0 mt-[3px] font-mono text-[12px] text-[oklch(0.55_0.01_240)] truncate"
+            >
+              {profile.user_id || profile.id}
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-[14px] md:grid-cols-2">
+          <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
+            {t("settings.account.identity.userId")}
+            <input className="im-input im-agent-input-mono" value={profile.user_id || profile.id} disabled />
+          </label>
+          <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
+            {t("settings.account.identity.displayName")}
+            <input
+              className="im-input"
+              value={draft.display_name}
+              onChange={(event) => setDraft({ ...draft, display_name: event.target.value })}
+              required
+              minLength={1}
+            />
+          </label>
+        </div>
       </section>
 
-      <section className="im-section-card">
+      <section className="rounded-[14px] border border-[oklch(0.87_0.006_240)] bg-white p-[18px] grid gap-3">
         <header>
-          <h3 className="im-section-heading">{t("settings.account.defaults.heading")}</h3>
-          <p className="im-section-copy">{t("settings.account.defaults.subtitle")}</p>
+          <h3 className="m-0 text-[15px] font-extrabold text-[oklch(0.14_0.01_240)]">
+            {t("settings.account.defaults.heading")}
+          </h3>
+          <p className="mt-1 text-[12.5px] text-[oklch(0.55_0.01_240)]">
+            {t("settings.account.defaults.subtitle")}
+          </p>
         </header>
-        <label className="grid gap-1 text-xs font-semibold text-slate-600">
+        <label className="grid gap-1 text-[13px] font-semibold text-[oklch(0.30_0.01_240)]">
           {t("settings.account.defaults.defaultEntryNode")}
           <select
             className="im-input"
@@ -206,57 +218,28 @@ export function AccountPage() {
               </option>
             ))}
           </select>
-          <span className="im-section-copy">{t("settings.account.defaults.defaultEntryNodeHint")}</span>
-        </label>
-        <p className="im-section-copy">
-          {t("settings.account.defaults.ownedNodes")}:{" "}
-          {profile.owned_node_ids.length > 0
-            ? profile.owned_node_ids.join(", ")
-            : t("settings.account.defaults.ownedNodesEmpty")}
-        </p>
-      </section>
-
-      <section className="im-section-card">
-        <header>
-          <h3 className="im-section-heading">{t("settings.account.preferences.heading")}</h3>
-          <p className="im-section-copy">{t("settings.account.preferences.subtitle")}</p>
-        </header>
-        <fieldset className="grid gap-1 text-xs font-semibold text-slate-600">
-          <legend>{t("settings.account.preferences.language")}</legend>
-          <label className="flex items-center gap-2">
-            <input
-              type="radio"
-              name="account-locale"
-              value="en"
-              checked={draft.locale === "en"}
-              onChange={() => setDraft({ ...draft, locale: "en" })}
-            />
-            {t("me.language.en")}
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="radio"
-              name="account-locale"
-              value="zh"
-              checked={draft.locale === "zh"}
-              onChange={() => setDraft({ ...draft, locale: "zh" })}
-            />
-            {t("me.language.zh")}
-          </label>
-        </fieldset>
-        <label className="flex items-start gap-2 text-xs font-semibold text-slate-600">
-          <input
-            type="checkbox"
-            checked={notificationsPref}
-            onChange={(event) => setNotificationsPref(event.target.checked)}
-          />
-          <span>
-            {t("settings.account.preferences.notifications")}
-            <span className="block font-normal im-section-copy">
-              {t("settings.account.preferences.notificationsHint")}
-            </span>
+          <span className="text-[12px] text-[oklch(0.55_0.01_240)]">
+            {t("settings.account.defaults.defaultEntryNodeHint")}
           </span>
         </label>
+        <div className="rounded-[8px] border border-[oklch(0.87_0.006_240)] bg-[oklch(0.96_0.005_240)] px-3 py-2 text-[12px] grid gap-1">
+          <div className="flex justify-between text-[oklch(0.55_0.01_240)]">
+            <span>{t("settings.account.defaults.ownedNodes")}</span>
+            <span className="text-[oklch(0.30_0.01_240)] font-semibold">
+              {profile.owned_node_ids.length > 0
+                ? profile.owned_node_ids.join(", ")
+                : t("settings.account.defaults.ownedNodesEmpty")}
+            </span>
+          </div>
+          {profile.created_at ? (
+            <div className="flex justify-between text-[oklch(0.55_0.01_240)]">
+              <span>{t("settings.account.identity.createdAt")}</span>
+              <span className="text-[oklch(0.30_0.01_240)] font-semibold">
+                {new Date(profile.created_at).toLocaleDateString()}
+              </span>
+            </div>
+          ) : null}
+        </div>
       </section>
     </form>
   );
