@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
+import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation, type Locale } from "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import {
@@ -41,6 +43,7 @@ function initialsOf(name: string): string {
 
 export function AccountPage() {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
 
   const accountQuery = useQuery({ queryKey: ["settings", "account"], queryFn: getAccount });
@@ -103,17 +106,33 @@ export function AccountPage() {
   };
 
   return (
-    <form
-      className="im-account-page grid gap-4 mx-auto w-full max-w-[620px] p-[24px_28px]"
-      onSubmit={onSubmit}
-      aria-label="account-form"
-    >
-      <header>
-        <h2 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">
-          {t("settings.account.title")}
-        </h2>
-        <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{profile.username}</p>
-      </header>
+    <div className="flex h-full flex-col overflow-y-auto bg-[oklch(0.95_0.005_240)]">
+      {isMobile ? (
+        <div className="sticky top-0 z-10 flex h-12 items-center gap-2 border-b border-[oklch(0.91_0.005_240)] bg-[oklch(0.97_0.004_240)] px-1">
+          <Link
+            data-testid="account-page-back"
+            to="/me"
+            aria-label="Back"
+            className="flex h-10 w-10 items-center justify-center rounded-[10px] text-[22px] text-[oklch(0.30_0.01_240)] hover:bg-[oklch(0.93_0.005_240)]"
+          >
+            ‹
+          </Link>
+          <h1 className="m-0 text-[16px] font-bold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.account.title")}</h1>
+        </div>
+      ) : null}
+      <form
+        className="im-account-page grid gap-4 mx-auto w-full max-w-[620px] p-[24px_28px]"
+        onSubmit={onSubmit}
+        aria-label="account-form"
+      >
+        {!isMobile && (
+        <header>
+          <h2 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">
+            {t("settings.account.title")}
+          </h2>
+          <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{profile.username}</p>
+        </header>
+        )}
 
       {errorDetail && (
         <div
@@ -298,6 +317,7 @@ export function AccountPage() {
           </button>
         </div>
       </div>
-    </form>
+      </form>
+    </div>
   );
 }
