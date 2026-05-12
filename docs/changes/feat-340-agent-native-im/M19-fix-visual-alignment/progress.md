@@ -50,3 +50,17 @@ fix-visual-alignment (post-acceptance fix round 11) — 5 页视觉重写按 pro
 - Rollback: `git revert faa697ca` (C2) + `git revert 02172d0a` (C1)
 - Commits: C1=02172d0a, C2=faa697ca
 
+## R3 — Agent Detail Identity row1 + Skills/Tool PillSelector (R11-3 + R11-4 major)
+
+- Context: R11-3 (major) + R11-4 (major) 同根 — prototype `attachments/prototype/project/im-settings-page.jsx::AgentForm` Identity row1 字段是 `Agent ID + Display Name` (Owner UUID 对用户无意义,不入表单);Skills / Tool Allowlist 是 prototype `im-components.jsx::MultiSelect` 风格(ALL options 平铺 pill,选中态 oklch teal 背景),不是当前 `allowlist-selector.tsx` 60+ 行 fieldset+checkbox grid (R11 reviewer 标 "违反 §95 视觉对齐 / 60 列 checkbox 视觉灾难")。
+- Decision: (a) `agent-detail-page.tsx` Identity card row1 grid 加 `data-testid="agent-identity-row1"`,把第二列从 `<input id="owner-id">` 换为 Display Name 字段 (从原下一行移上来),原 row2 删掉只留 Description;(b) 新建 `src/IM/frontend/src/features/settings/agents/pill-selector.tsx` (`<PillSelector>`),用 Tailwind arbitrary value 直接落 prototype MultiSelect 几何 (`flex flex-wrap gap-[6px]` + `px-[11px] py-[4px] rounded-full text-[12px] font-semibold font-mono`,选中 `bg-[oklch(0.93_0.08_180)] text-[oklch(0.35_0.14_180)] border-[oklch(0.75_0.12_180)]`,未选 `bg-[oklch(0.96_0.005_240)] text-[oklch(0.50_0.01_240)]`),每项 `<button data-pill-name aria-pressed>`;(c) `agent-detail-page.tsx` Access & Model card 两处 `<AllowlistSelector>` 替换为 `<PillSelector testId="pill-selector-{skills,tools}">`。
+- Rationale: prototype MultiSelect 是 ALL 平铺(非 picker / 非浮层),与 §95 "60+ checkbox 视觉灾难" 是同根问题 —— 把视觉契约写进 Tailwind utility 而不是 CSS 类,延续 R2 "类名空规则" 修复路径。Owner UUID 在 prototype 没有任何位置,删字段而不是塞角落,避免给 reviewer 提供攻击面。`allowlist-selector.tsx` 保留(其它入口可能引用),不顺手删除。
+- Evidence:
+  - Tests: `agent-detail-page.test.tsx` 新增 R11-3 + R11-4 共 2 个测试 C1 RED 2/5 → C2 GREEN 5/5;`agent-edit.test.tsx` 把 4 处 `getByRole("checkbox", { name: /tdd|playwright|bash|read_file/ })` 翻转为 `getByRole("button", { name: ... })` + `aria-pressed=true`,3/3 GREEN;全套 vitest 52 files / 256 tests GREEN。
+  - Entry: 视觉确认延后至 R9 双 viewport 截图。
+  - Visual/Interaction: pill 平铺 + 选中青色 oklch + Identity row1 grid 双列 (Agent ID / Display Name) — 单测层全部断言通过。
+- Side effect: `agent-edit.test.tsx` 同步翻转 (R3 必带,旧 fixture 用 checkbox role)。
+- Out-of-unit: `allowlist-selector.tsx` 暂留(无新引用),后续若彻底无引用可在独立 cleanup 单删。
+- Rollback: `git revert 442c726c` (C2) + `git revert 01d9cc15` (C1)
+- Commits: C1=01d9cc15, C2=442c726c
+
