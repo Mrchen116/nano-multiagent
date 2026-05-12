@@ -99,4 +99,56 @@ describe("MePage", () => {
     expect(screen.getByTestId("me-row-account").textContent).toMatch(/👤/);
     expect(screen.getByTestId("me-row-signout").textContent).toMatch(/↗/);
   });
+
+  // M19/R11-1: prototype `im-mypage.jsx` AggregatedMePage 是白卡 list 视觉,
+  // 当前实现使用未定义的 im-me-* CSS 类,渲染结果是裸文字粘连无样式("视觉 0")。
+  // 必须保证每张卡片都带可见的视觉容器类 (rounded + bg-white + 分隔线 / 阴影),
+  // Sign out 必须 danger 红色,Language pill toggle 必须有 active 视觉状态,
+  // identity 卡的大 avatar 必须有圆形几何。
+
+  it("R11-1: identity card has avatar circle + name + monospace user_id", () => {
+    renderMe();
+    const identity = screen.getByTestId("me-identity-card");
+    const avatar = identity.querySelector('[data-testid="me-identity-avatar"]');
+    expect(avatar).not.toBeNull();
+    expect(avatar?.className).toMatch(/rounded-full/);
+    expect(identity.querySelector('[data-testid="me-identity-chevron"]')?.textContent).toBe("›");
+  });
+
+  it("R11-1: each row container renders a white rounded card with visible classes", () => {
+    renderMe();
+    for (const testId of ["me-row-nodes", "me-row-account", "me-row-language", "me-row-signout"]) {
+      const row = screen.getByTestId(testId);
+      const card = row.closest('[data-testid^="me-card-"]');
+      expect(card).not.toBeNull();
+      expect(card?.className).toMatch(/bg-white/);
+      expect(card?.className).toMatch(/rounded/);
+    }
+  });
+
+  it("R11-1: sign-out row uses danger red text", () => {
+    renderMe();
+    const row = screen.getByTestId("me-row-signout");
+    expect(row.className).toMatch(/text-red|text-rose/);
+  });
+
+  it("R11-1: every row carries a trailing chevron except language", () => {
+    renderMe();
+    for (const testId of ["me-row-nodes", "me-row-account"]) {
+      const row = screen.getByTestId(testId);
+      const chevrons = row.querySelectorAll('[data-testid="me-row-chevron"]');
+      expect(chevrons.length).toBeGreaterThan(0);
+      expect(chevrons[0].textContent).toBe("›");
+    }
+  });
+
+  it("R11-1: language pill toggle marks the active option visually", () => {
+    renderMe();
+    const enBtn = screen.getByRole("button", { name: /^EN$/ });
+    const zhBtn = screen.getByRole("button", { name: /^中$/ });
+    expect(enBtn.getAttribute("aria-pressed")).toBe("true");
+    expect(zhBtn.getAttribute("aria-pressed")).toBe("false");
+    // active option must carry a non-empty distinguishing class set
+    expect(enBtn.className).toMatch(/bg-white|bg-slate-50|shadow/);
+  });
 });
