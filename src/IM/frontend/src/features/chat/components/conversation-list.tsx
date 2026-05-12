@@ -81,48 +81,77 @@ function compareRecency(left: ConversationSummary, right: ConversationSummary) {
   return (right.last_message_at ?? "").localeCompare(left.last_message_at ?? "");
 }
 
+function avatarInitialsFromTitle(title: string): string {
+  return (title || "?").trim().slice(0, 2).toUpperCase();
+}
+
+function avatarBackgroundFor(item: ConversationSummary): string {
+  if (item.kind === "group") return "bg-[oklch(0.52_0.14_270)]";
+  if (item.kind === "agent-network") return "bg-[oklch(0.52_0.14_30)]";
+  return "bg-[oklch(0.52_0.14_180)]";
+}
+
+// M19/R11-10: prototype ConvItem 行内 = avatar + 标题/时间 + 预览/未读 badge;不渲染
+// kind_label chip。direct-agent 行在 avatar 右下叠 online/offline status dot,数据源是
+// summary.node_status(agent 宿主节点状态)。
 function ConversationCard(props: {
   item: ConversationSummary;
   activeId?: string;
   onRememberScrollPosition: () => void;
 }) {
+  const isActive = props.item.conversation_id === props.activeId;
+  const isDirectAgent = props.item.kind === "direct-agent" || (!props.item.kind && Boolean(props.item.agent_label));
+  const statusDot = isDirectAgent && props.item.node_status
+    ? props.item.node_status === "online" ? "online" : "offline"
+    : null;
   return (
     <Link
       to={`/chat/${props.item.conversation_id}`}
       onClick={props.onRememberScrollPosition}
       className={clsx(
-        "mb-2 block rounded-2xl border px-3 py-3 transition shadow-sm",
-        props.item.conversation_id === props.activeId
-          ? "border-[#9bd2d6] bg-[#eef8f8]"
-          : "border-slate-200 bg-white hover:border-[var(--im-border)] hover:bg-slate-50"
+        "mb-2 flex items-center gap-[11px] rounded-[10px] border px-3 py-3 transition",
+        isActive
+          ? "border-[oklch(0.40_0.08_180)] bg-[oklch(0.96_0.02_180)]"
+          : "border-transparent bg-white hover:border-[var(--im-border)] hover:bg-slate-50"
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {props.item.kind_label && (
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{props.item.kind_label}</p>
+      <span className="relative shrink-0">
+        <span
+          data-testid={`conv-avatar-${props.item.conversation_id}`}
+          aria-hidden="true"
+          className={clsx(
+            "flex h-9 w-9 items-center justify-center rounded-full text-[12px] font-bold text-white",
+            avatarBackgroundFor(props.item)
+          )}
+        >
+          {avatarInitialsFromTitle(props.item.title)}
+        </span>
+        {statusDot ? (
+          <span
+            data-testid={`conv-status-dot-${props.item.conversation_id}`}
+            data-status-dot={statusDot}
+            className={clsx(
+              "absolute -bottom-0.5 -right-0.5 h-[10px] w-[10px] rounded-full border-2 border-white",
+              statusDot === "online" ? "bg-[oklch(0.62_0.18_145)]" : "bg-[oklch(0.70_0.005_240)]"
             )}
-            {isPriorityConversation(props.item) && (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">
-                Priority
-              </span>
-            )}
-          </div>
-          <p className="mt-1 font-semibold text-slate-900">{props.item.title}</p>
+          />
+        ) : null}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-[13px] font-semibold text-slate-900">{props.item.title}</p>
+          <span className="shrink-0 text-[11px] text-slate-500">
+            {formatTime(props.item.last_message_at) || "New"}
+          </span>
         </div>
-        <div className="shrink-0 text-right">
-          <p className="text-xs font-medium text-slate-500">{formatTime(props.item.last_message_at) || "New"}</p>
+        <div className="mt-[2px] flex items-center justify-between gap-2">
+          <p className="truncate text-[12px] text-slate-500">{formatPreview(props.item)}</p>
           {props.item.unread_count > 0 && (
-            <span className="mt-2 inline-flex rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-bold text-white">
-              {props.item.unread_count} new
+            <span className="shrink-0 rounded-full bg-[oklch(0.52_0.14_180)] px-[7px] py-[1px] text-[11px] font-bold text-white">
+              {props.item.unread_count}
             </span>
           )}
         </div>
-      </div>
-      <p className="mt-2 line-clamp-2 text-sm text-slate-600">{formatPreview(props.item)}</p>
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-        <span className="rounded-full bg-slate-100 px-2 py-1">{formatParticipantSummary(props.item.participants)}</span>
       </div>
     </Link>
   );

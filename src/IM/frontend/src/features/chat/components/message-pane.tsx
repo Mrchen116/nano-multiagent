@@ -5,6 +5,7 @@ import {
   ChatAttachment,
   ChatMessage,
   ChatStarter,
+  ChatTokenUsage,
   ChatUsageView,
   ConversationDetail,
   MentionCandidate,
@@ -274,33 +275,95 @@ function formatMessageTimestamp(createdAt: string) {
   return `${hours}:${minutes}`;
 }
 
+function avatarInitials(message: ChatMessage): string {
+  const source = message.sender_display_name || message.sender_name || (message.is_mine ? "ME" : "AG");
+  return source.trim().slice(0, 2).toUpperCase();
+}
+
+// M19/R11-7: prototype `im-components.jsx::TokenChip` 用 pct = round(used/window*100),
+// warn >= 70% / critical >= 90%;颜色: oklch(0.52 0.14 180) 青 (normal) → oklch(0.65 0.18 60)
+// 橙 (warn) → oklch(0.55 0.15 25) 红 (critical)。chip 落在气泡下方 status row。
+function TokenChip({ usage }: { usage: ChatTokenUsage }) {
+  const pct = Math.round((usage.context_used / usage.context_window) * 100);
+  const critical = pct >= 90;
+  const warn = pct >= 70;
+  function fmtK(n: number) {
+    return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  }
+  const colorClass = critical
+    ? "text-[oklch(0.55_0.15_25)] border-[oklch(0.55_0.15_25)]"
+    : warn
+      ? "text-[oklch(0.55_0.16_60)] border-[oklch(0.75_0.18_60)]"
+      : "text-[oklch(0.38_0.01_240)] border-[oklch(0.76_0.012_240)]";
+  return (
+    <span
+      data-testid="token-chip"
+      className={[
+        "inline-flex items-center gap-[5px] rounded-full bg-[oklch(0.96_0.005_240)] px-[9px] py-[3px] font-mono text-[11px] font-semibold",
+        "border",
+        colorClass
+      ].join(" ")}
+    >
+      <span>{fmtK(usage.output)} tok</span>
+      <span className="opacity-40">·</span>
+      <span>ctx {pct}%</span>
+    </span>
+  );
+}
+
 function MessageBubble({ message, isGroupChat }: { message: ChatMessage; isGroupChat: boolean }) {
   const mine = message.is_mine ?? message.sender_type === "user";
   const attachments = message.attachments ?? [];
   const deliveryStatus = toDeliveryStatusCopy(message);
   const senderLabel = isGroupChat ? getGroupMessageSenderLabel(message) : null;
   const timestampLabel = formatMessageTimestamp(message.created_at);
+  const initials = avatarInitials(message);
+  const tokenUsage = message.token_usage;
   return (
-    <div className={`mb-3 flex ${mine ? "justify-end" : "justify-start"}`}>
-      <div
+    <div
+      className={["mb-4 flex items-start gap-[10px]", mine ? "flex-row-reverse" : "flex-row"].join(" ")}
+    >
+      <span
+        data-testid="message-avatar"
+        aria-hidden="true"
         className={[
-          "max-w-[80%] rounded-2xl px-3 py-2 text-sm",
-          mine ? "bg-[#0f766e] text-white" : "bg-[#e5ebf2] text-slate-900"
+          "flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white",
+          "bg-[oklch(0.52_0.14_180)]"
         ].join(" ")}
       >
-        {senderLabel ? <p className="text-[11px] opacity-75">{senderLabel}</p> : null}
-        {message.content ? <p className={senderLabel ? "mt-1 whitespace-pre-wrap" : "whitespace-pre-wrap"}>{message.content}</p> : null}
-        <AttachmentLinks attachments={attachments} muted={mine} />
-        <time
-          data-testid="message-timestamp"
-          dateTime={message.created_at}
+        {initials}
+      </span>
+      <div className={["flex max-w-[72%] min-w-0 flex-col", mine ? "items-end" : "items-start"].join(" ")}>
+        {senderLabel ? (
+          <span className="mb-[3px] px-[2px] text-[11px] font-bold text-[oklch(0.38_0.10_180)]">{senderLabel}</span>
+        ) : null}
+        <div
+          data-testid="message-bubble"
           className={[
-            "mt-1 block text-[10px] leading-4",
-            mine ? "text-right text-white/80" : "text-left text-slate-500"
+            "px-[13px] py-[9px] text-[13.5px] leading-[1.6]",
+            mine
+              ? "rounded-[16px_16px_4px_16px] bg-[oklch(0.52_0.14_180)] text-white"
+              : "rounded-[16px_16px_16px_4px] bg-[oklch(0.91_0.007_240)] text-[oklch(0.14_0.01_240)]"
           ].join(" ")}
         >
-          {timestampLabel}
-        </time>
+          {message.content ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : null}
+          <AttachmentLinks attachments={attachments} muted={mine} />
+        </div>
+        <div
+          className={[
+            "mt-[3px] flex items-center gap-[6px]",
+            mine ? "pr-[2px]" : "pl-[2px]"
+          ].join(" ")}
+        >
+          <time
+            data-testid="message-timestamp"
+            dateTime={message.created_at}
+            className="text-[11px] text-[oklch(0.65_0.01_240)]"
+          >
+            {timestampLabel}
+          </time>
+          {tokenUsage ? <TokenChip usage={tokenUsage} /> : null}
+        </div>
         {deliveryStatus && (
           <div className="mt-2 rounded-xl border border-black/10 bg-black/5 px-2 py-1 text-[10px] leading-4">
             <p className="font-semibold tracking-wide opacity-80">{deliveryStatus.label}</p>
