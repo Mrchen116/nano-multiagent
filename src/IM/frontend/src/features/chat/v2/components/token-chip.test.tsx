@@ -28,4 +28,15 @@ describe("TokenChip", () => {
     const { container } = render(<TokenChip usage={null} />);
     expect(container.firstChild).toBeNull();
   });
+
+  it("R8-3: displays token_usage.total (real prompt+completion sum) when present", () => {
+    render(
+      <TokenChip
+        usage={{ output: 1, context_used: 2428, context_window: 200_000, total: 2429 }}
+      />
+    );
+    const chip = screen.getByRole("button");
+    expect(chip.textContent).toMatch(/2429/);
+    expect(chip.textContent).not.toMatch(/^1 /);
+  });
 });

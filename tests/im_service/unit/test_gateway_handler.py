@@ -488,3 +488,24 @@ def test_handle_agent_message_deduplicates_same_dispatch_request(tmp_path: Path)
     messages = messages_repo.list_messages(conversation_id=landed.id)
     assert len(messages) == 1
     assert messages[0].content == "hello B"
+
+
+def test_parse_token_usage_preserves_total_field() -> None:
+    """_parse_token_usage must surface the total (prompt+completion) so the chip shows real usage, not just completion."""
+    from IM.ws.gateway_handler import _parse_token_usage
+
+    parsed = _parse_token_usage({"prompt": 2428, "completion": 1, "total": 2429})
+    assert parsed is not None
+    # Total exposed for the chip; output stays = completion for backwards reads.
+    assert parsed.total == 2429, f"Expected total=2429 (prompt+completion), got {parsed!r}"
+    assert parsed.output == 1
+    assert parsed.context_used == 2428
+
+
+def test_parse_token_usage_derives_total_when_missing() -> None:
+    """_parse_token_usage derives total = prompt + completion when not provided."""
+    from IM.ws.gateway_handler import _parse_token_usage
+
+    parsed = _parse_token_usage({"prompt": 12, "completion": 30})
+    assert parsed is not None
+    assert parsed.total == 42
