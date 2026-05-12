@@ -63,13 +63,15 @@ export function applyAgentStatusEvent(client: QueryClient, event: ParsedImStream
 export function useAgentStatusBroadcastConsumer(): void {
   const queryClient = useQueryClient();
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
+  const accessToken = useAuthStore((s) => s.accessToken ?? "");
 
   useEffect(() => {
-    if (!selfUserId) return;
+    if (!selfUserId || !accessToken) return;
     const dispose = attachUserConversationStream({
       selfUserId,
+      token: accessToken,
       onEvent: (event) => applyAgentStatusEvent(queryClient, event)
     });
     return dispose;
-  }, [queryClient, selfUserId]);
+  }, [queryClient, selfUserId, accessToken]);
 }

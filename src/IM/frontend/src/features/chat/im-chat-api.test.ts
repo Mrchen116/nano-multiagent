@@ -548,7 +548,7 @@ describe("im chat api helpers", () => {
 });
 
 describe("im chat stream parser", () => {
-  it("opens user stream WebSocket for filtered conversation subscription", () => {
+  it("opens user stream WebSocket with ?token= for filtered conversation subscription", () => {
     class FakeWebSocket {
       static instances: Array<{ url: string; close: () => void }> = [];
       url: string;
@@ -567,12 +567,14 @@ describe("im chat stream parser", () => {
     const teardown = streamConversationEvents({
       conversationId: "conv-9",
       selfUserId: "user-1",
+      token: "test-jwt-token",
       afterEventId: 17,
       onEvent: () => undefined
     });
 
     expect(FakeWebSocket.instances[0]?.url).toContain("/im/ws/user");
-    expect(FakeWebSocket.instances[0]?.url).toContain("user_id=user-1");
+    expect(FakeWebSocket.instances[0]?.url).toContain("token=test-jwt-token");
+    expect(FakeWebSocket.instances[0]?.url).not.toContain("user_id=");
     teardown();
   });
 
