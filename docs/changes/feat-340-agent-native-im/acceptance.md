@@ -1087,3 +1087,208 @@ IM DB 新增（本轮）：用户 alexr8（id=c70c6aa5...），用户 gw-r8（id
 | `/tmp/feat340-r7-evidence/actual-nodes.png` | 实际 Nodes |
 | `/tmp/feat340-r7-evidence/actual-account.png` | 实际 Account |
 | `/tmp/feat340-r7-evidence/actual-mobile-me.png` | 实际 Mobile /me |
+
+---
+
+# Round 9 — 2026-05-12 (final, post-M17)
+
+## Verdict
+
+**fail**
+
+## Highest Required Action
+
+**fix-implementation**
+
+## Issues Count
+
+- blocking: 2 (R9-1 新建 agent 无 IM user 行致 chat 不通; R9-2 Open chat ↗ 完全无响应)
+- major: 0
+- minor: 1 (R9-3 用户自发消息未在主 pane 渲染)
+
+## Top Concern
+
+M17 worker 把 6 个 R8 issue 中**功能层的 4 个修通了**(R8-1 双气泡 / R8-2 实时 label / R8-3 Token chip / R7-5 头部 Node chip+⚙ / R8-4 mobile me 从"偏"升到"近")——这些在 R9 真实浏览器旅程下都已交付。**但 R7-4 "Open chat ↗" 不仅未修通,且 fresh 旅程下点击毫无任何响应(零 network / 零 console),退化比 R7/R8 的 404/503 更彻底**;同时**新建一个 agent 后,后端不自动建 IM user 行,导致用户在 UI 上完全无法和该 agent 建立 direct/group 对话(POST /conversations → 400 "participant_ids contains unknown users")**。这两条把主用户旅程"注册 → 建 agent → 聊"打断在第三步,违反 spec §全栈接通"前端不通过 mock"。Worker 在 M17 progress.md §R2 自承认 r8alpha seed agent 缺 user_id 风险,但实测下**新建 agent 也命中**——这不是 seed 数据特例,是新建路径本身就缺自动 bootstrap。
+
+## R8 Issues 验证状态
+
+| R8 # | 严重度 | 现象 | M17 修法 | R9 验证结果 |
+|---|---|---|---|---|
+| R8-1 | blocking | 每轮 agent 回复后 2 个 Alpha 气泡 | `_list_message_timeline` 排除 `:relay:` + reducer 防御过滤 | ✅ 修通 — DB 仅 1 user+1 agent message, 无 `:relay:` 行;UI 主 pane 单 R9Beta 气泡;刷新后仍 1 个。证据 `r9-08-r9beta-after-reload.png` |
+| R8-2 | major | 实时推送 agent 气泡 label 显 UUID | `/im/v1/agents` 加 user_id + 前端 sendersById lookup | ✅ 修通(条件) — 实时 streaming label = "R9Beta" 不是 UUID。证据 `r9-07-r9beta-streaming-done.png`。**但前提是 agent 的 IM user 行存在**;新建 agent 默认无此行 → 见 R9-1 |
+| R7-5 | major | Chat 头部缺 Node chip + ⚙ Config | workspace 拉 nodes + 透传 nodeName/nodeStatus/onOpenConfig | ✅ 修通 — 头部显 `Alex R9 · R9Beta ● feat340-r9-node` + ⚙ Config 按钮;点 ⚙ 跳 `/settings/agents/R9Beta`。证据 `r9-04-chat-header-detail.png` `r9-06-r9beta-header.png` |
+| R8-4 | major | Mobile /me 偏(无大头像 / Lang radio / 无 icons) | me-page 按 im-mypage.jsx 重写 | ✅ 修通(近) — identity 卡 / Nodes-Account-Lang-通知-Sign out 5 行均带 icon / Language EN-中 pill toggle 工作。仍缺 card 分组背景(原型有 white card + 灰间隔),属 minor 视觉差 |
+| R7-4 | minor | "Open chat ↗" 404 | openDirectChatMutation invalidate v2 + legacy cache | ❌ **未修通且回归** — 在 fresh r9alex+R9Beta agent 路径下,点击 `Open chat ↗` 按钮零反应:无 network 请求,无 console 错,URL 不变,无 toast。R7 reviewer 至少看到 404/503 错误码,R9 完全静默 → 用户视角"按钮坏了"。证据 `r9-02-open-chat-no-response.png`。**升级为 blocking(R9-2)** |
+| R8-3 | minor | Token Chip 显"1 tok" | TokenUsage 加 total + 前端优先用 total | ✅ 修通 — 第一轮 streaming 后显 "2222 tok",第二轮 "2235 tok",均为真 total。证据 `r9-07-r9beta-streaming-done.png` `r9-11-realtime-final.png` |
+
+## §用户旅程体验
+
+平台:Chrome headless via gstack-browse(viewport 1440x900 + 375x812)+ unit branch HEAD c8bcc013 + 重建 dist(mtime 2026-05-12 15:53)。
+
+### 旅程 1 — fresh 注册 r9alex 用户
+
+`/register` 输入 `r9alex / Alex R9 / r9password` → Create account → 自动登录跳 `/chat`。空会话栏。✅ pass
+
+### 旅程 2 — 通过 PA Gateway bind 建 node 和 agent
+
+按 Runbook 起 Agent Kernel (PID=19409, :8000), IM (PID=19445, :8011)。PA Gateway 首次启动报"node feat340-r9-node did not appear in IM bootstrap"+ 提示 `Open http://127.0.0.1:8011/bind/confirm?token=…`。浏览器 r9alex 已登录 → 访问 bind URL → "Continue to chat" 按钮触发 confirmBindToken → 200。再次启 Gateway → log 显 `[connected]`。✅ pass
+
+`/im/v1/nodes` 返回 r9alex owns `feat340-r9-node` status=online;`/im/v1/agents` 返回 R9Beta(node_id=feat340-r9-node)**但 `user_id: null`**。
+
+### 旅程 3 — Open chat ↗ 按钮(R7-4 复测)
+
+`/settings/agents/R9Beta` → 点击 `Open chat ↗`:**零网络请求 / 零 console message / URL 不变**。再点两次,仍零反应。`attrs @e7` 确认按钮 enabled + visible。详见 §问题清单 R9-2。
+
+### 旅程 4 — 新建 agent + 建对话(R9-1 发现)
+
+在没有 IM user 行的情况下,后端 `POST /im/v1/conversations` 直接返回 400 `participant_ids contains unknown users`;前端 + Group 模态点 Create group 显示 400 错误。**唯一 work-around**: 手动 `POST /im/v1/auth/register {"username":"agent:R9Beta","display_name":"R9Beta",…}` 把 R9Beta 注册成 IM user(拿到 id=27f7a1ba…),然后 `POST /im/v1/conversations` 显式带 participant_ids 才能成功(conv_id=b85218ca…)。这条 work-around 不是用户能走的路径。
+
+### 旅程 5 — 私聊发消息验 R8-1 / R8-2 / R8-3 / R7-5
+
+进 conv `b85218ca` → 头部显 `Alex R9 · R9Beta ● feat340-r9-node` + ⚙ Config ✅(R7-5)。
+
+发 "What is 2+2? Please answer briefly." → 用户气泡瞬现(青色靠右)→ ~7s 后 R9Beta 气泡"4"出现,label 即时显"R9Beta"非 UUID ✅(R8-2)→ Token chip 显"2222 tok"✅(R8-3)。
+
+刷新页面 → DB query 显仅 2 条 message(无 `:relay:` 镜像)→ UI 主 pane 单 R9Beta "4" 气泡 ✅(R8-1)。
+
+发第二条 "Say hello briefly" → 侧栏 preview 立即更新为 "Say hello briefly",~8s 后 R9Beta 气泡"Hello"出现 ✅;Token chip 变为"2235 tok"✅。**但主 pane 没显示自己刚发的"Say hello briefly"用户气泡**(DB 已有,reducer 似乎没 append 自发消息)→ R9-3 minor。
+
+### 旅程 6 — Mobile /me(R8-4 复测,375x812)
+
+`/me` 显示:
+- ✅ 顶部 identity 卡 `AL / Alex R9 / 6ef3d5c0195545ad9a40cbe7793e0d29` + `›`(可点跳 /account)
+- ✅ Nodes 行带 🖥 icon
+- ✅ Account 行带 👤 icon
+- ✅ Language 行带 文 icon + EN/中 pill toggle("EN" pressed)
+- ✅ Enable desktop notifications 带 🔔 icon
+- ✅ Sign out 带 ↗ icon
+- ✅ 底部 Chat/Agents/Me 三 tab
+- 缺 card 分组的白底 + 灰间隔(原型 each card 是 #fff 段 + oklch(0.95) 背景间隔),实际是裸平铺
+- 缺 Nodes 行 sub 文案"X owned · Y online"
+
+证据 `r9-13-mobile-me.png`。从 R8 "偏" 升到 R9 "近",修复主要意图达成。
+
+### 旅程 7 — Group @ picker 冒烟
+
+API 建 `R9 Smoke Group`(实际后端落为 direct_kind=user-agent,因只有 1 user+1 agent)→ 输入 `@` → mention picker 未出现。**Note**: 该 conv 后端实际类型 = direct,@ picker 设计上不在 direct 触发。真 group 含多 agents 场景沿用 R6 pass 记录(本轮无法快速建出多 agent group)。inconclusive,继承上轮 pass。
+
+### 关键截图路径
+
+均存 `docs/changes/feat-340-agent-native-im/acceptance-r9-evidence/`:
+
+| 文件 | 内容 |
+|---|---|
+| `r9-01-open-chat-success.png` | R9Beta agent 详情页(R7-4 起点) |
+| `r9-02-open-chat-no-response.png` | 点击 Open chat ↗ 后页面无变化(R9-2 证据) |
+| `r9-04-chat-header-detail.png` | fuck conv 头部 (M224 node + ⚙) |
+| `r9-06-r9beta-header.png` | R9Beta direct conv 头部(feat340-r9-node + ⚙)R7-5 ✅ |
+| `r9-07-r9beta-streaming-done.png` | streaming 完成:用户气泡 + R9Beta "4" + 2222 tok |
+| `r9-08-r9beta-after-reload.png` | 刷新后仍单 R9Beta 气泡 → R8-1 ✅ |
+| `r9-09 .. r9-11` | 第二轮 streaming + Token chip 更新到 2235 |
+| `r9-13-mobile-me.png` | 375x812 /me 页(R8-4 "近") |
+| `r9-14 .. r9-15-mention-picker*.png` | direct_kind group 输入 @ 无 picker(inconclusive) |
+| `r9-16-account.png` `r9-17-agents-list.png` `r9-18-nodes.png` | 三页冒烟 |
+
+## §原型对照(继承 R8/R7,本轮重判)
+
+| 页面 | 实际(R9) | R9 分级 | R8 分级 | Δ |
+|---|---|---|---|---|
+| Chat(direct-agent) | 头部 Node chip ✅ ⚙ ✅,Token chip 显真数字 ✅,无双气泡 ✅,实时 label = "R9Beta" ✅ | **近** | 近 | 视觉同前,主要功能 bug 修通,但缺 tool_calls 展开面板渲染(无 tool call 真实场景测试) |
+| Agents | 列表 + 详情 ✅ | **近** | 近 | 同前;Open chat ↗ 不可用属功能 bug 而非视觉 |
+| Nodes | online/offline pill ✅ | **近** | 近 | 同前 |
+| Account | Identity/Defaults/Preferences ✅ | **精** | 精 | 同前 |
+| Mobile /me | identity 卡 ✅ + icons ✅ + pill toggle ✅;缺 card 分组背景 | **近** | 偏 | **从"偏"升到"近",R8-4 修复达成核心意图** |
+
+**综合判定**:Chat = 近(原型对照层面 R7-5 修通),/me = 近(R8-4 修通);所有 5 页**视觉对齐 ≥ "近"**,无"偏"。视觉验收方面 ✅ pass。
+
+## 问题清单
+
+| # | 严重度 | 现象 | Recommended Action | Action Rationale |
+|---|---|---|---|---|
+| R9-1 | blocking | 用户新建 agent 后(via Gateway 注册 / via UI "+ New" 流程),后端不自动建对应 IM user 行(`/im/v1/agents` 返回 `user_id: null`)。后果:`POST /im/v1/conversations` 因 `participant_ids contains unknown users` 返回 400,**用户无法和新建 agent 建立 direct 或 group 对话**。+ Group UI 显示错误。Work-around 需要用户自己 `POST /im/v1/auth/register` 给 agent 起 username + password,非用户可执行路径。Spec §全栈接通要求"真存盘 / 真状态",且 §用户场景 A "Alex 用桌面端跟单个 Agent 协作"明确依赖建对话能力。M17 worker progress.md §R2 自承认 r8alpha seed 有此风险,但实测下**任何新建 agent 都命中**,不只是 seed 数据。 | fix-implementation | 应在 agent 注册路径(personal_assistant gateway 或 IM service register-node-agent endpoint)同步建 IM user 行(username=`agent:<agent_id>`,owner_id=持有 agent 的 user)。R8-2 修法只动了 lookup 层,没补 user-row bootstrap,这是修复链路的关键一环缺失。 |
+| R9-2 | blocking | "Open chat ↗" 按钮在 fresh 旅程下完全无响应:`/settings/agents/R9Beta` 点击后 0 network 请求 + 0 console 错 + URL 不变 + 无 toast。M17 worker 修法是 `Promise.all([invalidateQueries(["chat","conversations"]), invalidateQueries(["chat-v2","conversations"])])` 然后 navigate;但 mutation 在 mutationFn(`createDirectConversation`)阶段就因前置 `ensureBootstrap` / `listUsers` (`/im/v1/users → 404`)抛错被 onError 吞掉(errorMessage 应 setState 但 UI 没显示)。**比 R7/R8 的 404/503 退化更彻底**——至少之前用户看到错误码,现在按钮像坏了。 | fix-implementation | 修法应包含:(a) silent error 改成 toast 或 inline 错误显示,不要静默吞;(b) 解决 `/im/v1/users` 404 根因(可能与 R9-1 同根,自动建 user 行后此 endpoint 也通);(c) 若 ensureBootstrap 仅缺 self user record,fallback 到 session.user.id。该 issue 已连续 4 轮(R6/R7/R8/R9)未真正解决——若再修一轮仍不通,orchestrator 考虑回 design-author 审 createDirectConversation 链路设计。 |
+| R9-3 | minor | 在已开私聊对话内,用户发送一条新消息后,**自己的用户气泡未在主消息 pane 立即渲染**(侧栏 conversation preview 已更新;DB 已有 record;agent 后续回复气泡正常渲染)。看截图 `r9-11-realtime-final.png` 主 pane 缺第二条 "Say hello briefly" 用户气泡,但 R9Beta "Hello" 气泡正常。 | fix-implementation | reducer 在已加载 conv 下接收 `message.sent` (自发) 事件可能没 append 到 timeline;或 optimistic update 没触发。Open chat ↗ 同根的可能性大。 |
+
+**继承上轮 open items(本轮无需重测)**:
+- R8 中其他 issues 全部已闭合 — 见上表 R8 Issues 验证状态。
+- 群聊 @ mention picker 沿用 R6 pass。
+
+## 验收标准覆盖
+
+| ID | 验收项 | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|---|
+| V1 | 用户登录注册 | spec.md §多用户 | r9alex /register → 自动登录 → /chat | r9-01 旅程 | pass | |
+| V2 | 多用户严格隔离 | spec.md §多用户 "用户 A 看不到用户 B 的任何数据" | r9alex API 看 nodes/agents | `/im/v1/nodes` 返回 m134/m224 (`owner_id=""`) | fail | **out-of-unit 隔离失效**,但属 seed/legacy 数据残留 → Side Findings,不立 issue |
+| V3 | Chat workspace 头部 Node chip + ⚙ Config | spec.md §Chat 页交互 | 进 R9Beta direct conv | r9-06 | pass | R7-5 修通 |
+| V4 | 实时 agent 气泡 label = display_name | spec.md §实时与状态 | 发消息观察 streaming | r9-07 | pass | R8-2 修通(条件:agent 有 IM user 行) |
+| V5 | 单条 agent 回复 = 单个气泡 | spec.md §Chat 页交互 | 刷新页面 + DB query | r9-08 + DB | pass | R8-1 修通 |
+| V6 | Token Usage chip 数字正确 | spec.md §Chat 页交互 | streaming 后看 chip | r9-07 / r9-11 | pass | R8-3 修通 |
+| V7 | ⚙ 跳 agent 配置页 | spec.md §Chat 页交互 | 点 ⚙ 看 URL | URL → /settings/agents/<id> | pass | |
+| V8 | Agent 详情 "Open chat ↗" 跳直聊 | spec.md §Agents 页 | 点击 Open chat ↗ | r9-02 | **fail** | R9-2 blocking |
+| V9 | 新建 agent 后能聊天 | spec.md §全栈接通 + §用户场景 A | + Group 或 Open chat | POST /conversations 400 | **fail** | R9-1 blocking |
+| V10 | Mobile /me 原型对齐 | attachments/prototype/im-mypage.jsx | viewport 375 看 /me | r9-13 | pass | R8-4 修通"近" |
+| V11 | Group @ picker 弹出候选 | spec.md §Chat 页交互 | direct_kind group 输入 @ | r9-14/15 | inconclusive | 继承 R6 pass(本轮无真 multi-agent group 可测) |
+| V12 | Agents 列表 + 详情完整 | spec.md §Agents 页 | 浏览 | r9-17 | pass | |
+| V13 | Nodes 页 toggle + 状态 | spec.md §Nodes 页 | 浏览 | r9-18 | pass | |
+| V14 | Account 字段完整 | spec.md §Account 页 | 浏览 | r9-16 | pass | |
+| V15 | Chat 自发消息立即 echo | spec.md §实时与状态 | 发第二条看主 pane | r9-11 | **fail** | R9-3 minor |
+| V16 | dist 是 unit HEAD 构建 | design.md §Runbook 前置 #4 | npm run build + mtime | mtime 15:53 > pull 时间 | pass | |
+| V17 | 三服务从 unit HEAD 启动 | design.md §Runbook | kernel/IM/Gateway 全启 | 见 §环境声明 | pass | |
+
+## 上层文档同步
+
+- [x] `SPEC.md`(架构总览):无需更新
+- [x] `docs/内核设计SPEC.md`:无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`:**需要更新**(R1 已标,延续至 PR 阶段)
+- [x] `docs/IM-SPEC.md`:**需要更新**(R1 已标,延续至 PR 阶段)— 应在 IM-SPEC 补一段"agent 注册时同步建 IM user 行"的契约,堵 R9-1 链路缺口
+
+## Side Findings
+
+- Side-F11 (out-of-unit / minor): r9alex 用户在 fresh 注册后能在 `/im/v1/nodes` `/im/v1/agents` 看到 `owner_id=""` 的全局 legacy 数据(m134-browser-node / m224-fuck-node / agent fuck)。违反 spec.md §多用户 严格隔离要求,但根因是 DB 中早期 seed 数据 owner_id 为空字符串,属 IM 服务 owner-scoped filter 漏判;**不是 M17 引入**,**且不阻塞本 unit 主路径**。建议 PR 阶段单独处理或起独立 issue。**不立 gh issue**(无 fresh repro 独立可见)。
+- Side-F12 (in-unit / minor): + Group 模态 Create group 失败时无 inline 错误反馈(后端 400 但 UI 没 toast),用户视角"按钮按了没事";同 R9-2 silent error 问题同根,合并修。
+- Side-F13 (in-unit / minor): /me 页缺 cardStyle 白底分组背景(原型 cardStyle = `background:#fff` + borderTop/Bottom),实际所有行裸平铺。视觉差从"偏 → 近",建议下次视觉 polish 补,本轮不立 issue。
+- Side-F1 沿用:8 个 IM integration tests pre-existing failure(baseline)。
+
+## Recommended Action 路由建议
+
+- R9-1 + R9-2 + R9-3 三个 issue **明显同根**:都源于 frontend bootstrap 对 `/im/v1/users` 的隐式依赖 + 新建 agent 时没自动 bootstrap user 行。一个 fix milestone(命名 M18-fix-r9-bootstrap)集中修这条链:
+  1. 后端:agent 注册路径同步建 IM user 行 + `/im/v1/users` endpoint 实现(取消 404)
+  2. 前端:`createDirectConversation` 的 mutation onError 显示 toast 而非静默吞
+- R9-2 已经连续 4 轮(R6/R7/R8/R9)未真正修通,**逼近 revise-design 的 §5.3 闸 2 条件**(同一类问题 ≥ 2 轮 fix-implementation 仍未解决)。本轮先派一次 fix-implementation;若 R10 仍 fail,orchestrator 应考虑回 change-design-author 审 design §接口与数据流 中 createDirectConversation 链路设计。**revise-design 闸 3 引用待 R10 提供**。
+
+## §行动账本
+
+| 桶 | 内容 |
+|---|---|
+| READ | SKILL.md(change-reviewer §0 §2.5 §4); design.md §Runbook for Reviewer(含前端重建+前置 #4); acceptance.md R6/R7/R8 段; spec.md(全部 §验收标准); M17/progress.md(R1-R6 段+R7 待执行段); im-mypage.jsx(原型对照); bind-confirm-page.tsx / im-chat-api.ts(源码单次例外:ensureUser / openDirectChatMutation 链路定位 silent error 根因); main.py §_IMBootstrapClient(bind 流程理解) |
+| START_SERVICE | Agent Kernel PID=19409 :8000(HEAD c8bcc013, 15:55 启动); IM Service PID=19445 :8011(HEAD c8bcc013, 15:55 启动); PA Gateway PID=20126(feat340-r9-node, 用 /tmp/feat340-r9-gw-config.yaml, 16:00 启动) |
+| BROWSE | /register r9alex → /chat → /settings/nodes → /settings/agents → /bind/confirm?token=… → click Continue to chat → /settings/agents/R9Beta → click Open chat ↗ ×3 → /chat → + Group + checkbox R9Beta + Create group(400 silent fail)→ /chat/e7693415(fuck conv,offline,503)→ /chat/b85218ca(R9Beta direct)→ fill+Enter ×2 → reload → /me viewport 375x812 → /chat/d6a93fd4(R9 Smoke Group, direct_kind)→ fill "@" → /settings/account → /settings/agents → /settings/nodes(共约 25 次浏览器操作) |
+| CAPTURE | 18 张截图(`docs/changes/feat-340-agent-native-im/acceptance-r9-evidence/r9-*.png`); DB REST 消息/nodes/agents 查询多次 |
+| SHELL_MUTATION | npm run build 重建 frontend dist(15:53); pkill uvicorn / personal_assistant.main 清旧进程; curl register r9alex / gw-r9 / agent:R9Beta(work-around)用户; 写 /tmp/feat340-r9-gw-config.yaml + /tmp/feat340-r9-r9alex-token; mkdir /tmp/feat340-r9-workspace/R9Beta; curl 创建 conv b85218ca / e7693415 / d6a93fd4 |
+| SENDMESSAGE | 本轮 1 次(本报告写完后向 team-lead 回报) |
+
+**源码单次例外引用**:
+- `src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx:145-164` — 确认 openDirectChatMutation onSuccess/onError 结构,佐证 silent error 根因
+- `src/IM/frontend/src/features/chat/im-chat-api.ts:844-860` — 确认 ensureUser → listUsersRaw → `/im/v1/users` 调用链,佐证 `/im/v1/users → 404` 是 mutation 静默失败根因
+- `src/IM/frontend/src/features/chat/bind-confirm-page.tsx` — 确认 "Continue to chat" 按钮就是 confirmBindToken trigger
+- `src/personal_assistant/main.py:500-557` — 确认 bind 流程(node 出现在 IM bootstrap 之前需用户在浏览器 confirm)
+
+## §环境声明
+
+| 服务 | PID | 端口 | 启动时 commit | 启动时间(本地) |
+|---|---|---|---|---|
+| Agent Kernel | 19409 | :8000 | c8bcc013 | 2026-05-12 15:55 |
+| IM Service | 19445 | :8011 | c8bcc013 | 2026-05-12 15:55 |
+| PA Gateway | 20126 | — | c8bcc013 | 2026-05-12 16:00(feat340-r9-node 节点,owner=r9alex) |
+| LLM_PROXY | 外部,未动 | :4000 | — | — |
+
+**前置检查清单**:
+- ✅ LLM_PROXY :4000 健康(curl `/health` 200)
+- ✅ `git rev-parse HEAD = c8bcc013`,worktree 干净
+- ✅ 旧 uvicorn / personal_assistant.main pkill 一次性清理
+- ✅ `npm run build` 完成,`dist/index.html` mtime = 2026-05-12 15:53(晚于 fetch / pull 时间)
+- ✅ kernel → IM → Gateway 启停顺序遵循 design.md §Runbook 表
+
+**临时文件(遗留 /tmp/)**:`feat340-r9-gw-config.yaml`, `feat340-r9-r9alex-token`, `feat340-r9-gw-token`, `feat340-r9-bind-token`, `feat340-r9-kernel.log` / `r9-im.log` / `r9-gateway*.log`, `feat340-r9-workspace/`(空目录)。
+
+**IM DB 新增(本轮)**:用户 r9alex(id=6ef3d5c0…)、用户 gw-r9(id=ccf569a3…)、用户 agent:R9Beta(id=27f7a1ba…,**作为 R9-1 work-around 手动建**);节点 feat340-r9-node(owner=r9alex);对话 b85218ca(Direct with R9Beta)、e7693415(Direct with fuck,offline)、d6a93fd4 + fced148c(R9 Smoke Group ×2,实际 direct_kind);消息 4 条(2 用户 + 2 R9Beta)。
