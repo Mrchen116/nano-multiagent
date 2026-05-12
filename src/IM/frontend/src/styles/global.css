@@ -557,7 +557,7 @@ body {
 .im-agents-list {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   min-height: 0;
   background: oklch(0.93 0.007 240);
   border-right: 1px solid var(--im-border);
@@ -643,6 +643,7 @@ body {
   font-size: 0.78rem;
   font-weight: 700;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .im-agent-row.is-mobile .im-agent-row-avatar {

@@ -106,7 +106,7 @@ export function AccountPage() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-[oklch(0.95_0.005_240)]">
+    <div className="flex flex-1 flex-col overflow-y-auto bg-[oklch(0.95_0.005_240)]">
       {isMobile ? (
         <div className="sticky top-0 z-10 flex h-12 items-center gap-2 border-b border-[oklch(0.91_0.005_240)] bg-[oklch(0.97_0.004_240)] px-1">
           <Link
