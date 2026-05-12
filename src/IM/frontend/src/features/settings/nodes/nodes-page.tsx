@@ -58,14 +58,16 @@ export function NodesPage() {
   }, [agentsQuery.data]);
 
   const selfUserId = useAuthStore((state) => state.user?.id ?? null);
+  const accessToken = useAuthStore((state) => state.accessToken ?? "");
 
   // node.status_changed is emitted by M10 (owner-scoped) and patched into React
   // Query cache so the status pill / last_heartbeat / last_error reflect heartbeat
   // state in real time without forcing a refetch round trip.
   useEffect(() => {
-    if (!selfUserId) return;
+    if (!selfUserId || !accessToken) return;
     const detach = attachUserConversationStream({
       selfUserId,
+      token: accessToken,
       onEvent: (event) => {
         if (event.eventType !== "node.status_changed") return;
         const payload = event.payload as {
@@ -122,7 +124,7 @@ export function NodesPage() {
       }
     });
     return detach;
-  }, [selfUserId, queryClient]);
+  }, [selfUserId, accessToken, queryClient]);
 
   const mutation = useMutation({
     mutationFn: (row: NodeSettingsProfile) =>

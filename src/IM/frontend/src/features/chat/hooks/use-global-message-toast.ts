@@ -5,6 +5,7 @@ import { useLocation } from "react-router-dom";
 import { attachUserConversationStream, getChatBootstrapState, listConversations } from "../chat-api";
 import { ParsedImStreamEvent, setConversationPreviewSnapshot } from "../im-chat-api";
 import { ConversationSummary } from "../types";
+import { useAuthStore } from "../../auth/auth-store";
 
 /** 应用内 toast 通知的载荷。 */
 export interface ToastPayload {
@@ -179,6 +180,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   const location = useLocation();
   const pathnameRef = useRef(location.pathname);
   const selfUserIdRef = useRef<string | null>(null);
+  const accessToken = useAuthStore((s) => s.accessToken ?? "");
   /** 按会话记录已处理 event_id，避免重复 toast。 */
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
 
@@ -202,6 +204,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
 
         detach = attachUserConversationStream({
           selfUserId: bootstrap.selfUserId,
+          token: accessToken,
           onResyncRequired: async () => {
             await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
           },

@@ -1269,7 +1269,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=_run_context_store,
-        im_http_client=im_config_sync_client._get_client() if im_config_sync_client is not None else None,
     )
     if config.im_service is not None:
         pipeline._kernel_event_observer = _build_kernel_event_observer(
@@ -1413,36 +1412,11 @@ def _build_im_connection_manager(
     )
 
 
-def _create_agent_placeholder_message(
-    *,
-    im_http_client: "httpx.Client",
-    conversation_id: str,
-    agent_user_id: str,
-) -> str | None:
-    """POST to IM to pre-create agent placeholder message before SSE stream opens.
-
-    Returns the new agent message_id, or None on failure.
-    Errors are surfaced (not swallowed) — caller decides how to handle.
-    """
-    response = im_http_client.post(
-        f"/im/v1/conversations/{conversation_id}/messages",
-        json={
-            "sender_user_id": agent_user_id,
-            "sender_type": "agent",
-            "content": "",
-            "delivery_status": "pending",
-        },
-    )
-    response.raise_for_status()
-    return response.json().get("id")
-
-
 def _build_relay_lifecycle_callback(
     *,
     reporter: UpstreamReporter | None,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]] | None = None,
-    im_http_client: "httpx.Client | None" = None,
 ):
     async def _callback(message: InboundMessage, update: RelayLifecycleUpdate) -> None:
         if reporter is None:
@@ -1454,30 +1428,15 @@ def _build_relay_lifecycle_callback(
         if manager is None:
             return
         if update.phase == "accepted":
-            # Pre-create agent placeholder message before SSE stream opens.
-            # Stores agent message_id so kernel_event_observer targets the agent message,
-            # not the user's message. Without pre-creation, run_status=running fires before
-            # the SSE client connects and turn_start is never observed.
+            # Seed run_context_store with conversation/agent meta so kernel_event_observer
+            # can send the turn_start frame.  message_id starts empty; it is filled
+            # by the turn_start ack (gateway returns the created placeholder message_id).
             if run_context_store is not None and update.run_id:
                 conversation_id = message.external_chat_id or ""
                 agent_id_meta = _metadata_text(message.metadata, key="agent_id") or update.agent_id or ""
-                agent_user_id = _metadata_text(message.metadata, key="agent_user_id") or agent_id_meta
-                agent_message_id: str | None = None
-                if im_http_client is not None and conversation_id and agent_user_id:
-                    try:
-                        agent_message_id = _create_agent_placeholder_message(
-                            im_http_client=im_http_client,
-                            conversation_id=conversation_id,
-                            agent_user_id=agent_user_id,
-                        )
-                    except Exception:  # noqa: BLE001
-                        agent_message_id = None
-                if agent_message_id is None:
-                    # Fallback: use user message_id (legacy behaviour, message.created won't fire)
-                    agent_message_id = _metadata_text(message.metadata, key="message_id") or ""
                 run_context_store[update.run_id] = {
                     "conversation_id": conversation_id,
-                    "message_id": agent_message_id,
+                    "message_id": "",  # filled by turn_start ack
                     "agent_id": agent_id_meta,
                 }
             payload = reporter.send_delivery_receipt(
@@ -1553,15 +1512,16 @@ def _build_kernel_event_observer(
     *,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]],
-) -> Callable[[Mapping[str, Any]], None]:
+) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
-    The observer is called synchronously during _await_terminal_run_async; it schedules
-    async WS sends via asyncio.create_task so the caller's event loop handles dispatch.
+    The observer returns a coroutine for run_status=running so the pipeline can
+    await the turn_start ack before processing the following assistant_message event.
+    For all other events the observer schedules tasks and returns None.
 
     Kernel SSE events translated:
     - run_status=running  → node.streaming_delta kind=turn_start (creates placeholder message)
-    - assistant_message   → node.streaming_delta kind=message_delta + kind=message_completed
+    - assistant_message   → node.streaming_delta kind=message_delta
     - tool_start          → node.streaming_delta kind=tool_call_upserted
     - tool_end            → node.streaming_delta kind=tool_call_completed
     - turn_end            → node.streaming_delta kind=message_completed (with token_usage if available)
@@ -1573,16 +1533,16 @@ def _build_kernel_event_observer(
         except Exception:  # noqa: BLE001
             pass
 
-    def observer(event: Mapping[str, Any]) -> None:
+    def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         manager = im_connection_manager_factory()
         if manager is None or not manager.connected:
-            return
+            return None
         run_id = str(event.get("run_id") or "").strip()
         if not run_id:
-            return
+            return None
         ctx = run_context_store.get(run_id)
         if ctx is None:
-            return
+            return None
         conversation_id = ctx.get("conversation_id") or ""
         message_id = ctx.get("message_id") or ""
         agent_id = ctx.get("agent_id") or ""
@@ -1591,21 +1551,73 @@ def _build_kernel_event_observer(
         loop = asyncio.get_event_loop()
 
         if event_name == "run_status" and event.get("status") == "running":
-            # Placeholder already created in accepted phase via IM REST API;
-            # no turn_start frame needed. Skipping avoids the timing race where
-            # run_status=running fires before the SSE client connects.
-            pass
+            if conversation_id and agent_id:
+                # Return a coroutine so the pipeline awaits turn_start ack before processing
+                # the following assistant_message; without awaiting, message_id would still be
+                # empty when assistant_message fires and the delta would be silently dropped.
+                async def _send_turn_start_and_store(
+                    mgr: IMConnectionManager = manager,
+                    rid: str = run_id,
+                    cid: str = conversation_id,
+                    aid: str = agent_id,
+                ) -> None:
+                    try:
+                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
+                            "kind": "turn_start",
+                            "conversation_id": cid,
+                            "agent_id": aid,
+                            "run_id": rid,
+                        })
+                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
+                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                        if returned_msg_id and rid in run_context_store:
+                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                    except Exception:  # noqa: BLE001
+                        pass
+                return _send_turn_start_and_store()
 
         elif event_name == "assistant_message":
             content = str(event.get("content") or "").strip()
-            if content and message_id:
-                # Single delta frame containing the full text (kernel has no sub-token streaming via SSE).
+            if not content:
+                return None
+            if message_id:
+                # turn_start already ack'd — send delta directly.
                 loop.create_task(_send(manager, "node.streaming_delta", {
                     "kind": "message_delta",
                     "message_id": message_id,
                     "delta_text": content,
                     "run_id": run_id,
                 }))
+            elif conversation_id and agent_id:
+                # Kernel skipped run_status=running; send turn_start inline and await ack
+                # so we have message_id before the delta frame is dispatched.
+                async def _turn_start_then_delta(
+                    mgr: IMConnectionManager = manager,
+                    rid: str = run_id,
+                    cid: str = conversation_id,
+                    aid: str = agent_id,
+                    text: str = content,
+                ) -> None:
+                    try:
+                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
+                            "kind": "turn_start",
+                            "conversation_id": cid,
+                            "agent_id": aid,
+                            "run_id": rid,
+                        })
+                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
+                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                        if returned_msg_id and rid in run_context_store:
+                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                            await mgr.send_json("node.streaming_delta", {
+                                "kind": "message_delta",
+                                "message_id": str(returned_msg_id),
+                                "delta_text": text,
+                                "run_id": rid,
+                            })
+                    except Exception:  # noqa: BLE001
+                        pass
+                return _turn_start_then_delta()
 
         elif event_name == "turn_end":
             # Finalize message with token_usage if present.
