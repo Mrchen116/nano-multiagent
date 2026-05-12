@@ -187,6 +187,7 @@
         "displayName": "Display Name",
         "displayNameRequired": "Display Name *",
         "displayNamePlaceholder": "e.g. My Agent",
+        "displayNameHelper": "Shown in conversations and group chats.",
         "description": "Description",
         "descriptionHelp": "Short summary shown in group chats.",
         "descriptionPlaceholder": "What does this agent do?",

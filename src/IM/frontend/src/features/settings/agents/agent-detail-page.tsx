@@ -424,7 +424,7 @@ export function AgentDetailPage() {
                 }}
               />
               <p id="display-name-help" className="im-agent-field-help">
-                {t("agents.form.identity.displayNamePlaceholder")}
+                {t("agents.form.identity.displayNameHelper")}
               </p>
               {shouldShowError("display_name") ? (
                 <p className="im-agent-field-error">{validationErrors.display_name}</p>
