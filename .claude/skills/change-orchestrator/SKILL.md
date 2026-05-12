@@ -238,11 +238,12 @@ worker 回报 DONE 时,逐项验:
 - [ ] `unit/<unit_id>` 分支已合并该 milestone(`git log unit/<unit_id> --oneline | grep <milestone_id>`)
 - [ ] `docs/changes/<unit_dir>/<milestone_dir>/tasks.md` 全部 roadpoint 标 DONE
 - [ ] `docs/changes/<unit_dir>/<milestone_dir>/progress.md` 每个 R 有结构化记录(Context/Decision/Rationale/Evidence/Rollback/Commits)
+- [ ] 若 milestone 涉及前端 UI / 视觉 / 原型 / 设计稿 / reference / 截图 / 响应式 / 布局样式要求,`progress.md` 的 Evidence 必须包含真实入口的视觉/交互自测证据(截图/录屏路径、viewport、reference 对照结论或 N/A 理由)
 - [ ] worktree 已清理(`git worktree list` 不应再列出该 milestone 的)
 - [ ] milestone 分支已删除(local + remote)
 - [ ] **lite 模式额外**:`docs/changes/<unit_dir>/fix.md` 的"修复"和"验证"两段已回填
 
-任一项不满足,要求 worker 补齐——**不要代写**。这是 worker 的责任边界。
+任一项不满足,要求 worker 补齐——**不要代写**。这是 worker 的责任边界。你只检查证据是否存在和是否对应退出标准,不判断视觉质量;视觉质量由 reviewer 独立验收。
 
 ### §3.4 异常处理
 
@@ -296,7 +297,13 @@ reviewer 报告里的 `Highest Required Action` 决定动作:
 
 ### §6.1 `pass`
 
-提 PR(§7),退出。
+先做 reviewer 报告完整性检查:
+
+- acceptance/regression 报告必须有验收标准覆盖表,且没有明显只列 focus fix、漏掉首文档必验项。
+- 第 2 轮起,上一轮所有 `fail` / `inconclusive` 必须继续出现,直到有证据关闭。
+- 若首文档 / design / 验收项涉及前端 UI、视觉、原型、设计稿、reference、截图、响应式、布局样式,覆盖表必须有期望来源和真实产品截图/录屏/对照结论。
+
+不满足则**作废本轮 pass**,要求 reviewer 补验或重跑;不要自己补报告。满足后提 PR(§7),退出。你只检查报告证据完整性,不判断视觉质量。
 
 ### §6.2 `fix-implementation`
 

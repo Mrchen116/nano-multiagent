@@ -82,6 +82,10 @@ git pull --ff-only origin "unit/<unit_id>"
 
 旅程清单写到报告"User Journeys Exercised"段。
 
+同时建立一张**验收标准覆盖表**:把首文档里的每条验收标准逐条列出来,每条标记为 `pass / fail / inconclusive / not-applicable`。第 2 轮起必须继承上一轮所有 `fail` 和 `inconclusive` 项,直到它们被明确关闭。后续 fix round 可以聚焦修复项,但**最终给 pass 前必须确认所有必验项都有有效结论**。
+
+如果首文档、design.md 或验收标准引用原型、设计稿、reference screenshot、截图、视觉一致、像素级、响应式、布局/样式等要求,这些 reference artifact 是验收真值的一部分。必须读取/打开对应 reference,并把它们写进覆盖表的"期望来源"。
+
 ### §3.2 真实跑
 
 用真实入口(浏览器 / CLI / HTTP),不要 curl 替代浏览器,不要 stub 替代真后端。每条旅程:
@@ -91,6 +95,10 @@ git pull --ff-only origin "unit/<unit_id>"
 - 记录每一步耗时(主观感受到延迟也算 issue)
 
 发现问题立即开始填报告(不要等全跑完)。
+
+如果某条验收标准要求用户观察到某个结果,你必须验证这个用户可观察结果本身。单测全绿、API 200、页面元素出现、代码里有实现,都只能作为辅助证据;除非首文档或验收报告明确说明替代验证足以证明该用户结果成立,否则不能把替代验证计为 `pass`。
+
+如果某条验收标准要求对齐 reference,必须用真实产品截图/录屏/可观察输出与 reference 对照,记录 viewport/状态、reference 路径或名称、当前证据路径和结论。页面"能渲染"、布局元素"存在"、组件测试通过,都不能替代 reference 对照。无法完成对照时标 `inconclusive`,不能标 `pass`。
 
 ### §3.3 判定每条问题的归属
 
@@ -143,6 +151,7 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
 
 - **Highest Required Action**: `fix-implementation | revise-design | out-of-unit | pass`
 - **Verdict**: `pass | fail | pass-with-issues`
+- **验收标准覆盖**:逐条列出首文档验收标准,记录期望来源、验证方式、证据、结果(`pass / fail / inconclusive / not-applicable`)和备注。涉及 reference 的项必须写 reference 路径/名称
 - **Issues** 段每条:
   - `Severity`: blocking | major | minor
   - **`Recommended Action`**: fix-implementation | revise-design | out-of-unit
@@ -155,6 +164,8 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
 | 条件 | Verdict |
 |---|---|
 | 任意 blocking issue 存在 | `fail` |
+| 任意必验项为 `fail` 或 `inconclusive` | `fail` |
+| 必验项要求 reference 对齐但缺少真实截图/录屏/对照结论 | `fail` |
 | 无 blocking,有 major issue | `pass-with-issues` 或 `fail`(看 caller 的 acceptance bar,默认 `fail`) |
 | 只有 minor issue | `pass` |
 | 完全无 issue | `pass` |
