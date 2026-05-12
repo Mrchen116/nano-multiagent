@@ -81,9 +81,12 @@ git pull --ff-only origin "unit/<unit_id>"
 
 步骤:
 
-1. **读 design.md `§Runbook for Reviewer` 段**,拿到服务清单 + 启动命令。
-   - 如果 design.md 没有这一段 → 立即 `SendMessage` 给 orchestrator,要求回 `change-design-author` 补全后再派 reviewer。**不要**自己去读源码猜该启动什么。
-2. **清单内每个服务**:若有正在跑的进程则 kill,然后按 runbook 给的命令(此时已在 unit 集成分支上)重新启动。
+1. **读 design.md `§Runbook for Reviewer` 段**,拿到服务清单 + 启动命令 + 非入仓产物的重建命令(前端 dist / 生成代码 / proto 等)。
+   - 如果 design.md 没有这一段(或缺产物重建命令) → 立即 `SendMessage` 给 orchestrator,要求回 `change-design-author` 补全后再派 reviewer。**不要**自己去读源码猜该启动 / build 什么。
+2. **清单内每个服务**:
+   a. 有 PID 跑则 kill(含 worker 留下的进程)。
+   b. **重建 runbook 列出的非入仓产物**(典型:`cd src/IM/frontend && npm run build`)。worker 在 worktree 内 build 的产物随 worktree 一起删除,主仓 dist 多半是其他分支的旧版本,必须在主仓 unit 分支上重 build 一次。
+   c. 按 runbook 命令启动,然后**产物指纹核验**:从服务取首页拿到产物 hash(如 `index-<hash>.js`),`grep` 验证本 unit 关键 marker(testid / 字符串)在该产物里命中。命不中 → 重建链路有问题,直接在报告里记 blocking,不要继续走旅程。
 3. **清单外的服务**(数据库 / 消息队列 / 第三方依赖等)**不要碰**——它们不在本 unit 范围,误重启可能破坏其他人的环境。
 
 完成 §2.5 后再进入 §3 走旅程。
@@ -341,6 +344,7 @@ orchestrator 据此决定:
 - **不要把局部证据当成用户故事成立**。单测绿、API 200、页面元素出现、局部替代验证,都不能自动替代首文档里的用户可观察验收标准。
 - **不要让后续 focus round 冲掉未验证项**。上一轮留下的 `inconclusive` / `fail` 必须继续出现在覆盖表里,直到被有效证据关闭。
 - **不要修代码改 git**。哪怕是为了"快速验证"。reviewer 永远只读不写(除了写报告)。
+- **不要用 mtime 推断产物新鲜度**。"dist mtime 在 HEAD commit 之后所以是最新"是无效推理——mtime 只反映上次 build 的时间,不证明 build 输入是本 unit 源码。唯一可信的新鲜度证据是 §2.5 step 2c 的指纹核验。
 
 ---
 
