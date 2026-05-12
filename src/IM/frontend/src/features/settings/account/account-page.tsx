@@ -56,11 +56,6 @@ export function AccountPage() {
     }
   }, [profile]);
 
-  const ownedNodeOptions = useMemo(() => {
-    if (!profile) return [];
-    return (nodesQuery.data ?? []).filter((node) => profile.owned_node_ids.includes(node.node_id));
-  }, [profile, nodesQuery.data]);
-
   const mutation = useMutation({
     mutationFn: async (input: UpdateAccountInput) => updateAccount(input),
     onSuccess: async (updated) => {
@@ -79,6 +74,11 @@ export function AccountPage() {
       setErrorDetail(err.message);
     }
   });
+
+  const ownedNodeRows = useMemo(() => {
+    if (!profile) return [];
+    return (nodesQuery.data ?? []).filter((node) => profile.owned_node_ids.includes(node.node_id));
+  }, [profile, nodesQuery.data]);
 
   if (!draft || !profile) {
     return <p className="text-sm text-slate-500">{t("common.loading")}</p>;
@@ -108,30 +108,11 @@ export function AccountPage() {
       onSubmit={onSubmit}
       aria-label="account-form"
     >
-      <header className="flex items-end justify-between gap-3">
-        <div>
-          <h2 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">
-            {t("settings.account.title")}
-          </h2>
-          <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{profile.username}</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="im-btn im-btn-muted"
-            disabled={!dirty || mutation.isPending}
-            onClick={onDiscard}
-          >
-            {t("settings.account.actions.discard")}
-          </button>
-          <button
-            type="submit"
-            className="im-btn im-btn-primary"
-            disabled={!dirty || mutation.isPending}
-          >
-            {mutation.isPending ? t("settings.account.actions.saving") : t("settings.account.actions.save")}
-          </button>
-        </div>
+      <header>
+        <h2 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">
+          {t("settings.account.title")}
+        </h2>
+        <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{profile.username}</p>
       </header>
 
       {errorDetail && (
@@ -212,7 +193,7 @@ export function AccountPage() {
             }
           >
             <option value="">{t("settings.account.defaults.selectNode")}</option>
-            {ownedNodeOptions.map((node) => (
+            {ownedNodeRows.map((node) => (
               <option key={node.node_id} value={node.node_id}>
                 {node.alias || node.node_name} ({node.status})
               </option>
@@ -222,6 +203,54 @@ export function AccountPage() {
             {t("settings.account.defaults.defaultEntryNodeHint")}
           </span>
         </label>
+        <div className="grid gap-2">
+          {ownedNodeRows.map((node) => {
+            const isOnline = node.status === "online";
+            const isDefault = node.node_id === draft.default_entry_node_id;
+            return (
+              <div
+                key={node.node_id}
+                data-testid={`account-owned-node-${node.node_id}`}
+                className="flex items-center gap-3 rounded-[10px] border border-[oklch(0.87_0.006_240)] bg-[oklch(0.96_0.005_240)] px-3 py-[10px]"
+              >
+                <span
+                  className={
+                    "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-bold " +
+                    (isOnline
+                      ? "bg-[oklch(0.93_0.07_145)] text-[oklch(0.32_0.14_145)] border-[oklch(0.80_0.12_145)]"
+                      : "bg-[oklch(0.92_0.005_240)] text-[oklch(0.50_0.01_240)] border-[oklch(0.85_0.005_240)]")
+                  }
+                >
+                  <span
+                    className={
+                      "inline-block h-1.5 w-1.5 rounded-full " +
+                      (isOnline ? "bg-[oklch(0.55_0.18_145)]" : "bg-[oklch(0.60_0.01_240)]")
+                    }
+                  />
+                  {isOnline ? "online" : "offline"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 text-[13px] font-bold text-[oklch(0.18_0.01_240)] truncate">{node.alias || node.node_name}</p>
+                  <p className="m-0 font-mono text-[11px] text-[oklch(0.55_0.01_240)] truncate">{node.node_id}</p>
+                </div>
+                <div className="text-right text-[12px] text-[oklch(0.55_0.01_240)]">
+                  <p className="m-0">
+                    {node.agent_count} {t("settings.account.defaults.agentsShort")}
+                  </p>
+                  <p className="m-0">v{node.version}</p>
+                </div>
+                {isDefault ? (
+                  <span
+                    data-testid={`account-owned-node-default-chip-${node.node_id}`}
+                    className="rounded-full border border-[oklch(0.78_0.12_180)] bg-[oklch(0.93_0.06_180)] px-2 py-0.5 text-[11px] font-bold text-[oklch(0.35_0.12_180)]"
+                  >
+                    {t("settings.account.defaults.defaultChip")}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
         <div className="rounded-[8px] border border-[oklch(0.87_0.006_240)] bg-[oklch(0.96_0.005_240)] px-3 py-2 text-[12px] grid gap-1">
           <div className="flex justify-between text-[oklch(0.55_0.01_240)]">
             <span>{t("settings.account.defaults.ownedNodes")}</span>
@@ -241,6 +270,34 @@ export function AccountPage() {
           ) : null}
         </div>
       </section>
+
+      <div
+        data-testid="account-save-footer"
+        className="flex items-center justify-between gap-3 rounded-[12px] border border-[oklch(0.87_0.006_240)] bg-white px-4 py-[14px]"
+      >
+        <span className="text-[12.5px] text-[oklch(0.60_0.01_240)]">
+          {dirty ? (
+            <span className="font-bold text-[oklch(0.50_0.15_60)]">● {t("settings.account.actions.savedJustNow") === "Saved." ? "Unsaved changes" : "有未保存改动"}</span>
+          ) : null}
+        </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="im-btn im-btn-muted"
+            disabled={!dirty || mutation.isPending}
+            onClick={onDiscard}
+          >
+            {t("settings.account.actions.discard")}
+          </button>
+          <button
+            type="submit"
+            className="im-btn im-btn-primary"
+            disabled={!dirty || mutation.isPending}
+          >
+            {mutation.isPending ? t("settings.account.actions.saving") : t("settings.account.actions.saveAccount")}
+          </button>
+        </div>
+      </div>
     </form>
   );
 }

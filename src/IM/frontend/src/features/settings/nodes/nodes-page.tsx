@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import { attachUserConversationStream } from "../../chat/im-chat-api";
@@ -29,6 +30,7 @@ function statusLabelKey(status: string): string {
 
 export function NodesPage() {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["settings", "nodes"],
@@ -161,11 +163,27 @@ export function NodesPage() {
   const totalAgents = rows.reduce((s, r) => s + (r.agent_count ?? 0), 0);
 
   return (
-    <div className="flex h-full flex-col gap-4 overflow-y-auto bg-[oklch(0.95_0.005_240)] p-[24px_28px]">
+    <div className="flex h-full flex-col overflow-y-auto bg-[oklch(0.95_0.005_240)]">
+      {isMobile ? (
+        <div className="sticky top-0 z-10 flex h-12 items-center gap-2 border-b border-[oklch(0.91_0.005_240)] bg-[oklch(0.97_0.004_240)] px-1">
+          <Link
+            data-testid="nodes-page-back"
+            to="/me"
+            aria-label="Back"
+            className="flex h-10 w-10 items-center justify-center rounded-[10px] text-[22px] text-[oklch(0.30_0.01_240)] hover:bg-[oklch(0.93_0.005_240)]"
+          >
+            ‹
+          </Link>
+          <h1 className="m-0 text-[16px] font-bold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.nodes.title")}</h1>
+        </div>
+      ) : null}
+      <div className="flex flex-col gap-4 p-[24px_28px]">
+      {!isMobile && (
       <div>
         <h1 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.nodes.title")}</h1>
         <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{t("settings.nodes.subtitle")}</p>
       </div>
+      )}
       <div
         data-testid="nodes-kpi-grid"
         className="grid grid-cols-2 gap-[10px] md:grid-cols-4"
@@ -322,6 +340,7 @@ export function NodesPage() {
           </section>
         );
       })}
+      </div>
     </div>
   );
 }

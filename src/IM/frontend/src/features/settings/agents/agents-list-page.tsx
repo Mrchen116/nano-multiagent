@@ -41,6 +41,15 @@ function AgentRow(props: { agent: AgentSummary; status: "online" | "offline"; is
         aria-label={`${agent.agent_id} ${status}`}
         role="status"
       />
+      {isMobile ? (
+        <span
+          data-testid={`agent-row-chevron-${agent.agent_id}`}
+          aria-hidden="true"
+          className="ml-1 flex-shrink-0 text-[18px] font-light text-[oklch(0.70_0.01_240)]"
+        >
+          ›
+        </span>
+      ) : null}
     </Link>
   );
 }
