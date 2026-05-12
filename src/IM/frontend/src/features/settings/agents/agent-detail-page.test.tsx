@@ -254,4 +254,122 @@ describe("agent detail page", () => {
     expect(errorBanner.textContent).toContain("participant_ids contains unknown users");
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
   });
+
+  // M19/R11-4: Identity row1 字段是 `Agent ID + Display Name`, 而不是
+  // `Agent ID + Owner(裸 UUID)`。owner_id 对最终用户毫无意义,prototype
+  // 的 AgentForm Identity row1 只放 Agent ID + Display Name (Description 下移到下一行)。
+  it("R11-4: Identity row1 is Agent ID + Display Name (no Owner UUID column)", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      config: {
+        agent_id: "agent-core-1",
+        owner_id: "owner-uuid-DEADBEEF",
+        display_name: "Core Planner",
+        description: "",
+        system_prompt: "p",
+        skills: [],
+        tool_allowlist: [],
+        group_reply_policy: "MENTION",
+        default_model: null,
+        workspace_root: "/tmp",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        bound_nodes: ["node-1"],
+        updated_at: "2026-03-13T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: ""
+      },
+      owningNode: null
+    });
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    // Owner UUID 不应作为表单字段值出现 (header subtitle 里可能仍含 agent_id,但不应有 owner_id 裸值)。
+    const ownerInput = document.querySelector("#owner-id") as HTMLInputElement | null;
+    expect(ownerInput, "M19/R11-4: #owner-id 字段应被移除").toBeNull();
+
+    // Display Name 应作为 row1 第二列, 与 Agent ID 同 grid。
+    const identityGrid = document.querySelector('[data-testid="agent-identity-row1"]');
+    expect(identityGrid, "expected an Identity row1 grid").not.toBeNull();
+    expect(identityGrid?.querySelector("#agent-id")).not.toBeNull();
+    expect(identityGrid?.querySelector("#display-name")).not.toBeNull();
+  });
+
+  // M19/R11-3: Skills / Tool Allowlist 不再是 60+ checkbox grid, 而是 prototype
+  // `MultiSelect` 风格的平铺 pill — 每项一个 toggle button,选中态青色背景。
+  it("R11-3: Skills / Tool allowlists render as pill toggles (no checkbox grid)", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      config: {
+        agent_id: "agent-core-1",
+        owner_id: "owner-1",
+        display_name: "Core Planner",
+        description: "",
+        system_prompt: "p",
+        skills: ["tdd"],
+        tool_allowlist: ["read"],
+        group_reply_policy: "MENTION",
+        default_model: null,
+        workspace_root: "/tmp",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        bound_nodes: ["node-1"],
+        updated_at: "2026-03-13T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [
+          { name: "tdd", description: "" },
+          { name: "review", description: "" }
+        ],
+        tools: [
+          { name: "read", description: "" },
+          { name: "write", description: "" }
+        ],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: ""
+      },
+      owningNode: null
+    });
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    // pill selector 容器存在
+    const skillsPill = document.querySelector('[data-testid="pill-selector-skills"]');
+    expect(skillsPill, "expected pill selector for skills").not.toBeNull();
+    const toolsPill = document.querySelector('[data-testid="pill-selector-tools"]');
+    expect(toolsPill, "expected pill selector for tools").not.toBeNull();
+
+    // 不应再有 allowlist-selector 的 checkbox + fieldset 结构
+    expect(skillsPill?.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(toolsPill?.querySelector('input[type="checkbox"]')).toBeNull();
+
+    // 每项渲染为 <button>,选中 selected 有 aria-pressed=true
+    const tddBtn = skillsPill?.querySelector('button[data-pill-name="tdd"]') as HTMLButtonElement | null;
+    expect(tddBtn).not.toBeNull();
+    expect(tddBtn?.getAttribute("aria-pressed")).toBe("true");
+    const reviewBtn = skillsPill?.querySelector('button[data-pill-name="review"]') as HTMLButtonElement | null;
+    expect(reviewBtn?.getAttribute("aria-pressed")).toBe("false");
+  });
 });
