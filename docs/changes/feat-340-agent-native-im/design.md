@@ -415,3 +415,27 @@ graph LR
 - **描述**:owner-scoped 旁路看似只补一个广播函数,但实际牵涉(a) heartbeat receive 端状态 diff、(b) offline timeout 守护任务、(c) WS 连接断开 finally 块、(d) agent 维度 status 派生(agent_profiles.status 字段语义在现有代码里不明确)。任一点漏了,reviewer 验"online↔offline 实时反映"会 fail。
 - **缓解**:M10 worker 启动时先 explore `record_heartbeat` 返回值 + `gateway_handler._handle_register/_handle_heartbeat` + finally 路径,写一份 5 行 diagram 钉死 4 个触发点和数据流后再动手;agent.status 派生策略若 explore 发现不可行,在 progress.md 钉死"folding into node.status"做最小决策。
 - **回退**:若 owner-scoped 旁路实施期发现现有 `UserStreamRegistry.broadcast_to_users` 行为有意外副作用,新增 producer 暂用 `broadcast_to_users({owner_id}, frame)` 直接调既有路径(不引新函数),不破坏既有 conversation-scoped 流量。
+
+## Runbook for Reviewer
+
+本 unit 涉及 3 个常驻服务,reviewer 进入旅程前必须**无脑全部 kill + 按下表重启**,确保跑的是 unit 集成分支当前 HEAD 的代码。LLM_PROXY (127.0.0.1:4000) 是外部依赖,**不归本 unit**,不要重启它。前端是 vite 构建产物 (`src/IM/frontend/dist/`),由 IM 服务静态出,不是独立 daemon。
+
+| 服务 | 停止命令 | 启动命令 | 健康检查 |
+|---|---|---|---|
+| Agent Kernel (`:8000`) | `lsof -ti:8000 \| xargs -r kill -9` | `cd <repo> && PYTHONPATH=src python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000 >/tmp/feat340-kernel.log 2>&1 &` | `curl -fsS http://127.0.0.1:8000/healthz \|\| curl -fsS http://127.0.0.1:8000/v1/sessions` 返回 200/JSON |
+| IM Service (`:8011`) | `lsof -ti:8011 \| xargs -r kill -9` | `cd <repo> && PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011 >/tmp/feat340-im.log 2>&1 &` | `curl -fsS http://127.0.0.1:8011/im/v1/conversations -H "Authorization: Bearer <token>"` 返回 200/401(未 auth 也算 daemon ok) |
+| PA Gateway (常驻进程) | `PYTHONPATH=src python -m personal_assistant.main stop` | `cd <repo> && PYTHONPATH=src python -m personal_assistant.main --im-service-url http://127.0.0.1:8011 >/tmp/feat340-gateway.log 2>&1 &` | `tail /tmp/feat340-gateway.log` 看到 `registered with IM` + `lsof` 看到 gateway 进程持有 WS 连到 :8011 |
+
+**前置检查**:
+
+1. LLM_PROXY 在跑(`curl http://127.0.0.1:4000/health` 返回 ok)——不在跑就停验收,**不要**自己起,SendMessage 告诉 orchestrator。
+2. `git rev-parse HEAD` 等于 unit 集成分支当前 HEAD,且 worktree 干净。
+3. 重启前 `pkill -f uvicorn; pkill -f personal_assistant.main` 一次性清旧进程,再按上表逐个起。
+
+**启停顺序**(强依赖):
+
+1. 先 kernel (8000) → 等 healthz 通
+2. 再 IM (8011) → 等 conversations 端点回 200/401
+3. 最后 PA Gateway → 等 log 看到 "registered with IM"
+
+**记录到 acceptance.md §环境声明**:每个服务新启动后,记 PID、端口、`git rev-parse HEAD`、启动时间。
