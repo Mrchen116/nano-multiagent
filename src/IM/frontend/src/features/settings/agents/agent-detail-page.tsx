@@ -5,7 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
 import { createDirectChatByAgentUserId, listAgents } from "../../chat/chat-api";
-import { AllowlistSelector } from "./allowlist-selector";
+import { PillSelector } from "./pill-selector";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { AgentConfig, getAgentDetailState, updateAgentConfig } from "./im-agent-config-api";
 
@@ -318,37 +318,34 @@ export function AgentDetailPage() {
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
             <p className="im-agent-card-sub">{t("agents.form.identity.subEdit")}</p>
           </div>
-          <div className="im-agent-card-grid-2">
+          {/* M19/R11-4: Identity row1 = Agent ID + Display Name (Owner UUID 对用户无意义, 移除). */}
+          <div className="im-agent-card-grid-2" data-testid="agent-identity-row1">
             <div className="im-agent-field">
               <Label.Root htmlFor="agent-id">{t("agents.form.identity.agentId")}</Label.Root>
               <input id="agent-id" className="im-input im-agent-input-mono" value={draft.agent_id} disabled />
             </div>
             <div className="im-agent-field">
-              <Label.Root htmlFor="owner-id">{t("agents.form.identity.owner")}</Label.Root>
-              <input id="owner-id" className="im-input" value={draft.owner_id || "—"} disabled />
+              <Label.Root htmlFor="display-name">{t("agents.form.identity.displayName")}</Label.Root>
+              <input
+                id="display-name"
+                className="im-input"
+                value={draft.display_name}
+                aria-invalid={Boolean(shouldShowError("display_name"))}
+                aria-describedby="display-name-help"
+                onBlur={() => markTouched("display_name")}
+                onChange={(event) => {
+                  setSaved(false);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, display_name: event.target.value });
+                }}
+              />
+              <p id="display-name-help" className="im-agent-field-help">
+                {t("agents.form.identity.displayNamePlaceholder")}
+              </p>
+              {shouldShowError("display_name") ? (
+                <p className="im-agent-field-error">{validationErrors.display_name}</p>
+              ) : null}
             </div>
-          </div>
-          <div className="im-agent-field">
-            <Label.Root htmlFor="display-name">{t("agents.form.identity.displayName")}</Label.Root>
-            <input
-              id="display-name"
-              className="im-input"
-              value={draft.display_name}
-              aria-invalid={Boolean(shouldShowError("display_name"))}
-              aria-describedby="display-name-help"
-              onBlur={() => markTouched("display_name")}
-              onChange={(event) => {
-                setSaved(false);
-                setErrorMessage(null);
-                setDraft({ ...draft, display_name: event.target.value });
-              }}
-            />
-            <p id="display-name-help" className="im-agent-field-help">
-              {t("agents.form.identity.displayNamePlaceholder")}
-            </p>
-            {shouldShowError("display_name") ? (
-              <p className="im-agent-field-error">{validationErrors.display_name}</p>
-            ) : null}
           </div>
           <div className="im-agent-field">
             <Label.Root htmlFor="description">{t("agents.form.identity.description")}</Label.Root>
@@ -425,33 +422,28 @@ export function AgentDetailPage() {
             <p className="im-agent-card-sub">{t("agents.form.access.sub")}</p>
           </div>
           <div className="im-agent-card-grid-2">
-            <AllowlistSelector
-              id="skills-allowlist"
+            <PillSelector
+              testId="pill-selector-skills"
               label={t("agents.form.access.skills")}
               selected={draft.skills}
               options={capabilities.skills}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
-              helpText=""
-              emptySelectionText=""
               onChange={(skills) => {
                 setSaved(false);
                 setErrorMessage(null);
                 setDraft({ ...draft, skills });
               }}
             />
-            <AllowlistSelector
-              id="tool-allowlist"
+            <PillSelector
+              testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
               selected={draft.tool_allowlist}
               options={capabilities.tools}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
-              showDescriptions={false}
-              helpText=""
-              emptySelectionText=""
               onChange={(toolAllowlist) => {
                 setSaved(false);
                 setErrorMessage(null);
