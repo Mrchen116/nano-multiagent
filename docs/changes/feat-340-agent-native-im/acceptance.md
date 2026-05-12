@@ -699,3 +699,157 @@ message.created               ❌ 缺失（整个捕获期间 0 次）
 临时文件（遗留 /tmp/）：`feat340-gw-config.yaml`, `feat340-r6-ws-capture.py`, `feat340-r6-ws2.py`, `feat340-r6-ws-events.log`, `feat340-r6-ws2.log`, `feat340-r6-*.png`, `feat340-r6-s0*.png`, `feat340-r6-workspace/`。
 
 IM DB 新增：用户 alexr6（id=fff75c36...），节点 feat340-r6-node（owner=alexr6），对话 de6b02f3...（Chat with Alpha，Alpha 不是 participant）和 2d6393...（Direct with Alpha，alexr6+Alpha 均为 participant）。
+
+---
+
+# Round 7 — 2026-05-12
+
+## Verdict
+
+**fail**
+
+## Highest Required Action
+
+**fix-implementation**
+
+## Issues Count
+
+- blocking: 2
+- major: 1
+- minor: 1
+
+## Top Concern
+
+前端 WS 仍然用 `?user_id=` 参数连接（被 403 拒绝），导致用户面**完全收不到任何实时事件**：消息发送后内容区保持"No messages yet"、没有 streaming bubble、没有 Token Chip。R6-1 与 R6-3 均重现——M16 声称修复但独立验证确认未生效。
+
+## R6 Issues 验证状态
+
+| R6 # | 原描述 | M16 修复声明 | R7 独立验证结果 |
+|---|---|---|---|
+| R6-1 | 前端 WS 用 `?user_id=` 被 403 | M16 声称已修复（见 M16-fix-streaming/progress.md） | ❌ 仍 fail — 浏览器 console 日志：`WebSocket connection to 'ws://127.0.0.1:8011/im/ws/user?user_id=9d6ec9d2...' failed: 403`，连续出现 |
+| R6-2 | `message.created` 从不触发 | M16 声称已修复 | ⚠️ 后端已修复 — reviewer WS 脚本（用 `?token=` 正确连接）捕捉到 `message.created` 事件；但前端因 R6-1 WS 403 看不到该事件，用户面表现仍为"无 agent 占位 bubble" |
+| R6-3 | `message.completed` content 拼接用户+agent 文本 | M16 声称已修复 | ❌ 仍 fail — DB 查询显示 message_id `2bba2630`（用户消息）被 `sender=Alpha` 的内容 "4" 再次写入；刷新后 UI 出现两个 Alpha 气泡（content 均为 "4"），用户消息气泡显示正确（未被文字追加），但 DB 中用户消息 id 被 agent 的 completed 事件重复写入 |
+| R6-4 | "Open chat ↗" 点击 404 | M16 未声明修复 | ❌ 仍存在 — 点击 Open chat ↗ 停留在 `/settings/agents/Alpha`，底部显示 "404 Not Found" |
+
+## 旅程体验
+
+平台：Chrome headless (gstack-browse) + 真实 IM 服务 port 8011（新启动，commit b8dfe083）+ PA Gateway（feat340-r7-node，alexr7 用户）+ 真实 LLM（kernel:8000 → moonshot）+ WS 帧捕捉脚本 `/tmp/feat340-r7-ws-capture.py`（`?token=` 正确连接）。
+
+### 用户旅程清单
+
+| # | 旅程 | 结果 |
+|---|---|---|
+| J1 | 打开 http://127.0.0.1:8011/ → 登录 (alexr7) | ✅ 登录页正常渲染，登录跳转 /chat 成功 |
+| J2 | Chat workspace 侧栏 + 标签显示 | ✅ All/Agent/Group/Network 标签正常，侧栏 262px 宽，侧栏中 "Direct with Alpha R7" 对话可见 |
+| J3 | Settings Agents 侧栏（无 Policies 检查） | ✅ 侧栏仅 Agents/Nodes/Account，无 Policies（R7 已关闭） |
+| J4 | Alpha 绑定到节点，绿色 online dot | ✅ Agents 列表 Alpha 显示绿色 dot |
+| J5 | 向 Alpha 发消息（输入框 + Enter） | ⚠️ 消息 API POST 成功（WS 脚本捕捉到 message.sent 1709），但 UI 主内容区保持"No messages yet"——WS 403 阻断前端更新 |
+| J6 | **浏览器 console 无 WS 403** (R6-1) | ❌ fail — console 日志持续：`ws://127.0.0.1:8011/im/ws/user?user_id=9d6ec9d2...` 403，退避重连 |
+| J7 | **Streaming bubble 逐字渐显** | ❌ fail — 前端 WS 完全断开，无实时事件到达，发送后内容区零气泡变化 |
+| J8 | **刷新后用户/agent 消息各自独立** (R6-3) | ❌ fail — 刷新后出现两个 Alpha 气泡（均为 "4"）；DB 中用户 message_id 被 agent completed 再次写入，agent 消息出现重复渲染 |
+| J9 | **Token Chip** | ❌ fail — 前端无实时事件，Token Chip 不点亮 |
+| J10 | message.created 后端发出（WS 脚本验证） | ✅ 后端已正确发出：脚本捕获到 message.created event_id=1712 |
+| J11 | "Open chat ↗"（R6-4） | ❌ 仍 fail — 停留在 /settings/agents/Alpha，底部 "404 Not Found" |
+
+### 关键截图
+
+- `/tmp/feat340-r7-01-chat-home.png` — Chat 空态，UI 样式正常
+- `/tmp/feat340-r7-02-agents-list.png` — Agents 列表，Alpha 绿色 online
+- `/tmp/feat340-r7-03-alpha-detail.png` — Alpha 详情页
+- `/tmp/feat340-r7-04-after-openchat.png` — Open chat 404（R6-4 重现）
+- `/tmp/feat340-r7-05-conv-open.png` — Direct with Alpha R7 空对话界面
+- `/tmp/feat340-r7-06-before-send.png` — 发送前消息框
+- `/tmp/feat340-r7-07-t1s-after-send.png` — 发送后 t+1s：侧栏有预览但主区无气泡
+- `/tmp/feat340-r7-08-t4s-after-send.png` — 发送后 t+4s：主区仍无气泡
+- `/tmp/feat340-r7-09-current-ui.png` — agent 回复后主区仍无变化（WS 断）
+- `/tmp/feat340-r7-10-after-reload.png` — 刷新后：用户气泡正确，但 Alpha 出现两个气泡（均为 "4"）
+- `/tmp/feat340-r7-11-agents-check.png` — Agents 页正常，无 Policies
+
+### WS 帧捕捉（reviewer 脚本 `?token=` 正确连接）
+
+```
+[14:37:25] message.sent        ✅ event_id=1709
+[14:37:25] relay.accepted      ✅ event_id=1710
+[14:37:27] message.sent        ✅ event_id=1711  (重播)
+[14:37:27] message.created     ✅ event_id=1712  (后端已发出)
+[14:37:27] message.delta       ✅ event_id=1713
+[14:37:27] message.completed   ✅ event_id=1714
+[14:37:27] relay.processing    ✅
+[14:37:27] relay.report        ✅
+[14:37:27] relay.completed     ✅
+[14:37:27] message.delivered   ✅
+```
+
+**后端事件链完整**。问题在前端：仍用 `?user_id=` 连接，收不到任何事件。
+
+### DB 消息状态（REST API 验证）
+
+```
+id=2bba2630 sender=alexr7   content='What is 2+2? Please answer briefly.'  (正确)
+id=2079a1c3 sender=Alpha    content='4'                                      (正确 agent 回复)
+id=2bba2630 sender=Alpha    content='4'                                      (❌ 用户消息 id 被重写 — R6-3 重现)
+```
+
+## 问题清单
+
+| # | 严重度 | 现象 | Recommended Action | Action Rationale |
+|---|---|---|---|---|
+| R7-1 (=R6-1) | blocking | 前端 WS 仍用 `?user_id=9d6ec9d2...` 连接，被 403 拒绝；连续退避重连，最大间隔 128s。用户面：发送消息后主内容区永远无气泡、无 streaming、无 Token Chip。 | fix-implementation | M16 声称已修复前端 WS 参数，但 R7 独立验证仍见 `?user_id=` 在 console。需检查 M16 修复是否真正合入，或是否存在多处 WS 构建路径未一并修改。 |
+| R7-2 (=R6-3) | blocking | `message.completed` 事件仍然把 agent 的 content 写入用户消息的 message_id；DB 中用户消息 `2bba2630` 被 sender=Alpha 以 content="4" 再次写入，刷新后 Alpha 气泡渲染重复（两个"4"气泡），语义上用户消息与 agent 消息仍共享同一 message_id。 | fix-implementation | M16 声称修复了 R5-2/R6-3，但 DB 查询证伪：用户消息 id 仍被 agent 的 completed 事件覆写。需确保 message.completed 只更新以 agent sender 创建的 placeholder message_id，而非用户消息 id。 |
+| R7-3 (=R6-2 partial) | major | 后端 `message.created` 已正确发出（reviewer WS 脚本捕捉到），但用户面永远看不到 agent 占位 bubble，因为前端 WS（R7-1 blocking）完全断开。若 R7-1 修复，此项需重验 UI 渲染逻辑是否正确响应 `message.created`。 | fix-implementation | R6-2 的根因已拆分：后端发送 message.created 已修复（✅）；前端接收路径（WS 403）是 R7-1 阻断；前端收到 message.created 后是否渲染占位 bubble 尚未验证（取决于 R7-1 修复后才能测）。 |
+| R7-4 (=R6-4) | minor | "Open chat ↗" 点击停留 `/settings/agents/Alpha`，底部报 "404 Not Found"。 | fix-implementation | Agent 详情页 Open chat 路由逻辑未修复，应跳转到该 agent 的 direct 对话（或先创建再跳转）。 |
+
+## 验收标准覆盖
+
+| 用户故事 | 要求 | R7 结果 |
+|---|---|---|
+| 用户打开 IM Web 并登录 | 看到登录页，登录后进 Chat | ✅ pass |
+| Chat workspace 正常渲染 | 侧栏 + 标签 + 搜索框 | ✅ pass |
+| 向 agent 发消息 | 消息送达 API 层 | ✅ API 层通（HTTP 201） |
+| **浏览器 console 无 WS 403** | `?token=` 连接，无 403 | ❌ fail（R7-1，仍 `?user_id=` 403） |
+| **Streaming bubble 逐字渐显** | 发送后 bubble 字符级递增 | ❌ fail（WS 断，前端无实时） |
+| **Agent 占位 bubble 立即出现** | message.created 触发前端渲染 | ❌ fail（R7-1 阻断；后端已发 message.created） |
+| **Token Chip 显示 input/output 数字** | 回复完成后显示 token 数 | ❌ fail（前端无实时事件） |
+| **刷新后用户/agent 消息各自独立** | 无内容拼接污染 | ❌ fail（R7-2，用户 message_id 被 agent 再写，重复气泡） |
+| 群聊 @ 提及 picker | @ 弹出选择框 | inconclusive（沿用 R6，未重测） |
+| Settings 侧栏无 Policies | 仅 Agents/Nodes/Account | ✅ pass（R7 已修） |
+
+## 上层文档同步
+
+（延续 R1–R6 结论，无新变化）
+
+- [x] `SPEC.md`：无需更新
+- [x] `docs/内核设计SPEC.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：需更新（R1 已标记，待 PR 阶段处理）
+- [x] `docs/IM-SPEC.md`：需更新（R1 已标记，待 PR 阶段处理）
+
+## Side Findings
+
+- Side-F8 (in-unit, minor): 刷新后 Alpha 出现两个"4"气泡——根因是 R7-2（message_id 复用），但 UI 渲染逻辑应对重复 id 有去重保护，否则前端容易出现幽灵气泡。
+- Side-F1 沿用：8 个 IM integration tests pre-existing failure（baseline）。
+
+## §行动账本
+
+| 桶 | 内容 |
+|---|---|
+| READ | SKILL.md, design.md §Runbook for Reviewer, acceptance.md R1-R6（继承验证状态），spec.md（验收标准对照） |
+| RESTART_SERVICE | Agent Kernel PID=96459 :8000（commit b8dfe083，14:29 启动）；IM Service PID=96484 :8011（commit b8dfe083，14:29 启动）；PA Gateway PID=97067（feat340-r7-node，14:32 启动） |
+| BROWSE | goto /bind/confirm（节点绑定）→ /chat（Home）→ /settings/agents（Agents 列表）→ /settings/agents/Alpha（Alpha 详情）→ click Open chat ↗（R6-4 验证）→ /chat/74b3c960...（Direct 对话）→ fill + Enter（发送消息）→ reload（R6-3 验证）→ /settings/agents（冒烟）|
+| CAPTURE | 截图 11 张（/tmp/feat340-r7-*.png）；WS 脚本 /tmp/feat340-r7-ws-capture.py（收到 events：message.sent×3, relay.accepted, message.created×1, message.delta, message.completed, relay.processing/report/completed, message.delivered）；DB REST 查询 3 条消息 |
+| SHELL_MUTATION | pkill 旧进程；curl 注册 alexr7 / gw-r7 用户；写 /tmp/feat340-gw-r7-config.yaml；mkdir /tmp/feat340-r7-workspace/Alpha；curl 创建对话 74b3c960...；写 /tmp/feat340-r7-ws-capture.py；curl DB 消息查询 |
+| SENDMESSAGE | 本轮 1 次（本报告写完后向 team-lead 回报） |
+
+**源码单次例外引用**：仅读 design.md §Runbook for Reviewer（获取服务启停命令）——已在 READ 桶标注。
+
+## §环境声明
+
+| 服务 | PID | 端口 | 启动时 commit | 启动时间 |
+|---|---|---|---|---|
+| Agent Kernel | 96459 | :8000 | b8dfe083 | 2026-05-12 14:29 |
+| IM Service | 96484 | :8011 | b8dfe083 | 2026-05-12 14:29 |
+| PA Gateway | 97067 | — | b8dfe083 | 2026-05-12 14:32 |
+| LLM_PROXY | 外部，未动 | :4000 | — | — |
+
+临时文件（遗留 /tmp/）：`feat340-gw-r7-config.yaml`，`feat340-r7-ws-capture.py`，`feat340-r7-ws-events.log`，`feat340-r7-*.png`（11 张），`feat340-r7-workspace/`。
+
+IM DB 新增（此轮）：用户 alexr7（id=9d6ec9d2...），用户 gw-r7（id=69cdaec3...），节点 feat340-r7-node（owner=gw-r7），对话 74b3c960...（Direct with Alpha R7，alexr7+Alpha 均为 participant），消息 2bba2630（用户）、2079a1c3（Alpha）。
