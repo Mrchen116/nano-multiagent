@@ -122,3 +122,17 @@ fix-visual-alignment (post-acceptance fix round 11) — 5 页视觉重写按 pro
 - Rollback: `git revert 0aa0538c` (C2) + `git revert 0a73ba8f` (C1)
 - Commits: C1=0a73ba8f, C2=0aa0538c
 
+
+## R8 — Shell polish: internal badge + UserMenu ▾ + 💬🤖👤 + Chat unread (R11-9 minor)
+
+- Context: R11-9 (minor) — prototype `attachments/prototype/IM Prototype.html`:L297 顶栏 brand `nano IM` 旁有 10px `internal` 灰底 pill;L168 UserMenu trigger 末尾带 `▾` 下拉指示符;L103-109 MobileTabBar 3 个 tab 带 emoji `💬🤖👤` icon,Chat tab 右上角叠 unread 总数 badge(`totalUnread = conversations.reduce(unread)`)。当前 AppShell 顶栏只有纯文本 brand,UserMenu trigger 无 ▾,移动底 nav 是纯文字 tab 无 emoji 无 unread。
+- Decision: (a) `app-shell.tsx::AppShell` desktop topbar `<div className="im-shell-brand">` 拆为 `<span>nano IM</span>` + `<span data-testid="shell-internal-badge" className="im-shell-internal-badge">internal</span>`(新 CSS 类:10px / weight 600 / `oklch(0.30 0.012 240)` 灰底 / 99px 圆角 / 2px 6px padding / lowercase letter-spacing 0.04em)。(b) `user-menu.tsx::UserMenu` trigger 末尾追加 `<span aria-hidden className="im-user-menu-chevron">▾</span>`(新 CSS:0.75rem / opacity 0.7)。(c) AppShell mobile bottombar 每个 NavLink 包 `<span className="im-shell-bottomtab">` 内放 emoji icon span + label span;Chat NavLink 末尾条件渲染 `<span data-testid="shell-chat-unread" className="im-shell-unread-badge">{totalUnread}</span>`(absolute top-right / `oklch(0.55 0.15 25)` 红底 / 白字 / 10px font / round)。(d) `totalUnread` 来源:`useQuery({ queryKey: ["chat-v2", "conversations"], queryFn: listConversations, enabled: authed && isMobile, staleTime: 10_000 })`,reduce `c.unread_count ?? 0`。
+- Rationale: `enabled: authed && isMobile` 是关键 — 桌面不需要 unread badge(顶栏没有这个 UI),且 app-routes 集成测试统计 fetchMock.calledTimes 严格,desktop 路径多发一个 `/im/v1/conversations` 请求会让 `agent-edit.test.tsx::"blocks save when required fields are empty"` 从 3 → 4 次。enabled 短路保留 R10 桌面 fetch 计数稳定,同时移动端按需启动 unread 同步。internal badge 颜色用比 prototype 字面值稍亮一档的 `oklch(0.30 0.012 240)`(prototype 0.25 在深色顶栏上对比度不够),对齐顶栏已有 `oklch(0.27 0.012 240)` hover 色板。queryKey 复用 `["chat-v2", "conversations"]` 与 chat-workspace-page 同享缓存,避免重复请求。
+- Evidence:
+  - Tests: `app-shell.test.tsx` 加 5 个 R11-9 测试 (internal badge 在 banner 内 / UserMenu trigger 含 ▾ / 移动 3 tab 含 💬🤖👤 / Chat tab 显 unread 数字 / unread=0 隐藏 badge) C1 RED 4/5(一个 hide 测试 vacuous-pass) → C2 GREEN 5/5;同时加 QueryClientProvider wrapper + vi.mock listConversations,保留旧 3 个 shell 测试 GREEN。全套 vitest 52 files / 280 tests GREEN(275 → 280, +5)。
+  - Entry: 视觉确认延后至 R9 双 viewport 截图(桌面看 internal pill + ▾,移动看 emoji + unread badge)。
+  - Visual/Interaction: 单测断言层 — banner 含 `internal` testid 元素,UserMenu trigger 含 `▾` 文本,移动 nav 三 tab emoji 全在,Chat tab unread 数字精确匹配 conversations.unread_count 之和。
+- Side effect: AppShell 现引入 `useQuery` + `useAuthStore.user` 依赖,需 QueryClientProvider 包裹(app `main.tsx` 早已套 QC,生产路径无破坏)。
+- Out-of-unit: 桌面顶栏无 unread 指示(prototype 桌面也无),如未来产品要桌面顶栏 Chat tab 加 unread 需独立 issue;internal badge 文字硬编码(未走 i18n),如要 EN/中切换文案需 i18n 扩 key `shell.internalBadge`(本 round 不动)。
+- Rollback: `git revert e3fd7a8c` (C2) + `git revert ddc519fb` (C1)
+- Commits: C1=ddc519fb, C2=e3fd7a8c
