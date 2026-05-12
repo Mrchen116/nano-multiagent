@@ -215,6 +215,13 @@ describe("agent edit page", () => {
         });
       }
 
+      if (url === "/im/v1/agents") {
+        return new Response(
+          JSON.stringify({ items: [{ agent_id: "agent-core-1", display_name: "Core Planner", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
       if (url === "/im/v1/agents/agent-core-1/capabilities") {
         return new Response(
           JSON.stringify({
@@ -265,7 +272,7 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
     expect(await screen.findByText(/Display name is required\./i)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
   it("surfaces real 409 conflict detail without overwriting the current version label", async () => {
