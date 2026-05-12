@@ -19,7 +19,9 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 6. **默认并行**。无依赖、无文件冲突的 milestone 必须并行派发;不并行才需要理由。
 7. **轮次上限**。同 issue 5 轮 / 同 unit 7 轮验收没 pass → 强制全停,通知人。
 8. **revise-design 三道闸**。reviewer 给的 `revise-design` 不合规(首轮 / 没引用 design.md 段落 / fix-implementation < 2 轮)直接降级回 fix-implementation,详见 §6.3。
-9. **PR 提完即退出**。不等 merge、不等 CI——交棒给人。
+9. **reviewer 越界硬处置**。reviewer 角色严禁写源码/测试/提 commit(详见 change-reviewer §0)。若 reviewer 回报 DONE 时 unit 分支多了非报告类 commit,**强制 revert** 这些 commit(`git reset` 到 reviewer 派发前的 HEAD,`push --force-with-lease`)后,把该轮 reviewer 的 verdict **作废**,issues 重新打包派 fix worker 实施(参见 §6.6)。不要"接受 reviewer 顺手修的代码"——既验又改不可信。
+10. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
+11. **PR 提完即退出**。不等 merge、不等 CI——交棒给人。
 
 ---
 
@@ -280,13 +282,39 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   unit_dir: <unit_dir>
   branch: unit/<unit_id>
   review_round: <N>
-  prior_acceptance_paths: [docs/changes/<unit_dir>/acceptance.md]   # 第 2 轮起
+  prior_acceptance_paths: [docs/changes/<unit_dir>/<acceptance|regression>.md]   # 第 2 轮起
   mode: full
 ```
 
 reviewer 不需要 worktree(只读 + 跑产品)。它在 unit 集成分支上 checkout、走旅程、写报告。
 
-reviewer 回报后,基于 `highest_required_action` 决定下一步,见 §6。
+### §5.1 派发口径净化(防 reviewer 滑进 engineer 模式)
+
+orchestrator 在派发包**只透传上面的字段**。**严禁**自己手写以下内容塞进 reviewer prompt:
+
+- ❌ "WS 必须有 `message.delta` / `tool_call.started` 等帧" — 协议级
+- ❌ "API `/foo` 必须返回 `bar` 字段" — 接口级
+- ❌ "`SomeHandler.on_event` 必须被调用 N 次" — 函数级
+- ❌ "查看日志确认出现 `<某字符串>`" — 内部状态级
+
+reviewer 的真值是首文档(spec / motivation / incident)里**用户可观察**的验收标准——用户在 UI/CLI 上能看到/听到/敲到什么。如果首文档没写清楚,**回 `change-spec-author` 收口**,不是 orchestrator 在派发时补口径。
+
+需要协议级验证的是 worker 写单测时的事,不是 reviewer 的事。reviewer 一旦拿到协议级标准,就会去抓帧 / 读 handler / 加 debug log,**整轮验收作废**。
+
+### §5.2 续接
+
+reviewer 回报后,基于 `highest_required_action` 决定下一步,见 §6。回报前必须**校验 reviewer 越界**(§0.9):
+
+```bash
+# 派发前记下基线
+BEFORE=$(git -C <repo> rev-parse "unit/<unit_id>")
+
+# 回报后比对
+AFTER=$(git -C <repo> rev-parse "unit/<unit_id>")
+NEW_COMMITS=$(git -C <repo> log --oneline "$BEFORE..$AFTER")
+```
+
+预期:`NEW_COMMITS` 只有 reviewer 的报告 commit(信息含 `docs(acceptance)` 或 `docs(regression)`)。出现任何其它 commit → 走 §6.6 处置。
 
 ---
 
@@ -311,7 +339,7 @@ milestone_dir = M<next>-fix-<short-desc>      # 例: M4-fix-picker-keyboard
 1. 在 design.md Milestone 表追加新行,标注 `(post-acceptance fix, round <N>)`
 2. mkdir 新 milestone 空目录:`docs/changes/<unit_dir>/M<next>-fix-<short-desc>/`
 3. **维护 issue 指纹表**(orchestrator 内存中):为这一批 issues 生成指纹(Type + 主关键词哈希),记录是第几轮出现。同一指纹累计 ≥ 5 轮没消除 → 强制升级 escalate
-4. 派 worker(prompt 里把 reviewer 的 issues 列表附上,worker 把 issues 翻译成 roadpoint)
+4. 派 worker(prompt 里把 reviewer 的 issues 列表 + 该 unit design.md `§Runbook for Reviewer` 段附上;worker 改完代码必须按 runbook 重启相关服务后再回报 DONE,确保 unit 分支上的代码真的"跑了起来")
 5. 回到 §3 派发循环
 
 worker 完成后,回到 §5 派下一轮 reviewer。
@@ -358,6 +386,25 @@ Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 | blocking | 暂停 unit,通知人 triage issue。issue 修完后(可能要做 sibling unit)再续跑本 unit。续跑前 `git rebase main` 把 sibling 的修复拉进来 |
 | major | 不暂停,继续 §6.2 fix-implementation 处理 in-unit issues。out-of-unit issue 在 PR body 里 `Refs #<num>`(不 `Closes`) |
 | minor | reviewer 没立 issue,只在 Side Findings,不处理 |
+
+### §6.6 reviewer 越界处置(§0.9 配套)
+
+§5.2 校验发现 reviewer 在 unit 分支上多写了非报告 commit(改了源码/测试/配置)时:
+
+1. **立即作废本轮 verdict**——不管它是 pass 还是 fail。reviewer 既写又验,证据链不可信。
+2. **revert 越界 commit**:
+   ```bash
+   git checkout "unit/<unit_id>"
+   git reset --hard <BEFORE>          # §5.2 记下的派发前基线
+   git push --force-with-lease origin "unit/<unit_id>"
+   ```
+   保留 reviewer 写的 `acceptance.md` / `regression.md`(那是它的合法产物)——但只保留报告内容,不保留代码改动。如果报告和代码在同一 commit 里,先 `git revert` 或手动捡出报告内容重提一次。
+3. **把 reviewer 报告里识别出的 issues + 它顺手写的"修法"当成线索**(不是当成实现),按 §6.2 重新打包成 fix milestone 派**独立 worker** 实施。worker 不能复用 reviewer 越界写出来的代码——必须重新审视、重新实施、重新写测试。
+4. **review_round 不递增**——本轮没有有效验收。fix worker 完成后回到 §5 派新 reviewer(新 agent 实例)从 round=N 重跑。
+5. 在 reviewer 报告底部追加 orchestrator 注记:
+   ```markdown
+   > Orchestrator note: reviewer 越界写代码(commits <hash..hash>),本轮 verdict 作废,代码 revert,issues 转 fix worker 重做。
+   ```
 
 ---
 
