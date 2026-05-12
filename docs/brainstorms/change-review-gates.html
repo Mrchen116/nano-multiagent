@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Change Review Gates Brainstorm</title>
+  <style>
+    :root {
+      --bg: #f6f5f2;
+      --paper: #ffffff;
+      --ink: #20211f;
+      --muted: #686b63;
+      --line: #d9d6cd;
+      --teal: #147d78;
+      --teal-soft: #dff1ee;
+      --red: #b23a35;
+      --red-soft: #f6dedb;
+      --amber: #9b6b16;
+      --amber-soft: #f4ead2;
+      --green: #3d7650;
+      --green-soft: #deeddc;
+      --violet: #6f5a9b;
+      --violet-soft: #ece6f4;
+      --shadow: 0 14px 30px rgba(50, 45, 35, 0.08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+
+    a {
+      color: var(--teal);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.62);
+      backdrop-filter: blur(12px);
+      overflow: auto;
+    }
+
+    .brand {
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--teal);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.16;
+      letter-spacing: 0;
+    }
+
+    nav {
+      display: grid;
+      gap: 6px;
+    }
+
+    nav a {
+      display: block;
+      padding: 8px 10px;
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    nav a:hover {
+      background: var(--teal-soft);
+      color: var(--teal);
+      text-decoration: none;
+    }
+
+    main {
+      padding: 38px min(6vw, 72px) 64px;
+    }
+
+    section {
+      max-width: 1120px;
+      margin: 0 auto 44px;
+      scroll-margin-top: 28px;
+    }
+
+    .hero {
+      padding: 30px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero h2 {
+      max-width: 840px;
+      margin: 0 0 14px;
+      font-size: clamp(30px, 5vw, 56px);
+      line-height: 1.03;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      max-width: 820px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .callout {
+      margin-top: 24px;
+      padding: 16px 18px;
+      border-left: 4px solid var(--teal);
+      background: var(--teal-soft);
+      border-radius: 0 6px 6px 0;
+      font-size: 18px;
+      font-weight: 650;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: 28px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 14px;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .card {
+      padding: 18px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .quote-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    blockquote {
+      margin: 0;
+      padding: 16px 18px;
+      border-left: 4px solid var(--amber);
+      background: var(--amber-soft);
+      border-radius: 0 6px 6px 0;
+      color: #372911;
+    }
+
+    blockquote p {
+      margin: 0 0 8px;
+      font-weight: 620;
+    }
+
+    blockquote cite {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      font-style: normal;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      counter-reset: step;
+    }
+
+    .step {
+      position: relative;
+      padding: 18px 16px 16px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .step::before {
+      counter-increment: step;
+      content: counter(step);
+      display: inline-grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      margin-bottom: 12px;
+      border-radius: 50%;
+      background: var(--teal);
+      color: white;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .matrix {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .matrix th,
+    .matrix td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    .matrix th {
+      background: #ece9e1;
+      font-size: 13px;
+      color: #4c4d48;
+    }
+
+    .matrix tr:last-child td {
+      border-bottom: none;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .tag.product { background: var(--teal-soft); color: var(--teal); }
+    .tag.tech { background: var(--violet-soft); color: var(--violet); }
+    .tag.eng { background: var(--amber-soft); color: var(--amber); }
+    .tag.reg { background: var(--green-soft); color: var(--green); }
+    .tag.visual { background: var(--red-soft); color: var(--red); }
+
+    .example {
+      border-left: 4px solid var(--violet);
+      padding: 18px;
+      background: var(--paper);
+      border-radius: 0 8px 8px 0;
+      border-top: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    details {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0;
+    }
+
+    details + details {
+      margin-top: 10px;
+    }
+
+    summary {
+      cursor: pointer;
+      padding: 14px 16px;
+      font-weight: 700;
+    }
+
+    details[open] summary {
+      border-bottom: 1px solid var(--line);
+    }
+
+    details .inside {
+      padding: 14px 16px 18px;
+    }
+
+    .checklist {
+      display: grid;
+      gap: 10px;
+      padding: 0;
+      margin: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      padding: 12px 14px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    code {
+      padding: 2px 5px;
+      border: 1px solid #ddd5c7;
+      border-radius: 4px;
+      background: #fbfaf7;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .footer {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 940px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        position: static;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--line);
+      }
+
+      nav {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      main {
+        padding: 24px 18px 48px;
+      }
+
+      .grid,
+      .grid.two,
+      .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .matrix {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand">
+        <p class="eyebrow">Brainstorm</p>
+        <h1>Change Review Gates</h1>
+      </div>
+      <nav aria-label="页面导航">
+        <a href="#summary">速读版</a>
+        <a href="#quotes">讨论原话</a>
+        <a href="#model">核心模型</a>
+        <a href="#types">Change 类型</a>
+        <a href="#plan">Verification Plan</a>
+        <a href="#examples">330 / 重构</a>
+        <a href="#visual">视觉 Gate</a>
+        <a href="#eval">Skill Set 评测</a>
+      </nav>
+    </aside>
+
+    <main>
+      <section class="hero" id="summary">
+        <p class="eyebrow">核心结论</p>
+        <h2>不要把所有 change 都塞进产品验收。</h2>
+        <p>reviewer 应该按 design 里的 Verification Plan 执行 gate。用户侧功能走产品验收,平台能力走技术契约验收,内部重构主要看回归和工程证据。</p>
+        <div class="callout">保留一个通用 reviewer skill,不要拆一堆 reviewer。复杂度前移到 design 的 gate 设计。</div>
+      </section>
+
+      <section id="quotes">
+        <h2>讨论原话</h2>
+        <div class="quote-list">
+          <blockquote>
+            <p>“对于这种软件内部的改动，好像产品侧不需要验收……有的需求是完全是重构代码相关的，完全没有用户侧变化。”</p>
+            <cite>设计约束:不是所有 change 都有 product acceptance。</cite>
+          </blockquote>
+          <blockquote>
+            <p>“我们参考传统的人类的开发流程，应该怎么设计，是否需要多个不同的类型的reviewer，根据需求而定，还是如何。”</p>
+            <cite>设计约束:先按风险决定需要哪些 verification gates。</cite>
+          </blockquote>
+          <blockquote>
+            <p>“可以合起来就是一个skill，然后在design阶段，明确当前需求需要哪些类型的review，具体review什么，然后在review阶段去读design的要求。”</p>
+            <cite>设计约束:一个 reviewer skill + design 阶段 Verification Plan。</cite>
+          </blockquote>
+          <blockquote>
+            <p>“改了之后我应该怎么验呢？应该拿我过去做过的一些需求来测试新的skill集合是否ok对吧。”</p>
+            <cite>设计约束:skill set 本身要有 regression/eval。</cite>
+          </blockquote>
+        </div>
+      </section>
+
+      <section id="model">
+        <h2>核心模型</h2>
+        <div class="flow">
+          <div class="step">
+            <h3>Spec</h3>
+            <p class="muted">说明目标、用户/外部 actor、范围和非目标。</p>
+          </div>
+          <div class="step">
+            <h3>Design</h3>
+            <p class="muted">写 Verification Plan:这次要过哪些 gate,谁负责,证据是什么。</p>
+          </div>
+          <div class="step">
+            <h3>Worker / CI</h3>
+            <p class="muted">实现代码,留下工程 gate 的测试和证据。</p>
+          </div>
+          <div class="step">
+            <h3>Reviewer</h3>
+            <p class="muted">只执行 owner=reviewer 的 gate,并检查其他 owner 的证据是否存在。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="types">
+        <h2>Change 类型</h2>
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>例子</th>
+              <th>主要风险</th>
+              <th>常见 gate</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>User-facing feature</td>
+              <td>新页面、新 CLI 命令、新交互</td>
+              <td>用户不能完成任务,体验偏离设计</td>
+              <td><span class="tag product">product</span> <span class="tag visual">visual</span> <span class="tag reg">regression</span></td>
+            </tr>
+            <tr>
+              <td>Developer/platform feature</td>
+              <td>API、CLI 契约、文件格式、事件流、session 存储</td>
+              <td>外部契约不稳定,下游无法使用</td>
+              <td><span class="tag tech">technical</span> <span class="tag eng">engineering</span></td>
+            </tr>
+            <tr>
+              <td>Internal refactor</td>
+              <td>模块拆分、依赖方向调整、内部存储替换</td>
+              <td>行为回归,模块边界破坏,测试缺口</td>
+              <td><span class="tag reg">regression</span> <span class="tag eng">engineering</span></td>
+            </tr>
+            <tr>
+              <td>Bugfix</td>
+              <td>修复已知验收问题或线上问题</td>
+              <td>复现未闭环,同类场景回归</td>
+              <td><span class="tag reg">regression</span></td>
+            </tr>
+            <tr>
+              <td>Performance / security</td>
+              <td>缓存、批处理、鉴权、权限隔离</td>
+              <td>指标无改善、越权、泄露、边界不清</td>
+              <td><span class="tag eng">benchmark</span> <span class="tag tech">boundary</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="plan">
+        <h2>Verification Plan</h2>
+        <p class="muted">design.md 里建议新增强制段。reviewer 以后读这个执行,不是自己猜。</p>
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th>Gate</th>
+              <th>Type</th>
+              <th>Owner</th>
+              <th>Scope</th>
+              <th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>V1</td>
+              <td><span class="tag product">product_acceptance</span></td>
+              <td>reviewer</td>
+              <td>用户能完成主路径</td>
+              <td>真实浏览器/CLI 截图、录屏、终端 transcript</td>
+            </tr>
+            <tr>
+              <td>V2</td>
+              <td><span class="tag tech">technical_acceptance</span></td>
+              <td>reviewer</td>
+              <td>外部 API / CLI / 文件契约可用</td>
+              <td>命令输出、JSON、文件片段</td>
+            </tr>
+            <tr>
+              <td>V3</td>
+              <td><span class="tag eng">engineering_verification</span></td>
+              <td>worker / CI</td>
+              <td>内部算法、边界、并发、性能假设正确</td>
+              <td>pytest、CI、benchmark、contract test</td>
+            </tr>
+            <tr>
+              <td>V4</td>
+              <td><span class="tag reg">regression</span></td>
+              <td>reviewer / CI</td>
+              <td>已知 bug 不复现,相邻路径不坏</td>
+              <td>复现步骤闭环、测试输出</td>
+            </tr>
+            <tr>
+              <td>V5</td>
+              <td><span class="tag visual">visual_reference</span></td>
+              <td>reviewer</td>
+              <td>当前实现对齐原型 / 设计稿 / reference</td>
+              <td>repo 内 reference + actual 截图和对照结论</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="examples">
+        <h2>例子</h2>
+        <div class="grid two">
+          <div class="example">
+            <h3>330: session context storage</h3>
+            <p>它不是普通产品功能,而是 developer/platform feature + internal architecture change。</p>
+            <ul>
+              <li>Reviewer 验:CLI/API 多轮历史连续、重启 resume、不丢历史、JSONL 文件可解析。</li>
+              <li>Worker/CI 验:warm turn 零磁盘读、compact/fork/load 算法、并发锁、flush 语义。</li>
+              <li>不应强行要求普通用户 UI 产品验收。</li>
+            </ul>
+          </div>
+          <div class="example">
+            <h3>纯重构</h3>
+            <p>可以没有 owner=reviewer 的 product gate。</p>
+            <ul>
+              <li>必须有 regression evidence:相关单测、集成、contract 全绿。</li>
+              <li>可以有 engineering review:模块边界、依赖方向、复杂度下降。</li>
+              <li>如果公开文档受影响,加 doc_acceptance。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="visual">
+        <h2>视觉 / Reference Gate</h2>
+        <ul class="checklist">
+          <li>reference 和 actual evidence 要落到 repo 内或长期可访问位置,不能只放 <code>/tmp</code>。</li>
+          <li>最终 pass 前必须用当前实现重新跑 reference gate,不能只继承旧轮分级。</li>
+          <li>如果 spec 写“像素级对齐”,就不能默认把“近”当 pass;阈值必须由 design 先定义。</li>
+          <li>功能 gate 和视觉 gate 分开。功能修通不等于视觉通过。</li>
+        </ul>
+      </section>
+
+      <section id="eval">
+        <h2>Skill Set 评测</h2>
+        <p class="muted">改 skill 后,要拿历史需求做 workflow regression suite。目标不是重测业务代码,而是看 skill 是否能稳定做正确流程决策。</p>
+
+        <details open>
+          <summary>Eval 样本</summary>
+          <div class="inside">
+            <table class="matrix">
+              <thead>
+                <tr>
+                  <th>样本</th>
+                  <th>来源</th>
+                  <th>评测重点</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>E1 UI</td>
+                  <td>feat-340-agent-native-im</td>
+                  <td>product + visual_reference;最终 pass 前必须有 reference + actual evidence。</td>
+                </tr>
+                <tr>
+                  <td>E2 Platform</td>
+                  <td>feat-330-session-context-storage</td>
+                  <td>technical + engineering;跳过普通产品验收。</td>
+                </tr>
+                <tr>
+                  <td>E3 Bugfix</td>
+                  <td>bugfix-331 / bugfix-339</td>
+                  <td>原始复现步骤闭环,同类场景不回归。</td>
+                </tr>
+                <tr>
+                  <td>E4 Mixed</td>
+                  <td>feat-334-tool-result-budget</td>
+                  <td>用户可见输出 + 内部预算策略测试。</td>
+                </tr>
+                <tr>
+                  <td>E5 Refactor</td>
+                  <td>造一个 fixture</td>
+                  <td>无 product gate 也能合法流转,但不能缺 regression evidence。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
+
+        <details>
+          <summary>关键反例</summary>
+          <div class="inside">
+            <ul>
+              <li>视觉缺证据:只有组件测试和实际截图,没有 reference 对照,必须 fail。</li>
+              <li>平台能力误派产品验收:330 类需求不应被要求普通 UI 用户旅程。</li>
+              <li>纯重构无用户变化:可以跳过 product gate,但缺 regression evidence 不能进 PR。</li>
+              <li>历史结论继承:上一轮 near 不能替代本轮当前实现的 reference gate。</li>
+              <li>工程 gate 伪装用户验收:多轮聊天成功不能证明 warm turn 零磁盘读。</li>
+            </ul>
+          </div>
+        </details>
+
+        <details>
+          <summary>通过门槛</summary>
+          <div class="inside">
+            <ul>
+              <li>6 个 eval 样本里,核心 gate 类型和 owner routing 至少 5 个正确。</li>
+              <li>所有关键反例都不能被错误 pass。</li>
+              <li>UI 样本必须要求真实入口截图和 reference 对照。</li>
+              <li>platform/internal 样本不能被强行要求普通产品验收。</li>
+              <li>reviewer 报告中的每个结论都能追溯到 Verification Plan 的 gate ID。</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <section class="footer">
+        <p>对应 Markdown 草稿: <a href="./change-review-gates.md">change-review-gates.md</a></p>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
