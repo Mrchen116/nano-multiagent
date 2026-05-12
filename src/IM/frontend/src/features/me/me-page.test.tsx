@@ -66,15 +66,8 @@ describe("MePage", () => {
     expect(screen.getByTestId("login-page")).toBeInTheDocument();
   });
 
-  it("notification toggle persists preference to localStorage", async () => {
-    renderMe();
-    const toggle = screen.getByRole("checkbox", { name: /notifications|通知/i });
-    expect(toggle).not.toBeChecked();
-    await userEvent.click(toggle);
-    expect(localStorage.getItem("im_notifications_enabled")).toBe("1");
-    await userEvent.click(toggle);
-    expect(localStorage.getItem("im_notifications_enabled")).toBe("0");
-  });
+  // M20/R12-bis-6: Notifications row removed from Me page (prototype has no
+  // notifications row; toggle lives in UserMenu / browser permission flow).
 
   it("R8-4: surfaces the user identity card with display_name + user_id in monospace", () => {
     renderMe();

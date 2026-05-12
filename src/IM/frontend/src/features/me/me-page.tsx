@@ -2,18 +2,15 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
-import { ensureNotificationPermission } from "../notifications/notification-api";
-import { useNotificationPreference } from "../notifications/notification-preference";
 
-// M19/R11-1: Mobile Me 页按 prototype `im-mypage.jsx::AggregatedMePage` 重写。
-// 旧版用未定义的 im-me-* CSS 类导致渲染裸文字粘连 ("视觉 0");改用 Tailwind utility
-// 直接落 prototype 的 oklch 数值与几何 (identity 卡白底 + 大 62px avatar / 灰底分组卡 /
-// 14px 间距 / 中间分隔线 / chevron ›/ danger 红).
+// M20/R12-bis-6: Mobile Me 页按 prototype `im-mypage.jsx::MyPage` 调整:
+// - Nodes / Account 行加 subtitle
+// - 移除 Notifications 行(proto 无此项,M19 R2 段保留是误判)
+// 延续 M19/R11-1 Tailwind utility 直接落 prototype oklch 数值。
 
 const PAGE_BG = "bg-[oklch(0.95_0.005_240)]";
 const CARD_BG = "bg-white";
 const CARD_BORDER = "border-y border-[oklch(0.91_0.005_240)]";
-const ROW_DIVIDER = "border-b border-[oklch(0.93_0.005_240)]";
 const ROW_BASE =
   "flex w-full items-center gap-[14px] px-[18px] py-[14px] min-h-[60px] text-left bg-transparent hover:bg-[oklch(0.96_0.005_240)] transition-colors";
 const ICON_BASE =
@@ -27,7 +24,6 @@ export function MePage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const lang = getCurrentLanguage();
-  const [notificationsEnabled, setNotificationsEnabled] = useNotificationPreference();
 
   const handleSignOut = () => {
     useAuthStore.getState().clear();
@@ -81,7 +77,15 @@ export function MePage() {
             className={`${ICON_BASE} bg-[oklch(0.95_0.006_240)]`}
             aria-hidden="true"
           >🖥</span>
-          <p className={LABEL}>{t("me.sections.nodes")}</p>
+          <div className="flex-1 min-w-0">
+            <p className={LABEL}>{t("me.sections.nodes")}</p>
+            <p
+              data-testid="me-row-subtitle"
+              className="m-0 mt-[2px] text-[12px] text-[oklch(0.55_0.01_240)]"
+            >
+              {t("me.sections.nodesSubtitle")}
+            </p>
+          </div>
           <span className={CHEVRON} aria-hidden="true" data-testid="me-row-chevron">›</span>
         </Link>
       </div>
@@ -95,7 +99,15 @@ export function MePage() {
             className={`${ICON_BASE} bg-[oklch(0.95_0.006_240)]`}
             aria-hidden="true"
           >👤</span>
-          <p className={LABEL}>{t("me.sections.account")}</p>
+          <div className="flex-1 min-w-0">
+            <p className={LABEL}>{t("me.sections.account")}</p>
+            <p
+              data-testid="me-row-subtitle"
+              className="m-0 mt-[2px] text-[12px] text-[oklch(0.55_0.01_240)]"
+            >
+              {t("me.sections.accountSubtitle")}
+            </p>
+          </div>
           <span className={CHEVRON} aria-hidden="true" data-testid="me-row-chevron">›</span>
         </Link>
       </div>
@@ -144,33 +156,6 @@ export function MePage() {
             </button>
           </div>
         </div>
-      </div>
-
-      <div
-        className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}
-        data-testid="me-card-notifications"
-      >
-        <label
-          className={`${ROW_BASE} cursor-pointer`}
-          data-testid="me-row-notifications"
-        >
-          <span
-            className={`${ICON_BASE} bg-[oklch(0.95_0.006_240)]`}
-            aria-hidden="true"
-          >🔔</span>
-          <p className={LABEL}>{t("me.notifications.toggle")}</p>
-          <input
-            type="checkbox"
-            checked={notificationsEnabled}
-            onChange={(event) => {
-              const next = event.target.checked;
-              setNotificationsEnabled(next);
-              if (next) {
-                void ensureNotificationPermission();
-              }
-            }}
-          />
-        </label>
       </div>
 
       <div
