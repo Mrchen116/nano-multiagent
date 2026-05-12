@@ -138,11 +138,13 @@ def to_agent_summary_response(
     user_service: UserService | None = None,
 ) -> AgentSummaryResponse:
     """Convert a domain profile to a compact agent list item."""
-    agent_user_id: str | None = None
-    if user_service is not None:
+    # feat-340-M18 R9-1: rely on ConfigService.ensure_agent_user so legacy seeds
+    # (agent profiles that pre-date the R9-1 fix and any profile written outside
+    # the HTTP route) self-heal on first read. Falling back to ``user_service``
+    # keeps unit tests that wire only the user service working.
+    agent_user = service.ensure_agent_user(agent_id=profile.agent_id, display_name=profile.display_name)
+    if agent_user is None and user_service is not None:
         agent_user = user_service.get_by_username(username=f"agent:{profile.agent_id}")
-        if agent_user is not None:
-            agent_user_id = agent_user.id
     return AgentSummaryResponse(
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
@@ -154,7 +156,7 @@ def to_agent_summary_response(
         workspace_root=service.workspace_root_for_profile(profile),
         workspace_is_default=service.workspace_is_default_for_profile(profile),
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
-        user_id=agent_user_id,
+        user_id=agent_user.id if agent_user is not None else None,
     )
 
 

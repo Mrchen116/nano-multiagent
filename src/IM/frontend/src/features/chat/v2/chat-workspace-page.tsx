@@ -29,9 +29,19 @@ function streamReducer(
   action:
     | { type: "reset"; conversationId: string; messages: Message[] }
     | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
+    | { type: "append_optimistic"; message: Message }
 ): ConversationState {
   if (action.type === "reset") {
     return { conversation_id: action.conversationId, messages: action.messages };
+  }
+  if (action.type === "append_optimistic") {
+    // feat-340-M18 R9-3: insert the user-authored bubble the moment the POST
+    // resolves so the main pane no longer waits on the WS echo (which only
+    // arrives for the agent reply path in some flows). Dedupe by id so the
+    // later WS message.created — if/when it comes — does not double-print.
+    if (action.message.conversation_id !== state.conversation_id) return state;
+    if (state.messages.some((m) => m.id === action.message.id)) return state;
+    return { ...state, messages: [...state.messages, action.message] };
   }
   return applyWsEvent(state, action.event, { sendersById: action.sendersById });
 }
@@ -159,9 +169,14 @@ export function ChatWorkspacePageV2() {
         content: payload.text,
         attachments: payload.attachments
       }),
-    onSuccess: () => {
-      // Bump conversation list ordering on next refetch; the WS echo will fill
-      // in the new message in-place so we only need cache invalidation here.
+    onSuccess: (created) => {
+      // feat-340-M18 R9-3: optimistically render the user's own message immediately
+      // after the POST resolves. The WS message.created echo path is reliable for
+      // agent replies but not always for self-authored bubbles, so previously the
+      // user saw their text vanish into the void until a refetch. Reducer dedupes
+      // by id so the later WS event (if any) does not double-print.
+      dispatch({ type: "append_optimistic", message: created });
+      // Bump conversation list ordering on next refetch.
       void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
     }
   });

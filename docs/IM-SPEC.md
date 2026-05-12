@@ -234,9 +234,35 @@ Node Gateway → IM 服务（回执/结果）→ 用户维 WebSocket 推送到�
   → 通过 WebSocket 发送 agent.create 到 Node Gateway
   → Node Gateway 创建并分配 workspace_root，校验初始 runtime 配置
   → IM 服务持久化 AgentProfile（含 node_id、workspace_root）
+  → IM 服务同步建对应 IM users 行（username = `agent:<agent_id>`，display_name = agent.display_name），见 §7.5
   → 可选：下推 config.sync
-  → 返回新 Agent 配置
+  → 返回新 Agent 配置（含 user_id 字段，供后续会话创建使用）
 ```
+
+### 7.5 Agent ↔ IM users 行的同步契约（feat-340-M18 R9-1）
+
+每一个 `AgentProfile` 必须有且只有一个对应的 IM `users` 行，关系如下：
+
+- **绑定方式**：`users.username = "agent:" + agent_profile.agent_id`，一一对应，唯一。
+- **生成时机**：在 `POST /im/v1/nodes/{node_id}/agents` 创建 AgentProfile 的同一事务内同步建。
+- **兼容历史**：M18 之前已存在的 AgentProfile 没有这一行，因此读路径 `GET /im/v1/agents` 在发现缺失时执行 lazy bootstrap（同 username 规则建）。所以**调用方只要看到一个 agent 行，就能在响应里拿到稳定的 `user_id`**。
+- **为什么需要**：会话创建端点 `POST /im/v1/conversations { participant_ids: [...] }` 把 agent 当作一种 participant，要求每个 id 都是合法 IM `users.id`。没有这条同步规则，前端只能拿到 `user_id: null`，进而被 400 `participant_ids contains unknown users` 拒绝，用户无法和新建 agent 私聊。
+- **数据 invariant**：`AgentProfile.display_name` 变更后，对应 user 行的 `display_name` 不会跟随回写（保持现状即可，bubble 渲染走 agents map 拉新名）。如果未来需要回写，请在 patch agent 配置时统一更新。
+
+`GET /im/v1/agents` 响应字段：
+
+```json
+{
+  "agent_id": "agent-xxx",
+  "owner_id": "user-uuid",
+  "node_id": "node-1",
+  "display_name": "Alpha",
+  "user_id": "user-uuid-of-agent-row",
+  ...其它字段
+}
+```
+
+`user_id` 自 M18 起永远为非空字符串（之前可能为 `null`）。
 
 ---
 

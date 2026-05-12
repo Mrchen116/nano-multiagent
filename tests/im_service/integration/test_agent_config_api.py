@@ -59,8 +59,10 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
                 "workspace_root": list_resp.json()[0]["workspace_root"],
                 "workspace_is_default": True,
                 "updated_at": list_resp.json()[0]["updated_at"],
+                "user_id": list_resp.json()[0]["user_id"],
             }
         ]
+        assert list_resp.json()[0]["user_id"] is not None
         assert list_resp.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
 
         get_resp = client.get(f"/im/v1/agents/{seeded.agent_id}/config?source=mirror")
@@ -362,9 +364,11 @@ def test_agents_list_includes_fresh_runtime_profiles_before_bind(tmp_path: Path)
                 "workspace_root": response.json()[0]["workspace_root"],
                 "workspace_is_default": True,
                 "updated_at": response.json()[0]["updated_at"],
+                "user_id": response.json()[0]["user_id"],
             }
         ]
         assert response.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-fresh")
+        assert response.json()[0]["user_id"] is not None
 
 
 
