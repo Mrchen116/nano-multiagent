@@ -1,2 +1,0 @@
-{"type": "session_created", "session_id": "sess_d719b98c942d27de", "created_at": "2026-04-29T04:54:00.412404+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent"}
-{"type": "turn", "uuid": "msg_cfa73c5cdeacba68", "parent_uuid": null, "session_id": "sess_d719b98c942d27de", "role": "user", "content": "hello", "timestamp": "2026-04-29T04:54:00.413396+00:00"}

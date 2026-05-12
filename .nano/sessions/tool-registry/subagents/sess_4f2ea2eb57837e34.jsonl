@@ -1,2 +1,0 @@
-{"type": "session_created", "session_id": "sess_4f2ea2eb57837e34", "created_at": "2026-04-29T02:30:03.798081+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent", "metadata": {"kind": "subagent", "agent_id": "a97df9323a2cc5325", "agent_type": "explore", "description": "test subagent"}}
-{"type": "turn", "uuid": "msg_60cd2da5923a2a8a", "parent_uuid": null, "session_id": "sess_4f2ea2eb57837e34", "role": "user", "content": "test", "timestamp": "2026-04-29T02:30:03.800416+00:00"}
