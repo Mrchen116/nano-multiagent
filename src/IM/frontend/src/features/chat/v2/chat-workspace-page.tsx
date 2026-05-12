@@ -42,6 +42,18 @@ async function fetchAgents(): Promise<AgentRow[]> {
   return (await res.json()) as AgentRow[];
 }
 
+interface NodeRow {
+  node_id: string;
+  node_name: string;
+  status: string;
+}
+
+async function fetchNodes(): Promise<NodeRow[]> {
+  const res = await authFetch("/im/v1/nodes");
+  if (!res.ok) throw new Error(`listNodes failed: ${res.status}`);
+  return (await res.json()) as NodeRow[];
+}
+
 /**
  * Top-level chat workspace — composes ConversationSidebar (left) and
  * MessagePane (right) on desktop, and either-or (list vs detail) on mobile.
@@ -92,6 +104,11 @@ export function ChatWorkspacePageV2() {
     queryFn: fetchAgents
   });
 
+  const nodesQuery = useQuery({
+    queryKey: ["chat-v2", "nodes"],
+    queryFn: fetchNodes
+  });
+
   const sendersById = useMemo(() => {
     const map: Record<string, string | undefined> = {};
     for (const agent of agentsQuery.data ?? []) {
@@ -99,6 +116,19 @@ export function ChatWorkspacePageV2() {
     }
     return map;
   }, [agentsQuery.data]);
+
+  // For direct-agent conversations, surface the agent's owning node (name +
+  // online status) and the agent_id used by the ⚙ Config navigation.
+  const headerAgentContext = useMemo<{ agentId: string | null; nodeName: string | null; nodeStatus: "online" | "offline" }>(() => {
+    if (!activeConversation) return { agentId: null, nodeName: null, nodeStatus: "offline" };
+    const agentParticipant = activeConversation.participants.find((p) => p.type === "agent");
+    if (!agentParticipant) return { agentId: null, nodeName: null, nodeStatus: "offline" };
+    const agentRow = (agentsQuery.data ?? []).find((a) => a.agent_id === agentParticipant.id);
+    if (!agentRow) return { agentId: agentParticipant.id, nodeName: null, nodeStatus: "offline" };
+    const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === agentRow.node_id);
+    const nodeStatus = nodeRow?.status === "online" ? "online" : "offline";
+    return { agentId: agentRow.agent_id, nodeName: nodeRow?.node_name ?? null, nodeStatus };
+  }, [activeConversation, agentsQuery.data, nodesQuery.data]);
 
   const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
 
@@ -165,8 +195,15 @@ export function ChatWorkspacePageV2() {
             conversation={activeConversation}
             messages={streamState.messages}
             mentionCandidates={mentionQuery.data ?? []}
+            nodeName={headerAgentContext.nodeName}
+            nodeStatus={headerAgentContext.nodeStatus}
             onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
             onBack={isMobile ? () => navigate("/chat") : undefined}
+            onOpenConfig={
+              headerAgentContext.agentId
+                ? () => navigate(`/settings/agents/${headerAgentContext.agentId}`)
+                : undefined
+            }
           />
         ) : (
           !isMobile && (
