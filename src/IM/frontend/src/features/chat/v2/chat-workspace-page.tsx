@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
@@ -26,12 +26,14 @@ import { NewGroupModal } from "./components/new-group-modal";
 
 function streamReducer(
   state: ConversationState,
-  action: { type: "reset"; conversationId: string; messages: Message[] } | { type: "event"; event: WsEvent }
+  action:
+    | { type: "reset"; conversationId: string; messages: Message[] }
+    | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
 ): ConversationState {
   if (action.type === "reset") {
     return { conversation_id: action.conversationId, messages: action.messages };
   }
-  return applyWsEvent(state, action.event);
+  return applyWsEvent(state, action.event, { sendersById: action.sendersById });
 }
 
 async function fetchAgents(): Promise<AgentRow[]> {
@@ -86,10 +88,17 @@ export function ChatWorkspacePageV2() {
   });
 
   const agentsQuery = useQuery({
-    enabled: showNewGroup,
     queryKey: ["chat-v2", "agents"],
     queryFn: fetchAgents
   });
+
+  const sendersById = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const agent of agentsQuery.data ?? []) {
+      if (agent.user_id) map[agent.user_id] = agent.display_name;
+    }
+    return map;
+  }, [agentsQuery.data]);
 
   const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
 
@@ -102,9 +111,13 @@ export function ChatWorkspacePageV2() {
 
   // Open the WS stream once for the workspace lifetime; events flow into the
   // reducer which ignores any not matching the active conversation.
+  // Captures the latest sendersById via a ref so a fresh agents fetch becomes
+  // visible to in-flight reducer dispatches without recreating the WS handle.
+  const sendersByIdRef = useRef(sendersById);
+  sendersByIdRef.current = sendersById;
   useEffect(() => {
     const handle = openChatStream({
-      onEvent: (ev) => dispatch({ type: "event", event: ev })
+      onEvent: (ev) => dispatch({ type: "event", event: ev, sendersById: sendersByIdRef.current })
     });
     return () => handle.close();
   }, []);

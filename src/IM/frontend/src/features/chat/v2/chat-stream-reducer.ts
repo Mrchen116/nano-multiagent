@@ -42,7 +42,11 @@ function upsertToolCall(message: Message, next: ToolCall): Message {
   return { ...message, tool_calls: merged };
 }
 
-export function applyWsEvent(state: ConversationState, ev: WsEvent): ConversationState {
+export function applyWsEvent(
+  state: ConversationState,
+  ev: WsEvent,
+  opts?: { sendersById?: Record<string, string | undefined> }
+): ConversationState {
   // Reducer is scoped to one conversation at a time; events for a different
   // conversation_id bypass entirely so the active view never gets contaminated.
   if (state.conversation_id !== null && ev.conversation_id !== state.conversation_id) {
@@ -51,16 +55,25 @@ export function applyWsEvent(state: ConversationState, ev: WsEvent): Conversatio
 
   switch (ev.type) {
     case "message.created": {
+      // M17/R8-1 defensive: synthetic relay-mirror ids must never enter the
+      // workspace cache as standalone bubbles (backend dedup is the primary
+      // defence, this is the belt-and-braces frontend filter).
+      if (ev.message_id.includes(":relay:")) return state;
       // Backend echoes the user's own POST through the WS feed; dedupe so the
       // optimistic insert (from createMessage) doesn't get doubled.
       if (state.messages.some((m) => m.id === ev.message_id)) return state;
+      // M17/R8-2: WS payload only carries sender_user_id (UUID). The workspace
+      // passes the agents-by-user-id map so the bubble can show the right
+      // display_name immediately, instead of rendering the raw UUID until the
+      // next history refetch.
+      const resolvedDisplayName = opts?.sendersById?.[ev.sender_user_id] ?? null;
       const created: Message = {
         id: ev.message_id,
         conversation_id: ev.conversation_id,
         sender: {
           type: ev.sender_type === "agent" ? "agent" : ev.sender_type === "system" ? "system" : "user",
           id: ev.sender_user_id.replace(/^(agent|user):/, ""),
-          display_name: null
+          display_name: resolvedDisplayName
         },
         sender_user_id: ev.sender_user_id,
         sender_type: ev.sender_type,
