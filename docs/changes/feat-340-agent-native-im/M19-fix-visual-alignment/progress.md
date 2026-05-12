@@ -92,3 +92,18 @@ fix-visual-alignment (post-acceptance fix round 11) — 5 页视觉重写按 pro
 - Rollback: `git revert 4b6c3067` (C2) + `git revert ac6408fc` (C1)
 - Commits: C1=ac6408fc, C2=4b6c3067
 
+## R6 — Chat MessageBubble + ConvItem 视觉重写 (R11-7 + R11-10 major)
+
+- Context: R11-7 (major) — prototype `attachments/prototype/project/im-components.jsx::MessageBubble` 是气泡外结构:agent 30×30 圆 avatar 在气泡左侧 / 用户 row-reverse,气泡用 oklch 青 (mine `oklch(0.52 0.14 180)`) / 浅 (agent `oklch(0.91 0.007 240)`),气泡下方有 status row(timestamp + status + TokenChip)。当前实现把 timestamp 塞气泡内,无 avatar,无 token chip,色板用 hex `#0f766e` / `#e5ebf2`(非 oklch)。R11-10 (minor) — prototype `ConvItem` 行内只有 avatar + 标题/时间 + 预览/未读 badge,无 kind_label uppercase chip;direct-agent avatar 右下角叠 online/offline status dot。当前 `ConversationCard` 渲染 kind_label chip + participants chip + "X new" 圆角条,完全没有 avatar / status dot。
+- Decision: (a) `message-pane.tsx::MessageBubble` 重写为 flex row(用户 row-reverse):avatar `<span data-testid="message-avatar"> 30×30 rounded-full bg-[oklch(0.52_0.14_180)]` 在气泡外,气泡 `data-testid="message-bubble"` 内只渲染 content + attachments,timestamp `data-testid="message-timestamp"` 移到气泡下方 status row 作为兄弟元素,token chip 同 status row。(b) 新增 `TokenChip` 子组件:`pct = Math.round(used/window*100)`,warn `>=70%` 用 `text-[oklch(0.55_0.16_60)]`,critical `>=90%` 用 `text-[oklch(0.55_0.15_25)]`;`data-testid="token-chip"`。(c) `types.ts` 给 `ChatMessage` 加可选 `token_usage?: ChatTokenUsage` 字段(契约扩展,后端旧响应不强制带,UI 优雅缺省)。(d) `conversation-list.tsx::ConversationCard` 重写:删 kind_label chip / participants chip / "X new" 长条,改为 avatar (`conv-avatar-{id}` 36×36 rounded-full 按 kind 分配青/紫/橙底)+ 标题/时间 + 预览/未读小圆 badge;direct-agent 行 avatar 右下叠 `conv-status-dot-{id}` 圆点(`data-status-dot=online|offline`,数据源 `summary.node_status`)。
+- Rationale: 延续 R2/R3/R4/R5 "Tailwind arbitrary value 直接绑 oklch 字面值,把视觉契约写进 markup" 修复路径,不引入 CSS 类间接层。Agent avatar 颜色统一青色(`oklch(0.52 0.14 180)`)而不是按 agent_id hash —— prototype 在每个 agent 注入色,但本项目目前没有 agent 色板源,统一青色优先避免视觉碎片化(后续如要按 agent 染色再独立 issue 接入)。TokenChip 不实现 prototype 的展开 popover(出 R11 in-unit 范围,等 token usage 数据通道接通再做)。R8-1 relay 镜像过滤 / R8-2 sender_user_id 查 display_name / R7-5 chat-detail.tsx Node chip / R9-3 user 乐观 append 均未触碰(只改 MessageBubble + ConvItem 渲染,沿用同样的 message / summary 数据)。
+- Evidence:
+  - Tests: `message-pane.test.tsx` 加 5 个 R11-7 测试 (timestamp 在气泡外 / avatar 外 + 青色 / token chip warn / token chip critical / 无 chip) C1 RED 5/5 + `conversation-list-layout.test.tsx` 加 3 个 R11-10 测试 (无 kind chip / status dot / avatar initials) C1 RED;C2 GREEN 8/8。一处旧测试 `getByText("A")` 因 avatar initials 与 sender label 同字符串改 `getAllByText("A").length>0`(side effect,test-only)。全套 vitest 52 files / 270 tests GREEN。
+  - Build: `npm run build` 通过,dist/assets/index-BWhxS5DZ.js 502 kB(无 ts 错)。
+  - Entry: 视觉确认延后至 R9 双 viewport 截图。
+  - Visual/Interaction: 单测层断言 — agent avatar 在气泡外,timestamp 在气泡外,token chip 在气泡下方,70%/90% 阈值色翻转,ConvItem 无 kind chip,direct-agent 行 status dot 可见。
+- Side effect: 旧测试 1 处 `getByText` 改 `getAllByText` 兼容 avatar initials 与 sender label 共存。
+- Out-of-unit: TokenChip popover 展开态(prototype `im-components.jsx` 207-238)未实现,需 token_usage 数据通道接通后独立 issue;agent avatar 按 agent_id 染色需 agent 色板数据源,独立 issue。
+- Rollback: `git revert 577af524` (C2) + `git revert b4d37ce5` (C1)
+- Commits: C1=b4d37ce5, C2=577af524
+
