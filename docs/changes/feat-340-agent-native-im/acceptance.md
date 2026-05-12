@@ -715,12 +715,12 @@ IM DB 新增：用户 alexr6（id=fff75c36...），节点 feat340-r6-node（owne
 ## Issues Count
 
 - blocking: 2
-- major: 1
+- major: 2
 - minor: 1
 
 ## Top Concern
 
-前端 WS 仍然用 `?user_id=` 参数连接（被 403 拒绝），导致用户面**完全收不到任何实时事件**：消息发送后内容区保持"No messages yet"、没有 streaming bubble、没有 Token Chip。R6-1 与 R6-3 均重现——M16 声称修复但独立验证确认未生效。
+前端 WS 仍然用 `?user_id=` 参数连接（被 403 拒绝），导致用户面**完全收不到任何实时事件**：消息发送后内容区保持"No messages yet"、没有 streaming bubble、没有 Token Chip。R6-1 与 R6-3 均重现——M16 声称修复但独立验证确认未生效。原型对照新增：Chat 头部 Node chip / Config 按钮等静态 DOM 元素完全缺失（R7-5 major，与 WS 无关）。
 
 ## R6 Issues 验证状态
 
@@ -853,3 +853,53 @@ id=2bba2630 sender=Alpha    content='4'                                      (�
 临时文件（遗留 /tmp/）：`feat340-gw-r7-config.yaml`，`feat340-r7-ws-capture.py`，`feat340-r7-ws-events.log`，`feat340-r7-*.png`（11 张），`feat340-r7-workspace/`。
 
 IM DB 新增（此轮）：用户 alexr7（id=9d6ec9d2...），用户 gw-r7（id=69cdaec3...），节点 feat340-r7-node（owner=gw-r7），对话 74b3c960...（Direct with Alpha R7，alexr7+Alpha 均为 participant），消息 2bba2630（用户）、2079a1c3（Alpha）。
+
+---
+
+## 原型对照（spec.md 像素级对齐验收）
+
+> 原型位置：`docs/changes/feat-340-agent-native-im/attachments/prototype/project/IM Prototype.html`，通过本地 HTTP :9090 服务访问。截图均已存入 `/tmp/feat340-r7-evidence/`。
+
+| 页面 | 原型截图 | 实际截图 | 分级 | 主要差异 |
+|---|---|---|---|---|
+| Chat（direct-agent） | `proto-chat-main.png` | `actual-chat-direct-agent.png` | **偏** | 原型：暗色背景消息区、tool call chip（"▸ 4 tool calls · 1.9s"）、token chip（"▸ 312 tok · ctx 7%"）、agent working 状态标签、会话头部 Node chip + Config 按钮。实际：浅色背景 ✅、基本气泡结构 ✅，但 tool call panel 完全缺失、Token Chip 不显示（WS 断）、无 Node chip/Config 按钮、agent 重复气泡（R7-2 bug） |
+| Chat（group） | `proto-chat-group-sprint.png` | 无（无 group 对话数据） | inconclusive | 无 group 类型对话可测；原型群组头部显示 "Group" badge + 参与者列表，输入框提示 "type @ to mention"。实际 UI 中 + Group 入口存在但无法验证消息渲染 |
+| Chat（agent-network） | `proto-chat-network.png` | 无（无 agent-network 对话数据） | inconclusive | 原型 Agent↔Agent 对话头部显示 "Agent↔Agent" badge，无人工输入框——实际实现中此类型是否有输入框屏蔽？未验证 |
+| Agents | `proto-agents-list.png` | `actual-agents.png` | **近** | 原型：左侧 agent 列表无"Settings"标题，detail 与 list 同屏显示（两列），"Open chat ↗"在右上角，"Save Agent" CTA 在底部。实际：有"Settings"标题 + 三项侧栏 ✅，list-only 模式（点击才展开 detail），detail 右上角是"Open chat ↗"但 404。布局意图一致，双列同屏 vs 单列切换是差异点 |
+| Nodes | `proto-nodes.png` | `actual-nodes.png` | **近** | 原型：顶部 4 格汇总统计（Total/Online/Offline/Agents）、Live Snapshot 含 relay error 红色高亮、"+ New agent on node" 按钮。实际：有节点卡片结构 ✅、Relay Enabled/Reporting Enabled toggle ✅，但缺顶部统计汇总、无红色错误高亮、"+ New agent on node" 按钮缺失 |
+| Account | `proto-account.png` | `actual-account.png` | **近** | 原型：顶部大头像 + 用户名 + user_id、Profile/Gateway 两个 section、Gateway 内含节点卡片（带 online/offline 颜色 pill）。实际：Identity/Defaults/Preferences 三段 ✅，无大头像，Default Entry Node 用 dropdown 而非节点卡片列表，整体信息密度与原型基本一致 |
+| Mobile Me（`/me`） | `proto-mobile-me-hub.png` | `actual-mobile-me.png` | **近** | 原型：顶部大头像 + 用户名 + Nodes 在线统计（"3 owned · 2 online"）、底部 Chat/Agents/Me 三标签栏。实际：Me/用户名文本 ✅、Account/Nodes 菜单行 ✅、Language/Notifications/Sign out ✅、底部三标签栏 ✅；缺失大头像 + Nodes 在线统计摘要 |
+
+### 原型对照综合判定
+
+**Chat 页 = 偏**（blocking 关联）：tool call panel、token chip、Node chip、Config 按钮均缺失，这些是 spec 核心交付物。背后根因是 WS 断（R7-1）导致实时数据无法渲染，但 Node chip 和 Config 按钮是 DOM 结构级缺失，与 WS 无关。
+
+**其余 4 页 = 近**：结构意图正确，差异在细节完成度（节点统计汇总、头像、节点错误高亮），不阻塞主路径认知。
+
+**判定影响**：Chat 偏 = 新增 issue R7-5（major，fix-implementation），记录在下方。
+
+### R7-5（由原型对照新发现）
+
+| # | 严重度 | 现象 | Recommended Action | Action Rationale |
+|---|---|---|---|---|
+| R7-5 | major | Chat workspace 缺失原型要求的 DOM 结构元素：会话头部 Node chip（原型 `"● My MacBook Pro"` pill）、⚙ Config 按钮、tool call 展开面板、token chip。即使 WS 修复后 token chip 可能会出现，但 Node chip 和 Config 按钮是静态 DOM 元素，与实时数据无关，刷新后也看不到。spec.md 验收标准"会话头部 Node chip + Kind badge + ⚙ 跳 agent"明确要求。 | fix-implementation | 原型对照发现，与 WS 状态无关的静态头部元素缺失，属 M4/M5 前端实现遗漏，需补充 DOM 结构。 |
+
+### 原型截图路径汇总
+
+| 文件 | 内容 |
+|---|---|
+| `/tmp/feat340-r7-evidence/proto-chat-main.png` | 原型 Chat（direct-agent + tool calls） |
+| `/tmp/feat340-r7-evidence/proto-chat-group.png` | 原型 Chat（direct 另一视图） |
+| `/tmp/feat340-r7-evidence/proto-chat-group-sprint.png` | 原型 Chat（Sprint Planning group） |
+| `/tmp/feat340-r7-evidence/proto-chat-network.png` | 原型 Chat（Agent Network） |
+| `/tmp/feat340-r7-evidence/proto-agents-list.png` | 原型 Agents（列表+详情） |
+| `/tmp/feat340-r7-evidence/proto-agents-detail-scrolled.png` | 原型 Agents 详情下半段 |
+| `/tmp/feat340-r7-evidence/proto-nodes.png` | 原型 Nodes |
+| `/tmp/feat340-r7-evidence/proto-account.png` | 原型 Account（桌面） |
+| `/tmp/feat340-r7-evidence/proto-mobile-me.png` | 原型 Mobile Account sub-page |
+| `/tmp/feat340-r7-evidence/proto-mobile-me-hub.png` | 原型 Mobile Me hub |
+| `/tmp/feat340-r7-evidence/actual-chat-direct-agent.png` | 实际 Chat（direct-agent，刷新后） |
+| `/tmp/feat340-r7-evidence/actual-agents.png` | 实际 Agents |
+| `/tmp/feat340-r7-evidence/actual-nodes.png` | 实际 Nodes |
+| `/tmp/feat340-r7-evidence/actual-account.png` | 实际 Account |
+| `/tmp/feat340-r7-evidence/actual-mobile-me.png` | 实际 Mobile /me |
