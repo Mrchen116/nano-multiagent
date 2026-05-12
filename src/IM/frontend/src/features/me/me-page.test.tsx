@@ -54,7 +54,7 @@ describe("MePage", () => {
 
   it("switching language to 中文 changes visible copy and persists to localStorage", async () => {
     renderMe();
-    await userEvent.click(screen.getByLabelText(/中文/));
+    await userEvent.click(screen.getByRole("button", { name: /^中$/ }));
     expect(screen.getByRole("heading", { name: "我" })).toBeInTheDocument();
     expect(localStorage.getItem(I18N_STORAGE_KEY)).toBe("zh");
   });
