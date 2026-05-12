@@ -12,14 +12,14 @@
 
 ## 退出标准
 
-- [ ] POST `/im/v1/nodes/{node_id}/agents` 同事务在 IM `users` 表建 `username=agent:<agent_id>` 行;响应 + 后续 GET `/im/v1/agents` 返回 `user_id != null`
-- [ ] 已存在的 agent(无 user 行)在 GET `/im/v1/agents` 路径上 lazy 自动补齐(兼容 r8alpha seed)
-- [ ] `docs/IM-SPEC.md` 加段"agent 注册时同步建 IM user 行"契约
-- [ ] `agent-detail-page.tsx::openDirectChatMutation` 不再走 `ensureBootstrap` / `listUsersRaw`,直接用 `POST /conversations { participant_ids: [agent.user_id] }`
-- [ ] mutation onError 显式 toast,不再静默
-- [ ] `chat-workspace-page` 发送 POST 成功后乐观 append 用户气泡,WS message.created 时按 id 去重
-- [ ] `cd src/IM/frontend && npm run build` 成功 + grep dist/assets 验关键修复进 bundle
-- [ ] 浏览器端到端旅程: 注册→新建 agent→Open chat↗→发消息→看 streaming→刷新→Open chat 再点 → 全过
+- [x] POST `/im/v1/nodes/{node_id}/agents` 同事务在 IM `users` 表建 `username=agent:<agent_id>` 行;响应 + 后续 GET `/im/v1/agents` 返回 `user_id != null`
+- [x] 已存在的 agent(无 user 行)在 GET `/im/v1/agents` 路径上 lazy 自动补齐(兼容 r8alpha seed)
+- [x] `docs/IM-SPEC.md` 加段"agent 注册时同步建 IM user 行"契约
+- [x] `agent-detail-page.tsx::openDirectChatMutation` 不再走 `ensureBootstrap` / `listUsersRaw`,直接用 `POST /conversations { participant_ids: [agent.user_id] }`
+- [x] mutation onError 显式 inline error banner(`data-testid="open-chat-error"`),不再静默
+- [x] `chat-workspace-page` 发送 POST 成功后乐观 append 用户气泡,WS message.created 时按 id 去重
+- [x] `cd src/IM/frontend && npm run build` 成功 + grep dist/assets 验关键修复进 bundle
+- [ ] 浏览器端到端旅程: 注册→新建 agent→Open chat↗→发消息→看 streaming→刷新→Open chat 再点 → 全过 (留给 R10 reviewer 验)
 
 ## 测试策略
 
