@@ -109,21 +109,23 @@
     "account": {
       "title": "账号",
       "identity": {
-        "heading": "身份",
-        "subtitle": "你在 nano IM 中的账号身份。",
+        "heading": "资料",
+        "subtitle": "你在工作区中的身份。",
         "displayName": "显示名",
         "username": "用户名",
         "userId": "用户 ID",
-        "createdAt": "创建时间"
+        "createdAt": "加入时间"
       },
       "defaults": {
-        "heading": "默认值",
-        "subtitle": "新会话和 agent 默认归属的节点。",
+        "heading": "网关",
+        "subtitle": "决定消息默认走哪个节点路由。",
         "defaultEntryNode": "默认入口节点",
-        "defaultEntryNodeHint": "选择一个你拥有的节点。",
-        "selectNode": "请选择节点",
+        "defaultEntryNodeHint": "从你拥有的节点中选择。",
+        "selectNode": "— 选择节点 —",
         "ownedNodes": "已拥有节点",
-        "ownedNodesEmpty": "尚未绑定任何节点。"
+        "ownedNodesEmpty": "尚未绑定任何节点。",
+        "defaultChip": "默认",
+        "agentsShort": "agent"
       },
       "preferences": {
         "heading": "偏好",
@@ -134,6 +136,7 @@
       },
       "actions": {
         "save": "保存",
+        "saveAccount": "保存账户",
         "saving": "保存中…",
         "discard": "放弃",
         "savedJustNow": "已保存。",
