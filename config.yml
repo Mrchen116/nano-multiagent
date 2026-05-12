@@ -1,6 +1,0 @@
-node:
-  node_id: my-macbook
-
-channels:
-  - name: web_relay
-    enabled: true

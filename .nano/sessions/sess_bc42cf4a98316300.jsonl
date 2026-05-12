@@ -1,3 +1,0 @@
-{"type": "session_created", "session_id": "sess_bc42cf4a98316300", "created_at": "2026-04-27T13:57:47.031503+00:00", "workspace_root": "/Users/czj/nano-assistant/workspace/append-history"}
-{"type": "turn", "uuid": "msg_dm_joke", "parent_uuid": null, "session_id": "sess_bc42cf4a98316300", "role": "assistant", "content": "给你个冷笑话：为什么海盗数学不好？", "timestamp": "2026-04-27T13:57:47.033988+00:00"}
-{"type": "turn", "uuid": "msg_dm_joke", "parent_uuid": null, "session_id": "sess_bc42cf4a98316300", "role": "assistant", "content": "给你个冷笑话：为什么海盗数学不好？", "timestamp": "2026-04-27T13:57:47.036560+00:00"}

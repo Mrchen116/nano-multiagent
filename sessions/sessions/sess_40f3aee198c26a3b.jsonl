@@ -1,3 +1,0 @@
-{"type": "session_created", "session_id": "sess_40f3aee198c26a3b", "created_at": "2026-04-23T15:25:43.390467+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent"}
-{"type": "turn", "uuid": "msg_5154ef2a9cf45bde", "parent_uuid": null, "session_id": "sess_40f3aee198c26a3b", "role": "user", "content": "ping", "timestamp": "2026-04-23T15:25:43.425365+00:00"}
-{"type": "turn", "uuid": "msg_29ab73a2750d6bea", "parent_uuid": "msg_5154ef2a9cf45bde", "session_id": "sess_40f3aee198c26a3b", "role": "assistant", "content": "ack:ping", "timestamp": "2026-04-23T15:25:43.427306+00:00", "group_id": "msg_29ab73a2750d6bea"}

@@ -1,5 +1,0 @@
-{"type": "session_created", "session_id": "sess_bd00a03842118def", "created_at": "2026-04-29T04:49:58.207175+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent"}
-{"type": "turn", "uuid": "msg_71c67d78807315aa", "parent_uuid": null, "session_id": "sess_bd00a03842118def", "role": "user", "content": "", "timestamp": "2026-04-29T04:50:07.769947+00:00", "parts": [{"type": "text", "text": "你好"}]}
-{"type": "turn", "uuid": "msg_3bda767bf030131c", "parent_uuid": "msg_71c67d78807315aa", "session_id": "sess_bd00a03842118def", "role": "user", "content": "你好", "timestamp": "2026-04-29T04:50:19.160060+00:00"}
-{"type": "turn", "uuid": "msg_81bc708e473956b0", "parent_uuid": "msg_3bda767bf030131c", "session_id": "sess_bd00a03842118def", "role": "user", "content": "你好", "timestamp": "2026-04-29T04:52:54.209029+00:00"}
-{"type": "turn", "uuid": "msg_ebed3261c678a3d1", "parent_uuid": "msg_81bc708e473956b0", "session_id": "sess_bd00a03842118def", "role": "user", "content": "你好", "timestamp": "2026-04-29T04:54:23.167871+00:00"}

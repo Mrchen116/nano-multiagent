@@ -1,3 +1,0 @@
-{"type": "session_created", "session_id": "sess_545b17968ea142fa", "created_at": "2026-04-29T08:38:54.280703+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent"}
-{"type": "turn", "uuid": "msg_206caf602ee8e36f", "parent_uuid": null, "session_id": "sess_545b17968ea142fa", "role": "user", "content": "哈哈", "timestamp": "2026-04-29T08:38:54.307297+00:00"}
-{"type": "turn", "uuid": "msg_87fd1c9cbd789bcc", "parent_uuid": "msg_206caf602ee8e36f", "session_id": "sess_545b17968ea142fa", "role": "assistant", "content": "你好！看来你发送了一个友好的问候。有什么具体的编程问题需要帮助解决吗？无论是代码调试、项目搭建还是功能实现，都可以告诉我哦。", "timestamp": "2026-04-29T08:38:56.881218+00:00", "group_id": "msg_87fd1c9cbd789bcc"}
