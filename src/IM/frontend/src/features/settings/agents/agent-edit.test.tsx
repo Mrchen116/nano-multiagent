@@ -164,17 +164,17 @@ describe("agent edit page", () => {
     expect(screen.queryByLabelText("Workspace setting")).not.toBeInTheDocument();
     expect(screen.queryByText(/^Selected 2$/)).not.toBeInTheDocument();
     expect(screen.queryByText("Needs review")).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /tdd-execution-worker/i })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /playwright/i })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /bash/i })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /read_file/i })).toBeChecked();
+    expect(screen.getByRole("button", { name: /tdd-execution-worker/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /playwright/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /bash/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /read_file/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByText(/Show advanced options/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Save$/ })).toBeDisabled();
 
     fireEvent.change(input, { target: { value: "Core Planner X" } });
-    await user.click(screen.getByRole("checkbox", { name: /playwright/i }));
-    await user.click(screen.getByRole("checkbox", { name: /plan/i }));
-    await user.click(screen.getByRole("checkbox", { name: /bash/i }));
+    await user.click(screen.getByRole("button", { name: /playwright/i }));
+    await user.click(screen.getByRole("button", { name: /^plan$/i }));
+    await user.click(screen.getByRole("button", { name: /bash/i }));
     await user.click(screen.getByRole("button", { name: /^Save$/ }));
 
     expect(await screen.findByText("✓ Saved")).toBeInTheDocument();
