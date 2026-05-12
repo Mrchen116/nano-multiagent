@@ -81,7 +81,15 @@ def seed_user_under_owner(
 
     connection = client.app.state.connection
     repo = UserRepository(connection)
-    created = repo.create_user(username=username, display_name=display_name or username.title())
+    # feat-340-M18 R9-1: agent profile reads now lazily provision ``agent:<id>`` rows,
+    # so a fixture that seeds the same username after a /im/v1/agents call would race
+    # against the lazy bootstrap. Treat that case as idempotent and return the
+    # existing row instead of failing the whole test on a UNIQUE constraint.
+    existing = repo.get_user_by_username(username=username)
+    if existing is not None:
+        created = existing
+    else:
+        created = repo.create_user(username=username, display_name=display_name or username.title())
     if created.owner_id != owner_id:
         connection.execute("UPDATE users SET owner_id = ? WHERE id = ?", (owner_id, created.id))
         connection.commit()
