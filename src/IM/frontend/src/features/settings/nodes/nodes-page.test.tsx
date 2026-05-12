@@ -1,5 +1,5 @@
 import userEvent from "@testing-library/user-event";
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
 import { appRoutes } from "../../../app/router";
@@ -9,8 +9,16 @@ const fetchMock = vi.fn();
 
 globalThis.fetch = fetchMock as typeof fetch;
 
-afterEach(() => {
+async function setViewport(width: number) {
+  await act(async () => {
+    window.innerWidth = width;
+    window.dispatchEvent(new Event("resize"));
+  });
+}
+
+afterEach(async () => {
   fetchMock.mockReset();
+  await setViewport(1280);
 });
 
 describe("nodes page", () => {
@@ -148,6 +156,32 @@ describe("nodes page", () => {
     // version badge / agent_count 在卡头右侧
     expect(screen.getByTestId("node-version-n1").textContent).toMatch(/v1\.8\.2/);
     expect(screen.getByTestId("node-agent-count-n1").textContent).toMatch(/3/);
+  });
+
+  // M19/R10-Nodes: prototype `im-extra-pages.jsx::NodesPage` 在 mobile viewport
+  // 顶端有 `PageBackHeader` (sticky, height 48, "‹" 按钮 + "Nodes" 标题),用户
+  // 从 Me 页直达,需要一个回退入口返回 /me。
+  it("R10-Nodes: mobile viewport renders a sticky back header with '‹' that links to /me", async () => {
+    await setViewport(375);
+    const nodes = [
+      { node_id: "n1", owner_id: "o", node_name: "n1", status: "online", last_heartbeat_at: "2026-03-13T10:00:00Z", agent_count: 1, version: "1.8.2", relay_enabled: true, reporting_enabled: true, alias: null, last_error: null }
+    ];
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/nodes") {
+        return Promise.resolve(new Response(JSON.stringify(nodes), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      if (url === "/im/v1/agents") {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      return Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes"] });
+
+    const back = await screen.findByTestId("nodes-page-back");
+    expect(back).toHaveAttribute("href", "/me");
+    expect(back.textContent).toMatch(/‹/);
   });
 
   it("R11-5: relay_enabled / reporting_enabled checkboxes are hidden (prototype omits these)", async () => {
