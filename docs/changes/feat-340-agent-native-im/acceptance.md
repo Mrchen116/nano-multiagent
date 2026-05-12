@@ -2182,5 +2182,39 @@ unit 7 轮 reviewer cap 已触达(R7/R8/R9/R10/R11/R12-bis/R13 = 7 轮)。R13  v
 - proto reference: `acceptance-r11-evidence/proto/`(R11 reviewer 拍的 11 张 prototype 渲染)
 
 **零写入合规声明**:本轮未 Write/Edit `src/**` `tests/**` 任何文件;未修改 dist;唯一写入为 9 张 evidence PNG + 本 acceptance.md 段(orchestrator 派发授权)。
-- R13 fail → 无论哪种 cap 都触发 §0.7/§6.4 强制 escalate
-- R13 pass → orchestrator §7 更新 PR #3 body + 退出
+
+---
+
+## Orchestrator Note — Unit Escalated(2026-05-12)
+
+**R13 verdict: escalate**。unit 7 轮 reviewer cap 触达。
+
+### M20 成果
+
+- **4 偏 viewport 全部消除**:Agents detail 1440(偏→近,agent rail 已出现)/Nodes 1440/375(偏→近,Save footer+KPI 卡修复)/Account 375(偏→近,水平溢出消除)
+- **9/9 近 / 0 偏 / 0 零** — 无结构性错位,无功能缺陷,所有 viewport 大结构对齐 prototype
+- **0 精** — 每个 viewport 仍有 1-3 个可指认的小差异(avatar 配色/Discard+Save 双按钮 vs proto 单 Save/token chip 位置/sidebar online 圆点 等),未达 spec §22 "像素级" 硬门槛
+
+### Escalate 原因
+
+1. **unit 7 轮 reviewer cap 触达**(R7→R13,含 R12 deploy-bug 轮不计也达 6 轮真验)
+2. **同 issue 指纹累计** 6 轮(R7→R13),距 §0.7 "同 issue 5 轮" cap 已超
+3. **9/9 近 = 长期卡在"差一点"而非"差很多"** — pixel-level 标准可能过严或 worker 在 fine polish 层面有系统性天花板
+
+### 产出保留(unit/feat-340-agent-native-im @ b8856f63)
+
+- 代码层:unit 分支完整(M1-M18 + M19 + M20 已合并),功能层全绿
+- 文档层:acceptance.md 含 R0-R13 全轮报告 + orchestrator note 完整
+- Evidence:acceptance-r13-evidence/actual/ 9 张 deploy-fix 后真版本 + M19 proto/ 10 张 prototype
+- PR:PR #3 已提(d7598620 基线),但 body 未更新 R12-bis/M20/R13 信息
+
+### 人的选择
+
+| 选项 | 动作 | 结果 |
+|---|---|---|
+| A 接受 9/9 近 | 人 review R13 evidence,接受 pixel-level 未达但 user-experience 已可接受 → 手动 update PR #3 body + merge | unit ship,orchestrator 不再介入 |
+| B 修订 design.md | 启动 change-design-author,放宽 spec §22 "像素级" 为 "近" 或补充 prototype 未覆盖的 fine-tune 项 → 修订后调 orchestrator 续跑 | 可能需新 milestone + 新 reviewer |
+| C 额外 polish round | 人直接授权突破 7 轮 cap,orchestrator 派 M21 worker(不建 reviewer,worker 直接按 R13 细项微调) | 消耗额外 worker/reviewer 轮次 |
+| D 冻结 visual | 功能 ship,visual fine-tune 作为独立未来 unit 跟踪 | 最务实,PR 可 merge |
+
+orchestrator 退出。如需续跑,调 orchestrator 时带 `unit_id: feat-340` + 选择的选项(A/B/C/D)即可。
