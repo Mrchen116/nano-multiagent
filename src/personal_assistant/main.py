@@ -1512,15 +1512,16 @@ def _build_kernel_event_observer(
     *,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]],
-) -> Callable[[Mapping[str, Any]], None]:
+) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
-    The observer is called synchronously during _await_terminal_run_async; it schedules
-    async WS sends via asyncio.create_task so the caller's event loop handles dispatch.
+    The observer returns a coroutine for run_status=running so the pipeline can
+    await the turn_start ack before processing the following assistant_message event.
+    For all other events the observer schedules tasks and returns None.
 
     Kernel SSE events translated:
     - run_status=running  → node.streaming_delta kind=turn_start (creates placeholder message)
-    - assistant_message   → node.streaming_delta kind=message_delta + kind=message_completed
+    - assistant_message   → node.streaming_delta kind=message_delta
     - tool_start          → node.streaming_delta kind=tool_call_upserted
     - tool_end            → node.streaming_delta kind=tool_call_completed
     - turn_end            → node.streaming_delta kind=message_completed (with token_usage if available)
@@ -1532,16 +1533,16 @@ def _build_kernel_event_observer(
         except Exception:  # noqa: BLE001
             pass
 
-    def observer(event: Mapping[str, Any]) -> None:
+    def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         manager = im_connection_manager_factory()
         if manager is None or not manager.connected:
-            return
+            return None
         run_id = str(event.get("run_id") or "").strip()
         if not run_id:
-            return
+            return None
         ctx = run_context_store.get(run_id)
         if ctx is None:
-            return
+            return None
         conversation_id = ctx.get("conversation_id") or ""
         message_id = ctx.get("message_id") or ""
         agent_id = ctx.get("agent_id") or ""
@@ -1551,6 +1552,9 @@ def _build_kernel_event_observer(
 
         if event_name == "run_status" and event.get("status") == "running":
             if conversation_id and agent_id:
+                # Return a coroutine so the pipeline awaits turn_start ack before processing
+                # the following assistant_message; without awaiting, message_id would still be
+                # empty when assistant_message fires and the delta would be silently dropped.
                 async def _send_turn_start_and_store(
                     mgr: IMConnectionManager = manager,
                     rid: str = run_id,
@@ -1570,7 +1574,7 @@ def _build_kernel_event_observer(
                             run_context_store[rid]["message_id"] = str(returned_msg_id)
                     except Exception:  # noqa: BLE001
                         pass
-                loop.create_task(_send_turn_start_and_store())
+                return _send_turn_start_and_store()
 
         elif event_name == "assistant_message":
             content = str(event.get("content") or "").strip()
