@@ -29,4 +29,16 @@
   - `TestAcceptedPhaseSeedsRunContext` 2 tests 验证 accepted phase 只写空 message_id
 - Rollback: `git revert 0a16199f`
 - Commits: C1=（test RED 已在上一轮提交）, C2=0a16199f, C3=（本次）
-- Next: R3 端到端验证截图
+- Next: ✓ R3 DONE
+
+### R3 — 端到端验证
+
+- Context: E2E 测试发现 `message.created/delta/completed` 三个事件全部缺失，原因是内核 SSE 流不发 `run_status=running`（直接 `assistant_message` → `turn_end` → `run_status=completed`），导致 observer 的 `turn_start` 触发条件永不满足，`message_id` 始终为空，delta 被 `if content and message_id:` 静默丢弃。
+- Additional fix: 在 observer `assistant_message` 分支加入 fallback：当 `message_id` 为空时返回可等待 coroutine，先 `send_json_await_ack(turn_start)` 获取 message_id，再发 `message_delta`（`_turn_start_then_delta`）。新增 2 个单测覆盖该路径。
+- E2E evidence (2026-05-12 14:22):
+  - WS connects with `?token=` (no 403) ✓
+  - `message.sent` (user) → `relay.accepted` → `message.sent` (agent placeholder) → `message.created` → `message.delta` (delta_text="4") → `message.completed` (content="4") ✓
+  - All 3 target events received for conv `76a545d34f444e6fb034844031496625` ✓
+  - Unit tests: 17 passed
+- Rollback: `git revert 7e808f89`
+- Commits: C2=7e808f89, C3=（本次）
