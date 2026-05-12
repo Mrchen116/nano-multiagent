@@ -112,6 +112,94 @@ class TestAcceptedPhaseSeedsRunContext:
         )
 
 
+# ─── R2b tests: kernel skips run_status=running (direct assistant_message) ───
+
+
+class TestObserverHandlesDirectAssistantMessage:
+    """When kernel emits assistant_message without prior run_status=running,
+    observer must send turn_start inline then message_delta."""
+
+    @pytest.mark.asyncio
+    async def test_direct_assistant_message_sends_turn_start_then_delta(self):
+        """assistant_message with empty message_id triggers turn_start + delta as one awaitable."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json_await_ack(message_type, payload):
+            send_calls.append((message_type, payload))
+            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "auto-placeholder-111"}}
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+        manager.send_json_await_ack = mock_send_json_await_ack
+
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-001": {
+                "conversation_id": "conv-abc",
+                "message_id": "",  # empty: no run_status=running was emitted
+                "agent_id": "alpha",
+            }
+        }
+
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        coro = observer({
+            "event": "assistant_message",
+            "content": "The answer is 42.",
+            "run_id": "run-001",
+        })
+        assert asyncio.iscoroutine(coro), "Should return coroutine for direct assistant_message path"
+        await coro
+
+        # turn_start must have been sent
+        turn_start_frames = [p for _, p in send_calls if p.get("kind") == "turn_start"]
+        assert len(turn_start_frames) >= 1, f"Expected turn_start, got: {send_calls}"
+
+        # delta must have been sent with the ack'd message_id
+        delta_frames = [p for _, p in send_calls if p.get("kind") == "message_delta"]
+        assert len(delta_frames) >= 1, f"Expected message_delta, got: {send_calls}"
+        assert delta_frames[0]["message_id"] == "auto-placeholder-111"
+        assert delta_frames[0]["delta_text"] == "The answer is 42."
+
+    @pytest.mark.asyncio
+    async def test_direct_assistant_message_updates_run_context_store(self):
+        """run_context_store must be updated with ack message_id when turn_start is sent inline."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json_await_ack(message_type, payload):
+            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "inline-placeholder-222"}}
+
+        manager.send_json = AsyncMock()
+        manager.send_json_await_ack = mock_send_json_await_ack
+
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-001": {"conversation_id": "conv-abc", "message_id": "", "agent_id": "alpha"}
+        }
+
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        coro = observer({"event": "assistant_message", "content": "Hi!", "run_id": "run-001"})
+        if coro is not None:
+            await coro
+
+        assert run_context_store["run-001"]["message_id"] == "inline-placeholder-222"
+
+
 # ─── R2 tests: kernel_event_observer sends turn_start (M16) ──────────────────
 
 

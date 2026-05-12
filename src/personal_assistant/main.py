@@ -1578,14 +1578,46 @@ def _build_kernel_event_observer(
 
         elif event_name == "assistant_message":
             content = str(event.get("content") or "").strip()
-            if content and message_id:
-                # Single delta frame containing the full text (kernel has no sub-token streaming via SSE).
+            if not content:
+                return None
+            if message_id:
+                # turn_start already ack'd — send delta directly.
                 loop.create_task(_send(manager, "node.streaming_delta", {
                     "kind": "message_delta",
                     "message_id": message_id,
                     "delta_text": content,
                     "run_id": run_id,
                 }))
+            elif conversation_id and agent_id:
+                # Kernel skipped run_status=running; send turn_start inline and await ack
+                # so we have message_id before the delta frame is dispatched.
+                async def _turn_start_then_delta(
+                    mgr: IMConnectionManager = manager,
+                    rid: str = run_id,
+                    cid: str = conversation_id,
+                    aid: str = agent_id,
+                    text: str = content,
+                ) -> None:
+                    try:
+                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
+                            "kind": "turn_start",
+                            "conversation_id": cid,
+                            "agent_id": aid,
+                            "run_id": rid,
+                        })
+                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
+                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                        if returned_msg_id and rid in run_context_store:
+                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                            await mgr.send_json("node.streaming_delta", {
+                                "kind": "message_delta",
+                                "message_id": str(returned_msg_id),
+                                "delta_text": text,
+                                "run_id": rid,
+                            })
+                    except Exception:  # noqa: BLE001
+                        pass
+                return _turn_start_then_delta()
 
         elif event_name == "turn_end":
             # Finalize message with token_usage if present.
