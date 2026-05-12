@@ -291,9 +291,12 @@ describe("ChatWorkspacePage v2 — integration", () => {
       expect(body.content).toBe("see image");
     });
 
-    // composer + chip strip both reset after send
+    // composer + chip strip both reset after send. (M18 R9-3: the user's bubble
+    // is now rendered optimistically with its attachments, so we scope this
+    // assertion to the composer chip strip rather than the whole document.)
     expect(composer.value).toBe("");
-    expect(screen.queryByRole("img", { name: "dropped.png" })).not.toBeInTheDocument();
+    const composerChipStrip = composer.closest("form")?.querySelector(".chat-composer-chip-strip");
+    expect(composerChipStrip?.querySelector("img[alt='dropped.png']")).toBeFalsy();
   });
 
   it("R9-3: optimistically renders the user's bubble in the pane the instant the POST resolves", async () => {
