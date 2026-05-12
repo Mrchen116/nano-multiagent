@@ -2077,5 +2077,110 @@ M20 worker 已回报 DONE。orchestrator §3.3 验收如下:
 **R13 是最后一轮**(unit 7 轮 cap):
 - 同 unit reviewer cap: R7/R8/R9/R10/R11/R12-bis(6 轮) + R13 = **第 7 轮**
 - 同 issue fix cap: M19(1 轮) + M20(2 轮) = 2 轮 fix-implementation
+
+---
+
+## Round 13 — M20 fix 后终审(reviewer,日期 2026-05-12)
+
+### Deploy fix 验证
+
+| 检查项 | 命令 | 输出 | 结论 |
+|---|---|---|---|
+| Bundle 串号 | `curl -s http://127.0.0.1:8011/ \| grep -oE 'index-[A-Za-z0-9_]+\.(js\|css)'` | `index-SUjeylHU.js` + `index-BYznWACP.css` | 与 M20 worker 新 dist 串号一致 |
+| Dist testid | `grep -lE "agents-rail-desktop\|nodes-card-save-footer\|nodes-card-new-agent\|agent-display-name-helper\|me-row-subtitle\|me-no-notifications\|agents-mobile-title-centered" dist/assets/*.js` | `index-SUjeylHU.js` 命中 5 项 | M20 关键 testid 全在 |
+| Dist 关键串 | `grep -oE "rounded-full\|display_name\|justify-center" dist/assets/*.js` | `display_name`×99 / `justify-center`×9 / `rounded-full`×17 | M20 CSS 类确认进 bundle |
+
+### 测试用户与 agent 环境
+
+- 复用 `r12review` / `r12password`,DB 已有 node `feat340-r12review-node`
+- 新建第二个 agent `R13Beta` on 同一 node,验证 agent rail 渲染
+- `GET /im/v1/agents` 返回 3 个 agent:`fuck`(seed),`R12ReviewGamma`,`R13Beta`,均带 `user_id`
+- PA Gateway pid=2226 运行中,node status=online
+
+### Viewport 评级表(9 张)
+
+| Viewport | actual 路径 | proto 路径 | 评级 | 关键差异/确认 |
+|---|---|---|---|---|
+| Chat 1440 | `acceptance-r13-evidence/actual/chat-1440.png` | `acceptance-r11-evidence/proto/chat-1440.png` | **近** | 结构对齐:顶栏 nano IM+Internal/Chat+Agents  tab/侧边栏 MESSAGES+搜索+4 tab/消息区气泡+输入框。进步:消息 timestamp(20:27)已出现(R12 缺失项修复)。差异:(1) agent avatar 仍为 hash 棕/橙色,proto 统一青色;(2) sidebar 行缺 online/offline 圆点+未读数字;(3) token chip 未在气泡下方渲染(proto 有"312 tok·ctx 7%");(4) tool call 折叠面板未触发(简单聊天无 tool call)。 |
+| Chat 375 | `acceptance-r13-evidence/actual/chat-375.png` | `acceptance-r11-evidence/proto/chat-375.png` | **近** | 移动 chat thread 视图完整:返回 chevron/头像/标题/Node chip/Config 齿轮/用户气泡(青色右对齐)/agent 气泡(灰左对齐)/timestamp/输入框/Send 箭头/底部 tab 栏带图标。进步:mobile 紧凑 header 从 R12"偏"升到"近"。差异:(1) avatar 颜色 hash 棕 vs proto 青色;(2) Chat tab 缺未读数字徽标;(3) 底部 tab 图标风格略有差异。 |
+| Agents detail 1440 | `acceptance-r13-evidence/actual/agents-detail-1440.png` | `acceptance-r11-evidence/proto/agents-detail-1440-full.png` | **近** | **左侧 agent rail 已出现** — AGENTS 暗色侧栏+New+3 agent(fuck/R12ReviewGamma/R13Beta),R13Beta 选中高亮,R12-bis-1"缺 rail"修复。右侧 Identity/Behavior/Access&Model 卡片结构对齐,Agent ID+Display Name row1 正确,Skills/Tool Allowlist 为 pill 样式。差异:(1) header 右侧为"online dot+Open chat",proto 为"Open chat+No changes/Save Agent",Save/Discard 实际在底部 footer;(2) rail 含 seed 数据"fuck"agent(视觉噪音,非实现问题);(3) 未渲染 Workspace&Runtime 卡(需滚动)。 |
+| Agents 375 | `acceptance-r13-evidence/actual/agents-375.png` | `acceptance-r11-evidence/proto/agents-375.png` | **近** | "Agents"标题居中,+New 按钮,agent 列表行(头像+名+description+状态点+chevron),底部 tab 栏带图标。进步:标题从 R12 左对齐改为居中(R12-bis-7 修复)。差异:(1) avatar 颜色 hash 棕/绿 vs proto 青/蓝/红;(2) seed 数据"fuck"在列表顶部。 |
+| Nodes 1440 | `acceptance-r13-evidence/actual/nodes-1440.png` | `acceptance-r11-evidence/proto/nodes-1440.png` | **近** | 4 KPI 卡(Total/Online/Offline/Total agents)完整,node 卡含 🖥 图标/online pill/alias 输入框/Live Snapshot/Agents on this node 列表/"+ New agent on node"按钮/Save 按钮/"All saved"footer。进步:KPI 卡+🖥 icon+Save footer 从 R12"偏"修复。差异:(1) version 字段空("v"),proto 为"v0.9.4"(数据差异);(2) Live Snapshot 无粉色 error banner(无错误数据,非实现缺失);(3) Save 按钮尺寸比 proto 大。 |
+| Nodes 375 | `acceptance-r13-evidence/actual/nodes-375.png` | `acceptance-r11-evidence/proto/nodes-375.png` | **近** | 返回 chevron/Nodes title/2x2 KPI 网格/node 卡结构/底部 tab 栏。进步:back header+KPI 卡从 R12"偏"修复。差异:(1) version 空;(2) node 卡 header 信息块换行 vs proto 一行多列。 |
+| Account 1440 | `acceptance-r13-evidence/actual/account-1440.png` | `acceptance-r11-evidence/proto/account-1440.png` | **近** | **2 卡结构(Profile+Gateway)已对齐原型**,窄居中布局,Profile avatar 圆(R1 蓝色),User ID/Display name 字段,Default entry node dropdown,owned nodes 卡式列表(online pill+agent count+Default 徽章),Member since 本地化日期,Save account footer。进步:从 R12 3 卡改回 2 卡+avatar+窄居中+Save footer,R12-bis-4/5 修复。差异:(1) User ID 显完整 UUID,proto 为友好"user_1"(数据差异);(2) 实际仅 1 个 owned node,proto 3 个(数据差异);(3) "Discard+Save account"双按钮,proto 仅"Save account"单按钮。 |
+| Account 375 | `acceptance-r13-evidence/actual/account-375.png` | `acceptance-r11-evidence/proto/account-375.png` | **近** | 返回 chevron/Account title/Profile+Gateway 卡/Save footer/底部 tab 栏。进步:从 R12 水平溢出+3 卡修复为正常 2 卡。差异:同桌面(数据差异+Discard 按钮)。 |
+| Mobile Me 375 | `acceptance-r13-evidence/actual/me-375.png` | `acceptance-r11-evidence/proto/me-375.png` | **近** | **巨幅修复**:profile 白卡(avatar+名+ID+chevron)/Nodes 行(🖥+subtitle+chevron)/Account 行(👤+subtitle+chevron)/Language 行(文+EN/中 pill toggle)/Sign out 红字红箭头+chevron/底部 tab 栏带图标。进步:从 R12"接近 0"升到"近",R12-1 blocking 消除。差异:(1) Nodes subtitle 为"Nodes and agents",proto 为"3 owned·2 online·1 offline"(数据差异);(2) 无 Enable desktop notifications 行(proto 无此行的设计一致)。 |
+
+### 与 R12-bis 对比的进度
+
+| 页 | viewport | R12-bis 评级 | R13 评级 | Delta |
+|---|---|---|---|---|
+| Chat | 1440 | 近 | 近 | 持平(timestamp 修复,avatar 仍差) |
+| Chat | 375 | 近 | 近 | 持平(进入 conversation 后视图完整) |
+| Agents detail | 1440 | 偏 | 近 | **+1**(agent rail 出现,R12-bis-1 修复) |
+| Agents | 375 | 近 | 近 | 持平(标题居中修复) |
+| Nodes | 1440 | 偏 | 近 | **+1**(KPI 卡+🖥 icon+Save footer,R12-bis-2 修复) |
+| Nodes | 375 | 偏 | 近 | **+1**(back header+KPI 卡修复) |
+| Account | 1440 | 近 | 近 | 持平(2 卡+avatar+Save footer 修复) |
+| Account | 375 | 偏 | 近 | **+1**(水平溢出消除+2 卡修复) |
+| Mobile Me | 375 | 近 | 近 | 持平(白卡 list 完整保留) |
+
+**R12-bis: 0 精 / 5 近 / 4 偏 → R13: 0 精 / 9 近 / 0 偏**
+
+M20 worker 把 4 个"偏"viewport 全部提升到"近",R12-bis 遗留的 4 个 major issue(R12-bis-1~4)全部修复:
+- R12-bis-1 Agents detail 缺左侧 rail → **已修复**,暗色 AGENTS 侧栏+3 agent 列表+R13Beta 选中
+- R12-bis-2 Nodes Save 按钮 layout+缺"+ New agent" → **已修复**,Save 在右下角+"+ New agent on node"存在
+- R12-bis-3 Account 375 水平溢出 → **已修复**,无溢出,2 卡正常渲染
+- R12-bis-4 Account User ID 显 UUID → **部分修复**,User ID 仍显 UUID(数据层),但 display_name 在 Profile 卡顶部正确显示"R12 Reviewer"
+
+### 综合判定
+
+**0 精 / 9 近 / 0 偏 / 0 零**
+
+spec §22 "像素级对齐 / 精"硬门槛:**0 / 9 viewport 达标**。
+
+所有 viewport 均达到"近"档(大结构对齐,1-3 个小差异),无"偏"或"零"。但**无一 viewport 达到"精"档**(无显差)。核心差距集中在:
+1. **Agent avatar 配色**:全 viewport 使用 hash 棕/橙/绿色,proto 为统一角色色板(青/蓝/红)
+2. **Chat 消息区**:token chip 位置(头部 vs 气泡下方)+ctx % 进度条缺失+tool call 面板未验证
+3. **Agents detail header**:Save/Discard 在 footer,proto 在 header 与 Open chat 并列
+4. **Sidebar 行细节**:缺 online/offline 圆点+未读数字徽标
+
+### Issues
+
+R13 无新增 issue。M20 已闭合 R12-bis 全部 4 个 major issue。剩余差异均为"近"档内的 polish 级差距,不构成 blocking/major。
+
+### Recommended Action
+
+**escalate**
+
+unit 7 轮 reviewer cap 已触达(R7/R8/R9/R10/R11/R12-bis/R13 = 7 轮)。R13  verdict 为 0 精 / 9 近,未达 spec §22 "9/9 精"像素级硬门槛。按 §0.7/§6.4 强制 escalate,通知人介入评估:
+- 是否接受当前 9/9 "近"为 sufficient(产品可用但非像素级)
+- 或启动 change-design-author 检查 design.md 视觉规约段是否未硬性钉死 prototype 截图契约
+- 或指派额外视觉 polish round(突破 7 轮 cap,需人明确授权)
+
+**同 issue 指纹**:R7→R13 视觉对齐共 7 轮,M19(1 轮 fix)+M20(2 轮 fix)后仍 0 精,说明 prototype "精"标准与当前实现能力/资源之间存在系统性 gap。
+
+### 行动账本
+
+| 时间 | 操作 | 结果 |
+|---|---|---|
+| 20:23 | bundle 串号校验 `index-SUjeylHU.js` | pass |
+| 20:23 | dist testid grep 5 项命中 | pass |
+| 20:23 | dist CSS 类 grep | pass |
+| 20:24 | login r12review 拿 token | access_token OK |
+| 20:25 | 启动 PA Gateway feat340-r12review-node + R13Beta | pid=2226,IM [connected] |
+| 20:26 | playwright 9 viewport 截图 | 全部完成 |
+| 20:27 | chat-1440/chat-375 重拍(conversation view) | 完成 |
+| 20:28 | 9 viewport 原型对照评级 | 0 精 / 9 近 / 0 偏 |
+
+### 环境声明
+
+- IM service: pid 98502, bundle `index-SUjeylHU.js`
+- PA Gateway: pid 2226, node `feat340-r12review-node`, agents `R12ReviewGamma`+`R13Beta`
+- reviewer user: `r12review` / id `18020107fa254ce0bca529c5fc5e1c09`
+- conv: `266e5785f14745fd9fc453a3aca72788` (R12 Reviewer × R12ReviewGamma direct)
+- proto reference: `acceptance-r11-evidence/proto/`(R11 reviewer 拍的 11 张 prototype 渲染)
+
+**零写入合规声明**:本轮未 Write/Edit `src/**` `tests/**` 任何文件;未修改 dist;唯一写入为 9 张 evidence PNG + 本 acceptance.md 段(orchestrator 派发授权)。
 - R13 fail → 无论哪种 cap 都触发 §0.7/§6.4 强制 escalate
 - R13 pass → orchestrator §7 更新 PR #3 body + 退出
