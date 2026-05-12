@@ -80,6 +80,9 @@
 - Q8:这些 skill 给的是通用软件开发,还是只服务本 repo?
   A:通用。所有改动里禁止出现本 repo 特定的文件路径、服务名、产品名。
 
+- Q9(2026-05-12 后续修订):reviewer 是否需要在验收报告里主动披露"行动账本"和"环境声明"?
+  A:不需要。之前把"无脑按 runbook 重启服务"延伸成"报告中必须写行动账本/环境声明"过重。准确口径是:reviewer 仍必须按 `design.md §Runbook for Reviewer` 重启清单内服务,但验收报告只需聚焦用户旅程结果、证据、问题清单和验收标准覆盖;不强制单独写行动账本、PID、端口、commit hash 或临时文件清单。
+
 ## 用户场景
 
 **主角色**:在任意软件项目中使用 change-* skill 套件跑工作流的开发者(用户调起 `change-orchestrator`,后台派发 worker 和 reviewer)。
@@ -95,7 +98,7 @@ orchestrator 派 reviewer
    ├─ reviewer 按 design.md §Runbook 无脑重启服务清单(消除 stale-binary)
    ├─ reviewer 走真实用户旅程
    ├─ 用户面看不到 → 直接 fail(不去读源码 / 不加日志 / 不改代码)
-   └─ 报告 §行动账本 + §环境声明 主动披露做了什么
+   └─ 报告真实用户旅程结果和证据
    ↓
 orchestrator 校验 reviewer 越界
    ├─ 派发前/后 commit 基线比对
@@ -118,7 +121,7 @@ orchestrator 校验 reviewer 越界
 - [ ] reviewer 在 unit 集成分支上**永远不会**产生除 acceptance.md / regression.md 报告外的 git commit
 - [ ] reviewer 走旅程前,无脑按 design.md `§Runbook for Reviewer` 重启服务清单内的全部服务;清单外服务不碰
 - [ ] design.md 模板含 `§Runbook for Reviewer` 强制段;design-author 自检和门禁 2 都校验该段已填(或显式"无常驻服务");缺失会导致 reviewer 卡住并要求回头补
-- [ ] reviewer 写报告时,产出的 acceptance.md / regression.md **必含** `§行动账本`(按 READ/RESTART_SERVICE/BROWSE/CAPTURE/SHELL_MUTATION/SENDMESSAGE 分桶 + 计数)和 `§环境声明`(PID/端口/commit hash/临时文件)两节
+- [ ] reviewer 写报告时,产出的 acceptance.md / regression.md 聚焦用户旅程结果、证据、问题清单和验收标准覆盖;不要求单独的 `§行动账本` / `§环境声明`
 - [ ] 用户面看不到预期结果时,reviewer **不会**自己去读源码 trace、加日志、抓内部协议帧——直接判 `fail`,在报告里写"期望/实际/步骤"
 - [ ] orchestrator 派发 reviewer 时,prompt 里**只**透传 unit_id / unit_dir / branch / review_round / mode 字段,不会出现"WS 帧必须有 X / API 必须返回 Y / 函数 Z 必须被调"等协议/接口/实现级描述
 - [ ] orchestrator 在 reviewer 回报 DONE 后,会自动做 commit 基线比对;发现非报告类 commit 时执行 `git reset --hard` + `push --force-with-lease`,作废本轮 verdict,issues 转独立 fix worker,review_round 不递增
@@ -130,7 +133,7 @@ orchestrator 校验 reviewer 越界
 **在范围**:
 
 - `.claude/skills/change-reviewer/SKILL.md` §0 / §2.5 / §4.2 / §6 改动
-- `.claude/skills/change-reviewer/assets/acceptance.md` + `regression.md` 模板加 `§行动账本` + `§环境声明`
+- `.claude/skills/change-reviewer/assets/acceptance.md` + `regression.md` 模板保持轻量,不强制 `§行动账本` / `§环境声明`
 - `.claude/skills/change-orchestrator/SKILL.md` §0 / §5 / §6.2 / §6.6 改动
 - `.claude/skills/change-design-author/SKILL.md` §5.1 / §6 / §8 改动
 - `.claude/skills/change-design-author/assets/design.md` 模板新增 `§Runbook for Reviewer` 段

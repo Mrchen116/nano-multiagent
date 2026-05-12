@@ -85,7 +85,6 @@ git pull --ff-only origin "unit/<unit_id>"
    - 如果 design.md 没有这一段 → 立即 `SendMessage` 给 orchestrator,要求回 `change-design-author` 补全后再派 reviewer。**不要**自己去读源码猜该启动什么。
 2. **清单内每个服务**:若有正在跑的进程则 kill,然后按 runbook 给的命令(此时已在 unit 集成分支上)重新启动。
 3. **清单外的服务**(数据库 / 消息队列 / 第三方依赖等)**不要碰**——它们不在本 unit 范围,误重启可能破坏其他人的环境。
-4. 在报告 `§环境声明`(§4.2)里记录每个新启动的 PID、端口、启动时的 commit hash(`git rev-parse HEAD`)。
 
 完成 §2.5 后再进入 §3 走旅程。
 
@@ -175,14 +174,6 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
   - **`Recommended Action`**: fix-implementation | revise-design | out-of-unit
   - **`Action Rationale`**: 一句话说明为什么是这一档(revise-design 必须引用 design.md 段落,见 §5.3)
 - **Side Findings** 段:minor out-of-unit + 不立 issue 的零碎观察
-- **§行动账本**(必填):reviewer 本轮做了什么,按桶分类列出工具调用次数 + 关键时刻,让 orchestrator 一眼判断 reviewer 行为是否健康
-  - `READ`:读了哪些文档/源码片段(单次例外读源码的要列文件名)
-  - `START_SERVICE` / `RESTART_SERVICE`:按 runbook 启动/重启了哪些服务
-  - `BROWSE` / `INVOKE`:用户旅程上做的浏览器/CLI/HTTP 动作
-  - `CAPTURE`:抓帧 / 截图 / 日志摘取等取证
-  - `SHELL_MUTATION`:任何改变机器状态的命令(写 /tmp / 启停进程 / kill PID)——配合 §环境声明 互证
-  - `SENDMESSAGE`:向 orchestrator 报告的次数 + 简述
-- **§环境声明**(必填):reviewer 本轮启动/重启的服务清单(PID + 端口 + commit hash)、留在 /tmp 或工作目录的临时文件、占用的端口。让下一轮 reviewer / fix worker 知道环境状态,避免接盘踩坑
 - **上层文档同步**:项目级架构文档 / agent 约定文档 / 各产品 SPEC 是否需要更新
 
 ### §4.3 Verdict 判定逻辑
