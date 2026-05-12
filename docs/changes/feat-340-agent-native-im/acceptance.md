@@ -1521,3 +1521,47 @@ orchestrator **可立即提 PR `unit/feat-340-agent-native-im` → `main`**,在 
 **临时文件(遗留 /tmp/)**:`feat340-r10-gw-config.yaml`, `feat340-r10-alex-token`, `feat340-r10-kernel.log`, `feat340-r10-im.log`, `feat340-r10-gw-stdout.log`, `feat340-r10-workspace/R10Gamma/`(空目录)。
 
 **IM DB 新增(本轮)**:用户 r10alex(id=d1abc2c6…);节点 feat340-r10-node(owner=r10alex);agent R10Gamma 自动 bootstrap IM user(id=dab703ac…)— **R9-1 关键证据**;对话 2958ce0c…(Direct with R10Gamma, R9-2 关键证据)+ df43c530…(R10-Side-B 证据,重复 Open chat ↗ 创建第二个 direct conv);消息 2 条(1 用户 "What is 2+2?" + 1 R10Gamma "4")。
+
+---
+
+# Orchestrator Note — 2026-05-12 (post-R10)
+
+> **R10 verdict `pass` 作废**,理由如下;后续派 Round 11 reviewer 全量重判 5 页视觉对齐。
+
+## 触发
+
+用户在 PR #3 已提交后亲眼访问 `http://127.0.0.1:8011/settings/agents/R10Gamma`,反馈实际页面与 `attachments/prototype/project/im-settings-page.jsx` AgentDetailPanel 渲染"风马牛不相及",直接质疑 reviewer 怎么 pass 的。
+
+## 不合规依据
+
+1. **首文档硬标准**:`spec.md:22` "**像素级对齐范围**:布局、配色、字体、间距、组件细节…全部按原型";`spec.md:102` 列了 Agents 详情页四组卡片必须按原型实现。这是 reference-aligned 验收项。
+2. **reviewer skill §0 红线**:"如果某条验收标准要求对齐 reference,必须用真实产品截图/录屏/可观察输出与 reference 对照,记录 viewport/状态、reference 路径或名称、当前证据路径和结论。页面'能渲染'、布局元素'存在'、组件测试通过,都不能替代 reference 对照。无法完成对照时标 `inconclusive`,不能标 `pass`。"
+3. **orchestrator skill §6.1 配套闸**:"若首文档/design/验收项涉及前端 UI、视觉、原型、设计稿、reference、截图、响应式、布局样式,覆盖表必须有期望来源和真实产品截图/录屏/对照结论。不满足则**作废本轮 pass**,要求 reviewer 补验或重跑。"
+
+## 本轮 R10 不合规事实
+
+- `§原型对照(继承 R9,本轮重判)` 段(L1419 起)**只列分级表,本轮没有新做 prototype-vs-actual 并排截图对照**。所有 proto-*.png 截图都来自 R7 那一轮(`/tmp/feat340-r7-evidence/`),R8/R9/R10 全部"继承 R7 + 追功能 bug"。
+- Agents 由"近 → 精"的论据(L1424)写的是"Open chat ↗ 修通让详情页可被 chained 操作" —— **这是功能性论据,不是视觉对齐论据**。reviewer 把"功能修通"等同"视觉达标"。
+- 综合判定(L1429)"5 页 ≥ 近 = pass" —— **"近" 本身不达 spec "像素级 / 精" 标准**。reviewer 自降验收 bar。
+- 验收覆盖表 V10(Mobile /me 原型对齐)/ V12(Agents 详情完整)证据只贴 r10-* 实际截图,**无原型对照截图或对照结论字段**。
+- R7 那一轮真正做了 prototype-vs-actual 并排对照时,5 页评分是 `Chat=偏 / Agents=近 / Nodes=近 / Account=近 / Mobile Me=偏` —— 即便那时也**全部未达 spec "精 / 像素级"**。R8-R10 这 4 轮没有任何一次重做对照来真正提升到"精"。
+
+## 系统层根因
+
+reviewer 一连 4 轮把"功能 ✅"等同"视觉 ✅",orchestrator 没在 §6.1 完整性检查闸把这条挡住,合谋把不达标 pass 滑过去。两边都有责任。
+
+## 处置
+
+- **R10 verdict pass 作废**。本注记下方所有"verdict / highest_required_action / Recommended Action 路由建议"全部归零。
+- **PR #3 暂不动**(仍 OPEN);reviewer round 11 + 后续 fix milestone 完成后会自动覆盖 PR。
+- 派 **Round 11 reviewer**(新 agent 实例),派发包强约束:
+  - 5 页全量重判(Chat / Agents / Nodes / Account / Mobile Me),**禁止"继承上轮"**
+  - 每页 viewport `1440x900` + `375x812` 双截图
+  - 每页 prototype-vs-actual 并排对照(原型来源 `attachments/prototype/project/im-{chat,settings,mypage,extra}-page.jsx` 或 `IM Prototype.html` via local http)
+  - 标准:`spec.md §22 像素级对齐`,**不达"精"不能 pass**;"近 / 偏" 必须列具体差异并 `Recommended Action = fix-implementation`
+  - 验收覆盖表每行视觉项必须列 `proto 路径 / actual 路径 / 对照结论` 三字段
+  - **禁止"功能修通 = 视觉达标"** 的论据替换
+- Round 11 fail 后,所有 `fix-implementation` issues 按 orchestrator §6.2 打包成 **M19-fix-visual-alignment** 派 worker 实施。
+- 同 issue 指纹累计 ≥ 5 轮升级 escalate;同 unit 7 轮硬上限不变(R7-R10 已耗 4 轮视觉线;R11 是第 5 轮视觉对齐回合,留 2 轮余量给 fix 验证)。
+
+> 本注记**不修改**上方任一历史轮次的报告内容,只追加。reviewer round 11 在本注记之后新开 `# Round 11 — <date>` 区段。
