@@ -589,11 +589,14 @@ class GatewayHandler:
                     agent_user_id = str(row["id"])
             if agent_user_id is None:
                 return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "agent_user_id_not_found"}}
-            self._event_bridge.on_turn_start(
+            created_message = self._event_bridge.on_turn_start(
                 conversation_id=conversation_id,
                 agent_user_id=agent_user_id,
                 agent_id=agent_id,
             )
+            # Return message_id in ack so PA observer can update run_context_store;
+            # without this, observer keeps empty message_id and delta targets user message.
+            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "message_id": created_message.id}}
 
         elif kind == "message_delta":
             message_id = _require_text(payload.get("message_id"), field_name="message_id")
