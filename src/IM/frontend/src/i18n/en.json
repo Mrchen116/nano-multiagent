@@ -45,7 +45,9 @@
     "title": "Me",
     "sections": {
       "account": "Account",
+      "accountSubtitle": "Profile and gateway",
       "nodes": "Nodes",
+      "nodesSubtitle": "Nodes and agents",
       "language": "Language",
       "notifications": "Notifications",
       "signOut": "Sign out"
