@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  attachUserConversationStream,
   buildCreateMessageRequest,
   buildGroupConversationTitle,
   buildStarterConversationTitle,
@@ -682,5 +683,36 @@ describe("deleteConversation / leaveConversation", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/im\/v1\/conversations\/conv-abc\/participants\/user-456$/);
     expect(init.method).toBe("DELETE");
+  });
+});
+
+describe("user stream websocket — R6-1 token auth", () => {
+  it("connects with ?token= not ?user_id= to avoid 403 from backend", () => {
+    const captured: string[] = [];
+    const mockWs = {
+      onopen: null as unknown,
+      onmessage: null as unknown,
+      onerror: null as unknown,
+      onclose: null as unknown,
+      readyState: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+    };
+    vi.stubGlobal("WebSocket", vi.fn((url: string) => {
+      captured.push(url);
+      return mockWs;
+    }));
+
+    const detach = attachUserConversationStream({
+      selfUserId: "user-abc",
+      token: "jwt-token-xyz",
+      onEvent: vi.fn(),
+    });
+    detach();
+
+    expect(captured.length).toBeGreaterThanOrEqual(1);
+    const wsUrl = captured[0];
+    expect(wsUrl).toContain("token=jwt-token-xyz");
+    expect(wsUrl).not.toContain("user_id=");
   });
 });
