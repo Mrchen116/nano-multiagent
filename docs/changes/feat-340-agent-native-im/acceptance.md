@@ -1292,3 +1292,232 @@ API 建 `R9 Smoke Group`(实际后端落为 direct_kind=user-agent,因只有 1 u
 **临时文件(遗留 /tmp/)**:`feat340-r9-gw-config.yaml`, `feat340-r9-r9alex-token`, `feat340-r9-gw-token`, `feat340-r9-bind-token`, `feat340-r9-kernel.log` / `r9-im.log` / `r9-gateway*.log`, `feat340-r9-workspace/`(空目录)。
 
 **IM DB 新增(本轮)**:用户 r9alex(id=6ef3d5c0…)、用户 gw-r9(id=ccf569a3…)、用户 agent:R9Beta(id=27f7a1ba…,**作为 R9-1 work-around 手动建**);节点 feat340-r9-node(owner=r9alex);对话 b85218ca(Direct with R9Beta)、e7693415(Direct with fuck,offline)、d6a93fd4 + fced148c(R9 Smoke Group ×2,实际 direct_kind);消息 4 条(2 用户 + 2 R9Beta)。
+
+---
+
+# Round 10 — 2026-05-12 (absolutely final, post-M18)
+
+## Verdict
+
+**pass**
+
+## Highest Required Action
+
+**pass**
+
+## Issues Count
+
+- blocking: 0
+- major: 0
+- minor: 2(均非阻塞,Side Findings;一项 in-unit polish + 一项 out-of-unit 继承)
+
+## Top Concern
+
+无阻塞。M18 worker 把 R9 留下的 3 个 issue(2 blocking R9-1/R9-2 + 1 minor R9-3)**全部修通**,fresh 浏览器旅程一次性走完"注册→建 node→bind→建 agent→Open chat ↗→发消息→刷新→/me"全链路;主功能交付。剩 2 个 minor:Open chat ↗ 重复点击会创建多个 direct conv(应 dedupe 到已有 conv),以及 R9 已记录的 legacy seed 节点 owner_id="" 仍在 `/im/v1/nodes` 列出(out-of-unit,不阻塞)。
+
+## R9 Issues 验证状态
+
+| R9 # | 严重度 | M18 修法 | R10 验证 |
+|---|---|---|---|
+| R9-1 | blocking | `ConfigService.create_profile` 同事务建 IM users 行 + GET path lazy 补齐 legacy seed | ✅ **修通** — 新建 agent R10Gamma 后,`GET /im/v1/agents` 立即返回 `user_id="dab703ac6883429a908e341519dd0f1d"`(非 null)。前端 Open chat ↗ POST /conversations 201 成功,无 400 "unknown users"。证据 `r10-02-r10gamma-detail.png` + 后端 JSON dump |
+| R9-2 | blocking | `createDirectChatByAgentUserId` 绕开 ensureBootstrap + `data-testid="open-chat-error"` inline banner | ✅ **修通** — `/settings/agents/R10Gamma` 点击 Open chat ↗:0.6s 内 navigate 到 `/chat/2958ce0c705c44b7987f91627be01b8a`,Network 显 POST /conversations 201(12ms)+ GET messages 200 + 主 pane 加载完成。无静默失败。证据 `r10-03-after-open-chat.png` + network 日志 |
+| R9-3 | minor | sendMutation.onSuccess `dispatch({type:"append_optimistic"})` + WS echo by-id dedupe | ✅ **修通** — 输入 "What is 2+2? Please answer briefly." 按 Enter,用户气泡 "Alex R10" 立即在主 pane 出现(< 100ms,无等 WS echo),后续 R10Gamma "4" 也单一渲染无重复。证据 `r10-04-user-bubble.png` + `r10-05-agent-reply.png` |
+
+## §用户旅程体验
+
+平台:Chrome headless via gstack-browse(viewport 1440x900 + 375x812)+ unit branch HEAD `006d2834` + 已确认 dist mtime = 2026-05-12 16:41(晚于 git pull)+ bundle 含 `open-chat-error` / `append_optimistic` 字串。
+
+### 旅程 1 — fresh 注册 r10alex 用户
+
+`/register` 表单填 `r10alex / Alex R10 / r10password` → Create account → 自动登录跳 `/chat`(空 conversation 列表)。✅ pass
+
+### 旅程 2 — 起 PA Gateway + bind feat340-r10-node + 自动建 R10Gamma
+
+按 Runbook 重启 Agent Kernel(:8000, PID 31976)+ IM(:8011, PID 31986)健康检查通过(kernel /v1/sessions 200, IM 401)。
+
+首次启 Gateway 报 "node feat340-r10-node did not appear in IM bootstrap"——根因:gateway 初始无 `im_service.token`,`/im/v1/nodes` 现已 owner-scoped 鉴权(M1 引入 `current_user` 后所有 IM routes 强制 auth)。**Side-Finding R10-A(in-unit minor)**:gateway runbook 未在 `im_service` 段示例 `token` 字段;Runbook 表能让 reviewer 启起来,但首次跑会失败一次到拿 bind token,流程不丝滑。
+
+修法:在 `/tmp/feat340-r10-gw-config.yaml` 的 `im_service` 段加 `token: <r10alex access_token>`,从 `localStorage.im_auth_v1.access_token` 取(浏览器 reviewer 已登录 r10alex)。第二次启 Gateway → `[connected]`,node 注册 → API 触发 bind URL → 浏览器访问 `/bind/confirm?token=…` → 点 Continue to chat → POST /im/v1/bind/confirm 200 → node owner_id = `d1abc2c68348437093a42de8e855bedc`(r10alex)。第三次启 Gateway → 静默运行(PID 32826)。
+
+`GET /im/v1/agents` 验:`R10Gamma` 行 `user_id="dab703ac6883429a908e341519dd0f1d"` ✅(R9-1 修通)。
+
+### 旅程 3 — Open chat ↗ 验 R9-2
+
+`/settings/agents/R10Gamma` → snapshot 显 Identity/Behavior/Access&Model/Workspace 四组卡片完整(@e7-@e43);default_model = `moonshot:kimi-k2.5` selected;Open chat ↗ 按钮 visible+enabled。
+
+清 network/console buffer → 点击 Open chat ↗ → 0.6s 内:
+- POST `/im/v1/conversations` → 201(618 bytes)
+- URL 变为 `/chat/2958ce0c705c44b7987f91627be01b8a`
+- 主 pane 加载 messages(GET 200)+ agents/nodes(supporting data)
+
+Console 无错。Network 显完整 3 个请求链。证据 `r10-03-after-open-chat.png`。✅ **R9-2 修通**
+
+### 旅程 4 — 发消息验 R9-3 + R8-1/2/3 + R7-5
+
+进 conv `2958ce0c` → 头部显 `Alex R10 · R10Gamma · feat340-r10-node · Agent · ⚙ Config` ✅(R7-5 修通,Node chip + Kind badge + ⚙ 齐)。
+
+输入 "What is 2+2? Please answer briefly." → Enter:
+- **t+0**: 用户气泡 "Alex R10 / What is 2+2? Please answer briefly." 立即在主 pane 渲染 ✅(R9-3 修通,无等 WS echo)
+- **t+12s**: R10Gamma 气泡 "4" 完成 streaming;label = "R10Gamma" 非 UUID ✅(R8-2 修通)
+- Token chip = "2222 tok" ✅(R8-3 修通,真 total)
+- 仅 1 个 R10Gamma 气泡,无双气泡 ✅(R8-1 修通)
+
+证据 `r10-04-user-bubble.png` + `r10-05-agent-reply.png`。
+
+### 旅程 5 — 刷新页面验 R8-1 持久化
+
+`browser.reload()` → 2s 后页面恢复;主 pane 显 2 条 message(`Alex R10: What is 2+2?` + `R10Gamma: 4`),仍单 R10Gamma 气泡(无 `:relay:` 镜像)。✅ R8-1 持久化通过。证据 `r10-06-after-reload.png`。
+
+### 旅程 6 — Open chat ↗ 二次稳定性
+
+回到 `/settings/agents/R10Gamma` 再点 Open chat ↗ → 又成功 navigate 到 `/chat/df43c530…`(POST /conversations 201, 15ms)。**但创建了新的 direct conv 而非复用原 `2958ce0c…`**,导致同一 user-agent pair 现有 2 个 direct conversation。
+
+- spec §Agents 页:"顶部 Open chat ↗ 跳到对应 direct-agent 会话"——单数"对应",暗含语义"该 user-agent pair 的 direct conv 应是单一的"
+- 后端 POST /im/v1/conversations 显然未做 user×agent direct-pair 去重
+- 用户视角影响:列表里堆同名 "R10Gamma" 私聊;不阻塞使用(都通)
+
+记为 **Side-F R10-B(in-unit minor)**,不立 issue(R10 是最后一轮,polish 留 PR 后下个 unit)。
+
+### 旅程 7 — Mobile /me 复测(viewport 375x812)
+
+`/me` 显示:
+- ✅ 顶部 identity 卡 `AL / Alex R10 / d1abc2c68348437093a42de8e855bedc`(可点 ›)
+- ✅ Nodes 行 🖥
+- ✅ Account 行 👤
+- ✅ Language 行 文 + EN/中 pill toggle(EN pressed)
+- ✅ Enable desktop notifications 🔔
+- ✅ Sign out ↗
+- ✅ 底部 Chat/Agents/Me 三 tab
+
+证据 `r10-07-mobile-me.png`。视觉与 R9 一致,继承"近"等级。
+
+### 旅程 8 — 5 页冒烟
+
+- `/chat/2958ce0c…` → message pane + Token chip + ⚙ Config ✅
+- `/settings/account` → Identity/Defaults/Preferences ✅(r10-09)
+- `/settings/nodes` → feat340-r10-node 列出 + relay/reporting toggle ✅(r10-10)
+- `/settings/agents` → fuck + R10Gamma 列出 ✅
+- `/me`(mobile)→ 见旅程 7 ✅
+
+### 关键截图路径
+
+均存 `docs/changes/feat-340-agent-native-im/acceptance-r10-evidence/`:
+
+| 文件 | 内容 |
+|---|---|
+| `r10-01-chat-home.png` | r10alex 首次进 /chat 空状态 |
+| `r10-02-r10gamma-detail.png` | R10Gamma 详情页(Open chat ↗ 起点) |
+| `r10-03-after-open-chat.png` | Open chat ↗ 后跳到 /chat/2958ce0c… 主 pane 加载完成(R9-2) |
+| `r10-04-user-bubble.png` | 发消息立即出现用户气泡(R9-3) |
+| `r10-05-agent-reply.png` | R10Gamma "4" + Token "2222 tok"(R8-2 R8-3) |
+| `r10-06-after-reload.png` | 刷新后单 R10Gamma 气泡(R8-1) |
+| `r10-07-mobile-me.png` | 375x812 /me 页(R8-4) |
+| `r10-08-chat-final.png` | 桌面 chat 完整最终态 |
+| `r10-09-account.png` | Account 页 |
+| `r10-10-nodes.png` | Nodes 页 |
+
+## §原型对照(继承 R9,本轮重判)
+
+| 页面 | 实际(R10) | R10 分级 | R9 分级 | Δ |
+|---|---|---|---|---|
+| Chat(direct-agent) | 头部 Node chip ✅ ⚙ ✅;Token chip 真数字 ✅;无双气泡 ✅;实时 label = "R10Gamma" ✅;用户气泡乐观渲染 ✅ | **近** | 近 | 无回归;R9-3 修通让自发消息也即时反馈 |
+| Agents | 列表 + 详情 ✅;Open chat ↗ 正常工作 ✅ | **精** | 近 | **从"近"升到"精"** — 关键功能 bug(Open chat ↗)修通,详情页四组卡片完整 |
+| Nodes | online/offline pill ✅ | **近** | 近 | 无变化 |
+| Account | Identity/Defaults/Preferences ✅ | **精** | 精 | 无变化 |
+| Mobile /me | identity 卡 + icons + pill toggle ✅;缺 card 分组背景 | **近** | 近 | 无变化(Side-F13 from R9 沿用,polish 性质) |
+
+**综合判定**:5 页全部 ≥ "近"(2 页"精"+ 3 页"近"),无"偏";Agents 从"近"→"精"是 R10 唯一升级,因为 Open chat ↗ 这条核心交互终于修通让详情页可被 chained 操作。视觉验收 ✅ pass。
+
+## 问题清单
+
+| # | 严重度 | 现象 | Recommended Action | Action Rationale |
+|---|---|---|---|---|
+| R10-Side-A | minor (in-unit polish) | `docs/changes/feat-340-agent-native-im/design.md §Runbook for Reviewer` 的 IM Service 健康检查列只验"401 也算 ok",但 PA Gateway 启动需要 `im_service.token` 字段才能通过 owner-scoped 鉴权;Runbook 表的"启动命令"列没示例如何传 token,导致 reviewer 首次启 gateway 必失败一次。 | fix-implementation(留 PR 后 polish round) | 文档级补丁,本轮已 work-around 通(从 localStorage 抓 token 拼 yaml),不阻塞 R10。建议下一个文档 polish unit 补一行示例:`im_service.token: $(curl ... \| jq -r .access_token)` 生成步骤。不立 issue(unit 即将合 main,留 PR description note)。 |
+| R10-Side-B | minor (in-unit polish) | Open chat ↗ 每次点击都 POST /conversations 创建新 direct conv,不做 user×agent direct-pair 去重。重复点击会在 conversation 列表堆同名 "R10Gamma" 私聊。 | fix-implementation(留 PR 后 polish round) | spec.md §Agents 页"顶部 Open chat ↗ 跳到对应 direct-agent 会话"语义暗示单一性;后端或前端任一处加 dedupe 逻辑即可(查询 type=direct + direct_kind=user-agent + participant_ids 已有 → 返该 conv id;否则新建)。不阻塞主路径(每个 conv 都通)。不立 issue(同上,留 PR description)。 |
+
+**继承上轮 open items**:
+- 所有 R6/R7/R8/R9 issues 在 R10 全部 ✅ 验通,无回归
+- 群聊 @ mention picker 沿用 R6 pass 记录
+
+## 验收标准覆盖
+
+| ID | 验收项 | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|---|
+| V1 | 用户登录注册 | spec.md §多用户 | r10alex /register → 自动登录 | r10-01 | pass | |
+| V2 | 多用户严格隔离 | spec.md §多用户 | r10alex API 看 nodes/agents | 仍见 fuck + m134/m224 owner_id="" 节点 | inconclusive | **out-of-unit 继承 Side-F11 from R9**(legacy seed 残留),不立新 issue;不阻塞本 unit 主路径 |
+| V3 | Chat workspace 头部 Node chip + ⚙ Config | spec.md §Chat 页交互 | 进 R10Gamma direct conv | r10-08 | pass | R7-5 持续修通 |
+| V4 | 实时 agent 气泡 label = display_name | spec.md §实时与状态 | streaming 时观察 | r10-05 | pass | R8-2 修通,M18 R9-1 让 user_id 永远可信 |
+| V5 | 单条 agent 回复 = 单个气泡 | spec.md §Chat 页交互 | 刷新页面 + DB query | r10-06 | pass | R8-1 持续修通 |
+| V6 | Token Usage chip 数字正确 | spec.md §Chat 页交互 | streaming 后看 chip | r10-05 | pass | R8-3 持续修通 |
+| V7 | ⚙ 跳 agent 配置页 | spec.md §Chat 页交互 | 点 ⚙ 看 URL | URL → /settings/agents/R10Gamma | pass | |
+| V8 | Agent 详情 "Open chat ↗" 跳直聊 | spec.md §Agents 页 | 点击 Open chat ↗ | r10-03 + network 201 | **pass** | R9-2 修通(M18 关键交付) |
+| V9 | 新建 agent 后能聊天 | spec.md §全栈接通 + §用户场景 A | gateway 起 R10Gamma → Open chat → 发消息 → 收回复 | 完整旅程 | **pass** | R9-1 修通(M18 关键交付) |
+| V10 | Mobile /me 原型对齐 | attachments/prototype/im-mypage.jsx | viewport 375 看 /me | r10-07 | pass | R8-4 持续修通"近" |
+| V11 | Group @ picker 弹出候选 | spec.md §Chat 页交互 | (继承 R6 pass) | r6 报告 | pass | 本轮未重测(已稳定多轮 pass) |
+| V12 | Agents 列表 + 详情完整 | spec.md §Agents 页 | 浏览 | r10-02 | pass | 四组卡片 + Tool Allowlist 多选完整 |
+| V13 | Nodes 页 toggle + 状态 | spec.md §Nodes 页 | 浏览 | r10-10 | pass | feat340-r10-node 在列 |
+| V14 | Account 字段完整 | spec.md §Account 页 | 浏览 | r10-09 | pass | |
+| V15 | Chat 自发消息立即 echo | spec.md §实时与状态 | 发消息看主 pane | r10-04 | **pass** | R9-3 修通(M18 关键交付) |
+| V16 | dist 是 unit HEAD 构建 | design.md §Runbook 前置 #4 | mtime 检查 | mtime=16:41,grep bundle 含 open-chat-error + append_optimistic | pass | M18 worker 已 rebuild |
+| V17 | 三服务从 unit HEAD 启动 | design.md §Runbook | kernel/IM/Gateway 全启 | 见 §环境声明 | pass | |
+| V18 | Open chat ↗ 不创建重复 conv | spec.md §Agents 页"跳到对应 direct-agent 会话"语义 | 点击 ×2 看 conversations 数 | 2 个同名 conv | **fail(minor)** | R10-Side-B,不阻塞;polish round |
+
+## 上层文档同步
+
+- [x] `SPEC.md`(架构总览):无需更新
+- [x] `docs/内核设计SPEC.md`:无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`:**需要更新**(R1 已标,延续至 PR 阶段;orchestrator 在 PR description 中 note)
+- [x] `docs/IM-SPEC.md`:**已更新**(M18 R4 加 §7.5 "Agent ↔ IM users 行的同步契约" 段,堵 R9-1 链路缺口)— R10 验:`grep -n "agent:<agent_id>" docs/IM-SPEC.md` 命中
+
+## Side Findings
+
+- Side-F R10-A(in-unit minor,见问题清单):design.md §Runbook for Reviewer 缺 `im_service.token` 示例,reviewer 首启 gateway 必失败一次。不立 issue,留 PR description note。
+- Side-F R10-B(in-unit minor,见问题清单):Open chat ↗ 不 dedupe direct conv。不立 issue,留 PR description note。
+- Side-F11(out-of-unit,继承 R9):`/im/v1/nodes` 仍 leak 旧 seed 节点(m134-browser-node / m224-fuck-node,owner_id="");与 multi-user 严格隔离原则相悖,但不是 M18 引入,且不阻塞 r10alex 主路径。**不立 issue**(R9 已记,unit 即将合 main,下个 multi-user polish unit 处理)。
+- Side-F1(沿用):8 个 IM integration tests pre-existing failure(baseline,M18 R1 已立 issue #2)。
+
+## Recommended Action 路由建议
+
+R9 的 3 个 issue 全部 ✅ 修通,且 R6-R9 历史中所有 blocking/major 闭合,R10 仅 2 个非阻塞 minor polish(均不立 issue,留 PR description)。
+
+**verdict = pass + highest_required_action = pass**
+
+orchestrator **可立即提 PR `unit/feat-340-agent-native-im` → `main`**,在 PR description 中:
+1. 引用 `docs/changes/feat-340-agent-native-im/acceptance.md` Round 10 段
+2. note R10-Side-A(runbook token 示例)+ R10-Side-B(Open chat dedup)作 follow-up polish
+3. note Side-F11(legacy seed 隔离)作下个 multi-user polish unit 范围
+4. 引用 M18 R1 立的 issue #2(_FakeKernelClient pre-existing test breakage)
+
+## §行动账本
+
+| 桶 | 内容 |
+|---|---|
+| READ | SKILL.md(change-reviewer §0/§2.5/§4); design.md §Runbook for Reviewer; acceptance.md R6/R7/R8/R9 段; spec.md(§用户场景 + §验收标准); M18-fix-r9/progress.md(R1-R4 段); im-mypage.jsx 原型(R8-4 对照沿用 R9 判定);**源码单次例外**:`src/personal_assistant/main.py` 第 487-592 行(`_IMBootstrapClient` 流程,确认 `im_service.token` 是 gateway 必填字段以通过 owner-scoped 鉴权 — 用于 §2.5 服务接管,不用于功能 trace) |
+| START_SERVICE | Agent Kernel PID=31976 :8000(HEAD 006d2834, 16:44 启动); IM Service PID=31986 :8011(HEAD 006d2834, 16:44 启动); PA Gateway PID=32826(feat340-r10-node, 用 /tmp/feat340-r10-gw-config.yaml + im_service.token=r10alex 的 access_token, 16:49 启动) |
+| BROWSE | /register r10alex → /chat → /settings/agents → /settings/agents/R10Gamma → click Open chat ↗ → /chat/2958ce0c… → fill+Enter "What is 2+2?" → wait 12s → reload → /settings/agents/R10Gamma → click Open chat ↗ ×2 → /chat/df43c530…(R10-Side-B 证据)→ /me viewport 375x812 → /settings/account → /settings/nodes → /chat/2958ce0c… click ⚙ → /settings/agents/R10Gamma(共约 20 次浏览器操作) |
+| CAPTURE | 10 张截图(`docs/changes/feat-340-agent-native-im/acceptance-r10-evidence/r10-*.png`); curl `/im/v1/agents` + `/im/v1/nodes` + `/im/v1/conversations` JSON dump 多次 |
+| SHELL_MUTATION | pkill uvicorn / personal_assistant.main ×3 清旧进程; 写 /tmp/feat340-r10-gw-config.yaml + /tmp/feat340-r10-alex-token; mkdir /tmp/feat340-r10-workspace/R10Gamma; curl POST /im/v1/bind action=start 拿 bind URL;**无任何源码修改**(零写入约束遵守) |
+| SENDMESSAGE | 本轮 1 次(本报告写完后向 team-lead 回报) |
+
+**§0 零写入合规声明**:本轮未 Write/Edit `src/**` `tests/**` 任何文件;唯一 commit 是本份 acceptance.md(orchestrator 派发授权)。源码读取仅 1 次例外用于 §2.5 服务接管(确定 `im_service.token` 必填),未用于功能链路 trace;读取段落已在 READ 桶标注。
+
+## §环境声明
+
+| 服务 | PID | 端口 | 启动时 commit | 启动时间(本地) |
+|---|---|---|---|---|
+| Agent Kernel | 31976 | :8000 | 006d2834 | 2026-05-12 16:44 |
+| IM Service | 31986 | :8011 | 006d2834 | 2026-05-12 16:44 |
+| PA Gateway | 32826 | — | 006d2834 | 2026-05-12 16:49(feat340-r10-node 节点,owner=r10alex) |
+| LLM_PROXY | 外部,未动 | :4000 | — | — |
+
+**前置检查清单**:
+- ✅ LLM_PROXY :4000 健康(curl `/health` → `{"ok":true}`)
+- ✅ `git rev-parse HEAD = 006d2834`,worktree 干净(未跟踪文件均为历史,无 source 修改)
+- ✅ 旧 uvicorn / personal_assistant.main pkill 一次性清理
+- ✅ `dist/index.html` mtime = 2026-05-12 16:41(M18 worker 已 rebuild,无需重跑 npm run build)
+- ✅ bundle 含 `open-chat-error` + `append_optimistic`(grep 命中,关键修复进 production bundle)
+- ✅ kernel → IM → Gateway 启停顺序遵循 design.md §Runbook 表
+
+**临时文件(遗留 /tmp/)**:`feat340-r10-gw-config.yaml`, `feat340-r10-alex-token`, `feat340-r10-kernel.log`, `feat340-r10-im.log`, `feat340-r10-gw-stdout.log`, `feat340-r10-workspace/R10Gamma/`(空目录)。
+
+**IM DB 新增(本轮)**:用户 r10alex(id=d1abc2c6…);节点 feat340-r10-node(owner=r10alex);agent R10Gamma 自动 bootstrap IM user(id=dab703ac…)— **R9-1 关键证据**;对话 2958ce0c…(Direct with R10Gamma, R9-2 关键证据)+ df43c530…(R10-Side-B 证据,重复 Open chat ↗ 创建第二个 direct conv);消息 2 条(1 用户 "What is 2+2?" + 1 R10Gamma "4")。
