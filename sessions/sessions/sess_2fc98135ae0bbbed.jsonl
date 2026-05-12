@@ -1,0 +1,5 @@
+{"type": "session_created", "session_id": "sess_2fc98135ae0bbbed", "created_at": "2026-04-23T06:58:42.466189+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent", "system_prompt": "You are the prompt frozen for this chat."}
+{"type": "turn", "uuid": "msg_44b7c64b14b5e04e", "parent_uuid": null, "session_id": "sess_2fc98135ae0bbbed", "role": "user", "content": "ping", "timestamp": "2026-04-23T06:58:42.466424+00:00"}
+{"type": "turn", "uuid": "msg_ebf3731d807f838b", "parent_uuid": "msg_44b7c64b14b5e04e", "session_id": "sess_2fc98135ae0bbbed", "role": "assistant", "content": "ack:ping", "timestamp": "2026-04-23T06:58:42.466607+00:00", "group_id": "msg_ebf3731d807f838b"}
+{"type": "turn", "uuid": "msg_17fc8e8ee4d55942", "parent_uuid": "msg_ebf3731d807f838b", "session_id": "sess_2fc98135ae0bbbed", "role": "user", "content": "pong", "timestamp": "2026-04-23T06:58:42.466751+00:00"}
+{"type": "turn", "uuid": "msg_e33c6a95bf87fd85", "parent_uuid": "msg_17fc8e8ee4d55942", "session_id": "sess_2fc98135ae0bbbed", "role": "assistant", "content": "ack:pong", "timestamp": "2026-04-23T06:58:42.466883+00:00", "group_id": "msg_e33c6a95bf87fd85"}

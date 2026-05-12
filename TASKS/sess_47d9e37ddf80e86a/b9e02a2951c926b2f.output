@@ -1,0 +1,91 @@
+# Background task b9e02a2951c926b2f — output will appear here
+commit e8a66ea9fe2cdb0d21265e646a533a69247b72cd
+Author: TimeMagic <chenzijian@bupt.edu.cn>
+Date:   Wed Apr 29 01:08:28 2026 +0800
+
+    feat(338): Kernel Message SSE — submit/observe split architecture
+    
+    - POST /v1/sessions/{id}/messages returns JSON RPC handle {run_id, anchor_sequence, injected, status}
+    - GET /v1/sessions/{id}/stream is session-scoped persistent SSE with Last-Event-ID resume
+    - Delete old sync message endpoint, old long-poll /events, and SendMessageRequest.stream
+    - Add RunOrigin enum (user/background_task/heartbeat) wired through runs registry and run_status events
+    - Add ToolPresentation layer with visible/label/summary/detail contract
+    - Rewrite realtime_stream hook to emit assistant_message, tool_start, tool_end, run_status
+    - ServerClient: submit_message() + stream_session() with _IncrementalSseParser
+    - CLI REPL: persistent SessionStreamReader background thread, per-turn SSE drain
+    - CLI --text: NDJSON output filtered by run_id until terminal run_status
+    - Gateway inbound pipeline: submit + stream_session consumption with fallback path
+    - Origin header rendering for non-user runs in CLI and Gateway outbound routing
+    - Run Activity mapping helper ready for feat-336 consumption
+    
+    Milestones: M1 Hub Extensions → M2 RunOrigin → M3 Presentation → M4 Realtime Hook →
+    M5 Endpoints → M6 Client Streaming → M7 CLI Wiring → M8 Gateway Cutover → M9 Cleanup
+    
+    Acceptance: A1–A10 verified via unit/integration tests and CLI help smoke test.
+    
+    Co-Authored-By: Claude Sonnet 4.6 (1M context) <noreply@anthropic.com>
+
+AGENTS.md
+README.md
+docs/changes/feat-338-kernel-message-sse/M1-hub-extensions/progress.md
+docs/changes/feat-338-kernel-message-sse/M1-hub-extensions/tasks.md
+docs/changes/feat-338-kernel-message-sse/M2-run-origin-registry/progress.md
+docs/changes/feat-338-kernel-message-sse/M2-run-origin-registry/tasks.md
+docs/changes/feat-338-kernel-message-sse/M3-presentation-layer/progress.md
+docs/changes/feat-338-kernel-message-sse/M3-presentation-layer/tasks.md
+docs/changes/feat-338-kernel-message-sse/M4-realtime-hook-rewrite/progress.md
+docs/changes/feat-338-kernel-message-sse/M4-realtime-hook-rewrite/tasks.md
+docs/changes/feat-338-kernel-message-sse/M5-endpoints/progress.md
+docs/changes/feat-338-kernel-message-sse/M5-endpoints/tasks.md
+docs/changes/feat-338-kernel-message-sse/M6-client-streaming/progress.md
+docs/changes/feat-338-kernel-message-sse/M6-client-streaming/tasks.md
+docs/changes/feat-338-kernel-message-sse/M7-cli-wiring/progress.md
+docs/changes/feat-338-kernel-message-sse/M7-cli-wiring/tasks.md
+docs/changes/feat-338-kernel-message-sse/M8-gateway-cutover/progress.md
+docs/changes/feat-338-kernel-message-sse/M8-gateway-cutover/tasks.md
+docs/changes/feat-338-kernel-message-sse/M9-cleanup/progress.md
+docs/changes/feat-338-kernel-message-sse/M9-cleanup/tasks.md
+docs/changes/feat-338-kernel-message-sse/acceptance.md
+src/agent/core/agent/loop.py
+src/agent/core/agent/tool_executor.py
+src/agent/core/runs/origin.py
+src/agent/core/runs/registry.py
+src/agent/core/tools/presentation.py
+src/agent/core/types.py
+src/agent/platform/hooks/builtins/realtime_stream.py
+src/agent/platform/http_api/routes/session.py
+src/agent/platform/http_api/sse.py
+src/agent/platform/sdk/client.py
+src/agent/platform/tools/presentation.py
+src/coding_cli/client.py
+src/coding_cli/commands.py
+src/coding_cli/events/repl_events.py
+src/coding_cli/session_stream.py
+src/coding_cli/text_runner.py
+src/personal_assistant/client/kernel_api_client.py
+src/personal_assistant/gateway/inbound_pipeline.py
+src/personal_assistant/scheduler/heartbeat_scheduler.py
+tests/contract/test_personal_assistant_kernel_client_contract.py
+tests/e2e/test_cli_text_streaming_and_injection_e2e.py
+tests/e2e/test_parallel_tools_and_injection_e2e.py
+tests/integration/api/test_submit_and_stream.py
+tests/integration/test_gateway_kernel_stream_integration.py
+tests/unit/agent/runs/test_abort_priority.py
+tests/unit/agent/runs/test_run_origin.py
+tests/unit/personal_assistant/test_gateway_pipeline.py
+tests/unit/personal_assistant/test_gateway_pipeline_m246.py
+tests/unit/personal_assistant/test_gateway_pipeline_no_fanout.py
+tests/unit/personal_assistant/test_gateway_stop_command.py
+tests/unit/personal_assistant/test_heartbeat_scheduler.py
+tests/unit/personal_assistant/test_kernel_api_client.py
+tests/unit/personal_assistant/test_m103_gateway_im_integration.py
+tests/unit/platform/hooks/test_realtime_stream_events.py
+tests/unit/platform/http_api/test_event_hub.py
+tests/unit/platform/tools/test_presentation.py
+tests/unit/platform/tools/test_presentation_cap.py
+tests/unit/test_cli_main.py
+tests/unit/test_cli_refactor_boundaries.py
+tests/unit/test_sdk_client.py
+tests/unit/test_server_message_route.py
+tests/unit/test_session_stream.py
+tests/unit/test_text_runner.py

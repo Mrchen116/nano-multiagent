@@ -1,0 +1,37 @@
+# Background task bea35144512213dde — output will appear here
+total 24
+drwxr-xr-x@  8 czj  staff   256  4月  9 16:37 .
+drwxr-xr-x@ 75 czj  staff  2400  4月 28 23:58 ..
+-rw-r--r--@  1 czj  staff  8196  4月  9 16:37 .DS_Store
+drwxr-xr-x@  8 czj  staff   256  4月 23 19:49 agent
+drwxr-xr-x@ 18 czj  staff   576  4月 29 08:53 coding_cli
+drwxr-xr-x@ 14 czj  staff   448  4月 23 23:25 IM
+drwxr-xr-x@  7 czj  staff   224  4月 23 23:25 nano_multiagent.egg-info
+drwxr-xr-x@ 15 czj  staff   480  4月 23 23:25 personal_assistant
+./src
+./src/IM/frontend/node_modules/tldts/dist/types/src
+./src/IM/frontend/node_modules/tldts/dist/es6/src
+./src/IM/frontend/node_modules/tldts/dist/cjs/src
+./src/IM/frontend/node_modules/tldts/src
+./src/IM/frontend/node_modules/@tanstack/react-query/build/codemods/src
+./src/IM/frontend/node_modules/@tanstack/react-query/src
+./src/IM/frontend/node_modules/@tanstack/query-core/src
+./src/IM/frontend/node_modules/estree-walker/src
+./src/IM/frontend/node_modules/tldts-core/dist/types/src
+./src/IM/frontend/node_modules/tldts-core/dist/es6/src
+./src/IM/frontend/node_modules/tldts-core/dist/cjs/src
+./src/IM/frontend/node_modules/tldts-core/src
+./src/IM/frontend/node_modules/@asamuzakjp/nwsapi/src
+./src/IM/frontend/node_modules/@asamuzakjp/css-color/src
+./src/IM/frontend/node_modules/@asamuzakjp/dom-selector/src
+./src/IM/frontend/node_modules/@babel/core/src
+./src/IM/frontend/node_modules/@radix-ui/react-use-effect-event/src
+./src/IM/frontend/node_modules/@radix-ui/react-use-is-hydrated/src
+./src/IM/frontend/node_modules/@jridgewell/sourcemap-codec/src
+./src/IM/frontend/node_modules/@jridgewell/trace-mapping/src
+./src/IM/frontend/node_modules/@jridgewell/gen-mapping/src
+./src/IM/frontend/node_modules/@jridgewell/remapping/src
+./src/IM/frontend/node_modules/bidi-js/src
+./src/IM/frontend/node_modules/entities/src
+./src/IM/frontend/node_modules/debug/src
+./src/IM/frontend/src

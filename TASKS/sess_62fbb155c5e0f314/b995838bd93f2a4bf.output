@@ -1,0 +1,110 @@
+# Background task b995838bd93f2a4bf — output will appear here
+=== src/agent/products/personal_assistant/tools/__init__.py ===
+"""Product-owned tool extension root for personal_assistant."""
+
+from .send_message import SendMessageTool
+from .web_search import WebSearchTool
+
+__all__ = ["SendMessageTool", "WebSearchTool"]
+=== src/agent/products/personal_assistant/tools/send_message.py ===
+"""Product-owned send_message tool for personal_assistant agent collaboration.
+
+Stateless design: the tool reads the Gateway dispatch endpoint URL from
+``ctx.session_metadata["gateway_dispatch_url"]`` at execution time and sends
+the message via an HTTP POST.  No module-level singleton, no bind_dispatcher.
+"""
+from __future__ import annotations
+
+from typing import Any, Mapping
+from uuid import uuid4
+
+import httpx
+
+from agent.core.tools.base import ToolContext
+
+
+class SendMessageTool:
+    """Send an IM-routed message to another agent or shared group.
+
+    The tool is stateless: it derives the dispatch endpoint from the kernel
+    session metadata key ``gateway_dispatch_url`` injected by the Gateway
+    inbound pipeline when creating the session.  The Gateway must expose a
+    ``POST /internal/dispatch`` endpoint that accepts the forwarded payload.
+
+    Raises:
+        RuntimeError: When ``gateway_dispatch_url`` is absent from session metadata.
+        ValueError: When ``text`` or ``to`` arguments are blank.
+    """
+
+    name = "send_message"
+    description = (
+        "Send a message via the gateway IM routing layer. "
+        "`to` accepts stable business ids: user_id, agent_id, or conversation_id."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "Message body to send."},
+            "to": {
+                "type": "string",
+                "description": "Target stable id: user_id, agent_id, or conversation_id.",
+            },
+        },
+        "required": ["text", "to"],
+        "additionalProperties": False,
+    }
+
+    def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
+        """Dispatch one collaboration message through the gateway HTTP boundary.
+
+=== src/agent/products/personal_assistant/tools/web_search.py ===
+"""Product-owned web_search tool for personal_assistant — web search with provider fallback."""
+from __future__ import annotations
+
+import os
+from typing import Any, Mapping
+
+from agent.core.tools.base import ToolContext
+
+
+def _search_duckduckgo(query: str, count: int) -> list[dict[str, str]]:
+    """Search via DuckDuckGo (free, no API key).
+
+    Returns:
+        List of dicts with title/url/snippet keys. Empty list on failure.
+    """
+    try:
+        from duckduckgo_search import DDGS  # type: ignore[import-untyped]
+
+        with DDGS() as ddgs:
+            raw = list(ddgs.text(query, max_results=count))
+        return [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("href", ""),
+                "snippet": r.get("body", ""),
+            }
+            for r in raw
+        ]
+    except Exception:
+        return []
+
+
+def _search_brave(query: str, count: int) -> list[dict[str, str]]:
+    """Search via Brave Search API. Falls back to DuckDuckGo when key is absent.
+
+    Requires BRAVE_API_KEY env var.
+
+    Returns:
+        List of dicts with title/url/snippet keys.
+    """
+    api_key = os.environ.get("BRAVE_API_KEY", "")
+    if not api_key:
+        return _search_duckduckgo(query, count)
+    try:
+        import httpx  # type: ignore[import-untyped]
+
+        resp = httpx.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            params={"q": query, "count": count},
+            headers={

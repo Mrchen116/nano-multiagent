@@ -1,0 +1,6 @@
+{
+  "config_path": "/Users/czj/Repos/nano-multiagent/node-config.yaml",
+  "health_url": "http://127.0.0.1:8000/v1/health",
+  "log_path": "/Users/czj/Repos/nano-multiagent/gateway.log",
+  "pid": 98504
+}

@@ -1,0 +1,2 @@
+{"type": "session_created", "session_id": "sess_8b64cc6e772f76db", "created_at": "2026-04-27T12:36:28.995443+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent", "system_prompt": "You are the prompt frozen for this chat."}
+{"type": "turn", "uuid": "msg_b4abeea7b34cd412", "parent_uuid": null, "session_id": "sess_8b64cc6e772f76db", "role": "user", "content": "ping", "timestamp": "2026-04-27T12:36:28.995816+00:00"}

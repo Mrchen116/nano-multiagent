@@ -1,18 +1,20 @@
 node:
-  node_id: m135-node
-
+  node_id: e2e-test-node
 agents:
-  - agent_id: Alpha
-    title: Alpha
-  - agent_id: Beta
-    title: Beta
-
+- agent_id: Alpha
+  workspace_root: /Users/czj/nano-assistant/workspace/Alpha
+  title: Alpha
+  system_prompt: You are Alpha, a helpful AI assistant.
+  group_reply_policy: manual
+  default_model: moonshot:kimi-k2.5
+- agent_id: Beta
+  workspace_root: /Users/czj/nano-assistant/workspace/Beta
+  title: Beta
 channels:
-  - name: web_relay
-    enabled: true
-
+- name: web_relay
 kernel:
-  command: "python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000"
-
+  command: python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port
+    8000
 im_service:
   url: http://127.0.0.1:8011
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiYTIwYzJiZmMzOWY0NjZjYjg3ODQ4MWNmMTI3MzBlYiIsInR5cGUiOiJhY2Nlc3MiLCJpYXQiOjE3Nzg1MDk3MTMsImV4cCI6MTc3ODUxMDYxMywianRpIjoiN2IwY2RlMWE2ZGNhZDQ0Y2JiMmRhMTE0NmQ2MWI4OTQifQ.gqqofZmqsmnp-XpUS3vN19hwc1dsZGO3-Q-wcv6ynOU

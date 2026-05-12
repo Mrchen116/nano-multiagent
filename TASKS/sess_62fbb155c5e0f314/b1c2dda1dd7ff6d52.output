@@ -1,0 +1,29 @@
+# Background task b1c2dda1dd7ff6d52 — output will appear here
+src/agent/platform:
+total 32
+-rw-r--r--@  1 czj  staff     0  3月 11 16:57 __init__.py
+drwxr-xr-x@  6 czj  staff   192  4月 27 21:47 __pycache__
+drwxr-xr-x@ 16 czj  staff   512  4月 29 07:53 .
+drwxr-xr-x@  8 czj  staff   256  4月 23 19:49 ..
+drwxr-xr-x@  9 czj  staff   288  4月 29 13:34 background_tasks
+-rw-r--r--@  1 czj  staff  7286  4月 23 11:43 bootstrap.py
+drwxr-xr-x@  5 czj  staff   160  4月 23 19:49 config
+drwxr-xr-x@  8 czj  staff   256  4月 23 19:49 hooks
+drwxr-xr-x@  9 czj  staff   288  4月 29 14:23 http_api
+drwxr-xr-x@  5 czj  staff   160  4月 23 19:49 llm
+drwxr-xr-x@  5 czj  staff   160  4月 23 19:49 persistence
+-rw-r--r--@  1 czj  staff   400  3月 11 16:57 product.py
+drwxr-xr-x@  6 czj  staff   192  4月 23 23:25 products
+drwxr-xr-x@  5 czj  staff   160  4月 28 23:22 sdk
+drwxr-xr-x@ 11 czj  staff   352  4月 29 14:23 tools
+-rw-r--r--@  1 czj  staff  2503  3月 14 18:52 worktree_runtime.py
+
+src/agent/products:
+total 24
+-rw-r--r--@  1 czj  staff   332  3月 11 16:57 __init__.py
+drwxr-xr-x@  4 czj  staff   128  4月 23 19:49 __pycache__
+drwxr-xr-x@  7 czj  staff   224  4月 23 19:49 .
+drwxr-xr-x@  8 czj  staff   256  4月 23 19:49 ..
+-rw-r--r--@  1 czj  staff  5203  3月 21 16:39 base.py
+drwxr-xr-x@ 11 czj  staff   352  4月 29 14:23 local_coding
+drwxr-xr-x@ 11 czj  staff   352  4月 29 14:23 personal_assistant

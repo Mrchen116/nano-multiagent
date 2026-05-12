@@ -1,0 +1,10 @@
+# Background task b31e034fc9c73963d — output will appear here
+total 24
+-rw-r--r--@  1 czj  staff    71  3月 11 16:57 __init__.py
+drwxr-xr-x@  3 czj  staff    96  4月 23 19:49 __pycache__
+drwxr-xr-x@  8 czj  staff   256  4月 23 19:49 .
+drwxr-xr-x@  8 czj  staff   256  4月  9 16:37 ..
+-rw-r--r--@  1 czj  staff  6148  4月  9 16:37 .DS_Store
+drwxr-xr-x@ 17 czj  staff   544  4月 29 07:44 core
+drwxr-xr-x@ 16 czj  staff   512  4月 29 07:53 platform
+drwxr-xr-x@  7 czj  staff   224  4月 23 19:49 products
