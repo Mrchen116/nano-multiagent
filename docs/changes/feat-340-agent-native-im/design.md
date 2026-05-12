@@ -8,6 +8,7 @@
 
 <!-- 按时间倒序追加。格式:YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-12 (Runbook 补"前端重建"段 + 前置检查 #4): R7 cap 触发后诊断:M16 worker 改了 `src/IM/frontend/src/features/chat/v2/chat-stream.ts:21`(?token=),但 `dist/assets/*.js` 仍是旧的(`user_id=`),IM 服务静态 serve 旧 bundle,R7 reviewer 浏览器持续 WS 403,误以为是 R6-1 回归。根因 = Runbook 漏 `npm run build` 步骤。补:§Runbook 加"前端重建"段(必跑 `npm run build`)+ 前置检查 #4(dist/index.html mtime 应晚于 git pull),让今后任何前端改动都不会再因 stale bundle 让 reviewer 拿错证据。该改动同样应反向输入到 change-design-author skill(任何 unit 涉及前端构建产物时 Runbook 必含 build step)。
 - 2026-05-12 (M16 立项,post-acceptance fix round 6): R6 reviewer 用新 skill 独立验证 M15,3 个 blocking 全部重现 + 新发现 R6-1(前端 WS 仍用 `?user_id=` 被 403):(R6-1)前端剩余 WS 入口未切到 `?token=`,UI 完全无实时事件;(R6-2 = R5-1 重现)无 `message.created` 帧、无 agent 占位 bubble;(R6-3 = R5-2 重现)`message.completed` content 把 user+agent 文本拼接、刷新后用户气泡污染。同 issue 指纹 R5-1/R5-2 = 第 2 轮(未达 5 轮 cap),unit 第 6 轮(R7 = 7 轮 cap 末轮)。详见 M16-fix-streaming/progress.md。
 - 2026-05-12 (Runbook for Reviewer 补齐): 新版 change-design-author skill 要求 design.md 必填 §Runbook for Reviewer(列本 unit 涉及的所有常驻服务 + 停止/启动/健康检查命令),让 reviewer 进旅程前无脑重启服务以避免 stale-binary 让证据失真。补 3 个常驻服务:Agent Kernel(:8000)、IM(:8011)、PA Gateway;明示 LLM_PROXY 外部不动。背景见 R5 案例。
 - 2026-05-12 (M15 立项,post-acceptance fix round 5): R5 验收发现 message.created 不触发 + message_id 指向用户消息而非 agent 占位（R5-1/R5-2）。修法：_build_relay_lifecycle_callback accepted 阶段通过 IM REST 预创建 agent 占位消息，将 agent message_id 存入 run_context_store；observer turn_start 分支改为 pass。详见 M15-fix-r5/progress.md。
@@ -421,7 +422,19 @@ graph LR
 
 ## Runbook for Reviewer
 
-本 unit 涉及 3 个常驻服务,reviewer 进入旅程前必须**无脑全部 kill + 按下表重启**,确保跑的是 unit 集成分支当前 HEAD 的代码。LLM_PROXY (127.0.0.1:4000) 是外部依赖,**不归本 unit**,不要重启它。前端是 vite 构建产物 (`src/IM/frontend/dist/`),由 IM 服务静态出,不是独立 daemon。
+本 unit 涉及 3 个常驻服务,reviewer 进入旅程前必须**无脑全部 kill + 按下表重启**,确保跑的是 unit 集成分支当前 HEAD 的代码。LLM_PROXY (127.0.0.1:4000) 是外部依赖,**不归本 unit**,不要重启它。前端是 vite 构建产物 (`src/IM/frontend/dist/`),由 IM 服务静态出,不是独立 daemon——**但 `dist/` 不是 daemon 不代表免重建**,见下方"前端重建"段。
+
+### 前端重建(必做,先于服务重启)
+
+`src/IM/frontend/dist/` 是 git-ignored 构建产物。任何对 `src/IM/frontend/src/**` 的修改如果没跑 `npm run build`,IM 服务静态 serve 的还是旧 bundle——**这是 R7 cap 案例的直接根因(M16 改了 chat-stream.ts 但没人 rebuild,reviewer 浏览器收到的还是 `?user_id=` 旧码,被后端 403 拒)**。
+
+```bash
+cd <repo>/src/IM/frontend && npm run build
+```
+
+构建完成后 `ls dist/assets/index-*.js` 的 mtime 应在你最近一次 `git pull` 之后;并 `grep "?token=" dist/assets/index-*.js | head -3` 验关键修复确实进了 bundle。
+
+**只要本轮验收范围涉及前端(任何 src/IM/frontend/src 改动),前置检查 #4 = npm run build,不可省略。** 验完 mtime/grep 才进入服务重启表。
 
 | 服务 | 停止命令 | 启动命令 | 健康检查 |
 |---|---|---|---|
@@ -434,6 +447,7 @@ graph LR
 1. LLM_PROXY 在跑(`curl http://127.0.0.1:4000/health` 返回 ok)——不在跑就停验收,**不要**自己起,SendMessage 告诉 orchestrator。
 2. `git rev-parse HEAD` 等于 unit 集成分支当前 HEAD,且 worktree 干净。
 3. 重启前 `pkill -f uvicorn; pkill -f personal_assistant.main` 一次性清旧进程,再按上表逐个起。
+4. **前端 dist 是当前 HEAD 构建**:`stat -f "%Sm" src/IM/frontend/dist/index.html`(mac) 或 `stat -c "%y" ...`(linux) 应晚于最近一次 unit 分支 `git pull`;若早于,跑"前端重建"段命令再继续。
 
 **启停顺序**(强依赖):
 
