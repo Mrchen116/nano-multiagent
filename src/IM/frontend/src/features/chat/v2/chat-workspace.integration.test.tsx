@@ -296,6 +296,45 @@ describe("ChatWorkspacePage v2 — integration", () => {
     expect(screen.queryByRole("img", { name: "dropped.png" })).not.toBeInTheDocument();
   });
 
+  it("R9-3: optimistically renders the user's bubble in the pane the instant the POST resolves", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(composer, "Say hello briefly");
+    await user.click(screen.getByRole("button", { name: /Send/i }));
+
+    // The user-authored bubble should land in the main pane without waiting for
+    // a WS replay (which historically only echoed via message.delta for the
+    // agent reply, leaving the user-self bubble missing until refetch).
+    await waitFor(() => {
+      expect(screen.getByText("Say hello briefly")).toBeInTheDocument();
+    });
+
+    // A late echo for the same message id must not produce a duplicate bubble.
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+    const ws = FakeWebSocket.instances[0]!;
+    act(() => {
+      ws.emit({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m2",
+        sender_user_id: "u-self",
+        sender_type: "user",
+        content: "Say hello briefly",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:00:02Z"
+      });
+    });
+
+    await waitFor(() => {
+      const bubbles = screen.getAllByText("Say hello briefly");
+      expect(bubbles).toHaveLength(1);
+    });
+  });
+
   it("R7-5: header shows the agent's Node chip and a ⚙ Config button that navigates to /settings/agents/<id>", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat/c1");
