@@ -24,6 +24,8 @@ export interface MessagePaneProps {
   mentionCandidates: MentionCandidate[];
   nodeName?: string | null;
   nodeStatus?: "online" | "offline";
+  /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
+  isMobile?: boolean;
   onSend(text: string, attachments: Attachment[]): void;
   onBack?(): void;
   onOpenConfig?(): void;
@@ -51,6 +53,7 @@ export function MessagePane({
   mentionCandidates,
   nodeName,
   nodeStatus = "offline",
+  isMobile = false,
   onSend,
   onBack,
   onOpenConfig,
@@ -128,18 +131,31 @@ export function MessagePane({
         <div className="chat-pane-header-body">
           <h2 className="chat-pane-title">{conversation.title}</h2>
           <div className="chat-pane-header-meta">
-            <span className="chat-pane-participants">
-              {conversation.participants.map((p) => p.display_name ?? p.id).join(" · ")}
-            </span>
+            {!isMobile && (
+              <span className="chat-pane-participants">
+                {conversation.participants.map((p) => p.display_name ?? p.id).join(" · ")}
+              </span>
+            )}
             <NodeChip nodeName={nodeName ?? null} status={nodeStatus} />
           </div>
         </div>
-        <KindBadge kind={kind} />
-        <TokenChip usage={latestUsage} />
+        {!isMobile && <KindBadge kind={kind} />}
+        {!isMobile && <TokenChip usage={latestUsage} />}
         {onOpenConfig && (
-          <button type="button" className="chat-pane-config" onClick={onOpenConfig} aria-label={t("chat.messagePane.config")}>
-            ⚙ {t("chat.messagePane.config")}
-          </button>
+          isMobile ? (
+            <button
+              type="button"
+              className="chat-pane-config chat-pane-config-icon"
+              onClick={onOpenConfig}
+              aria-label={t("chat.messagePane.config")}
+            >
+              ⚙
+            </button>
+          ) : (
+            <button type="button" className="chat-pane-config" onClick={onOpenConfig} aria-label={t("chat.messagePane.config")}>
+              ⚙ {t("chat.messagePane.config")}
+            </button>
+          )
         )}
       </header>
 
