@@ -649,3 +649,84 @@ def test_create_group_conversation_owner_id_uses_caller(tmp_path: Path) -> None:
     assert any(c.id == created.id for c in visible), (
         "Newly created group conversation must appear in caller's conversation list"
     )
+
+
+def test_list_messages_drops_relay_mirror_when_real_agent_message_exists(tmp_path: Path) -> None:
+    """When a turn produced both a real agent message and a relay.completed mirror, the mirror is suppressed."""
+    users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
+    events = EventRepository(messages._connection)
+    owner = users.create_user(username="owner", display_name="Owner")
+    agent_user = users.create_user(username="agent:alpha", display_name="Alpha")
+    conversation = conversations.create_conversation(
+        title="direct alpha",
+        participant_ids=[owner.id, agent_user.id],
+    )
+    user_msg = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        content="Hello",
+        auto_complete_delivery=False,
+    )
+    real_agent_msg = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=agent_user.id,
+        sender_type="agent",
+        content="Hi back",
+        auto_complete_delivery=False,
+    )
+    events.append_event(
+        conversation_id=conversation.id,
+        message_id=user_msg.id,
+        event_type="relay.completed",
+        delivery_status="completed",
+        payload={
+            "message_id": user_msg.id,
+            "relay_task_id": "relay-dup-1",
+            "agent_id": "alpha",
+            "detail": "Hi back",
+        },
+    )
+
+    listed = messages.list_messages(conversation_id=conversation.id)
+    listed_ids = [m.id for m in listed]
+    # Expect: user msg + real agent msg, but no synthetic relay mirror id.
+    assert user_msg.id in listed_ids
+    assert real_agent_msg.id in listed_ids
+    assert not any(":relay:" in mid for mid in listed_ids), (
+        f"Expected relay mirror to be suppressed when real agent message exists; got {listed_ids}"
+    )
+
+
+def test_list_messages_keeps_relay_mirror_when_no_real_agent_message(tmp_path: Path) -> None:
+    """Old conversations without real agent messages still surface relay.completed mirror rows."""
+    users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
+    events = EventRepository(messages._connection)
+    owner = users.create_user(username="owner", display_name="Owner")
+    conversation = conversations.create_conversation(
+        title="legacy",
+        participant_ids=[owner.id],
+    )
+    user_msg = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        content="hi",
+        auto_complete_delivery=False,
+    )
+    events.append_event(
+        conversation_id=conversation.id,
+        message_id=user_msg.id,
+        event_type="relay.completed",
+        delivery_status="completed",
+        payload={
+            "message_id": user_msg.id,
+            "relay_task_id": "relay-legacy-1",
+            "agent_id": "legacy",
+            "detail": "legacy answer",
+        },
+    )
+
+    listed = messages.list_messages(conversation_id=conversation.id)
+    listed_ids = [m.id for m in listed]
+    assert any(":relay:" in mid for mid in listed_ids), (
+        f"Expected relay synthetic preserved when no real agent message; got {listed_ids}"
+    )
