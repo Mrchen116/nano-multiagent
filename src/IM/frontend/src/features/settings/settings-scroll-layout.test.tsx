@@ -7,43 +7,28 @@ function renderSettingsShell(initialEntry = "/settings/agents") {
   return renderRouter({ routes: appRoutes, initialEntries: [initialEntry] });
 }
 
-describe("settings scroll layout", () => {
-  it("keeps the shell height-bounded and scroll ownership inside panels", () => {
-    const { container } = renderSettingsShell();
-
-    const shell = container.querySelector("section");
-    const aside = container.querySelector("aside");
-    const panel = aside?.nextElementSibling;
-
-    expect(shell).toHaveClass("h-full");
-    expect(shell).toHaveClass("overflow-hidden");
-    expect(aside).toHaveClass("overflow-y-auto");
-    expect(panel).toHaveClass("h-full");
-    expect(panel).toHaveClass("overflow-y-auto");
-  });
-
+describe("settings page chrome (M19 R1 — no sub-nav)", () => {
+  // M19/R11-2: 移除 Settings 二级侧栏/sub-nav pill — Agents/Nodes/Account 三页直渲,
+  // 不再共享 SettingsPageShell 的 240px aside。每页需独立全高占满主区。
   it.each([
     ["/settings/agents", '[data-testid="agents-list"]'],
     ["/settings/nodes/node-1/agents/new", null],
     ["/settings/agents/agent-1", null],
     ["/settings/nodes", null],
     ["/settings/account", null]
-  ] as const)("renders %s inside a full-height column container", async (entry, marker) => {
+  ] as const)("renders %s without the Settings sub-nav", async (entry, marker) => {
     const { container } = renderSettingsShell(entry);
 
-    const panel = container.querySelector("aside")?.nextElementSibling;
+    await waitFor(() => {
+      expect(container.textContent?.length ?? 0).toBeGreaterThan(0);
+    });
+
     if (marker) {
       await waitFor(() => {
-        expect(panel?.querySelector(marker)).not.toBeNull();
-      });
-    } else {
-      await waitFor(() => {
-        expect(panel?.textContent?.length ?? 0).toBeGreaterThan(0);
+        expect(container.querySelector(marker)).not.toBeNull();
       });
     }
-    expect(panel).toHaveClass("h-full");
-    expect(panel).toHaveClass("flex");
-    expect(panel).toHaveClass("flex-col");
-    expect(container.querySelector("nav")).toBeInTheDocument();
+
+    expect(container.querySelector('nav[aria-label="Settings Sections"]')).toBeNull();
   });
 });
