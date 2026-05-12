@@ -97,6 +97,68 @@ describe("ConversationList layout — create-group-chat button", () => {
     expect(screen.queryByText("DesignBot")).not.toBeInTheDocument();
   });
 
+  // M19/R11-10: prototype ConvItem 行内只有 avatar + 标题/时间 + 预览/未读 badge —
+  // 没有 kind_label uppercase chip;direct-agent 在 avatar 上叠 online/offline status dot。
+  it("R11-10: row does not render the kind_label uppercase chip", () => {
+    render(
+      <MemoryRouter>
+        <ConversationList items={sampleItems} onCreateGroupChat={() => undefined} />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByText("主 Agent 会话")).not.toBeInTheDocument();
+    expect(screen.queryByText("Group chat")).not.toBeInTheDocument();
+    expect(screen.queryByText("Direct chat")).not.toBeInTheDocument();
+  });
+
+  it("R11-10: direct-agent row carries an online/offline status dot on the avatar", () => {
+    const items: ConversationSummary[] = [
+      {
+        conversation_id: "conv-online",
+        title: "OpsBot",
+        participants: ["You", "OpsBot"],
+        unread_count: 0,
+        kind: "direct-agent",
+        kind_label: "Direct chat",
+        node_status: "online",
+        last_message_at: "2026-03-26T10:00:00Z"
+      },
+      {
+        conversation_id: "conv-offline",
+        title: "DesignBot",
+        participants: ["You", "DesignBot"],
+        unread_count: 0,
+        kind: "direct-agent",
+        kind_label: "Direct chat",
+        node_status: "offline",
+        last_message_at: "2026-03-26T08:00:00Z"
+      }
+    ];
+
+    render(
+      <MemoryRouter>
+        <ConversationList items={items} onCreateGroupChat={() => undefined} />
+      </MemoryRouter>
+    );
+
+    const onlineDot = screen.getByTestId("conv-status-dot-conv-online");
+    expect(onlineDot.getAttribute("data-status-dot")).toBe("online");
+    const offlineDot = screen.getByTestId("conv-status-dot-conv-offline");
+    expect(offlineDot.getAttribute("data-status-dot")).toBe("offline");
+  });
+
+  it("R11-10: row renders an avatar with initials beside the title", () => {
+    render(
+      <MemoryRouter>
+        <ConversationList items={sampleItems} onCreateGroupChat={() => undefined} />
+      </MemoryRouter>
+    );
+
+    const avatar = screen.getByTestId("conv-avatar-conv-direct");
+    expect(avatar.className).toMatch(/rounded-full/);
+    expect(avatar.textContent).toMatch(/^DE$/i);
+  });
+
   it("restores sidebar scroll position after switching conversations", () => {
     const items = [
       {
