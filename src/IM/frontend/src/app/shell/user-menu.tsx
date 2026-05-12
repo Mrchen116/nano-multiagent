@@ -55,6 +55,7 @@ export function UserMenu() {
           {initials}
         </span>
         <span>{user.display_name || user.username}</span>
+        <span aria-hidden className="im-user-menu-chevron">▾</span>
       </button>
       {open && (
         <div role="menu" className="im-user-menu-popover">
