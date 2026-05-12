@@ -341,4 +341,128 @@ describe("MessagePane", () => {
       expect(configBtn.textContent).toMatch(/Config/i);
     });
   });
+
+  // R8.5 — R11-7 MessageBubble visual rewrite on v2 production path.
+  // Prototype source: docs/changes/feat-340-agent-native-im/attachments/prototype/project/im-components.jsx::MessageBubble
+  //   avatar 30×30 outside bubble (row-reverse for user) + timestamp + per-bubble TokenChip in status row below bubble
+  describe("R11-7 v2 MessageBubble visual", () => {
+    const TS_USER: Message = {
+      id: "mt-user",
+      conversation_id: "c1",
+      sender: { type: "user", id: "u1", display_name: "You" },
+      sender_user_id: "u1",
+      sender_type: "user",
+      content: "User bubble",
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-05-12T14:30:00Z"
+    };
+    const TS_AGENT_LOW: Message = {
+      id: "mt-agent-low",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "u1",
+      sender_type: "agent",
+      content: "Agent bubble low usage",
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-05-12T14:30:01Z",
+      token_usage: { output: 1234, context_used: 30000, context_window: 200000 }
+    };
+    const TS_AGENT_WARN: Message = {
+      ...TS_AGENT_LOW,
+      id: "mt-agent-warn",
+      token_usage: { output: 2000, context_used: 150000, context_window: 200000 }
+    };
+    const TS_AGENT_CRIT: Message = {
+      ...TS_AGENT_LOW,
+      id: "mt-agent-crit",
+      token_usage: { output: 5000, context_used: 185000, context_window: 200000 }
+    };
+
+    it("renders avatar OUTSIDE the bubble for both user + agent", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_USER, TS_AGENT_LOW]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const userAvatar = screen.getByTestId(`message-avatar-${TS_USER.id}`);
+      const userBubble = screen.getByTestId(`message-bubble-${TS_USER.id}`);
+      expect(userBubble.contains(userAvatar)).toBe(false);
+      const agentAvatar = screen.getByTestId(`message-avatar-${TS_AGENT_LOW.id}`);
+      const agentBubble = screen.getByTestId(`message-bubble-${TS_AGENT_LOW.id}`);
+      expect(agentBubble.contains(agentAvatar)).toBe(false);
+    });
+
+    it("renders a timestamp BELOW the bubble (not inside) in HH:MM format", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_USER]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const ts = screen.getByTestId(`message-timestamp-${TS_USER.id}`);
+      const bubble = screen.getByTestId(`message-bubble-${TS_USER.id}`);
+      expect(bubble.contains(ts)).toBe(false);
+      expect(ts.textContent ?? "").toMatch(/\d{1,2}:\d{2}/);
+    });
+
+    it("renders a per-bubble TokenChip when token_usage is present", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_AGENT_LOW]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_LOW.id}`);
+      expect(chip).toBeInTheDocument();
+      const bubble = screen.getByTestId(`message-bubble-${TS_AGENT_LOW.id}`);
+      expect(bubble.contains(chip)).toBe(false);
+    });
+
+    it("token chip flips to warn color at >=70% context", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_AGENT_WARN]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_WARN.id}`);
+      expect(chip.className).toMatch(/oklch\(0\.55_0\.16_60\)|oklch\(0\.55_0\.18_60\)|warn/);
+    });
+
+    it("token chip flips to critical color at >=90% context", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_AGENT_CRIT]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_CRIT.id}`);
+      expect(chip.className).toMatch(/oklch\(0\.55_0\.15_25\)|critical/);
+    });
+
+    it("does not render a per-bubble TokenChip when token_usage is absent", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[TS_USER]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.queryByTestId(`message-token-chip-${TS_USER.id}`)).not.toBeInTheDocument();
+    });
+  });
 });
