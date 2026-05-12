@@ -146,7 +146,14 @@ export function AgentDetailPage() {
     mutationFn: () => createDirectConversation({ agentId }),
     onSuccess: async ({ conversation_id }) => {
       setErrorMessage(null);
-      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+      // Invalidate both legacy and v2 conversation caches so whichever chat
+      // surface the user lands on shows the new direct conv without a reload.
+      // (M17/R7-4: without v2 invalidation the workspace renders the empty
+      // "select a conversation" pane, which users read as a 404.)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }),
+        queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] }),
+      ]);
       navigate(`/chat/${conversation_id}`);
     },
     onError: (error) => {
