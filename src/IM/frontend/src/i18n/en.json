@@ -79,6 +79,7 @@
     },
     "nodes": {
       "title": "Nodes",
+      "subtitle": "Gateway nodes connected to this workspace.",
       "loading": "Loading nodes…",
       "empty": "No nodes connected yet.",
       "aliasLabel": "Alias {{nodeId}}",
@@ -95,6 +96,12 @@
       "agentsOnNodeEmpty": "No agents on this node yet.",
       "liveName": "live name: {{name}}",
       "agentsCount": "agents: {{count}}",
+      "agentsShort": "agents",
+      "versionShort": "version",
+      "kpiTotal": "Total nodes",
+      "kpiOnline": "Online",
+      "kpiOffline": "Offline",
+      "kpiAgents": "Total agents",
       "statusOnline": "online",
       "statusOffline": "offline",
       "statusDegraded": "degraded"

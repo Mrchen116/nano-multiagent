@@ -71,10 +71,10 @@ describe("nodes page — status pill + last_error + empty state", () => {
     expect(offlinePill).toHaveTextContent(/offline/i);
     expect(offlinePill.querySelector('[data-status-dot="offline"]')).toBeInTheDocument();
 
-    // last_error should be rendered with the warning class (red text).
+    // last_error should be rendered with a warning class (oklch warm-red prototype palette).
     const errorEl = screen.getByTestId("node-last-error-node-b");
     expect(errorEl).toHaveTextContent("connection refused");
-    expect(errorEl.className).toMatch(/text-red-/);
+    expect(errorEl.className).toMatch(/text-red-|0\.14_25|0\.45_0\.14/);
   });
 
   it("renders an empty-state message when the owner has no nodes", async () => {
