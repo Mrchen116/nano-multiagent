@@ -189,6 +189,9 @@ interface ImAgent {
   display_name: string;
   description: string;
   node_id?: string | null;
+  // feat-340-M18 R9-1: the IM users.id paired with this agent. Surfaces null when
+  // legacy seeds have not yet been backfilled; the chat UI must guard for that.
+  user_id?: string | null;
 }
 
 export interface DiscoverableAgent {
@@ -1614,6 +1617,47 @@ export async function createDirectConversation(input: { agentId: string }): Prom
     })
   });
   return { conversation_id: created.id };
+}
+
+/**
+ * feat-340-M18 R9-2: open a direct chat without traversing the legacy
+ * ``ensureBootstrap`` → ``listUsersRaw`` path that 404s on /im/v1/users.
+ *
+ * Callers already hold the agent's IM ``user_id`` (returned by
+ * /im/v1/agents since R9-1) and the authenticated user's id (auth store),
+ * so we can POST /conversations directly with concrete participant ids.
+ * Failures propagate to the caller so the UI can surface them instead of
+ * swallowing the rejection.
+ */
+export async function createDirectChatByAgentUserId(input: {
+  agentId: string;
+  agentUserId: string;
+  agentDisplayName: string;
+}): Promise<{ conversation_id: string }> {
+  const { useAuthStore } = await import("../auth/auth-store");
+  const session = useAuthStore.getState().user;
+  if (!session) {
+    throw new Error("not authenticated");
+  }
+  const participants: ImActorRef[] = [
+    { type: "user", id: session.id },
+    { type: "agent", id: input.agentId, display_name: input.agentDisplayName }
+  ];
+  const created = await createConversationRaw({
+    title: input.agentDisplayName,
+    participants,
+    participant_ids: [session.id, input.agentUserId]
+  });
+  return { conversation_id: created.id };
+}
+
+/**
+ * feat-340-M18 R9-2: thin wrapper around the internal `listAgentsRaw` helper so
+ * callers outside this module (e.g. the Agents detail page) can read the
+ * canonical agent → user_id mapping without reaching into legacy bootstrap.
+ */
+export async function listAgents(): Promise<ImAgent[]> {
+  return listAgentsRaw();
 }
 
 export async function createFreshDirectConversation(input: { agentId: string }): Promise<{ conversation_id: string }> {

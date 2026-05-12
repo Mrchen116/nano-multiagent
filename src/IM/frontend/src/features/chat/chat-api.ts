@@ -32,6 +32,11 @@ export const listDiscoverableGroupParticipants = useMockApi
   ? mockApi.listDiscoverableGroupParticipants
   : imApi.listDiscoverableGroupParticipants;
 export const createDirectConversation = useMockApi ? mockApi.createDirectConversation : imApi.createDirectConversation;
+export const createDirectChatByAgentUserId = useMockApi
+  ? (input: { agentId: string; agentUserId: string; agentDisplayName: string }) =>
+      mockApi.createDirectConversation({ agentId: input.agentId })
+  : imApi.createDirectChatByAgentUserId;
+export const listAgents = useMockApi ? async () => [] : imApi.listAgents;
 export const createFreshDirectConversation = useMockApi ? mockApi.createDirectConversation : imApi.createFreshDirectConversation;
 export const createGroupConversation = useMockApi ? mockApi.createGroupConversation : imApi.createGroupConversation;
 export const getConversation = useMockApi ? mockApi.getConversation : imApi.getConversation;
