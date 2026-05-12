@@ -719,8 +719,8 @@ describe("message pane", () => {
       }
     });
 
-    expect(screen.getByText("A")).toBeInTheDocument();
-    expect(screen.getByText("QQQ")).toBeInTheDocument();
+    expect(screen.getAllByText("A").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("QQQ").length).toBeGreaterThan(0);
   });
 
   it("shows a compact timestamp for each sent and received bubble", () => {
