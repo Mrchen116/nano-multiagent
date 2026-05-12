@@ -91,6 +91,8 @@
       "reportingEnabled": "Reporting Enabled",
       "save": "Save {{nodeId}}",
       "saving": "Saving…",
+      "allSaved": "All saved",
+      "unsavedChanges": "Unsaved changes",
       "createAgentOn": "Create agent on {{nodeId}}",
       "agentsOnNode": "Agents on this node",
       "agentsOnNodeEmpty": "No agents on this node yet.",

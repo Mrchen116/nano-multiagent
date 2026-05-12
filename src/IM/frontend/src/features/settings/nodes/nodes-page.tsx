@@ -43,9 +43,25 @@ export function NodesPage() {
 
   const [drafts, setDrafts] = useState<Record<string, NodeSettingsProfile>>({});
 
+  const originalById = useMemo(() => {
+    const map = new Map<string, NodeSettingsProfile>();
+    for (const node of query.data ?? []) map.set(node.node_id, node);
+    return map;
+  }, [query.data]);
+
   const rows = useMemo(() => {
     return (query.data ?? []).map((node) => drafts[node.node_id] ?? node);
   }, [drafts, query.data]);
+
+  function isNodeDirty(node: NodeSettingsProfile): boolean {
+    const orig = originalById.get(node.node_id);
+    if (!orig) return false;
+    return (
+      node.alias !== orig.alias ||
+      node.relay_enabled !== orig.relay_enabled ||
+      node.reporting_enabled !== orig.reporting_enabled
+    );
+  }
 
   const agentsByNode = useMemo(() => {
     const grouped = new Map<string, AgentSummary[]>();
@@ -321,20 +337,37 @@ export function NodesPage() {
                 )}
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 border-t border-[oklch(0.91_0.005_240)] pt-2">
-                {isOnline ? (
-                  <Link className="im-btn im-btn-muted" to={`/settings/nodes/${row.node_id}/agents/new`}>
-                    {t("settings.nodes.createAgentOn", { nodeId: row.node_id })}
-                  </Link>
-                ) : null}
-                <button
-                  type="button"
-                  className="im-btn im-btn-primary"
-                  onClick={() => mutation.mutate(row)}
-                  disabled={mutation.isPending}
-                >
-                  {mutation.isPending ? t("settings.nodes.saving") : t("settings.nodes.save", { nodeId: row.node_id })}
-                </button>
+              {/* M20/R12-bis-2: card-level footer with status text + small pill Save + New agent button. */}
+              <div
+                data-testid={`nodes-card-save-footer-${row.node_id}`}
+                className="flex flex-wrap items-center justify-between gap-3 border-t border-[oklch(0.91_0.005_240)] pt-2"
+              >
+                <span className="text-[12px] font-semibold text-[oklch(0.65_0.01_240)]">
+                  {isNodeDirty(row) ? (
+                    <span className="text-[oklch(0.50_0.15_60)]">● {t("settings.nodes.unsavedChanges")}</span>
+                  ) : (
+                    t("settings.nodes.allSaved")
+                  )}
+                </span>
+                <div className="flex items-center gap-2">
+                  {isOnline ? (
+                    <Link
+                      data-testid={`nodes-card-new-agent-${row.node_id}`}
+                      className="inline-flex items-center rounded-lg px-3 py-1.5 text-[12px] font-semibold text-[oklch(0.30_0.01_240)] hover:bg-[oklch(0.93_0.005_240)] border border-[oklch(0.87_0.006_240)]"
+                      to={`/settings/nodes/${row.node_id}/agents/new`}
+                    >
+                      {t("settings.nodes.createAgentOn", { nodeId: row.node_id })}
+                    </Link>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="inline-flex items-center rounded-lg bg-[oklch(0.52_0.14_180)] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
+                    onClick={() => mutation.mutate(row)}
+                    disabled={mutation.isPending || !isNodeDirty(row)}
+                  >
+                    {mutation.isPending ? t("settings.nodes.saving") : t("settings.nodes.save", { nodeId: row.node_id })}
+                  </button>
+                </div>
               </div>
             </div>
           </section>
