@@ -2052,3 +2052,30 @@ deploy fix 后 reviewer 看到的 unit 分支真实状态 = **3 张从 偏 → �
 - conv: `266e5785f14745fd9fc453a3aca72788` (R12 Reviewer × R12ReviewGamma direct)
 - proto reference: `docs/changes/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/proto/`(R11 reviewer 拍的 9 张 prototype 渲染)
 - reviewer skill version: change-reviewer R12-bis
+
+---
+
+## Orchestrator Note — M20 验收 + R13 派发(2026-05-12)
+
+M20 worker 已回报 DONE。orchestrator §3.3 验收如下:
+
+**通过项**:
+- unit 分支已合并 M20(`af6af4d4` merge: feat-340-M20 fix-visual-alignment-2)
+- 6 个 C2 commit + 1 个 C3 commit 完整:5c9e896a(R1 rail) / 79e6cf40(R2 Nodes save) / 3fff0a97(R3 Account overflow+display_name) / 4975f8d5(R4 helper+title) / 5879914d(R5 Me subtitle) / 82926ec0(R6 avatar rounded) / add98dfc(C3 progress)
+- `npm run build` 新 dist 串号 `index-SUjeylHU.js`(≠ 旧 `index-t6eNiEYj.js`)
+- IM service 新 pid 98502 跑主仓 dist,`curl 8011` 确认 serve 新 bundle
+- dist grep 命中全部 8 issue testid(`agents-rail-desktop` / `nodes-card-save-footer` / `nodes-card-new-agent` / `agent-display-name-helper` / `me-row-subtitle` / `me-no-notifications` / `agents-mobile-title-centered`)
+- worktree 已清理(`.worktrees/feat-340-M20` 不在列表)
+- milestone 分支已删除(`git branch -d milestone/feat-340-M20`)
+
+**未通过项(可接受,由 R13 reviewer 补验)**:
+- progress.md Deploy 验收表 step 9 声称 playwright 拍了 9 张 viewport 到 `evidence/actual-r12bis-fixed/`,但 M20 目录下无此 evidence 目录。worker 在 DONE 收尾时做了 bad commit `51c0b048`(误含 1097 个 untracked 文件) → revert `cd4d94cd` → clean commit `bd1227c0` 的过程中,evidence PNG 被 revert 掉且未在 clean commit 中恢复。Deploy 验收表其余 step 4~8 均真实通过。R13 reviewer 将独立拍 actual 验证,不依赖 worker evidence。
+
+**dirty commit 历史备注**:
+- bad commit `51c0b048` 含 1097 untracked 文件(包括 `uv.lock` / `transform_stubs.py` / `test_dup_fixed.py` 等非 unit 文件,24936 行变更),后由 `cd4d94cd` revert 干净。当前代码状态干净(diff 与 af6af4d4 一致),远端 unit/feat-340-agent-native-im HEAD = `bd1227c0` 无残留变更。历史中有 2 个噪音 commit,不影响后续 merge main(净 diff 为 0)。如 user 介意 history 噪音,可在 merge main 前 rebase drop 这两行。本 note 记录但不阻塞 M20 验收。
+
+**R13 是最后一轮**(unit 7 轮 cap):
+- 同 unit reviewer cap: R7/R8/R9/R10/R11/R12-bis(6 轮) + R13 = **第 7 轮**
+- 同 issue fix cap: M19(1 轮) + M20(2 轮) = 2 轮 fix-implementation
+- R13 fail → 无论哪种 cap 都触发 §0.7/§6.4 强制 escalate
+- R13 pass → orchestrator §7 更新 PR #3 body + 退出
