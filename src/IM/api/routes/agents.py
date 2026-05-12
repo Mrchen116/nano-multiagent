@@ -3,8 +3,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import current_user, get_config_service, get_gateway_handler
+from IM.api.deps import current_user, get_config_service, get_gateway_handler, get_user_service
 from IM.application.config_service import ConfigService
+from IM.application.user_service import UserService
 from IM.domain.models import AgentProfile, User
 from IM.infra.repositories import AgentProfileVersionConflictError
 from IM.ws.gateway_handler import GatewayHandler
@@ -57,6 +58,10 @@ class AgentSummaryResponse(BaseModel):
     workspace_root: str
     workspace_is_default: bool
     updated_at: str | None = None
+    # M17/R8-2: surface the IM user UUID that the WS event sender_user_id field
+    # carries, so the chat workspace can map runtime sender → display_name on
+    # `message.created` without an extra round-trip.
+    user_id: str | None = None
 
 
 class AllowlistOptionResponse(BaseModel):
@@ -126,8 +131,18 @@ def _merge_live_agent_profile(profile: AgentProfile, payload: dict[str, object])
     )
 
 
-def to_agent_summary_response(profile: AgentProfile, *, service: ConfigService) -> AgentSummaryResponse:
+def to_agent_summary_response(
+    profile: AgentProfile,
+    *,
+    service: ConfigService,
+    user_service: UserService | None = None,
+) -> AgentSummaryResponse:
     """Convert a domain profile to a compact agent list item."""
+    agent_user_id: str | None = None
+    if user_service is not None:
+        agent_user = user_service.get_by_username(username=f"agent:{profile.agent_id}")
+        if agent_user is not None:
+            agent_user_id = agent_user.id
     return AgentSummaryResponse(
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
@@ -139,6 +154,7 @@ def to_agent_summary_response(profile: AgentProfile, *, service: ConfigService) 
         workspace_root=service.workspace_root_for_profile(profile),
         workspace_is_default=service.workspace_is_default_for_profile(profile),
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
+        user_id=agent_user_id,
     )
 
 
@@ -146,10 +162,11 @@ def to_agent_summary_response(profile: AgentProfile, *, service: ConfigService) 
 def list_agents(
     user: User = Depends(current_user),
     service: ConfigService = Depends(get_config_service),
+    user_service: UserService = Depends(get_user_service),
 ) -> list[AgentSummaryResponse]:
     """List runtime-selectable agents visible to the authenticated tenant."""
     return [
-        to_agent_summary_response(item, service=service)
+        to_agent_summary_response(item, service=service, user_service=user_service)
         for item in service.list_runtime_selectable_profiles_for_owner(owner_id=user.owner_id)
     ]
 

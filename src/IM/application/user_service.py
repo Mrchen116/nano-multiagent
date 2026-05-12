@@ -22,3 +22,7 @@ class UserService:
     def list_users(self) -> list[User]:
         """List all IM users in storage order."""
         return self._users.list_users()
+
+    def get_by_username(self, *, username: str) -> User | None:
+        """Return one user by canonical username (e.g. ``agent:<agent_id>``)."""
+        return self._users.get_user_by_username(username=username)
