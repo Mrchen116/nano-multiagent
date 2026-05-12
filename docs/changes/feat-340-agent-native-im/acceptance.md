@@ -1922,3 +1922,35 @@ orchestrator **不应**提 PR `unit/feat-340-agent-native-im` → `main`;应:
 
 **IM DB 新增(本轮)**:用户 r12review(id=18020107fa254ce0bca529c5fc5e1c09);节点 feat340-r12review-node(owner=r12review,bind_id=5025f045c3994817a44a7c998ed4c8a1);agent R12ReviewGamma(owner=r12review,user_id=33cc8ccaca0a44ce977925ee2262b6c0);直聊对话 266e5785f14745fd9fc453a3aca72788(R12 Reviewer × R12ReviewGamma,direct user-agent);消息 2 条(user "Hello R12! What is 2+2? Answer briefly." + agent "2+2=4")。
 
+---
+
+## Orchestrator Note — R12 verdict 部署链路 triage(2026-05-12)
+
+R12 reviewer 报告 fail / fix-implementation / 0 精 / 7 偏 / 2 近,与 M19 worker 自审 9/9 精 gap 极大。orchestrator triage 锁定根因为**部署链路 bug**,**非** unit 分支源码失实,**非** worker 自审造假,**非** reviewer 误判 — reviewer 拍到的图反映的是用户真实体验,但用户访问的 dist 是 R10 polish 之前的旧 bundle。
+
+**证据**:
+
+1. **源码已含 R10 polish testid**:`grep -rE "testid.*(account-page-back|account-save-footer|account-owned-node-|agent-row-chevron-|nodes-page-back)" src/IM/frontend/src/features/settings/` 命中 6 处(account-page.tsx 4 / nodes-page.tsx 1 / agents-list-page.tsx 1),unit/feat-340-agent-native-im @ d7598620 上的源码就是 R10 polish 状态。
+2. **旧 dist 不含 R10 polish testid**:R12 reviewer 拍图时主仓 dist bundle `index-B_wwg_7u.js` mtime 2026-05-12 16:41,**早于** m19-worker R10 polish 完成时刻 ~20:12 约 3.5 小时。`grep` 主仓旧 dist 命中 0 处。
+3. **IM service 启动时绑定到已删除的 worktree dist 路径**:`ps -E -p 62272` 显示 `IM_FRONTEND_DIST_DIR=/Users/czj/Repos/nano-multiagent/.worktrees/feat-340-M19/src/IM/frontend/dist`,m19-worker 在 §3.3 收尾时 `git worktree remove .worktrees/feat-340-M19` 后该目录已不存在,FastAPI static mount fallback 到主仓默认 `src/IM/frontend/dist/`(旧 bundle)。
+4. **m19-worker R10 polish 真实 build 过 dist**:worker progress R10 段写 dist 串号 `index-t6eNiEYj.js`;orchestrator 在主仓 unit 分支 checkout 下重 build 出 dist 串号**完全一致**的 `index-t6eNiEYj.js`(`vite v7.3.1, 180 modules, 508.79 kB, built in 1.07s`)。worker self-claim 100% truthful,仅未把 dist deploy 到主仓 path / 重启 IM service 让 worktree path 失效后兜底走主仓 path。
+
+**Reviewer 流程改进备注(R12 报告 §0 合规自检遗漏点)**:reviewer 把 `dist/index.html mtime > HEAD commit timestamp` 当作 "bundle 即 HEAD 产物" 的证据,但 mtime 与 commit 时间无因果关系。reviewer skill 应增加硬约束:截图前必须 `grep` 关键 testid / 串号在 dist bundle 里命中,否则视觉 verdict 不成立。该改进作为 reviewer skill out-of-unit issue(M19-C),不在本 unit 范围。
+
+**Orchestrator deploy fix 实施(本 turn,unit 分支 d7598620,无源码改动)**:
+
+1. `cd src/IM/frontend && npm run build` → 主仓 dist 串号 `index-t6eNiEYj.js`,grep R10 polish testid 命中
+2. `kill 62272` 旧 IM service
+3. `PYTHONPATH=src IM_FRONTEND_DIST_DIR=/Users/czj/Repos/nano-multiagent/src/IM/frontend/dist nohup python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011 > /tmp/im-service-r12bis.log 2>&1 &` → 新 IM service pid 72320
+4. `curl -s http://127.0.0.1:8011/ | grep index-` → 现在 serve `index-t6eNiEYj.js`,`index-bGuzEamo.css`
+5. `tail /tmp/im-service-r12bis.log` → Application startup complete + 200 OK on /
+
+**R12 verdict 处置**:
+
+- R12 reviewer 报告(本节之上)所有评级、issues、Side Findings 全部保留,作为 "用户真实体验在 deploy fix 之前的真相记录" 价值。
+- 但 R12 verdict **不计入 round 累计**(reviewer 拿到的 dist 不反映 unit 分支当前代码,verdict 与 unit 状态错位)。
+- R12 reviewer(agentId `acc660ab167f1732c`)被 SendMessage 续派复测,产出 "**R12-bis** orchestrator deploy fix 后重判" 子段;若 9/9 精 → unit pass;若仍有 ≤ 近 → 真 fix-implementation,派 M20 worker(此时才计入 round 7,触发 escalate 评估)。
+- 同 issue 指纹累计计数 `R7-R12 = 6 轮` **重置到 5 轮**(R12 deploy-fix 不算独立视觉 round,等同 R11 的延迟兑现)。距 7 轮硬上限仍剩 2 轮余量。
+
+**Worker 流程改进备注(M19 worker self-claim "9/9 精" 漏的 step)**:worker DONE 流程应增加:`git worktree remove` **之前**强制执行 (a) 主仓 `git pull --ff-only origin unit/<unit_id>` 拉到 merge 后的 HEAD,(b) 主仓 `cd src/IM/frontend && npm run build`,(c) 重启 IM service 让其绑定到主仓 dist,(d) curl 8011 验 bundle 串号 + grep testid 命中,(e) 再删 worktree。该改进作为 change-impl-worker skill out-of-unit issue(M19-D),不在本 unit 范围。
+
