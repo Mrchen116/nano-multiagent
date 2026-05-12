@@ -78,3 +78,17 @@ fix-visual-alignment (post-acceptance fix round 11) — 5 页视觉重写按 pro
 - Rollback: `git revert e9eefae6` (C2) + `git revert 74d3f973` (C1)
 - Commits: C1=74d3f973, C2=e9eefae6
 
+## R5 — Account 2 卡窄居中 + 54px round avatar + 删 Preferences 卡 (R11-6 major)
+
+- Context: R11-6 (major) — prototype `attachments/prototype/project/im-extra-pages.jsx::AccountPage` 是 2 张窄居中卡 (Profile + Gateway, maxWidth 620px + 24/28 padding),Profile 头部带 54×54 圆 avatar (oklch 270 蓝紫底 + 白字 initials) + mono user_id。Preferences 卡 (Language radio + Notifications checkbox) 在 prototype 里完全不存在 — Language 入口在 Me 页/UserMenu(R2 已落白卡 pill toggle),Notifications toggle 在 Me 页(R2 已落白卡)。当前 `account-page.tsx` 是 3 张满宽卡 (无居中 + 无 avatar + 含完整 Preferences 卡)。
+- Decision: `account-page.tsx` 整体重写为 `max-w-[620px] mx-auto p-[24px_28px]` 窄居中 form,2 张卡 (Identity + Defaults)。Identity 卡头部加 `<span data-testid="account-avatar" class="rounded-full bg-[oklch(0.52_0.14_270)]">` 54×54 圆 + initials + `<p data-testid="account-user-id" class="font-mono">`。Preferences 卡彻底删除(连同 locale radio / notifications checkbox / locale 表单字段)。`mutationFn` 的 `locale` 字段继续按 `profile.locale` 透传(契约不变,后端继续接收 PATCH),只是 UI 不再可编辑 locale。
+- Rationale: 删卡而不是把 Language 留在 Account 是按 prototype 真相;Me 页(R2 已落)是唯一 Language / Notifications 入口,避免双源 of truth。`useNotificationPreference` 不再在 AccountPage 使用,移除以减少耦合;Notifications 在 Me 页已是契约源。
+- Evidence:
+  - Tests: `account-page.test.tsx` 加 3 个 R11-6 测试 (max-w-620 / avatar 圆 + mono user_id / 删 Preferences),C1 RED 3/6 → C2 GREEN 6/6;同步翻转旧 "renders 3 cards" 与 "saves locale + notifications" 两个测试,locale 改为 `currentLocale` 透传 (用户在 Me 页改 locale,Account PATCH 携带当前值),GREEN;全套 vitest 52 files / 262 tests GREEN。
+  - Entry: 视觉确认延后至 R9 双 viewport 截图。
+  - Visual/Interaction: avatar 54×54 圆 + initials / mono user_id / 2 张白卡 / max-w-620 mx-auto / 无 locale radio / 无 notifications checkbox — 单测层断言通过。
+- Side effect: `useNotificationPreference` 不再在 Account 中引用 (旧导入移除);AccountPage 用 `currentLocale = profile.locale` 而不是 draft.locale 控制。
+- Out-of-unit: 后端 PATCH `/im/v1/me` 契约仍接受 `locale` 字段;若产品决定彻底从 Account API 拿掉 locale,需独立 issue (本 round 不动)。
+- Rollback: `git revert 4b6c3067` (C2) + `git revert ac6408fc` (C1)
+- Commits: C1=ac6408fc, C2=4b6c3067
+
