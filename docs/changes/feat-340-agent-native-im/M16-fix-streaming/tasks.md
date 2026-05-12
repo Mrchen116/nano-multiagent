@@ -26,5 +26,5 @@
 | R | 标题 | 状态 |
 |---|---|---|
 | R1 | 前端 WS 改用 token 参数 | DONE |
-| R2 | 恢复 turn_start 帧 + gateway ack 返回 agent message_id | TODO |
+| R2 | 恢复 turn_start 帧 + gateway ack 返回 agent message_id | DONE |
 | R3 | 端到端验证截图 | TODO |
