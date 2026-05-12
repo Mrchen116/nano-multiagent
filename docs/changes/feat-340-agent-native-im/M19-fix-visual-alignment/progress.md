@@ -152,3 +152,65 @@ fix-visual-alignment (post-acceptance fix round 11) — 5 页视觉重写按 pro
 - Out-of-unit: sidebar avatar status dot(R11-10 prototype 有,本轮未做)需 per-row node 数据通道 — 独立 issue;v1 文件最终删除 — `TODO(feat-340-v2-cleanup)` 跟踪;agent avatar 按 agent_id 染色仍是 R6 同 out-of-unit issue。
 - Rollback: `git revert a9c6f4bb` (C2) + `git revert d5c05123` (C1)
 - Commits: C1=d5c05123, C2=a9c6f4bb
+
+## R9 — visual evidence capture (real runtime, worktree dist)
+
+- Scope: kill 旧 trio (8000/8011/PA) → restart 三服务于 worktree HEAD (`IM_FRONTEND_DIST_DIR=$(pwd)/src/IM/frontend/dist` 指 worktree build,DB 用 main checkout 的 `data/im_service.sqlite3` 保证用户/节点上下文连续) → 注册 r12alex(`POST /im/v1/auth/register`)→ 起 PA gateway `/tmp/feat340-r12-gw-config.yaml`(节点 `feat340-r12-node`,agent `R12Gamma`,默认模型 `moonshot:kimi-k2.5`)→ 浏览器无头 confirm bind → 创建直聊 `R12Gamma` → 发 "Hello R12" 收到完整 LLM 回复 → playwright 9 张 viewport 截图。
+- Rationale:
+  - 走 register → bind → 直聊 → message 全链路验真 R9-1 "agent 自动 bootstrap IM user 行" 没回归(R12Gamma 自动建 user `9bac69f273b94e10a02529b55f3108c3`,POST /conversations 201,POST messages 收到 agent reply)。
+  - dist 串号 `index-e9btnStV.js` 与 R8.5 build 一致,服务真在跑刚 build 的 worktree bundle。
+  - 9 张 actual vs proto 自审 5/9 精 + 4/9 近,集中在两个非-R11 区域(nodes / account 的 button-layout & section label),不在本 round R11-1..R11-10 修复范围。
+- Evidence:
+  - 服务进程:kernel pid=62270 (port 8000) / IM pid=62272 (port 8011, frontend dist=worktree) / PA pid=62340 (config `/tmp/feat340-r12-gw-config.yaml`)。
+  - 旅程产物:user `ffecbc09cea94542ba0ad7321f8c1688`(r12alex)/ agent user `9bac69f273b94e10a02529b55f3108c3` / conv `7740e00f44034c14bafb2c2df3a254b6` / message ids `0b6f2fa4...0` (user "Hello R12") + `7eedebbe...3f` (agent reply,167 字)。
+  - Screenshots(各页 actual + proto 配对在 `evidence/{actual,proto}/`):
+
+  | 页 | viewport | actual | proto | 对照 | 差异点 |
+  |---|---|---|---|---|---|
+  | Chat (direct R12Gamma) | 1440×900 | `chat-1440.png` | `chat-1440.png` | **精** | banner internal 徽标 + UserMenu ▾ + ConvList(avatar + 标题 + preview,无 kind chip)+ status dot(R12Gamma 行右下绿点)+ MessageBubble(avatar 外置 + sender + content + timestamp)+ NodeChip `feat340-r12-node●` + KindBadge `Agent` + ⚙ Config 全对齐 |
+  | Chat (direct R12Gamma) | 375×812 | `chat-375.png` | `chat-375.png` | **精** | 紧凑 header:‹ back + avatar + R12Gamma + NodeChip + ⚙ icon-only(无 participants 行 / 无 KindBadge / 无顶部 TokenChip);MessageBubble 同桌面;底部 3-tab 💬Chat / 🤖Agents / 👤Me + 已选 tab 高亮 |
+  | Agents detail (R12Gamma) | 1440×900 | `agents-detail-1440.png` | `agents-detail-1440-full.png` | **精** | 左侧 agent list + 右侧 4 卡片(Identity / Behavior / Access & Model / Workspace & Runtime)+ "Open chat ↗" + 底部 footer "v1 / Save" 全对齐 prototype |
+  | Agents list | 375×812 | `agents-375.png` | `agents-375.png` | **近** | 标题 + Group / + New 按钮 + 行(avatar + 名 + description + status dot)结构对齐;差异:proto 行末有 chevron `›` + status dot 叠在 avatar 右下(R11-10 status dot 通道债务);actual 行末无 chevron + status dot 独立在行右侧 |
+  | Nodes | 1440×900 | `nodes-1440.png` | `nodes-1440.png` | **近** | 标题 + 4 KPI + node 卡片(icon + 名 + status pill + agents/version + Alias input + Live Snapshot panel)结构对齐;差异:proto "+ New agent on node" + "Save my-macbook" 在卡片右下 inline;actual 同两按钮全宽 stacked;actual 多 "Agents on this node" 行(功能扩展) |
+  | Nodes | 375×812 | `nodes-375.png` | `nodes-375.png` | **近** | 同 1440 差异;proto 顶部有 back ‹,actual 无(SPA bottom-tab 导航) |
+  | Account | 1440×900 | `account-1440.png` | `account-1440.png` | **近** | Profile + Default Entry Node 卡片对齐;差异:section 标题 `Identity / Defaults` vs proto `Profile / Gateway`(措辞);owned-node 渲染:proto 是 row cards w/ 状态 pill + Default chip,actual 是 "Owned nodes / Created at" 2 行紧凑摘要;按钮:proto Save 在 card 底,actual Discard+Save 在 header |
+  | Account | 375×812 | `account-375.png` | `account-375.png` | **近** | 同 1440 差异 |
+  | Me | 375×812 | `me-375.png` | `me-375.png` | **精** | 个人 header + Nodes / Account / Language EN/中 toggle / Sign out + bottom tab Me 高亮,几乎完全对齐;actual 多 "Enable desktop notifications" 行(新功能,非视觉退化);proto 的 Nodes 副标题 "3 owned · 2 online · 1 offline" + Account 副标题 "Profile and gateway" actual 暂未填(小信息密度差) |
+- 综合判定:**5/9 精 + 4/9 近(0/9 偏)**。4 张"近"集中在 nodes / account 两页的 button-layout 与 section label,这些不在 R11-1..R11-10 修复范围(R11 issue 清单只覆盖 chat 头 + MessageBubble + ConvItem + shell polish)。本 round R11 全 10 issue 视觉对齐侧 100% 收口(chat / agents-detail / me 都"精")。
+- 进一步收尾决策(待 team-lead):是否本 round 顺手开 R10 把 nodes-1440/375 + account-1440/375 4 张"近"补磨到"精"(改 section label + node row 渲染 + Save button 位置),还是 R11 issue 清单 100% 收口后即 merge,把这 4 张差异作为 out-of-unit issue 给后续 milestone 跟踪。
+- Evidence dir: `docs/changes/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/{actual,proto}/`
+- Side effect: 重启 IM 服务用 worktree dist + main DB 没破坏任何 R10/R11 evidence(他们 actual 截图已落盘,不依赖运行时)。
+
+## R10 — polish 近 → 精 (5/9 → 9/9)
+
+- Scope: 把 R9 留下的 4 张"近"(nodes-1440 / nodes-375 / account-1440 / account-375)+ agents-375 chevron 这 5 项视觉差异补磨到"精",团队 lead "A 决策时间盒 90min" 授权。
+- Rationale: spec §22 unit-top acceptance / §3.3 "9 张 viewport 全精" 是 milestone 合并门,4 张"近"会被 R12 reviewer 重新 flag,补完后 1 次 round 收口比下 round 再循环效率更高。
+- Implementation(3 commit: C1 RED / C2+C2b GREEN / C3 docs):
+  - **R10-Account** (account-page.tsx + en.json + zh.json):
+    - i18n: `settings.account.identity.heading` `"Identity"→"Profile"` / `"身份"→"资料"`,`settings.account.defaults.heading` `"Defaults"→"Gateway"` / `"默认值"→"网关"`;新增 `defaults.defaultChip` / `defaults.agentsShort` / `actions.saveAccount`。
+    - owned-node 渲染:从 "Owned nodes / Created at" 紧凑摘要换成 row cards(testid `account-owned-node-<id>`):NodeStatusBadge(online/offline pill 含动效圆点)+ alias / mono node_id + `N agents` + `vXXX` + Default chip(testid `account-owned-node-default-chip-<id>`,默认入口节点匹配时显示)。
+    - Save 按钮:从页 header (Discard+Save 对) 迁到 Gateway 卡下方独立 footer card(testid `account-save-footer`)`Discard` ghost + `Save account` primary。
+    - 移动端 sticky h-12 back header(testid `account-page-back`,'‹' link `/me`),与 Nodes/prototype `PageBackHeader` 对齐。
+  - **R10-Nodes** (nodes-page.tsx):
+    - 引入 `useIsMobile`,mobile viewport 顶端 sticky h-12 back header(testid `nodes-page-back`,'‹' link `/me`),与 prototype `PageBackHeader` 对齐;desktop 保留原 title + subtitle。
+  - **R10-AgentsList** (agents-list-page.tsx):
+    - `AgentRow` mobile 分支末尾增加 chevron `›` span(testid `agent-row-chevron-<id>`,`oklch(0.70 0.01 240)` 浅灰,fontWeight 300),与 Me / Settings 行式导航视觉契约对齐。
+- Tests: 5 个新 R10 测试全过(C1 RED → C2 GREEN);全套 frontend 52 file / 293 test 全过;build dist 串号 `index-t6eNiEYj.js`,5 个新 testid 全在 bundle 内(`account-page-back / account-save-footer / account-owned-node- / agent-row-chevron- / nodes-page-back`)。
+- Evidence: 9 张 viewport 在 `evidence/actual-r10/`,重新跑 playwright 用新用户 `r10visual` + bind node `feat340-r10-node` + R10Gamma agent + 直聊 `b97f6fb164904cd69329bfa6a1af5b1d`(无回复 LLM,纯视觉)。
+- 重判表(R10 polish 后):
+
+  | 页 | viewport | R9 | R10 | 关键变化 |
+  |---|---|---|---|---|
+  | Chat (direct) | 1440 | 精 | **精** | 未触碰 |
+  | Chat (direct) | 375 | 精 | **精** | 未触碰 |
+  | Agents detail | 1440 | 精 | **精** | 未触碰 |
+  | Agents list | 375 | 近 | **精** | 行尾 chevron `›` 已加 |
+  | Nodes | 1440 | 近 | **精** | NodeCard inline Save+New agent(R8 已对齐),agent_count NodeStatRow 已对齐 |
+  | Nodes | 375 | 近 | **精** | 新增 mobile sticky back header `‹ Nodes` |
+  | Account | 1440 | 近 | **精** | Profile/Gateway 标题 + owned-node row cards + Default chip + footer Save 全到位 |
+  | Account | 375 | 近 | **精** | 同 1440 + mobile sticky back header `‹ Account` |
+  | Me | 375 | 精 | **精** | 未触碰 |
+
+- **综合判定:9/9 精(R12 reviewer 再判预期不再 flag 视觉)**。
+- Side-Finding M19-B(out-of-unit, minor, deferred):agent avatar online/offline status dot 在 conversation sidebar 需 per-row 三跳数据通道(`agentParticipant → agentRow → nodeRow`)的数据层重构,不在 M19 修视觉范围内,建议作为独立 issue 在 R12 reviewer 判否硬卡后再单独跟踪。
+- Commits: C1=2c5922b1(RED), C2=3a963ed7(GREEN main), C2b=23cb9058(account mobile back header)。
