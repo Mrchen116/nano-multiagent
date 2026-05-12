@@ -558,7 +558,9 @@ class InboundPipeline:
             if self._kernel_event_observer is not None:
                 # Bridge consumer raises if it cannot translate — let it propagate so we don't
                 # silently swallow malformed kernel events.
-                self._kernel_event_observer(event)
+                result = self._kernel_event_observer(event)
+                if asyncio.iscoroutine(result):
+                    await result
             event_name = event.get("event")
             if event_name == "assistant_message":
                 content = event.get("content")

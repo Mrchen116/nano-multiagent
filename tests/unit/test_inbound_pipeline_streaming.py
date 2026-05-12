@@ -205,11 +205,13 @@ class TestObserverSendsTurnStartAndUpdatesStore:
             run_context_store=run_context_store,
         )
 
-        observer({
+        coro = observer({
             "event": "run_status",
             "status": "running",
             "run_id": "run-001",
         })
+        if coro is not None:
+            await coro
         await asyncio.sleep(0.05)
 
         turn_start_frames = [p for _, p in send_calls if p.get("kind") == "turn_start"]
@@ -244,12 +246,13 @@ class TestObserverSendsTurnStartAndUpdatesStore:
             run_context_store=run_context_store,
         )
 
-        observer({
+        coro = observer({
             "event": "run_status",
             "status": "running",
             "run_id": "run-001",
         })
-        await asyncio.sleep(0.1)
+        if coro is not None:
+            await coro
 
         assert run_context_store["run-001"]["message_id"] == "agent-placeholder-555", (
             f"run_context_store must be updated with ack message_id, got: {run_context_store}"
@@ -288,13 +291,14 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         )
 
         # Simulate run_status=running (sends turn_start and updates store)
-        observer({
+        coro = observer({
             "event": "run_status",
             "status": "running",
             "run_id": "run-001",
         })
-        # Wait for turn_start ack to update store
-        await asyncio.sleep(0.1)
+        # Await the coroutine so turn_start ack updates store before assistant_message fires
+        if coro is not None:
+            await coro
 
         # Now send assistant_message: should use the new agent message_id
         observer({
