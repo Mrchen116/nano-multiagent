@@ -136,3 +136,19 @@ fix-visual-alignment (post-acceptance fix round 11) — 5 页视觉重写按 pro
 - Out-of-unit: 桌面顶栏无 unread 指示(prototype 桌面也无),如未来产品要桌面顶栏 Chat tab 加 unread 需独立 issue;internal badge 文字硬编码(未走 i18n),如要 EN/中切换文案需 i18n 扩 key `shell.internalBadge`(本 round 不动)。
 - Rollback: `git revert e3fd7a8c` (C2) + `git revert ddc519fb` (C1)
 - Commits: C1=ddc519fb, C2=e3fd7a8c
+
+## R8.5 — v2 production-path 落 R11-7 + R11-10 (Side-Finding M19-A 收口)
+
+- Context: R9 build + grep dist 阶段发现 R6 改的 `src/features/chat/components/{message-pane,conversation-list}.tsx` 在 `src/app/router.tsx:5` 没有被 import — production 走 `features/chat/v2/components/...`。dist grep `message-bubble` / `message-timestamp` / `message-avatar` / `conv-avatar-` / `conv-status-dot-` 全 0。R6 落到死代码,R11-7 + R11-10 在 production 未生效。Step 1 全路径排查表(8 个 roadpoint × production import × dist 字符串验真)只 R6 一处死代码,其它 7 个全真,所以本 round 单独开 R8.5 把 R11-7 + R11-10 重写到 v2,不影响 R1/R2/R3/R4/R5/R7/R8 已落地的真路径。
+- Decision: (a) v2 `MessagePane::MessageBubble` 重写 — 30×30 圆 avatar 在气泡外(`data-testid="message-avatar-{id}"`,user 用 `oklch(0.52 0.14 180)` 青底 / agent 用 `oklch(0.52 0.14 270)` 紫底;user 行 `flex-row-reverse`,agent 行 `flex-row`);bubble body 包 `data-testid="message-bubble-{id}"`(sender + content + attachments + tool_calls 不变);气泡下方 status row 渲染 HH:MM `<span data-testid="message-timestamp-{id}">` + 可选 `<PerBubbleTokenChip>`(`data-testid="message-token-chip-{id}"`);TokenChip 沿用 R6 的 70% warn `oklch(0.55 0.16 60)` / 90% critical `oklch(0.55 0.15 25)` 阈值色。(b) v2 `ConversationSidebar`:删 `<KindBadge kind={kind} />` 渲染 + 移除 `KindBadge` import(`kind` 变量仍用于 filter 内部分类);Avatar 外包 `<span data-testid="conv-avatar-{id}">` 供视觉审计。(c) v1 `features/chat/components/{message-pane,conversation-list}.tsx` 顶部加 `@deprecated` 注释 + `TODO(feat-340-v2-cleanup):` 标明已被 v2 替代,保留(v1 测试 ≥ 20 个仍在依赖,本 round 不动)。
+- Rationale: 桌面 chat bubble 颜色 v2 通过 CSS var `--im-accent: oklch(52% .14 180)` + `--im-surface-2: oklch(96.5% .006 240)` 已经命中 prototype 色板,R8.5 不重复绑 Tailwind oklch 字面值在 bubble body 上,只把 R11-7 缺的三件(avatar 外置 / timestamp / per-bubble TokenChip)补齐;avatar bg + TokenChip 颜色用 Tailwind 字面值绑死视觉契约。`PerBubbleTokenChip` 子组件独立提取,避免与 R7 已存在的顶部 `<TokenChip>`(总览口径)命名冲突;data-testid 用 `message-token-chip-{id}` 而不是 `token-chip` 全局唯一,允许同一 conversation 多条消息各带 chip 不报 duplicate id。status dot on sidebar avatar 故意不做:v2 `Conversation` 类型(`chat-types.ts`)无 `node_status` 字段,需要 per-row 拉 agentParticipant → agentRow → nodeRow 三跳数据通道,属于数据层重构,out-of-unit issue 处理。
+- Evidence:
+  - Tests: `v2/components/message-pane.test.tsx` 加 6 个 R11-7 测试(avatar 外置 / timestamp 外置 HH:MM / per-bubble TokenChip / warn 色 / critical 色 / token_usage 缺省无 chip),C1 RED 5/6(1 negative-pass)→ C2 GREEN 6/6;`v2/components/conversation-sidebar.test.tsx` 加 2 个 R11-10 测试(无 `.chat-kind-badge` / 行内 `conv-avatar-{id}` testid),C1 RED 1/2 → C2 GREEN 2/2。全套 vitest 52 files / 288 tests GREEN(280→288, +8)。
+  - Build: `npm run build` 通过,dist `assets/index-e9btnStV.js` 505.22 kB(无 ts 错)。
+  - Dist grep 验真:`message-bubble-` / `message-timestamp-` / `message-avatar-` / `message-token-chip-` / `conv-avatar-` / `chat-bubble-status` 全 1;`oklch(0.52_0.14_180)` / `oklch(0.55_0.15_25)` / `oklch(0.55_0.16_60)` Tailwind 字面值 JS 命中;v2 `--im-accent: oklch(52% .14 180)` + `--im-surface-2: oklch(96.5% .006 240)` CSS var 已绑 prototype 色板。
+  - Entry: 视觉确认 R9 双 viewport 截图。
+- Side-Finding M19-A:M19 plan 阶段未识别 v1/v2 双路径债务,R6 改 v1 文件未识破,Step 1 全路径排查表把所有 8 roadpoint 验真后只 R6 一处需 R8.5 收口。未来 milestone plan 阶段需把 "production import chain + dist grep" 列为 design.md 强制检查项。
+- Side effect: v1 deprecated 注释只改 import 行上方 6 行,vitest 跑 v1 模块未受影响(其 270 个测试继续 GREEN)。
+- Out-of-unit: sidebar avatar status dot(R11-10 prototype 有,本轮未做)需 per-row node 数据通道 — 独立 issue;v1 文件最终删除 — `TODO(feat-340-v2-cleanup)` 跟踪;agent avatar 按 agent_id 染色仍是 R6 同 out-of-unit issue。
+- Rollback: `git revert a9c6f4bb` (C2) + `git revert d5c05123` (C1)
+- Commits: C1=d5c05123, C2=a9c6f4bb
