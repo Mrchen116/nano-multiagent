@@ -177,18 +177,20 @@ class TestAcceptedPhasePreCreatesPlaceholder:
 class TestObserverSkipsTurnStart:
     """kernel_event_observer must NOT send turn_start frame when placeholder already created."""
 
-    def test_observer_does_not_send_turn_start_when_message_id_already_set(self):
+    @pytest.mark.asyncio
+    async def test_observer_does_not_send_turn_start_when_message_id_already_set(self):
         """If run_context_store already has message_id (from pre-creation), turn_start is skipped."""
         from personal_assistant.main import _build_kernel_event_observer
 
-        sent_frames: list[dict] = []
-        loop = asyncio.new_event_loop()
-
-        async def mock_send(manager, message_type, payload):
-            sent_frames.append({"type": message_type, "payload": payload})
+        send_calls: list[tuple] = []
 
         manager = MagicMock()
         manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
 
         run_context_store = {
             "run-001": {
@@ -198,48 +200,34 @@ class TestObserverSkipsTurnStart:
             }
         }
 
-        with patch("personal_assistant.main._build_kernel_event_observer.__code__", wraps=None):
-            pass  # Just to import cleanly
-
         observer = _build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
 
         # Simulate run_status=running event (previously triggered turn_start)
-        try:
-            loop.run_until_complete(asyncio.sleep(0))
-            observer({
-                "event": "run_status",
-                "status": "running",
-                "run_id": "run-001",
-            })
-            loop.run_until_complete(asyncio.sleep(0))
-        finally:
-            loop.close()
+        observer({
+            "event": "run_status",
+            "status": "running",
+            "run_id": "run-001",
+        })
+        await asyncio.sleep(0.05)
 
         # No turn_start frame should be sent (placeholder already pre-created)
-        turn_start_frames = [f for f in sent_frames if f.get("payload", {}).get("kind") == "turn_start"]
+        turn_start_frames = [p for _, p in send_calls if p.get("kind") == "turn_start"]
         assert len(turn_start_frames) == 0, (
             f"Expected no turn_start frames when placeholder already pre-created, got: {turn_start_frames}"
         )
 
-    def test_observer_uses_agent_message_id_for_delta(self):
+    @pytest.mark.asyncio
+    async def test_observer_uses_agent_message_id_for_delta(self):
         """message_delta uses the agent message_id from run_context_store."""
         from personal_assistant.main import _build_kernel_event_observer
 
-        sent_frames: list[dict] = []
-        loop = asyncio.new_event_loop()
-
-        async def _collect_task(coro):
-            result = await coro
-            sent_frames.append(result)
+        send_calls: list[tuple] = []
 
         manager = MagicMock()
         manager.connected = True
-
-        # Track what send_json is called with
-        send_calls: list[tuple] = []
 
         async def mock_send_json(message_type, payload):
             send_calls.append((message_type, payload))
@@ -259,17 +247,13 @@ class TestObserverSkipsTurnStart:
             run_context_store=run_context_store,
         )
 
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(asyncio.sleep(0))
-            observer({
-                "event": "assistant_message",
-                "content": "The answer is 4.",
-                "run_id": "run-001",
-            })
-            loop.run_until_complete(asyncio.sleep(0.05))
-        finally:
-            loop.close()
+        observer({
+            "event": "assistant_message",
+            "content": "The answer is 4.",
+            "run_id": "run-001",
+        })
+        # Let the scheduled tasks run
+        await asyncio.sleep(0.05)
 
         # Find message_delta calls
         delta_calls = [p for _, p in send_calls if p.get("kind") == "message_delta"]
