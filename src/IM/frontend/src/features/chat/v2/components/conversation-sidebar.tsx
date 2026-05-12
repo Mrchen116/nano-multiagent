@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "../../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
 import { Avatar } from "./avatar";
-import { KindBadge } from "./kind-badge";
 
 type FilterKey = "all" | ConversationKind;
 
@@ -77,7 +76,6 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
           <li className="chat-sidebar-empty">{t("chat.list.empty")}</li>
         ) : (
           filtered.map((c) => {
-            const kind = classifyConversationKind(c);
             const active = c.id === activeConversationId;
             return (
               <li key={c.id}>
@@ -87,7 +85,9 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
                   onClick={() => onSelect(c.id)}
                   aria-current={active ? "true" : undefined}
                 >
-                  <Avatar initials={c.title.slice(0, 2)} />
+                  <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
+                    <Avatar initials={c.title.slice(0, 2)} />
+                  </span>
                   <span className="chat-sidebar-row-body">
                     <span className="chat-sidebar-row-title">{c.title}</span>
                     {c.last_message_preview && (
@@ -95,7 +95,6 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
                     )}
                   </span>
                   <span className="chat-sidebar-row-meta">
-                    <KindBadge kind={kind} />
                     {c.unread_count > 0 && (
                       <span className="chat-sidebar-row-unread" aria-label={`${c.unread_count} unread`}>
                         {c.unread_count}

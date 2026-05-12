@@ -221,22 +221,74 @@ export function MessagePane({
 
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.sender.type === "user";
+  const initials = (message.sender.display_name ?? message.sender.id).slice(0, 1).toUpperCase();
+  const ts = formatHM(message.created_at);
+  const avatarBg = isUser ? "oklch(0.52_0.14_180)" : "oklch(0.52_0.14_270)";
+  const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
+  const statusAlign = isUser ? "justify-end" : "justify-start";
   return (
-    <div className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"}`}>
-      <div className="chat-bubble-meta">
-        <span className="chat-bubble-sender">{message.sender.display_name ?? message.sender.id}</span>
-      </div>
-      {message.content && <div className="chat-bubble-content">{message.content}</div>}
-      {message.attachments && message.attachments.length > 0 && (
-        <div className="chat-bubble-attachments">
-          {message.attachments.map((att) => (
-            <AttachmentChip key={att.url} attachment={att} />
-          ))}
+    <div className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}>
+      <span
+        data-testid={`message-avatar-${message.id}`}
+        className={`inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold bg-[${avatarBg}]`}
+        aria-hidden
+      >
+        {initials}
+      </span>
+      <div className="flex flex-col min-w-0">
+        <div data-testid={`message-bubble-${message.id}`} className="chat-bubble-body">
+          <div className="chat-bubble-meta">
+            <span className="chat-bubble-sender">{message.sender.display_name ?? message.sender.id}</span>
+          </div>
+          {message.content && <div className="chat-bubble-content">{message.content}</div>}
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="chat-bubble-attachments">
+              {message.attachments.map((att) => (
+                <AttachmentChip key={att.url} attachment={att} />
+              ))}
+            </div>
+          )}
+          {message.tool_calls && message.tool_calls.length > 0 && (
+            <ToolCallsPanel toolCalls={message.tool_calls} />
+          )}
         </div>
-      )}
-      {message.tool_calls && message.tool_calls.length > 0 && (
-        <ToolCallsPanel toolCalls={message.tool_calls} />
-      )}
+        <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55_0.01_240)] ${statusAlign}`}>
+          <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
+          {message.token_usage && (
+            <PerBubbleTokenChip messageId={message.id} usage={message.token_usage} />
+          )}
+        </div>
+      </div>
     </div>
+  );
+}
+
+function formatHM(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+function PerBubbleTokenChip({ messageId, usage }: { messageId: string; usage: NonNullable<Message["token_usage"]> }) {
+  const pct = Math.round((usage.context_used / usage.context_window) * 100);
+  const critical = pct >= 90;
+  const warn = pct >= 70;
+  const colorClass = critical
+    ? "text-[oklch(0.55_0.15_25)] border-[oklch(0.55_0.15_25)]"
+    : warn
+      ? "text-[oklch(0.55_0.16_60)] border-[oklch(0.55_0.16_60)]"
+      : "text-[oklch(0.55_0.01_240)] border-[oklch(0.76_0.012_240)]";
+  const fmtK = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+  return (
+    <span
+      data-testid={`message-token-chip-${messageId}`}
+      className={`inline-flex items-center gap-1 px-[6px] py-[1px] rounded-full border text-[10px] ${colorClass}`}
+    >
+      <span>{fmtK(usage.output)} tok</span>
+      <span className="opacity-40">·</span>
+      <span>ctx {pct}%</span>
+    </span>
   );
 }

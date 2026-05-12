@@ -1,3 +1,9 @@
+// @deprecated v1 chat surface. Production router (src/app/router.tsx:5) mounts
+// `features/chat/v2/components/message-pane.tsx`; this file remains only to
+// keep its dedicated vitest suites (≥ 20 tests) compiling. M19/R6 visual
+// rewrite landed here by mistake — superseded by R8.5 on the v2 path.
+// TODO(feat-340-v2-cleanup): drop this file + v1 test suites after the v2
+// surface fully replaces it (R12+ scope).
 import { ChangeEvent, Dispatch, FormEvent, KeyboardEvent, SetStateAction, SyntheticEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
