@@ -1954,3 +1954,101 @@ R12 reviewer 报告 fail / fix-implementation / 0 精 / 7 偏 / 2 近,与 M19 wo
 
 **Worker 流程改进备注(M19 worker self-claim "9/9 精" 漏的 step)**:worker DONE 流程应增加:`git worktree remove` **之前**强制执行 (a) 主仓 `git pull --ff-only origin unit/<unit_id>` 拉到 merge 后的 HEAD,(b) 主仓 `cd src/IM/frontend && npm run build`,(c) 重启 IM service 让其绑定到主仓 dist,(d) curl 8011 验 bundle 串号 + grep testid 命中,(e) 再删 worktree。该改进作为 change-impl-worker skill out-of-unit issue(M19-D),不在本 unit 范围。
 
+
+---
+
+## Round 12-bis — Orchestrator Deploy Fix 后重判(reviewer `acc660ab167f1732c`,日期 2026-05-12)
+
+> 复测前提:R12 verdict fail 根因被 orchestrator triage 定位为部署链路 bug(IM service 兜底到旧 main dist),非源码失实。orchestrator 在本 turn `npm run build` 主仓 + 重启 IM service 后,reviewer 复测 9 viewport 是否反映 unit 分支真实视觉。
+
+### Deploy fix 验证(截图前置门禁)
+
+| 检查项 | 命令 | 输出 | 结论 |
+|---|---|---|---|
+| Bundle 串号 | `curl -s http://127.0.0.1:8011/ \| grep -oE 'index-[A-Za-z0-9_]+\.(js\|css)'` | `index-t6eNiEYj.js` + `index-bGuzEamo.css` | 与 m19-worker R10 polish 后串号一致 ✓ |
+| Dist testid | `grep -l -E "account-page-back\|account-save-footer\|account-owned-node-\|agent-row-chevron-\|nodes-page-back" /Users/czj/Repos/nano-multiagent/src/IM/frontend/dist/assets/*.js` | `index-t6eNiEYj.js` 命中 | R11 关键 testid 全在 ✓ |
+| Dist 关键串 | `grep -oE "Profile\|Gateway\|Total nodes\|Online\|Offline\|pill-selector\|MobileThread\|internal" .../assets/*.js \| sort -u` | Gateway / Offline / Online / Profile / Total nodes / internal / pill-selector(MobileThread minify 后 token 化) | 7/8 串可见,符合预期 ✓ |
+
+deploy fix 三道门禁均通过,可进入视觉评级。
+
+### Viewport 评级表(9 张,actual-redo vs proto)
+
+| Viewport | actual-redo 路径 | proto 路径 | 评级 | 关键差异 / 进步点 |
+|---|---|---|---|---|
+| Chat 1440 | `acceptance-r12-evidence/actual-redo/chat-1440.png` | `M19-fix-visual-alignment/evidence/proto/chat-1440.png` | 近 | 顶 bar / 左 sidebar / 4 tab / + Group / 消息布局 / 输入框 / 发送箭头按钮均结构匹配;但 token chip / tool-call 折叠 / unread badge / working indicator 等内容元素未渲染(可能是测试数据所限,非源码缺失) |
+| Chat 375 | `acceptance-r12-evidence/actual-redo/chat-375.png` | `M19-fix-visual-alignment/evidence/proto/chat-375.png` | 近 | 返回按钮 / 头像 / 标题 / 状态 hint / 齿轮 / 消息气泡 / 输入框 / Send 箭头 / 底 tab bar(Chat/Agents/Me)结构完整;头像形状(方角 vs 圆)+ Chat tab unread badge 缺失为细节差 |
+| Agents detail 1440 | `acceptance-r12-evidence/actual-redo/agents-detail-1440.png` | `M19-fix-visual-alignment/evidence/proto/agents-detail-1440-full.png` | 偏 | Identity / Behavior / Access & Model 三卡片结构对;**左侧深色 agent 列表 rail 缺失**(proto 是 240px 暗色侧栏列 3 个 agent + "+ New"),actual 整页全宽;"Open chat ↗" 在,"No changes" save state 按钮缺失;Display Name 多 "e.g. My Agent" 提示文本 |
+| Agents 375 | `acceptance-r12-evidence/actual-redo/agents-375.png` | `M19-fix-visual-alignment/evidence/proto/agents-375.png` | 近 | "Agents" + "+ New" 顶 bar / row(头像 + 名 + descriptor + 状态点 + chevron) / 底 tab bar 全在;标题左对齐 vs proto 居中 + 头像方角 vs 圆为视觉细节差 |
+| Nodes 1440 | `acceptance-r12-evidence/actual-redo/nodes-1440.png` | `M19-fix-visual-alignment/evidence/proto/nodes-1440.png` | 偏 | 4 KPI 卡 / Nodes 标题 / 每张 node 卡的两列布局(Alias 左 + Live Snapshot 右)对;但 **Save 按钮从右下角变全宽左侧实色 teal、 "+ New agent on node" 按钮缺失、"All saved" footer 文本缺失、Version 列空("v" + 空)、Live Snapshot 错误 banner(relay timeout / heartbeat missed)未对齐 proto 粉色样式** |
+| Nodes 375 | `acceptance-r12-evidence/actual-redo/nodes-375.png` | `M19-fix-visual-alignment/evidence/proto/nodes-375.png` | 偏 | 2x2 KPI 网格对;node 卡 header 信息块换行 vs proto 一行多列 + "Save xxx" 全宽实色 vs proto 双按钮右下 + "+ New agent on node" 缺失 + "Agents on this node" 标签 + agent 名列表(proto 只看 count) |
+| Account 1440 | `acceptance-r12-evidence/actual-redo/account-1440.png` | `M19-fix-visual-alignment/evidence/proto/account-1440.png` | 近 | Profile / Gateway / Save 三卡片结构对(R12 时是单卡片大列,本轮已拆分);Owned nodes 行有 online pill + agents 数 + Default 徽章;Save 卡片独立位居底部;Discard + Save account 双按钮(proto 仅 Save);**Owner UUID 仍未替换为 display_name**(R12-3 未真改),Display Name 下 helper "Shown in conversations and group chats" 缺失 |
+| Account 375 | `acceptance-r12-evidence/actual-redo/account-375.png` | `M19-fix-visual-alignment/evidence/proto/account-375.png` | 偏 | 三卡片结构对;但 **页面水平溢出**:Default 徽章 truncate 为 "Def"、Owned nodes 值 "feat340-r12review-..." 被截断;User ID 字段显示 UUID 而非友好 id;helper 文本缺失 |
+| Mobile Me 375 | `acceptance-r12-evidence/actual-redo/me-375.png` | `M19-fix-visual-alignment/evidence/proto/me-375.png` | 近 | **R12 verdict 视觉 0 在本轮巨幅修复**:profile 卡(头像 + 名 + id + chevron) / Nodes row / Account row / Language row + EN/中 toggle / Sign out red row + 上箭头图标 / 底 tab bar 全部就位;差异:Nodes/Account 行 subtitle 文案缺失("3 owned · 2 online · 1 offline" / "Profile and gateway")+ 多 "Enable desktop notifications" 行 + profile 显示 UUID 不显示 user_1 |
+
+### 综合判定
+
+**0 精 / 5 近 / 4 偏 / 0 零** —— 不满足 spec §22 "9/9 精" 像素级硬门槛。
+
+**与 R12 verdict 对比的真实进度**:
+- R12: 0 精 / 2 近 / 7 偏 (含 Mobile Me 接近 0)
+- R12-bis: 0 精 / **5 近** / 4 偏 / 0 零 (Mobile Me 从 0 升至 近)
+
+deploy fix 后 reviewer 看到的 unit 分支真实状态 = **3 张从 偏 → 近(Mobile Me / Account 1440 / Agents 375)、Chat 375 从 近 → 近(保持)、其余 5 张维持原级**。说明 m19-worker R10 polish 在源码层确有 polish,但仍未触及 9/9 精所需的若干结构改造。
+
+### Verdict
+
+**fail** — 4 张仍为 偏(Agents detail 1440 缺左侧 rail、Nodes 1440/375 footer button 错位 + 缺 "+ New agent on node"、Account 375 水平溢出 + UUID 显 user id)。距 9/9 精仍有结构性 gap。
+
+### Issues(R12-bis 沿用 R12 issue 编号体系,只列本轮仍 fail 的)
+
+- **Blocking** = 无(R12 阻塞性 Mobile Me 0 已升至 近;Settings 二级 sidebar 不再适用于本架构,actual-redo 改为单页卡片堆叠也合理)
+- **Major**:
+  - **R12-bis-1** Agents detail 1440 缺左侧 agent 列表 rail(proto 240px 暗色侧栏,actual 全宽)—— 单 agent 选中时无法同屏切换其他 agent
+  - **R12-bis-2** Nodes 1440/375 Save 按钮 layout(全宽 teal vs proto 右下角小 pill)+ 缺 "+ New agent on node" 按钮 + 缺 "All saved" footer 状态文本
+  - **R12-bis-3** Account 375 水平溢出(Default 徽章 + 节点 id 被截)
+  - **R12-bis-4** Account 1440/375 User ID 显示完整 UUID 而非 display_name(R12-3 同源,未真改)
+- **Minor**:
+  - **R12-bis-5** Display Name helper "Shown in conversations and group chats" 缺失(1440 + 375)
+  - **R12-bis-6** Mobile Me Nodes/Account 行 subtitle 文案缺失 + 多 "Enable desktop notifications" 行(proto 无)
+  - **R12-bis-7** Agents 375 标题左对齐(proto 居中)
+  - **R12-bis-8** 头像形状(actual 方角 vs proto 圆)在多个 viewport 出现
+
+### Side Findings(out-of-scope)
+
+- **R12-bis-A**:R12 verdict 部署链路问题真实存在,deploy fix 后视觉确有进步(2 张升级、Mobile Me 大跨度修复)。worker self-claim "9/9 精" 仍失实(本轮 0 精),但失实程度从 R12 想象的 "8/9 全失" 修正为 "4/9 偏",worker 工作量被 deploy bug 严重低估。
+- **R12-bis-B**:dispatch §0 "R12 deploy-fix 不算独立 round,fingerprint 重置到 5" 的处置合理;若本轮 fail 则真正进入 round 7,触发 escalate 评估。
+
+### Recommended Action
+
+**fix-implementation**(派 M20-fix-visual-alignment-2,本轮真正触发 round 7 escalate 评估)。M20 进度文档(progress.md)mandatory section:
+1. 4 个 major issue 的 before/after 截图对照(R12-bis-1~4)
+2. 8 张 viewport 截图(本轮 4 个 偏 必须升至 精;5 个 近 必须升至 精;Mobile Me 已 近 可保持)
+3. dist build + IM service 重启 + 8011 串号校验 全套流程(防止 deploy 漂移)
+4. reviewer 在 fingerprint = 6 时下一轮(R13)若仍非 9/9 精,orchestrator 必须触发 `change-design-author` escalate 评估 design.md 是否有歧义/缺漏。
+
+### Action Ledger
+
+| 时间 | 操作 | 结果 |
+|---|---|---|
+| 13:58 | login r12review | access_token OK |
+| 13:58 | 校验 bundle 串号 `index-t6eNiEYj.js` | pass |
+| 13:58 | 校验 dist testid grep | pass |
+| 13:58 | 校验 dist 关键串 grep | pass |
+| 13:59 | playwright open + resize 1440x900 + login | OK |
+| 14:02 | chat-1440.png | 54KB |
+| 14:03 | agents-detail-1440.png(503 错误,需 PA Gateway) | 重拍 |
+| 14:04 | start PA Gateway pid 84144 | 节点 online |
+| 14:06 | agents-detail-1440.png(重拍) | 94KB |
+| 14:03~04 | nodes-1440 / account-1440 / chat-375 / agents-375 / nodes-375 / account-375 / me-375 | 7 张 OK |
+| - | 视觉评级 9/9 | 0 精 / 5 近 / 4 偏 / 0 零 |
+| - | commit + push | (see below) |
+
+### Environment
+
+- IM service: pid 72320 (unchanged from orchestrator deploy fix), `IM_FRONTEND_DIST_DIR=/Users/czj/Repos/nano-multiagent/src/IM/frontend/dist`
+- PA Gateway: pid 84144 (reviewer started this turn for agent detail data load)
+- bundle: `index-t6eNiEYj.js` / `index-bGuzEamo.css`
+- reviewer user: `r12review` / id `18020107fa254ce0bca529c5fc5e1c09`
+- conv: `266e5785f14745fd9fc453a3aca72788` (R12 Reviewer × R12ReviewGamma direct)
+- proto reference: `docs/changes/feat-340-agent-native-im/M19-fix-visual-alignment/evidence/proto/`(R11 reviewer 拍的 9 张 prototype 渲染)
+- reviewer skill version: change-reviewer R12-bis
