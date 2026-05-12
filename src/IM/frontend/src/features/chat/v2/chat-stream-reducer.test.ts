@@ -97,4 +97,42 @@ describe("chat-stream-reducer", () => {
     const next = applyWsEvent(state, { type: "message.delta", conversation_id: "c1", message_id: "missing", delta_text: "x" });
     expect(next).toBe(state);
   });
+
+  it("R8-2: populates sender.display_name on message.created via senders lookup", () => {
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [] };
+    const ev: WsEvent = {
+      type: "message.created",
+      conversation_id: "c1",
+      message_id: "m-agent-1",
+      sender_user_id: "11112222-3333-4444-5555-666677778888",
+      sender_type: "agent",
+      content: "",
+      tool_calls: [],
+      token_usage: null,
+      delivery_status: "running",
+      created_at: "2026-01-01T00:00:01Z"
+    };
+    const next = applyWsEvent(state, ev, {
+      sendersById: { "11112222-3333-4444-5555-666677778888": "Alpha" }
+    });
+    expect(next.messages[0]!.sender.display_name).toBe("Alpha");
+  });
+
+  it("R8-1: ignores message.created whose id contains :relay: (defensive against synthetic mirror)", () => {
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [] };
+    const ev: WsEvent = {
+      type: "message.created",
+      conversation_id: "c1",
+      message_id: "user-msg-1:relay:task-9",
+      sender_user_id: "agent:alpha",
+      sender_type: "agent",
+      content: "Hi",
+      tool_calls: [],
+      token_usage: null,
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:01Z"
+    };
+    const next = applyWsEvent(state, ev);
+    expect(next.messages).toHaveLength(0);
+  });
 });
