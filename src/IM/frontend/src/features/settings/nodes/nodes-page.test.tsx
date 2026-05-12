@@ -91,4 +91,84 @@ describe("nodes page", () => {
       JSON.stringify({ alias: "node-app-01-prod", relay_enabled: true, reporting_enabled: true })
     );
   });
+
+  // M19/R11-5: prototype `im-extra-pages.jsx::NodesPage` 顶部 4 KPI 卡 (Total nodes /
+  // Online / Offline / Total agents),每个 NodeCard 头部 🖥/💤 38×38 圆角 icon +
+  // alias + status badge + 右上 agent_count / vXXX 双 stat 组。relay_enabled /
+  // reporting_enabled checkboxes 不在 prototype,需移除。
+  it("R11-5: renders 4 KPI stat cards (total / online / offline / total agents)", async () => {
+    const nodes = [
+      { node_id: "n1", owner_id: "o", node_name: "n1", status: "online", last_heartbeat_at: "2026-03-13T10:00:00Z", agent_count: 3, version: "1.8.2", relay_enabled: true, reporting_enabled: true, alias: null, last_error: null },
+      { node_id: "n2", owner_id: "o", node_name: "n2", status: "offline", last_heartbeat_at: null, agent_count: 1, version: "1.8.2", relay_enabled: true, reporting_enabled: true, alias: null, last_error: null }
+    ];
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/nodes") {
+        return Promise.resolve(new Response(JSON.stringify(nodes), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      if (url === "/im/v1/agents") {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      return Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes"] });
+
+    const grid = await screen.findByTestId("nodes-kpi-grid");
+    expect(grid).not.toBeNull();
+    expect(screen.getByTestId("nodes-kpi-total").textContent).toMatch(/2/);
+    expect(screen.getByTestId("nodes-kpi-online").textContent).toMatch(/1/);
+    expect(screen.getByTestId("nodes-kpi-offline").textContent).toMatch(/1/);
+    expect(screen.getByTestId("nodes-kpi-agents").textContent).toMatch(/4/);
+  });
+
+  it("R11-5: each NodeCard header carries a 🖥 / 💤 status icon and a version badge", async () => {
+    const nodes = [
+      { node_id: "n1", owner_id: "o", node_name: "n1", status: "online", last_heartbeat_at: "2026-03-13T10:00:00Z", agent_count: 3, version: "1.8.2", relay_enabled: true, reporting_enabled: true, alias: null, last_error: null },
+      { node_id: "n2", owner_id: "o", node_name: "n2", status: "offline", last_heartbeat_at: null, agent_count: 1, version: "1.7.0", relay_enabled: true, reporting_enabled: true, alias: null, last_error: null }
+    ];
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/nodes") {
+        return Promise.resolve(new Response(JSON.stringify(nodes), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      if (url === "/im/v1/agents") {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      return Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes"] });
+
+    const n1Icon = await screen.findByTestId("node-icon-n1");
+    expect(n1Icon.textContent).toMatch(/🖥/);
+    const n2Icon = screen.getByTestId("node-icon-n2");
+    expect(n2Icon.textContent).toMatch(/💤/);
+
+    // version badge / agent_count 在卡头右侧
+    expect(screen.getByTestId("node-version-n1").textContent).toMatch(/v1\.8\.2/);
+    expect(screen.getByTestId("node-agent-count-n1").textContent).toMatch(/3/);
+  });
+
+  it("R11-5: relay_enabled / reporting_enabled checkboxes are hidden (prototype omits these)", async () => {
+    const nodes = [
+      { node_id: "n1", owner_id: "o", node_name: "n1", status: "online", last_heartbeat_at: "2026-03-13T10:00:00Z", agent_count: 1, version: "1.8.2", relay_enabled: true, reporting_enabled: true, alias: null, last_error: null }
+    ];
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/nodes") {
+        return Promise.resolve(new Response(JSON.stringify(nodes), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      if (url === "/im/v1/agents") {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
+      return Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes"] });
+
+    await screen.findByRole("link", { name: /Create agent on n1/i });
+    expect(screen.queryByLabelText(/Relay/i)).toBeNull();
+    expect(screen.queryByLabelText(/Reporting/i)).toBeNull();
+  });
 });
