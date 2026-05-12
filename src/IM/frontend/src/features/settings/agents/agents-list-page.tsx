@@ -63,6 +63,8 @@ export function AgentsListPage() {
 
   const agents = agentsQuery.data ?? [];
   const nodes = nodesQuery.data ?? [];
+  const firstNodeId = nodes[0]?.node_id;
+  const newAgentPath = firstNodeId ? `/settings/nodes/${firstNodeId}/agents/new` : "/settings/nodes";
   const errorDetail =
     agentsQuery.error instanceof Error
       ? agentsQuery.error.message.split(" failed: ").at(-1) ?? agentsQuery.error.message
@@ -81,7 +83,7 @@ export function AgentsListPage() {
           </h2>
           <Link
             className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center rounded-lg bg-[oklch(0.52_0.14_180)] px-3 py-1.5 text-[13px] font-semibold text-white"
-            to="/settings/nodes"
+            to={newAgentPath}
           >
             {t("agents.newButton")}
           </Link>
@@ -89,7 +91,7 @@ export function AgentsListPage() {
       ) : (
         <header className="im-agents-list-header">
           <h2 className="im-agents-list-title">{t("agents.title")}</h2>
-          <Link className="im-btn im-btn-primary im-agents-new-btn" to="/settings/nodes">
+          <Link className="im-btn im-btn-primary im-agents-new-btn" to={newAgentPath}>
             {t("agents.newButton")}
           </Link>
         </header>

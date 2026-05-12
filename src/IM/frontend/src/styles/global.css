@@ -925,7 +925,7 @@ body {
 /* Chat workspace root: sidebar (262px) + pane */
 .chat-workspace {
   display: flex;
-  height: 100%;
+  flex: 1;
   min-height: 0;
   overflow: hidden;
   background: var(--im-bg);
