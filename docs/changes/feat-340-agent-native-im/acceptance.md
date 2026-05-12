@@ -856,6 +856,190 @@ IM DB 新增（此轮）：用户 alexr7（id=9d6ec9d2...），用户 gw-r7（id
 
 ---
 
+# Round 8 — 2026-05-12 (cap-override)
+
+## Verdict
+
+**fail**
+
+## Highest Required Action
+
+**fix-implementation**
+
+## Issues Count
+
+- blocking: 1
+- major: 2
+- minor: 2
+
+## Top Concern
+
+R7-1（前端 WS `?user_id=` 403）已由 M16 正确修复并经本轮 dist rebuild 验证：新 bundle 中仅有 `?token=`，console 零 WS 403，streaming 链路 `message.created → message.delta → message.completed` 事件链完整。但仍存在两个阻止 pass 的问题：(1) 每条 agent 回复生成两个 Alpha 气泡（relay message `id=<user_msg_id>:relay:…` 被前端当普通消息渲染）；(2) Mobile Me 页结构与原型严重偏差（无大用户卡片、Language 是 radio 不是 inline toggle）。
+
+## R7 Issues 验证状态
+
+| R7 # | 原描述 | 本轮修复状态 | R8 验证结果 |
+|---|---|---|---|
+| R7-1 | 前端 WS 用 `?user_id=` 被 403 | dist rebuild + 新 bundle | ✅ 通过 — console 清除后重载，零 WS 403；仅 `/im/v1/users` 404（pre-existing）。bundle grep 确认 `?token=` 1 次 / `user_id=` 0 次 |
+| R7-2 | `message.completed` 将 agent content 写入用户 msg id | M16 fix | ⚠️ 部分通过 — 用户消息内容未被 agent delta 覆写（DB 查询确认：用户消息 `c96977c0` content="What is 2+2?" 保持原文）；但 relay message `c96977c0:relay:e8a64e7b…` 被前端渲染为独立 Alpha 气泡，刷新后出现两个"4"气泡 ❌ |
+| R7-3 | 后端 message.created 已发但前端看不到（WS 403 阻断） | M16 fix + dist rebuild | ✅ 通过 — WS 捕获脚本确认 message.created event_id=1722；发消息后 ~2s agent 占位 bubble 在 UI 中出现；但标签显示 UUID 而非"Alpha"（新 bug，R8-2） |
+| R7-4 | "Open chat ↗" 404 | M16 未声明修复 | ❌ 仍存在 — Alpha 详情页显示"503 (target_node_id is not connected)"（token 过期导致，不同于 404，但功能仍不可用） |
+| R7-5 | Chat workspace 缺 Node chip / Config 按钮 / tool call panel | M16 未声明修复 | ❌ 仍存在 — 1440px Chat 截图确认：会话头部无 Node chip、无 ⚙ 按钮、无 tool call 展开区；Token Chip 在 streaming 完成后出现但显示"1 tok"（数字不正确） |
+
+## §用户旅程体验
+
+平台：Chrome headless (gstack-browse 1440x900/375x812) + 真实 IM 服务 port 8011（PID=715，commit a9315b58）+ PA Gateway（PID=3048，feat340-r8-node，alexr8 用户）+ 真实 LLM（kernel:8000 → moonshot）+ WS 帧捕获脚本 `/tmp/feat340-r8-ws-capture.py`（`?token=` 正确连接）。
+
+### R7-1 验证 — WS 403 消除
+
+前置：`npm run build` 重新构建，`grep "?token=" dist/assets/index-B-0NTF14.js` = 1，`grep "user_id=" dist/assets/index-B-0NTF14.js` = 0。
+
+登录 alexr8 后，`$B console --clear; $B reload; sleep 8; $B console --errors` 结果：
+
+```
+[2026-05-12T06:52:01.700Z] [error] Failed to load resource: the server responded with a status of 404 (Not Found)
+```
+
+**零 WS 403 错误**。截图 `/tmp/feat340-r8-02-chat-home.png`：侧栏正常渲染。R7-1 ✅ 通过。
+
+### R7-3 验证 — message.created 触发占位 bubble
+
+WS 捕获脚本（`?token=` 连接）完整序列：
+
+```
+[WS] message.sent       event_id=1719 ✅
+[WS] relay.accepted     event_id=1720 ✅
+[WS] message.sent       event_id=1721 ✅（重播）
+[WS] message.created    event_id=1722 ✅（R7-3 已修复）
+[WS] message.delta      event_id=1723 ✅
+[WS] message.completed  event_id=1724 ✅
+[WS] relay.processing   event_id=1725 ✅
+[WS] relay.report       event_id=1726 ✅
+[WS] relay.completed    event_id=1727 ✅
+[WS] message.delivered  event_id=1728 ✅
+```
+
+发消息后 t+2.5s 截图 `/tmp/feat340-r8-10-t2.5s-msg2.png`：agent 气泡出现（标签为 UUID `2e4593e9...`，参见 R8-2）。R7-3 后端链路 ✅ 通过；前端标签渲染存在新问题。
+
+### R7-2 验证 — message_id 污染
+
+DB REST 查询（`/im/v1/conversations/dc2daa0a.../messages`）：
+
+```
+id=c96977c0  sender=Alex R8  content='What is 2+2? Please answer briefly.'   ← 用户消息未被追加 ✅
+id=c63807a3  sender=Alpha    content='4'                                       ← 正确 agent 消息 ✅
+id=c96977c0:relay:e8a64e7b…  sender=Alpha  content='4'                        ← relay message ❌ 被前端渲染为第二气泡
+```
+
+刷新后截图 `/tmp/feat340-r8-08-after-reload.png`：用户气泡内容正确（"What is 2+2?"，未被污染），但出现两个 Alpha "4" 气泡。R7-2 用户消息内容污染问题 ✅ 已修；relay 重复渲染问题 ❌ 新的 blocking（R8-1）。
+
+### 关键截图路径
+
+- `/tmp/feat340-r8-01-bind-confirm.png` — 节点绑定后跳转 /chat
+- `/tmp/feat340-r8-02-chat-home.png` — Chat 首页（无 WS 403）
+- `/tmp/feat340-r8-03-chat-with-conv.png` — 侧栏显示 "Direct with Alpha R8"
+- `/tmp/feat340-r8-04-conv-open.png` — 对话界面空态
+- `/tmp/feat340-r8-06-t1s-after-send.png` — t+1s：消息框已清空，主区"No messages yet"
+- `/tmp/feat340-r8-07-t4s-after-send.png` — t+4s：agent "4" 气泡 + Token Chip "1 tok" 出现
+- `/tmp/feat340-r8-08-after-reload.png` — 刷新后：用户气泡正确，双 Alpha "4" 气泡（relay bug）
+- `/tmp/feat340-r8-10-t2.5s-msg2.png` — 第二条消息 t+2.5s：agent 气泡出现（UUID 标签）
+- `/tmp/feat340-r8-12-reload-after-msg2.png` — 第二轮完整历史：2 轮各 2 个 Alpha 气泡
+- `/tmp/feat340-r8-13-chat-1440.png` — 1440px Chat workspace（重新登录后）
+- `/tmp/feat340-r8-14-agents.png` — Agents 列表（Alpha + fuck 可见）
+- `/tmp/feat340-r8-15b-alpha-detail.png` — Alpha 详情页（完整加载）
+- `/tmp/feat340-r8-16-nodes.png` — Nodes 页（feat340-r8-node online）
+- `/tmp/feat340-r8-17-account.png` — Account 页（三组卡片完整）
+- `/tmp/feat340-r8-18-me-mobile.png` — /me 页面 375x812（结构偏差）
+- `/tmp/feat340-r8-19b-chat-thread.png` — 1440px 对话线程（双气泡可见）
+
+## §原型对照
+
+原型文件：`docs/changes/feat-340-agent-native-im/attachments/prototype/project/IM Prototype.html`（file:// 无法在 headless browse 打开，以 JSX 源码 `im-chat-page.jsx` / `im-settings-page.jsx` / `im-mypage.jsx` 为对照基准）。
+
+| 页面 | 实际 URL | 分级 | 主要差异 |
+|---|---|---|---|
+| Chat workspace（direct-agent） | `/chat/dc2daa0a...` | **近** | 主结构（侧栏+消息区+输入框）正确 ✅；消息气泡渲染存在：(1) relay message 造成双 Alpha 气泡（R8-1）；(2) agent 气泡标签显示 UUID 不是名字（R8-2）；(3) Token Chip 显示"1 tok"数字不正确（R8-3 minor）；会话头部缺 Node chip + ⚙ 按钮（R7-5，延续上轮 major）|
+| Agents（列表+详情+新建） | `/settings/agents` | **近** | 列表卡片结构 ✅；"+ New" 按钮 ✅；Alpha 详情页有 503（gateway token 过期造成，刷新后可用） ✅；侧栏无 Policies ✅；"Open chat ↗" 仍不可用（R7-4 延续）|
+| Nodes | `/settings/nodes` | **近** | online/offline pill ✅；Relay/Reporting toggle checkbox ✅；Live Snapshot 时间戳 ✅；缺原型顶部 4 格统计汇总（Total/Online/Offline/Agents）；缺"+ New agent on node"直接创建入口 |
+| Account | `/settings/account` | **精** | Identity/Defaults/Preferences 三段 ✅；Display name / Username / User ID 字段 ✅；Default entry node dropdown（feat340-r8-node online）✅；Language EN/中 radio ✅；Enable desktop notifications checkbox ✅；Discard/Save dirty state 按钮 ✅ |
+| Mobile Me（/me，375x812） | `/me` | **偏** | 底部 Chat/Agents/Me 三标签栏 ✅；Account/Nodes 菜单行 ✅；Sign out 按钮 ✅；但：缺原型顶部大用户卡片（大头像 62px + 名字 20px bold + user_id monospace），Language 是 radio buttons 而非原型 inline pill toggle，无图标（原型每行有 icon），整体视觉层级与原型差距明显 |
+
+**综合判定**：Me 页 = **偏** → highest_required_action = fix-implementation，新增 R8-4。其余 4 页 = 近/精，主路径可用。
+
+## 问题清单
+
+| # | 严重度 | 现象 | Recommended Action | Action Rationale |
+|---|---|---|---|---|
+| R8-1 | blocking | 每条 agent 回复后出现两个 Alpha 气泡（relay message `id=<user_msg_id>:relay:<UUID>` 被前端当普通消息渲染）。DB 中 relay message sender=Alpha content="4"，前端加载历史时把它渲染为独立气泡，用户视角看到双份 agent 内容。截图 `/tmp/feat340-r8-08-after-reload.png` / `feat340-r8-12-reload-after-msg2.png` 可见。 | fix-implementation | relay message 是 reporting 附属记录，不应该在消息列表中渲染给用户。前端加载历史消息时需要过滤掉 id 含 `:relay:` 的记录，或者后端 `GET /messages` 端点排除 relay 记录。 |
+| R8-2 | major | agent 气泡标签显示 sender_user_id UUID（`2e4593e9e95b49f689e7d9a2a62d061b`）而不是 agent display_name（"Alpha"）。发消息后 t+2.5s 和 t+7s 截图均可见 UUID 作为气泡上方标签。刷新后 load from DB 的气泡正确显示"Alpha"——说明是 WS 推送时前端用了 sender_user_id 而不是 sender.display_name。截图 `/tmp/feat340-r8-10-t2.5s-msg2.png`。 | fix-implementation | WS 推送的 message.created / message.delta 事件中 sender 字段应包含 display_name；前端渲染 agent bubble label 应优先用 sender.display_name，而不是 sender_user_id。 |
+| R8-3 | minor | Token Chip 在 streaming 完成后显示"1 tok"而非实际 token 数（relay.report 事件中 total=2429）。截图 `/tmp/feat340-r8-07-t4s-after-send.png` 可见"1 tok"。 | fix-implementation | Token Chip 从 relay.report 事件中读取 total token 数的逻辑可能读了错误字段或只取了 output tokens。 |
+| R8-4 | major | Mobile `/me` 页面结构与原型严重偏差（偏）：缺顶部大用户卡片（大头像 + display_name + user_id）；Language 用 radio buttons 而非原型 inline pill toggle（EN/中）；各菜单行无图标（原型每行有对应图标）。截图 `/tmp/feat340-r8-18-me-mobile.png` vs 原型 `im-mypage.jsx:80-136` 的设计。 | fix-implementation | Mobile Me 聚合页视觉实现未对齐原型，用户识别感和产品调性差距明显。需补充：顶部用户卡片（头像+名字+id）、图标行、Language inline toggle。 |
+
+**延续上轮 open issues（未修复）**：
+
+| # | 严重度 | 现象 | 状态 |
+|---|---|---|---|
+| R7-4 | minor | "Open chat ↗" 按钮不可用 | ❌ 未修 — Alpha 详情页在本轮因 gateway token 过期显示 503，功能本身 R7 判定仍 404 |
+| R7-5 | major | Chat workspace 头部缺 Node chip / ⚙ Config 按钮 / tool call panel | ❌ 未修 — 1440px 截图确认：会话头部只有 title + participants + "Agent" badge，无 Node chip |
+
+## 验收标准覆盖
+
+| 用户故事 | 要求 | R8 结果 |
+|---|---|---|
+| 用户打开 IM Web 并登录 | 看到登录页，登录后进 Chat | ✅ pass |
+| Chat workspace 正常渲染（1440px） | 侧栏 262px + 消息区 + 标签 | ✅ pass |
+| **浏览器 console 无 WS 403** | `?token=` 连接，无 403 | ✅ pass（R7-1 修复确认） |
+| **向 agent 发消息 → agent 占位 bubble 立即出现** | message.created 触发前端渲染 | ✅ pass（后端事件 + 前端气泡） |
+| **Streaming bubble 逐字渐显** | message.delta 到达前端 | ✅ pass（WS 链路通，delta 到达） |
+| **刷新后用户/agent 消息各自独立** | 无内容污染 | ⚠️ partial — 内容不污染，但 relay 重复气泡（R8-1 blocking） |
+| **Token Chip 数字正确** | relay.report total token 数 | ❌ fail — 显示"1 tok"而非实际 2429（R8-3） |
+| agent 气泡标签显示 display_name | 非 UUID | ❌ fail — 实时 WS 推送时标签为 UUID（R8-2 major） |
+| Mobile Me 聚合页原型对齐 | 大用户卡片 + 图标行 + inline 语言 toggle | ❌ fail — 偏级差异（R8-4 major） |
+| 群聊 @ 提及 picker | @ 弹出选择框 | inconclusive（沿用 R6/R7，未重测） |
+| Settings 侧栏无 Policies | 仅 Agents/Nodes/Account | ✅ pass（已确认） |
+| Chat workspace 头部 Node chip + ⚙ 按钮 | 会话头部静态 DOM | ❌ fail — 仍缺失（R7-5 延续） |
+
+## 上层文档同步
+
+（延续 R1–R7 结论，无新变化）
+
+- [x] `SPEC.md`：无需更新
+- [x] `docs/内核设计SPEC.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：需更新（R1 已标记，待 PR 阶段处理）
+- [x] `docs/IM-SPEC.md`：需更新（R1 已标记，待 PR 阶段处理）
+
+## Side Findings
+
+- Side-F9 (in-unit, minor)：`/me` 页在 session token 过期后会显示"Bind this Gateway - Missing bind token"页面，而不是跳转到 `/login`。用户视角：刷新页面后看到令人困惑的"Bind"界面，不知道是 token 过期。建议 session 过期时统一跳 `/login`。
+- Side-F10 (in-unit, minor)：Alpha 详情页（`/settings/agents/Alpha`）在 gateway offline 时显示"503 (target_node_id is not connected)"错误，没有友好说明（"该 agent 的节点当前离线，请检查 Gateway 状态"）。
+- Side-F1 沿用：8 个 IM integration tests pre-existing failure（baseline）。
+
+## §行动账本
+
+| 桶 | 内容 |
+|---|---|
+| READ | SKILL.md, design.md §Runbook for Reviewer（含前端重建段）, acceptance.md R1-R7, spec.md（验收标准对照）, im-mypage.jsx（原型对照）, im-settings-page.jsx（原型对照）, im-chat-page.jsx（原型对照，部分） |
+| START_SERVICE | Agent Kernel PID=626 :8000（commit a9315b58）；IM Service PID=715 :8011（commit a9315b58）；PA Gateway PID=3048（feat340-r8-node，alexr8 token，07:00+ 启动） |
+| BROWSE | goto /bind/confirm → login alexr8 → bind click → goto /chat（侧栏无对话）→ goto /chat/dc2daa0a（对话界面）→ fill+Enter（第一条消息）→ reload（刷新验证）→ fill+Enter（第二条消息）→ reload → 登录 → goto /settings/agents → goto /settings/agents/Alpha → goto /settings/nodes → goto /settings/account → viewport 375x812 goto /me → viewport 1440x900 goto /chat → login → goto /chat/dc2daa0a（共约 30 次浏览器操作） |
+| CAPTURE | 截图 19 张（/tmp/feat340-r8-*.png）；WS 捕获脚本 `/tmp/feat340-r8-ws-capture.py` PID=1872（捕获 10 个 WS 事件：message.sent×2, relay.accepted, message.created×1, message.delta, message.completed, relay.processing/report/completed, message.delivered）；DB REST 消息查询 |
+| SHELL_MUTATION | pkill uvicorn/personal_assistant.main（3 次）；curl 注册 alexr8 / gw-r8 / gw-r8b；写 /tmp/feat340-gw-r8-config.yaml / r8b / r8c；mkdir /tmp/feat340-r8-workspace/Alpha；curl 创建对话 dc2daa0a...；curl 查询消息/nodes；npm run build 重建 frontend dist；写 /tmp/feat340-r8-ws-capture.py |
+| SENDMESSAGE | 本轮 1 次（本报告写完后向 team-lead 回报） |
+
+## §环境声明
+
+| 服务 | PID | 端口 | 启动时 commit | 启动时间（本地）|
+|---|---|---|---|---|
+| Agent Kernel | 626 | :8000 | a9315b58 | 2026-05-12 14:49 |
+| IM Service | 715 | :8011 | a9315b58 | 2026-05-12 14:49 |
+| PA Gateway | 3048 | — | a9315b58 | 2026-05-12 15:01（使用 alexr8 token） |
+| LLM_PROXY | 外部，未动 | :4000 | — | — |
+
+临时文件（遗留 /tmp/）：`feat340-gw-r8-config.yaml`, `feat340-gw-r8b-config.yaml`, `feat340-gw-r8c-config.yaml`, `feat340-r8-ws-capture.py`, `feat340-r8-ws-events.log`, `feat340-r8-*.png`（19 张），`feat340-r8-workspace/`。
+
+IM DB 新增（本轮）：用户 alexr8（id=c70c6aa5...），用户 gw-r8（id=9d7fb90a...），用户 gw-r8b（id=08182daf...），节点 feat340-r8-node（owner=c70c6aa5=alexr8），对话 dc2daa0a...（Direct with Alpha R8，alexr8+Alpha 均为 participant），消息 c96977c0（用户第一条）、c63807a3（Alpha 第一条）及 relay 记录，用户第二条及对应 Alpha 回复。
+
+---
+
 ## 原型对照（spec.md 像素级对齐验收）
 
 > 原型位置：`docs/changes/feat-340-agent-native-im/attachments/prototype/project/IM Prototype.html`，通过本地 HTTP :9090 服务访问。截图均已存入 `/tmp/feat340-r7-evidence/`。
