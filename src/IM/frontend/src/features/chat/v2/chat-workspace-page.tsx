@@ -273,6 +273,7 @@ export function ChatWorkspacePageV2() {
         ) : (
           !isMobile && (
             <div className="chat-empty-pane">
+              <div className="chat-empty-pane-icon" aria-hidden="true">💬</div>
               <p className="chat-empty-pane-title">{t("chat.messagePane.selectConversationTitle")}</p>
               <p className="chat-empty-pane-sub">{t("chat.messagePane.selectConversationSubtitle")}</p>
             </div>
@@ -281,11 +282,15 @@ export function ChatWorkspacePageV2() {
       )}
       {showNewGroup && (
         <NewGroupModal
-          agents={(agentsQuery.data ?? []).map((a) => ({
-            agent_id: a.agent_id,
-            display_name: a.display_name,
-            description: a.description
-          }))}
+          agents={(agentsQuery.data ?? []).map((a) => {
+            const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === a.node_id);
+            return {
+              agent_id: a.agent_id,
+              display_name: a.display_name,
+              description: a.description,
+              status: nodeRow?.status === "online" ? "online" : "offline"
+            };
+          })}
           onClose={() => setShowNewGroup(false)}
           onCreate={(payload) => createGroupMutation.mutate(payload)}
         />

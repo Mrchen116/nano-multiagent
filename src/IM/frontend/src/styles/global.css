@@ -1544,7 +1544,7 @@ body {
   position: absolute;
   bottom: calc(100% + 4px);
   left: 0;
-  right: 0;
+  right: 48px;
   background: var(--im-surface);
   border: 1px solid var(--im-border);
   border-radius: 0.75rem;
@@ -2253,6 +2253,12 @@ body {
 .chat-empty-pane-sub {
   margin: 0;
   font-size: 0.875rem;
+}
+
+.chat-empty-pane-icon {
+  font-size: 32px;
+  opacity: 0.4;
+  margin-bottom: 4px;
 }
 
 /* chat-workspace-page wrapper (outer shell) */

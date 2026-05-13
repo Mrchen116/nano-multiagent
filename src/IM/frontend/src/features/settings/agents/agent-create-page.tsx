@@ -212,6 +212,10 @@ export function AgentCreatePage() {
               ‹
             </button>
           )}
+          <Avatar
+            initials={draft.display_name?.trim()?.slice(0, 2) || "??"}
+            size={isMobile ? 38 : 42}
+          />
           <div style={{ flex: 1 }}>
             <h2
               className="im-agent-panel-title"

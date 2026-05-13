@@ -100,6 +100,11 @@ export function MessagePane({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionQuery !== null && e.key === "Escape") {
+      e.preventDefault();
+      setDraft((d) => d.replace(MENTION_RE, ""));
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       commit(draft);
