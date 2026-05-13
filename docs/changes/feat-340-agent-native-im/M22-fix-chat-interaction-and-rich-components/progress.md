@@ -62,13 +62,22 @@
 
 ## Evidence
 
-### Screenshots
-- `evidence/m22-desktop-login.png` — Desktop 1440x900 login page
-- `evidence/m22-mobile-login.png` — Mobile 375x812 login page
-- `evidence/m22-desktop-register.png` — Desktop 1440x900 register page
-- `evidence/m22-mobile-register.png` — Mobile 375x812 register page
+### Screenshots (Real Chat Verification)
 
-> Note: Chat page requires authentication. The login/register pages demonstrate the UI renders correctly with the updated styles. Full chat interaction verification requires Playwright automation against a running backend (see exit criteria below).
+**Auto-scroll (a)**
+- `evidence/m22-chat-many-messages.png` — 10 messages sent, message area scrolled to bottom (not whole page)
+- `evidence/m22-chat-mobile.png` — Mobile 375x812 viewport, messages render correctly
+
+**Error Toast (b)**
+- `evidence/m22-error-toast.png` — Red "Send failed" toast with 503 error detail and dismiss button
+
+**Token Chip (c)**
+- `evidence/m22-chat-injected.png` — Token chip collapsed state: "2.4k tok · ctx 12%"
+- `evidence/m22-token-chip-expanded.png` — Token chip expanded: output tokens, total tokens, context used, progress bar
+
+**Tool Calls (d)**
+- `evidence/m22-chat-injected.png` — Tool calls toggle collapsed: "2 tool calls · 1.5s"
+- `evidence/m22-tool-calls-expanded.png` — Tool calls panel expanded with dark theme: list_files (48ms), read_file (120ms), status icons
 
 ### Build Verification
 ```bash
@@ -93,10 +102,10 @@ Test Files  51 passed | 1 failed (52)
 
 | Criterion | Status | Notes |
 |-----------|--------|-------|
-| (a) 消息区内部自动滚动到底部 | ✅ Implemented | `messagesContainerRef` + `useEffect` with `scrollTop = scrollHeight` |
-| (b) 模拟发送失败显示错误提示 | ✅ Implemented | In-app toast with `sendError` state, red border, dismissible |
-| (c) Token chip 点击展开详细面板 | ✅ Implemented | Shows output/total/context_used/context_window + progress bar |
-| (d) Tool call 面板展开/收起动画 | ✅ Implemented | Fade-in animation, dark theme, readable duration format |
+| (a) 消息区内部自动滚动到底部 | ✅ Verified | 10 messages sent, message area scrolled to bottom, whole page did not scroll |
+| (b) 模拟发送失败显示错误提示 | ✅ Verified | Red "Send failed" toast visible with 503 error detail and dismiss button |
+| (c) Token chip 点击展开详细面板 | ✅ Verified | Expanded panel shows output tokens, total tokens, context used, progress bar |
+| (d) Tool call 面板展开/收起动画 | ✅ Verified | Dark theme panel with fade-in animation, status icons, readable duration |
 
 ---
 

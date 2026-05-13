@@ -466,8 +466,8 @@ cd <repo>/src/IM/frontend && npm run build
 | 服务 | 停止命令 | 启动命令 | 健康检查 |
 |---|---|---|---|
 | Agent Kernel (`:8000`) | `lsof -ti:8000 \| xargs -r kill -9` | `cd <repo> && PYTHONPATH=src python -m uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000 >/tmp/feat340-kernel.log 2>&1 &` | `curl -fsS http://127.0.0.1:8000/healthz \|\| curl -fsS http://127.0.0.1:8000/v1/sessions` 返回 200/JSON |
-| IM Service (`:8011`) | `lsof -ti:8011 \| xargs -r kill -9` | `cd <repo> && PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011 >/tmp/feat340-im.log 2>&1 &` | `curl -fsS http://127.0.0.1:8011/im/v1/conversations -H "Authorization: Bearer <token>"` 返回 200/401(未 auth 也算 daemon ok) |
-| PA Gateway (常驻进程) | `PYTHONPATH=src python -m personal_assistant.main stop` | `cd <repo> && PYTHONPATH=src python -m personal_assistant.main --im-service-url http://127.0.0.1:8011 >/tmp/feat340-gateway.log 2>&1 &` | `tail /tmp/feat340-gateway.log` 看到 `registered with IM` + `lsof` 看到 gateway 进程持有 WS 连到 :8011 |
+| IM Service (`:8011`) | `lsof -ti:8011 \| xargs -r kill -9` | `cd <repo> && export IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing" && PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011 >/tmp/feat340-im.log 2>&1 &` | `curl -fsS http://127.0.0.1:8011/im/v1/conversations -H "Authorization: Bearer <token>"` 返回 200/401(未 auth 也算 daemon ok) |
+| PA Gateway (常驻进程) | `PYTHONPATH=src python -m personal_assistant.main stop` | `cd <repo> && PYTHONPATH=src python -m personal_assistant.main --config /tmp/demo-gateway-config.yaml --im-service-url http://127.0.0.1:8011 >/tmp/feat340-gateway.log 2>&1 &` | `tail /tmp/feat340-gateway.log` 看到 `registered with IM` + `lsof` 看到 gateway 进程持有 WS 连到 :8011 |
 
 **前置检查**:
 
@@ -475,11 +475,20 @@ cd <repo>/src/IM/frontend && npm run build
 2. `git rev-parse HEAD` 等于 unit 集成分支当前 HEAD,且 worktree 干净。
 3. 重启前 `pkill -f uvicorn; pkill -f personal_assistant.main` 一次性清旧进程,再按上表逐个起。
 4. **前端 dist 是当前 HEAD 构建**:`stat -f "%Sm" src/IM/frontend/dist/index.html`(mac) 或 `stat -c "%y" ...`(linux) 应晚于最近一次 unit 分支 `git pull`;若早于,跑"前端重建"段命令再继续。
+5. **IM JWT Secret 已设置**:IM 启动命令必须包含 `export IM_JWT_SECRET=...`,否则每次重启 IM 都会生成随机 secret,导致所有现有 token 失效,Gateway 无法注册节点。如果更换了 secret 或 IM 数据库重置,需要重新注册用户并更新 `/tmp/demo-gateway-config.yaml` 中的 `im_service.token`。
 
 **启停顺序**(强依赖):
 
 1. 先 kernel (8000) → 等 healthz 通
 2. 再 IM (8011) → 等 conversations 端点回 200/401
 3. 最后 PA Gateway → 等 log 看到 "registered with IM"
+
+**节点注册验证**(Gateway 启动后必做):
+
+1. `curl -H "Authorization: Bearer <token>" http://127.0.0.1:8011/im/v1/nodes` 返回列表中包含 demo-node
+2. demo-node 的 `status` 为 `online`
+3. demo-node 的 `agent_count >= 1`
+
+若任一步失败：检查 IM 日志是否有 token 过期/认证错误；检查 Gateway 日志是否有注册失败；确认 `IM_JWT_SECRET` 与 Gateway config 中的 token 匹配。
 
 **记录到 acceptance.md §环境声明**:每个服务新启动后,记 PID、端口、`git rev-parse HEAD`、启动时间。
