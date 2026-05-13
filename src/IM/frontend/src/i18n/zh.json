@@ -146,6 +146,7 @@
         "saving": "保存中…",
         "discard": "放弃",
         "savedJustNow": "已保存。",
+        "unsavedChanges": "有未保存改动",
         "saveFailed": "保存失败:{{detail}}"
       }
     }

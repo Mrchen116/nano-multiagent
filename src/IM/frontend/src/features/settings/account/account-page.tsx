@@ -293,7 +293,7 @@ export function AccountPage() {
       >
         <span className="text-[12.5px] text-[oklch(0.60_0.01_240)]">
           {dirty ? (
-            <span className="font-bold text-[oklch(0.50_0.15_60)]">● {t("settings.account.actions.savedJustNow") === "Saved." ? "Unsaved changes" : "有未保存改动"}</span>
+            <span className="font-bold text-[oklch(0.50_0.15_60)]">● {t("settings.account.actions.unsavedChanges")}</span>
           ) : null}
         </span>
         <div className="flex gap-2">

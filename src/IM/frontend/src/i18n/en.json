@@ -48,8 +48,7 @@
       "account": "Account",
       "accountSubtitle": "Profile and gateway",
       "nodes": "Nodes",
-      "accountSubtitle": "Profile and gateway",
-      "nodesSubtitle": "Profile and gateway",
+      "nodesSubtitle": "Nodes and gateway",
       "language": "Language",
       "notifications": "Notifications",
       "signOut": "Sign out"
@@ -149,6 +148,7 @@
         "saving": "Saving…",
         "discard": "Discard",
         "savedJustNow": "Saved.",
+        "unsavedChanges": "Unsaved changes",
         "saveFailed": "Save failed: {{detail}}"
       }
     }

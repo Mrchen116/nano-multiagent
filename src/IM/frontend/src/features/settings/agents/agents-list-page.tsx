@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
@@ -111,6 +111,7 @@ export function AgentsListPage() {
   const agentsQuery = useQuery({ queryKey: ["settings", "agents"], queryFn: listAgentSummaries });
   const nodesQuery = useQuery({ queryKey: ["settings", "agents", "nodes-status"], queryFn: listNodes });
 
+  const { agentId: activeAgentId } = useParams<{ agentId?: string }>();
   const agents = agentsQuery.data ?? [];
   const nodes = nodesQuery.data ?? [];
   const firstNodeId = nodes[0]?.node_id;
@@ -216,7 +217,7 @@ export function AgentsListPage() {
                 agent={agent}
                 status={statusOf(agent, nodes)}
                 isMobile={isMobile}
-                isActive={false}
+                isActive={agent.agent_id === activeAgentId}
               />
             ))}
           </nav>
