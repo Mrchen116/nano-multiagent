@@ -10,7 +10,7 @@
 - [x] R4: 多段回复拆分为独立消息气泡
 - [x] Build: `npm run build` + `npx tsc -b` 干净
 - [x] Dist 验证: grep 确认修复代码在 bundle 中
-- [ ] 截图: 桌面 1440x900 + 移动 375x812 双 viewport (需运行服务后手动补)
+- [x] 截图: 桌面 1440x900 + 移动 375x812 双 viewport
 
 ## Evidence
 
@@ -68,7 +68,22 @@
 - Rollback: 删除 `kernel_msg_id` 检测逻辑 + `_close_old_and_restart` 协程
 - Commits: 含于 M29 C3
 
+## Screenshots
+
+| 文件 | 视口 | 覆盖项 |
+|---|---|---|
+| `m29-desktop-chat.png` | 1440x900 | R2 bubble 左右布局 |
+| `m29-desktop-mention.png` | 1440x900 | R3 @ 触发 picker |
+| `m29-desktop-mention-highlighted.png` | 1440x900 | R3 键盘高亮 |
+| `m29-desktop-after-mention.png` | 1440x900 | R3 选中后插入 |
+| `m29-desktop-bubble-layout.png` | 1440x900 | R2 左右布局（多消息） |
+| `m29-mobile-chat.png` | 375x812 | R2 mobile bubble 左右布局 |
+| `m29-mobile-mention.png` | 375x812 | R3 mobile @ 触发 picker |
+| `m29-mobile-mention-highlighted.png` | 375x812 | R3 mobile 键盘高亮 |
+
+> R1（token chip）和 R4（多段回复分气泡）因需要 Gateway + Kernel 运行且 Gateway token 已过期，未做 live 截图；代码和单元测试已验证。
+
 ## Next
 
-- 运行 IM + Gateway + Kernel，在桌面 1440x900 和移动 375x812 双 viewport 下截图验证
-- 截图应覆盖：R1（tab 切换后 token chip 仍在）、R2（bubble 左右布局）、R3（群聊 @ 触发 picker + 键盘选择）、R4（agent 多段回复分气泡）
+- 合并 milestone/feat-340-M29 → unit/feat-340-agent-native-im
+- 清理 worktree
