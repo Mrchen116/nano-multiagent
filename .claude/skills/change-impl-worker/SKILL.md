@@ -21,6 +21,7 @@ description: 用于作为 subagent 在独立 worktree 内执行单个 milestone 
 8. **out-of-unit 发现立 issue 不顺手修**。发现根因不在本 unit 的 bug → `gh issue create`,继续做本职工作,不要顺手修(顺手修会让本 unit 范围爆炸,也会让 reviewer 验收逻辑错乱)。
 9. **worktree 路径锚定主仓**。`$(git rev-parse --show-toplevel)/.worktrees/<milestone_id>`,绝对路径,禁止嵌套 worktree。
 10. **前端 UI 变更必须真实浏览器验收**。任何影响用户界面的改动,不能只依赖 jsdom、组件测试、类型检查或截图脑补。必须用真实浏览器打开相关页面/状态,完成关键交互,检查 console error / network failure,并在 progress.md 记录证据。核心业务路径和历史 bug 必须留下可重复的 regression 保护;若项目已有浏览器 E2E 体系,核心路径优先沉淀为 E2E 用例;没有则补适合现有测试体系的交互/回归测试,不为单个 milestone 强行引入新基础设施。视觉/样式细节以截图证据和状态覆盖为主,不强行用 E2E 测样式。
+11. **假设主机被并发使用,自取并回收运行时资源**。worker 必须假设运行所在主机上有并发的其他 worker / 进程。任何要占用端口、绑定本地 socket、写入 worktree 之外共享路径、启动长驻服务的动作,**之前**要探活并改用可用资源,**之后**要在退出/HANDOFF 时清理自己起的副作用并登记。若发现资源被占且无法切换到可用值,这是阻塞,按 §8.2 走 HANDOFF 回报 orchestrator,不准在 progress.md 里改写 evidence 标准来回避。
 
 ---
 
