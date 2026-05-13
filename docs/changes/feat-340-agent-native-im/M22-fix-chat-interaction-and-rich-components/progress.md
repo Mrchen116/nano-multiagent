@@ -62,22 +62,25 @@
 
 ## Evidence
 
-### Screenshots (Real Chat Verification)
+### Screenshots (Real Chat Verification with Live Agent)
+
+All screenshots taken with real IM service (:8011) + Gateway + DemoAgent running. User: qatest-user-01.
 
 **Auto-scroll (a)**
-- `evidence/m22-chat-many-messages.png` — 10 messages sent, message area scrolled to bottom (not whole page)
-- `evidence/m22-chat-mobile.png` — Mobile 375x812 viewport, messages render correctly
+- `evidence/m22-chat-with-replies.png` — Chat with DemoAgent showing multiple messages and replies
+- `evidence/m22-many-messages-scroll.png` — 8+ messages sent, message area scrolled to bottom (not whole page), agent replied with long text
+- `evidence/m22-chat-mobile-real.png` — Mobile 375x812 viewport, messages render correctly
 
 **Error Toast (b)**
-- `evidence/m22-error-toast.png` — Red "Send failed" toast with 503 error detail and dismiss button
+- `evidence/m22-error-toast-final.png` — Red "Send failed" toast with 503 error detail and dismiss button (triggered by killing Gateway)
 
 **Token Chip (c)**
-- `evidence/m22-chat-injected.png` — Token chip collapsed state: "2.4k tok · ctx 12%"
-- `evidence/m22-token-chip-expanded.png` — Token chip expanded: output tokens, total tokens, context used, progress bar
+- `evidence/m22-token-chip-expanded-final.png` — Token chip expanded showing: output tokens (248), total tokens (13,659), context used (13,411 / 14k), 98% progress bar with "⚠ Context nearly full" warning
+- `evidence/m22-chat-with-replies.png` — Token chip collapsed: "47 tok · ctx 98%"
 
 **Tool Calls (d)**
-- `evidence/m22-chat-injected.png` — Tool calls toggle collapsed: "2 tool calls · 1.5s"
-- `evidence/m22-tool-calls-expanded.png` — Tool calls panel expanded with dark theme: list_files (48ms), read_file (120ms), status icons
+- `evidence/m22-tool-calls-visible.png` — Tool calls toggle collapsed: "▸ 2 tool calls · 70ms"
+- `evidence/m22-tool-calls-expanded-real.png` — Tool calls panel expanded with dark theme, showing 2 bash calls (36ms, 34ms) with status icons
 
 ### Build Verification
 ```bash
@@ -102,10 +105,10 @@ Test Files  51 passed | 1 failed (52)
 
 | Criterion | Status | Notes |
 |-----------|--------|-------|
-| (a) 消息区内部自动滚动到底部 | ✅ Verified | 10 messages sent, message area scrolled to bottom, whole page did not scroll |
-| (b) 模拟发送失败显示错误提示 | ✅ Verified | Red "Send failed" toast visible with 503 error detail and dismiss button |
-| (c) Token chip 点击展开详细面板 | ✅ Verified | Expanded panel shows output tokens, total tokens, context used, progress bar |
-| (d) Tool call 面板展开/收起动画 | ✅ Verified | Dark theme panel with fade-in animation, status icons, readable duration |
+| (a) 消息区内部自动滚动到底部 | ✅ Verified | 8+ messages sent with long text, message area scrolled to bottom, whole page did not scroll. Agent replied with long responses. Screenshot: m22-many-messages-scroll.png |
+| (b) 模拟发送失败显示错误提示 | ✅ Verified | Red "Send failed" toast visible with 503 `target_node_id is not connected` detail and dismiss (×) button. Triggered by killing Gateway process. Screenshot: m22-error-toast-final.png |
+| (c) Token chip 点击展开详细面板 | ✅ Verified | Expanded panel shows: output tokens (248), total tokens (13,659), context used (13,411 / 14k), 98% progress bar with "⚠ Context nearly full — consider /compact" warning. Screenshot: m22-token-chip-expanded-final.png |
+| (d) Tool call 面板展开/收起动画 | ✅ Verified | Dark theme panel with fade-in animation, status icons (●), readable duration (36ms, 34ms). First row auto-expanded. Screenshot: m22-tool-calls-expanded-real.png |
 
 ---
 
