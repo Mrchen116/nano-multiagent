@@ -36,7 +36,9 @@ describe("TokenChip", () => {
       />
     );
     const chip = screen.getByRole("button");
-    expect(chip.textContent).toMatch(/2429/);
-    expect(chip.textContent).not.toMatch(/^1 /);
+    // The chip shows the total (2429) formatted as "2.4k" via fmtK; textContent includes arrow + "tok" + dot + ctx%
+    expect(chip.textContent).toMatch(/2\.4k/);
+    // Ensure the formatted total appears before "tok"
+    expect(chip.textContent).toMatch(/2\.4k\s+tok/);
   });
 });

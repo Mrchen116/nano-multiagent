@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import { AttachmentChip } from "../../attachments/attachment-chip";
@@ -29,6 +29,10 @@ export interface MessagePaneProps {
   onSend(text: string, attachments: Attachment[]): void;
   onBack?(): void;
   onOpenConfig?(): void;
+  /** Send mutation error message, shown as an in-app toast. */
+  sendError?: string | null;
+  /** Whether a message is currently being sent. */
+  isSending?: boolean;
   /** Test seam: overrides the real upload helper so vitest can stub uploads. */
   uploadAttachment?(file: File): Promise<Attachment>;
 }
@@ -57,12 +61,15 @@ export function MessagePane({
   onSend,
   onBack,
   onOpenConfig,
+  sendError,
+  isSending,
   uploadAttachment = uploadOneAttachment
 }: MessagePaneProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<Attachment[]>([]);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
   const kind = classifyConversationKind(conversation);
   const isGroup = kind === "group" || kind === "agent-network";
@@ -121,6 +128,15 @@ export function MessagePane({
     return null;
   }, [messages]);
 
+  // Auto-scroll: when messages change, scroll the internal message container to
+  // the bottom (not the whole page).  Uses scrollTop instead of scrollIntoView so
+  // only the pane scrolls.
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages.length]);
+
   return (
     <section className="chat-pane" aria-label={conversation.title}>
       <header className="chat-pane-header">
@@ -159,7 +175,7 @@ export function MessagePane({
         )}
       </header>
 
-      <div className="chat-pane-messages">
+      <div ref={messagesContainerRef} className="chat-pane-messages">
         {messages.length === 0 ? (
           <div className="chat-pane-empty">
             <p className="chat-pane-empty-title">{t("chat.messagePane.emptyTitle")}</p>

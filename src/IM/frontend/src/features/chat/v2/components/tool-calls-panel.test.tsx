@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -35,8 +35,14 @@ describe("ToolCallsPanel", () => {
     const user = userEvent.setup();
     render(<ToolCallsPanel toolCalls={SAMPLE} />);
     await user.click(screen.getByRole("button", { name: /tool call/i }));
-    await user.click(screen.getByRole("button", { name: /list_files/ }));
+    // First tool call (list_files, i=0) defaults to open per prototype; verify its input/output are visible
     expect(screen.getByText(/INPUT/i)).toBeInTheDocument();
     expect(screen.getByText(/OUTPUT/i)).toBeInTheDocument();
+    // Second tool call (str_replace_edit, i=1) starts collapsed; click to expand
+    const strReplaceBtn = screen.getByText("str_replace_edit").closest("button");
+    expect(strReplaceBtn).toBeTruthy();
+    fireEvent.click(strReplaceBtn!);
+    // After expanding the second row, there should be two INPUT labels (one per row)
+    expect(screen.getAllByText(/INPUT/i)).toHaveLength(2);
   });
 });

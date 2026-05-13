@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
+import { InAppToast } from "../../chat/components/in-app-toast";
+
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import {
@@ -86,6 +88,7 @@ export function ChatWorkspacePageV2() {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const [showNewGroup, setShowNewGroup] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const conversationsQuery = useQuery({
     queryKey: ["chat-v2", "conversations"],
@@ -170,6 +173,7 @@ export function ChatWorkspacePageV2() {
         attachments: payload.attachments
       }),
     onSuccess: (created) => {
+      setSendError(null);
       // feat-340-M18 R9-3: optimistically render the user's own message immediately
       // after the POST resolves. The WS message.created echo path is reliable for
       // agent replies but not always for self-authored bubbles, so previously the
@@ -178,8 +182,13 @@ export function ChatWorkspacePageV2() {
       dispatch({ type: "append_optimistic", message: created });
       // Bump conversation list ordering on next refetch.
       void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+    },
+    onError: (err) => {
+      setSendError(err instanceof Error ? err.message : t("chat.messagePane.sendError"));
     }
   });
+
+  // Auto-scroll is handled inside MessagePane via a ref on the messages container.
 
   const createGroupMutation = useMutation({
     mutationFn: (payload: { agentIds: string[]; name: string }) =>
@@ -196,6 +205,22 @@ export function ChatWorkspacePageV2() {
 
   return (
     <div className="chat-workspace">
+      {sendError && (
+        <div className="fixed left-4 top-4 z-50 flex max-w-xs items-start gap-3 rounded-2xl border border-[var(--im-danger)] bg-[oklch(0.98_0.02_25)] px-4 py-3 shadow-lg">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold text-[var(--im-danger)]">{t("chat.messagePane.sendErrorTitle")}</p>
+            <p className="mt-0.5 line-clamp-2 text-xs text-slate-700">{sendError}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            className="shrink-0 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            onClick={() => setSendError(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
       {showList && (
         <ConversationSidebar
           conversations={conversationsQuery.data ?? []}
@@ -213,6 +238,8 @@ export function ChatWorkspacePageV2() {
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
             onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
+            sendError={sendError}
+            isSending={sendMutation.isPending}
             onBack={isMobile ? () => navigate("/chat") : undefined}
             isMobile={isMobile}
             onOpenConfig={
