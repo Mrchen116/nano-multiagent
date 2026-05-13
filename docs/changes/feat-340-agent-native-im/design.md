@@ -358,6 +358,7 @@ PA gateway 上行帧 → IM 状态广播(M10 落地,见决策 11):
 | feat-340-M23 | fix-agents-list-prototype (post-acceptance fix, round 13 — Agents List 按原型重写) | M22 | T | `src/IM/frontend/src/features/settings/agents/agents-list-page.tsx`（按原型 `im-settings-page.jsx` AgentListView 完整重写:240px dark sidebar 背景 oklch(0.24 0.012 240) + 圆角卡片行 borderRadius:12 + hover 变色背景 + active 行 outline 高亮 + 右侧 status dot online 绿色/offline 灰色 + 正确字体大小/字重/间距 + New 按钮样式）、`src/IM/frontend/src/styles/global.css`（agents list 相关样式规则，与 M22 的 global.css 改动不重叠——M22 只改 chat 样式，M23 只改 agents 样式;若需重叠则 worker 在 progress.md 记录合并策略） | Playwright 自动化验证:登录 → /settings/agents → 桌面 1440x900 + 移动 375x812 双 viewport 截图与原型 `im-settings-page.jsx` AgentListView 并排对比:(a) sidebar 宽 240px 背景 dark oklch(0.24...);(b) 每行圆角 12px 卡片式，hover 变色、active 有 outline 高亮;(c) 右侧 status dot（online 绿色/offline 灰色）;(d) 字体/间距/按钮风格/配色与原型一致。Worker 完成必须:① 修改前阅读原型 `docs/changes/feat-340-agent-native-im/attachments/prototype/project/im-settings-page.jsx` AgentListView 完整代码(第 12-75 行);② `progress.md` Evidence 段附"原型对照检查表"逐项列出布局/配色/组件/交互是否与原型一致;③ `npm run build` 后 `grep` 验证 dist bundle 含新代码;④ 双 viewport 截图自查 |
 | feat-340-M26 | fix-prototype-alignment (post-acceptance fix, round 15 — 源码级全量原型对齐) | M25 | V | 4 个 subagent 并行源码对比 + 用户亲自验收发现约 30 处视觉/布局/交互差距，打包统一修复。范围覆盖:① Chat 页面(`global.css` chat 段落深色 sidebar、NodeChip pill、TokenChip 位置、bubble shadow、composer 尺寸、modal 样式、mobile bottom sheet、`avatar.tsx`、`kind-badge.tsx`、`tool-calls-panel.tsx`);② Settings 页面(`agent-detail-page.tsx` header Avatar、`agent-create-page.tsx` 按原型 NewAgentPanel 重写、`pill-selector.tsx` 统一);③ Shell/导航(`app-shell.tsx` Logo/unread badge、`user-menu.tsx` Identity Strip/菜单结构/语言切换、`me-page.tsx` Nodes subtitle/Sign Out chevron、mobile bottom bar 深色主题/active indicator)。Worker 完成必须:① 修改前阅读对应原型代码文件;② `npm run build` + `npx tsc -b` 干净;③ 桌面 1440x900 + 移动 375x812 双 viewport 截图自查并附"原型对照检查表" | 浏览器登录 → 5 页全量 prototype-vs-actual 桌面 + 移动并排截图对照:Chat sidebar 深色、NodeChip pill、TokenChip 在 bubble 内、Avatar fontSize 0.35、Settings AgentDetail header 有 Avatar、AgentCreate 白色卡片式与原型一致、UserMenu 有 Identity Strip、mobile bottom bar 深色 + active indicator、Me Page Nodes subtitle 动态、所有细节(internal 徽标/tab unread/scrollbar/字体 800)到位 |
 | feat-340-M24 | fix-gateway-message-delivery (post-acceptance fix, round 13 — Gateway 消息投递 503 修复) | — | U | `src/personal_assistant/main.py`（启动时 IM 注册路径诊断:检查 token 获取/刷新逻辑、节点绑定 `/im/v1/nodes` 流程、错误处理）、`src/personal_assistant/gateway/inbound_pipeline.py`（消息投递 503 `target_node_id is not connected` 根因分析:检查 relay 路径中节点选择逻辑）、gateway config `/tmp/demo-gateway-config.yaml`（token 有效性验证、节点 agent 映射正确性） | 运行时验证:(a) 按 §Runbook for Reviewer 启动 IM(:8011) + Gateway → `tail /tmp/feat340-gateway.log` 10 秒内显示 `registered with IM` 且无 401/403/503;(b) `curl -H "Authorization: Bearer <token>" http://127.0.0.1:8011/im/v1/nodes` 返回 demo-node status=online;(c) Playwright:登录 → 给 DemoAgent 发消息 → 30 秒内 WS 抓帧捕获 `message.created` + `message.delta`(N≥1) + `message.completed`（agent 有回复，非 503 错误）。如根因是配置/部署问题而非代码 bug，worker 须在 `progress.md` 记录精确修复步骤并更新 §Runbook for Reviewer;如根因是代码 bug，修代码后同样更新 Runbook 使 reviewer 能复现验证 |
+| feat-340-M27 | fix-r15-residuals (post-acceptance fix, round 15-bis — R15 reviewer pass-with-issues + 源码对比复核遗留差距收口) | M26 | W | Round 15 reviewer 4 minor issues + 源码对比 agent 5 major gaps 打包修复。范围:① Chat sidebar 行补时间戳+status dot+unread badge(`conversation-sidebar.tsx`+`global.css`);② MessagePane header avatar 使用 agent 真实 color/initials(`message-pane.tsx`+`chat-workspace-page.tsx`);③ KindBadge 按 kind 分色(`kind-badge.tsx`+`global.css`);④ Agents list 空状态改为 light theme(`agents-list-page.tsx`);⑤ Agent detail header status chip 显示 node name(`agent-detail-page.tsx`);⑥ @mention picker group chat 触发修复(`mention-picker.tsx`+`message-pane.tsx`);⑦ Bubble/agent 圆角方向区分+sender 颜色(`global.css`+`message-pane.tsx`);⑧ Composer help text mobile 隐藏(`message-pane.tsx`);⑨ Agent create header 补 Avatar(`agent-create-page.tsx`);⑩ New group modal agent status badge(`new-group-modal.tsx`)。Worker 完成必须:① `npm run build` + `npx tsc -b` 干净;② 桌面 1440x900 + 移动 375x812 双 viewport 截图自查 | 5 页 viewport 全 ≥ 精 或 reviewer 复验 pass-with-issues(本 milestone 为最终收口，完成后直接提 PR) |
 
 依赖图:
 
@@ -378,6 +379,7 @@ graph LR
   M21 --> M22[M22: fix-chat-interaction]
   M22 --> M23[M23: fix-agents-list-prototype]
   M25 --> M26[M26: fix-prototype-alignment]
+  M26 --> M27[M27: fix-r15-residuals]
 ```
 
 并行编排:
@@ -388,6 +390,7 @@ graph LR
 - **并行组 T**:M22 + M23(M22 改 chat 交互与富组件、M23 改 agents list 视觉;两者都改 global.css 的不同段落——M22 只改 chat 样式规则,M23 只改 agents 样式规则;若实际冲突则串行)
 - **并行组 U**:M24(纯后端 gateway 诊断与修复,与组 T 前端改动文件零交集,可完全并行)
 - **并行组 V**:M26(前端全量原型对齐修复,改 chat/settings/shell/me 多个模块,与 M25 串行)
+- **并行组 W**:M27(R15 reviewer pass-with-issues + 源码对比复核遗留差距收口,与 M26 串行,为最终 fix milestone)
 
 ## 风险与回退
 
