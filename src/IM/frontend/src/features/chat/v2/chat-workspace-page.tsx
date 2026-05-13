@@ -34,7 +34,20 @@ function streamReducer(
     | { type: "append_optimistic"; message: Message }
 ): ConversationState {
   if (action.type === "reset") {
-    return { conversation_id: action.conversationId, messages: action.messages };
+    // Preserve token_usage from existing state if server response lacks it
+    // (token_usage is only available via WS message.completed, not in history fetch)
+    const existingById = state.conversation_id === action.conversationId
+      ? new Map(state.messages.map((m) => [m.id, m]))
+      : new Map();
+    const merged = action.messages.map((m) => {
+      if (m.token_usage) return m;
+      const existing = existingById.get(m.id);
+      if (existing?.token_usage) {
+        return { ...m, token_usage: existing.token_usage, delivery_status: existing.delivery_status };
+      }
+      return m;
+    });
+    return { conversation_id: action.conversationId, messages: merged };
   }
   if (action.type === "append_optimistic") {
     // feat-340-M18 R9-3: insert the user-authored bubble the moment the POST

@@ -63,18 +63,19 @@ body {
   font-family: var(--im-font-sans);
   color: var(--im-text);
   background: var(--im-bg);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 #root {
-  min-height: 100vh;
+  height: 100vh;
 }
 
 /* App shell */
 .im-shell {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
   background: var(--im-bg);
 }
 
@@ -1443,27 +1444,30 @@ body {
   color: var(--im-text-muted);
 }
 
-.chat-bubble-content {
+.chat-bubble-card {
   background: var(--im-surface-2);
   border: 1px solid var(--im-border);
   border-radius: 1rem;
   padding: 0.55rem 0.85rem;
   font-size: 0.875rem;
   line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
   box-shadow: 0 1px 3px oklch(0.05 0.01 240 / 0.08);
 }
 
-.chat-bubble--user .chat-bubble-content {
+.chat-bubble--user .chat-bubble-card {
   background: var(--im-accent);
   color: var(--im-accent-fg);
   border-color: var(--im-accent);
   border-radius: 1rem 1rem 0.25rem 1rem;
 }
 
-.chat-bubble--agent .chat-bubble-content {
+.chat-bubble--agent .chat-bubble-card {
   border-radius: 1rem 1rem 1rem 0.25rem;
+}
+
+.chat-bubble-content {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .chat-bubble-attachments {

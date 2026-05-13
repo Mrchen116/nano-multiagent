@@ -268,12 +268,12 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
         {initials}
       </span>
       <div className="flex flex-col min-w-0">
-        <div data-testid={`message-bubble-${message.id}`} className="chat-bubble-body">
-          <div className="chat-bubble-meta">
-            <span className="chat-bubble-sender" style={{ color: isUser ? undefined : senderColor }}>
-              {message.sender.display_name ?? message.sender.id}
-            </span>
-          </div>
+        <div className="chat-bubble-meta">
+          <span className="chat-bubble-sender" style={{ color: isUser ? undefined : senderColor }}>
+            {message.sender.display_name ?? message.sender.id}
+          </span>
+        </div>
+        <div data-testid={`message-bubble-${message.id}`} className="chat-bubble-card">
           {message.content && <div className="chat-bubble-content">{message.content}</div>}
           {message.attachments && message.attachments.length > 0 && (
             <div className="chat-bubble-attachments">
