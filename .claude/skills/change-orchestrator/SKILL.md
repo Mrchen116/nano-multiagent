@@ -20,8 +20,9 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 7. **轮次上限**。同 issue 5 轮 / 同 unit 7 轮验收没 pass → 强制全停,通知人。
 8. **revise-design 三道闸**。reviewer 给的 `revise-design` 不合规(首轮 / 没引用 design.md 段落 / fix-implementation < 2 轮)直接降级回 fix-implementation,详见 §6.3。
 9. **reviewer 越界硬处置**。reviewer 角色严禁写源码/测试/提 commit(详见 change-reviewer §0)。若 reviewer 回报 DONE 时 unit 分支多了非报告类 commit,**强制 revert** 这些 commit(`git reset` 到 reviewer 派发前的 HEAD,`push --force-with-lease`)后,把该轮 reviewer 的 verdict **作废**,issues 重新打包派 fix worker 实施(参见 §6.6)。不要"接受 reviewer 顺手修的代码"——既验又改不可信。
-10. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
-11. **PR 提完即退出**。不等 merge、不等 CI——交棒给人。
+10. **退出标准必须逐条严格核对**。worker 回报 DONE 时,orchestrator **必须**对 design.md 该 milestone 行"退出标准"列里的每一条,在 progress.md 找到对应证据并判定是否真的达标(详见 §3.3)。这一步**不许跳过、不许走过场、不许只看证据存不存在**。任一项不达标 → 不算 DONE,退回 worker 补齐。
+11. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
+12. **PR 提完即退出**。不等 merge、不等 CI——交棒给人。
 
 ---
 
@@ -238,6 +239,7 @@ cat docs/changes/<unit>/<mid>/progress.md
 worker 回报 DONE 时,逐项验:
 
 - [ ] `unit/<unit_id>` 分支已合并该 milestone(`git log unit/<unit_id> --oneline | grep <milestone_id>`)
+- [ ] **退出标准逐条核对**(§0.10):design.md 该 milestone 行"退出标准"列里的每一条,在 progress.md 都有对应证据,且证据真的让该退出标准成立(判定方法见下文)
 - [ ] `docs/changes/<unit_dir>/<milestone_dir>/tasks.md` 全部 roadpoint 标 DONE
 - [ ] `docs/changes/<unit_dir>/<milestone_dir>/progress.md` 每个 R 有结构化记录(Context/Decision/Rationale/Evidence/Rollback/Commits)
 - [ ] 若 milestone 涉及前端 UI / 视觉 / 原型 / 设计稿 / reference / 截图 / 响应式 / 布局样式要求,`progress.md` 的 Evidence 必须包含真实入口的视觉/交互自测证据(截图/录屏路径、viewport、reference 对照结论或 N/A 理由)
@@ -245,7 +247,15 @@ worker 回报 DONE 时,逐项验:
 - [ ] milestone 分支已删除(local + remote)
 - [ ] **lite 模式额外**:`docs/changes/<unit_dir>/fix.md` 的"修复"和"验证"两段已回填
 
-任一项不满足,要求 worker 补齐——**不要代写**。这是 worker 的责任边界。你只检查证据是否存在和是否对应退出标准,不判断视觉质量;视觉质量由 reviewer 独立验收。
+任一项不满足,要求 worker 补齐——**不要代写**。这是 worker 的责任边界。
+
+退出标准核对:你不是检查证据"存不存在",你**严格**判定证据是不是真的让退出标准成立。下列情况判**不达标**:
+
+- 证据只展示前置态(入口可达、setup 已就绪),不展示退出标准要求的那一步行为本身
+- progress.md 出现"超出本 milestone""留待 reviewer 验证""后续补""未来工作"等回避表达——worker 自承未达,**不接受免责说辞**
+- 证据无法对应到具体某条退出标准
+
+严格不等于挑剔。视觉质量、功能是否完美仍由 reviewer 判定。你判定的是:design 要观察什么、有没有真的去观察、有没有给出真正对得上的证据。
 
 ### §3.4 异常处理
 
