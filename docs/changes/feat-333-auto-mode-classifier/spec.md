@@ -76,6 +76,49 @@ auto 模式的权限决策对用户呈现为三类结果：
 - [ ] workspace 级配置覆盖 global 级配置；两个产品分别使用自己的配置目录，不串用。
 - [ ] 分类器不可用、上下文过长、或判断不确定时，系统不能静默放行；必须进入 `ask` 或可见拒绝路径。
 
+## YOLO Classifier 上下文构成（像素级复刻 Claude Code）
+
+分类器的上下文构成必须像素级复刻 Claude Code 的 `yoloClassifier.ts` 实现。以下所有子项均为硬性验收标准：
+
+### System Prompt 组装
+
+- [ ] 采用三层模板组装：`base_prompt`（分类指令）→ `permissions_template`（权限模板）→ 用户规则替换。
+- [ ] base_prompt 包含完整的分类流程：Understand the action → Check user intent → Evaluate risk，以及 BLOCK ALWAYS / BLOCK unless clear user intent / ALLOW 三类决策类别。
+- [ ] 用户规则通过三个标签段注入：`<user_allow_rules_to_replace>`、`<user_deny_rules_to_replace>`、`<user_environment_to_replace>`。用户配置的规则**追加**到默认规则之后（不替换默认规则）。
+- [ ] 最终 system prompt 末尾追加 XML 输出格式指令：`<block>yes/no</block><reason>...</reason>`。
+
+### Transcript 构成
+
+- [ ] 采用投影式 transcript，不是全量 dump。每个工具通过 `toAutoClassifierInput()` 决定暴露什么安全相关信息，返回空字符串的工具对分类器不可见。
+- [ ] **必须排除 assistant text blocks**：agent 自己的文本输出不喂给分类器，防止 agent 通过自说自话影响分类决策（反 prompt injection）。
+- [ ] 只包含：用户消息的 text blocks + assistant 的 tool_use blocks（投影后）。
+- [ ] transcript 包裹在 `<transcript>...</transcript>` 标签中。
+- [ ] 工具输入投影格式：`<ToolName> <projected_input>`（如 `FileEdit /path/to/file: new_content`）。
+
+### 两阶段分类
+
+- [ ] Stage 1（fast）：`max_tokens=64`，`stop_sequences=['</block>']`，追加后缀 `"\nErr on the side of blocking. <block> immediately."`。
+- [ ] Stage 2（thinking）：`max_tokens=4096`，无 stop_sequences，追加后缀要求使用 `<thinking>` 标签。
+- [ ] Stage 1 解析为 `<block>no</block>` → 直接 allow；`<block>yes</block>` → 进入 stage 2；解析失败 → deny（fail-closed）。
+- [ ] Stage 2 解析时需先 `stripThinking()` 移除 `<thinking>` 内容，再解析 `<block>` 和 `<reason>`。
+
+### Safe-tool Allowlist
+
+- [ ] 内置 safe-tool allowlist，包含所有只读/无副作用工具，这些工具直接 auto-allow，不经过分类器。
+- [ ] allowlist 至少覆盖：`read`、`web_fetch`、`web_search`、`task_list`、`task_get`、`task_create`、`task_update`、`task_stop`、`task_output`。
+- [ ] allowlist 可通过配置文件 `auto_mode.always_allow_tools` 扩展。
+
+### 工具输入投影
+
+- [ ] 每个非 safe 工具实现 `to_auto_classifier_input()` 方法，返回安全相关的投影字符串。
+- [ ] 投影只暴露安全评估所需的关键信息（如文件路径、命令内容），不暴露完整内容。
+- [ ] bash 命令的投影走现有的 `check_command_policy` 三级判定：allowed → pass，denied → deny，review → 分类器。
+
+### Fail-closed 与缓存
+
+- [ ] 分类器调用失败（超时、API 错误、上下文过长）→ 进入 `ask` 路径，不静默放行。
+- [ ] system prompt 使用 `cache_control` 优化，减少重复 token 消耗。
+
 ## 范围与非目标
 
 - 在范围：两个产品默认 auto 权限体验。
@@ -84,7 +127,8 @@ auto 模式的权限决策对用户呈现为三类结果：
 - 在范围：Claude Code 风格的 `allow` / `soft_deny` / `environment` 自然语言规则配置。
 - 在范围：按工具类型差异化的 ask 选项。
 - 在范围：Coding CLI 终端权限请求与 Personal Assistant / IM 权限请求。
+- 在范围：YOLO Classifier 上下文构成像素级复刻 Claude Code（见上节）。
 - 非目标：提供 default / plan / dontAsk / acceptEdits 等其他用户可切换权限模式。
 - 非目标：复刻 Claude Code 的账号、计划、远程 feature flag、商业 gating。
-- 非目标：保证与 Claude Code 分类器逐条行为完全一致；目标是体验和安全语义对齐。
+- 非目标：复刻 Claude Code 的 bashClassifier（ANT-ONLY 语义匹配），我们的 bash 分类沿用现有 `check_command_policy` + `bash_risk_gate`。
 - 非目标：在 spec 阶段规定具体模块、接口、存储格式或分类器模型选型。
