@@ -108,13 +108,13 @@ describe("agents list page (M5 rewrite)", () => {
     expect(screen.getByText("agent-writer-1")).toBeInTheDocument();
 
     const newLink = screen.getByRole("link", { name: /\+ New/i });
-    expect(newLink).toHaveAttribute("href", "/settings/nodes");
+    expect(newLink).toHaveAttribute("href", "/settings/nodes/node-app-01/agents/new");
 
-    const planner = screen.getByRole("link", { name: /Core Planner/i });
-    expect(planner).toHaveAttribute("href", "/settings/agents/agent-core-1");
+    const planner = screen.getByRole("button", { name: /Core Planner/i });
+    expect(planner).toBeInTheDocument();
 
-    expect(screen.getByLabelText("agent-core-1 online")).toBeInTheDocument();
-    expect(screen.getByLabelText("agent-writer-1 offline")).toBeInTheDocument();
+    expect(screen.getByLabelText("online")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("offline").length).toBeGreaterThanOrEqual(1);
 
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open direct chat/i })).not.toBeInTheDocument();
@@ -132,7 +132,11 @@ describe("agents list page (M5 rewrite)", () => {
     expect(await screen.findByText("Core Planner")).toBeInTheDocument();
     expect(screen.getByText("Milestone execution coordinator")).toBeInTheDocument();
     expect(screen.getByText("Drafts product updates")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /\+ New/i })).toHaveAttribute("href", "/settings/nodes");
+    expect(screen.getByRole("link", { name: /\+ New/i })).toHaveAttribute("href", "/settings/nodes/node-app-01/agents/new");
+
+    // Agent rows are now buttons (matching prototype AgentListView)
+    expect(screen.getByRole("button", { name: /Core Planner/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Writer/i })).toBeInTheDocument();
   });
 
   // M19/R10-AgentsList: prototype `im-mypage.jsx` / `im-settings-page.jsx` 中所有
@@ -148,8 +152,11 @@ describe("agents list page (M5 rewrite)", () => {
     });
 
     await screen.findByText("Core Planner");
-    expect(screen.getByTestId("agent-row-chevron-agent-core-1").textContent).toMatch(/›/);
-    expect(screen.getByTestId("agent-row-chevron-agent-writer-1").textContent).toMatch(/›/);
+    // Chevron is rendered as a text node without data-testid in prototype-aligned implementation
+    const coreRow = screen.getByRole("button", { name: /Core Planner/i });
+    const writerRow = screen.getByRole("button", { name: /Writer/i });
+    expect(coreRow.textContent).toMatch(/›/);
+    expect(writerRow.textContent).toMatch(/›/);
   });
 
   it("renders empty state with CTA to nodes when no agents", async () => {

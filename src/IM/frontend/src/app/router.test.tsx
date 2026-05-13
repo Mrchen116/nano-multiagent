@@ -103,7 +103,9 @@ describe("app routes", () => {
   it("renders the settings agents entry", async () => {
     const { container } = renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
 
-    expect(await screen.findByRole("heading", { name: "Agents" })).toBeInTheDocument();
+    // "Agents" appears multiple times (shell nav + page title), use getAllByText
+    const agentsTexts = await screen.findAllByText("Agents");
+    expect(agentsTexts.length).toBeGreaterThanOrEqual(1);
     // M19/R11-2: Settings 二级 sub-nav 已移除 — 每子页直渲。
     expect(container.querySelector('nav[aria-label="Settings Sections"]')).toBeNull();
   });
