@@ -4,7 +4,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 from agent.core.ids import make_message_id, make_tool_call_id
 from agent.core.types import Message, TokenUsage, ToolCall, ToolResult, ToolSpec, TurnResult
@@ -14,13 +14,20 @@ from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage,
 from agent.core.observability.tracing import span
 from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.result_budget import DEFAULT_MAX_RESULT_SIZE_CHARS, ToolResultCompressor
-from agent.core.tools.session_file_state import SessionFileState
+from agent.core.tools.session_file_state import SessionFileState, read_file_slice
 
+from .compaction.planner import CompactionPlanner
+from .compaction.summarizer import CompactionSummarizer
+from .compaction.policy import should_compact
+from .compaction.types import CompactionReason, CompactionSettings
 from .policies import AgentPolicies
-from .prompting import build_prompt_messages
+from .prompting import build_chat_messages, build_system_prompt, estimate_llm_context_tokens
 from .run_control import RunController
 from .state import AgentState
 from .tool_executor import StreamingToolExecutor
+
+if TYPE_CHECKING:
+    from agent.core.session.manager import SessionManager
 
 
 class ToolRegistryLike(Protocol):
@@ -57,6 +64,10 @@ class AgentLoop:
         tool_registry: ToolRegistryLike | None = None,
         current_working_directory: Path | None = None,
         tool_result_compressor: Any | None = None,
+        session_manager: "SessionManager | None" = None,
+        compaction_planner: CompactionPlanner | None = None,
+        compaction_summarizer: CompactionSummarizer | None = None,
+        compaction_settings: CompactionSettings | None = None,
     ) -> None:
         self._llm_client = llm_client
         self._model = model
@@ -68,6 +79,10 @@ class AgentLoop:
         self._tool_registry = tool_registry
         self._current_working_directory = current_working_directory
         self._tool_result_compressor = tool_result_compressor
+        self._session_manager = session_manager
+        self._compaction_planner = compaction_planner
+        self._compaction_summarizer = compaction_summarizer
+        self._compaction_settings = compaction_settings
         self._active_session_id: str | None = None
 
     @property
@@ -127,17 +142,17 @@ class AgentLoop:
 
         active_tools = self.active_tool_specs() if available_tools_override is None else available_tools_override
         active_skills = self._available_skills if available_skills_override is None else available_skills_override
-        llm_messages = list(
-            build_prompt_messages(
-                history_messages=state.history_messages,
-                user_text=state.user_text,
-                system_prompt=system_prompt_override or self._system_prompt,
-                available_skills=active_skills,
-                available_tools=active_tools,
-                current_datetime=session_created_at,
-                current_working_directory=current_working_directory_override or self._current_working_directory,
-            )
+        rendered_system_prompt = build_system_prompt(
+            system_prompt=system_prompt_override or self._system_prompt,
+            available_skills=active_skills,
+            available_tools=active_tools,
+            current_datetime=session_created_at,
+            current_working_directory=current_working_directory_override or self._current_working_directory,
         )
+        llm_messages = list(build_chat_messages(
+            history_messages=state.history_messages,
+            user_text=state.user_text,
+        ))
 
         all_tool_calls: list[ToolCall] = []
         all_tool_results: list[ToolResult] = []
@@ -166,6 +181,16 @@ class AgentLoop:
                         )
                         return
 
+                    # Token check + compact at start of each iteration
+                    compacted_msg = await self._maybe_compact(
+                        llm_messages=llm_messages,
+                        session_id=state.session_id,
+                        rendered_system_prompt=rendered_system_prompt,
+                        session_file_state=session_file_state,
+                    )
+                    if compacted_msg is not None:
+                        yield compacted_msg
+
                     if controller is not None:
                         for pending_msg in controller.drain_pending():
                             llm_messages.append(pending_msg)
@@ -192,11 +217,15 @@ class AgentLoop:
                     finish_reason: str | None = None
                     latest_usage: TokenUsage | None = None
 
+                    messages_for_llm = [
+                        LLMMessage(role="system", content=rendered_system_prompt),
+                        *llm_messages,
+                    ]
                     stream = self._llm_client.generate(
                         LLMGenerateRequest(
                             session_id=llm_session_id or state.session_id,
                             model=self._model,
-                            messages=tuple(llm_messages),
+                            messages=tuple(messages_for_llm),
                             tools=active_tools,
                         )
                     )
@@ -548,6 +577,83 @@ class AgentLoop:
                 duration_ms=item.duration_ms,
                 error=item.error,
             )
+
+    def _should_compact(
+        self,
+        llm_messages: list[LLMMessage],
+        rendered_system_prompt: str,
+    ) -> bool:
+        if self._compaction_settings is None or not self._compaction_settings.enabled:
+            return False
+        estimated = estimate_llm_context_tokens(llm_messages, rendered_system_prompt)
+        return should_compact(
+            context_tokens=estimated,
+            context_window=self._compaction_settings.context_window,
+            reserve_tokens=self._compaction_settings.reserve_tokens,
+        ) is not None
+
+    async def _maybe_compact(
+        self,
+        *,
+        llm_messages: list[LLMMessage],
+        session_id: str,
+        rendered_system_prompt: str,
+        session_file_state: SessionFileState | None,
+    ) -> Message | None:
+        if not self._should_compact(llm_messages, rendered_system_prompt):
+            return None
+        if self._session_manager is None or self._compaction_planner is None or self._compaction_summarizer is None:
+            return None
+
+        entries = self._session_manager.list_entries(session_id)
+        plan = self._compaction_planner.plan(events=entries, reason=CompactionReason.THRESHOLD)
+        if plan is None:
+            return None
+
+        from agent.core.session.entries import message_from_turn_entry
+        dropped_messages = tuple(message_from_turn_entry(e) for e in plan.dropped_events)
+        summary = await self._compaction_summarizer.summarize(
+            session_id=session_id,
+            system_prompt=rendered_system_prompt,
+            dropped_messages=dropped_messages,
+        )
+
+        # Post-compact file restore: read up to 5 most recently accessed files.
+        restored_files: list[str] = []
+        if session_file_state is not None:
+            for state in reversed(session_file_state._states.values()):
+                content = read_file_slice(
+                    file_path=state.file_path,
+                    offset=state.offset,
+                    limit=state.limit,
+                )
+                if content is not None:
+                    lines_str = (
+                        f"lines {state.offset}-{state.offset + state.limit - 1}"
+                        if state.offset is not None and state.limit is not None
+                        else "full file"
+                    )
+                    restored_files.append(
+                        f"[Post-compact file restore] {state.file_path} ({lines_str}):\n{content}"
+                    )
+                if len(restored_files) >= 5:
+                    break
+
+        # Build new llm_messages: summary as user message
+        summary_llm_msg = LLMMessage(role="user", content=summary)
+        llm_messages[:] = [summary_llm_msg]
+
+        summary_msg = Message(
+            message_id=make_message_id(),
+            role="user",
+            content=summary,
+            metadata={
+                "is_compact_summary": True,
+                "compact_reason": plan.reason.value,
+                "restored_files": restored_files,
+            },
+        )
+        return summary_msg
 
 
 def _normalize_tool_call(tool_call: LLMToolCall) -> ToolCall:

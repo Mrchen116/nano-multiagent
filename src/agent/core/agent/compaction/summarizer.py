@@ -1,19 +1,21 @@
 """Generate compaction summaries from dropped conversation history."""
 
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from agent.core.agent.state import AgentState, InputPart
 from agent.core.tools.session_file_state import SessionFileState
 from agent.core.types import Message
 
-from agent.core.agent.context_fork import AgentContextFork
 from .prompts import format_compact_summary, get_compact_prompt
+
+if TYPE_CHECKING:
+    from agent.core.agent.context_fork import AgentContextFork
 
 
 class CompactionSummarizer:
     """Summarize dropped history via LLM with deterministic fallback."""
 
-    def __init__(self, *, fork: AgentContextFork) -> None:
+    def __init__(self, *, fork: "AgentContextFork") -> None:
         self._fork = fork
 
     async def summarize(
