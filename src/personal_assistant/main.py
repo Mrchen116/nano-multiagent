@@ -1580,8 +1580,57 @@ def _build_kernel_event_observer(
             content = str(event.get("content") or "").strip()
             if not content:
                 return None
+            kernel_msg_id = str(event.get("message_id") or "").strip()
+            prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
+
+            # Detect a new assistant message within the same run (e.g. textA → tool_calls → textB).
+            # The kernel's while-loop generates a fresh assistant_msg_id per iteration; when it
+            # differs from the previous one we must close the old IM message and start a new one
+            # so the frontend renders textA and textB as separate bubbles.
+            if kernel_msg_id and prev_kernel_msg_id and kernel_msg_id != prev_kernel_msg_id:
+                async def _close_old_and_restart(
+                    mgr: IMConnectionManager = manager,
+                    rid: str = run_id,
+                    cid: str = conversation_id,
+                    aid: str = agent_id,
+                    old_msg_id: str = message_id,
+                    text: str = content,
+                    new_kernel_id: str = kernel_msg_id,
+                ) -> None:
+                    try:
+                        if old_msg_id:
+                            await mgr.send_json("node.streaming_delta", {
+                                "kind": "message_completed",
+                                "message_id": old_msg_id,
+                                "final_content": None,
+                                "token_usage": None,
+                                "run_id": rid,
+                            })
+                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
+                            "kind": "turn_start",
+                            "conversation_id": cid,
+                            "agent_id": aid,
+                            "run_id": rid,
+                        })
+                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
+                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                        if returned_msg_id and rid in run_context_store:
+                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                            run_context_store[rid]["kernel_message_id"] = new_kernel_id
+                            await mgr.send_json("node.streaming_delta", {
+                                "kind": "message_delta",
+                                "message_id": str(returned_msg_id),
+                                "delta_text": text,
+                                "run_id": rid,
+                            })
+                    except Exception:  # noqa: BLE001
+                        pass
+                return _close_old_and_restart()
+
             if message_id:
                 # turn_start already ack'd — send delta directly.
+                if kernel_msg_id:
+                    ctx["kernel_message_id"] = kernel_msg_id
                 loop.create_task(_send(manager, "node.streaming_delta", {
                     "kind": "message_delta",
                     "message_id": message_id,
@@ -1597,6 +1646,7 @@ def _build_kernel_event_observer(
                     cid: str = conversation_id,
                     aid: str = agent_id,
                     text: str = content,
+                    new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
                         ack = await mgr.send_json_await_ack("node.streaming_delta", {
@@ -1609,6 +1659,8 @@ def _build_kernel_event_observer(
                         returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
                         if returned_msg_id and rid in run_context_store:
                             run_context_store[rid]["message_id"] = str(returned_msg_id)
+                            if new_kernel_id:
+                                run_context_store[rid]["kernel_message_id"] = new_kernel_id
                             await mgr.send_json("node.streaming_delta", {
                                 "kind": "message_delta",
                                 "message_id": str(returned_msg_id),
