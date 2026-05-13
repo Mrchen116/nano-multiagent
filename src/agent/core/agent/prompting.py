@@ -48,6 +48,37 @@ _DEFAULT_TOOL_SPECS: tuple[ToolSpec, ...] = (
 )
 
 
+def build_chat_messages(
+    *,
+    history_messages: tuple[Message, ...],
+    user_text: str,
+) -> tuple[LLMMessage, ...]:
+    """Build chat messages (history + current user) without system prompt.
+
+    Args:
+        history_messages: Persisted conversation history before current user input.
+        user_text: Current user text input after preprocessing.
+
+    Returns:
+        Ordered message tuple: history, then current user. No system message.
+    """
+    messages: list[LLMMessage] = []
+    for message in history_messages:
+        metadata = dict(message.metadata)
+        messages.append(
+            LLMMessage(
+                role=message.role,
+                content=message.content,
+                name=message.name,
+                tool_call_id=message.tool_call_id or _extract_tool_call_id(metadata),
+                tool_calls=_extract_tool_calls(metadata),
+            )
+        )
+    messages = _merge_adjacent_assistant(messages)
+    messages.append(LLMMessage(role="user", content=user_text))
+    return tuple(messages)
+
+
 def build_prompt_messages(
     *,
     history_messages: tuple[Message, ...],
@@ -80,21 +111,8 @@ def build_prompt_messages(
         current_datetime=current_datetime,
         current_working_directory=current_working_directory,
     )
-    messages: list[LLMMessage] = [LLMMessage(role="system", content=active_system_prompt)]
-    for message in history_messages:
-        metadata = dict(message.metadata)
-        messages.append(
-            LLMMessage(
-                role=message.role,
-                content=message.content,
-                name=message.name,
-                tool_call_id=message.tool_call_id or _extract_tool_call_id(metadata),
-                tool_calls=_extract_tool_calls(metadata),
-            )
-        )
-    messages = _merge_adjacent_assistant(messages)
-    messages.append(LLMMessage(role="user", content=user_text))
-    return tuple(messages)
+    chat_messages = list(build_chat_messages(history_messages=history_messages, user_text=user_text))
+    return tuple([LLMMessage(role="system", content=active_system_prompt), *chat_messages])
 
 
 def build_system_prompt(
@@ -212,6 +230,46 @@ def _extract_tool_calls(metadata: Mapping[str, Any]) -> tuple[LLMToolCall, ...]:
             )
         )
     return tuple(parsed)
+
+
+def estimate_llm_context_tokens(
+    messages: Sequence[LLMMessage],
+    system_prompt: str | None = None,
+) -> int:
+    """Estimate token count for LLM messages (loop-internal version).
+
+    Args:
+        messages: LLM messages (history + user, no system).
+        system_prompt: Optional system prompt text to include in estimate.
+
+    Returns:
+        Estimated token count.
+    """
+    total = 0
+    if system_prompt:
+        total += _estimate_text_tokens(system_prompt)
+    for msg in messages:
+        content = msg.content
+        if isinstance(content, str):
+            total += _estimate_text_tokens(content)
+        elif isinstance(content, list):
+            # content is list[dict] for multimodal; estimate each text part
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    total += _estimate_text_tokens(part["text"])
+                else:
+                    total += 4  # rough estimate for non-text parts
+        else:
+            total += _estimate_text_tokens(str(content))
+    total += 4 + len(messages) * 2
+    return total
+
+
+def _estimate_text_tokens(text: str) -> int:
+    normalized = " ".join(text.split())
+    if not normalized:
+        return 1
+    return max(1, (len(normalized) + 7) // 8)
 
 
 def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:

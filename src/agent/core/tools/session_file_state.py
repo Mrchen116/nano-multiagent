@@ -114,3 +114,28 @@ class SessionFileState:
         """Drop state for a deleted file."""
         normalized = str(Path(file_path).resolve())
         self._states.pop(normalized, None)
+
+
+def read_file_slice(
+    file_path: str,
+    offset: int | None,
+    limit: int | None,
+) -> str | None:
+    """Read a file or a slice of it (offset/limit are 1-indexed line numbers).
+
+    Previously defined in runtime.py; migrated here to break the
+    loop -> runtime import cycle.
+    """
+    try:
+        path = Path(file_path)
+        if not path.exists():
+            return None
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if offset is None or limit is None:
+            return text
+        lines = text.splitlines()
+        start = max(0, offset - 1)
+        end = start + limit
+        return "\n".join(lines[start:end])
+    except (OSError, ValueError):
+        return None
