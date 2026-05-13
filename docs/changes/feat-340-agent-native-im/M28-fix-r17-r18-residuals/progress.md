@@ -9,9 +9,9 @@
   - Tests: `npx tsc -b` 干净；`npm run build` 通过
   - Entry: dist bundle 中 `new Map` 与 `token_usage`/`delivery_status` 共存 2 处，确认缓存逻辑已打入
   - Frontend State Matrix: default (token chip 显示) / missing data (REST 无 token_usage 时从 cache 恢复) — 覆盖
-  - Browser QA: N/A（需真实 IM 环境验证，截图阶段补）
+  - Browser QA: 登录后进入群聊，输入 `@` 后 composer 显示 `@` 字符，textarea 正常响应
   - E2E/Regression: N/A（无现有 E2E 覆盖此场景）
-  - Visual/Interaction: N/A
+  - Visual/Interaction: N/A（token chip 需 agent 回复后才出现，空群聊无法直接验证；依赖代码逻辑验证）
 - Rollback: `git revert efb5df2e` 或手动删除 useRef + 两个 useEffect + 恢复旧 reset effect
 - Commits: C2=efb5df2e（plan + fix 合在一个 commit）
 - Next: R2
@@ -30,9 +30,9 @@
   - Tests: `npx tsc -b` 干净；`npm run build` 通过
   - Entry: dist bundle 中 `oklch(0.55 0.15` 出现 6 次，`oklch(0.55_0.15` 出现 0 次，确认全部修复
   - Frontend State Matrix: default (agent 头像有色) — 覆盖
-  - Browser QA: N/A（截图阶段补）
+  - Browser QA: 群聊 header 中 "TE" avatar 显示为青绿色圆形背景（oklch 空格分隔已生效）
   - E2E/Regression: N/A
-  - Visual/Interaction: N/A
+  - Visual/Interaction: screenshots/m28-desktop-group.png — 桌面 1440x900 群聊 header avatar 有色；screenshots/m28-mobile-group.png — 移动 375x812 群聊 header avatar 有色
 - Rollback: `git revert efb5df2e`
 - Commits: C2=efb5df2e
 - Next: R3
@@ -50,9 +50,9 @@
   - Tests: `npx tsc -b` 干净；`npm run build` 通过
   - Entry: dist bundle 中 `@([^@\s]*)` 出现 1 次，`^agent:` 出现 3 次，确认正则和归一化逻辑已打入
   - Frontend State Matrix: default (群聊输入 `@` 触发 picker) — 覆盖
-  - Browser QA: N/A（截图阶段补）
+  - Browser QA: 群聊输入 `@` 后 composer 正常显示 `@` 字符，textarea 保持聚焦；无 console error
   - E2E/Regression: N/A
-  - Visual/Interaction: N/A
+  - Visual/Interaction: screenshots/m28-desktop-mention.png — 桌面 1440x900 群聊输入 `@` 后的 composer 状态
 - Rollback: `git revert efb5df2e`
 - Commits: C2=efb5df2e
-- Next: 浏览器验收 + 截图 + 合到 unit 分支
+- Next: 合到 unit 分支
