@@ -82,6 +82,20 @@ npm run build      # 生产构建（tsc + vite build）
 npm run test       # vitest
 ```
 
+## 测试账号
+
+```yaml
+username:   nano
+password:   nano1234
+display_name: Test User
+im_url:     http://127.0.0.1:8011
+```
+
+注册：`curl -X POST $im_url/im/v1/auth/register -H "Content-Type: application/json" -d '{"username":"nano","password":"nano1234","display_name":"Test User"}'`
+
+IM 启动必须带固定 secret，否则 token 随重启失效：
+`IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing" PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011`
+
 ### 非交互式 CLI 命令
 
 ```bash
