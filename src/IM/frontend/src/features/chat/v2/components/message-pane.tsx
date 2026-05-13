@@ -170,11 +170,12 @@ export function MessagePane({
       <div ref={messagesContainerRef} className="chat-pane-messages">
         {messages.length === 0 ? (
           <div className="chat-pane-empty">
+            <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
             <p className="chat-pane-empty-title">{t("chat.messagePane.emptyTitle")}</p>
             <p className="chat-pane-empty-sub">{t("chat.messagePane.emptySubtitle")}</p>
           </div>
         ) : (
-          messages.map((m) => <MessageBubble key={m.id} message={m} />)
+          messages.map((m) => <MessageBubble key={m.id} message={m} isMobile={isMobile} />)
         )}
       </div>
 
@@ -206,7 +207,7 @@ export function MessagePane({
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={placeholder}
-              rows={2}
+              rows={isMobile ? 1 : 2}
               className="chat-pane-composer-input"
             />
             <button
@@ -227,13 +228,15 @@ export function MessagePane({
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boolean }) {
+  const { t } = useTranslation();
   const isUser = message.sender.type === "user";
   const initials = (message.sender.display_name ?? message.sender.id).slice(0, 1).toUpperCase();
   const ts = formatHM(message.created_at);
   const avatarBg = isUser ? "oklch(0.52_0.14_180)" : "oklch(0.52_0.14_270)";
   const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
   const statusAlign = isUser ? "justify-end" : "justify-start";
+  const deliveryStatus = message.delivery_status;
   return (
     <div className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}>
       <span
@@ -259,11 +262,21 @@ function MessageBubble({ message }: { message: Message }) {
           {message.tool_calls && message.tool_calls.length > 0 && (
             <ToolCallsPanel toolCalls={message.tool_calls} />
           )}
+          {/* TokenChip moved inside bubble content, only for completed messages */}
+          {deliveryStatus === "completed" && message.token_usage && (
+            <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
+          )}
         </div>
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55_0.01_240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
-          {message.token_usage && (
-            <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
+          {deliveryStatus === "running" && (
+            <span className="flex items-center gap-1 text-[oklch(0.65_0.15_60)]">
+              <span className="inline-block w-[6px] h-[6px] rounded-full bg-[oklch(0.70_0.18_60)] animate-pulse" />
+              {t("chat.messagePane.running")}
+            </span>
+          )}
+          {deliveryStatus === "failed" && (
+            <span className="text-[oklch(0.55_0.15_25)]">{t("chat.messagePane.failed")}</span>
           )}
         </div>
       </div>
@@ -278,4 +291,3 @@ function formatHM(iso: string): string {
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${hh}:${mm}`;
 }
-

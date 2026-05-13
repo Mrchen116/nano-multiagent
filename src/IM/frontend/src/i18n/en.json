@@ -48,7 +48,8 @@
       "account": "Account",
       "accountSubtitle": "Profile and gateway",
       "nodes": "Nodes",
-      "nodesSubtitle": "Nodes and agents",
+      "accountSubtitle": "Profile and gateway",
+      "nodesSubtitle": "Profile and gateway",
       "language": "Language",
       "notifications": "Notifications",
       "signOut": "Sign out"
@@ -72,7 +73,10 @@
     "delete": "Delete",
     "back": "Back",
     "retry": "Retry",
-    "empty": "Nothing here yet."
+    "empty": "Nothing here yet.",
+    "owned": "owned",
+    "online": "online",
+    "offline": "offline"
   },
   "settings": {
     "nav": {
@@ -295,6 +299,7 @@
       "toolCall": "tool call",
       "toolCalls": "tool calls",
       "running": "running",
+      "failed": "failed",
       "selectConversationTitle": "Select a conversation",
       "selectConversationSubtitle": "Pick a thread to chat with your agents."
     },

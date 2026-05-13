@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { createDirectChatByAgentUserId, listAgents } from "../../chat/chat-api";
+import { Avatar } from "../../chat/v2/components/avatar";
 import { PillSelector } from "./pill-selector";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { AgentConfig, AgentSummary, getAgentDetailState, listAgentSummaries, updateAgentConfig } from "./im-agent-config-api";
@@ -359,30 +360,59 @@ export function AgentDetailPage() {
     >
       <header className="im-agent-panel-header">
         <div className="im-agent-panel-header-row">
-          <span className="im-agent-row-avatar" aria-hidden="true">
-            {initialsOf(draft.display_name)}
-          </span>
-          <div style={{ flex: 1 }}>
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => navigate("/settings/agents")}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                border: "none",
+                background: "oklch(0.91 0.006 240)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 16,
+                color: "oklch(0.40 0.01 240)",
+                flexShrink: 0
+              }}
+            >
+              ‹
+            </button>
+          )}
+          <Avatar
+            initials={initialsOf(draft.display_name)}
+            color="oklch(0.52 0.14 180)"
+            size={isMobile ? 38 : 42}
+            status={displayedNodeStatus === "online" ? "online" : "offline"}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
             <h2 className="im-agent-panel-title">{draft.display_name || draft.agent_id}</h2>
             <p className="im-agent-panel-subtitle">
               {draft.agent_id} · {displayedNodeName}
             </p>
           </div>
-          <span
-            data-testid="agent-detail-status-pill"
-            className={statusChipClass}
-            aria-label={`${draft.agent_id} ${displayedNodeStatus}`}
-          >
-            <span className="dot" /> {displayedNodeStatus}
-          </span>
-          <button
-            type="button"
-            className="im-btn im-btn-muted"
-            disabled={openDirectChatMutation.isPending}
-            onClick={() => openDirectChatMutation.mutate()}
-          >
-            {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
-          </button>
+          {!isMobile && (
+            <>
+              <span
+                data-testid="agent-detail-status-pill"
+                className={statusChipClass}
+                aria-label={`${draft.agent_id} ${displayedNodeStatus}`}
+              >
+                <span className="dot" /> {displayedNodeStatus}
+              </span>
+              <button
+                type="button"
+                className="im-btn im-btn-muted"
+                disabled={openDirectChatMutation.isPending}
+                onClick={() => openDirectChatMutation.mutate()}
+              >
+                {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
+              </button>
+            </>
+          )}
         </div>
         {openDirectChatMutation.isError && errorMessage ? (
           <p
@@ -603,9 +633,25 @@ export function AgentDetailPage() {
         </section>
       </div>
 
-      <footer className="im-agent-footer" aria-live="polite">
+      <footer
+        className="im-agent-footer"
+        aria-live="polite"
+        style={{
+          paddingBottom: isMobile ? "calc(14px + env(safe-area-inset-bottom, 0px))" : "14px"
+        }}
+      >
         <p className={footerStatusClass}>{footerStatusText}</p>
         <div className="im-agent-footer-actions">
+          {isMobile && (
+            <button
+              type="button"
+              className="im-btn im-btn-muted"
+              disabled={openDirectChatMutation.isPending}
+              onClick={() => openDirectChatMutation.mutate()}
+            >
+              {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
+            </button>
+          )}
           <button
             className="im-btn im-btn-muted"
             type="button"
@@ -615,7 +661,7 @@ export function AgentDetailPage() {
             {t("agents.detail.discard")}
           </button>
           <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isDirty}>
-            {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.save")}
+            {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
           </button>
         </div>
       </footer>

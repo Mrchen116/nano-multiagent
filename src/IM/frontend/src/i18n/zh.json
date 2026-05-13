@@ -46,7 +46,9 @@
     "title": "我",
     "sections": {
       "account": "账号",
+      "accountSubtitle": "资料与网关",
       "nodes": "节点",
+      "nodesSubtitle": "资料与网关",
       "language": "语言",
       "notifications": "通知",
       "signOut": "退出登录"
@@ -70,7 +72,10 @@
     "delete": "删除",
     "back": "返回",
     "retry": "重试",
-    "empty": "暂无内容。"
+    "empty": "暂无内容。",
+    "owned": "已拥有",
+    "online": "在线",
+    "offline": "离线"
   },
   "settings": {
     "nav": {
@@ -290,6 +295,7 @@
       "toolCall": "次工具调用",
       "toolCalls": "次工具调用",
       "running": "运行中",
+      "failed": "失败",
       "selectConversationTitle": "选择一个会话",
       "selectConversationSubtitle": "挑一条会话开始与 agent 协作。"
     },

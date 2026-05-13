@@ -2,6 +2,8 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
+import { useQuery } from "@tanstack/react-query";
+import { listNodes } from "../settings/im-settings-api";
 
 // M20/R12-bis-6: Mobile Me 页按 prototype `im-mypage.jsx::MyPage` 调整:
 // - Nodes / Account 行加 subtitle
@@ -24,6 +26,11 @@ export function MePage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const lang = getCurrentLanguage();
+
+  const nodesQuery = useQuery({ queryKey: ["settings", "nodes"], queryFn: listNodes, staleTime: 30_000 });
+  const ownedNodes = (nodesQuery.data ?? []).filter((n) => user?.owned_node_ids?.includes(n.node_id));
+  const onlineCount = ownedNodes.filter((n) => n.status === "online").length;
+  const offlineCount = ownedNodes.length - onlineCount;
 
   const handleSignOut = () => {
     useAuthStore.getState().clear();
@@ -83,7 +90,8 @@ export function MePage() {
               data-testid="me-row-subtitle"
               className="m-0 mt-[2px] text-[12px] text-[oklch(0.55_0.01_240)]"
             >
-              {t("me.sections.nodesSubtitle")}
+              {ownedNodes.length} {t("common.owned")} · {onlineCount} {t("common.online")}
+              {offlineCount > 0 ? ` · ${offlineCount} ${t("common.offline")}` : ""}
             </p>
           </div>
           <span className={CHEVRON} aria-hidden="true" data-testid="me-row-chevron">›</span>
@@ -173,6 +181,7 @@ export function MePage() {
             aria-hidden="true"
           >↗</span>
           <p className={LABEL_DANGER}>{t("me.sections.signOut")}</p>
+          <span className={CHEVRON} aria-hidden="true">›</span>
         </button>
       </div>
     </section>

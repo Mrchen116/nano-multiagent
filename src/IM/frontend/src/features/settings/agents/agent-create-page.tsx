@@ -3,8 +3,10 @@ import * as Label from "@radix-ui/react-label";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
+import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
-import { AllowlistSelector } from "./allowlist-selector";
+import { Avatar } from "../../chat/v2/components/avatar";
+import { PillSelector } from "./pill-selector";
 import { AgentSummary, createNodeAgent, getNodeCreateState, NodeAgentCreateRequest } from "./im-agent-config-api";
 
 type CreateAgentFormState = NodeAgentCreateRequest;
@@ -61,6 +63,7 @@ export function AgentCreatePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const [draft, setDraft] = useState<CreateAgentFormState>(EMPTY_DRAFT);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
@@ -163,10 +166,13 @@ export function AgentCreatePage() {
     footerStatusText = t("agents.detail.saving");
   }
 
+  const border = "oklch(0.87 0.006 240)";
+
   return (
     <form
       data-testid="agent-create"
       className="im-agent-panel"
+      style={{ background: "#fff" }}
       onSubmit={(event) => {
         event.preventDefault();
         setHasSubmitted(true);
@@ -175,21 +181,69 @@ export function AgentCreatePage() {
         mutation.mutate(normalizedDraft);
       }}
     >
-      <header className="im-agent-panel-header">
+      <header
+        className="im-agent-panel-header"
+        style={{
+          background: "#fff",
+          padding: isMobile ? "14px 16px" : "18px 28px 14px",
+          paddingTop: isMobile ? "calc(14px + env(safe-area-inset-top, 0px))" : "18px"
+        }}
+      >
         <div className="im-agent-panel-header-row">
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => navigate("/settings/agents")}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                border: "none",
+                background: "oklch(0.91 0.006 240)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 16,
+                color: "oklch(0.40 0.01 240)",
+                flexShrink: 0
+              }}
+            >
+              ‹
+            </button>
+          )}
           <div style={{ flex: 1 }}>
-            <h2 className="im-agent-panel-title">{t("agents.create.title")}</h2>
+            <h2
+              className="im-agent-panel-title"
+              style={{ fontSize: isMobile ? 18 : 18, fontWeight: 800, letterSpacing: "-0.02em" }}
+            >
+              {t("agents.create.title")}
+            </h2>
             <p className="im-agent-panel-subtitle">
-              {nodeLabel} · {nodeId}
+              {t("agents.create.subtitle")}
             </p>
           </div>
-          <span className={statusChipClass} aria-label={`${nodeId} ${nodeStatus}`}>
-            <span className="dot" /> {nodeStatus}
-          </span>
+          {!isMobile && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <Link
+                className="im-btn im-btn-muted"
+                to="/settings/agents"
+                style={{ textDecoration: "none" }}
+              >
+                {t("agents.create.cancel")}
+              </Link>
+              <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isNodeOnline}>
+                {t("agents.create.submit")}
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
-      <div className="im-agent-panel-body">
+      <div
+        className="im-agent-panel-body"
+        style={{ padding: isMobile ? "14px 14px" : "20px 28px", gap: 14 }}
+      >
         <section className="im-agent-card">
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
@@ -276,6 +330,7 @@ export function AgentCreatePage() {
               aria-invalid={Boolean(shouldShowError("system_prompt"))}
               aria-describedby="system-prompt-help"
               placeholder={t("agents.form.behavior.systemPromptPlaceholder")}
+              rows={isMobile ? 5 : 7}
               onBlur={() => markTouched("system_prompt")}
               onChange={(event) => {
                 setErrorMessage(null);
@@ -317,32 +372,27 @@ export function AgentCreatePage() {
             <p className="im-agent-card-sub">{t("agents.form.access.sub")}</p>
           </div>
           <div className="im-agent-card-grid-2">
-            <AllowlistSelector
-              id="skills-allowlist"
+            <PillSelector
+              testId="pill-selector-skills"
               label={t("agents.form.access.skills")}
               selected={draft.skills}
               options={capabilities.skills}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
-              helpText=""
-              emptySelectionText=""
               onChange={(skills) => {
                 setErrorMessage(null);
                 setDraft({ ...draft, skills });
               }}
             />
-            <AllowlistSelector
-              id="tool-allowlist"
+            <PillSelector
+              testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
               selected={draft.tool_allowlist}
               options={capabilities.tools}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
-              showDescriptions={false}
-              helpText=""
-              emptySelectionText=""
               onChange={(toolAllowlist) => {
                 setErrorMessage(null);
                 setDraft({ ...draft, tool_allowlist: toolAllowlist });
@@ -375,19 +425,39 @@ export function AgentCreatePage() {
             </select>
           </div>
         </section>
-      </div>
 
-      <footer className="im-agent-footer" aria-live="polite">
-        <p className={footerStatusClass}>{footerStatusText}</p>
-        <div className="im-agent-footer-actions">
-          <Link className="im-btn im-btn-muted" to="/settings/agents">
-            {t("agents.create.cancel")}
-          </Link>
-          <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isNodeOnline}>
-            {mutation.isPending ? t("agents.detail.saving") : t("agents.create.submit")}
+        {/* Bottom action bar */}
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: 12,
+            border: `1px solid ${border}`,
+            padding: "14px 16px",
+            display: "flex",
+            gap: 8,
+            justifyContent: isMobile ? "stretch" : "flex-end",
+            paddingBottom: isMobile ? "calc(14px + env(safe-area-inset-bottom, 0px))" : "14px"
+          }}
+        >
+          {!isMobile && (
+            <Link
+              className="im-btn im-btn-muted"
+              to="/settings/agents"
+              style={{ textDecoration: "none" }}
+            >
+              {t("agents.create.cancel")}
+            </Link>
+          )}
+          <button
+            className="im-btn im-btn-primary"
+            type="submit"
+            disabled={mutation.isPending || !isNodeOnline}
+            style={{ flex: isMobile ? 1 : undefined }}
+          >
+            {mutation.isPending ? t("agents.detail.saving") : t("agents.create.submitArrow")}
           </button>
         </div>
-      </footer>
+      </div>
     </form>
   );
 }
