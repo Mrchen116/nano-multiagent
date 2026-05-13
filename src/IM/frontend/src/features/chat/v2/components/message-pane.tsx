@@ -41,7 +41,7 @@ export interface MessagePaneProps {
   uploadAttachment?(file: File): Promise<Attachment>;
 }
 
-const MENTION_RE = /@(\w*)$/;
+const MENTION_RE = /@([^@\s]*)$/;
 
 /**
  * Right-hand message pane — header (avatar / title / participants / node chip /
@@ -252,8 +252,8 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
   const ts = formatHM(message.created_at);
   const senderColor = message.sender.type === "agent" && message.sender.display_name
     ? colorForSeed(message.sender.display_name)
-    : "oklch(0.52_0.14_270)";
-  const avatarBg = isUser ? "oklch(0.52_0.14_180)" : senderColor;
+    : "oklch(0.52 0.14 270)";
+  const avatarBg = isUser ? "oklch(0.52 0.14 180)" : senderColor;
   const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
   const statusAlign = isUser ? "justify-end" : "justify-start";
   const deliveryStatus = message.delivery_status;
@@ -289,16 +289,16 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
             <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
           )}
         </div>
-        <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55_0.01_240)] ${statusAlign}`}>
+        <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {deliveryStatus === "running" && (
-            <span className="flex items-center gap-1 text-[oklch(0.65_0.15_60)]">
-              <span className="inline-block w-[6px] h-[6px] rounded-full bg-[oklch(0.70_0.18_60)] animate-pulse" />
+            <span className="flex items-center gap-1 text-[oklch(0.65 0.15 60)]">
+              <span className="inline-block w-[6px] h-[6px] rounded-full bg-[oklch(0.70 0.18 60)] animate-pulse" />
               {t("chat.messagePane.running")}
             </span>
           )}
           {deliveryStatus === "failed" && (
-            <span className="text-[oklch(0.55_0.15_25)]">{t("chat.messagePane.failed")}</span>
+            <span className="text-[oklch(0.55 0.15 25)]">{t("chat.messagePane.failed")}</span>
           )}
         </div>
       </div>
@@ -310,7 +310,7 @@ function colorForSeed(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
   const hue = Math.abs(hash) % 360;
-  return `oklch(0.55_0.15_${hue})`;
+  return `oklch(0.55 0.15 ${hue})`;
 }
 
 function formatHM(iso: string): string {
