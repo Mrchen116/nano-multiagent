@@ -113,7 +113,7 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
                 </pre>
               </div>
             )}
-            {call.output !== undefined && (
+            {call.output != null && (
               <div className="chat-tool-call-section">
                 <span className="chat-tool-call-section-label">OUTPUT</span>
                 <pre className="chat-tool-call-pre">

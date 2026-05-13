@@ -33,6 +33,10 @@ export function AppShell({ children }: PropsWithChildren) {
       {!isMobile && (
         <header role="banner" className="im-shell-topbar">
           <div className="im-shell-brand">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect width="24" height="24" rx="6" fill="oklch(0.52 0.14 180)" />
+              <path d="M7 12.5L10.5 16L17 9.5" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
             <span>{t("shell.appName")}</span>
             <span
               data-testid="shell-internal-badge"
@@ -69,6 +73,11 @@ export function AppShell({ children }: PropsWithChildren) {
           <NavLink to="/me" className="im-shell-bottomtab">
             <span aria-hidden className="im-shell-bottomtab-icon">👤</span>
             <span>{t("shell.tabs.me")}</span>
+            {totalUnread > 0 && (
+              <span data-testid="shell-me-unread" className="im-shell-unread-badge">
+                {totalUnread}
+              </span>
+            )}
           </NavLink>
         </nav>
       )}

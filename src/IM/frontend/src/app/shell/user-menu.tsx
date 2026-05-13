@@ -30,7 +30,7 @@ export function UserMenu() {
 
   if (!user) return null;
 
-  const initials = (user.display_name || user.username).slice(0, 1).toUpperCase();
+  const initials = (user.display_name || user.username).slice(0, 2).toUpperCase();
 
   const handleSignOut = () => {
     useAuthStore.getState().clear();
@@ -59,36 +59,104 @@ export function UserMenu() {
       </button>
       {open && (
         <div role="menu" className="im-user-menu-popover">
-          <Link role="menuitem" to="/settings/agents" onClick={() => setOpen(false)}>
-            {t("shell.userMenu.newAgent")}
+          {/* Identity Strip */}
+          <div
+            role="none"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "12px 14px",
+              borderBottom: "1px solid var(--im-border)",
+              marginBottom: 4
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                background: "oklch(0.52 0.14 270)",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 14,
+                fontWeight: 700,
+                flexShrink: 0
+              }}
+            >
+              {initials}
+            </span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "var(--im-text)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap"
+                }}
+              >
+                {user.display_name || user.username}
+              </p>
+              <p
+                style={{
+                  margin: "2px 0 0",
+                  fontSize: 11,
+                  color: "var(--im-text-muted)",
+                  fontFamily: "var(--im-font-mono)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap"
+                }}
+              >
+                {user.id}
+              </p>
+            </div>
+          </div>
+
+          <Link role="menuitem" to="/settings/account" onClick={() => setOpen(false)}>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.account")}</div>
+            <div style={{ fontSize: 12, color: "var(--im-text-muted)", marginTop: 1 }}>
+              {t("me.sections.accountSubtitle")}
+            </div>
           </Link>
           <Link role="menuitem" to="/settings/nodes" onClick={() => setOpen(false)}>
-            {t("shell.userMenu.nodes")}
-          </Link>
-          <Link role="menuitem" to="/settings/account" onClick={() => setOpen(false)}>
-            {t("shell.userMenu.account")}
+            <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.nodes")}</div>
+            <div style={{ fontSize: 12, color: "var(--im-text-muted)", marginTop: 1 }}>
+              {t("me.sections.nodesSubtitle")}
+            </div>
           </Link>
           <div role="group" className="im-user-menu-language">
             <span>{t("shell.userMenu.language")}</span>
+            <span className="im-user-menu-language-divider">│</span>
             <button
               type="button"
               role="menuitemradio"
               aria-checked={lang === "en"}
               onClick={() => handleLanguage("en")}
+              style={{ fontWeight: lang === "en" ? 700 : 500 }}
             >
               EN
             </button>
+            <span className="im-user-menu-language-divider">│</span>
             <button
               type="button"
               role="menuitemradio"
               aria-checked={lang === "zh"}
               onClick={() => handleLanguage("zh")}
+              style={{ fontWeight: lang === "zh" ? 700 : 500 }}
             >
               中
             </button>
           </div>
           <button role="menuitem" type="button" onClick={handleSignOut} className="im-user-menu-signout">
             {t("shell.userMenu.signOut")}
+            <span style={{ marginLeft: "auto", fontSize: 16, fontWeight: 300, opacity: 0.7 }}>›</span>
           </button>
         </div>
       )}

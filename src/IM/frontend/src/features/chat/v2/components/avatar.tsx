@@ -13,7 +13,7 @@ interface AvatarProps {
 export function Avatar({ initials, color, size = 32, status }: AvatarProps) {
   const bg = color ?? colorForSeed(initials);
   return (
-    <span className="chat-avatar" style={{ width: size, height: size, background: bg, fontSize: Math.round(size * 0.3), borderRadius: "50%", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>
+    <span className="chat-avatar" style={{ width: size, height: size, background: bg, fontSize: size * 0.35, letterSpacing: "-0.02em", borderRadius: "50%", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>
       <span aria-hidden="true">{initials.slice(0, 2).toUpperCase()}</span>
       {status && <span className={`chat-avatar-status chat-avatar-status--${status}`} />}
     </span>
