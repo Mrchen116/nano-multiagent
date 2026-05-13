@@ -20,7 +20,7 @@ from agent.core.session.models import Session
 from agent.core.skills import SkillMetadata, resolve_available_skills
 from agent.core.skills.discovery import SkillRootResolver
 from agent.core.tools.result_budget import ToolResultCompressor
-from agent.core.tools.session_file_state import SessionFileState
+from agent.core.tools.session_file_state import SessionFileState, read_file_slice
 
 from .compaction.applier import CompactionApplier
 from .compaction.planner import CompactionPlanner
@@ -34,6 +34,7 @@ from .run_control import RunController
 from .prompting import build_system_prompt
 from .skill_commands import rewrite_skill_command
 from .state import AgentState, InputPart, parse_input_parts, render_user_text
+from agent.core.session.entries import message_from_turn_entry
 
 if TYPE_CHECKING:
     from agent.core.hooks.registry import HookRegistry
@@ -98,17 +99,6 @@ class AgentRuntime:
         self._session_locks: dict[str, asyncio.Lock] = {}
         tool_results_dir = self._repo_root / ".nano" / "tool-results"
         self._tool_result_compressor = ToolResultCompressor(tool_results_dir)
-        self._loop = AgentLoop(
-            llm_client=active_llm_client,
-            model=self._llm_config.model,
-            policies=policies,
-            hook_runner=hook_runner,
-            available_skills=resolved_skills,
-            tool_registry=tool_registry,
-            current_working_directory=self._repo_root,
-            system_prompt=system_prompt,
-            tool_result_compressor=self._tool_result_compressor,
-        )
         self._context_fork = AgentContextFork(
             llm_client=active_llm_client,
             model=self._llm_config.model,
@@ -125,6 +115,21 @@ class AgentRuntime:
             fork=self._context_fork,
         )
         self._compaction_applier = CompactionApplier(session_manager=session_manager)
+        self._loop = AgentLoop(
+            llm_client=active_llm_client,
+            model=self._llm_config.model,
+            policies=policies,
+            hook_runner=hook_runner,
+            available_skills=resolved_skills,
+            tool_registry=tool_registry,
+            current_working_directory=self._repo_root,
+            system_prompt=system_prompt,
+            tool_result_compressor=self._tool_result_compressor,
+            session_manager=session_manager,
+            compaction_planner=self._compaction_planner,
+            compaction_summarizer=self._compaction_summarizer,
+            compaction_settings=self._compaction_settings,
+        )
 
     async def run(
         self,
@@ -281,14 +286,6 @@ class AgentRuntime:
         self._session_manager.writer.enqueue(path, _message_to_entry(user_msg, session_id))
         await self._session_manager.writer.flush_async()
 
-        history_with_current_user = tuple(history)
-        await self._preflight_compaction(
-            session_id=session_id,
-            history=history_with_current_user,
-        )
-
-        # Re-fetch history: compaction may have replaced the in-memory list.
-        history = self._session_histories.get(session_id, [])
         # Remove the user message we just added from history passed to loop.
         loop_history = tuple(history[:-1])
 
@@ -336,6 +333,18 @@ class AgentRuntime:
                     continue
                 history.append(msg)
                 all_messages.append(msg)
+                # Detect compact summary: write compact_boundary before the summary turn
+                if msg.metadata.get("is_compact_summary"):
+                    self._session_manager.writer.enqueue(path, {
+                        "type": "compact_boundary",
+                        "session_id": session_id,
+                        "timestamp": _utc_now_iso(),
+                        "summary_uuid": msg.message_id,
+                        "data": {
+                            "reason": msg.metadata.get("compact_reason", "threshold"),
+                            "restored_files": msg.metadata.get("restored_files", []),
+                        },
+                    })
                 entry = _message_to_entry(msg, session_id)
                 if msg.role == "tool":
                     self._session_manager.writer.enqueue(path, entry)
@@ -842,32 +851,6 @@ class AgentRuntime:
         ):
             yield msg
 
-    async def _preflight_compaction(
-        self,
-        *,
-        session_id: str,
-        history: tuple[Message, ...],
-    ) -> CompactionResult | None:
-        if not self._compaction_settings.enabled:
-            return None
-        estimated_tokens = _estimate_context_tokens(history=history)
-        decision = should_compact(
-            context_tokens=estimated_tokens,
-            context_window=self._compaction_settings.context_window,
-            reserve_tokens=self._compaction_settings.reserve_tokens,
-        )
-        if decision is None:
-            return None
-        return await self._compact_session(session_id=session_id, reason=decision.reason)
-
-    async def _post_turn_check_overflow(self, *, session_id: str, error: ModelError) -> bool:
-        if not self._compaction_settings.enabled:
-            return False
-        if not _is_context_overflow_error(error):
-            return False
-        result = await self._compact_session(session_id=session_id, reason=CompactionReason.OVERFLOW)
-        return result is not None
-
     async def _compact_session(
         self,
         *,
@@ -891,7 +874,7 @@ class AgentRuntime:
                 current_working_directory=config.workspace_root,
             )
 
-        dropped_messages = tuple(_message_from_turn_entry(entry) for entry in plan.dropped_events)
+        dropped_messages = tuple(message_from_turn_entry(entry) for entry in plan.dropped_events)
         summary = await self._compaction_summarizer.summarize(
             session_id=session_id,
             system_prompt=rendered_system_prompt,
@@ -903,7 +886,7 @@ class AgentRuntime:
         restored_files: list[str] = []
         if file_state is not None:
             for state in reversed(file_state._states.values()):
-                content = _read_file_slice(
+                content = read_file_slice(
                     file_path=state.file_path,
                     offset=state.offset,
                     limit=state.limit,
@@ -1161,32 +1144,7 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _message_from_turn_entry(entry: SessionEntry) -> Message:
-    return Message(
-        message_id=str(entry.data.get("message_id", "")),
-        role=str(entry.data.get("role", "")),
-        content=str(entry.data.get("content", "")),
-    )
-
-
-def _read_file_slice(
-    file_path: str,
-    offset: int | None,
-    limit: int | None,
-) -> str | None:
-    """Read a file or a slice of it (offset/limit are 1-indexed line numbers)."""
-    try:
-        path = Path(file_path)
-        if not path.exists():
-            return None
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if offset is None or limit is None:
-            return text
-        lines = text.splitlines()
-        start = max(0, offset - 1)
-        end = start + limit
-        return "\n".join(lines[start:end])
-    except (OSError, ValueError):
-        return None
+# _message_from_turn_entry and _read_file_slice migrated to break loop->runtime cycle.
+# See session/entries.py and tools/session_file_state.py respectively.
 
 
