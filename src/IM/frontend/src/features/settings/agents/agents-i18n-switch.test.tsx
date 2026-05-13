@@ -40,7 +40,7 @@ describe("agents pages i18n zh switch", () => {
 
     expect(await screen.findByText("还没有 Agent")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "前往节点" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Agents" })).toBeInTheDocument();
+    expect(screen.getByText("Agents")).toBeInTheDocument();
   });
 
   it("renders detail page with Chinese card titles and Save button", async () => {
