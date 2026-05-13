@@ -5,6 +5,7 @@ import type { TokenUsage } from "../chat-types";
 
 interface TokenChipProps {
   usage: TokenUsage | null | undefined;
+  dataTestId?: string;
 }
 
 /**
@@ -16,7 +17,7 @@ interface TokenChipProps {
  * Clicking the chip expands a detail panel showing prompt/completion/total/context
  * breakdown, matching the prototype's TokenChip interaction (im-components.jsx).
  */
-export function TokenChip({ usage }: TokenChipProps) {
+export function TokenChip({ usage, dataTestId }: TokenChipProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   if (!usage) return null;
@@ -42,6 +43,7 @@ export function TokenChip({ usage }: TokenChipProps) {
         className={`chat-token-chip ${variant !== "normal" ? `chat-token-chip--${variant}` : ""}`}
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
+        data-testid={dataTestId}
       >
         <span className="chat-token-chip-arrow">{open ? "▾" : "▸"}</span>
         <span>{fmtK(displayed)} {t("chat.messagePane.tokenSuffix")}</span>

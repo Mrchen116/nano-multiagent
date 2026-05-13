@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import { AttachmentChip } from "../../attachments/attachment-chip";
@@ -121,13 +121,6 @@ export function MessagePane({
     }
   }
 
-  const latestUsage = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (messages[i].token_usage) return messages[i].token_usage ?? null;
-    }
-    return null;
-  }, [messages]);
-
   // Auto-scroll: when messages change, scroll the internal message container to
   // the bottom (not the whole page).  Uses scrollTop instead of scrollIntoView so
   // only the pane scrolls.
@@ -156,7 +149,6 @@ export function MessagePane({
           </div>
         </div>
         {!isMobile && <KindBadge kind={kind} />}
-        {!isMobile && <TokenChip usage={latestUsage} />}
         {onOpenConfig && (
           isMobile ? (
             <button
@@ -271,7 +263,7 @@ function MessageBubble({ message }: { message: Message }) {
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55_0.01_240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {message.token_usage && (
-            <PerBubbleTokenChip messageId={message.id} usage={message.token_usage} />
+            <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
           )}
         </div>
       </div>
@@ -287,24 +279,3 @@ function formatHM(iso: string): string {
   return `${hh}:${mm}`;
 }
 
-function PerBubbleTokenChip({ messageId, usage }: { messageId: string; usage: NonNullable<Message["token_usage"]> }) {
-  const pct = Math.round((usage.context_used / usage.context_window) * 100);
-  const critical = pct >= 90;
-  const warn = pct >= 70;
-  const colorClass = critical
-    ? "text-[oklch(0.55_0.15_25)] border-[oklch(0.55_0.15_25)]"
-    : warn
-      ? "text-[oklch(0.55_0.16_60)] border-[oklch(0.55_0.16_60)]"
-      : "text-[oklch(0.55_0.01_240)] border-[oklch(0.76_0.012_240)]";
-  const fmtK = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-  return (
-    <span
-      data-testid={`message-token-chip-${messageId}`}
-      className={`inline-flex items-center gap-1 px-[6px] py-[1px] rounded-full border text-[10px] ${colorClass}`}
-    >
-      <span>{fmtK(usage.output)} tok</span>
-      <span className="opacity-40">·</span>
-      <span>ctx {pct}%</span>
-    </span>
-  );
-}
