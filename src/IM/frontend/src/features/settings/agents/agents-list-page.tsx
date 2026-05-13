@@ -197,13 +197,13 @@ export function AgentsListPage() {
             </button>
           </section>
         ) : agents.length === 0 ? (
-          <section className="m-2 p-4 rounded-xl border border-[oklch(0.29_0.010_240)] bg-[oklch(0.28_0.012_240)] flex flex-col gap-2 text-[13px]">
-            <p className="font-bold m-0 text-white">{t("agents.empty.title")}</p>
+          <section className="m-2 p-4 rounded-xl border border-[oklch(0.87_0.006_240)] bg-white flex flex-col gap-2 text-[13px]">
+            <p className="font-bold m-0 text-[oklch(0.21_0.012_240)]">{t("agents.empty.title")}</p>
             <p className="m-0 text-[11px] text-[oklch(0.50_0.01_240)]">{t("agents.empty.body")}</p>
             <Link
               to="/settings/nodes"
               className="inline-flex items-center rounded-lg border-none px-3 py-1.5 text-[13px] font-semibold text-white"
-              style={{ background: "oklch(0.30 0.012 240)" }}
+              style={{ background: "oklch(0.52 0.14 180)" }}
             >
               {t("agents.openNodes")}
             </Link>

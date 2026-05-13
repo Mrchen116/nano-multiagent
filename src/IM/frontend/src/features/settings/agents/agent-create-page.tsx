@@ -426,6 +426,23 @@ export function AgentCreatePage() {
           </div>
         </section>
 
+        {/* Error / status banner */}
+        {(errorMessage || (hasSubmitted && hasValidationErrors) || (hasSubmitted && !isNodeOnline)) && (
+          <div
+            className={footerStatusClass}
+            style={{
+              background: "#fff",
+              borderRadius: 12,
+              border: `1px solid ${border}`,
+              padding: "10px 16px",
+              fontSize: "0.78rem",
+              fontWeight: 600
+            }}
+          >
+            {footerStatusText}
+          </div>
+        )}
+
         {/* Bottom action bar */}
         <div
           style={{

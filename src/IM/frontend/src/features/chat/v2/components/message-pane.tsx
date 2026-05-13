@@ -24,6 +24,10 @@ export interface MessagePaneProps {
   mentionCandidates: MentionCandidate[];
   nodeName?: string | null;
   nodeStatus?: "online" | "offline";
+  /** Agent color for header avatar (direct-agent conversations). */
+  agentColor?: string | null;
+  /** Agent initials for header avatar (direct-agent conversations). */
+  agentInitials?: string | null;
   /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
   isMobile?: boolean;
   onSend(text: string, attachments: Attachment[]): void;
@@ -57,6 +61,8 @@ export function MessagePane({
   mentionCandidates,
   nodeName,
   nodeStatus = "offline",
+  agentColor,
+  agentInitials,
   isMobile = false,
   onSend,
   onBack,
@@ -136,7 +142,11 @@ export function MessagePane({
         {onBack && (
           <button type="button" className="chat-pane-back" onClick={onBack} aria-label="Back">‹</button>
         )}
-        <Avatar initials={conversation.title.slice(0, 2)} size={34} />
+        <Avatar
+          initials={agentInitials ?? conversation.title.slice(0, 2)}
+          color={agentColor ?? undefined}
+          size={34}
+        />
         <div className="chat-pane-header-body">
           <h2 className="chat-pane-title">{conversation.title}</h2>
           <div className="chat-pane-header-meta">
@@ -219,9 +229,11 @@ export function MessagePane({
               ↑
             </button>
           </div>
-          <p className="chat-pane-composer-help">
-            {isGroup ? t("chat.messagePane.helpDesktopGroup") : t("chat.messagePane.helpDesktop")}
-          </p>
+          {!isMobile && (
+            <p className="chat-pane-composer-help">
+              {isGroup ? t("chat.messagePane.helpDesktopGroup") : t("chat.messagePane.helpDesktop")}
+            </p>
+          )}
         </AttachmentDropzone>
       </form>
     </section>
@@ -233,7 +245,10 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
   const isUser = message.sender.type === "user";
   const initials = (message.sender.display_name ?? message.sender.id).slice(0, 1).toUpperCase();
   const ts = formatHM(message.created_at);
-  const avatarBg = isUser ? "oklch(0.52_0.14_180)" : "oklch(0.52_0.14_270)";
+  const senderColor = message.sender.type === "agent" && message.sender.display_name
+    ? colorForSeed(message.sender.display_name)
+    : "oklch(0.52_0.14_270)";
+  const avatarBg = isUser ? "oklch(0.52_0.14_180)" : senderColor;
   const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
   const statusAlign = isUser ? "justify-end" : "justify-start";
   const deliveryStatus = message.delivery_status;
@@ -249,7 +264,9 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
       <div className="flex flex-col min-w-0">
         <div data-testid={`message-bubble-${message.id}`} className="chat-bubble-body">
           <div className="chat-bubble-meta">
-            <span className="chat-bubble-sender">{message.sender.display_name ?? message.sender.id}</span>
+            <span className="chat-bubble-sender" style={{ color: isUser ? undefined : senderColor }}>
+              {message.sender.display_name ?? message.sender.id}
+            </span>
           </div>
           {message.content && <div className="chat-bubble-content">{message.content}</div>}
           {message.attachments && message.attachments.length > 0 && (
@@ -262,11 +279,11 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
           {message.tool_calls && message.tool_calls.length > 0 && (
             <ToolCallsPanel toolCalls={message.tool_calls} />
           )}
-          {/* TokenChip moved inside bubble content, only for completed messages */}
-          {deliveryStatus === "completed" && message.token_usage && (
-            <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
-          )}
         </div>
+        {/* TokenChip lives outside bubble-body, in the status column below it (R11-7) */}
+        {deliveryStatus === "completed" && message.token_usage && (
+          <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
+        )}
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55_0.01_240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {deliveryStatus === "running" && (
@@ -282,6 +299,13 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
       </div>
     </div>
   );
+}
+
+function colorForSeed(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
+  const hue = Math.abs(hash) % 360;
+  return `oklch(0.55_0.15_${hue})`;
 }
 
 function formatHM(iso: string): string {

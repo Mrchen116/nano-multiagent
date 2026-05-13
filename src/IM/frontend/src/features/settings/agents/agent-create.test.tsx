@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
   getNodeCreateStateMock: vi.fn(),
@@ -128,11 +128,11 @@ describe("agent create page (three-card)", () => {
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "runtime-created helper" } });
     fireEvent.change(screen.getByLabelText(/^System Prompt/), { target: { value: "You are Agent New." } });
-    await user.click(screen.getByRole("checkbox", { name: /plan/i }));
-    await user.click(screen.getByRole("checkbox", { name: /read/i }));
+    await user.click(screen.getByRole("button", { name: /plan/i }));
+    await user.click(screen.getByRole("button", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Default Model"), "moonshotAnthropic:kimi-k2.5");
 
-    await user.click(screen.getByRole("button", { name: /Create agent/i }));
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     await waitFor(() => {
       expect(apiMocks.createNodeAgentMock).toHaveBeenCalledWith("node-1", {
@@ -192,7 +192,7 @@ describe("agent create page (three-card)", () => {
     await screen.findByRole("heading", { name: /New agent/i });
     const promptInput = screen.getByLabelText(/^System Prompt/);
     fireEvent.change(promptInput, { target: { value: "" } });
-    await user.click(screen.getByRole("button", { name: /Create agent/i }));
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/Agent ID is required/i)).toBeInTheDocument();
     expect(screen.getByText(/Display name is required/i)).toBeInTheDocument();
@@ -235,7 +235,7 @@ describe("agent create page (three-card)", () => {
     fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
     fireEvent.change(screen.getByLabelText(/^System Prompt/), { target: { value: "You are Agent New." } });
-    await user.click(screen.getByRole("button", { name: /Create agent/i }));
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/409.*agent already exists/i)).toBeInTheDocument();
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
@@ -267,7 +267,8 @@ describe("agent create page (three-card)", () => {
 
     renderCreatePage();
 
-    const cancel = await screen.findByRole("link", { name: /Cancel/i });
-    expect(cancel).toHaveAttribute("href", "/settings/agents");
+    const cancels = await screen.findAllByRole("link", { name: /^Cancel$/i });
+    expect(cancels.length).toBeGreaterThanOrEqual(1);
+    expect(cancels[0]).toHaveAttribute("href", "/settings/agents");
   });
 });

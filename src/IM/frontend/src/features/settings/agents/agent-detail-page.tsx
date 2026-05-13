@@ -399,9 +399,9 @@ export function AgentDetailPage() {
               <span
                 data-testid="agent-detail-status-pill"
                 className={statusChipClass}
-                aria-label={`${draft.agent_id} ${displayedNodeStatus}`}
+                aria-label={`${draft.agent_id} ${displayedNodeName}`}
               >
-                <span className="dot" /> {displayedNodeStatus}
+                <span className="dot" /> {displayedNodeName}
               </span>
               <button
                 type="button"

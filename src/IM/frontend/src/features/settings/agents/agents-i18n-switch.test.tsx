@@ -111,7 +111,7 @@ describe("agents pages i18n zh switch", () => {
     expect(screen.getByRole("heading", { name: "工作区与运行时" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /打开聊天/ })).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "保存 Agent" })).toBeInTheDocument();
     });
   });
 
@@ -160,7 +160,7 @@ describe("agents pages i18n zh switch", () => {
     expect(screen.getByRole("heading", { name: "行为" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "访问与模型" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /工作区/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "取消" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "取消" }).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("button", { name: "创建 Agent" })).toBeInTheDocument();
   });
 });
