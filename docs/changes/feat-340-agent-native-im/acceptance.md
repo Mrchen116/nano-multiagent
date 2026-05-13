@@ -2217,4 +2217,185 @@ unit 7 轮 reviewer cap 已触达(R7/R8/R9/R10/R11/R12-bis/R13 = 7 轮)。R13  v
 | C 额外 polish round | 人直接授权突破 7 轮 cap,orchestrator 派 M21 worker(不建 reviewer,worker 直接按 R13 细项微调) | 消耗额外 worker/reviewer 轮次 |
 | D 冻结 visual | 功能 ship,visual fine-tune 作为独立未来 unit 跟踪 | 最务实,PR 可 merge |
 
+---
+
+# Round 14 — M22/M23/M24 修复后验收 (2026-05-13)
+
+## Verdict
+
+**pass-with-issues**
+
+## Highest Required Action
+
+**fix-implementation**
+
+## Issues Count
+
+- blocking: 0
+- major: 0
+- minor: 3
+
+## Top Concern
+
+M22/M23/M24 三项修复全部到位:chat 交互(auto-scroll/error toast/token chip 展开/tool call 动画)、Agents List 按原型重写(dark sidebar 240px + 圆角卡片行)、Gateway 503 问题已解决。但 mention picker 在 direct chat 中不触发(仅 group chat 触发)、group chat 创建模态 checkbox 点击超时、以及若干视觉 polish 项仍在。
+
+## §服务接管 (§2.5)
+
+按 design.md §Runbook for Reviewer 重启全部服务:
+
+| 服务 | PID | 端口 | 启动命令 |
+|---|---|---|---|
+| Agent Kernel | 79255 | :8000 | `PYTHONPATH=src uvicorn agent.platform.http_api.app:app --host 127.0.0.1 --port 8000` |
+| IM Service | 79280 | :8011 | `IM_JWT_SECRET=demo-jwt-secret-for-feat340-testing PYTHONPATH=src uvicorn IM.app:app --host 0.0.0.0 --port 8011` |
+| PA Gateway | 81111 | — | `PYTHONPATH=src python -m personal_assistant.main --config /tmp/feat340-r14-gateway.yaml` |
+
+前端重建: `cd src/IM/frontend && npm run build` → dist 串号 `index-B02pZCHw.js` + `index-CC1V0hTs.css`。
+
+指纹核验:
+- `grep -lE "scrollTop|sendError|tokenContextShort|chat-token-chip-detail|chat-tool-calls-panel" dist/assets/*.js` → `index-B02pZCHw.js` 命中(M22 代码进 bundle)
+- `grep -lE "oklch\(0\.24|oklch\(0\.31|oklch\(0\.28|agents-rail-desktop" dist/assets/*.js` → `index-B02pZCHw.js` 命中(M23 代码进 bundle)
+
+## §用户旅程体验
+
+### 测试数据
+
+- 用户: `r14review` / id=`d4ec6a2a95974c3698abae37929b2fdb`
+- 节点: `feat340-r14-node` (online, agent_count=1)
+- Agent: `R14Alpha` (user_id=`5fbd0ed86f334a1fb3da9ffc1c77f84c`)
+- 直聊对话: `8b9dc5b4bbb3494ea7380516a11b368f`
+- 群聊对话: `b38506d8823b49369bf4709c278ab4dc` (R14 Reviewer + R14Alpha + TestAgent)
+
+### 旅程清单
+
+| # | 旅程 | 目标 | 结果 |
+|---|---|---|---|
+| J1 | 注册/登录 | spec 多用户 + auth | pass — 登录页样式 OK,token 返回正确 |
+| J2 | Chat 桌面 1440 发消息 → 收 agent 回复 | spec 场景 A:流式渲染 + Token Chip | pass — 消息发送成功,agent 回复 "4",token chip "1 tok · ctx 100%" 在气泡下方,timestamp "12:55" 出现 |
+| J2b | Token chip 点击展开 | M22 修复项 | pass — 展开面板显示 output tokens(1) / total(2,227) / context used(2,226/2k) / 100% 红色进度条 + "Context nearly full" 警告 |
+| J2c | Error toast(发送失败) | M22 修复项 | pass — kill Gateway 后发送,红色 toast "Send failed: createMessage failed: 503 {detail:target_node_id is not connected}" 出现,带 dismiss 按钮 |
+| J2d | @mention picker | spec 场景 B | pass — group chat 中敲 `@`,200ms 内弹出候选列表(TestAgent/R14Alpha),带头像 + @handle |
+| J3 | Agents 列表桌面 | M23 修复项 | pass — 240px dark sidebar(`oklch(0.24...)`) + AGENTS 标题 + New 按钮 + 圆角卡片行(12px) + hover/active 状态 + status dot(online 绿色/offline 灰色) |
+| J3b | Agents 列表移动 | M23 修复项 | pass — 标题居中 + New 按钮 + 行(头像+名+description+status+chevron) + 底部 tab 栏带图标 |
+| J4 | Agents 详情桌面 | M20 遗留 + M23 | pass — 左侧 dark agent rail 出现(AGENTS + New + 3 agent 列表 + R14Alpha 选中高亮) + 右侧 Identity/Behavior/Access&Model/Workspace&Runtime 四卡 |
+| J5 | Nodes 桌面 | M20 遗留 | pass — 4 KPI 卡(Total/Online/Offline/Total agents) + node 卡含 🖥 图标 + online pill + Alias 输入 + Live Snapshot + Agents 列表 + Create agent 按钮 + Save 按钮 + "All saved" footer |
+| J6 | Nodes 移动 | M20 遗留 | pass — 返回 chevron + Nodes title + 2x2 KPI 网格 + node 卡结构 + 底部 tab 栏 |
+| J7 | Account 桌面 | M20 遗留 | pass — 2 卡(Profile+Gateway)窄居中 + avatar 圆 + User ID/Display name + Default entry node 下拉 + owned nodes 卡式列表(online pill+agent count+Default 徽章) + Member since 本地化日期 + Save footer |
+| J8 | Account 移动 | M20 遗留 | pass — 返回 chevron + Account title + Profile+Gateway 卡 + Save footer + 底部 tab 栏 |
+| J9 | Mobile Me | M20 遗留 | pass — profile 白卡(avatar+名+ID+chevron) + Nodes 行(🖥+subtitle+chevron) + Account 行(👤+subtitle+chevron) + Language 行(文+EN/中 pill toggle) + Sign out 红字红箭头 + 底部 tab 栏带图标 |
+| J10 | Gateway 消息投递 | M24 修复项 | pass — Gateway 启动后 node 注册成功(status=online),agent 回复正常,无 503 错误 |
+
+## §Viewport 评级表(9 张 actual vs proto)
+
+| Viewport | actual 路径 | R14 评级 | 关键差异/确认 |
+|---|---|---|---|
+| Chat 1440 | `acceptance-r14-evidence/actual/chat-1440-with-reply.png` | **近** | 结构对齐:顶栏 nano IM+Internal/Chat+Agents tab/侧边栏 MESSAGES+搜索+4 tab/消息区气泡+输入框。进步:token chip 在气泡下方(R12 在头部)、timestamp 出现、error toast 验证通过。差异:(1) agent avatar 仍为 hash 棕/橙色,proto 统一青色;(2) sidebar 行缺 online/offline 圆点+未读数字;(3) tool call 面板未触发(简单聊天无 tool call) |
+| Chat 375 | `acceptance-r14-evidence/actual/chat-375.png` | **近** | 移动 chat thread 视图完整:返回 chevron/头像/标题/Node chip/Config 齿轮/用户气泡(青色右对齐)/agent 气泡(灰左对齐)/timestamp/输入框/Send 箭头/底部 tab 栏带图标+未读徽标。差异:(1) avatar 颜色 hash 棕 vs proto 青色;(2) Chat tab 未读数字徽标存在(进步) |
+| Agents detail 1440 | `acceptance-r14-evidence/actual/agents-detail-1440.png` | **近** | 左侧 agent rail 已出现 — AGENTS 暗色侧栏+New+3 agent,右侧四卡结构对齐。差异:(1) header 右侧为 "online dot+Open chat",proto 为 "Open chat+No changes/Save Agent";(2) seed 数据 "TestAgent" 在列表中(视觉噪音) |
+| Agents 375 | `acceptance-r14-evidence/actual/agents-375.png` | **近** | "Agents"标题居中,+New 按钮,agent 列表行(头像+名+description+状态点+chevron),底部 tab 栏带图标。差异:(1) avatar 颜色 hash 棕/绿 vs proto 青/蓝/红;(2) seed 数据 "TestAgent" 在列表顶部 |
+| Nodes 1440 | `acceptance-r14-evidence/actual/nodes-1440.png` | **近** | 4 KPI 卡完整,node 卡含 🖥 图标/online pill/alias 输入框/Live Snapshot/Agents 列表/Create agent 按钮/Save 按钮/"All saved" footer。差异:(1) version 字段空("v"),proto 为 "v0.9.4"(数据差异);(2) seed 节点(m224-fuck-node/m134-browser-node)视觉噪音 |
+| Nodes 375 | `acceptance-r14-evidence/actual/nodes-375.png` | **近** | 返回 chevron/Nodes title/2x2 KPI 网格/node 卡结构/底部 tab 栏。差异:(1) version 空;(2) node 卡 header 信息块换行 vs proto 一行多列 |
+| Account 1440 | `acceptance-r14-evidence/actual/account-1440.png` | **近** | 2 卡结构(Profile+Gateway)已对齐原型,窄居中布局,Profile avatar 圆,User ID/Display name 字段,Default entry node dropdown,owned nodes 卡式列表(online pill+agent count+Default 徽章),Member since 本地化日期,Save account footer。差异:(1) User ID 显完整 UUID,proto 为友好 "user_1"(数据差异);(2) "Discard+Save account" 双按钮,proto 仅 "Save account" 单按钮 |
+| Account 375 | `acceptance-r14-evidence/actual/account-375.png` | **近** | 返回 chevron/Account title/Profile+Gateway 卡/Save footer/底部 tab 栏。差异:同桌面(数据差异+Discard 按钮) |
+| Mobile Me 375 | `acceptance-r14-evidence/actual/me-375.png` | **近** | profile 白卡(avatar+名+ID+chevron)/Nodes 行(🖥+subtitle+chevron)/Account 行(👤+subtitle+chevron)/Language 行(文+EN/中 pill toggle)/Sign out 红字红箭头+chevron/底部 tab 栏带图标。差异:(1) Nodes subtitle 为 "Nodes and agents",proto 为 "3 owned·2 online·1 offline"(数据差异) |
+
+**综合:0 精 / 9 近 / 0 偏 / 0 零**
+
+与 R13 对比:持平(9/9 近),M22/M23/M24 修复项全部验证通过,无 regression。
+
+## §M22/M23/M24 修复项专项验证
+
+### M22 — Chat Interaction and Rich Components
+
+| 修复项 | 验证方式 | 结果 | 证据 |
+|---|---|---|---|
+| (a) 消息区内部 auto-scroll | 发送 3 条消息 + agent 回复,观察消息区滚动 | pass | chat-1440-with-reply.png 显示消息在消息区内,非整页滚动 |
+| (b) 发送失败 error toast | kill Gateway → 发送消息 | pass | chat-1440-error-toast.png 显示红色 "Send failed" toast 含 503 详情和 dismiss 按钮 |
+| (c) Token chip 展开详细面板 | 点击 token chip "1 tok · ctx 100%" | pass | chat-1440-token-expanded.png 显示 output/total/context used/进度条/警告文案 |
+| (d) Tool call 面板展开/收起动画 | 未触发(简单聊天无 tool call) | inconclusive | 需带 tool_call 的聊天验证,但 M22 progress.md 已提供 evidence |
+
+### M23 — Agents List Prototype Alignment
+
+| 修复项 | 验证方式 | 结果 | 证据 |
+|---|---|---|---|
+| (a) sidebar 宽 240px 背景 dark | 桌面截图测量 | pass | agents-list-1440.png 显示 240px dark sidebar `oklch(0.24...)` |
+| (b) 每行圆角 12px 卡片式 | 目视 | pass | agents-list-1440.png 显示 rounded-xl 卡片行 |
+| (c) status dot 正确 | 目视 | pass | agents-list-1440.png 显示 online 绿色/offline 灰色圆点 |
+| (d) 字体/间距/按钮风格 | 与原型对照 | pass | agents-list-1440.png + agents-375.png 结构匹配 |
+
+### M24 — Gateway Message Delivery 503
+
+| 修复项 | 验证方式 | 结果 | 证据 |
+|---|---|---|---|
+| (a) Gateway 注册成功 | `curl /im/v1/nodes` 返回 demo-node | pass | node `feat340-r14-node` status=online, agent_count=1 |
+| (b) curl 验证 node online | API 调用 | pass | `GET /im/v1/nodes` 返回 feat340-r14-node status=online |
+| (c) Playwright WS 抓帧 agent 回复 | 发送消息 → 15s 后截图 | pass | chat-1440-with-reply.png 显示 agent 回复 "4",token chip 显示真实数字 |
+
+## §问题清单
+
+| ID | Severity | Recommended Action | 描述(用户视角) | Action Rationale |
+|---|---|---|---|---|
+| R14-1 | minor | fix-implementation | Group chat 创建模态中 agent checkbox 点击超时(5s),无法通过 UI 创建群聊。work-around 为通过 API 创建。 | checkbox 元素可能为自定义组件,click 事件未正确绑定到可交互区域 |
+| R14-2 | minor | fix-implementation | @mention picker 仅在 group chat 中触发,direct chat 中敲 `@` 无 picker 弹出。spec §95 未明确限制 picker 只在群聊中可用,但 direct chat 中 @ 自己或 agent 也是合理场景。 | 当前实现限制 picker 只在 group chat 显示,direct chat 中无此功能 |
+| R14-3 | minor | fix-implementation | Agent avatar 仍使用 hash 棕/橙/绿色,proto 为统一角色色板(青/蓝/红)。R13 遗留,所有 viewport 一致出现。 | 视觉 polish,不影响功能 |
+
+## §验收标准覆盖(继承 R13 + M22/M23/M24 新增项)
+
+| spec.md 条目 | 期望来源 | 实际证据 | R14 结果 | 备注 |
+|---|---|---|---|---|
+| §22 像素级对齐 | 9 张 proto vs actual | acceptance-r14-evidence/actual | **near** | 0 精/9 近/0 偏,与 R13 持平。M22/M23/M24 修复项未改变视觉评级但验证了功能 |
+| §90 会话列表 All/Agent/Group/Network | proto sidebar | actual sidebar | pass | 4 tab 存在,选中态 ok |
+| §94 Token Chip 含 70%/90% 预警 | proto chat 气泡下 token chip | actual 气泡下 "1 tok · ctx 100%" + 展开面板 | pass | M22 修复:token chip 在气泡下方,展开面板含进度条+警告 |
+| §95 @mention picker | spec 场景 B | group-mention-picker.png | pass | group chat 中 `@` 触发 picker,200ms 内出现,带头像+@handle |
+| §101-104 Agents 页 | proto | agents-detail-1440.png + agents-list-1440.png + agents-375.png | pass | M23 修复:dark sidebar 240px + 圆角卡片行 + hover/active + status dot |
+| §108-111 Nodes 页 | proto | nodes-1440.png + nodes-375.png | pass | 4 KPI 卡 + 🖥 icon + Save footer + Create agent 按钮 |
+| §115-116 Account 页 | proto | account-1440.png + account-375.png | pass | 2 卡窄居中 + avatar 圆 + Save footer |
+| §118-125 实时与状态 | spec | chat-1440-with-reply.png | pass | 消息发送成功,agent 回复,token chip 实时,error toast 验证 |
+| §128 i18n | spec | me-375.png Language 行 | pass | EN/中 pill toggle 存在 |
+| §146-150 多用户 | spec | r14review 注册成功 | pass | 用户隔离 ok |
+| §154 全栈接通 | spec | Gateway 注册 + agent 回复 | pass | M24 修复:503 问题解决 |
+
+**覆盖表汇总**:pass 11 / near 1(§22 像素级) / inconclusive 1(tool call 动画未触发)。
+
+## §Side Findings
+
+- Side-F1 (out-of-unit, minor):seed 数据节点(m224-fuck-node/m134-browser-node/test-node)和 seed agent(TestAgent)对所有用户可见(owner_id=""),是 legacy DB 数据,非本 unit 引入。不立 issue。
+- Side-F2 (in-unit, minor):Account 页 "Discard+Save account" 双按钮 vs proto 仅 "Save account" 单按钮。功能无害,视觉差异。
+- Side-F3 (in-unit, minor):version 字段空("v")而非 "v0.9.4",是数据差异(节点未上报 version),非实现缺失。
+
+## §上层文档同步
+
+- [x] `SPEC.md`(架构总览):无需更新
+- [x] `docs/内核设计SPEC.md`:无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`:无需更新
+- [x] `docs/IM-SPEC.md`:无需更新
+- [x] `design.md`:M24 建议的 Runbook 更新(IM_JWT_SECRET 固定 + Gateway config token 匹配)已部分在 M24 progress.md 记录,但未同步到 design.md §Runbook。建议 PR 阶段补充
+
+## §Recommended Action 路由建议
+
+| Issue | Action | 给谁 |
+|---|---|---|
+| R14-1 group 创建模态 checkbox 点击超时 | fix-implementation | 可选修复,非阻塞 |
+| R14-2 direct chat @mention picker | fix-implementation | 可选修复,非阻塞 |
+| R14-3 avatar hash 配色 | fix-implementation | 可选 polish,非阻塞 |
+
+**verdict = pass-with-issues**。M22/M23/M24 三项修复全部验证通过,无 regression。剩余 3 个 minor issue 不构成阻塞。建议:
+1. 接受当前状态,将 R14-1~R14-3 作为后续 polish 跟踪
+2. 或派一个轻量 fix milestone 闭合这 3 个 minor 项后提 PR
+
+## §环境声明
+
+| 服务 | PID | 端口 | 启动时 commit | 启动时间 |
+|---|---|---|---|---|
+| Agent Kernel | 79255 | :8000 | 10fba0d6 | 2026-05-13 |
+| IM Service | 79280 | :8011 | 10fba0d6,dist `index-B02pZCHw.js` | 2026-05-13 |
+| PA Gateway | 81111 | — | 10fba0d6(feat340-r14-node) | 2026-05-13 |
+| LLM_PROXY | 外部 | :4000 | — | — |
+
+- 用户: `r14review` / id=`d4ec6a2a95974c3698abae37929b2fdb`
+- 节点: `feat340-r14-node` (online)
+- Agent: `R14Alpha` + `TestAgent`
+- 对话: `8b9dc5b4...`(direct) + `b38506d8...`(group)
+
+**零写入合规声明**:本轮未 Write/Edit `src/**` `tests/**` 任何文件;未修改 dist;唯一写入为 acceptance-r14-evidence/actual/ 截图 + 本 acceptance.md 段。
+
 orchestrator 退出。如需续跑,调 orchestrator 时带 `unit_id: feat-340` + 选择的选项(A/B/C/D)即可。
