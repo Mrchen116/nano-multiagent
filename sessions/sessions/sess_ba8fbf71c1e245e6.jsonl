@@ -1,3 +1,0 @@
-{"type": "session_created", "session_id": "sess_ba8fbf71c1e245e6", "created_at": "2026-05-13T15:29:17.525172+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent/.worktrees/feat-340-M28"}
-{"type": "turn", "uuid": "msg_45c50f984dc1b436", "parent_uuid": null, "session_id": "sess_ba8fbf71c1e245e6", "role": "user", "content": "ping", "timestamp": "2026-05-13T15:29:17.525495+00:00"}
-{"type": "turn", "uuid": "msg_ede675b4f5fae385", "parent_uuid": "msg_45c50f984dc1b436", "session_id": "sess_ba8fbf71c1e245e6", "role": "assistant", "content": "runtime-pong", "timestamp": "2026-05-13T15:29:17.525723+00:00", "group_id": "msg_ede675b4f5fae385"}

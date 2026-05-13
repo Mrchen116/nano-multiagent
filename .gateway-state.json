@@ -1,6 +1,0 @@
-{
-  "config_path": "/Users/czj/Repos/nano-multiagent/.worktrees/feat-340-M28/node-config.yaml",
-  "health_url": "http://127.0.0.1:54535/v1/health",
-  "log_path": "/Users/czj/Repos/nano-multiagent/.worktrees/feat-340-M28/gateway.log",
-  "pid": 95144
-}
