@@ -94,6 +94,13 @@ export function MePage() {
               {offlineCount > 0 ? ` · ${offlineCount} ${t("common.offline")}` : ""}
             </p>
           </div>
+          {offlineCount > 0 && (
+            <span
+              className="inline-block h-2 w-2 shrink-0 rounded-full"
+              style={{ background: "oklch(0.60 0.01 240)" }}
+              aria-label={`${offlineCount} offline`}
+            />
+          )}
           <span className={CHEVRON} aria-hidden="true" data-testid="me-row-chevron">›</span>
         </Link>
       </div>

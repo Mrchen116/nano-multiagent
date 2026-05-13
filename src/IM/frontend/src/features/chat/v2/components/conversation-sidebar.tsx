@@ -103,10 +103,16 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
           filtered.map((c) => {
             const active = c.id === activeConversationId;
             const dateStr = formatDate(c.last_message_at);
+            const kind = classifyConversationKind(c);
             const agentParticipant = c.participants.find((p) => p.type === "agent");
             const agentStatus = agentParticipant
               ? (agents?.find((a) => a.agent_id === agentParticipant.id)?.status ?? null)
               : null;
+            const avatarColor = kind === "group" || kind === "agent-network"
+              ? "oklch(0.52 0.14 270)"
+              : kind === "direct-user"
+                ? "oklch(0.52 0.14 30)"
+                : undefined;
             return (
               <li key={c.id}>
                 <button
@@ -116,7 +122,7 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
                   aria-current={active ? "true" : undefined}
                 >
                   <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                    <Avatar initials={c.title.slice(0, 2)} status={agentStatus} />
+                    <Avatar initials={c.title.slice(0, 2)} color={avatarColor} status={agentStatus} />
                   </span>
                   <span className="chat-sidebar-row-body">
                     <span className="chat-sidebar-row-title-line">
