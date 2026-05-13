@@ -96,6 +96,10 @@ im_url:     http://127.0.0.1:8011
 IM 启动必须带固定 secret，否则 token 随重启失效：
 `IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing" PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011`
 
+**Gateway 固定 config**：`/tmp/demo-gateway-config.yaml`（已含 token，开箱即用）
+
+启动：`PYTHONPATH=src python -m personal_assistant.main --config /tmp/demo-gateway-config.yaml`
+
 ### 非交互式 CLI 命令
 
 ```bash
