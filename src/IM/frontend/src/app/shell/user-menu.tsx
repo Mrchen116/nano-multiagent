@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
 import { useAuthStore } from "../../features/auth/auth-store";
+import { listNodes } from "../../features/settings/im-settings-api";
 
 /**
  * Desktop user menu — avatar dropdown with quick actions.
@@ -18,6 +20,11 @@ export function UserMenu() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lang = getCurrentLanguage();
+
+  const nodesQuery = useQuery({ queryKey: ["settings", "nodes"], queryFn: listNodes, staleTime: 30_000 });
+  const ownedNodes = (nodesQuery.data ?? []).filter((n) => user?.owned_node_ids?.includes(n.node_id));
+  const onlineCount = ownedNodes.filter((n) => n.status === "online").length;
+  const offlineCount = ownedNodes.length - onlineCount;
 
   useEffect(() => {
     if (!open) return;
@@ -41,6 +48,8 @@ export function UserMenu() {
     setLanguage(next);
     setOpen(false);
   };
+
+  const nodesSubtitle = `${ownedNodes.length} ${t("common.owned")} · ${onlineCount} ${t("common.online")}${offlineCount > 0 ? ` · ${offlineCount} ${t("common.offline")}` : ""}`;
 
   return (
     <div ref={containerRef} className="im-user-menu">
@@ -119,44 +128,54 @@ export function UserMenu() {
             </div>
           </div>
 
-          <Link role="menuitem" to="/settings/account" onClick={() => setOpen(false)}>
-            <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.account")}</div>
-            <div style={{ fontSize: 12, color: "var(--im-text-muted)", marginTop: 1 }}>
-              {t("me.sections.accountSubtitle")}
+          <Link role="menuitem" to="/settings/account" onClick={() => setOpen(false)} className="im-user-menu-item">
+            <span className="im-user-menu-icon">👤</span>
+            <div className="im-user-menu-item-body">
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.account")}</div>
+              <div style={{ fontSize: 12, color: "var(--im-text-muted)", marginTop: 1 }}>
+                {t("me.sections.accountSubtitle")}
+              </div>
             </div>
           </Link>
-          <Link role="menuitem" to="/settings/nodes" onClick={() => setOpen(false)}>
-            <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.nodes")}</div>
-            <div style={{ fontSize: 12, color: "var(--im-text-muted)", marginTop: 1 }}>
-              {t("me.sections.nodesSubtitle")}
+          <Link role="menuitem" to="/settings/nodes" onClick={() => setOpen(false)} className="im-user-menu-item">
+            <span className="im-user-menu-icon">🖥</span>
+            <div className="im-user-menu-item-body">
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.nodes")}</div>
+              <div style={{ fontSize: 12, color: "var(--im-text-muted)", marginTop: 1 }}>
+                {nodesSubtitle}
+              </div>
             </div>
+            <span className="im-user-menu-chevron-right" aria-hidden>›</span>
           </Link>
           <div role="group" className="im-user-menu-language">
-            <span>{t("shell.userMenu.language")}</span>
-            <span className="im-user-menu-language-divider">│</span>
-            <button
-              type="button"
-              role="menuitemradio"
-              aria-checked={lang === "en"}
-              onClick={() => handleLanguage("en")}
-              style={{ fontWeight: lang === "en" ? 700 : 500 }}
-            >
-              EN
-            </button>
-            <span className="im-user-menu-language-divider">│</span>
-            <button
-              type="button"
-              role="menuitemradio"
-              aria-checked={lang === "zh"}
-              onClick={() => handleLanguage("zh")}
-              style={{ fontWeight: lang === "zh" ? 700 : 500 }}
-            >
-              中
-            </button>
+            <span className="im-user-menu-icon">文</span>
+            <span style={{ fontSize: 14, fontWeight: 500, flex: 1 }}>{t("shell.userMenu.language")}</span>
+            <span className="im-user-menu-lang-options">
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={lang === "en"}
+                onClick={() => handleLanguage("en")}
+                style={{ fontWeight: lang === "en" ? 700 : 500 }}
+              >
+                EN
+              </button>
+              <span className="im-user-menu-language-divider">|</span>
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={lang === "zh"}
+                onClick={() => handleLanguage("zh")}
+                style={{ fontWeight: lang === "zh" ? 700 : 500 }}
+              >
+                中
+              </button>
+            </span>
           </div>
           <button role="menuitem" type="button" onClick={handleSignOut} className="im-user-menu-signout">
-            {t("shell.userMenu.signOut")}
-            <span style={{ marginLeft: "auto", fontSize: 16, fontWeight: 300, opacity: 0.7 }}>›</span>
+            <span className="im-user-menu-icon">↗</span>
+            <span style={{ flex: 1, textAlign: "left" }}>{t("shell.userMenu.signOut")}</span>
+            <span className="im-user-menu-chevron-right" aria-hidden>›</span>
           </button>
         </div>
       )}

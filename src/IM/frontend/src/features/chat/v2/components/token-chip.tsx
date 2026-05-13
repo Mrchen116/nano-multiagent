@@ -24,7 +24,8 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
 
   const pct = usage.context_window > 0 ? usage.context_used / usage.context_window : 0;
   const variant = pct >= 0.9 ? "critical" : pct >= 0.7 ? "warn" : "normal";
-  const displayed = usage.total && usage.total > 0 ? usage.total : usage.output;
+  // Prototype (im-components.jsx) always shows output tokens in the chip button.
+  const displayed = usage.output;
   const pctInt = Math.round(pct * 100);
 
   const barColor =

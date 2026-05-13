@@ -4,6 +4,11 @@ import { useTranslation } from "../../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
 import { Avatar } from "./avatar";
 
+interface SidebarAgent {
+  agent_id: string;
+  status: "online" | "offline";
+}
+
 type FilterKey = "all" | ConversationKind;
 
 const FILTER_ORDER: FilterKey[] = ["all", "direct-agent", "group", "agent-network"];
@@ -21,6 +26,7 @@ export interface ConversationSidebarProps {
   activeConversationId: string | null;
   onSelect(conversationId: string): void;
   onNewGroup(): void;
+  agents?: SidebarAgent[];
 }
 
 function formatDate(iso: string | null): string {
@@ -42,7 +48,7 @@ function formatDate(iso: string | null): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function ConversationSidebar({ conversations, activeConversationId, onSelect, onNewGroup }: ConversationSidebarProps) {
+export function ConversationSidebar({ conversations, activeConversationId, onSelect, onNewGroup, agents }: ConversationSidebarProps) {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [search, setSearch] = useState("");
@@ -97,6 +103,10 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
           filtered.map((c) => {
             const active = c.id === activeConversationId;
             const dateStr = formatDate(c.last_message_at);
+            const agentParticipant = c.participants.find((p) => p.type === "agent");
+            const agentStatus = agentParticipant
+              ? (agents?.find((a) => a.agent_id === agentParticipant.id)?.status ?? null)
+              : null;
             return (
               <li key={c.id}>
                 <button
@@ -106,7 +116,7 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
                   aria-current={active ? "true" : undefined}
                 >
                   <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                    <Avatar initials={c.title.slice(0, 2)} />
+                    <Avatar initials={c.title.slice(0, 2)} status={agentStatus} />
                   </span>
                   <span className="chat-sidebar-row-body">
                     <span className="chat-sidebar-row-title-line">

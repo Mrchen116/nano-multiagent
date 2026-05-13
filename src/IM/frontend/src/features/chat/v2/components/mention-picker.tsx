@@ -39,7 +39,7 @@ export function MentionPicker({ candidates, query, onSelect }: MentionPickerProp
         >
           <Avatar initials={c.initials} size={26} status={c.status} />
           <span className="chat-mention-picker-name">{c.display_name}</span>
-          <span className="chat-mention-picker-handle">@{c.agent_id.replace(/^agent[-_]/, "")}</span>
+          <span className="chat-mention-picker-handle">@{c.agent_id.replace(/^agent[_-]/, "")}</span>
         </button>
       ))}
     </div>

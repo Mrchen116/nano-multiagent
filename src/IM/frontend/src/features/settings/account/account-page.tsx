@@ -164,14 +164,7 @@ export function AccountPage() {
             <p className="m-0 text-[16px] font-extrabold text-[oklch(0.14_0.01_240)] truncate">
               {profile.display_name}
             </p>
-            {/* M20/R12-bis-4: show display_name as primary; user_id as small gray note. */}
-            <p
-              data-testid="account-user-id"
-              className="m-0 mt-[3px] text-[12px] text-[oklch(0.30_0.01_240)] truncate"
-            >
-              {profile.display_name}
-            </p>
-            <p className="m-0 font-mono text-[11px] text-[oklch(0.65_0.01_240)] truncate">
+            <p className="m-0 font-mono text-[11px] text-[oklch(0.55_0.01_240)] truncate">
               {profile.user_id || profile.id}
             </p>
           </div>

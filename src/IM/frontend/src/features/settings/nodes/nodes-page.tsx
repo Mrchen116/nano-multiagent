@@ -9,17 +9,21 @@ import { attachUserConversationStream } from "../../chat/im-chat-api";
 import { listAgentSummaries, type AgentSummary } from "../agents/im-agent-config-api";
 import { NodeSettingsProfile, listNodes, updateNode } from "../im-settings-api";
 
-const STATUS_DOT_CLASS: Record<string, string> = {
-  online: "bg-emerald-500",
-  offline: "bg-red-500",
-  degraded: "bg-amber-500"
-};
+function statusDotStyle(status: string): import("react").CSSProperties {
+  const online = status === "online";
+  return {
+    background: online ? "oklch(0.55 0.18 145)" : "oklch(0.60 0.01 240)"
+  };
+}
 
-const STATUS_PILL_CLASS: Record<string, string> = {
-  online: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  offline: "bg-red-50 text-red-700 border-red-200",
-  degraded: "bg-amber-50 text-amber-700 border-amber-200"
-};
+function statusPillStyle(status: string): import("react").CSSProperties {
+  const online = status === "online";
+  return {
+    background: online ? "oklch(0.93 0.07 145)" : "oklch(0.92 0.005 240)",
+    color: online ? "oklch(0.32 0.14 145)" : "oklch(0.50 0.01 240)",
+    border: `1px solid ${online ? "oklch(0.80 0.12 145)" : "oklch(0.85 0.005 240)"}`
+  };
+}
 
 function statusLabelKey(status: string): string {
   if (status === "online") return "settings.nodes.statusOnline";
@@ -222,8 +226,6 @@ export function NodesPage() {
         </div>
       </div>
       {rows.map((row) => {
-        const dotClass = STATUS_DOT_CLASS[row.status] ?? STATUS_DOT_CLASS.offline;
-        const pillClass = STATUS_PILL_CLASS[row.status] ?? STATUS_PILL_CLASS.offline;
         const statusText = t(statusLabelKey(row.status));
         const nodeAgents = agentsByNode.get(row.node_id) ?? [];
         const isOnline = row.status === "online";
@@ -250,11 +252,13 @@ export function NodesPage() {
                     <h3 className="m-0 text-[14px] font-extrabold text-[oklch(0.14_0.01_240)]">{row.alias ?? row.node_name}</h3>
                     <span
                       data-testid={`node-status-pill-${row.node_id}`}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium ${pillClass}`}
+                      className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
+                      style={statusPillStyle(row.status)}
                     >
                       <span
                         data-status-dot={row.status}
-                        className={`inline-block h-2 w-2 rounded-full ${dotClass}`}
+                        className="inline-block h-2 w-2 rounded-full"
+                        style={statusDotStyle(row.status)}
                       />
                       {statusText}
                     </span>

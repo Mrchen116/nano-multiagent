@@ -261,7 +261,8 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
     <div className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}>
       <span
         data-testid={`message-avatar-${message.id}`}
-        className={`inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold bg-[${avatarBg}]`}
+        className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
+        style={{ backgroundColor: avatarBg }}
         aria-hidden
       >
         {initials}
@@ -284,11 +285,10 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
           {message.tool_calls && message.tool_calls.length > 0 && (
             <ToolCallsPanel toolCalls={message.tool_calls} />
           )}
+          {deliveryStatus === "completed" && message.token_usage && (
+            <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
+          )}
         </div>
-        {/* TokenChip lives outside bubble-body, in the status column below it (R11-7) */}
-        {deliveryStatus === "completed" && message.token_usage && (
-          <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
-        )}
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55_0.01_240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {deliveryStatus === "running" && (

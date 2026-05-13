@@ -247,6 +247,10 @@ export function ChatWorkspacePageV2() {
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
           onNewGroup={() => setShowNewGroup(true)}
+          agents={(agentsQuery.data ?? []).map((a) => {
+            const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === a.node_id);
+            return { agent_id: a.agent_id, status: nodeRow?.status === "online" ? "online" : "offline" };
+          })}
         />
       )}
       {showDetail && (

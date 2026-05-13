@@ -98,7 +98,7 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
                     aria-label={a.display_name}
                     style={{ width: 16, height: 16, accentColor: "oklch(0.52 0.14 180)", flexShrink: 0 }}
                   />
-                  <Avatar initials={a.display_name.slice(0, 2)} size={30} />
+                  <Avatar initials={a.display_name.slice(0, 2)} size={30} status={a.status} />
                   <span className="chat-modal-agent-body">
                     <span className="chat-modal-agent-name">{a.display_name}</span>
                     {a.description && <span className="chat-modal-agent-desc">{a.description}</span>}
