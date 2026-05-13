@@ -23,6 +23,25 @@ export interface ConversationSidebarProps {
   onNewGroup(): void;
 }
 
+function formatDate(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const isToday = d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  if (isToday) {
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  }
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (d.getDate() === yesterday.getDate() && d.getMonth() === yesterday.getMonth() && d.getFullYear() === yesterday.getFullYear()) {
+    return "Yesterday";
+  }
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export function ConversationSidebar({ conversations, activeConversationId, onSelect, onNewGroup }: ConversationSidebarProps) {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -77,6 +96,7 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
         ) : (
           filtered.map((c) => {
             const active = c.id === activeConversationId;
+            const dateStr = formatDate(c.last_message_at);
             return (
               <li key={c.id}>
                 <button
@@ -89,17 +109,20 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
                     <Avatar initials={c.title.slice(0, 2)} />
                   </span>
                   <span className="chat-sidebar-row-body">
-                    <span className="chat-sidebar-row-title">{c.title}</span>
-                    {c.last_message_preview && (
-                      <span className="chat-sidebar-row-preview">{c.last_message_preview}</span>
-                    )}
-                  </span>
-                  <span className="chat-sidebar-row-meta">
-                    {c.unread_count > 0 && (
-                      <span className="chat-sidebar-row-unread" aria-label={`${c.unread_count} unread`}>
-                        {c.unread_count}
-                      </span>
-                    )}
+                    <span className="chat-sidebar-row-title-line">
+                      <span className="chat-sidebar-row-title">{c.title}</span>
+                      {dateStr && (
+                        <span className="chat-sidebar-row-time">{dateStr}</span>
+                      )}
+                    </span>
+                    <span className="chat-sidebar-row-preview-line">
+                      <span className="chat-sidebar-row-preview">{c.last_message_preview ?? ""}</span>
+                      {c.unread_count > 0 && (
+                        <span className="chat-sidebar-row-unread" aria-label={`${c.unread_count} unread`}>
+                          {c.unread_count}
+                        </span>
+                      )}
+                    </span>
                   </span>
                 </button>
               </li>

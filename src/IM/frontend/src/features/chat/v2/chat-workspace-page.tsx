@@ -132,15 +132,35 @@ export function ChatWorkspacePageV2() {
 
   // For direct-agent conversations, surface the agent's owning node (name +
   // online status) and the agent_id used by the ⚙ Config navigation.
-  const headerAgentContext = useMemo<{ agentId: string | null; nodeName: string | null; nodeStatus: "online" | "offline" }>(() => {
-    if (!activeConversation) return { agentId: null, nodeName: null, nodeStatus: "offline" };
+  const headerAgentContext = useMemo<{
+    agentId: string | null;
+    nodeName: string | null;
+    nodeStatus: "online" | "offline";
+    agentColor: string | null;
+    agentInitials: string | null;
+  }>(() => {
+    if (!activeConversation) {
+      return { agentId: null, nodeName: null, nodeStatus: "offline", agentColor: null, agentInitials: null };
+    }
     const agentParticipant = activeConversation.participants.find((p) => p.type === "agent");
-    if (!agentParticipant) return { agentId: null, nodeName: null, nodeStatus: "offline" };
+    if (!agentParticipant) {
+      return { agentId: null, nodeName: null, nodeStatus: "offline", agentColor: null, agentInitials: null };
+    }
     const agentRow = (agentsQuery.data ?? []).find((a) => a.agent_id === agentParticipant.id);
-    if (!agentRow) return { agentId: agentParticipant.id, nodeName: null, nodeStatus: "offline" };
+    if (!agentRow) {
+      return { agentId: agentParticipant.id, nodeName: null, nodeStatus: "offline", agentColor: null, agentInitials: null };
+    }
     const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === agentRow.node_id);
     const nodeStatus = nodeRow?.status === "online" ? "online" : "offline";
-    return { agentId: agentRow.agent_id, nodeName: nodeRow?.node_name ?? null, nodeStatus };
+    const initials = agentRow.display_name?.slice(0, 2) ?? agentRow.agent_id.slice(0, 2);
+    const color = colorForSeed(agentRow.display_name ?? agentRow.agent_id);
+    return {
+      agentId: agentRow.agent_id,
+      nodeName: nodeRow?.node_name ?? null,
+      nodeStatus,
+      agentColor: color,
+      agentInitials: initials
+    };
   }, [activeConversation, agentsQuery.data, nodesQuery.data]);
 
   const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
@@ -237,6 +257,8 @@ export function ChatWorkspacePageV2() {
             mentionCandidates={mentionQuery.data ?? []}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
+            agentColor={headerAgentContext.agentColor}
+            agentInitials={headerAgentContext.agentInitials}
             onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
             sendError={sendError}
             isSending={sendMutation.isPending}
@@ -251,6 +273,7 @@ export function ChatWorkspacePageV2() {
         ) : (
           !isMobile && (
             <div className="chat-empty-pane">
+              <div className="chat-empty-pane-icon" aria-hidden="true">💬</div>
               <p className="chat-empty-pane-title">{t("chat.messagePane.selectConversationTitle")}</p>
               <p className="chat-empty-pane-sub">{t("chat.messagePane.selectConversationSubtitle")}</p>
             </div>
@@ -259,15 +282,26 @@ export function ChatWorkspacePageV2() {
       )}
       {showNewGroup && (
         <NewGroupModal
-          agents={(agentsQuery.data ?? []).map((a) => ({
-            agent_id: a.agent_id,
-            display_name: a.display_name,
-            description: a.description
-          }))}
+          agents={(agentsQuery.data ?? []).map((a) => {
+            const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === a.node_id);
+            return {
+              agent_id: a.agent_id,
+              display_name: a.display_name,
+              description: a.description,
+              status: nodeRow?.status === "online" ? "online" : "offline"
+            };
+          })}
           onClose={() => setShowNewGroup(false)}
           onCreate={(payload) => createGroupMutation.mutate(payload)}
         />
       )}
     </div>
   );
+}
+
+function colorForSeed(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
+  const hue = Math.abs(hash) % 360;
+  return `oklch(0.55_0.15_${hue})`;
 }

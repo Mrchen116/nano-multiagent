@@ -8,6 +8,7 @@ interface AgentRow {
   agent_id: string;
   display_name: string;
   description?: string;
+  status?: "online" | "offline";
 }
 
 export interface NewGroupModalProps {
@@ -102,6 +103,21 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
                     <span className="chat-modal-agent-name">{a.display_name}</span>
                     {a.description && <span className="chat-modal-agent-desc">{a.description}</span>}
                   </span>
+                  {a.status && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 99,
+                        flexShrink: 0,
+                        background: a.status === "online" ? "oklch(0.93 0.10 145)" : "oklch(0.93 0.005 240)",
+                        color: a.status === "online" ? "oklch(0.35 0.14 145)" : "oklch(0.55 0.01 240)"
+                      }}
+                    >
+                      {t(`chat.status.${a.status}`)}
+                    </span>
+                  )}
                 </label>
               </li>
             );

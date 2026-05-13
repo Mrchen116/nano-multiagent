@@ -212,6 +212,10 @@ export function AgentCreatePage() {
               ‹
             </button>
           )}
+          <Avatar
+            initials={draft.display_name?.trim()?.slice(0, 2) || "??"}
+            size={isMobile ? 38 : 42}
+          />
           <div style={{ flex: 1 }}>
             <h2
               className="im-agent-panel-title"
@@ -425,6 +429,23 @@ export function AgentCreatePage() {
             </select>
           </div>
         </section>
+
+        {/* Error / status banner */}
+        {(errorMessage || (hasSubmitted && hasValidationErrors) || (hasSubmitted && !isNodeOnline)) && (
+          <div
+            className={footerStatusClass}
+            style={{
+              background: "#fff",
+              borderRadius: 12,
+              border: `1px solid ${border}`,
+              padding: "10px 16px",
+              fontSize: "0.78rem",
+              fontWeight: 600
+            }}
+          >
+            {footerStatusText}
+          </div>
+        )}
 
         {/* Bottom action bar */}
         <div

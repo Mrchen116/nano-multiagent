@@ -489,7 +489,7 @@ body {
 .im-input {
   width: 100%;
   border: 1px solid var(--im-border);
-  border-radius: 0.5rem;
+  border-radius: 0.625rem;
   background: var(--im-surface);
   padding: 0.55rem 0.75rem;
   font: inherit;
@@ -842,7 +842,7 @@ body {
 .im-agent-card {
   background: var(--im-surface);
   border: 1px solid var(--im-border);
-  border-radius: 0.85rem;
+  border-radius: 0.75rem;
   padding: 1rem;
   display: grid;
   gap: 0.75rem;
@@ -1108,6 +1108,13 @@ body {
   flex-direction: column;
 }
 
+.chat-sidebar-row-title-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .chat-sidebar-row-title {
   font-size: 0.875rem;
   font-weight: 600;
@@ -1117,13 +1124,27 @@ body {
   color: oklch(0.88 0.01 240);
 }
 
+.chat-sidebar-row-time {
+  font-size: 0.7rem;
+  color: oklch(0.50 0.01 240);
+  flex-shrink: 0;
+}
+
+.chat-sidebar-row-preview-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 1px;
+}
+
 .chat-sidebar-row-preview {
   font-size: 0.75rem;
   color: oklch(0.50 0.01 240);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-top: 1px;
+  flex: 1;
 }
 
 .chat-sidebar-row-meta {
@@ -1141,6 +1162,7 @@ body {
   padding: 0.1rem 0.45rem;
   font-size: 0.7rem;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 /* Message pane */
@@ -1419,6 +1441,30 @@ body {
   border: 1px solid var(--im-border);
 }
 
+.chat-kind-agent {
+  background: oklch(0.93 0.06 180);
+  color: oklch(0.32 0.12 180);
+  border-color: oklch(0.78 0.10 180);
+}
+
+.chat-kind-group {
+  background: oklch(0.93 0.05 300);
+  color: oklch(0.35 0.12 300);
+  border-color: oklch(0.78 0.10 300);
+}
+
+.chat-kind-network {
+  background: oklch(0.93 0.05 60);
+  color: oklch(0.40 0.12 60);
+  border-color: oklch(0.80 0.10 60);
+}
+
+.chat-kind-direct-user {
+  background: oklch(0.93 0.005 240);
+  color: oklch(0.45 0.01 240);
+  border-color: oklch(0.85 0.005 240);
+}
+
 /* Node chip */
 .chat-node-chip {
   display: inline-flex;
@@ -1489,12 +1535,16 @@ body {
   background: oklch(0.6 0.012 240);
 }
 
+.chat-avatar-status--running {
+  background: oklch(0.70 0.18 60);
+}
+
 /* Mention picker */
 .chat-mention-picker {
   position: absolute;
   bottom: calc(100% + 4px);
   left: 0;
-  right: 0;
+  right: 48px;
   background: var(--im-surface);
   border: 1px solid var(--im-border);
   border-radius: 0.75rem;
@@ -1832,7 +1882,7 @@ body {
   font-size: 0.72rem;
   display: grid;
   gap: 0.5rem;
-  min-width: 200px;
+  min-width: 220px;
   max-width: 280px;
   animation: token-chip-fade-in 0.15s ease;
 }
@@ -2203,6 +2253,12 @@ body {
 .chat-empty-pane-sub {
   margin: 0;
   font-size: 0.875rem;
+}
+
+.chat-empty-pane-icon {
+  font-size: 32px;
+  opacity: 0.4;
+  margin-bottom: 4px;
 }
 
 /* chat-workspace-page wrapper (outer shell) */
