@@ -437,7 +437,7 @@ describe("MessagePane", () => {
         />
       );
       const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_WARN.id}`);
-      expect(chip.className).toMatch(/oklch\(0\.55_0\.16_60\)|oklch\(0\.55_0\.18_60\)|warn/);
+      expect(chip.className).toMatch(/chat-token-chip--warn/);
     });
 
     it("token chip flips to critical color at >=90% context", () => {
@@ -450,7 +450,7 @@ describe("MessagePane", () => {
         />
       );
       const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_CRIT.id}`);
-      expect(chip.className).toMatch(/oklch\(0\.55_0\.15_25\)|critical/);
+      expect(chip.className).toMatch(/chat-token-chip--critical/);
     });
 
     it("does not render a per-bubble TokenChip when token_usage is absent", () => {

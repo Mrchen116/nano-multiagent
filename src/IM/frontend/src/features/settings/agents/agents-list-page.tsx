@@ -127,7 +127,7 @@ export function AgentsListPage() {
 
   return (
     <div
-      className="flex flex-col"
+      className="flex flex-col flex-1 min-h-0"
       style={{
         width: isMobile ? "100%" : 240,
         flex: isMobile ? 1 : undefined,

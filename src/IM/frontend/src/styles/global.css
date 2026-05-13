@@ -1559,9 +1559,18 @@ body {
 }
 
 .chat-modal-agent input[type="checkbox"] {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--im-border);
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.chat-modal-agent input[type="checkbox"]:checked {
+  background: var(--im-accent);
+  border-color: var(--im-accent);
 }
 
 .chat-modal-agent:hover {
@@ -1659,6 +1668,7 @@ body {
  * ============================================================ */
 
 .chat-token-chip-wrapper {
+  position: relative;
   margin-top: 0.35rem;
 }
 
@@ -1713,6 +1723,7 @@ body {
 
 /* Expanded detail panel */
 .chat-token-chip-detail {
+  position: absolute;
   margin-top: 0.25rem;
   padding: 0.6rem 0.75rem;
   border-radius: 0.55rem;
