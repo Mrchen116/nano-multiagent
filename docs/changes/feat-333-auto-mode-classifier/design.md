@@ -15,7 +15,8 @@
 |---|---|---|
 | `src/agent/platform/tools/safety.py` | 命令策略检查 (`check_command_policy`)：allowlist/denylist + `"review"` 三级判定；路径沙箱 | 扩展：新增 `auto_mode` 配置加载，将 `review` 级命令路由到分类器 |
 | `src/agent/platform/hooks/builtins/bash_risk_gate.py` | 对 `review` 级 bash 命令调用 LLM 做 safe/unsafe 二分类 | **重构为** `auto_mode_gate.py`：统一处理所有工具（非仅 bash）的 allow/deny/ask 决策 |
-| `src/agent/core/hooks/context.py` | `HookContext`：携带 `call_model()` 能力 | 不改：分类器通过 `ctx.call_model()` 调用 LLM |
+| `src/agent/core/hooks/context.py` | `HookContext`：携带 `call_model()` 能力 | **扩展**：新增 `message_history` 字段，分类器需要对话历史构成 transcript |
+| `src/agent/core/agent/loop.py` | AgentLoop：构建 HookContext 并 dispatch hook | 扩展：创建 HookContext 时注入 `llm_messages` 作为 `message_history` |
 | `src/agent/core/tools/registry.py` | `ToolRegistry.execute()`：tool_call intercept 可 block/allow/rewrite | 不改：auto_mode_gate 作为 hook 接入，复用现有 intercept 机制 |
 | `src/agent/products/local_coding/profile.py` | Coding CLI 产品配置 | 不改：auto_mode 配置从 config 文件加载，不改 profile 结构 |
 | `src/agent/products/personal_assistant/profile.py` | PA 产品配置 | 不改：同上 |
@@ -147,6 +148,35 @@
 - **风险**: 用户需要手动编辑配置文件来启用/禁用，不如 flag 方便。但符合"危险操作应该显式"的安全原则。
 
 ## 接口与数据流
+
+### HookContext 扩展：message_history
+
+分类器需要对话历史来构成 transcript 上下文。当前 `HookContext` 不携带 message history，需要扩展。
+
+```python
+@dataclass(frozen=True, slots=True)
+class HookContext:
+    session_id: str
+    turn_id: str | None = None
+    repo_root: Path | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    logger: HookLogger = field(default_factory=HookLogger)
+    model_caller: HookModelCaller | None = None
+    session_event_publisher: HookSessionEventPublisher | None = None
+    message_history: tuple[LLMMessage, ...] = ()  # 新增：当前对话历史
+```
+
+**数据流**：
+```
+AgentLoop.run()
+  ↓ 构建 llm_messages（含 history + user_text + system prompt）
+  ↓ 创建 HookContext(message_history=tuple(llm_messages), ...)
+  ↓ dispatch "tool_call" hook
+auto_mode_gate hook
+  ↓ 从 ctx.message_history 构建 transcript
+  ↓ 投影用户消息 + tool_use blocks，排除 assistant text
+  ↓ 发送给分类器 LLM
+```
 
 ### 配置数据结构
 
