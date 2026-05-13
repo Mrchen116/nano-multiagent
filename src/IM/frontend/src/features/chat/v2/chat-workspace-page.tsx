@@ -178,11 +178,43 @@ export function ChatWorkspacePageV2() {
 
   const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
 
+  // Persistent cache for token_usage (and delivery_status) so that switching
+  // browser tabs — which triggers React Query refetchOnWindowFocus — does not
+  // wipe token chips.  REST history never carries token_usage; only WS
+  // message.completed provides it.  The cache survives across resets.
+  const tokenUsageCache = useRef(new Map<string, { token_usage: NonNullable<Message["token_usage"]>; delivery_status: Message["delivery_status"] }>());
+
+  // Whenever the stream receives a completed message with token_usage, write
+  // it into the persistent cache.
+  useEffect(() => {
+    for (const m of streamState.messages) {
+      if (m.token_usage && m.delivery_status === "completed") {
+        tokenUsageCache.current.set(m.id, { token_usage: m.token_usage, delivery_status: m.delivery_status });
+      }
+    }
+  }, [streamState.messages]);
+
   // Seed the reducer with REST history whenever the active conversation or its
-  // historical fetch changes.
+  // historical fetch changes.  Prefer the persistent cache, then fallback to
+  // the current reducer state.
   useEffect(() => {
     if (!conversationId || !messagesQuery.data) return;
-    dispatch({ type: "reset", conversationId, messages: messagesQuery.data.items });
+    const restored = messagesQuery.data.items.map((m) => {
+      const cached = tokenUsageCache.current.get(m.id);
+      if (cached) {
+        return { ...m, token_usage: cached.token_usage, delivery_status: cached.delivery_status };
+      }
+      // Fallback to existing reducer state (legacy merge path)
+      if (m.token_usage) return m;
+      const existing = streamState.conversation_id === conversationId
+        ? streamState.messages.find((sm) => sm.id === m.id)
+        : undefined;
+      if (existing?.token_usage) {
+        return { ...m, token_usage: existing.token_usage, delivery_status: existing.delivery_status };
+      }
+      return m;
+    });
+    dispatch({ type: "reset", conversationId, messages: restored });
   }, [conversationId, messagesQuery.data]);
 
   // Open the WS stream once for the workspace lifetime; events flow into the
@@ -320,5 +352,5 @@ function colorForSeed(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
   const hue = Math.abs(hash) % 360;
-  return `oklch(0.55_0.15_${hue})`;
+  return `oklch(0.55 0.15 ${hue})`;
 }

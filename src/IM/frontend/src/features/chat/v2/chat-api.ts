@@ -132,10 +132,12 @@ export async function listMentionCandidates(opts: {
   const res = await authFetch("/im/v1/agents");
   const rows = await jsonOrThrow<AgentRow[]>(res, "listMentionCandidates");
   const allowed = new Set(
-    opts.conversation.participants.filter((p) => p.type === "agent").map((p) => p.id)
+    opts.conversation.participants
+      .filter((p) => p.type === "agent")
+      .map((p) => p.id.replace(/^agent:/, ""))
   );
   return rows
-    .filter((r) => allowed.has(r.agent_id))
+    .filter((r) => allowed.has(r.agent_id.replace(/^agent:/, "")))
     .map((r) => ({
       agent_id: r.agent_id,
       display_name: r.display_name,
