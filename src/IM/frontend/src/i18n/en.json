@@ -305,7 +305,9 @@
     },
     "mention": {
       "header": "Mention agent",
-      "empty": "No agents to mention"
+      "empty": "No agents to mention",
+      "noAgents": "No agents available to mention",
+      "noMatch": "No matching agents"
     }
   }
 }

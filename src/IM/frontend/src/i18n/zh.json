@@ -302,7 +302,9 @@
     },
     "mention": {
       "header": "选择 agent",
-      "empty": "没有可召唤的 agent"
+      "empty": "没有可召唤的 agent",
+      "noAgents": "没有可提及的 agent",
+      "noMatch": "无匹配结果"
     }
   }
 }

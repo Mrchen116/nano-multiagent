@@ -10,7 +10,6 @@ import {
   createConversation,
   createMessage,
   listConversations,
-  listMentionCandidates,
   listMessages,
   type AgentRow
 } from "./chat-api";
@@ -116,13 +115,8 @@ export function ChatWorkspacePageV2() {
   const messagesQuery = useQuery({
     enabled: Boolean(conversationId),
     queryKey: ["chat-v2", "messages", conversationId],
-    queryFn: () => listMessages(conversationId!, { markAsRead: true })
-  });
-
-  const mentionQuery = useQuery({
-    enabled: Boolean(activeConversation),
-    queryKey: ["chat-v2", "mention-candidates", conversationId],
-    queryFn: () => listMentionCandidates({ conversation: activeConversation! })
+    queryFn: () => listMessages(conversationId!, { markAsRead: true }),
+    refetchOnWindowFocus: false
   });
 
   const agentsQuery = useQuery({
@@ -142,6 +136,26 @@ export function ChatWorkspacePageV2() {
     }
     return map;
   }, [agentsQuery.data]);
+
+  // Derive mention candidates from already-loaded agentsQuery instead of a
+  // separate API round-trip. This eliminates the loading race where the user
+  // types `@` before listMentionCandidates resolves.
+  const mentionCandidates = useMemo(() => {
+    if (!activeConversation) return [];
+    const allowed = new Set(
+      activeConversation.participants
+        .filter((p) => p.type === "agent")
+        .map((p) => p.id.replace(/^agent:/, ""))
+    );
+    return (agentsQuery.data ?? [])
+      .filter((a) => allowed.has(a.agent_id.replace(/^agent:/, "")))
+      .map((a) => ({
+        agent_id: a.agent_id,
+        display_name: a.display_name,
+        initials: a.display_name?.slice(0, 2).toUpperCase() ?? a.agent_id.slice(0, 2).toUpperCase(),
+        status: ((nodesQuery.data ?? []).find((n) => n.node_id === a.node_id)?.status === "online" ? "online" : "offline") as "online" | "offline"
+      }));
+  }, [activeConversation, agentsQuery.data, nodesQuery.data]);
 
   // For direct-agent conversations, surface the agent's owning node (name +
   // online status) and the agent_id used by the ⚙ Config navigation.
@@ -303,7 +317,7 @@ export function ChatWorkspacePageV2() {
           <MessagePane
             conversation={activeConversation}
             messages={streamState.messages}
-            mentionCandidates={mentionQuery.data ?? []}
+            mentionCandidates={mentionCandidates}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
             agentColor={headerAgentContext.agentColor}

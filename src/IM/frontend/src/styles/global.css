@@ -1417,8 +1417,8 @@ body {
 /* Message bubble */
 .chat-bubble {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  flex-direction: row;
+  gap: 0.5rem;
   max-width: 72%;
 }
 
