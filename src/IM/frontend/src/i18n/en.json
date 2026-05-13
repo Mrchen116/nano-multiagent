@@ -36,6 +36,7 @@
     },
     "userMenu": {
       "newAgent": "New agent",
+      "nodes": "Nodes",
       "account": "Account",
       "language": "Language",
       "signOut": "Sign out"

@@ -62,6 +62,9 @@ export function UserMenu() {
           <Link role="menuitem" to="/settings/agents" onClick={() => setOpen(false)}>
             {t("shell.userMenu.newAgent")}
           </Link>
+          <Link role="menuitem" to="/settings/nodes" onClick={() => setOpen(false)}>
+            {t("shell.userMenu.nodes")}
+          </Link>
           <Link role="menuitem" to="/settings/account" onClick={() => setOpen(false)}>
             {t("shell.userMenu.account")}
           </Link>
