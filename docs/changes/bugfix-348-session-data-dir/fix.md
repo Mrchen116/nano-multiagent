@@ -64,32 +64,73 @@ workspace 走。实际落地的行为不是这样：
 
 ## 修复
 
-改动两处文件，覆盖个人助手和 Coding CLI 两个产品（均走同一 bootstrap 路径）：
+方案：**内核无状态，`workspace_root` 由调用方每次请求带上**（Option C，owner 拍定）。
+内核不持有、也不持久化 `session_id → workspace_root` 映射——需要定位 session 文件的
+请求由调用方带上 `workspace_root`（gateway 从每个 agent 的配置取，CLI 取自己的工作目录）。
+覆盖个人助手 + Coding CLI 两个产品。
 
-### `src/agent/core/session/jsonl_store.py`
+### 内核侧
 
-`JsonlSessionStore` 新增 workspace-aware 模式：
+- **`src/agent/core/session/jsonl_store.py`** — `JsonlSessionStore` 改为无状态：
+  `create` / `load` / `append` / `update_config` / `resolve_path` / `list_session_ids` /
+  `find_session_by_metadata` 接收调用方传入的 `workspace_root`，路径解析为
+  `{workspace_root}/.nano/sessions/{session_id}.jsonl`。`data_dir` 降为「可选默认 base」，
+  **仅供测试脚手架**；`_resolve_base` 优先 `data_dir`，否则 `{workspace_root}/.nano`，
+  两者皆无则**显式抛 `SessionNotFoundError`**——绝不静默回退 cwd（静默回退正是本 bug）。
+- **`src/agent/platform/bootstrap.py`** — `JsonlSessionStore(data_dir=None)`，杜绝生产
+  cwd 回退（改前是 `data_dir=resolved_root / ".nano"`，`resolved_root` 是进程 cwd，
+  即根因）。
+- **`src/agent/core/session/manager.py`** — `SessionManager` 各方法透传 `workspace_root`。
+- **`src/agent/core/agent/runtime.py`** — `run` / `continue_turn` / `compact` /
+  `fork_session` / `get_session` 接收 `workspace_root`；首次 load 后 `config.workspace_root`
+  缓存供后续写入；新增 `active_session_ids` / `session_workspace_root` 访问器。
+- **`src/agent/core/runs/registry.py`** — `RunRecord` 增 `workspace_root` 字段，`submit`
+  透传给 `runtime.run`。
+- **`src/agent/platform/persistence/session/service.py`** — `SessionService` 透传。
+- **`src/agent/platform/http_api/app.py`** — kernel 退出时的 `session_shutdown` 钩子广播
+  改为遍历 `runtime.active_session_ids()`（无状态内核无全局注册表；且只对本进程跑过的
+  session 触发也是语义正确的）。
 
-- `__init__` 的 `data_dir` 参数改为可空（`Path | None`）。
-  - `data_dir=<Path>`：原有固定根目录行为，向后兼容。
-  - `data_dir=None`：workspace-aware 模式，路径按会话的 `workspace_root` 解析。
-- 新增 `_workspace_roots: dict[str, Path]` 内存缓存（`session_id → workspace_root`）。
-- `create()` 在 workspace-aware 模式下把 `config.workspace_root` 写入缓存。
-- `_resolve_path()` 改为调用 `_resolve_base(session_id)`，后者在 workspace-aware 模式下
-  查缓存，返回 `{workspace_root}/.nano`；固定模式下直接返回 `_data_dir`。
-- `list_session_ids()` 和 `_build_agent_index()` 在 workspace-aware 模式下扫描所有已知
-  workspace root，而不是单一的 `_data_dir`。
+### HTTP 层
 
-### `src/agent/platform/bootstrap.py`
+- **`src/agent/platform/http_api/routes/session.py`** — `SendMessageRequest` /
+  `AppendMessageRequest` 增 `workspace_root` 字段；fork/compact/interrupt 用新增的
+  `SessionWorkspaceBody`；GET 路由（get_session / list / tools / messages / context-budget /
+  stream）增 `workspace_root` 查询参数。`_optional_workspace_root` 对既有 session 不做 cwd
+  兜底——缺失即让 store 大声报错。
 
-将 `JsonlSessionStore(data_dir=resolved_root / ".nano")` 改为 `JsonlSessionStore(data_dir=None)`，
-启用 workspace-aware 模式。`resolved_root` 是进程 cwd，改前是根因所在。
+### 工具层
+
+- **`agent.py` / `task.py`** — subagent JSONL 在父 session 的 workspace_root 下，从
+  runtime 取父 workspace_root 透传给 subagent 路径；`BackgroundSubagentRunner.start`
+  （`interfaces.py` / `runtime_runner.py` / `wiring.py`）增 `workspace_root`。
+
+### 两端发送方
+
+- **PA** — `kernel_api_client` 的 `submit_message` / `append_message` / `interrupt_session` /
+  `get_session` 增 `workspace_root`；`inbound_pipeline` / `heartbeat_scheduler` 从 agent
+  配置取 workspace_root 带上；`InternalDispatchHandler` 注入 `agent_id → workspace_root`
+  映射；`PersistentSessionBindingStore.get()` 去掉冗余且失效的 kernel 探活——存活/workspace
+  校验上移到 `_binding_matches_workspace_root`（那里知道 agent 的 workspace_root）。
+- **Coding CLI** — `client` 的 `submit_message` / `stream_session` / `list_session_tools` /
+  `compact_session` / `get_context_budget` / `get_session_messages` 默认带 `os.getcwd()`
+  （CLI 进程单一工作目录，与 `create_session` 既有默认一致）。
+
+### 其他
+
+- `.gitignore` 补 `.nano/`：测试以 cwd 作 workspace_root 时会在仓库内生成，不提交。
 
 ### Commits
 
-- `e694ae38` — C1: 4 个失败测试（workspace_root 隔离、多目录、load/append 验证）
-- `03dc339a` — C2: 实现修复（JsonlSessionStore workspace-aware 模式 + bootstrap 切换）
-- C3（本 commit）— 文档 + fix.md 回填
+- `ad5cb7d0` — plan: 改采 Option C，tasks.md 架构决策段收口为单一方案
+- `60671e07` — C1: 失败测试（跨重启 load、缺 workspace_root 显式抛错、HTTP 全链路透传）
+  + 各测试替身签名更新
+- `e8a3bb89` — C2: 实现（内核无状态 + 全链路 workspace_root 透传 + 两端 client）
+- C3（本 commit）— progress.md 重写为 Option C + fix.md 回填
+
+> 注：本 unit 早期一版（已合入的 `d555c887`）走的是「内核内存缓存 workspace_root」方案，
+> 该方案进程重启后 load 不到上一进程写的 session，破坏跨重启 resume。本轮按 owner 决策
+> 撤掉内存缓存，改为内核无状态。
 
 ## 验证
 
@@ -99,43 +140,45 @@ workspace 走。实际落地的行为不是这样：
 # 在仓库目录下启动个人助手
 PYTHONPATH=src python -m uvicorn personal_assistant.kernel_app:app --port 18070
 
-# 创建 session
+# 创建 session（workspace_root 指向某 agent 工作区）
 curl -s -X POST http://127.0.0.1:18070/v1/sessions \
-  -H "Authorization: Bearer test-token" \
-  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer test-token" -H "Content-Type: application/json" \
   -d '{"workspace_root": "/tmp/agent-workspace-test"}'
 
 # 修前：JSONL 落在仓库目录下的 .nano/sessions/，不在 /tmp/agent-workspace-test/.nano/sessions/
-ls .nano/sessions/   # 可见 sess_xxx.jsonl
+ls .nano/sessions/                            # 可见 sess_xxx.jsonl（污染仓库）
 ls /tmp/agent-workspace-test/.nano/sessions/  # 不存在
 ```
 
-### 修后不能复现（单元测试验证）
+### 修后不能复现 + 跨重启 resume 正常
 
-4 个新增测试全部通过：
+新增/改写测试全部通过（`pytest tests/unit/test_platform_bootstrap.py
+tests/integration/test_session_flow_integration.py` 等）：
 
-```
-tests/unit/test_platform_bootstrap.py::test_bootstrap_product_builds_profile_session_store
-tests/unit/test_platform_bootstrap.py::test_session_jsonl_falls_in_workspace_root_not_process_cwd
-tests/unit/test_platform_bootstrap.py::test_workspace_aware_store_multiple_workspaces_isolated
-tests/unit/test_platform_bootstrap.py::test_workspace_aware_store_load_and_append_after_create
-```
+- `test_session_jsonl_falls_in_workspace_root_not_process_cwd` —— 直接断言 JSONL 落在
+  `{workspace_root}/.nano/sessions/{session_id}.jsonl`，且**不在**进程 cwd。
+- `test_workspace_aware_store_multiple_workspaces_isolated` —— 两个不同 workspace 的
+  session 各自落在自己目录，互不串。
+- `test_stateless_store_load_survives_process_restart` —— **跨进程重启**：store A
+  create + 写 turn → 丢弃 A → 全新 store B（零内核状态）→ `load(session_id,
+  workspace_root=...)` 读回 config + messages，`append` 后再 load 读到两条 turn。
+  证明无状态内核靠调用方传入的 workspace_root 即可跨重启 resume（修复了早期内存缓存
+  方案的回归）。
+- `test_stateless_store_raises_without_workspace_root_and_without_data_dir` —— 缺
+  workspace_root 且无 data_dir 时显式抛 `SessionNotFoundError`，不静默回退 cwd。
+- `test_http_workspace_root_threaded_to_session_jsonl_location` —— 真实 HTTP
+  create + append + get 全链路：JSONL 落在请求带的 workspace_root 下、不在进程 cwd；
+  缺 workspace_root 的 GET 返回 404（store 大声报错而非静默命中错位置）。
 
-`test_session_jsonl_falls_in_workspace_root_not_process_cwd` 直接断言：
-- `{workspace_root}/.nano/sessions/{session_id}.jsonl` 存在
-- 进程 cwd 的 `.nano/sessions/{session_id}.jsonl` 不存在
+### 回归
 
-`test_workspace_aware_store_multiple_workspaces_isolated` 验证两个不同 workspace 下的 session
-互相隔离，各自落在正确目录。
+`pytest tests/unit tests/integration tests/contract`（排除两个 collection-error 文件
+`test_m170_rerun_acceptance` / `test_m170_runtime`），与基线逐项 diff：**0 个新失败**。
+基线 156 个 pre-existing 失败（多为缺依赖、与 session 无关的 tools 测试）；修复后 154，
+因联调时补装 `aiohttp` 顺带修了一个环境失败。
 
-### 已有回归测试通过
-
-```
-pytest tests/unit/test_platform_bootstrap.py tests/unit/test_session_manager.py
-       tests/unit/test_session_service.py tests/unit/test_session_service_with_profile.py
-       tests/unit/test_jsonl_store_dag_recovery.py tests/unit/agent/session/
-       tests/unit/test_fork_session.py tests/unit/test_m236_session_metadata_hookcontext.py
-       tests/integration/test_session_flow_integration.py tests/integration/test_app_bootstrap.py
-```
-
-结果：44 passed，1 pre-existing failure（与本修复无关的 `test_append_message_persists_history_once_per_idempotency_key`，修前即失败）。
+核心 session 测试集（`test_platform_bootstrap` / `test_session_manager` /
+`test_session_service*` / `test_jsonl_store_dag_recovery` / `agent/session/` /
+`test_fork_session` / `test_session_flow_integration` / `background_tasks/`）：
+57 passed，1 pre-existing failure（`test_append_message_persists_history_once_per_idempotency_key`，
+与本修复无关，早期 round 即确认修前失败）。
