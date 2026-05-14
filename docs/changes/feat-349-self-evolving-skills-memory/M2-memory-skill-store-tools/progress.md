@@ -54,4 +54,20 @@
 - Commits: C1=316bf4e6, C2=44d0d5b0, C3=（本条记录所在提交）
 - Next: R4 — skill_manage tool
 
+### R4 — platform/tools/builtins/skill_manage: Tool 包装
+
+- Context: design 决策 5 要求 skill_manage 作为 platform 层薄包装调用 core/skills SkillWriter。hermes §4 确认 schema：action ∈ {create,edit,patch,delete,write_file,remove_file}。本项目不做 delete/write_file/remove_file（设计简化），保留 create/edit/patch/view/list。
+- Decision: `SkillManageTool` 接受 `skill_root + registry` 注入；`run()` 捕获所有 ValueError 返回 `{"success": False}`；`__init__.py` 导出 SkillManageTool 和 MemoryTool（但不加入 builtin_tools() 默认集合，M3 负责注册）。
+- Rationale: 工具不应抛异常——LLM 工具结果用 success/error 字段，而非 Python exception；M3 负责路径解析和注册符合分层职责。
+- Evidence:
+  - Tests: 19/19 通过。覆盖 create/edit/patch/view/list/duplicate/无效参数/unknown action。
+  - Entry: N/A（工具层，M3 集成测试覆盖 HTTP 入口）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: 回退到 R3 C3 417e2ea6
+- Commits: C1=4354c803, C2=91f5edd3, C3=（本条记录所在提交）
+- Next: R5 — memory Tool
+
 <!-- 每个 roadpoint 完成后追加 -->
