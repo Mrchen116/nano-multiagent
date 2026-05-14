@@ -174,10 +174,13 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                 },
             )
 
+    # timeout_ms is not enforced for BACKGROUND mode (fire-and-forget), but the
+    # registry requires a positive value for all registrations; use a nominal
+    # value that would be ignored in practice.
     hooks.on(
         "agent_end",
         on_agent_end,
         priority=200,
-        timeout_ms=0,
+        timeout_ms=1500,
         mode="background",
     )

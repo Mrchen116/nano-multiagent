@@ -17,6 +17,8 @@ from agent.core.skills.registry import SkillRegistry
 from agent.platform.config.resolver import ConfigResolver
 from agent.platform.hooks.loader import build_hook_registry
 from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.platform.tools.builtins.memory import MemoryTool
+from agent.platform.tools.builtins.skill_manage import SkillManageTool
 from agent.platform.tools.loader import build_tool_registry
 from agent.platform.tools.registry import ToolRegistry
 
@@ -111,6 +113,21 @@ def bootstrap_product(
             product_skill_root=product_root / "skills",
         )
     )
+
+    # Register self-evolution tools when config_resolver provides resolved paths.
+    # These tools require constructor-time path arguments; they are NOT in the
+    # default builtin_tools() tuple (see platform/tools/builtins/__init__.py).
+    if config_resolver is not None:
+        skill_roots = config_resolver.user_skill_roots()
+        # Prefer workspace skill root (first in precedence); fall back to global.
+        skill_root = skill_roots[0] if skill_roots else config_resolver.global_config_root() / "skills"
+        memory_root = config_resolver.user_memory_root()
+
+        skill_manage_tool = SkillManageTool(skill_root=skill_root, registry=skill_registry)
+        tool_registry.register(skill_manage_tool, replace=True)
+
+        memory_tool = MemoryTool(memory_root=memory_root)
+        tool_registry.register(memory_tool, replace=True)
 
     return ResolvedProductConfig(
         product_id=profile.product_id,
