@@ -16,6 +16,11 @@ class BackgroundRunEventProcessor:
         """Return display lines produced by a background-origin event."""
         event_name = event.get("event")
         run_id = event.get("run_id")
+
+        # Session-level events (no run_id) are rendered immediately.
+        if event_name == "self_evolution_review":
+            return _format_self_evolution_review(event)
+
         if event_name == "run_status":
             return self._process_run_status(event=event, run_id=run_id)
         if not isinstance(run_id, str) or not run_id.strip():
@@ -54,6 +59,36 @@ def format_origin_header(event: dict[str, object]) -> str | None:
     if origin == "heartbeat":
         return "── heartbeat ──"
     return f"── origin: {origin.strip()} ──"
+
+
+def _format_self_evolution_review(event: dict[str, object]) -> list[str]:
+    """Render a self_evolution_review session event as one system notification line.
+
+    The ``·`` prefix style distinguishes system notifications from agent output.
+
+    Args:
+        event: Raw self_evolution_review event payload.
+
+    Returns:
+        Single-element list with the formatted notification string.
+    """
+    data = event.get("data", {}) or {}
+    if not isinstance(data, dict):
+        data = {}
+
+    reviewed_skills: bool = bool(data.get("reviewed_skills", False))
+    reviewed_memory: bool = bool(data.get("reviewed_memory", False))
+
+    if reviewed_skills and reviewed_memory:
+        subject = "skills + memory"
+    elif reviewed_skills:
+        subject = "skills"
+    elif reviewed_memory:
+        subject = "memory"
+    else:
+        subject = "self-evolution"
+
+    return [f"· background self-evolution review: {subject} updated"]
 
 
 def _format_background_event_lines(event: dict[str, object]) -> list[str]:
