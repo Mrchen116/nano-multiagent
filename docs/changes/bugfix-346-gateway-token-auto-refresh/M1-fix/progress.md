@@ -59,5 +59,5 @@
   - Browser QA: N/A
   - E2E/Regression: test_main.py 新增
   - Visual/Interaction: N/A
-- Rollback: C3 hash 见下
-- Commits: C1=TBD, C2=TBD, C3=TBD
+- Rollback: ad801d0f（C1 commit）
+- Commits: C1=ad801d0f, C2=a298ef31, C3=TBD
