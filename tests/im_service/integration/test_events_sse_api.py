@@ -3,42 +3,27 @@
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from IM.app import create_app
-
-
-def _create_user(client: TestClient, username: str) -> str:
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": username.title()},
-    )
-    assert response.status_code == 201
-    return response.json()["id"]
-
-
-def _create_conversation(client: TestClient, participant_id: str) -> str:
-    response = client.post(
-        "/im/v1/conversations",
-        json={"title": "chat", "participant_ids": [participant_id]},
-    )
-    assert response.status_code == 201
-    return response.json()["id"]
+from .conftest import authorize, make_app_client, register_user
 
 
 def test_user_stream_resume_replays_persisted_events(tmp_path: Path) -> None:
     """resume after_event_id=0 回放已有 message 事件。"""
-    app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
-        alice_id = _create_user(client, "alice")
-        conversation_id = _create_conversation(client, alice_id)
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username="alice")
+        authorize(client, alice)
+        conversation = client.post(
+            "/im/v1/conversations",
+            json={"title": "chat", "participant_ids": [alice.id]},
+        )
+        assert conversation.status_code == 201
+        conversation_id = conversation.json()["id"]
         first = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": alice_id, "content": "first"},
+            json={"sender_user_id": alice.id, "content": "first"},
         )
         assert first.status_code == 201
 
-        with client.websocket_connect(f"/im/ws/user?user_id={alice_id}") as websocket:
+        with client.websocket_connect(f"/im/ws/user?token={alice.access_token}") as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             event_types: list[str] = []
             for _ in range(6):

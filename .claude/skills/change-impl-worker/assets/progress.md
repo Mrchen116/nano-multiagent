@@ -21,7 +21,13 @@ phase-locked 不重要，知识同步重要。
 - Context: <为什么做这一步>
 - Decision: <做了什么>
 - Rationale: <为什么这么做>
-- Evidence: <测试 / 截图 / 日志 / 手测结论>
+- Evidence:
+  - Tests: <测试结果>
+  - Entry: <真实入口验证结果>
+  - Frontend State Matrix: <default/loading/empty/error/mobile/long-content 等覆盖情况;非前端写 N/A>
+  - Browser QA: <打开的 URL / 用户路径 / console error 检查 / network failure 检查;非前端写 N/A>
+  - E2E/Regression: <E2E 或 regression 用例路径 + 命令 + 结果;不适用写 N/A 和原因>
+  - Visual/Interaction: <截图/录屏路径、viewport、reference 对照结论;非前端写 N/A>
 - Rollback: <如何回退>
 - Commits: <hash 或 PR>
 

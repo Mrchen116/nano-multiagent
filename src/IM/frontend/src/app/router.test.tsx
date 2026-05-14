@@ -76,17 +76,9 @@ describe("app routes", () => {
     streamConversationEvents.mockReturnValue(() => undefined);
   });
 
-  it("renders the chat conversation route with production workspace copy", async () => {
-    renderRouter({ routes: appRoutes, initialEntries: ["/chat/conv-1"] });
-
-    expect(await screen.findByText("Conversations")).toBeInTheDocument();
-    expect(screen.queryByText("Keep each agent's reusable direct chat, shared threads, and agent coordination in one production inbox.")).not.toBeInTheDocument();
-    expect(screen.queryByText("P1-P7 Skeleton")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "You & Teammate" })).toBeInTheDocument();
-  });
-
   it("declares the root entry redirect to /chat", () => {
-    const rootIndexRoute = appRoutes[0]?.children?.find((route) => route.index);
+    const rootRoute = appRoutes.find((route) => route.path === "/");
+    const rootIndexRoute = rootRoute?.children?.find((route) => route.index);
     const rootElement = rootIndexRoute?.element;
 
     expect(rootIndexRoute).toBeDefined();
@@ -109,16 +101,22 @@ describe("app routes", () => {
   });
 
   it("renders the settings agents entry", async () => {
-    renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
+    const { container } = renderRouter({ routes: appRoutes, initialEntries: ["/settings/agents"] });
 
-    expect(await screen.findByRole("heading", { name: "Agents" })).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "Settings Sections" })).toBeInTheDocument();
+    // "Agents" appears multiple times (shell nav + page title), use getAllByText
+    const agentsTexts = await screen.findAllByText("Agents");
+    expect(agentsTexts.length).toBeGreaterThanOrEqual(1);
+    // M19/R11-2: Settings 二级 sub-nav 已移除 — 每子页直渲。
+    expect(container.querySelector('nav[aria-label="Settings Sections"]')).toBeNull();
   });
 
   it("renders the node-scoped agent creation route", async () => {
-    renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes/node-1/agents/new"] });
+    const { container } = renderRouter({
+      routes: appRoutes,
+      initialEntries: ["/settings/nodes/node-1/agents/new"]
+    });
 
-    expect(await screen.findByText(/Could not load this node\.|Create Agent on/i)).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "Settings Sections" })).toBeInTheDocument();
+    expect(await screen.findByText(/Could not load agents\.|New agent/i)).toBeInTheDocument();
+    expect(container.querySelector('nav[aria-label="Settings Sections"]')).toBeNull();
   });
 });

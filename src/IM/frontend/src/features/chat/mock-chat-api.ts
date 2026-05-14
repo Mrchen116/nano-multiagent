@@ -440,6 +440,7 @@ export async function sendMessage(input: { conversationId: string; content: stri
 export function streamConversationEvents(_: {
   conversationId: string;
   selfUserId?: string | null;
+  token: string;
   afterEventId?: number;
   onEvent: (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void;
   onError?: (error: Error) => void;
@@ -449,6 +450,7 @@ export function streamConversationEvents(_: {
 
 export function attachUserConversationStream(_: {
   selfUserId: string;
+  token: string;
   onEvent: (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void;
   onResyncRequired?: () => Promise<void>;
 }) {

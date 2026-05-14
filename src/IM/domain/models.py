@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 _MANAGED_WORKSPACE_ROOT = Path("~/nano-assistant/workspace").expanduser()
@@ -83,6 +84,8 @@ class User:
     owned_node_ids: list[str] = field(default_factory=list)
     default_entry_node_id: str | None = None
     created_at: str = ""
+    password_hash: str | None = None
+    locale: str = "en"
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +165,52 @@ class Conversation:
         return None
 
 
+_TOOL_CALL_STATUSES = frozenset({"running", "completed", "failed"})
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCall:
+    """Represent one tool invocation embedded inside an agent message.
+
+    Stored as JSON in ``messages.tool_calls_json`` rather than a separate table:
+    tool calls are strongly subordinate to one message, never queried across messages,
+    and share its lifecycle (decision 4 of feat-340 design).
+    """
+
+    id: str
+    name: str
+    status: str
+    duration_ms: int | None = None
+    input: dict[str, Any] = field(default_factory=dict)
+    output: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.status not in _TOOL_CALL_STATUSES:
+            raise ValueError(
+                f"tool_call.status must be one of: {sorted(_TOOL_CALL_STATUSES)}; got {self.status!r}"
+            )
+        if not self.id.strip():
+            raise ValueError("tool_call.id must be non-empty")
+        if not self.name.strip():
+            raise ValueError("tool_call.name must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class TokenUsage:
+    """Per-message token usage snapshot rendered in the chat Token Chip.
+
+    ``context_used`` / ``context_window`` are the model's request-side context
+    accounting; ``output`` is the completion tokens for this single message.
+    ``total`` (M17/R8-3) is the per-turn prompt+completion sum surfaced by the
+    chip so users see actual token consumption, not just the completion size.
+    """
+
+    output: int
+    context_used: int
+    context_window: int
+    total: int = 0
+
+
 @dataclass(frozen=True, slots=True)
 class Message:
     """Represent a single message in a conversation."""
@@ -175,6 +224,8 @@ class Message:
     attachments: list[Attachment] = field(default_factory=list)
     delivery_status: str = "completed"
     created_at: str = ""
+    tool_calls: list[ToolCall] | None = None
+    token_usage: TokenUsage | None = None
 
     def __post_init__(self) -> None:
         if self.sender is None:

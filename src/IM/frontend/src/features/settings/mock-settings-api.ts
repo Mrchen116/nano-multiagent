@@ -115,8 +115,9 @@ const initialPolicies: PolicyProfile = {
   rate_limit_per_min: 45
 };
 
+// Placeholder mock identity for offline/demo mode; real account uses Bearer auth.
 const initialAccount: AccountProfile = {
-  user_id: "owner-1001",
+  user_id: "mock-user",
   display_name: "CZJ",
   owned_node_ids: ["node-app-01", "node-app-02"],
   default_entry_node_id: "node-app-01",

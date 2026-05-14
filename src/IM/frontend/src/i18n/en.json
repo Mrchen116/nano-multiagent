@@ -1,0 +1,314 @@
+{
+  "auth": {
+    "login": {
+      "title": "Sign in",
+      "subtitle": "Welcome back to nano IM.",
+      "username": "Username",
+      "password": "Password",
+      "submit": "Sign in",
+      "submitting": "Signing in…",
+      "noAccount": "No account yet?",
+      "registerLink": "Create one",
+      "errorInvalid": "Invalid username or password.",
+      "errorGeneric": "Sign in failed. Please try again."
+    },
+    "register": {
+      "title": "Create your account",
+      "subtitle": "Pick a username and password to get started.",
+      "username": "Username",
+      "password": "Password",
+      "displayName": "Display name",
+      "submit": "Create account",
+      "submitting": "Creating…",
+      "haveAccount": "Already have an account?",
+      "loginLink": "Sign in",
+      "errorUsernameTaken": "That username is taken.",
+      "errorGeneric": "Could not create account."
+    },
+    "logout": "Sign out"
+  },
+  "shell": {
+    "appName": "nano IM",
+    "tabs": {
+      "chat": "Chat",
+      "agents": "Agents",
+      "me": "Me"
+    },
+    "userMenu": {
+      "newAgent": "New agent",
+      "nodes": "Nodes",
+      "account": "Account",
+      "language": "Language",
+      "signOut": "Sign out"
+    }
+  },
+  "me": {
+    "title": "Me",
+    "sections": {
+      "account": "Account",
+      "accountSubtitle": "Profile and gateway",
+      "nodes": "Nodes",
+      "nodesSubtitle": "Nodes and gateway",
+      "language": "Language",
+      "notifications": "Notifications",
+      "signOut": "Sign out"
+    },
+    "language": {
+      "en": "English",
+      "zh": "中文"
+    },
+    "notifications": {
+      "toggle": "Enable desktop notifications",
+      "hint": "Show a system banner when an agent reply arrives while this tab is in the background."
+    }
+  },
+  "common": {
+    "loading": "Loading…",
+    "save": "Save",
+    "saving": "Saving…",
+    "discard": "Discard",
+    "cancel": "Cancel",
+    "create": "Create",
+    "delete": "Delete",
+    "back": "Back",
+    "retry": "Retry",
+    "empty": "Nothing here yet.",
+    "owned": "owned",
+    "online": "online",
+    "offline": "offline"
+  },
+  "settings": {
+    "nav": {
+      "agents": "Agents",
+      "nodes": "Nodes",
+      "account": "Account"
+    },
+    "nodes": {
+      "title": "Nodes",
+      "subtitle": "Gateway nodes connected to this workspace.",
+      "loading": "Loading nodes…",
+      "empty": "No nodes connected yet.",
+      "aliasLabel": "Alias {{nodeId}}",
+      "liveSnapshot": "Live Snapshot",
+      "heartbeat": "Heartbeat",
+      "version": "Version",
+      "lastError": "Last Error",
+      "relayEnabled": "Relay Enabled",
+      "reportingEnabled": "Reporting Enabled",
+      "save": "Save {{nodeId}}",
+      "saving": "Saving…",
+      "allSaved": "All saved",
+      "unsavedChanges": "Unsaved changes",
+      "createAgentOn": "+ New agent on node",
+      "agentsOnNode": "Agents on this node",
+      "agentsOnNodeEmpty": "No agents on this node yet.",
+      "liveName": "live name: {{name}}",
+      "agentsCount": "agents: {{count}}",
+      "agentsShort": "agents",
+      "versionShort": "version",
+      "kpiTotal": "Total nodes",
+      "kpiOnline": "Online",
+      "kpiOffline": "Offline",
+      "kpiAgents": "Total agents",
+      "statusOnline": "online",
+      "statusOffline": "offline",
+      "statusDegraded": "degraded"
+    },
+    "account": {
+      "title": "Account",
+      "subtitle": "Your profile and default gateway configuration.",
+      "identity": {
+        "heading": "Profile",
+        "subtitle": "Your identity inside the workspace.",
+        "displayName": "Display name",
+        "username": "Username",
+        "userId": "User ID",
+        "createdAt": "Member since"
+      },
+      "defaults": {
+        "heading": "Gateway",
+        "subtitle": "Controls which node routes your messages by default.",
+        "defaultEntryNode": "Default entry node",
+        "defaultEntryNodeHint": "Choose from your owned nodes.",
+        "selectNode": "— Select a node —",
+        "ownedNodes": "Owned nodes",
+        "ownedNodesEmpty": "No nodes bound yet.",
+        "defaultChip": "Default",
+        "agentsShort": "agents"
+      },
+      "preferences": {
+        "heading": "Preferences",
+        "subtitle": "Language and desktop notifications.",
+        "language": "Language",
+        "notifications": "Enable desktop notifications",
+        "notificationsHint": "Show a system banner when an agent reply arrives while this tab is in the background."
+      },
+      "actions": {
+        "save": "Save",
+        "saveAccount": "Save account",
+        "saving": "Saving…",
+        "discard": "Discard",
+        "savedJustNow": "Saved.",
+        "unsavedChanges": "Unsaved changes",
+        "saveFailed": "Save failed: {{detail}}"
+      }
+    }
+  },
+  "agents": {
+    "title": "Agents",
+    "newButton": "+ New",
+    "loadError": "Could not load agents.",
+    "retry": "Retry",
+    "openNodes": "Open Nodes",
+    "empty": {
+      "title": "No agents yet",
+      "body": "Open Nodes to create your first runtime profile on an online bound node."
+    },
+    "rowStatus": {
+      "online": "{{id}} online",
+      "offline": "{{id}} offline"
+    },
+    "detail": {
+      "selectPrompt": "Select an agent",
+      "selectHint": "Choose an agent to view or edit its configuration.",
+      "openChat": "Open chat ↗",
+      "openChatPending": "Opening direct chat…",
+      "saveAgent": "Save Agent",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "✓ Saved",
+      "noChanges": "No changes",
+      "unsavedChanges": "● Unsaved changes",
+      "discard": "Discard",
+      "version": "v{{version}}",
+      "loading": "Loading agent profile..."
+    },
+    "form": {
+      "identity": {
+        "title": "Identity",
+        "subEdit": "Name and purpose shown to users and other agents.",
+        "subNew": "Agent ID is permanent and used in mentions and API calls.",
+        "agentId": "Agent ID",
+        "agentIdRequired": "Agent ID *",
+        "agentIdHelp": "Lowercase letters, numbers, _ and -",
+        "agentIdPlaceholder": "e.g. my_agent",
+        "displayName": "Display Name",
+        "displayNameRequired": "Display Name *",
+        "displayNamePlaceholder": "e.g. My Agent",
+        "displayNameHelper": "Shown in conversations and group chats.",
+        "description": "Description",
+        "descriptionHelp": "Short summary shown in group chats.",
+        "descriptionPlaceholder": "What does this agent do?",
+        "owner": "Owner",
+        "owningNodeRequired": "Owning Node *",
+        "owningNodeHelp": "The node that will host and run this agent.",
+        "owningNodeSelect": "— Select a node —"
+      },
+      "behavior": {
+        "title": "Behavior",
+        "sub": "System prompt is the primary behavior contract.",
+        "systemPrompt": "System Prompt",
+        "systemPromptRequired": "System Prompt *",
+        "systemPromptHelp": "Defines role, tone, and constraints.",
+        "systemPromptPlaceholder": "You are a helpful assistant. Your job is to...\n\nBe concise and ask clarifying questions when needed.",
+        "policy": "Group Reply Policy",
+        "policyHelp": "When this agent replies in group conversations.",
+        "policyOptionMention": "MENTION — Reply only when @-mentioned",
+        "policyOptionAlways": "ALWAYS — Reply to every group message",
+        "policyOptionNoReply": "NO_REPLY — Stay silent in groups"
+      },
+      "access": {
+        "title": "Access & Model",
+        "sub": "Keep allowlists minimal.",
+        "skills": "Skills",
+        "tools": "Tool Allowlist",
+        "model": "Default Model",
+        "modelPlatformDefault": "Platform default ({{model}})",
+        "modelPlatformDefaultPlain": "Platform default",
+        "modelDefaultSuffix": "(default)"
+      },
+      "workspace": {
+        "title": "Workspace & Runtime",
+        "sub": "Read-only. Managed by the owning node.",
+        "workspaceRoot": "Workspace Root",
+        "profileVersion": "Profile Version",
+        "owningNode": "Owning Node",
+        "lastUpdated": "Last Updated"
+      },
+      "errors": {
+        "required": "Required",
+        "agentIdInvalid": "Lowercase letters, numbers, _ and - only"
+      }
+    },
+    "create": {
+      "title": "New agent",
+      "subtitle": "Configure identity, behavior, and tool access.",
+      "submit": "Create agent",
+      "submitArrow": "Create agent →",
+      "cancel": "Cancel",
+      "errorGeneric": "Create failed"
+    }
+  },
+  "chat": {
+    "list": {
+      "header": "Messages",
+      "newGroup": "+ Group",
+      "search": "Search…",
+      "filters": {
+        "all": "All",
+        "agent": "Agent",
+        "group": "Group",
+        "network": "Network"
+      },
+      "empty": "No conversations"
+    },
+    "kindBadge": {
+      "agent": "Agent",
+      "group": "Group",
+      "network": "Agent↔Agent",
+      "direct-user": "Direct"
+    },
+    "newGroup": {
+      "title": "New group chat",
+      "subtitle": "Select agents, then give the group a name.",
+      "sectionAgents": "Agents",
+      "groupName": "Group name (optional)",
+      "groupNamePlaceholder": "Auto-generated from participants",
+      "create": "Create group",
+      "cancel": "Cancel",
+      "online": "online",
+      "offline": "offline"
+    },
+    "messagePane": {
+      "emptyTitle": "No messages yet",
+      "emptySubtitle": "Send the first message.",
+      "placeholderDirect": "Message {{title}}…",
+      "placeholderGroup": "Message… (type @ to mention)",
+      "helpDesktop": "Enter to send · Shift+Enter new line",
+      "helpDesktopGroup": "Enter to send · Shift+Enter new line · @ to mention",
+      "config": "Config",
+      "tokenSuffix": "tok",
+      "tokenContext": "{{used}}/{{window}} ({{pct}}%)",
+      "tokenContextShort": "ctx {{pct}}%",
+      "tokenOutput": "output tokens",
+      "tokenTotal": "total tokens",
+      "tokenContextUsed": "context used",
+      "tokenWarn": "↑ Context above 70% — watch for degradation",
+      "tokenWarnCritical": "⚠ Context nearly full — consider /compact",
+      "sendErrorTitle": "Send failed",
+      "sendError": "Failed to send message. Please try again.",
+      "toolCall": "tool call",
+      "toolCalls": "tool calls",
+      "running": "running",
+      "failed": "failed",
+      "selectConversationTitle": "Select a conversation",
+      "selectConversationSubtitle": "Pick a thread to chat with your agents."
+    },
+    "mention": {
+      "header": "Mention agent",
+      "empty": "No agents to mention",
+      "noAgents": "No agents available to mention",
+      "noMatch": "No matching agents"
+    }
+  }
+}

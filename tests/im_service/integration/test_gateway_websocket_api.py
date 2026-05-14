@@ -9,14 +9,20 @@ from fastapi.testclient import TestClient
 from IM.app import create_app
 from IM.ws.gateway_handler import GatewayConnection
 
+from .conftest import authorize, register_user, seed_user_under_owner
+
 
 def _create_user(client: TestClient, username: str) -> str:
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": username.title()},
+    """Auth-aware fixture: first call registers + authorizes, subsequent calls seed under tenant."""
+    auth = client.headers.get("Authorization")
+    if auth is None:
+        user = register_user(client, username=username, display_name=username.title())
+        authorize(client, user)
+        return user.id
+    me = client.get("/im/v1/me").json()
+    return seed_user_under_owner(
+        client, username=username, display_name=username.title(), owner_id=me["owner_id"]
     )
-    assert response.status_code == 201
-    return response.json()["id"]
 
 
 def _create_conversation(client: TestClient, participant_id: str) -> str:
@@ -121,6 +127,8 @@ def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) 
     """Push config.sync and heartbeat.trigger frames to connected nodes."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
+        viewer = register_user(client, username="viewer", display_name="Viewer")
+        authorize(client, viewer)
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
                 {
@@ -303,6 +311,8 @@ def test_gateway_websocket_exposes_actionable_last_error_in_node_board(tmp_path:
     """Persist actionable startup guidance so `/im/v1/nodes` can surface it to operators."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
+        viewer = register_user(client, username="viewer", display_name="Viewer")
+        authorize(client, viewer)
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
                 {

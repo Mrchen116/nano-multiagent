@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  attachUserConversationStream,
   buildCreateMessageRequest,
   buildGroupConversationTitle,
   buildStarterConversationTitle,
@@ -547,7 +548,7 @@ describe("im chat api helpers", () => {
 });
 
 describe("im chat stream parser", () => {
-  it("opens user stream WebSocket for filtered conversation subscription", () => {
+  it("opens user stream WebSocket with ?token= for filtered conversation subscription", () => {
     class FakeWebSocket {
       static instances: Array<{ url: string; close: () => void }> = [];
       url: string;
@@ -566,12 +567,14 @@ describe("im chat stream parser", () => {
     const teardown = streamConversationEvents({
       conversationId: "conv-9",
       selfUserId: "user-1",
+      token: "test-jwt-token",
       afterEventId: 17,
       onEvent: () => undefined
     });
 
     expect(FakeWebSocket.instances[0]?.url).toContain("/im/ws/user");
-    expect(FakeWebSocket.instances[0]?.url).toContain("user_id=user-1");
+    expect(FakeWebSocket.instances[0]?.url).toContain("token=test-jwt-token");
+    expect(FakeWebSocket.instances[0]?.url).not.toContain("user_id=");
     teardown();
   });
 
@@ -627,6 +630,31 @@ describe("im chat stream parser", () => {
   });
 });
 
+describe("requestJson Authorization (issue #2)", () => {
+  it("getUsageMetrics sends Authorization: Bearer header derived from auth store", async () => {
+    const { useAuthStore } = await import("../auth/auth-store");
+    useAuthStore.getState().setSession({
+      access_token: "test-bearer-token",
+      refresh_token: "r",
+      user: {
+        id: "user-1", username: "alex", display_name: "Alex", owner_id: "user-1",
+        locale: "en", default_entry_node_id: null, owned_node_ids: [], created_at: "2026-01-01T00:00:00Z"
+      }
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } })
+    );
+
+    const { getUsageMetrics } = await import("./im-chat-api");
+    await getUsageMetrics();
+
+    const callHeaders = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    const headers = new Headers(callHeaders?.headers ?? {});
+    expect(headers.get("Authorization")).toBe("Bearer test-bearer-token");
+    useAuthStore.getState().clear();
+  });
+});
+
 // M234: group chat delete API
 describe("deleteConversation / leaveConversation", () => {
   it("deleteConversation sends DELETE to /im/v1/conversations/{id} with requester_id", async () => {
@@ -657,5 +685,36 @@ describe("deleteConversation / leaveConversation", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/im\/v1\/conversations\/conv-abc\/participants\/user-456$/);
     expect(init.method).toBe("DELETE");
+  });
+});
+
+describe("user stream websocket — R6-1 token auth", () => {
+  it("connects with ?token= not ?user_id= to avoid 403 from backend", () => {
+    const captured: string[] = [];
+    const mockWs = {
+      onopen: null as unknown,
+      onmessage: null as unknown,
+      onerror: null as unknown,
+      onclose: null as unknown,
+      readyState: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+    };
+    vi.stubGlobal("WebSocket", vi.fn((url: string) => {
+      captured.push(url);
+      return mockWs;
+    }));
+
+    const detach = attachUserConversationStream({
+      selfUserId: "user-abc",
+      token: "jwt-token-xyz",
+      onEvent: vi.fn(),
+    });
+    detach();
+
+    expect(captured.length).toBeGreaterThanOrEqual(1);
+    const wsUrl = captured[0];
+    expect(wsUrl).toContain("token=jwt-token-xyz");
+    expect(wsUrl).not.toContain("user_id=");
   });
 });

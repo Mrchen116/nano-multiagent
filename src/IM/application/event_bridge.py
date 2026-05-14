@@ -1,0 +1,204 @@
+"""Kernel RuntimeEvent → IM ConversationEvent translation layer (feat-340-M2 design §5).
+
+The bridge owns three responsibilities for a single agent run:
+
+1. Persist the agent's reply onto the conversation timeline (so refresh / sync recovers
+   the same view as live streaming).
+2. Maintain the per-message tool_calls / token_usage JSON columns so the chat panel can
+   render Tool Calls / Token Chip without replaying every event.
+3. Emit the WS event_types schema events (message.created / .delta / .completed /
+   tool_call.upserted / .completed) by appending to ``conversation_events`` and
+   triggering the registered notify callback.
+
+Kept inside ``IM.application`` (not the Gateway or kernel) because the WS event schema
+is an IM concept; kernel stays product-agnostic and Gateway stays a thin relay. Decision
+5 of design.md.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from IM.api.ws.event_types import (
+    EVENT_MESSAGE_COMPLETED,
+    EVENT_MESSAGE_CREATED,
+    EVENT_MESSAGE_DELTA,
+    EVENT_TOOL_CALL_COMPLETED,
+    EVENT_TOOL_CALL_UPSERTED,
+    build_message_completed_payload,
+    build_message_created_payload,
+    build_message_delta_payload,
+    build_tool_call_completed_payload,
+    build_tool_call_upserted_payload,
+)
+from IM.domain.models import ConversationEvent, Message, TokenUsage, ToolCall
+from IM.infra.repositories import EventRepository, MessageRepository
+
+
+NotifyCallable = Callable[[ConversationEvent], None]
+
+
+@dataclass(slots=True)
+class EventBridge:
+    """Translate kernel run events into persisted IM state and live WS events.
+
+    Args:
+        message_repository: Used to insert the placeholder agent message and patch its
+            runtime state (content / tool_calls / token_usage / delivery_status).
+        event_repository: Used to append conversation_events rows.
+        notify: Optional sync callback fired *after* event persistence; the wiring in
+            ``IM.ws.user_stream.build_notify_enqueue`` forwards to the user-stream
+            registry. When ``None``, events are only persisted (e.g. unit tests).
+    """
+
+    message_repository: MessageRepository
+    event_repository: EventRepository
+    notify: NotifyCallable | None = None
+
+    def on_turn_start(
+        self,
+        *,
+        conversation_id: str,
+        agent_user_id: str,
+        agent_id: str,
+    ) -> Message:
+        """Create the agent's empty placeholder message and emit ``message.created``.
+
+        Args:
+            conversation_id: Conversation that owns this run.
+            agent_user_id: User row id representing the agent inside IM (typically the
+                row with username ``agent:<agent_id>``).
+            agent_id: Stable agent identifier; available for callers that wish to log
+                or correlate, currently unused inside the bridge.
+
+        Returns:
+            The created placeholder message.
+        """
+        del agent_id  # currently unused; reserved for richer payloads later.
+        created = self.message_repository.create_message(
+            conversation_id=conversation_id,
+            sender_user_id=agent_user_id,
+            content="",
+            sender_type="agent",
+            auto_complete_delivery=False,
+            allow_empty=True,
+        )
+        # Surface the agent message as "running" so /sync replays mark unfinished turns,
+        # and live UIs render the pulse / spinner immediately.
+        message = self.message_repository.update_runtime_state(
+            message_id=created.id,
+            delivery_status="running",
+        )
+        self._emit(
+            conversation_id=conversation_id,
+            message_id=message.id,
+            event_type=EVENT_MESSAGE_CREATED,
+            delivery_status="running",
+            payload=build_message_created_payload(message=message),
+        )
+        return message
+
+    def on_message_delta(self, *, message_id: str, delta_text: str) -> None:
+        """Append an incremental text token to the agent message and emit a delta event."""
+        if not delta_text:
+            # Drop empty deltas before any DB write — they would still emit a no-op event
+            # which the frontend has to filter; safer to ignore at the source.
+            return
+        updated = self.message_repository.update_runtime_state(
+            message_id=message_id,
+            content_append=delta_text,
+        )
+        self._emit(
+            conversation_id=updated.conversation_id,
+            message_id=message_id,
+            event_type=EVENT_MESSAGE_DELTA,
+            delivery_status="running",
+            payload=build_message_delta_payload(
+                conversation_id=updated.conversation_id,
+                message_id=message_id,
+                delta_text=delta_text,
+            ),
+        )
+
+    def on_tool_call_upserted(self, *, message_id: str, tool_call: ToolCall) -> None:
+        """Upsert one tool call row and emit ``tool_call.upserted``."""
+        updated = self.message_repository.update_runtime_state(
+            message_id=message_id,
+            tool_calls_upsert=[tool_call],
+        )
+        self._emit(
+            conversation_id=updated.conversation_id,
+            message_id=message_id,
+            event_type=EVENT_TOOL_CALL_UPSERTED,
+            delivery_status="running",
+            payload=build_tool_call_upserted_payload(
+                conversation_id=updated.conversation_id,
+                message_id=message_id,
+                tool_call=tool_call,
+            ),
+        )
+
+    def on_tool_call_completed(self, *, message_id: str, tool_call: ToolCall) -> None:
+        """Mark one tool call completed (or failed) and emit ``tool_call.completed``."""
+        updated = self.message_repository.update_runtime_state(
+            message_id=message_id,
+            tool_calls_upsert=[tool_call],
+        )
+        self._emit(
+            conversation_id=updated.conversation_id,
+            message_id=message_id,
+            event_type=EVENT_TOOL_CALL_COMPLETED,
+            delivery_status="running",
+            payload=build_tool_call_completed_payload(
+                conversation_id=updated.conversation_id,
+                message_id=message_id,
+                tool_call=tool_call,
+            ),
+        )
+
+    def on_message_completed(
+        self,
+        *,
+        message_id: str,
+        final_content: str | None = None,
+        token_usage: TokenUsage | None = None,
+    ) -> None:
+        """Close the agent message with terminal content + optional token usage."""
+        updated = self.message_repository.update_runtime_state(
+            message_id=message_id,
+            content_replace=final_content,
+            token_usage=token_usage,
+            delivery_status="completed",
+        )
+        self._emit(
+            conversation_id=updated.conversation_id,
+            message_id=message_id,
+            event_type=EVENT_MESSAGE_COMPLETED,
+            delivery_status="completed",
+            payload=build_message_completed_payload(
+                conversation_id=updated.conversation_id,
+                message_id=message_id,
+                content=updated.content,
+                token_usage=token_usage,
+            ),
+        )
+
+    def _emit(
+        self,
+        *,
+        conversation_id: str,
+        message_id: str,
+        event_type: str,
+        delivery_status: str,
+        payload: dict[str, object],
+    ) -> None:
+        event = self.event_repository.append_event(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type=event_type,
+            delivery_status=delivery_status,
+            payload=payload,
+        )
+        if self.notify is not None:
+            self.notify(event)

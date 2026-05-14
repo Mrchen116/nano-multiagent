@@ -3,9 +3,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import get_config_service, get_gateway_handler
+from IM.api.deps import current_user, get_config_service, get_gateway_handler, get_node_service, get_user_service
 from IM.application.config_service import ConfigService
-from IM.domain.models import AgentProfile
+from IM.application.node_service import NodeService
+from IM.application.user_service import UserService
+from IM.domain.models import AgentProfile, User
 from IM.infra.repositories import AgentProfileVersionConflictError
 from IM.ws.gateway_handler import GatewayHandler
 
@@ -57,6 +59,11 @@ class AgentSummaryResponse(BaseModel):
     workspace_root: str
     workspace_is_default: bool
     updated_at: str | None = None
+    # M17/R8-2: surface the IM user UUID that the WS event sender_user_id field
+    # carries, so the chat workspace can map runtime sender → display_name on
+    # `message.created` without an extra round-trip.
+    user_id: str | None = None
+    node_status: str | None = None
 
 
 class AllowlistOptionResponse(BaseModel):
@@ -126,8 +133,21 @@ def _merge_live_agent_profile(profile: AgentProfile, payload: dict[str, object])
     )
 
 
-def to_agent_summary_response(profile: AgentProfile, *, service: ConfigService) -> AgentSummaryResponse:
+def to_agent_summary_response(
+    profile: AgentProfile,
+    *,
+    service: ConfigService,
+    user_service: UserService | None = None,
+    node_status: str | None = None,
+) -> AgentSummaryResponse:
     """Convert a domain profile to a compact agent list item."""
+    # feat-340-M18 R9-1: rely on ConfigService.ensure_agent_user so legacy seeds
+    # (agent profiles that pre-date the R9-1 fix and any profile written outside
+    # the HTTP route) self-heal on first read. Falling back to ``user_service``
+    # keeps unit tests that wire only the user service working.
+    agent_user = service.ensure_agent_user(agent_id=profile.agent_id, display_name=profile.display_name)
+    if agent_user is None and user_service is not None:
+        agent_user = user_service.get_by_username(username=f"agent:{profile.agent_id}")
     return AgentSummaryResponse(
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
@@ -139,28 +159,45 @@ def to_agent_summary_response(profile: AgentProfile, *, service: ConfigService) 
         workspace_root=service.workspace_root_for_profile(profile),
         workspace_is_default=service.workspace_is_default_for_profile(profile),
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
+        user_id=agent_user.id if agent_user is not None else None,
+        node_status=node_status,
     )
 
 
 @router.get("/im/v1/agents", response_model=list[AgentSummaryResponse])
-def list_agents(service: ConfigService = Depends(get_config_service)) -> list[AgentSummaryResponse]:
-    """List runtime-selectable agents for the current IM workspace."""
-    return [to_agent_summary_response(item, service=service) for item in service.list_runtime_selectable_profiles()]
+def list_agents(
+    user: User = Depends(current_user),
+    service: ConfigService = Depends(get_config_service),
+    user_service: UserService = Depends(get_user_service),
+    node_service: NodeService = Depends(get_node_service),
+) -> list[AgentSummaryResponse]:
+    """List runtime-selectable agents visible to the authenticated tenant."""
+    nodes = {n.node_id: n.status for n in node_service.list_nodes_for_owner(owner_id=user.owner_id)}
+    return [
+        to_agent_summary_response(
+            item,
+            service=service,
+            user_service=user_service,
+            node_status=nodes.get(item.node_id) if item.node_id else None,
+        )
+        for item in service.list_runtime_selectable_profiles_for_owner(owner_id=user.owner_id)
+    ]
 
 
 @router.get("/im/v1/agents/{agent_id}/config", response_model=AgentConfigResponse)
 async def get_agent_config(
     agent_id: str,
     source: str = Query(default="live"),
+    user: User = Depends(current_user),
     service: ConfigService = Depends(get_config_service),
     gateway_handler: GatewayHandler = Depends(get_gateway_handler),
 ) -> AgentConfigResponse:
-    """Return one agent configuration profile.
+    """Return one agent configuration profile, owner-scoped to the caller's tenant.
 
     `source=live` prefers a live Gateway snapshot when available.
     `source=mirror` forces the IM-stored mirror row so Gateway config.sync fetches do not reflect stale local state back to themselves.
     """
-    profile = service.get_profile(agent_id=agent_id)
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
     if profile is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
     if source == "mirror":
@@ -177,11 +214,12 @@ async def get_agent_config(
 @router.get("/im/v1/agents/{agent_id}/capabilities", response_model=AgentCapabilitiesResponse)
 async def get_agent_capabilities(
     agent_id: str,
+    user: User = Depends(current_user),
     service: ConfigService = Depends(get_config_service),
     gateway_handler: GatewayHandler = Depends(get_gateway_handler),
 ) -> AgentCapabilitiesResponse:
-    """Resolve runtime capabilities for one agent from its owning node."""
-    profile = service.get_profile(agent_id=agent_id)
+    """Resolve runtime capabilities for one agent from its owning node (owner-scoped)."""
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
     if profile is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
     if profile.node_id is None or not profile.node_id.strip():
@@ -214,9 +252,12 @@ async def get_agent_capabilities(
 def update_agent_config(
     agent_id: str,
     payload: UpdateAgentConfigRequest,
+    user: User = Depends(current_user),
     service: ConfigService = Depends(get_config_service),
 ) -> AgentConfigResponse:
-    """Update one agent configuration profile with optimistic locking."""
+    """Update one agent configuration profile with optimistic locking (owner-scoped)."""
+    if service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
     try:
         updated = service.update_profile(
             agent_id=agent_id,

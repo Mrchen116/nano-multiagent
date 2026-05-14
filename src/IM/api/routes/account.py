@@ -5,7 +5,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import get_bind_service
+from IM.api.deps import current_user, get_bind_service
 from IM.application.bind_service import BindService
 from IM.domain.models import DeviceBindRequest, User
 
@@ -22,6 +22,7 @@ class MeResponse(BaseModel):
     owner_id: str
     owned_node_ids: list[str]
     default_entry_node_id: str | None
+    locale: str
     created_at: str
 
 
@@ -30,6 +31,8 @@ class UpdateMeRequest(BaseModel):
 
     display_name: str = Field(min_length=1)
     default_entry_node_id: str | None = None
+    # Locale is optional so existing clients (M1) keep working unchanged.
+    locale: str | None = Field(default=None, max_length=8)
 
 
 class StartBindRequest(BaseModel):
@@ -42,7 +45,6 @@ class ConfirmBindRequest(BaseModel):
     """Request payload for confirming one pending device bind."""
 
     bind_id: str = Field(min_length=1)
-    user_id: str = Field(min_length=1)
 
 
 class BindResponse(BaseModel):
@@ -58,13 +60,16 @@ class BindResponse(BaseModel):
 
 
 class BindRequestEnvelope(BaseModel):
-    """Union-like bind request envelope for start or confirm actions."""
+    """Union-like bind request envelope for start or confirm actions.
+
+    ``user_id`` was removed for feat-340-M1 R4: the confirm action now takes the
+    confirming user from the Bearer token (``current_user`` dependency).
+    """
 
     action: str = Field(pattern="^(start|confirm)$")
     node_id: str | None = None
     bind_id: str | None = None
     bind_token: str | None = None
-    user_id: str | None = None
 
 
 def to_me_response(user: User) -> MeResponse:
@@ -77,6 +82,7 @@ def to_me_response(user: User) -> MeResponse:
         owner_id=user.owner_id,
         owned_node_ids=user.owned_node_ids,
         default_entry_node_id=user.default_entry_node_id,
+        locale=user.locale,
         created_at=user.created_at,
     )
 
@@ -102,53 +108,62 @@ def to_bind_response(bind: DeviceBindRequest, *, request: Request) -> BindRespon
 
 
 @router.get("/im/v1/me", response_model=MeResponse)
-def get_me(user_id: str, service: BindService = Depends(get_bind_service)) -> MeResponse:
-    """Return the current user snapshot with owned node ids."""
-    user = service.get_me(user_id=user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user_id not found")
-    return to_me_response(user)
+def get_me(
+    user: User = Depends(current_user),
+    service: BindService = Depends(get_bind_service),
+) -> MeResponse:
+    """Return the current user snapshot derived from the Bearer token subject."""
+    # Refresh owned_node_ids / default_entry_node_id from the bind service so the
+    # response stays consistent with mutations made through /im/v1/bind.
+    refreshed = service.get_me(user_id=user.id)
+    return to_me_response(refreshed or user)
 
 
 @router.patch("/im/v1/me", response_model=MeResponse)
 def update_me(
-    user_id: str,
     payload: UpdateMeRequest,
+    user: User = Depends(current_user),
     service: BindService = Depends(get_bind_service),
 ) -> MeResponse:
     """Update the current user's mutable settings."""
     try:
-        user = service.update_me(
-            user_id=user_id,
+        updated = service.update_me(
+            user_id=user.id,
             display_name=payload.display_name,
             default_entry_node_id=payload.default_entry_node_id,
+            locale=payload.locale,
         )
     except ValueError as exc:
         detail = str(exc)
         status_code = status.HTTP_404_NOT_FOUND if detail == "user_id not found" else status.HTTP_400_BAD_REQUEST
         raise HTTPException(status_code=status_code, detail=detail) from exc
-    return to_me_response(user)
+    return to_me_response(updated)
 
 
 @router.post("/im/v1/bind", response_model=BindResponse, status_code=status.HTTP_201_CREATED)
 def bind_device(
     payload: BindRequestEnvelope,
     request: Request,
+    user: User = Depends(current_user),
     service: BindService = Depends(get_bind_service),
 ) -> BindResponse:
-    """Start or confirm a device binding request."""
+    """Start or confirm a device binding request.
+
+    Confirm uses the authenticated user from the Bearer token; clients no longer
+    pass ``user_id`` in the body (R4: token is the source of truth for identity).
+    """
     try:
         if payload.action == "start":
             if not payload.node_id:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="node_id is required for start")
             bind = service.start_bind(node_id=payload.node_id)
             return to_bind_response(bind, request=request)
-        if (not payload.bind_id and not payload.bind_token) or not payload.user_id:
+        if not payload.bind_id and not payload.bind_token:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="bind_id or bind_token and user_id are required for confirm",
+                detail="bind_id or bind_token is required for confirm",
             )
-        bind = service.confirm_bind(bind_id=payload.bind_id, bind_token=payload.bind_token, user_id=payload.user_id)
+        bind = service.confirm_bind(bind_id=payload.bind_id, bind_token=payload.bind_token, user_id=user.id)
         return to_bind_response(bind, request=request)
     except ValueError as exc:
         detail = str(exc)

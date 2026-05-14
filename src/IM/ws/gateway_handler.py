@@ -10,12 +10,20 @@ from uuid import uuid4
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from IM.api.ws.event_types import (
+    EVENT_AGENT_STATUS_CHANGED,
+    EVENT_NODE_STATUS_CHANGED,
+    build_agent_status_changed_payload,
+    build_node_status_changed_payload,
+)
+from IM.application.event_bridge import EventBridge
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from collections.abc import Callable
 
-from IM.domain.models import Actor, ConversationEvent, Message, managed_workspace_root
+from IM.domain.models import Actor, ConversationEvent, Message, NodeStatus, TokenUsage, ToolCall, managed_workspace_root
 from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, UserRepository
+from IM.ws.user_stream import UserStreamRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +67,8 @@ class GatewayHandler:
         metrics_service: MetricsService | None = None,
         conversation_repository: ConversationRepository | None = None,
         user_event_notify: Callable[[ConversationEvent], None] | None = None,
+        user_stream_registry: UserStreamRegistry | None = None,
+        event_bridge: EventBridge | None = None,
     ) -> None:
         self._relay_service = relay_service
         self._node_repository = node_repository
@@ -71,6 +81,20 @@ class GatewayHandler:
             if conversation_repository is not None
             else None
         )
+        self._user_stream_registry = user_stream_registry
+        # EventBridge wires kernel events → IM WS streaming events (feat-340-M14).
+        # External injection takes priority (tests / explicit wiring); auto-build from repos as fallback.
+        if event_bridge is not None:
+            self._event_bridge: EventBridge | None = event_bridge
+        elif self._message_repository is not None and self._event_repository is not None:
+            self._event_bridge = EventBridge(
+                message_repository=self._message_repository,
+                event_repository=self._event_repository,
+            )
+        else:
+            self._event_bridge = None
+        self._status_seq_by_owner: dict[str, int] = {}
+        self._status_seq_lock = asyncio.Lock()
         self._lock = asyncio.Lock()
         self._agent_message_lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
@@ -132,6 +156,8 @@ class GatewayHandler:
             return await self._handle_node_capabilities(payload=payload)
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
+        if message_type == "node.streaming_delta":
+            return await self._handle_streaming_delta(payload=payload)
         return {
             "type": "error",
             "payload": {"code": "unsupported_message_type", "message": message_type},
@@ -293,11 +319,110 @@ class GatewayHandler:
                 self._node_capabilities_waiters.pop(request_id, None)
 
     async def disconnect(self, *, node_id: str) -> None:
-        """Remove one node from the active connection map."""
+        """Remove one node from the active connection map and broadcast offline if needed."""
         async with self._lock:
             self._connections.pop(node_id, None)
-        if self._node_repository is not None:
-            self._node_repository.mark_disconnected(node_id=node_id)
+        if self._node_repository is None:
+            return
+        prior = self._node_repository.get_node(node_id=node_id)
+        agent_ids = self._list_node_agent_ids(node_id=node_id)
+        self._node_repository.mark_disconnected(node_id=node_id)
+        next_node = self._node_repository.get_node(node_id=node_id)
+        if prior is not None and next_node is not None and prior.status != next_node.status:
+            await self._broadcast_status_change(
+                owner_id=next_node.owner_id,
+                node=next_node,
+                agent_ids=agent_ids,
+            )
+
+    async def force_mark_offline(self, *, node_id: str, reason: str) -> None:
+        """Flip a stale node to offline (called by the heartbeat-timeout guard task).
+
+        Args:
+            node_id: Identifier of the node whose last heartbeat is past the timeout.
+            reason: Diagnostic tag stored as ``last_error`` to surface why it flipped.
+
+        Notes:
+            Idempotent — if the node is already offline, this is a no-op aside from
+            persisting ``last_error``. The active in-memory ``self._connections``
+            entry is also dropped, matching the WS-disconnect path semantics.
+        """
+        if self._node_repository is None:
+            return
+        prior = self._node_repository.get_node(node_id=node_id)
+        if prior is None or prior.status == "offline":
+            return
+        agent_ids = self._list_node_agent_ids(node_id=node_id)
+        async with self._lock:
+            self._connections.pop(node_id, None)
+        # Record last_error then flip to offline. mark_disconnected handles status flip;
+        # write last_error via a heartbeat-style update so it surfaces in /im/v1/nodes.
+        self._node_repository._connection.execute(  # noqa: SLF001
+            "UPDATE nodes SET last_error = ? WHERE node_id = ?",
+            (reason, node_id),
+        )
+        self._node_repository._connection.commit()  # noqa: SLF001
+        self._node_repository.mark_disconnected(node_id=node_id)
+        next_node = self._node_repository.get_node(node_id=node_id)
+        if next_node is not None and prior.status != next_node.status:
+            await self._broadcast_status_change(
+                owner_id=next_node.owner_id,
+                node=next_node,
+                agent_ids=agent_ids,
+            )
+
+    def _list_node_agent_ids(self, *, node_id: str) -> list[str]:
+        """Return agent ids currently advertised by the given node, in stable order."""
+        if self._node_repository is None:
+            return []
+        rows = self._node_repository._connection.execute(  # noqa: SLF001
+            "SELECT agent_id FROM agent_profiles WHERE node_id = ? ORDER BY agent_id",
+            (node_id,),
+        ).fetchall()
+        return [str(row["agent_id"]) for row in rows]
+
+    async def _next_status_seq(self, *, owner_id: str) -> int:
+        """Allocate one monotonically increasing seq number per owner."""
+        async with self._status_seq_lock:
+            current = self._status_seq_by_owner.get(owner_id, 0) + 1
+            self._status_seq_by_owner[owner_id] = current
+            return current
+
+    async def _broadcast_status_change(
+        self,
+        *,
+        owner_id: str,
+        node: NodeStatus,
+        agent_ids: list[str],
+    ) -> None:
+        """Push one node.status_changed (+ per-agent agent.status_changed) frame to owner WS."""
+        if self._user_stream_registry is None:
+            return
+        if not owner_id or not owner_id.strip():
+            return  # orphan node — no audience.
+        node_seq = await self._next_status_seq(owner_id=owner_id)
+        node_payload = build_node_status_changed_payload(
+            seq=node_seq,
+            node_id=node.node_id,
+            status=node.status,
+            last_heartbeat_at=node.last_heartbeat_at,
+            last_error=node.last_error,
+        )
+        await self._user_stream_registry.broadcast_to_user(
+            owner_id,
+            _encode_status_frame(event_type=EVENT_NODE_STATUS_CHANGED, payload=node_payload),
+        )
+        for agent_id in agent_ids:
+            agent_seq = await self._next_status_seq(owner_id=owner_id)
+            agent_payload = build_agent_status_changed_payload(
+                seq=agent_seq,
+                agent_id=agent_id,
+                status=node.status,
+            )
+            await self._user_stream_registry.broadcast_to_user(
+                owner_id,
+                _encode_status_frame(event_type=EVENT_AGENT_STATUS_CHANGED, payload=agent_payload),
+            )
 
     async def is_connected(self, *, node_id: str) -> bool:
         """Report whether one node currently has an active websocket."""
@@ -334,7 +459,9 @@ class GatewayHandler:
         )
         async with self._lock:
             self._connections[node_id] = connection
+        prior_node: NodeStatus | None = None
         if self._node_repository is not None:
+            prior_node = self._node_repository.get_node(node_id=node_id)
             node = self._node_repository.record_gateway_registration(
                 node_id=node_id,
                 node_name=node_name,
@@ -382,6 +509,13 @@ class GatewayHandler:
                     (node_id, agent_id),
                 )
             self._node_repository._connection.commit()
+            prior_status = prior_node.status if prior_node is not None else None
+            if prior_status != node.status:
+                await self._broadcast_status_change(
+                    owner_id=node.owner_id,
+                    node=node,
+                    agent_ids=list(agents),
+                )
         return {"type": "ack", "payload": {"message_type": "node.register", "node_id": node_id}}
 
     async def _handle_heartbeat(self, *, payload: dict[str, object]) -> dict[str, object]:
@@ -392,13 +526,21 @@ class GatewayHandler:
                 return _not_registered_error(node_id=node_id)
             connection.heartbeats.append(payload)
         if self._node_repository is not None:
-            self._node_repository.record_heartbeat(
+            prior_node = self._node_repository.get_node(node_id=node_id)
+            next_node = self._node_repository.record_heartbeat(
                 node_id=node_id,
                 reported_status=_optional_text(payload.get("status")),
                 agent_count=_optional_int(payload.get("agent_count")),
                 last_error=_optional_text(payload.get("last_error")),
                 version=_optional_text(payload.get("version")),
             )
+            prior_status = prior_node.status if prior_node is not None else None
+            if prior_status != next_node.status:
+                await self._broadcast_status_change(
+                    owner_id=next_node.owner_id,
+                    node=next_node,
+                    agent_ids=self._list_node_agent_ids(node_id=node_id),
+                )
         return {"type": "ack", "payload": {"message_type": "node.heartbeat", "node_id": node_id}}
 
     async def _handle_report(self, *, payload: dict[str, object]) -> dict[str, object]:
@@ -412,6 +554,76 @@ class GatewayHandler:
         self._persist_report_event(payload=payload)
         self._persist_report_usage(payload=payload)
         return {"type": "ack", "payload": {"message_type": "node.report", "node_id": node_id}}
+
+    async def _handle_streaming_delta(self, *, payload: dict[str, object]) -> dict[str, object]:
+        """Translate gateway streaming events into IM WS fan-out via EventBridge.
+
+        The gateway (personal_assistant) calls this with sub-types keyed by ``kind``:
+        - ``turn_start``: agent begins a reply; EventBridge inserts placeholder message.
+        - ``message_delta``: incremental text chunk; EventBridge appends content.
+        - ``message_completed``: run finished; EventBridge marks message completed with token_usage.
+        - ``tool_call_upserted``: tool call started; EventBridge upserts tool_calls JSON.
+        - ``tool_call_completed``: tool call done; EventBridge settles tool_calls JSON.
+
+        Cross-tenant isolation: every frame carries ``owner_id``; EventBridge → notify callback
+        → build_notify_enqueue reads conversation_participants which already gates by owner.
+        The broadcast_to_users path is never called here (streaming delta is owner-scoped only).
+        """
+        if self._event_bridge is None:
+            return {"type": "ack", "payload": {"message_type": "node.streaming_delta"}}
+
+        kind = _optional_text(payload.get("kind")) or ""
+
+        if kind == "turn_start":
+            conversation_id = _require_text(payload.get("conversation_id"), field_name="conversation_id")
+            agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
+            # Resolve IM user ID from agent_id; gateway sends agent_id (e.g. "alpha"),
+            # IM stores the agent as username="agent:<agent_id>" in the users table.
+            agent_user_id = _optional_text(payload.get("agent_user_id"))
+            if agent_user_id is None and self._user_repository is not None:
+                row = self._user_repository._connection.execute(  # noqa: SLF001
+                    "SELECT id FROM users WHERE username = ?",
+                    (f"agent:{agent_id}",),
+                ).fetchone()
+                if row is not None:
+                    agent_user_id = str(row["id"])
+            if agent_user_id is None:
+                return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "agent_user_id_not_found"}}
+            created_message = self._event_bridge.on_turn_start(
+                conversation_id=conversation_id,
+                agent_user_id=agent_user_id,
+                agent_id=agent_id,
+            )
+            # Return message_id in ack so PA observer can update run_context_store;
+            # without this, observer keeps empty message_id and delta targets user message.
+            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "message_id": created_message.id}}
+
+        elif kind == "message_delta":
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            delta_text = _optional_text(payload.get("delta_text")) or ""
+            self._event_bridge.on_message_delta(message_id=message_id, delta_text=delta_text)
+
+        elif kind == "message_completed":
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            final_content = _optional_text(payload.get("final_content"))
+            token_usage = _parse_token_usage(payload.get("token_usage"))
+            self._event_bridge.on_message_completed(
+                message_id=message_id,
+                final_content=final_content,
+                token_usage=token_usage,
+            )
+
+        elif kind == "tool_call_upserted":
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            tc = _parse_tool_call(payload.get("tool_call"))
+            self._event_bridge.on_tool_call_upserted(message_id=message_id, tool_call=tc)
+
+        elif kind == "tool_call_completed":
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            tc = _parse_tool_call(payload.get("tool_call"))
+            self._event_bridge.on_tool_call_completed(message_id=message_id, tool_call=tc)
+
+        return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind}}
 
     async def _handle_delivery_receipt(self, *, payload: dict[str, object]) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
@@ -1103,22 +1315,31 @@ class GatewayHandler:
         semantic = "agent_run_processing" if progress_state == "processing" else (
             "agent_run_completed" if progress_state == "completed" else "agent_run_failed"
         )
+        report_payload: dict[str, object] = {
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "node_id": _require_text(payload.get("node_id"), field_name="node_id"),
+            "run_id": run_id,
+            "summary": summary,
+            "status": status,
+            "progress_state": progress_state,
+            "semantic": semantic,
+            "guidance": guidance,
+        }
+        # Carry token_usage in relay.report so the browser Token Chip can render real counts.
+        usage = _optional_usage(payload.get("usage"))
+        if usage is not None and progress_state == "completed":
+            report_payload["token_usage"] = {
+                "prompt": usage["prompt_tokens"],
+                "completion": usage["completion_tokens"],
+                "total": usage["total_tokens"],
+            }
         self._event_repository.append_event(
             conversation_id=conversation_id,
             message_id=message_id,
             event_type="relay.processing" if progress_state == "processing" else "relay.report",
             delivery_status=status,
-            payload={
-                "conversation_id": conversation_id,
-                "message_id": message_id,
-                "node_id": _require_text(payload.get("node_id"), field_name="node_id"),
-                "run_id": run_id,
-                "summary": summary,
-                "status": status,
-                "progress_state": progress_state,
-                "semantic": semantic,
-                "guidance": guidance,
-            },
+            payload=report_payload,
         )
         if progress_state == "failed":
             self._event_repository.append_event(
@@ -1180,6 +1401,16 @@ class GatewayHandler:
                 completion_tokens=usage["completion_tokens"],
                 turns=1,
             )
+
+
+def _encode_status_frame(*, event_type: str, payload: dict[str, object]) -> str:
+    """Encode one status-change frame for the browser user stream.
+
+    Mirrors ``encode_user_stream_event_frame`` shape (op=event, event_type, data)
+    so the SPA reducer can dispatch by ``event_type`` without a separate parser.
+    """
+    body = {"op": "event", "event_type": event_type, "data": payload}
+    return json.dumps(body, ensure_ascii=True, separators=(",", ":"))
 
 
 def _decode_message(raw_message: str) -> dict[str, Any]:
@@ -1257,6 +1488,52 @@ def _optional_usage(value: object) -> dict[str, int] | None:
         "completion_tokens": max(completion_tokens, 0),
         "total_tokens": max(total_tokens, 0),
     }
+
+
+def _parse_token_usage(value: object) -> TokenUsage | None:
+    """Parse a streaming_delta token_usage dict into a TokenUsage domain object."""
+    if value is None or not isinstance(value, dict):
+        return None
+    prompt = value.get("prompt") or value.get("prompt_tokens")
+    completion = value.get("completion") or value.get("completion_tokens")
+    total = value.get("total") or value.get("total_tokens")
+    if not isinstance(prompt, int) or not isinstance(completion, int):
+        return None
+    if not isinstance(total, int):
+        total = prompt + completion
+    # context_window is the model's actual maximum context size, passed through from
+    # the kernel's CompactionSettings.context_window via the turn_end event chain.
+    # 0 means unknown (kernel didn't send it); the frontend treats 0 as "not available".
+    cw_raw = value.get("context_window")
+    context_window = max(int(cw_raw), 0) if isinstance(cw_raw, int) else 0
+    return TokenUsage(
+        output=max(completion, 0),
+        context_used=max(prompt, 0),
+        context_window=context_window,
+        total=max(total, 0),
+    )
+
+
+def _parse_tool_call(value: object) -> ToolCall:
+    """Parse a streaming_delta tool_call dict into a ToolCall domain object."""
+    if not isinstance(value, dict):
+        raise ValueError("tool_call must be an object")
+    tc_id = str(value.get("id") or "")
+    name = str(value.get("name") or "")
+    status = str(value.get("status") or "running")
+    input_data = value.get("input") or {}
+    if not isinstance(input_data, dict):
+        input_data = {}
+    duration_ms = value.get("duration_ms")
+    output = value.get("output")
+    return ToolCall(
+        id=tc_id,
+        name=name,
+        status=status,  # type: ignore[arg-type]
+        input=input_data,
+        duration_ms=int(duration_ms) if isinstance(duration_ms, (int, float)) else None,
+        output=str(output) if output is not None else None,
+    )
 
 
 def _not_registered_error(*, node_id: str) -> dict[str, object]:

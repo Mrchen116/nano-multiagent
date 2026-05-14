@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-DEFAULT_HOOK_MODULES = ["communication_context", "default_status", "usage_metrics", "chat_history"]
+DEFAULT_HOOK_MODULES = ["communication_context", "default_status", "usage_metrics", "chat_history", "realtime_stream"]
 
 
 def _build_communication_context_block(

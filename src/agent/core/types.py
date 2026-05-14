@@ -60,6 +60,7 @@ class ToolResult:
     error: str | None = None
     content: str | list[dict[str, Any]] | None = None
     duration_ms: int = 0
+    arguments: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,0 +1,389 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import "../../../i18n";
+import { useAuthStore } from "../../auth/auth-store";
+import { ChatWorkspacePageV2 } from "./chat-workspace-page";
+
+// ─── Fake WebSocket ─────────────────────────────────────────────────────────
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+  onmessage: ((e: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  readyState = 1;
+  url: string;
+  constructor(url: string) {
+    this.url = url;
+    FakeWebSocket.instances.push(this);
+  }
+  close() {
+    this.readyState = 3;
+  }
+  send(_data: string) {}
+  emit(payload: unknown) {
+    this.onmessage?.({ data: JSON.stringify(payload) });
+  }
+}
+
+const FIXTURES = {
+  conversations: [
+    {
+      id: "c1",
+      title: "Planner",
+      participants: [
+        { type: "user", id: "u-self", display_name: "You" },
+        { type: "agent", id: "a-planner", display_name: "Planner" }
+      ],
+      participant_ids: ["u-self", "a-planner"],
+      type: "direct",
+      direct_kind: "agent",
+      owner_id: "u-self",
+      creator_id: "u-self",
+      is_pinned: false,
+      is_muted: false,
+      unread_count: 0,
+      last_message_preview: null,
+      last_message_at: null,
+      created_at: "2026-05-01T00:00:00Z"
+    }
+  ],
+  messagesC1: [
+    {
+      id: "m1",
+      conversation_id: "c1",
+      sender: { type: "user", id: "u-self", display_name: "You" },
+      sender_user_id: "u-self",
+      sender_type: "user",
+      content: "Hi Planner",
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-05-01T00:00:01Z"
+    }
+  ]
+};
+
+function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
+  return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" }, ...init });
+}
+
+function mockFetch(): ReturnType<typeof vi.fn> {
+  const sent: { url: string; init?: RequestInit }[] = [];
+  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    sent.push({ url, init });
+    if (url.endsWith("/im/v1/conversations") && (!init || init.method === undefined || init.method === "GET")) {
+      return jsonResponse({ items: FIXTURES.conversations });
+    }
+    if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+      return jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null });
+    }
+    if (url.endsWith("/im/v1/agents")) {
+      return jsonResponse([
+        {
+          agent_id: "a-planner",
+          display_name: "Planner",
+          node_id: "node-prod",
+          user_id: "user-uuid-planner"
+        }
+      ]);
+    }
+    if (url.endsWith("/im/v1/nodes")) {
+      return jsonResponse([
+        {
+          node_id: "node-prod",
+          owner_id: "u-self",
+          node_name: "laptop-prod",
+          status: "online",
+          last_heartbeat_at: "2026-05-01T00:00:00Z",
+          agent_count: 1,
+          version: "1.0",
+          relay_enabled: true,
+          reporting_enabled: true,
+          alias: null,
+          last_error: null
+        }
+      ]);
+    }
+    if (/\/im\/v1\/conversations\/c1\/messages$/.test(url) && init?.method === "POST") {
+      const body = JSON.parse(String(init.body));
+      return jsonResponse({
+        id: "m2",
+        conversation_id: "c1",
+        sender: body.sender,
+        sender_user_id: "u-self",
+        sender_type: "user",
+        content: body.content,
+        attachments: body.attachments ?? [],
+        delivery_status: "sent",
+        created_at: "2026-05-01T00:00:02Z"
+      });
+    }
+    if (/\/im\/v1\/uploads/.test(url) && init?.method === "POST") {
+      return jsonResponse(
+        {
+          url: "http://im.local/im/uploads/dropped.png",
+          content_type: "image/png",
+          file_name: "dropped.png"
+        },
+        { status: 201 }
+      );
+    }
+    return new Response("not found", { status: 404 });
+  });
+  (fn as unknown as { sent: typeof sent }).sent = sent;
+  return fn;
+}
+
+function renderAtRoute(initial: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initial]}>
+        <Routes>
+          <Route path="/chat" element={<ChatWorkspacePageV2 />} />
+          <Route path="/chat/:conversationId" element={<ChatWorkspacePageV2 />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+describe("ChatWorkspacePage v2 — integration", () => {
+  let originalWS: typeof WebSocket;
+  let fetchSpy: ReturnType<typeof mockFetch>;
+
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    originalWS = globalThis.WebSocket;
+    (globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
+    fetchSpy = mockFetch();
+    vi.stubGlobal("fetch", fetchSpy);
+    useAuthStore.getState().setSession({
+      access_token: "tk",
+      refresh_token: "rk",
+      user: {
+        id: "u-self",
+        username: "self",
+        display_name: "Self",
+        owner_id: "u-self",
+        locale: "en",
+        default_entry_node_id: null,
+        owned_node_ids: [],
+        created_at: "2026-05-01T00:00:00Z"
+      }
+    });
+  });
+
+  afterEach(() => {
+    (globalThis as unknown as { WebSocket: typeof WebSocket }).WebSocket = originalWS;
+    vi.unstubAllGlobals();
+    useAuthStore.getState().clear();
+  });
+
+  it("renders the conversation list and the active conversation messages", async () => {
+    renderAtRoute("/chat/c1");
+    expect(await screen.findByRole("button", { name: /Planner/ })).toBeInTheDocument();
+    expect(await screen.findByText("Hi Planner")).toBeInTheDocument();
+    // Header title rendered too:
+    expect(screen.getByRole("heading", { name: "Planner" })).toBeInTheDocument();
+  });
+
+  it("renders an incoming agent message + delta + completion via the WS stream", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+
+    // The reducer + page wait for `messages` to be hydrated before applying WS
+    // events; once the historical fetch resolves, FakeWebSocket has been created
+    // by the workspace effect. Emit the three-event sequence.
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+    const ws = FakeWebSocket.instances[0]!;
+
+    act(() => {
+      ws.emit({
+      type: "message.created",
+      conversation_id: "c1",
+      message_id: "m99",
+      sender_user_id: "agent:a-planner",
+      sender_type: "agent",
+      content: "",
+      tool_calls: [],
+      token_usage: null,
+      delivery_status: "running",
+      created_at: "2026-05-01T00:00:10Z"
+    });
+    ws.emit({
+      type: "message.delta",
+      conversation_id: "c1",
+      message_id: "m99",
+      delta_text: "Hello "
+    });
+    ws.emit({
+      type: "message.delta",
+      conversation_id: "c1",
+      message_id: "m99",
+      delta_text: "there"
+    });
+    ws.emit({
+      type: "message.completed",
+      conversation_id: "c1",
+      message_id: "m99",
+      content: "Hello there",
+      token_usage: { output: 12, context_used: 200, context_window: 200_000 }
+    });
+    });
+
+    await waitFor(() => expect(screen.getByText(/Hello there/)).toBeInTheDocument());
+  });
+
+  it("posts a new message and clears the composer", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(composer, "hello");
+    await user.click(screen.getByRole("button", { name: /Send/i }));
+    await waitFor(() => {
+      const sent = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent;
+      const posted = sent.find((r) => /messages$/.test(r.url) && r.init?.method === "POST");
+      expect(posted).toBeDefined();
+    });
+    expect(composer.value).toBe("");
+  });
+
+  it("drops an image into the composer, uploads it, and sends with attachments in the payload", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const dropZone = composer.closest("[data-dragging]") as HTMLElement;
+    expect(dropZone).toBeTruthy();
+
+    const file = new File([new Uint8Array(8)], "dropped.png", { type: "image/png" });
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.drop(dropZone, {
+      dataTransfer: { files: [file], items: [], types: ["Files"] }
+    });
+
+    const chipImg = await screen.findByRole("img", { name: "dropped.png" });
+    expect(chipImg).toHaveAttribute("src", "http://im.local/im/uploads/dropped.png");
+
+    await user.type(composer, "see image");
+    await user.click(screen.getByRole("button", { name: /Send/i }));
+
+    await waitFor(() => {
+      const sent = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent;
+      const posted = sent.find(
+        (r) => /\/conversations\/c1\/messages$/.test(r.url) && r.init?.method === "POST"
+      );
+      expect(posted).toBeDefined();
+      const body = JSON.parse(String(posted!.init!.body));
+      expect(body.attachments).toEqual([
+        {
+          url: "http://im.local/im/uploads/dropped.png",
+          content_type: "image/png",
+          file_name: "dropped.png"
+        }
+      ]);
+      expect(body.content).toBe("see image");
+    });
+
+    // composer + chip strip both reset after send. (M18 R9-3: the user's bubble
+    // is now rendered optimistically with its attachments, so we scope this
+    // assertion to the composer chip strip rather than the whole document.)
+    expect(composer.value).toBe("");
+    const composerChipStrip = composer.closest("form")?.querySelector(".chat-composer-chip-strip");
+    expect(composerChipStrip?.querySelector("img[alt='dropped.png']")).toBeFalsy();
+  });
+
+  it("R9-3: optimistically renders the user's bubble in the pane the instant the POST resolves", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(composer, "Say hello briefly");
+    await user.click(screen.getByRole("button", { name: /Send/i }));
+
+    // The user-authored bubble should land in the main pane without waiting for
+    // a WS replay (which historically only echoed via message.delta for the
+    // agent reply, leaving the user-self bubble missing until refetch).
+    await waitFor(() => {
+      expect(screen.getByText("Say hello briefly")).toBeInTheDocument();
+    });
+
+    // A late echo for the same message id must not produce a duplicate bubble.
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+    const ws = FakeWebSocket.instances[0]!;
+    act(() => {
+      ws.emit({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m2",
+        sender_user_id: "u-self",
+        sender_type: "user",
+        content: "Say hello briefly",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:00:02Z"
+      });
+    });
+
+    await waitFor(() => {
+      const bubbles = screen.getAllByText("Say hello briefly");
+      expect(bubbles).toHaveLength(1);
+    });
+  });
+
+  it("R7-5: header shows the agent's Node chip and a ⚙ Config button that navigates to /settings/agents/<id>", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+
+    // Node chip with the agent's node name; status pill marks it online.
+    const chip = await screen.findByText(/laptop-prod/);
+    expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+
+    // ⚙ Config button navigates to the agent settings page.
+    const configButton = screen.getByRole("button", { name: /Config/i });
+    await user.click(configButton);
+    await waitFor(() => {
+      // The MemoryRouter test rig doesn't mount /settings; we just assert the
+      // workspace stops rendering the chat title because navigate("/settings/...")
+      // unmounted the route.
+      expect(screen.queryByRole("heading", { name: "Planner" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("R8-2: WS message.created with sender_user_id UUID renders the agent display_name (Planner), not the UUID", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+    const ws = FakeWebSocket.instances[0]!;
+
+    act(() => {
+      ws.emit({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m-live-1",
+        sender_user_id: "user-uuid-planner",
+        sender_type: "agent",
+        content: "live reply",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "running",
+        created_at: "2026-05-01T00:00:09Z"
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText(/live reply/)).toBeInTheDocument());
+    // Bubble meta line shows "Planner", not the raw UUID.
+    const bubble = screen.getByText(/live reply/).closest(".chat-bubble");
+    expect(bubble).not.toBeNull();
+    expect(bubble!.textContent).toMatch(/Planner/);
+    expect(bubble!.textContent).not.toMatch(/user-uuid-planner/);
+  });
+});

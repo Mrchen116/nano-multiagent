@@ -1,3 +1,4 @@
+import { authFetch } from "../auth/auth-fetch";
 import {
   ChatAttachment,
   ChatMessage,
@@ -188,6 +189,9 @@ interface ImAgent {
   display_name: string;
   description: string;
   node_id?: string | null;
+  // feat-340-M18 R9-1: the IM users.id paired with this agent. Surfaces null when
+  // legacy seeds have not yet been backfilled; the chat UI must guard for that.
+  user_id?: string | null;
 }
 
 export interface DiscoverableAgent {
@@ -610,7 +614,7 @@ class ChatRequestError extends Error {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withBase(path), {
+  const response = await authFetch(withBase(path), {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -638,7 +642,7 @@ async function requestUpload(path: string, input: {
   body: Blob;
   contentType: string;
 }): Promise<ChatAttachment> {
-  const response = await fetch(withBase(path), {
+  const response = await authFetch(withBase(path), {
     method: "POST",
     body: input.body,
     headers: {
@@ -859,6 +863,19 @@ async function ensureUser(username: string, displayName: string): Promise<ImUser
 }
 
 async function ensureSelfUser() {
+  // feat-340-M3: prefer the authenticated user from the auth store; fall back to the
+  // legacy "you" lookup only when no session is present (e.g. unauthenticated tests).
+  // M4 will fully migrate bootstrap onto the auth store and remove the fallback.
+  const { useAuthStore } = await import("../auth/auth-store");
+  const session = useAuthStore.getState().user;
+  if (session) {
+    return {
+      id: session.id,
+      username: session.username,
+      display_name: session.display_name,
+      owner_id: session.owner_id
+    } as ImUser;
+  }
   return ensureUser(SELF_USERNAME, "You");
 }
 
@@ -1002,7 +1019,7 @@ function findStarterConversation(input: {
 async function ensureBootstrap(): Promise<BootstrapState> {
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
-      const [self, agents, nodes] = await Promise.all([ensureUser(SELF_USERNAME, "You"), listAgentsRaw(), listNodesRaw()]);
+      const [self, agents, nodes] = await Promise.all([ensureSelfUser(), listAgentsRaw(), listNodesRaw()]);
       const starterAgent = pickStarterAgent(agents);
       const starterPeer = await ensureUser(
         buildStarterPeerUsername(starterAgent.agent_id),
@@ -1602,6 +1619,47 @@ export async function createDirectConversation(input: { agentId: string }): Prom
   return { conversation_id: created.id };
 }
 
+/**
+ * feat-340-M18 R9-2: open a direct chat without traversing the legacy
+ * ``ensureBootstrap`` → ``listUsersRaw`` path that 404s on /im/v1/users.
+ *
+ * Callers already hold the agent's IM ``user_id`` (returned by
+ * /im/v1/agents since R9-1) and the authenticated user's id (auth store),
+ * so we can POST /conversations directly with concrete participant ids.
+ * Failures propagate to the caller so the UI can surface them instead of
+ * swallowing the rejection.
+ */
+export async function createDirectChatByAgentUserId(input: {
+  agentId: string;
+  agentUserId: string;
+  agentDisplayName: string;
+}): Promise<{ conversation_id: string }> {
+  const { useAuthStore } = await import("../auth/auth-store");
+  const session = useAuthStore.getState().user;
+  if (!session) {
+    throw new Error("not authenticated");
+  }
+  const participants: ImActorRef[] = [
+    { type: "user", id: session.id },
+    { type: "agent", id: input.agentId, display_name: input.agentDisplayName }
+  ];
+  const created = await createConversationRaw({
+    title: input.agentDisplayName,
+    participants,
+    participant_ids: [session.id, input.agentUserId]
+  });
+  return { conversation_id: created.id };
+}
+
+/**
+ * feat-340-M18 R9-2: thin wrapper around the internal `listAgentsRaw` helper so
+ * callers outside this module (e.g. the Agents detail page) can read the
+ * canonical agent → user_id mapping without reaching into legacy bootstrap.
+ */
+export async function listAgents(): Promise<ImAgent[]> {
+  return listAgentsRaw();
+}
+
 export async function createFreshDirectConversation(input: { agentId: string }): Promise<{ conversation_id: string }> {
   const { selfUserId } = await ensureBootstrap();
   const agents = await listAgentsRaw();
@@ -1829,12 +1887,12 @@ function writeUserStreamCursor(userId: string, eventId: number) {
   }
 }
 
-function resolveUserStreamWsUrl(selfUserId: string): string {
+function resolveUserStreamWsUrl(token: string): string {
   const apiBase = getApiBaseUrl();
   const pageOrigin = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:8011";
   const httpOrigin = apiBase !== "" ? new URL(apiBase, pageOrigin).origin : pageOrigin;
   const wsUrl = new URL("/im/ws/user", httpOrigin);
-  wsUrl.searchParams.set("user_id", selfUserId);
+  wsUrl.searchParams.set("token", token);
   const scheme = wsUrl.protocol === "https:" ? "wss:" : "ws:";
   return `${scheme}//${wsUrl.host}${wsUrl.pathname}?${wsUrl.searchParams.toString()}`;
 }
@@ -1846,6 +1904,7 @@ const userStreamHandlers = new Set<UserStreamHandler>();
 const userStreamResyncHandlers = new Set<UserStreamResyncHandler>();
 let userStreamSocket: WebSocket | null = null;
 let userStreamUserId: string | null = null;
+let userStreamToken: string | null = null;
 let userStreamReconnectTimer: number | null = null;
 let userStreamPingTimer: number | null = null;
 let userStreamReconnectAttempt = 0;
@@ -1877,7 +1936,7 @@ function teardownUserStreamTimers() {
   }
 }
 
-function scheduleUserStreamReconnect(userId: string) {
+function scheduleUserStreamReconnect(userId: string, token: string) {
   if (userStreamHandlers.size === 0) {
     return;
   }
@@ -1886,11 +1945,11 @@ function scheduleUserStreamReconnect(userId: string) {
   userStreamReconnectAttempt += 1;
   userStreamReconnectTimer = window.setTimeout(() => {
     userStreamReconnectTimer = null;
-    connectSharedUserStream(userId);
+    connectSharedUserStream(userId, token);
   }, delay);
 }
 
-function connectSharedUserStream(userId: string) {
+function connectSharedUserStream(userId: string, token: string) {
   if (typeof WebSocket === "undefined") {
     return;
   }
@@ -1899,6 +1958,7 @@ function connectSharedUserStream(userId: string) {
     userStreamSocket = null;
     teardownUserStreamTimers();
     userStreamUserId = null;
+    userStreamToken = null;
   }
   if (
     userStreamSocket &&
@@ -1909,7 +1969,8 @@ function connectSharedUserStream(userId: string) {
   }
   userStreamSocket?.close();
   teardownUserStreamTimers();
-  const ws = new WebSocket(resolveUserStreamWsUrl(userId));
+  userStreamToken = token;
+  const ws = new WebSocket(resolveUserStreamWsUrl(token));
   userStreamSocket = ws;
   userStreamUserId = userId;
 
@@ -1977,7 +2038,7 @@ function connectSharedUserStream(userId: string) {
     teardownUserStreamTimers();
     userStreamSocket = null;
     if (userStreamHandlers.size > 0) {
-      scheduleUserStreamReconnect(userId);
+      scheduleUserStreamReconnect(userId, token);
     }
   };
 }
@@ -1987,6 +2048,7 @@ function connectSharedUserStream(userId: string) {
  */
 export function attachUserConversationStream(input: {
   selfUserId: string;
+  token: string;
   onEvent: UserStreamHandler;
   onResyncRequired?: UserStreamResyncHandler;
 }): () => void {
@@ -1997,7 +2059,7 @@ export function attachUserConversationStream(input: {
   if (input.onResyncRequired) {
     userStreamResyncHandlers.add(input.onResyncRequired);
   }
-  connectSharedUserStream(input.selfUserId);
+  connectSharedUserStream(input.selfUserId, input.token);
   return () => {
     userStreamHandlers.delete(input.onEvent);
     if (input.onResyncRequired) {
@@ -2008,6 +2070,7 @@ export function attachUserConversationStream(input: {
       userStreamSocket?.close();
       userStreamSocket = null;
       userStreamUserId = null;
+      userStreamToken = null;
       userStreamReconnectAttempt = 0;
     }
   };
@@ -2017,6 +2080,7 @@ export function attachUserConversationStream(input: {
 export function streamConversationEvents(input: {
   conversationId: string;
   selfUserId: string | null | undefined;
+  token: string;
   afterEventId?: number;
   onEvent: (event: ParsedImStreamEvent) => void;
   onError?: (error: Error) => void;
@@ -2032,6 +2096,7 @@ export function streamConversationEvents(input: {
   }
   return attachUserConversationStream({
     selfUserId: input.selfUserId,
+    token: input.token,
     onEvent: (event) => {
       const payload = event.payload as Record<string, unknown>;
       const cid = typeof payload.conversation_id === "string" ? payload.conversation_id : undefined;
@@ -2053,7 +2118,7 @@ export async function deleteConversation(input: {
   conversationId: string;
   requesterId: string;
 }): Promise<void> {
-  const response = await fetch(withBase(`/im/v1/conversations/${input.conversationId}`), {
+  const response = await authFetch(withBase(`/im/v1/conversations/${input.conversationId}`), {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ requester_id: input.requesterId })
@@ -2082,7 +2147,7 @@ export async function leaveConversation(input: {
   conversationId: string;
   userId: string;
 }): Promise<void> {
-  const response = await fetch(withBase(`/im/v1/conversations/${input.conversationId}/participants/${input.userId}`), {
+  const response = await authFetch(withBase(`/im/v1/conversations/${input.conversationId}/participants/${input.userId}`), {
     method: "DELETE"
   });
   if (!response.ok) {

@@ -2,8 +2,9 @@
 
 import os
 
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 
+from IM.application.auth_service import AuthService, InvalidTokenError
 from IM.application.bind_service import BindService
 from IM.application.config_service import ConfigService
 from IM.application.event_service import EventService
@@ -13,6 +14,7 @@ from IM.application.policy_service import PolicyService
 from IM.application.relay_service import RelayService
 from IM.application.user_service import UserService
 from IM.application.web_im_service import WebIMService
+from IM.domain.models import User
 from IM.infra.repositories import AgentProfileRepository, BindRepository, ConversationRepository, MessageRepository, NodeRepository, SettingsPolicyRepository, UsageMetricsRepository, UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 
@@ -145,6 +147,7 @@ def get_config_service(request: Request) -> ConfigService:
     return ConfigService(
         profiles=_build_profile_repository(request),
         nodes=_build_node_repository(request),
+        users=_build_user_repository(request),
         config_sync_notifier=lambda node_id, agent_id, profile_version: gateway_handler.push_config_sync(
             target_node_id=node_id,
             agent_id=agent_id,
@@ -200,3 +203,64 @@ def assert_conversation_exists(request: Request, *, conversation_id: str) -> Non
             status_code=status.HTTP_404_NOT_FOUND,
             detail="conversation_id not found",
         )
+
+
+def get_auth_service(request: Request) -> AuthService:
+    """Return the singleton AuthService bound to the running IM app."""
+    return request.app.state.auth_service
+
+
+def _extract_bearer_token(request: Request) -> str:
+    """Pull a Bearer access token from the Authorization header; raise 401 when missing."""
+    raw = request.headers.get("Authorization") or request.headers.get("authorization")
+    if not raw:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing authorization header",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    parts = raw.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid authorization scheme",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = parts[1].strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="empty bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
+
+
+def current_user(
+    request: Request,
+    service: AuthService = Depends(get_auth_service),
+) -> User:
+    """FastAPI dep: resolve the authenticated user from the Authorization header.
+
+    Raises:
+        HTTPException 401: when the header is missing, the token is invalid, or the
+            user no longer exists. ``WWW-Authenticate: Bearer`` is included so clients
+            can react to challenge-style 401s.
+    """
+    token = _extract_bearer_token(request)
+    try:
+        user_id = service.verify_access_token(token)
+    except InvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    user = service.get_user(user_id=user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="token subject no longer exists",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user

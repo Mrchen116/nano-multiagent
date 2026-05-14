@@ -104,6 +104,7 @@ class InboundPipeline:
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         group_context_store: GroupContextStore | None = None,
         gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
+        kernel_event_observer: Callable[[Mapping[str, Any]], None] | None = None,
     ) -> None:
         self._kernel_client = kernel_client
         self._agents = {agent.agent_id: agent for agent in agents}
@@ -117,6 +118,9 @@ class InboundPipeline:
         self._gateway_internal_port = gateway_internal_port
         self._active_runs: dict[str, str] = {}
         self._active_runs_lock = asyncio.Lock()
+        # feat-340-M2: bootstrap wires this to an IM event_bridge consumer so the browser
+        # sees live tool_call / token_usage events; default None keeps pipeline product-agnostic.
+        self._kernel_event_observer = kernel_event_observer
 
     async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
         """Process one inbound message through route, session, queue, and reply steps.
@@ -187,6 +191,10 @@ class InboundPipeline:
                     image_urls=image_urls,
                 )
                 run_id = str(run_payload.get("run_id", "")).strip()
+                # anchor_sequence is captured before the run starts; use it as Last-Event-ID
+                # so stream_session replays events even if the kernel finishes before we connect.
+                raw_anchor = run_payload.get("anchor_sequence")
+                anchor_sequence = int(raw_anchor) if isinstance(raw_anchor, int) else None
                 if run_id:
                     async with self._active_runs_lock:
                         self._active_runs[session_key] = run_id
@@ -212,6 +220,7 @@ class InboundPipeline:
                 run_state, reply_text = await self._await_terminal_run_async(
                     kernel_session_id=binding.kernel_session_id,
                     run_id=run_id,
+                    anchor_sequence=anchor_sequence,
                     on_other=_on_other_event,
                 )
                 await self._emit_relay_lifecycle(
@@ -533,6 +542,7 @@ class InboundPipeline:
         *,
         kernel_session_id: str,
         run_id: str,
+        anchor_sequence: int | None = None,
         on_other: Callable[[Mapping[str, object]], Awaitable[None] | None] | None = None,
     ) -> tuple[Mapping[str, object], str]:
         """Consume persistent SSE stream until terminal run_status for run_id.
@@ -540,17 +550,29 @@ class InboundPipeline:
         Non-target events are passed to ``on_other`` if provided.  This lets
         callers route background-task or heartbeat runs through the same
         session-key serial queue while the user run is in progress.
+
+        anchor_sequence, when provided, is passed as Last-Event-ID so the kernel
+        replays history from before the run started — preventing missed events when
+        the run completes faster than the HTTP SSE connection is established.
         """
         reply_text = ""
         run_state: Mapping[str, object] | None = None
 
-        async for event in self._kernel_client.stream_session(session_id=kernel_session_id):
+        async for event in self._kernel_client.stream_session(
+            session_id=kernel_session_id, last_event_id=anchor_sequence
+        ):
             if event.get("run_id") != run_id:
                 if on_other is not None:
                     result = on_other(event)
                     if asyncio.iscoroutine(result):
                         await result
                 continue
+            if self._kernel_event_observer is not None:
+                # Bridge consumer raises if it cannot translate — let it propagate so we don't
+                # silently swallow malformed kernel events.
+                result = self._kernel_event_observer(event)
+                if asyncio.iscoroutine(result):
+                    await result
             event_name = event.get("event")
             if event_name == "assistant_message":
                 content = event.get("content")

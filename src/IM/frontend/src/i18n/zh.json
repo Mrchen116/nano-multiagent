@@ -1,0 +1,311 @@
+{
+  "auth": {
+    "login": {
+      "title": "登录",
+      "subtitle": "欢迎回到 nano IM。",
+      "username": "用户名",
+      "password": "密码",
+      "submit": "登录",
+      "submitting": "登录中…",
+      "noAccount": "还没有账号?",
+      "registerLink": "立即注册",
+      "errorInvalid": "用户名或密码错误。",
+      "errorGeneric": "登录失败,请稍后再试。"
+    },
+    "register": {
+      "title": "创建账号",
+      "subtitle": "选一个用户名和密码即可开始使用。",
+      "username": "用户名",
+      "password": "密码",
+      "displayName": "显示名",
+      "submit": "创建账号",
+      "submitting": "创建中…",
+      "haveAccount": "已有账号?",
+      "loginLink": "去登录",
+      "errorUsernameTaken": "该用户名已被占用。",
+      "errorGeneric": "创建失败,请重试。"
+    },
+    "logout": "退出登录"
+  },
+  "shell": {
+    "appName": "nano IM",
+    "tabs": {
+      "chat": "聊天",
+      "agents": "智能体",
+      "me": "我"
+    },
+    "userMenu": {
+      "newAgent": "新建 Agent",
+      "nodes": "节点",
+      "account": "账号",
+      "language": "语言",
+      "signOut": "退出登录"
+    }
+  },
+  "me": {
+    "title": "我",
+    "sections": {
+      "account": "账号",
+      "accountSubtitle": "个人资料与网关",
+      "nodes": "节点",
+      "nodesSubtitle": "资料与网关",
+      "language": "语言",
+      "notifications": "通知",
+      "signOut": "退出登录"
+    },
+    "language": {
+      "en": "English",
+      "zh": "中文"
+    },
+    "notifications": {
+      "toggle": "启用桌面通知",
+      "hint": "标签未激活时,Agent 回复完成会弹出系统通知。"
+    }
+  },
+  "common": {
+    "loading": "加载中…",
+    "save": "保存",
+    "saving": "保存中…",
+    "discard": "放弃",
+    "cancel": "取消",
+    "create": "创建",
+    "delete": "删除",
+    "back": "返回",
+    "retry": "重试",
+    "empty": "暂无内容。",
+    "owned": "已拥有",
+    "online": "在线",
+    "offline": "离线"
+  },
+  "settings": {
+    "nav": {
+      "agents": "智能体",
+      "nodes": "节点",
+      "account": "账户"
+    },
+    "nodes": {
+      "title": "节点",
+      "subtitle": "已接入此工作区的 Gateway 节点。",
+      "loading": "节点加载中…",
+      "empty": "尚未接入任何节点。",
+      "aliasLabel": "{{nodeId}} 别名",
+      "liveSnapshot": "实时快照",
+      "heartbeat": "心跳",
+      "version": "版本",
+      "lastError": "最近错误",
+      "relayEnabled": "启用消息中继",
+      "reportingEnabled": "启用使用上报",
+      "save": "保存 {{nodeId}}",
+      "saving": "保存中…",
+      "createAgentOn": "+ 在节点上新建 agent",
+      "agentsOnNode": "本节点上的 agents",
+      "agentsOnNodeEmpty": "本节点上还没有 agent。",
+      "liveName": "节点名: {{name}}",
+      "agentsCount": "agents: {{count}}",
+      "agentsShort": "agents",
+      "versionShort": "版本",
+      "kpiTotal": "节点总数",
+      "kpiOnline": "在线",
+      "kpiOffline": "离线",
+      "kpiAgents": "Agent 总数",
+      "statusOnline": "在线",
+      "statusOffline": "离线",
+      "statusDegraded": "异常"
+    },
+    "account": {
+      "title": "账号",
+      "subtitle": "你的资料和默认网关配置。",
+      "identity": {
+        "heading": "资料",
+        "subtitle": "你在工作区中的身份。",
+        "displayName": "显示名",
+        "username": "用户名",
+        "userId": "用户 ID",
+        "createdAt": "加入时间"
+      },
+      "defaults": {
+        "heading": "网关",
+        "subtitle": "决定消息默认走哪个节点路由。",
+        "defaultEntryNode": "默认入口节点",
+        "defaultEntryNodeHint": "从你拥有的节点中选择。",
+        "selectNode": "— 选择节点 —",
+        "ownedNodes": "已拥有节点",
+        "ownedNodesEmpty": "尚未绑定任何节点。",
+        "defaultChip": "默认",
+        "agentsShort": "agent"
+      },
+      "preferences": {
+        "heading": "偏好",
+        "subtitle": "界面语言与桌面通知。",
+        "language": "语言",
+        "notifications": "启用桌面通知",
+        "notificationsHint": "标签未激活时,Agent 回复完成会弹出系统通知。"
+      },
+      "actions": {
+        "save": "保存",
+        "saveAccount": "保存账户",
+        "saving": "保存中…",
+        "discard": "放弃",
+        "savedJustNow": "已保存。",
+        "unsavedChanges": "有未保存改动",
+        "saveFailed": "保存失败:{{detail}}"
+      }
+    }
+  },
+  "agents": {
+    "title": "Agents",
+    "newButton": "+ 新建",
+    "loadError": "无法加载 Agent 列表。",
+    "retry": "重试",
+    "openNodes": "前往节点",
+    "empty": {
+      "title": "还没有 Agent",
+      "body": "前往节点页,在在线的已绑定节点上创建第一个运行时配置。"
+    },
+    "rowStatus": {
+      "online": "{{id}} 在线",
+      "offline": "{{id}} 离线"
+    },
+    "detail": {
+      "selectPrompt": "选择一个 Agent",
+      "selectHint": "选择一个 Agent 以查看或编辑其配置。",
+      "openChat": "打开聊天 ↗",
+      "openChatPending": "正在打开直聊…",
+      "saveAgent": "保存 Agent",
+      "save": "保存",
+      "saving": "保存中…",
+      "saved": "✓ 已保存",
+      "noChanges": "无改动",
+      "unsavedChanges": "● 有未保存改动",
+      "discard": "放弃",
+      "version": "v{{version}}",
+      "loading": "加载 Agent 配置中..."
+    },
+    "form": {
+      "identity": {
+        "title": "身份",
+        "subEdit": "向用户与其他 agent 展示的名称与用途。",
+        "subNew": "Agent ID 创建后不可更改,会用于 @ 与 API 调用。",
+        "agentId": "Agent ID",
+        "agentIdRequired": "Agent ID *",
+        "agentIdHelp": "小写字母、数字、_ 和 -",
+        "agentIdPlaceholder": "例如 my_agent",
+        "displayName": "显示名",
+        "displayNameRequired": "显示名 *",
+        "displayNamePlaceholder": "例如 我的 Agent",
+        "description": "描述",
+        "descriptionHelp": "在群聊中显示的简短说明。",
+        "descriptionPlaceholder": "这个 agent 做什么?",
+        "owner": "所有者",
+        "owningNodeRequired": "所属节点 *",
+        "owningNodeHelp": "承载与运行该 agent 的节点。",
+        "owningNodeSelect": "— 选择节点 —"
+      },
+      "behavior": {
+        "title": "行为",
+        "sub": "系统提示词是行为的主要契约。",
+        "systemPrompt": "系统提示词",
+        "systemPromptRequired": "系统提示词 *",
+        "systemPromptHelp": "定义角色、语气与约束。",
+        "systemPromptPlaceholder": "你是一个有帮助的助手。你的工作是...\n\n保持简洁,必要时主动澄清。",
+        "policy": "群聊回复策略",
+        "policyHelp": "在群聊中何时回复。",
+        "policyOptionMention": "MENTION — 仅当被 @ 时回复",
+        "policyOptionAlways": "ALWAYS — 每条群消息都回复",
+        "policyOptionNoReply": "NO_REPLY — 在群里保持沉默"
+      },
+      "access": {
+        "title": "访问与模型",
+        "sub": "允许列表保持最小。",
+        "skills": "技能",
+        "tools": "工具允许列表",
+        "model": "默认模型",
+        "modelPlatformDefault": "平台默认 ({{model}})",
+        "modelPlatformDefaultPlain": "平台默认",
+        "modelDefaultSuffix": "(默认)"
+      },
+      "workspace": {
+        "title": "工作区与运行时",
+        "sub": "只读。由所属节点托管。",
+        "workspaceRoot": "工作区路径",
+        "profileVersion": "Profile 版本",
+        "owningNode": "所属节点",
+        "lastUpdated": "最后更新"
+      },
+      "errors": {
+        "required": "必填",
+        "agentIdInvalid": "仅允许小写字母、数字、_ 和 -"
+      }
+    },
+    "create": {
+      "title": "新建 Agent",
+      "subtitle": "配置身份、行为与工具访问。",
+      "submit": "创建 Agent",
+      "submitArrow": "创建 Agent →",
+      "cancel": "取消",
+      "errorGeneric": "创建失败"
+    }
+  },
+  "chat": {
+    "list": {
+      "header": "消息",
+      "newGroup": "+ 群聊",
+      "search": "搜索…",
+      "filters": {
+        "all": "全部",
+        "agent": "Agent",
+        "group": "群聊",
+        "network": "Agent 网络"
+      },
+      "empty": "暂无会话"
+    },
+    "kindBadge": {
+      "agent": "Agent",
+      "group": "群聊",
+      "network": "Agent↔Agent",
+      "direct-user": "私聊"
+    },
+    "newGroup": {
+      "title": "新建群聊",
+      "subtitle": "选择 agent,然后给群起个名字。",
+      "sectionAgents": "Agents",
+      "groupName": "群名(可选)",
+      "groupNamePlaceholder": "默认按参与者名字拼接",
+      "create": "创建群聊",
+      "cancel": "取消",
+      "online": "在线",
+      "offline": "离线"
+    },
+    "messagePane": {
+      "emptyTitle": "暂无消息",
+      "emptySubtitle": "发出第一条消息。",
+      "placeholderDirect": "给 {{title}} 发消息…",
+      "placeholderGroup": "发消息…(输入 @ 召唤 agent)",
+      "helpDesktop": "Enter 发送 · Shift+Enter 换行",
+      "helpDesktopGroup": "Enter 发送 · Shift+Enter 换行 · @ 召唤 agent",
+      "config": "配置",
+      "tokenSuffix": "tok",
+      "tokenContext": "{{used}}/{{window}} ({{pct}}%)",
+      "tokenContextShort": "上下文 {{pct}}%",
+      "tokenOutput": "输出 token",
+      "tokenTotal": "总计 token",
+      "tokenContextUsed": "已用上下文",
+      "tokenWarn": "↑ 上下文超过 70% — 注意性能下降",
+      "tokenWarnCritical": "⚠ 上下文即将满 — 考虑 /compact",
+      "sendErrorTitle": "发送失败",
+      "sendError": "消息发送失败,请重试。",
+      "toolCall": "次工具调用",
+      "toolCalls": "次工具调用",
+      "running": "运行中",
+      "failed": "失败",
+      "selectConversationTitle": "选择一个会话",
+      "selectConversationSubtitle": "挑一条会话开始与 agent 协作。"
+    },
+    "mention": {
+      "header": "选择 agent",
+      "empty": "没有可召唤的 agent",
+      "noAgents": "没有可提及的 agent",
+      "noMatch": "无匹配结果"
+    }
+  }
+}

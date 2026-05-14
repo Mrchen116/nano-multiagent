@@ -1,46 +1,9 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Outlet } from "react-router-dom";
 
-const navItems = [
-  { to: "/settings/agents", label: "Agents" },
-  { to: "/settings/nodes", label: "Nodes" },
-  { to: "/settings/policies", label: "Policies" },
-  { to: "/settings/account", label: "Account" }
-];
-
+// M19/R11-2: prototype 5 页里没有 Settings 二级侧栏 / sub-nav pill。
+// Agents / Nodes / Account 是各自独立的页面 (UserMenu / 移动 Me 直达),
+// 不应共享一层 Settings chrome。这里把 Shell 退化为透传 Outlet,
+// 各 page 自己负责全高占满 + 滚动管理。Router 树保留,避免大改路径。
 export function SettingsPageShell() {
-  const location = useLocation();
-  const isAgentSubpage = location.pathname.startsWith("/settings/agents/");
-
-  return (
-    <section className="grid h-full w-full gap-4 overflow-hidden lg:grid-cols-[240px_1fr]">
-      <aside className="im-card overflow-y-auto p-3">
-        <p className="im-title mb-3 text-base font-bold">Settings</p>
-        <nav
-          aria-label="Settings Sections"
-          className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0"
-        >
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "/settings/agents" && !isAgentSubpage}
-              className={({ isActive }) =>
-                [
-                  "rounded-lg px-3 py-2 text-sm font-semibold whitespace-nowrap",
-                  isActive || (item.to === "/settings/agents" && isAgentSubpage)
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-100"
-                ].join(" ")
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
-      <div className="im-card flex h-full flex-col overflow-y-auto p-5">
-        <Outlet />
-      </div>
-    </section>
-  );
+  return <Outlet />;
 }

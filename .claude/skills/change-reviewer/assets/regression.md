@@ -32,4 +32,3 @@ bugfix full 的回归验证报告。bugfix milestone 完成后写。
 - [ ] `docs/内核设计SPEC.md`：__需要更新 / 无需更新__
 - [ ] `AGENTS.md` / `CLAUDE.md`：__需要更新 / 无需更新__
 - [ ] 相关产品 SPEC：__需要更新 / 无需更新__
-

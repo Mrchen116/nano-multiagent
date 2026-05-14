@@ -1,11 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
+import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { createDirectConversation } from "../../chat/chat-api";
-import { AllowlistSelector } from "./allowlist-selector";
-import { AgentConfig, getAgentDetailState, updateAgentConfig } from "./im-agent-config-api";
+import { useIsMobile } from "../../../hooks/use-is-mobile";
+import { useTranslation } from "../../../i18n";
+import { createDirectChatByAgentUserId, listAgents } from "../../chat/chat-api";
+import { Avatar } from "../../chat/v2/components/avatar";
+import { PillSelector } from "./pill-selector";
+import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
+import { AgentConfig, AgentSummary, getAgentDetailState, listAgentSummaries, updateAgentConfig } from "./im-agent-config-api";
 
 type AgentConfigFormState = AgentConfig;
 
@@ -31,39 +36,25 @@ function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormStat
 
 function validateDraft(draft: AgentConfigFormState) {
   const errors: Partial<Record<"display_name" | "system_prompt", string>> = {};
-
-  if (!draft.display_name) {
-    errors.display_name = "Display name is required.";
-  }
-
-  if (!draft.system_prompt) {
-    errors.system_prompt = "System prompt is required.";
-  }
-
+  if (!draft.display_name) errors.display_name = "Display name is required.";
+  if (!draft.system_prompt) errors.system_prompt = "System prompt is required.";
   return errors;
 }
 
-function policyDescription(policy: AgentConfig["group_reply_policy"]) {
-  switch (policy) {
-    case "ALWAYS":
-      return "Reply to every group message for high-touch concierge or assistant roles.";
-    case "NO_REPLY":
-      return "Stay silent in groups and only work through direct or routed interactions.";
-    case "MENTION":
-    default:
-      return "Reply only when explicitly mentioned. Recommended for most shared channels.";
-  }
+function initialsOf(displayName: string): string {
+  const trimmed = displayName.trim();
+  if (!trimmed) return "AG";
+  return trimmed.slice(0, 2).toUpperCase();
 }
 
-function nodeStatusClasses(status: string) {
-  switch (status.toLowerCase()) {
-    case "online":
-      return "bg-emerald-100 text-emerald-700";
-    case "degraded":
-      return "bg-amber-100 text-amber-700";
-    default:
-      return "bg-slate-200 text-slate-600";
-  }
+function colorForAgent(agent: AgentSummary): string {
+  return colorForSeed(agent.agent_id || agent.display_name);
+}
+
+function colorForSeed(seedValue: string): string {
+  let hash = 0;
+  for (let i = 0; i < seedValue.length; i += 1) hash = (hash << 5) - hash + seedValue.charCodeAt(i);
+  return `oklch(0.52 0.14 ${Math.abs(hash) % 360})`;
 }
 
 function resolveModelOptions(modelOptions: string[] | undefined, currentModel: string | null) {
@@ -74,32 +65,100 @@ function resolveModelOptions(modelOptions: string[] | undefined, currentModel: s
   return resolved;
 }
 
-function platformDefaultLabel(model: string | null | undefined) {
-  return model ? `Platform default (${model})` : "Platform default";
-}
-
-function modelOptionLabel(model: string, platformDefaultModel: string | null | undefined, isAvailable: boolean) {
-  if (!isAvailable) {
-    return `${model} (unavailable now)`;
-  }
-  if (model === platformDefaultModel) {
-    return `${model} (platform default)`;
-  }
-  return model;
-}
-
 function formatUpdatedAt(value?: string | null) {
-  if (!value) {
-    return "—";
-  }
-
+  if (!value) return "—";
   return new Date(value).toLocaleString();
+}
+
+// M20/R12-bis-1: desktop split layout — left 240px dark agent rail.
+// Prototype `im-settings-page.jsx::AgentListView` desktop: 240px dark sidebar
+// (`oklch(0.24 0.012 240)` bg) with clickable agent rows, active highlight.
+function AgentsRailDesktop({ activeId }: { activeId: string }) {
+  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const query = useQuery({ queryKey: ["settings", "agents"], queryFn: listAgentSummaries, staleTime: 30_000 });
+  const agents = query.data ?? [];
+
+  return (
+    <aside
+      data-testid="agents-rail-desktop"
+      className="hidden md:flex md:w-[240px] md:flex-col md:border-r md:border-[oklch(0.29_0.010_240)]"
+      style={{ background: "oklch(0.24 0.012 240)" }}
+      aria-label={t("agents.title")}
+    >
+      <div className="flex items-center justify-between px-3 py-[10px] border-b border-[oklch(0.29_0.010_240)]">
+        <span className="text-[11px] font-bold tracking-[0.08em] uppercase text-[oklch(0.55_0.01_240)]">
+          {t("agents.title")}
+        </span>
+        <Link
+          to="/settings/agents/new"
+          className="inline-flex h-9 items-center rounded-lg px-3 text-[13px] font-semibold text-white"
+          style={{ background: "oklch(0.30 0.012 240)" }}
+        >
+          {t("agents.newButton")}
+        </Link>
+      </div>
+      <nav className="flex-1 overflow-y-auto px-2 py-[6px]" aria-label={t("agents.title")}>
+        {agents.map((agent) => {
+          const active = agent.agent_id === activeId;
+          const online = agent.node_status === "online";
+          return (
+            <button
+              key={agent.agent_id}
+              type="button"
+              onClick={() => navigate(`/settings/agents/${agent.agent_id}`)}
+              className={`flex w-full items-center gap-3 rounded-xl border-none text-left font-inherit mb-1 min-h-[52px] px-[10px] py-[9px] transition-colors ${
+                active
+                  ? "outline outline-1 outline-[oklch(0.40_0.08_180)]"
+                  : "outline-none"
+              }`}
+              style={{
+                background: active ? "oklch(0.31 0.015 240)" : "transparent",
+                cursor: "pointer"
+              }}
+              onMouseEnter={(e) => {
+                if (!active) e.currentTarget.style.background = "oklch(0.28 0.012 240)";
+              }}
+              onMouseLeave={(e) => {
+                if (!active) e.currentTarget.style.background = "transparent";
+              }}
+              aria-current={active ? "page" : undefined}
+            >
+              <span
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-white"
+                style={{ background: colorForAgent(agent) }}
+                aria-hidden="true"
+              >
+                {initialsOf(agent.display_name)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className={`m-0 text-[13px] font-semibold truncate ${active ? "text-white" : "text-[oklch(0.18_0.01_240)]"}`}>
+                  {agent.display_name}
+                </p>
+                <p className="m-0 mt-[2px] font-mono text-[11px] text-[oklch(0.50_0.01_240)] truncate">
+                  {agent.agent_id}
+                </p>
+              </div>
+              <span
+                className="inline-block h-2 w-2 shrink-0 rounded-full"
+                style={{ background: online ? "oklch(0.55 0.18 145)" : "oklch(0.45 0.01 240)" }}
+                aria-label={online ? "online" : "offline"}
+              />
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
+  );
 }
 
 export function AgentDetailPage() {
   const { agentId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  const isMobile = useIsMobile();
+  useAgentStatusBroadcastConsumer();
   const [draft, setDraft] = useState<AgentConfigFormState | null>(null);
   const [saved, setSaved] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -112,6 +171,20 @@ export function AgentDetailPage() {
     staleTime: 30_000
   });
 
+  // feat-340-M18 R9-2: fetch the agent summary list to obtain ``user_id``.
+  // ``getAgentDetailState`` only returns the AgentConfig shape (no user_id), so we
+  // pair it with the list endpoint. Using a separate query keeps cache invalidation
+  // simple and lets the Open chat button re-attempt after a transient miss.
+  const agentsSummaryQuery = useQuery({
+    queryKey: ["settings", "agents", "summary"],
+    queryFn: () => listAgents(),
+    staleTime: 30_000
+  });
+  const currentAgentSummary = useMemo(
+    () => agentsSummaryQuery.data?.find((item) => item.agent_id === agentId) ?? null,
+    [agentsSummaryQuery.data, agentId]
+  );
+
   useEffect(() => {
     if (detailQuery.data?.config) {
       setDraft(detailQuery.data.config);
@@ -122,7 +195,10 @@ export function AgentDetailPage() {
   const capabilities = detailQuery.data?.capabilities;
   const owningNode = detailQuery.data?.owningNode ?? null;
   const normalizedDraft = useMemo(() => (draft ? normalizeAgentConfig(draft) : null), [draft]);
-  const normalizedServerState = useMemo(() => (detailQuery.data?.config ? normalizeAgentConfig(detailQuery.data.config) : null), [detailQuery.data]);
+  const normalizedServerState = useMemo(
+    () => (detailQuery.data?.config ? normalizeAgentConfig(detailQuery.data.config) : null),
+    [detailQuery.data]
+  );
   const availableModels = useMemo(
     () => resolveModelOptions(capabilities?.model_options, draft?.default_model ?? null),
     [capabilities?.model_options, draft?.default_model]
@@ -130,13 +206,26 @@ export function AgentDetailPage() {
   const platformDefaultModel = capabilities?.platform_default_model ?? null;
   const validationErrors = useMemo(() => (normalizedDraft ? validateDraft(normalizedDraft) : {}), [normalizedDraft]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
-  const isDirty = normalizedDraft && normalizedServerState ? JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedServerState) : false;
+  const isDirty =
+    normalizedDraft && normalizedServerState ? JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedServerState) : false;
   const queryErrorDetail =
-    detailQuery.error instanceof Error ? detailQuery.error.message.split(" failed: ").at(-1) ?? detailQuery.error.message : "Unable to load this agent.";
+    detailQuery.error instanceof Error
+      ? detailQuery.error.message.split(" failed: ").at(-1) ?? detailQuery.error.message
+      : "Unable to load this agent.";
 
   const mutation = useMutation({
     mutationFn: (next: AgentConfigFormState) => {
-      const { updated_at: _updatedAt, owner_id: _ownerId, agent_id: _agentId, workspace_root: _workspaceRoot, workspace_is_default: _workspaceIsDefault, node_id: _nodeId, node_name: _nodeName, node_status: _nodeStatus, ...payload } = next;
+      const {
+        updated_at: _updatedAt,
+        owner_id: _ownerId,
+        agent_id: _agentId,
+        workspace_root: _workspaceRoot,
+        workspace_is_default: _workspaceIsDefault,
+        node_id: _nodeId,
+        node_name: _nodeName,
+        node_status: _nodeStatus,
+        ...payload
+      } = next;
       return updateAgentConfig(agentId, payload);
     },
     onSuccess: async (updated) => {
@@ -153,22 +242,52 @@ export function AgentDetailPage() {
       }
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents", agentId, "detail-state"] });
-      setTimeout(() => setSaved(false), 1600);
+      setTimeout(() => setSaved(false), 1800);
     },
     onError: (error) => {
       setSaved(false);
-      setErrorMessage(error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Save failed");
+      setErrorMessage(
+        error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Save failed"
+      );
     }
   });
+
   const openDirectChatMutation = useMutation({
-    mutationFn: () => createDirectConversation({ agentId }),
+    mutationFn: async () => {
+      // feat-340-M18 R9-2: drive the create directly off agent.user_id (returned
+      // by /im/v1/agents since R9-1). Bypassing the legacy bootstrap path
+      // sidesteps the /im/v1/users 404 that previously made this button
+      // appear broken in fresh sessions.
+      if (!currentAgentSummary || !currentAgentSummary.user_id) {
+        throw new Error(
+          "This agent has no associated IM user yet. Try refreshing the page in a moment."
+        );
+      }
+      return createDirectChatByAgentUserId({
+        agentId,
+        agentUserId: currentAgentSummary.user_id,
+        agentDisplayName: currentAgentSummary.display_name || draft?.display_name || agentId
+      });
+    },
     onSuccess: async ({ conversation_id }) => {
       setErrorMessage(null);
-      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+      // Invalidate both legacy and v2 conversation caches so whichever chat
+      // surface the user lands on shows the new direct conv without a reload.
+      // (M17/R7-4: without v2 invalidation the workspace renders the empty
+      // "select a conversation" pane, which users read as a 404.)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }),
+        queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] }),
+      ]);
       navigate(`/chat/${conversation_id}`);
     },
     onError: (error) => {
-      setErrorMessage(error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Open direct chat failed");
+      // R9-2: surface the failure prominently instead of swallowing it. Older
+      // builds left the user staring at an unresponsive button after a 404 on
+      // /im/v1/users; that "broken-feeling" silence is now an explicit banner.
+      setErrorMessage(
+        error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Open direct chat failed"
+      );
     }
   });
 
@@ -180,93 +299,189 @@ export function AgentDetailPage() {
     return (hasAttemptedSave || touched[field]) && validationErrors[field];
   }
 
+  function handleDiscard() {
+    if (detailQuery.data?.config) {
+      setDraft(detailQuery.data.config);
+      setErrorMessage(null);
+      setHasAttemptedSave(false);
+      setTouched({});
+    }
+  }
+
   if (detailQuery.isLoading && !draft) {
-    return <p className="text-sm text-slate-500">Loading agent profile...</p>;
+    return <p className="text-sm text-slate-500">{t("agents.detail.loading")}</p>;
   }
 
   if (detailQuery.isError && !draft) {
     return (
       <section className="grid gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-5">
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-rose-700">Could not load this agent.</p>
+          <p className="text-sm font-semibold text-rose-700">{t("agents.loadError")}</p>
           <p className="text-sm text-rose-600">{queryErrorDetail}</p>
         </div>
         <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void detailQuery.refetch()}>
-          Retry
+          {t("agents.retry")}
         </button>
       </section>
     );
   }
 
   if (!draft || !normalizedDraft || !capabilities) {
-    return <p className="text-sm text-slate-500">Loading agent profile...</p>;
+    return <p className="text-sm text-slate-500">{t("agents.detail.loading")}</p>;
   }
 
-  const displayedNodeName = draft.node_name ?? capabilities.node_name ?? owningNode?.node_name ?? draft.node_id ?? capabilities.node_id;
-  const displayedNodeId = draft.node_id ?? capabilities.node_id;
-  const displayedNodeStatus = draft.node_status ?? capabilities.node_status ?? owningNode?.status ?? "unknown";
+  const displayedNodeName =
+    draft.node_name ?? capabilities.node_name ?? owningNode?.node_name ?? draft.node_id ?? capabilities.node_id ?? "—";
+  const displayedNodeId = draft.node_id ?? capabilities.node_id ?? "—";
+  const displayedNodeStatusRaw = draft.node_status ?? capabilities.node_status ?? owningNode?.status ?? "unknown";
+  const displayedNodeStatus = displayedNodeStatusRaw.toLowerCase();
 
-  return (
+  let footerStatusClass = "im-agent-footer-status";
+  let footerStatusText = t("agents.detail.noChanges");
+  if (errorMessage) {
+    footerStatusClass = "im-agent-footer-status error";
+    footerStatusText = errorMessage;
+  } else if (hasAttemptedSave && hasValidationErrors) {
+    footerStatusClass = "im-agent-footer-status error";
+    footerStatusText = t("agents.form.errors.required");
+  } else if (mutation.isPending) {
+    footerStatusClass = "im-agent-footer-status";
+    footerStatusText = t("agents.detail.saving");
+  } else if (saved) {
+    footerStatusClass = "im-agent-footer-status saved";
+    footerStatusText = t("agents.detail.saved");
+  } else if (isDirty) {
+    footerStatusClass = "im-agent-footer-status dirty";
+    footerStatusText = t("agents.detail.unsavedChanges");
+  }
+  const headerSaveText = mutation.isPending
+    ? t("agents.detail.saving")
+    : saved
+      ? t("agents.detail.saved")
+      : isDirty
+        ? t("agents.detail.save")
+        : t("agents.detail.noChanges");
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setHasAttemptedSave(true);
+    setErrorMessage(null);
+    if (hasValidationErrors || !isDirty || !normalizedDraft) return;
+    mutation.mutate(normalizedDraft);
+  }
+
+  const detailPanel = (
     <form
-      className="flex h-full flex-col gap-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        setHasAttemptedSave(true);
-        setErrorMessage(null);
-
-        if (hasValidationErrors || !isDirty || !normalizedDraft) {
-          return;
-        }
-
-        mutation.mutate(normalizedDraft);
-      }}
+      data-testid="agent-detail"
+      className="im-agent-panel"
+      onSubmit={handleSubmit}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="max-w-2xl space-y-2">
-          <h2 className="im-title text-xl font-bold">Agent settings</h2>
-          <p className="text-sm text-slate-500">Review the saved role, access, and runtime details without losing the current profile state.</p>
-        </div>
-        <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{draft.agent_id}</div>
-      </div>
-
-      <div className="grid gap-4">
-        <section className="im-section-card">
-          <div className="space-y-1">
-            <h3 className="im-section-heading">Identity</h3>
-            <p className="im-section-copy">Keep the profile name and purpose concise so reviewers can scan this page quickly.</p>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="grid gap-1">
-              <Label.Root htmlFor="agent-id">Agent ID</Label.Root>
-              <input id="agent-id" className="im-input bg-slate-50 text-slate-500" value={draft.agent_id} disabled />
-            </div>
-            <div className="grid gap-1">
-              <Label.Root htmlFor="owner-id">Owner</Label.Root>
-              <input id="owner-id" className="im-input bg-slate-50 text-slate-500" value={draft.owner_id || "—"} disabled />
-            </div>
-          </div>
-          <div className="grid gap-1">
-            <Label.Root htmlFor="display-name">Display Name</Label.Root>
-            <input
-              id="display-name"
-              className="im-input"
-              value={draft.display_name}
-              aria-invalid={Boolean(shouldShowError("display_name"))}
-              aria-describedby="display-name-help"
-              onBlur={() => markTouched("display_name")}
-              onChange={(event) => {
-                setSaved(false);
-                setErrorMessage(null);
-                setDraft({ ...draft, display_name: event.target.value });
+      <header className="im-agent-panel-header">
+        <div className="im-agent-panel-header-row">
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => navigate("/settings/agents")}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                border: "none",
+                background: "oklch(0.91 0.006 240)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 16,
+                color: "oklch(0.40 0.01 240)",
+                flexShrink: 0
               }}
-            />
-            <p id="display-name-help" className="text-xs text-slate-500">
-              Use a clear operator-facing name so reviewers can identify this profile from the list instantly.
+            >
+              ‹
+            </button>
+          )}
+          <Avatar
+            initials={initialsOf(draft.display_name)}
+            color={colorForSeed(draft.agent_id || draft.display_name)}
+            size={isMobile ? 38 : 42}
+            status={displayedNodeStatus === "online" ? "online" : "offline"}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h2 className="im-agent-panel-title">{draft.display_name || draft.agent_id}</h2>
+            <p className="im-agent-panel-subtitle im-agent-panel-node-line">
+              <span className="im-agent-panel-agent-id">{draft.agent_id}</span>
+              <span
+                className={`im-agent-panel-node ${displayedNodeStatus === "online" ? "online" : ""}`}
+              >
+                <span className="dot" /> {displayedNodeName}
+              </span>
             </p>
-            {shouldShowError("display_name") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.display_name}</p> : null}
           </div>
-          <div className="grid gap-1">
-            <Label.Root htmlFor="description">Description</Label.Root>
+          {!isMobile && (
+            <div className="im-agent-header-actions">
+              <button
+                type="button"
+                className="im-btn im-btn-muted"
+                disabled={openDirectChatMutation.isPending}
+                onClick={() => openDirectChatMutation.mutate()}
+              >
+                {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
+              </button>
+              <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isDirty}>
+                {headerSaveText}
+              </button>
+            </div>
+          )}
+        </div>
+        {openDirectChatMutation.isError && errorMessage ? (
+          <p
+            data-testid="open-chat-error"
+            role="alert"
+            className="im-agent-footer-status error"
+            aria-live="polite"
+          >
+            {errorMessage}
+          </p>
+        ) : null}
+      </header>
+
+      <div className="im-agent-panel-body">
+        <section className="im-agent-card">
+          <div>
+            <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
+            <p className="im-agent-card-sub">{t("agents.form.identity.subEdit")}</p>
+          </div>
+          {/* M19/R11-4: Identity row1 = Agent ID + Display Name (Owner UUID 对用户无意义, 移除). */}
+          <div className="im-agent-card-grid-2" data-testid="agent-identity-row1">
+            <div className="im-agent-field">
+              <Label.Root htmlFor="agent-id">{t("agents.form.identity.agentId")}</Label.Root>
+              <input id="agent-id" className="im-input im-agent-input-mono" value={draft.agent_id} disabled />
+            </div>
+            <div className="im-agent-field">
+              <Label.Root htmlFor="display-name">{t("agents.form.identity.displayName")}</Label.Root>
+              <input
+                id="display-name"
+                className="im-input"
+                value={draft.display_name}
+                aria-invalid={Boolean(shouldShowError("display_name"))}
+                aria-describedby="display-name-help"
+                onBlur={() => markTouched("display_name")}
+                onChange={(event) => {
+                  setSaved(false);
+                  setErrorMessage(null);
+                  setDraft({ ...draft, display_name: event.target.value });
+                }}
+              />
+              <p id="display-name-help" className="im-agent-field-help">
+                {t("agents.form.identity.displayNameHelper")}
+              </p>
+              {shouldShowError("display_name") ? (
+                <p className="im-agent-field-error">{validationErrors.display_name}</p>
+              ) : null}
+            </div>
+          </div>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="description">{t("agents.form.identity.description")}</Label.Root>
             <input
               id="description"
               className="im-input"
@@ -278,22 +493,22 @@ export function AgentDetailPage() {
                 setDraft({ ...draft, description: event.target.value });
               }}
             />
-            <p id="description-help" className="text-xs text-slate-500">
-              Keep this short and outcome-oriented so product reviewers can confirm the business purpose quickly.
+            <p id="description-help" className="im-agent-field-help">
+              {t("agents.form.identity.descriptionHelp")}
             </p>
           </div>
         </section>
 
-        <section className="im-section-card">
-          <div className="space-y-1">
-            <h3 className="im-section-heading">Behavior</h3>
-            <p className="im-section-copy">Prompt and reply policy are the main behavior levers. Keep the rest of the page out of the way while editing them.</p>
+        <section className="im-agent-card">
+          <div>
+            <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
+            <p className="im-agent-card-sub">{t("agents.form.behavior.sub")}</p>
           </div>
-          <div className="grid gap-1">
-            <Label.Root htmlFor="system-prompt">System Prompt</Label.Root>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="system-prompt">{t("agents.form.behavior.systemPrompt")}</Label.Root>
             <textarea
               id="system-prompt"
-              className="im-input min-h-40"
+              className="im-agent-textarea"
               value={draft.system_prompt}
               aria-invalid={Boolean(shouldShowError("system_prompt"))}
               aria-describedby="system-prompt-help"
@@ -304,13 +519,15 @@ export function AgentDetailPage() {
                 setDraft({ ...draft, system_prompt: event.target.value });
               }}
             />
-            <p id="system-prompt-help" className="text-xs text-slate-500">
-              Treat this as the runtime contract. Small changes here can materially alter behavior.
+            <p id="system-prompt-help" className="im-agent-field-help">
+              {t("agents.form.behavior.systemPromptHelp")}
             </p>
-            {shouldShowError("system_prompt") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.system_prompt}</p> : null}
+            {shouldShowError("system_prompt") ? (
+              <p className="im-agent-field-error">{validationErrors.system_prompt}</p>
+            ) : null}
           </div>
-          <div className="grid gap-1 md:max-w-sm">
-            <Label.Root htmlFor="group-reply-policy">Group Reply Policy</Label.Root>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="group-reply-policy">{t("agents.form.behavior.policy")}</Label.Root>
             <select
               id="group-reply-policy"
               className="im-input"
@@ -322,47 +539,44 @@ export function AgentDetailPage() {
                 setDraft({ ...draft, group_reply_policy: event.target.value as AgentConfig["group_reply_policy"] });
               }}
             >
-              <option value="ALWAYS">ALWAYS</option>
-              <option value="MENTION">MENTION</option>
-              <option value="NO_REPLY">NO_REPLY</option>
+              <option value="MENTION">{t("agents.form.behavior.policyOptionMention")}</option>
+              <option value="ALWAYS">{t("agents.form.behavior.policyOptionAlways")}</option>
+              <option value="NO_REPLY">{t("agents.form.behavior.policyOptionNoReply")}</option>
             </select>
-            <p id="group-policy-help" className="text-xs text-slate-500">{policyDescription(draft.group_reply_policy)}</p>
+            <p id="group-policy-help" className="im-agent-field-help">
+              {t("agents.form.behavior.policyHelp")}
+            </p>
           </div>
         </section>
 
-        <section className="im-section-card">
-          <div className="space-y-1">
-            <h3 className="im-section-heading">Access & model</h3>
-            <p className="im-section-copy">Keep the allowlist minimal and verify whether the saved model still matches the live runtime choices.</p>
+        <section className="im-agent-card">
+          <div>
+            <h3 className="im-agent-card-title">{t("agents.form.access.title")}</h3>
+            <p className="im-agent-card-sub">{t("agents.form.access.sub")}</p>
           </div>
-          <div className="grid gap-3 2xl:grid-cols-2">
-            <AllowlistSelector
-              id="skills-allowlist"
-              label="Skills"
+          <div className="im-agent-card-grid-2">
+            <PillSelector
+              testId="pill-selector-skills"
+              label={t("agents.form.access.skills")}
               selected={draft.skills}
               options={capabilities.skills}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
-              helpText="Choose only the reusable skills this agent needs right now. Saved non-standard items stay under review instead of filling the main path."
-              emptySelectionText="No skill selected. Leave blank if this agent should inherit platform defaults."
               onChange={(skills) => {
                 setSaved(false);
                 setErrorMessage(null);
                 setDraft({ ...draft, skills });
               }}
             />
-            <AllowlistSelector
-              id="tool-allowlist"
-              label="Tools"
+            <PillSelector
+              testId="pill-selector-tools"
+              label={t("agents.form.access.tools")}
               selected={draft.tool_allowlist}
               options={capabilities.tools}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
-              showDescriptions={false}
-              helpText="Choose only the tools this agent needs right now. Saved non-standard items stay under review instead of filling the main path."
-              emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
               onChange={(toolAllowlist) => {
                 setSaved(false);
                 setErrorMessage(null);
@@ -370,8 +584,8 @@ export function AgentDetailPage() {
               }}
             />
           </div>
-          <div className="grid gap-1 md:max-w-sm">
-            <Label.Root htmlFor="default-model">Default Model</Label.Root>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="default-model">{t("agents.form.access.model")}</Label.Root>
             <select
               id="default-model"
               className="im-input"
@@ -384,115 +598,107 @@ export function AgentDetailPage() {
                 setDraft({ ...draft, default_model: event.target.value || null });
               }}
             >
-              <option value="">{platformDefaultLabel(platformDefaultModel)}</option>
-              {availableModels.map((model) => {
-                const isAvailable = (capabilities.model_options ?? []).includes(model);
-                return (
-                  <option key={model} value={model}>
-                    {modelOptionLabel(model, platformDefaultModel, isAvailable)}
-                  </option>
-                );
-              })}
+              <option value="">
+                {platformDefaultModel
+                  ? t("agents.form.access.modelPlatformDefault", { model: platformDefaultModel })
+                  : t("agents.form.access.modelPlatformDefaultPlain")}
+              </option>
+              {availableModels.map((model) => (
+                <option key={model} value={model}>
+                  {model === platformDefaultModel
+                    ? `${model} ${t("agents.form.access.modelDefaultSuffix")}`
+                    : model}
+                </option>
+              ))}
             </select>
-            <p id="default-model-help" className="text-xs text-slate-500">
-              Choose from the models the current runtime exposes. Leave this on {platformDefaultLabel(platformDefaultModel)} to inherit the platform setting.
-            </p>
           </div>
         </section>
 
-        <section className="im-section-card">
-          <div className="space-y-1">
-            <h3 className="im-section-heading">Workspace</h3>
-            <p className="im-section-copy">Workspace is assigned by the owning node and remains read-only in the frontend.</p>
+        <section className="im-agent-card">
+          <div>
+            <h3 className="im-agent-card-title">{t("agents.form.workspace.title")}</h3>
+            <p className="im-agent-card-sub">{t("agents.form.workspace.sub")}</p>
           </div>
-
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-            <div className="grid gap-4">
-              <section id="workspace-settings" className="im-subtle-card grid gap-3">
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current workspace</p>
-                  <p className="break-all font-mono text-sm text-slate-900">{draft.workspace_root}</p>
-                  <p className="text-xs text-slate-500">Read-only runtime path. The owning node assigns and validates this workspace.</p>
-                </div>
-              </section>
-
-              <dl className="im-subtle-card grid gap-2 text-sm text-slate-600">
-                <div className="flex items-center justify-between gap-3">
-                  <dt>Profile Version</dt>
-                  <dd className="font-semibold text-slate-900">{draft.profile_version}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt>Updated</dt>
-                  <dd className="text-right text-slate-900">{formatUpdatedAt(draft.updated_at)}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt>Owning Node</dt>
-                  <dd className="font-semibold text-slate-900">{displayedNodeId || "—"}</dd>
-                </div>
-              </dl>
+          <div className="im-agent-card-grid-2">
+            <div className="im-agent-field">
+              <Label.Root htmlFor="workspace-root">{t("agents.form.workspace.workspaceRoot")}</Label.Root>
+              <input
+                id="workspace-root"
+                className="im-input im-agent-input-mono"
+                value={draft.workspace_root}
+                disabled
+              />
             </div>
-
-            <div className="grid gap-4">
-              <section className="im-subtle-card grid gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Owning node</p>
-                    <p className="text-sm font-semibold text-slate-900">{displayedNodeName}</p>
-                    <p className="text-xs text-slate-500">{displayedNodeId}</p>
-                  </div>
-                  <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${nodeStatusClasses(displayedNodeStatus)}`}>{displayedNodeStatus}</span>
-                </div>
-                <div className="grid gap-1 text-xs text-slate-600">
-                  <div className="flex items-center justify-between gap-3">
-                    <dt>Capabilities updated</dt>
-                    <dd>{capabilities.capabilities_updated_at ?? "—"}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt>Assigned agents</dt>
-                    <dd>{owningNode?.agent_count ?? "—"}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt>Last heartbeat</dt>
-                    <dd>{owningNode?.last_heartbeat_at || "—"}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt>Runtime version</dt>
-                    <dd>{owningNode?.version || "—"}</dd>
-                  </div>
-                </div>
-              </section>
+            <div className="im-agent-field">
+              <Label.Root htmlFor="profile-version">{t("agents.form.workspace.profileVersion")}</Label.Root>
+              <input
+                id="profile-version"
+                className="im-input"
+                value={t("agents.detail.version", { version: draft.profile_version })}
+                disabled
+              />
+            </div>
+          </div>
+          <div className="im-agent-card-grid-2">
+            <div className="im-agent-field">
+              <Label.Root htmlFor="owning-node">{t("agents.form.workspace.owningNode")}</Label.Root>
+              <input id="owning-node" className="im-input" value={`${displayedNodeName} (${displayedNodeId})`} disabled />
+            </div>
+            <div className="im-agent-field">
+              <Label.Root htmlFor="last-updated">{t("agents.form.workspace.lastUpdated")}</Label.Root>
+              <input id="last-updated" className="im-input" value={formatUpdatedAt(draft.updated_at)} disabled />
             </div>
           </div>
         </section>
       </div>
 
-      <div className="rounded-[1.25rem] border border-[var(--im-border)] bg-white/80 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div aria-live="polite" className="space-y-1 text-xs">
-            <p className="text-slate-500">Profile Version: {draft.profile_version}</p>
-            {hasAttemptedSave && hasValidationErrors ? <p className="font-semibold text-rose-700">Fix the required fields before saving.</p> : null}
-            {errorMessage ? <p className="font-semibold text-rose-700">{errorMessage}</p> : null}
-            {!errorMessage && mutation.isPending ? <p className="font-semibold text-sky-700">Saving changes...</p> : null}
-            {!errorMessage && !mutation.isPending && isDirty ? <p className="font-semibold text-amber-700">Unsaved changes</p> : null}
-            {!errorMessage && saved ? <p className="font-semibold text-emerald-700">Saved</p> : null}
-            {!errorMessage && !mutation.isPending && !isDirty && !saved ? <p className="text-slate-500">All changes saved.</p> : null}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
+      <footer
+        className="im-agent-footer im-agent-detail-footer"
+        aria-live="polite"
+        style={{
+          paddingBottom: isMobile ? "calc(14px + env(safe-area-inset-bottom, 0px))" : "14px"
+        }}
+      >
+        <p className={footerStatusClass}>{footerStatusText}</p>
+        <div className="im-agent-footer-actions">
+          {isMobile && (
             <button
-              className="im-btn im-btn-muted w-fit"
               type="button"
+              className="im-btn im-btn-muted"
               disabled={openDirectChatMutation.isPending}
               onClick={() => openDirectChatMutation.mutate()}
             >
-              {openDirectChatMutation.isPending ? "Opening direct chat…" : "Open direct chat"}
+              {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
             </button>
-            <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending || !isDirty}>
-              {mutation.isPending ? "Saving…" : isDirty ? "Save Agent" : "No Changes to Save"}
+          )}
+          {isDirty && (
+            <button
+              className="im-btn im-btn-muted"
+              type="button"
+              disabled={mutation.isPending}
+              onClick={handleDiscard}
+            >
+              {t("agents.detail.discard")}
             </button>
-          </div>
+          )}
+          <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isDirty}>
+            {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
+          </button>
         </div>
-      </div>
+      </footer>
     </form>
+  );
+
+  if (isMobile) {
+    return detailPanel;
+  }
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      <AgentsRailDesktop activeId={agentId} />
+      <div className="flex-1 overflow-y-auto bg-[oklch(0.93_0.007_240)]">
+        {detailPanel}
+      </div>
+    </div>
   );
 }

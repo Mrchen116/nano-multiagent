@@ -30,9 +30,19 @@ class WebIMService:
         self._relay_service = relay_service
         self._metrics_service = metrics_service
 
-    def create_conversation(self, *, title: str, participant_ids: list[str]) -> Conversation:
+    def create_conversation(
+        self,
+        *,
+        title: str,
+        participant_ids: list[str],
+        caller_owner_id: str | None = None,
+    ) -> Conversation:
         """Create one conversation with validated participants."""
-        return self._conversations.create_conversation(title=title, participant_ids=participant_ids)
+        return self._conversations.create_conversation(
+            title=title,
+            participant_ids=participant_ids,
+            caller_owner_id=caller_owner_id,
+        )
 
     def get_conversation(self, *, conversation_id: str) -> Conversation | None:
         """Load one conversation snapshot by identifier."""
@@ -57,6 +67,16 @@ class WebIMService:
     def list_conversations(self) -> list[Conversation]:
         """List conversations visible in the current storage scope."""
         return self._conversations.list_conversations()
+
+    def list_conversations_for_owner(self, *, owner_id: str) -> list[Conversation]:
+        """List conversations owned by ``owner_id`` (SQL-level tenant filter)."""
+        return self._conversations.list_conversations_for_owner(owner_id=owner_id)
+
+    def get_conversation_for_owner(self, *, conversation_id: str, owner_id: str) -> Conversation | None:
+        """Return the conversation iff it belongs to ``owner_id`` (else None)."""
+        return self._conversations.get_conversation_for_owner(
+            conversation_id=conversation_id, owner_id=owner_id
+        )
 
     def delete_conversation(self, *, conversation_id: str, requester_id: str) -> None:
         """Dissolve a conversation; only the creator may do this.

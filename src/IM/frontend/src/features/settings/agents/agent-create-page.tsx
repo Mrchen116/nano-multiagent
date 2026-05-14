@@ -3,9 +3,10 @@ import * as Label from "@radix-ui/react-label";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { createDirectConversation } from "../../chat/chat-api";
-import { AllowlistSelector } from "./allowlist-selector";
-import { AgentSummary, createNodeAgent, getNodeCreateState, NodeAgentCreateRequest } from "./im-agent-config-api";
+import { useIsMobile } from "../../../hooks/use-is-mobile";
+import { useTranslation } from "../../../i18n";
+import { PillSelector } from "./pill-selector";
+import { AgentSummary, createNodeAgent, getNodeCreateState, listNodes, NodeAgentCreateRequest } from "./im-agent-config-api";
 
 type CreateAgentFormState = NodeAgentCreateRequest;
 
@@ -27,55 +28,20 @@ function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
     skills: normalizeAllowlist(draft.skills),
     tool_allowlist: normalizeAllowlist(draft.tool_allowlist),
     default_model: normalizeText(draft.default_model ?? "") || null,
-    workspace_root: normalizeText(draft.workspace_root ?? "") || null
+    workspace_root: null
   };
 }
 
 function validateDraft(draft: CreateAgentFormState) {
   const errors: Partial<Record<"agent_id" | "display_name" | "system_prompt", string>> = {};
-
   if (!draft.agent_id) {
     errors.agent_id = "Agent ID is required.";
-  } else if (/\s/.test(draft.agent_id)) {
-    errors.agent_id = "Agent ID cannot contain spaces.";
+  } else if (!/^[a-z0-9_-]+$/.test(draft.agent_id)) {
+    errors.agent_id = "Lowercase letters, numbers, _ and - only.";
   }
-
-  if (!draft.display_name) {
-    errors.display_name = "Display name is required.";
-  }
-
-  if (!draft.system_prompt) {
-    errors.system_prompt = "System prompt is required.";
-  }
-
+  if (!draft.display_name) errors.display_name = "Display name is required.";
+  if (!draft.system_prompt) errors.system_prompt = "System prompt is required.";
   return errors;
-}
-
-function policyDescription(policy: CreateAgentFormState["group_reply_policy"]) {
-  switch (policy) {
-    case "ALWAYS":
-      return "Reply to every group message for high-touch concierge or assistant roles.";
-    case "NO_REPLY":
-      return "Stay silent in groups and only work through direct or routed interactions.";
-    case "MENTION":
-    default:
-      return "Reply only when explicitly mentioned. Recommended for most shared channels.";
-  }
-}
-
-function nodeStatusClasses(status: string) {
-  switch (status.toLowerCase()) {
-    case "online":
-      return "bg-emerald-100 text-emerald-700";
-    case "degraded":
-      return "bg-amber-100 text-amber-700";
-    default:
-      return "bg-slate-200 text-slate-600";
-  }
-}
-
-function platformDefaultLabel(model: string | null | undefined) {
-  return model ? `Platform default (${model})` : "Platform default";
 }
 
 const EMPTY_DRAFT: CreateAgentFormState = {
@@ -95,27 +61,38 @@ export function AgentCreatePage() {
   const { nodeId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const [draft, setDraft] = useState<CreateAgentFormState>(EMPTY_DRAFT);
+  const [selectedNodeId, setSelectedNodeId] = useState(nodeId);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [createdAgentId, setCreatedAgentId] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
+  const nodesQuery = useQuery({
+    queryKey: ["settings", "agents", "create", "nodes"],
+    queryFn: listNodes,
+    staleTime: 30_000
+  });
+
+  useEffect(() => {
+    if (selectedNodeId || !nodesQuery.data || nodesQuery.data.length === 0) return;
+    const defaultNode = nodesQuery.data.find((node) => node.status !== "offline") ?? nodesQuery.data[0];
+    setSelectedNodeId(defaultNode?.node_id ?? "");
+  }, [nodesQuery.data, selectedNodeId]);
+
   const createStateQuery = useQuery({
-    queryKey: ["settings", "nodes", nodeId, "create-state"],
-    queryFn: () => getNodeCreateState(nodeId),
+    queryKey: ["settings", "nodes", selectedNodeId, "create-state"],
+    queryFn: () => getNodeCreateState(selectedNodeId),
+    enabled: selectedNodeId.length > 0,
     staleTime: 30_000
   });
 
   useEffect(() => {
     const defaultSystemPrompt = createStateQuery.data?.capabilities.default_system_prompt?.trim() ?? "";
-    if (!defaultSystemPrompt) {
-      return;
-    }
+    if (!defaultSystemPrompt) return;
     setDraft((current) => {
-      if (current.system_prompt.trim().length > 0) {
-        return current;
-      }
+      if (current.system_prompt.trim().length > 0) return current;
       return { ...current, system_prompt: defaultSystemPrompt };
     });
   }, [createStateQuery.data?.capabilities.default_system_prompt]);
@@ -126,48 +103,34 @@ export function AgentCreatePage() {
   const capabilities = createStateQuery.data?.capabilities;
   const node = createStateQuery.data?.node ?? null;
   const availableModels = capabilities?.model_options ?? [];
-  const nodeLabel = capabilities?.node_name ?? node?.node_name ?? nodeId;
-  const nodeStatus = capabilities?.node_status ?? node?.status ?? "unknown";
-  const isNodeOnline = nodeStatus.toLowerCase() === "online";
-  const managedWorkspacePreview = useMemo(
-    () => `~/nano-assistant/workspace/${normalizedDraft.agent_id || "<agent-id>"}`,
-    [normalizedDraft.agent_id]
-  );
+  const nodes = nodesQuery.data ?? [];
+  const selectedNode = nodes.find((item) => item.node_id === selectedNodeId) ?? node;
+  const nodeLabel = selectedNode?.alias ?? capabilities?.node_name ?? node?.node_name ?? selectedNodeId;
+  const nodeStatus = (capabilities?.node_status ?? node?.status ?? "unknown").toLowerCase();
+  const isNodeOnline = nodeStatus === "online";
   const queryErrorDetail =
     createStateQuery.error instanceof Error
       ? createStateQuery.error.message.split(" failed: ").at(-1) ?? createStateQuery.error.message
       : "Unable to load this node.";
 
   const mutation = useMutation({
-    mutationFn: (next: CreateAgentFormState) => createNodeAgent(nodeId, next),
+    mutationFn: (next: CreateAgentFormState) => createNodeAgent(selectedNodeId, next),
     onSuccess: async (created) => {
       setErrorMessage(null);
-      setCreatedAgentId(created.agent_id);
       queryClient.setQueryData(["settings", "agents", created.agent_id], created);
       queryClient.setQueryData(["settings", "agents"], (current: AgentSummary[] | undefined) => {
-        if (!current) {
-          return [created];
-        }
+        if (!current) return [created];
         const next = current.filter((agent) => agent.agent_id !== created.agent_id);
         return [created, ...next];
       });
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "nodes"] });
+      navigate(`/settings/agents/${created.agent_id}`);
     },
     onError: (error) => {
-      setCreatedAgentId(null);
-      setErrorMessage(error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Create failed");
-    }
-  });
-  const openDirectChatMutation = useMutation({
-    mutationFn: (agentId: string) => createDirectConversation({ agentId }),
-    onSuccess: async ({ conversation_id }) => {
-      setErrorMessage(null);
-      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
-      navigate(`/chat/${conversation_id}`);
-    },
-    onError: (error) => {
-      setErrorMessage(error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Open direct chat failed");
+      setErrorMessage(
+        error instanceof Error ? error.message.split(" failed: ").at(-1) ?? error.message : "Create failed"
+      );
     }
   });
 
@@ -179,325 +142,368 @@ export function AgentCreatePage() {
     return (hasSubmitted || touched[field]) && validationErrors[field];
   }
 
-  if (createStateQuery.isLoading && !capabilities) {
-    return <p className="text-sm text-slate-500">Loading node creation flow...</p>;
+  if ((nodesQuery.isLoading || createStateQuery.isLoading) && !capabilities) {
+    return <p className="text-sm text-slate-500">{t("common.loading")}</p>;
   }
 
-  if (createStateQuery.isError && !capabilities) {
+  if ((nodesQuery.isError || createStateQuery.isError) && !capabilities) {
     return (
       <section className="grid gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-5">
         <div className="space-y-1">
-          <p className="text-sm font-semibold text-rose-700">Could not load this node.</p>
-          <p className="text-sm text-rose-600">{queryErrorDetail}</p>
+          <p className="text-sm font-semibold text-rose-700">{t("agents.loadError")}</p>
+          <p className="text-sm text-rose-600">
+            {nodesQuery.error instanceof Error ? nodesQuery.error.message : queryErrorDetail}
+          </p>
         </div>
         <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void createStateQuery.refetch()}>
-          Retry
+          {t("agents.retry")}
         </button>
       </section>
     );
   }
 
   if (!capabilities) {
-    return <p className="text-sm text-slate-500">Loading node creation flow...</p>;
+    return <p className="text-sm text-slate-500">{t("common.loading")}</p>;
   }
+
+  const statusChipClass = isNodeOnline ? "im-agent-panel-status-chip online" : "im-agent-panel-status-chip";
+
+  let footerStatusClass = "im-agent-footer-status";
+  let footerStatusText = t("agents.create.subtitle");
+  if (errorMessage) {
+    footerStatusClass = "im-agent-footer-status error";
+    footerStatusText = errorMessage;
+  } else if (hasSubmitted && hasValidationErrors) {
+    footerStatusClass = "im-agent-footer-status error";
+    footerStatusText = t("agents.form.errors.required");
+  } else if (hasSubmitted && !isNodeOnline) {
+    footerStatusClass = "im-agent-footer-status error";
+    footerStatusText = `${nodeLabel}: ${nodeStatus}`;
+  } else if (mutation.isPending) {
+    footerStatusText = t("agents.detail.saving");
+  }
+
+  const border = "oklch(0.87 0.006 240)";
 
   return (
     <form
-      className="flex h-full flex-col gap-4"
+      data-testid="agent-create"
+      className="im-agent-panel"
       onSubmit={(event) => {
         event.preventDefault();
         setHasSubmitted(true);
         setErrorMessage(null);
-
-        if (hasValidationErrors || !isNodeOnline) {
-          return;
-        }
-
+        if (hasValidationErrors || !isNodeOnline || !selectedNodeId) return;
         mutation.mutate(normalizedDraft);
       }}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="max-w-2xl space-y-2">
-          <h2 className="im-title text-xl font-bold">Create Agent on {nodeLabel}</h2>
-          <p className="text-sm text-slate-500">Start from one online node so runtime choices match the node that will actually host this agent.</p>
+      <header
+        className="im-agent-panel-header"
+        style={{
+          background: "#fff",
+          padding: isMobile ? "14px 16px" : "18px 28px 14px",
+          paddingTop: isMobile ? "calc(14px + env(safe-area-inset-top, 0px))" : "18px"
+        }}
+      >
+        <div className="im-agent-panel-header-row">
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => navigate("/settings/agents")}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                border: "none",
+                background: "oklch(0.91 0.006 240)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 16,
+                color: "oklch(0.40 0.01 240)",
+                flexShrink: 0
+              }}
+            >
+              ‹
+            </button>
+          )}
+          <div style={{ flex: 1 }}>
+            <h2
+              className="im-agent-panel-title"
+              style={{ fontSize: isMobile ? 18 : 18, fontWeight: 800, letterSpacing: "-0.02em" }}
+            >
+              {t("agents.create.title")}
+            </h2>
+            <p className="im-agent-panel-subtitle">
+              {t("agents.create.subtitle")}
+            </p>
+          </div>
+          {!isMobile && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <Link
+                className="im-btn im-btn-muted"
+                to="/settings/agents"
+                style={{ textDecoration: "none" }}
+              >
+                {t("agents.create.cancel")}
+              </Link>
+              <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isNodeOnline}>
+                {t("agents.create.submit")}
+              </button>
+            </div>
+          )}
         </div>
-        <Link className="text-sm font-semibold text-teal-700 hover:underline" to="/settings/nodes">
-          Back to Nodes
-        </Link>
-      </div>
+      </header>
 
-      <section className="im-section-card">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div
+        className="im-agent-panel-body"
+        style={{ padding: isMobile ? "14px 14px" : "20px 28px", gap: 14 }}
+      >
+        <section className="im-agent-card">
           <div>
-            <h3 className="im-section-heading">Owning node</h3>
-            <p className="im-section-copy">Only online bound nodes can host a new agent.</p>
+            <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
+            <p className="im-agent-card-sub">{t("agents.form.identity.subNew")}</p>
           </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${nodeStatusClasses(nodeStatus)}`}>{nodeStatus}</span>
-        </div>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <div className="im-subtle-card grid gap-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Node</p>
-            <p className="text-sm font-semibold text-slate-900">{nodeLabel}</p>
-            <p className="text-xs text-slate-500">{nodeId}</p>
-          </div>
-          <div className="im-subtle-card grid gap-1">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Capabilities updated</p>
-            <p className="text-sm text-slate-900">{capabilities.capabilities_updated_at ?? "—"}</p>
-            {!isNodeOnline ? <p className="text-xs font-semibold text-rose-700">This node is not online, so creation is blocked.</p> : null}
-          </div>
-        </div>
-      </section>
-
-      <div className="grid gap-4">
-        <section className="im-section-card">
-          <div className="space-y-1">
-            <h3 className="im-section-heading">Identity</h3>
-            <p className="im-section-copy">Name the agent clearly so operators can recognize its role at a glance.</p>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="grid gap-1">
-              <Label.Root htmlFor="agent-id">Agent ID</Label.Root>
+          <div className="im-agent-card-grid-2">
+            <div className="im-agent-field">
+              <Label.Root htmlFor="agent-id">{t("agents.form.identity.agentIdRequired")}</Label.Root>
               <input
                 id="agent-id"
-                className="im-input"
+                className="im-input im-agent-input-mono"
                 value={draft.agent_id}
                 aria-invalid={Boolean(shouldShowError("agent_id"))}
                 aria-describedby="agent-id-help"
+                placeholder={t("agents.form.identity.agentIdPlaceholder")}
                 onBlur={() => markTouched("agent_id")}
                 onChange={(event) => {
-                  setCreatedAgentId(null);
                   setErrorMessage(null);
-                  setDraft({ ...draft, agent_id: event.target.value });
+                  setDraft({ ...draft, agent_id: event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") });
                 }}
               />
-              <p id="agent-id-help" className="text-xs text-slate-500">
-                Stable slug used in URLs and runtime routing. Example: `agent-sales-assist`.
+              <p id="agent-id-help" className="im-agent-field-help">
+                {t("agents.form.identity.agentIdHelp")}
               </p>
-              {shouldShowError("agent_id") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.agent_id}</p> : null}
+              {shouldShowError("agent_id") ? (
+                <p className="im-agent-field-error">{validationErrors.agent_id}</p>
+              ) : null}
             </div>
-            <div className="grid gap-1">
-              <Label.Root htmlFor="display-name">Display Name</Label.Root>
+            <div className="im-agent-field">
+              <Label.Root htmlFor="display-name">{t("agents.form.identity.displayNameRequired")}</Label.Root>
               <input
                 id="display-name"
                 className="im-input"
                 value={draft.display_name}
                 aria-invalid={Boolean(shouldShowError("display_name"))}
                 aria-describedby="display-name-help"
+                placeholder={t("agents.form.identity.displayNamePlaceholder")}
                 onBlur={() => markTouched("display_name")}
                 onChange={(event) => {
-                  setCreatedAgentId(null);
                   setErrorMessage(null);
                   setDraft({ ...draft, display_name: event.target.value });
                 }}
               />
-              <p id="display-name-help" className="text-xs text-slate-500">
-                Human-friendly name shown to operators and PMs in Settings.
-              </p>
-              {shouldShowError("display_name") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.display_name}</p> : null}
+              {shouldShowError("display_name") ? (
+                <p className="im-agent-field-error">{validationErrors.display_name}</p>
+              ) : null}
             </div>
           </div>
-          <div className="grid gap-1">
-            <Label.Root htmlFor="description">Description</Label.Root>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="description">{t("agents.form.identity.description")}</Label.Root>
             <input
               id="description"
               className="im-input"
               value={draft.description}
               aria-describedby="description-help"
+              placeholder={t("agents.form.identity.descriptionPlaceholder")}
               onChange={(event) => {
-                setCreatedAgentId(null);
                 setErrorMessage(null);
                 setDraft({ ...draft, description: event.target.value });
               }}
             />
-            <p id="description-help" className="text-xs text-slate-500">
-              Explain the business role in one sentence so the next reviewer understands when to use this agent.
+            <p id="description-help" className="im-agent-field-help">
+              {t("agents.form.identity.descriptionHelp")}
             </p>
+          </div>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="owning-node">{t("agents.form.identity.owningNodeRequired")}</Label.Root>
+            <select
+              id="owning-node"
+              className="im-input"
+              value={selectedNodeId}
+              onChange={(event) => {
+                setSelectedNodeId(event.target.value);
+                setErrorMessage(null);
+              }}
+            >
+              <option value="">{t("settings.account.defaults.selectNode")}</option>
+              {nodes.filter((item) => item.status !== "offline").map((item) => (
+                <option key={item.node_id} value={item.node_id}>
+                  {item.alias || item.node_name} ({item.status})
+                </option>
+              ))}
+            </select>
+            <p className="im-agent-field-help">{t("agents.form.identity.owningNodeHelp")}</p>
           </div>
         </section>
 
-        <section className="im-section-card">
-          <div className="space-y-1">
-            <h3 className="im-section-heading">Behavior</h3>
-            <p className="im-section-copy">Start from the standard template, then tune behavior only where this agent truly differs.</p>
+        <section className="im-agent-card">
+          <div>
+            <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
+            <p className="im-agent-card-sub">{t("agents.form.behavior.sub")}</p>
           </div>
-          <div className="grid gap-1">
-            <Label.Root htmlFor="system-prompt">System Prompt</Label.Root>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="system-prompt">{t("agents.form.behavior.systemPromptRequired")}</Label.Root>
             <textarea
               id="system-prompt"
-              className="im-input min-h-40"
+              className="im-agent-textarea"
               value={draft.system_prompt}
               aria-invalid={Boolean(shouldShowError("system_prompt"))}
               aria-describedby="system-prompt-help"
+              placeholder={t("agents.form.behavior.systemPromptPlaceholder")}
+              rows={isMobile ? 5 : 7}
               onBlur={() => markTouched("system_prompt")}
               onChange={(event) => {
-                setCreatedAgentId(null);
                 setErrorMessage(null);
                 setDraft({ ...draft, system_prompt: event.target.value });
               }}
             />
-            <p id="system-prompt-help" className="text-xs text-slate-500">
-              We prefill the standard personal assistant template here. Edit it before saving so it matches this agent.
+            <p id="system-prompt-help" className="im-agent-field-help">
+              {t("agents.form.behavior.systemPromptHelp")}
             </p>
-            {shouldShowError("system_prompt") ? <p className="text-xs font-semibold text-rose-700">{validationErrors.system_prompt}</p> : null}
+            {shouldShowError("system_prompt") ? (
+              <p className="im-agent-field-error">{validationErrors.system_prompt}</p>
+            ) : null}
           </div>
-          <div className="grid gap-1 md:max-w-sm">
-            <Label.Root htmlFor="group-reply-policy">Group Reply Policy</Label.Root>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="group-reply-policy">{t("agents.form.behavior.policy")}</Label.Root>
             <select
               id="group-reply-policy"
               className="im-input"
               aria-describedby="group-reply-policy-help"
               value={draft.group_reply_policy}
               onChange={(event) => {
-                setCreatedAgentId(null);
                 setErrorMessage(null);
                 setDraft({ ...draft, group_reply_policy: event.target.value });
               }}
             >
-              <option value="ALWAYS">ALWAYS</option>
-              <option value="MENTION">MENTION</option>
-              <option value="NO_REPLY">NO_REPLY</option>
+              <option value="MENTION">{t("agents.form.behavior.policyOptionMention")}</option>
+              <option value="ALWAYS">{t("agents.form.behavior.policyOptionAlways")}</option>
+              <option value="NO_REPLY">{t("agents.form.behavior.policyOptionNoReply")}</option>
             </select>
-            <p id="group-reply-policy-help" className="text-xs text-slate-500">
-              {policyDescription(draft.group_reply_policy)}
+            <p id="group-reply-policy-help" className="im-agent-field-help">
+              {t("agents.form.behavior.policyHelp")}
             </p>
           </div>
         </section>
 
-        <section className="im-section-card">
-          <div className="space-y-1">
-            <h3 className="im-section-heading">Access & model</h3>
-            <p className="im-section-copy">Keep the allowed surface area small and leave the model on platform default unless this agent needs a known override.</p>
+        <section className="im-agent-card">
+          <div>
+            <h3 className="im-agent-card-title">{t("agents.form.access.title")}</h3>
+            <p className="im-agent-card-sub">{t("agents.form.access.sub")}</p>
           </div>
-          <div className="grid gap-3 2xl:grid-cols-2">
-            <AllowlistSelector
-              id="skills-allowlist"
-              label="Skills"
+          <div className="im-agent-card-grid-2">
+            <PillSelector
+              testId="pill-selector-skills"
+              label={t("agents.form.access.skills")}
               selected={draft.skills}
               options={capabilities.skills}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
-              helpText="Choose only the reusable skills this agent needs right now."
-              emptySelectionText="No skill selected. Leave blank if this agent should inherit platform defaults."
               onChange={(skills) => {
-                setCreatedAgentId(null);
                 setErrorMessage(null);
                 setDraft({ ...draft, skills });
               }}
             />
-            <AllowlistSelector
-              id="tool-allowlist"
-              label="Tools"
+            <PillSelector
+              testId="pill-selector-tools"
+              label={t("agents.form.access.tools")}
               selected={draft.tool_allowlist}
               options={capabilities.tools}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
-              showDescriptions={false}
-              helpText="Choose only the tools this agent needs right now."
-              emptySelectionText="No tool selected yet. Keep this empty if the agent should inherit platform defaults."
               onChange={(toolAllowlist) => {
-                setCreatedAgentId(null);
                 setErrorMessage(null);
                 setDraft({ ...draft, tool_allowlist: toolAllowlist });
               }}
             />
           </div>
-          <div className="grid gap-1 md:max-w-sm">
-            <Label.Root htmlFor="default-model">Default Model</Label.Root>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="default-model">{t("agents.form.access.model")}</Label.Root>
             <select
               id="default-model"
               className="im-input"
               value={draft.default_model ?? ""}
-              aria-describedby="default-model-help"
               onChange={(event) => {
-                setCreatedAgentId(null);
                 setErrorMessage(null);
                 setDraft({ ...draft, default_model: event.target.value || null });
               }}
             >
-              <option value="">{platformDefaultLabel(capabilities.platform_default_model)}</option>
+              <option value="">
+                {capabilities.platform_default_model
+                  ? t("agents.form.access.modelPlatformDefault", { model: capabilities.platform_default_model })
+                  : t("agents.form.access.modelPlatformDefaultPlain")}
+              </option>
               {availableModels.map((model) => (
                 <option key={model} value={model}>
-                  {model}
+                  {model === capabilities.platform_default_model
+                    ? `${model} ${t("agents.form.access.modelDefaultSuffix")}`
+                    : model}
                 </option>
               ))}
             </select>
-            <p id="default-model-help" className="text-xs text-slate-500">
-              Choose from the models the selected node currently exposes. Leave this on {platformDefaultLabel(capabilities.platform_default_model)} to inherit the platform setting.
-            </p>
           </div>
         </section>
 
-        <section className="im-section-card">
-          <div className="space-y-1">
-            <h3 className="im-section-heading">Workspace</h3>
-            <p className="im-section-copy">The default workspace updates from the agent ID immediately. If you want a different location, override it here.</p>
+        {/* Error / status banner */}
+        {(errorMessage || (hasSubmitted && hasValidationErrors) || (hasSubmitted && !isNodeOnline)) && (
+          <div
+            className={footerStatusClass}
+            style={{
+              background: "#fff",
+              borderRadius: 12,
+              border: `1px solid ${border}`,
+              padding: "10px 16px",
+              fontSize: "0.78rem",
+              fontWeight: 600
+            }}
+          >
+            {footerStatusText}
           </div>
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)]">
-            <div className="grid gap-1">
-              <Label.Root htmlFor="workspace-root">Workspace Root</Label.Root>
-              <input
-                id="workspace-root"
-                className="im-input"
-                value={draft.workspace_root ?? ""}
-                aria-describedby="workspace-root-help"
-                placeholder={managedWorkspacePreview}
-                onChange={(event) => {
-                  setCreatedAgentId(null);
-                  setErrorMessage(null);
-                  setDraft({ ...draft, workspace_root: event.target.value || null });
-                }}
-              />
-              <p id="workspace-root-help" className="text-xs text-slate-500">
-                Leave this blank to use the default path shown on the right, or enter a custom absolute path if this agent should live elsewhere.
-              </p>
-            </div>
-            <div className="im-subtle-card grid gap-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Workspace preview</p>
-              <p className="break-all font-mono text-sm text-slate-900">{normalizedDraft.workspace_root || managedWorkspacePreview}</p>
-              <p className="text-xs text-slate-500">
-                {normalizedDraft.workspace_root
-                  ? "This custom workspace path will be sent during creation."
-                  : "This is the default workspace path derived from the current agent ID."}
-              </p>
-            </div>
-          </div>
-        </section>
-      </div>
+        )}
 
-      <div className="rounded-[1.25rem] border border-[var(--im-border)] bg-white/80 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div aria-live="polite" className="space-y-1 text-xs">
-            {hasSubmitted && hasValidationErrors ? <p className="font-semibold text-rose-700">Complete the required fields before creating this agent.</p> : null}
-            {hasSubmitted && !hasValidationErrors && !isNodeOnline ? <p className="font-semibold text-rose-700">Bring this node online before creating an agent on it.</p> : null}
-            {errorMessage ? <p className="font-semibold text-rose-700">{errorMessage}</p> : null}
-            {createdAgentId ? (
-              <>
-                <p className="font-semibold text-emerald-700">Agent created. Open its dedicated direct chat now or keep editing in Settings.</p>
-                <Link className="w-fit font-semibold text-teal-700 hover:underline" to={`/settings/agents/${createdAgentId}`}>
-                  {draft.display_name.trim() || createdAgentId}
-                </Link>
-              </>
-            ) : !errorMessage && !hasValidationErrors ? (
-              <p className="text-slate-500">Create a new runtime agent profile on {nodeLabel} without leaving Settings.</p>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {createdAgentId ? (
-              <button
-                className="im-btn im-btn-muted w-fit"
-                type="button"
-                disabled={openDirectChatMutation.isPending}
-                onClick={() => openDirectChatMutation.mutate(createdAgentId)}
-              >
-                {openDirectChatMutation.isPending ? "Opening direct chat…" : "Open direct chat"}
-              </button>
-            ) : null}
-            <button className="im-btn im-btn-primary w-fit" type="submit" disabled={mutation.isPending || !isNodeOnline}>
-              {mutation.isPending ? "Creating Agent…" : "Create Agent"}
-            </button>
-          </div>
+        {/* Bottom action bar */}
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: 12,
+            border: `1px solid ${border}`,
+            padding: "14px 16px",
+            display: "flex",
+            gap: 8,
+            justifyContent: isMobile ? "stretch" : "flex-end",
+            paddingBottom: isMobile ? "calc(14px + env(safe-area-inset-bottom, 0px))" : "14px"
+          }}
+        >
+          {!isMobile && (
+            <Link
+              className="im-btn im-btn-muted"
+              to="/settings/agents"
+              style={{ textDecoration: "none" }}
+            >
+              {t("agents.create.cancel")}
+            </Link>
+          )}
+          <button
+            className="im-btn im-btn-primary"
+            type="submit"
+            disabled={mutation.isPending || !isNodeOnline}
+            style={{ flex: isMobile ? 1 : undefined }}
+          >
+            {mutation.isPending ? t("agents.detail.saving") : t("agents.create.submitArrow")}
+          </button>
         </div>
       </div>
     </form>

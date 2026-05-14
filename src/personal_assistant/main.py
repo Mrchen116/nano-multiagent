@@ -59,6 +59,7 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatSchedulerStateStore,
     HeartbeatTickSummary,
 )
+from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import AgentCreateHandler, IMConnectionConfig, IMConnectionManager
 
 
@@ -1247,6 +1248,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             local_config=config,
             reporter=reporter,
         )
+        # Build a token_getter closure that auto-refreshes the access token on reconnect.
+        # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
+        _auth_client = IMAuthClient(base_url=_im_http_base_url(config.im_service.url))
+        _token_getter = _make_token_getter(
+            im_service=config.im_service,
+            local_config=config,
+            auth_client=_auth_client,
+        )
         im_connection_manager = _build_im_connection_manager(
             config=config,
             relay_adapter=relay_adapter,
@@ -1258,16 +1267,24 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 workspace_root=workspace_root
             ),
             agent_create_handler=im_config_sync_client.handle_agent_create,
+            token_getter=_token_getter,
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
             token=config.im_service.token,
         )
         post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(node_id=config.node.node_id)
+    _run_context_store: dict[str, dict[str, str]] = {}
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
+        run_context_store=_run_context_store,
     )
+    if config.im_service is not None:
+        pipeline._kernel_event_observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: im_connection_manager,
+            run_context_store=_run_context_store,
+        )
     inbound_dispatcher = _InboundDispatcher(pipeline)
     closers: list[Callable[[], None]] = [kernel_client.close]
     if im_bootstrap_client is not None:
@@ -1378,6 +1395,89 @@ def _build_channel_registry(
     return registry
 
 
+def _make_token_getter(
+    *,
+    im_service: IMServiceConfig,
+    local_config: LocalConfig,
+    auth_client: IMAuthClient,
+    save_config: Callable[[LocalConfig, Path], None] = save_local_config,
+) -> Callable[[], Awaitable[str | None]]:
+    """Build an async closure that returns a fresh access token before each reconnect.
+
+    Priority:
+    1. If ``im_service.refresh_token`` is set, call ``IMAuthClient.refresh()``.
+    2. If refresh fails and ``im_service.username`` + ``im_service.password`` are set,
+       call ``IMAuthClient.login()`` as a fallback.
+    3. If neither credential is available, return ``im_service.token`` unchanged
+       (backwards-compatible behaviour for configs without auto-refresh).
+
+    On success the returned (access_token, refresh_token) pair is persisted back into
+    config.yaml so the new refresh token is available on the next process restart.
+
+    Args:
+        im_service: IM connectivity settings containing token credentials.
+        local_config: Full gateway config used for ``save_config`` persistence path.
+        auth_client: HTTP client implementing refresh/login against the IM auth API.
+        save_config: Callable used to persist the updated config (injectable for tests).
+
+    Returns:
+        Async zero-argument callable that resolves to the latest access token or None.
+    """
+    # Mutable state: keep a local reference so token rotation is visible across calls
+    # within the same gateway process lifetime.
+    _state: dict[str, str | None] = {
+        "refresh_token": im_service.refresh_token,
+        "token": im_service.token,
+    }
+    _config_holder: list[LocalConfig] = [local_config]
+
+    async def _getter() -> str | None:
+        current_refresh = _state["refresh_token"]
+        if current_refresh is not None:
+            try:
+                access, new_refresh = await auth_client.refresh(current_refresh)
+                _state["token"] = access
+                _state["refresh_token"] = new_refresh
+                _persist(access, new_refresh)
+                return access
+            except IMAuthError:
+                # Refresh token expired or revoked — fall through to credential login.
+                pass
+
+        username = im_service.username
+        password = im_service.password
+        if username and password:
+            try:
+                access, new_refresh = await auth_client.login(username=username, password=password)
+                _state["token"] = access
+                _state["refresh_token"] = new_refresh
+                _persist(access, new_refresh)
+                return access
+            except IMAuthError:
+                pass
+
+        # No dynamic auth configured or all methods failed — use the static token.
+        return _state["token"]
+
+    def _persist(access: str, new_refresh: str) -> None:
+        current_cfg = _config_holder[0]
+        old_im = current_cfg.im_service
+        if old_im is None:
+            return
+        updated_im = IMServiceConfig(
+            url=old_im.url,
+            token=access,
+            refresh_token=new_refresh,
+            username=old_im.username,
+            password=old_im.password,
+        )
+        new_cfg = replace(current_cfg, im_service=updated_im)
+        _config_holder[0] = new_cfg
+        save_config(new_cfg, new_cfg.source_path)
+
+    return _getter
+
+
 def _build_im_connection_manager(
     *,
     config: LocalConfig,
@@ -1388,6 +1488,7 @@ def _build_im_connection_manager(
     agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
     agent_create_handler: AgentCreateHandler | None = None,
+    token_getter: Callable[[], Awaitable[str | None]] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -1401,6 +1502,7 @@ def _build_im_connection_manager(
         agent_config_provider=agent_config_provider,
         agent_capabilities_provider=agent_capabilities_provider,
         agent_create_handler=agent_create_handler,
+        token_getter=token_getter,
         connect=_connect_websocket,
     )
 
@@ -1409,6 +1511,7 @@ def _build_relay_lifecycle_callback(
     *,
     reporter: UpstreamReporter | None,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
+    run_context_store: dict[str, dict[str, str]] | None = None,
 ):
     async def _callback(message: InboundMessage, update: RelayLifecycleUpdate) -> None:
         if reporter is None:
@@ -1420,6 +1523,17 @@ def _build_relay_lifecycle_callback(
         if manager is None:
             return
         if update.phase == "accepted":
+            # Seed run_context_store with conversation/agent meta so kernel_event_observer
+            # can send the turn_start frame.  message_id starts empty; it is filled
+            # by the turn_start ack (gateway returns the created placeholder message_id).
+            if run_context_store is not None and update.run_id:
+                conversation_id = message.external_chat_id or ""
+                agent_id_meta = _metadata_text(message.metadata, key="agent_id") or update.agent_id or ""
+                run_context_store[update.run_id] = {
+                    "conversation_id": conversation_id,
+                    "message_id": "",  # filled by turn_start ack
+                    "agent_id": agent_id_meta,
+                }
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
                 delivery_status="sent",
@@ -1443,6 +1557,8 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.report", payload)
             return
         if update.phase == "completed":
+            if run_context_store is not None and update.run_id:
+                run_context_store.pop(update.run_id, None)
             message_id = _metadata_text(message.metadata, key="message_id")
             send_report = getattr(reporter, "send_report", None)
             if callable(send_report) and message_id is not None and update.run_id is not None:
@@ -1475,6 +1591,8 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.delivery_receipt", payload)
             return
         if update.phase == "failed":
+            if run_context_store is not None and update.run_id:
+                run_context_store.pop(update.run_id, None)
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
                 delivery_status="failed",
@@ -1483,6 +1601,241 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.delivery_receipt", payload)
 
     return _callback
+
+
+def _build_kernel_event_observer(
+    *,
+    im_connection_manager_factory: Callable[[], IMConnectionManager | None],
+    run_context_store: dict[str, dict[str, str]],
+) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
+    """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
+
+    The observer returns a coroutine for run_status=running so the pipeline can
+    await the turn_start ack before processing the following assistant_message event.
+    For all other events the observer schedules tasks and returns None.
+
+    Kernel SSE events translated:
+    - run_status=running  → node.streaming_delta kind=turn_start (creates placeholder message)
+    - assistant_message   → node.streaming_delta kind=message_delta
+    - tool_start          → node.streaming_delta kind=tool_call_upserted
+    - tool_end            → node.streaming_delta kind=tool_call_completed
+    - turn_end            → node.streaming_delta kind=message_completed (with token_usage if available)
+    """
+
+    async def _send(manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]) -> None:
+        try:
+            await manager.send_json(message_type, payload)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
+        manager = im_connection_manager_factory()
+        if manager is None or not manager.connected:
+            return None
+        run_id = str(event.get("run_id") or "").strip()
+        if not run_id:
+            return None
+        ctx = run_context_store.get(run_id)
+        if ctx is None:
+            return None
+        conversation_id = ctx.get("conversation_id") or ""
+        message_id = ctx.get("message_id") or ""
+        agent_id = ctx.get("agent_id") or ""
+
+        event_name = str(event.get("event") or "").strip()
+        loop = asyncio.get_event_loop()
+
+        if event_name == "run_status" and event.get("status") == "running":
+            if conversation_id and agent_id:
+                # Return a coroutine so the pipeline awaits turn_start ack before processing
+                # the following assistant_message; without awaiting, message_id would still be
+                # empty when assistant_message fires and the delta would be silently dropped.
+                async def _send_turn_start_and_store(
+                    mgr: IMConnectionManager = manager,
+                    rid: str = run_id,
+                    cid: str = conversation_id,
+                    aid: str = agent_id,
+                ) -> None:
+                    try:
+                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
+                            "kind": "turn_start",
+                            "conversation_id": cid,
+                            "agent_id": aid,
+                            "run_id": rid,
+                        })
+                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
+                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                        if returned_msg_id and rid in run_context_store:
+                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                    except Exception:  # noqa: BLE001
+                        pass
+                return _send_turn_start_and_store()
+
+        elif event_name == "assistant_message":
+            content = str(event.get("content") or "").strip()
+            if not content:
+                return None
+            kernel_msg_id = str(event.get("message_id") or "").strip()
+            prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
+
+            # Detect a new assistant message within the same run (e.g. textA → tool_calls → textB).
+            # The kernel's while-loop generates a fresh assistant_msg_id per iteration; when it
+            # differs from the previous one we must close the old IM message and start a new one
+            # so the frontend renders textA and textB as separate bubbles.
+            if kernel_msg_id and prev_kernel_msg_id and kernel_msg_id != prev_kernel_msg_id:
+                async def _close_old_and_restart(
+                    mgr: IMConnectionManager = manager,
+                    rid: str = run_id,
+                    cid: str = conversation_id,
+                    aid: str = agent_id,
+                    old_msg_id: str = message_id,
+                    text: str = content,
+                    new_kernel_id: str = kernel_msg_id,
+                ) -> None:
+                    try:
+                        if old_msg_id:
+                            await mgr.send_json("node.streaming_delta", {
+                                "kind": "message_completed",
+                                "message_id": old_msg_id,
+                                "final_content": None,
+                                "token_usage": None,
+                                "run_id": rid,
+                            })
+                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
+                            "kind": "turn_start",
+                            "conversation_id": cid,
+                            "agent_id": aid,
+                            "run_id": rid,
+                        })
+                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
+                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                        if returned_msg_id and rid in run_context_store:
+                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                            run_context_store[rid]["kernel_message_id"] = new_kernel_id
+                            await mgr.send_json("node.streaming_delta", {
+                                "kind": "message_delta",
+                                "message_id": str(returned_msg_id),
+                                "delta_text": text,
+                                "run_id": rid,
+                            })
+                    except Exception:  # noqa: BLE001
+                        pass
+                return _close_old_and_restart()
+
+            if message_id:
+                # turn_start already ack'd — send delta directly.
+                if kernel_msg_id:
+                    ctx["kernel_message_id"] = kernel_msg_id
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "message_delta",
+                    "message_id": message_id,
+                    "delta_text": content,
+                    "run_id": run_id,
+                }))
+            elif conversation_id and agent_id:
+                # Kernel skipped run_status=running; send turn_start inline and await ack
+                # so we have message_id before the delta frame is dispatched.
+                async def _turn_start_then_delta(
+                    mgr: IMConnectionManager = manager,
+                    rid: str = run_id,
+                    cid: str = conversation_id,
+                    aid: str = agent_id,
+                    text: str = content,
+                    new_kernel_id: str = kernel_msg_id,
+                ) -> None:
+                    try:
+                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
+                            "kind": "turn_start",
+                            "conversation_id": cid,
+                            "agent_id": aid,
+                            "run_id": rid,
+                        })
+                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
+                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                        if returned_msg_id and rid in run_context_store:
+                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                            if new_kernel_id:
+                                run_context_store[rid]["kernel_message_id"] = new_kernel_id
+                            await mgr.send_json("node.streaming_delta", {
+                                "kind": "message_delta",
+                                "message_id": str(returned_msg_id),
+                                "delta_text": text,
+                                "run_id": rid,
+                            })
+                    except Exception:  # noqa: BLE001
+                        pass
+                return _turn_start_then_delta()
+
+        elif event_name == "turn_end":
+            # Finalize message with token_usage if present.
+            usage_raw = event.get("usage")
+            token_usage_payload: dict[str, object] | None = None
+            if isinstance(usage_raw, Mapping):
+                prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens")
+                completion = usage_raw.get("completion_tokens") or usage_raw.get("output_tokens")
+                if isinstance(prompt, int) and isinstance(completion, int):
+                    token_usage_payload = {
+                        "prompt": prompt,
+                        "completion": completion,
+                        "total": prompt + completion,
+                    }
+                    cw = event.get("context_window")
+                    if isinstance(cw, int) and cw > 0:
+                        token_usage_payload["context_window"] = cw
+            if message_id:
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "message_completed",
+                    "message_id": message_id,
+                    "final_content": None,
+                    "token_usage": token_usage_payload,
+                    "run_id": run_id,
+                }))
+
+        elif event_name == "tool_start":
+            call_id = str(event.get("call_id") or "").strip() or run_id
+            tool_name = str(event.get("name") or "")
+            arguments = event.get("arguments") or {}
+            if message_id:
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "tool_call_upserted",
+                    "message_id": message_id,
+                    "tool_call": {
+                        "id": call_id,
+                        "name": tool_name,
+                        "status": "running",
+                        "input": arguments if isinstance(arguments, dict) else {},
+                    },
+                    "run_id": run_id,
+                }))
+
+        elif event_name == "tool_end":
+            call_id = str(event.get("call_id") or "").strip() or run_id
+            tool_name = str(event.get("name") or "")
+            arguments = event.get("arguments") or {}
+            duration_ms = event.get("duration_ms")
+            status = "failed" if event.get("error") else "completed"
+            output_parts = []
+            if event.get("error"):
+                output_parts.append(str(event["error"]))
+            pres = event.get("presentation")
+            if isinstance(pres, Mapping) and pres.get("summary"):
+                output_parts.append(str(pres["summary"]))
+            if message_id:
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "tool_call_completed",
+                    "message_id": message_id,
+                    "tool_call": {
+                        "id": call_id,
+                        "name": tool_name,
+                        "status": status,
+                        "input": arguments if isinstance(arguments, dict) else {},
+                        "output": " | ".join(output_parts) if output_parts else None,
+                        "duration_ms": int(duration_ms) if isinstance(duration_ms, (int, float)) else None,
+                    },
+                    "run_id": run_id,
+                }))
+
+    return observer
 
 
 def _build_heartbeat_product_reports(summary: HeartbeatTickSummary) -> list[dict[str, object]]:

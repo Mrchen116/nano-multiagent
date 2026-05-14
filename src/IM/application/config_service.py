@@ -4,10 +4,21 @@ import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
-from IM.domain.models import AgentProfile, is_managed_workspace_root, managed_workspace_root
-from IM.infra.repositories import AgentProfileRepository, NodeRepository
+from IM.domain.models import AgentProfile, User, is_managed_workspace_root, managed_workspace_root
+from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
 
 ConfigSyncNotifier = Callable[[str, str, int], object]
+
+
+def agent_user_username(agent_id: str) -> str:
+    """Canonical IM ``users.username`` derived from one ``agent_id``.
+
+    feat-340-M18 R9-1: every agent profile must own a matching IM users row so
+    that ``POST /im/v1/conversations { participant_ids: [agent.user_id] }`` is
+    accepted. This single function is the contract surface for that username;
+    services and routes both call it to avoid drift.
+    """
+    return f"agent:{agent_id}"
 
 
 class ConfigService:
@@ -18,12 +29,43 @@ class ConfigService:
         *,
         profiles: AgentProfileRepository,
         nodes: NodeRepository | None = None,
+        users: UserRepository | None = None,
         config_sync_notifier: ConfigSyncNotifier | None = None,
     ) -> None:
-        """Bind service to the agent profile and optional node repositories."""
+        """Bind service to the agent profile and optional node repositories.
+
+        ``users`` is required to provision the IM ``users`` row on agent
+        registration (feat-340-M18 R9-1). It is optional only for legacy
+        test harnesses that instantiate the service without HTTP wiring.
+        """
         self._profiles = profiles
         self._nodes = nodes
+        self._users = users
         self._config_sync_notifier = config_sync_notifier
+
+    def ensure_agent_user(
+        self,
+        *,
+        agent_id: str,
+        display_name: str,
+    ) -> User | None:
+        """Return the IM user row backing one agent, lazily creating it if missing.
+
+        feat-340-M18 R9-1: closes the legacy gap where pre-M18 agent profiles
+        and any agent profile created outside the HTTP route lacked the matching
+        ``users`` row. Without it, ``POST /im/v1/conversations`` rejects the
+        agent participant id and the user-visible chat flow breaks. Lazy
+        provisioning lets list/read paths self-heal without a backfill job.
+        Returns ``None`` only when no ``UserRepository`` was wired (legacy
+        constructor variant used by some unit tests).
+        """
+        if self._users is None:
+            return None
+        username = agent_user_username(agent_id)
+        existing = self._users.get_user_by_username(username=username)
+        if existing is not None:
+            return existing
+        return self._users.create_user(username=username, display_name=display_name)
 
     def create_profile(
         self,
@@ -67,6 +109,11 @@ class ConfigService:
             default_model=default_model,
             workspace_root=self.normalize_workspace_root(agent_id=agent_id, workspace_root=workspace_root),
         )
+        # feat-340-M18 R9-1: pair every newly-created agent with an IM users row so the
+        # subsequent `POST /im/v1/conversations { participant_ids: [user_id] }` flow
+        # used by the chat UI can resolve the agent participant. Without this, the
+        # end-user cannot start a direct chat with a freshly-minted agent.
+        self.ensure_agent_user(agent_id=agent_id, display_name=created.display_name)
         self._notify_config_sync(agent_id=agent_id, profile_version=created.profile_version)
         return created
 
@@ -78,6 +125,10 @@ class ConfigService:
         """List agent profiles that are selectable in the current runtime."""
         return self._profiles.list_runtime_selectable_profiles()
 
+    def list_runtime_selectable_profiles_for_owner(self, *, owner_id: str) -> list[AgentProfile]:
+        """Owner-scoped variant used by IM routes after multi-user auth (feat-340-M1)."""
+        return self._profiles.list_runtime_selectable_profiles_for_owner(owner_id=owner_id)
+
     def get_updated_at(self, *, agent_id: str) -> str | None:
         """Return the last update timestamp for one agent."""
         return self._profiles.get_updated_at(agent_id=agent_id)
@@ -85,6 +136,10 @@ class ConfigService:
     def get_profile(self, *, agent_id: str) -> AgentProfile | None:
         """Return one agent profile, or None when missing."""
         return self._profiles.get_profile(agent_id=agent_id)
+
+    def get_profile_for_owner(self, *, agent_id: str, owner_id: str) -> AgentProfile | None:
+        """Return one agent profile when it belongs to ``owner_id`` or is ownerless."""
+        return self._profiles.get_profile_for_owner(agent_id=agent_id, owner_id=owner_id)
 
     def update_profile(
         self,

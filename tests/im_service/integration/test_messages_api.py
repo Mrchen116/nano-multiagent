@@ -6,17 +6,30 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.infra.repositories import AgentProfileRepository, NodeRepository
+from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
+
+from .conftest import authorize, make_app_client, register_user, seed_user_under_owner
 
 
 def _create_user(client: TestClient, username: str) -> str:
-    """Create a user and return its identifier."""
-    response = client.post(
-        "/im/v1/users",
-        json={"username": username, "display_name": username.title()},
+    """Create a user for the IM tests, transparently handling multi-tenant auth.
+
+    First call → registers a fresh tenant and authorizes the client.
+    Subsequent calls → seed additional participant users sharing the first caller's
+    tenant (so conversations involving multiple users are all owned by the caller).
+    The behavior keeps legacy test code working without rewriting each test, while
+    still going through the new auth gate on the actual route layer.
+    """
+    auth_header = client.headers.get("Authorization")
+    if auth_header is None:
+        user = register_user(client, username=username)
+        authorize(client, user)
+        return user.id
+    # Reuse the existing tenant's owner_id by reading /im/v1/me
+    me = client.get("/im/v1/me").json()
+    return seed_user_under_owner(
+        client, username=username, owner_id=me["owner_id"]
     )
-    assert response.status_code == 201
-    return response.json()["id"]
 
 
 def _create_conversation(client: TestClient, user_id: str, title: str) -> str:
@@ -25,7 +38,7 @@ def _create_conversation(client: TestClient, user_id: str, title: str) -> str:
         "/im/v1/conversations",
         json={"title": title, "participant_ids": [user_id]},
     )
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
     return response.json()["id"]
 
 
@@ -198,7 +211,8 @@ def test_user_stream_roundtrip_for_sent_message(tmp_path: Path) -> None:
             },
         )
         assert sent.status_code == 201
-        with client.websocket_connect(f"/im/ws/user?user_id={sender_id}") as websocket:
+        token = client.headers["Authorization"].removeprefix("Bearer ")
+        with client.websocket_connect(f"/im/ws/user?token={token}") as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             seen: list[str] = []
             for _ in range(6):
@@ -401,12 +415,7 @@ def test_direct_chat_reports_node_offline_when_relay_not_live_connected(tmp_path
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         owner_id = _create_user(client, "alice")
-        agent_user_response = client.post(
-            "/im/v1/users",
-            json={"username": "agent:ops-bot", "display_name": "Ops Bot"},
-        )
-        assert agent_user_response.status_code == 201
-        agent_user_id = agent_user_response.json()["id"]
+        agent_user_id = _create_user(client, "agent:ops-bot")
 
         profile_repo = AgentProfileRepository(app.state.connection)
         profile_repo.upsert_profile(
@@ -450,3 +459,67 @@ def test_direct_chat_reports_node_offline_when_relay_not_live_connected(tmp_path
         )
         assert created.status_code == 503
         assert created.json()["detail"] == "target_node_id is not connected"
+
+
+def test_upload_rejects_disallowed_mime_type(tmp_path: Path) -> None:
+    """Block uploads outside the MIME white-list to keep agent intake bounded (M8 decision 8)."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        _create_user(client, "alice")
+
+        response = client.post(
+            "/im/v1/uploads?file_name=evil.sh",
+            content=b"#!/bin/sh\necho hi\n",
+            headers={"Content-Type": "application/x-sh"},
+        )
+        assert response.status_code == 415
+        assert "unsupported" in response.json()["detail"].lower()
+
+
+def test_upload_accepts_whitelisted_text_markdown(tmp_path: Path) -> None:
+    """Accept all white-listed text and document types (text/markdown is in white-list)."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        _create_user(client, "alice")
+
+        response = client.post(
+            "/im/v1/uploads?file_name=notes.md",
+            content=b"# notes\n",
+            headers={"Content-Type": "text/markdown"},
+        )
+        assert response.status_code == 201
+        assert response.json()["content_type"] == "text/markdown"
+
+
+def test_upload_rejects_body_above_size_limit(tmp_path: Path) -> None:
+    """Reject upload bodies above the 10 MB per-file ceiling (M8 decision 8)."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        _create_user(client, "alice")
+
+        oversized = b"x" * (10 * 1024 * 1024 + 1)
+        response = client.post(
+            "/im/v1/uploads?file_name=big.txt",
+            content=oversized,
+            headers={"Content-Type": "text/plain"},
+        )
+        assert response.status_code == 413
+
+
+def test_create_message_rejects_more_than_five_attachments(tmp_path: Path) -> None:
+    """Cap one message at 5 attachments to keep agent intake bounded (M8 decision 8)."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        user_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, user_id, "chat")
+
+        too_many = [
+            {"url": f"http://testserver/im/uploads/{i}.txt", "content_type": "text/plain", "file_name": f"{i}.txt"}
+            for i in range(6)
+        ]
+        response = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": user_id, "content": "", "attachments": too_many},
+        )
+        assert response.status_code == 400
+        assert "attachments" in response.json()["detail"].lower()

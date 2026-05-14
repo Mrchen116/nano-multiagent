@@ -48,9 +48,17 @@ Web IM 入口：`http://127.0.0.1:8011/`
 
 ### 启动 Gateway（个人助手）
 
+Gateway 默认读取 `~/.nano-assistant/config.yaml`。该文件是**持久化配置**：
+- Gateway 启动时会将 config 中的 agents 同步到 IM
+- 在 IM 前端新建 agent 时，Gateway 会自动把新 agent 写回该文件
+- 因此服务重启后所有 agent 配置不会丢失
+
 ```bash
-# 启动（后台）
+# 启动（后台，使用默认持久化配置）
 PYTHONPATH=src python -m personal_assistant.main
+
+# 或显式指定配置路径
+PYTHONPATH=src python -m personal_assistant.main --config ~/.nano-assistant/config.yaml
 
 # 显式指定远端 IM
 PYTHONPATH=src python -m personal_assistant.main --im-service-url http://<im-host>:8011
@@ -81,6 +89,44 @@ npm run dev        # Vite dev server
 npm run build      # 生产构建（tsc + vite build）
 npm run test       # vitest
 ```
+
+## 测试账号
+
+```yaml
+username:   nano
+password:   nano1234
+display_name: Test User
+im_url:     http://127.0.0.1:8011
+```
+
+注册：`curl -X POST $im_url/im/v1/auth/register -H "Content-Type: application/json" -d '{"username":"nano","password":"nano1234","display_name":"Test User"}'`
+
+IM 启动必须带固定 secret，否则 token 随重启失效：
+`IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing" PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011`
+
+**Gateway config 路径**：`~/.nano-assistant/config.yaml`（持久化，不要在 `/tmp` 下创建，否则系统重启后 agent 配置会丢失）
+
+最小可用配置示例：
+
+```yaml
+node:
+  node_id: demo-node
+  user_id: <your-user-id>
+agents:
+  - agent_id: default-agent
+    workspace_root: ~/nano-assistant/workspace/default-agent
+channels:
+  - name: web_relay
+    enabled: true
+im_service:
+  url: http://127.0.0.1:8011
+  username: nano      # Gateway 启动时自动登录，无需手动填 token
+  password: nano1234
+```
+
+`username` + `password` 方式：Gateway 启动时自动调 `POST /im/v1/auth/login` 获取 token，断线后自动重连，IM 重启后自动恢复，全程无需人工干预。
+
+启动：`PYTHONPATH=src python -m personal_assistant.main`
 
 ### 非交互式 CLI 命令
 

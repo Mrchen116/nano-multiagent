@@ -719,8 +719,8 @@ describe("message pane", () => {
       }
     });
 
-    expect(screen.getByText("A")).toBeInTheDocument();
-    expect(screen.getByText("QQQ")).toBeInTheDocument();
+    expect(screen.getAllByText("A").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("QQQ").length).toBeGreaterThan(0);
   });
 
   it("shows a compact timestamp for each sent and received bubble", () => {
@@ -785,6 +785,143 @@ describe("message pane", () => {
     expect(screen.queryByText("Delivered")).not.toBeInTheDocument();
     expect(screen.queryByText("Agent replied")).not.toBeInTheDocument();
     expect(screen.queryByText("The latest agent response finished successfully.")).not.toBeInTheDocument();
+  });
+
+  // M19/R11-7: prototype `im-components.jsx::MessageBubble` 时间戳 + token chip 都在
+  // 气泡外的 status row(气泡下方),agent avatar 30×30 在气泡左侧外,统一青色。
+  it("R11-7: timestamp lives outside the bubble in a sibling status row below it", () => {
+    const { container } = renderMessagePane({
+      detail: {
+        conversation_id: "conv-r11-7-timestamp",
+        title: "Agent Alpha",
+        kind_label: "Direct agent chat",
+        messages: [
+          {
+            message_id: "msg-r11-7-agent",
+            sender_type: "agent",
+            sender_display_name: "OpsBot",
+            sender_user_id: "agent-ops",
+            content: "hello there",
+            created_at: "2026-03-14T00:06:00Z"
+          }
+        ]
+      }
+    });
+
+    const timestamp = container.querySelector("time[data-testid='message-timestamp']") as HTMLElement;
+    expect(timestamp).not.toBeNull();
+    const bubble = container.querySelector("[data-testid='message-bubble']") as HTMLElement;
+    expect(bubble).not.toBeNull();
+    expect(bubble.contains(timestamp)).toBe(false);
+  });
+
+  it("R11-7: agent avatar renders outside the bubble with unified teal background", () => {
+    const { container } = renderMessagePane({
+      detail: {
+        conversation_id: "conv-r11-7-avatar",
+        title: "Agent Alpha",
+        kind_label: "Direct agent chat",
+        messages: [
+          {
+            message_id: "msg-r11-7-avatar",
+            sender_type: "agent",
+            sender_display_name: "OpsBot",
+            sender_user_id: "agent-ops",
+            content: "hi",
+            created_at: "2026-03-14T00:06:00Z"
+          }
+        ]
+      }
+    });
+
+    const avatar = container.querySelector("[data-testid='message-avatar']") as HTMLElement;
+    expect(avatar).not.toBeNull();
+    expect(avatar.className).toMatch(/rounded-full/);
+    expect(avatar.className).toMatch(/0\.52_0\.14_180/);
+    const bubble = container.querySelector("[data-testid='message-bubble']") as HTMLElement;
+    expect(bubble.contains(avatar)).toBe(false);
+  });
+
+  it("R11-7: token chip renders below the bubble with warn color at >=70% context", () => {
+    const { container } = renderMessagePane({
+      detail: {
+        conversation_id: "conv-r11-7-chip-warn",
+        title: "Agent Alpha",
+        kind_label: "Direct agent chat",
+        messages: [
+          {
+            message_id: "msg-chip-warn",
+            sender_type: "agent",
+            sender_display_name: "OpsBot",
+            content: "with usage",
+            created_at: "2026-03-14T00:07:00Z",
+            token_usage: {
+              output: 1234,
+              context_used: 14000,
+              context_window: 20000
+            }
+          }
+        ]
+      }
+    });
+
+    const chip = container.querySelector("[data-testid='token-chip']") as HTMLElement;
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toMatch(/70%/);
+    expect(chip.textContent).toMatch(/tok/);
+    expect(chip.className).toMatch(/0\.16_60|0\.18_60/);
+    const bubble = container.querySelector("[data-testid='message-bubble']") as HTMLElement;
+    expect(bubble.contains(chip)).toBe(false);
+  });
+
+  it("R11-7: token chip turns critical (red) at >=90% context", () => {
+    const { container } = renderMessagePane({
+      detail: {
+        conversation_id: "conv-r11-7-chip-crit",
+        title: "Agent Alpha",
+        kind_label: "Direct agent chat",
+        messages: [
+          {
+            message_id: "msg-chip-crit",
+            sender_type: "agent",
+            sender_display_name: "OpsBot",
+            content: "near full",
+            created_at: "2026-03-14T00:08:00Z",
+            token_usage: {
+              output: 800,
+              context_used: 19000,
+              context_window: 20000
+            }
+          }
+        ]
+      }
+    });
+
+    const chip = container.querySelector("[data-testid='token-chip']") as HTMLElement;
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toMatch(/95%/);
+    expect(chip.className).toMatch(/0\.15_25/);
+  });
+
+  it("R11-7: token chip is absent when message has no token_usage", () => {
+    const { container } = renderMessagePane({
+      detail: {
+        conversation_id: "conv-r11-7-no-chip",
+        title: "Agent Alpha",
+        kind_label: "Direct agent chat",
+        messages: [
+          {
+            message_id: "msg-no-chip",
+            sender_type: "agent",
+            sender_display_name: "OpsBot",
+            content: "plain reply",
+            created_at: "2026-03-14T00:09:00Z"
+          }
+        ]
+      }
+    });
+
+    expect(container.querySelector("[data-testid='token-chip']")).toBeNull();
   });
 });
 

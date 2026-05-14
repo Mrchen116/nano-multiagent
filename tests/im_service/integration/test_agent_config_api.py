@@ -10,6 +10,8 @@ from IM.api.routes import agents as agent_routes
 from IM.app import create_app
 from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
 
+from .conftest import authorize, register_user
+
 _WORKSPACE_PATH_SETTING = "/Users/czj/nano-assistant/workspace/fuck"
 
 
@@ -18,7 +20,8 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
-        owner = users.create_user(username="owner", display_name="Owner")
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         profiles = AgentProfileRepository(app.state.connection)
         NodeRepository(app.state.connection).upsert_node(
             node_id="node-1",
@@ -56,8 +59,10 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
                 "workspace_root": list_resp.json()[0]["workspace_root"],
                 "workspace_is_default": True,
                 "updated_at": list_resp.json()[0]["updated_at"],
+                "user_id": list_resp.json()[0]["user_id"],
             }
         ]
+        assert list_resp.json()[0]["user_id"] is not None
         assert list_resp.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
 
         get_resp = client.get(f"/im/v1/agents/{seeded.agent_id}/config?source=mirror")
@@ -137,7 +142,8 @@ def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
-        owner = users.create_user(username="owner", display_name="Owner")
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         profiles = AgentProfileRepository(app.state.connection)
         NodeRepository(app.state.connection).upsert_node(
             node_id="node-1",
@@ -237,7 +243,8 @@ def test_agents_list_hides_unbound_and_cross_owner_profiles(tmp_path: Path) -> N
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
-        owner = users.create_user(username="owner", display_name="Owner")
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         other_owner = users.create_user(username="other", display_name="Other")
         profiles = AgentProfileRepository(app.state.connection)
         NodeRepository(app.state.connection).upsert_node(
@@ -301,6 +308,8 @@ def test_agents_list_includes_fresh_runtime_profiles_before_bind(tmp_path: Path)
     """Fresh gateway runtimes should expose ownerless bound agents before bind confirmation."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
+        viewer = register_user(client, username="viewer", display_name="Viewer")
+        authorize(client, viewer)
         users = UserRepository(app.state.connection)
         other_owner = users.create_user(username="other", display_name="Other")
         profiles = AgentProfileRepository(app.state.connection)
@@ -355,9 +364,11 @@ def test_agents_list_includes_fresh_runtime_profiles_before_bind(tmp_path: Path)
                 "workspace_root": response.json()[0]["workspace_root"],
                 "workspace_is_default": True,
                 "updated_at": response.json()[0]["updated_at"],
+                "user_id": response.json()[0]["user_id"],
             }
         ]
         assert response.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-fresh")
+        assert response.json()[0]["user_id"] is not None
 
 
 
@@ -366,7 +377,8 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
-        owner = users.create_user(username="owner", display_name="Owner")
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         profiles = AgentProfileRepository(app.state.connection)
         profiles.upsert_profile(
             agent_id="agent-1",
@@ -382,6 +394,8 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
         )
 
         agent_participant = users.create_user(username="agent:agent-1", display_name="Alpha Alias")
+        app.state.connection.execute("UPDATE users SET owner_id = ? WHERE id = ?", (owner.owner_id, agent_participant.id))
+        app.state.connection.commit()
 
         first_conv = client.post(
             "/im/v1/conversations",
@@ -427,7 +441,8 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(tmp_pat
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         users = UserRepository(app.state.connection)
-        owner = users.create_user(username="owner", display_name="Owner")
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         nodes = NodeRepository(app.state.connection)
         profiles = AgentProfileRepository(app.state.connection)
 
@@ -522,6 +537,8 @@ def test_node_capabilities_return_current_selectable_items(tmp_path: Path, monke
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
+        viewer = register_user(client, username="viewer", display_name="Viewer")
+        authorize(client, viewer)
         nodes = NodeRepository(app.state.connection)
         nodes.upsert_node(node_id="node-1", node_name="MacBook", status="online", version="1.0.0")
         response = client.get("/im/v1/nodes/node-1/capabilities")

@@ -45,6 +45,12 @@ export interface ChatAttachment {
   file_name?: string;
 }
 
+export interface ChatTokenUsage {
+  output: number;
+  context_used: number;
+  context_window: number;
+}
+
 export interface ChatMessage {
   message_id: string;
   sender_type: SenderType;
@@ -58,6 +64,7 @@ export interface ChatMessage {
   delivery_status?: "sent" | "running" | "completed" | "failed";
   recovery_action_label?: string;
   recovery_hint?: string;
+  token_usage?: ChatTokenUsage;
 }
 
 export interface MentionCandidate {

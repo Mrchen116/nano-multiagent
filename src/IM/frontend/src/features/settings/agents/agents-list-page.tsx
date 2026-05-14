@@ -1,214 +1,232 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { createDirectConversation } from "../../chat/chat-api";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
-import { listAgentSummaries } from "./im-agent-config-api";
+import { useTranslation } from "../../../i18n";
+import { Avatar } from "../../chat/v2/components/avatar";
+import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
+import { listAgentSummaries, listNodes, type AgentSummary, type NodeSummary } from "./im-agent-config-api";
 
-function formatUpdatedAt(value?: string | null) {
-  if (!value) {
-    return "—";
-  }
-
-  return new Date(value).toLocaleString();
+function initialsOf(displayName: string): string {
+  const trimmed = displayName.trim();
+  if (!trimmed) return "AG";
+  return trimmed.slice(0, 2).toUpperCase();
 }
 
-function formatOwningNode(nodeId?: string | null) {
-  if (!nodeId) {
-    return "Not assigned";
-  }
-
-  return nodeId;
+function colorForAgent(agent: AgentSummary): string {
+  const seed = agent.agent_id || agent.display_name;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
+  return `oklch(0.52 0.14 ${Math.abs(hash) % 360})`;
 }
 
-function AgentSummaryCard(props: {
-  agent: {
-    agent_id: string;
-    display_name: string;
-    description?: string | null;
-    profile_version: number;
-    default_model?: string | null;
-    workspace_root: string;
-    workspace_is_default?: boolean;
-    node_id?: string | null;
-    updated_at?: string | null;
-  };
-  compact?: boolean;
-  isOpeningDirectChat?: boolean;
-  onOpenDirectChat: (agentId: string) => void;
+function statusOf(agent: AgentSummary, nodes: NodeSummary[]): "online" | "offline" {
+  if (agent.node_status === "online") return "online";
+  if (agent.node_status === "offline") return "offline";
+  if (!agent.node_id) return "offline";
+  const node = nodes.find((n) => n.node_id === agent.node_id);
+  return node?.status === "online" ? "online" : "offline";
+}
+
+function AgentRow(props: {
+  agent: AgentSummary;
+  status: "online" | "offline";
+  isMobile: boolean;
+  isActive?: boolean;
 }) {
-  const { agent, compact = false, isOpeningDirectChat = false, onOpenDirectChat } = props;
+  const { agent, status, isMobile, isActive } = props;
+  const initials = initialsOf(agent.display_name);
+  const navigate = useNavigate();
 
+  // Prototype: im-settings-page.jsx:44-70 AgentListView row styling
   return (
-    <article className={`rounded-[1.35rem] border border-[var(--im-border)] bg-white/85 shadow-sm ${compact ? "p-4" : "p-5"}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Link className="font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}`}>
-              {agent.display_name}
-            </Link>
-            <span className="rounded-full bg-[#dceef0] px-2 py-0.5 text-xs font-semibold text-slate-700">v{agent.profile_version}</span>
-          </div>
-          <p className="text-xs text-slate-500">{agent.agent_id}</p>
-        </div>
-        <button className="im-badge" type="button" disabled={isOpeningDirectChat} onClick={() => onOpenDirectChat(agent.agent_id)}>
-          {isOpeningDirectChat ? "Opening direct chat…" : "Open direct chat"}
-        </button>
+    <button
+      type="button"
+      onClick={() => navigate(`/settings/agents/${agent.agent_id}`)}
+      className={`flex w-full items-center gap-3 rounded-xl border-none text-left font-inherit mb-1 min-h-[52px] transition-colors ${
+        isActive ? "outline outline-1" : "outline-none"
+      } ${isMobile ? "px-[10px] py-[12px]" : "px-[10px] py-[9px]"}`}
+      style={{
+        background: isActive
+          ? (isMobile ? "oklch(0.90 0.010 180)" : "oklch(0.31 0.015 240)")
+          : "transparent",
+        outlineColor: isActive
+          ? (isMobile ? "oklch(0.75 0.12 180)" : "oklch(0.40 0.08 180)")
+          : "transparent",
+        cursor: "pointer",
+      }}
+      onMouseEnter={(e) => {
+        if (!isActive) {
+          e.currentTarget.style.background = isMobile
+            ? "oklch(0.90 0.006 240)"
+            : "oklch(0.28 0.012 240)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!isActive) e.currentTarget.style.background = "transparent";
+      }}
+      aria-label={agent.display_name}
+    >
+      <Avatar
+        initials={initials}
+        color={colorForAgent(agent)}
+        size={isMobile ? 38 : 32}
+        status={status}
+      />
+      <div className="min-w-0 flex-1">
+        <p
+          className={`m-0 font-semibold truncate ${
+            isMobile ? "text-[15px]" : "text-[13px]"
+          } ${isActive && !isMobile ? "text-white" : "text-[oklch(0.18_0.01_240)]"}`}
+        >
+          {agent.display_name}
+        </p>
+        <p
+          className={`m-0 mt-[2px] truncate ${
+            isMobile
+              ? "text-[12.5px] text-[oklch(0.55_0.01_240)]"
+              : "font-mono text-[11px] text-[oklch(0.50_0.01_240)]"
+          }`}
+        >
+          {isMobile ? agent.description || agent.agent_id : agent.agent_id}
+        </p>
       </div>
-
-      <p className={`mt-3 text-slate-600 ${compact ? "text-sm" : "text-sm leading-6"}`}>{agent.description || "No description yet."}</p>
-
-      {compact ? (
-        <>
-          <dl className="mt-3 grid gap-2 text-xs text-slate-500">
-            <div className="flex items-center justify-between gap-3">
-              <dt>Default model</dt>
-              <dd className="text-right text-slate-700">{agent.default_model || "Auto"}</dd>
-            </div>
-            <div className="grid gap-1">
-              <dt>Workspace</dt>
-              <dd className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt>Owning node</dt>
-              <dd className="text-right text-slate-700">{formatOwningNode(agent.node_id)}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt>Updated</dt>
-              <dd className="text-right text-slate-700">{formatUpdatedAt(agent.updated_at)}</dd>
-            </div>
-          </dl>
-          <div className="mt-3">
-            <Link className="text-sm font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}#workspace-settings`}>
-              Workspace settings
-            </Link>
-          </div>
-        </>
-      ) : (
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-start">
-          <section className="im-subtle-card grid gap-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Workspace</p>
-            <div className="space-y-1">
-              <p className="break-all font-mono text-[11px] text-slate-700">{agent.workspace_root}</p>
-            </div>
-          </section>
-          <section className="im-subtle-card grid gap-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Access</p>
-            <div className="space-y-1 text-sm text-slate-700">
-              <p>Default model: {agent.default_model || "Auto"}</p>
-              <p>Owning node: {formatOwningNode(agent.node_id)}</p>
-              <p className="text-xs text-slate-500">Updated {formatUpdatedAt(agent.updated_at)}</p>
-            </div>
-          </section>
-          <div className="flex lg:justify-end">
-            <Link className="text-sm font-semibold text-teal-700 hover:underline" to={`/settings/agents/${agent.agent_id}#workspace-settings`}>
-              Workspace settings
-            </Link>
-          </div>
-        </div>
-      )}
-    </article>
+      <div className="flex flex-col items-end gap-[3px] shrink-0">
+        <span
+          className="inline-block h-2 w-2 shrink-0 rounded-full"
+          style={{
+            background: status === "online"
+              ? "oklch(0.55 0.18 145)"
+              : "oklch(0.45 0.01 240)",
+          }}
+          aria-label={status}
+        />
+        {isMobile && (
+          <span className="text-[11px] text-[oklch(0.65_0.01_240)]">›</span>
+        )}
+      </div>
+    </button>
   );
 }
 
 export function AgentsListPage() {
   const isMobile = useIsMobile();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const query = useQuery({
-    queryKey: ["settings", "agents"],
-    queryFn: listAgentSummaries
-  });
-  const openDirectChatMutation = useMutation({
-    mutationFn: (agentId: string) => createDirectConversation({ agentId }),
-    onSuccess: async ({ conversation_id }) => {
-      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
-      navigate(`/chat/${conversation_id}`);
-    }
-  });
+  const { t } = useTranslation();
+  useAgentStatusBroadcastConsumer();
+  const agentsQuery = useQuery({ queryKey: ["settings", "agents"], queryFn: listAgentSummaries });
+  const nodesQuery = useQuery({ queryKey: ["settings", "agents", "nodes-status"], queryFn: listNodes });
 
-  const agents = query.data ?? [];
+  const { agentId: activeAgentId } = useParams<{ agentId?: string }>();
+  const agents = agentsQuery.data ?? [];
+  const nodes = nodesQuery.data ?? [];
+  const newAgentPath = "/settings/agents/new";
   const errorDetail =
-    query.error instanceof Error ? query.error.message.split(" failed: ").at(-1) ?? query.error.message : "Unable to load agents right now.";
+    agentsQuery.error instanceof Error
+      ? agentsQuery.error.message.split(" failed: ").at(-1) ?? agentsQuery.error.message
+      : null;
+
+  // Prototype: im-settings-page.jsx:12-75 AgentListView
+  // Desktop: dark sidebar 240px; Mobile: light full-width
+  const sidebarBg = isMobile ? "oklch(0.93 0.007 240)" : "oklch(0.24 0.012 240)";
+  const borderColor = isMobile ? "oklch(0.87 0.006 240)" : "oklch(0.29 0.010 240)";
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="max-w-2xl space-y-1">
-          <h2 className="im-title text-xl font-bold">Agents</h2>
-          <p className="text-sm text-slate-500">Review each agent's role, access, and workspace before opening settings.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs text-slate-500">{query.isLoading ? "Loading…" : `${agents.length} agent${agents.length === 1 ? "" : "s"}`}</span>
-          {query.isFetching && !query.isLoading ? (
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">Refreshing…</span>
-          ) : null}
-        </div>
+    <div
+      className="flex flex-col flex-1 min-h-0"
+      style={{
+        width: isMobile ? "100%" : 240,
+        flex: isMobile ? 1 : undefined,
+        background: sidebarBg,
+        borderRight: isMobile ? "none" : `1px solid ${borderColor}`,
+      }}
+      data-testid="agents-list"
+    >
+      {/* Header */}
+      <div
+        style={{
+          padding: isMobile ? "10px 16px 12px" : "14px 12px 10px",
+          borderBottom: `1px solid ${borderColor}`,
+        }}
+      >
+        {isMobile ? (
+          <div className="relative flex h-9 items-center justify-center">
+            <h1
+              className="m-0 text-[17px] font-bold tracking-tight text-[oklch(0.14_0.01_240)]"
+            >
+              {t("agents.title")}
+            </h1>
+            <Link
+              to={newAgentPath}
+              className="absolute right-0 top-0 inline-flex h-9 items-center rounded-[10px] border-none px-[14px] text-[13px] font-semibold text-white"
+              style={{ background: "oklch(0.52 0.14 180)" }}
+            >
+              {t("agents.newButton")}
+            </Link>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <span
+              className="text-[11px] font-bold tracking-[0.08em] uppercase text-[oklch(0.55_0.01_240)]"
+            >
+              {t("agents.title")}
+            </span>
+            <Link
+              to={newAgentPath}
+              className="inline-flex h-9 items-center rounded-lg border-none px-3 text-[13px] font-semibold text-white"
+              style={{ background: "oklch(0.30 0.012 240)" }}
+            >
+              {t("agents.newButton")}
+            </Link>
+          </div>
+        )}
       </div>
 
-      {query.isLoading ? (
-        <section className="rounded-2xl border border-[var(--im-border)] bg-white/75 p-5 text-sm text-slate-500">
-          Loading agents and the latest configuration snapshot...
-        </section>
-      ) : query.isError ? (
-        <section className="grid gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-5">
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-rose-700">Could not load agents.</p>
-            <p className="text-sm text-rose-600">{errorDetail}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void query.refetch()}>
-              Retry
+      {/* Body */}
+      <div
+        className="flex-1 overflow-y-auto"
+        style={{ padding: isMobile ? "8px 10px" : "6px 8px" }}
+      >
+        {agentsQuery.isLoading ? (
+          <p className="p-2 text-[13px] text-[oklch(0.55_0.01_240)]">{t("common.loading")}</p>
+        ) : agentsQuery.isError ? (
+          <section className="m-2 p-4 rounded-xl border border-[oklch(0.29_0.010_240)] bg-[oklch(0.28_0.012_240)] flex flex-col gap-2 text-[13px]">
+            <p className="font-bold m-0 text-white">{t("agents.loadError")}</p>
+            {errorDetail ? <p className="m-0 text-[11px] text-[oklch(0.50_0.01_240)]">{errorDetail}</p> : null}
+            <button
+              type="button"
+              onClick={() => void agentsQuery.refetch()}
+              className="inline-flex items-center rounded-lg border-none px-3 py-1.5 text-[13px] font-semibold text-white"
+              style={{ background: "oklch(0.30 0.012 240)" }}
+            >
+              {t("agents.retry")}
             </button>
-            <Link className="text-sm font-semibold text-teal-700 hover:underline" to="/settings/nodes">
-              Open Nodes to create an agent
+          </section>
+        ) : agents.length === 0 ? (
+          <section className="m-2 p-4 rounded-xl border border-[oklch(0.87_0.006_240)] bg-white flex flex-col gap-2 text-[13px]">
+            <p className="font-bold m-0 text-[oklch(0.21_0.012_240)]">{t("agents.empty.title")}</p>
+            <p className="m-0 text-[11px] text-[oklch(0.50_0.01_240)]">{t("agents.empty.body")}</p>
+            <Link
+              to="/settings/nodes"
+              className="inline-flex items-center rounded-lg border-none px-3 py-1.5 text-[13px] font-semibold text-white"
+              style={{ background: "oklch(0.52 0.14 180)" }}
+            >
+              {t("agents.openNodes")}
             </Link>
-          </div>
-        </section>
-      ) : agents.length === 0 ? (
-        <section className="grid gap-3 rounded-2xl border border-dashed border-[var(--im-border)] bg-white/80 p-6">
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-slate-900">No agents yet</p>
-            <p className="text-sm text-slate-500">Open Nodes to create your first runtime profile on an online bound node.</p>
-          </div>
-          <div>
-            <Link className="im-btn im-btn-primary inline-flex" to="/settings/nodes">
-              Open Nodes
-            </Link>
-          </div>
-        </section>
-      ) : isMobile ? (
-        <div className="grid gap-3">
-          {agents.map((agent) => (
-            <AgentSummaryCard
-              key={agent.agent_id}
-              agent={agent}
-              compact
-              onOpenDirectChat={(nextAgentId) => openDirectChatMutation.mutate(nextAgentId)}
-              isOpeningDirectChat={openDirectChatMutation.isPending && openDirectChatMutation.variables === agent.agent_id}
-            />
-          ))}
-        </div>
-      ) : (
-        <section className="grid gap-4 rounded-[1.35rem] border border-[var(--im-border)] bg-white/75 p-5">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Active agents</p>
-              <p className="text-sm text-slate-600">{agents.length} profiles</p>
-            </div>
-          </div>
-          <div className="grid gap-4">
+          </section>
+        ) : (
+          <nav aria-label={t("agents.title")}>
             {agents.map((agent) => (
-              <AgentSummaryCard
+              <AgentRow
                 key={agent.agent_id}
                 agent={agent}
-                onOpenDirectChat={(nextAgentId) => openDirectChatMutation.mutate(nextAgentId)}
-                isOpeningDirectChat={openDirectChatMutation.isPending && openDirectChatMutation.variables === agent.agent_id}
+                status={statusOf(agent, nodes)}
+                isMobile={isMobile}
+                isActive={agent.agent_id === activeAgentId}
               />
             ))}
-          </div>
-        </section>
-      )}
+          </nav>
+        )}
+      </div>
     </div>
   );
 }

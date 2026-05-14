@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
     display_name TEXT NOT NULL,
     owner_id TEXT NOT NULL,
     default_entry_node_id TEXT,
+    password_hash TEXT,
+    locale TEXT NOT NULL DEFAULT 'en',
     created_at TEXT NOT NULL
 );
 
@@ -114,6 +116,8 @@ CREATE TABLE IF NOT EXISTS messages (
     attachments_json TEXT NOT NULL DEFAULT '[]',
     delivery_status TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    tool_calls_json TEXT,
+    token_usage_json TEXT,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -206,6 +210,11 @@ def _migrate_users_owner_id(connection: sqlite3.Connection) -> None:
         connection.execute("UPDATE users SET owner_id = id WHERE owner_id IS NULL OR owner_id = ''")
     if "default_entry_node_id" not in column_names:
         connection.execute("ALTER TABLE users ADD COLUMN default_entry_node_id TEXT")
+    # feat-340-M1: multi-user auth — credentials and i18n locale per user.
+    if "password_hash" not in column_names:
+        connection.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+    if "locale" not in column_names:
+        connection.execute("ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'")
 
 
 
@@ -325,6 +334,12 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE messages ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'completed'"
         )
+    # feat-340-M2: persist agent-runtime tool_calls / token_usage as nullable JSON columns.
+    # Nullable because legacy user messages have neither; bridge writes populate them per-message.
+    if "tool_calls_json" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN tool_calls_json TEXT")
+    if "token_usage_json" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN token_usage_json TEXT")
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:

@@ -5,8 +5,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from IM.api.routes import auth as auth_routes
 from IM.api.routes import messages as message_routes
-from IM.api.routes import users as user_routes
 from IM.api.routes import web_im
 from IM.app import _resolve_frontend_dist_candidates, create_app
 
@@ -27,11 +27,11 @@ def test_resolve_frontend_dist_candidates_keeps_repo_dist_as_runtime_fallback(tm
 
 
 def test_create_app_registers_im_routes(tmp_path: Path) -> None:
-    """Build IM app with required base routes for users and conversations."""
+    """Build IM app with required base routes for auth and conversations (post feat-340-M1)."""
     app = create_app(db_path=tmp_path / "im.db")
     route_paths = {route.path for route in app.routes}
 
-    assert "/im/v1/users" in route_paths
+    assert "/im/v1/auth/register" in route_paths
     assert "/im/v1/conversations" in route_paths
 
 
@@ -39,7 +39,7 @@ def test_create_app_uses_layered_route_modules(tmp_path: Path) -> None:
     """Register routes from api.routes modules instead of inline handlers."""
     app = create_app(db_path=tmp_path / "im.db")
 
-    assert any(getattr(route, "endpoint", None) is user_routes.create_user for route in app.routes)
+    assert any(getattr(route, "endpoint", None) is auth_routes.register for route in app.routes)
     assert any(getattr(route, "endpoint", None) is web_im.create_conversation for route in app.routes)
     assert any(getattr(route, "endpoint", None) is message_routes.create_message for route in app.routes)
 
@@ -50,7 +50,7 @@ def test_create_app_allows_local_browser_origins_for_real_im_frontend(tmp_path: 
 
     with TestClient(app) as client:
         response = client.options(
-            "/im/v1/users",
+            "/im/v1/auth/register",
             headers={
                 "Origin": "http://127.0.0.1:4173",
                 "Access-Control-Request-Method": "GET",
@@ -172,3 +172,28 @@ def test_create_app_serves_built_frontend_shell_on_im_routes(tmp_path: Path) -> 
     assert favicon_response.text == "<svg></svg>"
     assert asset_response.status_code == 200
     assert asset_response.text == "console.log('IM shell');"
+
+
+def test_create_app_serves_spa_shell_on_login_register_me_routes(tmp_path: Path) -> None:
+    """SPA routes /login /register /me must return the index.html shell, not a 404."""
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir(parents=True)
+    (dist_dir / "index.html").write_text("<!doctype html><title>IM shell</title>", encoding="utf-8")
+
+    app = create_app(
+        db_path=tmp_path / "im.db",
+        frontend_dist_dir=dist_dir,
+        frontend_dev_base_url="http://127.0.0.1:4173",
+    )
+
+    with TestClient(app) as client:
+        login_response = client.get("/login")
+        register_response = client.get("/register")
+        me_response = client.get("/me")
+
+    assert login_response.status_code == 200, "/login must serve SPA shell, not 404"
+    assert login_response.text == "<!doctype html><title>IM shell</title>"
+    assert register_response.status_code == 200, "/register must serve SPA shell, not 404"
+    assert register_response.text == "<!doctype html><title>IM shell</title>"
+    assert me_response.status_code == 200, "/me must serve SPA shell, not 404"
+    assert me_response.text == "<!doctype html><title>IM shell</title>"

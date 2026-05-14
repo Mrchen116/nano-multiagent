@@ -67,6 +67,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
             "turn_id": event.get("turn_id"),
             "call_id": event.get("call_id"),
             "name": event.get("name"),
+            "arguments": _as_mapping_or_none(event.get("arguments")),
             "status": "failed" if event.get("error") else "completed",
             "duration_ms": duration_ms,
             "error": event.get("error"),
@@ -90,6 +91,9 @@ def setup(hooks):  # noqa: ANN001, ANN201
         usage = event.get("usage")
         if isinstance(usage, Mapping):
             payload["usage"] = dict(usage)
+        cw = event.get("context_window")
+        if isinstance(cw, int) and cw > 0:
+            payload["context_window"] = cw
         ctx.publish_session_event(event="turn_end", data=payload)
 
     hooks.on("tool_call", on_tool_call, priority=1000, timeout_ms=500)

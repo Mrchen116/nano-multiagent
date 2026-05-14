@@ -9,13 +9,15 @@ from IM.app import create_app
 from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 
+from tests.im_service._auth_helpers import authorize, register_user
+
 
 def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None:
     """Expose stable response fields and 409 conflict semantics for config PATCH."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
-        users = UserRepository(app.state.connection)
-        owner = users.create_user(username="owner", display_name="Owner")
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         profiles = AgentProfileRepository(app.state.connection)
         profiles.upsert_profile(
             agent_id="agent-1",
@@ -84,6 +86,8 @@ def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.Mo
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
         nodes = NodeRepository(app.state.connection)
         nodes.upsert_node(node_id="node-1", node_name="MacBook")
         response = client.get("/im/v1/nodes/node-1/capabilities")
