@@ -17,6 +17,8 @@
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-14 (M3): 新增 post-acceptance fix milestone — 修复 reviewer round 1 的 IM 前端 permission WS 事件路由断裂（blocking）、REPL auto 模式横幅缺失（major）、MessageResponse 缺 permission_request 字段（minor） — 详见 M3-fix-permission-card-and-banner/progress.md
+
 ## 现状分析
 
 ### 涉及范围
@@ -912,8 +914,10 @@ class PermissionRequest:
 |---|---|---|---|---|---|
 | feat-333-M1 | auto-core-and-cli | — | A | **agent-core**：`auto_mode_gate.py` hook（替换 `bash_risk_gate`，以 `timeout_ms=None` 注册、自管超时）、分类器像素级复刻 CC（system prompt 三层组装 / transcript 投影 / 两阶段 XML / safe-tool allowlist / 工具投影）、`AutoModeConfig` + global/workspace config 加载、`request_permission` 暂停原语 + `PermissionBroker`（含 deny-count / session-allowlist 状态）+ run `awaiting_permission` 子态 + inbound 端点 `POST /v1/sessions/{sid}/permissions/{request_id}`、deny-limit escalation、无人值守短路（读 `ctx.metadata["run_origin"]` + `unattended_fallback`）；hook 框架 `timeout_ms=None` 支持；`RunRecord.origin` thread-through（`runs/registry` → `runtime` → `hook_metadata`）。**CLI**：SSE drain 检测 + repl_input picker + POST 决策。涉及 `src/agent/core/hooks/`、`src/agent/core/runs/`、`src/agent/core/agent/`、`src/agent/platform/hooks/builtins/`、`src/agent/platform/tools/safety.py`、`src/agent/platform/config/`、`src/agent/platform/http_api/`、`src/coding_cli/` | `[worker]` `pytest tests/unit/test_auto_mode_gate.py tests/unit/test_auto_mode_config.py tests/unit/test_permission_broker.py` 全绿 + `pytest -m "not e2e"` 不回归<br>`[worker]` 分类器 system prompt 组装 / transcript 投影 / 两阶段 XML / safe-tool allowlist / 工具投影 与 CC `yoloClassifier.ts` 逐字一致（单测覆盖）<br>`[reviewer]` 手动走 Runbook M1 步骤 1-6：无配置启动 Coding CLI 默认 auto 生效；被 review 的 bash 命令触发分类器；deny-limit / 分类器不可用时终端出现 picker 且选 Allow / Deny 均正确生效；`dangerously_skip_permissions: true` 配置后所有工具直接执行 |
 | feat-333-M2 | pa-im-ask-rendering | feat-333-M1 | B | **PA**：`inbound_pipeline` 消费 `permission_request` SSE → 转 `node.streaming_delta`，消费 IM 决策 → POST 回 agent inbound；提交 heartbeat / cron run 时用 `origin=RunOrigin.HEARTBEAT`（若 PA 当前未传，一行小改）。**IM 后端**：`gateway_handler` 新增 `permission_request` / `permission_resolved` / `permission_response` 三个 kind、`Message` 嵌入式 permission 结构、EventBridge upsert、新增 REST 端点接收用户决策、WS fan-out。**IM 前端**：聊天流内嵌权限卡片组件 + `types.ts` 类型 + `message-pane` 挂载点。涉及 `src/personal_assistant/gateway/`、`src/IM/ws/`、`src/IM/domain/`、`src/IM/models.py`、`src/IM/api/routes/`、`src/IM/frontend/` | `[worker]` `pytest tests/unit/`（IM / PA 相关）全绿 + `cd src/IM/frontend && npm run test` 全绿<br>`[reviewer]` 手动走 Runbook M2 步骤 7-11：三服务起齐，IM 会话触发 `ask` → 聊天流出现内嵌卡片不阻塞输入；Deny / Allow once / Allow session / Always allow 四类决策均正确生效且 agent 恢复执行；`ask_timeout_sec` 超时卡片转 resolved；heartbeat / cron run 触发 `ask` 走 `unattended_fallback` 不发卡片 |
+| feat-333-M3 | fix-permission-card-and-banner *(post-acceptance fix, round 1)* | feat-333-M2 | C | reviewer round 1 三项 fix-implementation issue：**Issue 1 (blocking)** IM 前端 permission WS 事件路由断裂——`chat-stream.ts` 的 `KNOWN_TYPES`、`chat-types.ts` 的 `WsEvent` 类型联合补充 `permission.request` / `permission.resolved`，`chat-stream-reducer.ts` 添加对应 state 更新逻辑，使 `message.permission_request` 能被填充、`PermissionCard` 真正渲染；**Issue 2 (major)** REPL 启动无 auto 模式横幅——session 创建后读 auto_mode 配置打印状态提示，`dangerously_skip_permissions` 启用时打印醒目危险旁路警告横幅；**Issue 3 (minor)** `MessageResponse` Pydantic 模型 + `to_message_response()` 补 `permission_request` 字段（domain model 已有），使刷新后 pending 权限卡片可从历史消息恢复。涉及 `src/IM/frontend/`、`src/IM/api/`（或 models）、`src/coding_cli/` | `[worker]` `cd src/IM/frontend && npm run test` 不新增失败 + `pytest -m "not e2e"` 不比 baseline 新增失败<br>`[reviewer]` 重走 Runbook M2 步骤 7-11（IM 权限卡片渲染 + 四类决策生效）+ Runbook M1 步骤 1/5（REPL auto 模式横幅可见、`dangerously_skip_permissions` 危险旁路警告可见） |
 
 ```mermaid
 graph LR
   M1[feat-333-M1<br/>auto-core-and-cli] --> M2[feat-333-M2<br/>pa-im-ask-rendering]
+  M2 --> M3[feat-333-M3<br/>fix-permission-card-and-banner]
 ```
