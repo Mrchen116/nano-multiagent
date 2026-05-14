@@ -108,6 +108,10 @@ class ResolvedProductConfig:
     # applied).  ``None`` uses platform default (all tools in registry).  Set by
     # bootstrap from ``ProductProfile.default_tool_ids``.
     default_tool_ids: list[str] | None = None
+    # Workspace-level metadata merged into every new session created under this
+    # product.  Populated from the workspace config file (e.g. .nanocode/config.yaml)
+    # by bootstrap; empty when no file exists.
+    default_session_metadata: dict = field(default_factory=dict)
 
 
 __all__ = ["ProductProfile", "ResolvedProductConfig"]

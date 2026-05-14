@@ -21,18 +21,40 @@ _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.25
 _DEFAULT_HEARTBEAT_TICK_INTERVAL_SECONDS = 30.0
 _DEFAULT_WORKSPACE_MEMORY_CONTENT = "# MEMORY\n\nUse this file for stable long-term notes shared across the agent workspace.\n"
+_DEFAULT_WORKSPACE_USER_CONTENT = "# USER PROFILE\n\nUse this file for stable notes about the user (preferences, context).\n"
 _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT = (
     "# HEARTBEAT\n\n"
     "<!-- Add one schedule (interval/at/cron) and actionable checklist items when heartbeat automation is needed. -->\n"
 )
-DEFAULT_WORKSPACE_FILES: tuple[tuple[str, str], ...] = (
+
+# Memory files (MEMORY.md + USER.md) live under .nanoassistant/memory/ so that
+# MemoryStore can read/write them without path gymnastics (feat-349-M3).
+# HEARTBEAT.md stays at workspace root (heartbeat scheduler reads it there).
+_WORKSPACE_MEMORY_SUBDIR = ".nanoassistant/memory"
+
+DEFAULT_WORKSPACE_MEMORY_FILES: tuple[tuple[str, str], ...] = (
     ("MEMORY.md", _DEFAULT_WORKSPACE_MEMORY_CONTENT),
+    ("USER.md", _DEFAULT_WORKSPACE_USER_CONTENT),
+)
+DEFAULT_WORKSPACE_ROOT_FILES: tuple[tuple[str, str], ...] = (
     ("HEARTBEAT.md", _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT),
+)
+
+# Retained for backward-compatibility with any external references; new code
+# should use DEFAULT_WORKSPACE_MEMORY_FILES + DEFAULT_WORKSPACE_ROOT_FILES.
+DEFAULT_WORKSPACE_FILES: tuple[tuple[str, str], ...] = (
+    *DEFAULT_WORKSPACE_MEMORY_FILES,
+    *DEFAULT_WORKSPACE_ROOT_FILES,
 )
 
 
 def ensure_workspace_defaults(workspace_root: Path) -> Path:
     """Create one agent workspace directory and seed default workspace files.
+
+    Memory files (``MEMORY.md``, ``USER.md``) are seeded under
+    ``<workspace_root>/.nanoassistant/memory/`` so that ``MemoryStore`` can
+    read/write them at its canonical path (feat-349-M3).
+    ``HEARTBEAT.md`` remains at the workspace root.
 
     Args:
         workspace_root: Workspace root that should contain stable MEMORY/HEARTBEAT files.
@@ -47,11 +69,23 @@ def ensure_workspace_defaults(workspace_root: Path) -> Path:
 
     resolved_root = workspace_root.expanduser().resolve()
     resolved_root.mkdir(parents=True, exist_ok=True)
-    for filename, default_content in DEFAULT_WORKSPACE_FILES:
+
+    # Seed memory files under the .nanoassistant/memory/ subdirectory.
+    memory_dir = resolved_root / _WORKSPACE_MEMORY_SUBDIR
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    for filename, default_content in DEFAULT_WORKSPACE_MEMORY_FILES:
+        file_path = memory_dir / filename
+        if file_path.exists():
+            continue
+        file_path.write_text(default_content, encoding="utf-8")
+
+    # Seed workspace-root files (HEARTBEAT.md).
+    for filename, default_content in DEFAULT_WORKSPACE_ROOT_FILES:
         file_path = resolved_root / filename
         if file_path.exists():
             continue
         file_path.write_text(default_content, encoding="utf-8")
+
     return resolved_root
 
 
