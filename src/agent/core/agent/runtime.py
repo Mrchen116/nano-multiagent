@@ -141,6 +141,7 @@ class AgentRuntime:
         run_id: str | None = None,
         controller: RunController | None = None,
         parent_session_id: str | None = None,
+        origin: Any = None,
     ) -> TurnResult:
         """Execute one turn for an existing session.
 
@@ -150,6 +151,10 @@ class AgentRuntime:
             stream: Reserved compatibility flag (currently ignored).
             llm_session_id: Optional provider session id override.
             parent_session_id: Optional parent session id for subagent path resolution.
+            origin: RunOrigin enum value (or None) passed from RunsRegistry;
+                written into hook_metadata["run_origin"] so auto_mode_gate can
+                detect unattended contexts (heartbeat/cron) without re-importing
+                RunOrigin in core hooks.
 
         Returns:
             Turn result containing assistant output, tool calls/results, and stop reason.
@@ -221,6 +226,11 @@ class AgentRuntime:
         hook_metadata["context_window"] = self._compaction_settings.context_window
         if isinstance(run_id, str) and run_id.strip():
             hook_metadata["run_id"] = run_id.strip()
+        # Thread RunRecord.origin through to hook_metadata so auto_mode_gate can
+        # detect unattended contexts (RunOrigin.HEARTBEAT etc.) without importing
+        # RunOrigin in core hooks. Use .value (string) for decoupling.
+        if origin is not None:
+            hook_metadata["run_origin"] = getattr(origin, "value", str(origin))
         hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id, metadata=hook_metadata)
 
         input_payload, handled = await self._dispatch_intercept(
