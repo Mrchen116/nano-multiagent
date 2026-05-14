@@ -75,5 +75,23 @@
   - Visual/Interaction: N/A
 - Rollback: C1 commit 7c808324
 - Commits: C1=7c808324, C2=9cd2d801, C3=TBD
-- Next: R5 — CLI REPL 渲染 self_evolution_review 事件
+- Next: R5 DONE，见下
+
+---
+
+### R5 — CLI REPL 渲染 self_evolution_review 事件
+
+- Context: self_improvement hook 在 fork 完成后调用 publish_session_event("self_evolution_review")。CLI 的 _on_other_event → BackgroundRunEventProcessor.process() 处理非 run 事件，需在这里识别并渲染。
+- Decision: BackgroundRunEventProcessor.process() 对 event_name == "self_evolution_review" 调用 _format_self_evolution_review()；按 reviewed_skills/reviewed_memory 决定 subject，渲染成 "· background self-evolution review: <subject> updated" 一行。
+- Rationale: "·" 前缀样式与 agent 消息区分，符合设计决策 8。session 级事件无 run_id，需在 run 分发前特判。
+- Evidence:
+  - Tests: `pytest tests/unit/test_cli_background_runs.py` — 9 passed
+  - Entry: N/A（单元测试覆盖所有分支）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 单元测试覆盖 skill/memory/combined 三分支
+  - Visual/Interaction: N/A
+- Rollback: C1 commit b010003b
+- Commits: C1=b010003b, C2=3e09c9b1, C3=TBD
+- Next: R6 — SSE 背景事件送达
 
