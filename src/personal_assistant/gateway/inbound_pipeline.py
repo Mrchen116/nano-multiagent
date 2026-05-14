@@ -12,6 +12,7 @@ from typing import Literal
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.client.kernel_api_client import KernelApiClient
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.gateway.background_session_events import BackgroundSessionEventSubscriber
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -105,6 +106,7 @@ class InboundPipeline:
         group_context_store: GroupContextStore | None = None,
         gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
         kernel_event_observer: Callable[[Mapping[str, Any]], None] | None = None,
+        session_event_callback: Callable[[str, Mapping[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         self._kernel_client = kernel_client
         self._agents = {agent.agent_id: agent for agent in agents}
@@ -121,6 +123,12 @@ class InboundPipeline:
         # feat-340-M2: bootstrap wires this to an IM event_bridge consumer so the browser
         # sees live tool_call / token_usage events; default None keeps pipeline product-agnostic.
         self._kernel_event_observer = kernel_event_observer
+        # feat-349-M3: optional callback for session-level events (e.g. self_evolution_review)
+        # that arrive after the main per-turn SSE loop has terminated.  Caller wires this to
+        # send a system/meta notification to IM.  None keeps the pipeline IM-agnostic.
+        self._session_event_callback = session_event_callback
+        # Tracks active BackgroundSessionEventSubscribers by kernel_session_id.
+        self._bg_subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
 
     async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
         """Process one inbound message through route, session, queue, and reply steps.
@@ -208,10 +216,17 @@ class InboundPipeline:
                     ),
                 )
                 async def _on_other_event(event: Mapping[str, object]) -> None:
+                    event_name = event.get("event")
+                    # Handle session-level events (no origin, no run_id) such as
+                    # self_evolution_review published by background hooks during the turn.
+                    if event_name == "self_evolution_review":
+                        cb = self._session_event_callback
+                        if cb is not None:
+                            await cb(binding.kernel_session_id, event)
+                        return
                     origin = event.get("origin")
                     if origin == "user" or not origin:
                         return
-                    event_name = event.get("event")
                     if event_name == "assistant_message":
                         content = event.get("content")
                         if isinstance(content, str) and content.strip():
@@ -222,6 +237,13 @@ class InboundPipeline:
                     run_id=run_id,
                     anchor_sequence=anchor_sequence,
                     on_other=_on_other_event,
+                )
+                # Start a persistent background subscriber for this session so that
+                # self_evolution_review events published by background hooks (which run
+                # after the main turn's SSE loop terminates) still reach the PA gateway.
+                await self._ensure_background_subscriber(
+                    kernel_session_id=binding.kernel_session_id,
+                    last_sequence=anchor_sequence or 0,
                 )
                 await self._emit_relay_lifecycle(
                     message,
@@ -531,6 +553,46 @@ class InboundPipeline:
     def drop_agent_sessions(self, agent_id: str) -> None:
         """Drop existing kernel-session bindings for one agent after config sync."""
         self._session_store.drop_agent(agent_id)
+
+    async def _ensure_background_subscriber(
+        self,
+        *,
+        kernel_session_id: str,
+        last_sequence: int,
+    ) -> None:
+        """Ensure one persistent background SSE subscriber is active for the session.
+
+        Called after each main turn completes so that session-level events (e.g.
+        self_evolution_review) published by background hooks after the main SSE loop
+        terminates are still received and forwarded to ``_session_event_callback``.
+
+        If a subscriber is already active for this session (from a previous turn) it
+        is left running — re-creation would lose events between turns.
+
+        Args:
+            kernel_session_id: Kernel session to subscribe to.
+            last_sequence: Last SSE sequence number seen by the main turn's loop,
+                used as ``after_sequence`` so the subscriber replays events missed
+                between turn termination and subscription start.
+        """
+        if self._session_event_callback is None:
+            return
+        if kernel_session_id in self._bg_subscribers:
+            return
+
+        cb = self._session_event_callback
+
+        async def _on_session_event(event: Mapping[str, Any]) -> None:
+            await cb(kernel_session_id, event)
+
+        subscriber = BackgroundSessionEventSubscriber(
+            kernel_client=self._kernel_client,
+            session_id=kernel_session_id,
+            on_event=_on_session_event,
+            after_sequence=last_sequence,
+        )
+        self._bg_subscribers[kernel_session_id] = subscriber
+        await subscriber.start()
 
     def _require_known_agent(self, agent_id: str) -> str:
         if agent_id not in self._agents:

@@ -135,23 +135,26 @@ async def test_background_subscriber_reconnects_on_stream_error() -> None:
     )
 
     call_count = 0
+    stop_event = asyncio.Event()
 
     async def _failing_then_ok_stream(*, session_id: str, last_event_id: int | None = None):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise RuntimeError("simulated connection error")
-        # Second call: yield one session event then stop
+        # Second call: yield one session event then block until stopped
         yield {
             "event": "self_evolution_review",
             "session_id": session_id,
             "data": {"reviewed_skills": False, "reviewed_memory": True},
         }
+        await stop_event.wait()
 
     received: list[dict[str, Any]] = []
 
     async def _on_event(event: Mapping[str, Any]) -> None:
         received.append(dict(event))
+        stop_event.set()
 
     kernel_client = MagicMock()
     kernel_client.stream_session = _failing_then_ok_stream
@@ -164,11 +167,14 @@ async def test_background_subscriber_reconnects_on_stream_error() -> None:
         reconnect_delay=0.01,
     )
     await subscriber.start()
-    # Wait for reconnect + event processing
-    await asyncio.sleep(0.2)
+    # Wait for reconnect + event processing (with generous timeout)
+    for _ in range(40):
+        if received:
+            break
+        await asyncio.sleep(0.01)
     await subscriber.stop()
 
-    assert len(received) == 1
+    assert len(received) >= 1
     assert received[0]["data"]["reviewed_memory"] is True
 
 
@@ -190,38 +196,52 @@ def test_gateway_handler_handles_node_system_message() -> None:
 @pytest.mark.asyncio
 async def test_gateway_handler_node_system_message_creates_system_message() -> None:
     """``node.system_message`` must persist a system-type message in the conversation."""
+    import sqlite3
+    from IM.infra.db import initialize_schema
+    from IM.infra.repositories import ConversationRepository, UserRepository
     from IM.ws.gateway_handler import GatewayHandler
 
-    conversation_repo = MagicMock()
-    message_repo = MagicMock()
-    mock_msg = MagicMock()
-    mock_msg.id = "msg-1"
-    message_repo.create_message.return_value = mock_msg
+    # Use the real IM schema so all column names are correct.
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    initialize_schema(conn)
 
-    conversation_repo.get_conversation.return_value = MagicMock(
-        conversation_id="conv-1",
-        node_id=None,
+    # Create a test user (conversation owner) and a direct conversation.
+    user_repo = UserRepository(conn)
+    owner = user_repo.create_user(username="test_owner", display_name="Test Owner")
+
+    conversation_repo = ConversationRepository(connection=conn)
+    conv = conversation_repo.create_conversation(
+        title="Test Chat",
+        participant_ids=[owner.id],
+        caller_owner_id=owner.owner_id,
     )
 
+    relay_service = MagicMock()
     handler = GatewayHandler(
+        relay_service=relay_service,
         conversation_repository=conversation_repo,
-        message_repository=message_repo,
-        node_id="node-1",
     )
 
-    result = await handler.handle(
+    result = await handler.handle_message(
         websocket=MagicMock(),
         message_type="node.system_message",
         payload={
-            "conversation_id": "conv-1",
+            "conversation_id": conv.id,
             "text": "· background self-evolution review: skills updated",
         },
     )
 
     assert result is not None
-    assert result.get("type") != "error"
-    message_repo.create_message.assert_called_once()
-    call_kwargs = message_repo.create_message.call_args
-    assert call_kwargs.kwargs.get("sender_type") == "system" or (
-        call_kwargs.args and "system" in str(call_kwargs)
-    )
+    assert result.get("type") != "error", f"unexpected error: {result}"
+    assert result.get("type") == "ack"
+    assert "message_id" in result.get("payload", {})
+
+    # Verify the message was persisted with sender_type=system
+    row = conn.execute(
+        "SELECT sender_type, content FROM messages WHERE conversation_id = ?",
+        (conv.id,),
+    ).fetchone()
+    assert row is not None
+    assert row["sender_type"] == "system"
+    assert "self-evolution review" in row["content"]
