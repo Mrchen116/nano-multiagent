@@ -35,21 +35,28 @@ def test_local_coding_profile_has_display_name() -> None:
 
 
 def test_local_coding_profile_default_tool_ids() -> None:
-    """local_coding profile must explicitly declare the 5 built-in tool ids."""
+    """local_coding profile must include self-evolution tools alongside core tools."""
     assert LOCAL_CODING_PROFILE.default_tool_ids is not None
-    assert set(LOCAL_CODING_PROFILE.default_tool_ids) == {"read", "write", "edit", "bash", "agent", "task_stop"}
+    tool_ids = set(LOCAL_CODING_PROFILE.default_tool_ids)
+    # Core coding tools.
+    assert {"read", "write", "edit", "bash", "agent", "task_stop"} <= tool_ids
+    # Self-evolution tools (feat-349-M3 wiring).
+    assert "skill_manage" in tool_ids
+    assert "memory" in tool_ids
 
 
 def test_local_coding_profile_default_hook_modules() -> None:
-    """local_coding profile must explicitly declare the built-in hook module names."""
+    """local_coding profile must include self_improvement hook."""
     assert LOCAL_CODING_PROFILE.default_hook_modules is not None
     assert len(LOCAL_CODING_PROFILE.default_hook_modules) > 0
-    # All 4 builtin hook modules must be declared.
+    # All 4 original builtin hook modules must be declared.
     modules = set(LOCAL_CODING_PROFILE.default_hook_modules)
     assert "bash_risk_gate" in modules
     assert "default_status" in modules
     assert "realtime_stream" in modules
     assert "usage_metrics" in modules
+    # Self-improvement background hook (feat-349-M3 wiring).
+    assert "self_improvement" in modules
 
 
 def test_local_coding_profile_layout_contracts_present() -> None:

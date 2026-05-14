@@ -111,3 +111,38 @@ def test_bootstrap_product_builds_profile_session_store(tmp_path: Path) -> None:
 
     assert isinstance(resolved.session_store, JsonlSessionStore)
     assert resolved.session_store._data_dir.resolve() == (tmp_path / ".nano").resolve()
+
+
+# ---------------------------------------------------------------------------
+# R3 tests: bootstrap_product registers skill_manage + memory tools
+# ---------------------------------------------------------------------------
+
+
+def test_bootstrap_registers_skill_manage_when_config_resolver_available(tmp_path: Path) -> None:
+    """When global_config_home + workspace_config_dirname are set, skill_manage is in the registry."""
+    profile = ProductProfile(
+        product_id="test",
+        display_name="Test",
+        config_namespace="test",
+        global_config_home=tmp_path / ".test-global",
+        workspace_config_dirname=".test-workspace",
+        default_tool_ids=["read", "bash", "skill_manage", "memory"],
+    )
+    resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
+    tool_names = {spec.name for spec in resolved.tool_registry.list_specs()}
+    assert "skill_manage" in tool_names
+
+
+def test_bootstrap_registers_memory_when_config_resolver_available(tmp_path: Path) -> None:
+    """When global_config_home + workspace_config_dirname are set, memory is in the registry."""
+    profile = ProductProfile(
+        product_id="test",
+        display_name="Test",
+        config_namespace="test",
+        global_config_home=tmp_path / ".test-global",
+        workspace_config_dirname=".test-workspace",
+        default_tool_ids=["read", "bash", "skill_manage", "memory"],
+    )
+    resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
+    tool_names = {spec.name for spec in resolved.tool_registry.list_specs()}
+    assert "memory" in tool_names
