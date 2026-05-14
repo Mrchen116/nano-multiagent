@@ -146,3 +146,42 @@ def test_bootstrap_registers_memory_when_config_resolver_available(tmp_path: Pat
     resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
     tool_names = {spec.name for spec in resolved.tool_registry.list_specs()}
     assert "memory" in tool_names
+
+
+def test_bootstrap_default_session_metadata_no_workspace_config_uses_defaults(tmp_path: Path) -> None:
+    """When no workspace config file exists, default_session_metadata.self_evolution is all-enabled."""
+    profile = ProductProfile(
+        product_id="test",
+        display_name="Test",
+        config_namespace="test",
+        global_config_home=tmp_path / ".test-global",
+        workspace_config_dirname=".test-workspace",
+    )
+    resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
+    self_evo = resolved.default_session_metadata.get("self_evolution", {})
+    assert self_evo.get("enabled", True) is True
+
+
+def test_bootstrap_reads_self_evolution_from_workspace_config(tmp_path: Path) -> None:
+    """When workspace config file exists with self_evolution section, it is loaded into metadata."""
+    import yaml
+
+    config_dir = tmp_path / ".test-workspace"
+    config_dir.mkdir(parents=True)
+    config_file = config_dir / "config.yaml"
+    config_file.write_text(
+        yaml.safe_dump({"self_evolution": {"enabled": False, "skill_nudge_interval": 20}}),
+        encoding="utf-8",
+    )
+
+    profile = ProductProfile(
+        product_id="test",
+        display_name="Test",
+        config_namespace="test",
+        global_config_home=tmp_path / ".test-global",
+        workspace_config_dirname=".test-workspace",
+    )
+    resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
+    self_evo = resolved.default_session_metadata.get("self_evolution", {})
+    assert self_evo.get("enabled") is False
+    assert self_evo.get("skill_nudge_interval") == 20
