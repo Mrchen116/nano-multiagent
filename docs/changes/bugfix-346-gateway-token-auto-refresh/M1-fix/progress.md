@@ -44,8 +44,8 @@
   - Browser QA: N/A
   - E2E/Regression: test_m102_gateway_im_connection.py 新增 test_connect_once_calls_token_getter
   - Visual/Interaction: N/A
-- Rollback: C3 hash 见下
-- Commits: C1=TBD, C2=TBD, C3=TBD
+- Rollback: abd13a30（C1 commit）
+- Commits: C1=abd13a30, C2=03f416e6, C3=TBD
 
 ### R4 — build_runtime 组装 token_getter 闭包
 
