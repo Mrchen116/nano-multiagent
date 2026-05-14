@@ -158,7 +158,12 @@ class AgentTool:
             args=args,
         )
 
-        output_file = self._resolve_output_file(runtime, agent_session_id, ctx.session_id)
+        # Subagent sessions are created with workspace_root=ctx.cwd; their JSONL
+        # lives under {ctx.cwd}/.nano/sessions/{parent}/subagents/. Thread ctx.cwd
+        # so the stateless store can locate it.
+        output_file = self._resolve_output_file(
+            runtime, agent_session_id, ctx.session_id, ctx.cwd
+        )
 
         # Register background task
         record = registry.register_subagent(
@@ -180,6 +185,7 @@ class AgentTool:
             prompt=prompt,
             on_complete=_make_on_complete(registry, agent_id),
             on_fail=_make_on_fail(registry, agent_id),
+            workspace_root=ctx.cwd,
         )
         registry.set_stop_handle(agent_id, stopper)
 
@@ -213,7 +219,11 @@ class AgentTool:
             args=args,
         )
 
-        output_file = self._resolve_output_file(runtime, agent_session_id, ctx.session_id)
+        # Subagent sessions are created with workspace_root=ctx.cwd; thread it so
+        # the stateless store can locate the subagent JSONL.
+        output_file = self._resolve_output_file(
+            runtime, agent_session_id, ctx.session_id, ctx.cwd
+        )
 
         # Submit worker to executor
         future = self._executor.submit(
@@ -222,6 +232,7 @@ class AgentTool:
             session_id=agent_session_id,
             prompt=prompt,
             parent_session_id=ctx.session_id or "",
+            workspace_root=ctx.cwd,
         )
 
         try:
@@ -280,6 +291,12 @@ class AgentTool:
         registry = wiring.registry
         prompt = _normalize_optional_text(args.get("prompt")) or ""
 
+        # Subagent JSONL lives under the parent session's workspace_root; the
+        # parent turn (ctx.session_id) is what invoked this tool, so the runtime
+        # holds the parent's workspace_root in memory.
+        runtime = self._require_runtime()
+        parent_workspace_root = runtime.session_workspace_root(ctx.session_id or "")
+
         # 1. Check in-memory registry
         record = registry.get(agent_id)
         if record is not None and record.task_type.value == "subagent":
@@ -300,15 +317,18 @@ class AgentTool:
                 description=record.description,
                 output_file=record.output_file,
                 agent_type=record.agent_type,
+                workspace_root=parent_workspace_root,
             )
 
-        # 2. Try JSONL rehydrate
-        runtime = self._require_runtime()
+        # 2. Try JSONL rehydrate. The stateless store needs the parent's
+        # workspace_root (resolved above) to locate both the index scan and the
+        # subagent file.
         store = runtime._session_manager.store
         parent_session_id = ctx.session_id or ""
         found_session_id = store.find_session_by_metadata(
             parent_session_id=parent_session_id,
             match={"agent_id": agent_id},
+            workspace_root=parent_workspace_root,
         )
         if found_session_id is None:
             raise ToolError(
@@ -320,7 +340,9 @@ class AgentTool:
         # Load session config to get metadata
         try:
             load_result = runtime._session_manager.load(
-                found_session_id, parent_session_id=parent_session_id
+                found_session_id,
+                workspace_root=parent_workspace_root,
+                parent_session_id=parent_session_id,
             )
         except Exception as exc:  # noqa: BLE001
             raise ToolError(
@@ -333,7 +355,13 @@ class AgentTool:
         metadata = dict(config.metadata) if config.metadata else {}
         description = metadata.get("description", "")
         agent_type = metadata.get("agent_type")
-        output_file = str(store.resolve_path(found_session_id, parent_session_id=parent_session_id))
+        output_file = str(
+            store.resolve_path(
+                found_session_id,
+                workspace_root=parent_workspace_root,
+                parent_session_id=parent_session_id,
+            )
+        )
 
         return self._resume_subagent(
             agent_id=agent_id,
@@ -343,6 +371,7 @@ class AgentTool:
             description=description,
             output_file=output_file,
             agent_type=agent_type,
+            workspace_root=parent_workspace_root,
         )
 
     def _resume_subagent(
@@ -355,6 +384,7 @@ class AgentTool:
         description: str,
         output_file: str,
         agent_type: str | None,
+        workspace_root: Path | None = None,
     ) -> dict[str, Any]:
         if agent_session_id is None:
             raise ToolError(
@@ -378,13 +408,16 @@ class AgentTool:
         )
         registry.mark_running(agent_id)
 
-        # Start worker for the resumed turn
+        # Start worker for the resumed turn. The subagent JSONL lives under the
+        # parent session's workspace_root, threaded here so the stateless store
+        # can locate it.
         stopper = wiring.subagent_runner.start(
             agent_session_id=agent_session_id,
             parent_session_id=parent_session_id,
             prompt=prompt,
             on_complete=_make_on_complete(registry, agent_id),
             on_fail=_make_on_fail(registry, agent_id),
+            workspace_root=workspace_root,
         )
         registry.set_stop_handle(agent_id, stopper)
 
@@ -428,9 +461,22 @@ class AgentTool:
         )
         return str(session.session_id)
 
-    def _resolve_output_file(self, runtime: Any, agent_session_id: str, parent_session_id: str | None) -> Path:
+    def _resolve_output_file(
+        self,
+        runtime: Any,
+        agent_session_id: str,
+        parent_session_id: str | None,
+        workspace_root: Path,
+    ) -> Path:
+        # Subagent JSONL lives under the parent session's workspace_root, which
+        # is the spawning turn's ctx.cwd (also used as the subagent's own
+        # workspace_root at create_session time).
         store = runtime._session_manager.store
-        return store.resolve_path(agent_session_id, parent_session_id=parent_session_id or "")
+        return store.resolve_path(
+            agent_session_id,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id or "",
+        )
 
     def _require_runtime(self) -> Any:
         runtime = self._runtime
@@ -557,14 +603,20 @@ def _run_subagent_turn_sync(
     session_id: str,
     prompt: str,
     parent_session_id: str,
+    workspace_root: Path | None = None,
 ) -> TurnResult:
-    """Run one subagent turn synchronously (called in executor thread)."""
+    """Run one subagent turn synchronously (called in executor thread).
+
+    ``workspace_root`` is the parent turn's ctx.cwd (also the subagent's own
+    workspace_root), threaded so the stateless store can locate the JSONL.
+    """
     return asyncio.run(
         runtime.run(
             session_id,
             [{"type": "text", "text": prompt}],
             stream=False,
             parent_session_id=parent_session_id,
+            workspace_root=workspace_root,
         )
     )
 

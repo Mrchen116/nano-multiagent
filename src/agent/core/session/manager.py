@@ -81,32 +81,54 @@ class SessionManager:
             metadata=clean_metadata,
         )
 
-    def load(self, session_id: str, *, parent_session_id: str | None = None) -> LoadResult:
-        """Load raw config + messages from JSONL."""
-        return self._store.load(session_id, parent_session_id=parent_session_id)
+    def load(
+        self,
+        session_id: str,
+        *,
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> LoadResult:
+        """Load raw config + messages from JSONL.
 
-    def get_session(self, session_id: str) -> Session | None:
+        ``workspace_root`` locates the session file; the stateless store cannot
+        guess it. Omit it only when the store has a ``data_dir`` default base.
+        """
+        return self._store.load(
+            session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+        )
+
+    def get_session(
+        self, session_id: str, *, workspace_root: Path | None = None
+    ) -> Session | None:
         """Load session config from JSONL and return Session model."""
 
         try:
-            result = self._store.load(session_id)
+            result = self._store.load(session_id, workspace_root=workspace_root)
         except SessionNotFoundError:
             return None
         return _session_from_config(result.config)
 
-    def list_sessions(self, *, limit: int, offset: int) -> tuple[tuple[Session, ...], bool]:
-        """List sessions with pagination and `has_more` sentinel."""
+    def list_sessions(
+        self, *, limit: int, offset: int, workspace_root: Path | None = None
+    ) -> tuple[tuple[Session, ...], bool]:
+        """List sessions with pagination and `has_more` sentinel.
+
+        Scoped to a single ``workspace_root`` — the stateless kernel has no
+        cross-workspace session registry.
+        """
 
         if limit <= 0:
             raise ValueError("limit must be greater than 0")
         if offset < 0:
             raise ValueError("offset must be greater than or equal to 0")
 
-        session_ids = self._store.list_session_ids(limit=limit + 1, offset=offset)
+        session_ids = self._store.list_session_ids(
+            limit=limit + 1, offset=offset, workspace_root=workspace_root
+        )
         has_more = len(session_ids) > limit
         sessions: list[Session] = []
         for sid in session_ids[:limit]:
-            session = self.get_session(sid)
+            session = self.get_session(sid, workspace_root=workspace_root)
             if session is not None:
                 sessions.append(session)
         return tuple(sessions), has_more
@@ -125,9 +147,11 @@ class SessionManager:
         message_id: str,
         parts: Sequence[Mapping[str, Any]] | None = None,
         metadata: Mapping[str, Any] | None = None,
+        workspace_root: Path | None = None,
     ) -> SessionEntry:
         """Append one turn message as a JSONL turn entry.
 
+        ``workspace_root`` locates the session file.
         Returns a backward-compatible SessionEntry for callers that expect it.
         """
 
@@ -154,7 +178,7 @@ class SessionManager:
         if meta.get("tool_call_id"):
             entry["tool_call_id"] = meta["tool_call_id"]
 
-        self._store.append(session_id, entry)
+        self._store.append(session_id, entry, workspace_root=workspace_root)
 
         # Backward-compatible return value
         return new_turn_appended_entry(
@@ -167,11 +191,13 @@ class SessionManager:
             metadata=metadata,
         )
 
-    def list_turn_messages(self, session_id: str) -> tuple[Message, ...]:
+    def list_turn_messages(
+        self, session_id: str, *, workspace_root: Path | None = None
+    ) -> tuple[Message, ...]:
         """Materialize chat messages from JSONL, applying compact_boundary skip."""
 
         try:
-            result = self._store.load(session_id)
+            result = self._store.load(session_id, workspace_root=workspace_root)
         except SessionNotFoundError:
             return ()
         return tuple(result.messages)
@@ -187,9 +213,11 @@ class SessionManager:
         first_kept_event_id: str,
         summary: str,
         data: Mapping[str, Any] | None = None,
+        workspace_root: Path | None = None,
     ) -> CompactionEntry:
         """Persist compaction as compact_boundary + summary turn in JSONL.
 
+        ``workspace_root`` locates the session file.
         Returns a backward-compatible CompactionEntry.
         """
 
@@ -201,7 +229,7 @@ class SessionManager:
             "timestamp": _utc_now_iso(),
             "summary_uuid": summary_uuid,
             "data": dict(data or {}),
-        })
+        }, workspace_root=workspace_root)
         # 2. Summary turn (is_compact_summary + is_meta) — written AFTER boundary
         self._store.append(session_id, {
             "type": "turn",
@@ -213,7 +241,7 @@ class SessionManager:
             "timestamp": _utc_now_iso(),
             "is_meta": True,
             "is_compact_summary": True,
-        })
+        }, workspace_root=workspace_root)
 
         # Backward-compatible return value
         return new_compaction_entry(
@@ -223,14 +251,17 @@ class SessionManager:
             data=data,
         )
 
-    def list_entries(self, session_id: str) -> tuple[SessionEntry | CompactionEntry, ...]:
+    def list_entries(
+        self, session_id: str, *, workspace_root: Path | None = None
+    ) -> tuple[SessionEntry | CompactionEntry, ...]:
         """Return persisted events in backward-compatible SessionEntry format.
 
         This is a transitional adapter used by CompactionPlanner until M2
         refactors compaction to work directly on in-memory Message history.
+        ``workspace_root`` locates the session file.
         """
 
-        path = self._store.resolve_path(session_id)
+        path = self._store.resolve_path(session_id, workspace_root=workspace_root)
         if not path.exists():
             return ()
 

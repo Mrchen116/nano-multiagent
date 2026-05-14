@@ -102,9 +102,12 @@ def bootstrap_product(
     else:
         tool_registry = full_tool_registry
 
-    # workspace-aware mode: each session's JSONL falls under its own workspace_root/.nano/
-    # rather than under the process cwd.  See feat-330 design.md file-layout section and
-    # bugfix-348 for why the previous resolved_root/.nano was wrong.
+    # Stateless session store: data_dir=None means the store has no default base
+    # and every path-resolving call must be given the session's workspace_root by
+    # the caller.  Each session's JSONL then lands under {workspace_root}/.nano/
+    # rather than the process cwd.  See feat-330 design.md file-layout section and
+    # bugfix-348 for why the previous resolved_root/.nano was wrong; passing
+    # data_dir=None here guarantees production never silently falls back to cwd.
     session_store = JsonlSessionStore(data_dir=None)
 
     skill_registry = SkillRegistry(

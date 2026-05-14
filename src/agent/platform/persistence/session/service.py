@@ -80,15 +80,28 @@ class SessionService:
             metadata=metadata,
         )
 
-    def get_session(self, session_id: str) -> Session | None:
-        """Return session by id or `None` when no persisted state exists."""
+    def get_session(
+        self, session_id: str, *, workspace_root: Path | None = None
+    ) -> Session | None:
+        """Return session by id or `None` when no persisted state exists.
 
-        return self._manager.get_session(session_id)
+        ``workspace_root`` locates the session JSONL; the stateless store cannot
+        guess it (omit only when the store has a ``data_dir`` default base).
+        """
 
-    def list_sessions(self, *, limit: int, offset: int) -> tuple[tuple[Session, ...], bool]:
-        """List sessions with pagination and `has_more` result."""
+        return self._manager.get_session(session_id, workspace_root=workspace_root)
 
-        return self._manager.list_sessions(limit=limit, offset=offset)
+    def list_sessions(
+        self, *, limit: int, offset: int, workspace_root: Path | None = None
+    ) -> tuple[tuple[Session, ...], bool]:
+        """List sessions with pagination and `has_more` result.
+
+        Scoped to one ``workspace_root`` — there is no cross-workspace listing.
+        """
+
+        return self._manager.list_sessions(
+            limit=limit, offset=offset, workspace_root=workspace_root
+        )
 
     def append_message(
         self,
@@ -101,13 +114,17 @@ class SessionService:
         parts: Sequence[Mapping[str, Any]] | None = None,
         metadata: Mapping[str, Any] | None = None,
         idempotency_key: str | None = None,
+        workspace_root: Path | None = None,
     ) -> AppendMessageResult:
-        """Append one persisted user/assistant message without triggering a model run."""
+        """Append one persisted user/assistant message without triggering a model run.
+
+        ``workspace_root`` locates the session JSONL.
+        """
 
         normalized_role = role.strip().lower()
         if normalized_role not in {"user", "assistant"}:
             raise ValueError("role must be one of: user, assistant")
-        if self._manager.get_session(session_id) is None:
+        if self._manager.get_session(session_id, workspace_root=workspace_root) is None:
             raise ValueError(f"session does not exist: {session_id}")
 
         normalized_metadata = dict(metadata or {})
@@ -117,6 +134,7 @@ class SessionService:
             existing = self._find_message_by_idempotency_key(
                 session_id=session_id,
                 idempotency_key=normalized_idempotency_key,
+                workspace_root=workspace_root,
             )
             if existing is not None:
                 return AppendMessageResult(entry=existing, created=False)
@@ -129,11 +147,14 @@ class SessionService:
             message_id=message_id or ids.make_message_id(),
             parts=parts,
             metadata=normalized_metadata,
+            workspace_root=workspace_root,
         )
         return AppendMessageResult(entry=entry, created=True)
 
-    def _find_message_by_idempotency_key(self, *, session_id: str, idempotency_key: str) -> SessionEntry | None:
-        for entry in self._manager.list_entries(session_id):
+    def _find_message_by_idempotency_key(
+        self, *, session_id: str, idempotency_key: str, workspace_root: Path | None = None
+    ) -> SessionEntry | None:
+        for entry in self._manager.list_entries(session_id, workspace_root=workspace_root):
             if not isinstance(entry, SessionEntry) or entry.kind is not SessionEntryKind.TURN_APPENDED:
                 continue
             metadata = entry.data.get("metadata")

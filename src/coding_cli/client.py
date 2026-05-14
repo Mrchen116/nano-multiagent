@@ -97,8 +97,14 @@ class ServerClient:
         text: str,
         priority: str = "next",
         message_id: str | None = None,
+        workspace_root: str | None = None,
     ) -> dict[str, Any]:
-        """POST /messages. Returns {run_id, anchor_sequence, injected, status}."""
+        """POST /messages. Returns {run_id, anchor_sequence, injected, status}.
+
+        ``workspace_root`` locates the session JSONL in the stateless kernel;
+        a CLI process operates in one working directory, so it defaults to
+        ``os.getcwd()`` (the same default ``create_session`` uses).
+        """
         if not session_id.strip():
             raise ValueError("session_id is required")
         if not text.strip():
@@ -106,6 +112,7 @@ class ServerClient:
         payload: dict[str, Any] = {
             "parts": [{"type": "text", "text": text}],
             "priority": priority,
+            "workspace_root": workspace_root or os.getcwd(),
         }
         if message_id is not None:
             payload["message_id"] = message_id
@@ -120,11 +127,13 @@ class ServerClient:
         *,
         session_id: str,
         last_event_id: int | None = None,
+        workspace_root: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """GET /stream as persistent SSE iterator.
 
         Yields decoded events {"event": str, "_id": int, **payload}.
         Closes only when HTTP connection closes.
+        ``workspace_root`` locates the session JSONL in the stateless kernel.
         """
         if not session_id.strip():
             raise ValueError("session_id is required")
@@ -141,6 +150,7 @@ class ServerClient:
                 "GET",
                 f"/v1/sessions/{session_id}/stream",
                 headers=headers,
+                params={"workspace_root": workspace_root or os.getcwd()},
                 timeout=None,
             ) as resp:
                 if resp.status_code >= 400:
@@ -156,30 +166,58 @@ class ServerClient:
             raise ValueError("run_id is required")
         return self._request("GET", f"/v1/runs/{run_id}")
 
-    def list_session_tools(self, *, session_id: str) -> dict[str, Any]:
-        """List tool descriptors exposed to one session."""
+    def list_session_tools(
+        self, *, session_id: str, workspace_root: str | None = None
+    ) -> dict[str, Any]:
+        """List tool descriptors exposed to one session.
+
+        ``workspace_root`` locates the session JSONL in the stateless kernel.
+        """
         if not session_id.strip():
             raise ValueError("session_id is required")
-        return self._request("GET", f"/v1/sessions/{session_id}/tools")
+        return self._request(
+            "GET",
+            f"/v1/sessions/{session_id}/tools",
+            params={"workspace_root": workspace_root or os.getcwd()},
+        )
 
-    def compact_session(self, *, session_id: str) -> dict[str, Any]:
-        """Trigger manual session compaction."""
+    def compact_session(
+        self, *, session_id: str, workspace_root: str | None = None
+    ) -> dict[str, Any]:
+        """Trigger manual session compaction.
+
+        ``workspace_root`` locates the session JSONL in the stateless kernel.
+        """
         if not session_id.strip():
             raise ValueError("session_id is required")
         return self._request(
             "POST",
             f"/v1/sessions/{session_id}:compact",
-            json={},
+            json={"workspace_root": workspace_root or os.getcwd()},
         )
 
-    def get_context_budget(self, *, session_id: str) -> dict[str, Any]:
-        """Fetch context budget snapshot for REPL budget hints."""
+    def get_context_budget(
+        self, *, session_id: str, workspace_root: str | None = None
+    ) -> dict[str, Any]:
+        """Fetch context budget snapshot for REPL budget hints.
+
+        ``workspace_root`` locates the session JSONL in the stateless kernel.
+        """
         if not session_id.strip():
             raise ValueError("session_id is required")
-        return self._request("GET", f"/v1/sessions/{session_id}/context-budget")
+        return self._request(
+            "GET",
+            f"/v1/sessions/{session_id}/context-budget",
+            params={"workspace_root": workspace_root or os.getcwd()},
+        )
 
-    def get_session_messages(self, *, session_id: str, limit: int = 20) -> dict[str, Any]:
-        """Fetch persisted message history for one session."""
+    def get_session_messages(
+        self, *, session_id: str, limit: int = 20, workspace_root: str | None = None
+    ) -> dict[str, Any]:
+        """Fetch persisted message history for one session.
+
+        ``workspace_root`` locates the session JSONL in the stateless kernel.
+        """
         if not session_id.strip():
             raise ValueError("session_id is required")
         if limit <= 0:
@@ -187,7 +225,7 @@ class ServerClient:
         return self._request(
             "GET",
             f"/v1/sessions/{session_id}/messages",
-            params={"limit": limit},
+            params={"limit": limit, "workspace_root": workspace_root or os.getcwd()},
         )
 
     def get_llm_config(self) -> dict[str, Any]:

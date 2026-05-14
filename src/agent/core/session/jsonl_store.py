@@ -39,23 +39,25 @@ class LoadResult:
 class JsonlSessionStore:
     """Append-only JSONL session store with compact_boundary-aware resume.
 
-    Two operating modes:
+    The store is **stateless** with respect to session location: it never holds
+    or persists a ``session_id -> workspace_root`` mapping.  Every method that
+    must locate a session file accepts the session's ``workspace_root`` from the
+    caller and resolves the path on the spot:
 
-    Fixed-root mode (``data_dir`` provided):
-        All sessions share one base directory.  File layout:
-            {data_dir}/sessions/{session_id}.jsonl
-            {data_dir}/sessions/{parent_session_id}/subagents/{subagent_session_id}.jsonl
+        {workspace_root}/.nano/sessions/{session_id}.jsonl
+        {workspace_root}/.nano/sessions/{parent_session_id}/subagents/{subagent_session_id}.jsonl
 
-    Workspace-aware mode (``data_dir=None``):
-        Each session's JSONL falls under its own ``workspace_root``:
-            {workspace_root}/.nano/sessions/{session_id}.jsonl
-        The ``workspace_root`` is sourced from ``SessionConfig`` at ``create()``
-        time and cached in-process.  Callers that invoke ``load()`` or
-        ``append()`` for a session not yet seen in this process lifetime must
-        populate the cache first (i.e. create the session in the same process).
-        This matches the personal-assistant gateway pattern where the kernel
-        restarts with fresh sessions — old sessions from a previous run are not
-        resumed, so a cold-cache miss is not a production concern.
+    This is the deliberate fix for the feat-330 chicken-and-egg gap: ``workspace_root``
+    lives *inside* each session file, so locating a file by ``session_id`` alone is
+    impossible.  The kernel stays stateless; the gateway and CLI — which already
+    know each session's ``workspace_root`` (PA from its per-agent config, CLI from
+    its working directory) — pass it on every request.
+
+    Backward compatibility: ``data_dir`` is an optional default base.  When a call
+    omits ``workspace_root`` and ``data_dir`` was provided at construction, paths
+    resolve under ``data_dir`` (the legacy flat layout).  Production bootstrap
+    constructs the store with ``data_dir=None``, so production callers must always
+    pass ``workspace_root``.
     """
 
     def __init__(self, *, data_dir: Path | None, writer: JsonlWriter | None = None) -> None:
@@ -63,14 +65,9 @@ class JsonlSessionStore:
             self._data_dir: Path | None = Path(data_dir)
             self._data_dir.mkdir(parents=True, exist_ok=True)
         else:
-            # workspace-aware mode — no single shared root directory
+            # No default base — callers must pass workspace_root on every call.
             self._data_dir = None
         self._writer = writer or JsonlWriter()
-        # agent_id -> list[(session_id, parent_session_id)] secondary index.
-        # Rebuilt lazily on first metadata query.
-        self._agent_index: dict[str, list[tuple[str, str | None]]] | None = None
-        # workspace-aware cache: session_id -> workspace_root (populated at create time)
-        self._workspace_roots: dict[str, Path] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -83,14 +80,17 @@ class JsonlSessionStore:
         *,
         parent_session_id: str | None = None,
     ) -> None:
-        """Write the session_created line for a new session (synchronous, immediate)."""
+        """Write the session_created line for a new session (synchronous, immediate).
 
-        # workspace-aware mode: cache workspace_root so _resolve_path can use it
-        # for all subsequent operations on this session without needing a caller-supplied root.
-        if self._data_dir is None:
-            self._workspace_roots[session_id] = config.workspace_root
+        The session's ``workspace_root`` comes from ``config``; the caller does
+        not pass it separately here because ``SessionConfig`` already carries it.
+        """
 
-        path = self._resolve_path(session_id, parent_session_id=parent_session_id)
+        path = self._resolve_path(
+            session_id,
+            workspace_root=config.workspace_root,
+            parent_session_id=parent_session_id,
+        )
         entry = {
             "type": "session_created",
             "session_id": session_id,
@@ -109,26 +109,44 @@ class JsonlSessionStore:
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-        # Incrementally update agent_id index if present.
-        agent_id = config.metadata.get("agent_id") if config.metadata else None
-        if isinstance(agent_id, str) and agent_id:
-            if self._agent_index is not None:
-                self._agent_index.setdefault(agent_id, []).append((session_id, parent_session_id))
+    def append(
+        self,
+        session_id: str,
+        entry: dict,
+        *,
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> None:
+        """Enqueue one JSONL entry for background flush.
 
-    def append(self, session_id: str, entry: dict, *, parent_session_id: str | None = None) -> None:
-        """Enqueue one JSONL entry for background flush."""
+        ``workspace_root`` locates the session file; omit it only when the store
+        was constructed with a ``data_dir`` default base (legacy/tests).
+        """
 
-        path = self._resolve_path(session_id, parent_session_id=parent_session_id)
+        path = self._resolve_path(
+            session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+        )
         self._writer.enqueue(path, entry)
 
-    def load(self, session_id: str, *, parent_session_id: str | None = None) -> LoadResult:
+    def load(
+        self,
+        session_id: str,
+        *,
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> LoadResult:
         """Load session config and message chain from JSONL.
 
         Handles compact_boundary skip and parent_uuid backtracking.
         Raises SessionNotFoundError when the file does not exist.
+
+        ``workspace_root`` locates the session file; omit it only when the store
+        was constructed with a ``data_dir`` default base (legacy/tests).
         """
 
-        path = self._resolve_path(session_id, parent_session_id=parent_session_id)
+        path = self._resolve_path(
+            session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+        )
         if not path.exists():
             raise SessionNotFoundError(session_id)
 
@@ -225,10 +243,20 @@ class JsonlSessionStore:
         messages = [_to_message(t) for t in all_entries]
         return LoadResult(config=_to_session_config(session_id, config), messages=messages)
 
-    def update_config(self, session_id: str, **fields: Any) -> None:
-        """Append a config_update line and return the merged config."""
+    def update_config(
+        self,
+        session_id: str,
+        *,
+        workspace_root: Path | None = None,
+        **fields: Any,
+    ) -> None:
+        """Append a config_update line.
 
-        path = self._resolve_path(session_id)
+        ``workspace_root`` locates the session file; omit it only when the store
+        was constructed with a ``data_dir`` default base (legacy/tests).
+        """
+
+        path = self._resolve_path(session_id, workspace_root=workspace_root)
         entry: dict[str, Any] = {
             "type": "config_update",
             "session_id": session_id,
@@ -239,19 +267,23 @@ class JsonlSessionStore:
                 entry[key] = fields[key]
         self._writer.enqueue(path, entry)
 
-    def list_session_ids(self, *, limit: int, offset: int) -> tuple[str, ...]:
+    def list_session_ids(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        workspace_root: Path | None = None,
+    ) -> tuple[str, ...]:
         """List session ids by most recent mtime (main + subagent).
 
-        Workspace-aware mode: scans only the workspace roots known to this
-        process (populated via ``create()``).  Sessions created in previous
-        process lifetimes are not visible — this is intentional per the
-        bugfix-348 scope decision (no data migration, new sessions only).
+        Scoped to a single ``workspace_root`` (or ``data_dir`` when omitted and a
+        default base was configured).  The stateless kernel has no global session
+        registry, so there is no cross-workspace listing — callers list within the
+        workspace they already know.
         """
-        if self._data_dir is None:
-            return self._list_session_ids_workspace_aware(limit=limit, offset=offset)
-
-        main_files = self._data_dir.glob("sessions/*.jsonl")
-        subagent_files = self._data_dir.glob("sessions/*/subagents/*.jsonl")
+        base = self._resolve_base(workspace_root)
+        main_files = base.glob("sessions/*.jsonl")
+        subagent_files = base.glob("sessions/*/subagents/*.jsonl")
         all_files = sorted(
             (*main_files, *subagent_files),
             key=lambda p: p.stat().st_mtime,
@@ -259,77 +291,86 @@ class JsonlSessionStore:
         )
         return tuple(p.stem for p in all_files[offset : offset + limit])
 
-    def _list_session_ids_workspace_aware(self, *, limit: int, offset: int) -> tuple[str, ...]:
-        """List session ids across all known workspace roots."""
-        all_files: list[Path] = []
-        seen_roots: set[Path] = set()
-        for workspace_root in self._workspace_roots.values():
-            base = workspace_root / ".nano"
-            if base in seen_roots:
-                continue
-            seen_roots.add(base)
-            sessions_dir = base / "sessions"
-            if sessions_dir.exists():
-                all_files.extend(sessions_dir.glob("*.jsonl"))
-                all_files.extend(sessions_dir.glob("*/subagents/*.jsonl"))
-        all_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-        return tuple(p.stem for p in all_files[offset : offset + limit])
-
     @property
     def writer(self) -> JsonlWriter:
         return self._writer
 
-    def resolve_path(self, session_id: str, *, parent_session_id: str | None = None) -> Path:
-        return self._resolve_path(session_id, parent_session_id=parent_session_id)
+    def resolve_path(
+        self,
+        session_id: str,
+        *,
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> Path:
+        return self._resolve_path(
+            session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+        )
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
-    def _resolve_path(self, session_id: str, *, parent_session_id: str | None = None) -> Path:
-        base = self._resolve_base(session_id)
-        if parent_session_id:
-            return base / "sessions" / parent_session_id / "subagents" / f"{session_id}.jsonl"
-        return base / "sessions" / f"{session_id}.jsonl"
+    def _resolve_base(self, workspace_root: Path | None) -> Path:
+        """Resolve the ``.nano`` base directory for a session.
 
-    def _resolve_base(self, session_id: str) -> Path:
-        """Resolve the base directory for a given session.
-
-        Fixed-root mode: always returns ``_data_dir``.
-        Workspace-aware mode: returns ``{workspace_root}/.nano`` from the in-process
-        cache populated at ``create()`` time.  Raises ``SessionNotFoundError`` on a
-        cold cache miss (session created in a previous process lifetime).
+        Resolution:
+        - ``data_dir`` was provided at construction → use it (test scaffolding
+          only; the legacy flat layout). It wins so existing ``data_dir``-based
+          tests keep all sessions under one tmp dir regardless of per-session
+          ``workspace_root``.
+        - else, ``workspace_root`` passed by the caller → ``{workspace_root}/.nano``
+          (the production path; bootstrap always builds the store with
+          ``data_dir=None``).
+        - else → raise ``SessionNotFoundError``.  The stateless store never
+          guesses a location: a missing ``workspace_root`` in production is a
+          caller bug and must fail loudly, not silently fall back to a cwd-like
+          default (which is exactly the bug bugfix-348 fixes).
         """
         if self._data_dir is not None:
             return self._data_dir
+        if workspace_root is not None:
+            return Path(workspace_root) / ".nano"
+        raise SessionNotFoundError(
+            "cannot resolve session path: the store was constructed with "
+            "data_dir=None (production workspace-aware mode) but the caller did "
+            "not pass workspace_root — refusing to guess the session location"
+        )
 
-        workspace_root = self._workspace_roots.get(session_id)
-        if workspace_root is None:
-            raise SessionNotFoundError(
-                f"session {session_id!r} not in workspace cache — "
-                "session was not created in this process; workspace_root is unknown"
-            )
-        return workspace_root / ".nano"
+    def _resolve_path(
+        self,
+        session_id: str,
+        *,
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> Path:
+        base = self._resolve_base(workspace_root)
+        if parent_session_id:
+            return base / "sessions" / parent_session_id / "subagents" / f"{session_id}.jsonl"
+        return base / "sessions" / f"{session_id}.jsonl"
 
     def find_session_by_metadata(
         self,
         *,
         parent_session_id: str | None,
         match: Mapping[str, Any],
+        workspace_root: Path | None = None,
     ) -> str | None:
         """Return session_id whose metadata matches all key/value pairs in ``match``.
 
-        Used by background tasks to resolve agent_id → runtime session_id when
-        the in-memory mapping has been lost (kernel restart, parent agent resume).
+        Used by the ``agent`` tool to resolve ``agent_id`` -> subagent session_id
+        when the in-memory registry entry has been lost (kernel restart, parent
+        agent resume).  Scoped to one ``workspace_root`` — subagent JSONL lives
+        under the parent session's workspace, which the running parent agent
+        knows.  The agent index is rebuilt per call so it always reflects the
+        passed workspace; it is not cached across differing workspace_roots.
         """
-        if self._agent_index is None:
-            self._build_agent_index()
-
         agent_id = match.get("agent_id")
         if not isinstance(agent_id, str) or not agent_id:
             return None
 
-        results = self._agent_index.get(agent_id) if self._agent_index else None
+        index = self._build_agent_index(workspace_root)
+
+        results = index.get(agent_id)
         if not results:
             return None
 
@@ -339,35 +380,25 @@ class JsonlSessionStore:
             return found_session_id
         return None
 
-    def _build_agent_index(self) -> None:
-        """Scan all session files and rebuild agent_id → session_id index."""
-        self._agent_index = {}
-        for sessions_dir in self._iter_sessions_dirs():
-            for path in sessions_dir.glob("*.jsonl"):
-                session_id = path.stem
-                parent_id = self._infer_parent_from_path(path)
-                agent_id = self._read_agent_id_from_file(path)
-                if agent_id:
-                    self._agent_index.setdefault(agent_id, []).append((session_id, parent_id))
-            for path in sessions_dir.glob("*/subagents/*.jsonl"):
-                session_id = path.stem
-                parent_id = self._infer_parent_from_path(path)
-                agent_id = self._read_agent_id_from_file(path)
-                if agent_id:
-                    self._agent_index.setdefault(agent_id, []).append((session_id, parent_id))
-
-    def _iter_sessions_dirs(self) -> list[Path]:
-        """Return all sessions directories to scan for index building."""
-        if self._data_dir is not None:
-            return [self._data_dir / "sessions"]
-        seen: set[Path] = set()
-        dirs: list[Path] = []
-        for workspace_root in self._workspace_roots.values():
-            d = workspace_root / ".nano" / "sessions"
-            if d not in seen:
-                seen.add(d)
-                dirs.append(d)
-        return dirs
+    def _build_agent_index(
+        self, workspace_root: Path | None
+    ) -> dict[str, list[tuple[str, str | None]]]:
+        """Scan one workspace's session files and build the agent_id index."""
+        index: dict[str, list[tuple[str, str | None]]] = {}
+        sessions_dir = self._resolve_base(workspace_root) / "sessions"
+        for path in sessions_dir.glob("*.jsonl"):
+            session_id = path.stem
+            parent_id = self._infer_parent_from_path(path)
+            agent_id = self._read_agent_id_from_file(path)
+            if agent_id:
+                index.setdefault(agent_id, []).append((session_id, parent_id))
+        for path in sessions_dir.glob("*/subagents/*.jsonl"):
+            session_id = path.stem
+            parent_id = self._infer_parent_from_path(path)
+            agent_id = self._read_agent_id_from_file(path)
+            if agent_id:
+                index.setdefault(agent_id, []).append((session_id, parent_id))
+        return index
 
     @staticmethod
     def _infer_parent_from_path(path: Path) -> str | None:
