@@ -63,7 +63,7 @@ class _FakeKernelClient:
         self.session_events.setdefault(session_id, [])
         return {"session_id": session_id}
 
-    def get_session(self, *, session_id: str):
+    def get_session(self, *, session_id: str, **_kwargs):
         metadata = self._session_metadata_by_id.get(session_id)
         if metadata is None:
             raise RuntimeError(f"missing session: {session_id}")
@@ -73,7 +73,7 @@ class _FakeKernelClient:
         self._session_metadata_by_id[session_id] = dict(metadata or {})
         self.session_events.setdefault(session_id, [])
 
-    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None, priority="next"):
+    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None, priority="next", **_kwargs):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         text = texts[-1] if texts else ""
@@ -147,7 +147,7 @@ class _FakeSseKernelClient:
         self._session_metadata_by_id[session_id] = {**dict(metadata or {}), "workspace_root": workspace_root}
         return {"session_id": session_id}
 
-    def get_session(self, *, session_id: str):
+    def get_session(self, *, session_id: str, **_kwargs):
         metadata = self._session_metadata_by_id.get(session_id)
         if metadata is None:
             raise RuntimeError(f"missing session: {session_id}")
@@ -160,6 +160,7 @@ class _FakeSseKernelClient:
         texts: list[str],
         image_urls: list[dict[str, object]] | None = None,
         priority: str = "next",
+        **_kwargs,
     ):
         run_id = f"run-{len(self.submit_calls) + 1}"
         call: dict[str, object] = {"session_id": session_id, "texts": texts, "run_id": run_id, "priority": priority}
@@ -180,11 +181,11 @@ class _FakeSseKernelClient:
         for event in self._events:
             yield dict(event)
 
-    def interrupt_session(self, *, session_id: str):
+    def interrupt_session(self, *, session_id: str, **_kwargs):
         del session_id
         return {"status": "interrupted"}
 
-    def append_message(self, *, session_id: str, role: str, content: str):
+    def append_message(self, *, session_id: str, role: str, content: str, **_kwargs):
         del session_id, role, content
         return {"status": "appended"}
 

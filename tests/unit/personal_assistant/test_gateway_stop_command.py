@@ -59,13 +59,13 @@ class _FakeKernelClient:
         self._session_metadata_by_id[session_id] = {**dict(metadata or {}), "workspace_root": workspace_root}
         return {"session_id": session_id}
 
-    def get_session(self, *, session_id: str):
+    def get_session(self, *, session_id: str, **_kwargs):
         metadata = self._session_metadata_by_id.get(session_id)
         if metadata is None:
             raise RuntimeError(f"missing session: {session_id}")
         return {"session_id": session_id, "status": "active", "created_at": "now", "metadata": dict(metadata)}
 
-    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None):
+    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None, **_kwargs):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         text = texts[-1] if texts else ""
@@ -85,7 +85,7 @@ class _FakeKernelClient:
     def get_run(self, *, run_id: str):
         return self.run_states[run_id]
 
-    def interrupt_session(self, *, session_id: str):
+    def interrupt_session(self, *, session_id: str, **_kwargs):
         self.interrupt_calls.append({"session_id": session_id})
         return {"session_id": session_id, "interrupted": True, "run_id": "run-active"}
 
@@ -100,6 +100,7 @@ class _FakeKernelClient:
         parts: list[dict[str, object]] | None = None,
         metadata: dict[str, object] | None = None,
         idempotency_key: str | None = None,
+        **_kwargs,
     ):
         self.append_calls.append(
             {

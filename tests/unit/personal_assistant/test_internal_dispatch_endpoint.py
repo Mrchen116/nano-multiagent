@@ -8,13 +8,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
-def _make_dispatch_handler(im_manager=None, *, kernel_client=None, session_store=None):
+def _make_dispatch_handler(
+    im_manager=None, *, kernel_client=None, session_store=None, agent_workspace_roots=None
+):
     """Build a minimal InternalDispatchHandler for testing."""
     from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
     return InternalDispatchHandler(
         im_connection_manager=im_manager,
         kernel_client=kernel_client,
         session_store=session_store,
+        agent_workspace_roots=agent_workspace_roots,
     )
 
 
@@ -101,7 +104,12 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
     )
     kernel_client = MagicMock()
     session_store = PersistentSessionBindingStore(db_path=Path("/tmp/test-dispatch-bindings.sqlite3"))
-    handler = _make_dispatch_handler(im_manager=manager, kernel_client=kernel_client, session_store=session_store)
+    handler = _make_dispatch_handler(
+        im_manager=manager,
+        kernel_client=kernel_client,
+        session_store=session_store,
+        agent_workspace_roots={"agent_a": "/tmp/agent-a-workspace"},
+    )
 
     result = asyncio.run(
         handler.handle(
@@ -120,6 +128,8 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
     binding = session_store.get("web_relay:conv-direct-1:agent_a")
     assert binding is not None
     assert binding.kernel_session_id == "sess-origin-1"
+    # workspace_root is forwarded so the stateless kernel can locate the origin
+    # agent's session JSONL.
     kernel_client.append_message.assert_called_once_with(
         session_id="sess-origin-1",
         role="assistant",
@@ -133,6 +143,7 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
             "source_agent_id": "agent_a",
         },
         idempotency_key="dispatch-sync:toolu_1",
+        workspace_root="/tmp/agent-a-workspace",
     )
 
 

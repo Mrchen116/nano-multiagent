@@ -50,6 +50,10 @@ class _RuntimeStub:
         *,
         stream: bool = True,
         llm_session_id: str | None = None,
+        workspace_root=None,
+        parent_session_id: str | None = None,
+        run_id: str | None = None,
+        controller=None,
     ) -> TurnResult:
         self.run_calls.append(
             {
@@ -74,6 +78,7 @@ class _RuntimeStub:
         *,
         stream: bool = True,
         llm_session_id: str | None = None,
+        workspace_root=None,
     ) -> TurnResult:
         self.continue_calls.append(
             {
