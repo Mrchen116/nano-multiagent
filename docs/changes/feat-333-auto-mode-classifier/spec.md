@@ -64,60 +64,16 @@ auto 模式的权限决策对用户呈现为三类结果：
 
 ## 验收标准
 
-- [ ] 无配置启动时，Coding CLI 与 Personal Assistant 默认都是 `auto` 模式，且 `dangerously-skip-permissions` 关闭。
-- [ ] 配置文件可显式启用 `dangerously-skip-permissions`；启用后两个产品都不做权限管控，并且用户能明确看出当前处于危险旁路状态。
-- [ ] auto 模式下，每个受管控工具调用最终产生 `allow` / `deny` / `ask` 三类用户可理解的决策之一。
-- [ ] `allow` 决策不打断用户，工具正常执行。
-- [ ] `deny` 决策不执行工具，并把可理解原因反馈给 agent；agent 不应无提示地重复同一类被拒动作。
-- [ ] `ask` 决策在 Coding CLI 中显示可响应的终端权限请求；用户可以允许或拒绝。
-- [ ] `ask` 决策在 Personal Assistant / IM 中发送可响应的权限请求；用户可以通过 IM 允许或拒绝。
+- [ ] 无配置启动 Coding CLI / Personal Assistant：agent 执行常规开发动作（读文件、跑测试等）时连续自主执行、不逐次打断用户；执行高风险动作时仍会触发权限管控、不被静默放过（即默认 auto 生效、`dangerously-skip-permissions` 未开）。
+- [ ] 配置文件显式启用 `dangerously-skip-permissions` 后，高风险动作也直接执行、不再触发管控，且用户能从界面 / 启动提示明确看出当前处于危险旁路状态。
+- [ ] `allow` 决策不打断用户：工具正常执行，agent 连续往下走。
+- [ ] 高风险动作被 `deny` 时：该工具不执行，agent 转而尝试其他安全路径，不会无提示地反复重试同一个被拒动作。
+- [ ] `ask` 决策在 Coding CLI 中显示可响应的终端权限请求；用户能允许或拒绝，agent 据此继续或中止。
+- [ ] `ask` 决策在 Personal Assistant / IM 中发送可响应的权限请求；用户能通过 IM 允许或拒绝，agent 据此继续或中止。
 - [ ] `ask` 的选项按工具类型区分，至少覆盖“本次允许 / 拒绝 / session 级允许 / 记住同类规则”这类 Claude Code 风格体验；不要求所有工具暴露完全相同选项。
-- [ ] 配置文件支持 `auto_mode.allow`、`auto_mode.soft_deny`、`auto_mode.environment` 三类自然语言规则；用户不配置时使用内置默认规则。
-- [ ] workspace 级配置覆盖 global 级配置；两个产品分别使用自己的配置目录，不串用。
-- [ ] 分类器不可用、上下文过长、或判断不确定时，系统不能静默放行；必须进入 `ask` 或可见拒绝路径。
-
-## YOLO Classifier 上下文构成（像素级复刻 Claude Code）
-
-分类器的上下文构成必须像素级复刻 Claude Code 的 `yoloClassifier.ts` 实现。以下所有子项均为硬性验收标准：
-
-### System Prompt 组装
-
-- [ ] 采用三层模板组装：`base_prompt`（分类指令）→ `permissions_template`（权限模板）→ 用户规则替换。
-- [ ] base_prompt 包含完整的分类流程：Understand the action → Check user intent → Evaluate risk，以及 BLOCK ALWAYS / BLOCK unless clear user intent / ALLOW 三类决策类别。
-- [ ] 用户规则通过三个标签段注入：`<user_allow_rules_to_replace>`、`<user_deny_rules_to_replace>`、`<user_environment_to_replace>`。用户配置的规则**追加**到默认规则之后（不替换默认规则）。
-- [ ] 最终 system prompt 末尾追加 XML 输出格式指令：`<block>yes/no</block><reason>...</reason>`。
-
-### Transcript 构成
-
-- [ ] 采用投影式 transcript，不是全量 dump。每个工具通过 `toAutoClassifierInput()` 决定暴露什么安全相关信息，返回空字符串的工具对分类器不可见。
-- [ ] **必须排除 assistant text blocks**：agent 自己的文本输出不喂给分类器，防止 agent 通过自说自话影响分类决策（反 prompt injection）。
-- [ ] 只包含：用户消息的 text blocks + assistant 的 tool_use blocks（投影后）。
-- [ ] transcript 包裹在 `<transcript>...</transcript>` 标签中。
-- [ ] 工具输入投影格式：`<ToolName> <projected_input>`（如 `FileEdit /path/to/file: new_content`）。
-
-### 两阶段分类
-
-- [ ] Stage 1（fast）：`max_tokens=64`，`stop_sequences=['</block>']`，追加后缀 `"\nErr on the side of blocking. <block> immediately."`。
-- [ ] Stage 2（thinking）：`max_tokens=4096`，无 stop_sequences，追加后缀要求使用 `<thinking>` 标签。
-- [ ] Stage 1 解析为 `<block>no</block>` → 直接 allow；`<block>yes</block>` → 进入 stage 2；解析失败 → deny（fail-closed）。
-- [ ] Stage 2 解析时需先 `stripThinking()` 移除 `<thinking>` 内容，再解析 `<block>` 和 `<reason>`。
-
-### Safe-tool Allowlist
-
-- [ ] 内置 safe-tool allowlist，包含所有只读/无副作用工具，这些工具直接 auto-allow，不经过分类器。
-- [ ] allowlist 至少覆盖：`read`、`web_fetch`、`web_search`、`task_list`、`task_get`、`task_create`、`task_update`、`task_stop`、`task_output`。
-- [ ] allowlist 可通过配置文件 `auto_mode.always_allow_tools` 扩展。
-
-### 工具输入投影
-
-- [ ] 每个非 safe 工具实现 `to_auto_classifier_input()` 方法，返回安全相关的投影字符串。
-- [ ] 投影只暴露安全评估所需的关键信息（如文件路径、命令内容），不暴露完整内容。
-- [ ] bash 命令的投影走现有的 `check_command_policy` 三级判定：allowed → pass，denied → deny，review → 分类器。
-
-### Fail-closed 与缓存
-
-- [ ] 分类器调用失败（超时、API 错误、上下文过长）→ 进入 `ask` 路径，不静默放行。
-- [ ] system prompt 使用 `cache_control` 优化，减少重复 token 消耗。
+- [ ] 配置文件写入 `auto_mode.allow` / `auto_mode.soft_deny` / `auto_mode.environment` 自然语言规则后，agent 的放行 / 拒绝 / 询问行为随之变化；用户不配置时使用内置默认规则。
+- [ ] 在 workspace 与 global 两级写不同规则时，workspace 级生效（覆盖 global）；两个产品各用自己的配置目录、互不串用。
+- [ ] agent 要执行一个系统拿不准的高风险动作时不会静默执行——用户会被询问（`ask`）或看到可见的拒绝。
 
 ## 范围与非目标
 
@@ -127,7 +83,7 @@ auto 模式的权限决策对用户呈现为三类结果：
 - 在范围：Claude Code 风格的 `allow` / `soft_deny` / `environment` 自然语言规则配置。
 - 在范围：按工具类型差异化的 ask 选项。
 - 在范围：Coding CLI 终端权限请求与 Personal Assistant / IM 权限请求。
-- 在范围：YOLO Classifier 上下文构成像素级复刻 Claude Code（见上节）。
+- 在范围：YOLO Classifier 上下文构成像素级复刻 Claude Code —— 属实现约束（非用户可观察验收项），具体见 design.md（决策 3 + 接口与数据流「分类器上下文构成」段）。
 - 非目标：提供 default / plan / dontAsk / acceptEdits 等其他用户可切换权限模式。
 - 非目标：复刻 Claude Code 的账号、计划、远程 feature flag、商业 gating。
 - 非目标：复刻 Claude Code 的 bashClassifier（ANT-ONLY 语义匹配），我们的 bash 分类沿用现有 `check_command_policy` + `bash_risk_gate`。
