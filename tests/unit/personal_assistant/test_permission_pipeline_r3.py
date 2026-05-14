@@ -62,7 +62,8 @@ def _make_observer_with_run_ctx(run_id: str, conversation_id: str, message_id: s
 class TestKernelObserverPermissionRequest:
     """Observer forwards permission_request SSE → node.streaming_delta kind=permission_request."""
 
-    def test_permission_request_forwarded_to_im(self) -> None:
+    @pytest.mark.asyncio
+    async def test_permission_request_forwarded_to_im(self) -> None:
         observer, manager, _ = _make_observer_with_run_ctx(
             run_id="run-1",
             conversation_id="conv-1",
@@ -83,14 +84,10 @@ class TestKernelObserverPermissionRequest:
             ],
         }
         result = observer(event)
-        # Should return a coroutine or schedule a task
         if asyncio.iscoroutine(result):
-            asyncio.run(result)
-        else:
-            # May be a fire-and-forget task; drain the event loop
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(asyncio.sleep(0))
-            loop.close()
+            await result
+        # Drain pending tasks (fire-and-forget tasks from loop.create_task)
+        await asyncio.sleep(0)
 
         # Check that the manager received the permission_request streaming delta
         sent_types = [msg_type for msg_type, _ in manager.sent]
@@ -107,8 +104,9 @@ class TestKernelObserverPermissionRequest:
         assert perm_data["request_id"] == "req-abc"
         assert perm_data["tool_name"] == "bash"
 
-    def test_permission_request_without_message_id_skipped(self) -> None:
-        """If no message_id in run_ctx yet, permission_request should not error."""
+    @pytest.mark.asyncio
+    async def test_permission_request_without_message_id_skipped(self) -> None:
+        """If no message_id in run_ctx yet, permission_request should not error and not send."""
         from personal_assistant.main import _build_kernel_event_observer
 
         manager = _FakeManager()
@@ -133,12 +131,16 @@ class TestKernelObserverPermissionRequest:
             "question": "Allow?",
             "options": [],
         }
-        # Should not raise
         result = observer(event)
         if asyncio.iscoroutine(result):
-            asyncio.run(result)
+            await result
+        await asyncio.sleep(0)
+        # No node.streaming_delta should have been sent
+        delta_payloads = [p for t, p in manager.sent if t == "node.streaming_delta" and p.get("kind") == "permission_request"]
+        assert len(delta_payloads) == 0
 
-    def test_permission_resolved_forwarded_to_im(self) -> None:
+    @pytest.mark.asyncio
+    async def test_permission_resolved_forwarded_to_im(self) -> None:
         """permission_resolved SSE → node.streaming_delta kind=permission_resolved."""
         observer, manager, _ = _make_observer_with_run_ctx(
             run_id="run-2",
@@ -155,11 +157,8 @@ class TestKernelObserverPermissionRequest:
         }
         result = observer(event)
         if asyncio.iscoroutine(result):
-            asyncio.run(result)
-        else:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(asyncio.sleep(0))
-            loop.close()
+            await result
+        await asyncio.sleep(0)
 
         delta_payloads = [p for t, p in manager.sent if t == "node.streaming_delta"]
         resolved_payloads = [p for p in delta_payloads if p.get("kind") == "permission_resolved"]
@@ -270,7 +269,7 @@ class TestKernelApiClientOrigin:
 
         transport = httpx.MockTransport(handler)
         config = KernelApiClientConfig(base_url="http://localhost:8000", token="tok")
-        client = KernelApiClient(config=config, sync_transport=transport)
+        client = KernelApiClient(config=config, transport=transport)
 
         client.submit_message(session_id="sess-1", texts=["heartbeat task"], origin="heartbeat")
 
@@ -296,14 +295,14 @@ class TestKernelApiClientOrigin:
 
         transport = httpx.MockTransport(handler)
         config = KernelApiClientConfig(base_url="http://localhost:8000", token="tok")
-        client = KernelApiClient(config=config, sync_transport=transport)
+        client = KernelApiClient(config=config, transport=transport)
 
         client.submit_message(session_id="sess-1", texts=["user message"])
 
         assert len(captured_requests) == 1
         body = json.loads(captured_requests[0].content)
-        # origin should default to "user" or be absent (either acceptable)
-        assert body.get("origin", "user") == "user"
+        # origin should be absent (not sent) when not specified
+        assert "origin" not in body
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +316,10 @@ class TestHeartbeatOrigin:
         """HeartbeatScheduler._submit_run passes origin='heartbeat' to kernel."""
         from datetime import datetime, timezone
 
-        from personal_assistant.scheduler.heartbeat_scheduler import HeartbeatScheduler
+        from personal_assistant.scheduler.heartbeat_scheduler import (
+            HeartbeatScheduler,
+            HeartbeatSchedulerStateStore,
+        )
         from personal_assistant.config.local_store import AgentWorkspaceConfig
 
         submit_calls: list[dict] = []
@@ -334,14 +336,17 @@ class TestHeartbeatOrigin:
                 return {"run_id": "run-hb-1", "anchor_sequence": 1}
 
         agent = AgentWorkspaceConfig(agent_id="alpha", workspace_root=tmp_path, title="Alpha")
+        state_store = HeartbeatSchedulerStateStore(state_path=tmp_path / "hb_state.json")
         scheduler = HeartbeatScheduler(
             kernel_client=_FakeKernel(),
             agents=(agent,),
+            state_store=state_store,
         )
 
-        # Create a HEARTBEAT.md so the scheduler has something to evaluate
+        # Create a HEARTBEAT.md so the scheduler has something to evaluate.
+        # Use a past @at datetime so the run is immediately due.
         heartbeat_file = tmp_path / "HEARTBEAT.md"
-        heartbeat_file.write_text("# HEARTBEAT\n\n@interval: 1m\n\nCheck the workspace.\n")
+        heartbeat_file.write_text("# HEARTBEAT\n\nat: 2020-01-01T00:00:00+00:00\n\nCheck the workspace.\n")
 
         scheduler.tick()
 
