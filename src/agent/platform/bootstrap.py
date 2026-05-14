@@ -102,7 +102,10 @@ def bootstrap_product(
     else:
         tool_registry = full_tool_registry
 
-    session_store = JsonlSessionStore(data_dir=resolved_root / ".nano")
+    # workspace-aware mode: each session's JSONL falls under its own workspace_root/.nano/
+    # rather than under the process cwd.  See feat-330 design.md file-layout section and
+    # bugfix-348 for why the previous resolved_root/.nano was wrong.
+    session_store = JsonlSessionStore(data_dir=None)
 
     skill_registry = SkillRegistry(
         search_roots=default_skill_search_roots(
