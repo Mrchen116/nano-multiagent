@@ -29,15 +29,15 @@ class SessionService:
     """Expose session APIs while hiding store/manager construction details.
 
     Args:
-        store: Explicit JSONL session store; takes priority over both ``profile``
-            and the default path when provided.
+        store: Explicit JSONL session store; takes priority over ``profile`` and
+            the fallback when provided. In production ``create_app`` always
+            passes the workspace-aware store built by ``bootstrap_product``.
         manager: Explicit session manager; bypasses all store construction when
             provided.
-        profile: Optional product profile; when given and ``store`` is not
-            explicitly provided, the session data directory is placed at
-            ``ConfigResolver(profile).session_data_dir()`` only when the profile
-            declares ``global_config_home``. Otherwise, or when profile is
-            absent, falls back to legacy ``_default_data_dir()`` behavior.
+        profile: Optional product profile. Currently unused for store
+            construction — when neither ``store`` nor ``manager`` is given the
+            service falls back to ``_resolve_store`` (a stateless store, or a
+            ``NANO_MULTIAGENT_DATA_DIR``-rooted one if that env var is set).
     """
 
     def __init__(
@@ -166,26 +166,31 @@ class SessionService:
 
 
 def _resolve_store(profile: ProductProfile | None = None) -> JsonlSessionStore:
-    """Construct a JsonlSessionStore at the resolved data directory."""
+    """Construct a fallback JsonlSessionStore when no explicit store is supplied.
 
-    data_dir = _resolve_data_dir(profile)
-    return JsonlSessionStore(data_dir=data_dir)
+    This path is only reached by ``SessionService`` callers that pass neither a
+    ``store`` nor a ``manager`` (e.g. ``create_app()`` invoked without a product
+    profile in tests/SDK glue). In production both products call ``create_app``
+    *with* a profile, so ``bootstrap_product`` always injects a concrete
+    workspace-aware store and this fallback is never used.
 
+    The fallback honours one explicit opt-in — the ``NANO_MULTIAGENT_DATA_DIR``
+    env var — for tests/dev that want a fixed flat directory. Otherwise it
+    returns a **stateless** store (``data_dir=None``): callers must pass
+    ``workspace_root`` on every path-resolving call, exactly like the production
+    store. There is deliberately no silent ``.nano``-relative-to-cwd fallback —
+    that silent cwd fallback was the bugfix-348 root cause and must not survive
+    here either.
 
-def _resolve_data_dir(profile: ProductProfile | None = None) -> Path:
-    """Resolve the session data directory.
-
-    The returned path is the *base* directory; ``JsonlSessionStore`` appends
-    ``sessions/`` internally via ``_resolve_path``.
-
-    Priority:
-    1. ``NANO_MULTIAGENT_DATA_DIR`` env var
-    2. Profile's ``global_config_home``
-    3. ``.nano`` relative to CWD
+    Args:
+        profile: Unused. Kept in the signature because the legacy docstring
+            advertised a profile-derived path that was never implemented; a
+            future change may wire ``ConfigResolver`` here, but until then the
+            production store comes from ``bootstrap_product``, not this function.
     """
 
+    del profile  # see docstring — profile-derived path is not implemented here
     env_dir = os.getenv("NANO_MULTIAGENT_DATA_DIR")
     if env_dir:
-        return Path(env_dir)
-
-    return Path(".nano")
+        return JsonlSessionStore(data_dir=Path(env_dir))
+    return JsonlSessionStore(data_dir=None)
