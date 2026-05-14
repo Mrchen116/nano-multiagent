@@ -117,10 +117,19 @@ class IMServiceConfig:
     Args:
         url: WebSocket or HTTPS base URL for the IM service.
         token: Optional bearer token used when connecting upstream.
+        refresh_token: Optional long-lived refresh token for automatic access-token renewal.
+            When present, the gateway uses it to obtain a fresh access token on each reconnect
+            instead of relying on the fixed ``token`` value (which expires after 15 minutes).
+        username: Optional IM account username used as credential fallback when the
+            refresh token itself has expired and the gateway must perform a full login.
+        password: Optional IM account password paired with ``username`` for credential fallback.
     """
 
     url: str
     token: str | None = None
+    refresh_token: str | None = None
+    username: str | None = None
+    password: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,6 +325,12 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
         im_dict: dict[str, Any] = {"url": config.im_service.url}
         if config.im_service.token is not None:
             im_dict["token"] = config.im_service.token
+        if config.im_service.refresh_token is not None:
+            im_dict["refresh_token"] = config.im_service.refresh_token
+        if config.im_service.username is not None:
+            im_dict["username"] = config.im_service.username
+        if config.im_service.password is not None:
+            im_dict["password"] = config.im_service.password
         data["im_service"] = im_dict
 
     dest = Path(config_path).expanduser().resolve()
@@ -470,7 +485,10 @@ def _parse_im_service(payload: Any) -> IMServiceConfig | None:
         raise ValueError("im_service must be a mapping")
     url = _require_non_empty_string(payload.get("url"), field_name="im_service.url")
     token = _optional_string(payload.get("token"), field_name="im_service.token")
-    return IMServiceConfig(url=url, token=token)
+    refresh_token = _optional_string(payload.get("refresh_token"), field_name="im_service.refresh_token")
+    username = _optional_string(payload.get("username"), field_name="im_service.username")
+    password = _optional_string(payload.get("password"), field_name="im_service.password")
+    return IMServiceConfig(url=url, token=token, refresh_token=refresh_token, username=username, password=password)
 
 
 def _derive_kernel_base_url(command: str) -> str | None:
