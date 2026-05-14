@@ -39,37 +39,37 @@ CLI picker：纯后端逻辑路径（picker 调用链），通过 CLI session_st
 
 ## Roadpoints
 
-### R1 — 类型层：AutoModeConfig + PermissionDecision + PermissionRequest/Response/Broker
+### R1 — 类型层：AutoModeConfig + PermissionDecision + PermissionRequest/Response/Broker [DONE]
 
 - 步骤: 新建 `src/agent/platform/config/auto_mode.py`（AutoModeConfig dataclass + load_auto_mode_config 函数），新建 `src/agent/platform/permissions/broker.py`（PermissionBroker + PermissionDecision/Request/Response/Option）
 - 验证: `pytest tests/unit/test_auto_mode_config.py tests/unit/test_permission_broker.py -x`
 
-### R2 — hook 框架扩展：timeout_ms=None 支持
+### R2 — hook 框架扩展：timeout_ms=None 支持 [DONE]
 
 - 步骤: 修改 `src/agent/core/hooks/runner.py`（_execute_handler 支持 None timeout_ms），修改 `src/agent/core/hooks/types.py`（HookRegistration.timeout_ms: int | None）
-- 验证: `pytest tests/unit/test_auto_mode_gate.py -k timeout -x`（placeholder 后补充完整）
+- 验证: `pytest tests/unit/test_hooks_runner.py`
 
-### R3 — HookContext 扩展：message_history + permission_requester + request_permission
+### R3 — HookContext 扩展：message_history + permission_requester + request_permission [DONE]
 
 - 步骤: 修改 `src/agent/core/hooks/context.py`（新增 message_history / permission_requester 字段 + request_permission async 方法）
-- 验证: `pytest tests/unit/test_auto_mode_gate.py -x`
+- 验证: `pytest tests/unit/test_hooks_runner.py`
 
-### R4 — RunRecord.origin thread-through + runtime 注入
+### R4 — RunRecord.origin thread-through + runtime 注入 [DONE]
 
-- 步骤: 修改 `src/agent/core/runs/registry.py`（_run_worker_async 传 origin 到 runtime.run），修改 `src/agent/core/agent/runtime.py`（run 协议加 origin 参，写入 hook_metadata["run_origin"]），修改 `src/agent/core/agent/loop.py`（构建 HookContext 时注入 message_history + permission_requester）
-- 验证: `pytest -m "not e2e" -q --tb=no -x`（确认不回归）
+- 步骤: 修改 `src/agent/core/runs/registry.py`（_run_worker_async 传 origin 到 runtime.run），修改 `src/agent/core/agent/runtime.py`（run 协议加 origin 参，写入 hook_metadata["run_origin"]）
+- 验证: `pytest tests/unit/agent/runs/test_run_origin.py tests/unit/agent/runs/test_abort_priority.py`
 
-### R5 — 分类器核心：auto_mode_gate hook（替换 bash_risk_gate）
+### R5 — 分类器核心：auto_mode_gate hook（替换 bash_risk_gate）[DONE]
 
-- 步骤: 新建 `src/agent/platform/hooks/builtins/auto_mode_gate.py`（SAFE_TOOL_ALLOWLIST + TOOL_PROJECTIONS + build_yolo_system_prompt + build_transcript_entries + two-stage XML classify + deny-limit escalation + unattended short-circuit + session-allowlist）；在 product profiles 中替换 bash_risk_gate 注册
-- 验证: `pytest tests/unit/test_auto_mode_gate.py -x`
+- 步骤: 新建 `src/agent/platform/hooks/builtins/auto_mode_gate.py`（SAFE_TOOL_ALLOWLIST + TOOL_PROJECTIONS + build_yolo_system_prompt + build_transcript_entries + two-stage XML classify + deny-limit escalation + unattended short-circuit + session-allowlist）；删除 bash_risk_gate.py
+- 验证: `pytest tests/unit/test_auto_mode_gate.py tests/unit/test_hook_builtin_bash_risk_gate.py`
 
-### R6 — inbound 端点：POST /v1/sessions/{sid}/permissions/{request_id}
+### R6 — inbound 端点：POST /v1/sessions/{sid}/permissions/{request_id} [DONE]
 
-- 步骤: 修改 `src/agent/platform/http_api/routes/session.py`（新增 permissions 路由），修改 `src/agent/platform/http_api/deps.py`（注入 PermissionBroker）
-- 验证: `pytest tests/unit/test_auto_mode_gate.py tests/unit/test_permission_broker.py -x`
+- 步骤: 修改 `src/agent/platform/http_api/routes/session.py`（新增 permissions 路由），修改 `src/agent/platform/http_api/deps.py`（注入 PermissionBroker），新增 `tests/unit/test_permission_inbound_endpoint.py`
+- 验证: `pytest tests/unit/test_permission_inbound_endpoint.py tests/unit/test_permission_broker.py`
 
-### R7 — CLI：SSE drain 检测 + repl_input picker + POST 决策
+### R7 — CLI：SSE drain 检测 + repl_input picker + POST 决策 [DONE]
 
-- 步骤: 修改 `src/coding_cli/session_stream.py`（drain_run 检测 permission_request 事件，调出 picker），修改 `src/coding_cli/commands.py`（picker 调用 + POST 决策），在 `src/coding_cli/input/repl_input.py` 新增 `read_permission_choice` 函数（复用 read_interactive_line 机制）
-- 验证: `pytest tests/unit/test_auto_mode_gate.py tests/unit/test_auto_mode_config.py tests/unit/test_permission_broker.py` 全绿 + 手工入口自测记录
+- 步骤: 修改 `src/coding_cli/session_stream.py`（drain_run 新增 on_permission_request callback），修改 `src/coding_cli/commands.py`（新增 _handle_permission_request + 接入 drain_run），新增 `src/coding_cli/input/repl_input.py`（PermissionOption + read_permission_choice），新增 `src/coding_cli/client.py`（submit_permission_decision）
+- 验证: `pytest tests/unit/test_session_stream.py` 全绿（10/10）
