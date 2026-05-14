@@ -36,7 +36,7 @@
 | R1 | self_improvement background hook 模块 (nudge 判断 + fork + 回显) | DONE |
 | R2 | prompting.py 注入 memory block + SKILLS/MEMORY guidance | DONE |
 | R3 | 两产品接线：toolset + hook 注册 + workspace 配置透传 | DONE |
-| R4 | local_store seed 位置迁移 + LC workspace 配置读取 | TODO |
+| R4 | local_store seed 位置迁移 + LC workspace 配置读取 | DONE |
 | R5 | CLI REPL 渲染 self_evolution_review 事件 | TODO |
 | R6 | SSE 背景事件送达 (background 生命周期 Refs #8) | TODO |
 | R7 | 收口集成：全部单测绿 + contract 验证 | TODO |

@@ -57,5 +57,23 @@
   - Visual/Interaction: N/A
 - Rollback: C1 commit 94d55884
 - Commits: C1=94d55884, C2=617557ce, C3=TBD
-- Next: R4 — local_store seed 位置迁移 + LC workspace 配置读取
+- Next: R4 DONE，见下
+
+---
+
+### R4 — local_store seed 位置迁移 + LC workspace 配置读取
+
+- Context: PA 的 MEMORY.md 之前 seed 在 workspace root；M3 需要 MemoryStore 读 .nanoassistant/memory/MEMORY.md。LC 无用户配置文件机制，需补 workspace 级 config.yaml 读取。
+- Decision: ensure_workspace_defaults 将 MEMORY.md + USER.md 迁至 <workspace>/.nanoassistant/memory/；HEARTBEAT.md 留 workspace root。bootstrap_product 读取 workspace config.yaml self_evolution 段，注入 ResolvedProductConfig.default_session_metadata；缺失时全开默认。
+- Rationale: MemoryStore 路径由 ConfigResolver.user_memory_root() 确定（.nanoassistant/memory/），seed 要对齐；LC workspace config 入口符合设计决策 7。
+- Evidence:
+  - Tests: 36 passed（local_store 24 + bootstrap 12）
+  - Entry: N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 单元测试覆盖 seed 路径 + 配置读取
+  - Visual/Interaction: N/A
+- Rollback: C1 commit 7c808324
+- Commits: C1=7c808324, C2=9cd2d801, C3=TBD
+- Next: R5 — CLI REPL 渲染 self_evolution_review 事件
 
