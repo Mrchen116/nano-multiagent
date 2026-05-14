@@ -463,6 +463,77 @@ def test_default_local_config_path_uses_user_home(tmp_path: Path, monkeypatch: p
     assert default_local_config_path() == (home_dir / ".nano-assistant" / "config.yaml").resolve()
 
 
+def test_im_service_config_refresh_token_and_credentials_round_trip(tmp_path: Path) -> None:
+    """IMServiceConfig parses refresh_token/username/password and saves them back."""
+    config_path = tmp_path / "config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "im_service:",
+                "  url: http://localhost:8011",
+                "  token: access-abc",
+                "  refresh_token: refresh-xyz",
+                "  username: nano",
+                "  password: nano1234",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert config.im_service is not None
+    assert config.im_service.token == "access-abc"
+    assert config.im_service.refresh_token == "refresh-xyz"
+    assert config.im_service.username == "nano"
+    assert config.im_service.password == "nano1234"
+
+    saved_path = tmp_path / "saved.yaml"
+    save_local_config(config, saved_path)
+    reloaded = load_local_config(saved_path)
+
+    assert reloaded.im_service is not None
+    assert reloaded.im_service.refresh_token == "refresh-xyz"
+    assert reloaded.im_service.username == "nano"
+    assert reloaded.im_service.password == "nano1234"
+
+
+def test_im_service_config_optional_fields_default_to_none(tmp_path: Path) -> None:
+    """refresh_token/username/password are optional and default to None when absent."""
+    config_path = tmp_path / "config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "im_service:",
+                "  url: http://localhost:8011",
+                "  token: access-abc",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert config.im_service is not None
+    assert config.im_service.refresh_token is None
+    assert config.im_service.username is None
+    assert config.im_service.password is None
+
+
 def test_save_local_config_omits_none_fields(tmp_path: Path) -> None:
     """Saved YAML should not contain keys for None-valued optional fields."""
     import yaml as _yaml
