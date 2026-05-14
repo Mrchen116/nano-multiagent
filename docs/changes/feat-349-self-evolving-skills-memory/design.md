@@ -366,6 +366,7 @@ sequenceDiagram
 graph LR
   M1[M1 hook-background-fork] --> M3[M3 self-evolution-wiring]
   M2[M2 memory-skill-store-tools] --> M3
+  M3 --> M4[M4 fix-hook-mode-and-meta-styling]
 ```
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
@@ -373,3 +374,4 @@ graph LR
 | feat-349-M1 | hook-background-fork | — | A | `core/hooks/`（types/runner/context/registry）、`core/agent/runtime.py`（注入 fork 能力到 hook context）、`core/agent/context_fork.py` | `[worker]` 能注册 `mode="background"` 的 hook；turn 结束后 `HookRunner` 以 fire-and-forget 跑 `fork_conversation`，不阻塞主 turn、不受 `timeout_ms` 约束；`fork_conversation` 复用父 turn 的 `rendered_system_prompt` + `active_tools`（测试断言字节一致）、按 `tool_allowlist` 做执行层拦截；递归 fork 被抑制（覆盖 R1）；`[worker]` `core/hooks` + 相关 runtime 单测全绿 |
 | feat-349-M2 | memory-skill-store-tools | — | A | `core/memory/`（新建）、`core/skills/`（写侧扩展）、`platform/tools/builtins/skill_manage.py`、`platform/tools/builtins/memory.py`、`platform/tools/builtins/__init__.py`、`platform/config/resolver.py`（`user_memory_root()`） | `[worker]` `skill_manage` 的 create/edit/patch 正确落盘到 `<workspace>/.<ns>/skills/` 且触发发现 cache 失效；`memory` 的 add/replace/remove 作用于 `memory`/`user` 两 target，`§` 分隔 + 每条目带来源索引、文件锁 + 原子写；name regex / frontmatter / 大小上限校验生效；`[worker]` 两工具 + store 单测全绿 |
 | feat-349-M3 | self-evolution-wiring | M1, M2 | B | `platform/hooks/builtins/self_improvement.py`（background hook 模块）、`core/agent/`（`loop.py` 暴露 tool_iterations、`runtime.py` 持里程表 + agent_end payload、`prompting.py` 注入 memory block + guidance）、`agent/products/{local_coding,personal_assistant}/`（profile/defaults/prompts/toolsets/hooks 接线）、`personal_assistant/`（`local_store` seed 位置 + 配置透传）、`coding_cli/`（workspace 配置文件 + REPL 回显渲染）、`IM/`（meta 消息 + SSE 送达） | `[reviewer]` `spec.md` 全部 12 条验收标准通过（reviewer 走 PA + LC 两产品旅程验）；`[worker]` nudge 计数信号链路、两产品接线、回显（CLI 系统提示 + IM meta 消息）、background 事件 SSE 送达，单测 + `tests/contract/` 依赖方向校验全绿 |
+| feat-349-M4 | fix-hook-mode-and-meta-styling | M1, M2, M3 | C | `platform/bootstrap.py`（`_filter_hook_registry` 保留 `mode` 字段）、`IM/frontend/`（`message-pane.tsx` / `MessageBubble` —— `sender_type=system` 消息渲染为视觉区分的轻量 meta 提示） | （post-acceptance fix, round 1）`[reviewer]` spec AC-1/2/3/4 通过：多轮对话后 background hook 真实触发、skill/memory 自动沉淀、CLI 一行回显 + IM meta 提示浮现且视觉区别于聊天气泡；`[worker]` `_filter_hook_registry` 透传 `mode`（单测断言 background 注册过滤后仍为 background）、IM 前端构建通过 |
