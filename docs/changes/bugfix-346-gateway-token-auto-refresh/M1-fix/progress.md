@@ -29,8 +29,8 @@
   - Browser QA: N/A
   - E2E/Regression: test_im_auth_client.py
   - Visual/Interaction: N/A
-- Rollback: C3 hash 见下
-- Commits: C1=TBD, C2=TBD, C3=TBD
+- Rollback: fc137668（C1 commit）
+- Commits: C1=fc137668, C2=467aee87, C3=TBD
 
 ### R3 — IMConnectionManager 接受 token_getter
 
