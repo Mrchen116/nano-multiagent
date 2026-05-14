@@ -202,6 +202,39 @@ class GatewayHandler:
             payload={"agent_id": agent_id, "reason": reason},
         )
 
+    async def push_permission_response(
+        self,
+        *,
+        target_node_id: str,
+        message_id: str,
+        request_id: str,
+        decision: str,
+    ) -> bool:
+        """Push a permission_response frame to the gateway node hosting the parked run.
+
+        The PA side consumes this frame and forwards the decision to the agent inbound
+        endpoint so the parked hook can resume.
+
+        Args:
+            target_node_id: Node that owns the agent run awaiting the decision.
+            message_id: Agent message that embeds the permission request.
+            request_id: Stable permission request identifier.
+            decision: User-chosen option (e.g. ``"allow_once"``, ``"deny"``).
+
+        Returns:
+            ``True`` when the node was connected and the frame was sent.
+        """
+        return await self._push_downstream(
+            target_node_id=target_node_id,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "permission_response",
+                "message_id": message_id,
+                "request_id": request_id,
+                "decision": decision,
+            },
+        )
+
     async def request_agent_config(
         self,
         *,

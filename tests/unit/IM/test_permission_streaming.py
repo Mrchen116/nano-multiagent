@@ -251,3 +251,126 @@ class TestGatewayHandlerPermissionKinds:
         # Should not raise and return ack
         result = await handler._handle_streaming_delta(payload=payload)
         assert result["type"] == "ack"
+
+
+# ---------------------------------------------------------------------------
+# R2: REST endpoint POST /im/v1/conversations/{cid}/permissions/{request_id}
+# ---------------------------------------------------------------------------
+
+
+class TestPermissionRestEndpoint:
+    """POST /im/v1/conversations/{cid}/permissions/{request_id} forwards to gateway WS."""
+
+    def _make_app(self, tmp_path) -> tuple[object, dict]:
+        """Create a minimal IM app with pre-seeded data for permission endpoint tests.
+
+        Uses register + login via HTTP to get a valid JWT token so auth is
+        exercised via the same path as production, not bypassed.
+        """
+        from IM.app import create_app
+        from IM.infra.db import connect, initialize_schema
+        from IM.infra.repositories import AgentProfileRepository, ConversationRepository, MessageRepository, UserRepository
+        from fastapi.testclient import TestClient
+
+        db_path = tmp_path / "im.db"
+        conn = connect(db_path)
+        initialize_schema(conn)
+
+        # agent user pre-created directly (agents don't register via HTTP)
+        users = UserRepository(conn)
+        agent_user = users.create_user(username="agent:beta", display_name="Beta")
+        conn.close()
+
+        app = create_app(db_path=db_path, upload_dir=tmp_path / "uploads")
+
+        with TestClient(app) as client:
+            # Register and login as alice
+            reg = client.post(
+                "/im/v1/auth/register",
+                json={"username": "alice", "password": "pw12345678", "display_name": "Alice"},
+            )
+            assert reg.status_code in (200, 201), f"register failed: {reg.text}"
+            token = reg.json()["access_token"]
+            owner_id = reg.json()["user"]["id"]
+
+            # Create conversation
+            conv_resp = client.post(
+                "/im/v1/conversations",
+                json={
+                    "title": "Alice + Beta",
+                    "participant_ids": [owner_id, agent_user.id],
+                },
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert conv_resp.status_code in (200, 201), f"create conv failed: {conv_resp.text}"
+            conv_id = conv_resp.json()["id"]
+
+        # Re-open DB to insert agent profile + message
+        conn2 = connect(db_path)
+        profiles = AgentProfileRepository(conn2)
+        profiles.upsert_profile(
+            agent_id="beta",
+            owner_id=owner_id,
+            display_name="Beta",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+            node_id="node-x",
+        )
+        msgs = MessageRepository(conn2)
+        msg = msgs.create_message(
+            conversation_id=conv_id,
+            sender_user_id=agent_user.id,
+            content="",
+            sender_type="agent",
+            allow_empty=True,
+            auto_complete_delivery=False,
+        )
+        conn2.close()
+
+        return app, {"owner_id": owner_id, "conv_id": conv_id, "msg_id": msg.id, "agent_id": "beta", "token": token}
+
+    def test_submit_decision_forwards_permission_response_to_gateway(self, tmp_path) -> None:
+        """POST /im/v1/conversations/{cid}/permissions/{request_id} pushes to connected node."""
+        from unittest.mock import AsyncMock
+        from fastapi.testclient import TestClient
+
+        app, ctx = self._make_app(tmp_path)
+
+        with TestClient(app) as client:
+            with patch.object(
+                client.app.state.gateway_handler,
+                "push_permission_response",
+                new=AsyncMock(return_value=True),
+            ) as mock_push:
+                resp = client.post(
+                    f"/im/v1/conversations/{ctx['conv_id']}/permissions/req-1",
+                    json={"message_id": ctx["msg_id"], "decision": "allow_once"},
+                    headers={"Authorization": f"Bearer {ctx['token']}"},
+                )
+
+        assert resp.status_code == 200
+        mock_push.assert_called_once()
+        call_kwargs = mock_push.call_args.kwargs
+        assert call_kwargs["request_id"] == "req-1"
+        assert call_kwargs["decision"] == "allow_once"
+        assert call_kwargs["message_id"] == ctx["msg_id"]
+
+    def test_submit_decision_not_found_conversation(self, tmp_path) -> None:
+        """POST with nonexistent conversation_id returns 404."""
+        from fastapi.testclient import TestClient
+
+        app, ctx = self._make_app(tmp_path)
+
+        with TestClient(app) as client:
+            resp = client.post(
+                "/im/v1/conversations/nonexistent/permissions/req-1",
+                json={"message_id": ctx["msg_id"], "decision": "allow_once"},
+                headers={"Authorization": f"Bearer {ctx['token']}"},
+            )
+
+        assert resp.status_code == 404
