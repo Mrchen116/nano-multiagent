@@ -47,5 +47,27 @@
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
 - Rollback: git revert to C1 commit `f44872a9`
-- Commits: C1=f44872a9, C2=77bf9099, C3=<pending>
+- Commits: C1=f44872a9, C2=77bf9099, C3=ef8d072d
 - Next: R3 — PA inbound_pipeline: permission_request SSE → node.streaming_delta + heartbeat origin fix
+
+### R3 — PA: permission_request SSE→IM forwarding + permission_response routing + heartbeat origin
+
+- Context: PA needs to (1) detect permission_request SSE events from agent and forward to IM as node.streaming_delta; (2) receive permission_response WS frames from IM and POST to agent inbound; (3) pass origin=heartbeat when submitting heartbeat runs.
+- Decision:
+  - `_build_kernel_event_observer` in `main.py` extended with `permission_request` and `permission_resolved` event handling — fires `node.streaming_delta {kind: "permission_request", message_id, permission_request: {...}}` and `{kind: "permission_resolved", message_id, request_id, decision}` via `loop.create_task(_send(...))`. Only forwarded when `message_id` is present (turn_start acked), otherwise silently skipped.
+  - `IMConnectionManager._listen_once` in `im_connection.py` extended: handles `node.streaming_delta` message type from IM; when `kind=permission_response`, calls `_permission_response_handler(body)` callback. New `PermissionResponseHandler` type alias and new `permission_response_handler` parameter on `__init__`.
+  - `KernelApiClient.submit_message` in `kernel_api_client.py` extended with `origin: str | None = None` parameter; when provided, included in POST body.
+  - `HeartbeatScheduler._submit_run` in `heartbeat_scheduler.py` passes `origin="heartbeat"` to `submit_message`.
+  - `SendMessageRequest` in `session.py` (agent) extended with `origin: str | None = None`; submit_message route resolves `RunOrigin` from it (invalid values fall back to USER).
+  - Existing `test_heartbeat_scheduler.py` fake updated to accept `**kwargs`.
+- Rationale: permission_request forwarding uses the same `_send` fire-and-forget pattern as other events (tool_start etc.) — consistent with existing observer code. Permission_response handler is injected as a callback so `IMConnectionManager` stays product-agnostic. Heartbeat origin propagation is a one-line change enabling the auto_mode_gate unattended short-circuit without new mechanisms.
+- Evidence:
+  - Tests: `pytest tests/unit/personal_assistant/test_permission_pipeline_r3.py` — 7 passed; full IM/PA suite 8 failed (all pre-existing), 286 passed
+  - Entry: TestKernelApiClientOrigin uses httpx.MockTransport to verify origin field in HTTP request; TestIMConnectionPermissionResponse verifies callback routing via _listen_once
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: git revert to C1 commit `174a16a9`
+- Commits: C1=174a16a9, C2=1fdddcfa, C3=<pending>
+- Next: R4 — IM frontend: PermissionCard component + types.ts + message-pane挂载点
