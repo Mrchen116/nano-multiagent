@@ -38,4 +38,20 @@
 - Commits: C1=a1908015, C2=23c85ef3, C3=（本条记录所在提交）
 - Next: R3 — resolver.user_memory_root()
 
+### R3 — platform/config/resolver: user_memory_root()
+
+- Context: design 决策 3 要求 memory 目录走 ConfigResolver 解析（不硬编码），路径 `<workspace_root>/<workspace_config_dirname>/memory/`，无 workspace 时返回 None。
+- Decision: 在 `workspace_config_root()` 基础上追加 `/memory` 子目录；无 workspace 则返回 None，调用方按需处理。
+- Rationale: 复用现有 workspace_config_root() 逻辑，改动最小；与 user_skill_roots() 的 workspace 路径模式一致。
+- Evidence:
+  - Tests: 6/6 新增测试 + 9/9 原有 resolver 测试通过。覆盖 PA profile、LC profile、无 workspace、无 dirname。
+  - Entry: N/A（纯路径逻辑）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: 回退到 R2 C3 599f9866
+- Commits: C1=316bf4e6, C2=44d0d5b0, C3=（本条记录所在提交）
+- Next: R4 — skill_manage tool
+
 <!-- 每个 roadpoint 完成后追加 -->
