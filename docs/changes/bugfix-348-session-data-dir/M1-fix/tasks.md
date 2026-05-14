@@ -95,6 +95,5 @@ session 各自不同的。若要按 workspace_root 分目录存，就必须在 c
 | ID | 标题 | 状态 |
 |---|---|---|
 | R1 | 调研调用方：个人助手和 Coding CLI 如何使用 bootstrap | DONE |
-| R2 | C1 失败测试：验证 session 文件落在 workspace_root/.nano 下 | DONE |
-| R3 | C2 实现修复：bootstrap 和 SessionService 使用 workspace_root | DONE |
-| R4 | C3 文档 + fix.md 回填 | DONE |
+| R2 | C1 失败测试 + C2 实现修复 | DONE |
+| R3 | C3 文档 + fix.md 回填 + 合并 | DONE |

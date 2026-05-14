@@ -64,8 +64,78 @@ workspace 走。实际落地的行为不是这样：
 
 ## 修复
 
-<!-- 改了什么 + commits。 -->
+改动两处文件，覆盖个人助手和 Coding CLI 两个产品（均走同一 bootstrap 路径）：
+
+### `src/agent/core/session/jsonl_store.py`
+
+`JsonlSessionStore` 新增 workspace-aware 模式：
+
+- `__init__` 的 `data_dir` 参数改为可空（`Path | None`）。
+  - `data_dir=<Path>`：原有固定根目录行为，向后兼容。
+  - `data_dir=None`：workspace-aware 模式，路径按会话的 `workspace_root` 解析。
+- 新增 `_workspace_roots: dict[str, Path]` 内存缓存（`session_id → workspace_root`）。
+- `create()` 在 workspace-aware 模式下把 `config.workspace_root` 写入缓存。
+- `_resolve_path()` 改为调用 `_resolve_base(session_id)`，后者在 workspace-aware 模式下
+  查缓存，返回 `{workspace_root}/.nano`；固定模式下直接返回 `_data_dir`。
+- `list_session_ids()` 和 `_build_agent_index()` 在 workspace-aware 模式下扫描所有已知
+  workspace root，而不是单一的 `_data_dir`。
+
+### `src/agent/platform/bootstrap.py`
+
+将 `JsonlSessionStore(data_dir=resolved_root / ".nano")` 改为 `JsonlSessionStore(data_dir=None)`，
+启用 workspace-aware 模式。`resolved_root` 是进程 cwd，改前是根因所在。
+
+### Commits
+
+- `e694ae38` — C1: 4 个失败测试（workspace_root 隔离、多目录、load/append 验证）
+- `03dc339a` — C2: 实现修复（JsonlSessionStore workspace-aware 模式 + bootstrap 切换）
+- C3（本 commit）— 文档 + fix.md 回填
 
 ## 验证
 
-<!-- 修前能复现 → 修后不能；相关功能回归正常。 -->
+### 修前能复现
+
+```bash
+# 在仓库目录下启动个人助手
+PYTHONPATH=src python -m uvicorn personal_assistant.kernel_app:app --port 18070
+
+# 创建 session
+curl -s -X POST http://127.0.0.1:18070/v1/sessions \
+  -H "Authorization: Bearer test-token" \
+  -H "Content-Type: application/json" \
+  -d '{"workspace_root": "/tmp/agent-workspace-test"}'
+
+# 修前：JSONL 落在仓库目录下的 .nano/sessions/，不在 /tmp/agent-workspace-test/.nano/sessions/
+ls .nano/sessions/   # 可见 sess_xxx.jsonl
+ls /tmp/agent-workspace-test/.nano/sessions/  # 不存在
+```
+
+### 修后不能复现（单元测试验证）
+
+4 个新增测试全部通过：
+
+```
+tests/unit/test_platform_bootstrap.py::test_bootstrap_product_builds_profile_session_store
+tests/unit/test_platform_bootstrap.py::test_session_jsonl_falls_in_workspace_root_not_process_cwd
+tests/unit/test_platform_bootstrap.py::test_workspace_aware_store_multiple_workspaces_isolated
+tests/unit/test_platform_bootstrap.py::test_workspace_aware_store_load_and_append_after_create
+```
+
+`test_session_jsonl_falls_in_workspace_root_not_process_cwd` 直接断言：
+- `{workspace_root}/.nano/sessions/{session_id}.jsonl` 存在
+- 进程 cwd 的 `.nano/sessions/{session_id}.jsonl` 不存在
+
+`test_workspace_aware_store_multiple_workspaces_isolated` 验证两个不同 workspace 下的 session
+互相隔离，各自落在正确目录。
+
+### 已有回归测试通过
+
+```
+pytest tests/unit/test_platform_bootstrap.py tests/unit/test_session_manager.py
+       tests/unit/test_session_service.py tests/unit/test_session_service_with_profile.py
+       tests/unit/test_jsonl_store_dag_recovery.py tests/unit/agent/session/
+       tests/unit/test_fork_session.py tests/unit/test_m236_session_metadata_hookcontext.py
+       tests/integration/test_session_flow_integration.py tests/integration/test_app_bootstrap.py
+```
+
+结果：44 passed，1 pre-existing failure（与本修复无关的 `test_append_message_persists_history_once_per_idempotency_key`，修前即失败）。
