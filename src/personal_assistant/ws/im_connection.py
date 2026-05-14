@@ -73,6 +73,9 @@ HeartbeatTrigger = Callable[[str, str], None]
 AgentConfigProvider = Callable[[str], Mapping[str, object] | None]
 AgentCreateHandler = Callable[[Mapping[str, object]], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None]
 AgentCapabilitiesProvider = Callable[[str, str], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None]
+# Async callback that returns a fresh access token immediately before each connect attempt.
+# Returning None means "no token available"; the caller should fall back or proceed without auth.
+TokenGetter = Callable[[], Awaitable[str | None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +148,7 @@ class IMConnectionManager:
         agent_config_provider: AgentConfigProvider | None = None,
         agent_create_handler: AgentCreateHandler | None = None,
         agent_capabilities_provider: AgentCapabilitiesProvider | None = None,
+        token_getter: TokenGetter | None = None,
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -156,6 +160,9 @@ class IMConnectionManager:
         self._agent_config_provider = agent_config_provider
         self._agent_create_handler = agent_create_handler
         self._agent_capabilities_provider = agent_capabilities_provider
+        # token_getter is called on each connect attempt to supply a fresh access token.
+        # When absent the static config.token is used (backwards-compatible behaviour).
+        self._token_getter = token_getter
         self._connect = connect
         self._sleep = sleep
         self._websocket: ClientWebSocket | None = None
@@ -180,10 +187,20 @@ class IMConnectionManager:
         return tuple(self._events)
 
     async def connect_once(self) -> None:
-        """Open the IM websocket, register the node, and flush buffered upstream frames."""
+        """Open the IM websocket, register the node, and flush buffered upstream frames.
+
+        When ``token_getter`` is provided it is called before every connect attempt so
+        each reconnect uses a freshly minted access token rather than the stale value
+        that was loaded at startup.
+        """
 
         headers = {"User-Agent": "nano-multiagent-gateway"}
-        if self._config.token is not None:
+        # Resolve token: prefer token_getter (dynamic refresh path) over static config.token.
+        if self._token_getter is not None:
+            dynamic_token = await self._token_getter()
+            if dynamic_token is not None:
+                headers["Authorization"] = f"Bearer {dynamic_token}"
+        elif self._config.token is not None:
             headers["Authorization"] = f"Bearer {self._config.token}"
         websocket = await self._connect(self._config.websocket_url(), headers)
         self._websocket = websocket
