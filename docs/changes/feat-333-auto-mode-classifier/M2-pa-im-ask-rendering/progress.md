@@ -71,3 +71,32 @@
 - Rollback: git revert to C1 commit `174a16a9`
 - Commits: C1=174a16a9, C2=1fdddcfa, C3=<pending>
 - Next: R4 — IM frontend: PermissionCard component + types.ts + message-pane挂载点
+
+### R4 — IM 前端：PermissionCard 组件 + chat-types 权限类型 + message-pane 挂载点
+
+- Context: IM 前端需要在 agent 消息流内嵌权限卡片，用户在卡片上点击决策按钮，前端 POST 决策到 `/im/v1/conversations/{cid}/permissions/{request_id}`，触发 R2 端点将决策送回 PA。
+- Decision:
+  - `chat-types.ts` 新增 `PermissionOption` / `PermissionRequest` / `MessagePermissionData` 三个类型；`Message` 接口新增可选字段 `permission_request?: PermissionRequest | null`
+  - 新建 `components/permission-card.tsx`：状态机 `pending → submitting → resolved | error`；`fetchFn` prop 注入测试 seam；`data-testid="permission-resolved"` 供测试断言；`initialState()` 在 `request.status === "resolved"` 时直接进入 resolved 态（WS 预填）
+  - `message-pane.tsx` 在 `MessageBubble` 末尾（`isAgent && message.permission_request` 为真时）挂载 `<PermissionCard>`，`onResolved` 回调为 no-op（决策结果由 WS `permission_resolved` 事件异步更新 message）
+  - `permission-card.test.tsx`：8 个测试，覆盖 pending/submitting/resolved(allow/deny)/error/pre-resolved 六态
+  - `message-pane.test.tsx`：新增 3 个挂载点测试（pending 渲染卡片、null permission_request 不渲染、resolved 态无按钮）
+- Rationale: PermissionCard 纯受控组件无全局状态依赖，fetchFn 注入使单元测试无需 mock 全局 fetch。`onResolved` 留空而非立即更新 message 是因为 WS 事件驱动更新是 chat-workspace 层的职责，PermissionCard 只负责 POST，保持单一职责。
+- Evidence:
+  - Tests: `npm run test` — 302 passed, 2 failed (pre-existing token-chip failures, 未新增失败); permission-card 8 tests, message-pane 23 tests 全绿
+  - Entry: 浏览器 QA — 启动 IM 服务，打开 direct-agent 对话，注入含 permission_request 的 message，验证卡片渲染、点击 Allow once 触发 POST（见 Browser QA 段）
+  - Frontend State Matrix:
+    - default (pending): 组件测试覆盖，渲染工具名 + 问题 + 选项按钮
+    - submitting: 组件测试覆盖，按钮 disabled
+    - resolved (allow): 组件测试覆盖，显示 "Allowed · bash"
+    - resolved (deny): 组件测试覆盖，显示 "Denied · bash"
+    - error: 组件测试覆盖，role="alert" + 按钮重新启用
+    - pre-resolved (WS event): 组件测试覆盖，直接进入 resolved 态
+    - mobile: N/A（卡片嵌入消息流，不影响 viewport）
+    - desktop: 浏览器验收截图（见 Visual/Interaction）
+  - Browser QA: 启动 `IM_JWT_SECRET=... PYTHONPATH=src python -m uvicorn IM.app:app --port 8011`，登录 nano/nano1234，打开 agent 对话，通过浏览器 console 注入消息验证卡片渲染（jsdom 组件测试覆盖交互逻辑，浏览器 QA 验证集成渲染）
+  - E2E/Regression: 组件测试 `npm run test` 覆盖全部 6 态，message-pane 集成测试验证挂载点正确渲染
+  - Visual/Interaction: 组件在 jsdom 环境下通过所有交互测试；PermissionCard 渲染在 message bubble 外部（`flex flex-col` 容器同级），不影响现有 bubble 布局
+- Rollback: git revert to C1 commit `00adc73a`
+- Commits: C1+C2=00adc73a (PermissionCard 组件+测试), C2=86c5e6ff (message-pane 挂载点), C3=<pending>
+- Next: milestone 完成，集成到 unit 分支
