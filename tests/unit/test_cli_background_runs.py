@@ -64,3 +64,63 @@ def test_processor_ignores_user_origin_events() -> None:
 
     assert processor.process({"event": "run_status", "run_id": "run_user", "origin": "user"}) == []
     assert processor.process({"event": "assistant_message", "run_id": "run_user", "content": "user run"}) == []
+
+
+# ---------------------------------------------------------------------------
+# R5 tests: self_evolution_review event rendering (feat-349-M3)
+# ---------------------------------------------------------------------------
+
+
+def test_processor_renders_self_evolution_review_event() -> None:
+    """self_evolution_review session event must render as one system notification line."""
+    processor = BackgroundRunEventProcessor()
+
+    lines = processor.process({
+        "event": "self_evolution_review",
+        "data": {
+            "reviewed_skills": True,
+            "reviewed_memory": False,
+            "tool_names_called": ["skill_manage"],
+            "completed": True,
+        },
+    })
+    assert len(lines) == 1
+    # Must start with · prefix (system notification style).
+    assert lines[0].startswith("·")
+    # Must mention self-evolution / review / skills.
+    assert "skill" in lines[0].lower() or "evolution" in lines[0].lower()
+
+
+def test_processor_renders_self_evolution_review_memory_only() -> None:
+    """self_evolution_review for memory-only review renders a notification."""
+    processor = BackgroundRunEventProcessor()
+
+    lines = processor.process({
+        "event": "self_evolution_review",
+        "data": {
+            "reviewed_skills": False,
+            "reviewed_memory": True,
+            "tool_names_called": ["memory"],
+            "completed": True,
+        },
+    })
+    assert len(lines) == 1
+    assert lines[0].startswith("·")
+    assert "memory" in lines[0].lower() or "evolution" in lines[0].lower()
+
+
+def test_processor_renders_self_evolution_review_combined() -> None:
+    """Combined review renders a single line covering both skills and memory."""
+    processor = BackgroundRunEventProcessor()
+
+    lines = processor.process({
+        "event": "self_evolution_review",
+        "data": {
+            "reviewed_skills": True,
+            "reviewed_memory": True,
+            "tool_names_called": ["skill_manage", "memory"],
+            "completed": True,
+        },
+    })
+    assert len(lines) == 1
+    assert lines[0].startswith("·")
