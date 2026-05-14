@@ -581,6 +581,72 @@ def _send_message_via_sse(
     }
 
 
+def print_auto_mode_banner(*, config: object, out: "TextIO") -> None:  # noqa: F821
+    """Print the auto mode status banner at REPL startup.
+
+    Why this is necessary: spec A2 requires that dangerously_skip_permissions being
+    enabled must be visible to the user. CC surfaces this via a persistent status bar
+    in its React UI; the Python REPL equivalent is a startup print so the state is
+    never silently active.
+
+    Args:
+        config: AutoModeConfig-compatible object with .enabled and
+            .dangerously_skip_permissions attributes. Typed as `object` to avoid
+            an import from the agent package — the contract forbids cross-package imports.
+        out: Output stream (sys.stdout or StringIO in tests).
+    """
+    enabled: bool = getattr(config, "enabled", True)
+    dangerously_skip: bool = getattr(config, "dangerously_skip_permissions", False)
+
+    if dangerously_skip:
+        # Prominent danger banner — mirrors CC's "⚠ Skipping all permission checks"
+        # status indicator. Users must clearly see they are in bypass mode.
+        print("⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.", file=out)
+        print("  No tool will be blocked. This is only safe in isolated sandbox environments.", file=out)
+    elif enabled:
+        print("✓ Auto mode enabled — permission decisions handled automatically.", file=out)
+    else:
+        print("ℹ Auto mode disabled — manual approval required for tool actions.", file=out)
+
+
+def _load_auto_mode_config_for_repl() -> object:
+    """Load auto mode config for REPL startup banner without cross-package imports.
+
+    Reads the auto_mode section from ~/.nanocode/config.yaml and returns a lightweight
+    object with .enabled and .dangerously_skip_permissions attributes. Falls back to
+    safe defaults when config is absent or malformed — errors must never crash the REPL.
+    """
+    import yaml
+    from pathlib import Path
+
+    class _AutoModeSummary:
+        """Minimal stand-in carrying only the fields needed by print_auto_mode_banner."""
+        def __init__(self, enabled: bool, dangerously_skip_permissions: bool) -> None:
+            self.enabled = enabled
+            self.dangerously_skip_permissions = dangerously_skip_permissions
+
+    global_config_file = Path.home() / ".nanocode" / "config.yaml"
+    enabled: bool = True
+    dangerously_skip: bool = False
+
+    for config_path in (global_config_file,):
+        if not config_path.is_file():
+            continue
+        try:
+            raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                section = raw.get("auto_mode", {})
+                if isinstance(section, dict):
+                    if isinstance(section.get("enabled"), bool):
+                        enabled = section["enabled"]
+                    if isinstance(section.get("dangerously_skip_permissions"), bool):
+                        dangerously_skip = section["dangerously_skip_permissions"]
+        except Exception:
+            pass  # Corrupted config — use defaults, don't crash REPL
+
+    return _AutoModeSummary(enabled=enabled, dangerously_skip_permissions=dangerously_skip)
+
+
 def _run_repl(
     *,
     args: argparse.Namespace,
@@ -622,6 +688,16 @@ def _run_repl(
             reader.stop()
             reader.start(session_id=session_id)
         return reader
+
+    # feat-333-M3/R2: spec A2 requires auto mode status to be visible at startup so
+    # users always know whether permission bypass is active. CC surfaces this in its
+    # persistent status bar; the Python REPL equivalent is a startup banner line.
+    _auto_config = _load_auto_mode_config_for_repl()
+    _banner_buf = io.StringIO()
+    print_auto_mode_banner(config=_auto_config, out=_banner_buf)
+    _banner_text = _banner_buf.getvalue()
+    if _banner_text.strip():
+        _emit_repl_block(_banner_text)
 
     if active_session_id:
         try:
