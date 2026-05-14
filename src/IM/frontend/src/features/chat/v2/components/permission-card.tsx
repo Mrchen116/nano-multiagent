@@ -8,10 +8,13 @@
  *   POST /im/v1/conversations/{conversationId}/permissions/{requestId}
  * which the IM backend forwards to PA → agent inbound to unpark the hook.
  *
- * The component is pure (no global state dependency) and testable via the
- * `fetchFn` prop injection seam.
+ * The default fetchFn uses authFetch (which injects the Authorization: Bearer header
+ * from the auth store) so the IM backend's JWT guard does not reject the request.
+ * Tests can override fetchFn to inject a mock without touching the auth store.
  */
 import React, { useState } from "react";
+
+import { authFetch } from "../../../auth/auth-fetch";
 
 import type { PermissionOption, PermissionRequest } from "../chat-types";
 
@@ -21,8 +24,8 @@ export interface PermissionCardProps {
   messageId: string;
   /** Called with the chosen decision string after a successful POST. */
   onResolved(decision: string): void;
-  /** Test seam: override fetch. Defaults to window.fetch. */
-  fetchFn?: typeof fetch;
+  /** Test seam: override fetch. Defaults to authFetch (injects Authorization header). */
+  fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
 type CardState =
@@ -47,7 +50,10 @@ export function PermissionCard({
   conversationId,
   messageId,
   onResolved,
-  fetchFn = fetch,
+  // authFetch is the default so that the IM backend's JWT guard sees the
+  // Authorization header.  Tests inject a mock via this prop to avoid
+  // touching the auth store in jsdom.
+  fetchFn = authFetch,
 }: PermissionCardProps) {
   const [cardState, setCardState] = useState<CardState>(() => initialState(request));
 
@@ -103,7 +109,8 @@ export function PermissionCard({
           {errorMessage}
         </div>
       )}
-      <div className="permission-card__options" role="group" aria-label="Permission options">
+      {/* gap-2 provides 0.5rem between option buttons; matches project button-group spacing convention */}
+      <div className="permission-card__options flex flex-wrap gap-2" role="group" aria-label="Permission options">
         {request.options.map((opt) => (
           <button
             key={opt.id}
