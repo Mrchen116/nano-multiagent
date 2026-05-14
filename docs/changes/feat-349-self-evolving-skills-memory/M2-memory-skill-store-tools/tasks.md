@@ -31,6 +31,8 @@
 | R4 | platform/tools/builtins/skill_manage: Tool 包装 | DONE |
 | R5 | platform/tools/builtins/memory: Tool 包装 | DONE |
 
+## 全部 Roadpoints 完成
+
 ## UI 状态矩阵
 
 N/A（纯后端）

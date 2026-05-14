@@ -70,4 +70,20 @@
 - Commits: C1=4354c803, C2=91f5edd3, C3=（本条记录所在提交）
 - Next: R5 — memory Tool
 
+### R5 — platform/tools/builtins/memory: Tool 包装
+
+- Context: hermes §5 确认 schema {action: add|replace|remove, target: memory|user, content, old_text}，无 read action（通过 system prompt 注入读取）。本项目在此基础上扩展 source index（每次写入从 ToolContext 读 session_id + 当前时间）。memory_root 从 ToolContext.session_metadata["memory_root"] 解析（M3 注入），fallback 到 workspace_root 或 cwd。
+- Decision: `MemoryTool(memory_root=None)` 构造（可固定 root 用于测试）；run() 每次创建新 MemoryStore 实例（无跨调用 state，保证并发安全）；serialize_result 输出 JSON 或错误字符串。
+- Rationale: 每次 run() 创建新 MemoryStore 而非缓存：MemoryStore 内部已处理磁盘读取，工具层无需维护状态；这也确保并发工具调用不共享 in-memory 状态（工具是无状态的）。
+- Evidence:
+  - Tests: 21/21 通过。覆盖 add/replace/remove/两 target/§ 分隔符/source index/only-two-files/unknown action/memory_root from metadata。
+  - Entry: N/A（M3 负责 HTTP 入口集成）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: 回退到 R4 C3 25ed5499
+- Commits: C1=59355117, C2=e989dda9, C3=（本条记录所在提交）
+- Next: milestone 完成，准备合并到 unit/feat-349
+
 <!-- 每个 roadpoint 完成后追加 -->
