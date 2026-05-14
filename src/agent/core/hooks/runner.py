@@ -148,12 +148,18 @@ class HookRunner:
         ctx: HookContext,
     ) -> tuple[Any, HookExecution]:
         started = time.perf_counter()
-        timeout_seconds = registration.timeout_ms / 1000
         try:
-            result = await asyncio.wait_for(
-                self._invoke_handler(registration, payload, ctx),
-                timeout=timeout_seconds,
-            )
+            if registration.timeout_ms is None:
+                # Hook self-manages time boundaries — do not wrap in wait_for.
+                # Used by security-critical hooks like auto_mode_gate that may
+                # legitimately park for extended periods awaiting user input.
+                result = await self._invoke_handler(registration, payload, ctx)
+            else:
+                timeout_seconds = registration.timeout_ms / 1000
+                result = await asyncio.wait_for(
+                    self._invoke_handler(registration, payload, ctx),
+                    timeout=timeout_seconds,
+                )
         except TimeoutError:
             duration_ms = int((time.perf_counter() - started) * 1000)
             return None, HookExecution(

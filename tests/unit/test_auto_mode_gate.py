@@ -373,8 +373,12 @@ def _make_ctx(
 class TestGateHookLogic:
     """Integration tests for the gate hook on_tool_call coroutine."""
 
-    def _get_handler(self, config: AutoModeConfig | None = None) -> Any:
-        """Extract the on_tool_call handler from gate_setup."""
+    def _get_handler(self, config: AutoModeConfig | None = None):
+        """Extract the on_tool_call handler from gate_setup.
+
+        Returns (handler, config) so callers can use the config for assertions
+        and patch load_auto_mode_config appropriately during the async call.
+        """
         if config is None:
             config = AutoModeConfig()
         handlers = []
@@ -383,24 +387,27 @@ class TestGateHookLogic:
             def on(self, event, handler, **kwargs):
                 handlers.append(handler)
 
-        with patch(
-            "agent.platform.hooks.builtins.auto_mode_gate.load_auto_mode_config",
-            return_value=config,
-        ):
-            gate_setup(MockHooks())
-        return handlers[0]
+        gate_setup(MockHooks())
+        return handlers[0], config
+
+    def _make_ctx_with_config(self, config: AutoModeConfig, **kwargs):
+        """Make a mock ctx with config injected via metadata._auto_mode_config_loader."""
+        ctx = _make_ctx(**kwargs)
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["_auto_mode_config_loader"] = lambda: config
+        return ctx
 
     @pytest.mark.asyncio
     async def test_dangerously_skip_permissions_passes_all(self):
-        handler = self._get_handler(AutoModeConfig(dangerously_skip_permissions=True))
-        ctx = _make_ctx()
+        handler, config = self._get_handler(AutoModeConfig(dangerously_skip_permissions=True))
+        ctx = self._make_ctx_with_config(AutoModeConfig(dangerously_skip_permissions=True))
         result = await handler({"name": "bash", "args": {"command": "rm -rf /"}}, ctx)
         assert result is None or result.get("block") is not True
 
     @pytest.mark.asyncio
     async def test_safe_tool_passes_without_classifier(self):
-        handler = self._get_handler()
-        ctx = _make_ctx()
+        handler, config = self._get_handler()
+        ctx = self._make_ctx_with_config(config)
         # read is in SAFE_TOOL_ALLOWLIST → should pass without calling model
         ctx.call_model = AsyncMock()  # should never be called
         result = await handler({"name": "read", "args": {"file_path": "/tmp/x"}}, ctx)
@@ -410,16 +417,16 @@ class TestGateHookLogic:
     @pytest.mark.asyncio
     async def test_bash_allowed_prefix_passes(self):
         """bash commands matching allowed prefixes pass without classifier."""
-        handler = self._get_handler()
-        ctx = _make_ctx()
+        handler, config = self._get_handler()
+        ctx = self._make_ctx_with_config(config)
         ctx.call_model = AsyncMock()  # should NOT be called
         result = await handler({"name": "bash", "args": {"command": "ls -la"}}, ctx)
         assert result is None or result.get("block") is not True
 
     @pytest.mark.asyncio
     async def test_bash_blocked_fragment_denies(self):
-        handler = self._get_handler()
-        ctx = _make_ctx()
+        handler, config = self._get_handler()
+        ctx = self._make_ctx_with_config(config)
         result = await handler({"name": "bash", "args": {"command": "rm -rf /"}}, ctx)
         assert result is not None
         assert result.get("block") is True
@@ -428,8 +435,8 @@ class TestGateHookLogic:
     async def test_classifier_allow_passes(self):
         model_result = MagicMock()
         model_result.content = "<block>no</block>"
-        handler = self._get_handler()
-        ctx = _make_ctx(call_model_result=model_result)
+        handler, config = self._get_handler()
+        ctx = self._make_ctx_with_config(config, call_model_result=model_result)
         result = await handler({"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx)
         assert result is None or result.get("block") is not True
 
@@ -437,8 +444,8 @@ class TestGateHookLogic:
     async def test_classifier_deny_blocks(self):
         model_result = MagicMock()
         model_result.content = "<block>yes</block><reason>dangerous action</reason>"
-        handler = self._get_handler()
-        ctx = _make_ctx(call_model_result=model_result)
+        handler, config = self._get_handler()
+        ctx = self._make_ctx_with_config(config, call_model_result=model_result)
         result = await handler({"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx)
         assert result is not None
         assert result.get("block") is True
@@ -448,7 +455,7 @@ class TestGateHookLogic:
         """Stage 1 parse failure → ask (fail-closed-to-ask)."""
         model_result = MagicMock()
         model_result.content = "this is not xml"  # unparseable
-        handler = self._get_handler()
+        handler, config = self._get_handler()
 
         # Need permission_requester to handle ask
         deny_response = MagicMock()
@@ -457,9 +464,10 @@ class TestGateHookLogic:
         async def mock_requester(req):
             return deny_response
 
-        ctx = _make_ctx(call_model_result=model_result)
+        ctx = self._make_ctx_with_config(config, call_model_result=model_result)
         ctx.request_permission = mock_requester
-        ctx.metadata = {"run_origin": "user", "permission_requester": mock_requester}
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["permission_requester"] = mock_requester
 
         result = await handler({"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx)
         # Result is block because user denied the ask
@@ -471,8 +479,12 @@ class TestGateHookLogic:
         """heartbeat origin should use unattended_fallback instead of asking."""
         model_result = MagicMock()
         model_result.content = "unparseable"  # would cause ask
-        handler = self._get_handler(AutoModeConfig(unattended_fallback="deny"))
-        ctx = _make_ctx(run_origin="heartbeat", call_model_result=model_result)
+        handler, _ = self._get_handler(AutoModeConfig(unattended_fallback="deny"))
+        ctx = self._make_ctx_with_config(
+            AutoModeConfig(unattended_fallback="deny"),
+            run_origin="heartbeat",
+            call_model_result=model_result,
+        )
 
         # request_permission should NOT be called
         ctx.request_permission = AsyncMock()
@@ -486,13 +498,14 @@ class TestGateHookLogic:
     async def test_deny_limit_escalates_to_ask(self):
         """Exceeding deny_limit for same tool → escalate to ask."""
         from agent.platform.config.auto_mode import AutoModeConfig
-        broker = PermissionBroker(config=AutoModeConfig(deny_limit=1))
+        deny_limit_config = AutoModeConfig(deny_limit=1)
+        broker = PermissionBroker(config=deny_limit_config)
         # Pre-increment deny count past limit
         broker.increment_deny_count("run-1", "write")
 
         model_result = MagicMock()
         model_result.content = "<block>yes</block><reason>risky</reason>"
-        handler = self._get_handler(AutoModeConfig(deny_limit=1))
+        handler, _ = self._get_handler(deny_limit_config)
 
         allow_response = MagicMock()
         allow_response.decision = "allow_once"
@@ -500,13 +513,11 @@ class TestGateHookLogic:
         async def mock_requester(req):
             return allow_response
 
-        ctx = _make_ctx(call_model_result=model_result, run_origin="user")
+        ctx = self._make_ctx_with_config(deny_limit_config, call_model_result=model_result, run_origin="user")
         ctx.request_permission = mock_requester
-        ctx.metadata = {
-            "run_origin": "user",
-            "run_id": "run-1",
-            "permission_broker": broker,
-        }
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["run_id"] = "run-1"
+        ctx.metadata["permission_broker"] = broker
 
         result = await handler({"name": "write", "args": {"file_path": "/tmp/f", "content": "x"}}, ctx)
         # Deny limit exceeded → ask → user allowed → should pass

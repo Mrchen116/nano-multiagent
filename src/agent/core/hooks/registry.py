@@ -31,7 +31,7 @@ class HookRegistry:
         handler: HookHandler,
         *,
         priority: int = DEFAULT_HOOK_PRIORITY,
-        timeout_ms: int = DEFAULT_HOOK_TIMEOUT_MS,
+        timeout_ms: int | None = DEFAULT_HOOK_TIMEOUT_MS,
         source: HookSource = "runtime",
         module_name: str | None = None,
         file_path: Path | None = None,
@@ -41,8 +41,8 @@ class HookRegistry:
         normalized_event = ensure_known_hook_event(event)
         if not callable(handler):
             raise TypeError("hook handler must be callable")
-        if timeout_ms <= 0:
-            raise ValueError("timeout_ms must be positive")
+        if timeout_ms is not None and timeout_ms <= 0:
+            raise ValueError("timeout_ms must be positive (or None to disable)")
 
         order = self._next_order
         self._next_order += 1
@@ -51,7 +51,7 @@ class HookRegistry:
             event=normalized_event,
             handler=handler,
             priority=int(priority),
-            timeout_ms=int(timeout_ms),
+            timeout_ms=int(timeout_ms) if timeout_ms is not None else None,
             order=order,
             source=source,
             module_name=module_name,
@@ -127,7 +127,7 @@ class HookAPI:
         handler: HookHandler,
         *,
         priority: int = DEFAULT_HOOK_PRIORITY,
-        timeout_ms: int = DEFAULT_HOOK_TIMEOUT_MS,
+        timeout_ms: int | None = DEFAULT_HOOK_TIMEOUT_MS,
     ) -> HookRegistration:
         """Register a hook while preserving module/source provenance."""
 
