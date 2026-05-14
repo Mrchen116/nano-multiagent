@@ -58,3 +58,12 @@
   - [x] C1: 补单测（Red）
   - [x] C2: 补 MessageResponse + to_message_response()
   - [x] C3: 文档
+
+### R4 — 回归修复：更新 REPL 精确输出断言（orchestrator 验收发现）
+- **状态**: DONE
+- **范围**: tests/unit/test_cli_main.py（仅测试，不改实现）
+- **根因**: R2 横幅引入后，3 个精确断言（== "" / strip() == "bye"）未更新
+- **修复**: 3 处断言改为 contains 检查，同时验证横幅确实出现
+- **子任务**:
+  - [x] C2: 更新 3 个测试断言（fix）
+  - [x] C3: 文档（progress.md R4 段 + tasks.md）
