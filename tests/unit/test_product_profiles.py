@@ -49,7 +49,9 @@ def test_local_coding_profile_compat_skill_roots_contains_codex() -> None:
 def test_local_coding_package_exports_default_modules() -> None:
     assert local_coding_defaults.CONFIG_NAMESPACE == "nanocode"
     assert local_coding_prompts.LOCAL_CODING_SYSTEM_PROMPT == LOCAL_CODING_PROFILE.default_system_prompt
-    assert set(local_coding_toolsets.DEFAULT_TOOL_IDS) == {"read", "write", "edit", "bash", "agent", "task_stop"}
+    assert {"read", "write", "edit", "bash", "agent", "task_stop"} <= set(local_coding_toolsets.DEFAULT_TOOL_IDS)
+    assert "skill_manage" in local_coding_toolsets.DEFAULT_TOOL_IDS
+    assert "memory" in local_coding_toolsets.DEFAULT_TOOL_IDS
     assert "bash_risk_gate" in local_coding_hooks.DEFAULT_HOOK_MODULES
 
 
