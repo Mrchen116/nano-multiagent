@@ -39,5 +39,23 @@
   - Visual/Interaction: N/A
 - Rollback: C1 commit 1fe7357b
 - Commits: C1=1fe7357b, C2=e89df315, C3=TBD
-- Next: R3 — 两产品接线：toolset + hook 注册 + workspace 配置透传
+- Next: R3 DONE，见下
+
+---
+
+### R3 — 两产品接线：toolset + hook 注册 + bootstrap skill_manage/memory 注册
+
+- Context: SkillManageTool 和 MemoryTool 在 builtin_tools() 中故意不包含（需要路径参数）；两产品 DEFAULT_TOOL_IDS 和 DEFAULT_HOOK_MODULES 未包含自进化相关项。
+- Decision: LC + PA toolsets 追加 skill_manage + memory；LC + PA hooks 追加 self_improvement；bootstrap_product() 在 config_resolver 可用时实例化并注册两工具。self_improvement.py timeout_ms 修正为 1500（registry 要求正整数，background 模式实际忽略）。
+- Rationale: 工具路径在 bootstrap 时通过 config_resolver 解析，是正确的接线位置，符合"产品 bootstrap 而非 builtin_tools()" 设计。
+- Evidence:
+  - Tests: 44 passed（含 test_local_coding_profile + test_personal_assistant_profile + test_platform_bootstrap + test_self_improvement_hook）
+  - Entry: N/A（profile/bootstrap 单元测试覆盖）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 单元测试覆盖注册逻辑
+  - Visual/Interaction: N/A
+- Rollback: C1 commit 94d55884
+- Commits: C1=94d55884, C2=617557ce, C3=TBD
+- Next: R4 — local_store seed 位置迁移 + LC workspace 配置读取
 
