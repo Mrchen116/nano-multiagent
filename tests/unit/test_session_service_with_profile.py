@@ -1,11 +1,14 @@
-"""Unit tests for SessionService path resolution via ProductProfile.
+"""Unit tests for SessionService store construction (bugfix-348: stateless kernel).
 
-Verifies that SessionService uses ConfigResolver-derived data dir when a profile
-is provided, and falls back to legacy behavior when no profile is given.
+The fallback store (no explicit ``store``/``manager`` given) must be **stateless**
+— ``data_dir is None`` — so callers pass ``workspace_root`` per request and each
+session JSONL lands under its own ``{workspace_root}/.nano/sessions/``. The only
+escape hatch is the explicit ``NANO_MULTIAGENT_DATA_DIR`` env var. There is
+deliberately no silent ``.nano``-relative-to-cwd fallback: that silent cwd
+fallback was the bugfix-348 root cause.
 """
 
 from pathlib import Path
-from unittest.mock import patch
 
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.products.base import ProductProfile
@@ -24,30 +27,40 @@ def _make_profile(global_home: str = "~/.testservice") -> ProductProfile:
     )
 
 
-def test_session_service_uses_workspace_local_data_dir_when_profile_given(tmp_path: Path) -> None:
-    """SessionService with profile uses workspace-local .nano directory."""
+def test_session_service_fallback_store_is_stateless_with_profile(tmp_path: Path) -> None:
+    """SessionService(profile=...) without explicit store builds a stateless store.
+
+    The profile is currently not used for store construction; the fallback is a
+    stateless store (data_dir=None), not a cwd-relative ``.nano``.
+    """
     profile = _make_profile(global_home=str(tmp_path / ".testprod"))
     svc = SessionService(profile=profile)
     store = svc.manager._store  # type: ignore[attr-defined]
     assert isinstance(store, JsonlSessionStore)
-    assert store._data_dir == Path(".nano")
+    assert store._data_dir is None
 
 
-def test_session_service_falls_back_to_default_when_no_profile(tmp_path: Path) -> None:
-    """SessionService without profile uses the legacy default data directory."""
-    legacy_data_dir = tmp_path / "sessions"
-    with patch(
-        "agent.platform.persistence.session.service._resolve_data_dir",
-        return_value=legacy_data_dir,
-    ):
-        svc = SessionService()
+def test_session_service_fallback_store_is_stateless_without_profile() -> None:
+    """SessionService() with no args builds a stateless fallback store."""
+    svc = SessionService()
     store = svc.manager._store  # type: ignore[attr-defined]
     assert isinstance(store, JsonlSessionStore)
-    assert store._data_dir.resolve() == legacy_data_dir.resolve()
+    assert store._data_dir is None
+
+
+def test_session_service_fallback_honours_env_data_dir(tmp_path: Path, monkeypatch) -> None:
+    """NANO_MULTIAGENT_DATA_DIR is the one explicit opt-in for a fixed flat base."""
+    env_dir = tmp_path / "env-sessions"
+    monkeypatch.setenv("NANO_MULTIAGENT_DATA_DIR", str(env_dir))
+    svc = SessionService()
+    store = svc.manager._store  # type: ignore[attr-defined]
+    assert isinstance(store, JsonlSessionStore)
+    assert store._data_dir is not None
+    assert store._data_dir.resolve() == env_dir.resolve()
 
 
 def test_session_service_explicit_store_takes_priority(tmp_path: Path) -> None:
-    """Explicit store kwarg overrides both profile and default path."""
+    """Explicit store kwarg overrides both profile and the fallback."""
     profile = _make_profile(global_home=str(tmp_path / ".testprod"))
     explicit_data_dir = tmp_path / "explicit_sessions"
     custom_store = JsonlSessionStore(data_dir=explicit_data_dir)

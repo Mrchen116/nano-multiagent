@@ -22,10 +22,10 @@ def _make_profile(global_home: Path) -> ProductProfile:
     )
 
 
-def _session_store_data_dir(app: FastAPI) -> Path:
+def _session_store(app: FastAPI) -> JsonlSessionStore:
     store = app.state.session_service.manager._store  # type: ignore[attr-defined]
     assert isinstance(store, JsonlSessionStore)
-    return store._data_dir.resolve()
+    return store
 
 
 def test_create_app_with_local_coding_profile_returns_fastapi() -> None:
@@ -74,11 +74,28 @@ def test_create_app_with_profile_uses_resolved_system_prompt() -> None:
     assert loop._system_prompt == CODING_SYSTEM_PROMPT
 
 
-def test_create_app_with_profile_uses_workspace_local_session_store(tmp_path: Path) -> None:
-    """create_app with profile should place session store under repo_root/.nano."""
+def test_create_app_with_profile_wires_stateless_session_store(tmp_path: Path) -> None:
+    """create_app with profile must wire a *stateless* session store (bugfix-348).
+
+    The store has no fixed ``data_dir`` base: every path-resolving call is given
+    the session's ``workspace_root`` by the caller, so each session's JSONL lands
+    under ``{workspace_root}/.nano/sessions/`` rather than the process cwd. Before
+    bugfix-348 this asserted ``store._data_dir == repo_root/.nano`` — that was the
+    bug itself (all sessions piled into the kernel process's cwd, no workspace
+    isolation, broken cross-directory resume).
+    """
     profile = _make_profile(tmp_path / ".testproduct")
     app = create_app(product_profile=profile, repo_root=tmp_path)
-    assert _session_store_data_dir(app) == (tmp_path / ".nano").resolve()
+    store = _session_store(app)
+    assert store._data_dir is None
+
+    # End-to-end proof: a session created via the wired service lands under the
+    # request's workspace_root, not the process cwd.
+    workspace_root = tmp_path / "agent-workspace"
+    workspace_root.mkdir()
+    session = app.state.session_service.create_session(workspace_root=workspace_root)
+    expected = workspace_root / ".nano" / "sessions" / f"{session.session_id}.jsonl"
+    assert expected.exists()
 
 
 def test_create_app_with_profile_exposes_runtime_config_resolver(tmp_path: Path) -> None:
