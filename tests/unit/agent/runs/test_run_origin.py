@@ -1,6 +1,8 @@
 """Unit tests for RunOrigin schema and registry propagation."""
 
+import asyncio
 from pathlib import Path
+from typing import Any, Sequence
 
 import pytest
 
@@ -18,6 +20,36 @@ class _RuntimeStub:
             session_id=session_id,
             turn_id="turn_1",
             messages=(Message(message_id="msg_1", role="assistant", content="ok"),),
+            completed=True,
+            stop_reason="completed",
+        )
+
+
+class _CapturingRuntimeStub:
+    """Captures kwargs passed to runtime.run for inspection."""
+
+    def __init__(self) -> None:
+        self.captured_kwargs: dict[str, Any] = {}
+
+    async def run(  # noqa: ANN201
+        self,
+        session_id: str,
+        parts: Sequence[Any],
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+        controller: Any = None,
+        origin: "RunOrigin | None" = None,
+    ) -> TurnResult:
+        self.captured_kwargs = {
+            "stream": stream,
+            "run_id": run_id,
+            "origin": origin,
+        }
+        return TurnResult(
+            session_id=session_id,
+            turn_id="turn_cap",
+            messages=(Message(message_id="msg_cap", role="assistant", content="ok"),),
             completed=True,
             stop_reason="completed",
         )
@@ -89,3 +121,35 @@ def test_submit_defaults_to_user_origin(tmp_path: Path) -> None:
         assert submitted.source_task_id is None
     finally:
         registry.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# R4: RunRecord.origin thread-through to runtime.run (feat-333-M1)
+# ---------------------------------------------------------------------------
+
+def test_submit_threads_origin_to_runtime_run(tmp_path: Path) -> None:
+    """RunsRegistry._run_worker_async must pass origin to runtime.run()."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    runtime_stub = _CapturingRuntimeStub()
+    registry = RunsRegistry(runtime=runtime_stub, session_manager=manager)
+
+    try:
+        registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "heartbeat task"}],
+            origin=RunOrigin.HEARTBEAT,
+        )
+        # Wait for the async worker to complete
+        import time
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if runtime_stub.captured_kwargs:
+                break
+            time.sleep(0.05)
+    finally:
+        registry.shutdown()
+
+    # runtime.run must have been called with origin=RunOrigin.HEARTBEAT
+    assert runtime_stub.captured_kwargs.get("origin") is RunOrigin.HEARTBEAT
