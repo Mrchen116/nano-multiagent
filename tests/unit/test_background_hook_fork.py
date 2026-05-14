@@ -434,11 +434,15 @@ async def test_agent_loop_turn_meta_includes_tool_iterations():
 
 
 @pytest.mark.asyncio
-async def test_runtime_agent_end_payload_includes_tool_iterations():
+async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
     """AgentRuntime must include tool_iterations in agent_end hook payload."""
     from agent.core.hooks.registry import HookRegistry
     from agent.core.hooks.runner import HookRunner
     from agent.core.hooks.context import HookContext
+    from agent.core.agent.runtime import AgentRuntime
+    from agent.core.session.jsonl_store import JsonlSessionStore
+    from agent.core.session.manager import SessionManager
+    from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 
     agent_end_payloads = []
 
@@ -449,18 +453,38 @@ async def test_runtime_agent_end_payload_includes_tool_iterations():
     registry.on("agent_end", capture_agent_end, mode="observe")
     runner = HookRunner(registry=registry)
 
-    # Build a minimal runtime and run one turn
-    from tests.unit.test_agent_runtime import make_runtime
-    runtime = make_runtime(hook_runner=runner)
+    class FakeLLMResponse:
+        role = "assistant"
+        content = "Hello"
+        tool_calls = []
+        finish_reason = None
+        usage = None
 
-    from agent.core.session.manager import SessionManager
-    from pathlib import Path
-    import tempfile
+    class FakeLLMTerminal:
+        role = "assistant"
+        content = ""
+        tool_calls = []
+        finish_reason = "stop"
+        usage = None
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        sm = runtime._session_manager
-        session = await runtime.create_session(workspace_root=Path(tmpdir))
-        await runtime.run(session.session_id, [{"type": "text", "text": "hello"}])
+    class FakeLLMClient:
+        def generate(self, request):
+            async def _stream():
+                yield FakeLLMResponse()
+                yield FakeLLMTerminal()
+            return _stream()
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    sm = SessionManager(store=store)
+    runtime = AgentRuntime(
+        session_manager=sm,
+        llm_client=FakeLLMClient(),
+        hook_runner=runner,
+        repo_root=tmp_path,
+    )
+
+    session = await runtime.create_session(workspace_root=tmp_path)
+    await runtime.run(session.session_id, [{"type": "text", "text": "hello"}])
 
     assert len(agent_end_payloads) >= 1
     last = agent_end_payloads[-1]
