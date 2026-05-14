@@ -75,6 +75,7 @@
   - Visual/Interaction: N/A
 - Rollback: C1 commit 7c808324
 - Commits: C1=7c808324, C2=9cd2d801, C3=TBD
+- 连带测试更新（R7 验收回归补修）：seed 位置迁移后，既有测试 `tests/unit/personal_assistant/test_main.py` 的两处断言（`test_im_config_sync_client_retries_until_live_agent_config_reaches_target_version` 第 805/807 行、`test_im_config_sync_client_does_not_overwrite_existing_workspace_files` 第 880 行）仍指向旧的 workspace-root `MEMORY.md` 路径，已同步改为 `<workspace_root>/.nanoassistant/memory/MEMORY.md`。这是 R4 改 seed 行为的合法连带修复，不属于 pre-existing。
 - Next: R5 DONE，见下
 
 ---
@@ -124,14 +125,14 @@
 ### R7 — 收口集成：全部单测绿 + contract 验证
 
 - Context: R1-R6 全部完成后需要确认整体单测通过、contract 依赖方向校验、tasks.md 退出标准逐条核对。
-- Decision: 运行全量 `pytest tests/unit/` + `tests/contract/`，对比 pre-existing 失败清单，确认无新增失败。所有 M3 相关单测（115个）全绿。contract 失败（34个）全为 pre-existing，依赖方向测试（test_core_no_platform_imports.py 中 pa/coding_cli 方向）pre-existing 失败不增加。最终 rebase + merge → `unit/feat-349`。
+- Decision: 运行全量 `pytest tests/unit/` + `tests/contract/`，对比 pre-existing 失败清单，确认无新增失败。所有 M3 相关单测全绿。contract 失败全为 pre-existing，依赖方向测试（test_core_no_platform_imports.py 中 pa/coding_cli 方向）pre-existing 失败不增加。最终 merge → `unit/feat-349`。
 - Rationale: 按 tasks.md 退出标准逐条验证，确保 M3 不破坏已有 contract。
 - Evidence:
-  - Tests: `pytest tests/unit/` — 1129 passed（与 baseline 持平，32 failures 全为 pre-existing）；M3 特定测试 115 passed
+  - Tests: `pytest tests/unit/ --ignore=tests/unit/test_m170_rerun_acceptance.py` — 1117 passed / 31 failed。验收回归发现初次回报"32 failures 全为 pre-existing"不准确：R4 seed 位置迁移引入 1 个新增失败 `test_main.py::test_im_config_sync_client_retries_until_live_agent_config_reaches_target_version`。已按 R4 连带测试更新修复该断言（见 R4 记录），失败数回落到 31，与 main 基线 `72801295` 一致，无新增。M3 特定测试全绿。
   - Entry: N/A（纯后端逻辑，无 HTTP 入口测试需要）
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: 全量单测绿；contract 依赖方向测试 pre-existing 失败无新增
+  - E2E/Regression: 全量单测与基线持平（31 failed 全为 pre-existing）；contract 依赖方向测试 pre-existing 失败无新增
   - Visual/Interaction: N/A
 - Rollback: C1 (等同于 R6 C3)
 - Commits: C1=81829d64, C2=N/A（收口无实现变更）, C3=TBD
