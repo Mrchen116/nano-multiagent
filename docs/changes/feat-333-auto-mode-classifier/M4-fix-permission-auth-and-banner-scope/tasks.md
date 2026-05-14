@@ -41,3 +41,9 @@
 | R2 | Issue 4: permission-card 使用 authFetch | DONE |
 | R3 | Issue 5: _load_auto_mode_config_for_repl 读 workspace | DONE |
 | R4 | polish: 按钮间距 + 构建 + 浏览器验收 | DONE |
+
+## 浏览器验收证据
+
+- `/tmp/feat333-m4-perm-card-visible.png` — 权限卡片 4 按钮带 gap-2 间距
+- `/tmp/feat333-m4-perm-card-resolved.png` — 点击 Allow once 后 "Allowed · bash" resolved 状态（HTTP 200）
+- Network log: `POST .../permissions/test-perm-req-m4-v2-001 → 200`（M4 authFetch fix 生效）
