@@ -128,6 +128,21 @@ class PermissionBroker:
             self._pending[request_id] = (future, run_id)
         return future
 
+    def is_pending(self, request_id: str) -> bool:
+        """Return True if request_id is currently waiting for a decision.
+
+        Used by the inbound HTTP endpoint to distinguish "unknown/already-resolved"
+        (404) from "valid pending request" (200) before calling resolve().
+
+        Args:
+            request_id: The request id to check.
+
+        Returns:
+            True if the request is registered and not yet resolved.
+        """
+        with self._lock:
+            return request_id in self._pending
+
     def resolve(self, request_id: str, response: PermissionResponse) -> None:
         """Resolve a pending permission request with the given response.
 

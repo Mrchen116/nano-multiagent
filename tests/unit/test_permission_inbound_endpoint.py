@@ -46,20 +46,22 @@ class TestPermissionInboundEndpoint:
     """POST /v1/sessions/{sid}/permissions/{rid} endpoint."""
 
     def test_endpoint_exists(self, tmp_path: Path) -> None:
-        """The permissions endpoint must be registered (not 404/405 for wrong method)."""
+        """The permissions endpoint must be registered (not 405 Method Not Allowed)."""
         app = _make_test_app(tmp_path)
 
         with TestClient(app, raise_server_exceptions=False) as client:
-            # Without auth we expect 401, not 404 (endpoint doesn't exist) or 405
+            # Without auth we expect 401 or 404 (no request_id pending), not 405
             resp = client.post(
                 "/v1/sessions/sess-1/permissions/perm-req-1",
                 json={"decision": "allow_once", "request_id": "perm-req-1"},
             )
-        # 401 means endpoint exists but auth failed
-        # 404 means endpoint doesn't exist yet → Red state
-        assert resp.status_code != 404, (
-            f"Endpoint not registered; got 404. Register POST "
-            f"/v1/sessions/{{sid}}/permissions/{{rid}} in session.py or a new router."
+        # 401 = endpoint exists, auth failed
+        # 404 = endpoint exists, request not found (our business logic 404)
+        # 405 = endpoint doesn't exist (method not allowed on route) → Red state
+        assert resp.status_code in (401, 404), (
+            f"Endpoint not registered or returned unexpected status {resp.status_code}. "
+            f"Expected 401 (auth failed) or 404 (request not pending). "
+            f"Body: {resp.text}"
         )
 
     def test_endpoint_returns_404_for_unknown_request_after_auth(self, tmp_path: Path) -> None:

@@ -28,6 +28,7 @@ from agent.platform.http_api.sse import (
 from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.registry import ToolRegistry
 from agent.core.runs.registry import RunsRegistry
+from agent.platform.permissions.broker import PermissionBroker, PermissionResponse
 
 from ..auth import require_bearer_auth
 from ..deps import (
@@ -35,6 +36,7 @@ from ..deps import (
     get_agent_runtime,
     get_event_stream_hub,
     get_hook_registry,
+    get_permission_broker,
     get_runs_registry,
     get_session_service,
     get_tool_registry,
@@ -695,3 +697,87 @@ async def _session_stream_generator(
             code="subscriber_overflow",
             message="server backlog overflow; reconnect with Last-Event-ID",
         )
+
+
+# ---------------------------------------------------------------------------
+# Permission inbound endpoint (auto_mode_gate ask flow)
+# ---------------------------------------------------------------------------
+
+class PermissionDecisionRequest(BaseModel):
+    """User decision for a pending permission request.
+
+    Sent by CLI (direct POST) or PA (via Gateway relay) after the user
+    chooses a permission option in the picker / IM card.
+    """
+
+    decision: str = Field(
+        ...,
+        description=(
+            "Permission decision: 'allow_once' | 'deny' | "
+            "'allow_session' | 'allow_always'"
+        ),
+    )
+    request_id: str = Field(default="", description="Echo of the request_id being resolved.")
+    reason: str = Field(default="", description="Optional user-supplied reason.")
+    rule_update: dict | None = Field(
+        default=None,
+        description="For 'allow_always': rule to persist in workspace config.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_decision(self) -> "PermissionDecisionRequest":
+        valid = {"allow_once", "deny", "allow_session", "allow_always"}
+        if self.decision not in valid:
+            raise ValueError(
+                f"decision must be one of {sorted(valid)!r}; got {self.decision!r}"
+            )
+        return self
+
+
+@router.post("/{session_id}/permissions/{request_id}", status_code=200)
+def submit_permission_decision(
+    session_id: str,
+    request_id: str,
+    body: PermissionDecisionRequest,
+    broker: PermissionBroker = Depends(get_permission_broker),
+) -> dict:
+    """Submit a user decision for a pending permission request.
+
+    Resolves the asyncio.Future held by PermissionBroker, unblocking the
+    parked auto_mode_gate hook coroutine. Idempotent: resolving an unknown
+    or already-resolved request_id returns 404.
+
+    Args:
+        session_id: The session owning the pending permission request.
+        request_id: The unique identifier of the permission request.
+        body: The user's decision (allow_once / deny / allow_session / allow_always).
+        broker: PermissionBroker injected from app state.
+
+    Returns:
+        JSON ``{"resolved": true, "request_id": ..., "decision": ...}`` on success.
+
+    Raises:
+        APIError: 404 when request_id is not pending (unknown or already resolved).
+    """
+    # Check request is actually pending before resolving
+    if not broker.is_pending(request_id):
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="permission_request_not_found",
+            message=f"permission request not found or already resolved: {request_id}",
+            retryable=False,
+        )
+
+    response = PermissionResponse(
+        decision=body.decision,  # type: ignore[arg-type]
+        request_id=request_id,
+        reason=body.reason,
+        rule_update=body.rule_update,
+    )
+    broker.resolve(request_id, response)
+
+    return {
+        "resolved": True,
+        "request_id": request_id,
+        "decision": body.decision,
+    }
