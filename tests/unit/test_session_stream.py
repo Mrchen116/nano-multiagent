@@ -158,3 +158,82 @@ def test_drain_run_on_other_receives_non_target_events() -> None:
         assert other_events[0]["run_id"] == "r_other"
     finally:
         reader.stop()
+
+
+# ---------------------------------------------------------------------------
+# R7: CLI SSE drain permission_request hook (feat-333-M1)
+# ---------------------------------------------------------------------------
+
+def test_drain_run_calls_on_permission_request_for_matching_events() -> None:
+    """drain_run should invoke on_permission_request callback for permission_request events."""
+    permission_events: list[dict[str, Any]] = []
+
+    client = _FakeClient(
+        events=[
+            {"event": "tool_start", "run_id": "r1"},
+            {
+                "event": "permission_request",
+                "run_id": "r1",
+                "request_id": "perm-1",
+                "tool_name": "write",
+                "tool_input": {"file_path": "/tmp/f"},
+                "options": [{"id": "allow_once", "label": "Allow once"}],
+            },
+            {"event": "assistant_message", "run_id": "r1", "content": "done"},
+            {"event": "run_status", "run_id": "r1", "status": "completed"},
+        ]
+    )
+    reader = SessionStreamReader(client)
+    reader.start(session_id="s1")
+    try:
+        events = reader.drain_run(
+            run_id="r1",
+            timeout=0.1,
+            terminal_timeout=2.0,
+            on_permission_request=permission_events.append,
+        )
+        # permission_request event should NOT be in the returned events list
+        # (it's handled out-of-band by the callback)
+        event_names = [e.get("event") for e in events]
+        assert "permission_request" not in event_names, (
+            "permission_request should be handled via on_permission_request callback, "
+            "not included in the returned events list"
+        )
+        # The callback should have received exactly one call
+        assert len(permission_events) == 1
+        assert permission_events[0]["request_id"] == "perm-1"
+        assert permission_events[0]["tool_name"] == "write"
+    finally:
+        reader.stop()
+
+
+def test_drain_run_permission_request_without_callback_is_passed_to_on_event() -> None:
+    """When no on_permission_request is provided, permission_request events go to on_event."""
+    collected: list[dict[str, Any]] = []
+
+    client = _FakeClient(
+        events=[
+            {
+                "event": "permission_request",
+                "run_id": "r1",
+                "request_id": "perm-2",
+                "tool_name": "bash",
+            },
+            {"event": "run_status", "run_id": "r1", "status": "completed"},
+        ]
+    )
+    reader = SessionStreamReader(client)
+    reader.start(session_id="s1")
+    try:
+        reader.drain_run(
+            run_id="r1",
+            timeout=0.1,
+            terminal_timeout=2.0,
+            on_event=collected.append,
+            # no on_permission_request → falls through to on_event
+        )
+        event_names = [e.get("event") for e in collected]
+        # Falls through to the default on_event handler
+        assert "permission_request" in event_names
+    finally:
+        reader.stop()
