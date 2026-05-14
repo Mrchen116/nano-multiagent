@@ -125,3 +125,28 @@
 - Rollback: da718ad6 (R6 C2)
 - Commits: C1=7b80c3da, C2=d1e273cf, C3=此提交
 - Next: 所有 roadpoint 已完成，进入集成步骤
+
+---
+
+### R8 — 回归修复：origin thread-through + bash_risk_gate→auto_mode_gate 测试同步
+
+- Context: orchestrator 验收（§3.3）发现 M1 合入 unit 分支后相比 baseline (ba56e6fa) 新增了 36 个测试失败。根因两类：① runtime._run_locked() 缺少 origin 参数（NameError），影响约 35 个测试；② 测试/契约层未同步 bash_risk_gate→auto_mode_gate 的替换（1-2 个测试 + 契约层）。
+- Decision:
+  1. `runtime._run_locked()` 增加 `origin: Any = None` 参数；`run()` 在调用 `_run_locked()` 时传递 `origin=origin`。
+  2. `local_coding/hooks/__init__.py` DEFAULT_HOOK_MODULES 从 `bash_risk_gate` 改为 `auto_mode_gate`，使 bootstrap 配置与已删除的 bash_risk_gate.py 实际状态保持一致。
+  3. 更新 5 个测试文件：① `test_personal_assistant_bootstrap_integration.py` 断言 `auto_mode_gate`（测试名同步更新）；② `test_m85_canonical_wiring_imports.py` 把 forbidden import 检查改为 auto_mode_gate.py；③ `test_multi_product_architecture_acceptance.py` EXPECTED_EXISTING_PATHS 改为 auto_mode_gate.py；④ `test_local_coding_profile.py` 断言 `auto_mode_gate`；⑤ `test_product_profiles.py` 断言 `auto_mode_gate`。
+  4. `test_runs_registry.py` + `test_run_cancel.py` 各 stub 的 `run()` 增加 `origin=None` 关键字参数，使 registry 传 `origin=` 时不再抛 unexpected keyword argument。
+- Rationale: 前一个 worker 在 R4 给 `runtime.run()` 加了 origin 形参，却未同步给 `_run_locked()` 传参，导致 NameError 在运行时炸掉。bash_risk_gate.py 被 R5 完全删除，但 DEFAULT_HOOK_MODULES 和各测试中的引用未同步，均为同一遗漏。修复均为无歧义的正确性修复，不涉及行为变更。
+- Evidence:
+  - Tests (修复前): pytest -m "not e2e" → **218 failed**, 1396 passed（相比 baseline 211 failed 新增 7 个，36 项 M1 新增失败）
+  - Tests (修复后): pytest -m "not e2e" → **211 failed**, 1403 passed（与 baseline 同等失败数，passed 数 +99 来自 M1 真实新增测试通过）
+  - M1 核心三件套：`pytest tests/unit/test_auto_mode_gate.py tests/unit/test_auto_mode_config.py tests/unit/test_permission_broker.py` → **85 passed**
+  - 36 项指定失败测试：全部转绿，逐项验证通过（见 C1 commit 前的 pytest -v 输出）
+  - Entry: N/A（内部结构修复）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: b1614979 (feat-333-M1 merge commit)
+- Commits: C1=ed07ac09, C2=9854feb2, C3=此提交
+- Next: 合并 milestone/feat-333-M1-fix 回 unit/feat-333-auto-mode-classifier，清理 worktree
