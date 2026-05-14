@@ -358,6 +358,69 @@ def _grace_period_drain(
             break
 
 
+def _handle_permission_request(
+    *,
+    out: TextIO,
+    client: ServerClient,
+    session_id: str,
+    perm_event: dict[str, object],
+) -> None:
+    """Show permission picker for an inbound permission_request SSE event and POST the decision.
+
+    Blocks briefly while the user makes a selection. drain_run parks when this callback
+    runs (the agent run is already parked server-side awaiting the decision), so
+    no concurrent stream events need to be handled.
+
+    Args:
+        out: Terminal output stream.
+        client: ServerClient used to POST the permission decision.
+        session_id: The session that owns the permission request.
+        perm_event: The permission_request SSE event dict from the stream.
+    """
+    request_id = str(perm_event.get("request_id") or "")
+    tool_name = str(perm_event.get("tool_name") or "unknown")
+    raw_options: list[dict[str, object]] = list(perm_event.get("options") or [])  # type: ignore[arg-type]
+
+    perm_options = [
+        repl_input.PermissionOption(
+            id=str(opt.get("id") or "allow_once"),
+            label=str(opt.get("label") or str(opt.get("id") or "allow_once")),
+            description=str(opt.get("description") or ""),
+        )
+        for opt in raw_options
+    ] or [
+        repl_input.PermissionOption(id="allow_once", label="Allow once", description="Allow this single action"),
+        repl_input.PermissionOption(id="deny", label="Deny", description="Block this action"),
+    ]
+
+    header = f"Permission request: {tool_name}"
+    tool_input = perm_event.get("tool_input")
+    if tool_input:
+        import json as _json
+        try:
+            header += f"\n  {_json.dumps(tool_input, ensure_ascii=False)[:120]}"
+        except Exception:
+            pass
+
+    chosen_id = repl_input.read_permission_choice(
+        header=header,
+        options=perm_options,
+        out=out,
+    )
+
+    if request_id:
+        try:
+            client.submit_permission_decision(
+                session_id=session_id,
+                request_id=request_id,
+                decision=chosen_id,
+            )
+        except RuntimeError:
+            # Decision POST failed (server may have timed out the request).
+            # Drain continues; the run will surface an error via run_status.
+            pass
+
+
 def _send_message_via_sse(
     *,
     out: TextIO,
@@ -417,9 +480,18 @@ def _send_message_via_sse(
                 out.write(f"\r\033[K{format_tool_done(name, duration_ms)}\r\n")
                 out.flush()
 
+        def _on_permission_request_tty(perm_event: dict[str, object]) -> None:
+            # Pause live render, show permission picker, POST the decision.
+            # drain_run is parked while this callback blocks — no new stream events arrive.
+            _erase_thinking()
+            _handle_permission_request(
+                out=out, client=client, session_id=session_id, perm_event=perm_event,
+            )
+
         events = reader.drain_run(
             run_id=run_id, timeout=0.5, terminal_timeout=120.0,
             on_other=_on_other_event, on_event=_on_run_event_tty,
+            on_permission_request=_on_permission_request_tty,
         )
         _erase_thinking()
         live_rendered = True
@@ -434,9 +506,15 @@ def _send_message_via_sse(
                 if line:
                     print(line, file=out)
 
+        def _on_permission_request_plain(perm_event: dict[str, object]) -> None:
+            _handle_permission_request(
+                out=out, client=client, session_id=session_id, perm_event=perm_event,
+            )
+
         reader.drain_run(
             run_id=run_id, timeout=0.5, terminal_timeout=120.0,
             on_other=_on_other_event, on_event=_on_run_event_plain,
+            on_permission_request=_on_permission_request_plain,
         )
 
     assistant_text = ""

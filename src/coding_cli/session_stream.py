@@ -106,6 +106,7 @@ class SessionStreamReader:
         terminal_timeout: float = 120.0,
         on_other: Callable[[dict[str, Any]], None] | None = None,
         on_event: Callable[[dict[str, Any]], None] | None = None,
+        on_permission_request: Callable[[dict[str, Any]], None] | None = None,
     ) -> list[dict[str, Any]]:
         """Block until terminal run_status for run_id, collecting all matching events.
 
@@ -113,6 +114,16 @@ class SessionStreamReader:
         discarded.  Matching events are passed to ``on_event`` immediately as
         they arrive (before being appended to the returned list), enabling
         real-time rendering during the drain loop.
+
+        ``permission_request`` events receive special handling: when
+        ``on_permission_request`` is provided they are routed exclusively to
+        that callback and omitted from the returned events list.  When
+        ``on_permission_request`` is None they fall through to ``on_event``
+        like any other event.  This allows CLI commands to pause live render,
+        show the permission picker, POST the decision, and resume drain — all
+        without breaking the drain loop (the run is already parked on the
+        agent side, so no new stream events will arrive until the decision is
+        posted).
 
         Raises TimeoutError if terminal status not seen within terminal_timeout.
         """
@@ -126,6 +137,13 @@ class SessionStreamReader:
             if evt.get("run_id") != run_id:
                 if on_other is not None:
                     on_other(evt)
+                continue
+            # Route permission_request events to dedicated callback when provided.
+            # The hook is synchronous and expected to block briefly for user input,
+            # then POST the decision so the agent run can resume.
+            if evt.get("event") == "permission_request" and on_permission_request is not None:
+                on_permission_request(evt)
+                # Do NOT append to events or call on_event — handled out-of-band.
                 continue
             if on_event is not None:
                 on_event(evt)
