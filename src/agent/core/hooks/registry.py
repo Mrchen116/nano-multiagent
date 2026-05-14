@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from .types import (
     DEFAULT_HOOK_PRIORITY,
     DEFAULT_HOOK_TIMEOUT_MS,
+    HookEventMode,
     HookEventType,
     HookHandler,
     HookRegistration,
@@ -35,14 +36,24 @@ class HookRegistry:
         source: HookSource = "runtime",
         module_name: str | None = None,
         file_path: Path | None = None,
+        mode: str | HookEventMode = HookEventMode.OBSERVE,
     ) -> HookRegistration:
-        """Register a handler for one known event."""
+        """Register a handler for one known event.
+
+        Args:
+            mode: Dispatch mode — "observe" (blocking), "intercept" (blocking,
+                rewrite), or "background" (fire-and-forget, no timeout).
+                Background handlers receive fork_conversation in their HookContext
+                and are started via asyncio.create_task without awaiting.
+        """
 
         normalized_event = ensure_known_hook_event(event)
         if not callable(handler):
             raise TypeError("hook handler must be callable")
         if timeout_ms <= 0:
             raise ValueError("timeout_ms must be positive")
+        if isinstance(mode, str):
+            mode = HookEventMode(mode)
 
         order = self._next_order
         self._next_order += 1
@@ -57,15 +68,34 @@ class HookRegistry:
             module_name=module_name,
             file_path=file_path,
             hook_id=hook_id,
+            mode=mode,
         )
         self._registrations.setdefault(normalized_event, []).append(registration)
         return registration
 
     def handlers_for(self, event: str | HookEventType) -> tuple[HookRegistration, ...]:
-        """Return handlers for an event sorted by priority then registration order."""
+        """Return non-background handlers for an event sorted by priority then order.
+
+        Excludes BACKGROUND mode registrations — those are dispatched separately
+        via dispatch_background() / background_handlers_for().
+        """
 
         normalized_event = normalize_hook_event(event)
-        registrations = list(self._registrations.get(normalized_event, ()))
+        registrations = [
+            r for r in self._registrations.get(normalized_event, ())
+            if r.mode != HookEventMode.BACKGROUND
+        ]
+        registrations.sort(key=lambda item: (item.priority, item.order))
+        return tuple(registrations)
+
+    def background_handlers_for(self, event: str | HookEventType) -> tuple[HookRegistration, ...]:
+        """Return BACKGROUND-mode handlers for an event sorted by priority then order."""
+
+        normalized_event = normalize_hook_event(event)
+        registrations = [
+            r for r in self._registrations.get(normalized_event, ())
+            if r.mode == HookEventMode.BACKGROUND
+        ]
         registrations.sort(key=lambda item: (item.priority, item.order))
         return tuple(registrations)
 
@@ -128,6 +158,7 @@ class HookAPI:
         *,
         priority: int = DEFAULT_HOOK_PRIORITY,
         timeout_ms: int = DEFAULT_HOOK_TIMEOUT_MS,
+        mode: str | HookEventMode = HookEventMode.OBSERVE,
     ) -> HookRegistration:
         """Register a hook while preserving module/source provenance."""
 
@@ -139,6 +170,7 @@ class HookAPI:
             source=self._source,
             module_name=self._module_name,
             file_path=self._file_path,
+            mode=mode,
         )
 
     def set_state(self, key: str, value: object | None) -> None:

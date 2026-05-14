@@ -177,6 +177,7 @@ class AgentLoop:
                                 "stop_reason": stop_reason,
                                 "usage": turn_usage,
                                 "completed": False,
+                                "tool_iterations": api_round_count - 1,
                             },
                         )
                         return
@@ -204,6 +205,7 @@ class AgentLoop:
                                     "stop_reason": stop_reason,
                                     "usage": turn_usage,
                                     "completed": False,
+                                    "tool_iterations": api_round_count - 1,
                                 },
                             )
                             return
@@ -321,6 +323,11 @@ class AgentLoop:
                                 "stop_reason": stop_reason,
                                 "usage": turn_usage,
                                 "completed": True,
+                                # Expose api_round_count as tool_iterations for
+                                # the nudge counter signal flow (feat-349 decision 2).
+                                # runtime._run_locked reads this to update the
+                                # per-session tool_iterations milestone.
+                                "tool_iterations": api_round_count,
                             },
                         )
                         break
@@ -335,6 +342,7 @@ class AgentLoop:
                                 "stop_reason": stop_reason,
                                 "usage": turn_usage,
                                 "completed": True,
+                                "tool_iterations": api_round_count,
                             },
                         )
                         break

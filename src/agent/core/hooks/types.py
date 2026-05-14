@@ -35,10 +35,19 @@ class HookEventType(StrEnum):
 
 
 class HookEventMode(StrEnum):
-    """Describe whether an event is observe-only or intercept-capable."""
+    """Describe whether an event is observe-only, intercept-capable, or background.
+
+    Three orthogonal dispatch modes:
+    - observe: blocking, read-only, subject to timeout_ms
+    - intercept: blocking, can rewrite/stop payload, subject to timeout_ms
+    - background: fire-and-forget via asyncio.create_task, no timeout, can fork conversation
+    """
 
     OBSERVE = "observe"
     INTERCEPT = "intercept"
+    # Fire-and-forget mode for long-running side-chains (e.g., self-improvement review).
+    # Handlers receive fork_conversation in their HookContext; dispatch does not await.
+    BACKGROUND = "background"
 
 
 INTERCEPT_EVENTS = frozenset(
@@ -75,6 +84,9 @@ class HookRegistration:
     module_name: str | None = None
     file_path: Path | None = None
     hook_id: str = ""
+    # Dispatch mode for this registration. Defaults to OBSERVE.
+    # BACKGROUND registrations are handled fire-and-forget without timeout.
+    mode: HookEventMode = HookEventMode.OBSERVE
 
 
 @dataclass(frozen=True, slots=True)
