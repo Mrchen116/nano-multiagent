@@ -14,8 +14,8 @@
   - Browser QA: N/A
   - E2E/Regression: 见 R1 测试文件新增用例
   - Visual/Interaction: N/A
-- Rollback: C3 hash 见下
-- Commits: C1=TBD, C2=TBD, C3=TBD
+- Rollback: 268fbdc6（C1 commit）
+- Commits: C1=268fbdc6, C2=f6a1f47e, C3=TBD
 
 ### R2 — IMAuthClient
 
