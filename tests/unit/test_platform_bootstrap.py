@@ -110,4 +110,81 @@ def test_bootstrap_product_builds_profile_session_store(tmp_path: Path) -> None:
     resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
 
     assert isinstance(resolved.session_store, JsonlSessionStore)
-    assert resolved.session_store._data_dir.resolve() == (tmp_path / ".nano").resolve()
+    # workspace-aware mode: no fixed data_dir — sessions resolve per workspace_root
+    assert resolved.session_store._data_dir is None
+
+
+def test_session_jsonl_falls_in_workspace_root_not_process_cwd(tmp_path: Path) -> None:
+    """session JSONL must land in workspace_root/.nano/sessions/, not process cwd/.nano/sessions/.
+
+    bugfix-348: this was the root cause — store used process cwd instead of workspace_root.
+    """
+    from agent.core.session.manager import SessionManager
+
+    workspace_root = tmp_path / "my-agent-workspace"
+    workspace_root.mkdir()
+
+    store = JsonlSessionStore(data_dir=None)  # workspace-aware mode
+    manager = SessionManager(store=store)
+
+    session = manager.create_session(workspace_root=workspace_root)
+
+    expected_path = workspace_root / ".nano" / "sessions" / f"{session.session_id}.jsonl"
+    assert expected_path.exists(), (
+        f"JSONL must be at {{workspace_root}}/.nano/sessions/{{session_id}}.jsonl, "
+        f"but not found at {expected_path}"
+    )
+
+    # Sanity: must NOT be in process cwd
+    import os
+    wrong_path = Path(os.getcwd()) / ".nano" / "sessions" / f"{session.session_id}.jsonl"
+    assert not wrong_path.exists(), (
+        f"JSONL must not fall in process cwd, but found at {wrong_path}"
+    )
+
+
+def test_workspace_aware_store_multiple_workspaces_isolated(tmp_path: Path) -> None:
+    """Sessions from different workspace_roots must land in their respective dirs."""
+    from agent.core.session.manager import SessionManager
+
+    ws1 = tmp_path / "workspace-agent-1"
+    ws2 = tmp_path / "workspace-agent-2"
+    ws1.mkdir()
+    ws2.mkdir()
+
+    store = JsonlSessionStore(data_dir=None)  # workspace-aware mode
+    manager = SessionManager(store=store)
+
+    sess1 = manager.create_session(workspace_root=ws1)
+    sess2 = manager.create_session(workspace_root=ws2)
+
+    assert (ws1 / ".nano" / "sessions" / f"{sess1.session_id}.jsonl").exists()
+    assert (ws2 / ".nano" / "sessions" / f"{sess2.session_id}.jsonl").exists()
+    # Each session must not appear in the other workspace
+    assert not (ws2 / ".nano" / "sessions" / f"{sess1.session_id}.jsonl").exists()
+    assert not (ws1 / ".nano" / "sessions" / f"{sess2.session_id}.jsonl").exists()
+
+
+def test_workspace_aware_store_load_and_append_after_create(tmp_path: Path) -> None:
+    """load() and append() must work for sessions created in workspace-aware mode."""
+    from agent.core.session.manager import SessionManager
+
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    store = JsonlSessionStore(data_dir=None)
+    manager = SessionManager(store=store)
+
+    session = manager.create_session(workspace_root=workspace_root, title="test-session")
+
+    # load must succeed without error
+    result = store.load(session.session_id)
+    assert result.config.session_id == session.session_id
+    assert result.config.workspace_root == workspace_root
+
+    # append must not raise
+    store.append(session.session_id, {"type": "turn", "uuid": "msg_1", "role": "user", "content": "hi", "timestamp": "2026-01-01T00:00:00+00:00"})
+    import time; time.sleep(0.05)  # give writer thread time to flush
+    store.writer.flush()
+    result2 = store.load(session.session_id)
+    assert len(result2.messages) == 1
