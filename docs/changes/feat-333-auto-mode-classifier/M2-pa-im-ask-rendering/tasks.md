@@ -64,7 +64,7 @@ PA + IM 后端 + IM 前端三层 `ask` 渲染链路：
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | IM 后端：gateway_handler 新三 kind + EventBridge permission upsert | TODO |
+| R1 | IM 后端：gateway_handler 新三 kind + EventBridge permission upsert | DONE |
 | R2 | IM 后端：REST 端点 + WS fan-out permission_response | TODO |
 | R3 | PA：permission_request SSE 消费 + heartbeat origin 修复 | TODO |
 | R4 | IM 前端：PermissionCard 组件 + types.ts + message-pane 挂载点 | TODO |
