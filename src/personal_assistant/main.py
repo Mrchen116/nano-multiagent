@@ -1779,6 +1779,9 @@ def _build_kernel_event_observer(
                         "completion": completion,
                         "total": prompt + completion,
                     }
+                    cw = event.get("context_window")
+                    if isinstance(cw, int) and cw > 0:
+                        token_usage_payload["context_window"] = cw
             if message_id:
                 loop.create_task(_send(manager, "node.streaming_delta", {
                     "kind": "message_completed",

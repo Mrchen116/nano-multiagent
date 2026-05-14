@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import React, { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import { AttachmentChip } from "../../attachments/attachment-chip";
@@ -42,6 +42,24 @@ export interface MessagePaneProps {
 }
 
 const MENTION_RE = /@([^@\s]*)$/;
+// Matches any @word (completed mention) in the full draft text.
+const MENTION_HIGHLIGHT_RE = /@[\w一-龥][^\s@]*/g;
+
+function buildMirrorNodes(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  MENTION_HIGHLIGHT_RE.lastIndex = 0;
+  while ((m = MENTION_HIGHLIGHT_RE.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    nodes.push(<mark key={m.index} className="chat-composer-mention-highlight">{m[0]}</mark>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  // Mirror needs a trailing newline token so the last line has correct height.
+  nodes.push("​");
+  return nodes;
+}
 
 /**
  * Right-hand message pane — header (avatar / title / participants / node chip /
@@ -75,6 +93,7 @@ export function MessagePane({
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<Attachment[]>([]);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
   const kind = classifyConversationKind(conversation);
@@ -105,7 +124,8 @@ export function MessagePane({
       setDraft((d) => d.replace(MENTION_RE, ""));
       return;
     }
-    if (!isMobile && e.key === "Enter" && !e.shiftKey) {
+    if (!isMobile && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      if (mentionQuery !== null) return;
       e.preventDefault();
       commit(draft);
     }
@@ -217,15 +237,29 @@ export function MessagePane({
                 onClose={() => setDraft((d) => d.replace(MENTION_RE, ""))}
               />
             )}
-            <textarea
-              ref={composerRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              rows={isMobile ? 1 : 2}
-              className="chat-pane-composer-input"
-            />
+            <div className="chat-composer-highlight-wrapper">
+              <div
+                ref={mirrorRef}
+                className="chat-composer-highlight-mirror"
+                aria-hidden="true"
+              >
+                {buildMirrorNodes(draft)}
+              </div>
+              <textarea
+                ref={composerRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onScroll={() => {
+                  if (mirrorRef.current && composerRef.current) {
+                    mirrorRef.current.scrollTop = composerRef.current.scrollTop;
+                  }
+                }}
+                placeholder={placeholder}
+                rows={isMobile ? 1 : 2}
+                className="chat-pane-composer-input chat-composer-highlight-input"
+              />
+            </div>
             <button
               type="submit"
               className="chat-pane-composer-send"

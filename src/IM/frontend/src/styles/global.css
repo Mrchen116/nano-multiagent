@@ -1369,8 +1369,35 @@ body {
   gap: 0.4rem;
 }
 
-.chat-pane-composer-input {
+.chat-composer-highlight-wrapper {
   flex: 1;
+  position: relative;
+}
+
+.chat-composer-highlight-mirror {
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--im-text);
+}
+
+.chat-composer-mention-highlight {
+  color: oklch(0.50 0.18 255);
+  background: transparent;
+  font-style: normal;
+  text-decoration: none;
+}
+
+.chat-pane-composer-input {
   border: 1px solid var(--im-border);
   border-radius: 0.6rem;
   background: var(--im-surface-2);
@@ -1379,6 +1406,18 @@ body {
   font-size: 0.9rem;
   color: var(--im-text);
   resize: none;
+}
+
+.chat-composer-highlight-input {
+  width: 100%;
+  position: relative;
+  background: transparent;
+  caret-color: var(--im-text);
+  color: transparent;
+}
+
+.chat-composer-highlight-input::placeholder {
+  color: var(--im-text-sub);
 }
 
 .chat-pane-composer-input:focus-visible {

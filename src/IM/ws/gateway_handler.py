@@ -1501,14 +1501,15 @@ def _parse_token_usage(value: object) -> TokenUsage | None:
         return None
     if not isinstance(total, int):
         total = prompt + completion
-    # TokenUsage domain model uses output/context_used/context_window mapping.
-    # completion → output; prompt → context_used (closest semantic fit for token chip).
-    # M17/R8-3: total = prompt+completion is also surfaced so the chip can show
-    # actual per-turn usage instead of the (often tiny) completion number alone.
+    # context_window is the model's actual maximum context size, passed through from
+    # the kernel's CompactionSettings.context_window via the turn_end event chain.
+    # 0 means unknown (kernel didn't send it); the frontend treats 0 as "not available".
+    cw_raw = value.get("context_window")
+    context_window = max(int(cw_raw), 0) if isinstance(cw_raw, int) else 0
     return TokenUsage(
         output=max(completion, 0),
         context_used=max(prompt, 0),
-        context_window=max(total, 0),
+        context_window=context_window,
         total=max(total, 0),
     )
 

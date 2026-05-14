@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from pydantic import BaseModel, Field, model_validator
 
 from IM.api.deps import current_user, get_gateway_handler, get_web_im_service
+from IM.api.ws.event_types import tool_call_to_dict
 from IM.application.web_im_service import WebIMService
-from IM.domain.models import Attachment, Message, User
+from IM.domain.models import Attachment, Message, TokenUsage, User
 from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["messages"])
@@ -66,6 +67,22 @@ class CreateMessageRequest(BaseModel):
         return self
 
 
+class ToolCallPayload(BaseModel):
+    id: str
+    name: str
+    status: str
+    input: dict = {}
+    duration_ms: int | None = None
+    output: str | None = None
+
+
+class TokenUsagePayload(BaseModel):
+    output: int
+    context_used: int
+    context_window: int
+    total: int | None = None
+
+
 class MessageResponse(BaseModel):
     """Serialized message object returned by API endpoints."""
 
@@ -78,6 +95,8 @@ class MessageResponse(BaseModel):
     attachments: list[AttachmentPayload]
     delivery_status: str
     created_at: str
+    tool_calls: list[ToolCallPayload] = []
+    token_usage: TokenUsagePayload | None = None
 
 
 class ListMessagesResponse(BaseModel):
@@ -118,6 +137,23 @@ def to_message_response(message: Message) -> MessageResponse:
         ],
         delivery_status=message.delivery_status,
         created_at=message.created_at,
+        tool_calls=[
+            ToolCallPayload(
+                id=tc.id,
+                name=tc.name,
+                status=tc.status,
+                input=tc.input if isinstance(tc.input, dict) else {},
+                duration_ms=tc.duration_ms,
+                output=tc.output,
+            )
+            for tc in (message.tool_calls or [])
+        ],
+        token_usage=TokenUsagePayload(
+            output=message.token_usage.output,
+            context_used=message.token_usage.context_used,
+            context_window=message.token_usage.context_window,
+            total=message.token_usage.total,
+        ) if message.token_usage is not None else None,
     )
 
 

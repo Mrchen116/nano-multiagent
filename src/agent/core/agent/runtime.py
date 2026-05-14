@@ -213,6 +213,7 @@ class AgentRuntime:
         turn_id = make_turn_id()
         hook_metadata: dict[str, Any] = dict(config.metadata) if isinstance(config.metadata, Mapping) else {}
         hook_metadata["cwd"] = str(session_workspace_root)
+        hook_metadata["context_window"] = self._compaction_settings.context_window
         if isinstance(run_id, str) and run_id.strip():
             hook_metadata["run_id"] = run_id.strip()
         hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id, metadata=hook_metadata)

@@ -918,12 +918,19 @@ class MessageRepository:
                     "UPDATE messages SET delivery_status = ? WHERE id = ?",
                     (final_status, message_id),
                 )
-            # Web IM unread_count is tracked per owner-scoped conversation in V1. Every persisted message bumps
-            # the aggregate counter; read/ack semantics can later decrement it without changing this write path.
-            self._connection.execute(
-                "UPDATE conversations SET last_message_preview = ?, last_message_at = ?, unread_count = unread_count + 1 WHERE id = ?",
-                (_to_message_preview(content=content, attachments=normalized_attachments), created_at, conversation_id),
-            )
+            # Only increment unread_count for messages from other participants, not the conversation owner's own messages.
+            owner_id = str(conversation_exists["owner_id"])
+            is_own_message = resolved_sender_user_id == owner_id
+            if is_own_message:
+                self._connection.execute(
+                    "UPDATE conversations SET last_message_preview = ?, last_message_at = ? WHERE id = ?",
+                    (_to_message_preview(content=content, attachments=normalized_attachments), created_at, conversation_id),
+                )
+            else:
+                self._connection.execute(
+                    "UPDATE conversations SET last_message_preview = ?, last_message_at = ?, unread_count = unread_count + 1 WHERE id = ?",
+                    (_to_message_preview(content=content, attachments=normalized_attachments), created_at, conversation_id),
+                )
         if self._notify is not None:
             for live_event in pending_live_events:
                 self._notify(live_event)

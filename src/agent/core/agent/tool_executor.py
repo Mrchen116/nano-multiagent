@@ -136,6 +136,7 @@ class StreamingToolExecutor:
                     name=item.tool_call.name,
                     output=output,
                     duration_ms=item.duration_ms,
+                    arguments=dict(item.tool_call.arguments),
                 )
             item.status = "completed"
         except asyncio.CancelledError:
@@ -149,6 +150,7 @@ class StreamingToolExecutor:
                 output=None,
                 error=str(exc),
                 duration_ms=item.duration_ms,
+                arguments=dict(item.tool_call.arguments),
             )
             item.status = "completed"
             # Bash error triggers sibling abort.
@@ -167,6 +169,7 @@ class StreamingToolExecutor:
                     error=item.result.error,
                     content=item.result.content,
                     duration_ms=item.duration_ms,
+                    arguments=item.result.arguments,
                 )
         item._event.set()
         await self._process_queue()
@@ -209,5 +212,6 @@ class StreamingToolExecutor:
                     name=item.tool_call.name,
                     output=None,
                     error="aborted: tool execution discarded",
+                    arguments=dict(item.tool_call.arguments),
                 )
                 item._event.set()

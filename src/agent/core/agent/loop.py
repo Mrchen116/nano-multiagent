@@ -325,6 +325,10 @@ class AgentLoop:
                     "completion_tokens": turn_usage.completion_tokens,
                     "total_tokens": turn_usage.total_tokens,
                 }
+            if active_hook_ctx is not None:
+                cw = active_hook_ctx.metadata.get("context_window")
+                if isinstance(cw, int) and cw > 0:
+                    turn_end_payload["context_window"] = cw
             await self._dispatch_observe_async(
                 "turn_end",
                 turn_end_payload,

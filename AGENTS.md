@@ -106,7 +106,7 @@ IM 启动必须带固定 secret，否则 token 随重启失效：
 
 **Gateway config 路径**：`~/.nano-assistant/config.yaml`（持久化，不要在 `/tmp` 下创建，否则系统重启后 agent 配置会丢失）
 
-首次使用时需先注册 IM 用户获取 token，再写入 config。最小可用配置示例：
+最小可用配置示例：
 
 ```yaml
 node:
@@ -120,8 +120,11 @@ channels:
     enabled: true
 im_service:
   url: http://127.0.0.1:8011
-  token: <your-jwt-token>
+  username: nano      # Gateway 启动时自动登录，无需手动填 token
+  password: nano1234
 ```
+
+`username` + `password` 方式：Gateway 启动时自动调 `POST /im/v1/auth/login` 获取 token，断线后自动重连，IM 重启后自动恢复，全程无需人工干预。
 
 启动：`PYTHONPATH=src python -m personal_assistant.main`
 

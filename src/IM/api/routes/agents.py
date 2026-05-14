@@ -3,8 +3,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import current_user, get_config_service, get_gateway_handler, get_user_service
+from IM.api.deps import current_user, get_config_service, get_gateway_handler, get_node_service, get_user_service
 from IM.application.config_service import ConfigService
+from IM.application.node_service import NodeService
 from IM.application.user_service import UserService
 from IM.domain.models import AgentProfile, User
 from IM.infra.repositories import AgentProfileVersionConflictError
@@ -62,6 +63,7 @@ class AgentSummaryResponse(BaseModel):
     # carries, so the chat workspace can map runtime sender → display_name on
     # `message.created` without an extra round-trip.
     user_id: str | None = None
+    node_status: str | None = None
 
 
 class AllowlistOptionResponse(BaseModel):
@@ -136,6 +138,7 @@ def to_agent_summary_response(
     *,
     service: ConfigService,
     user_service: UserService | None = None,
+    node_status: str | None = None,
 ) -> AgentSummaryResponse:
     """Convert a domain profile to a compact agent list item."""
     # feat-340-M18 R9-1: rely on ConfigService.ensure_agent_user so legacy seeds
@@ -157,6 +160,7 @@ def to_agent_summary_response(
         workspace_is_default=service.workspace_is_default_for_profile(profile),
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
         user_id=agent_user.id if agent_user is not None else None,
+        node_status=node_status,
     )
 
 
@@ -165,10 +169,17 @@ def list_agents(
     user: User = Depends(current_user),
     service: ConfigService = Depends(get_config_service),
     user_service: UserService = Depends(get_user_service),
+    node_service: NodeService = Depends(get_node_service),
 ) -> list[AgentSummaryResponse]:
     """List runtime-selectable agents visible to the authenticated tenant."""
+    nodes = {n.node_id: n.status for n in node_service.list_nodes_for_owner(owner_id=user.owner_id)}
     return [
-        to_agent_summary_response(item, service=service, user_service=user_service)
+        to_agent_summary_response(
+            item,
+            service=service,
+            user_service=user_service,
+            node_status=nodes.get(item.node_id) if item.node_id else None,
+        )
         for item in service.list_runtime_selectable_profiles_for_owner(owner_id=user.owner_id)
     ]
 

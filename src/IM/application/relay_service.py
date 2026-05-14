@@ -81,7 +81,9 @@ class RelayService:
 
         created_at = _utc_now()
         relay_task_id = uuid4().hex
-        mentioned_agent_ids = self._extract_mentioned_agent_ids(message.content)
+        mentioned_agent_ids = self._resolve_mention_to_agent_ids(
+            self._extract_mentioned_agent_ids(message.content)
+        )
         agent_snapshot = self._resolve_agent_snapshot(
             conversation_id=message.conversation_id,
             mentioned_agent_ids=mentioned_agent_ids,
@@ -258,7 +260,9 @@ class RelayService:
         content: str,
     ) -> str | None:
         """Resolve the bound node for the concrete target agent of a message."""
-        mentioned_agent_ids = self._extract_mentioned_agent_ids(content)
+        mentioned_agent_ids = self._resolve_mention_to_agent_ids(
+            self._extract_mentioned_agent_ids(content)
+        )
         agent_snapshot = self._resolve_agent_snapshot(
             conversation_id=conversation_id,
             mentioned_agent_ids=mentioned_agent_ids,
@@ -292,6 +296,35 @@ class RelayService:
         if candidate.startswith("agent:"):
             candidate = candidate[len("agent:") :].strip()
         return candidate or None
+
+    def _resolve_mention_to_agent_ids(self, raw_mentions: list[str]) -> list[str]:
+        """把原始 @mention token 解析成真实 agent_id。
+
+        用户在 picker 里选择 display_name（如"架构"），发出的文本是 @架构，
+        但 Gateway 的 mentioned_agent_ids 需要存真实 agent_id（如"Arch"）。
+        先按 agent_id 精确匹配，找不到再按 display_name 查表。
+        """
+        if not raw_mentions:
+            return []
+        resolved: list[str] = []
+        for raw in raw_mentions:
+            # 先检查是否直接就是合法的 agent_id
+            exact = self._connection.execute(
+                "SELECT agent_id FROM agent_profiles WHERE agent_id = ?", (raw,)
+            ).fetchone()
+            if exact is not None:
+                resolved.append(raw)
+                continue
+            # 按 display_name 模糊查（大小写不敏感）
+            by_name = self._connection.execute(
+                "SELECT agent_id FROM agent_profiles WHERE lower(display_name) = lower(?)", (raw,)
+            ).fetchone()
+            if by_name is not None:
+                resolved.append(str(by_name["agent_id"]))
+                continue
+            # 保留原始值作为兜底（上游可能已经是 agent_id）
+            resolved.append(raw)
+        return resolved
 
     def _resolve_agent_snapshot(self, *, conversation_id: str, mentioned_agent_ids: list[str]) -> _RelayAgentSnapshot:
         conversation_row = self._connection.execute(
