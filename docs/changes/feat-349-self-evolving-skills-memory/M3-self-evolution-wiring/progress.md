@@ -93,5 +93,29 @@
   - Visual/Interaction: N/A
 - Rollback: C1 commit b010003b
 - Commits: C1=b010003b, C2=3e09c9b1, C3=TBD
-- Next: R6 — SSE 背景事件送达
+- Next: R6 DONE，见下
+
+---
+
+### R6 — SSE 背景事件送达 (background 生命周期 Refs #8)
+
+- Context: background hook（self_improvement）以 asyncio.create_task fire-and-forget 调度，fork 侧链运行数十秒后才 publish_session_event("self_evolution_review")。此时 PA 主 turn 的 SSE 订阅已在 terminal run_status 时断开，事件丢失。CLI 的 SessionStreamReader 持久订阅不受影响（已经 work）。IM path 完全没有覆盖。
+- Decision:
+  1. **PA Gateway**: 新增 `BackgroundSessionEventSubscriber`（`personal_assistant/gateway/background_session_events.py`）— 持久 SSE 订阅器，turn 结束后继续监听，过滤 `self_evolution_review` 等会话级事件，断线自动重连。
+  2. **InboundPipeline**: 新增 `session_event_callback` + `_ensure_background_subscriber` — turn 结束后在后台启动订阅，同时在 turn 中对 `_on_other_event` 也处理 `self_evolution_review`（两路兜底）。
+  3. **SessionBindingStore**: 新增 `find_by_kernel_session_id` 反向查找，用于 callback 中从 kernel_session_id 解析 conversation_id。
+  4. **main.py**: `_build_session_event_callback` 将事件格式化为人可读通知，发送 `node.system_message` 到 IM。
+  5. **IM GatewayHandler**: 新增 `node.system_message` 处理 → 在指定 conversation 中创建 `sender_type=system` 消息（自动创建 system 用户）。
+  6. **IM repositories**: `create_message` 中 system 类型消息绕过 owner_id scope 检查。
+- Rationale: 决策 8 路径 B — 本 unit 打通事件送达，不依赖 issue #8 外部修复。CLI 路径已工作（SessionStreamReader 持久订阅），本 R 补全 PA 路径。Refs #8。
+- Evidence:
+  - Tests: `pytest tests/unit/personal_assistant/test_background_session_events_r6.py` — 7 passed（BackgroundSessionEventSubscriber 正反测 + 重连 + IM handler system消息）
+  - Entry: N/A（gateway 单元测试覆盖；完整 E2E 需 PA+LLM 环境）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 单元测试覆盖关键路径
+  - Visual/Interaction: N/A
+- Rollback: C1 commit 0ecf310e
+- Commits: C1=0ecf310e, C2=c47b0f7b, C3=TBD
+- Next: R7 — 收口集成
 
