@@ -6,7 +6,6 @@ import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import { attachUserConversationStream } from "../../chat/im-chat-api";
-import { listAgentSummaries, type AgentSummary } from "../agents/im-agent-config-api";
 import { NodeSettingsProfile, listNodes, updateNode } from "../im-settings-api";
 
 function statusDotStyle(status: string): import("react").CSSProperties {
@@ -21,7 +20,9 @@ function statusPillStyle(status: string): import("react").CSSProperties {
   return {
     background: online ? "oklch(0.93 0.07 145)" : "oklch(0.92 0.005 240)",
     color: online ? "oklch(0.32 0.14 145)" : "oklch(0.50 0.01 240)",
-    border: `1px solid ${online ? "oklch(0.80 0.12 145)" : "oklch(0.85 0.005 240)"}`
+    border: `1px solid ${online ? "oklch(0.80 0.12 145)" : "oklch(0.85 0.005 240)"}`,
+    fontSize: 11.5,
+    fontWeight: 700
   };
 }
 
@@ -40,11 +41,6 @@ export function NodesPage() {
     queryKey: ["settings", "nodes"],
     queryFn: listNodes
   });
-  const agentsQuery = useQuery({
-    queryKey: ["settings", "nodes", "agents"],
-    queryFn: listAgentSummaries
-  });
-
   const [drafts, setDrafts] = useState<Record<string, NodeSettingsProfile>>({});
 
   const originalById = useMemo(() => {
@@ -66,18 +62,6 @@ export function NodesPage() {
       node.reporting_enabled !== orig.reporting_enabled
     );
   }
-
-  const agentsByNode = useMemo(() => {
-    const grouped = new Map<string, AgentSummary[]>();
-    for (const agent of agentsQuery.data ?? []) {
-      const key = agent.node_id ?? "";
-      if (!key) continue;
-      const arr = grouped.get(key) ?? [];
-      arr.push(agent);
-      grouped.set(key, arr);
-    }
-    return grouped;
-  }, [agentsQuery.data]);
 
   const selfUserId = useAuthStore((state) => state.user?.id ?? null);
   const accessToken = useAuthStore((state) => state.accessToken ?? "");
@@ -197,7 +181,7 @@ export function NodesPage() {
           <h1 className="m-0 text-[16px] font-bold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.nodes.title")}</h1>
         </div>
       ) : null}
-      <div className="flex flex-col gap-4 p-[24px_28px]">
+      <div className="flex flex-col gap-4" style={{ padding: isMobile ? "16px 14px" : "24px 28px" }}>
       {!isMobile && (
       <div>
         <h1 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">{t("settings.nodes.title")}</h1>
@@ -227,7 +211,6 @@ export function NodesPage() {
       </div>
       {rows.map((row) => {
         const statusText = t(statusLabelKey(row.status));
-        const nodeAgents = agentsByNode.get(row.node_id) ?? [];
         const isOnline = row.status === "online";
 
         return (
@@ -252,12 +235,12 @@ export function NodesPage() {
                     <h3 className="m-0 text-[14px] font-extrabold text-[oklch(0.14_0.01_240)]">{row.alias ?? row.node_name}</h3>
                     <span
                       data-testid={`node-status-pill-${row.node_id}`}
-                      className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
+                      className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5"
                       style={statusPillStyle(row.status)}
                     >
                       <span
                         data-status-dot={row.status}
-                        className="inline-block h-2 w-2 rounded-full"
+                        className="inline-block h-1.5 w-1.5 rounded-full"
                         style={statusDotStyle(row.status)}
                       />
                       {statusText}
@@ -321,26 +304,6 @@ export function NodesPage() {
                 </div>
               </div>
 
-              <div data-testid={`node-agents-${row.node_id}`}>
-                <p className="mb-1 text-[12px] font-semibold text-[oklch(0.30_0.01_240)]">{t("settings.nodes.agentsOnNode")}</p>
-                {nodeAgents.length === 0 ? (
-                  <p className="text-[12px] text-[oklch(0.65_0.01_240)]">{t("settings.nodes.agentsOnNodeEmpty")}</p>
-                ) : (
-                  <ul className="flex flex-col gap-1 text-[12px]">
-                    {nodeAgents.map((agent) => (
-                      <li key={agent.agent_id}>
-                        <Link
-                          to={`/settings/agents/${agent.agent_id}`}
-                          className="text-[oklch(0.30_0.01_240)] underline-offset-2 hover:underline"
-                        >
-                          {agent.display_name || agent.agent_id}
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
               {/* M20/R12-bis-2: card-level footer with status text + small pill Save + New agent button. */}
               <div
                 data-testid={`nodes-card-save-footer-${row.node_id}`}
@@ -360,7 +323,7 @@ export function NodesPage() {
                       className="inline-flex items-center rounded-lg px-3 py-1.5 text-[12px] font-semibold text-[oklch(0.30_0.01_240)] hover:bg-[oklch(0.93_0.005_240)] border border-[oklch(0.87_0.006_240)]"
                       to={`/settings/nodes/${row.node_id}/agents/new`}
                     >
-                      {t("settings.nodes.createAgentOn", { nodeId: row.node_id })}
+                      {t("settings.nodes.createAgentOn")}
                     </Link>
                   ) : null}
                   <button

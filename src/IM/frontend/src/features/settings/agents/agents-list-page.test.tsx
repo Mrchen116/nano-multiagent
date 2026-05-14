@@ -108,7 +108,7 @@ describe("agents list page (M5 rewrite)", () => {
     expect(screen.getByText("agent-writer-1")).toBeInTheDocument();
 
     const newLink = screen.getByRole("link", { name: /\+ New/i });
-    expect(newLink).toHaveAttribute("href", "/settings/nodes/node-app-01/agents/new");
+    expect(newLink).toHaveAttribute("href", "/settings/agents/new");
 
     const planner = screen.getByRole("button", { name: /Core Planner/i });
     expect(planner).toBeInTheDocument();
@@ -132,7 +132,7 @@ describe("agents list page (M5 rewrite)", () => {
     expect(await screen.findByText("Core Planner")).toBeInTheDocument();
     expect(screen.getByText("Milestone execution coordinator")).toBeInTheDocument();
     expect(screen.getByText("Drafts product updates")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /\+ New/i })).toHaveAttribute("href", "/settings/nodes/node-app-01/agents/new");
+    expect(screen.getByRole("link", { name: /\+ New/i })).toHaveAttribute("href", "/settings/agents/new");
 
     // Agent rows are now buttons (matching prototype AgentListView)
     expect(screen.getByRole("button", { name: /Core Planner/i })).toBeInTheDocument();

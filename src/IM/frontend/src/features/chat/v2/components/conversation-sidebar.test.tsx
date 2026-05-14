@@ -27,7 +27,15 @@ function conv(over: Partial<Conversation>): Conversation {
 }
 
 const CONVS: Conversation[] = [
-  conv({ id: "c1", title: "Assistant", type: "direct", direct_kind: "agent", unread_count: 2, last_message_preview: "Hi" }),
+  conv({
+    id: "c1",
+    title: "Assistant",
+    type: "direct",
+    direct_kind: "agent",
+    unread_count: 2,
+    last_message_preview: "Hi",
+    participants: [{ type: "user", id: "u1" }, { type: "agent", id: "a1" }]
+  }),
   conv({ id: "c2", title: "Sprint Planning", type: "group", direct_kind: null,
     participants: [{ type: "user", id: "u1" }, { type: "agent", id: "a1" }] }),
   conv({ id: "c3", title: "Deploy: agent network", type: "group", direct_kind: null,
@@ -112,6 +120,21 @@ describe("ConversationSidebar", () => {
       expect(screen.getByTestId("conv-avatar-c1")).toBeInTheDocument();
       expect(screen.getByTestId("conv-avatar-c2")).toBeInTheDocument();
       expect(screen.getByTestId("conv-avatar-c3")).toBeInTheDocument();
+    });
+
+    it("only shows online/offline avatar status for direct-agent rows, not group rows", () => {
+      render(
+        <ConversationSidebar
+          conversations={CONVS}
+          activeConversationId={null}
+          onSelect={() => {}}
+          onNewGroup={() => {}}
+          agents={[{ agent_id: "a1", status: "online" }]}
+        />
+      );
+      expect(screen.getByTestId("conv-avatar-c1").querySelector(".chat-avatar-status")).not.toBeNull();
+      expect(screen.getByTestId("conv-avatar-c2").querySelector(".chat-avatar-status")).toBeNull();
+      expect(screen.getByTestId("conv-avatar-c3").querySelector(".chat-avatar-status")).toBeNull();
     });
   });
 });

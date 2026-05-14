@@ -1,11 +1,16 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { useAuthStore } from "../auth/auth-store";
 import { I18N_STORAGE_KEY, setLanguage } from "../../i18n";
 import { MePage } from "./me-page";
+
+vi.mock("../settings/im-settings-api", () => ({
+  listNodes: vi.fn(async () => [])
+}));
 
 const SAMPLE_USER = {
   id: "user-1",
@@ -19,13 +24,18 @@ const SAMPLE_USER = {
 };
 
 function renderMe() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } }
+  });
   return render(
-    <MemoryRouter initialEntries={["/me"]}>
-      <Routes>
-        <Route path="/me" element={<MePage />} />
-        <Route path="/login" element={<div data-testid="login-page" />} />
-      </Routes>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/me"]}>
+        <Routes>
+          <Route path="/me" element={<MePage />} />
+          <Route path="/login" element={<div data-testid="login-page" />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 

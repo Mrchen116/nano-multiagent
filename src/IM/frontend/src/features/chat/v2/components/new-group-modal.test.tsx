@@ -38,6 +38,7 @@ describe("NewGroupModal", () => {
     render(<NewGroupModal agents={AGENTS} onClose={() => {}} onCreate={onCreate} />);
     await user.click(screen.getByLabelText(/Planner/));
     await user.click(screen.getByLabelText(/Reviewer/));
+    expect(screen.getByLabelText(/Group name/)).toHaveAttribute("placeholder", "Planner, Reviewer");
     await user.click(screen.getByRole("button", { name: /Create group/ }));
     expect(onCreate).toHaveBeenCalledWith({ agentIds: ["agent-b", "agent-c"], name: "Planner, Reviewer" });
   });

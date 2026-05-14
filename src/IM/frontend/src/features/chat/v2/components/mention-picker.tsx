@@ -62,14 +62,7 @@ export function MentionPicker({ candidates, query, onSelect, onClose }: MentionP
   }
 
   if (filtered.length === 0) {
-    return (
-      <div className="chat-mention-picker" aria-label={t("chat.mention.header")}>
-        <div className="chat-mention-picker-header">{t("chat.mention.header")}</div>
-        <div className="chat-mention-picker-row" style={{ cursor: "default", opacity: 0.6 }}>
-          {t("chat.mention.noMatch")}
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -88,7 +81,7 @@ export function MentionPicker({ candidates, query, onSelect, onClose }: MentionP
           }}
           onMouseEnter={() => setHighlighted(idx)}
         >
-          <Avatar initials={c.initials} size={26} status={c.status} />
+          <Avatar initials={c.initials} size={26} />
           <span className="chat-mention-picker-name">{c.display_name}</span>
           <span className="chat-mention-picker-handle">@{c.agent_id.replace(/^agent[_-]/, "")}</span>
         </button>

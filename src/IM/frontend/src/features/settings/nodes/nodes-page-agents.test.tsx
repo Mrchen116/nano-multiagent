@@ -11,8 +11,9 @@ afterEach(() => {
   fetchMock.mockReset();
 });
 
-describe("nodes page — node-scoped agent list", () => {
-  it("renders the agents that live on each node with a link to the agent detail page", async () => {
+describe("nodes page — prototype-aligned node cards", () => {
+  it("omits the node-scoped agent list because the prototype only shows aggregate counts", async () => {
+    let agentsRequested = false;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url === "/im/v1/nodes") {
@@ -51,51 +52,17 @@ describe("nodes page — node-scoped agent list", () => {
         );
       }
       if (url === "/im/v1/agents") {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              items: [
-                {
-                  agent_id: "agent-1",
-                  owner_id: "owner-1",
-                  display_name: "Ops Bot",
-                  description: "",
-                  profile_version: 1,
-                  default_model: null,
-                  workspace_root: "/tmp",
-                  workspace_is_default: true,
-                  node_id: "node-a"
-                },
-                {
-                  agent_id: "agent-2",
-                  owner_id: "owner-1",
-                  display_name: "Code Bot",
-                  description: "",
-                  profile_version: 1,
-                  default_model: null,
-                  workspace_root: "/tmp",
-                  workspace_is_default: true,
-                  node_id: "node-a"
-                }
-              ]
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } }
-          )
-        );
+        agentsRequested = true;
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
       }
       return Promise.resolve(new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
     });
 
     renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes"] });
 
-    // node-a should list two agents, each linking to its detail page.
-    const opsLink = await screen.findByRole("link", { name: "Ops Bot" });
-    expect(opsLink).toHaveAttribute("href", "/settings/agents/agent-1");
-    const codeLink = await screen.findByRole("link", { name: "Code Bot" });
-    expect(codeLink).toHaveAttribute("href", "/settings/agents/agent-2");
-
-    // node-b has no agents; the per-node section must show the empty hint.
-    const nodeBSection = await screen.findByTestId("node-agents-node-b");
-    expect(nodeBSection).toHaveTextContent(/No agents on this node yet|本节点上还没有/);
+    expect(await screen.findByTestId("node-agent-count-node-a")).toHaveTextContent("2");
+    expect(screen.queryByTestId("node-agents-node-a")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Ops Bot" })).toBeNull();
+    expect(agentsRequested).toBe(false);
   });
 });

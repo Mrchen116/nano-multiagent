@@ -18,6 +18,7 @@ describe("MentionPicker", () => {
     expect(screen.getByRole("button", { name: /Planner/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Coder/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Reviewer/ })).toBeInTheDocument();
+    expect(document.querySelector(".chat-avatar-status")).toBeNull();
   });
 
   it("filters candidates by prefix match (case-insensitive)", () => {

@@ -97,7 +97,7 @@
       "reportingEnabled": "启用使用上报",
       "save": "保存 {{nodeId}}",
       "saving": "保存中…",
-      "createAgentOn": "在 {{nodeId}} 上新建 agent",
+      "createAgentOn": "+ 在节点上新建 agent",
       "agentsOnNode": "本节点上的 agents",
       "agentsOnNodeEmpty": "本节点上还没有 agent。",
       "liveName": "节点名: {{name}}",
@@ -114,6 +114,7 @@
     },
     "account": {
       "title": "账号",
+      "subtitle": "你的资料和默认网关配置。",
       "identity": {
         "heading": "资料",
         "subtitle": "你在工作区中的身份。",

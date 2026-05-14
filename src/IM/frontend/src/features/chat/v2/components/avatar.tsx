@@ -15,10 +15,22 @@ interface AvatarProps {
  */
 export function Avatar({ initials, color, size = 32, status }: AvatarProps) {
   const bg = color ?? colorForSeed(initials);
-  const dotSize = Math.round(size * 0.28);
+  const dotSize = size * 0.28;
   return (
-    <span className="chat-avatar" style={{ width: size, height: size, background: bg, fontSize: size * 0.35, letterSpacing: "-0.02em", borderRadius: "50%", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>
-      <span aria-hidden="true">{initials.slice(0, 2).toUpperCase()}</span>
+    <span className="chat-avatar" style={{ width: size, height: size }}>
+      <span
+        className="chat-avatar-face"
+        style={{
+          width: size,
+          height: size,
+          background: bg,
+          fontSize: size * 0.35,
+          letterSpacing: "-0.02em"
+        }}
+        aria-hidden="true"
+      >
+        {initials.slice(0, 2).toUpperCase()}
+      </span>
       {status && (
         <span
           className={`chat-avatar-status chat-avatar-status--${status}`}

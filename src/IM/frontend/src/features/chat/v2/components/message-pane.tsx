@@ -105,7 +105,7 @@ export function MessagePane({
       setDraft((d) => d.replace(MENTION_RE, ""));
       return;
     }
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (!isMobile && e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       commit(draft);
     }
@@ -139,7 +139,7 @@ export function MessagePane({
     const el = messagesContainerRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+  }, [messages]);
 
   return (
     <section className="chat-pane" aria-label={conversation.title}>
@@ -151,6 +151,7 @@ export function MessagePane({
           initials={agentInitials ?? conversation.title.slice(0, 2)}
           color={agentColor ?? undefined}
           size={34}
+          status={kind === "direct-agent" ? nodeStatus : null}
         />
         <div className="chat-pane-header-body">
           <h2 className="chat-pane-title">{conversation.title}</h2>
@@ -160,7 +161,7 @@ export function MessagePane({
                 {conversation.participants.map((p) => p.display_name ?? p.id).join(" · ")}
               </span>
             )}
-            <NodeChip nodeName={nodeName ?? null} status={nodeStatus} />
+            {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} />}
           </div>
         </div>
         {!isMobile && <KindBadge kind={kind} />}
@@ -247,34 +248,52 @@ export function MessagePane({
 
 function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boolean }) {
   const { t } = useTranslation();
+  const isSystem = message.sender.type === "system";
   const isUser = message.sender.type === "user";
-  const initials = (message.sender.display_name ?? message.sender.id).slice(0, 1).toUpperCase();
+  const isAgent = message.sender.type === "agent";
+  const initials = (message.sender.display_name ?? message.sender.id).slice(0, 2).toUpperCase();
   const ts = formatHM(message.created_at);
   const senderColor = message.sender.type === "agent" && message.sender.display_name
     ? colorForSeed(message.sender.display_name)
     : "oklch(0.52 0.14 270)";
-  const avatarBg = isUser ? "oklch(0.52 0.14 180)" : senderColor;
   const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
   const statusAlign = isUser ? "justify-end" : "justify-start";
   const deliveryStatus = message.delivery_status;
+
+  if (isSystem) {
+    return (
+      <div className="chat-bubble-system">
+        {message.content}
+      </div>
+    );
+  }
+
   return (
     <div className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}>
-      <span
-        data-testid={`message-avatar-${message.id}`}
-        className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
-        style={{ backgroundColor: avatarBg }}
-        aria-hidden
-      >
-        {initials}
-      </span>
+      {!isUser && (
+        <span
+          data-testid={`message-avatar-${message.id}`}
+          className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
+          style={{ backgroundColor: senderColor }}
+          aria-hidden
+        >
+          {initials}
+        </span>
+      )}
       <div className="flex flex-col min-w-0">
-        <div className="chat-bubble-meta">
-          <span className="chat-bubble-sender" style={{ color: isUser ? undefined : senderColor }}>
-            {message.sender.display_name ?? message.sender.id}
-          </span>
-        </div>
+        {!isUser && (
+          <div className="chat-bubble-meta">
+            <span className="chat-bubble-sender" style={{ color: senderColor }}>
+              {message.sender.display_name ?? message.sender.id}
+            </span>
+          </div>
+        )}
         <div data-testid={`message-bubble-${message.id}`} className="chat-bubble-card">
-          {message.content && <div className="chat-bubble-content">{message.content}</div>}
+          {message.content && (
+            isUser
+              ? <div className="chat-bubble-content">{message.content}</div>
+              : <MarkdownContent content={message.content} />
+          )}
           {message.attachments && message.attachments.length > 0 && (
             <div className="chat-bubble-attachments">
               {message.attachments.map((att) => (
@@ -282,10 +301,10 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
               ))}
             </div>
           )}
-          {message.tool_calls && message.tool_calls.length > 0 && (
+          {isAgent && message.tool_calls && message.tool_calls.length > 0 && (
             <ToolCallsPanel toolCalls={message.tool_calls} />
           )}
-          {deliveryStatus === "completed" && message.token_usage && (
+          {isAgent && deliveryStatus === "completed" && message.token_usage && (
             <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
           )}
         </div>
@@ -304,6 +323,42 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
       </div>
     </div>
   );
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  const blocks = content.split(/\n{2,}/);
+  return (
+    <div className="im-md">
+      {blocks.map((block, idx) => {
+        if (block.startsWith("```") && block.endsWith("```")) {
+          const code = block.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
+          return <pre key={idx}><code>{code}</code></pre>;
+        }
+        if (/^\s*[-*]\s+/m.test(block)) {
+          const items = block.split("\n").filter(Boolean).map((line) => line.replace(/^\s*[-*]\s+/, ""));
+          return <ul key={idx}>{items.map((item, itemIdx) => <li key={itemIdx}>{renderInlineMarkdown(item)}</li>)}</ul>;
+        }
+        if (/^\s*\d+\.\s+/m.test(block)) {
+          const items = block.split("\n").filter(Boolean).map((line) => line.replace(/^\s*\d+\.\s+/, ""));
+          return <ol key={idx}>{items.map((item, itemIdx) => <li key={itemIdx}>{renderInlineMarkdown(item)}</li>)}</ol>;
+        }
+        return <p key={idx}>{renderInlineMarkdown(block)}</p>;
+      })}
+    </div>
+  );
+}
+
+function renderInlineMarkdown(text: string) {
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={idx}>{part.slice(1, -1)}</code>;
+    }
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={idx}>{part.slice(2, -2)}</strong>;
+    }
+    return <span key={idx}>{part}</span>;
+  });
 }
 
 function colorForSeed(seed: string): string {

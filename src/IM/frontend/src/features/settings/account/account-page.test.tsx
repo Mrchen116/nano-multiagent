@@ -217,8 +217,7 @@ describe("AccountPage rewrite", () => {
     expect(avatar.className).toMatch(/rounded-full/);
     expect(avatar.textContent).toMatch(/AL/);
     const idEl = screen.getByTestId("account-user-id");
-    // M20/R12-bis-4: account-user-id now shows display_name (not UUID).
-    expect(idEl.textContent).toBe("Alex Chen");
+    expect(idEl.textContent).toBe("user-1");
   });
 
   // M19/R10-Account: prototype `im-extra-pages.jsx::AccountPage` section labels

@@ -83,7 +83,8 @@ export interface Conversation {
  */
 export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_kind" | "participants">): ConversationKind {
   if (c.type === "direct") {
-    return c.direct_kind === "user" ? "direct-user" : "direct-agent";
+    if (c.direct_kind === "user-user" || c.direct_kind === "user") return "direct-user";
+    return "direct-agent";
   }
   if (c.type === "group") {
     // Agent-network = group of only agents (no human user). Used for visualizing

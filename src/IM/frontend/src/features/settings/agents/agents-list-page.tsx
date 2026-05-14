@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
+import { Avatar } from "../../chat/v2/components/avatar";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { listAgentSummaries, listNodes, type AgentSummary, type NodeSummary } from "./im-agent-config-api";
 
@@ -10,6 +11,13 @@ function initialsOf(displayName: string): string {
   const trimmed = displayName.trim();
   if (!trimmed) return "AG";
   return trimmed.slice(0, 2).toUpperCase();
+}
+
+function colorForAgent(agent: AgentSummary): string {
+  const seed = agent.agent_id || agent.display_name;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
+  return `oklch(0.52 0.14 ${Math.abs(hash) % 360})`;
 }
 
 function statusOf(agent: AgentSummary, nodes: NodeSummary[]): "online" | "offline" {
@@ -59,15 +67,12 @@ function AgentRow(props: {
       }}
       aria-label={agent.display_name}
     >
-      <span
-        className={`flex shrink-0 items-center justify-center rounded-full font-bold text-white ${
-          isMobile ? "h-[38px] w-[38px] text-[13px]" : "h-8 w-8 text-[13px]"
-        }`}
-        style={{ background: "oklch(0.52 0.14 180)" }}
-        aria-hidden="true"
-      >
-        {initials}
-      </span>
+      <Avatar
+        initials={initials}
+        color={colorForAgent(agent)}
+        size={isMobile ? 38 : 32}
+        status={status}
+      />
       <div className="min-w-0 flex-1">
         <p
           className={`m-0 font-semibold truncate ${
@@ -114,8 +119,7 @@ export function AgentsListPage() {
   const { agentId: activeAgentId } = useParams<{ agentId?: string }>();
   const agents = agentsQuery.data ?? [];
   const nodes = nodesQuery.data ?? [];
-  const firstNodeId = nodes[0]?.node_id;
-  const newAgentPath = firstNodeId ? `/settings/nodes/${firstNodeId}/agents/new` : "/settings/nodes";
+  const newAgentPath = "/settings/agents/new";
   const errorDetail =
     agentsQuery.error instanceof Error
       ? agentsQuery.error.message.split(" failed: ").at(-1) ?? agentsQuery.error.message

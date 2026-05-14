@@ -85,8 +85,8 @@ describe("nodes page", () => {
       initialEntries: ["/settings/nodes"]
     });
 
-    expect(await screen.findByRole("link", { name: "Create agent on node-app-01" })).toHaveAttribute("href", "/settings/nodes/node-app-01/agents/new");
-    expect(screen.queryByRole("link", { name: "Create agent on node-app-02" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "+ New agent on node" })).toHaveAttribute("href", "/settings/nodes/node-app-01/agents/new");
+    expect(screen.queryByTestId("nodes-card-new-agent-node-app-02")).not.toBeInTheDocument();
 
     const aliasInput = await screen.findByLabelText("Alias node-app-01");
     await user.clear(aliasInput);
@@ -201,7 +201,7 @@ describe("nodes page", () => {
 
     renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes"] });
 
-    await screen.findByRole("link", { name: /Create agent on n1/i });
+    await screen.findByRole("link", { name: /\+ New agent on node/i });
     expect(screen.queryByLabelText(/Relay/i)).toBeNull();
     expect(screen.queryByLabelText(/Reporting/i)).toBeNull();
   });

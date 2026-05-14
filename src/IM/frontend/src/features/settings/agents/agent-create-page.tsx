@@ -5,9 +5,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
-import { Avatar } from "../../chat/v2/components/avatar";
 import { PillSelector } from "./pill-selector";
-import { AgentSummary, createNodeAgent, getNodeCreateState, NodeAgentCreateRequest } from "./im-agent-config-api";
+import { AgentSummary, createNodeAgent, getNodeCreateState, listNodes, NodeAgentCreateRequest } from "./im-agent-config-api";
 
 type CreateAgentFormState = NodeAgentCreateRequest;
 
@@ -37,8 +36,8 @@ function validateDraft(draft: CreateAgentFormState) {
   const errors: Partial<Record<"agent_id" | "display_name" | "system_prompt", string>> = {};
   if (!draft.agent_id) {
     errors.agent_id = "Agent ID is required.";
-  } else if (/\s/.test(draft.agent_id)) {
-    errors.agent_id = "Agent ID cannot contain spaces.";
+  } else if (!/^[a-z0-9_-]+$/.test(draft.agent_id)) {
+    errors.agent_id = "Lowercase letters, numbers, _ and - only.";
   }
   if (!draft.display_name) errors.display_name = "Display name is required.";
   if (!draft.system_prompt) errors.system_prompt = "System prompt is required.";
@@ -65,13 +64,27 @@ export function AgentCreatePage() {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [draft, setDraft] = useState<CreateAgentFormState>(EMPTY_DRAFT);
+  const [selectedNodeId, setSelectedNodeId] = useState(nodeId);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
+  const nodesQuery = useQuery({
+    queryKey: ["settings", "agents", "create", "nodes"],
+    queryFn: listNodes,
+    staleTime: 30_000
+  });
+
+  useEffect(() => {
+    if (selectedNodeId || !nodesQuery.data || nodesQuery.data.length === 0) return;
+    const defaultNode = nodesQuery.data.find((node) => node.status !== "offline") ?? nodesQuery.data[0];
+    setSelectedNodeId(defaultNode?.node_id ?? "");
+  }, [nodesQuery.data, selectedNodeId]);
+
   const createStateQuery = useQuery({
-    queryKey: ["settings", "nodes", nodeId, "create-state"],
-    queryFn: () => getNodeCreateState(nodeId),
+    queryKey: ["settings", "nodes", selectedNodeId, "create-state"],
+    queryFn: () => getNodeCreateState(selectedNodeId),
+    enabled: selectedNodeId.length > 0,
     staleTime: 30_000
   });
 
@@ -90,7 +103,9 @@ export function AgentCreatePage() {
   const capabilities = createStateQuery.data?.capabilities;
   const node = createStateQuery.data?.node ?? null;
   const availableModels = capabilities?.model_options ?? [];
-  const nodeLabel = capabilities?.node_name ?? node?.node_name ?? nodeId;
+  const nodes = nodesQuery.data ?? [];
+  const selectedNode = nodes.find((item) => item.node_id === selectedNodeId) ?? node;
+  const nodeLabel = selectedNode?.alias ?? capabilities?.node_name ?? node?.node_name ?? selectedNodeId;
   const nodeStatus = (capabilities?.node_status ?? node?.status ?? "unknown").toLowerCase();
   const isNodeOnline = nodeStatus === "online";
   const queryErrorDetail =
@@ -99,7 +114,7 @@ export function AgentCreatePage() {
       : "Unable to load this node.";
 
   const mutation = useMutation({
-    mutationFn: (next: CreateAgentFormState) => createNodeAgent(nodeId, next),
+    mutationFn: (next: CreateAgentFormState) => createNodeAgent(selectedNodeId, next),
     onSuccess: async (created) => {
       setErrorMessage(null);
       queryClient.setQueryData(["settings", "agents", created.agent_id], created);
@@ -127,16 +142,18 @@ export function AgentCreatePage() {
     return (hasSubmitted || touched[field]) && validationErrors[field];
   }
 
-  if (createStateQuery.isLoading && !capabilities) {
+  if ((nodesQuery.isLoading || createStateQuery.isLoading) && !capabilities) {
     return <p className="text-sm text-slate-500">{t("common.loading")}</p>;
   }
 
-  if (createStateQuery.isError && !capabilities) {
+  if ((nodesQuery.isError || createStateQuery.isError) && !capabilities) {
     return (
       <section className="grid gap-3 rounded-2xl border border-rose-200 bg-rose-50/80 p-5">
         <div className="space-y-1">
           <p className="text-sm font-semibold text-rose-700">{t("agents.loadError")}</p>
-          <p className="text-sm text-rose-600">{queryErrorDetail}</p>
+          <p className="text-sm text-rose-600">
+            {nodesQuery.error instanceof Error ? nodesQuery.error.message : queryErrorDetail}
+          </p>
         </div>
         <button className="im-btn im-btn-muted w-fit" type="button" onClick={() => void createStateQuery.refetch()}>
           {t("agents.retry")}
@@ -172,12 +189,11 @@ export function AgentCreatePage() {
     <form
       data-testid="agent-create"
       className="im-agent-panel"
-      style={{ background: "#fff" }}
       onSubmit={(event) => {
         event.preventDefault();
         setHasSubmitted(true);
         setErrorMessage(null);
-        if (hasValidationErrors || !isNodeOnline) return;
+        if (hasValidationErrors || !isNodeOnline || !selectedNodeId) return;
         mutation.mutate(normalizedDraft);
       }}
     >
@@ -212,10 +228,6 @@ export function AgentCreatePage() {
               ‹
             </button>
           )}
-          <Avatar
-            initials={draft.display_name?.trim()?.slice(0, 2) || "??"}
-            size={isMobile ? 38 : 42}
-          />
           <div style={{ flex: 1 }}>
             <h2
               className="im-agent-panel-title"
@@ -266,7 +278,7 @@ export function AgentCreatePage() {
                 onBlur={() => markTouched("agent_id")}
                 onChange={(event) => {
                   setErrorMessage(null);
-                  setDraft({ ...draft, agent_id: event.target.value });
+                  setDraft({ ...draft, agent_id: event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") });
                 }}
               />
               <p id="agent-id-help" className="im-agent-field-help">
@@ -315,7 +327,22 @@ export function AgentCreatePage() {
           </div>
           <div className="im-agent-field">
             <Label.Root htmlFor="owning-node">{t("agents.form.identity.owningNodeRequired")}</Label.Root>
-            <input id="owning-node" className="im-input" value={`${nodeLabel} (${nodeId})`} disabled />
+            <select
+              id="owning-node"
+              className="im-input"
+              value={selectedNodeId}
+              onChange={(event) => {
+                setSelectedNodeId(event.target.value);
+                setErrorMessage(null);
+              }}
+            >
+              <option value="">{t("settings.account.defaults.selectNode")}</option>
+              {nodes.filter((item) => item.status !== "offline").map((item) => (
+                <option key={item.node_id} value={item.node_id}>
+                  {item.alias || item.node_name} ({item.status})
+                </option>
+              ))}
+            </select>
             <p className="im-agent-field-help">{t("agents.form.identity.owningNodeHelp")}</p>
           </div>
         </section>

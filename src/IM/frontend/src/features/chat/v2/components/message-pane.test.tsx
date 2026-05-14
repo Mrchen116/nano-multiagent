@@ -380,7 +380,7 @@ describe("MessagePane", () => {
       token_usage: { output: 5000, context_used: 185000, context_window: 200000 }
     };
 
-    it("renders avatar OUTSIDE the bubble for both user + agent", () => {
+    it("matches prototype: user bubbles have no avatar, agent avatar stays outside the bubble", () => {
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -389,9 +389,8 @@ describe("MessagePane", () => {
           onSend={() => {}}
         />
       );
-      const userAvatar = screen.getByTestId(`message-avatar-${TS_USER.id}`);
       const userBubble = screen.getByTestId(`message-bubble-${TS_USER.id}`);
-      expect(userBubble.contains(userAvatar)).toBe(false);
+      expect(screen.queryByTestId(`message-avatar-${TS_USER.id}`)).toBeNull();
       const agentAvatar = screen.getByTestId(`message-avatar-${TS_AGENT_LOW.id}`);
       const agentBubble = screen.getByTestId(`message-bubble-${TS_AGENT_LOW.id}`);
       expect(agentBubble.contains(agentAvatar)).toBe(false);
@@ -424,7 +423,7 @@ describe("MessagePane", () => {
       const chip = screen.getByTestId(`message-token-chip-${TS_AGENT_LOW.id}`);
       expect(chip).toBeInTheDocument();
       const bubble = screen.getByTestId(`message-bubble-${TS_AGENT_LOW.id}`);
-      expect(bubble.contains(chip)).toBe(false);
+      expect(bubble.contains(chip)).toBe(true);
     });
 
     it("token chip flips to warn color at >=70% context", () => {

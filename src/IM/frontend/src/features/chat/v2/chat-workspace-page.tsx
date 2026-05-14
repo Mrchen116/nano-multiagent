@@ -308,7 +308,11 @@ export function ChatWorkspacePageV2() {
           onNewGroup={() => setShowNewGroup(true)}
           agents={(agentsQuery.data ?? []).map((a) => {
             const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === a.node_id);
-            return { agent_id: a.agent_id, status: nodeRow?.status === "online" ? "online" : "offline" };
+            return {
+              agent_id: a.agent_id,
+              display_name: a.display_name,
+              status: nodeRow?.status === "online" ? "online" : "offline"
+            };
           })}
         />
       )}

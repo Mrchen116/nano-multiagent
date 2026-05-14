@@ -149,16 +149,15 @@ describe("agent edit page", () => {
     expect(screen.getByRole("heading", { name: "Behavior" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Workspace & Runtime" })).toBeInTheDocument();
-    expect(screen.getByText(/MacBook/, { selector: ".im-agent-panel-subtitle" })).toBeInTheDocument();
+    expect(screen.getByText(/MacBook/, { selector: ".im-agent-panel-node" })).toBeInTheDocument();
     expect((screen.getByLabelText("Workspace Root") as HTMLInputElement).value).toBe(
       "/Users/demo/nano-assistant/workspace/agent-core-1"
     );
 
     const panel = screen.getByTestId("agent-detail");
     expect(panel.className).toContain("im-agent-panel");
-    const statusPill = screen.getByTestId("agent-detail-status-pill");
-    expect(statusPill.className).toContain("im-agent-panel-status-chip");
-    expect(statusPill.className).toContain("online");
+    expect(panel.querySelector(".chat-avatar-status--online")).not.toBeNull();
+    expect(panel.querySelector(".im-agent-panel-status-chip")).toBeNull();
     expect(panel.querySelectorAll(".im-agent-card").length).toBeGreaterThanOrEqual(4);
     expect(panel.querySelector(".im-agent-footer")).not.toBeNull();
     expect(screen.queryByLabelText("Workspace setting")).not.toBeInTheDocument();
@@ -177,7 +176,7 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("button", { name: /bash/i }));
     await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
 
-    expect(await screen.findByText("✓ Saved")).toBeInTheDocument();
+    expect((await screen.findAllByText("✓ Saved")).length).toBeGreaterThan(0);
     await waitFor(() => {
       expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v13");
     });
@@ -272,7 +271,10 @@ describe("agent edit page", () => {
     await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
 
     expect(await screen.findByText(/Display name is required\./i)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/im/v1/agents/agent-core-1/config",
+      expect.objectContaining({ method: "PATCH" })
+    );
   });
 
   it("surfaces real 409 conflict detail without overwriting the current version label", async () => {

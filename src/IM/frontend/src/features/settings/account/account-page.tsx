@@ -121,7 +121,8 @@ export function AccountPage() {
         </div>
       ) : null}
       <form
-        className="im-account-page grid gap-4 mx-auto w-full max-w-[620px] p-[24px_28px]"
+        className="im-account-page grid gap-4 mx-auto w-full max-w-[620px]"
+        style={{ padding: isMobile ? "16px 14px" : "24px 28px" }}
         onSubmit={onSubmit}
         aria-label="account-form"
       >
@@ -130,7 +131,7 @@ export function AccountPage() {
           <h2 className="m-0 text-[22px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)]">
             {t("settings.account.title")}
           </h2>
-          <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{profile.username}</p>
+          <p className="mt-1 text-[13px] text-[oklch(0.55_0.01_240)]">{t("settings.account.subtitle")}</p>
         </header>
         )}
 
@@ -164,7 +165,7 @@ export function AccountPage() {
             <p className="m-0 text-[16px] font-extrabold text-[oklch(0.14_0.01_240)] truncate">
               {profile.display_name}
             </p>
-            <p className="m-0 font-mono text-[11px] text-[oklch(0.55_0.01_240)] truncate">
+            <p data-testid="account-user-id" className="m-0 font-mono text-[11px] text-[oklch(0.55_0.01_240)] truncate">
               {profile.user_id || profile.id}
             </p>
           </div>
@@ -268,14 +269,6 @@ export function AccountPage() {
           })}
         </div>
         <div className="rounded-[8px] border border-[oklch(0.87_0.006_240)] bg-[oklch(0.96_0.005_240)] px-3 py-2 text-[12px] grid gap-1">
-          <div className="flex justify-between text-[oklch(0.55_0.01_240)]">
-            <span>{t("settings.account.defaults.ownedNodes")}</span>
-            <span className="text-[oklch(0.30_0.01_240)] font-semibold">
-              {profile.owned_node_ids.length > 0
-                ? profile.owned_node_ids.join(", ")
-                : t("settings.account.defaults.ownedNodesEmpty")}
-            </span>
-          </div>
           {profile.created_at ? (
             <div className="flex justify-between text-[oklch(0.55_0.01_240)]">
               <span>{t("settings.account.identity.createdAt")}</span>
@@ -284,6 +277,12 @@ export function AccountPage() {
               </span>
             </div>
           ) : null}
+          <div className="flex justify-between text-[oklch(0.55_0.01_240)]">
+            <span>{t("settings.account.defaults.ownedNodes")}</span>
+            <span className="text-[oklch(0.30_0.01_240)] font-semibold">
+              {profile.owned_node_ids.length}
+            </span>
+          </div>
         </div>
       </section>
 

@@ -99,7 +99,7 @@
       "saving": "Saving…",
       "allSaved": "All saved",
       "unsavedChanges": "Unsaved changes",
-      "createAgentOn": "Create agent on {{nodeId}}",
+      "createAgentOn": "+ New agent on node",
       "agentsOnNode": "Agents on this node",
       "agentsOnNodeEmpty": "No agents on this node yet.",
       "liveName": "live name: {{name}}",
@@ -116,6 +116,7 @@
     },
     "account": {
       "title": "Account",
+      "subtitle": "Your profile and default gateway configuration.",
       "identity": {
         "heading": "Profile",
         "subtitle": "Your identity inside the workspace.",

@@ -12,7 +12,6 @@ import { AgentCreatePage } from "../features/settings/agents/agent-create-page";
 import { AgentDetailPage } from "../features/settings/agents/agent-detail-page";
 import { AgentsListPage } from "../features/settings/agents/agents-list-page";
 import { NodesPage } from "../features/settings/nodes/nodes-page";
-import { PoliciesPage } from "../features/settings/policies/policies-page";
 import { SettingsPageShell } from "../features/settings/settings-page-shell";
 
 export const appRoutes: RouteObject[] = [
@@ -47,6 +46,10 @@ export const appRoutes: RouteObject[] = [
                 element: <AgentsListPage />
               },
               {
+                path: "new",
+                element: <AgentCreatePage />
+              },
+              {
                 path: ":agentId",
                 element: <AgentDetailPage />
               }
@@ -64,10 +67,6 @@ export const appRoutes: RouteObject[] = [
                 element: <AgentCreatePage />
               }
             ]
-          },
-          {
-            path: "policies",
-            element: <PoliciesPage />
           },
           {
             path: "account",

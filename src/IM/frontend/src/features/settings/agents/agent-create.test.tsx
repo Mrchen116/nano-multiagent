@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const apiMocks = vi.hoisted(() => ({
   getNodeCreateStateMock: vi.fn(),
   createNodeAgentMock: vi.fn(),
+  listNodesMock: vi.fn(),
   navigateMock: vi.fn()
 }));
 
@@ -21,7 +22,8 @@ vi.mock("react-router-dom", async () => {
 
 vi.mock("./im-agent-config-api", () => ({
   getNodeCreateState: apiMocks.getNodeCreateStateMock,
-  createNodeAgent: apiMocks.createNodeAgentMock
+  createNodeAgent: apiMocks.createNodeAgentMock,
+  listNodes: apiMocks.listNodesMock
 }));
 
 import { AgentCreatePage } from "./agent-create-page";
@@ -48,12 +50,29 @@ function renderCreatePage() {
 afterEach(() => {
   apiMocks.getNodeCreateStateMock.mockReset();
   apiMocks.createNodeAgentMock.mockReset();
+  apiMocks.listNodesMock.mockReset();
   apiMocks.navigateMock.mockReset();
 });
+
+function mockNodes() {
+  apiMocks.listNodesMock.mockResolvedValue([
+    {
+      node_id: "node-1",
+      owner_id: "owner-1",
+      node_name: "MacBook",
+      alias: "MacBook",
+      status: "online",
+      last_heartbeat_at: "2026-03-13T10:00:00Z",
+      agent_count: 0,
+      version: "1.0.0"
+    }
+  ]);
+}
 
 describe("agent create page (three-card)", () => {
   it("renders only Identity/Behavior/Access&Model cards, creates the agent, and navigates to its detail page on save", async () => {
     const user = userEvent.setup();
+    mockNodes();
 
     apiMocks.getNodeCreateStateMock.mockResolvedValue({
       node: {
@@ -163,6 +182,7 @@ describe("agent create page (three-card)", () => {
 
   it("blocks submission and explains required fields", async () => {
     const user = userEvent.setup();
+    mockNodes();
 
     apiMocks.getNodeCreateStateMock.mockResolvedValue({
       node: {
@@ -203,6 +223,7 @@ describe("agent create page (three-card)", () => {
 
   it("surfaces API errors without leaving the form", async () => {
     const user = userEvent.setup();
+    mockNodes();
 
     apiMocks.getNodeCreateStateMock.mockResolvedValue({
       node: {
@@ -242,6 +263,8 @@ describe("agent create page (three-card)", () => {
   });
 
   it("offers a Cancel back to the agents list", async () => {
+    mockNodes();
+
     apiMocks.getNodeCreateStateMock.mockResolvedValue({
       node: {
         node_id: "node-1",

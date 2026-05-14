@@ -32,9 +32,13 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
   function handleCreate() {
     if (selected.length === 0) return;
     const trimmed = name.trim();
-    const fallback = agents.filter((a) => selected.includes(a.agent_id)).map((a) => a.display_name).join(", ");
-    onCreate({ agentIds: selected, name: trimmed || fallback });
+    onCreate({ agentIds: selected, name: trimmed || selectedNames });
   }
+
+  const selectedNames = agents
+    .filter((a) => selected.includes(a.agent_id))
+    .map((a) => a.display_name)
+    .join(", ");
 
   const inner = (
     <>
@@ -131,7 +135,7 @@ export function NewGroupModal({ agents, onClose, onCreate }: NewGroupModalProps)
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder={t("chat.newGroup.groupNamePlaceholder")}
+          placeholder={selectedNames || t("chat.newGroup.groupNamePlaceholder")}
           className="chat-modal-name-input"
         />
       </div>

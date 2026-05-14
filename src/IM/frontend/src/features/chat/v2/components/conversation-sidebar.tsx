@@ -6,6 +6,7 @@ import { Avatar } from "./avatar";
 
 interface SidebarAgent {
   agent_id: string;
+  display_name?: string;
   status: "online" | "offline";
 }
 
@@ -105,14 +106,20 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
             const dateStr = formatDate(c.last_message_at);
             const kind = classifyConversationKind(c);
             const agentParticipant = c.participants.find((p) => p.type === "agent");
-            const agentStatus = agentParticipant
-              ? (agents?.find((a) => a.agent_id === agentParticipant.id)?.status ?? null)
+            const agentRow = agentParticipant
+              ? agents?.find((a) => a.agent_id === agentParticipant.id)
               : null;
-            const avatarColor = kind === "group" || kind === "agent-network"
-              ? "oklch(0.52 0.14 270)"
-              : kind === "direct-user"
-                ? "oklch(0.52 0.14 30)"
-                : undefined;
+            const agentStatus = kind === "direct-agent" && agentParticipant
+              ? (agentRow?.status ?? null)
+              : null;
+            const avatarColor =
+              kind === "direct-agent" && agentRow
+                ? colorForSeed(agentRow.display_name ?? agentRow.agent_id)
+                : kind === "group"
+                  ? "oklch(0.52 0.14 270)"
+                  : kind === "agent-network" || kind === "direct-user"
+                    ? "oklch(0.52 0.14 30)"
+                    : undefined;
             return (
               <li key={c.id}>
                 <button
@@ -122,7 +129,7 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
                   aria-current={active ? "true" : undefined}
                 >
                   <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                    <Avatar initials={c.title.slice(0, 2)} color={avatarColor} status={agentStatus} />
+                    <Avatar initials={c.title.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />
                   </span>
                   <span className="chat-sidebar-row-body">
                     <span className="chat-sidebar-row-title-line">
@@ -148,4 +155,10 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
       </ul>
     </aside>
   );
+}
+
+function colorForSeed(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
+  return `oklch(0.52 0.14 ${Math.abs(hash) % 360})`;
 }

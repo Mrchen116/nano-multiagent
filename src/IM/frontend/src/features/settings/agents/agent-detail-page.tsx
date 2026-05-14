@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
+import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -46,6 +47,16 @@ function initialsOf(displayName: string): string {
   return trimmed.slice(0, 2).toUpperCase();
 }
 
+function colorForAgent(agent: AgentSummary): string {
+  return colorForSeed(agent.agent_id || agent.display_name);
+}
+
+function colorForSeed(seedValue: string): string {
+  let hash = 0;
+  for (let i = 0; i < seedValue.length; i += 1) hash = (hash << 5) - hash + seedValue.charCodeAt(i);
+  return `oklch(0.52 0.14 ${Math.abs(hash) % 360})`;
+}
+
 function resolveModelOptions(modelOptions: string[] | undefined, currentModel: string | null) {
   const resolved = Array.from(new Set((modelOptions ?? []).map((value) => value.trim()).filter(Boolean)));
   if (currentModel && !resolved.includes(currentModel)) {
@@ -80,7 +91,7 @@ function AgentsRailDesktop({ activeId }: { activeId: string }) {
           {t("agents.title")}
         </span>
         <Link
-          to="/settings/nodes"
+          to="/settings/agents/new"
           className="inline-flex h-9 items-center rounded-lg px-3 text-[13px] font-semibold text-white"
           style={{ background: "oklch(0.30 0.012 240)" }}
         >
@@ -115,7 +126,7 @@ function AgentsRailDesktop({ activeId }: { activeId: string }) {
             >
               <span
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[13px] font-bold text-white"
-                style={{ background: "oklch(0.52 0.14 180)" }}
+                style={{ background: colorForAgent(agent) }}
                 aria-hidden="true"
               >
                 {initialsOf(agent.display_name)}
@@ -324,8 +335,6 @@ export function AgentDetailPage() {
   const displayedNodeId = draft.node_id ?? capabilities.node_id ?? "—";
   const displayedNodeStatusRaw = draft.node_status ?? capabilities.node_status ?? owningNode?.status ?? "unknown";
   const displayedNodeStatus = displayedNodeStatusRaw.toLowerCase();
-  const statusChipClass =
-    displayedNodeStatus === "online" ? "im-agent-panel-status-chip online" : "im-agent-panel-status-chip";
 
   let footerStatusClass = "im-agent-footer-status";
   let footerStatusText = t("agents.detail.noChanges");
@@ -345,18 +354,27 @@ export function AgentDetailPage() {
     footerStatusClass = "im-agent-footer-status dirty";
     footerStatusText = t("agents.detail.unsavedChanges");
   }
+  const headerSaveText = mutation.isPending
+    ? t("agents.detail.saving")
+    : saved
+      ? t("agents.detail.saved")
+      : isDirty
+        ? t("agents.detail.save")
+        : t("agents.detail.noChanges");
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setHasAttemptedSave(true);
+    setErrorMessage(null);
+    if (hasValidationErrors || !isDirty || !normalizedDraft) return;
+    mutation.mutate(normalizedDraft);
+  }
 
   const detailPanel = (
     <form
       data-testid="agent-detail"
       className="im-agent-panel"
-      onSubmit={(event) => {
-        event.preventDefault();
-        setHasAttemptedSave(true);
-        setErrorMessage(null);
-        if (hasValidationErrors || !isDirty || !normalizedDraft) return;
-        mutation.mutate(normalizedDraft);
-      }}
+      onSubmit={handleSubmit}
     >
       <header className="im-agent-panel-header">
         <div className="im-agent-panel-header-row">
@@ -384,25 +402,23 @@ export function AgentDetailPage() {
           )}
           <Avatar
             initials={initialsOf(draft.display_name)}
-            color="oklch(0.52 0.14 180)"
+            color={colorForSeed(draft.agent_id || draft.display_name)}
             size={isMobile ? 38 : 42}
             status={displayedNodeStatus === "online" ? "online" : "offline"}
           />
           <div style={{ flex: 1, minWidth: 0 }}>
             <h2 className="im-agent-panel-title">{draft.display_name || draft.agent_id}</h2>
-            <p className="im-agent-panel-subtitle">
-              {draft.agent_id} · {displayedNodeName}
-            </p>
-          </div>
-          {!isMobile && (
-            <>
+            <p className="im-agent-panel-subtitle im-agent-panel-node-line">
+              <span className="im-agent-panel-agent-id">{draft.agent_id}</span>
               <span
-                data-testid="agent-detail-status-pill"
-                className={statusChipClass}
-                aria-label={`${draft.agent_id} ${displayedNodeName}`}
+                className={`im-agent-panel-node ${displayedNodeStatus === "online" ? "online" : ""}`}
               >
                 <span className="dot" /> {displayedNodeName}
               </span>
+            </p>
+          </div>
+          {!isMobile && (
+            <div className="im-agent-header-actions">
               <button
                 type="button"
                 className="im-btn im-btn-muted"
@@ -411,7 +427,10 @@ export function AgentDetailPage() {
               >
                 {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
               </button>
-            </>
+              <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isDirty}>
+                {headerSaveText}
+              </button>
+            </div>
           )}
         </div>
         {openDirectChatMutation.isError && errorMessage ? (
@@ -634,7 +653,7 @@ export function AgentDetailPage() {
       </div>
 
       <footer
-        className="im-agent-footer"
+        className="im-agent-footer im-agent-detail-footer"
         aria-live="polite"
         style={{
           paddingBottom: isMobile ? "calc(14px + env(safe-area-inset-bottom, 0px))" : "14px"
@@ -652,14 +671,16 @@ export function AgentDetailPage() {
               {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
             </button>
           )}
-          <button
-            className="im-btn im-btn-muted"
-            type="button"
-            disabled={!isDirty || mutation.isPending}
-            onClick={handleDiscard}
-          >
-            {t("agents.detail.discard")}
-          </button>
+          {isDirty && (
+            <button
+              className="im-btn im-btn-muted"
+              type="button"
+              disabled={mutation.isPending}
+              onClick={handleDiscard}
+            >
+              {t("agents.detail.discard")}
+            </button>
+          )}
           <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isDirty}>
             {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
           </button>
