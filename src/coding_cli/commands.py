@@ -612,9 +612,17 @@ def print_auto_mode_banner(*, config: object, out: "TextIO") -> None:  # noqa: F
 def _load_auto_mode_config_for_repl() -> object:
     """Load auto mode config for REPL startup banner without cross-package imports.
 
-    Reads the auto_mode section from ~/.nanocode/config.yaml and returns a lightweight
-    object with .enabled and .dangerously_skip_permissions attributes. Falls back to
-    safe defaults when config is absent or malformed — errors must never crash the REPL.
+    Reads the auto_mode section from the two-level config chain (workspace > global),
+    where workspace is cwd/.nanocode/config.yaml and global is ~/.nanocode/config.yaml.
+    Returns a lightweight object with .enabled and .dangerously_skip_permissions
+    attributes. Falls back to safe defaults when config is absent or malformed —
+    errors must never crash the REPL.
+
+    Priority: workspace field overrides global field when both are present
+    (spec A9: workspace config must override global for both products).
+    This mirrors the two-level loading logic in agent.platform.config.auto_mode
+    without importing from that package (cross-package import is forbidden by
+    the module boundary contract).
     """
     import yaml
     from pathlib import Path
@@ -625,24 +633,38 @@ def _load_auto_mode_config_for_repl() -> object:
             self.enabled = enabled
             self.dangerously_skip_permissions = dangerously_skip_permissions
 
-    global_config_file = Path.home() / ".nanocode" / "config.yaml"
-    enabled: bool = True
-    dangerously_skip: bool = False
-
-    for config_path in (global_config_file,):
+    def _read_section(config_path: Path) -> dict:
+        """Read auto_mode section from a single config file; return {} on any issue."""
         if not config_path.is_file():
-            continue
+            return {}
         try:
             raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
             if isinstance(raw, dict):
                 section = raw.get("auto_mode", {})
                 if isinstance(section, dict):
-                    if isinstance(section.get("enabled"), bool):
-                        enabled = section["enabled"]
-                    if isinstance(section.get("dangerously_skip_permissions"), bool):
-                        dangerously_skip = section["dangerously_skip_permissions"]
+                    return section
         except Exception:
             pass  # Corrupted config — use defaults, don't crash REPL
+        return {}
+
+    global_config_file = Path.home() / ".nanocode" / "config.yaml"
+    # Workspace config: current working directory's .nanocode/config.yaml.
+    # Path.cwd() is used (not __file__) so it reflects where the user launched
+    # the REPL — consistent with how the agent core resolves workspace config.
+    workspace_config_file = Path.cwd() / ".nanocode" / "config.yaml"
+
+    # Read global first; workspace overrides field-by-field (same semantics as
+    # agent.platform.config.auto_mode.load_auto_mode_config).
+    merged: dict = dict(_read_section(global_config_file))
+    merged.update(_read_section(workspace_config_file))
+
+    enabled: bool = True
+    dangerously_skip: bool = False
+
+    if isinstance(merged.get("enabled"), bool):
+        enabled = merged["enabled"]
+    if isinstance(merged.get("dangerously_skip_permissions"), bool):
+        dangerously_skip = merged["dangerously_skip_permissions"]
 
     return _AutoModeSummary(enabled=enabled, dangerously_skip_permissions=dangerously_skip)
 
