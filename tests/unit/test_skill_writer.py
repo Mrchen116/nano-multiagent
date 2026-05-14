@@ -138,7 +138,7 @@ def test_create_invalid_frontmatter_raises(writer: SkillWriter, bad_content: str
 def test_create_content_too_large_raises(writer: SkillWriter) -> None:
     huge_body = "x" * 100_001
     content = f"---\nname: big-skill\ndescription: desc\n---\n\n{huge_body}"
-    with pytest.raises(ValueError, match="size"):
+    with pytest.raises(ValueError, match="too large"):
         writer.create("big-skill", content)
 
 
