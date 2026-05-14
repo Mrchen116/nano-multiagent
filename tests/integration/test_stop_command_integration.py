@@ -1,10 +1,12 @@
 """Integration test: session interrupt API with blocking runtime."""
 
 import time
+from pathlib import Path
 from threading import Event
 
 from fastapi.testclient import TestClient
 
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
 from agent.core.types import Message, TurnResult
 
@@ -43,9 +45,13 @@ def _wait_for_running(client: TestClient, run_id: str, *, timeout_seconds: float
     raise AssertionError("run did not enter running status")
 
 
-def test_interrupted_run_returns_interrupted_true_and_run_id() -> None:
+def test_interrupted_run_returns_interrupted_true_and_run_id(tmp_path: Path) -> None:
     runtime = _BlockingRuntime()
-    client = TestClient(create_app(runtime=runtime))
+    # No product profile → stateless fallback store; supply an explicit
+    # data_dir-backed test store so HTTP ops without workspace_root resolve.
+    client = TestClient(
+        create_app(runtime=runtime, session_store=JsonlSessionStore(data_dir=tmp_path))
+    )
 
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-stop-integration-create"))
     assert created.status_code == 201
@@ -73,8 +79,8 @@ def test_interrupted_run_returns_interrupted_true_and_run_id() -> None:
     runtime.release.set()
 
 
-def test_interrupt_idle_session_returns_not_interrupted() -> None:
-    client = TestClient(create_app())
+def test_interrupt_idle_session_returns_not_interrupted(tmp_path: Path) -> None:
+    client = TestClient(create_app(session_store=JsonlSessionStore(data_dir=tmp_path)))
 
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-stop-idle-create"))
     assert created.status_code == 201

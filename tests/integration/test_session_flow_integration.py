@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from agent.core.agent.compaction.types import CompactionReason, CompactionResult
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.registry import ToolRegistry
@@ -50,11 +51,18 @@ def test_app_wires_session_service() -> None:
     assert session.status == 'active'
 
 
-def test_session_routes_wire_tools_registry_and_manual_compact() -> None:
+def test_session_routes_wire_tools_registry_and_manual_compact(tmp_path: Path) -> None:
     runtime = _RuntimeWithCompact()
     registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
     registry.register(_EchoTool())
-    app = create_app(runtime=runtime, tool_registry=registry)
+    # No product profile → stateless fallback store; supply an explicit
+    # data_dir-backed test store so the /tools and :compact ops (which carry no
+    # workspace_root) still resolve in this test.
+    app = create_app(
+        runtime=runtime,
+        tool_registry=registry,
+        session_store=JsonlSessionStore(data_dir=tmp_path),
+    )
     client = TestClient(app)
     headers = {"Authorization": "Bearer test-token", "X-Request-Id": "req-session-flow-compact-tools"}
 
