@@ -112,9 +112,7 @@ session_id 定位）。为什么不是持久化索引：owner 评估后选择更
       tests/integration/test_session_flow_integration.py tests/integration/background_tasks/`
       → 57 passed, 1 pre-existing failure（`test_append_message_persists_history_once_per_idempotency_key`，
       与本修复无关，round-1 即确认 pre-existing）
-    - 全量回归 `pytest tests/unit tests/integration tests/contract`（排除两个 collection-error
-      文件 `test_m170_*`）：与基线逐项 diff，**0 个新失败**（基线 156 个 pre-existing 失败，
-      多为缺依赖/无关 tools 测试；修复后 154，因装 aiohttp 顺带修了一个环境失败）。
+    - 全量回归：当时只跑了核心子集，**错误地下了「0 个新失败」结论**——见下方 R4 更正。
   - Entry: `test_http_workspace_root_threaded_to_session_jsonl_location` —— 真实 HTTP
     create+append+get 全链路，断言 JSONL 落在请求带的 workspace_root 下、不在进程 cwd，
     且缺 workspace_root 时 GET 返回 404（store 大声报错）。
@@ -123,5 +121,83 @@ session_id 定位）。为什么不是持久化索引：owner 评估后选择更
     读回 config+messages，`append` 后再 load 读到两条 turn。
   - Frontend State Matrix / Browser QA / E2E / Visual: N/A（纯后端，无前端、无 e2e 体系）
 - Rollback: C1=60671e07, C2=e8a3bb89
-- Commits: plan=ad5cb7d0, C1=60671e07, C2=e8a3bb89, C3=(本次)
-- Next: 回填 fix.md，合并到 unit/bugfix-348
+- Commits: plan=ad5cb7d0, C1=60671e07, C2=e8a3bb89, C3=0f915d9b
+- Next: R4（orchestrator 退回补齐）
+
+---
+
+### R4 — 补齐 stale 测试 + 完成根因第二处（`_resolve_data_dir`）
+
+orchestrator §3.3 核对退回，三项补齐。
+
+**问题 1：R3 漏掉 1 个 stale 测试，「0 个新失败」结论错误。**
+
+- Context: orchestrator 用 `pytest -m "not e2e" --continue-on-collection-errors` 全量 diff
+  发现 `test_app_factory_with_profile.py::test_create_app_with_profile_uses_workspace_local_session_store`
+  是新失败——它断言 `store._data_dir == repo_root/.nano`，docstring 写「should place
+  session store under repo_root/.nano」，**断言的就是 bug 本身**。R3 改对了代码却漏了这个
+  把旧 bug 当期望的测试，且当时只跑核心子集没做全量 diff，误报「0 回归」。
+- Decision: 改写该测试断言新契约（profile 模式下 store 无状态 `_data_dir is None`，session
+  落 `{workspace_root}/.nano/sessions/`），并补一段端到端断言（经 `create_app` 装配的
+  service 建 session 后 JSONL 落在 workspace_root 下）。**不删**——它测的是 `create_app`
+  端到端装配，与 `test_platform_bootstrap.py` 直接测 `bootstrap_product` 是不同集成层，
+  各有价值。
+- Rationale: 这个 stale 测试不修就会一直把「sessions 堆进进程 cwd」当成期望值挡在那。
+
+**问题 2：根因第二处 `service.py._resolve_data_dir` 没修。**
+
+- Context: fix.md【根因】段自己写了 `_resolve_data_dir()` 只返回 cwd 相对的 `.nano/` 是根因
+  之一，但 R3 只改了 `bootstrap.py`，没动 `_resolve_data_dir`。
+- 可达性调查: `SessionService` 在生产中只由 `app.py:114` 构造，传 `store=session_store`。
+  当 `product_profile` 非空（两产品的 `kernel_app.py` 都传 profile），`bootstrap_product`
+  必返回非 None 的 workspace-aware store，`app.py:105-106` 注入它 → `_resolve_store`
+  **生产路径不可达**。`_resolve_store` 只在 `create_app()` 无 profile 且无显式 store 时
+  可达（测试 / SDK glue）。
+- Decision: 它对生产是死代码，但「死代码也不能留着误导」——按 Option C 同步修：
+  - `_resolve_data_dir` 整个删掉。
+  - `_resolve_store` 改为：`NANO_MULTIAGENT_DATA_DIR` 环境变量存在时用它（明确的 opt-in
+    逃生门，给测试/dev），否则返回 `JsonlSessionStore(data_dir=None)`（无状态，与生产
+    store 一致）。**去掉静默的 `Path(".nano")` cwd 回退**——那个静默 cwd 回退正是
+    bugfix-348 的根因，不能在这里留一个副本。
+  - 把自相矛盾的 `test_session_service_with_profile.py`（名字叫 "workspace_local" 却断言
+    cwd 相对的 `Path(".nano")`）整体改对：断言 fallback store 无状态、env 变量 opt-in 生效、
+    显式 store 优先。
+- Rationale: 根因段点名两处，只修一处等于 bug 还在（虽然当前生产路径走不到，但任何未来
+  `create_app()` 无 profile 的调用、或 reviewer 读代码，都会被这个 cwd 相对 fallback 误导）。
+
+**问题 3：补齐后自己跑全量 diff。**
+
+- Decision: 在 milestone 分支跑 `pytest -m "not e2e" --continue-on-collection-errors`，
+  与 `origin/main` 同口径全量对比，FAILED/ERROR 行排序逐项 diff。
+
+- Evidence:
+  - 受影响测试: `pytest tests/unit/test_app_factory_with_profile.py
+    tests/unit/test_session_service_with_profile.py tests/unit/test_session_service.py
+    tests/unit/test_platform_bootstrap.py` → 27 passed, 1 pre-existing failure
+    （`test_create_app_with_profile_uses_resolver_skill_roots_over_legacy_codex`，CODEX_HOME
+    /skill 发现环境问题，在 main 与 unit 基线里都失败）。
+  - 全量 diff（同口径 `pytest -m "not e2e" --continue-on-collection-errors`）：
+    - R3 merge 后 `unit/bugfix-348` HEAD：209 FAILED+ERROR
+    - `origin/main`：207 FAILED+ERROR
+    - diff 出 **2 个新失败**：① 上述 stale 测试（问题 1，本 R4 已修）；
+      ② `test_safety_background.py::test_start_command_background_populates_output_file`
+      —— 排查确认是 pre-existing flaky（该文件零处引用 session/workspace_root 代码，
+      隔离重跑 3 次全 pass，是 background-process output-file 计时竞态在全量并发下偶发）。
+  - 中途发现：C2 把 `_resolve_store` 改成 `data_dir=None` 后，又连带打破 4 个用
+    bare `create_app()`（无 profile 无显式 store）再对 session 做 HTTP 操作的测试
+    （`test_minimal_flow` / `test_session_interrupt_contract` /
+    `test_stop_command_integration` / `test_session_flow_integration` 的 compact 用例）——
+    它们之前靠 `_resolve_store` 的 cwd 相对 `.nano` store「碰巧能跑」，正是在依赖 bug
+    行为。修法：这些测试改为显式传 `session_store=JsonlSessionStore(data_dir=tmp_path)`
+    （`data_dir` 文档定义的测试脚手架用途），不再依赖 fallback。
+  - **最终全量 diff（R4 全部提交后，milestone 分支 vs origin/main，同口径
+    `pytest -m "not e2e" --continue-on-collection-errors`）**：
+    - milestone-R4-final：**206 failed, 1303 passed**（207 FAILED+ERROR 行）
+    - origin/main：**206 failed, 1296 passed**（207 FAILED+ERROR 行）
+    - FAILED+ERROR 行排序逐项 diff：**新失败 0、意外修复 0 —— 失败集与 main 完全一致**。
+    - passed +7 = 本 unit 新增/改写的测试（跨重启 load、HTTP workspace_root 透传、
+      无状态 store 断言、两个 stale 测试改对等）。
+- Rollback: R4 C1=a48182af, C2=47cf290b/4191f5f2
+- Commits: R4 C1=a48182af, C2=47cf290b（_resolve_store）, C2=4191f5f2（连带测试脚手架）,
+  C3=（本次）
+- Next: merge 回 unit/bugfix-348

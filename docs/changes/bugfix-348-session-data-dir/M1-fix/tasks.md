@@ -68,3 +68,4 @@ agent 的 workspace_root；CLI 是自己的工作目录）。内核每次从入�
 | R1 | 调研调用链 + 确认 scanning 操作可作用域化 | DONE |
 | R2 | JsonlSessionStore + SessionManager 改「调用方传 workspace_root」 | DONE |
 | R3 | AgentRuntime / RunsRegistry / HTTP 路由 / 两端 client 透传 + 文档 + fix.md 回填 | DONE |
+| R4 | orchestrator §3.3 退回补齐：改对 2 个 stale 测试 + 修根因第二处 `_resolve_store` + 全量 diff | DONE |

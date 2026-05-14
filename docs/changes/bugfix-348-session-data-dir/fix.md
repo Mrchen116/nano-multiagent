@@ -86,7 +86,14 @@ workspace 走。实际落地的行为不是这样：
   缓存供后续写入；新增 `active_session_ids` / `session_workspace_root` 访问器。
 - **`src/agent/core/runs/registry.py`** — `RunRecord` 增 `workspace_root` 字段，`submit`
   透传给 `runtime.run`。
-- **`src/agent/platform/persistence/session/service.py`** — `SessionService` 透传。
+- **`src/agent/platform/persistence/session/service.py`** — `SessionService` 透传
+  `workspace_root`；并修根因第二处：`_resolve_data_dir` 整个删掉（其 docstring 宣称的
+  "优先级 2：profile global_config_home" 从未实现，正是【根因】段所指），`_resolve_store`
+  改为 `NANO_MULTIAGENT_DATA_DIR` 环境变量存在时用它（明确 opt-in），否则返回
+  `JsonlSessionStore(data_dir=None)`（无状态）——**去掉静默的 `Path(".nano")` cwd 回退**。
+  注：`_resolve_store` 仅在 `create_app()` 无 profile 且无显式 store 时可达（测试/SDK
+  glue）；生产两产品的 `kernel_app.py` 都传 profile，store 由 `bootstrap_product` 注入，
+  此 fallback 对生产不可达——但 cwd 相对 fallback 留着会误导，故一并修掉。
 - **`src/agent/platform/http_api/app.py`** — kernel 退出时的 `session_shutdown` 钩子广播
   改为遍历 `runtime.active_session_ids()`（无状态内核无全局注册表；且只对本进程跑过的
   session 触发也是语义正确的）。
@@ -126,11 +133,20 @@ workspace 走。实际落地的行为不是这样：
 - `60671e07` — C1: 失败测试（跨重启 load、缺 workspace_root 显式抛错、HTTP 全链路透传）
   + 各测试替身签名更新
 - `e8a3bb89` — C2: 实现（内核无状态 + 全链路 workspace_root 透传 + 两端 client）
-- C3（本 commit）— progress.md 重写为 Option C + fix.md 回填
+- `0f915d9b` — C3: progress.md 重写为 Option C + fix.md 回填
+- `a48182af` — C1（R4）: 改对两个把旧 bug 当期望值的 stale 测试
+  （`test_app_factory_with_profile` / `test_session_service_with_profile`）
+- `47cf290b` — C2（R4）: 修根因第二处 `_resolve_store` —— 去掉静默 cwd 回退
+- `4191f5f2` — C2（R4）: 修 `_resolve_store` 改无状态后连带破的 4 个 bare-`create_app` 测试
+- C3（本 commit）— progress.md 补 R4 段 + 全量 diff 结果 + fix.md 回填
 
-> 注：本 unit 早期一版（已合入的 `d555c887`）走的是「内核内存缓存 workspace_root」方案，
-> 该方案进程重启后 load 不到上一进程写的 session，破坏跨重启 resume。本轮按 owner 决策
+> 注 1：本 unit 早期一版（已合入的 `d555c887`）走的是「内核内存缓存 workspace_root」方案，
+> 该方案进程重启后 load 不到上一进程写的 session，破坏跨重启 resume。后续按 owner 决策
 > 撤掉内存缓存，改为内核无状态。
+>
+> 注 2：R4 是 orchestrator §3.3 核对退回补齐——R3 漏了把旧 bug 当期望的 stale 测试、
+> 漏修根因第二处 `_resolve_data_dir`、且当时只跑核心子集误报「0 回归」。R4 三项全部补齐，
+> 并自己跑了与 main 同口径的全量 diff（结果见「验证 / 回归」段）。
 
 ## 验证
 
@@ -170,15 +186,30 @@ tests/integration/test_session_flow_integration.py` 等）：
   create + append + get 全链路：JSONL 落在请求带的 workspace_root 下、不在进程 cwd；
   缺 workspace_root 的 GET 返回 404（store 大声报错而非静默命中错位置）。
 
-### 回归
+### 回归（全量 diff，与 main 同口径）
 
-`pytest tests/unit tests/integration tests/contract`（排除两个 collection-error 文件
-`test_m170_rerun_acceptance` / `test_m170_runtime`），与基线逐项 diff：**0 个新失败**。
-基线 156 个 pre-existing 失败（多为缺依赖、与 session 无关的 tools 测试）；修复后 154，
-因联调时补装 `aiohttp` 顺带修了一个环境失败。
+> R3 当时只跑核心子集就下了「0 回归」结论，是错的——orchestrator 全量 diff 抓到 1 个真
+> 新失败（stale 测试）。R4 改为**自己跑与 main 完全同口径的全量 diff**。
+
+命令：`pytest -m "not e2e" --continue-on-collection-errors -q --tb=no`，抓 `FAILED`/`ERROR`
+行排序，与 `origin/main` 同命令结果逐项 diff。
+
+| | FAILED+ERROR 行 | failed | passed |
+|---|---|---|---|
+| `origin/main` | 207 | 206 | 1296 |
+| 本 unit（R4 全部提交后） | 207 | 206 | **1303** |
+
+- **新失败 0、意外修复 0**——FAILED+ERROR 集与 main **完全一致**。
+- `passed` +7 = 本 unit 新增/改写的测试（跨重启 load、HTTP workspace_root 透传、无状态
+  store 断言、两个 stale 测试改对等）。
+- 过程中 R3 merge 后曾 diff 出 2 个新失败：① stale 测试 `test_app_factory_with_profile`
+  （R4 已改对）；② `test_safety_background` —— 排查确认 pre-existing flaky（零处引用
+  session 代码，隔离重跑全 pass，是 background-process 计时竞态在全量并发下偶发），
+  最终全量 diff 未再出现。
 
 核心 session 测试集（`test_platform_bootstrap` / `test_session_manager` /
-`test_session_service*` / `test_jsonl_store_dag_recovery` / `agent/session/` /
-`test_fork_session` / `test_session_flow_integration` / `background_tasks/`）：
-57 passed，1 pre-existing failure（`test_append_message_persists_history_once_per_idempotency_key`，
-与本修复无关，早期 round 即确认修前失败）。
+`test_session_service*` / `test_app_factory_with_profile` / `test_jsonl_store_dag_recovery` /
+`agent/session/` / `test_fork_session` / `test_session_flow_integration` / `background_tasks/`）
+单独跑：全绿（除 `test_append_message_persists_history_once_per_idempotency_key` 与
+`test_create_app_with_profile_uses_resolver_skill_roots_over_legacy_codex` 两个 pre-existing
+failure——均在 main 基线里就失败，与本修复无关）。
