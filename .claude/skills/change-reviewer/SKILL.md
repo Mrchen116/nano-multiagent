@@ -45,9 +45,9 @@ reviewer 不需要 worktree——直接在主仓 checkout `unit/<unit_id>` 即�
 
 `review_round = 1` 时**严禁**给 `revise-design`(三道闸第一道)。
 
-### §1.1 lite 路径不走 reviewer
+### §1.1 错派到无需 reviewer 的 unit → 退出
 
-bugfix lite 路径 worker 完成时会自填 fix.md 的"修复 / 验证"两段——这就是 lite 的"验收"形式。orchestrator 在 lite 模式下**不应派 reviewer**,直接进入 PR 阶段。如果你被错误派发到 lite 单元(`mode: lite`),立即退出并提示 orchestrator。
+orchestrator 对两种 unit 不该派 reviewer(判据见 orchestrator §5):**bugfix lite**、**零用户面 unit**(首文档明确写"无用户可观察变化")。若你被错派到这两种,**立即退出并提示 orchestrator**,不要走旅程。
 
 ---
 
@@ -103,9 +103,13 @@ git pull --ff-only origin "unit/<unit_id>"
 - **边界路径**:输入异常、网络断、并发、空状态、权限不足
 - **跨功能影响**:本 unit 的改动是否影响了相邻功能的可用性
 
+**refactor / perf unit 的镜头不同**:首文档的"用户场景"是**回归基线**(既有行为快照)、"验收标准"是**不变性**。你的旅程就是走这些既有行为,判据是"与变更前一致",不是"新行为好不好"——既有行为本身的瑕疵不要当本 unit 的 issue(归 Side Findings 或 out-of-unit),只判它在本次变更后有没有退化。
+
 旅程清单写到报告"User Journeys Exercised"段。
 
 同时建立一张**验收标准覆盖表**:把首文档里的每条验收标准逐条列出来,每条标记为 `pass / fail / inconclusive / not-applicable`。第 2 轮起必须继承上一轮所有 `fail` 和 `inconclusive` 项,直到它们被明确关闭。后续 fix round 可以聚焦修复项,但**最终给 pass 前必须确认所有必验项都有有效结论**。
+
+**遇到非用户可观察的验收标准条目**:如果首文档的验收标准里有一条你作为用户根本无法观察(协议字段 / 参数取值 / 内部函数 / 接口形态 / 日志字符串等实现层条目),**不要试图验证它,也不要 debug-by-reading 去翻源码**。在覆盖表里把该条标 `not-applicable`,备注"疑似实现层标准,非 reviewer 验收范围,应属 design.md",并在报告里 flag 一句。这类条目归 worker 单测 + 架构师 PR review,不归你。(区别于 §0.2:§0.2 是用户面**该出现的结果没出现** → fail;这里是**这条标准本身就不是用户面的** → not-applicable。)orchestrator 看到 flag 会回 spec-author 收口。
 
 如果首文档、design.md 或验收标准引用原型、设计稿、reference screenshot、截图、视觉一致、像素级、响应式、布局/样式等要求,这些 reference artifact 是验收真值的一部分。必须读取/打开对应 reference,并把它们写进覆盖表的"期望来源"。
 

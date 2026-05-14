@@ -72,3 +72,17 @@ reviewer 走旅程前会按这里"无脑重启清单内服务",避免 stale-bina
 |---|---|---|---|
 |  |  |  |  |
 
+## Milestones
+
+<!--
+每行一个 milestone。默认单 M1；拆分要举证（见 SKILL §4）。子目录数量必须 = 表行数。
+退出标准列分两轨，每条标 verifier：
+- [reviewer] 用户可观察的能力变化 / 不变性，来自首文档验收标准，reviewer 走旅程验。
+- [worker]   实现层验收标准：单测 / 构建 / 性能 / 保真点，worker 在 milestone 内验，
+             并会被 orchestrator 抽进 PR body 供架构师 PR review。
+-->
+
+| ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
+|---|---|---|---|---|---|
+|  |  |  |  |  |  |
+
