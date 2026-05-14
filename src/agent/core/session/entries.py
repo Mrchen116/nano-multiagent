@@ -6,6 +6,7 @@ from enum import StrEnum
 from typing import Any, Mapping, Sequence
 
 from agent.core.ids import make_event_id
+from agent.core.types import Message
 
 
 class SessionEntryKind(StrEnum):
@@ -121,6 +122,19 @@ def new_turn_appended_entry(
         created_at=created_at or _utc_now_iso(),
         kind=SessionEntryKind.TURN_APPENDED,
         data=payload,
+    )
+
+
+def message_from_turn_entry(entry: SessionEntry) -> Message:
+    """Convert a SessionEntry (TURN_APPENDED) into a core Message.
+
+    This was previously defined in runtime.py; migrated here to break
+    the loop -> runtime import cycle.
+    """
+    return Message(
+        message_id=str(entry.data.get("message_id", "")),
+        role=str(entry.data.get("role", "")),
+        content=str(entry.data.get("content", "")),
     )
 
 
