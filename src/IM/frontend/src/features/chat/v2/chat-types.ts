@@ -108,7 +108,12 @@ export type WsEvent =
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
   | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null }
   | { type: "tool_call.upserted"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
-  | { type: "tool_call.completed"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall };
+  | { type: "tool_call.completed"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
+  // feat-333-M3/R1: permission ask flow. Backend emits these when auto_mode_gate triggers
+  // an `ask` decision; the frontend uses them to fill message.permission_request so
+  // PermissionCard renders inline. Mirrors IM/api/ws/event_types.py constants.
+  | { type: "permission.request"; seq?: number; conversation_id: string; message_id: string; permission_request: PermissionRequest }
+  | { type: "permission.resolved"; seq?: number; conversation_id: string; message_id: string; request_id: string; decision: string };
 
 export interface MentionCandidate {
   agent_id: string;
