@@ -2,98 +2,70 @@
 
 ## 目标
 
-修复 session JSONL 落点错误——会话文件当前落在进程 cwd 的 `.nano/sessions/`，正确位置是
+修复 session JSONL 落点错误——会话文件落在进程 cwd 的 `.nano/sessions/`，正确位置是
 `{workspace_root}/.nano/sessions/{session_id}.jsonl`（见 feat-330 design.md）。
 
 ## 退出标准
 
-1. 新建 session 时，JSONL 文件落在 `{workspace_root}/.nano/sessions/{session_id}.jsonl`，
+1. 新建 session 时，JSONL 落在 `{workspace_root}/.nano/sessions/{session_id}.jsonl`，
    workspace_root 取自该 session 创建时传入的值。
 2. 不同 workspace_root 的 session 落到各自目录，不混在同一 flat 目录。
-3. `get_session(session_id)` / `load` 仍可正常读取。
-4. 两个产品（个人助手 + Coding CLI）均走同一修复路径，bootstrap 一次修好。
+3. `load` / resume / append 仍可正常读写——**包括进程重启后**对上一进程写下的 session。
+4. 两个产品（个人助手 + Coding CLI）均走同一修复路径。
 5. 旧位置文件不迁移（Q3 澄清结论）。
-6. 全部相关单测通过。
+6. 全部相关单测通过，无回归。
 
-## 架构决策：workspace_root 分离存储 + 调用方传 workspace_root
+## 架构决策（Option C，owner 已拍定）：内核无状态，workspace_root 由调用方每次请求带上
 
-**问题**：现有 `JsonlSessionStore` 构造时定死一个 `data_dir`，但 workspace_root 是每个
-session 各自不同的。若要按 workspace_root 分目录存，就必须在 create/load 时动态解析路径。
+**问题**：`JsonlSessionStore` 构造时定死单一 `data_dir`，bootstrap 把它写成进程 cwd 下的
+`.nano`，导致所有 session 落入进程 cwd，与 feat-330 design.md 要求的
+`{workspace_root}/.nano/sessions/` 不符。
 
-**load 的鸡与蛋问题**：`load(session_id)` 时，workspace_root 写在 JSONL 第一行 —— 但要
-读这一行，先得知道文件在哪。`data_dir` 固定时没有这个问题；改成 workspace-aware 后会出现。
+**鸡蛋问题**：`load(session_id)` 时 workspace_root 写在 JSONL 首行，但读首行先要知道文件
+在哪。feat-330 design.md 本身没解决这个窟窿（「文件位置」段写按 workspace_root 分目录，
+但 `_resolve_path` 伪代码用扁平 `data_dir`、`load()`/`run()` 只传 session_id）。本 bugfix
+补这个窟窿。
 
-**决策**：
+**决策**：内核不持有也不持久化 `session_id → workspace_root` 映射。需要定位 session 文件的
+请求由调用方带上 `workspace_root`——gateway 和 CLI 本来就知道（PA 在 gateway 配置里有每个
+agent 的 workspace_root；CLI 是自己的工作目录）。内核每次从入参拿。
 
-- `JsonlSessionStore.__init__` 接受可选的 `data_dir`。
-  - 传入 `data_dir`：兼容现有行为（所有文件落在同一根目录），单测不用改。
-  - 不传 `data_dir`（workspace-aware 模式）：`create`/`load`/`append` 等调用方必须同时
-    传 `workspace_root`，store 从中解析 `{workspace_root}/.nano/sessions/{session_id}.jsonl`。
-- 为避免鸡与蛋，`SessionManager` 在 `get_session(session_id)` 时需要 workspace_root。
-  解决方案：把 workspace_root 作为参数透传，或维护 `session_id → workspace_root` 内存索引。
-  
-  选择**内存索引方案**：`SessionManager` 在 `create_session` 时记录
-  `session_id → workspace_root` 映射；`get_session`/`load` 优先查索引。进程重启后索引消失，
-  需从 JSONL 首行反扫重建（懒加载）。
-  
-  但这带来复杂性。更简单的方案：
-  
-  **最终决策 - 传 workspace_root 给 create，store 用 workspace_root 解析路径；
-  load/get_session 维持 data_dir 内平铺（使用 session_id 直接定位），仅 create/append 路径
-  改为 workspace-aware**。
-  
-  实际上，设计最简原则：`JsonlSessionStore` 在 workspace-aware 模式下需在以下时机知道
-  workspace_root：
-  - `create(session_id, config)` —— config 里已有 `workspace_root` ✅
-  - `append(session_id, entry)` —— 需要 workspace_root
-  - `load(session_id)` —— 鸡蛋问题
-  
-  鸡蛋问题解决方案：store 维护 `session_id → workspace_root` 内存缓存（create 时填入），
-  append/load 先查缓存。进程重启后缓存为空，`load` 时扫描候选 workspace 目录或接受调用方传入。
-  
-  **最终最简方案（本次实施）**：
-  
-  让 `JsonlSessionStore` 在 workspace-aware 模式下，`create` 时从 `SessionConfig.workspace_root`
-  解析路径并写缓存（`session_id → workspace_root`）；`append`/`load` 查缓存；
-  进程重启后缓存为空时，`load` 降级扫描 sessions 目录（通过 `_scan_workspace_root`）。
-  
-  但扫描复杂度高。最终选择更直接的方案：
-  
-  **实施方案（最终）**：
-  
-  1. `bootstrap.py` 不再在启动时构造单一 `JsonlSessionStore`。改为 `session_store=None`
-     传给 `ResolvedProductConfig`，让 `app.py` 通过 `SessionService` 懒惰构建。
-  2. `SessionService` 在 `create_session` 时，按 `workspace_root` 构造/选择对应的
-     `JsonlSessionStore`（缓存 `workspace_root → store` 的映射）。
-  3. `get_session(session_id)` 时：先查所有已知 store 中是否有该 session（遍历
-     `workspace_root → store` 映射）。这是 "先扫描已知 workspace" 方案。
-  4. 但这仍有进程重启后找不到旧 session 的问题。
-  
-  **最终结论（采用最简可行方案）**：
-  
-  唯一真正无鸡蛋问题的方案是：
-  - `JsonlSessionStore` 本身仍使用 `data_dir` 固定根目录（现有架构不变），但
-  - `bootstrap.py` 改 `data_dir` 为 `workspace_root`，而不是 `repo_root / ".nano"`。
-  - 但 workspace_root 在进程启动时（bootstrap 时）就是固定的（每个 agent 进程对应一个 agent），
-    而不是动态的！
-  
-  查看 bootstrap 调用方（个人助手和 Coding CLI）：
-  - 个人助手：每个 agent 有自己的 workspace_root，每个 agent 对应独立进程？还是共享一个进程？
-  - Coding CLI：每次 CLI 启动对应一个工作目录
-  
-  这需要看 personal_assistant 和 coding_cli 如何调用 bootstrap。
+**落地**：
+
+1. `JsonlSessionStore` 的 `create` / `load` / `append` / `update_config` / `resolve_path` /
+   `list_session_ids` / `find_session_by_metadata` 接收调用方传入的 `workspace_root`。
+   路径仍是 `{workspace_root}/.nano/sessions/{session_id}.jsonl`。
+2. 向后兼容：保留 `data_dir` 作为**可选默认 base**——传了 `workspace_root` 用它，否则回退
+   `data_dir`。现有用 `data_dir=` 构造 store 的测试不用大改。
+3. `SessionManager` 同步把 `workspace_root` 透传给 store；`load`/`append` 等加该参数。
+4. `AgentRuntime.run()` 及 resume 路径接收 `workspace_root`，透传给 manager/store。
+5. HTTP 请求模型加 `workspace_root` 字段：`SendMessageRequest`、`AppendMessageRequest`，
+   以及 fork/compact/interrupt 等会 load session 的路由按需加。
+6. `RunsRegistry.submit` 接收并透传 `workspace_root` 给 runtime。
+7. 两端发送方带上：PA `kernel_api_client` + gateway、Coding CLI `client` 在 submit/append
+   时带 `workspace_root`。
+8. `find_session_by_metadata`（agent 工具找 subagent）：subagent JSONL 在父 session 的
+   workspace_root 下，agent 工具运行时父 session 已加载，从 runtime 取父 workspace_root，
+   作用域化扫描。
+9. `list_session_ids`（`GET /v1/sessions` 列表）：探查确认**无产品调用方**（CLI/PA 都只用
+   create + get-one + append + stream，不用 list）。内核无状态下无法跨 workspace 列举，
+   作用域化为「按传入 workspace_root 列举」，HTTP 路由加 `workspace_root` 查询参数。
 
 ## 测试策略
 
-- 纯后端 API 改动
-- 策略：集成测试（真实 HTTP 请求），验证 session JSONL 落在 workspace_root/.nano/sessions/
-- 补充 bootstrap 测试：session_store 的 data_dir 指向正确路径
-- 不改前端，不涉及浏览器
+- 纯后端改动，无前端。
+- 单元测试：
+  - workspace_root 落点正确、多 workspace 隔离
+  - 跨进程重启：store A create+写 turn → 丢弃 A → 全新 store B →
+    `load(session_id, workspace_root=...)` 读回成功
+  - `data_dir` 默认 base 向后兼容
+- HTTP 集成测试：`workspace_root` 字段经 submit/append 透传到正确落点。
 
 ## Roadpoints
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | 调研调用方：个人助手和 Coding CLI 如何使用 bootstrap | DONE |
-| R2 | C1 失败测试 + C2 实现修复 | DONE |
-| R3 | C3 文档 + fix.md 回填 + 合并 | DONE |
+| R1 | 调研调用链 + 确认 scanning 操作可作用域化 | DONE |
+| R2 | JsonlSessionStore + SessionManager 改「调用方传 workspace_root」 | DOING |
+| R3 | AgentRuntime / RunsRegistry / HTTP 路由 / 两端 client 透传 | TODO |
+| R4 | 文档 + fix.md 回填 + 合并 | TODO |
