@@ -45,22 +45,31 @@
 
 ### R3 — HookContext.fork_conversation + make_fork_conversation + anti-recursion
 
-- Context: background hook 需要能 fork 当前对话跑 side-chain；同时必须防止 fork 内再次 fork（递归）。
-- Decision: 
+- Context: background hook 需要能 fork 当前对话跑 side-chain；同时必须防止 fork 内再次 fork（递归）；fork 必须命中 provider prefix cache（整个 background-fork 设计的核心动机）。
+- Decision:
   1. `HookContext.fork_conversation: ForkConversation | None` 字段，默认 None。
   2. `dispatch_observe/dispatch_intercept` 用 `_strip_fork_conversation(ctx)` 确保 observe/intercept handler 永远收到 fork_conversation=None。
-  3. `make_fork_conversation()` 在 `context_fork.py` 内，构建 async callable 封装 `AgentContextFork.execute()`，传入父 turn `rendered_system_prompt`（字节一致性）和按 allowlist 过滤的 tools。
+  3. `make_fork_conversation()` 在 `context_fork.py` 内，构建 async callable 封装 `AgentContextFork.execute()`。
   4. 防递归：fork side-chain 通过 `AgentContextFork` 运行，该实例没有 hook_runner 背景 hook，fork context 内不会注入 `fork_conversation`。
-- Rationale: `rendered_system_prompt` 字节一致是 prefix cache 命中的关键（决策 6）；observe/intercept 剥离 fork_conversation 是语义上的安全边界，也防止非 background 代码意外调用 fork。
+- Decision（验收修订 2026-05-14，决策 6 对齐）: **tool 收窄方式从"重塑 LLM tool 列表"改为"执行层拦截"**。
+  - **system prompt + tools 参数逐字节继承父 turn**：`make_fork_conversation` 把完整的 `active_tools` 原样作为 `available_tools_override` 传给 fork（不再 `fork_tools = filter(...)`）；`rendered_system_prompt` 同样逐字节传。两者都是 provider prefix-cache key 的一部分，重塑任一个都会导致 cache miss。
+  - **tool 收窄在执行层做**：`StreamingToolExecutor` 新增 `tool_execution_allowlist` 参数；`AgentLoop.run()` / `AgentContextFork.execute()` 增同名 kwarg 透传；`make_fork_conversation` 把 `tool_allowlist` 作为 `tool_execution_allowlist` 传下去。executor 在 `_execute_one` 里、调 `registry.execute()` **之前** 用 `_is_execution_denied()` 判断：不在 allowlist 的工具直接返回 synthetic error `ToolResult`，工具本体从不执行（无副作用）。
+  - **挂点选择理由**：design 给了两个候选——`ToolRegistry.execute` 内置判断 vs 复用 hook `tool_call` intercept。**选 `StreamingToolExecutor`**（在 `ToolRegistry.execute` 之前的更外层）：① intercept hook 注册在 registry 上是全局的，无法只作用于 fork side-chain 而不影响主 agent；② `ToolRegistry` 是主 agent 和 fork 共享的同一实例，在它内部加 fork-only 状态会污染主路径；③ `StreamingToolExecutor` 是每次 `AgentLoop.run()` 新建的、天然 per-run 隔离，把 allowlist 作为构造参数透下去最干净——主 agent 的 loop 永远传 `None`，fork 的 loop 传具体 allowlist，互不影响。
+- Rationale: prefix cache 命中是 background-fork 整个设计的核心动机，逐字节继承 system prompt + tools 是硬约束；执行层拦截让"LLM 看到全量工具"和"实际只能跑白名单"解耦，既保 cache 又保安全。observe/intercept 剥离 fork_conversation 是语义安全边界，防止非 background 代码意外调用 fork。
 - Evidence:
-  - Tests: `test_fork_conversation_inherits_parent_system_prompt`, `test_fork_conversation_none_in_fork_context`, `test_background_hook_receives_fork_conversation_in_context`, `test_hook_context_has_fork_conversation_field` — all pass
-  - Entry: N/A (unit level only)
+  - Tests:
+    - `test_fork_conversation_inherits_parent_system_prompt` — 断言 `system_prompt_override` 与父 turn `rendered_system_prompt` 字节一致
+    - `test_fork_conversation_inherits_parent_active_tools_byte_for_byte` — 父 turn 有 4 个工具、allowlist 只放行 2 个；断言 `available_tools_override` == 完整 4 工具（不被收窄），且 `tool_execution_allowlist` == allowlist
+    - `test_fork_executor_denies_unlisted_tool_at_execution_layer` — 真测：FakeLLM 第 1 轮同时调 `bash`（非白名单）+ `memory`（白名单），用真 `ToolRegistry` + 真 `RecordingTool`，断言 `memory` 真的执行了、`bash` 没被执行（执行层 deny）
+    - `test_fork_conversation_none_in_fork_context`, `test_background_hook_receives_fork_conversation_in_context`, `test_hook_context_has_fork_conversation_field` — all pass
+  - 反向验证: 临时把 `_is_execution_denied` 改成永远返回 False，`test_fork_executor_denies_unlisted_tool_at_execution_layer` 立即失败（`bash` 被执行），证明测试是真测不是假绿。
+  - Entry: fork 路径用真 ToolRegistry + 真 FakeLLMClient 端到端跑通，工具执行/拒绝行为已验证
   - Frontend State Matrix: N/A
   - Browser QA: N/A
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
-- Rollback: revert context.py + context_fork.py
-- Commits: C1=cb8be496, C2=a82e9c1a, C3=(this)
+- Rollback: revert context.py + context_fork.py + tool_executor.py + loop.py（tool_execution_allowlist 透传段）
+- Commits: C1=cb8be496, C2=a82e9c1a, C3=bd7129f5, fix=(this batch)
 
 ### R4 — loop.py turn_meta 暴露 tool_iterations + runtime agent_end 带计数
 
@@ -92,16 +101,25 @@
 - Rollback: revert runtime.py background dispatch 段
 - Commits: C1=cb8be496, C2=a82e9c1a, C3=(this)
 
-## Test Run Summary (final)
+## Test Run Summary (final, post 验收修订)
 
 ```
-tests/unit/test_background_hook_fork.py: 20 passed
+tests/unit/test_background_hook_fork.py: 21 passed
 tests/unit/test_hooks_runner.py: pass (no regression)
 tests/unit/test_agent_runtime_hooks.py: pass (no regression)
 tests/unit/test_agent_runtime.py: pass (no regression)
 tests/unit/test_agent_loop.py: pass (no regression)
+tests/unit/test_loop_compact.py / test_loop_retry.py: pass (no regression)
+tests/unit/ -k "tool_executor or streaming or tool_allowlist or context_fork or fork_session or compact": 57 passed
 ```
 
+验收修订（2026-05-14）：R3 tool 收窄方式从"重塑 LLM tool 列表"改为"执行层拦截"，
+对齐 design 决策 6。新增 2 个真测替换原 1 个假测：
+- `test_fork_conversation_inherits_parent_active_tools_byte_for_byte`（tools 字节一致）
+- `test_fork_executor_denies_unlisted_tool_at_execution_layer`（执行层 deny 真测，已反向验证）
+test 总数 20 → 21。
+
 Pre-existing failures on unit/feat-349 branch (not introduced by M1):
-- test_agent_runtime_m246, test_app_factory_with_profile, test_server_global_routes, test_cli_managed_server, test_run_cancel, test_task_tool_with_resolver, etc.
+- test_agent_runtime_m246, test_app_factory_with_profile, test_server_global_routes, test_cli_managed_server, test_run_cancel, test_task_tool_with_resolver
+- tests/contract/test_hook_intercept_contract.py, tests/contract/test_hook_integration_contract.py (5 cases) — 已 stash 验证为 M1 之前就红
 
