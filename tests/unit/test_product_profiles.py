@@ -50,7 +50,7 @@ def test_local_coding_package_exports_default_modules() -> None:
     assert local_coding_defaults.CONFIG_NAMESPACE == "nanocode"
     assert local_coding_prompts.LOCAL_CODING_SYSTEM_PROMPT == LOCAL_CODING_PROFILE.default_system_prompt
     assert set(local_coding_toolsets.DEFAULT_TOOL_IDS) == {"read", "write", "edit", "bash", "agent", "task_stop"}
-    assert "bash_risk_gate" in local_coding_hooks.DEFAULT_HOOK_MODULES
+    assert "auto_mode_gate" in local_coding_hooks.DEFAULT_HOOK_MODULES  # M1: replaced bash_risk_gate
 
 
 def test_personal_assistant_profile_exists() -> None:

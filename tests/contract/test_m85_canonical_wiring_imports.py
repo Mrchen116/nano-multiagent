@@ -50,7 +50,7 @@ FORBIDDEN_IMPORTS = {
     "platform/http_api/routes/run.py": ("agent.runs",),
     "platform/tools/registry.py": ("agent.observability",),
     "platform/hooks/builtins/usage_metrics.py": ("agent.hooks.session_usage",),
-    "platform/hooks/builtins/bash_risk_gate.py": ("agent.tools.safety",),
+    "platform/hooks/builtins/auto_mode_gate.py": ("agent.tools.safety",),
 }
 
 

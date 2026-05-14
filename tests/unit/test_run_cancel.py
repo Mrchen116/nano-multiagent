@@ -15,10 +15,11 @@ class _BlockingRuntime:
         self.started = Event()
         self.release = Event()
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
         del session_id
         del parts
         del stream
+        del origin
         self.started.set()
         self.release.wait(timeout=1.0)
         return TurnResult(
@@ -36,8 +37,8 @@ class _AbortableBlockingRuntime:
     def __init__(self) -> None:
         self.started = Event()
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
-        del session_id, parts, stream, run_id
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
+        del session_id, parts, stream, run_id, origin
         self.started.set()
         # Poll abort signal with short sleeps
         for _ in range(50):
@@ -62,8 +63,8 @@ class _AbortableBlockingRuntime:
 class _FailureRuntime:
     """Runtime that raises a non-retryable ModelError (simulates loop exhausting retries)."""
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
-        del session_id, parts, stream, run_id
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
+        del session_id, parts, stream, run_id, origin
         # Retryable errors are exhausted inside loop; what reaches registry is non-retryable.
         raise ModelError("retries exhausted", retryable=False)
 
