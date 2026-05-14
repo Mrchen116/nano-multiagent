@@ -98,6 +98,10 @@ class MessageResponse(BaseModel):
     created_at: str
     tool_calls: list[ToolCallPayload] = []
     token_usage: TokenUsagePayload | None = None
+    # feat-333-M3/R3: expose embedded permission request so page-reload restores
+    # pending permission cards from REST history (without this field, the card
+    # disappears on refresh even though permission_request_json is persisted in DB).
+    permission_request: dict | None = None
 
 
 class ListMessagesResponse(BaseModel):
@@ -155,6 +159,9 @@ def to_message_response(message: Message) -> MessageResponse:
             context_window=message.token_usage.context_window,
             total=message.token_usage.total,
         ) if message.token_usage is not None else None,
+        # feat-333-M3/R3: pass through permission_request so REST history load can
+        # restore pending permission card state after page refresh.
+        permission_request=message.permission_request,
     )
 
 
