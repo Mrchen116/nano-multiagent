@@ -374,3 +374,61 @@ class TestPermissionRestEndpoint:
             )
 
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# feat-333-M3/R3: MessageResponse must expose permission_request so REST
+# history reload can restore pending permission cards after page refresh.
+# ---------------------------------------------------------------------------
+
+
+class TestMessageResponsePermissionRequest:
+    """to_message_response() must map Message.permission_request to MessageResponse."""
+
+    def _make_message(self, permission_request=None) -> "Message":
+        """Create a minimal domain Message with optional permission_request."""
+        from IM.domain.models import Message, Actor
+
+        return Message(
+            id="msg-perm-1",
+            conversation_id="conv-1",
+            sender=Actor(type="agent", id="agent-a", display_name="Alpha"),
+            sender_user_id="u:agent-a",
+            sender_type="agent",
+            content="",
+            attachments=[],
+            delivery_status="running",
+            created_at="2026-01-01T00:00:00",
+            permission_request=permission_request,
+        )
+
+    def test_to_message_response_includes_permission_request_when_present(self) -> None:
+        """MessageResponse must carry permission_request when the domain message has one."""
+        from IM.api.routes.messages import to_message_response
+
+        perm = {
+            "request_id": "req-restore-1",
+            "tool_name": "bash",
+            "tool_input": {"command": "rm -rf /tmp"},
+            "question": "Allow bash?",
+            "options": [{"id": "allow_once", "label": "Allow once", "description": ""}],
+            "status": "pending",
+        }
+        msg = self._make_message(permission_request=perm)
+        response = to_message_response(msg)
+
+        assert response.permission_request is not None, (
+            "Expected permission_request to be present in MessageResponse — "
+            "page refresh should restore pending permission cards from REST history"
+        )
+        assert response.permission_request["request_id"] == "req-restore-1"
+        assert response.permission_request["status"] == "pending"
+
+    def test_to_message_response_permission_request_is_none_when_absent(self) -> None:
+        """MessageResponse.permission_request must be None when message has no pending request."""
+        from IM.api.routes.messages import to_message_response
+
+        msg = self._make_message(permission_request=None)
+        response = to_message_response(msg)
+
+        assert response.permission_request is None
