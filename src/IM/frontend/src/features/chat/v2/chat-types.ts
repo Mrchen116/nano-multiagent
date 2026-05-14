@@ -56,6 +56,8 @@ export interface Message {
   created_at: string;
   tool_calls?: ToolCall[];
   token_usage?: TokenUsage | null;
+  /** Embedded permission request; present when the agent is awaiting a user decision. */
+  permission_request?: PermissionRequest | null;
 }
 
 export interface Conversation {
