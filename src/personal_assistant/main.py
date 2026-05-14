@@ -1835,6 +1835,46 @@ def _build_kernel_event_observer(
                     "run_id": run_id,
                 }))
 
+        elif event_name == "permission_request":
+            # Agent auto_mode_gate is awaiting a user decision; forward to IM so the
+            # permission card can be rendered in the chat.  Only forwarded when we have
+            # a message_id (turn_start already acked) so IM can attach the card to the
+            # correct message row.  No message_id → card would be orphaned; skip.
+            if message_id:
+                request_id = str(event.get("request_id") or "").strip()
+                tool_name = str(event.get("tool_name") or "").strip()
+                tool_input = event.get("tool_input")
+                question = str(event.get("question") or "").strip()
+                options_raw = event.get("options")
+                options = list(options_raw) if isinstance(options_raw, list) else []
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "permission_request",
+                    "message_id": message_id,
+                    "permission_request": {
+                        "request_id": request_id,
+                        "tool_name": tool_name,
+                        "tool_input": dict(tool_input) if isinstance(tool_input, Mapping) else (tool_input or {}),
+                        "question": question,
+                        "options": options,
+                        "status": "pending",
+                    },
+                    "run_id": run_id,
+                }))
+
+        elif event_name == "permission_resolved":
+            # Agent resolved a permission request (hook resumed); update the IM card
+            # so the user sees the final decision.
+            if message_id:
+                request_id = str(event.get("request_id") or "").strip()
+                decision = str(event.get("decision") or "").strip()
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "permission_resolved",
+                    "message_id": message_id,
+                    "request_id": request_id,
+                    "decision": decision,
+                    "run_id": run_id,
+                }))
+
     return observer
 
 

@@ -91,6 +91,10 @@ class SendMessageRequest(BaseModel):
     parts: list[dict[str, Any]] = Field(min_length=1)
     model: str | None = None
     priority: str = "next"
+    # Optional run origin — defaults to USER when absent. PA heartbeat runs pass
+    # "heartbeat" so auto_mode_gate can short-circuit to unattended_fallback without
+    # blocking on a permission request that nobody will answer.
+    origin: str | None = None
 
 
 class SubmitMessageResponse(BaseModel):
@@ -532,11 +536,19 @@ async def submit_message(
             )
 
     anchor = event_hub.current_sequence()
+    # Resolve origin: caller may pass "heartbeat" for PA background runs so
+    # auto_mode_gate can detect unattended context and skip permission requests.
+    # Any unrecognised value falls back to USER (safe default).
+    _origin_str = (payload.origin or "").strip().lower()
+    try:
+        run_origin = RunOrigin(_origin_str) if _origin_str else RunOrigin.USER
+    except ValueError:
+        run_origin = RunOrigin.USER
     try:
         record = runs.submit(
             session_id=session_id,
             parts=payload.parts,
-            origin=RunOrigin.USER,
+            origin=run_origin,
             trace_id=get_trace_id(request),
         )
     except ValueError as exc:

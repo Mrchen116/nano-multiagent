@@ -148,8 +148,21 @@ class KernelApiClient:
         texts: list[str],
         image_urls: list[dict[str, Any]] | None = None,
         priority: str = "next",
+        origin: str | None = None,
     ) -> dict[str, Any]:
-        """POST /messages. Returns {run_id, anchor_sequence, injected, status}."""
+        """POST /messages. Returns {run_id, anchor_sequence, injected, status}.
+
+        Args:
+            session_id: Target kernel session.
+            texts: One or more user message texts.
+            image_urls: Optional image attachments.
+            priority: Run scheduling priority ("next" or "now").
+            origin: Optional run origin tag ("heartbeat", "user", …). When
+                provided it is forwarded to the kernel so ``auto_mode_gate``
+                can detect unattended context and skip blocking permission
+                requests — specifically ``RunOrigin.HEARTBEAT`` runs must not
+                park waiting for a user who is not present.
+        """
         if not texts:
             raise ValueError("texts must contain at least one message")
         parts: list[dict[str, Any]] = [
@@ -164,6 +177,8 @@ class KernelApiClient:
                     image_part["mime_type"] = mime.strip()
                 parts.append(image_part)
         payload: dict[str, Any] = {"parts": parts, "priority": priority}
+        if origin is not None:
+            payload["origin"] = origin
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request(
             "POST",

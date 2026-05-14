@@ -30,15 +30,16 @@ class _FakeKernelClient:
         self.created_sessions.append(payload)
         return payload
 
-    def submit_message(self, *, session_id: str, texts: list[str]) -> dict[str, object]:
+    def submit_message(self, *, session_id: str, texts: list[str], **kwargs: object) -> dict[str, object]:
         self._run_counter += 1
-        payload = {
+        payload: dict[str, object] = {
             "run_id": f"run-{self._run_counter}",
             "session_id": session_id,
             "texts": texts,
             "anchor_sequence": 1,
             "injected": False,
             "status": "queued",
+            **kwargs,
         }
         self.sent_messages.append(payload)
         return payload
