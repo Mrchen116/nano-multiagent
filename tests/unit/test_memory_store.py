@@ -204,10 +204,12 @@ def test_format_for_prompt_empty(store: MemoryStore) -> None:
 
 
 def test_char_limit_enforced(memory_root: Path) -> None:
-    store = MemoryStore(memory_root=memory_root, memory_char_limit=20, user_char_limit=20)
-    store.add("memory", _entry("a" * 15))
+    # Limit is large enough to hold one entry but not two. Each serialized
+    # entry is roughly len(text) + ~70 bytes for the source comment line.
+    store = MemoryStore(memory_root=memory_root, memory_char_limit=200, user_char_limit=200)
+    store.add("memory", _entry("a" * 50))
     with pytest.raises(ValueError, match="char limit"):
-        store.add("memory", _entry("b" * 15))
+        store.add("memory", _entry("b" * 200))
 
 
 # ---------------------------------------------------------------------------
