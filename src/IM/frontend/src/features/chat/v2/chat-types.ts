@@ -114,3 +114,32 @@ export interface MentionCandidate {
   initials: string;
   status: "online" | "offline";
 }
+
+// ─── Permission request types (auto_mode_gate ask flow) ──────────────────────
+//
+// Mirrors the PermissionRequest / PermissionOption structures from
+// `agent/platform/permissions/broker.py`. The frontend only needs the subset
+// that drives the inline permission card UI.
+
+export interface PermissionOption {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface PermissionRequest {
+  request_id: string;
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  question: string;
+  options: PermissionOption[];
+  /** "pending" until the user has responded; "resolved" once a decision is recorded. */
+  status: "pending" | "resolved";
+  /** Populated when status === "resolved" (from permission_resolved WS event). */
+  decision?: string;
+}
+
+/** The Message type extended with an optional embedded permission request. */
+export interface MessagePermissionData {
+  permission_request?: PermissionRequest | null;
+}
