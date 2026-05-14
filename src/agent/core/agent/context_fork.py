@@ -70,6 +70,7 @@ class AgentContextFork:
         system_prompt_override: str | None = None,
         available_skills_override: tuple[SkillMetadata, ...] | None = None,
         available_tools_override: tuple[ToolSpec, ...] | None = None,
+        tool_execution_allowlist: tuple[str, ...] | None = None,
     ) -> TurnResult:
         """Fork the agent context and execute with isolated side effects.
 
@@ -80,6 +81,9 @@ class AgentContextFork:
             system_prompt_override: Optional system prompt override.
             available_skills_override: Optional skills override.
             available_tools_override: Optional tools override.
+            tool_execution_allowlist: When set, only these tool names may
+                actually execute in the fork; others are denied at the
+                execution layer (the tool list sent to the LLM is unchanged).
 
         Returns:
             Turn result from the forked execution.
@@ -94,6 +98,7 @@ class AgentContextFork:
             system_prompt_override=system_prompt_override,
             available_skills_override=available_skills_override,
             available_tools_override=available_tools_override,
+            tool_execution_allowlist=tool_execution_allowlist,
         ):
             messages.append(msg)
 
@@ -111,15 +116,17 @@ def make_fork_conversation(
 ) -> Callable:
     """Build a fork_conversation callable for injection into background HookContext.
 
-    The returned callable wraps AgentContextFork.execute(), forwarding the parent
-    turn's rendered_system_prompt byte-for-byte to the fork so that the provider
-    prefix cache is hit (decision 1, design.md).
+    The returned callable wraps AgentContextFork.execute(), forwarding both the
+    parent turn's rendered_system_prompt AND active_tools byte-for-byte to the
+    fork. Both are part of the provider prefix-cache key; rebuilding or narrowing
+    either one causes a cache miss, which would defeat the whole point of the
+    background-fork design (decision 1 + decision 6, design.md).
 
-    Tool execution is restricted to tool_allowlist at the AgentLoop level: only
-    tools in the allowlist are passed as available_tools_override to the fork.
-    The full tool list is kept in the system prompt (inherited) but the loop only
-    passes allowed specs to the LLM — this is the "prompt inherit + execution layer
-    narrow" strategy from decision 6.
+    Tool narrowing is done at the EXECUTION layer, not by reshaping the tool list
+    sent to the LLM: the full active_tools list is sent (cache hit), but the fork's
+    StreamingToolExecutor denies any tool call whose name is not in tool_allowlist,
+    returning a synthetic error result without ever executing the tool. This is
+    the "prompt inherit + execution layer narrow" strategy from decision 6.
 
     Anti-recursion: the fork is built without fork_conversation in its own hook
     context (the runtime that runs the fork side-chain does not have a hook_runner
@@ -128,10 +135,13 @@ def make_fork_conversation(
     Args:
         context_fork: The AgentContextFork instance owned by the runtime.
         rendered_system_prompt: Parent turn's rendered system prompt bytes.
-        active_tools: Full tool specs from the parent turn (for LLM prompt inheritance).
+        active_tools: Full tool specs from the parent turn — passed byte-for-byte
+            to the fork LLM so the prefix cache is hit.
         messages_snapshot: Shallow copy of parent turn messages (conversation context).
         session_id: Parent session id.
-        tool_allowlist: Names of tools the fork is allowed to execute.
+        tool_allowlist: Names of tools the fork is allowed to actually execute.
+            (The per-call tool_allowlist on the returned callable overrides this
+            default if provided.)
 
     Returns:
         An async callable with signature:
@@ -149,7 +159,8 @@ def make_fork_conversation(
 
         Args:
             review_prompt: The user message sent to the fork agent.
-            tool_allowlist: Tools allowed to execute (execution-layer filter).
+            tool_allowlist: Tools allowed to actually execute. Enforced at the
+                execution layer — the LLM still sees the full inherited tool list.
             max_turns: Max LLM iterations.
 
         Returns:
@@ -157,13 +168,7 @@ def make_fork_conversation(
         """
         from agent.core.ids import make_turn_id
 
-        # Build fork-only tool specs: only pass allowlisted tools to the fork LLM.
-        # System prompt is inherited from parent (prefix cache hit), but the fork
-        # LLM call only gets a narrow tool list, reducing cost and guiding behavior.
-        allowed_set = set(tool_allowlist)
-        fork_tools = tuple(t for t in active_tools if t.name in allowed_set)
-
-        # Build state for fork: parent history + review_prompt as user turn
+        # Build state for fork: parent history + review_prompt as user turn.
         # Convert messages_snapshot to Message objects if they are raw dicts.
         history_messages: tuple[Message, ...] = tuple(
             m for m in messages_snapshot if isinstance(m, Message)
@@ -182,10 +187,13 @@ def make_fork_conversation(
             state=fork_state,
             max_turns=max_turns,
             session_file_state=SessionFileState(),
-            # Pass parent system prompt byte-for-byte — must not rebuild.
+            # Pass parent system prompt + tools byte-for-byte — must NOT rebuild
+            # or narrow either; both are part of the provider prefix-cache key.
             system_prompt_override=rendered_system_prompt,
             available_skills_override=(),
-            available_tools_override=fork_tools,
+            available_tools_override=active_tools,
+            # Tool narrowing happens here, at the execution layer only.
+            tool_execution_allowlist=tool_allowlist,
         )
 
         tool_names_called = tuple(tc.name for tc in (turn_result.tool_calls or ()))
