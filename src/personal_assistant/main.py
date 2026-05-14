@@ -59,6 +59,7 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatSchedulerStateStore,
     HeartbeatTickSummary,
 )
+from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import AgentCreateHandler, IMConnectionConfig, IMConnectionManager
 
 
@@ -1247,6 +1248,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             local_config=config,
             reporter=reporter,
         )
+        # Build a token_getter closure that auto-refreshes the access token on reconnect.
+        # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
+        _auth_client = IMAuthClient(base_url=_im_http_base_url(config.im_service.url))
+        _token_getter = _make_token_getter(
+            im_service=config.im_service,
+            local_config=config,
+            auth_client=_auth_client,
+        )
         im_connection_manager = _build_im_connection_manager(
             config=config,
             relay_adapter=relay_adapter,
@@ -1258,6 +1267,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 workspace_root=workspace_root
             ),
             agent_create_handler=im_config_sync_client.handle_agent_create,
+            token_getter=_token_getter,
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -1385,6 +1395,89 @@ def _build_channel_registry(
     return registry
 
 
+def _make_token_getter(
+    *,
+    im_service: IMServiceConfig,
+    local_config: LocalConfig,
+    auth_client: IMAuthClient,
+    save_config: Callable[[LocalConfig, Path], None] = save_local_config,
+) -> Callable[[], Awaitable[str | None]]:
+    """Build an async closure that returns a fresh access token before each reconnect.
+
+    Priority:
+    1. If ``im_service.refresh_token`` is set, call ``IMAuthClient.refresh()``.
+    2. If refresh fails and ``im_service.username`` + ``im_service.password`` are set,
+       call ``IMAuthClient.login()`` as a fallback.
+    3. If neither credential is available, return ``im_service.token`` unchanged
+       (backwards-compatible behaviour for configs without auto-refresh).
+
+    On success the returned (access_token, refresh_token) pair is persisted back into
+    config.yaml so the new refresh token is available on the next process restart.
+
+    Args:
+        im_service: IM connectivity settings containing token credentials.
+        local_config: Full gateway config used for ``save_config`` persistence path.
+        auth_client: HTTP client implementing refresh/login against the IM auth API.
+        save_config: Callable used to persist the updated config (injectable for tests).
+
+    Returns:
+        Async zero-argument callable that resolves to the latest access token or None.
+    """
+    # Mutable state: keep a local reference so token rotation is visible across calls
+    # within the same gateway process lifetime.
+    _state: dict[str, str | None] = {
+        "refresh_token": im_service.refresh_token,
+        "token": im_service.token,
+    }
+    _config_holder: list[LocalConfig] = [local_config]
+
+    async def _getter() -> str | None:
+        current_refresh = _state["refresh_token"]
+        if current_refresh is not None:
+            try:
+                access, new_refresh = await auth_client.refresh(current_refresh)
+                _state["token"] = access
+                _state["refresh_token"] = new_refresh
+                _persist(access, new_refresh)
+                return access
+            except IMAuthError:
+                # Refresh token expired or revoked — fall through to credential login.
+                pass
+
+        username = im_service.username
+        password = im_service.password
+        if username and password:
+            try:
+                access, new_refresh = await auth_client.login(username=username, password=password)
+                _state["token"] = access
+                _state["refresh_token"] = new_refresh
+                _persist(access, new_refresh)
+                return access
+            except IMAuthError:
+                pass
+
+        # No dynamic auth configured or all methods failed — use the static token.
+        return _state["token"]
+
+    def _persist(access: str, new_refresh: str) -> None:
+        current_cfg = _config_holder[0]
+        old_im = current_cfg.im_service
+        if old_im is None:
+            return
+        updated_im = IMServiceConfig(
+            url=old_im.url,
+            token=access,
+            refresh_token=new_refresh,
+            username=old_im.username,
+            password=old_im.password,
+        )
+        new_cfg = replace(current_cfg, im_service=updated_im)
+        _config_holder[0] = new_cfg
+        save_config(new_cfg, new_cfg.source_path)
+
+    return _getter
+
+
 def _build_im_connection_manager(
     *,
     config: LocalConfig,
@@ -1395,6 +1488,7 @@ def _build_im_connection_manager(
     agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
     agent_create_handler: AgentCreateHandler | None = None,
+    token_getter: Callable[[], Awaitable[str | None]] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -1408,6 +1502,7 @@ def _build_im_connection_manager(
         agent_config_provider=agent_config_provider,
         agent_capabilities_provider=agent_capabilities_provider,
         agent_create_handler=agent_create_handler,
+        token_getter=token_getter,
         connect=_connect_websocket,
     )
 
