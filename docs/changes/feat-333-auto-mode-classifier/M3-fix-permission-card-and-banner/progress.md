@@ -24,7 +24,7 @@ Post-acceptance fix milestone. Three issues from reviewer round 1.
   - E2E/Regression: 新增 reducer 单测（chat-stream-reducer.test.ts 已有 permission 相关 case）
   - Visual/Interaction: 前端构建（npm run build）通过，TypeScript 无新 error
 - Rollback: C1 前
-- Commits: (见提交记录)
+- Commits: C1=15931f54, C2=ff2df292
 - Next: R2
 
 ---
@@ -42,7 +42,7 @@ Post-acceptance fix milestone. Three issues from reviewer round 1.
   - E2E/Regression: 单测覆盖，CLI 手动验收记录在 tasks.md
   - Visual/Interaction: N/A
 - Rollback: R1 C3
-- Commits: (见提交记录)
+- Commits: C1=83dab202, C2=0f82728a
 - Next: R3
 
 ---
@@ -60,5 +60,13 @@ Post-acceptance fix milestone. Three issues from reviewer round 1.
   - E2E/Regression: 单测覆盖
   - Visual/Interaction: N/A
 - Rollback: R2 C3
-- Commits: (见提交记录)
+- Commits: C1=dabb2896, C2=09a8661b
 - Next: Done
+
+---
+
+## Final Test Results
+
+- `pytest -m "not e2e" --continue-on-collection-errors`: 203 failed / 1413 passed (matches baseline — no regressions)
+- `cd src/IM/frontend && npm run test`: 2 failed (pre-existing) / 305 passed (+3 new permission reducer tests)
+- All 3 roadpoints DONE
