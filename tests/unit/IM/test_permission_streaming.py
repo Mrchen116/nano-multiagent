@@ -17,7 +17,7 @@ import pytest
 from IM.api.ws.event_types import EVENT_PERMISSION_REQUEST, EVENT_PERMISSION_RESOLVED
 from IM.application.event_bridge import EventBridge
 from IM.domain.models import Message
-from IM.infra.db import build_schema
+from IM.infra.db import initialize_schema as build_schema
 from IM.infra.repositories import EventRepository, MessageRepository
 
 
@@ -34,8 +34,8 @@ def _make_db() -> sqlite3.Connection:
 
 def _insert_user(conn: sqlite3.Connection, user_id: str, username: str) -> None:
     conn.execute(
-        "INSERT INTO users(id, username, display_name, owner_id) VALUES (?,?,?,?)",
-        (user_id, username, username, "owner-1"),
+        "INSERT INTO users(id, username, display_name, owner_id, created_at) VALUES (?,?,?,?,?)",
+        (user_id, username, username, "owner-1", "2024-01-01T00:00:00"),
     )
     conn.commit()
 

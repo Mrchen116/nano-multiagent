@@ -1047,6 +1047,7 @@ class MessageRepository:
                 messages.created_at,
                 messages.tool_calls_json,
                 messages.token_usage_json,
+                messages.permission_request_json,
                 users.username AS sender_username,
                 users.display_name AS sender_display_name
             FROM messages
@@ -1110,6 +1111,7 @@ class MessageRepository:
                 messages.created_at,
                 messages.tool_calls_json,
                 messages.token_usage_json,
+                messages.permission_request_json,
                 users.username AS sender_username,
                 users.display_name AS sender_display_name
             FROM messages
@@ -1144,10 +1146,52 @@ class MessageRepository:
             merged = _upsert_message(merged, synthetic_message)
         return merged
 
+    def update_permission_request(
+        self,
+        *,
+        message_id: str,
+        permission_data: dict[str, object],
+    ) -> str:
+        """Persist one permission_request dict onto the message row.
+
+        Upserts (overwrite) the ``permission_request_json`` column.  The caller is
+        responsible for embedding ``status`` and ``decision`` fields into
+        ``permission_data`` before calling this method.
+
+        Args:
+            message_id: Target message; must exist.
+            permission_data: Full permission request dict to persist as JSON.
+
+        Returns:
+            The conversation_id of the target message (needed by the bridge to emit events).
+
+        Raises:
+            ValueError: When ``message_id`` does not exist.
+        """
+        row = self._connection.execute(
+            "SELECT conversation_id FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"message_id not found: {message_id}")
+        with self._connection:
+            self._connection.execute(
+                "UPDATE messages SET permission_request_json = ? WHERE id = ?",
+                (json.dumps(permission_data), message_id),
+            )
+        return str(row["conversation_id"])
+
     def _message_from_row(self, row: sqlite3.Row) -> Message:
         """Convert one stored SQLite row into a Message domain model."""
         tool_calls_value = row["tool_calls_json"] if "tool_calls_json" in row.keys() else None
         token_usage_value = row["token_usage_json"] if "token_usage_json" in row.keys() else None
+        permission_request_value = row["permission_request_json"] if "permission_request_json" in row.keys() else None
+        permission_request: dict | None = None
+        if permission_request_value is not None:
+            try:
+                permission_request = json.loads(permission_request_value)
+            except (json.JSONDecodeError, TypeError):
+                permission_request = None
         return Message(
             id=row["id"],
             conversation_id=row["conversation_id"],
@@ -1167,6 +1211,7 @@ class MessageRepository:
             created_at=row["created_at"],
             tool_calls=_decode_tool_calls(tool_calls_value),
             token_usage=_decode_token_usage(token_usage_value),
+            permission_request=permission_request,
         )
 
     def _message_from_visible_event_row(self, row: sqlite3.Row) -> Message | None:

@@ -226,6 +226,9 @@ class Message:
     created_at: str = ""
     tool_calls: list[ToolCall] | None = None
     token_usage: TokenUsage | None = None
+    # feat-333-M2: embedded permission request (pending/resolved) alongside tool_calls.
+    # Dict shape: {request_id, tool_name, tool_input, question, options, status, decision?}
+    permission_request: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.sender is None:

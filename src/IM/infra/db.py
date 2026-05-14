@@ -340,6 +340,9 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE messages ADD COLUMN tool_calls_json TEXT")
     if "token_usage_json" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN token_usage_json TEXT")
+    # feat-333-M2: embeds permission_request payload (pending/resolved) alongside tool_calls.
+    if "permission_request_json" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN permission_request_json TEXT")
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:

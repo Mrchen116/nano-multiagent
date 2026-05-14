@@ -623,6 +623,36 @@ class GatewayHandler:
             tc = _parse_tool_call(payload.get("tool_call"))
             self._event_bridge.on_tool_call_completed(message_id=message_id, tool_call=tc)
 
+        elif kind == "permission_request":
+            # PA → IM: agent is awaiting a user decision; EventBridge persists the pending
+            # request and fans out permission.request to connected browser clients.
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            permission_request = payload.get("permission_request")
+            if not isinstance(permission_request, dict):
+                raise ValueError("permission_request must be a dict")
+            self._event_bridge.on_permission_request(
+                message_id=message_id,
+                permission_request=permission_request,
+            )
+
+        elif kind == "permission_resolved":
+            # PA → IM: user's decision has been forwarded to the agent; update persisted
+            # status and notify browser clients so the card can settle.
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            request_id = _require_text(payload.get("request_id"), field_name="request_id")
+            decision = _require_text(payload.get("decision"), field_name="decision")
+            self._event_bridge.on_permission_resolved(
+                message_id=message_id,
+                request_id=request_id,
+                decision=decision,
+            )
+
+        elif kind == "permission_response":
+            # IM → PA direction: user's decision is forwarded to the agent kernel.
+            # Routing to the pending PA WS connection is handled elsewhere (REST endpoint
+            # + GatewayHandler.send_to_node); streaming_delta is only PA→IM.
+            pass
+
         return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind}}
 
     async def _handle_delivery_receipt(self, *, payload: dict[str, object]) -> dict[str, object]:
