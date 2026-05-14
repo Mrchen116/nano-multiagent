@@ -23,6 +23,7 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 10. **退出标准必须逐条严格核对**。worker 回报 DONE 时,orchestrator **必须**对 design.md 该 milestone 行"退出标准"列里的每一条,在 progress.md 找到对应证据并判定是否真的达标(详见 §3.3)。这一步**不许跳过、不许走过场、不许只看证据存不存在**。任一项不达标 → 不算 DONE,退回 worker 补齐。
 11. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
 12. **PR 提完即退出**。不等 merge、不等 CI——交棒给人。
+13. **派发必须后台运行**。Agent 工具派发 worker / reviewer 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
 
 ---
 
@@ -183,7 +184,7 @@ def main_loop(unit_id):
 
 ### §3.1 派发 worker(实现型 milestone)
 
-通过 Claude Code 的 Agent 工具派发,**不设置 isolation 参数**。model 选 sonnet。subagent_type 选 general-purpose 或预设的 worker agent(若 harness 配了)。
+通过 Claude Code 的 Agent 工具派发,**不设置 isolation 参数**、**`run_in_background: true`**(§0.13——前台派发收不到 worker 的开工报信 / 澄清)。model 选 sonnet。subagent_type 选 general-purpose 或预设的 worker agent(若 harness 配了)。
 
 prompt 含完整派发包:
 
@@ -210,6 +211,19 @@ lite 模式额外提示 worker:"完成代码后回填 docs/changes/<unit_dir>/fi
 <milestone_id>: status=DISPATCHED, started_at=<now>, agent_id=<sub-agent-id>
 ```
 
+### §3.1.1 回应开工报信
+
+worker / reviewer 启动后会先给你报一个信(见 worker §2.5 / reviewer §2.6):
+
+- **报 "开始干了"**:确认收到,不打扰。
+- **报澄清问题**:你是这个 unit 的技术领导者,手里有全局——首文档的用户意图、design.md 的整体拆分、milestone 之间的依赖、reviewer 会怎么验。**用这个全局视角思考,给出最合理的答案**,而不是机械摘抄某段原文。歧义往往恰恰是单看一段文档看不出来的,需要你把 unit 的意图串起来判断。
+
+  边界不是 "只能引用原文",而是:**别新造一个 design 决策、别去改 design.md**。区分:
+  - 在既有意图框架内把 worker 该怎么理解解释清楚 → 你来答,这就是技术领导该做的事
+  - 答这个问题必须真的改 / 补一个 design 决策,或你串起全局也确实判断不出来 → 这是真的文档缺口,走 §6.4 escalate,别硬编一个答案塞回去
+
+  最多来回 3 轮;3 轮没收敛,要么 §6.4 escalate,要么让对方按最合理理解推进并记录。
+
 ### §3.2 监控
 
 每 2-5 分钟检查一次每个 RUNNING worker 的产出:
@@ -233,6 +247,7 @@ cat docs/changes/<unit>/<mid>/progress.md
 | > 10 分钟无产物 + 多次 ping 无回应 | 判定死亡,走 §3.4 处理 |
 | worker 主动回报 HANDOFF | 走 §3.4 换人续跑 |
 | worker 主动回报 [Design 修订] | 走 §6.4 处理 |
+| worker / reviewer 回报开工报信(开始干了 / 澄清问题) | 走 §3.1.1 回应 |
 
 ### §3.3 验收 worker 完成
 
@@ -300,7 +315,7 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   mode: full
 ```
 
-reviewer 不需要 worktree(只读 + 跑产品)。它在 unit 集成分支上 checkout、走旅程、写报告。
+reviewer 同样用 Agent 工具派发,`run_in_background: true`、model 选 sonnet(§0.13)。reviewer 不需要 worktree(只读 + 跑产品),它在 unit 集成分支上 checkout、走旅程、写报告。reviewer 启动后也会先报开工信、走旅程前可能来 ≤3 轮验收口径澄清,按 §3.1.1 回应。
 
 ### §5.1 派发口径净化(防 reviewer 滑进 engineer 模式)
 
