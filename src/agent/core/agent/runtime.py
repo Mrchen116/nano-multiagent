@@ -178,6 +178,7 @@ class AgentRuntime:
                 run_id=run_id,
                 controller=controller,
                 parent_session_id=parent_session_id,
+                origin=origin,
             )
 
     async def _run_locked(
@@ -189,6 +190,7 @@ class AgentRuntime:
         run_id: str | None = None,
         controller: RunController | None = None,
         parent_session_id: str | None = None,
+        origin: Any = None,
     ) -> TurnResult:
         """Internal run implementation (assumes session lock is held)."""
 
