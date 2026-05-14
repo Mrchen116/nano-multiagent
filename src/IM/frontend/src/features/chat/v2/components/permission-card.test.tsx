@@ -8,12 +8,20 @@
  * 4. PermissionCard transitions to resolved (deny) state
  * 5. PermissionCard renders error state on POST failure
  * 6. message-pane renders PermissionCard when message has permission_request
+ * 7. (M4) PermissionCard default fetchFn uses authFetch to inject Authorization header
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// M4: authFetch module mock — must be declared before component import so the
+// module system resolves the mock before PermissionCard captures authFetch.
+vi.mock("../../../../features/auth/auth-fetch", () => ({
+  authFetch: vi.fn(),
+}));
 
 import "../../../../i18n";
+import * as authFetchModule from "../../../../features/auth/auth-fetch";
 import type { PermissionOption, PermissionRequest } from "../chat-types";
 import { PermissionCard } from "./permission-card";
 
@@ -208,5 +216,47 @@ describe("PermissionCard — pre-resolved from WS event", () => {
 
     expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
+  });
+});
+
+// M4 Issue 4: verify that when no explicit fetchFn prop is passed, the component
+// delegates to authFetch (which injects the Authorization header) rather than
+// calling bare window.fetch directly.  The seam (fetchFn prop) is not affected.
+describe("PermissionCard — M4 auth header (default fetchFn → authFetch)", () => {
+  beforeEach(() => {
+    vi.mocked(authFetchModule.authFetch).mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("calls authFetch (not bare fetch) when no fetchFn prop is supplied", async () => {
+    const user = userEvent.setup();
+    // authFetch mock returns 200 so the card resolves cleanly
+    vi.mocked(authFetchModule.authFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: "forwarded" }), { status: 200 })
+    );
+
+    render(
+      <PermissionCard
+        request={SAMPLE_REQUEST}
+        conversationId="conv-default-auth"
+        messageId="msg-1"
+        onResolved={() => {}}
+        // No fetchFn prop — must use authFetch internally
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /allow once/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
+    });
+
+    // authFetch must have been called with the correct URL and POST body
+    expect(authFetchModule.authFetch).toHaveBeenCalledOnce();
+    const [url, init] = vi.mocked(authFetchModule.authFetch).mock.calls[0];
+    expect(url).toContain("/im/v1/conversations/conv-default-auth/permissions/req-abc");
+    expect((init as RequestInit).method).toBe("POST");
   });
 });
