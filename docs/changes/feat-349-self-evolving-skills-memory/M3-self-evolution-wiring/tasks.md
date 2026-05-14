@@ -39,4 +39,4 @@
 | R4 | local_store seed 位置迁移 + LC workspace 配置读取 | DONE |
 | R5 | CLI REPL 渲染 self_evolution_review 事件 | DONE |
 | R6 | SSE 背景事件送达 (background 生命周期 Refs #8) | DONE |
-| R7 | 收口集成：全部单测绿 + contract 验证 | TODO |
+| R7 | 收口集成：全部单测绿 + contract 验证 | DONE |
