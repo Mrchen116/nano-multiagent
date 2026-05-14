@@ -29,3 +29,23 @@
 - Rollback: git revert to C1 commit `3890f6a1`
 - Commits: C1=3890f6a1, C2=7920117e, C3=<pending>
 - Next: R2 — REST endpoint `POST /im/v1/conversations/{cid}/permissions/{request_id}` + permission_response forwarding to PA Gateway WS
+
+### R2 — IM REST endpoint + Gateway WS permission_response 转发
+
+- Context: 用户在浏览器点击 PermissionCard 决策按钮后，需要一条 IM→PA 的反向通道将决策送回到 parked run。
+- Decision:
+  - 新 endpoint `POST /im/v1/conversations/{cid}/permissions/{request_id}`，body `{message_id, decision}`
+  - 通过 `relay_service.resolve_target_node_id(content="")` 解析 conversation 里的 agent 所属节点
+  - 调 `gateway_handler.push_permission_response(target_node_id, message_id, request_id, decision)`
+  - `push_permission_response` 发 `node.streaming_delta` + `kind=permission_response` 到 PA WS
+- Rationale: 复用现有 relay 路由逻辑（resolve_target_node_id）和 _push_downstream 基础设施，不另建 WS channel。与 design.md 决策 7 对齐。
+- Evidence:
+  - Tests: `pytest tests/unit/IM/test_permission_streaming.py::TestPermissionRestEndpoint` — 2 passed; full IM/PA suite 8 failed (pre-existing), 279 passed
+  - Entry: TestPermissionRestEndpoint uses real FastAPI TestClient with register/login auth + patch.object to verify gateway.push_permission_response called
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: git revert to C1 commit `f44872a9`
+- Commits: C1=f44872a9, C2=77bf9099, C3=<pending>
+- Next: R3 — PA inbound_pipeline: permission_request SSE → node.streaming_delta + heartbeat origin fix
