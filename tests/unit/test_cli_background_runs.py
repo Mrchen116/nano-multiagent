@@ -154,11 +154,15 @@ def test_format_self_evolution_review_flat_event_reviewed_skills() -> None:
     lines = _format_self_evolution_review(flat_event)
     assert len(lines) == 1
     assert "skill" in lines[0].lower(), (
-        f"Expected 'skills updated' but got {lines[0]!r}; "
+        f"Expected subject to mention 'skills' but got {lines[0]!r}; "
         "formatter must read reviewed_skills from top-level event keys, not event['data']"
     )
-    assert "self-evolution" not in lines[0].lower(), (
-        f"Should NOT fall back to 'self-evolution' when reviewed_skills=True; got {lines[0]!r}"
+    # The subject portion must be "skills", not the fallback "self-evolution".
+    # Format is "· background self-evolution review: <subject> updated".
+    # Extract subject after the last ': '.
+    subject_part = lines[0].split(": ", 1)[-1] if ": " in lines[0] else lines[0]
+    assert "skill" in subject_part.lower(), (
+        f"Subject must be 'skills' not fallback 'self-evolution'; subject_part={subject_part!r}, full={lines[0]!r}"
     )
 
 
@@ -176,9 +180,8 @@ def test_format_self_evolution_review_flat_event_reviewed_memory() -> None:
     }
     lines = _format_self_evolution_review(flat_event)
     assert len(lines) == 1
-    assert "memory" in lines[0].lower(), (
-        f"Expected 'memory updated' but got {lines[0]!r}"
-    )
-    assert "self-evolution" not in lines[0].lower(), (
-        f"Should NOT fall back to 'self-evolution' when reviewed_memory=True; got {lines[0]!r}"
+    # Subject portion after ': ' must mention memory, not the generic fallback.
+    subject_part = lines[0].split(": ", 1)[-1] if ": " in lines[0] else lines[0]
+    assert "memory" in subject_part.lower(), (
+        f"Subject must be 'memory' not fallback 'self-evolution'; subject_part={subject_part!r}, full={lines[0]!r}"
     )

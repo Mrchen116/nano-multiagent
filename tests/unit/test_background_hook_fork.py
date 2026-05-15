@@ -775,6 +775,18 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
 
             return _stream()
 
+    class _StubTool:
+        def __init__(self):
+            self.name = "skill_manage"
+            self.description = "manage skills"
+            self.input_schema = {"type": "object", "properties": {}, "additionalProperties": True}
+            self.is_concurrency_safe = True
+
+        def run(self, args, ctx):
+            return {"result": "ok"}
+
+    _stub_tool_instance = _StubTool()
+
     class _StubRegistry:
         def list_specs(self):
             from agent.core.types import ToolSpec
@@ -785,6 +797,11 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
                     input_schema={"type": "object", "properties": {}, "additionalProperties": True},
                 ),
             )
+
+        def get(self, name):
+            if name == "skill_manage":
+                return _stub_tool_instance
+            return None
 
         async def execute(self, name, args, *, hook_context=None, session_file_state=None):
             executed_tools.append(name)
