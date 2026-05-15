@@ -223,17 +223,33 @@ class PermissionBroker:
         with self._lock:
             self._deny_counts.pop(key, None)
 
-    def is_deny_limit_exceeded(self, run_id: str, tool_name: str) -> bool:
+    def is_deny_limit_exceeded(
+        self,
+        run_id: str,
+        tool_name: str,
+        *,
+        deny_limit: int | None = None,
+    ) -> bool:
         """Check if deny count has reached the configured limit.
+
+        The broker is instantiated once per app (deny-count state must be a
+        single source of truth) but the limit threshold is per-session because
+        ``deny_limit`` is loaded from the active workspace's ``auto_mode``
+        config. Callers pass the resolved limit in; falling back to the
+        broker's bootstrap default only when no override is provided so unit
+        tests and CLI callers without a workspace config keep working.
 
         Args:
             run_id: The current run identifier.
             tool_name: The tool to check.
+            deny_limit: Workspace-resolved limit override. ``None`` falls back
+                to the broker's bootstrap ``AutoModeConfig.deny_limit``.
 
         Returns:
             True if deny count >= deny_limit threshold.
         """
-        return self.get_deny_count(run_id, tool_name) >= self._config.deny_limit
+        effective_limit = deny_limit if deny_limit is not None else self._config.deny_limit
+        return self.get_deny_count(run_id, tool_name) >= effective_limit
 
     # ------------------------------------------------------------------
     # Session allowlist state (allow_session decisions)

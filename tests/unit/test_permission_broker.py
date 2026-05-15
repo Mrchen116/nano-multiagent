@@ -98,6 +98,24 @@ class TestPermissionBroker:
         broker.increment_deny_count("run-1", "bash")
         assert broker.is_deny_limit_exceeded("run-1", "bash") is False
 
+    def test_deny_limit_override_per_call(self):
+        """The broker is per-app singleton but deny_limit is workspace-scoped.
+
+        ``auto_mode_gate`` loads the active session's workspace config and
+        passes its ``deny_limit`` per call. Without this override every IM
+        session would silently inherit the broker's bootstrap default
+        (``AutoModeConfig()`` = 3), making workspace ``deny_limit: 1``
+        configs invisible to the hook.
+        """
+        broker = self._make_broker(deny_limit=3)  # bootstrap default
+        broker.increment_deny_count("run-1", "bash")
+        # Default broker limit not yet reached.
+        assert broker.is_deny_limit_exceeded("run-1", "bash") is False
+        # Workspace config override deny_limit=1 → 1 deny is enough to escalate.
+        assert broker.is_deny_limit_exceeded("run-1", "bash", deny_limit=1) is True
+        # Override deny_limit=5 → 1 deny still not enough.
+        assert broker.is_deny_limit_exceeded("run-1", "bash", deny_limit=5) is False
+
     def test_reset_deny_count_on_allow(self):
         broker = self._make_broker(deny_limit=3)
         broker.increment_deny_count("run-1", "bash")

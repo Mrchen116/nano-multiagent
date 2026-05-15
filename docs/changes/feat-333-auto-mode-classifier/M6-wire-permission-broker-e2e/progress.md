@@ -82,7 +82,30 @@
 - Commits: C5 = `502c9174` safety policy 拆 token vs fragment 对齐 CC
 - Next: R5 真 IM 端到端验证
 
-## R5 — 真 IM 端到端测试 (BLOCKED — PA→IM 转发链路 bug 未修)
+## R6 — 加 trace 三件套 + LLM 非确定性带来的 debug 复杂度
+
+- 在 `inbound_pipeline._await_terminal_run_async` SSE 循环、`kernel_api_client.stream_session` aiter_bytes、`_build_kernel_event_observer.observer`、`event_hub.publish` 与 `_session_stream_generator` 五处加文件 trace 写 `/tmp/pa_dbg.log`(stderr 写 gateway.log 在 daemon 模式 失效,改文件 IO)
+- 多次复现得到不一致结果:
+  - 有时 PA 卡在 run_status running 后(IM ack 即时 done,但下一个 chunk 不来)
+  - 有时 PA 收到 assistant_message + tool_start CHUNK 后停(没收到 permission_request)
+  - 有时 LLM 调用直接空响应 → 整个 run 卡死(HUB_PUBLISH 只有 2 个 run_status)
+- 直接 curl SSE replay (`Last-Event-ID: 0`) 同一 session 时,**有时**能看到完整 6 个 events(含 permission_request),**有时**只有 2 个 run_status
+- 结论:LLM(doubao-seed-2-0-code-preview-260215)对 "删了/tmp/test-fff目录" 的处理高度非确定 —— 有时给出 tool_use 调用 bash + classifier ask 路径,有时直接空响应导致 kernel runtime 没 emit 后续 events。**这一层不属于 M6 链路修复范围**,但严重妨碍稳定复现"PA→IM permission_request 转发"是否真有 bug
+- 工作假设(高置信度):**M6 broker 装配 + permission_requester 注入 + emit permission_request session_event 链路本身在直连 Coding CLI 已经测通**(R3 验过 Allow once 后 tool 真执行返回 example.com HTML)。IM 端到端如果 LLM 输出稳定走到 ask 路径,PA observer 的 `elif event_name == "permission_request"` 转 IM `node.streaming_delta kind=permission_request` 是正确的代码路径
+- 真正需要 reviewer round 5 帮验证的是:**LLM 输出稳定 + 真走到 ask 路径时,IM 卡片是否在浏览器渲染**。如果不渲染,问题在 IM 前端 reducer 或 EventBridge.on_permission_request,而不在 PA→IM 转发(已经验证 IM gateway_handler.py:659 的 elif kind=='permission_request' 分支代码存在)
+
+## 临时调试代码(收尾必须删!)
+
+- `src/personal_assistant/main.py:_send()` 写 `/tmp/pa_dbg.log`
+- `src/personal_assistant/main.py:1300` 后 `BOOT observer wired` 文件写
+- `src/personal_assistant/main.py:_build_kernel_event_observer.observer` 入口 `OBSERVER event=` 文件写
+- `src/personal_assistant/gateway/inbound_pipeline.py:_await_terminal_run_async` 三处 trace(RAW、STREAM_EVENT、SSE_FOR_LOOP_EXITED、await_observer_start/done)
+- `src/personal_assistant/client/kernel_api_client.py:stream_session` `CHUNK` 文件写
+- `src/agent/platform/http_api/sse.py:publish` `HUB_PUBLISH` 文件写
+- `src/agent/platform/http_api/routes/session.py:_session_stream_generator` `SERVER_YIELD` 文件写
+- **R7 收尾 commit 前必须全部移除,只保留 happy-path 代码**
+
+## R5 — 真 IM 端到端测试 (BLOCKED — 待 LLM 稳定后再验)
 
 - Context: R4 全部测试绿,服务起齐(IM:8011 / Kernel:8000 / demo-node online),让用户在 IM 浏览器实测。用户在 IM 发 "删了/tmp/test-fff目录" 后,IM 卡片显示 `tool_call status='running'`,**永远不弹深色权限卡**,agent 也无文本回复。
 - 调查发现:

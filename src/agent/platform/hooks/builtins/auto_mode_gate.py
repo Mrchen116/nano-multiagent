@@ -702,7 +702,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
             # policy.status == "review" → fall through to classifier below
 
         # 4. Deny-limit check before classifier (escalate immediately if already exceeded)
-        if broker and run_id and broker.is_deny_limit_exceeded(run_id, tool_name):
+        if broker and run_id and broker.is_deny_limit_exceeded(run_id, tool_name, deny_limit=config.deny_limit):
             # Already exceeded limit → ask directly, skip classifier
             is_unattended = run_origin in _UNATTENDED_ORIGINS
             if is_unattended:
@@ -738,7 +738,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
             if broker and run_id:
                 new_count = broker.increment_deny_count(run_id, tool_name)
                 # Check if we just crossed the limit
-                if broker.is_deny_limit_exceeded(run_id, tool_name):
+                if broker.is_deny_limit_exceeded(run_id, tool_name, deny_limit=config.deny_limit):
                     is_unattended = run_origin in _UNATTENDED_ORIGINS
                     if not is_unattended:
                         return await _handle_ask(
