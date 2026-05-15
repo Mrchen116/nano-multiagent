@@ -90,6 +90,7 @@ def create_app(
     resolved_system_prompt: str | None = None
     resolved_config_resolver = None
     resolved_default_tool_ids: list[str] | None = None
+    resolved_default_metadata: dict | None = None
     if product_profile is not None:
         from agent.platform.bootstrap import bootstrap_product
 
@@ -111,7 +112,17 @@ def create_app(
             resolved_system_prompt = resolved_product.resolved_system_prompt
         # Thread default_tool_ids so the runtime can gate tool exposure per session.
         resolved_default_tool_ids = resolved_product.default_tool_ids
-    session_service = SessionService(store=session_store, profile=product_profile)
+        # Thread default_session_metadata so per-session metadata (e.g.
+        # self_evolution config from workspace config.yaml) inherits the
+        # product-level defaults resolved at bootstrap; without this the
+        # bootstrap field is dead and self-evolution falls back to hard-coded
+        # defaults regardless of user config.
+        resolved_default_metadata = resolved_product.default_session_metadata
+    session_service = SessionService(
+        store=session_store,
+        profile=product_profile,
+        default_session_metadata=resolved_default_metadata,
+    )
     app.state.session_service = session_service
     if runtime is None:
         active_hook_registry = hook_registry or build_hook_registry(
