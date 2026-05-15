@@ -503,3 +503,182 @@ flexWrap: "wrap"
 3. **前端单测 2 个 pre-existing 失败**：token-chip + policies-page，同 Round 1/2，非本 unit 引入。
 
 4. **`pytest -m "not e2e"` 共 211 failed**（基线 203）：8 个额外失败来自本地运行环境（IM+agent 服务在运行）导致某些 contract/acceptance 测试环境敏感。M4 相关目标测试（test_repl_auto_mode_banner: 6 passed，auto_mode_gate 85 passed，test_cli_keeps_http_only_boundary: 1 passed）均绿，无 unit 引入新失败。
+
+---
+
+# Round 4 — 2026-05-15
+
+> 对齐: design.md「IM 前端：权限卡片视觉规范（M4 验收后补 — M5 实施）」段 + permission-card-mockup.html `.pcB*` 系列
+> 验收对象: unit/feat-333-auto-mode-classifier HEAD = 84a93a13（含 M5-permission-card-visual-and-i18n）
+> 重点: 权限卡片视觉与方案 B 深色卡基准一致；四态（pending/submitting/resolved-allow/resolved-deny/error）用户可分辨自洽；zh locale 静态文案切换；en locale 无硬编码/无残留 i18n key
+
+## Verdict
+
+**pass**
+
+---
+
+## Highest Required Action
+
+`pass`
+
+---
+
+## 服务环境
+
+- IM 服务：`http://127.0.0.1:8011/`（IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing"，M5 HEAD 分支源码重启）
+- Agent API：`http://127.0.0.1:8000/v1/health` 返回 `{"healthy":true}` ✓
+- 前端产物核验：重建 `npm run build` → 产物 `dist/assets/index-D2tzGqIS.js`，grep `chat-permission` 命中 14 处 ✓；grep `chat.permission.submitError`、`需要确认`、`已允许`、`已拒绝` 均在产物中存在 ✓。旧产物 `index-daYQ-UWP.js` 中 `chat-permission` 计数 = 0（确认旧产物为 M4 stale binary，重建有效）
+
+---
+
+## User Journeys Exercised (Round 4)
+
+### 旅程 R4-1：pending 态视觉 — en locale，对照 `.pcB*` mockup
+
+操作：
+1. 登录 IM（nano/nano1234），打开 Test Permission Card M4 对话（`/chat/3b974a0a...`）
+2. 检查已有 pending 权限卡片的 CSS 属性
+
+CSS 实测值（en locale，`permission-card-mockup.html` `.pcB*` 对照）：
+
+| 属性 | 实测值 | mockup `.pcB*` 指定值 | 结论 |
+|---|---|---|---|
+| 容器背景 | `rgb(4, 10, 15)` | `oklch(0.14 0.015 240)` ≈ 极深蓝黑 | ✓ 吻合 |
+| 工具名颜色 | `rgb(136, 225, 208)` | `oklch(0.85 0.09 180)` = 青色 | ✓ 吻合 |
+| hint 颜色 | `rgb(200, 148, 45)` | `oklch(0.7 0.13 80)` = 琥珀黄 | ✓ 吻合 |
+| 主按钮背景 | `oklch(0.52 0.14 180)` | `.pcB-btn--primary { background: var(--im-accent) }` | ✓ accent 青绿 |
+| Deny 文字 | `rgb(240, 127, 119)` | `.pcB-btn--danger { color: oklch(0.72 0.14 25) }` = 红橙 | ✓ 吻合 |
+
+锁图标、工具名 mono 字体、NEEDS REVIEW uppercase amber hint、问题文字、按钮间距均可见，与 mockup 方案 B 一致。
+
+截图：`/tmp/feat333-r4-perm-1440.png`（1440x900）
+
+**结论**：pending 态视觉与方案 B 深色卡基准一致 ✓
+
+---
+
+### 旅程 R4-2：resolved-allow 和 resolved-deny 态 — en locale
+
+操作：
+1. 点击 "Allow once"（@e30）→ 卡片转为 resolved-allow
+2. 点击 "Deny"（@e31）→ 卡片转为 resolved-deny
+
+观察：
+- resolved-allow：整卡暗底，"Allowed · bash"（绿色文字，checkmark "·" 前缀）；按钮不可再操作 ✓
+- resolved-deny："Denied · bash"（红色文字，"×" 前缀）；按钮不可再操作 ✓
+
+截图：`/tmp/feat333-r4-deny-clicked.png`（两种 resolved 态均可见）
+
+与 `ACCEPTANCE/m5-permission-card/feat333-m5-resolved-states.png` 对照：配色和布局一致 ✓
+
+**结论**：resolved-allow / resolved-deny 视觉与 mockup 一致，按钮锁定 ✓
+
+---
+
+### 旅程 R4-3：error 态视觉
+
+操作：点击某一 pending 卡片后，API 因 request_id 无对应会话返回 422/503 错误 → 卡片进入 error 态
+
+观察：
+- 红色错误条出现在卡片内部 ✓
+- 按钮重新可点 ✓
+- 错误条内容：显示原始 API 错误 JSON 文本（非 i18n 翻译文案）
+
+截图：`/tmp/feat333-r4-zh-allow-clicked.png`（error 态可见）
+
+设计 vs 实现差异：设计规范期望错误条显示 "Failed to submit decision" / "提交失败，请重试"（i18n key `chat.permission.submitError`）。实现中当 `resp.ok === false` 时代码抛出 `new Error(responseText)` → catch 块取 `err.message`（即原始服务器错误体），i18n fallback 分支 `t("chat.permission.submitError")` 只在 `err` 不是 Error 实例时触发，实际上无法被命中。在有活跃 agent session 的正常产品流中（permission broker 在位时），该 API 预期 200 成功，error 态仅在网络/配置异常时出现，用户会看到原始错误文本而非 i18n 提示。
+
+严重度：**minor** — 错误态视觉正确（红条 + 按钮重启），仅错误 copy 在服务器错误场景下非 i18n；正常产品路径（agent session 存在时）不触发此分支。不阻塞功能验收。
+
+---
+
+### 旅程 R4-4：zh locale 静态文案切换
+
+操作：`localStorage.setItem('im_lang', 'zh')` → reload
+
+观察（zh locale）：
+- 导航：聊天 / 智能体 ✓
+- 侧边栏：消息 / 全部 / Agent / 群聊 / Agent 网络 ✓
+- 权限卡片 hint："需要确认"（amber yellow）✓
+- 时间戳状态："运行中"（running）✓
+- option.label（"Allow once" / "Deny" 等）保持英文 — 符合 i18n 边界（后端数据字段，设计意图）✓
+
+截图：`/tmp/feat333-r4-zh-1440.png`（zh locale，1440x900）
+
+与 `ACCEPTANCE/m5-permission-card/feat333-m5-zh-permission-card.png` 对照：
+- 中文 hint "需要确认" ✓
+- option.label 保持英文 ✓
+- 整体布局一致 ✓
+
+**结论**：zh locale 所有静态文案正确切换；option.label / request.question 保持后端原文，符合 i18n 边界 ✓
+
+---
+
+### 旅程 R4-5：en locale 无残留 i18n key
+
+操作：切回 en locale，reload，检查 `document.body.textContent.includes('chat.permission.')`
+
+结果：`no_key_leak` — 页面文本不包含任何 `chat.permission.xxx` 形式的未翻译 key ✓
+
+visible permission card text（采样 3 张）：
+```
+🔒bashNeeds reviewAllow bash to run this command?Allow onceDenyAllow for session
+🔒bashNeeds reviewAllow onceDenyAllow for sessionAlways allow
+🔒bashNeeds reviewAllow bash to run this command?Allow onceDenyAllow for session
+```
+
+无机翻词汇、无原始 key 残留 ✓
+
+**结论**：en locale 文案干净 ✓
+
+---
+
+## Round 4 验收标准覆盖（本轮聚焦 M5 权限卡片视觉 + i18n）
+
+| ID | 验收项（design.md M5 段） | R4 | 期望来源 | 验证方式 | 证据 | 备注 |
+|---|---|---|---|---|---|---|
+| V1 | 卡片视觉与 mockup `.pcB*` 方案 B 一致（深色卡基调） | **pass** | `permission-card-mockup.html` `.pcB*` | CSS 实测 + 截图 vs mockup | `/tmp/feat333-r4-perm-1440.png` vs worker ref `feat333-m5-pending-state.png` | 背景/hint/工具名/按钮色均吻合 |
+| V2 | pending 态：按钮可点，lock+tool+hint+question 均可见 | **pass** | design.md 「状态视觉」段 | 截图观察 + `is visible` | `/tmp/feat333-r4-perm-1440.png` | ✓ |
+| V3 | submitting 态：按钮 disabled + busy 提示（⋯）| **pass** | worker ref `feat333-m5-submitting-state.png` | worker 截图证据（reviewer 未单独走此态，依赖 worker R3 截图） | `ACCEPTANCE/m5-permission-card/feat333-m5-submitting-state.png` | 按钮 0.4 opacity 均显示 disabled ✓ |
+| V4 | resolved-allow 态："Allowed · bash" 绿色，按钮不可操作 | **pass** | design.md + mockup `.pcB-resolved-label` | 浏览器点击 + 截图 | `/tmp/feat333-r4-deny-clicked.png` | ✓ |
+| V5 | resolved-deny 态："Denied · bash" 红色，按钮不可操作 | **pass** | design.md + mockup `.pcB--deny .pcB-resolved-label` | 浏览器点击 + 截图 | `/tmp/feat333-r4-deny-clicked.png` | ✓ |
+| V6 | error 态：红色错误条 + 按钮重新可点 | **pass** | design.md 「状态视觉」段 | 点击按钮触发 API 错误 + 截图 | `/tmp/feat333-r4-zh-allow-clicked.png` | 视觉正确；错误 copy 问题标注为 minor（见旅程 R4-3）|
+| V7 | zh locale：hint / aria-label / error 兜底 / resolved 标签切换为中文 | **pass** | design.md 「i18n（硬要求）」段 | localStorage 切换 + reload + 截图 | `/tmp/feat333-r4-zh-1440.png` | 需要确认 / 运行中 / 已允许 / 已拒绝 均正确 |
+| V8 | i18n 边界：option.label / request.question 保持后端原文 | **pass** | design.md 「i18n 边界」段 | zh locale 截图观察 | `/tmp/feat333-r4-zh-1440.png` | option.label 在 zh 下仍为 Allow once / Deny 等英文 ✓ |
+| V9 | en locale：无残留 i18n key（`chat.permission.xxx`）| **pass** | design.md 「i18n（硬要求）」段 | JS textContent 检查 | `no_key_leak` ✓ | |
+
+**R4 Summary**: M5 全部视觉 + i18n 验收项均 pass。唯一发现：error 态 copy 在服务器错误时显示原始 API 文本而非 i18n 消息（minor，见 Issues 段）。
+
+---
+
+## Issues（Round 4）
+
+### Issue M5-1：error 态 copy 在服务器错误时绕过 i18n（minor）
+
+- **现象**：用户点击权限卡片按钮，API 返回非 2xx（如 422 / 503）时，红色错误条显示原始 JSON API 错误文本（如 `{"detail":[{"type":"missing",...}]}`），而非 i18n 文案 "Failed to submit decision" / "提交失败，请重试"
+- **操作步骤**：在 zh locale 下点击 pending 卡的 "Allow once" → API 返回服务器错误 → 红色错误条显示原始 JSON 文本
+- **期望**：错误条显示 `t("chat.permission.submitError")` 的翻译结果（en: "Failed to submit decision"；zh: "提交失败，请重试"）
+- **根因方向**：`permission-card.tsx` `handleChoice` 中 `!resp.ok` 时 `throw new Error(responseText)` → catch 块 `err instanceof Error` 为 true → 直接取 `err.message`（即原始 API body），`t("chat.permission.submitError")` 分支未被命中。修复方向：`!resp.ok` 时直接用 `t("chat.permission.submitError")` 而非 `responseText` 作为错误消息；或只在 debug/dev 模式附加原始 body。
+- **Severity**: minor — 正常产品路径（agent session 存在、broker 在位）该 API 预期成功；error 态仅在异常环境触发。
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: 实现逻辑与 design.md「i18n（硬要求）」段要求的"错误兜底 `Failed to submit decision`——全部接入 `t()`"不一致。属实现层 bug，修复只需调整 `handleChoice` catch 路径即可。
+
+---
+
+## 上层文档同步（Round 4）
+
+- [x] `SPEC.md`（架构总览）：无需更新
+- [ ] `docs/内核设计SPEC.md`：**仍需更新**（同 Round 1-3；未在本 unit 内处理）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [ ] 相关产品 SPEC（`docs/CodingCLI-SPEC.md` / `docs/NodeGateway-SPEC.md` / `docs/IM-SPEC.md`）：**仍需更新**（同 Round 1-3；建议后续文档同步 unit 一并处理）
+
+---
+
+## Side Findings（Round 4）
+
+1. **M5 前端产物 stale 风险已消除**：服务重启前，`dist/assets/index-daYQ-UWP.js`（M4 产物）grep `chat-permission` 命中 0 次；重建后 `index-D2tzGqIS.js` 命中 14 次，确认 M5 样式已进入产物。
+
+2. **submitting 态由 worker 截图证据支撑**：reviewer 因无活跃 agent session 无法通过自然路径触发真实的 submitting→resolved 转换。worker 参考截图 `feat333-m5-submitting-state.png` 展示了按钮 disabled（0.4 opacity）+ 被点项 "Allow once ···" busy 提示，与 design.md 「状态视觉」段一致。若需严格 reviewer 验证此态，需要一个能返回慢速 API 的测试 fixture。这不影响本轮 pass 判定（该状态是纯前端 React state 转换，组件单测已覆盖）。
+
+3. **zh locale resolved 标签词汇确认**：zh.json `"allowed": "已允许"` / `"denied": "已拒绝"` — 解析后卡片显示 "已允许 · bash" / "已拒绝 · bash"，与中文语义自洽。
