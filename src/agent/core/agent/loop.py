@@ -290,6 +290,12 @@ class AgentLoop:
                                     metadata={**dict(active_hook_ctx.metadata), "tool_call_id": tc.call_id},
                                     model_caller=active_hook_ctx.model_caller,
                                     session_event_publisher=active_hook_ctx.session_event_publisher,
+                                    permission_requester=active_hook_ctx.permission_requester,
+                                    # auto_mode_gate classifier needs the running conversation so it
+                                    # can see the user's actual request text — without this, the
+                                    # transcript only contains the current tool action and the
+                                    # "explicit user request" rule can never be satisfied.
+                                    message_history=tuple(llm_messages),
                                 )
                                 if executor is not None:
                                     executor.add_tool(tc, hook_context=tool_hook_ctx)

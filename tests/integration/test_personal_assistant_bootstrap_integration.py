@@ -94,8 +94,8 @@ def test_bootstrap_local_coding_regression_tool_ids(tmp_path: Path) -> None:
     assert tool_names == {"read", "write", "edit", "bash", "task"}
 
 
-def test_bootstrap_local_coding_regression_hook_has_bash_risk_gate(tmp_path: Path) -> None:
-    """Regression: LOCAL_CODING_PROFILE bootstrap hook registry must still include bash_risk_gate."""
+def test_bootstrap_local_coding_regression_hook_has_auto_mode_gate(tmp_path: Path) -> None:
+    """Regression: LOCAL_CODING_PROFILE bootstrap hook registry must include auto_mode_gate (M1: replaced bash_risk_gate)."""
     resolved = bootstrap_product(profile=LOCAL_CODING_PROFILE, repo_root=tmp_path)
     assert resolved.hook_registry is not None
     module_stems = {
@@ -103,4 +103,4 @@ def test_bootstrap_local_coding_regression_hook_has_bash_risk_gate(tmp_path: Pat
         for h in resolved.hook_registry.all_handlers()
         if h.file_path is not None
     }
-    assert "bash_risk_gate" in module_stems
+    assert "auto_mode_gate" in module_stems

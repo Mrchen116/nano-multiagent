@@ -73,12 +73,19 @@ HookStatus: TypeAlias = Literal["ok", "error", "timeout"]
 
 @dataclass(frozen=True, slots=True)
 class HookRegistration:
-    """Store normalized metadata for one registered hook handler."""
+    """Store normalized metadata for one registered hook handler.
+
+    timeout_ms may be ``None`` to indicate the hook self-manages its time
+    boundaries and must not be wrapped in ``asyncio.wait_for``. Use ``None``
+    only for security-critical hooks (e.g. auto_mode_gate) that legitimately
+    park waiting for user input — the framework's default fail-OPEN timeout
+    is incompatible with a security gate that cannot silently succeed.
+    """
 
     event: HookEventName
     handler: HookHandler
     priority: int = DEFAULT_HOOK_PRIORITY
-    timeout_ms: int = DEFAULT_HOOK_TIMEOUT_MS
+    timeout_ms: int | None = DEFAULT_HOOK_TIMEOUT_MS
     order: int = 0
     source: HookSource = "runtime"
     module_name: str | None = None

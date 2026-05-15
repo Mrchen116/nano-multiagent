@@ -66,6 +66,7 @@ class AgentRuntime:
         system_prompt: str | None = None,
         config_resolver: ConfigResolverLike | None = None,
         default_tool_ids: list[str] | None = None,
+        permission_broker: Any | None = None,
     ) -> None:
         env_llm_config = LLMFactoryConfig.from_env()
         self._llm_config = LLMFactoryConfig(
@@ -87,6 +88,10 @@ class AgentRuntime:
             else ()
         )
         self._session_manager = session_manager
+        # PermissionBroker wired by platform layer (create_app). None in contexts that
+        # don't support the ask flow (unit tests, CI without interactive terminal).
+        # Stored here so _build_hook_context can inject permission_requester per call.
+        self._permission_broker = permission_broker
         # Product default tool ids used when no per-session tool_allowlist is set.
         # None means "all tools in registry" (platform default behavior).
         self._default_tool_ids = default_tool_ids
@@ -141,6 +146,7 @@ class AgentRuntime:
         run_id: str | None = None,
         controller: RunController | None = None,
         parent_session_id: str | None = None,
+        origin: Any = None,
     ) -> TurnResult:
         """Execute one turn for an existing session.
 
@@ -150,6 +156,10 @@ class AgentRuntime:
             stream: Reserved compatibility flag (currently ignored).
             llm_session_id: Optional provider session id override.
             parent_session_id: Optional parent session id for subagent path resolution.
+            origin: RunOrigin enum value (or None) passed from RunsRegistry;
+                written into hook_metadata["run_origin"] so auto_mode_gate can
+                detect unattended contexts (heartbeat/cron) without re-importing
+                RunOrigin in core hooks.
 
         Returns:
             Turn result containing assistant output, tool calls/results, and stop reason.
@@ -173,6 +183,7 @@ class AgentRuntime:
                 run_id=run_id,
                 controller=controller,
                 parent_session_id=parent_session_id,
+                origin=origin,
             )
 
     async def _run_locked(
@@ -184,6 +195,7 @@ class AgentRuntime:
         run_id: str | None = None,
         controller: RunController | None = None,
         parent_session_id: str | None = None,
+        origin: Any = None,
     ) -> TurnResult:
         """Internal run implementation (assumes session lock is held)."""
 
@@ -221,6 +233,11 @@ class AgentRuntime:
         hook_metadata["context_window"] = self._compaction_settings.context_window
         if isinstance(run_id, str) and run_id.strip():
             hook_metadata["run_id"] = run_id.strip()
+        # Thread RunRecord.origin through to hook_metadata so auto_mode_gate can
+        # detect unattended contexts (RunOrigin.HEARTBEAT etc.) without importing
+        # RunOrigin in core hooks. Use .value (string) for decoupling.
+        if origin is not None:
+            hook_metadata["run_origin"] = getattr(origin, "value", str(origin))
         hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id, metadata=hook_metadata)
 
         input_payload, handled = await self._dispatch_intercept(
@@ -815,13 +832,65 @@ class AgentRuntime:
                 registry=self._hook_runner.registry,
                 session_id=session_id,
             )
+
+        # Build permission_requester closure when broker is available.
+        # The closure captures the broker and session_event_publisher so
+        # auto_mode_gate can park (register future + emit SSE) without knowing
+        # whether the product is CLI or PA — the publisher routes to the right channel.
+        permission_requester = None
+        broker = self._permission_broker
+        resolved_metadata = dict(metadata or {})
+        if broker is not None:
+            run_id_for_broker = resolved_metadata.get("run_id")
+            publisher_for_broker = session_event_publisher
+
+            async def _permission_requester(req: Any) -> Any:
+                # Register the future before emitting the SSE event so the
+                # inbound endpoint can immediately resolve it if it arrives fast.
+                future = broker.register_request(req.id, run_id=run_id_for_broker)
+                if publisher_for_broker is not None:
+                    # Emit 'permission_request' SSE event — PA inbound_pipeline
+                    # already listens for this event name (see personal_assistant/main.py).
+                    publisher_for_broker("permission_request", {
+                        "run_id": run_id_for_broker,
+                        "request_id": req.id,
+                        "tool_name": req.tool_name,
+                        "tool_input": dict(req.tool_input) if hasattr(req, "tool_input") else {},
+                        "question": req.question if hasattr(req, "question") else "",
+                        "options": [
+                            {"id": o.id, "label": o.label, "description": o.description}
+                            for o in (req.options if hasattr(req, "options") else ())
+                        ],
+                    })
+                try:
+                    response = await future
+                finally:
+                    # Emit 'permission_resolved' SSE event so IM card updates to resolved state.
+                    if publisher_for_broker is not None and future.done() and not future.cancelled():
+                        try:
+                            result = future.result()
+                            publisher_for_broker("permission_resolved", {
+                                "run_id": run_id_for_broker,
+                                "request_id": req.id,
+                                "decision": getattr(result, "decision", "deny"),
+                            })
+                        except Exception:
+                            pass
+                return response
+
+            permission_requester = _permission_requester
+            # Also inject broker into metadata so auto_mode_gate can access deny-count
+            # and session-allowlist state (the hook reads metadata['permission_broker']).
+            resolved_metadata["permission_broker"] = broker
+
         return HookContext(
             session_id=session_id,
             turn_id=turn_id,
             repo_root=self._repo_root,
-            metadata=dict(metadata or {}),
+            metadata=resolved_metadata,
             model_caller=self._call_hook_model,
             session_event_publisher=session_event_publisher,
+            permission_requester=permission_requester,
         )
 
     async def _call_hook_model(self, call: HookModelCall) -> HookModelResult:
@@ -842,6 +911,9 @@ class AgentRuntime:
                     LLMMessage(role="system", content=call.system_prompt),
                     LLMMessage(role="user", content=call.user_prompt),
                 ),
+                temperature=call.temperature,
+                max_tokens=call.max_tokens,
+                stop_sequences=call.stop_sequences,
                 metadata=dict(call.metadata),
             )
         )

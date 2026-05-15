@@ -237,6 +237,34 @@ class ServerClient:
         """Pass through partial LLM config payload without local normalization."""
         return self._request("PATCH", "/v1/llm-config", json=payload)
 
+    def submit_permission_decision(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        decision: str,
+        reason: str = "",
+    ) -> dict[str, Any]:
+        """POST a permission decision for a pending request.
+
+        Args:
+            session_id: The session that owns the permission request.
+            request_id: Identifier returned in the permission_request SSE event.
+            decision: One of allow_once | deny | allow_session | allow_always.
+            reason: Optional human-readable reason for the decision.
+
+        Returns:
+            Server response payload (resolved + request_id).
+
+        Raises:
+            RuntimeError: On HTTP 4xx/5xx or unexpected response shape.
+        """
+        return self._request(
+            "POST",
+            f"/v1/sessions/{session_id}/permissions/{request_id}",
+            json={"decision": decision, "request_id": request_id, "reason": reason},
+        )
+
     def _request(
         self,
         method: str,

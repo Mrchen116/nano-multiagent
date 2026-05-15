@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+# auto_mode_gate added in feat-333 (unified allow/deny/ask classifier).
 # self_improvement added in feat-349-M3: background self-evolution hook.
-DEFAULT_HOOK_MODULES = ["communication_context", "default_status", "usage_metrics", "chat_history", "realtime_stream", "self_improvement"]
+DEFAULT_HOOK_MODULES = ["auto_mode_gate", "communication_context", "default_status", "usage_metrics", "chat_history", "realtime_stream", "self_improvement"]
 
 
 def _build_communication_context_block(

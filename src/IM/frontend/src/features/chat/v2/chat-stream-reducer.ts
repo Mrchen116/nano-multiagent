@@ -101,6 +101,27 @@ export function applyWsEvent(
     case "tool_call.completed": {
       return patchMessage(state, ev.message_id, (m) => upsertToolCall(m, ev.tool_call));
     }
+    // feat-333-M3/R1: permission ask flow — fill message.permission_request so
+    // PermissionCard renders inline without a full page reload.
+    case "permission.request": {
+      return patchMessage(state, ev.message_id, (m) => ({
+        ...m,
+        permission_request: ev.permission_request
+      }));
+    }
+    case "permission.resolved": {
+      return patchMessage(state, ev.message_id, (m) => {
+        if (!m.permission_request) return m;
+        return {
+          ...m,
+          permission_request: {
+            ...m.permission_request,
+            status: "resolved" as const,
+            decision: ev.decision
+          }
+        };
+      });
+    }
     default:
       return state;
   }

@@ -26,6 +26,8 @@ class OpenAICompatMapper:
             payload["temperature"] = request.temperature
         if request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
+        if request.stop_sequences:
+            payload["stop"] = list(request.stop_sequences)
         if request.tools:
             payload["tools"] = [self._map_tool_spec(spec) for spec in request.tools]
             payload["tool_choice"] = "auto"

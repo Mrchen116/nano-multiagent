@@ -57,7 +57,7 @@ EXPECTED_EXISTING_PATHS = (
     "core/tools/registry.py",
     "platform/bootstrap.py",
     "platform/config/resolver.py",
-    "platform/hooks/builtins/bash_risk_gate.py",
+    "platform/hooks/builtins/auto_mode_gate.py",
     "platform/hooks/builtins/default_status.py",
     "platform/hooks/builtins/realtime_stream.py",
     "platform/hooks/builtins/usage_metrics.py",

@@ -757,3 +757,105 @@ def _format_command_menu(*, command_items: Sequence[str], selected_index: int) -
         marker = _MENU_MARKER_SELECTED if index == selected_index else _MENU_MARKER_IDLE
         rendered_items.append(f"{marker} {command}")
     return "Commands ↓ " + "  ".join(rendered_items)
+
+
+@dataclass(frozen=True)
+class PermissionOption:
+    """One selectable option in a permission picker."""
+
+    id: str
+    label: str
+    description: str = ""
+
+
+def read_permission_choice(
+    *,
+    header: str,
+    options: Sequence[PermissionOption],
+    out: TextIO | None = None,
+) -> str:
+    """Render an arrow-key permission picker and return the chosen option id.
+
+    Pauses the live REPL render temporarily (grabs _RENDER_LOCK so in-progress
+    redraws complete first), presents the picker, then releases.  Designed to
+    be called from the SSE drain loop when a ``permission_request`` event
+    arrives — at that point the agent run is already parked, so no new streaming
+    output will arrive during the picker interaction.
+
+    Args:
+        header: Displayed above the options (tool name + projected input + reason).
+        options: Selectable options; must be non-empty.
+        out: Output stream; defaults to sys.stdout.
+
+    Returns:
+        The ``id`` of the chosen option.
+
+    Raises:
+        ValueError: When options is empty.
+        KeyboardInterrupt: When the user presses Ctrl+C (propagated to the caller).
+    """
+    if not options:
+        raise ValueError("read_permission_choice: options must be non-empty")
+
+    _out = out or sys.stdout
+    selected = 0
+
+    def _render() -> None:
+        _out.write(f"\n{header}\n")
+        for i, opt in enumerate(options):
+            marker = _MENU_MARKER_SELECTED if i == selected else _MENU_MARKER_IDLE
+            desc = f"  {opt.description}" if opt.description else ""
+            _out.write(f"  {marker} {opt.label}{desc}\n")
+        _out.write("  (↑/↓ to move, Enter to select, Ctrl-C to cancel)\n")
+        _out.flush()
+
+    def _erase(n_lines: int) -> None:
+        """Move cursor up n_lines and erase each line."""
+        for _ in range(n_lines):
+            _out.write("\x1b[A\x1b[2K")
+        _out.flush()
+
+    n_render_lines = len(options) + 3  # header + options + instruction
+
+    if termios is None or not hasattr(_out, "fileno"):
+        # Non-TTY fallback: print header + numbered options, read a digit.
+        _out.write(f"\n{header}\n")
+        for i, opt in enumerate(options, start=1):
+            _out.write(f"  {i}. {opt.label}\n")
+        _out.write("Enter number: ")
+        _out.flush()
+        try:
+            choice = input().strip()
+            idx = int(choice) - 1
+            if 0 <= idx < len(options):
+                return options[idx].id
+        except (ValueError, EOFError, KeyboardInterrupt):
+            pass
+        return options[0].id
+
+    with _RENDER_LOCK:
+        with _stdin_raw_mode(sys.stdin):
+            key_reader = _build_key_reader(sys.stdin)
+            _render()
+
+            while True:
+                key = key_reader()
+                if key is None or key is _KEY_IDLE:
+                    continue
+                if key == _KEY_ARROW_UP:
+                    _erase(n_render_lines)
+                    selected = max(0, selected - 1)
+                    _render()
+                elif key == _KEY_ARROW_DOWN:
+                    _erase(n_render_lines)
+                    selected = min(len(options) - 1, selected + 1)
+                    _render()
+                elif key in _KEY_ENTER:
+                    _erase(n_render_lines)
+                    chosen = options[selected]
+                    _out.write(f"  Selected: {chosen.label}\n")
+                    _out.flush()
+                    return chosen.id
+                elif key == "\x03":  # Ctrl-C
+                    _erase(n_render_lines)
+                    raise KeyboardInterrupt

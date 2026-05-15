@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import "../../../../i18n";
-import type { Attachment, Conversation, MentionCandidate, Message } from "../chat-types";
+import type { Attachment, Conversation, MentionCandidate, Message, PermissionRequest } from "../chat-types";
 import { MessagePane } from "./message-pane";
 
 const DIRECT_CONV: Conversation = {
@@ -252,6 +252,86 @@ describe("MessagePane", () => {
     await user.type(composer, "ping @P");
     await user.click(await screen.findByRole("button", { name: /Planner/ }));
     expect(composer.value).toBe("ping @Planner ");
+  });
+
+  // R4 C1: PermissionCard mount point — renders inline card when message has permission_request
+  describe("PermissionCard mount point (R4)", () => {
+    const PERM_REQUEST: PermissionRequest = {
+      request_id: "req-1",
+      tool_name: "bash",
+      tool_input: { command: "ls" },
+      question: "Allow bash to run this command?",
+      options: [
+        { id: "allow_once", label: "Allow once", description: "Allow this single action" },
+        { id: "deny", label: "Deny", description: "Block this action" },
+      ],
+      status: "pending",
+    };
+
+    const AGENT_MSG_WITH_PERM: Message = {
+      id: "m-perm",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "u1",
+      sender_type: "agent",
+      content: "",
+      attachments: [],
+      delivery_status: "running",
+      created_at: "2026-01-01T00:00:00Z",
+      permission_request: PERM_REQUEST,
+    };
+
+    it("renders PermissionCard inline when agent message has permission_request", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[AGENT_MSG_WITH_PERM]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      // PermissionCard should render with the question text
+      expect(screen.getByText(/Allow bash to run this command/i)).toBeInTheDocument();
+      // Option buttons should be present
+      expect(screen.getByRole("button", { name: /allow once/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /deny/i })).toBeInTheDocument();
+    });
+
+    it("does not render PermissionCard when message has no permission_request", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[{
+            ...AGENT_MSG_WITH_PERM,
+            id: "m-no-perm",
+            permission_request: null,
+            content: "Regular reply",
+          }]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.queryByText(/Allow bash to run this command/i)).not.toBeInTheDocument();
+      expect(screen.getByText("Regular reply")).toBeInTheDocument();
+    });
+
+    it("renders resolved PermissionCard (no buttons) when status=resolved", () => {
+      const resolvedMsg: Message = {
+        ...AGENT_MSG_WITH_PERM,
+        id: "m-resolved",
+        permission_request: { ...PERM_REQUEST, status: "resolved", decision: "allow_once" },
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[resolvedMsg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
+    });
   });
 
   // M19/R11-8: prototype `im-chat-page.jsx::MessagePaneView` 移动模式头部紧凑 —

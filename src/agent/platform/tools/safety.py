@@ -49,12 +49,66 @@ class ToolSafetyConfig:
     )
     # Backward-compatible executable allow-list; merged into prefixes at runtime.
     bash_allowed_commands: tuple[str, ...] = ()
-    bash_blocked_fragments: tuple[str, ...] = (
-        ":(){",
+    # Hard-deny — absolute, classifier cannot override.
+    # Split into two lists mirroring CC bashSecurity.ts's ZSH_DANGEROUS_COMMANDS
+    # Set (token match) vs structural-pattern checks (regex/AST):
+    #
+    # ``bash_blocked_commands`` matches the *base command* (first token of each
+    # ``&&``-split segment, after stripping leading ``VAR=value`` env prefixes).
+    # ``bash_blocked_fragments`` keeps the legacy substring match, reserved for
+    # syntactic constructs that have no base command (e.g. fork bombs).
+    #
+    # ``rm`` is intentionally NOT in either list — workspace ``rm -rf /tmp/...``
+    # falls under CC yoloClassifier's "Irreversible Local Destruction"
+    # category (BLOCK ALWAYS but surface via ask card so the user can confirm).
+    # Routing it through the classifier preserves the Auto Mode design intent.
+    #
+    # Deviation from CC: we keep ``reboot``/``shutdown``/``halt``/``poweroff``/
+    # ``mkfs`` in the token blocklist because development agents have zero
+    # legitimate reason to invoke them; short-circuiting saves a classifier
+    # LLM round-trip. The zsh-module entries below mirror CC's
+    # ZSH_DANGEROUS_COMMANDS verbatim (defense-in-depth against ``zmodload``-
+    # gated bypasses of binary-name checks).
+    bash_blocked_commands: tuple[str, ...] = (
+        # System-level destruction — narrow deviation from CC: CC routes these
+        # through the classifier; we hard-deny because a dev agent has no
+        # legitimate use case for them.
         "mkfs",
         "reboot",
-        "rm -rf /",
         "shutdown",
+        "halt",
+        "poweroff",
+        # zsh eval / module gateway (mirror CC ZSH_DANGEROUS_COMMANDS).
+        "zmodload",
+        "emulate",
+        # zsh network / pty attack vectors (zsh/net/tcp, zsh/net/socket, zsh/zpty).
+        "ztcp",
+        "zsocket",
+        "zpty",
+        # zsh/system — fine-grained fd access bypassing binary checks.
+        "sysopen",
+        "sysread",
+        "syswrite",
+        "sysseek",
+        # zsh/files — builtin rm/mv/ln/chmod that bypass binary checks.
+        "zf_rm",
+        "zf_mv",
+        "zf_ln",
+        "zf_chmod",
+        "zf_chown",
+        "zf_mkdir",
+        "zf_rmdir",
+        "zf_chgrp",
+        # zsh/mapfile — implicit file I/O via associative array assignment.
+        "mapfile",
+    )
+    # Structural-syntax fragments (substring match). Reserved for shell
+    # constructs without a base command — e.g. the fork bomb function literal
+    # ``:(){`` which is a function definition, not an executable. AST-based
+    # structural checks (CC's DANGEROUS_PATTERNS family) are out of scope here
+    # and tracked separately.
+    bash_blocked_fragments: tuple[str, ...] = (
+        ":(){",
     )
 
 
@@ -81,6 +135,7 @@ def load_tool_safety_config(*, repo_root: Path, default: ToolSafetyConfig | None
 
     allowed_prefixes = _read_optional_string_tuple(bash_policy.get("allow_prefixes"))
     blocked_fragments = _read_optional_string_tuple(bash_policy.get("deny_fragments"))
+    blocked_commands = _read_optional_string_tuple(bash_policy.get("deny_commands"))
 
     return ToolSafetyConfig(
         read_max_lines=base.read_max_lines,
@@ -90,6 +145,7 @@ def load_tool_safety_config(*, repo_root: Path, default: ToolSafetyConfig | None
         bash_default_timeout=base.bash_default_timeout,
         bash_allowed_prefixes=allowed_prefixes or base.bash_allowed_prefixes,
         bash_allowed_commands=base.bash_allowed_commands,
+        bash_blocked_commands=blocked_commands or base.bash_blocked_commands,
         bash_blocked_fragments=blocked_fragments or base.bash_blocked_fragments,
     )
 
@@ -298,6 +354,18 @@ class ToolSafety:
                 )
 
         _ensure_command_parseable(command=command, tool_name=tool_name)
+
+        # Per-segment base-command denylist. Token-level match (mirrors CC's
+        # ZSH_DANGEROUS_COMMANDS Set semantics) so we don't false-positive on
+        # substrings like ``mkfsd-helper`` or ``reboot-message.txt``.
+        blocked_command_set = {cmd.lower() for cmd in self.config.bash_blocked_commands}
+        for segment in _split_and_segments(command):
+            base_cmd = _extract_base_command(segment)
+            if base_cmd and base_cmd in blocked_command_set:
+                return CommandPolicyDecision(
+                    status="denied",
+                    details={"blocked_command": base_cmd, "segment": segment},
+                )
 
         unmatched_segments: list[str] = []
         for segment in _split_and_segments(command):
@@ -590,6 +658,37 @@ def _ensure_command_parseable(*, command: str, tool_name: str) -> None:
 def _split_and_segments(command: str) -> tuple[str, ...]:
     segments = [segment.strip() for segment in command.split("&&")]
     return tuple(segment for segment in segments if segment)
+
+
+def _extract_base_command(segment: str) -> str:
+    """Return the lowercased base command of a segment after stripping ``VAR=val`` prefixes.
+
+    ``VAR=val cmd args`` → ``cmd``;  ``VAR=val OTHER=foo cmd args`` → ``cmd``.
+    Mirrors how shells resolve the executable token (bash ignores leading
+    name=value assignments). Returns ``""`` when the segment is empty or
+    parses to only assignments.
+    """
+
+    try:
+        tokens = shlex.split(segment, posix=True)
+    except ValueError:
+        # Fall back to whitespace split — caller still gets a best-effort token
+        # so a malformed segment can still hit the denylist if its first word
+        # is a blocked command name.
+        tokens = segment.split()
+    for token in tokens:
+        # Skip ``NAME=value`` assignments — bash treats these as env vars, not
+        # the executable. Only strip when the equals sign is preceded by a
+        # valid identifier (avoids treating ``--foo=bar`` flag-style args here,
+        # though such tokens shouldn't appear before the base command anyway).
+        if "=" in token:
+            head, _, _ = token.partition("=")
+            if head and (head[0].isalpha() or head[0] == "_") and all(
+                ch.isalnum() or ch == "_" for ch in head
+            ):
+                continue
+        return token.lower()
+    return ""
 
 
 def _combined_allow_prefixes(config: ToolSafetyConfig) -> tuple[str, ...]:

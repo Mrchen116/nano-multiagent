@@ -135,4 +135,83 @@ describe("chat-stream-reducer", () => {
     const next = applyWsEvent(state, ev);
     expect(next.messages).toHaveLength(0);
   });
+
+  // feat-333-M3 R1: permission WS event routing
+  it("M3/R1: permission.request WS event fills message.permission_request with pending status", () => {
+    const seed: Message = {
+      ...userMessage("m2", ""),
+      sender: { type: "agent", id: "agent-a" },
+      sender_type: "agent",
+      delivery_status: "running"
+    };
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [seed] };
+    const ev: WsEvent = {
+      type: "permission.request",
+      conversation_id: "c1",
+      message_id: "m2",
+      permission_request: {
+        request_id: "req-1",
+        tool_name: "bash",
+        tool_input: { command: "rm -rf /tmp/foo" },
+        question: "Allow bash command?",
+        options: [
+          { id: "allow_once", label: "Allow once", description: "Run this time only" },
+          { id: "deny", label: "Deny", description: "Block this action" }
+        ],
+        status: "pending"
+      }
+    };
+    const next = applyWsEvent(state, ev);
+    expect(next.messages[0]!.permission_request).not.toBeNull();
+    expect(next.messages[0]!.permission_request!.request_id).toBe("req-1");
+    expect(next.messages[0]!.permission_request!.status).toBe("pending");
+    expect(next.messages[0]!.permission_request!.tool_name).toBe("bash");
+  });
+
+  it("M3/R1: permission.resolved WS event updates message.permission_request to resolved with decision", () => {
+    const seed: Message = {
+      ...userMessage("m2", ""),
+      sender: { type: "agent", id: "agent-a" },
+      sender_type: "agent",
+      delivery_status: "running",
+      permission_request: {
+        request_id: "req-1",
+        tool_name: "bash",
+        tool_input: {},
+        question: "Allow?",
+        options: [],
+        status: "pending"
+      }
+    };
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [seed] };
+    const ev: WsEvent = {
+      type: "permission.resolved",
+      conversation_id: "c1",
+      message_id: "m2",
+      request_id: "req-1",
+      decision: "allow_once"
+    };
+    const next = applyWsEvent(state, ev);
+    expect(next.messages[0]!.permission_request!.status).toBe("resolved");
+    expect(next.messages[0]!.permission_request!.decision).toBe("allow_once");
+  });
+
+  it("M3/R1: permission.request for unknown message is a no-op", () => {
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [] };
+    const ev: WsEvent = {
+      type: "permission.request",
+      conversation_id: "c1",
+      message_id: "missing-msg",
+      permission_request: {
+        request_id: "req-2",
+        tool_name: "bash",
+        tool_input: {},
+        question: "Allow?",
+        options: [],
+        status: "pending"
+      }
+    };
+    const next = applyWsEvent(state, ev);
+    expect(next).toBe(state);
+  });
 });

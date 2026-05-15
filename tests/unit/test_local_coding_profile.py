@@ -51,7 +51,7 @@ def test_local_coding_profile_default_hook_modules() -> None:
     assert len(LOCAL_CODING_PROFILE.default_hook_modules) > 0
     # All 4 original builtin hook modules must be declared.
     modules = set(LOCAL_CODING_PROFILE.default_hook_modules)
-    assert "bash_risk_gate" in modules
+    assert "auto_mode_gate" in modules  # M1: replaced bash_risk_gate with auto_mode_gate
     assert "default_status" in modules
     assert "realtime_stream" in modules
     assert "usage_metrics" in modules

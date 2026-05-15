@@ -76,6 +76,10 @@ AgentCapabilitiesProvider = Callable[[str, str], Awaitable[Mapping[str, object] 
 # Async callback that returns a fresh access token immediately before each connect attempt.
 # Returning None means "no token available"; the caller should fall back or proceed without auth.
 TokenGetter = Callable[[], Awaitable[str | None]]
+# Called when IM sends a node.streaming_delta kind=permission_response.
+# Payload keys: request_id, decision, message_id.  PA should POST the decision
+# to the agent inbound endpoint to unpark the auto_mode_gate hook.
+PermissionResponseHandler = Callable[[Mapping[str, object]], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +153,7 @@ class IMConnectionManager:
         agent_create_handler: AgentCreateHandler | None = None,
         agent_capabilities_provider: AgentCapabilitiesProvider | None = None,
         token_getter: TokenGetter | None = None,
+        permission_response_handler: PermissionResponseHandler | None = None,
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -160,6 +165,8 @@ class IMConnectionManager:
         self._agent_config_provider = agent_config_provider
         self._agent_create_handler = agent_create_handler
         self._agent_capabilities_provider = agent_capabilities_provider
+        # Called when IM pushes a permission_response so PA can POST it to the agent.
+        self._permission_response_handler = permission_response_handler
         # token_getter is called on each connect attempt to supply a fresh access token.
         # When absent the static config.token is used (backwards-compatible behaviour).
         self._token_getter = token_getter
@@ -357,6 +364,14 @@ class IMConnectionManager:
                     "capabilities": dict(capability_payload) if isinstance(capability_payload, Mapping) else {},
                 },
             )
+            return
+        if message_type == "node.streaming_delta":
+            # IM → PA direction: currently only permission_response kind is routed here.
+            # Other kinds (turn_start, message_delta, …) are PA→IM only and would be
+            # unexpected inbound; they are safely ignored.
+            kind = body.get("kind")
+            if kind == "permission_response" and self._permission_response_handler is not None:
+                self._permission_response_handler(body)
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 

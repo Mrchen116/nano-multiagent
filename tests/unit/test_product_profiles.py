@@ -52,7 +52,8 @@ def test_local_coding_package_exports_default_modules() -> None:
     assert {"read", "write", "edit", "bash", "agent", "task_stop"} <= set(local_coding_toolsets.DEFAULT_TOOL_IDS)
     assert "skill_manage" in local_coding_toolsets.DEFAULT_TOOL_IDS
     assert "memory" in local_coding_toolsets.DEFAULT_TOOL_IDS
-    assert "bash_risk_gate" in local_coding_hooks.DEFAULT_HOOK_MODULES
+    # feat-333 M1 replaced bash_risk_gate with the unified auto_mode_gate classifier.
+    assert "auto_mode_gate" in local_coding_hooks.DEFAULT_HOOK_MODULES
 
 
 def test_personal_assistant_profile_exists() -> None:

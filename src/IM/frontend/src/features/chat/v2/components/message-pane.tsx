@@ -15,6 +15,7 @@ import { Avatar } from "./avatar";
 import { KindBadge } from "./kind-badge";
 import { MentionPicker } from "./mention-picker";
 import { NodeChip } from "./node-chip";
+import { PermissionCard } from "./permission-card";
 import { TokenChip } from "./token-chip";
 import { ToolCallsPanel } from "./tool-calls-panel";
 
@@ -342,6 +343,14 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
             <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
           )}
         </div>
+        {isAgent && message.permission_request && (
+          <PermissionCard
+            request={message.permission_request}
+            conversationId={message.conversation_id}
+            messageId={message.id}
+            onResolved={() => {/* WS event will update the message status */}}
+          />
+        )}
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {deliveryStatus === "running" && (

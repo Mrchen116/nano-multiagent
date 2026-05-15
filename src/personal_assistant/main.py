@@ -484,6 +484,7 @@ class _IMBootstrapClient:
         timeout_seconds: float = 5.0,
         monotonic: Monotonic = time.monotonic,
         sleep: Sleep = time.sleep,
+        token_getter: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._base_urls = _im_bootstrap_base_urls(base_url)
         self._base_headers = _im_http_headers(token)
@@ -497,6 +498,19 @@ class _IMBootstrapClient:
         self._feedback_sink = feedback_sink
         self._monotonic = monotonic
         self._sleep = sleep
+        self._token_getter = token_getter
+
+    def _refresh_token(self) -> None:
+        # bootstrap 跑在 asyncio.to_thread 工作线程里(main.py:894-896),无运行中 event
+        # loop,因此可以直接 asyncio.run 同步等异步 token_getter。fix bugfix-346 漏接
+        # bootstrap 路径导致 username/password 配置首次启动 401 的问题。
+        if self._token_getter is None:
+            return
+        token = asyncio.run(self._token_getter())
+        if token:
+            self._base_headers = _im_http_headers(token)
+            for client in self._clients.values():
+                client.headers.update(self._base_headers)
 
     def ensure_node_binding(self, *, node_id: str) -> str | None:
         """Open the bind URL when the upstream node still has no owner.
@@ -511,6 +525,7 @@ class _IMBootstrapClient:
             RuntimeError: When IM bootstrap APIs do not expose the registered node.
         """
 
+        self._refresh_token()
         owner_id, resolved_base_url = self._wait_for_owner(node_id=node_id)
         if owner_id:
             return None
@@ -1212,6 +1227,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     im_bootstrap_client: _IMBootstrapClient | None = None
     im_config_sync_client: _IMConfigSyncClient | None = None
     post_im_connect: Callable[[], None] | None = None
+    _run_context_store: dict[str, dict[str, str]] = {}
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
     # (NodeGateway-SPEC §4.2).  The kernel_client is injected below after construction
     # so that live session validation (GET /v1/sessions/{id}) is enabled at runtime.
@@ -1256,6 +1272,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             local_config=config,
             auth_client=_auth_client,
         )
+        _permission_response_handler = _build_permission_response_handler(
+            kernel_client=kernel_client,
+            run_context_store=_run_context_store,
+        )
         im_connection_manager = _build_im_connection_manager(
             config=config,
             relay_adapter=relay_adapter,
@@ -1268,13 +1288,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             ),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
+            permission_response_handler=_permission_response_handler,
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
             token=config.im_service.token,
+            token_getter=_token_getter,
         )
         post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(node_id=config.node.node_id)
-    _run_context_store: dict[str, dict[str, str]] = {}
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
@@ -1495,6 +1516,7 @@ def _build_im_connection_manager(
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
     agent_create_handler: AgentCreateHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
+    permission_response_handler: Callable[[Mapping[str, object]], None] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -1510,7 +1532,57 @@ def _build_im_connection_manager(
         agent_create_handler=agent_create_handler,
         token_getter=token_getter,
         connect=_connect_websocket,
+        permission_response_handler=permission_response_handler,
     )
+
+
+def _build_permission_response_handler(
+    *,
+    kernel_client: KernelAPIClient,
+    run_context_store: dict[str, dict[str, str]],
+) -> Callable[[Mapping[str, object]], None]:
+    """Build handler that routes IM permission_response frames to the kernel.
+
+    The frame carries ``request_id``, ``decision``, and the IM-side
+    ``message_id``. The kernel session is recovered by scanning
+    ``run_context_store`` for a matching ``message_id`` — the same store
+    already maintained by the kernel event observer.
+    """
+
+    def _handler(body: Mapping[str, object]) -> None:
+        request_id = str(body.get("request_id") or "").strip()
+        decision = str(body.get("decision") or "").strip()
+        message_id = str(body.get("message_id") or "").strip()
+        if not request_id or not decision:
+            return
+        kernel_session_id = ""
+        if message_id:
+            for ctx in run_context_store.values():
+                if ctx.get("message_id") == message_id:
+                    kernel_session_id = ctx.get("kernel_session_id") or ""
+                    break
+        # Fallback: if message_id lookup misses (e.g. ack not yet stored),
+        # use the only active kernel session when there's exactly one.
+        if not kernel_session_id:
+            distinct = {
+                ctx.get("kernel_session_id")
+                for ctx in run_context_store.values()
+                if ctx.get("kernel_session_id")
+            }
+            if len(distinct) == 1:
+                kernel_session_id = next(iter(distinct))  # type: ignore[assignment]
+        if not kernel_session_id:
+            return
+        try:
+            kernel_client.submit_permission_decision(
+                session_id=kernel_session_id,
+                request_id=request_id,
+                decision=decision,
+            )
+        except Exception:  # noqa: BLE001 — IM-bound side-effect; failure can't cascade
+            return
+
+    return _handler
 
 
 def _build_relay_lifecycle_callback(
@@ -1539,6 +1611,9 @@ def _build_relay_lifecycle_callback(
                     "conversation_id": conversation_id,
                     "message_id": "",  # filled by turn_start ack
                     "agent_id": agent_id_meta,
+                    # Stored so permission_response_handler can route the user's
+                    # decision back to the correct kernel session via reverse lookup.
+                    "kernel_session_id": update.kernel_session_id or "",
                 }
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
@@ -1838,6 +1913,46 @@ def _build_kernel_event_observer(
                         "output": " | ".join(output_parts) if output_parts else None,
                         "duration_ms": int(duration_ms) if isinstance(duration_ms, (int, float)) else None,
                     },
+                    "run_id": run_id,
+                }))
+
+        elif event_name == "permission_request":
+            # Agent auto_mode_gate is awaiting a user decision; forward to IM so the
+            # permission card can be rendered in the chat.  Only forwarded when we have
+            # a message_id (turn_start already acked) so IM can attach the card to the
+            # correct message row.  No message_id → card would be orphaned; skip.
+            if message_id:
+                request_id = str(event.get("request_id") or "").strip()
+                tool_name = str(event.get("tool_name") or "").strip()
+                tool_input = event.get("tool_input")
+                question = str(event.get("question") or "").strip()
+                options_raw = event.get("options")
+                options = list(options_raw) if isinstance(options_raw, list) else []
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "permission_request",
+                    "message_id": message_id,
+                    "permission_request": {
+                        "request_id": request_id,
+                        "tool_name": tool_name,
+                        "tool_input": dict(tool_input) if isinstance(tool_input, Mapping) else (tool_input or {}),
+                        "question": question,
+                        "options": options,
+                        "status": "pending",
+                    },
+                    "run_id": run_id,
+                }))
+
+        elif event_name == "permission_resolved":
+            # Agent resolved a permission request (hook resumed); update the IM card
+            # so the user sees the final decision.
+            if message_id:
+                request_id = str(event.get("request_id") or "").strip()
+                decision = str(event.get("decision") or "").strip()
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "permission_resolved",
+                    "message_id": message_id,
+                    "request_id": request_id,
+                    "decision": decision,
                     "run_id": run_id,
                 }))
 

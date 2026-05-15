@@ -24,6 +24,8 @@ from IM.api.ws.event_types import (
     EVENT_MESSAGE_COMPLETED,
     EVENT_MESSAGE_CREATED,
     EVENT_MESSAGE_DELTA,
+    EVENT_PERMISSION_REQUEST,
+    EVENT_PERMISSION_RESOLVED,
     EVENT_TOOL_CALL_COMPLETED,
     EVENT_TOOL_CALL_UPSERTED,
     build_message_completed_payload,
@@ -182,6 +184,99 @@ class EventBridge:
                 content=updated.content,
                 token_usage=token_usage,
             ),
+        )
+
+    def on_permission_request(
+        self,
+        *,
+        message_id: str,
+        permission_request: dict[str, object],
+    ) -> None:
+        """Persist a pending permission request and emit ``permission.request``.
+
+        Embeds ``status="pending"`` before writing so the frontend can distinguish
+        pending vs. resolved without an extra query.
+
+        Args:
+            message_id: Agent message that owns this request.
+            permission_request: Raw permission payload from the gateway (must contain
+                at minimum ``request_id`` and ``tool_name``).
+
+        Raises:
+            ValueError: When ``message_id`` does not exist.
+        """
+        data = {**permission_request, "status": "pending"}
+        conversation_id = self.message_repository.update_permission_request(
+            message_id=message_id,
+            permission_data=data,
+        )
+        self._emit(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type=EVENT_PERMISSION_REQUEST,
+            delivery_status="running",
+            payload={
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "event_type": EVENT_PERMISSION_REQUEST,
+                "permission_request": data,
+            },
+        )
+
+    def on_permission_resolved(
+        self,
+        *,
+        message_id: str,
+        request_id: str,
+        decision: str,
+    ) -> None:
+        """Mark a permission request resolved and emit ``permission.resolved``.
+
+        Reads the existing ``permission_request_json`` from the message and updates its
+        ``status`` and ``decision`` fields so the frontend can show the settled state
+        without re-fetching the full conversation.
+
+        Args:
+            message_id: Agent message that owns the request.
+            request_id: Stable identifier matching the pending request.
+            decision: User-chosen option id (e.g. ``"allow_once"``, ``"deny"``).
+
+        Raises:
+            ValueError: When ``message_id`` does not exist.
+        """
+        # Fetch existing permission data to merge resolution without losing other fields.
+        row = self.message_repository._connection.execute(  # noqa: SLF001
+            "SELECT conversation_id, permission_request_json FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"message_id not found: {message_id}")
+        import json as _json
+
+        existing: dict[str, object] = {}
+        if row["permission_request_json"]:
+            try:
+                existing = _json.loads(row["permission_request_json"])
+            except (ValueError, TypeError):
+                existing = {}
+        conversation_id = str(row["conversation_id"])
+        data = {**existing, "status": "resolved", "decision": decision}
+        self.message_repository.update_permission_request(
+            message_id=message_id,
+            permission_data=data,
+        )
+        self._emit(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type=EVENT_PERMISSION_RESOLVED,
+            delivery_status="running",
+            payload={
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "event_type": EVENT_PERMISSION_RESOLVED,
+                "request_id": request_id,
+                "decision": decision,
+            },
         )
 
     def _emit(

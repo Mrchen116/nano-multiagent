@@ -358,6 +358,69 @@ def _grace_period_drain(
             break
 
 
+def _handle_permission_request(
+    *,
+    out: TextIO,
+    client: ServerClient,
+    session_id: str,
+    perm_event: dict[str, object],
+) -> None:
+    """Show permission picker for an inbound permission_request SSE event and POST the decision.
+
+    Blocks briefly while the user makes a selection. drain_run parks when this callback
+    runs (the agent run is already parked server-side awaiting the decision), so
+    no concurrent stream events need to be handled.
+
+    Args:
+        out: Terminal output stream.
+        client: ServerClient used to POST the permission decision.
+        session_id: The session that owns the permission request.
+        perm_event: The permission_request SSE event dict from the stream.
+    """
+    request_id = str(perm_event.get("request_id") or "")
+    tool_name = str(perm_event.get("tool_name") or "unknown")
+    raw_options: list[dict[str, object]] = list(perm_event.get("options") or [])  # type: ignore[arg-type]
+
+    perm_options = [
+        repl_input.PermissionOption(
+            id=str(opt.get("id") or "allow_once"),
+            label=str(opt.get("label") or str(opt.get("id") or "allow_once")),
+            description=str(opt.get("description") or ""),
+        )
+        for opt in raw_options
+    ] or [
+        repl_input.PermissionOption(id="allow_once", label="Allow once", description="Allow this single action"),
+        repl_input.PermissionOption(id="deny", label="Deny", description="Block this action"),
+    ]
+
+    header = f"Permission request: {tool_name}"
+    tool_input = perm_event.get("tool_input")
+    if tool_input:
+        import json as _json
+        try:
+            header += f"\n  {_json.dumps(tool_input, ensure_ascii=False)[:120]}"
+        except Exception:
+            pass
+
+    chosen_id = repl_input.read_permission_choice(
+        header=header,
+        options=perm_options,
+        out=out,
+    )
+
+    if request_id:
+        try:
+            client.submit_permission_decision(
+                session_id=session_id,
+                request_id=request_id,
+                decision=chosen_id,
+            )
+        except RuntimeError:
+            # Decision POST failed (server may have timed out the request).
+            # Drain continues; the run will surface an error via run_status.
+            pass
+
+
 def _send_message_via_sse(
     *,
     out: TextIO,
@@ -417,9 +480,18 @@ def _send_message_via_sse(
                 out.write(f"\r\033[K{format_tool_done(name, duration_ms)}\r\n")
                 out.flush()
 
+        def _on_permission_request_tty(perm_event: dict[str, object]) -> None:
+            # Pause live render, show permission picker, POST the decision.
+            # drain_run is parked while this callback blocks — no new stream events arrive.
+            _erase_thinking()
+            _handle_permission_request(
+                out=out, client=client, session_id=session_id, perm_event=perm_event,
+            )
+
         events = reader.drain_run(
             run_id=run_id, timeout=0.5, idle_timeout=1800.0,
             on_other=_on_other_event, on_event=_on_run_event_tty,
+            on_permission_request=_on_permission_request_tty,
         )
         _erase_thinking()
         live_rendered = True
@@ -434,9 +506,15 @@ def _send_message_via_sse(
                 if line:
                     print(line, file=out)
 
+        def _on_permission_request_plain(perm_event: dict[str, object]) -> None:
+            _handle_permission_request(
+                out=out, client=client, session_id=session_id, perm_event=perm_event,
+            )
+
         reader.drain_run(
             run_id=run_id, timeout=0.5, idle_timeout=1800.0,
             on_other=_on_other_event, on_event=_on_run_event_plain,
+            on_permission_request=_on_permission_request_plain,
         )
 
     assistant_text = ""
@@ -503,6 +581,94 @@ def _send_message_via_sse(
     }
 
 
+def print_auto_mode_banner(*, config: object, out: "TextIO") -> None:  # noqa: F821
+    """Print the auto mode status banner at REPL startup.
+
+    Why this is necessary: spec A2 requires that dangerously_skip_permissions being
+    enabled must be visible to the user. CC surfaces this via a persistent status bar
+    in its React UI; the Python REPL equivalent is a startup print so the state is
+    never silently active.
+
+    Args:
+        config: AutoModeConfig-compatible object with .enabled and
+            .dangerously_skip_permissions attributes. Typed as `object` to avoid
+            an import from the agent package — the contract forbids cross-package imports.
+        out: Output stream (sys.stdout or StringIO in tests).
+    """
+    enabled: bool = getattr(config, "enabled", True)
+    dangerously_skip: bool = getattr(config, "dangerously_skip_permissions", False)
+
+    if dangerously_skip:
+        # Prominent danger banner — mirrors CC's "⚠ Skipping all permission checks"
+        # status indicator. Users must clearly see they are in bypass mode.
+        print("⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.", file=out)
+        print("  No tool will be blocked. This is only safe in isolated sandbox environments.", file=out)
+    elif enabled:
+        print("✓ Auto mode enabled — permission decisions handled automatically.", file=out)
+    else:
+        print("ℹ Auto mode disabled — manual approval required for tool actions.", file=out)
+
+
+def _load_auto_mode_config_for_repl() -> object:
+    """Load auto mode config for REPL startup banner without cross-package imports.
+
+    Reads the auto_mode section from the two-level config chain (workspace > global),
+    where workspace is cwd/.nanocode/config.yaml and global is ~/.nanocode/config.yaml.
+    Returns a lightweight object with .enabled and .dangerously_skip_permissions
+    attributes. Falls back to safe defaults when config is absent or malformed —
+    errors must never crash the REPL.
+
+    Priority: workspace field overrides global field when both are present
+    (spec A9: workspace config must override global for both products).
+    This mirrors the workspace>global priority semantics of the agent 内核侧
+    auto_mode config loader — reimplemented here to avoid cross-package import
+    (cross-package import is forbidden by the module boundary contract).
+    """
+    import yaml
+    from pathlib import Path
+
+    class _AutoModeSummary:
+        """Minimal stand-in carrying only the fields needed by print_auto_mode_banner."""
+        def __init__(self, enabled: bool, dangerously_skip_permissions: bool) -> None:
+            self.enabled = enabled
+            self.dangerously_skip_permissions = dangerously_skip_permissions
+
+    def _read_section(config_path: Path) -> dict:
+        """Read auto_mode section from a single config file; return {} on any issue."""
+        if not config_path.is_file():
+            return {}
+        try:
+            raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                section = raw.get("auto_mode", {})
+                if isinstance(section, dict):
+                    return section
+        except Exception:
+            pass  # Corrupted config — use defaults, don't crash REPL
+        return {}
+
+    global_config_file = Path.home() / ".nanocode" / "config.yaml"
+    # Workspace config: current working directory's .nanocode/config.yaml.
+    # Path.cwd() is used (not __file__) so it reflects where the user launched
+    # the REPL — consistent with how the agent core resolves workspace config.
+    workspace_config_file = Path.cwd() / ".nanocode" / "config.yaml"
+
+    # Read global first; workspace overrides field-by-field (same workspace>global
+    # priority semantics as the agent 内核侧 auto_mode config loader).
+    merged: dict = dict(_read_section(global_config_file))
+    merged.update(_read_section(workspace_config_file))
+
+    enabled: bool = True
+    dangerously_skip: bool = False
+
+    if isinstance(merged.get("enabled"), bool):
+        enabled = merged["enabled"]
+    if isinstance(merged.get("dangerously_skip_permissions"), bool):
+        dangerously_skip = merged["dangerously_skip_permissions"]
+
+    return _AutoModeSummary(enabled=enabled, dangerously_skip_permissions=dangerously_skip)
+
+
 def _run_repl(
     *,
     args: argparse.Namespace,
@@ -544,6 +710,16 @@ def _run_repl(
             reader.stop()
             reader.start(session_id=session_id)
         return reader
+
+    # feat-333-M3/R2: spec A2 requires auto mode status to be visible at startup so
+    # users always know whether permission bypass is active. CC surfaces this in its
+    # persistent status bar; the Python REPL equivalent is a startup banner line.
+    _auto_config = _load_auto_mode_config_for_repl()
+    _banner_buf = io.StringIO()
+    print_auto_mode_banner(config=_auto_config, out=_banner_buf)
+    _banner_text = _banner_buf.getvalue()
+    if _banner_text.strip():
+        _emit_repl_block(_banner_text)
 
     if active_session_id:
         try:

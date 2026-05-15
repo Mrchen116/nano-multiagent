@@ -1,5 +1,8 @@
 import asyncio
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
@@ -151,3 +154,118 @@ def test_tool_call_block_short_circuits_following_handlers() -> None:
     assert result.stopped is True
     assert result.payload["block"] is True
     assert result.payload["reason"] == "policy"
+
+
+# ---------------------------------------------------------------------------
+# R3: HookContext extensions — message_history + permission_requester +
+#     request_permission (R3 of feat-333-M1)
+# ---------------------------------------------------------------------------
+
+class TestHookContextMessageHistory:
+    """message_history field: tuple of LLM messages for classifier transcript."""
+
+    def test_default_message_history_is_empty_tuple(self) -> None:
+        ctx = HookContext(session_id="s-mh-1")
+        assert ctx.message_history == ()
+
+    def test_message_history_stored_and_accessible(self) -> None:
+        msgs = (
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+        )
+        ctx = HookContext(session_id="s-mh-2", message_history=msgs)
+        assert ctx.message_history == msgs
+
+    def test_message_history_coerced_to_tuple(self) -> None:
+        """Any sequence passed as message_history should be accessible as-is (tuple)."""
+        msgs = ({"role": "user", "content": "test"},)
+        ctx = HookContext(session_id="s-mh-3", message_history=msgs)
+        assert isinstance(ctx.message_history, tuple)
+        assert len(ctx.message_history) == 1
+
+
+class TestHookContextPermissionRequester:
+    """permission_requester field and request_permission method."""
+
+    @pytest.mark.asyncio
+    async def test_request_permission_without_requester_returns_deny(self) -> None:
+        """When no permission_requester is set, request_permission fail-closes to deny."""
+        from agent.platform.permissions.broker import PermissionRequest, PermissionOption
+
+        ctx = HookContext(session_id="s-pr-1")
+        req = PermissionRequest(
+            id="req-1",
+            tool_name="write",
+            tool_input={"file_path": "/tmp/f"},
+            question="Allow write?",
+            options=(
+                PermissionOption("allow_once", "Allow once", ""),
+                PermissionOption("deny", "Deny", ""),
+            ),
+        )
+        response = await ctx.request_permission(req)
+        assert response.decision == "deny"
+        assert "no permission channel" in response.reason
+
+    @pytest.mark.asyncio
+    async def test_request_permission_delegates_to_requester(self) -> None:
+        """When permission_requester is set, request_permission awaits it."""
+        from agent.platform.permissions.broker import (
+            PermissionRequest,
+            PermissionOption,
+            PermissionResponse,
+        )
+
+        async def allow_requester(req):
+            return PermissionResponse(decision="allow_once", request_id=req.id)
+
+        ctx = HookContext(session_id="s-pr-2", permission_requester=allow_requester)
+        req = PermissionRequest(
+            id="req-2",
+            tool_name="bash",
+            tool_input={"command": "ls"},
+            question="Allow ls?",
+            options=(PermissionOption("allow_once", "Allow once", ""),),
+        )
+        response = await ctx.request_permission(req)
+        assert response.decision == "allow_once"
+        assert response.request_id == "req-2"
+
+    def test_permission_requester_default_is_none(self) -> None:
+        ctx = HookContext(session_id="s-pr-3")
+        assert ctx.permission_requester is None
+
+
+class TestHookRunnerTimeoutNone:
+    """Hooks registered with timeout_ms=None are not wrapped in asyncio.wait_for."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_none_hook_runs_without_cancellation(self) -> None:
+        """A hook with timeout_ms=None can run longer than the default timeout."""
+        registry = HookRegistry()
+        called = []
+
+        async def long_hook(event, ctx):
+            # Sleeps 20ms — would be cancelled under default 1500ms timeout IF
+            # the hook was registered with a very short timeout_ms. We just
+            # confirm it runs to completion when timeout_ms=None.
+            await asyncio.sleep(0.02)
+            called.append("done")
+            return None
+
+        registry.on("turn_start", long_hook, timeout_ms=None)
+        runner = HookRunner(registry=registry)
+        diagnostics = await runner.dispatch_observe(
+            "turn_start", {}, HookContext(session_id="s-tn-1")
+        )
+        assert called == ["done"]
+        assert diagnostics[0].status == "ok"
+
+    def test_registration_allows_none_timeout_ms(self) -> None:
+        registry = HookRegistry()
+
+        def noop(event, ctx):
+            return None
+
+        reg = registry.on("tool_call", noop, timeout_ms=None)
+        assert reg.timeout_ms is None

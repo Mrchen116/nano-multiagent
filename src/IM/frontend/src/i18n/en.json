@@ -309,6 +309,14 @@
       "empty": "No agents to mention",
       "noAgents": "No agents available to mention",
       "noMatch": "No matching agents"
+    },
+    "permission": {
+      "allowed": "Allowed",
+      "denied": "Denied",
+      "hint": "Needs review",
+      "ariaCard": "Permission request: {{toolName}}",
+      "ariaOptions": "Permission options",
+      "submitError": "Failed to submit decision"
     }
   }
 }

@@ -1474,7 +1474,13 @@ def test_run_cli_repl_ignores_blank_input_and_exits_on_eof() -> None:
     )
 
     assert exit_code == 0
-    assert output.getvalue().strip() == "bye"
+    # feat-333-M3/R2: REPL now prints an auto mode startup banner before the
+    # session loop, so the output contains the banner followed by "bye" on EOF.
+    text = output.getvalue()
+    assert "Auto mode" in text or "auto mode" in text, (
+        f"Expected auto mode banner in REPL output, got: {text!r}"
+    )
+    assert "bye" in text
     assert stub.calls == []
 
 
@@ -2136,7 +2142,12 @@ def test_run_cli_without_mode_defaults_repl_to_managed_lifecycle() -> None:
     assert exit_code == 0
     assert manager.config_base_url == "http://127.0.0.1:8000"
     assert manager.events == ["start", "stop"]
-    assert output.getvalue() == ""
+    # feat-333-M3/R2: REPL now prints an auto mode startup banner before the
+    # session loop; the /exit command does not suppress the banner.
+    text = output.getvalue()
+    assert "Auto mode" in text or "auto mode" in text, (
+        f"Expected auto mode banner in REPL output, got: {text!r}"
+    )
 
 
 def test_run_cli_without_mode_defaults_command_path_to_managed_when_base_url_is_omitted() -> None:
@@ -2205,7 +2216,12 @@ def test_run_cli_without_mode_ignores_api_base_url_env_for_repl_default(monkeypa
     assert exit_code == 0
     assert manager.config_base_url == "http://127.0.0.1:8000"
     assert manager.events == ["start", "stop"]
-    assert output.getvalue() == ""
+    # feat-333-M3/R2: REPL now prints an auto mode startup banner before the
+    # session loop; the env var override does not affect the banner content.
+    text = output.getvalue()
+    assert "Auto mode" in text or "auto mode" in text, (
+        f"Expected auto mode banner in REPL output, got: {text!r}"
+    )
 
 
 def test_run_cli_without_mode_ignores_api_base_url_env_for_command_default(monkeypatch) -> None:

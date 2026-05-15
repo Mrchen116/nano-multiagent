@@ -148,8 +148,21 @@ class KernelApiClient:
         texts: list[str],
         image_urls: list[dict[str, Any]] | None = None,
         priority: str = "next",
+        origin: str | None = None,
     ) -> dict[str, Any]:
-        """POST /messages. Returns {run_id, anchor_sequence, injected, status}."""
+        """POST /messages. Returns {run_id, anchor_sequence, injected, status}.
+
+        Args:
+            session_id: Target kernel session.
+            texts: One or more user message texts.
+            image_urls: Optional image attachments.
+            priority: Run scheduling priority ("next" or "now").
+            origin: Optional run origin tag ("heartbeat", "user", …). When
+                provided it is forwarded to the kernel so ``auto_mode_gate``
+                can detect unattended context and skip blocking permission
+                requests — specifically ``RunOrigin.HEARTBEAT`` runs must not
+                park waiting for a user who is not present.
+        """
         if not texts:
             raise ValueError("texts must contain at least one message")
         parts: list[dict[str, Any]] = [
@@ -164,6 +177,8 @@ class KernelApiClient:
                     image_part["mime_type"] = mime.strip()
                 parts.append(image_part)
         payload: dict[str, Any] = {"parts": parts, "priority": priority}
+        if origin is not None:
+            payload["origin"] = origin
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request(
             "POST",
@@ -223,6 +238,29 @@ class KernelApiClient:
 
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request("POST", f"/v1/sessions/{session}/interrupt", json={}, require_auth=True)
+
+    def submit_permission_decision(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        decision: str,
+    ) -> dict[str, Any]:
+        """Resolve a parked auto_mode_gate permission request.
+
+        Unblocks the awaiting hook coroutine by posting the user's decision
+        to the kernel; required to complete the IM → PA → kernel decision
+        round-trip so the tool call can resume after Allow / Deny.
+        """
+        session = _require_non_empty_string(session_id, field_name="session_id")
+        request = _require_non_empty_string(request_id, field_name="request_id")
+        decision_clean = _require_non_empty_string(decision, field_name="decision")
+        return self._request(
+            "POST",
+            f"/v1/sessions/{session}/permissions/{request}",
+            json={"decision": decision_clean},
+            require_auth=True,
+        )
 
     def _request(
         self,

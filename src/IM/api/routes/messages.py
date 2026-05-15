@@ -5,8 +5,9 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, model_validator
 
-from IM.api.deps import current_user, get_gateway_handler, get_web_im_service
+from IM.api.deps import current_user, get_gateway_handler, get_relay_service, get_web_im_service
 from IM.api.ws.event_types import tool_call_to_dict
+from IM.application.relay_service import RelayService
 from IM.application.web_im_service import WebIMService
 from IM.domain.models import Attachment, Message, TokenUsage, User
 from IM.ws.gateway_handler import GatewayHandler
@@ -97,6 +98,10 @@ class MessageResponse(BaseModel):
     created_at: str
     tool_calls: list[ToolCallPayload] = []
     token_usage: TokenUsagePayload | None = None
+    # feat-333-M3/R3: expose embedded permission request so page-reload restores
+    # pending permission cards from REST history (without this field, the card
+    # disappears on refresh even though permission_request_json is persisted in DB).
+    permission_request: dict | None = None
 
 
 class ListMessagesResponse(BaseModel):
@@ -154,6 +159,9 @@ def to_message_response(message: Message) -> MessageResponse:
             context_window=message.token_usage.context_window,
             total=message.token_usage.total,
         ) if message.token_usage is not None else None,
+        # feat-333-M3/R3: pass through permission_request so REST history load can
+        # restore pending permission card state after page refresh.
+        permission_request=message.permission_request,
     )
 
 
@@ -343,6 +351,58 @@ def map_message_write_error(exc: ValueError) -> HTTPException:
     }:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+
+
+class SubmitPermissionDecisionRequest(BaseModel):
+    """Request body for the user-decision permission endpoint."""
+
+    message_id: str = Field(min_length=1)
+    decision: str = Field(min_length=1)
+
+
+@router.post(
+    "/im/v1/conversations/{conversation_id}/permissions/{request_id}",
+    status_code=status.HTTP_200_OK,
+)
+async def submit_permission_decision(
+    conversation_id: str,
+    request_id: str,
+    payload: SubmitPermissionDecisionRequest,
+    user: User = Depends(current_user),
+    service: WebIMService = Depends(get_web_im_service),
+    relay_service: RelayService = Depends(get_relay_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+) -> dict:
+    """Forward user's permission decision to the gateway node hosting the parked run.
+
+    Resolves the target node from the conversation's agent participant, then pushes
+    a ``permission_response`` frame via the gateway WS so the PA can relay it to the
+    agent inbound endpoint and resume the parked hook.
+
+    Returns:
+        ``{"status": "forwarded"}`` when the node was connected, otherwise
+        ``{"status": "queued"}`` when the node is offline (decision will be retried).
+    """
+    _assert_conversation_in_owner_scope(
+        service=service, conversation_id=conversation_id, owner_id=user.owner_id
+    )
+    # Resolve which node hosts the agent in this conversation.
+    target_node_id = relay_service.resolve_target_node_id(
+        conversation_id=conversation_id,
+        content="",
+    )
+    if target_node_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="no agent node found for this conversation",
+        )
+    delivered = await gateway_handler.push_permission_response(
+        target_node_id=target_node_id,
+        message_id=payload.message_id,
+        request_id=request_id,
+        decision=payload.decision,
+    )
+    return {"status": "forwarded" if delivered else "queued"}
 
 
 def _resolve_create_message_sender(payload: CreateMessageRequest) -> tuple[str, str]:

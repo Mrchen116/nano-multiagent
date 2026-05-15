@@ -161,21 +161,13 @@ def test_drain_run_on_other_receives_non_target_events() -> None:
 
 
 def test_drain_run_long_run_not_killed_by_idle_timeout() -> None:
-    """Regression: 持续有事件的长 run 不应被空闲超时误杀（原 bug 的核心回归）。
-
-    用小 idle_timeout=0.3s 注入，在 0.3s 内持续喂多个事件，验证不触发超时。
-    _FakeClient 的事件之间无 delay，能在 idle_timeout 内全部入队。
-    """
-    # 用多个中间事件模拟"持续活跃"的长 run，每个事件都会重置 deadline
+    """Regression: 持续有事件的长 run 不应被空闲超时误杀（bugfix-351 的核心回归）。"""
     events = [{"event": "tool_start", "run_id": "r1"}] * 50
     events.append({"event": "run_status", "run_id": "r1", "status": "completed"})
     client = _FakeClient(events=events)
     reader = SessionStreamReader(client)
     reader.start(session_id="s1")
     try:
-        # idle_timeout=0.3s：如果是硬墙钟则会在 0.3s 内超时（事件太多），
-        # 如果是空闲超时则只要每个事件间隔 < 0.3s 就不超时。
-        # _FakeClient 无延迟，所有事件瞬间入队，远在 0.3s 内完成。
         result = reader.drain_run(run_id="r1", timeout=0.1, idle_timeout=0.3)
         assert result[-1]["event"] == "run_status"
         assert result[-1]["status"] == "completed"
@@ -184,12 +176,7 @@ def test_drain_run_long_run_not_killed_by_idle_timeout() -> None:
 
 
 def test_drain_run_idle_timeout_triggers_when_no_events() -> None:
-    """真卡死（无事件超过 idle_timeout）时仍应抛 TimeoutError。
-
-    用 idle_timeout=0.15s 注入，stream 只有非本 run 的事件（不重置 deadline），
-    等待超时。
-    """
-    # 只有其他 run 的事件，本 run 没有任何事件 → idle deadline 到期 → TimeoutError
+    """真卡死时仍抛 TimeoutError。"""
     client = _FakeClient(
         events=[
             {"event": "run_status", "run_id": "r_other", "status": "running"},
@@ -202,5 +189,79 @@ def test_drain_run_idle_timeout_triggers_when_no_events() -> None:
         raise AssertionError("expected TimeoutError")
     except TimeoutError:
         pass
+    finally:
+        reader.stop()
+
+
+# ---------------------------------------------------------------------------
+# feat-333-M1: CLI SSE drain permission_request hook
+# ---------------------------------------------------------------------------
+
+def test_drain_run_calls_on_permission_request_for_matching_events() -> None:
+    """drain_run should invoke on_permission_request callback for permission_request events."""
+    permission_events: list[dict[str, Any]] = []
+
+    client = _FakeClient(
+        events=[
+            {"event": "tool_start", "run_id": "r1"},
+            {
+                "event": "permission_request",
+                "run_id": "r1",
+                "request_id": "perm-1",
+                "tool_name": "write",
+                "tool_input": {"file_path": "/tmp/f"},
+                "options": [{"id": "allow_once", "label": "Allow once"}],
+            },
+            {"event": "assistant_message", "run_id": "r1", "content": "done"},
+            {"event": "run_status", "run_id": "r1", "status": "completed"},
+        ]
+    )
+    reader = SessionStreamReader(client)
+    reader.start(session_id="s1")
+    try:
+        events = reader.drain_run(
+            run_id="r1",
+            timeout=0.1,
+            idle_timeout=2.0,
+            on_permission_request=permission_events.append,
+        )
+        event_names = [e.get("event") for e in events]
+        assert "permission_request" not in event_names, (
+            "permission_request should be handled via on_permission_request callback, "
+            "not included in the returned events list"
+        )
+        assert len(permission_events) == 1
+        assert permission_events[0]["request_id"] == "perm-1"
+        assert permission_events[0]["tool_name"] == "write"
+    finally:
+        reader.stop()
+
+
+def test_drain_run_permission_request_without_callback_is_passed_to_on_event() -> None:
+    """When no on_permission_request is provided, permission_request events go to on_event."""
+    collected: list[dict[str, Any]] = []
+
+    client = _FakeClient(
+        events=[
+            {
+                "event": "permission_request",
+                "run_id": "r1",
+                "request_id": "perm-2",
+                "tool_name": "bash",
+            },
+            {"event": "run_status", "run_id": "r1", "status": "completed"},
+        ]
+    )
+    reader = SessionStreamReader(client)
+    reader.start(session_id="s1")
+    try:
+        reader.drain_run(
+            run_id="r1",
+            timeout=0.1,
+            idle_timeout=2.0,
+            on_event=collected.append,
+        )
+        event_names = [e.get("event") for e in collected]
+        assert "permission_request" in event_names
     finally:
         reader.stop()
