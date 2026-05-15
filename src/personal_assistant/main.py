@@ -1227,6 +1227,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     im_bootstrap_client: _IMBootstrapClient | None = None
     im_config_sync_client: _IMConfigSyncClient | None = None
     post_im_connect: Callable[[], None] | None = None
+    _run_context_store: dict[str, dict[str, str]] = {}
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
     # (NodeGateway-SPEC §4.2).  The kernel_client is injected below after construction
     # so that live session validation (GET /v1/sessions/{id}) is enabled at runtime.
@@ -1271,6 +1272,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             local_config=config,
             auth_client=_auth_client,
         )
+        _permission_response_handler = _build_permission_response_handler(
+            kernel_client=kernel_client,
+            run_context_store=_run_context_store,
+        )
         im_connection_manager = _build_im_connection_manager(
             config=config,
             relay_adapter=relay_adapter,
@@ -1283,6 +1288,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             ),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
+            permission_response_handler=_permission_response_handler,
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -1290,7 +1296,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             token_getter=_token_getter,
         )
         post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(node_id=config.node.node_id)
-    _run_context_store: dict[str, dict[str, str]] = {}
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
@@ -1505,6 +1510,7 @@ def _build_im_connection_manager(
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
     agent_create_handler: AgentCreateHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
+    permission_response_handler: Callable[[Mapping[str, object]], None] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -1520,7 +1526,57 @@ def _build_im_connection_manager(
         agent_create_handler=agent_create_handler,
         token_getter=token_getter,
         connect=_connect_websocket,
+        permission_response_handler=permission_response_handler,
     )
+
+
+def _build_permission_response_handler(
+    *,
+    kernel_client: KernelAPIClient,
+    run_context_store: dict[str, dict[str, str]],
+) -> Callable[[Mapping[str, object]], None]:
+    """Build handler that routes IM permission_response frames to the kernel.
+
+    The frame carries ``request_id``, ``decision``, and the IM-side
+    ``message_id``. The kernel session is recovered by scanning
+    ``run_context_store`` for a matching ``message_id`` — the same store
+    already maintained by the kernel event observer.
+    """
+
+    def _handler(body: Mapping[str, object]) -> None:
+        request_id = str(body.get("request_id") or "").strip()
+        decision = str(body.get("decision") or "").strip()
+        message_id = str(body.get("message_id") or "").strip()
+        if not request_id or not decision:
+            return
+        kernel_session_id = ""
+        if message_id:
+            for ctx in run_context_store.values():
+                if ctx.get("message_id") == message_id:
+                    kernel_session_id = ctx.get("kernel_session_id") or ""
+                    break
+        # Fallback: if message_id lookup misses (e.g. ack not yet stored),
+        # use the only active kernel session when there's exactly one.
+        if not kernel_session_id:
+            distinct = {
+                ctx.get("kernel_session_id")
+                for ctx in run_context_store.values()
+                if ctx.get("kernel_session_id")
+            }
+            if len(distinct) == 1:
+                kernel_session_id = next(iter(distinct))  # type: ignore[assignment]
+        if not kernel_session_id:
+            return
+        try:
+            kernel_client.submit_permission_decision(
+                session_id=kernel_session_id,
+                request_id=request_id,
+                decision=decision,
+            )
+        except Exception:  # noqa: BLE001 — IM-bound side-effect; failure can't cascade
+            return
+
+    return _handler
 
 
 def _build_relay_lifecycle_callback(
@@ -1549,6 +1605,9 @@ def _build_relay_lifecycle_callback(
                     "conversation_id": conversation_id,
                     "message_id": "",  # filled by turn_start ack
                     "agent_id": agent_id_meta,
+                    # Stored so permission_response_handler can route the user's
+                    # decision back to the correct kernel session via reverse lookup.
+                    "kernel_session_id": update.kernel_session_id or "",
                 }
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,

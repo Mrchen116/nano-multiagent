@@ -28,24 +28,32 @@
 - Evidence: 77 个 broker / auto_mode / safety / integration 测试全绿
 - Commit: 待 R3 完成后一起 commit
 
-## R3 — Bug E: SSE 长 idle 连接断开(待真诊断,留作下一个 unit)
+## R3 — Bug E: `permission_request` SSE event 漏 `run_id` 字段
 
-- Context: R1+R2 修后,kernel SSE 直连 curl 看到 `event: permission_request` emit,但 PA inbound_pipeline 永远收不到 — PA `RAW event=` 卡在 tool_start 后,再没下个 chunk。
-- 关键诊断证据:
-  - PA `_kernel_event_observer` 内 `elif event_name == "permission_request":` 加文件 trace,测试中**从未写入** → 证实 PA observer **从未收到** permission_request event
-  - 同时直接 `curl -sN ... -H 'Last-Event-ID: 0'` 同一 session 的 SSE 端点 **能看到** permission_request event(history replay 有它)
-  - 结合两点 → PA 的 live SSE 连接在 permission_request emit 之前被某种方式中断
-- **初次错误诊断**(已撤销): 怀疑 kernel uvicorn 默认 `--timeout-keep-alive=5` 关闭 idle SSE 连接,尝试两种修法:
-  1. server-side `_session_stream_generator` 用 `asyncio.wait_for(__anext__(), timeout=2.0)` 包 hub iterator + yield `": keepalive\n\n"` heartbeat —— **失败**:`wait_for` 超时 cancel `__anext__()` 会传播 `CancelledError` 到 hub generator 内部 `await asyncio.sleep`,**破坏 generator 内部 state**,使后续 SSE yield 0 个 events(实测 SSE 完全无输出)。已 revert。
-  2. PA spawn kernel 加 `python -m uvicorn ... --timeout-keep-alive 3600` —— **理论无效**:`--timeout-keep-alive` 控制的是 **HTTP/1.1 keep-alive 等待复用连接的空闲超时**(完成请求后等待新请求复用 socket),不是 active response body streaming 的超时。SSE 处于 active body 写入状态,该参数对它不起作用。已 revert。
-- 真因待查的可能方向(留给下一个 unit 接手):
-  - **A**:PA `_send_turn_start_and_store` await ack 时 IM 返回 ack 字段格式跟 observer 期望不一致 → message_id 写不进 run_context_store → 后续 permission_request observer 进 `if message_id:` False 跳过转发(但 IM DB 看到 agent message row 存在并有 tool_calls_json,看似 ack 路径走通,需要进一步核实 message_id 是否真传回 ctx)
-  - **B**:hook 在 emit permission_request 后 `await future`,期间 hook 跑在 kernel 进程的 asyncio event loop。`event_hub.publish` 是 sync 函数(`with self._lock`),发布完后 hub 内部 buffer 应已 put 入 subscriber.queue。但若 hub `_session_stream_generator` 的 `await asyncio.sleep(tick_seconds)` 在某点 raise / cancel,subscriber 在 `__finally__` 里被从 `_subscribers` 移除 → publish 后续 events 不再 fanout 给它
-  - **C**:PA `_kernel_client.stream_session` 的 httpx `aiter_bytes` 在 kernel 某次写 SSE chunk 时,响应 chunk 解析失败 / TCP 层错误 / anyio 调度问题,导致 generator 提前退出但无异常抛出(silent return)
-  - **D**:SSE chunked transfer encoding 在 hook park 时 chunk 间隙长 → 中间路径(uvicorn worker thread / asyncio executor / anyio transport)某层 idle timeout
-- 推荐下一步: 写一个独立 SSE listener(纯 python httpx,与 PA 同时连同 session,记录 chunk 时间戳),与 PA SSE 并行观测 — 看 publish permission_request 后是 PA 连接先断还是两者都收到。如果两者都收到,问题在 PA observer / message_id 路径(假设 A);如果只 PA 断,问题在 PA httpx client 配置(假设 C/D)。
-- **Status: BLOCKED for M7**,需要新 unit 处理。M6 范围内的 broker wiring 真接通(单测全绿 + Coding CLI 直连 e2e Allow 后 tool 真执行),Bug E 是 M2 IM 集成层的链路 bug。
-- Commit: N/A(无修复 commit,仅文档记录)
+- Context: R1+R2 修后,kernel SSE 直连 curl 看到 `event: permission_request` emit,但 PA `_kernel_event_observer` 的 `permission_request` 分支 trace 始终不触发。
+- **失败的初步诊断**(已撤销):误判为 SSE 长 idle 连接断开,尝试两种修法均无效:
+  1. server-side `_session_stream_generator` 用 `asyncio.wait_for(__anext__(), timeout=2.0)` 包 hub iterator + heartbeat —— `wait_for` 超时 cancel 会破坏 hub generator 内部 state。Revert。
+  2. PA spawn kernel 加 `--timeout-keep-alive 3600` —— 该参数控制 keep-alive 复用,不是 active body streaming 的超时,理论上无作用。Revert。
+- **真因**(R7 定位):`runtime.py:791-800` publish `permission_request` payload **漏 `run_id`** 字段。对照 `realtime_stream.py:42` 的 `tool_start` payload 明确带 `"run_id": run_id`,而 `permission_request` 和 `permission_resolved` 都没有。PA `inbound_pipeline.py:564` 过滤 `if event.get("run_id") != run_id: continue` —— `None != run_id` 永真,**event 在到达 observer 前就被丢弃**。直连 curl 没过滤所以看得见;history replay 也看得见;**只有 PA pipeline 看不见**。完美解释所有现象。
+- **修法**:`runtime.py:791-800` 和 `:808-811` 两处 publish 加 `"run_id": run_id_for_broker`(闭包早就捕获了)。
+- Evidence: e2e 测试 — IM 发 `rm -rf /tmp/test-fff` → 8 秒内 IM 收到 permission_request 卡片,payload 完整(request_id / tool_name / question / options)。
+- Commit: 本轮 commit
+
+## R4 — Bug F: PA 的 IM `permission_response` 回路完全没 wire up
+
+- Context: R3 修后 IM 看到卡片,但点 Allow 后 tool_call 永远停在 `running` —— decision 没到 kernel。
+- 真因:`im_connection.py:373` 收 `permission_response` 后调 `self._permission_response_handler(body)`,但 `_build_im_connection_manager`(`main.py`)**从未传入** handler 参数 → handler 始终 None → IM 帧静默丢弃。这跟 Bug E 是同一波 M1/M2 的疏漏 —— "出去" 的半截通了,"回来" 的半截从未写。
+- 修法(4 处补 wire up,非重构):
+  1. `RelayLifecycleUpdate` 加 `kernel_session_id: str | None` 字段,`inbound_pipeline.py:203` 的 "accepted" emit 顺手填上 `binding.kernel_session_id`
+  2. `main.py` relay_lifecycle "accepted" 分支把 `kernel_session_id` 一并写进 `run_context_store[run_id]`
+  3. `KernelAPIClient.submit_permission_decision(session_id, request_id, decision)` 新方法,POST `/v1/sessions/<sid>/permissions/<rid>`
+  4. `main.py` 新增 `_build_permission_response_handler(kernel_client, run_context_store)` 工厂:从 IM 帧 `message_id` 在 store 里反查 `kernel_session_id`(找不到时若只有一个活跃 session 就 fallback),然后 POST 决策。`_build_im_connection_manager` 加 `permission_response_handler` 参数透传给 `IMConnectionManager`
+- Evidence:
+  - 5 个新单测 `test_permission_response_handler.py` 全绿(routing / fallback / 模糊拒绝 / 错误吞没 / 异常不传播)
+  - 361 个相关回归测试全绿
+  - e2e Allow:IM 点 Allow → tool 真跑 → `/tmp/test-fff` 真消失,tool_call.status = completed
+  - e2e Deny:IM 点 Deny → tool blocked by hook,tool_call.status = failed,目标目录存活
+- Commit: 本轮 commit
 
 ## 整个 feat-333 IM 端到端最终缺陷链(从 M1 写错到 M7 修齐)
 
@@ -55,12 +63,14 @@
 | B | `HookContext.call_model` 签名 | 接 classifier 需要的 max_tokens/stop_sequences/temperature | 签名只接 4 参,classifier 调用抛 TypeError | M6 C4 (commit 20fe0d45) |
 | C | `safety.py` `bash_blocked_fragments = ("rm -rf /",)` | 阻止 `rm -rf /` 根目录 | substring 误伤 `rm -rf /<任意路径>` 全 hard-deny | M7 R1 (commit 502c9174) |
 | D | `PermissionBroker(config=AutoModeConfig())` 全局单例 | broker 应按 workspace 应用 deny_limit | broker._config.deny_limit 固化 3,workspace override 无效 | M7 R2 (待 commit) |
-| E | PA SSE 长 idle 连接断开(真因不明) | PA 持续收 kernel SSE events | hook park 后 PA 不再收 chunk;permission_request 到不了 PA observer | **BLOCKED** — 见 R3 失败修法 + 待查方向 |
+| E | `runtime.py:791-800` permission_request publish | event 带 run_id 让 PA 过滤识别 | **漏 `run_id`** 字段,PA `inbound_pipeline:564` 过滤直接丢弃 | M7 R3 (本 commit) |
+| F | `_build_im_connection_manager` 未传 `permission_response_handler` | IM Allow/Deny 回到 PA → kernel 解 future | handler 始终 None → IM 帧静默丢弃,tool 永远 park | M7 R4 (本 commit) |
 
-reviewer round 1-4 全靠单测 + 文件检查通过,**从未在 IM 端到端 真实触发 ask 流程**,这 5 个 bug 一个都没暴露。修齐后 reviewer round 5 应在 IM 浏览器实测 user-explicit rm-rf 看到卡片 + 点 Allow / Deny 真生效。
+reviewer round 1-4 全靠单测 + 文件检查通过,**从未在 IM 端到端 真实触发 ask 流程**,这 6 个 bug 一个都没暴露。修齐后 reviewer round 5 应在 IM 浏览器实测 user-explicit rm-rf 看到卡片 + 点 Allow / Deny 真生效(orchestrator 自测 e2e Allow + Deny 双路径已通,见 R3/R4 Evidence)。
 
 ## Commits 累积 (M7)
 
-- C1 = broker deny_limit override + 单测(本 commit)
-- C2 = ~~SSE generator keepalive heartbeat~~ 撤销,Bug E 待真诊断
+- C1 = broker deny_limit override + 单测 (commit 825270cf)
+- C2 = ~~SSE generator keepalive heartbeat~~ 撤销
+- C3 = Bug E + Bug F 真因修复 (runtime.py run_id 字段 + PA permission_response_handler 全链路 wire up) + 5 个 handler 单测(本 commit)
 - (R1 已在 M6 C5/502c9174 commit) safety policy 对齐 CC

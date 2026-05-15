@@ -789,6 +789,7 @@ class AgentRuntime:
                     # Emit 'permission_request' SSE event — PA inbound_pipeline
                     # already listens for this event name (see personal_assistant/main.py).
                     publisher_for_broker("permission_request", {
+                        "run_id": run_id_for_broker,
                         "request_id": req.id,
                         "tool_name": req.tool_name,
                         "tool_input": dict(req.tool_input) if hasattr(req, "tool_input") else {},
@@ -806,6 +807,7 @@ class AgentRuntime:
                         try:
                             result = future.result()
                             publisher_for_broker("permission_resolved", {
+                                "run_id": run_id_for_broker,
                                 "request_id": req.id,
                                 "decision": getattr(result, "decision", "deny"),
                             })

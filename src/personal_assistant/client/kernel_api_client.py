@@ -239,6 +239,29 @@ class KernelApiClient:
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request("POST", f"/v1/sessions/{session}/interrupt", json={}, require_auth=True)
 
+    def submit_permission_decision(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        decision: str,
+    ) -> dict[str, Any]:
+        """Resolve a parked auto_mode_gate permission request.
+
+        Unblocks the awaiting hook coroutine by posting the user's decision
+        to the kernel; required to complete the IM → PA → kernel decision
+        round-trip so the tool call can resume after Allow / Deny.
+        """
+        session = _require_non_empty_string(session_id, field_name="session_id")
+        request = _require_non_empty_string(request_id, field_name="request_id")
+        decision_clean = _require_non_empty_string(decision, field_name="decision")
+        return self._request(
+            "POST",
+            f"/v1/sessions/{session}/permissions/{request}",
+            json={"decision": decision_clean},
+            require_auth=True,
+        )
+
     def _request(
         self,
         method: str,

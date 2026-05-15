@@ -58,6 +58,9 @@ class RelayLifecycleUpdate:
     error: str | None = None
     detail: Mapping[str, Any] | None = None
     usage: Mapping[str, int] | None = None
+    # Populated on "accepted" so downstream wiring (e.g. permission_response handler)
+    # can reverse-lookup kernel session from run_id without re-resolving binding.
+    kernel_session_id: str | None = None
 
 
 RelayLifecycleCallback = Callable[[InboundMessage, RelayLifecycleUpdate], Awaitable[None]]
@@ -205,6 +208,7 @@ class InboundPipeline:
                         agent_id=agent_id,
                         session_key=session_key,
                         run_id=run_id or None,
+                        kernel_session_id=binding.kernel_session_id,
                     ),
                 )
                 async def _on_other_event(event: Mapping[str, object]) -> None:
