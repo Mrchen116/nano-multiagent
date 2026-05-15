@@ -1,6 +1,6 @@
 ---
 name: change-impl-worker
-description: 用于作为 subagent 在独立 worktree 内执行单个 milestone 的编码实现。触发条件:被 `change-orchestrator` 派发一个含 unit_id / milestone_id / worktree_dir / branch 的派发包。不要用于:调度多个 milestone(那是 orchestrator)、写架构方案(那是 change-design-author)、产品验收(那是 change-reviewer)、简单文档/配置修改。
+description: 用于作为 subagent 执行单个 milestone 的编码实现,或处理 reviewer 反馈循环里的小修快车道(此时可能复用 worktree、不绑定 milestone)。触发条件:被 `change-orchestrator` 派发一个含 unit_id / milestone_id / worktree_dir / branch 的派发包,或派发包指示"按 Reviewer 反馈循环的小修快车道处理"。不要用于:调度多个 milestone(那是 orchestrator)、写架构方案(那是 change-design-author)、产品验收(那是 change-reviewer)、不属于本 unit / 非 reviewer 反馈循环里的简单文档/配置修改。
 ---
 
 # Implementation Worker: 后端 TDD,前端状态驱动 + 浏览器验收
@@ -22,6 +22,37 @@ description: 用于作为 subagent 在独立 worktree 内执行单个 milestone 
 9. **worktree 路径锚定主仓**。`$(git rev-parse --show-toplevel)/.worktrees/<milestone_id>`,绝对路径,禁止嵌套 worktree。
 10. **前端 UI 变更必须真实浏览器验收**。任何影响用户界面的改动,不能只依赖 jsdom、组件测试、类型检查或截图脑补。必须用真实浏览器打开相关页面/状态,完成关键交互,检查 console error / network failure,并在 progress.md 记录证据。核心业务路径和历史 bug 必须留下可重复的 regression 保护;若项目已有浏览器 E2E 体系,核心路径优先沉淀为 E2E 用例;没有则补适合现有测试体系的交互/回归测试,不为单个 milestone 强行引入新基础设施。视觉/样式细节以截图证据和状态覆盖为主,不强行用 E2E 测样式。
 11. **假设主机被并发使用,自取并回收运行时资源**。worker 必须假设运行所在主机上有并发的其他 worker / 进程。任何要占用端口、绑定本地 socket、写入 worktree 之外共享路径、启动长驻服务的动作,**之前**要探活并改用可用资源,**之后**要在退出/HANDOFF 时清理自己起的副作用并登记。若发现资源被占且无法切换到可用值,这是阻塞,按 §8.2 走 HANDOFF 回报 orchestrator,不准在 progress.md 里改写 evidence 标准来回避。
+
+---
+
+## §FL Fast-lane: Reviewer 反馈循环里的小修
+
+**启用**:派发 prompt 含"按 Reviewer 反馈循环的小修快车道处理"(或等价自然语言)。否则走完整 §1-§8。
+
+**目标**:避免冷启动税(§2.3 / §2.4 / §3)+ 流程税(§0.4 / §5)。
+
+**硬边界**(破任一即失效,退主流程):
+
+1. reviewer 仍独立验收(你不自我验收)
+2. fix 历史可从 commit message / progress 看到
+3. 集成路径不变(§6 rebase + unit 锁 + merge **不放松**)
+4. 单 commit 可 `git revert` 到上一稳定态
+
+**放松**(carve-out):
+
+| 原段落 | Fast-lane 下 |
+|---|---|
+| §0.4 三提交 / §5 C1 红测试 | 允许单 commit;红测试豁免(typo/样式/文案写不出有意义红测试) |
+| §2.3 6 项阅读 | 只读 fix 涉及文件 + 首文档验收项;其余 5 项跳过 |
+| §2.4 跑基线 | 自决;通常不重跑(主 milestone 已跑过) |
+| §3 写 tasks.md | 不复制模板;fix 列表写 commit message 或 progress 续段 |
+| worktree 选址 | 自决:复用前 milestone worktree 或新开 `.worktrees/<unit_id>-fix-r<N>` |
+
+**保留**:§0.1-§0.3、§0.7-§0.11、§6 集成。
+
+每次走 Fast-lane 在 commit message 或 progress 写一句"Fast-lane 省略 §X,理由 <Y>",留决策痕迹。
+
+**升级回主流程**:fix 实际不止 trivial / 硬边界即将破 / 单 commit 装不下(>100 行 / 跨 3+ 文件)——立刻停手,在 progress 记触发原因,按 §3 复制 tasks.md,从下一 roadpoint 起按 §5 走。已写 commit 不 revert。
 
 ---
 

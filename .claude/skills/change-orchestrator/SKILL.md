@@ -379,6 +379,41 @@ milestone_dir = M<next>-fix-<short-desc>      # 例: M4-fix-picker-keyboard
 
 worker 完成后,回到 §5 派下一轮 reviewer。
 
+### §6.FL Fast-lane: Reviewer 反馈循环里的小修(§6.2 轻量路径)
+
+**启用**:reviewer 报告里**明确表达**这一批 issue 走小修快车道(措辞自由,例:"建议 Fast-lane 处理"、"走小修快车道")。措辞有歧义按 §3.1.1 澄清,3 轮不收敛走 §6.2 默认。reviewer 没明示就走 §6.2。
+
+**目标**:避免调度税(§6.2 建 fix milestone / 改 design.md Milestone 表)。
+
+**硬边界**(破任一即失效退 §6.2):
+1. reviewer 仍独立验收
+2. PR body 仍列 fix 历史(§7.2 不放松)
+3. reviewer 复用实例零写入(reviewer §0.1)
+4. 集成路径不变
+5. 失败可回退
+
+**放松**:
+
+| 原段落 | Fast-lane 下 |
+|---|---|
+| §6.2 建 fix milestone | 不建子目录、不动 design.md Milestone 表;fix 痕迹归并位置自决(acceptance 同级 / PR body / commit 链);issue 指纹表仍要维护(用于 §0.7) |
+| §0.5 一 milestone 一 worker | fix worker 绑 reviewer round + fix 列表,不绑 milestone |
+| §0.10 / §3.3 退出标准核对 | 核对依据变 = 每条 issue 在 commit 里有对应改动证据 + commit message 对应到 issue;严格度不降 |
+| §7.2 PR body | 仍列本 unit 所有 fix 历史(数量、轮次、milestone 还是 Fast-lane);格式自决 |
+| worktree 选址 | fix worker 自决,orchestrator 不强加 |
+
+**保留**:§0.3、§0.7 5/7 轮闸、§0.9、§0.11、§0.13 后台派发。
+
+**派发口径**:
+- 派 fix worker prompt 加"按 Reviewer 反馈循环的小修快车道处理这批 fix"
+- 派 reviewer 复验 prompt 加"复用上轮上下文做轻量复验"
+
+**Fast-lane 失效**(reviewer 复验 `verdict=fail`):
+1. `review_round` 正常递增(本轮有效)
+2. 切回 §6.2:建 fix milestone + 派完整 fix worker(**不复用** Fast-lane worker 实例)
+3. acceptance.md round N 末尾追加 orchestrator 注记说明触发原因
+4. issue 指纹表追加,§0.7 cap 照常生效
+
 ### §6.3 `revise-design` 三道闸
 
 reviewer 给 `revise-design` 时,先验三道闸:
