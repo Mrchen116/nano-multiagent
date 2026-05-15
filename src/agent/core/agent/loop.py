@@ -114,8 +114,17 @@ class AgentLoop:
         current_working_directory_override: Path | None = None,
         session_file_state: SessionFileState | None = None,
         max_turns: int | None = None,
+        tool_execution_allowlist: tuple[str, ...] | None = None,
     ) -> AsyncIterator[Message]:
         """Stream one user turn until completion or terminal stop reason.
+
+        Args:
+            tool_execution_allowlist: When set (fork side-chain only), the
+                StreamingToolExecutor denies tool calls whose name is not in
+                this allowlist. ``None`` means no restriction — the main agent
+                path always passes ``None``. The full tool list is still sent
+                to the LLM (prefix-cache inheritance); only execution is
+                narrowed (feat-349 decision 6).
 
         Yields:
             Message objects as they are produced:
@@ -177,6 +186,7 @@ class AgentLoop:
                                 "stop_reason": stop_reason,
                                 "usage": turn_usage,
                                 "completed": False,
+                                "tool_iterations": api_round_count - 1,
                             },
                         )
                         return
@@ -204,6 +214,7 @@ class AgentLoop:
                                     "stop_reason": stop_reason,
                                     "usage": turn_usage,
                                     "completed": False,
+                                    "tool_iterations": api_round_count - 1,
                                 },
                             )
                             return
@@ -212,6 +223,7 @@ class AgentLoop:
                         self._tool_registry,
                         hook_context=active_hook_ctx,
                         session_file_state=session_file_state,
+                        tool_execution_allowlist=tool_execution_allowlist,
                     ) if self._tool_registry is not None else None
                     iteration_tool_calls: list[ToolCall] = []
                     finish_reason: str | None = None
@@ -321,6 +333,11 @@ class AgentLoop:
                                 "stop_reason": stop_reason,
                                 "usage": turn_usage,
                                 "completed": True,
+                                # Expose api_round_count as tool_iterations for
+                                # the nudge counter signal flow (feat-349 decision 2).
+                                # runtime._run_locked reads this to update the
+                                # per-session tool_iterations milestone.
+                                "tool_iterations": api_round_count,
                             },
                         )
                         break
@@ -335,6 +352,7 @@ class AgentLoop:
                                 "stop_reason": stop_reason,
                                 "usage": turn_usage,
                                 "completed": True,
+                                "tool_iterations": api_round_count,
                             },
                         )
                         break

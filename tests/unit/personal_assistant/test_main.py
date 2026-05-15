@@ -802,9 +802,12 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     assert pipeline.dropped == ["agent-live"]
     assert sleeps == [0.1, 0.1]
     assert workspace_root.is_dir()
-    assert (workspace_root / "MEMORY.md").is_file() is True
+    # feat-349-M3: MEMORY.md/USER.md seed under .nanoassistant/memory/;
+    # HEARTBEAT.md stays at workspace root.
+    memory_seed = workspace_root / ".nanoassistant" / "memory" / "MEMORY.md"
+    assert memory_seed.is_file() is True
     assert (workspace_root / "HEARTBEAT.md").is_file() is True
-    assert (workspace_root / "MEMORY.md").read_text(encoding="utf-8").strip()
+    assert memory_seed.read_text(encoding="utf-8").strip()
     assert (workspace_root / "HEARTBEAT.md").read_text(encoding="utf-8").strip()
 
 
@@ -877,7 +880,9 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
 def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir(parents=True)
-    memory_path = workspace_root / "MEMORY.md"
+    # feat-349-M3: MEMORY.md seeds under .nanoassistant/memory/; HEARTBEAT.md at root.
+    memory_path = workspace_root / ".nanoassistant" / "memory" / "MEMORY.md"
+    memory_path.parent.mkdir(parents=True, exist_ok=True)
     heartbeat_path = workspace_root / "HEARTBEAT.md"
     memory_path.write_text("existing memory\n", encoding="utf-8")
     heartbeat_path.write_text("interval: 1h\n\n- Existing heartbeat\n", encoding="utf-8")

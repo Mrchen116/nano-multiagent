@@ -51,6 +51,23 @@ class SessionBindingStore:
         self._bindings[session_key] = binding
         return binding
 
+    def find_by_kernel_session_id(self, kernel_session_id: str) -> SessionBinding | None:
+        """Return the first binding whose kernel_session_id matches, or None.
+
+        Used by background event subscribers to reverse-resolve conversation routing
+        context (target_chat_id) from a kernel session without knowing the session key.
+
+        Args:
+            kernel_session_id: Kernel session identifier to search for.
+
+        Returns:
+            First matching binding, or ``None`` when no binding is found.
+        """
+        for binding in self._bindings.values():
+            if binding.kernel_session_id == kernel_session_id:
+                return binding
+        return None
+
     def drop_agent(self, agent_id: str) -> None:
         """Remove all session bindings that belong to one routed agent id."""
 

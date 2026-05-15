@@ -1285,6 +1285,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             im_connection_manager_factory=lambda: im_connection_manager,
             run_context_store=_run_context_store,
         )
+        # feat-349-M3: wire background session event callback so self_evolution_review
+        # events published by background hooks reach IM as system/meta messages.
+        pipeline._session_event_callback = _build_session_event_callback(
+            im_connection_manager_factory=lambda: im_connection_manager,
+            session_store=pipeline._session_store,
+        )
     inbound_dispatcher = _InboundDispatcher(pipeline)
     closers: list[Callable[[], None]] = [kernel_client.close]
     if im_bootstrap_client is not None:
@@ -1836,6 +1842,71 @@ def _build_kernel_event_observer(
                 }))
 
     return observer
+
+
+def _build_session_event_callback(
+    *,
+    im_connection_manager_factory: Callable[[], "IMConnectionManager | None"],
+    session_store: "SessionBindingStore",
+) -> Callable[[str, Mapping[str, Any]], Awaitable[None]]:
+    """Build a session event callback that sends self_evolution_review as IM system messages.
+
+    When the background hook publishes ``self_evolution_review`` after a turn, this
+    callback is invoked with the kernel_session_id and the raw event payload.  It
+    resolves the conversation_id via the session binding store and sends a
+    ``node.system_message`` frame to IM so users see a non-first-person notification.
+
+    Args:
+        im_connection_manager_factory: Returns the live IM connection manager (may be None).
+        session_store: Gateway session binding store used to reverse-resolve conversation_id.
+
+    Returns:
+        Async callable ``(kernel_session_id, event) -> None``.
+    """
+
+    async def _callback(kernel_session_id: str, event: Mapping[str, Any]) -> None:
+        manager = im_connection_manager_factory()
+        if manager is None or not manager.connected:
+            return
+
+        event_name = event.get("event")
+        if event_name != "self_evolution_review":
+            return
+
+        # Resolve conversation_id from the session binding.
+        binding = session_store.find_by_kernel_session_id(kernel_session_id)
+        if binding is None:
+            return
+        conversation_id = binding.reply_context.target_chat_id
+        if not conversation_id:
+            return
+
+        # Format a human-readable system notification matching the CLI style.
+        data = event.get("data") or {}
+        if not isinstance(data, dict):
+            data = {}
+        reviewed_skills: bool = bool(data.get("reviewed_skills", False))
+        reviewed_memory: bool = bool(data.get("reviewed_memory", False))
+        if reviewed_skills and reviewed_memory:
+            subject = "skills + memory"
+        elif reviewed_skills:
+            subject = "skills"
+        elif reviewed_memory:
+            subject = "memory"
+        else:
+            subject = "self-evolution"
+        text = f"· background self-evolution review: {subject} updated"
+
+        try:
+            await manager.send_json("node.system_message", {
+                "conversation_id": conversation_id,
+                "text": text,
+            })
+        except Exception:  # noqa: BLE001
+            # Background notification delivery must never crash the gateway.
+            pass
+
+    return _callback
 
 
 def _build_heartbeat_product_reports(summary: HeartbeatTickSummary) -> list[dict[str, object]]:

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-DEFAULT_HOOK_MODULES = ["communication_context", "default_status", "usage_metrics", "chat_history", "realtime_stream"]
+# self_improvement added in feat-349-M3: background self-evolution hook.
+DEFAULT_HOOK_MODULES = ["communication_context", "default_status", "usage_metrics", "chat_history", "realtime_stream", "self_improvement"]
 
 
 def _build_communication_context_block(

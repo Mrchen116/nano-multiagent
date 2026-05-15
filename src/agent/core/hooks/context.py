@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Awaitable, Callable, Mapping
 
 from agent.core.observability.logger import log_debug, log_error, log_info, log_warn
 from agent.core.observability.tracing import current_trace_id
@@ -33,6 +33,16 @@ class HookModelResult:
 
 HookModelCaller = Callable[[HookModelCall], HookModelResult]
 HookSessionEventPublisher = Callable[[str, Mapping[str, Any]], None]
+
+# Callable signature for the fork_conversation capability injected into background hooks.
+# review_prompt: the prompt string sent as first user message to the fork agent.
+# tool_allowlist: execution-layer whitelist — only these tool names are allowed to run.
+# max_turns: max LLM iterations in the fork side-chain.
+# Returns a ForkResult (opaque to core; platform/hooks/builtins interpret it).
+ForkConversation = Callable[
+    ...,  # (review_prompt: str, *, tool_allowlist: tuple[str,...], max_turns: int) -> Awaitable
+    Awaitable[Any],
+]
 
 
 class HookLogger:
@@ -114,6 +124,10 @@ class HookContext:
     logger: HookLogger = field(default_factory=HookLogger)
     model_caller: HookModelCaller | None = None
     session_event_publisher: HookSessionEventPublisher | None = None
+    # fork_conversation is only injected for BACKGROUND hook dispatches.
+    # Observe/intercept hooks always see None here.
+    # Inside a fork side-chain this is also None to prevent recursive forking (R1).
+    fork_conversation: ForkConversation | None = None
 
     def __post_init__(self) -> None:
         if not self.session_id:

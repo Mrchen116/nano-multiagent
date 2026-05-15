@@ -11,16 +11,31 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import logging
+
 from agent.core.hooks.registry import HookRegistry
 from agent.core.skills.discovery import default_skill_search_roots
 from agent.core.skills.registry import SkillRegistry
 from agent.platform.config.resolver import ConfigResolver
 from agent.platform.hooks.loader import build_hook_registry
 from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.platform.tools.builtins.memory import MemoryTool
+from agent.platform.tools.builtins.skill_manage import SkillManageTool
 from agent.platform.tools.loader import build_tool_registry
 from agent.platform.tools.registry import ToolRegistry
 
 from agent.products.base import ProductProfile, ResolvedProductConfig
+
+_logger = logging.getLogger(__name__)
+
+# Default self_evolution config injected when no workspace config file exists.
+_DEFAULT_SELF_EVOLUTION_CONFIG: dict = {
+    "enabled": True,
+    "skill_creation": True,
+    "memory_curation": True,
+    "skill_nudge_interval": 10,
+    "memory_nudge_interval": 10,
+}
 
 
 def _product_root(profile: ProductProfile) -> Path:
@@ -112,6 +127,31 @@ def bootstrap_product(
         )
     )
 
+    # Register self-evolution tools when config_resolver provides resolved paths.
+    # These tools require constructor-time path arguments; they are NOT in the
+    # default builtin_tools() tuple (see platform/tools/builtins/__init__.py).
+    if config_resolver is not None:
+        skill_roots = config_resolver.user_skill_roots()
+        # Prefer workspace skill root (first in precedence); fall back to global.
+        skill_root = skill_roots[0] if skill_roots else config_resolver.global_config_root() / "skills"
+        memory_root = config_resolver.user_memory_root()
+
+        skill_manage_tool = SkillManageTool(skill_root=skill_root, registry=skill_registry)
+        tool_registry.register(skill_manage_tool, replace=True)
+
+        memory_tool = MemoryTool(memory_root=memory_root)
+        tool_registry.register(memory_tool, replace=True)
+
+    # Read workspace config file for self_evolution settings.
+    default_session_metadata: dict = {}
+    if config_resolver is not None:
+        workspace_config_root = config_resolver.workspace_config_root()
+        if workspace_config_root is not None:
+            self_evo_config = _load_self_evolution_config(workspace_config_root / "config.yaml")
+            default_session_metadata["self_evolution"] = self_evo_config
+        else:
+            default_session_metadata["self_evolution"] = dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+
     return ResolvedProductConfig(
         product_id=profile.product_id,
         resolved_system_prompt=resolved_system_prompt,
@@ -121,7 +161,40 @@ def bootstrap_product(
         config_resolver=config_resolver,
         skill_registry=skill_registry,
         default_tool_ids=list(profile.default_tool_ids) if profile.default_tool_ids is not None else None,
+        default_session_metadata=default_session_metadata,
     )
+
+
+def _load_self_evolution_config(config_path: Path) -> dict:
+    """Read self_evolution section from a workspace config YAML file.
+
+    Falls back to the platform default (all features enabled, interval=10) when
+    the file does not exist or is malformed.
+
+    Args:
+        config_path: Path to the workspace config YAML file.
+
+    Returns:
+        Dictionary with self_evolution settings (always a valid, complete dict).
+    """
+    if not config_path.is_file():
+        return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+    try:
+        import yaml  # noqa: PLC0415 — imported lazily to keep core dependencies minimal
+
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+        user_evo = raw.get("self_evolution", {})
+        if not isinstance(user_evo, dict):
+            return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+        # Merge user values over platform defaults so missing keys get defaults.
+        result = dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+        result.update(user_evo)
+        return result
+    except Exception:
+        _logger.warning("Failed to read workspace config %s; using defaults", config_path, exc_info=True)
+        return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
 
 
 def _filter_tool_registry(full: ToolRegistry, allowed_ids: list[str]) -> ToolRegistry:
@@ -172,6 +245,7 @@ def _filter_hook_registry(full: HookRegistry, allowed_modules: list[str]) -> Hoo
             registration.handler,
             priority=registration.priority,
             timeout_ms=registration.timeout_ms,
+            mode=registration.mode,
             source=registration.source,
             module_name=registration.module_name,
             file_path=registration.file_path,
