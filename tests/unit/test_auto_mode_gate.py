@@ -425,9 +425,30 @@ class TestGateHookLogic:
 
     @pytest.mark.asyncio
     async def test_bash_blocked_fragment_denies(self):
+        """Fork-bomb fragment is still hard-denied via ``bash_blocked_fragments``.
+
+        ``rm -rf /`` was moved out of hard-deny in M6 to route through the
+        classifier (CC Auto Mode parity — workspace destruction belongs in the
+        ask flow, not a silent kill). Fork-bomb syntax has no base command so
+        it remains in the fragment denylist as the canonical example.
+        """
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config)
-        result = await handler({"name": "bash", "args": {"command": "rm -rf /"}}, ctx)
+        result = await handler({"name": "bash", "args": {"command": ":(){:|:&};:"}}, ctx)
+        assert result is not None
+        assert result.get("block") is True
+
+    @pytest.mark.asyncio
+    async def test_bash_blocked_command_denies(self):
+        """``reboot`` is a base-command hard-deny (token match, not substring).
+
+        Verifies the M6 ``bash_blocked_commands`` path: token-level match on
+        the segment's base command, so ``reboot`` is denied but a script named
+        ``reboot-tool.sh`` would not be (covered by safety unit tests).
+        """
+        handler, config = self._get_handler()
+        ctx = self._make_ctx_with_config(config)
+        result = await handler({"name": "bash", "args": {"command": "reboot"}}, ctx)
         assert result is not None
         assert result.get("block") is True
 
