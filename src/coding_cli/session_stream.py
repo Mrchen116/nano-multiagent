@@ -103,7 +103,7 @@ class SessionStreamReader:
         run_id: str,
         *,
         timeout: float = 0.5,
-        terminal_timeout: float = 120.0,
+        idle_timeout: float = 1800.0,
         on_other: Callable[[dict[str, Any]], None] | None = None,
         on_event: Callable[[dict[str, Any]], None] | None = None,
     ) -> list[dict[str, Any]]:
@@ -114,11 +114,21 @@ class SessionStreamReader:
         they arrive (before being appended to the returned list), enabling
         real-time rendering during the drain loop.
 
-        Raises TimeoutError if terminal status not seen within terminal_timeout.
+        The idle_timeout is reset each time an event belonging to this run_id
+        arrives.  Only continuous silence (no matching events for idle_timeout
+        seconds) triggers TimeoutError — there is no absolute wall-clock cap.
+        This correctly handles long-running coding agent tasks that may take
+        many minutes while still detecting truly stalled runs.
+
+        Raises TimeoutError if no run_id-matching event arrives within idle_timeout.
         """
-        events: list[dict[str, Any]] = []
         import time
-        deadline = time.monotonic() + terminal_timeout
+
+        events: list[dict[str, Any]] = []
+        # Deadline is extended every time we receive a matching event.
+        # Only reset by events belonging to this run — other-run events
+        # do not indicate this run is still active.
+        deadline = time.monotonic() + idle_timeout
         while time.monotonic() < deadline:
             evt = self.poll(timeout=timeout)
             if evt is None:
@@ -127,9 +137,13 @@ class SessionStreamReader:
                 if on_other is not None:
                     on_other(evt)
                 continue
+            # This run is alive: push the idle deadline forward.
+            deadline = time.monotonic() + idle_timeout
             if on_event is not None:
                 on_event(evt)
             events.append(evt)
             if evt.get("event") == "run_status" and evt.get("status") in _TERMINAL_STATUSES:
                 return events
-        raise TimeoutError(f"run {run_id} did not reach terminal status in {terminal_timeout}s")
+        raise TimeoutError(
+            f"run {run_id} did not reach terminal status — no events received for {idle_timeout}s"
+        )

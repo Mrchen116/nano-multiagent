@@ -62,7 +62,7 @@ def test_drain_run_collects_events_for_run_id() -> None:
     reader = SessionStreamReader(client)
     reader.start(session_id="s1")
     try:
-        events = reader.drain_run(run_id="r1", timeout=0.1, terminal_timeout=2.0)
+        events = reader.drain_run(run_id="r1", timeout=0.1, idle_timeout=2.0)
         assert len(events) == 3
         assert events[0]["event"] == "tool_start"
         assert events[1]["event"] == "assistant_message"
@@ -82,7 +82,7 @@ def test_drain_run_ignores_other_run_ids() -> None:
     reader = SessionStreamReader(client)
     reader.start(session_id="s1")
     try:
-        events = reader.drain_run(run_id="r1", timeout=0.1, terminal_timeout=2.0)
+        events = reader.drain_run(run_id="r1", timeout=0.1, idle_timeout=2.0)
         assert len(events) == 2
         assert all(e["run_id"] == "r1" for e in events)
     finally:
@@ -94,7 +94,7 @@ def test_drain_run_raises_timeout_on_missing_terminal() -> None:
     reader = SessionStreamReader(client)
     reader.start(session_id="s1")
     try:
-        reader.drain_run(run_id="r1", timeout=0.05, terminal_timeout=0.1)
+        reader.drain_run(run_id="r1", timeout=0.05, idle_timeout=0.1)
         raise AssertionError("expected TimeoutError")
     except TimeoutError:
         pass
@@ -112,7 +112,7 @@ def test_drain_run_tracks_last_event_id() -> None:
     reader = SessionStreamReader(client)
     reader.start(session_id="s1")
     try:
-        reader.drain_run(run_id="r1", timeout=0.1, terminal_timeout=2.0)
+        reader.drain_run(run_id="r1", timeout=0.1, idle_timeout=2.0)
         # After drain, a restart should pass last_event_id.
         client.call_log.clear()
         reader.stop()
@@ -131,7 +131,7 @@ def test_queue_overflow_drops_oldest_events() -> None:
     reader = SessionStreamReader(client)
     reader.start(session_id="s1")
     try:
-        events = reader.drain_run(run_id="r1", timeout=0.05, terminal_timeout=5.0)
+        events = reader.drain_run(run_id="r1", timeout=0.05, idle_timeout=5.0)
         # Should still see the terminal event even after overflow.
         assert events[-1]["event"] == "run_status"
         assert events[-1]["status"] == "completed"
