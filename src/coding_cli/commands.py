@@ -620,9 +620,9 @@ def _load_auto_mode_config_for_repl() -> object:
 
     Priority: workspace field overrides global field when both are present
     (spec A9: workspace config must override global for both products).
-    This mirrors the two-level loading logic in agent.platform.config.auto_mode
-    without importing from that package (cross-package import is forbidden by
-    the module boundary contract).
+    This mirrors the workspace>global priority semantics of the agent 内核侧
+    auto_mode config loader — reimplemented here to avoid cross-package import
+    (cross-package import is forbidden by the module boundary contract).
     """
     import yaml
     from pathlib import Path
@@ -653,8 +653,8 @@ def _load_auto_mode_config_for_repl() -> object:
     # the REPL — consistent with how the agent core resolves workspace config.
     workspace_config_file = Path.cwd() / ".nanocode" / "config.yaml"
 
-    # Read global first; workspace overrides field-by-field (same semantics as
-    # agent.platform.config.auto_mode.load_auto_mode_config).
+    # Read global first; workspace overrides field-by-field (same workspace>global
+    # priority semantics as the agent 内核侧 auto_mode config loader).
     merged: dict = dict(_read_section(global_config_file))
     merged.update(_read_section(workspace_config_file))
 
