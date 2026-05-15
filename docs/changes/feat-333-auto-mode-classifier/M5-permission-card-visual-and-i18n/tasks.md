@@ -55,6 +55,6 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | global.css 新增 chat-permission-* 深色卡样式 | TODO |
-| R2 | permission-card.tsx className 迁移 + i18n 接入 | TODO |
-| R3 | 构建验收 + 浏览器验收 + 文档 | TODO |
+| R1 | global.css 新增 chat-permission-* 深色卡样式 | DONE |
+| R2 | permission-card.tsx className 迁移 + i18n 接入 | DONE |
+| R3 | 构建验收 + 浏览器验收 + 文档 | DONE |
