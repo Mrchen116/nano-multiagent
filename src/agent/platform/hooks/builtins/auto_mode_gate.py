@@ -625,6 +625,52 @@ async def _handle_ask(
     return {"block": True, "reason": response.reason or "user denied"}
 
 
+# refactor-353: Write/edit tools whose tool_input carries a file path that
+# must be checked against the workspace boundary. The value is the key inside
+# tool_input where the path lives.
+_WRITE_TOOLS_WITH_PATH_INPUT: Mapping[str, str] = {
+    "write": "file_path",
+    "edit": "file_path",
+    "multi_edit": "file_path",
+}
+
+
+def _detect_outside_workspace_path(
+    *,
+    tool_name: str,
+    tool_input: Mapping[str, Any],
+    ctx: Any,  # noqa: ANN401 — HookContext, kept loose to avoid platform-layer dep cycle
+) -> str | None:
+    """Return the resolved path string when the call writes outside the workspace.
+
+    Used to route out-of-workspace writes through the classifier / ask flow
+    instead of letting them slip past safe-tool / session-allowlist short
+    circuits or hard-erroring inside the tool body.  Returns ``None`` for
+    in-workspace paths or tools that don't carry a writable path.
+    """
+
+    path_key = _WRITE_TOOLS_WITH_PATH_INPUT.get(tool_name)
+    if path_key is None:
+        return None
+    raw_path = tool_input.get(path_key)
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    repo_root: Path | None = getattr(ctx, "repo_root", None)
+    if repo_root is None:
+        return None
+    try:
+        safety = ToolSafety(
+            repo_root=repo_root,
+            config=load_tool_safety_config(repo_root=repo_root),
+        )
+        resolved = safety.normalize_path(raw_path, cwd=repo_root)
+    except Exception:  # noqa: BLE001 — best-effort detection; on failure fall back
+        return None
+    if safety.is_path_in_workspace(resolved):
+        return None
+    return str(resolved)
+
+
 def setup(hooks: Any) -> None:  # noqa: ANN001
     """Register auto_mode_gate as tool_call intercept hook.
 
@@ -670,14 +716,23 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                 return {"allow_unlisted": True}
             return None  # pass through
 
+        # 0.5. Detect out-of-workspace write/edit (refactor-353). Routed BEFORE
+        # session_allowlist / safe_tools so out-of-workspace paths can never
+        # silently slip through; classifier sees the path and decides.
+        outside_workspace_path: str | None = _detect_outside_workspace_path(
+            tool_name=tool_name, tool_input=tool_input, ctx=ctx
+        )
+
         # 1. Session allowlist fast path
         if broker and broker.is_session_allowed(session_id, tool_name):
             if tool_name == "bash":
                 return {"allow_unlisted": True}
             return None
 
-        # 2. Safe-tool allowlist bypass
-        if is_safe_tool(tool_name, config):
+        # 2. Safe-tool allowlist bypass — but NOT when path is outside
+        # workspace; for write/edit with external path we always want the
+        # classifier (or ask) to see it.
+        if outside_workspace_path is None and is_safe_tool(tool_name, config):
             return None  # pass through without classifier
 
         # 3. Bash: check_command_policy first
@@ -719,6 +774,16 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         # 5. Classifier
         system_prompt = build_yolo_system_prompt(config)
         user_prompt = _build_transcript_user_message(ctx, tool_name, tool_input)
+        if outside_workspace_path is not None:
+            # Tell the classifier the path is outside the workspace so it can
+            # weigh that signal. Without this hint the classifier could only
+            # see the tool name + arguments without knowing they fall outside
+            # the agent's sandbox.
+            user_prompt = (
+                f"NOTE: target path '{outside_workspace_path}' is OUTSIDE the agent's workspace. "
+                f"Writing here affects user files outside the project — be conservative.\n"
+                + user_prompt
+            )
 
         try:
             decision = await _classify_action(ctx, system_prompt, user_prompt)
