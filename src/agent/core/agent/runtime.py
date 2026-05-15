@@ -846,6 +846,9 @@ class AgentRuntime:
                     LLMMessage(role="system", content=call.system_prompt),
                     LLMMessage(role="user", content=call.user_prompt),
                 ),
+                temperature=call.temperature,
+                max_tokens=call.max_tokens,
+                stop_sequences=call.stop_sequences,
                 metadata=dict(call.metadata),
             )
         )

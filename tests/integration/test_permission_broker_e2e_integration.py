@@ -94,39 +94,36 @@ def test_submit_permission_decision_resolves_pending_request(tmp_path: Path) -> 
 
     This validates I3: the inbound HTTP endpoint calls broker.resolve, which
     sets the Future and unblocks the parked hook coroutine.
+
+    broker.resolve uses future.get_loop().call_soon_threadsafe, so the future's
+    loop must actually run for the resolution callback to fire. We register on
+    a loop and run it via run_until_complete inside an async coroutine that
+    issues the HTTP POST in a worker thread.
     """
     app = create_app()
     broker: PermissionBroker = app.state.permission_broker
-
-    # Register a real future in the broker (simulates auto_mode_gate registering before park)
-    loop = asyncio.new_event_loop()
-    future = loop.run_until_complete(_register_and_return(broker, "req-abc-123"))
-
     client = TestClient(app, raise_server_exceptions=True)
 
-    # We need a real session to satisfy session_id path param (route does no session validation)
-    # The route only checks broker.is_pending(request_id), so session_id is informational.
-    resp = client.post(
-        "/v1/sessions/fake-session/permissions/req-abc-123",
-        json={"decision": "allow_once"},
-        headers={"Authorization": "Bearer test"},
-    )
-    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-    body = resp.json()
+    async def _exercise() -> tuple[int, dict, object]:
+        # Register on the running loop so call_soon_threadsafe schedules on a live loop.
+        future = broker.register_request("req-abc-123", run_id="run-1")
+        # Run TestClient.post off-thread to avoid blocking the loop that owns the future.
+        resp = await asyncio.to_thread(
+            client.post,
+            "/v1/sessions/fake-session/permissions/req-abc-123",
+            json={"decision": "allow_once"},
+            headers={"Authorization": "Bearer test"},
+        )
+        # Wait briefly for the cross-thread set_result to fire on this loop.
+        result = await asyncio.wait_for(future, timeout=2.0)
+        return resp.status_code, resp.json(), result
+
+    status, body, result = asyncio.run(_exercise())
+    assert status == 200, f"Expected 200, got {status}: {body}"
     assert body["resolved"] is True
     assert body["request_id"] == "req-abc-123"
     assert body["decision"] == "allow_once"
-
-    # Verify future was resolved
-    assert future.done(), "Future must be resolved after POST"
-    result = future.result()
     assert result.decision == "allow_once"
-
-    loop.close()
-
-
-async def _register_and_return(broker: PermissionBroker, request_id: str):
-    return broker.register_request(request_id, run_id="run-1")
 
 
 def test_submit_permission_decision_returns_404_for_unknown_request(tmp_path: Path) -> None:

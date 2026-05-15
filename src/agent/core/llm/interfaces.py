@@ -38,6 +38,7 @@ class LLMGenerateRequest:
     messages: tuple[LLMMessage, ...]
     temperature: float | None = None
     max_tokens: int | None = None
+    stop_sequences: tuple[str, ...] = ()
     tools: tuple[ToolSpec, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 

@@ -36,6 +36,7 @@ def test_llm_generate_request_contract() -> None:
         "messages",
         "temperature",
         "max_tokens",
+        "stop_sequences",
         "tools",
         "metadata",
     ]

@@ -36,12 +36,22 @@
 - Commits: C1=911d1c0e, C2=81346c6b
 - Next: R3 e2e 验证 + 截图
 
-## R3 — E2E 验证 + 截图
+## R3 — Orchestrator 接管 e2e + 找到真因 + 补修
 
-- Context: 集成测试绿后需要真实 IM 端到端验证。启动全链路服务，触发 rm -rf /tmp/test-fff，验证权限卡片出现 → Allow/Deny 两条路径均正确。
-- Decision: 启动 IM(8011, fixed JWT secret) + PA(~/.nano-assistant/config.yaml) + Coding CLI (managed, port 8000)，用 nano/nano1234 登录，触发 ask 路径。
-- Rationale: 退出标准要求截图证据。
-- Evidence: (待 e2e 验证补充)
-- Rollback: 81346c6b (C2)
-- Commits: C3=<pending>
-- Next: DONE
+- Context: worker 完成 R1+R2 后在 R3 e2e 阶段卡住（错误诊断 ANTHROPIC_API_KEY 方向）超过 1 小时无进展，orchestrator 停掉 worker 接管。R2 注入的 broker 在单测层 6 个绿但真实 e2e 仍 fail-closed。orchestrator 直接调 agent kernel HTTP API 跑 bash → 触发 hook → 抓 SSE 与 kernel.log，加 trace 行单步定位到两处真因。
+- Decision:
+  1. **Bug A — `loop.py:274-281` 拷贝 HookContext 漏传 `permission_requester`**：worker R2 把 permission_requester 接到 `_build_hook_context` 的 `active_hook_ctx`，但 `loop.py` 给每个 tool call 又造一个 `tool_hook_ctx`（line 274），copy 字段时漏了它，导致 hook 实际收到的 ctx.permission_requester=None → `_handle_ask` 永远 fail-closed deny。修法：补一行 `permission_requester=active_hook_ctx.permission_requester`。
+  2. **Bug B — `HookContext.call_model` 签名不接受 `max_tokens / stop_sequences / temperature`**，但 `_classify_action`（M1 写）调用时传了这三个 → classifier 每次抛 TypeError → fail-closed ask（被 Bug A 又转 deny）。修法：扩 `HookModelCall` 加这三个字段（core），`HookContext.call_model` 接收并透传，`runtime._call_hook_model` 把它们透传给 `LLMGenerateRequest`（core 已有 temperature/max_tokens，加 `stop_sequences`），`openai_compat/mapper.py` 把 `stop_sequences` 映射成 OpenAI `stop` 字段。这是 M1 写 classifier 时跟 hook context API 没对齐留下的债，单测层永远抓不到（mock 不走真实签名校验）。
+  3. **集成测试 fix**：worker R1 加的 `test_submit_permission_decision_resolves_pending_request` 用 `asyncio.new_event_loop()` 创建 future 但永不 run loop，`broker.resolve` 经 `call_soon_threadsafe` 调度的回调永远不执行 → future pending → 测试失败。改写成 `asyncio.run(_exercise())` 让 future 在 running loop 上注册，`TestClient.post` 放 `to_thread` 跨线程触发 resolve。
+- Rationale: 跨层 wiring bug 必须直接跑 LLM + 真 SSE 才能暴露，单测假设 mock 都过；Bug A 在 worker R1 集成测试里没踩到是因为测试直接调 `broker.register_request` 不经过 loop.py 的 ctx 拷贝路径。
+- Evidence:
+  - Tests: 6 个集成测试全绿（含 `test_submit_permission_decision_resolves_pending_request` 修复后）；`pytest -m "not e2e"` 与 baseline (203) 失败集合一致（详见 R4 验证）
+  - Entry: orchestrator 直接 `POST /v1/sessions` + `POST /v1/sessions/{sid}/messages` + 监听 `GET /v1/sessions/{sid}/stream` SSE
+  - E2E timeline:
+    - Test 1 — `ls /tmp/test-fff`：safety policy allowed → tool_end status=completed exit=0 stdout="testfile.txt" 直接执行（无卡片，正确）
+    - Test 2 — `curl -sS https://example.com`（deny_limit=1 临时配置 + Bug A 修后、B 未修）：emit `event: permission_request` payload 完整 4 options；`POST /permissions/{request_id}` decision=allow_once 返回 `{"resolved":true}`；session messages 显示 tool 真执行返回 example.com 完整 HTML（`<!doctype html>...Example Domain...`）；agent 后续回复"命令执行成功"
+    - Test 3 — `curl -sS https://example.com`（Bug B 修后默认 deny_limit=3）：LLM proxy log 出现 2 次 classifier 调用（stage 1 + stage 2，system prompt 起始 = `You are an automated security classifier...`），classifier 决定 deny → tool blocked（第 1 次 deny 不弹卡，符合 design 的 deny-limit 累计意图）；要看到卡片需要 3 次连续 deny 累计或 classifier 给 ask
+  - Visual/Interaction: 真实 IM 浏览器截图四态留给 reviewer round 5 在浏览器层补全
+- Rollback: 81346c6b (worker C2 broker 装配 / 进一步 rollback 整个 unit 撤 PR)
+- Commits: C4 = orchestrator 接管补修
+- Next: R4 全量回归 + cleanup commit

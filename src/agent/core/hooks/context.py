@@ -30,6 +30,9 @@ class HookModelCall:
     system_prompt: str
     user_prompt: str
     model: str | None = None
+    max_tokens: int | None = None
+    temperature: float | None = None
+    stop_sequences: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -161,6 +164,9 @@ class HookContext:
         system_prompt: str,
         user_prompt: str,
         model: str | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        stop_sequences: tuple[str, ...] | list[str] = (),
         metadata: Mapping[str, Any] | None = None,
     ) -> HookModelResult:
         """Call the runtime model with enforced session-id consistency.
@@ -178,6 +184,9 @@ class HookContext:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stop_sequences=tuple(stop_sequences),
                 metadata=dict(metadata or {}),
             )
         )

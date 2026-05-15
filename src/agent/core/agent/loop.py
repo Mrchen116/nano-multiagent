@@ -278,6 +278,7 @@ class AgentLoop:
                                     metadata={**dict(active_hook_ctx.metadata), "tool_call_id": tc.call_id},
                                     model_caller=active_hook_ctx.model_caller,
                                     session_event_publisher=active_hook_ctx.session_event_publisher,
+                                    permission_requester=active_hook_ctx.permission_requester,
                                 )
                                 if executor is not None:
                                     executor.add_tool(tc, hook_context=tool_hook_ctx)
