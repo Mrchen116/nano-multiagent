@@ -267,40 +267,52 @@ class ToolSafety:
         self.config = config
 
     def resolve_path(self, path: str, *, cwd: Path, tool_name: str) -> Path:
-        """Resolve a path and require it to stay inside the repository root."""
+        """Resolve a path for write/edit tools — normalization only.
 
-        return self._resolve_path(
-            path,
-            cwd=cwd,
-            tool_name=tool_name,
-            allowed_roots=(self.repo_root,),
-        )
+        After refactor-353 the workspace boundary check moved into the
+        ``auto_mode_gate`` hook so that ``dangerously-skip-permissions`` can
+        actually bypass it and so that ``auto`` mode can route out-of-workspace
+        writes through the classifier / ask flow instead of hard-erroring.
 
-    def resolve_read_path(self, path: str, *, cwd: Path, tool_name: str) -> Path:
-        """Resolve a read path under repository root or trusted shared skills root."""
+        Callers (write/edit/multi_edit tools) MUST be wired through the
+        hook dispatch path; the contract test
+        ``tests/contract/test_file_tools_go_through_hooks.py`` enforces this.
+        """
 
-        return self._resolve_path(
-            path,
-            cwd=cwd,
-            tool_name=tool_name,
-            allowed_roots=self._read_allowed_roots(),
-        )
+        return self.normalize_path(path, cwd=cwd)
 
-    def _resolve_path(
-        self,
-        path: str,
-        *,
-        cwd: Path,
-        tool_name: str,
-        allowed_roots: tuple[Path, ...],
-    ) -> Path:
-        # SECURITY BOUNDARY: all file tool paths are normalized and checked by
-        # `relative_to` before use, so symlink/`..` traversal cannot escape roots.
+    def normalize_path(self, path: str, *, cwd: Path) -> Path:
+        """Pure path normalization: expanduser + cwd + resolve (symlinks/dots).
+
+        Always-on input hygiene — independent of any permission mode. Used by
+        both write/edit tools (post-hook authorization) and read tools (which
+        additionally enforce the read-allowlist boundary).
+        """
+
         candidate = Path(path).expanduser()
         if not candidate.is_absolute():
             candidate = cwd / candidate
-        resolved = candidate.resolve()
-        for root in allowed_roots:
+        return candidate.resolve()
+
+    def is_path_in_workspace(self, resolved: Path) -> bool:
+        """Whether the resolved path lies under the repository root."""
+
+        try:
+            resolved.relative_to(self.repo_root)
+            return True
+        except ValueError:
+            return False
+
+    def resolve_read_path(self, path: str, *, cwd: Path, tool_name: str) -> Path:
+        """Resolve a read path under repository root or trusted shared skills root.
+
+        Reads don't go through the auto_mode_gate ask flow (default-allow), so
+        the boundary check stays here as a guardrail. See decision 2 in
+        refactor-353/design.md.
+        """
+
+        resolved = self.normalize_path(path, cwd=cwd)
+        for root in self._read_allowed_roots():
             try:
                 resolved.relative_to(root)
                 return resolved
