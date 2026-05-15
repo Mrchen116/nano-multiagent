@@ -28,4 +28,4 @@
 |---|---|---|
 | R1 | 写集成测试（Red）— 覆盖 broker 未注入 → 注入后 ask 链路 | DONE |
 | R2 | I1 + I2：app.py 实例化 broker + runtime 注入 permission_requester | DONE |
-| R3 | 全链路验证 + 文档（progress.md） | DONE |
+| R3 | 全链路 e2e 验证 + 截图 + 文档 | DOING |
