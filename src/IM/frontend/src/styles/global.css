@@ -2443,6 +2443,154 @@ body {
   font-weight: 800;
 }
 
+/* ===================================================================
+ * Permission card (feat-333 auto_mode_gate ask flow)
+ *
+ * Visual scheme: 方案 B — 深色卡，对齐 chat-tool-calls-list 体系。
+ * 权限请求与工具调用同属"agent 技术动作"，共用深色视觉基调。
+ * Reference: docs/changes/feat-333-auto-mode-classifier/permission-card-mockup.html .pcB* 系列
+ *
+ * Class prefix: chat-permission-* (follows chat-tool-calls-* / chat-bubble-* convention).
+ * All styles live here; no inline Tailwind utilities in the component.
+ * =================================================================== */
+
+/* Container — 与 chat-tool-calls-list 同色系深色面 */
+.chat-permission-card {
+  background: oklch(0.14 0.015 240);
+  border: 1px solid oklch(0.24 0.02 240);
+  border-radius: 0.6rem;
+  box-shadow: 0 4px 16px oklch(0.05 0.01 240 / 0.5);
+  padding: 11px 13px;
+  margin-top: 0.5rem;
+  max-width: 470px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* Resolved state: slightly faded */
+.chat-permission-card--resolved {
+  opacity: 0.9;
+}
+
+/* Header row: lock icon + tool name (mono, accent) + hint (warning uppercase) */
+.chat-permission-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.chat-permission-tool-name {
+  font-family: var(--im-font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  /* accent cyan — same as chat-tool-call-name */
+  color: oklch(0.85 0.09 180);
+}
+
+/* "需要确认" uppercase hint in warning color */
+.chat-permission-hint {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: oklch(0.7 0.13 80);
+  margin-left: auto;
+}
+
+/* Question text */
+.chat-permission-question {
+  font-size: 0.84rem;
+  line-height: 1.5;
+  margin: 0;
+  color: oklch(0.86 0.02 240);
+}
+
+/* Tool-input projection — dark mono block, mirrors chat-tool-call-pre */
+.chat-permission-cmd {
+  font-family: var(--im-font-mono);
+  font-size: 0.76rem;
+  background: oklch(0.09 0.01 240);
+  border: 1px solid oklch(0.22 0.015 240);
+  border-radius: 0.4rem;
+  padding: 5px 8px;
+  color: oklch(0.8 0.04 180);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+/* Options button group */
+.chat-permission-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 1px;
+}
+
+/* Base button */
+.chat-permission-btn {
+  border: 1px solid oklch(0.3 0.02 240);
+  border-radius: 0.45rem;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: oklch(0.2 0.015 240);
+  color: oklch(0.82 0.01 240);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.chat-permission-btn:hover:not(:disabled) {
+  background: oklch(0.25 0.018 240);
+}
+
+.chat-permission-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Primary (allow_once) — accent solid fill */
+.chat-permission-btn--primary {
+  background: var(--im-accent);
+  color: var(--im-accent-fg);
+  border-color: var(--im-accent);
+}
+
+/* Danger (deny) — danger-tinted border + bg */
+.chat-permission-btn--danger {
+  color: oklch(0.72 0.14 25);
+  border-color: oklch(0.4 0.1 25);
+  background: oklch(0.18 0.02 25);
+}
+
+/* Resolved label row */
+.chat-permission-resolved-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  /* success green for allow */
+  color: oklch(0.75 0.13 150);
+  font-family: var(--im-font-mono);
+}
+
+/* Deny variant of resolved label */
+.chat-permission-resolved-label--deny {
+  color: oklch(0.72 0.14 25);
+}
+
+/* Error strip */
+.chat-permission-error {
+  background: oklch(0.18 0.03 25);
+  border: 1px solid oklch(0.4 0.1 25);
+  color: oklch(0.78 0.13 25);
+  font-size: 0.74rem;
+  border-radius: 0.4rem;
+  padding: 5px 8px;
+}
+
 /* Mobile sidebar full-width */
 @media (max-width: 767px) {
   .chat-sidebar {
