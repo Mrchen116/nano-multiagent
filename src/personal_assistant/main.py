@@ -484,6 +484,7 @@ class _IMBootstrapClient:
         timeout_seconds: float = 5.0,
         monotonic: Monotonic = time.monotonic,
         sleep: Sleep = time.sleep,
+        token_getter: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._base_urls = _im_bootstrap_base_urls(base_url)
         self._base_headers = _im_http_headers(token)
@@ -497,6 +498,19 @@ class _IMBootstrapClient:
         self._feedback_sink = feedback_sink
         self._monotonic = monotonic
         self._sleep = sleep
+        self._token_getter = token_getter
+
+    def _refresh_token(self) -> None:
+        # bootstrap 跑在 asyncio.to_thread 工作线程里(main.py:894-896),无运行中 event
+        # loop,因此可以直接 asyncio.run 同步等异步 token_getter。fix bugfix-346 漏接
+        # bootstrap 路径导致 username/password 配置首次启动 401 的问题。
+        if self._token_getter is None:
+            return
+        token = asyncio.run(self._token_getter())
+        if token:
+            self._base_headers = _im_http_headers(token)
+            for client in self._clients.values():
+                client.headers.update(self._base_headers)
 
     def ensure_node_binding(self, *, node_id: str) -> str | None:
         """Open the bind URL when the upstream node still has no owner.
@@ -511,6 +525,7 @@ class _IMBootstrapClient:
             RuntimeError: When IM bootstrap APIs do not expose the registered node.
         """
 
+        self._refresh_token()
         owner_id, resolved_base_url = self._wait_for_owner(node_id=node_id)
         if owner_id:
             return None
@@ -1272,6 +1287,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
             token=config.im_service.token,
+            token_getter=_token_getter,
         )
         post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(node_id=config.node.node_id)
     _run_context_store: dict[str, dict[str, str]] = {}
