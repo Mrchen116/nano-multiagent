@@ -107,3 +107,23 @@
 - `pytest -m "not e2e"` (baseline @ ba56e6fa): 203 failed / 1418 passed
   - Current: 203 failed / 1418 passed — exact match ✓
   - No new failures introduced ✓
+
+---
+
+### R5 — 回归修复: commands.py 注释中 agent. 字面量触发 contract 测试误报
+
+- Context: M4 合入 unit/feat-333-auto-mode-classifier 后，orchestrator 验收发现 `tests/contract/test_cli_http_only_contract.py::test_cli_keeps_http_only_boundary` 新增失败。根因：R3 在 `_load_auto_mode_config_for_repl()` docstring（L623）和注释（L657）中写了 `agent.platform.config.auto_mode` 字面量，contract 测试用朴素子串检查 `assert "agent." not in commands_source`，注释中的 `agent.` 触发断言误报。无跨包 import，纯措辞问题。
+- Decision: 将两处含点分模块路径的注释改写为不含 `agent.` 子串的表述："agent 内核侧 auto_mode config loader" + "workspace>global priority semantics"，去掉模块路径字面量。不改功能代码，不改其他文件。
+- Rationale: contract 测试检查的是字面量存在性，不区分 import 语句和注释。改注释措辞是最小侵入修复，保留了原注释的语义（解释为何本地复刻而非跨包 import）。
+- Evidence:
+  - Tests: `pytest tests/contract/test_cli_http_only_contract.py::test_cli_keeps_http_only_boundary -q` → 1 passed ✓
+  - Contract suite（从 worktree）: 2 failed（pre-existing: test_top_level_packages_keep_zero_import_boundaries + test_cli_exposes_minimal_http_commands），6 passed；目标测试已绿 ✓
+  - `pytest -m "not e2e" --continue-on-collection-errors -q`（从 worktree）: **204 failed / 1420 passed**（unit branch HEAD 主仓库基线：206 failed / 1418 passed）；无新增失败，fix 净减少 2 个失败 ✓
+  - Entry: N/A（纯注释改动，无功能变更）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A（无行为变更）
+  - Visual/Interaction: N/A
+- Rollback: 8dcda3f6（unit branch HEAD，M4 合入前）
+- Commits: C1=cde9b5ed, C2=6f1617a9, C3=TBD
+- Next: 集成到 unit/feat-333-auto-mode-classifier
