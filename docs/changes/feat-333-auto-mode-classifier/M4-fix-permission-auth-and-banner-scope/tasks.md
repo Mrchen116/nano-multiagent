@@ -41,6 +41,7 @@
 | R2 | Issue 4: permission-card 使用 authFetch | DONE |
 | R3 | Issue 5: _load_auto_mode_config_for_repl 读 workspace | DONE |
 | R4 | polish: 按钮间距 + 构建 + 浏览器验收 | DONE |
+| R5 | 回归修复: commands.py 注释中 agent. 字面量触发 contract 测试误报 | DOING |
 
 ## 浏览器验收证据
 
