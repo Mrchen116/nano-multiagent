@@ -682,3 +682,145 @@ async def test_background_hook_receives_fork_conversation_in_context():
     assert observe_ctx_values[0] is None, (
         "Observe hook context must NOT have fork_conversation (only background gets it)"
     )
+
+
+# ---------------------------------------------------------------------------
+# M5: bind_tool_registry must propagate to _context_fork (regression)
+# ---------------------------------------------------------------------------
+
+
+def test_bind_tool_registry_propagates_to_context_fork(tmp_path):
+    """bind_tool_registry must also update _context_fork._loop._tool_registry.
+
+    In app.py, AgentRuntime is constructed before the tool_registry is built,
+    so tool_registry=None at construction time. bind_tool_registry is called
+    later to attach the registry. If it only updates self._loop and not
+    self._context_fork._loop, the fork side-chain executes with tool_registry=None
+    and exits with stop_reason='tool_registry_unavailable' after round 1.
+    """
+    from agent.core.agent.runtime import AgentRuntime
+    from agent.core.session.jsonl_store import JsonlSessionStore
+    from agent.core.session.manager import SessionManager
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    sm = SessionManager(store=store)
+
+    class _FakeLLMClient:
+        async def generate(self, request):
+            # Minimal: yields nothing — only construction matters
+            return
+            yield  # noqa: unreachable
+
+    # Construct with tool_registry=None (mirrors app.py construction order)
+    runtime = AgentRuntime(
+        session_manager=sm,
+        llm_client=_FakeLLMClient(),
+        repo_root=tmp_path,
+    )
+    assert runtime._context_fork._loop._tool_registry is None
+
+    # Build a minimal tool registry stub
+    class _StubRegistry:
+        def list_specs(self):
+            return ()
+
+    stub = _StubRegistry()
+    runtime.bind_tool_registry(stub)
+
+    # After binding, _context_fork._loop must also have the registry
+    assert runtime._context_fork._loop._tool_registry is stub, (
+        "bind_tool_registry must propagate to _context_fork._loop._tool_registry; "
+        "otherwise fork side-chains run with tool_registry=None and exit after round 1 "
+        "with stop_reason='tool_registry_unavailable'"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
+    """Fork side-chain must execute tools when bind_tool_registry was called post-construction.
+
+    Reproduces the production bug: app.py constructs AgentRuntime without tool_registry,
+    then calls bind_tool_registry. The fork must execute tool calls, not exit early
+    with stop_reason='tool_registry_unavailable'.
+    """
+    from collections.abc import AsyncIterator
+    from agent.core.agent.context_fork import AgentContextFork
+    from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage, LLMToolCall
+    from agent.core.agent.state import AgentState
+    from agent.core.tools.session_file_state import SessionFileState
+
+    executed_tools: list[str] = []
+
+    # Round 1: LLM returns a tool_use. Round 2: LLM returns final text.
+    class _TwoRoundLLMClient:
+        def __init__(self):
+            self._round = 0
+
+        def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+            self._round += 1
+            round_no = self._round
+
+            async def _stream():
+                if round_no == 1:
+                    yield LLMMessage(
+                        role="assistant",
+                        content="",
+                        tool_calls=(LLMToolCall(call_id="c1", name="skill_manage", arguments={}),),
+                        finish_reason=None,
+                    )
+                    yield LLMMessage(role="assistant", content="", finish_reason="tool_calls")
+                else:
+                    yield LLMMessage(role="assistant", content="review done", finish_reason=None)
+                    yield LLMMessage(role="assistant", content="", finish_reason="stop")
+
+            return _stream()
+
+    class _StubRegistry:
+        def list_specs(self):
+            from agent.core.types import ToolSpec
+            return (
+                ToolSpec(
+                    name="skill_manage",
+                    description="manage skills",
+                    input_schema={"type": "object", "properties": {}, "additionalProperties": True},
+                ),
+            )
+
+        async def execute(self, name, args, *, hook_context=None, session_file_state=None):
+            executed_tools.append(name)
+            return {"result": "ok"}
+
+    # Construct fork WITHOUT tool_registry (mirrors app.py construction order)
+    fork = AgentContextFork(
+        llm_client=_TwoRoundLLMClient(),
+        model="test-model",
+        tool_registry=None,
+        current_working_directory=tmp_path,
+    )
+    assert fork._loop._tool_registry is None
+
+    # Bind the registry (mirrors bind_tool_registry call in app.py)
+    fork.bind_tool_registry(_StubRegistry())
+
+    state = AgentState(
+        session_id="fork-session",
+        turn_id="fork-turn",
+        turn_count=0,
+        history_messages=(),
+        input_parts=[],
+        user_text="review skills",
+    )
+    result = await fork.execute(
+        state=state,
+        max_turns=4,
+        session_file_state=SessionFileState(),
+        tool_execution_allowlist=("skill_manage",),
+    )
+
+    assert "skill_manage" in executed_tools, (
+        f"skill_manage must have executed after bind_tool_registry; "
+        f"executed_tools={executed_tools}, stop_reason={result.stop_reason}"
+    )
+    assert result.stop_reason != "tool_registry_unavailable", (
+        "fork loop must not exit with tool_registry_unavailable after bind_tool_registry was called"
+    )

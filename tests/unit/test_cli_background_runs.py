@@ -124,3 +124,61 @@ def test_processor_renders_self_evolution_review_combined() -> None:
     })
     assert len(lines) == 1
     assert lines[0].startswith("·")
+
+
+# ---------------------------------------------------------------------------
+# M5: self_evolution_review event uses flat structure (regression)
+# The SSE event dict is flat — reviewed_skills/reviewed_memory are top-level keys,
+# NOT nested under a "data" key.  The formatter must read them from event directly.
+# ---------------------------------------------------------------------------
+
+
+def test_format_self_evolution_review_flat_event_reviewed_skills() -> None:
+    """self_evolution_review with flat event structure must render 'skills updated'.
+
+    The actual SSE event emitted by self_improvement.py publish_session_event has
+    reviewed_skills at the TOP LEVEL of the event dict, not nested under 'data'.
+    The formatter must read from event directly, not from event.get('data', {}).
+    """
+    from coding_cli.events.background_runs import _format_self_evolution_review
+
+    # This is the actual flat structure that arrives from the SSE stream.
+    flat_event = {
+        "event": "self_evolution_review",
+        "session_id": "sess-123",
+        "reviewed_skills": True,
+        "reviewed_memory": False,
+        "tool_names_called": ["skill_manage"],
+        "completed": True,
+    }
+    lines = _format_self_evolution_review(flat_event)
+    assert len(lines) == 1
+    assert "skill" in lines[0].lower(), (
+        f"Expected 'skills updated' but got {lines[0]!r}; "
+        "formatter must read reviewed_skills from top-level event keys, not event['data']"
+    )
+    assert "self-evolution" not in lines[0].lower(), (
+        f"Should NOT fall back to 'self-evolution' when reviewed_skills=True; got {lines[0]!r}"
+    )
+
+
+def test_format_self_evolution_review_flat_event_reviewed_memory() -> None:
+    """self_evolution_review with flat event must render 'memory updated' for memory-only review."""
+    from coding_cli.events.background_runs import _format_self_evolution_review
+
+    flat_event = {
+        "event": "self_evolution_review",
+        "session_id": "sess-123",
+        "reviewed_skills": False,
+        "reviewed_memory": True,
+        "tool_names_called": ["memory"],
+        "completed": True,
+    }
+    lines = _format_self_evolution_review(flat_event)
+    assert len(lines) == 1
+    assert "memory" in lines[0].lower(), (
+        f"Expected 'memory updated' but got {lines[0]!r}"
+    )
+    assert "self-evolution" not in lines[0].lower(), (
+        f"Should NOT fall back to 'self-evolution' when reviewed_memory=True; got {lines[0]!r}"
+    )
