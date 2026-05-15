@@ -61,6 +61,17 @@ class AgentContextFork:
             current_working_directory=current_working_directory,
         )
 
+    def bind_tool_registry(self, tool_registry: ToolRegistryLike | None) -> None:
+        """Propagate a post-construction tool registry binding into the fork loop.
+
+        Called by AgentRuntime.bind_tool_registry so that the fork side-chain has
+        the same registry as the main loop.  Without this, forks constructed before
+        the registry is available (as in app.py) would run with tool_registry=None
+        and exit with stop_reason='tool_registry_unavailable' after the first LLM
+        round returns a tool_use call.
+        """
+        self._loop.bind_tool_registry(tool_registry)
+
     async def execute(
         self,
         *,

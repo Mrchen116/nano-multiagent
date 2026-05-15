@@ -531,9 +531,15 @@ class AgentRuntime:
         return self._llm_config
 
     def bind_tool_registry(self, tool_registry: ToolRegistryLike | None) -> None:
-        """Bind or unbind runtime tool registry."""
+        """Bind or unbind runtime tool registry.
 
+        Must propagate to _context_fork because in app.py the runtime is constructed
+        before the registry is available (tool_registry=None at __init__ time).
+        Without this, the fork side-chain runs with tool_registry=None and exits with
+        stop_reason='tool_registry_unavailable' after the LLM returns a tool_use call.
+        """
         self._loop.bind_tool_registry(tool_registry)
+        self._context_fork.bind_tool_registry(tool_registry)
 
     @property
     def hook_runner(self) -> HookRunner | None:
