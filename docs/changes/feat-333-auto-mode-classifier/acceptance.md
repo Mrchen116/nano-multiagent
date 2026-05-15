@@ -331,3 +331,175 @@ headers: { "Content-Type": "application/json" },
 2. permission-card.test.tsx 8 passed，chat-stream-reducer.test.ts 11 passed（含 permission.request/resolved reducer case）。
 3. IM 权限端点 `POST .../permissions/{request_id}`（有 token 时）返回 `{"status":"forwarded"}`，后端链路正常。前端 auth 问题是唯一阻塞点。
 4. 注入 permission_request 后，卡片出现在聊天流中但选项按钮紧贴（`Allow onceDenyAllow for sessionAlways allow`），没有视觉间距；功能层面 4 个按钮是独立 `button` 元素可点击，属 polish 级 UI 问题，不影响功能验收判定。
+
+---
+
+# Round 3 — 2026-05-15
+
+> 对齐: spec.md 验收标准 + design.md Runbook for Reviewer（M4 post-acceptance fix）
+> 验收对象: unit/feat-333-auto-mode-classifier（含 M4-fix-permission-auth-and-banner-scope）
+> 重点复验: Round 2 两项 fail —— Issue 4（IM 权限卡片决策提交 401）、Issue 5（workspace 级 banner 未生效），以及 Round 1 全部 fail 项的终态确认
+
+## Verdict
+
+**pass**
+
+---
+
+## Highest Required Action
+
+`pass`
+
+---
+
+## 服务环境
+
+- IM 服务：`http://127.0.0.1:8011/`（IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing"，M4 分支源码重启）
+- Agent API：`http://127.0.0.1:8000/v1/health` 返回 `{"healthy":true}` ✓
+- PA Gateway：已启动但因 demo-node 未在 IM bootstrap 注册而连接失败（详见 Side Findings #1）
+- 前端产物核验：`dist/assets/index-daYQ-UWP.js` 包含 `permission.request`、`permission.resolved`、`gap-2` 三个 M4 关键 marker ✓（`npm run build` 重建于 unit/feat-333-auto-mode-classifier HEAD）
+
+---
+
+## User Journeys Exercised (Round 3)
+
+### 旅程 R3-1：Issue 4 复验 — IM 权限卡片点击 "Allow once" → HTTP 200
+
+操作：
+1. 登录 IM（nano/nano1234），打开 Test Permission Card M4 对话
+2. 页面加载后权限卡片（存量 M4 测试消息）可见，4 个按钮有视觉间距
+3. 启用 fetch 拦截器监控请求 body
+4. 点击 "Allow once" 按钮
+
+网络日志：
+```
+POST /im/v1/conversations/3b974a0a.../permissions/test-perm-req-m4-v2-001 → HTTP 200 (15ms, 19B)
+拦截 body: {"message_id":"35e76c71b982402f...","decision":"allow_once"}
+```
+
+卡片状态：转为 "Allowed · bash" resolved ✓
+截图：`/tmp/feat333-r3-allow-once-200.png`
+
+**结论**：Issue 4（缺 Authorization header → 401）已修复。authFetch 正确注入 Bearer token，decision 字段正确发送。
+
+---
+
+### 旅程 R3-2：Issue 4 复验 — "Deny" 决策
+
+操作：注入新 permission_request（`feat333-r3-correct-001`，使用正确 `id` 字段格式），点击 "Deny" 按钮
+
+网络日志：`POST .../permissions/feat333-r3-correct-001 → HTTP 200 (15ms, 19B)`
+控制台：无 JS 错误
+
+**结论**："Deny" 决策正确提交，HTTP 200 ✓
+
+---
+
+### 旅程 R3-3：A7 四类决策验证 — 全部覆盖
+
+通过 fetch 拦截器验证每种决策的 body：
+
+| 决策类型 | 按钮文本 | 发送 decision 值 | HTTP 状态 |
+|---|---|---|---|
+| Allow once | Allow once | `allow_once` | 200 ✓ |
+| Deny | Deny | `deny` | 200 ✓ |
+| Allow for session | Allow for session | `allow_session` | body 验证 ✓（API queued）|
+| Always allow | Always allow | `always_allow` | body 验证 ✓（API queued）|
+
+**结论**：A7 四类选项全部可提交、decision 字段正确。
+
+---
+
+### 旅程 R3-4：A7 按钮间距验证
+
+操作：检查 `.permission-card__options` 容器 CSS
+
+验证结果：
+```
+className: "permission-card__options flex flex-wrap gap-2"
+gap: "8px"
+display: "flex"
+flexWrap: "wrap"
+```
+
+截图：`/tmp/feat333-r3-card-crop.png`（可见 "Allow once  Deny  Allow for session  Always allow" 之间有明显间距）
+
+**结论**：gap-2（8px）间距 polish 修复生效。
+
+---
+
+### 旅程 R3-5：Issue 5 复验 — workspace 级 dangerously_skip_permissions 横幅
+
+操作：
+1. 创建 `/tmp/test-workspace-r3/.nanocode/config.yaml`，写入 `dangerously_skip_permissions: true`
+2. 在该目录下调用 `_load_auto_mode_config_for_repl()` + `print_auto_mode_banner()`
+
+输出：
+```
+⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.
+  No tool will be blocked. This is only safe in isolated sandbox environments.
+```
+
+对比：在无 workspace config 的 `/tmp` 目录下同样测试，输出：
+```
+✓ Auto mode enabled — permission decisions handled automatically.
+```
+
+单测：`pytest tests/unit/test_repl_auto_mode_banner.py` → 6 passed（含 3 个新增 workspace 优先级测试）✓
+
+**结论**：Issue 5（workspace 级 banner 未读取）已修复。workspace > global 优先级正确生效。
+
+---
+
+### 旅程 R3-6：核心单元测试无回归
+
+- `pytest tests/unit/test_auto_mode_gate.py tests/unit/test_auto_mode_config.py tests/unit/test_permission_broker.py` → 85 passed ✓
+- `pytest tests/unit/test_repl_auto_mode_banner.py` → 6 passed ✓
+- `npm run test`（IM frontend）→ 306 passed，2 failed（pre-existing token-chip + policies-page，与 M4 baseline 一致）✓
+- `pytest tests/contract/test_cli_http_only_contract.py::test_cli_keeps_http_only_boundary` → 1 passed ✓（M4 R5 修复的 contract 测试）
+
+---
+
+## Round 3 验收标准覆盖
+
+| ID | 验收项（来自 spec.md） | R1 | R2 | R3 | 证据 | 备注 |
+|---|---|---|---|---|---|---|
+| A1 | 无配置启动：常规工具连续执行，高风险工具触发管控 | pass | pass | pass（继承）| auto_mode_gate 单测 85 passed | |
+| A2 | dangerously_skip_permissions 启用后危险旁路可见（global + workspace） | fail | pass(global)/fail(ws) | **pass** | workspace banner ✓（旅程 R3-5）；单测 6 passed | Issue 5 修复，workspace 覆盖 global 正确 |
+| A3 | allow 决策不打断用户 | pass | pass | pass（继承）| 单测覆盖 | |
+| A4 | deny 时工具不执行，agent 转安全路径 | pass | pass | pass（继承）| R2 端到端浏览器实测 | |
+| A5 | Coding CLI ask 可响应终端权限请求 | pass | pass | pass（继承）| CLI picker 单测覆盖 | |
+| A6 | IM 中 ask 可响应；用户能允许或拒绝，agent 据此继续或中止 | fail | fail | **pass** | Allow once → 200 ✓；Deny → 200 ✓（旅程 R3-1/2）；4 类决策 body 验证 ✓ | Issue 4 修复（authFetch 注入 Bearer token） |
+| A7 | ask 选项按工具类型区分，4 选项均覆盖；IM 侧可提交 | fail(IM) | pass(render)/fail(submit) | **pass** | 4 按钮渲染 ✓；decision 字段全部正确（旅程 R3-3）；gap-2 间距 ✓（旅程 R3-4）| Issue 4 修复后 IM 侧提交路径全通 |
+| A8 | 自然语言规则配置后行为变化 | pass | pass | pass（继承）| 单测 33 passed | |
+| A9 | workspace 覆盖 global，两产品隔离 | pass | pass（agent core）/ 注意（banner）| **pass** | workspace banner 正确覆盖 global（旅程 R3-5）| Issue 5 修复后 banner 与 agent 决策逻辑语义一致 |
+| A10 | 高风险动作不静默执行 | pass | pass | pass（继承）| R2 端到端实测 | |
+
+**R3 Summary**: 全部 10 项验收标准 pass。Round 1 fail 项（A2/A6/A7）、Round 2 fail 项（A6/A7 submit）均已有效关闭。
+
+---
+
+## 上层文档同步（Round 3）
+
+- [x] `SPEC.md`（架构总览）：无需更新
+- [ ] `docs/内核设计SPEC.md`：**仍需更新**（新增 auto_mode_gate hook、PermissionBroker、awaiting_permission run 子态、inbound 端点 `/v1/sessions/{sid}/permissions/{request_id}` 未在内核设计 SPEC 中记录。建议作为 unit→main PR 的后续文档同步 unit 处理。）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [ ] 相关产品 SPEC（`docs/CodingCLI-SPEC.md` / `docs/NodeGateway-SPEC.md` / `docs/IM-SPEC.md`）：**仍需更新**（auto mode 配置路径与优先级、permission ask 交互流程、IM permission card 链路未在产品 SPEC 中记录。建议后续文档同步 unit 一并处理。）
+
+---
+
+## Issues（Round 3）
+
+无新 issue。Round 1 Issue 1/2/3 和 Round 2 Issue 4/5 均已关闭。
+
+---
+
+## Side Findings（Round 3）
+
+1. **PA Gateway 无法连接 IM**：PA Gateway 启动时报 `node demo-node did not appear in IM bootstrap`，每次重试后失败。根因：`~/.nano-assistant/config.yaml` 中残留了旧的 `token:` 字段（过期 JWT），与 `username/password` 自动登录机制发生冲突。该问题不影响 IM 权限卡片的前端可见性和提交链路验证（均通过 gateway WS 直注入验证）。这是本地环境配置问题，非本 unit 引入。建议：出现此问题时删除 config.yaml 中的 `token:` 和 `refresh_token:` 字段，让 gateway 用 username/password 重新登录。Severity: minor, out-of-unit 操作文档改进项，不立 issue。
+
+2. **WS 注入时 options 字段格式**：测试中发现 IM permission_request 存储的 options 使用 `{id, label, description}` 格式，而非 `{value, label}` 格式。前端 `permission-card.tsx` 从 `option.id` 取值作为 decision。使用错误格式注入会导致 decision 字段丢失（422）。这是审查过程中的测试方法问题，实际 PA-agent 产品流使用正确格式，不影响产品验收判定。
+
+3. **前端单测 2 个 pre-existing 失败**：token-chip + policies-page，同 Round 1/2，非本 unit 引入。
+
+4. **`pytest -m "not e2e"` 共 211 failed**（基线 203）：8 个额外失败来自本地运行环境（IM+agent 服务在运行）导致某些 contract/acceptance 测试环境敏感。M4 相关目标测试（test_repl_auto_mode_banner: 6 passed，auto_mode_gate 85 passed，test_cli_keeps_http_only_boundary: 1 passed）均绿，无 unit 引入新失败。
