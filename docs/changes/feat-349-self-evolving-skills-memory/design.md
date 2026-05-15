@@ -8,6 +8,8 @@
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-15 (M4): round 1 验收后立 M4 fix milestone — 修 `_filter_hook_registry` 丢 `mode` 字段（blocking，自进化 hook 从不触发）；Issue #3（IM system 消息样式）核查为 reviewer 对 v1 死代码误判，活跃 v2 路径已合规；Issue #2（PA Gateway user_id 持久化）判定 out-of-unit，转 GitHub issue #10 — 详见 M4/progress.md
+
 ## 现状分析
 
 ### 涉及范围

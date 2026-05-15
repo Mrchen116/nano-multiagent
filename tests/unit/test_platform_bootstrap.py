@@ -2,8 +2,10 @@
 
 from pathlib import Path
 
+from agent.core.hooks.registry import HookRegistry
+from agent.core.hooks.types import HookEventMode
 from agent.core.session.jsonl_store import JsonlSessionStore
-from agent.platform.bootstrap import bootstrap_product
+from agent.platform.bootstrap import _filter_hook_registry, bootstrap_product
 from agent.products.base import ProductProfile, ResolvedProductConfig
 
 
@@ -60,6 +62,35 @@ def test_bootstrap_product_hook_registry_not_none(tmp_path: Path) -> None:
     )
     resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
     assert resolved.hook_registry is not None
+
+
+def test_filter_hook_registry_preserves_background_mode(tmp_path: Path) -> None:
+    """_filter_hook_registry must carry the ``mode`` field through filtering.
+
+    Regression for feat-349 round 1 Issue #1: dropping ``mode`` re-registered the
+    self_improvement BACKGROUND hook as OBSERVE, so ``fork_conversation`` was never
+    injected and the self-evolution flow never fired.
+    """
+
+    async def _bg_handler(ctx):  # pragma: no cover - never invoked in this test
+        return None
+
+    full = HookRegistry()
+    full.on(
+        "agent_end",
+        _bg_handler,
+        mode=HookEventMode.BACKGROUND,
+        module_name="self_improvement",
+        file_path=Path("self_improvement.py"),
+    )
+
+    filtered = _filter_hook_registry(full, ["self_improvement"])
+
+    background = filtered.background_handlers_for("agent_end")
+    assert len(background) == 1, "background-mode hook must survive filtering"
+    assert background[0].mode == HookEventMode.BACKGROUND
+    # And it must not leak into the blocking observe/intercept dispatch path.
+    assert filtered.handlers_for("agent_end") == ()
 
 
 def test_bootstrap_respects_default_tool_ids(tmp_path: Path) -> None:

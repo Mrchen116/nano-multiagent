@@ -245,6 +245,7 @@ def _filter_hook_registry(full: HookRegistry, allowed_modules: list[str]) -> Hoo
             registration.handler,
             priority=registration.priority,
             timeout_ms=registration.timeout_ms,
+            mode=registration.mode,
             source=registration.source,
             module_name=registration.module_name,
             file_path=registration.file_path,
