@@ -835,9 +835,11 @@ class MessageRepository:
             """,
             (conversation_id, resolved_sender_user_id),
         ).fetchone()
-        if participant_exists is None and str(sender_user["owner_id"]) != str(conversation_exists["owner_id"]):
-            raise ValueError("sender_user_id is outside conversation owner scope")
-
+        # System messages are server-originated and bypass the owner scope check;
+        # they can be injected into any conversation regardless of participant/owner alignment.
+        if sender_type != "system":
+            if participant_exists is None and str(sender_user["owner_id"]) != str(conversation_exists["owner_id"]):
+                raise ValueError("sender_user_id is outside conversation owner scope")
 
         if sender_type == "user" and participant_exists is None:
             raise ValueError("sender_user_id is not a participant of conversation")

@@ -10,6 +10,34 @@ from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 from agent.core.skills.formatter import format_available_skills_section
 from agent.core.skills.registry import SkillMetadata
 
+# ---------------------------------------------------------------------------
+# Self-evolution guidance constants (hermes-reference §6)
+# Injected into the stable tier of the system prompt when the corresponding
+# tool is present in the session toolset.
+# ---------------------------------------------------------------------------
+
+SKILLS_GUIDANCE: str = (
+    "After completing a complex task (5+ tool calls), fixing a tricky error, "
+    "or discovering a non-trivial workflow, save the approach as a skill with "
+    "skill_manage so you can reuse it next time. "
+    "When using a skill and finding it outdated, incomplete, or wrong, "
+    "patch it immediately with skill_manage(action='patch') — don't wait to be asked. "
+    "Skills that aren't maintained become liabilities."
+)
+
+MEMORY_GUIDANCE: str = (
+    "You have persistent memory across sessions. "
+    "Save durable facts using the memory tool: user preferences, environment details, "
+    "tool quirks, and stable conventions. "
+    "Memory is injected into every turn, so keep it compact and focused on facts that "
+    "will still matter later. "
+    "Prioritize what reduces future user steering — the most valuable memory is one "
+    "that prevents the user from having to correct or remind you again. "
+    "Do NOT save task progress, session outcomes, completed-work logs, or temporary TODO "
+    "state to memory. "
+    "Write memories as declarative facts, not instructions to yourself."
+)
+
 LOCAL_CODING_SYSTEM_PROMPT = """You are an expert coding assistant operating inside a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
 Available tools:
@@ -122,15 +150,25 @@ def build_system_prompt(
     available_tools: Sequence[ToolSpec] | None = None,
     current_datetime: datetime | str | None = None,
     current_working_directory: Path | None = None,
+    memory_block: str | None = None,
 ) -> str:
     """Render system prompt template with runtime placeholders.
 
+    When ``available_tools`` includes ``skill_manage``, ``SKILLS_GUIDANCE`` is
+    appended.  When ``memory`` is included, ``MEMORY_GUIDANCE`` is appended.
+    When ``memory_block`` is provided, the rendered MemoryStore block is
+    prepended before the background-task instructions.
+
     Args:
-        system_prompt: Template possibly containing `<RUNTIME_FILL:*` placeholders.
+        system_prompt: Template possibly containing ``<RUNTIME_FILL:*``
+            placeholders.
         available_skills: Skills displayed in skills section.
-        available_tools: Tool specs rendered into available tools section.
+        available_tools: Tool specs rendered into available tools section and
+            used to determine which guidance constants to inject.
         current_datetime: Optional timestamp override.
         current_working_directory: Optional cwd override.
+        memory_block: Pre-rendered MemoryStore block (volatile tier).  Injected
+            as-is when supplied; omitted when ``None``.
 
     Returns:
         Fully rendered system prompt text.
@@ -150,6 +188,23 @@ def build_system_prompt(
         result = with_runtime_fill
     else:
         result = f"{with_runtime_fill}\n\n{skills_section}"
+
+    # Inject self-evolution guidance constants for the stable tier.
+    # Only when the matching tool is in the session's active toolset.
+    tool_names: frozenset[str] = frozenset(
+        t.name for t in (available_tools or ())
+    )
+    guidance_parts: list[str] = []
+    if "memory" in tool_names:
+        guidance_parts.append(MEMORY_GUIDANCE)
+    if "skill_manage" in tool_names:
+        guidance_parts.append(SKILLS_GUIDANCE)
+    if guidance_parts:
+        result = f"{result}\n\n{' '.join(guidance_parts)}"
+
+    # Inject volatile memory block (MemoryStore snapshot) when provided.
+    if memory_block:
+        result = f"{result}\n\n{memory_block}"
 
     # Append background task handling instructions so the model knows how to
     # treat <task-notification> messages delivered from completed workers.

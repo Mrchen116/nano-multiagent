@@ -376,16 +376,73 @@ class AgentRuntime:
 
         turn_result = build_turn_result(session_id, turn_id, all_messages)
 
-        await self._dispatch_observe(
-            "agent_end",
-            {
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "completed": turn_result.completed,
-                "stop_reason": turn_result.stop_reason,
-            },
-            hook_ctx,
-        )
+        # Extract tool_iterations from turn_meta for nudge counter signal flow.
+        # turn_meta is the last message in all_messages when present.
+        tool_iterations = 0
+        if all_messages:
+            last_msg = all_messages[-1]
+            if last_msg.role == "turn_meta":
+                tool_iterations = int(last_msg.metadata.get("tool_iterations", 0))
+
+        agent_end_payload = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "completed": turn_result.completed,
+            "stop_reason": turn_result.stop_reason,
+            # Expose the tool_iterations milestone for background hook nudge logic.
+            "tool_iterations": tool_iterations,
+            "turn_count": turn_count,
+        }
+
+        await self._dispatch_observe("agent_end", agent_end_payload, hook_ctx)
+
+        # Dispatch background hooks with fork_conversation injected.
+        # Background hooks (e.g. self-improvement) fire after main turn completes.
+        # anti-recursion: fork_conversation is never available inside a fork side-chain
+        # because the side-chain runs via AgentContextFork which has no hook_runner
+        # with background registrations — but we also set fork_conversation=None when
+        # building contexts for fork side-chains as an explicit belt-and-suspenders guard.
+        if self._hook_runner is not None:
+            background_registrations = self._hook_runner.registry.background_handlers_for("agent_end")
+            if background_registrations:
+                from agent.core.agent.context_fork import make_fork_conversation
+
+                # Build fork_conversation using the current session's rendered state.
+                # We resolve the fork tools and system prompt from the session config.
+                fork_system_prompt: str | None = None
+                fork_active_tools: tuple[ToolSpec, ...] = ()
+                if session_id in self._session_configs:
+                    fork_config = self._session_configs[session_id]
+                    fork_active_skills = self._resolve_session_available_skills_from_config(fork_config)
+                    fork_active_tools = self._resolve_session_available_tools_from_config(fork_config)
+                    fork_system_prompt = build_system_prompt(
+                        system_prompt=fork_config.system_prompt or self._loop._system_prompt,
+                        available_skills=fork_active_skills,
+                        available_tools=fork_active_tools,
+                        current_working_directory=fork_config.workspace_root,
+                    )
+
+                messages_snapshot = list(history)
+                fork_fn = make_fork_conversation(
+                    context_fork=self._context_fork,
+                    rendered_system_prompt=fork_system_prompt or "",
+                    active_tools=fork_active_tools,
+                    messages_snapshot=messages_snapshot,
+                    session_id=session_id,
+                    tool_allowlist=(),  # caller (background hook) specifies allowlist
+                )
+
+                background_hook_ctx = HookContext(
+                    session_id=hook_ctx.session_id,
+                    turn_id=hook_ctx.turn_id,
+                    repo_root=hook_ctx.repo_root,
+                    metadata=dict(hook_ctx.metadata),
+                    model_caller=hook_ctx.model_caller,
+                    session_event_publisher=hook_ctx.session_event_publisher,
+                    fork_conversation=fork_fn,
+                )
+                self._hook_runner.dispatch_background("agent_end", agent_end_payload, background_hook_ctx)
+
         return turn_result
 
     async def compact(self, session_id: str) -> CompactionResult | None:
@@ -491,9 +548,15 @@ class AgentRuntime:
         return self._llm_config
 
     def bind_tool_registry(self, tool_registry: ToolRegistryLike | None) -> None:
-        """Bind or unbind runtime tool registry."""
+        """Bind or unbind runtime tool registry.
 
+        Must propagate to _context_fork because in app.py the runtime is constructed
+        before the registry is available (tool_registry=None at __init__ time).
+        Without this, the fork side-chain runs with tool_registry=None and exits with
+        stop_reason='tool_registry_unavailable' after the LLM returns a tool_use call.
+        """
         self._loop.bind_tool_registry(tool_registry)
+        self._context_fork.bind_tool_registry(tool_registry)
 
     @property
     def hook_runner(self) -> HookRunner | None:

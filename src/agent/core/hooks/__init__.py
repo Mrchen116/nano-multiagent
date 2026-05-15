@@ -14,6 +14,7 @@ from .types import (
     HookRegistration,
     LoadedHookModule,
     event_mode_of,
+    normalize_hook_event,
 )
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "InterceptDispatchResult",
     "LoadedHookModule",
     "event_mode_of",
+    "normalize_hook_event",
 ]

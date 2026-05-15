@@ -2,6 +2,7 @@
 
 import asyncio
 import inspect
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -11,6 +12,8 @@ from agent.core.observability.tracing import span
 from .context import HookContext
 from .registry import HookRegistry
 from .types import HookRegistration, HookStatus, ensure_known_hook_event
+
+_log = logging.getLogger("agent.core.hooks.runner")
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,16 +54,22 @@ class HookRunner:
         payload: Mapping[str, Any],
         ctx: HookContext,
     ) -> tuple[HookExecution, ...]:
-        """Run observe handlers and collect per-hook diagnostics."""
+        """Run observe handlers and collect per-hook diagnostics.
+
+        Observe handlers always receive a HookContext with fork_conversation=None.
+        Only background handlers (via dispatch_background) get fork_conversation.
+        """
 
         with span("HookRunner.dispatch_observe", event=event):
             normalized_event = ensure_known_hook_event(event)
+            # Strip fork_conversation — it's only valid for background dispatches.
+            observe_ctx = _strip_fork_conversation(ctx)
             diagnostics: list[HookExecution] = []
             for registration in self._registry.handlers_for(normalized_event):
                 _, record = await self._execute_handler(
                     registration=registration,
                     payload=payload,
-                    ctx=ctx,
+                    ctx=observe_ctx,
                 )
                 diagnostics.append(record)
             return tuple(diagnostics)
@@ -71,9 +80,15 @@ class HookRunner:
         payload: Mapping[str, Any],
         ctx: HookContext,
     ) -> InterceptDispatchResult:
-        """Run intercept handlers that may rewrite payload or stop processing."""
+        """Run intercept handlers that may rewrite payload or stop processing.
+
+        Intercept handlers always receive a HookContext with fork_conversation=None.
+        Only background handlers (via dispatch_background) get fork_conversation.
+        """
 
         normalized_event = ensure_known_hook_event(event)
+        # Strip fork_conversation — it's only valid for background dispatches.
+        intercept_ctx = _strip_fork_conversation(ctx)
         mutable_payload = dict(payload)
         diagnostics: list[HookExecution] = []
         stopped = False
@@ -85,7 +100,7 @@ class HookRunner:
             result, record = await self._execute_handler(
                 registration=registration,
                 payload=handler_payload,
-                ctx=ctx,
+                ctx=intercept_ctx,
             )
             diagnostics.append(record)
 
@@ -139,6 +154,44 @@ class HookRunner:
             stopped=stopped,
             diagnostics=tuple(diagnostics),
         )
+
+    def dispatch_background(
+        self,
+        event: str,
+        payload: Mapping[str, Any],
+        ctx: HookContext,
+    ) -> None:
+        """Start all BACKGROUND handlers for an event as fire-and-forget tasks.
+
+        Does not await handlers, applies no timeout_ms, and swallows exceptions.
+        Only BACKGROUND-mode registrations are dispatched here (observe/intercept
+        handlers are skipped — they belong to dispatch_observe/dispatch_intercept).
+
+        The ctx passed here should have fork_conversation set if the event warrants
+        a side-chain fork (e.g. agent_end with self-improvement hook).
+        """
+
+        normalized_event = ensure_known_hook_event(event)
+        for registration in self._registry.background_handlers_for(normalized_event):
+            # Capture registration in closure to avoid late-binding issues.
+            def _make_task(reg: HookRegistration) -> None:
+                async def _run() -> None:
+                    try:
+                        await self._invoke_handler(reg, payload, ctx)
+                    except Exception as exc:
+                        # Background hook failures must never crash the caller.
+                        _log.warning(
+                            "background hook error isolated",
+                            extra={
+                                "hook_id": reg.hook_id,
+                                "event": normalized_event,
+                                "error": str(exc),
+                            },
+                        )
+
+                asyncio.create_task(_run(), name=f"bg-hook:{normalized_event}:{reg.hook_id}")
+
+            _make_task(registration)
 
     async def _execute_handler(
         self,
@@ -200,3 +253,23 @@ class HookRunner:
         if inspect.isawaitable(result):
             return await result
         return result
+
+
+def _strip_fork_conversation(ctx: HookContext) -> HookContext:
+    """Return a copy of ctx with fork_conversation=None.
+
+    Observe and intercept handlers must never receive fork_conversation;
+    it is reserved for background dispatches only.
+    """
+    if ctx.fork_conversation is None:
+        return ctx  # already stripped, avoid allocation
+    return HookContext(
+        session_id=ctx.session_id,
+        turn_id=ctx.turn_id,
+        repo_root=ctx.repo_root,
+        metadata=ctx.metadata,
+        logger=ctx.logger,
+        model_caller=ctx.model_caller,
+        session_event_publisher=ctx.session_event_publisher,
+        fork_conversation=None,
+    )

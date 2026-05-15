@@ -158,6 +158,8 @@ class GatewayHandler:
             return await self._handle_agent_message(payload=payload)
         if message_type == "node.streaming_delta":
             return await self._handle_streaming_delta(payload=payload)
+        if message_type == "node.system_message":
+            return await self._handle_system_message(payload=payload)
         return {
             "type": "error",
             "payload": {"code": "unsupported_message_type", "message": message_type},
@@ -1031,6 +1033,66 @@ class GatewayHandler:
         if not normalized:
             raise ValueError("from_session_id must carry source agent id")
         return (normalized, dispatch_request_id)
+
+    async def _handle_system_message(self, *, payload: dict[str, object]) -> dict[str, object]:
+        """Persist one server-originated system notification into an IM conversation.
+
+        System messages are non-first-person notifications injected by the gateway
+        (e.g. self_evolution_review notifications).  They use ``sender_type='system'``
+        so the IM frontend can render them with a distinct visual style.
+
+        Args:
+            payload: Must include ``conversation_id`` (str) and ``text`` (str).
+
+        Returns:
+            Ack dict with ``message_id`` on success, or error dict on failure.
+        """
+        if self._conversation_repository is None or self._message_repository is None:
+            return {
+                "type": "error",
+                "payload": {
+                    "code": "gateway_not_configured",
+                    "message": "conversation_repository must be configured",
+                },
+            }
+
+        try:
+            conversation_id = _require_text(payload.get("conversation_id"), field_name="conversation_id").strip()
+            text = _require_text(payload.get("text"), field_name="text").strip()
+
+            # Resolve or lazily create the well-known system user.
+            # The system user has username='system'; its owner_id equals its own id.
+            system_user = (
+                self._user_repository.get_user_by_username(username="system")
+                if self._user_repository is not None
+                else None
+            )
+            if system_user is None and self._user_repository is not None:
+                system_user = self._user_repository.create_user(
+                    username="system",
+                    display_name="System",
+                )
+            if system_user is None:
+                return {
+                    "type": "error",
+                    "payload": {"code": "system_user_unavailable", "message": "could not resolve system user"},
+                }
+
+            message = self._message_repository.create_message(
+                conversation_id=conversation_id,
+                sender_user_id=system_user.id,
+                sender_type="system",
+                content=text,
+            )
+            return {
+                "type": "ack",
+                "payload": {"message_type": "node.system_message", "message_id": message.id},
+            }
+        except ValueError as exc:
+            return {
+                "type": "error",
+                "payload": {"code": "invalid_system_message", "message": str(exc)},
+            }
 
     def _ensure_agent_message_dispatch_table(self) -> None:
         if self._conversation_repository is None:

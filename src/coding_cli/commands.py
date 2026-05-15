@@ -489,7 +489,7 @@ def _send_message_via_sse(
             )
 
         events = reader.drain_run(
-            run_id=run_id, timeout=0.5, terminal_timeout=120.0,
+            run_id=run_id, timeout=0.5, idle_timeout=1800.0,
             on_other=_on_other_event, on_event=_on_run_event_tty,
             on_permission_request=_on_permission_request_tty,
         )
@@ -512,7 +512,7 @@ def _send_message_via_sse(
             )
 
         reader.drain_run(
-            run_id=run_id, timeout=0.5, terminal_timeout=120.0,
+            run_id=run_id, timeout=0.5, idle_timeout=1800.0,
             on_other=_on_other_event, on_event=_on_run_event_plain,
             on_permission_request=_on_permission_request_plain,
         )

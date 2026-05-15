@@ -48,6 +48,16 @@ class HookModelResult:
 HookModelCaller = Callable[[HookModelCall], HookModelResult]
 HookSessionEventPublisher = Callable[[str, Mapping[str, Any]], None]
 
+# Callable signature for the fork_conversation capability injected into background hooks.
+# review_prompt: the prompt string sent as first user message to the fork agent.
+# tool_allowlist: execution-layer whitelist — only these tool names are allowed to run.
+# max_turns: max LLM iterations in the fork side-chain.
+# Returns a ForkResult (opaque to core; platform/hooks/builtins interpret it).
+ForkConversation = Callable[
+    ...,  # (review_prompt: str, *, tool_allowlist: tuple[str,...], max_turns: int) -> Awaitable
+    Awaitable[Any],
+]
+
 
 class HookLogger:
     """Emit structured hook logs with optional sink override and base fields."""
@@ -135,6 +145,10 @@ class HookContext:
     # Injected by platform layer (PermissionBroker); None in contexts that do
     # not support the ask flow (e.g. CI runs without interactive terminal).
     permission_requester: HookPermissionRequester | None = None
+    # fork_conversation is only injected for BACKGROUND hook dispatches.
+    # Observe/intercept hooks always see None here.
+    # Inside a fork side-chain this is also None to prevent recursive forking (R1).
+    fork_conversation: ForkConversation | None = None
 
     def __post_init__(self) -> None:
         if not self.session_id:

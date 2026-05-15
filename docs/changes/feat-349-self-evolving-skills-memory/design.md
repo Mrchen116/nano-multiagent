@@ -8,6 +8,10 @@
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-15 (M6): M5 worker 在 E2E 时绕过 CLI 入口、用 HTTP API 注入 metadata 才跑通 — 暴露 `bootstrap_product` 写入的 `default_session_metadata` 在 server 端从未被使用,CLI 走 `create_session` 时 `self_evolution` 配置不进 session。立 M6 fix milestone:在 SessionService 构造时接收 default_session_metadata,create_session 时 merge(caller 覆盖 default 顶层 key);CLI managed 入口 E2E 验证 `.nanocode/skills/` 真出现文件
+- 2026-05-15 (M5): 用户实测发现 M4 修了 hook mode 触发后,fork loop 仍只跑 round 1 就停 —— LLM 回了干净的 `tool_use: skill_manage(...)` 但 `iteration_tool_calls` 显然空,`if not iteration_tool_calls: break` 直接退出,工具没执行、文件没落盘,REPL 回显误判为成功。立 M5 fix milestone 定位并修复 fork loop 工具执行回路;同时补 round 2 reviewer 走真 E2E 验证(M4 因 LLM 额度限制由 orchestrator 亲自实施且跳过了 round 2)
+- 2026-05-15 (M4): round 1 验收后立 M4 fix milestone — 修 `_filter_hook_registry` 丢 `mode` 字段（blocking，自进化 hook 从不触发）；Issue #3（IM system 消息样式）核查为 reviewer 对 v1 死代码误判，活跃 v2 路径已合规；Issue #2（PA Gateway user_id 持久化）判定 out-of-unit，转 GitHub issue #10 — 详见 M4/progress.md
+
 ## 现状分析
 
 ### 涉及范围
@@ -366,6 +370,8 @@ sequenceDiagram
 graph LR
   M1[M1 hook-background-fork] --> M3[M3 self-evolution-wiring]
   M2[M2 memory-skill-store-tools] --> M3
+  M3 --> M4[M4 fix-hook-mode-and-meta-styling]
+  M4 --> M5[M5 fix-fork-tool-execution]
 ```
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
@@ -373,3 +379,6 @@ graph LR
 | feat-349-M1 | hook-background-fork | — | A | `core/hooks/`（types/runner/context/registry）、`core/agent/runtime.py`（注入 fork 能力到 hook context）、`core/agent/context_fork.py` | `[worker]` 能注册 `mode="background"` 的 hook；turn 结束后 `HookRunner` 以 fire-and-forget 跑 `fork_conversation`，不阻塞主 turn、不受 `timeout_ms` 约束；`fork_conversation` 复用父 turn 的 `rendered_system_prompt` + `active_tools`（测试断言字节一致）、按 `tool_allowlist` 做执行层拦截；递归 fork 被抑制（覆盖 R1）；`[worker]` `core/hooks` + 相关 runtime 单测全绿 |
 | feat-349-M2 | memory-skill-store-tools | — | A | `core/memory/`（新建）、`core/skills/`（写侧扩展）、`platform/tools/builtins/skill_manage.py`、`platform/tools/builtins/memory.py`、`platform/tools/builtins/__init__.py`、`platform/config/resolver.py`（`user_memory_root()`） | `[worker]` `skill_manage` 的 create/edit/patch 正确落盘到 `<workspace>/.<ns>/skills/` 且触发发现 cache 失效；`memory` 的 add/replace/remove 作用于 `memory`/`user` 两 target，`§` 分隔 + 每条目带来源索引、文件锁 + 原子写；name regex / frontmatter / 大小上限校验生效；`[worker]` 两工具 + store 单测全绿 |
 | feat-349-M3 | self-evolution-wiring | M1, M2 | B | `platform/hooks/builtins/self_improvement.py`（background hook 模块）、`core/agent/`（`loop.py` 暴露 tool_iterations、`runtime.py` 持里程表 + agent_end payload、`prompting.py` 注入 memory block + guidance）、`agent/products/{local_coding,personal_assistant}/`（profile/defaults/prompts/toolsets/hooks 接线）、`personal_assistant/`（`local_store` seed 位置 + 配置透传）、`coding_cli/`（workspace 配置文件 + REPL 回显渲染）、`IM/`（meta 消息 + SSE 送达） | `[reviewer]` `spec.md` 全部 12 条验收标准通过（reviewer 走 PA + LC 两产品旅程验）；`[worker]` nudge 计数信号链路、两产品接线、回显（CLI 系统提示 + IM meta 消息）、background 事件 SSE 送达，单测 + `tests/contract/` 依赖方向校验全绿 |
+| feat-349-M4 | fix-hook-mode-and-meta-styling | M1, M2, M3 | C | `platform/bootstrap.py`（`_filter_hook_registry` 保留 `mode` 字段）、`IM/frontend/`（`message-pane.tsx` / `MessageBubble` —— `sender_type=system` 消息渲染为视觉区分的轻量 meta 提示） | （post-acceptance fix, round 1）`[reviewer]` spec AC-1/2/3/4 通过：多轮对话后 background hook 真实触发、skill/memory 自动沉淀、CLI 一行回显 + IM meta 提示浮现且视觉区别于聊天气泡；`[worker]` `_filter_hook_registry` 透传 `mode`（单测断言 background 注册过滤后仍为 background）、IM 前端构建通过 |
+| feat-349-M5 | fix-fork-tool-execution | M1, M2, M3, M4 | D | `core/agent/`（`loop.py` / `tool_executor.py` / `context_fork.py` — 定位并修 fork loop 在 round 1 tool_use 后未进入 round 2 的根因）、必要时 `platform/llm/providers/anthropic/client.py` | （post-acceptance fix, round 1 — 实测发现 M4 后的 E2E 仍未达成）`[reviewer]` spec AC-1/AC-2/AC-3 通过：跑 LC managed 模式对话超过 nudge 阈值后,`<workspace>/.nanocode/skills/` 或 `.nanocode/memory/` 下**真的出现**自动创建的 skill 文件 / memory 条目（而非仅 REPL 回显但落盘为空）；`[worker]` 新增单测覆盖"fork loop 在 LLM 返回 tool_use 后正确进入 round 2 并执行工具",`tool_names_called` 非空,fork `completed=True` 且工具结果反馈回 LLM |
+| feat-349-M6 | wire-default-session-metadata | M5 | E | `agent/platform/persistence/session/service.py`（SessionService 接收 + merge `default_session_metadata`）、`agent/platform/http_api/app.py`（注入 `resolved_product.default_session_metadata`）、`tests/unit/test_session_service.py` | （post-acceptance fix, round 2 — M5 worker E2E 时发现：bootstrap 出来的 `default_session_metadata` 没人用，CLI 走 `create_session` 时 self_evolution 配置不进 session metadata，hook 全走默认 interval=10 几乎不触发）`[reviewer]` LC managed 入口跑通：workspace `.nanocode/config.yaml` 写 `skill_nudge_interval: 1`，启动 CLI 发一条对话，`<workspace>/.nanocode/skills/` 或 `.nanocode/memory/` 下真出现至少一个由 fork agent 写入的文件；`[worker]` 新增 SessionService 单测：构造时传 default_session_metadata，create_session 不传 metadata → 落盘 session.metadata == default；传部分 key → 仅顶层 key 覆盖，default 中未指定的 key 保留 |
