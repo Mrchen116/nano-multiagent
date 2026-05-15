@@ -74,8 +74,61 @@ raise TimeoutError(...)
 
 ## 修复
 
-<!-- 改了什么 + commits。worker 在 milestone 完成后补全。 -->
+### 改动范围
+
+**`src/coding_cli/session_stream.py`** — `drain_run()` 方法：
+
+- 参数 `terminal_timeout: float = 120.0` 重命名为 `idle_timeout: float = 1800.0`，名称和语义对齐。
+- `deadline` 从"进入循环前算死"改为"每收到该 run_id 的事件就重置为 `now + idle_timeout`"。
+- 超时错误消息从 `"did not reach terminal status in {N}s"` 改为
+  `"did not reach terminal status — no events received for {N}s"`，明确说明是空闲超时。
+
+**`src/coding_cli/commands.py`** — `send_message` 命令处两处 `drain_run` 调用：
+
+- TTY 分支（约 420 行）：`terminal_timeout=120.0` → `idle_timeout=1800.0`
+- plain 分支（约 437 行）：同上
+
+### Commits
+
+- C1 `dec4e479` — 新增 idle_timeout 语义回归测试（Red）
+- C2 `8eaa5bdd` — fix: drain_run 改为空闲超时，commands.py 两处同步更新
 
 ## 验证
 
-<!-- 修前能复现 → 修后不能；相关功能回归正常。worker 补全。 -->
+### 修前可复现
+
+修改前，`drain_run` 以硬墙钟超时运行。以下单元测试在 C1 提交后对 C1 版本（未修改 `session_stream.py`）运行**失败（Red）**：
+
+```
+tests/unit/test_session_stream.py::test_drain_run_long_run_not_killed_by_idle_timeout — FAIL (TypeError: unexpected keyword argument 'idle_timeout')
+tests/unit/test_session_stream.py::test_drain_run_idle_timeout_triggers_when_no_events — FAIL (同上)
+tests/unit/test_session_stream.py::test_drain_run_on_other_receives_non_target_events — FAIL (同上，因为 on_other 测试也被更新为 idle_timeout)
+```
+
+根本语义缺陷（修前的旧代码）：`deadline = time.monotonic() + terminal_timeout` 算死后不更新，持续喂事件也会在 120s 后超时。
+
+### 修后通过
+
+修改后全部 10 个 session_stream 单元测试通过（包含 2 个新增回归用例）：
+
+```
+pytest tests/unit/test_session_stream.py
+→ 10 passed in 0.50s
+```
+
+**回归用例覆盖**：
+
+1. `test_drain_run_long_run_not_killed_by_idle_timeout`：
+   注入 `idle_timeout=0.3s`，向 r1 喂 51 个事件（含最终终态），全部瞬间入队远在 0.3s 内完成。
+   修前：会因 `TypeError` 失败（或如果旧代码运行，因 50 个事件无法在 0.3s 硬墙钟内完成而超时）。
+   修后：通过，最终拿到 `run_status=completed`。
+
+2. `test_drain_run_idle_timeout_triggers_when_no_events`：
+   注入 `idle_timeout=0.15s`，只提供其他 run_id 的事件（不重置本 run deadline），等待超时。
+   修后：正确抛出 `TimeoutError`。
+
+**coding CLI 全部单元测试通过**（107 个）：
+```
+pytest tests/unit/test_session_stream.py tests/unit/test_cli_main.py tests/unit/test_cli_background_runs.py tests/unit/test_cli_turn_usage.py
+→ 107 passed in 5.37s
+```

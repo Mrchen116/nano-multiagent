@@ -22,7 +22,7 @@
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
 - Rollback: C1 之前的最后 commit（unit 分支 HEAD 59cff151）
-- Commits: C1=见下
+- Commits: C1=dec4e479
 
 ### R2 — 修改 drain_run 为空闲超时实现（Green）
 
@@ -36,8 +36,8 @@
   - Browser QA: N/A
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
-- Rollback: C1 commit
-- Commits: C2=见下
+- Rollback: C1 commit dec4e479
+- Commits: C2=8eaa5bdd
 
 ### R3 — 更新 commands.py + 补文档（docs）
 
@@ -51,5 +51,5 @@
   - Browser QA: N/A
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
-- Rollback: C2 commit
-- Commits: C3=见下
+- Rollback: C2 commit 8eaa5bdd
+- Commits: C3=见下（本次提交）
