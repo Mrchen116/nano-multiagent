@@ -11,10 +11,14 @@
  * The default fetchFn uses authFetch (which injects the Authorization: Bearer header
  * from the auth store) so the IM backend's JWT guard does not reject the request.
  * Tests can override fetchFn to inject a mock without touching the auth store.
+ *
+ * Visual: 方案 B 深色卡，对齐 chat-tool-calls-* 体系。All styles live in global.css
+ * under the chat-permission-* prefix — no inline Tailwind utilities.
  */
 import React, { useState } from "react";
 
 import { authFetch } from "../../../auth/auth-fetch";
+import { useTranslation } from "../../../../i18n";
 
 import type { PermissionOption, PermissionRequest } from "../chat-types";
 
@@ -55,6 +59,7 @@ export function PermissionCard({
   // touching the auth store in jsdom.
   fetchFn = authFetch,
 }: PermissionCardProps) {
+  const { t } = useTranslation();
   const [cardState, setCardState] = useState<CardState>(() => initialState(request));
 
   async function handleChoice(option: PermissionOption) {
@@ -75,7 +80,7 @@ export function PermissionCard({
       setCardState({ kind: "resolved", decision: option.id });
       onResolved(option.id);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to submit decision";
+      const message = err instanceof Error ? err.message : t("chat.permission.submitError");
       setCardState({ kind: "error", chosenId: option.id, message });
     }
   }
@@ -83,12 +88,14 @@ export function PermissionCard({
   if (cardState.kind === "resolved") {
     const isDeny = cardState.decision === "deny";
     return (
-      <div className="permission-card permission-card--resolved">
+      <div className="chat-permission-card chat-permission-card--resolved">
         <span
           data-testid="permission-resolved"
-          className={`permission-card__resolved-label ${isDeny ? "permission-card__resolved-label--deny" : "permission-card__resolved-label--allow"}`}
+          className={`chat-permission-resolved-label${isDeny ? " chat-permission-resolved-label--deny" : ""}`}
         >
-          {isDeny ? `Denied · ${request.tool_name}` : `Allowed · ${request.tool_name}`}
+          {isDeny
+            ? `${t("chat.permission.denied")} · ${request.tool_name}`
+            : `${t("chat.permission.allowed")} · ${request.tool_name}`}
         </span>
       </div>
     );
@@ -98,32 +105,44 @@ export function PermissionCard({
   const errorMessage = cardState.kind === "error" ? cardState.message : null;
 
   return (
-    <div className="permission-card permission-card--pending" role="region" aria-label={`Permission request: ${request.tool_name}`}>
-      <div className="permission-card__header">
-        <span className="permission-card__tool-icon" aria-hidden="true">🔒</span>
-        <span className="permission-card__tool-name">{request.tool_name}</span>
+    <div
+      className="chat-permission-card"
+      role="region"
+      aria-label={t("chat.permission.ariaCard", { toolName: request.tool_name })}
+    >
+      <div className="chat-permission-header">
+        <span aria-hidden="true">🔒</span>
+        <span className="chat-permission-tool-name">{request.tool_name}</span>
+        <span className="chat-permission-hint">{t("chat.permission.hint")}</span>
       </div>
-      <p className="permission-card__question">{request.question}</p>
+      <p className="chat-permission-question">{request.question}</p>
       {errorMessage && (
-        <div role="alert" className="permission-card__error">
+        <div role="alert" className="chat-permission-error">
           {errorMessage}
         </div>
       )}
-      {/* gap-2 provides 0.5rem between option buttons; matches project button-group spacing convention */}
-      <div className="permission-card__options flex flex-wrap gap-2" role="group" aria-label="Permission options">
-        {request.options.map((opt) => (
-          <button
-            key={opt.id}
-            type="button"
-            className={`permission-card__option-btn permission-card__option-btn--${opt.id}`}
-            onClick={() => handleChoice(opt)}
-            disabled={isSubmitting}
-            aria-busy={isSubmitting && (cardState as { chosenId: string }).chosenId === opt.id}
-            title={opt.description}
-          >
-            {opt.label}
-          </button>
-        ))}
+      <div className="chat-permission-options" role="group" aria-label={t("chat.permission.ariaOptions")}>
+        {request.options.map((opt) => {
+          const isChosen = isSubmitting && (cardState as { chosenId: string }).chosenId === opt.id;
+          // Determine button variant: allow_once → primary, deny → danger, others → default
+          const variant =
+            opt.id === "allow_once" ? " chat-permission-btn--primary"
+            : opt.id === "deny" ? " chat-permission-btn--danger"
+            : "";
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              className={`chat-permission-btn${variant}`}
+              onClick={() => handleChoice(opt)}
+              disabled={isSubmitting}
+              aria-busy={isChosen}
+              title={opt.description}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
