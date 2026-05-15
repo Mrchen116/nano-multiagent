@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>feat-333 权限卡片设计方案预览（交互式）</title>
+<style>
+/* ============================================================
+ * IM 前端真实 design token —— 抄自 src/styles/global.css
+ * ============================================================ */
+:root {
+  --im-bg: oklch(0.98 0.005 240);
+  --im-surface: oklch(1 0 0);
+  --im-surface-2: oklch(0.965 0.006 240);
+  --im-accent: oklch(0.52 0.14 180);
+  --im-accent-fg: oklch(0.99 0 0);
+  --im-accent-2: oklch(0.42 0.13 180);
+  --im-text: oklch(0.21 0.012 240);
+  --im-text-muted: oklch(0.5 0.012 240);
+  --im-border: oklch(0.9 0.008 240);
+  --im-danger: oklch(0.58 0.18 25);
+  --im-warning: oklch(0.78 0.16 80);
+  --im-success: oklch(0.65 0.15 150);
+  --im-shadow: 0 12px 32px -22px oklch(0.2 0.012 240 / 0.45);
+  --im-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --im-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--im-font-sans);
+  color: var(--im-text);
+  background: var(--im-bg);
+}
+.page { max-width: 1240px; margin: 0 auto; padding: 28px 24px 90px; }
+.page-title { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 4px; }
+.page-sub { font-size: 0.9rem; color: var(--im-text-muted); margin: 0 0 24px; line-height: 1.55; }
+.variant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(370px, 1fr));
+  gap: 22px;
+}
+.variant {
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 14px;
+  box-shadow: var(--im-shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.variant-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--im-border); }
+.variant-name { font-size: 1rem; font-weight: 700; margin: 0; }
+.variant-desc { font-size: 0.78rem; color: var(--im-text-muted); margin: 4px 0 0; line-height: 1.5; }
+.variant-controls {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 16px; background: var(--im-surface-2);
+  border-bottom: 1px solid var(--im-border); font-size: 0.78rem;
+}
+.variant-reset {
+  font: inherit; font-size: 0.76rem; font-weight: 600;
+  border: 1px solid var(--im-border); border-radius: 0.4rem;
+  background: var(--im-surface); color: var(--im-text);
+  padding: 3px 10px; cursor: pointer;
+}
+.variant-reset:hover { background: oklch(0.96 0.006 240); }
+.variant-fail { display: inline-flex; align-items: center; gap: 5px; color: var(--im-text-muted); cursor: pointer; }
+.variant-state { margin-left: auto; font-family: var(--im-font-mono); font-size: 0.72rem; color: var(--im-text-muted); }
+
+.chat-stage {
+  background: oklch(0.93 0.007 240);
+  padding: 18px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1;
+}
+.chat-bubble { display: flex; flex-direction: column; gap: 0; max-width: 92%; align-self: flex-start; }
+.chat-bubble-sender { font-size: 0.72rem; font-weight: 600; color: var(--im-text-muted); margin-bottom: 3px; }
+.chat-bubble-card {
+  background: oklch(0.91 0.007 240); border-radius: 1rem 1rem 1rem 0.25rem;
+  padding: 9px 13px; font-size: 0.875rem; line-height: 1.5;
+}
+.chat-tool-calls-toggle {
+  display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.6rem;
+  border-radius: 999px; background: oklch(0.92 0.008 240); border: 1px solid oklch(0.86 0.01 240);
+  font-size: 0.75rem; font-weight: 600; color: oklch(0.45 0.01 240); margin-top: 4px; width: max-content;
+}
+.card-mount { display: flex; flex-direction: column; gap: 4px; }
+
+/* ===== 方案 A —— 浅色卡 + warning 左条 ===== */
+.pcA {
+  background: var(--im-surface); border: 1px solid var(--im-border);
+  border-left: 3px solid var(--im-warning); border-radius: 0.7rem;
+  box-shadow: var(--im-shadow); padding: 11px 13px; margin-top: 2px;
+  max-width: 470px; display: flex; flex-direction: column; gap: 9px;
+}
+.pcA-head { display: flex; align-items: center; gap: 7px; }
+.pcA-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: oklch(0.96 0.06 80); color: oklch(0.42 0.12 80);
+  border-radius: 999px; padding: 2px 9px 2px 7px;
+  font-size: 0.72rem; font-weight: 700; font-family: var(--im-font-mono);
+}
+.pcA-hint { font-size: 0.7rem; color: var(--im-text-muted); margin-left: auto; }
+.pcA-question { font-size: 0.86rem; line-height: 1.5; margin: 0; }
+.pcA-cmd {
+  font-family: var(--im-font-mono); font-size: 0.78rem;
+  background: var(--im-surface-2); border: 1px solid var(--im-border);
+  border-radius: 0.4rem; padding: 5px 8px; color: oklch(0.32 0.012 240); word-break: break-all;
+}
+.pcA-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 1px; }
+.pcA-btn {
+  border: 1px solid var(--im-border); border-radius: 0.5rem;
+  padding: 5px 12px; font: inherit; font-size: 0.8rem; font-weight: 600;
+  background: var(--im-surface-2); color: var(--im-text); cursor: pointer; transition: all 0.12s;
+}
+.pcA-btn:hover:not(:disabled) { background: oklch(0.93 0.008 240); }
+.pcA-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pcA-btn--primary { background: var(--im-accent); color: var(--im-accent-fg); border-color: var(--im-accent); }
+.pcA-btn--danger { background: var(--im-surface); color: var(--im-danger); border-color: oklch(0.82 0.1 25); }
+.pcA-btn.is-busy { opacity: 1; }
+.pcA--resolved { border-left-color: var(--im-success); opacity: 0.95; }
+.pcA--resolved.pcA--deny { border-left-color: var(--im-danger); }
+.pcA-resolved-label { display: inline-flex; align-items: center; gap: 5px; font-size: 0.8rem; font-weight: 600; color: oklch(0.42 0.13 150); }
+.pcA--deny .pcA-resolved-label { color: var(--im-danger); }
+.pcA-error {
+  background: oklch(0.96 0.04 25); border: 1px solid oklch(0.85 0.1 25);
+  color: var(--im-danger); font-size: 0.76rem; border-radius: 0.4rem; padding: 5px 8px;
+}
+
+/* ===== 方案 B —— 深色卡 ===== */
+.pcB {
+  background: oklch(0.14 0.015 240); border: 1px solid oklch(0.24 0.02 240);
+  border-radius: 0.6rem; box-shadow: 0 4px 16px oklch(0.05 0.01 240 / 0.5);
+  padding: 11px 13px; margin-top: 2px; max-width: 470px;
+  display: flex; flex-direction: column; gap: 9px;
+}
+.pcB-head { display: flex; align-items: center; gap: 7px; }
+.pcB-tool { font-family: var(--im-font-mono); font-size: 0.78rem; font-weight: 600; color: oklch(0.85 0.09 180); }
+.pcB-hint { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: oklch(0.7 0.13 80); margin-left: auto; }
+.pcB-question { font-size: 0.84rem; line-height: 1.5; margin: 0; color: oklch(0.86 0.02 240); }
+.pcB-cmd {
+  font-family: var(--im-font-mono); font-size: 0.76rem;
+  background: oklch(0.09 0.01 240); border: 1px solid oklch(0.22 0.015 240);
+  border-radius: 0.4rem; padding: 5px 8px; color: oklch(0.8 0.04 180); word-break: break-all;
+}
+.pcB-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 1px; }
+.pcB-btn {
+  border: 1px solid oklch(0.3 0.02 240); border-radius: 0.45rem;
+  padding: 5px 12px; font: inherit; font-size: 0.78rem; font-weight: 600;
+  background: oklch(0.2 0.015 240); color: oklch(0.82 0.01 240); cursor: pointer; transition: all 0.12s;
+}
+.pcB-btn:hover:not(:disabled) { background: oklch(0.25 0.018 240); }
+.pcB-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pcB-btn--primary { background: var(--im-accent); color: var(--im-accent-fg); border-color: var(--im-accent); }
+.pcB-btn--danger { color: oklch(0.72 0.14 25); border-color: oklch(0.4 0.1 25); background: oklch(0.18 0.02 25); }
+.pcB--resolved { opacity: 0.9; }
+.pcB-resolved-label { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; font-weight: 600; color: oklch(0.75 0.13 150); font-family: var(--im-font-mono); }
+.pcB--deny .pcB-resolved-label { color: oklch(0.72 0.14 25); }
+.pcB-error {
+  background: oklch(0.18 0.03 25); border: 1px solid oklch(0.4 0.1 25);
+  color: oklch(0.78 0.13 25); font-size: 0.74rem; border-radius: 0.4rem; padding: 5px 8px;
+}
+
+/* ===== 方案 C —— 浅色卡 + 顶部色条 header ===== */
+.pcC {
+  background: var(--im-surface); border: 1px solid var(--im-border);
+  border-radius: 0.7rem; box-shadow: var(--im-shadow);
+  margin-top: 2px; max-width: 470px; overflow: hidden;
+}
+.pcC-head {
+  display: flex; align-items: center; gap: 7px;
+  background: oklch(0.96 0.035 80); border-bottom: 1px solid oklch(0.88 0.07 80);
+  padding: 7px 12px;
+}
+.pcC-tool { font-family: var(--im-font-mono); font-size: 0.76rem; font-weight: 700; color: oklch(0.4 0.11 80); }
+.pcC-hint { font-size: 0.64rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: oklch(0.5 0.1 80); margin-left: auto; }
+.pcC--resolved .pcC-head { background: oklch(0.96 0.04 150); border-bottom-color: oklch(0.85 0.09 150); }
+.pcC--resolved .pcC-tool { color: oklch(0.4 0.13 150); }
+.pcC--resolved .pcC-hint { color: oklch(0.45 0.12 150); }
+.pcC--deny.pcC--resolved .pcC-head { background: oklch(0.96 0.04 25); border-bottom-color: oklch(0.85 0.1 25); }
+.pcC--deny.pcC--resolved .pcC-tool { color: var(--im-danger); }
+.pcC--deny.pcC--resolved .pcC-hint { color: var(--im-danger); }
+.pcC-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.pcC-question { font-size: 0.85rem; line-height: 1.5; margin: 0; }
+.pcC-question--muted { color: var(--im-text-muted); }
+.pcC-cmd {
+  font-family: var(--im-font-mono); font-size: 0.77rem;
+  background: var(--im-surface-2); border: 1px solid var(--im-border);
+  border-radius: 0.4rem; padding: 5px 8px; color: oklch(0.32 0.012 240); word-break: break-all;
+}
+.pcC-error {
+  background: oklch(0.96 0.04 25); border: 1px solid oklch(0.85 0.1 25);
+  color: var(--im-danger); font-size: 0.76rem; border-radius: 0.4rem; padding: 5px 8px;
+}
+.pcC-actions {
+  display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end;
+  padding: 9px 12px; background: var(--im-surface-2); border-top: 1px solid var(--im-border);
+}
+.pcC-btn {
+  border: 1px solid var(--im-border); border-radius: 0.5rem;
+  padding: 5px 12px; font: inherit; font-size: 0.8rem; font-weight: 600;
+  background: var(--im-surface); color: var(--im-text); cursor: pointer; transition: all 0.12s;
+}
+.pcC-btn:hover:not(:disabled) { background: oklch(0.96 0.006 240); }
+.pcC-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pcC-btn--primary { background: var(--im-accent); color: var(--im-accent-fg); border-color: var(--im-accent); }
+.pcC-btn--danger { color: var(--im-danger); border-color: oklch(0.82 0.1 25); }
+
+/* 现状对照（无样式） */
+.pc-current { margin-top: 2px; max-width: 470px; font-size: 0.875rem; }
+.pc-current p { margin: 0; }
+.pc-current button { font: inherit; margin-right: 4px; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1 class="page-title">feat-333 权限卡片 — 设计方案预览（交互式）</h1>
+  <p class="page-sub">
+    每个方案是一张<strong>活的卡片</strong>：点选项按钮会走真实状态机 pending → 提交中 → resolved；
+    勾上「模拟提交失败」则走 error 态。「重置」回到 pending。<br />
+    用 IM 前端真实 design token，放进模拟聊天流（chat-pane-messages 底色 + 真实 message bubble + tool-calls 收起态作对照）。
+  </p>
+
+  <div class="variant-grid">
+
+    <!-- 现状 -->
+    <div class="variant">
+      <div class="variant-head">
+        <p class="variant-name">现状（线上）— 几乎无样式</p>
+        <p class="variant-desc">permission-card__* class 在 global.css 里没有对应 CSS 规则，整张卡是裸 div + 裸 button。这是"很丑"的真正原因，仅作对照、不可交互。</p>
+      </div>
+      <div class="chat-stage">
+        <div class="chat-bubble">
+          <span class="chat-bubble-sender">架构</span>
+          <div class="chat-bubble-card">我需要执行一个命令来清理临时目录。</div>
+        </div>
+        <div class="pc-current">
+          <p>🔒bash</p>
+          <p>Allow bash to run this command?</p>
+          <p><button>Allow once</button><button>Deny</button><button>Allow for session</button><button>Always allow</button></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 方案 A -->
+    <div class="variant" data-variant="A">
+      <div class="variant-head">
+        <p class="variant-name">方案 A — 浅色卡 + warning 强调左条</p>
+        <p class="variant-desc">白底卡 + 黄色警示左边条，顺应聊天流浅色主调；工具名 mono pill badge；命令投影成代码块；首选项 accent 实底、Deny 危险描边。</p>
+      </div>
+      <div class="variant-controls">
+        <button class="variant-reset" data-reset="A">↺ 重置</button>
+        <label class="variant-fail"><input type="checkbox" data-fail="A" /> 模拟提交失败</label>
+        <span class="variant-state" data-statelabel="A">state: pending</span>
+      </div>
+      <div class="chat-stage">
+        <div class="chat-bubble">
+          <span class="chat-bubble-sender">架构</span>
+          <div class="chat-bubble-card">我需要执行一个命令来清理临时目录。</div>
+          <div class="chat-tool-calls-toggle"><span>▸</span><span>1 tool call · 0.3s</span></div>
+        </div>
+        <div class="card-mount" data-mount="A"></div>
+      </div>
+    </div>
+
+    <!-- 方案 B -->
+    <div class="variant" data-variant="B">
+      <div class="variant-head">
+        <p class="variant-name">方案 B — 深色卡（对齐 tool-calls panel）</p>
+        <p class="variant-desc">深色卡，和展开的工具调用面板同一套视觉，权限请求与工具调用归为一类 agent 技术动作。深色块在浅色聊天流里更跳。</p>
+      </div>
+      <div class="variant-controls">
+        <button class="variant-reset" data-reset="B">↺ 重置</button>
+        <label class="variant-fail"><input type="checkbox" data-fail="B" /> 模拟提交失败</label>
+        <span class="variant-state" data-statelabel="B">state: pending</span>
+      </div>
+      <div class="chat-stage">
+        <div class="chat-bubble">
+          <span class="chat-bubble-sender">架构</span>
+          <div class="chat-bubble-card">我需要执行一个命令来清理临时目录。</div>
+          <div class="chat-tool-calls-toggle"><span>▸</span><span>1 tool call · 0.3s</span></div>
+        </div>
+        <div class="card-mount" data-mount="B"></div>
+      </div>
+    </div>
+
+    <!-- 方案 C -->
+    <div class="variant" data-variant="C">
+      <div class="variant-head">
+        <p class="variant-name">方案 C — 浅色卡 + 顶部色条 header</p>
+        <p class="variant-desc">白卡 + 顶部 warning 色 header bar，按钮在底部 footer 区右对齐，像 chat-modal 的内嵌版。结构最分明，对消息内嵌元素来说偏"重"。</p>
+      </div>
+      <div class="variant-controls">
+        <button class="variant-reset" data-reset="C">↺ 重置</button>
+        <label class="variant-fail"><input type="checkbox" data-fail="C" /> 模拟提交失败</label>
+        <span class="variant-state" data-statelabel="C">state: pending</span>
+      </div>
+      <div class="chat-stage">
+        <div class="chat-bubble">
+          <span class="chat-bubble-sender">架构</span>
+          <div class="chat-bubble-card">我需要执行一个命令来清理临时目录。</div>
+          <div class="chat-tool-calls-toggle"><span>▸</span><span>1 tool call · 0.3s</span></div>
+        </div>
+        <div class="card-mount" data-mount="C"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const OPTIONS = [
+  { id: "allow_once", label: "Allow once", kind: "primary" },
+  { id: "deny", label: "Deny", kind: "danger" },
+  { id: "allow_session", label: "Allow for session", kind: "muted" },
+  { id: "always_allow", label: "Always allow", kind: "muted" },
+];
+const TOOL = "bash";
+const QUESTION = "Agent 想执行一个高风险命令，是否允许？";
+const CMD = "rm -rf /tmp/old-build-artifacts";
+const ST = { A: { kind: "pending" }, B: { kind: "pending" }, C: { kind: "pending" } };
+
+function btnClass(prefix, kind) {
+  if (kind === "primary") return prefix + "-btn " + prefix + "-btn--primary";
+  if (kind === "danger") return prefix + "-btn " + prefix + "-btn--danger";
+  return prefix + "-btn";
+}
+function labelOf(id) { return (OPTIONS.find((o) => o.id === id) || {}).label || id; }
+function actionsHtml(prefix, state) {
+  const submitting = state.kind === "submitting";
+  return OPTIONS.map((o) => {
+    const busy = submitting && state.chosenId === o.id;
+    const label = busy ? o.label + " ⋯" : o.label;
+    return '<button class="' + btnClass(prefix, o.kind) + (busy ? " is-busy" : "") +
+      '" data-opt="' + o.id + '" ' + (submitting ? "disabled" : "") + ">" + label + "</button>";
+  }).join("");
+}
+function headInner(prefix) {
+  if (prefix === "pcA") return '<span class="pcA-badge">🔒 ' + TOOL + '</span><span class="pcA-hint">需要你确认</span>';
+  return '<span>🔒</span><span class="pcB-tool">' + TOOL + '</span><span class="pcB-hint">需要确认</span>';
+}
+function renderFlat(prefix, state) {
+  if (state.kind === "resolved") {
+    const isDeny = state.chosenId === "deny";
+    const label = (isDeny ? "已拒绝 · " : "已允许 · ") + labelOf(state.chosenId);
+    return '<div class="' + prefix + ' ' + prefix + '--resolved ' + (isDeny ? prefix + "--deny" : "") + '">' +
+      '<div class="' + prefix + '-head">' + headInner(prefix) + '</div>' +
+      '<span class="' + prefix + '-resolved-label">' + (isDeny ? "✕" : "✓") + " " + label + "</span></div>";
+  }
+  const err = state.kind === "error" ? '<div class="' + prefix + '-error">提交失败：HTTP 500 — 请重试</div>' : "";
+  return '<div class="' + prefix + '">' +
+    '<div class="' + prefix + '-head">' + headInner(prefix) + '</div>' +
+    '<p class="' + prefix + '-question">' + QUESTION + '</p>' +
+    '<div class="' + prefix + '-cmd">' + CMD + '</div>' + err +
+    '<div class="' + prefix + '-actions">' + actionsHtml(prefix, state) + '</div></div>';
+}
+function renderC(state) {
+  if (state.kind === "resolved") {
+    const isDeny = state.chosenId === "deny";
+    return '<div class="pcC pcC--resolved ' + (isDeny ? "pcC--deny" : "") + '">' +
+      '<div class="pcC-head"><span>' + (isDeny ? "✕" : "✓") + '</span><span class="pcC-tool">' + TOOL +
+      '</span><span class="pcC-hint">' + (isDeny ? "已拒绝" : "已允许") + '</span></div>' +
+      '<div class="pcC-body"><p class="pcC-question pcC-question--muted">' +
+      (isDeny ? "已拒绝" : "已允许") + " · " + labelOf(state.chosenId) + "</p></div></div>";
+  }
+  const err = state.kind === "error" ? '<div class="pcC-error">提交失败：HTTP 500 — 请重试</div>' : "";
+  return '<div class="pcC">' +
+    '<div class="pcC-head"><span>🔒</span><span class="pcC-tool">' + TOOL +
+    '</span><span class="pcC-hint">需要你确认</span></div>' +
+    '<div class="pcC-body"><p class="pcC-question">' + QUESTION + '</p>' +
+    '<div class="pcC-cmd">' + CMD + '</div>' + err + '</div>' +
+    '<div class="pcC-actions">' + actionsHtml("pcC", state) + '</div></div>';
+}
+function render(variant) {
+  const mount = document.querySelector('[data-mount="' + variant + '"]');
+  const state = ST[variant];
+  if (variant === "A") mount.innerHTML = renderFlat("pcA", state);
+  else if (variant === "B") mount.innerHTML = renderFlat("pcB", state);
+  else mount.innerHTML = renderC(state);
+  document.querySelector('[data-statelabel="' + variant + '"]').textContent =
+    "state: " + state.kind + (state.chosenId ? " (" + state.chosenId + ")" : "");
+  mount.querySelectorAll("[data-opt]").forEach((btn) => {
+    btn.addEventListener("click", () => onChoose(variant, btn.dataset.opt));
+  });
+}
+function onChoose(variant, optId) {
+  if (ST[variant].kind === "submitting") return;
+  ST[variant] = { kind: "submitting", chosenId: optId };
+  render(variant);
+  const fail = document.querySelector('[data-fail="' + variant + '"]').checked;
+  setTimeout(() => {
+    ST[variant] = fail ? { kind: "error", chosenId: optId } : { kind: "resolved", chosenId: optId };
+    render(variant);
+  }, 750);
+}
+["A", "B", "C"].forEach((v) => {
+  render(v);
+  document.querySelector('[data-reset="' + v + '"]').addEventListener("click", () => {
+    ST[v] = { kind: "pending" };
+    render(v);
+  });
+});
+</script>
+</body>
+</html>
