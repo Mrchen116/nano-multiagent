@@ -20,6 +20,8 @@ from agent.core.observability.tracing import bind_correlation, set_tracer
 from agent.platform.hooks.loader import build_hook_registry
 from agent.platform.hooks.session_events import set_session_event_publisher_factory
 from agent.platform.http_api.sse import EventStreamHub
+from agent.platform.config.auto_mode import AutoModeConfig
+from agent.platform.permissions.broker import PermissionBroker
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.persistence.session.base import SessionStore
 from agent.platform.persistence.session.service import SessionService
@@ -113,6 +115,16 @@ def create_app(
         resolved_default_tool_ids = resolved_product.default_tool_ids
     session_service = SessionService(store=session_store, profile=product_profile)
     app.state.session_service = session_service
+
+    # PermissionBroker is created once per app instance and shared across all sessions.
+    # It bridges the auto_mode_gate hook (which registers asyncio.Futures when parking)
+    # with the inbound POST /v1/sessions/{sid}/permissions/{request_id} endpoint (which
+    # resolves those futures). A single app-level broker is correct because:
+    # - request_id is globally unique (uuid4), so no session-scoping needed for lookup.
+    # - deny-count and session-allowlist are keyed internally by (run_id, tool_name) / session_id.
+    permission_broker = PermissionBroker(config=AutoModeConfig())
+    app.state.permission_broker = permission_broker
+
     if runtime is None:
         active_hook_registry = hook_registry or build_hook_registry(
             repo_root=resolved_repo_root,
@@ -130,10 +142,18 @@ def create_app(
             session_manager=session_service.manager,
             hook_runner=active_hook_runner,
             repo_root=resolved_repo_root,
+            permission_broker=permission_broker,
             **runtime_kwargs,
         )
     else:
         active_runtime = runtime
+        # Wire the broker into an externally-supplied runtime so permission_requester
+        # gets injected in _build_hook_context just as for freshly-created runtimes.
+        if not getattr(active_runtime, "_permission_broker", None):
+            try:
+                active_runtime._permission_broker = permission_broker  # type: ignore[attr-defined]
+            except AttributeError:
+                pass  # runtime doesn't support attribute assignment — broker wiring unavailable
         runtime_hook_registry = getattr(active_runtime, "hook_registry", None)
         runtime_hook_runner = getattr(active_runtime, "hook_runner", None)
         runtime_config_resolver = getattr(active_runtime, "config_resolver", None) or resolved_config_resolver
