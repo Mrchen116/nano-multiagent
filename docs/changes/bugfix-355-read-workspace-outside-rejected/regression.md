@@ -514,3 +514,167 @@ WebFetch 工作的根本原因：`WebFetchTool.check_permissions` 不使用 `ctx
 **Highest Required Action**: fix-implementation
 
 **needs_re_review**: true
+
+---
+
+# Round 3 — 2026-05-16
+
+## Verdict
+
+**pass**
+
+---
+
+## 环境信息
+
+- Branch: `unit/bugfix-355-read-workspace-outside-rejected`（M5 已合入）
+- Gateway PID: 67792（M5 代码，重启后加载）
+- Kernel CWD: `/Users/czj/Repos/nano-multiagent`
+- Effective auto_mode config path: `/Users/czj/Repos/nano-multiagent/.nanocode/config.yaml`（含 `dangerously_skip_permissions: true`，reviewer 按 Anchor O M5 Corrigendum 指引写入）
+- Kernel API: `http://127.0.0.1:8000`
+- IM: `http://127.0.0.1:8011`
+- 服务接管: Gateway 重启（M5 代码生效）；IM 未改动无需重启
+
+---
+
+## 澄清记录（开工报信）
+
+已读懂 bugfix-355 round 3 验收口径。R2 两个 fail 项重新验证，R1/R2 pass 项继承。开始走旅程。
+
+---
+
+## User Journeys Exercised (Round 3)
+
+| 旅程 | 路径 | 对应 Issue |
+|---|---|---|
+| J2a-bashrc-bak | dangerously mode 下写 `~/.bashrc.test.bak` | R2-#1（bypass-immune 卡片） |
+| J2b-git-config | dangerously mode 下写 `.git/test_config_bugfix355r3` | R2-#1（bypass-immune 卡片）|
+| J4-normal-write | dangerously mode 下写 `/tmp/test_normal_bugfix355r3.txt` | AC4（不误伤普通路径） |
+| Anchor-O-verify | 按 design.md M5 Corrigendum 切换 dangerously mode | R2-#2（配置路径正确性） |
+
+---
+
+## 复现验证
+
+### R3 R2-#1 — bypass-immune 危险目录写保护（blocking）
+
+**M5 修复声称**：`auto_mode_gate.py` 改为 `check_fn(tool_input, ctx)` 传真实 HookContext；写入 ctx=None 崩溃后改为 fail-loud（log ERROR + 返回 safety_check ask，不降级 passthrough）；WriteTool/EditTool.check_permissions 用 `getattr(ctx, "cwd", None) or getattr(ctx, "repo_root", None)` 兼容 HookContext。
+
+**旅程 J2a**（`sess_262165aa59d8d2ca`, `run_79725d92171bfa9d`）：发送"请在 `~/.bashrc.test.bak` 写入内容: test content bugfix355-r3"。
+
+**Events 证据**（`GET /v1/events?after_sequence=0&session_id=sess_262165aa59d8d2ca`）：
+
+```
+EVENT tool_start: write → path=/Users/czj/.bashrc.test.bak
+EVENT permission_request: {
+  "request_id": "852a8004-7448-4fc8-8aa1-0fa44b635f5a",
+  "tool_name": "write",
+  "tool_input": {"path": "/Users/czj/.bashrc.test.bak", "content": "test content bugfix355-r3"},
+  "question": "Allow write? Writing to /Users/czj/.bashrc.test.bak requires explicit confirmation (sensitive system file or directory)"
+}
+```
+
+- run 状态维持 "running"（等待用户确认），持续超过 60 秒
+- `ls /Users/czj/.bashrc.test.bak` → `No such file or directory`（文件未被写入）
+- kernel log：新 sessions 无 "hook execution isolated" 或 "AttributeError" 条目
+
+**旅程 J2b**（`sess_56ad9a53610fa37a`, `run_ef11fc155cb1dd48`）：发送"请在当前目录的 `.git/test_config_bugfix355r3` 写入内容: test-git-write-r3"。
+
+**Events 证据**：
+
+```
+EVENT tool_start: write → path=.git/test_config_bugfix355r3
+EVENT permission_request: {
+  "request_id": "22bae3f3-705d-417f-bdcc-54e5e20b836b",
+  "tool_name": "write",
+  "tool_input": {"path": ".git/test_config_bugfix355r3", "content": "test-git-write-r3"},
+  "question": "Allow write? Writing to .git/test_config_bugfix355r3 requires explicit confirmation (sensitive system file or directory)"
+}
+```
+
+- `ls .git/test_config_bugfix355r3` → `No such file or directory`（文件未被写入）
+
+**旅程 J4**（`sess_90ed3a1998a91fe9`, `run_e6138d6696e63e62`）：发送"请在 `/tmp/test_normal_bugfix355r3.txt` 写入内容: normal-write-test-r3"。
+
+结果：run status = **completed**，`output_text = "已成功在 /tmp/test_normal_bugfix355r3.txt 写入内容：normal-write-test-r3"`；`ls /tmp/test_normal_bugfix355r3.txt` 确认文件存在。**无权限卡片，直接放行。**
+
+**R2-#1 结论**：**pass**。bypass-immune 危险目录写保护端到端生效：
+- `~/.bashrc.test.bak`（`.bashrc` prefix match）→ 弹权限卡片，文件未写入 ✓
+- `.git/test_config_bugfix355r3`（`.git` 目录）→ 弹权限卡片，文件未写入 ✓
+- `/tmp/test_normal_bugfix355r3.txt`（普通路径）→ 直接放行，完成写入 ✓
+- kernel log 无新 "hook execution isolated" / AttributeError 条目 ✓
+
+---
+
+### R4 R2-#2 — Anchor O Corrigendum 路径正确性（minor）
+
+**M5 修复声称**：design.md Anchor O 追加 M5 Corrigendum，说明正确路径 = `NANO_MULTIAGENT_REPO_ROOT` 或 kernel 进程 CWD（`os.getcwd()`）；更新 Runbook for Reviewer M2 指引。
+
+**验证**：
+
+1. design.md Anchor O M5 Corrigendum 明确写明：
+   - `repo_root = AgentRuntime._repo_root = create_app(repo_root=...)的 resolved_repo_root`
+   - = `NANO_MULTIAGENT_REPO_ROOT` 若未设置则为 **kernel 进程 CWD**（`os.getcwd()`）
+   - personal_assistant 以主仓目录作为 CWD 启动时，有效路径是主仓根目录的 `.nanocode/config.yaml`
+   - **不是** per-agent workspace_root 下的目录
+
+2. 实测确认：
+   - Kernel PID 67792，`lsof -p 67792 | grep cwd` → CWD = `/Users/czj/Repos/nano-multiagent`
+   - 按 M5 Corrigendum 指引，在 `/Users/czj/Repos/nano-multiagent/.nanocode/config.yaml` 写入 `dangerously_skip_permissions: true`
+   - Gateway 重启后，dangerously mode **生效**（J2a/J2b 权限卡片触发证明 gate 确实读到了该配置）
+   - 若路径仍错，dangerously mode 无法生效，dangerous write 会静默通过
+
+**R2-#2 结论**：**pass**。Anchor O M5 Corrigendum 路径与 kernel 实际读取路径一致；reviewer 按文档操作能正确切换 dangerously 模式。
+
+---
+
+## 验收标准覆盖（Round 3，继承 R1/R2）
+
+| ID | 验收项（incident.md）| 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|---|
+| AC1 | auto mode 下读工作区外文件返回内容，不报 `path is outside repo sandbox` | incident.md 第1条 | R1 live 验证，R2/R3 继承 | R1：sess_6579afe909c70897，内容返回 | **pass** | R1 已验证，R3 无退化 |
+| AC2 | dangerously mode 下读任意文件直接放行（含 `.git/.bashrc/~/.ssh/id_rsa`）| incident.md 第2条 | R1 继承；Read 在 SAFE_TOOL_ALLOWLIST，bypass 下直接短路 | R1 确认 | **pass** | Read 不经过 check_permissions；继承 R1 |
+| AC3 | dangerously mode 下写 `~/.bashrc`/`.git/config`/`~/.zshrc` 等仍弹卡片 | incident.md 第3条 | R3 live 旅程 J2a/J2b | J2a：`.bashrc.test.bak` 弹 permission_request 卡片，文件未写入；J2b：`.git/test_config_bugfix355r3` 弹卡片，文件未写入；kernel log 无 AttributeError | **pass** | W1 bypass-immune 端到端生效；M5 fix（ctx=None→real ctx + fail-loud）生效 |
+| AC4 | dangerously mode 下写普通路径直接放行（不误伤）| incident.md 第4条 | R3 live 旅程 J4 | J4：`/tmp/test_normal_bugfix355r3.txt` 直接完成，无卡片，文件已写入 | **pass** | W1 safety_check 未触发；普通路径直接 bypass 成功 |
+| AC5 | auto mode 下 WebFetch 未审核域名弹卡片，preapproved 直接 allow | incident.md 第5条 | R2 live 旅程 J5+J6，R3 继承 | R2：docs.python.org 直接返回内容；evil.example.com 等待 87s 确认卡片 | **pass** | S1 端到端已验证；继承 R2 |
+| AC6 | auto mode 下派子 agent 行为与修复前一致，直接 allow | incident.md 第6条 | R1 代码确认继承 | `agent` 仍在 SAFE_TOOL_ALLOWLIST | **pass** | 继承 R1 |
+| AC7 | auto mode 下写工作区外路径，classifier 不再加 OUTSIDE NOTE | incident.md 第7条 | R1 代码确认继承 | grep 无命中 | **pass** | 继承 R1 |
+| AC8 | refactor-353 spec.md Q1 / design.md 决策 2 有 corrigendum 注释 | design.md M1 退出标准 | R1 文档读取继承 | 确认存在 | **pass** | 继承 R1 |
+
+---
+
+## 问题清单（Round 3）
+
+无新问题。R2-#1（blocking）和 R2-#2（minor）均已闭环：
+
+| R2 Issue | Round 3 状态 | 证据 |
+|---|---|---|
+| R2-#1（blocking）— ctx=None 导致 check_permissions 崩溃 | **closed** | J2a/J2b permission_request 卡片弹出；文件未写入；kernel log 无 AttributeError |
+| R2-#2（minor）— Anchor O Corrigendum 路径错误 | **closed** | design.md M5 Corrigendum 正确指向 kernel CWD；实测切换 dangerously mode 生效 |
+
+---
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新
+- [x] `docs/内核设计SPEC.md`：建议更新 `check_permissions ctx` 参数契约（HookContext 兼容 ToolContext）；已在 R2 flag，留后续处理
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] 相关产品 SPEC：无需更新
+
+---
+
+## 结论（Round 3）
+
+| Gap | 修复状态 |
+|---|---|
+| R1: Read 工作区外硬错 | ✅ 已修复（R1 确认，R3 继承） |
+| R2: refactor-353 文档 corrigendum | ✅ 已修复（R1 确认，R3 继承） |
+| W1: bypass-immune 危险目录写保护 | ✅ 端到端已验证（M5 R3 新确认：bashrc.test.bak + .git 目录均弹卡片） |
+| W2: OUTSIDE NOTE 移除 | ✅ 已修复（R1 确认，R3 继承） |
+| S1: WebFetch hostname rule 引擎 | ✅ 端到端已验证（R2 确认，R3 继承） |
+| S2: web_search 从 SAFE_TOOL_ALLOWLIST 移除 | ✅ 代码确认（R1 确认，R3 继承） |
+| Runbook 路径（Anchor O Corrigendum）| ✅ M5 Corrigendum 路径正确（R3 实测验证） |
+
+**Highest Required Action**: pass
+
+**needs_re_review**: false
