@@ -7,6 +7,7 @@
 ## Changelog
 
 <!-- 按时间倒序追加。格式:YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
+- 2026-05-16 (M5): fix R2-#1 auto_mode_gate 传 ctx=None 给 check_permissions 导致 AttributeError 被静默吞 + Anchor O Corrigendum 路径修正为 kernel CWD — 详见 M5-fix-checkperm-ctx/progress.md
 
 ## 现状分析
 
@@ -636,21 +637,32 @@ ask 卡片可以根据 `decision_reason.type == "safety_check"` 在 UI 上加红
 > 其中 `repo_root` 是 HookContext 中的 agent 工作区根目录（即 per-agent 的 `workspace_root`），
 > **不是** `~/.nano-assistant/config.yaml`（Gateway 全局 config）。
 > 按原 Anchor O 操作 reviewer 无法切换 dangerously mode，因为 Gateway 全局 config 走不同读取路径。
+>
+> **Corrigendum (2026-05-16, bugfix-355-M5)**: M4 Corrigendum 仍不准确。
+> `auto_mode_gate` 的 fallback 路径中 `repo_root` = `AgentRuntime._repo_root`，
+> 由 `create_app(repo_root=...)` 的 `resolved_repo_root` 决定：
+> 等于环境变量 `NANO_MULTIAGENT_REPO_ROOT`，若未设置则为 kernel 进程 **CWD**（`os.getcwd()`）。
+> personal_assistant 以主仓目录作为 CWD 启动时，有效路径是主仓根目录的 `.nanocode/config.yaml`，
+> **不是** per-agent `workspace_root` 下的目录。
+> 详见 regression.md Round 2 Issue R2-#2。
 
-reviewer M2/M3 旅程要切 dangerously mode，改的是：
+reviewer M2/M3 旅程要切 dangerously mode，改的是 **kernel 进程 CWD** 下的：
 
 ```
-<agent_workspace_root>/.nanocode/config.yaml
+<kernel_repo_root>/.nanocode/config.yaml
 ```
 
-其中 `<agent_workspace_root>` 是 `~/.nano-assistant/config.yaml` 中该 agent 的 `workspace_root` 字段值
-（通常为 `~/nano-assistant/workspace/default-agent`）。实际路径示例：
+其中 `<kernel_repo_root>` 由以下规则决定（优先级从高到低）：
+1. 环境变量 `NANO_MULTIAGENT_REPO_ROOT`（若设置）
+2. kernel 进程启动时的 CWD（`os.getcwd()`）
+
+personal_assistant 以主仓目录启动时，有效路径示例：
 
 ```
-~/nano-assistant/workspace/default-agent/.nanocode/config.yaml
+/Users/czj/Repos/nano-multiagent/.nanocode/config.yaml
 ```
 
-若目录不存在，先 `mkdir -p ~/nano-assistant/workspace/default-agent/.nanocode`。
+若目录不存在，先 `mkdir -p .nanocode`（在主仓根目录执行）。
 
 config 字段层级(在现有 `auto_mode` 段下加):
 
@@ -692,7 +704,7 @@ auto_mode:
 测试账号 / 配置见 AGENTS.md "测试账号" 段。reviewer 主要旅程(对应 M1/M2/M3 的 reviewer 验收):
 
 - **M1**:在 IM 让 agent 读 `/tmp/sandbox-alpha/README.md`(预设有内容)— 应该返回真实内容,不再 `path is outside repo sandbox`
-- **M2**:在 dangerously 模式下让 agent 写 `~/.bashrc.test.bak` / `.git/test_config` — 应该弹卡片;让 agent 写 `/tmp/test_normal.txt` — 应该直接放行。**dangerously 模式配置**:`auto_mode_gate` 实际读取 `<agent_workspace_root>/.nanocode/config.yaml`(agent 的工作目录,不是 Gateway 全局 config)。对于 default-agent，路径通常是 `~/nano-assistant/workspace/default-agent/.nanocode/config.yaml`（按 `~/.nano-assistant/config.yaml` 中 `agents[].workspace_root` 的实际值）。在该文件写入：`auto_mode:\n  dangerously_skip_permissions: true`。若文件/目录不存在需先创建。
+- **M2**:在 dangerously 模式下让 agent 写 `~/.bashrc.test.bak` / `.git/test_config` — 应该弹卡片;让 agent 写 `/tmp/test_normal.txt` — 应该直接放行。**dangerously 模式配置**:`auto_mode_gate` 实际读取 `<kernel_repo_root>/.nanocode/config.yaml`，其中 `<kernel_repo_root>` = `NANO_MULTIAGENT_REPO_ROOT` 或 kernel 进程 CWD。personal_assistant 以主仓目录启动时，有效路径是主仓根目录的 `.nanocode/config.yaml`（见锚点 O 的 M5 Corrigendum）。在该文件写入：`auto_mode:\n  dangerously_skip_permissions: true`。若目录不存在，先 `mkdir -p <kernel_repo_root>/.nanocode`。
 - **M3**:在 auto 模式下让 agent `web_fetch https://docs.python.org/3/tutorial/`(preapproved)— 直接返回;让 agent `web_fetch https://evil.example.com`(无 rule)— 弹卡片
 
 ## Milestones

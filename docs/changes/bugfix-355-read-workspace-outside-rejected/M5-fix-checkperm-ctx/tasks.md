@@ -27,3 +27,4 @@
 | R1 | 集成测试 — 反向断言 ctx=None 时 check_permissions 崩溃可观测（Red） | DONE |
 | R2 | fix auto_mode_gate：传真实 ctx + fail-loud 机制 | DONE |
 | R3 | 文档修正：design.md Anchor O Corrigendum 路径 | DONE |
+
