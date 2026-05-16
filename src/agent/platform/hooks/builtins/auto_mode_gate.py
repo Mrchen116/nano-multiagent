@@ -163,9 +163,9 @@ XML_S2_SUFFIX = (
 SAFE_TOOL_ALLOWLIST: frozenset[str] = frozenset({
     # Read-only file operations
     "read",
-    # Search / read-only
-    "web_fetch",
-    "web_search",
+    # web_fetch and web_search removed (bugfix-355 S1/S2):
+    # web_fetch falls to WebFetchTool.check_permissions (preapproved host table + hostname rules)
+    # web_search falls to classifier via passthrough (no tool-level opinion)
     # Task management (metadata only)
     "task_create",
     "task_get",
@@ -173,7 +173,7 @@ SAFE_TOOL_ALLOWLIST: frozenset[str] = frozenset({
     "task_list",
     "task_stop",
     "task_output",
-    # Agent coordination
+    # Agent coordination — kept (D2 decision: CC external build behavior is allow-by-default)
     "agent",
     "send_message",
 })
@@ -625,52 +625,6 @@ async def _handle_ask(
     return {"block": True, "reason": response.reason or "user denied"}
 
 
-# refactor-353: Write/edit tools whose tool_input carries a file path that
-# must be checked against the workspace boundary. The value is the key inside
-# tool_input where the path lives.
-_WRITE_TOOLS_WITH_PATH_INPUT: Mapping[str, str] = {
-    "write": "file_path",
-    "edit": "file_path",
-    "multi_edit": "file_path",
-}
-
-
-def _detect_outside_workspace_path(
-    *,
-    tool_name: str,
-    tool_input: Mapping[str, Any],
-    ctx: Any,  # noqa: ANN401 — HookContext, kept loose to avoid platform-layer dep cycle
-) -> str | None:
-    """Return the resolved path string when the call writes outside the workspace.
-
-    Used to route out-of-workspace writes through the classifier / ask flow
-    instead of letting them slip past safe-tool / session-allowlist short
-    circuits or hard-erroring inside the tool body.  Returns ``None`` for
-    in-workspace paths or tools that don't carry a writable path.
-    """
-
-    path_key = _WRITE_TOOLS_WITH_PATH_INPUT.get(tool_name)
-    if path_key is None:
-        return None
-    raw_path = tool_input.get(path_key)
-    if not isinstance(raw_path, str) or not raw_path.strip():
-        return None
-    repo_root: Path | None = getattr(ctx, "repo_root", None)
-    if repo_root is None:
-        return None
-    try:
-        safety = ToolSafety(
-            repo_root=repo_root,
-            config=load_tool_safety_config(repo_root=repo_root),
-        )
-        resolved = safety.normalize_path(raw_path, cwd=repo_root)
-    except Exception:  # noqa: BLE001 — best-effort detection; on failure fall back
-        return None
-    if safety.is_path_in_workspace(resolved):
-        return None
-    return str(resolved)
-
-
 def setup(hooks: Any) -> None:  # noqa: ANN001
     """Register auto_mode_gate as tool_call intercept hook.
 
@@ -710,32 +664,73 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                 workspace_config_dir=repo_root / ".nanocode" if repo_root else None,
             )
 
-        # 0. dangerously_skip_permissions bypass — no checks at all
-        if config.dangerously_skip_permissions:
-            if tool_name == "bash":
-                return {"allow_unlisted": True}
-            return None  # pass through
+        # Step 1 (bugfix-355 D1+W1): tool.check_permissions — called BEFORE dangerously bypass
+        # so safety_check type results can be bypass-immune (W1).
+        # Anchor B: getattr fallback — tool without check_permissions → passthrough.
+        tool_registry = metadata.get("tool_registry")
+        tool_instance = tool_registry.get(tool_name) if tool_registry is not None else None
+        check_fn = getattr(tool_instance, "check_permissions", None)
+        tool_result = check_fn(tool_input, None) if check_fn is not None else None
 
-        # 0.5. Detect out-of-workspace write/edit (refactor-353). Routed BEFORE
-        # session_allowlist / safe_tools so out-of-workspace paths can never
-        # silently slip through; classifier sees the path and decides.
-        outside_workspace_path: str | None = _detect_outside_workspace_path(
-            tool_name=tool_name, tool_input=tool_input, ctx=ctx
+        # Determine safety_locked: bypass-immune when tool self-declares safety_check ask
+        safety_locked = (
+            tool_result is not None
+            and getattr(tool_result, "behavior", None) == "ask"
+            and isinstance(getattr(tool_result, "decision_reason", None), dict)
+            and tool_result.decision_reason.get("type") == "safety_check"
         )
 
-        # 1. Session allowlist fast path
+        # Step 2: dangerously_skip_permissions bypass
+        # safety_locked tools still require user confirmation even in bypass mode (W1)
+        if config.dangerously_skip_permissions:
+            if safety_locked:
+                # Bypass-immune: safety_check ask cannot be skipped by dangerously mode
+                return await _handle_ask(
+                    ctx, tool_name, tool_input,
+                    tool_result.reason if tool_result else "Safety check required",
+                    run_id, session_id, config, broker,
+                )
+            if tool_name == "bash":
+                return {"allow_unlisted": True}
+            return None  # true bypass
+
+        # Step 3: Session allowlist fast path
         if broker and broker.is_session_allowed(session_id, tool_name):
             if tool_name == "bash":
                 return {"allow_unlisted": True}
             return None
 
-        # 2. Safe-tool allowlist bypass — but NOT when path is outside
-        # workspace; for write/edit with external path we always want the
-        # classifier (or ask) to see it.
-        if outside_workspace_path is None and is_safe_tool(tool_name, config):
+        # Step 4: Safe-tool allowlist bypass
+        # (web_fetch / web_search removed in bugfix-355 S1/S2; read/agent/task/send_message remain)
+        if is_safe_tool(tool_name, config):
             return None  # pass through without classifier
 
-        # 3. Bash: check_command_policy first
+        # Step 5: Dispatch tool.check_permissions result (already computed in step 1)
+        if tool_result is not None:
+            tool_behavior = getattr(tool_result, "behavior", "passthrough")
+            if tool_behavior == "allow":
+                if broker and run_id:
+                    broker.reset_deny_count(run_id, tool_name)
+                if tool_name == "bash":
+                    return {"allow_unlisted": True}
+                return None
+            if tool_behavior == "deny":
+                return {"block": True, "reason": getattr(tool_result, "reason", "denied by tool")}
+            if tool_behavior == "ask":
+                # Non-safety-check ask (safety_check was handled at step 2)
+                is_unattended = run_origin in _UNATTENDED_ORIGINS
+                if is_unattended:
+                    if config.unattended_fallback == "allow":
+                        return None
+                    return {"block": True, "reason": f"tool ask, unattended fallback: deny"}
+                return await _handle_ask(
+                    ctx, tool_name, tool_input,
+                    getattr(tool_result, "reason", f"permission required for {tool_name}"),
+                    run_id, session_id, config, broker,
+                )
+            # behavior == "passthrough" → fall through to bash policy / classifier
+
+        # Step 6: Bash: check_command_policy first
         if tool_name == "bash":
             command = tool_input.get("command", "")
             if not isinstance(command, str) or not command.strip():
@@ -756,7 +751,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
 
             # policy.status == "review" → fall through to classifier below
 
-        # 4. Deny-limit check before classifier (escalate immediately if already exceeded)
+        # Step 7: Deny-limit check before classifier (escalate immediately if already exceeded)
         if broker and run_id and broker.is_deny_limit_exceeded(run_id, tool_name, deny_limit=config.deny_limit):
             # Already exceeded limit → ask directly, skip classifier
             is_unattended = run_origin in _UNATTENDED_ORIGINS
@@ -771,19 +766,9 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                 run_id, session_id, config, broker,
             )
 
-        # 5. Classifier
+        # Step 8: Classifier (W2: no longer prepends OUTSIDE NOTE — classifier uses system prompt)
         system_prompt = build_yolo_system_prompt(config)
         user_prompt = _build_transcript_user_message(ctx, tool_name, tool_input)
-        if outside_workspace_path is not None:
-            # Tell the classifier the path is outside the workspace so it can
-            # weigh that signal. Without this hint the classifier could only
-            # see the tool name + arguments without knowing they fall outside
-            # the agent's sandbox.
-            user_prompt = (
-                f"NOTE: target path '{outside_workspace_path}' is OUTSIDE the agent's workspace. "
-                f"Writing here affects user files outside the project — be conservative.\n"
-                + user_prompt
-            )
 
         try:
             decision = await _classify_action(ctx, system_prompt, user_prompt)
@@ -801,7 +786,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
 
         if decision.behavior == "deny":
             if broker and run_id:
-                new_count = broker.increment_deny_count(run_id, tool_name)
+                broker.increment_deny_count(run_id, tool_name)
                 # Check if we just crossed the limit
                 if broker.is_deny_limit_exceeded(run_id, tool_name, deny_limit=config.deny_limit):
                     is_unattended = run_origin in _UNATTENDED_ORIGINS
