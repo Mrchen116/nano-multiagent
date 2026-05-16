@@ -18,6 +18,25 @@ import yaml
 
 
 @dataclass(frozen=True)
+class WebFetchConfig:
+    """Per-tool web_fetch permission configuration.
+
+    Extends the preapproved host table and provides user-configured hostname
+    rules for deny/ask/allow decisions in WebFetchTool.check_permissions.
+
+    Workspace > global section-level merge applies: if workspace config has a
+    web_fetch section it wholly replaces the global web_fetch section (no
+    field-by-field deep merge). Users who want to partially override must
+    list all desired host entries explicitly in the workspace config.
+    """
+
+    preapproved_hosts_extra: tuple[str, ...] = ()
+    deny_hosts: tuple[str, ...] = ()
+    ask_hosts: tuple[str, ...] = ()
+    allow_hosts: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class AutoModeConfig:
     """Auto mode permission classifier configuration.
 
@@ -34,6 +53,7 @@ class AutoModeConfig:
     allow: tuple[str, ...] = ()
     soft_deny: tuple[str, ...] = ()
     environment: tuple[str, ...] = ()
+    web_fetch: WebFetchConfig = field(default_factory=WebFetchConfig)
 
 
 def load_auto_mode_config(
@@ -99,6 +119,16 @@ def _parse_auto_mode_config(raw: dict[str, Any]) -> AutoModeConfig:
     soft_deny = _coerce_str_tuple(raw.get("soft_deny"), defaults.soft_deny)
     environment = _coerce_str_tuple(raw.get("environment"), defaults.environment)
 
+    web_fetch_section = raw.get("web_fetch", {})
+    if not isinstance(web_fetch_section, Mapping):
+        web_fetch_section = {}
+    web_fetch = WebFetchConfig(
+        preapproved_hosts_extra=_coerce_str_tuple(web_fetch_section.get("preapproved_hosts_extra"), ()),
+        deny_hosts=_coerce_str_tuple(web_fetch_section.get("deny_hosts"), ()),
+        ask_hosts=_coerce_str_tuple(web_fetch_section.get("ask_hosts"), ()),
+        allow_hosts=_coerce_str_tuple(web_fetch_section.get("allow_hosts"), ()),
+    )
+
     return AutoModeConfig(
         enabled=enabled,
         dangerously_skip_permissions=dangerously_skip,
@@ -109,6 +139,7 @@ def _parse_auto_mode_config(raw: dict[str, Any]) -> AutoModeConfig:
         allow=allow,
         soft_deny=soft_deny,
         environment=environment,
+        web_fetch=web_fetch,
     )
 
 
