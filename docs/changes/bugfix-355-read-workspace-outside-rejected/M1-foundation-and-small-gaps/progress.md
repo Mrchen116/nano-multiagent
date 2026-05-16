@@ -38,3 +38,19 @@
 - Commits: C1=c3941616, C2=400c11f2, C3=TBD
 - Next: R3 — safety.resolve_read_path 删除
 
+### R3 — safety.resolve_read_path 删除 + ReadTool 改调 normalize_path
+
+- Context: Anchor E 明确要求删除 `resolve_read_path` + `_read_allowed_roots`;read.py 改调 `normalize_path` 以移除工作区边界检查
+- Decision: 直接删除两个方法;`is_path_in_workspace` 保留(write 工具仍需);`read.py:53` 改调 `normalize_path(raw_path, cwd=ctx.cwd)`
+- Rationale: read 工具不再有边界 guard — auto_mode_gate 的 safe-allowlist / classifier 已提供足够保护;dangerously mode 明确 opt-out 所有检查
+- Evidence:
+  - Tests: 9 passed(resolve_read_path 不存在 + normalize_path 不做边界检查 + ReadTool 读工作区外文件)
+  - Entry: ReadTool.run 真实调用验证,从 tmp_path 外部目录读文件,返回内容
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 53 gate tests + 11 path sandbox tests 全绿
+  - Visual/Interaction: N/A
+- Rollback: C1 hash = 1e279945
+- Commits: C1=1e279945, C2=8d73949e, C3=TBD
+- Next: R4 — auto_mode_gate dispatch 改造
+
