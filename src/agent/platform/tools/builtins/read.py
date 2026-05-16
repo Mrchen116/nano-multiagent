@@ -50,7 +50,10 @@ class ReadTool:
         """Read file content while enforcing sandbox paths and output limits."""
 
         raw_path = str(args["path"])
-        file_path = ctx.safety.resolve_read_path(raw_path, cwd=ctx.cwd, tool_name=self.name)
+        # bugfix-355: boundary check removed — read is allowed from any path.
+        # auto_mode_gate routes non-workspace reads through classifier/ask in
+        # non-bypass modes; bypass mode explicitly opts out of all checks.
+        file_path = ctx.safety.normalize_path(raw_path, cwd=ctx.cwd)
 
         if not file_path.exists() or not file_path.is_file():
             raise ToolError(

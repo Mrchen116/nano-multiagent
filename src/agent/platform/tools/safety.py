@@ -295,43 +295,18 @@ class ToolSafety:
         return candidate.resolve()
 
     def is_path_in_workspace(self, resolved: Path) -> bool:
-        """Whether the resolved path lies under the repository root."""
+        """Whether the resolved path lies under the repository root.
+
+        TODO(bugfix-355): After write/edit tools fully migrate to tool-level
+        check_permissions, this method is only used by test code. Remove when
+        migration is complete and tests updated.
+        """
 
         try:
             resolved.relative_to(self.repo_root)
             return True
         except ValueError:
             return False
-
-    def resolve_read_path(self, path: str, *, cwd: Path, tool_name: str) -> Path:
-        """Resolve a read path under repository root or trusted shared skills root.
-
-        Reads don't go through the auto_mode_gate ask flow (default-allow), so
-        the boundary check stays here as a guardrail. See decision 2 in
-        refactor-353/design.md.
-        """
-
-        resolved = self.normalize_path(path, cwd=cwd)
-        for root in self._read_allowed_roots():
-            try:
-                resolved.relative_to(root)
-                return resolved
-            except ValueError:
-                continue
-        raise ToolError(
-            "path is outside repo sandbox",
-            tool_name=tool_name,
-            details={"path": path, "repo_root": str(self.repo_root)},
-        )
-
-    def _read_allowed_roots(self) -> tuple[Path, ...]:
-        """Return trusted roots that can be read without write permission."""
-
-        codex_home = Path(os.getenv("CODEX_HOME", "~/.codex")).expanduser().resolve()
-        return (
-            self.repo_root,
-            codex_home / "skills",
-        )
 
     def truncate_text(self, text: str, *, max_lines: int, max_bytes: int, tail: bool = False) -> tuple[str, bool]:
         """Truncate text by line and byte ceilings and report truncation flag."""

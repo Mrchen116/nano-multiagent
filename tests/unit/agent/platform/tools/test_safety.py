@@ -42,7 +42,8 @@ class TestNormalizePathPreserved:
         safety = ToolSafety(repo_root=Path("/workspace"), config=ToolSafetyConfig())
         # /tmp is outside /workspace — should succeed (no boundary check)
         result = safety.normalize_path("/tmp/test_file.txt", cwd=Path("/workspace"))
-        assert result == Path("/tmp/test_file.txt")
+        # Use resolved path for comparison (macOS /tmp → /private/tmp symlink)
+        assert result == Path("/tmp/test_file.txt").resolve()
 
     def test_normalize_relative_path_joins_cwd(self):
         """normalize_path joins relative paths with cwd."""
@@ -61,7 +62,8 @@ class TestNormalizePathPreserved:
         safety = ToolSafety(repo_root=Path("/workspace"), config=ToolSafetyConfig())
         # This should not raise ToolError
         result = safety.normalize_path("/etc/hosts", cwd=Path("/workspace"))
-        assert result == Path("/etc/hosts")
+        # Use resolved for comparison (macOS may have symlinks like /etc → /private/etc)
+        assert result == Path("/etc/hosts").resolve()
 
 
 class TestIsPathInWorkspacePreserved:
