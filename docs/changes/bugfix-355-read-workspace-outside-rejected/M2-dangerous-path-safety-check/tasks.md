@@ -44,4 +44,5 @@ UI 状态矩阵: N/A (纯后端 milestone)
   3. 补文档 + progress.md (C3)
 - 验证: `pytest tests/unit/agent/platform/tools/` + `pytest tests/unit/agent/` 全绿
 
-- **状态**: TODO
+- R1: **DONE**
+- R2: **DOING**
