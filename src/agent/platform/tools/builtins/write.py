@@ -6,6 +6,8 @@ from typing import Any, Mapping
 from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
+from agent.platform.permissions.broker import PermissionDecision
+from agent.platform.tools.dangerous_paths import check_dangerous_path
 
 
 class WriteTool:
@@ -26,6 +28,27 @@ class WriteTool:
         "required": ["path", "content"],
         "additionalProperties": False,
     }
+
+    def check_permissions(
+        self, tool_input: Mapping[str, Any], ctx: ToolContext
+    ) -> PermissionDecision:
+        """Guard writes to dangerous system files/directories (D5, bugfix-355).
+
+        Matches against DANGEROUS_FILES (basename) and DANGEROUS_DIRECTORIES (any segment).
+        Returns ask + decision_reason.type='safety_check' so auto_mode_gate treats this
+        as bypass-immune — even dangerously_skip_permissions mode cannot auto-approve.
+        """
+        raw_path = str(tool_input.get("path", ""))
+        if check_dangerous_path(raw_path, cwd=ctx.cwd):
+            return PermissionDecision(
+                behavior="ask",
+                decision_reason={"type": "safety_check", "matched_path": raw_path},
+                reason=(
+                    f"Writing to {raw_path} requires explicit confirmation "
+                    "(sensitive system file or directory)"
+                ),
+            )
+        return PermissionDecision(behavior="passthrough")
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         """Write UTF-8 content to a resolved sandbox path."""
