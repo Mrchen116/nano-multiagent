@@ -240,3 +240,73 @@ class TestCheckDangerousPathRelativePaths:
     def test_relative_git_dir_no_cwd(self):
         """Relative path with dangerous directory segment, no cwd."""
         assert check_dangerous_path(".git/config") is True
+
+
+# ---------------------------------------------------------------------------
+# check_dangerous_path — dotfile backup/variant prefix matching (bugfix-355 M4)
+#
+# Reviewer Issue #2 (major): exact-basename matching misses .bashrc.test.bak,
+# .zshrc.bak.20260101 etc. Rule: basename startswith <dangerous-file> + "."
+# (dot-separator required to avoid false positives like ".bashrcevil").
+# ---------------------------------------------------------------------------
+
+
+class TestCheckDangerousPathDotfilePrefix:
+    """Dotfile backup/variant files must match via prefix rule (bugfix-355 M4)."""
+
+    def test_bashrc_dot_test_dot_bak(self):
+        """.bashrc.test.bak starts with .bashrc. → dangerous."""
+        assert check_dangerous_path("/home/user/.bashrc.test.bak") is True
+
+    def test_bashrc_dot_bak(self):
+        """.bashrc.bak starts with .bashrc. → dangerous."""
+        assert check_dangerous_path("~/.bashrc.bak") is True
+
+    def test_bashrc_backup_suffix(self):
+        """.bashrc_backup uses _ separator — only . separator triggers prefix match."""
+        # _ is not a valid separator for prefix match rule; should NOT match
+        # (design.md: "basename 以 <dangerous-file> 或 <dangerous-file>. 开头")
+        # Without separator we'd catch .bashrcevil; require dot separator
+        assert check_dangerous_path("/home/user/.bashrc_backup") is False
+
+    def test_zshrc_bak_with_date(self):
+        """.zshrc.bak.20260101 starts with .zshrc. → dangerous."""
+        assert check_dangerous_path("~/.zshrc.bak.20260101") is True
+
+    def test_bash_profile_dot_bak(self):
+        """.bash_profile.bak starts with .bash_profile. → dangerous."""
+        assert check_dangerous_path("/home/user/.bash_profile.bak") is True
+
+    def test_gitconfig_dot_backup(self):
+        """.gitconfig.backup starts with .gitconfig. → dangerous."""
+        assert check_dangerous_path("/home/user/.gitconfig.backup") is True
+
+    def test_zprofile_dot_orig(self):
+        """.zprofile.orig starts with .zprofile. → dangerous."""
+        assert check_dangerous_path("~/.zprofile.orig") is True
+
+    def test_profile_dot_save(self):
+        """.profile.save starts with .profile. → dangerous."""
+        assert check_dangerous_path("/home/user/.profile.save") is True
+
+    def test_mcp_json_dot_bak(self):
+        """.mcp.json.bak — tricky because .mcp.json already contains a dot.
+        basename is .mcp.json.bak; .mcp.json is in DANGEROUS_FILES;
+        .mcp.json.bak startswith .mcp.json. → dangerous."""
+        assert check_dangerous_path("/home/user/.mcp.json.bak") is True
+
+    def test_no_false_positive_bashrc_evil(self):
+        """.bashrcevil must NOT match — no dot separator."""
+        assert check_dangerous_path("/home/user/.bashrcevil") is False
+
+    def test_no_false_positive_dot_zshrc_evil(self):
+        """.zshrcdanger must NOT match — no separator."""
+        assert check_dangerous_path("~/.zshrcdanger") is False
+
+    def test_case_insensitive_prefix(self):
+        """.BASHRC.BAK should match (case-insensitive prefix rule)."""
+        assert check_dangerous_path("/home/user/.BASHRC.BAK") is True
+
+    def test_non_dangerous_dotfile_with_bak(self):
+        """.vimrc.bak should NOT match — .vimrc is not in DANGEROUS_FILES."""
+        assert check_dangerous_path("/home/user/.vimrc.bak") is False
