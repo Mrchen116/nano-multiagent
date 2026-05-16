@@ -70,3 +70,19 @@
 - Commits: C1=67b3585f, C2=aafd2c7e, C3=TBD
 - Next: R5 — refactor-353 文档 corrigendum
 
+### R5 — refactor-353 文档 corrigendum
+
+- Context: D6 决定要在 refactor-353 的 spec.md Q1 + design.md 决策 2 段末加 Corrigendum 注释,说明 CC Read 实际行为与原错判的不一致;双保险(正文 corrigendum + Changelog 行)
+- Decision: 按 Anchor M 模板在两份文档各自加 corrigendum block + Changelog 行;同时更新 test_tools_builtins.py 将原"读工作区外 raises"的测试改为"现在应成功"
+- Rationale: 历史可读性;后人翻 docs/changes/ 能看到错判 + 旁标修正 + 指向 audit 文档
+- Evidence:
+  - Tests: 7 passed(corrigendum 存在性测试);64 passed test_tools_builtins
+  - Entry: N/A(文档变更)
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 所有 unit tests 全绿
+  - Visual/Interaction: N/A
+- Rollback: C1 hash = 7c4f791e
+- Commits: C1=7c4f791e, C2=de33ceac+d7a5b9b4, C3=TBD
+- Next: milestone M1 完成
+
