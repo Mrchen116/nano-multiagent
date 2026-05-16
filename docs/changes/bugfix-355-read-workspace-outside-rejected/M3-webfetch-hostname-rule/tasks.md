@@ -25,7 +25,7 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | webfetch_preapproved + HostnameRuleEngine 新建 + 测试 | TODO |
+| R1 | webfetch_preapproved + HostnameRuleEngine 新建 + 测试 | DONE |
 | R2 | AutoModeConfig.web_fetch 配置扩展 + 测试 | TODO |
 | R3 | WebFetchTool.check_permissions 5 分支 + 集成回归 | TODO |
 
