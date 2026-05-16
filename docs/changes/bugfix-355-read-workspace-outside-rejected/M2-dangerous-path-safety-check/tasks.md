@@ -45,4 +45,4 @@ UI 状态矩阵: N/A (纯后端 milestone)
 - 验证: `pytest tests/unit/agent/platform/tools/` + `pytest tests/unit/agent/` 全绿
 
 - R1: **DONE**
-- R2: **DOING**
+- R2: **DONE**
