@@ -259,3 +259,258 @@ WebFetchTool(config=AutoModeConfig(web_fetch=WebFetchConfig(allow_hosts=('exampl
 **Highest Required Action**: fix-implementation
 
 **needs_re_review**: true
+
+---
+
+# Round 2 — 2026-05-16
+
+## Verdict
+
+**fail**
+
+---
+
+## 环境信息
+
+- Branch: `unit/bugfix-355-read-workspace-outside-rejected`（M4 已合入）
+- Gateway: PID 63245 / Kernel: PID 63246（worker 已重启，2026-05-16 14:46）
+- Kernel CWD: `/Users/czj/Repos/nano-multiagent`（system Python `miniforge3`）
+- Effective auto_mode config path: `/Users/czj/Repos/nano-multiagent/.nanocode/config.yaml`（含 `deny_limit: 1`，**无** `dangerously_skip_permissions`）
+- Kernel API: `http://127.0.0.1:8000`
+- IM: `http://127.0.0.1:8011`
+
+---
+
+## 澄清记录（开工报信）
+
+本轮无疑问，直接走旅程。R1 覆盖表中 pass 项（AC1 / AC2 / AC6 / AC7 / AC8）继承；R1 fail/inconclusive 项（AC3 / AC4 / AC5）重新验证。
+
+---
+
+## User Journeys Exercised (Round 2)
+
+| 旅程 | 路径 | 对应 Issue |
+|---|---|---|
+| J1-auto-read-outside | auto mode 下读 `/tmp/sandbox-alpha/README.md` | R1 AC1 继承确认 |
+| J2-dangerous-write-bashrc-bak | 在当前模式下写 `~/.bashrc.test.bak`（Issue #2 prefix match） | Issue #2 |
+| J5-webfetch-preapproved | auto mode 下 `web_fetch https://docs.python.org/3/tutorial/` | Issue #1（WebFetch 侧） |
+| J6-webfetch-unknown | auto mode 下 `web_fetch https://evil.example.com` | Issue #1（WebFetch 侧） |
+
+---
+
+## 复现验证
+
+### R1 Issue #1 (blocking) — tool_registry 注入 + ctx=None 导致 check_permissions 在 gate 层崩溃
+
+**M4 修复声称**：`runtime.py:_build_hook_context` 新增 `tool_registry` 注入，使 `auto_mode_gate` 能拿到 tool 实例并调用 `check_permissions`。
+
+**Round 2 观察**：
+
+旅程 J2（`sess_82fed7a12305e826`, `run_110700d0cbf5e3f2`）：发送"请在 `~/.bashrc.test.bak` 写入内容"。
+
+Session 消息链：
+```
+[user] 请在 ~/.bashrc.test.bak 写入内容: test content bugfix355
+[tool] File created successfully at: /Users/czj/.bashrc.test.bak
+[assistant] 已成功创建文件 ~/.bashrc.test.bak 并写入内容
+```
+
+文件被直接写入，没有弹卡片。
+
+**Kernel log 证据**（`/Users/czj/.nano-assistant/kernel.log`，行 41140-41141）：
+
+```
+hook execution isolated | duration_ms=1,
+  error="AttributeError: 'NoneType' object has no attribute 'cwd'",
+  event='tool_call', hook_id='builtin:tool_call:9',
+  session_id='sess_82fed7a12305e826',
+  tool_call_id='call_2cffboswsl113ep2lk67jkea'
+```
+
+**根因（reviewer 用户面描述）**：
+
+tool_registry 注入已生效（集成测试 4/4 pass，hook 确实调用了 `check_fn`），但 `auto_mode_gate.py:673` 将 `None` 作为 ctx 参数传给 `check_fn`：
+
+```python
+tool_result = check_fn(tool_input, None)   # ctx = None
+```
+
+`WriteTool.check_permissions`（第 42 行）执行 `ctx.cwd`，因 `ctx=None` 抛出 `AttributeError`。Hook runner 将此异常标记为 "isolated"（日志可见），继续以 `tool_result = None` 处理，等价 passthrough——check_permissions 的返回值永远不会被 gate 用到。
+
+**结论**：Issue #1 的真正问题从"tool_registry 未注入"转变为"ctx=None 传入 check_permissions"，端到端链路仍然断开。W1（bypass-immune 危险目录写保护）在 WriteTool / EditTool 上**仍然不生效**。
+
+**期望**：gate 应传入真实的 HookContext（或至少含 `cwd` 的最小 ctx），使 WriteTool.check_permissions 能正常执行路径检查。
+
+---
+
+### R2 Issue #2 (major) — .bashrc.test.bak 前缀匹配
+
+**M4 修复声称**：`dangerous_paths.py` 新增 `basename.startswith(dangerous_file + ".")` 前缀规则，使 `.bashrc.test.bak` 命中保护。
+
+**直接测试**（Python 脚本，无需 Gateway）：
+
+```python
+from agent.platform.tools.dangerous_paths import check_dangerous_path
+check_dangerous_path('/Users/czj/.bashrc.test.bak')  # → True ✓
+check_dangerous_path('~/.bashrc.test.bak')           # → True ✓
+check_dangerous_path('.git/test_config')             # → True ✓
+```
+
+前缀匹配逻辑本身**正确**。
+
+`WriteTool.check_permissions({'path': '/Users/czj/.bashrc.test.bak'}, mock_ctx)` 也返回 `PermissionDecision(behavior='ask', decision_reason={'type': 'safety_check', ...})`。
+
+**结论**：Issue #2 的代码修复本身**正确**。但因 Issue #1 的 ctx=None 崩溃，该修复在生产环境中的端到端链路仍被 bypass，无法单独验证。两个 issue 耦合——Issue #1 修复后，Issue #2 才能真正在 E2E 上得到验证。
+
+---
+
+### R3 Issue #3 (minor) — dangerously 配置路径
+
+**M4 修复声称**：design.md Anchor O 新增 Corrigendum，说明实际路径为 `<agent_workspace_root>/.nanocode/config.yaml`，指向 `~/.nano-assistant/config.yaml` 中各 agent 的 `workspace_root` 字段值。
+
+**实际核查**：
+
+`auto_mode_gate.py:661-664` fallback 读：
+
+```python
+repo_root: Path | None = getattr(ctx, "repo_root", None)
+config = load_auto_mode_config(
+    global_config_dir=None,
+    workspace_config_dir=repo_root / ".nanocode" if repo_root else None,
+)
+```
+
+`ctx.repo_root = AgentRuntime._repo_root = create_app 的 resolved_repo_root`。
+
+`create_app` 中：
+
+```python
+resolved_repo_root = (
+    repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
+).expanduser().resolve()
+```
+
+当前运行中的 kernel（PID 63246）：
+- CWD = `/Users/czj/Repos/nano-multiagent`（`lsof -p 63246 | grep cwd` 确认）
+- 未设置 `NANO_MULTIAGENT_REPO_ROOT`（无法读取进程 env，但基于 CWD 推断）
+
+**有效 auto_mode config 路径**：`/Users/czj/Repos/nano-multiagent/.nanocode/config.yaml`（确认内容：`auto_mode: deny_limit: 1`，**无** dangerously 模式）
+
+**Anchor O Corrigendum 指向的路径**：`~/nano-assistant/workspace/default-agent/.nanocode/config.yaml`
+
+**实测**：按 Anchor O 操作后（`/private/tmp/demo-agent-workspace/.nanocode/config.yaml` 已有 `dangerously_skip_permissions: true`），但该文件对当前运行的 kernel 无效，kernel 读的是 project root 的 `.nanocode/config.yaml`。
+
+**结论**：Issue #3 **未闭环**。Anchor O Corrigendum 更新后指向的路径与 kernel 实际读取路径不一致，reviewer 按文档操作仍无法切换 dangerously 模式。正确路径是 kernel CWD（项目根目录）的 `.nanocode/config.yaml`，或通过设置 `NANO_MULTIAGENT_REPO_ROOT` 环境变量来改变 kernel 的 repo_root。
+
+---
+
+### WebFetch hostname rule (S1) — Issue #1 WebFetch 侧
+
+旅程 J5（`sess_d9a8ecb766889fd0`, `run_1caad413c5f84197`）：`web_fetch https://docs.python.org/3/tutorial/`
+
+结果：内容成功返回，kernel log 无 "hook execution isolated" 错误，~10s 内完成。
+
+旅程 J6（`run_c475c79f0e275117`）：`web_fetch https://evil.example.com`
+
+结果：run 保持 "running" 状态 **87 秒**（显著超过正常 LLM 回复时间），等待用户确认——只有弹了权限确认卡片才会出现这个行为。手动 cancel 后状态变为 cancelled。
+
+**结论**：WebFetch 的 `check_permissions` **端到端生效**：
+- `docs.python.org`（preapproved）→ 直接 allow，无卡片
+- `evil.example.com`（无规则）→ 弹卡片等待用户确认
+
+WebFetch 工作的根本原因：`WebFetchTool.check_permissions` 不使用 `ctx` 参数（签名 `ctx: Any`，docstring 标注"not used"），因此 `ctx=None` 不会导致 AttributeError。WriteTool/EditTool 需要 `ctx.cwd` 做路径 resolve，故崩溃。
+
+---
+
+## 验收标准覆盖（Round 2，继承 Round 1）
+
+| ID | 验收项 | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|---|
+| AC1 | auto mode 下读工作区外文件返回内容，不报 `path is outside repo sandbox` | incident.md 第1条 | R1 live 验证，R2 继承 | R1：sess_6579afe909c70897，内容返回确认 | **pass** | R1 已验证，R2 无退化 |
+| AC2 | dangerously mode 下读任意文件直接放行（含 `.git/.bashrc/~/.ssh/id_rsa`）| incident.md 第2条 | R1 继承；Read 在 SAFE_TOOL_ALLOWLIST，bypass 下直接短路 | R1 确认 | **pass** | Read 不经过 check_permissions，无 ctx=None 问题 |
+| AC3 | dangerously mode 下写 `~/.bashrc`/`.git/config`/`~/.zshrc` 等仍弹卡片 | incident.md 第3条 | R2 live 旅程 J2 | `sess_82fed7a12305e826`：`.bashrc.test.bak` 被直接写入，无卡片；kernel log 见 "AttributeError: 'NoneType' has no attribute 'cwd'" | **fail** | check_permissions 因 ctx=None 崩溃，safety_check 链路仍断 |
+| AC4 | dangerously mode 下写普通路径直接放行（不误伤）| incident.md 第4条 | 无法在 dangerously mode 测试（Issue #3 配置路径错误）；auto mode 下写 /tmp 路径正常 | inconclusive | **inconclusive** | 依赖 AC3 修复后再验证 |
+| AC5 | auto mode 下 WebFetch 未审核域名弹卡片，preapproved 直接 allow | incident.md 第5条 | R2 live 旅程 J5 + J6 | J5: docs.python.org 直接返回内容（preapproved allow）；J6: evil.example.com 运行 87s 待确认（ask 卡片已弹）| **pass** | S1 端到端生效；WebFetch.check_permissions 不依赖 ctx |
+| AC6 | auto mode 下派子 agent 行为与修复前一致，直接 allow | incident.md 第6条 | R1 代码确认继承 | `agent` 仍在 SAFE_TOOL_ALLOWLIST | **pass** | 继承 R1 |
+| AC7 | auto mode 下写工作区外路径，classifier 不再加 OUTSIDE NOTE | incident.md 第7条 | R1 代码确认继承 | grep 无命中 | **pass** | 继承 R1 |
+| AC8 | refactor-353 spec.md Q1 / design.md 决策 2 有 corrigendum 注释 | design.md M1 退出标准 | R1 文档读取继承 | 确认存在 | **pass** | 继承 R1 |
+
+---
+
+## 问题清单（Round 2）
+
+### Issue R2-#1 — check_permissions 在 gate 层以 ctx=None 调用，路径类工具崩溃（blocking）
+
+**Severity**: blocking
+
+**现象**：`auto_mode_gate.py:673` 以 `check_fn(tool_input, None)` 调用 `check_permissions`，ctx 参数为 `None`。`WriteTool.check_permissions` 在 `check_dangerous_path(raw_path, cwd=ctx.cwd)` 处抛出 `AttributeError: 'NoneType' object has no attribute 'cwd'`。Hook runner 将异常隔离（"isolated"），以 `tool_result = None` 继续处理，安全检查完全旁路。
+
+**期望**：`auto_mode_gate` 应传递真实 HookContext 或包含 `cwd` 字段的最小 ctx 对象给 `check_permissions`，使路径类工具的危险目录检查能够正常执行。
+
+**实际**：`AttributeError` 被静默吞掉，`~/.bashrc.test.bak` 写入无卡片，W1（bypass-immune 安全链路）仍然失守。
+
+**影响**：AC3 fail；AC4 inconclusive；W1 保护机制在 WriteTool / EditTool 完全无效。
+
+**Recommended Action**: fix-implementation
+
+**Action Rationale**: M4 修复的目标是注入 tool_registry，但 gate 调用 check_fn 时仍传 None 作为 ctx——这是实现遗漏，fix worker 在 `auto_mode_gate.py:673` 传入正确 ctx 即可解决（例如 `check_fn(tool_input, ctx)` 中的真实 HookContext，或构造含 `cwd=ctx.repo_root` 的最小兼容 ctx）。
+
+---
+
+### Issue R2-#2 — Runbook 配置路径仍指向错误目录（minor）
+
+**Severity**: minor
+
+**现象**：design.md Anchor O Corrigendum（M4 新增）声称 dangerously 模式配置路径为 `<agent_workspace_root>/.nanocode/config.yaml`（按 `~/.nano-assistant/config.yaml` 中 `agents[].workspace_root`），但 kernel 实际读取路径由 `ctx.repo_root` 决定（= kernel CWD = `/Users/czj/Repos/nano-multiagent`）。
+
+**期望**：Runbook 指引应说明正确的有效路径：项目根目录的 `.nanocode/config.yaml`（或通过 `NANO_MULTIAGENT_REPO_ROOT` 环境变量控制）。
+
+**实际**：reviewer 按 Anchor O 操作（编辑 `/private/tmp/demo-agent-workspace/.nanocode/config.yaml`）对当前运行的 kernel 无效。这也导致 reviewer 在 R2 中无法进入 dangerously 模式测试 AC3 / AC4，间接使这两条验收项无法完成。
+
+**注意**：这是 Issue #3（R1）的遗留——Anchor O Corrigendum 将其从"指向 `~/.nano-assistant/config.yaml`"改为"指向 `<agent_workspace_root>/.nanocode/config.yaml`"，但两者都不是当前 kernel 实际读取的路径。
+
+**Recommended Action**: fix-implementation（文档修正）
+
+**Action Rationale**: Anchor O Corrigendum 更新后仍与代码实际行为不符，属于文档修正遗留的残留错误，无需 revise-design。
+
+---
+
+## 继承 R1 已关闭 issues（确认维持 pass）
+
+| R1 Issue | Round 2 状态 | 说明 |
+|---|---|---|
+| R1 Issue #2 (.bashrc.test.bak prefix match) | code fix confirmed correct | `check_dangerous_path` 前缀逻辑正确；因 R2-#1 ctx=None 未能端到端验证，但代码本身已修复 |
+
+---
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新
+- [x] `docs/内核设计SPEC.md`：待 R2-#1 修复后更新（`check_permissions ctx` 参数契约）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] 相关产品 SPEC：无需更新
+
+---
+
+## Side Findings
+
+- Round 1 的 Side Finding（`~/.nanoassistant/` vs `~/.nano-assistant/` 拼写不一致）维持，不属于本 unit 范围。
+- WebFetch S1 端到端已验证生效（preapproved allow / unknown ask），是 M3 + M4 共同的有效成果。
+
+---
+
+## 结论（Round 2）
+
+| Gap | 修复状态 |
+|---|---|
+| R1: Read 工作区外硬错 | ✅ 已修复（R1 确认，R2 继承） |
+| R2: refactor-353 文档 corrigendum | ✅ 已修复（R1 确认，R2 继承） |
+| W1: bypass-immune 危险目录写保护 | ❌ 仍未生效（ctx=None 导致 check_permissions 崩溃，Issue R2-#1） |
+| W2: OUTSIDE NOTE 移除 | ✅ 已修复 |
+| S1: WebFetch hostname rule 引擎 | ✅ 端到端已验证（preapproved allow + unknown ask，R2 J5/J6 新确认） |
+| S2: web_search 从 SAFE_TOOL_ALLOWLIST 移除 | ✅ 代码确认 |
+| Runbook 路径（Issue #3 → R2-#2）| ❌ Anchor O Corrigendum 仍指向错误路径 |
+
+**Highest Required Action**: fix-implementation
+
+**needs_re_review**: true
