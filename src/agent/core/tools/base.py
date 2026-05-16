@@ -82,6 +82,36 @@ class Tool(Protocol):
         """
         ...
 
+    def check_permissions(
+        self,
+        tool_input: Mapping[str, Any],
+        ctx: "ToolContext",
+    ) -> Any:
+        """Optionally inspect input and return a permission decision.
+
+        This method is optional — callers use ``getattr(tool, 'check_permissions', None)``
+        and treat ``None`` as passthrough (Anchor B in bugfix-355 design).
+
+        Implementing tools return a ``PermissionDecision`` (from platform layer) with:
+          - ``allow``: unconditionally allow (e.g. WebFetch preapproved host)
+          - ``deny``: unconditionally deny
+          - ``ask``: route to broker ask flow; when ``decision_reason.type == 'safety_check'``
+                     the ask is bypass-immune (dangerously mode still shows confirmation card)
+          - ``passthrough``: tool defers to subsequent hook layer decisions
+
+        Return type is ``Any`` to keep core layer free of platform-layer imports
+        (``PermissionDecision`` lives in ``platform/permissions/broker.py``).
+        Callers access ``result.behavior`` and ``result.decision_reason`` by attribute.
+
+        Args:
+            tool_input: Raw tool arguments from the agent.
+            ctx: Tool execution context.
+
+        Returns:
+            PermissionDecision-like object with at least a ``behavior`` attribute.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class ToolContext:
