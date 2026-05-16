@@ -5,7 +5,7 @@
 
 ## Changelog
 
-(空)
+- 2026-05-16 (bugfix-355): spec.md Q1 + design.md 决策 2 corrigendum 注释;原段保留,详见 docs/changes/bugfix-355-read-workspace-outside-rejected/audit-vs-cc.md
 
 ## §现状分析
 
@@ -106,6 +106,14 @@ agent → tool_call event
 - **选择**: `..` traversal、symlink resolve、相对路径转绝对仍在 `safety.resolve_path` 内做;normalization 完成后返回 Path 给 tool 用,不做 workspace 检查。
 - **理由**: 这部分是"输入清洗"性质的安全卫生,放 hook 层不合适(hook 不该关心 fs 细节)。CC 也是 `safeResolvePath` 在工具内做 normalization,`isPathAllowed` 在 orchestrator 做边界判定。
 - **风险**: 调用方不能再假设"返回的 path 必在 repo_root 下"。所有 callsite 检查;若有原代码依赖这点的,补 audit。
+
+> **Corrigendum (2026-05-16, bugfix-355)**: 决策 2 "Reads don't go through the auto_mode_gate
+> ask flow (default-allow), so the boundary check stays here as a guardrail" 与 CC 行为错配。
+> CC 没有这种 "stays in safety as guardrail" 的设计 — auto 是 safe-allowlist 短路,bypass 是 mode
+> 短路,两者都不经过 safety 层硬错。bugfix-355 删除 `resolve_read_path` 边界检查,将 Read 工具
+> 改为只调 `normalize_path`。
+> 详见 `docs/changes/bugfix-355-read-workspace-outside-rejected/audit-vs-cc.md` 及
+> `docs/changes/bugfix-355-read-workspace-outside-rejected/design.md` 决策 D1。
 
 ### 决策 3: hook 怎么"看到" path 字段
 

@@ -28,6 +28,16 @@ feat-333 引入 auto 模式 + classifier + ask 流程后,**路径沙箱(write �
 
 - Q1: 这次只解决"工作区外写",还是连"工作区外读"也对齐?
   A: 只解决工作区外**写**(write / edit / multi-edit / 创建等可写操作)。read 现在默认放行(读不会破坏文件),保持不变。CC 也是这个口径(`pathValidation.ts:148` 区分 read vs edit)。
+
+> **Corrigendum (2026-05-16, bugfix-355)**: 本 Q1 答复"CC 也是这个口径"的判断错配。
+> CC 实际 Read 行为按 mode 分支:
+>   - `auto` mode → Read 在 `SAFE_YOLO_ALLOWLISTED_TOOLS`(`classifierDecision.ts:56-94`)
+>     直接 allow,**不弹卡片不跑 classifier**
+>   - `default` / `acceptEdits` mode → `checkReadPermissionForTool`(`filesystem.ts:1178-1193`)
+>     工作区外 fallback 返回 ask,**弹卡片**
+>   - `bypassPermissions` mode → 主流程 mode 维度短路 allow(`permissions.ts:1268-1281`),
+>     **直接放行**;Read 在 bypass 下无危险目录保护
+> 详见 `docs/changes/bugfix-355-read-workspace-outside-rejected/audit-vs-cc.md`
 - Q2: 引不引入 `additionalDirectories` 配置(CC 用来永久放行某目录的字段)?
   A: 本 unit 不引入。spec.md feat-333 明确写"非目标:default / plan / dontAsk / acceptEdits"。`additionalDirectories` 不在那个列表里,但属于"高级权限配置",独立 unit 做。本 unit 只做最小架构对齐:工作区外路径走 ask 流程,点临时 Allow 生效一次;不做"永久 allow 这个目录"的持久化。
 - Q3: 这次会动 codex-cli 沿用的 safety.py 老代码吗?
@@ -51,6 +61,10 @@ feat-333 引入 auto 模式 + classifier + ask 流程后,**路径沙箱(write �
 - 非目标:工作区外**读**的行为变更(现状已经能读,不动)
 - 非目标:引入 CC default / plan / dontAsk / acceptEdits 等其他 mode(沿用 feat-333 spec 的非目标)
 - 非目标:覆盖到 Read / Glob / Grep 这些非编辑工具(它们不走 path sandbox)
+
+## Changelog
+
+- 2026-05-16 (bugfix-355): spec.md Q1 + design.md 决策 2 corrigendum 注释;原段保留,详见 docs/changes/bugfix-355-read-workspace-outside-rejected/audit-vs-cc.md
 
 ## Relations
 
