@@ -188,17 +188,17 @@ def test_auto_mode_gate_calls_web_fetch_check_permissions_for_preapproved_host(
     from agent.platform.tools.builtins.web_fetch import WebFetchTool
     from agent.platform.config.auto_mode import AutoModeConfig
 
-    web_fetch_tool = WebFetchTool(config=AutoModeConfig())
+    web_fetch_tool = WebFetchTool()
 
     # Spy on check_permissions to confirm it's actually called
     check_permissions_calls: list[dict] = []
-    original_check = web_fetch_tool.check_permissions.__func__  # type: ignore[attr-defined]
+    original_check = web_fetch_tool.check_permissions
 
-    def spy_check(self: Any, tool_input: Any, ctx: Any) -> Any:
+    def spy_check(tool_input: Any, ctx: Any) -> Any:
         check_permissions_calls.append(dict(tool_input))
-        return original_check(self, tool_input, ctx)
+        return original_check(tool_input, ctx)
 
-    web_fetch_tool.__class__.check_permissions = spy_check  # type: ignore[assignment]
+    web_fetch_tool.check_permissions = spy_check  # type: ignore[method-assign]
 
     mock_registry = MagicMock()
     mock_registry.get.side_effect = lambda name: web_fetch_tool if name == "web_fetch" else None
@@ -229,9 +229,6 @@ def test_auto_mode_gate_calls_web_fetch_check_permissions_for_preapproved_host(
         return_value=normal_config,
     ):
         result = asyncio.run(on_tool_call(event, hook_ctx))
-
-    # Restore original method
-    del web_fetch_tool.__class__.check_permissions
 
     assert len(check_permissions_calls) > 0, (
         "WebFetchTool.check_permissions was NEVER called via auto_mode_gate. "

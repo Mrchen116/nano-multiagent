@@ -554,7 +554,11 @@ class AgentRuntime:
         before the registry is available (tool_registry=None at __init__ time).
         Without this, the fork side-chain runs with tool_registry=None and exits with
         stop_reason='tool_registry_unavailable' after the LLM returns a tool_use call.
+
+        Also updates self._tool_registry so _build_hook_context can inject it into
+        HookContext metadata for auto_mode_gate (bugfix-355 Anchor C / Issue #1).
         """
+        self._tool_registry = tool_registry
         self._loop.bind_tool_registry(tool_registry)
         self._context_fork.bind_tool_registry(tool_registry)
 
@@ -882,6 +886,14 @@ class AgentRuntime:
             # Also inject broker into metadata so auto_mode_gate can access deny-count
             # and session-allowlist state (the hook reads metadata['permission_broker']).
             resolved_metadata["permission_broker"] = broker
+
+        # Inject tool_registry into metadata so auto_mode_gate.on_tool_call can call
+        # tool.check_permissions (bugfix-355 Anchor C / Issue #1).
+        # Without this injection metadata.get("tool_registry") is always None, making
+        # the bypass-immune safety_check chain (W1) and WebFetch preapproved logic (S1)
+        # silently inactive even though tool.check_permissions is correctly implemented.
+        if self._tool_registry is not None:
+            resolved_metadata["tool_registry"] = self._tool_registry
 
         return HookContext(
             session_id=session_id,

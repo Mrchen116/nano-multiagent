@@ -631,13 +631,26 @@ ask 卡片可以根据 `decision_reason.type == "safety_check"` 在 UI 上加红
 
 ### 锚点 O: 测试 mode 用的 workspace config 路径(对应 G15 / Reviewer 旅程)
 
-reviewer M2/M3 旅程要切 dangerously mode,改的是:
+> **Corrigendum (2026-05-16, bugfix-355-M4)**: 原 Anchor O 记录有误。
+> `auto_mode_gate` 的 fallback 路径读 `<repo_root>/.nanocode/config.yaml`，
+> 其中 `repo_root` 是 HookContext 中的 agent 工作区根目录（即 per-agent 的 `workspace_root`），
+> **不是** `~/.nano-assistant/config.yaml`（Gateway 全局 config）。
+> 按原 Anchor O 操作 reviewer 无法切换 dangerously mode，因为 Gateway 全局 config 走不同读取路径。
+
+reviewer M2/M3 旅程要切 dangerously mode，改的是：
 
 ```
-~/.nano-assistant/config.yaml  ← personal_assistant 产品的全局 config(AGENTS.md 指明的位置)
+<agent_workspace_root>/.nanocode/config.yaml
 ```
 
-而不是 workspace `.nano-assistant/config.yaml`(后者本仓 personal_assistant 不读)。
+其中 `<agent_workspace_root>` 是 `~/.nano-assistant/config.yaml` 中该 agent 的 `workspace_root` 字段值
+（通常为 `~/nano-assistant/workspace/default-agent`）。实际路径示例：
+
+```
+~/nano-assistant/workspace/default-agent/.nanocode/config.yaml
+```
+
+若目录不存在，先 `mkdir -p ~/nano-assistant/workspace/default-agent/.nanocode`。
 
 config 字段层级(在现有 `auto_mode` 段下加):
 
@@ -679,7 +692,7 @@ auto_mode:
 测试账号 / 配置见 AGENTS.md "测试账号" 段。reviewer 主要旅程(对应 M1/M2/M3 的 reviewer 验收):
 
 - **M1**:在 IM 让 agent 读 `/tmp/sandbox-alpha/README.md`(预设有内容)— 应该返回真实内容,不再 `path is outside repo sandbox`
-- **M2**:在 dangerously 模式(workspace config 改 `auto_mode.dangerously_skip_permissions: true`)下让 agent 写 `~/.bashrc.test.bak` / `.git/test_config` — 应该弹卡片;让 agent 写 `/tmp/test_normal.txt` — 应该直接放行
+- **M2**:在 dangerously 模式下让 agent 写 `~/.bashrc.test.bak` / `.git/test_config` — 应该弹卡片;让 agent 写 `/tmp/test_normal.txt` — 应该直接放行。**dangerously 模式配置**:`auto_mode_gate` 实际读取 `<agent_workspace_root>/.nanocode/config.yaml`(agent 的工作目录,不是 Gateway 全局 config)。对于 default-agent，路径通常是 `~/nano-assistant/workspace/default-agent/.nanocode/config.yaml`（按 `~/.nano-assistant/config.yaml` 中 `agents[].workspace_root` 的实际值）。在该文件写入：`auto_mode:\n  dangerously_skip_permissions: true`。若文件/目录不存在需先创建。
 - **M3**:在 auto 模式下让 agent `web_fetch https://docs.python.org/3/tutorial/`(preapproved)— 直接返回;让 agent `web_fetch https://evil.example.com`(无 rule)— 弹卡片
 
 ## Milestones

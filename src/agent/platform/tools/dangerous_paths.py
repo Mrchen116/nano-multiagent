@@ -86,8 +86,20 @@ def check_dangerous_path(file_path: str, *, cwd: Path | None = None) -> bool:
         path = cwd / path
 
     # --- Basename match (DANGEROUS_FILES) ---
-    if path.name.lower() in {f.lower() for f in DANGEROUS_FILES}:
-        return True
+    # Two rules (bugfix-355 M4 Issue #2 — reviewer major):
+    #   1. Exact match: basename == dangerous_file (case-insensitive)
+    #   2. Prefix match: basename startswith dangerous_file + "." (dot separator required)
+    #      Covers backup/variant names like .bashrc.test.bak, .zshrc.bak.20260101.
+    #      The dot separator prevents false positives like ".bashrcevil".
+    basename_lower = path.name.lower()
+    for dangerous_file in DANGEROUS_FILES:
+        df_lower = dangerous_file.lower()
+        if basename_lower == df_lower:
+            return True
+        # Prefix rule: must start with the dangerous filename followed by a dot
+        # e.g. ".bashrc.bak" starts with ".bashrc." → dangerous
+        if basename_lower.startswith(df_lower + "."):
+            return True
 
     # --- Segment match (DANGEROUS_DIRECTORIES) ---
     # Iterate over path.parts to check each directory component
