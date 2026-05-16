@@ -152,10 +152,11 @@ def test_auto_mode_gate_calls_write_tool_check_permissions_via_metadata(
 
     on_tool_call = _build_gate_on_tool_call()
 
-    # .git/config is a dangerous path — safety_check ask should fire even in dangerously mode
+    # .git/config is a dangerous path — safety_check ask should fire even in dangerously mode.
+    # WriteTool.check_permissions reads tool_input.get("path") per the tool's input schema.
     event = {
         "name": "write",
-        "args": {"file_path": str(tmp_path / ".git" / "config"), "content": "evil"},
+        "args": {"path": str(tmp_path / ".git" / "config"), "content": "evil"},
     }
 
     dangerous_config = AutoModeConfig(dangerously_skip_permissions=True)
@@ -324,10 +325,11 @@ def test_auto_mode_gate_passes_real_ctx_to_check_permissions(tmp_path: Path) -> 
 
     on_tool_call = _build_gate_on_tool_call()
 
-    # A normal (non-dangerous) path so check_permissions runs without triggering ask broker
+    # A normal (non-dangerous) path so check_permissions runs without triggering ask broker.
+    # Use "path" key matching WriteTool's input schema.
     event = {
         "name": "write",
-        "args": {"file_path": str(tmp_path / "safe_file.txt"), "content": "hello"},
+        "args": {"path": str(tmp_path / "safe_file.txt"), "content": "hello"},
     }
 
     normal_config = AutoModeConfig(dangerously_skip_permissions=False)
@@ -401,11 +403,12 @@ def test_auto_mode_gate_check_permissions_ctx_none_fails_loud(tmp_path: Path) ->
 
     on_tool_call = _build_gate_on_tool_call()
 
-    # Dangerous path — if check_permissions is silently ignored, gate returns None (passthrough)
+    # Dangerous path — if check_permissions is silently ignored, gate returns None (passthrough).
+    # Use "path" key matching WriteTool's input schema.
     event = {
         "name": "write",
         "args": {
-            "file_path": str(tmp_path / ".git" / "config"),
+            "path": str(tmp_path / ".git" / "config"),
             "content": "evil",
         },
     }
@@ -477,10 +480,11 @@ def test_dangerous_write_in_dangerously_mode_triggers_safety_check_ask(
 
     on_tool_call = _build_gate_on_tool_call()
 
-    # ~/.bashrc is in DANGEROUS_FILES — WriteTool.check_permissions should return safety_check ask
+    # ~/.bashrc is in DANGEROUS_FILES — WriteTool.check_permissions should return safety_check ask.
+    # WriteTool.check_permissions reads tool_input.get("path"), matching the tool's input schema.
     event = {
         "name": "write",
-        "args": {"file_path": "~/.bashrc", "content": "evil"},
+        "args": {"path": "~/.bashrc", "content": "evil"},
     }
 
     dangerous_config = AutoModeConfig(dangerously_skip_permissions=True)

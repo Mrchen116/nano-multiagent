@@ -22,10 +22,13 @@ with a security gate.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Mapping
+
+_log = logging.getLogger("agent.platform.hooks.auto_mode_gate")
 
 from agent.core.runs.origin import RunOrigin
 from agent.platform.config.auto_mode import AutoModeConfig, load_auto_mode_config
@@ -670,7 +673,32 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         tool_registry = metadata.get("tool_registry")
         tool_instance = tool_registry.get(tool_name) if tool_registry is not None else None
         check_fn = getattr(tool_instance, "check_permissions", None)
-        tool_result = check_fn(tool_input, None) if check_fn is not None else None
+        tool_result: Any = None
+        if check_fn is not None:
+            try:
+                # Pass real ctx so path-based tools (WriteTool/EditTool) can resolve ctx.cwd.
+                # Passing None was the R2-#1 root cause: WriteTool.check_permissions raised
+                # AttributeError on ctx.cwd, which hook runner isolated → silent passthrough.
+                tool_result = check_fn(tool_input, ctx)
+            except Exception as check_exc:
+                # Fail-loud: a permissions check that crashes must NOT silently passthrough.
+                # Log at ERROR level and fall through to ask — never treat a broken safety
+                # check as "allow". This ensures future ctx-incompatibility is immediately
+                # observable rather than silently disabling the safety chain.
+                _log.error(
+                    "tool.check_permissions raised — treating as ask to fail safe",
+                    extra={
+                        "tool_name": tool_name,
+                        "error": f"{type(check_exc).__name__}: {check_exc}",
+                        "session_id": session_id,
+                    },
+                )
+                # Return a safety_check ask so bypass-immune path fires, not passthrough.
+                tool_result = PermissionDecision(
+                    behavior="ask",
+                    decision_reason={"type": "safety_check", "error": str(check_exc)},
+                    reason=f"Permission check failed for {tool_name}: {check_exc}",
+                )
 
         # Determine safety_locked: bypass-immune when tool self-declares safety_check ask
         safety_locked = (

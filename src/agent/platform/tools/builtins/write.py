@@ -30,16 +30,23 @@ class WriteTool:
     }
 
     def check_permissions(
-        self, tool_input: Mapping[str, Any], ctx: ToolContext
+        self, tool_input: Mapping[str, Any], ctx: Any
     ) -> PermissionDecision:
         """Guard writes to dangerous system files/directories (D5, bugfix-355).
 
         Matches against DANGEROUS_FILES (basename) and DANGEROUS_DIRECTORIES (any segment).
         Returns ask + decision_reason.type='safety_check' so auto_mode_gate treats this
         as bypass-immune — even dangerously_skip_permissions mode cannot auto-approve.
+
+        ctx may be a ToolContext (tool body execution) or a HookContext (gate pre-check).
+        Both carry repo_root; ToolContext also has cwd. We use cwd when available and fall
+        back to repo_root so relative paths can be resolved in both call sites.
         """
         raw_path = str(tool_input.get("path", ""))
-        if check_dangerous_path(raw_path, cwd=ctx.cwd):
+        # Resolve cwd: prefer ctx.cwd (ToolContext), fall back to ctx.repo_root (HookContext).
+        # This dual-ctx support avoids AttributeError when gate passes HookContext (R2-#1 fix).
+        cwd = getattr(ctx, "cwd", None) or getattr(ctx, "repo_root", None)
+        if check_dangerous_path(raw_path, cwd=cwd):
             return PermissionDecision(
                 behavior="ask",
                 decision_reason={"type": "safety_check", "matched_path": raw_path},

@@ -37,15 +37,19 @@ class EditTool:
     }
 
     def check_permissions(
-        self, tool_input: Mapping[str, Any], ctx: ToolContext
+        self, tool_input: Mapping[str, Any], ctx: Any
     ) -> PermissionDecision:
         """Guard edits to dangerous system files/directories (D5, bugfix-355).
 
         Same semantics as WriteTool.check_permissions — returns ask + safety_check
         so auto_mode_gate treats this as bypass-immune (W1).
+
+        ctx may be a ToolContext (tool body) or a HookContext (gate pre-check).
+        Uses ctx.cwd when available, falls back to ctx.repo_root (R2-#1 fix).
         """
         raw_path = str(tool_input.get("path", ""))
-        if check_dangerous_path(raw_path, cwd=ctx.cwd):
+        cwd = getattr(ctx, "cwd", None) or getattr(ctx, "repo_root", None)
+        if check_dangerous_path(raw_path, cwd=cwd):
             return PermissionDecision(
                 behavior="ask",
                 decision_reason={"type": "safety_check", "matched_path": raw_path},
