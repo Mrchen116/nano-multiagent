@@ -28,6 +28,6 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | 集成测试红 + tool_registry 注入修复 | TODO |
-| R2 | DANGEROUS_FILES 前缀匹配扩展 | TODO |
-| R3 | design.md Runbook 路径修正 | TODO |
+| R1 | 集成测试红 + tool_registry 注入修复 | DONE |
+| R2 | DANGEROUS_FILES 前缀匹配扩展 | DONE |
+| R3 | design.md Runbook 路径修正 | DONE |
