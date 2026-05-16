@@ -54,3 +54,19 @@
 - Commits: C1=1e279945, C2=8d73949e, C3=TBD
 - Next: R4 — auto_mode_gate dispatch 改造
 
+### R4 — auto_mode_gate dispatch 改造
+
+- Context: 8 处变化:删 `_detect_outside_workspace_path`/`_WRITE_TOOLS_WITH_PATH_INPUT`;删 OUTSIDE NOTE;ALLOWLIST 移除 web_fetch/web_search;加 tool.check_permissions 调用(step 1);加 safety_locked bypass-immune;加 check_permissions result dispatch(step 5)
+- Decision: 按 design.md 接口与数据流段逐步重写 dispatch,保持现有 bash policy / classifier / deny-limit / unattended 逻辑不变
+- Rationale: 所有删除对应 design 决策(W1/W2/S1/S2);新增 dispatch step 对应 D1;safety_locked 在 dangerously check 前判断,确保 bypass-immune 语义
+- Evidence:
+  - Tests: 17 passed(含 ALLOWLIST 变化 + 函数删除 + OUTSIDE NOTE 不出现 + check_permissions 各分支 + bypass-immune)
+  - Entry: N/A(hook 层改动,无 HTTP 入口)
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 53 existing gate tests + 11 path sandbox tests + 123 worktree unit tests 全绿
+  - Visual/Interaction: N/A
+- Rollback: C1 hash = 67b3585f
+- Commits: C1=67b3585f, C2=aafd2c7e, C3=TBD
+- Next: R5 — refactor-353 文档 corrigendum
+

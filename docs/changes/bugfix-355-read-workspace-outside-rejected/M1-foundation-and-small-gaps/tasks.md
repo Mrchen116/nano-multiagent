@@ -36,5 +36,5 @@ N/A — 纯后端改动。
 | R1 | PermissionDecision 扩展(`behavior` 加 `passthrough`、新增 `decision_reason`/`updated_input` 字段) + 单测 | DONE |
 | R2 | Tool 协议加 `check_permissions` 可选方法 + 单测 | DONE |
 | R3 | `safety.resolve_read_path` 删除(只保留 normalize)、`read.py` 更新调用、safety 单测 | DONE |
-| R4 | `auto_mode_gate.py` dispatch 改造:删 `_detect_outside_workspace_path`、删 OUTSIDE NOTE、SAFE_TOOL_ALLOWLIST 移除 web_fetch/web_search、插入 tool.check_permissions 调用(step 1)、dispatch 结果分发(step 5) | TODO |
+| R4 | `auto_mode_gate.py` dispatch 改造:删 `_detect_outside_workspace_path`、删 OUTSIDE NOTE、SAFE_TOOL_ALLOWLIST 移除 web_fetch/web_search、插入 tool.check_permissions 调用(step 1)、dispatch 结果分发(step 5) | DONE |
 | R5 | refactor-353 文档 corrigendum(D6) | TODO |
