@@ -32,6 +32,24 @@
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
 - Rollback: 回到 afef0330(R1 C3)
-- Commits: C1=4244f1f1, C2=c6d8e2fc, C3=TBD
+- Commits: C1=4244f1f1, C2=c6d8e2fc, C3=3a1b6a80
 - Next: R3 — WebFetchTool.check_permissions 5 分支 + 集成回归
+
+### R3 — WebFetchTool.check_permissions 4 分支 + 集成回归
+
+- Context: WebFetchTool 需实现 check_permissions 方法,auto_mode_gate 在 step 1 调用它;SAFE_TOOL_ALLOWLIST 已在 M1 移除 web_fetch/web_search,这里只补回归验证。
+- Decision: 在 WebFetchTool 加 check_permissions(tool_input, ctx) → PermissionDecision;分支顺序:URL 校验失败 → ask;preapproved(含 extra) → allow;HostnameRuleEngine rule → deny/ask/allow;fallback → ask。config 通过 `self._auto_mode_config` 注入(测试直接赋值,生产由 platform assembler 赋)。
+- Rationale: 对齐 design.md 接口与数据流段 + 锚点 H/I/J/K;4 分支与 CC WebFetchTool.ts:104-180 语义一致。
+- Evidence:
+  - Tests: `pytest tests/unit/agent/platform/tools/builtins/test_web_fetch_permissions.py` 21 passed
+  - Tests: `pytest tests/unit/agent/platform/` 88 passed
+  - Tests: `pytest tests/unit/agent/` 168 passed(无回归)
+  - Entry: N/A(权限层逻辑,非 HTTP 端点;reviewer 走真实旅程验收)
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: SAFE_TOOL_ALLOWLIST 回归单测全绿(web_fetch/web_search 均不在 allowlist)
+  - Visual/Interaction: N/A
+- Rollback: 回到 3a1b6a80(R2 C3)
+- Commits: C1=65e689bb, C2=1f0134aa, C3=TBD
+- Next: milestone DONE
 - Next: R3 — WebFetchTool.check_permissions 5 分支 + 集成回归
