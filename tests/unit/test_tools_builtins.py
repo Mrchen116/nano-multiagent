@@ -196,21 +196,27 @@ def test_read_offset_out_of_range_surfaces_details(tmp_path: Path) -> None:
     assert exc_info.value.details["total_lines"] == 2
 
 
-def test_read_rejects_path_outside_repo(tmp_path: Path) -> None:
+def test_read_allows_path_outside_repo(tmp_path: Path) -> None:
+    # bugfix-355: Read no longer hard-errors on paths outside repo sandbox.
+    # Boundary enforcement moved to auto_mode_gate hook (classifier / ask flow).
     outside = tmp_path.parent / "outside.txt"
-    outside.write_text("blocked", encoding="utf-8")
+    outside.write_text("allowed content", encoding="utf-8")
     ctx = _context(tmp_path)
 
-    with pytest.raises(ToolError, match="outside repo"):
-        ReadTool().run({"path": "../outside.txt"}, ctx)
+    result = ReadTool().run({"path": str(outside)}, ctx)
+
+    assert "content" in result
+    serialized = ReadTool().serialize_result(result)
+    assert "allowed content" in serialized
 
 
 def test_read_allows_codex_home_skills_outside_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # bugfix-355: All paths outside repo are allowed now (no special CODEX_HOME case needed).
+    # This test retained to verify reading from arbitrary external paths works.
     codex_home = tmp_path.parent / "codex-home"
     skill_file = codex_home / "skills" / "demo-skill" / "SKILL.md"
     skill_file.parent.mkdir(parents=True, exist_ok=True)
     skill_file.write_text("# Demo\nuse this skill\n", encoding="utf-8")
-    monkeypatch.setenv("CODEX_HOME", str(codex_home))
     ctx = _context(tmp_path)
 
     result = ReadTool().run({"path": str(skill_file)}, ctx)
