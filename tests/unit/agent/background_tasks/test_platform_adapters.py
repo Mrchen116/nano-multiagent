@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -265,6 +266,69 @@ def test_shell_runner_stop_terminates_process() -> None:
         time.sleep(0.5)
         # After stop, process should be gone; a new start with same command should work.
         assert True
+
+
+class _SlowAppendOutput:
+    """Wraps BashFileOutput so each append takes ~0.3s.
+
+    This is how we make the bugfix-354 race deterministic: the gap between
+    process exit (monitor wakes up) and pump finishing its last append() is
+    long enough that, without join(), the callback fires on an empty file.
+    """
+
+    def __init__(self, inner: BashFileOutput, delay: float = 0.3) -> None:
+        self._inner = inner
+        self._delay = delay
+
+    def open(self, session_id: str, task_id: str) -> Path:
+        return self._inner.open(session_id, task_id)
+
+    def append(self, task_id: str, text: str, *, stream: str) -> None:
+        time.sleep(self._delay)
+        self._inner.append(task_id, text, stream=stream)
+
+
+def test_shell_runner_output_ready_when_complete_callback_fires() -> None:
+    """Regression for bugfix-354: callback must not fire before pump drains the pipe.
+
+    A slow ``append`` widens the race window so the bug is deterministically
+    reproducible: pre-fix, the monitor thread fires ``on_complete`` while the
+    pump is still inside ``time.sleep`` and the output file is empty.
+    Post-fix, ``_monitor`` joins the pump first so the file is ready.
+    """
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        inner = BashFileOutput(workspace_root=Path(tmpdir))
+        output = _SlowAppendOutput(inner, delay=0.3)
+        runner = ShellRunner()
+        done = threading.Event()
+        observed: dict[str, str] = {}
+
+        path = output.open("sess-1", "b1")
+
+        def on_complete(*, task_id: str, result_text, usage, duration_ms, tool_use_count) -> None:
+            observed["content"] = path.read_text(encoding="utf-8")
+            done.set()
+
+        def on_fail(*, task_id: str, error: str) -> None:
+            observed["error"] = error
+            done.set()
+
+        runner.start(
+            command="echo hello-from-pump",
+            cwd=Path(tmpdir),
+            output=output,  # type: ignore[arg-type]
+            task_id="b1",
+            timeout=10.0,
+            on_complete=on_complete,
+            on_fail=on_fail,
+        )
+
+        assert done.wait(10.0), "on_complete never fired"
+        assert "error" not in observed, observed.get("error")
+        assert "hello-from-pump" in observed["content"], (
+            f"output not drained before callback: {observed['content']!r}"
+        )
 
 
 def test_shell_runner_timeout_kills_process() -> None:
