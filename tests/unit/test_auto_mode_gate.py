@@ -243,11 +243,15 @@ class TestSafeToolAllowlist:
     def test_read_is_safe(self):
         assert is_safe_tool("read", AutoModeConfig()) is True
 
-    def test_web_fetch_is_safe(self):
-        assert is_safe_tool("web_fetch", AutoModeConfig()) is True
+    def test_web_fetch_not_safe(self):
+        # S1 (bugfix-355 M1): web_fetch removed from SAFE_TOOL_ALLOWLIST;
+        # routing now via WebFetch.check_permissions (M3).
+        assert is_safe_tool("web_fetch", AutoModeConfig()) is False
 
-    def test_web_search_is_safe(self):
-        assert is_safe_tool("web_search", AutoModeConfig()) is True
+    def test_web_search_not_safe(self):
+        # S2 (bugfix-355 M1): web_search removed from SAFE_TOOL_ALLOWLIST;
+        # falls to classifier (passthrough behavior).
+        assert is_safe_tool("web_search", AutoModeConfig()) is False
 
     def test_task_tools_safe(self):
         for tool in ("task_create", "task_get", "task_update", "task_list", "task_stop", "task_output"):

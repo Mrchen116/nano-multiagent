@@ -1,15 +1,22 @@
-"""Tests for refactor-353: path sandbox routed through auto_mode_gate.
+"""Tests for path sandbox via auto_mode_gate hook.
 
-Covers the four critical branches of the unified path-sandbox decision flow:
+Covers the critical branches of the unified permission decision flow as updated
+by bugfix-355 (M1):
 
-1. workspace-internal path → no special hint, existing flow
-2. workspace-external path + dangerously_skip_permissions → pass through
+1. workspace-internal path → existing flow (session allowlist / safe_tool / classifier)
+2. workspace-external path + dangerously_skip_permissions → pass through (no bypass-immune)
 3. workspace-external path + classifier returns allow → pass through
 4. workspace-external path + classifier returns ask → handed to broker
 
+Notes on changes from refactor-353 baseline:
+- _detect_outside_workspace_path helper was removed; out-of-workspace write routing
+  now handled via tool.check_permissions (bugfix-355 M1, Anchor F).
+- _WRITE_TOOLS_WITH_PATH_INPUT constant was removed along with the helper.
+- The OUTSIDE NOTE prepended to the classifier user_prompt was removed (W2).
+- The gate now accepts a tool_result from tool.check_permissions before dispatching.
+
 These tests use the gate's public ``setup()`` to register the handler and
-exercise it end-to-end via a faked HookContext, isolating the path-detection
-logic from kernel / runtime wiring.
+exercise it end-to-end via a faked HookContext.
 """
 
 from __future__ import annotations
@@ -22,7 +29,6 @@ import pytest
 
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.builtins.auto_mode_gate import (
-    _detect_outside_workspace_path,
     setup as gate_setup,
 )
 
@@ -58,75 +64,7 @@ def _register_gate() -> Any:
 
 
 # ---------------------------------------------------------------------------
-# 1. _detect_outside_workspace_path unit tests (pure helper, no async)
-# ---------------------------------------------------------------------------
-
-class TestDetectOutsideWorkspacePath:
-    def test_write_inside_workspace_returns_none(self, tmp_path: Path) -> None:
-        ctx = _FakeCtx(tmp_path)
-        inside = tmp_path / "subdir" / "f.py"
-        result = _detect_outside_workspace_path(
-            tool_name="write",
-            tool_input={"file_path": str(inside)},
-            ctx=ctx,
-        )
-        assert result is None, "inside-workspace path should not trigger the signal"
-
-    def test_write_outside_workspace_returns_resolved_path(self, tmp_path: Path) -> None:
-        ctx = _FakeCtx(tmp_path)
-        outside = tmp_path.parent / "outside-target" / "f.py"
-        result = _detect_outside_workspace_path(
-            tool_name="write",
-            tool_input={"file_path": str(outside)},
-            ctx=ctx,
-        )
-        assert result == str(outside.resolve())
-
-    def test_edit_outside_workspace_returns_resolved(self, tmp_path: Path) -> None:
-        ctx = _FakeCtx(tmp_path)
-        outside = tmp_path.parent / "other" / "x.txt"
-        result = _detect_outside_workspace_path(
-            tool_name="edit",
-            tool_input={"file_path": str(outside)},
-            ctx=ctx,
-        )
-        assert result == str(outside.resolve())
-
-    def test_non_write_tool_returns_none(self, tmp_path: Path) -> None:
-        ctx = _FakeCtx(tmp_path)
-        result = _detect_outside_workspace_path(
-            tool_name="bash",
-            tool_input={"command": "rm -rf /tmp/x"},
-            ctx=ctx,
-        )
-        assert result is None
-
-    def test_dot_dot_traversal_normalized_outside_workspace(self, tmp_path: Path) -> None:
-        """`..` traversal that escapes the workspace must be detected."""
-        ctx = _FakeCtx(tmp_path)
-        # /tmp/<tmp_path>/sub/../../escape.txt → outside workspace
-        result = _detect_outside_workspace_path(
-            tool_name="write",
-            tool_input={"file_path": "../../escape.txt"},
-            ctx=ctx,
-        )
-        # Normalize relative to repo_root (cwd defaults to repo_root in the
-        # helper), so the resolved path lives above tmp_path.
-        assert result is not None
-        assert not result.startswith(str(tmp_path))
-
-    def test_missing_path_key_returns_none(self, tmp_path: Path) -> None:
-        ctx = _FakeCtx(tmp_path)
-        result = _detect_outside_workspace_path(
-            tool_name="write",
-            tool_input={},  # missing file_path
-            ctx=ctx,
-        )
-        assert result is None
-
-
-# ---------------------------------------------------------------------------
-# 2. End-to-end gate branches for refactor-353
+# 1. End-to-end gate branches
 # ---------------------------------------------------------------------------
 
 class TestGatePathSandboxBranches:
@@ -135,6 +73,7 @@ class TestGatePathSandboxBranches:
         """Workspace-external write + dangerously → pass through (no classifier, no ask).
 
         Spec contract: dangerously-skip-permissions语义是不进行任何权限管控。
+        Non-safety-locked tools bypass completely even outside workspace.
         """
         handler = _register_gate()
         config = AutoModeConfig(dangerously_skip_permissions=True)
@@ -151,8 +90,8 @@ class TestGatePathSandboxBranches:
     async def test_outside_workspace_with_classifier_allow(self, tmp_path: Path) -> None:
         """Workspace-external write + classifier allow → pass through.
 
-        Demonstrates the classifier sees the path (via injected hint) and may
-        decide to allow.  Tested by mocking _classify_action to return allow.
+        Classifier receives the standard prompt (no OUTSIDE NOTE prepended — W2
+        from bugfix-355 M1 removed the workspace hint injection).
         """
         handler = _register_gate()
         config = AutoModeConfig()  # auto mode, deny_limit default
@@ -171,10 +110,13 @@ class TestGatePathSandboxBranches:
             result = await handler(event, ctx)
 
         assert result is None, "classifier allow should pass through"
-        # Verify the classifier user_prompt carried the outside-workspace hint.
+        # Classifier was called; verify the OUTSIDE NOTE is NOT injected (W2 change).
+        assert mock_classify.called, "classifier should have been called for unlisted write tool"
         call_args = mock_classify.call_args
         user_prompt = call_args.args[2]  # (ctx, system_prompt, user_prompt)
-        assert "OUTSIDE the agent's workspace" in user_prompt
+        assert "OUTSIDE the agent's workspace" not in user_prompt, (
+            "W2: OUTSIDE NOTE must not be prepended — path context now comes from tool.check_permissions"
+        )
 
     @pytest.mark.asyncio
     async def test_outside_workspace_with_classifier_ask_triggers_broker(self, tmp_path: Path) -> None:
@@ -261,14 +203,25 @@ class PermissionBrokerStub:
 
 
 # ---------------------------------------------------------------------------
-# 3. Contract: write/edit/multi_edit still listed
+# 2. Contract: deleted symbols are gone, new architecture is in place
 # ---------------------------------------------------------------------------
 
 class TestContract:
-    def test_write_edit_multi_edit_are_path_aware(self) -> None:
-        """If a new path-carrying tool is added later, the gate must be updated."""
-        from agent.platform.hooks.builtins.auto_mode_gate import _WRITE_TOOLS_WITH_PATH_INPUT
-        assert "write" in _WRITE_TOOLS_WITH_PATH_INPUT
-        assert "edit" in _WRITE_TOOLS_WITH_PATH_INPUT
-        assert "multi_edit" in _WRITE_TOOLS_WITH_PATH_INPUT
-        assert _WRITE_TOOLS_WITH_PATH_INPUT["write"] == "file_path"
+    def test_detect_outside_workspace_path_is_deleted(self) -> None:
+        """_detect_outside_workspace_path must not exist — it was removed in bugfix-355 M1 (Anchor F).
+
+        Out-of-workspace write routing is now handled via tool.check_permissions.
+        This test is a canary: if someone accidentally re-adds the helper, this will fail.
+        """
+        import agent.platform.hooks.builtins.auto_mode_gate as gate_module
+        assert not hasattr(gate_module, "_detect_outside_workspace_path"), (
+            "Anchor F: _detect_outside_workspace_path must be deleted — "
+            "path routing now via tool.check_permissions"
+        )
+
+    def test_write_tools_with_path_input_is_deleted(self) -> None:
+        """_WRITE_TOOLS_WITH_PATH_INPUT constant must not exist — removed with _detect_outside_workspace_path."""
+        import agent.platform.hooks.builtins.auto_mode_gate as gate_module
+        assert not hasattr(gate_module, "_WRITE_TOOLS_WITH_PATH_INPUT"), (
+            "_WRITE_TOOLS_WITH_PATH_INPUT was part of the old path-detection approach and must be deleted"
+        )
