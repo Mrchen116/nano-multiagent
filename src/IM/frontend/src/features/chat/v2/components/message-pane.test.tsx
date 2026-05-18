@@ -238,8 +238,10 @@ describe("MessagePane", () => {
     expect(screen.queryByRole("button", { name: /Planner/i })).not.toBeInTheDocument();
   });
 
-  // bugfix-358: handleMentionSelect 改写入 inline tag 而非 @display_name
-  it("inserts <mention/> inline tag (not @display_name) when a mention candidate is clicked", async () => {
+  // bugfix-358 (composer): textarea 装可见形式 `@DisplayName`,wire XML 在 send 前重建。
+  // 这样光标 / IME / 撤销栈跟视觉字符宽度对齐(原 textarea 装 XML 时,IME 输入框
+  // 按 XML 字符长度定位,会飘到 chip 右侧远处)。
+  it("inserts visible @DisplayName text into textarea (not raw XML)", async () => {
     const user = userEvent.setup();
     render(
       <MessagePane
@@ -252,9 +254,55 @@ describe("MessagePane", () => {
     const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
     await user.type(composer, "ping @P");
     await user.click(await screen.findByRole("button", { name: /Planner/ }));
-    // Must contain inline tag with target_id = agent_id, not @display_name
-    expect(composer.value).toContain('target_id="a-planner"');
-    expect(composer.value).not.toContain("@Planner");
+    // textarea 应该装可见形式 `@Planner`,不应含 wire XML 字符
+    expect(composer.value).toContain("@Planner");
+    expect(composer.value).not.toContain("<mention");
+    expect(composer.value).not.toContain('target_id="');
+  });
+
+  it("reconstructs wire <mention/> XML in onSend when picker-tracked label is present", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <MessagePane
+        conversation={GROUP_CONV}
+        messages={[]}
+        mentionCandidates={MENTION_CANDIDATES}
+        onSend={onSend}
+      />
+    );
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(composer, "ping @P");
+    await user.click(await screen.findByRole("button", { name: /Planner/ }));
+    await user.type(composer, "hi");
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(1);
+    const sentText = onSend.mock.calls[0][0];
+    expect(sentText).toContain('<mention type="agent" target_id="a-planner"/>');
+    expect(sentText).not.toContain("@Planner");
+  });
+
+  it("drops a tracked mention from wire content when user deletes the @DisplayName label before send", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <MessagePane
+        conversation={GROUP_CONV}
+        messages={[]}
+        mentionCandidates={MENTION_CANDIDATES}
+        onSend={onSend}
+      />
+    );
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(composer, "@P");
+    await user.click(await screen.findByRole("button", { name: /Planner/ }));
+    // User regrets, removes whole `@Planner ` and types plain text instead
+    await user.clear(composer);
+    await user.type(composer, "never mind");
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend.mock.calls[0][0]).toBe("never mind");
+    expect(onSend.mock.calls[0][0]).not.toContain("<mention");
   });
 
   // R4 C1: PermissionCard mount point — renders inline card when message has permission_request

@@ -49,53 +49,55 @@ const MENTION_RE = /@([^@\s]*)$/;
 /**
  * Build the overlay mirror nodes for the composer textarea.
  *
- * bugfix-358: inline <mention type="agent" target_id="X"/> tags are rendered
- * as highlighted mark chips in the mirror layer so users see display labels
- * instead of raw XML.  Old-style @word patterns are still highlighted for the
- * transient case during picker activation (before the tag is inserted).
+ * bugfix-358 (composer): textarea 现在装可见形式 `@DisplayName`(不是 wire XML),
+ * 字符宽度与视觉一致, IME 输入框光标定位自然对齐。mirror 仅做 `@word` 高亮装饰。
+ * wire 转换(可见 → `<mention/>` XML)在 commit() send 前根据 draftMentions 状态完成。
  */
-function buildMirrorNodes(text: string, participants?: Actor[]): React.ReactNode[] {
-  const participantMap = new Map<string, string>();
-  if (participants) {
-    for (const p of participants) {
-      participantMap.set(p.id, p.display_name ?? p.id);
-    }
-  }
-
-  const segments = parseMentions(text);
-  const hasMentionTags = segments.some((s) => s.kind === "mention");
-
+function buildMirrorNodes(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-
-  if (hasMentionTags) {
-    // Use parseMentions segments to render mention chips in the mirror.
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      if (seg.kind === "mention") {
-        const label = participantMap.get(seg.target_id) ?? seg.target_id;
-        nodes.push(
-          <mark key={i} className="chat-composer-mention-highlight">@{label}</mark>
-        );
-      } else {
-        nodes.push(seg.text);
-      }
-    }
-  } else {
-    // No inline tags: fall back to @word highlight for picker-active state.
-    const MENTION_HIGHLIGHT_RE = /@[\w一-龥][^\s@]*/g;
-    let last = 0;
-    let m: RegExpExecArray | null;
-    while ((m = MENTION_HIGHLIGHT_RE.exec(text)) !== null) {
-      if (m.index > last) nodes.push(text.slice(last, m.index));
-      nodes.push(<mark key={m.index} className="chat-composer-mention-highlight">{m[0]}</mark>);
-      last = m.index + m[0].length;
-    }
-    if (last < text.length) nodes.push(text.slice(last));
+  const MENTION_HIGHLIGHT_RE = /@[\w一-龥][^\s@]*/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MENTION_HIGHLIGHT_RE.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    nodes.push(<mark key={m.index} className="chat-composer-mention-highlight">{m[0]}</mark>);
+    last = m.index + m[0].length;
   }
-
+  if (last < text.length) nodes.push(text.slice(last));
   // Mirror needs a trailing zero-width space so the last line has correct height.
   nodes.push("​");
   return nodes;
+}
+
+/**
+ * One picker-originated mention range in the draft.
+ *
+ * bugfix-358 (composer): textarea 装可见 `@DisplayName` 文本, 此 state 跟踪每次 picker
+ * 选中产生的 mention 元数据。commit 时按 label 在 draft 里精确替换为 wire XML。
+ * 用户手敲删除 label 时, indexOf 找不到自然跳过——零清理逻辑。
+ */
+type DraftMention = {
+  label: string;       // e.g. "@架构" — visible text inserted into textarea
+  type: "agent" | "user";
+  target_id: string;
+};
+
+/**
+ * Reconstruct wire content from visible draft + picker-tracked mention metadata.
+ *
+ * 遍历每个 tracked mention,在 draft 中按 label 找第一处匹配替换为对应的 inline XML 标签。
+ * 同一 label 多次出现(用户连续选同一 agent): 每次循环替换第一处, 下一轮自然替换下一处。
+ * 用户已删除某 label: indexOf 返回 -1, 该项跳过——不会污染最终 wire 文本。
+ */
+function reconstructWireContent(draftText: string, mentions: DraftMention[]): string {
+  let wire = draftText;
+  for (const m of mentions) {
+    const pos = wire.indexOf(m.label);
+    if (pos === -1) continue;
+    const xml = `<mention type="${m.type}" target_id="${m.target_id}"/>`;
+    wire = wire.slice(0, pos) + xml + wire.slice(pos + m.label.length);
+  }
+  return wire;
 }
 
 /**
@@ -128,6 +130,7 @@ export function MessagePane({
 }: MessagePaneProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
+  const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [pending, setPending] = useState<Attachment[]>([]);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const mirrorRef = useRef<HTMLDivElement | null>(null);
@@ -145,8 +148,11 @@ export function MessagePane({
   function commit(text: string) {
     const trimmed = text.trim();
     if (!trimmed && pending.length === 0) return;
-    onSend(trimmed, pending);
+    // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
+    const wireContent = reconstructWireContent(trimmed, draftMentions);
+    onSend(wireContent, pending);
     setDraft("");
+    setDraftMentions([]);
     setPending([]);
   }
 
@@ -170,10 +176,13 @@ export function MessagePane({
 
   function handleMentionSelect(c: MentionCandidate) {
     if (!mentionMatch) return;
-    // bugfix-358: insert inline tag (wire ID) instead of @display_name.
-    // display_name is a readable label only; target_id is the stable routing key.
+    // bugfix-358 (composer): 插入可见形式 `@DisplayName` 而非 XML, 同时旁路记录
+    // mention 元数据 (label + target_id + type), commit 时统一替换为 wire XML。
+    // 这样 textarea 字符宽度 = 视觉宽度, IME / 光标 / 撤销栈全部自然对齐。
+    const label = `@${c.display_name}`;
     const before = draft.slice(0, draft.length - mentionMatch[0].length);
-    setDraft(`${before}<mention type="agent" target_id="${c.agent_id}"/> `);
+    setDraft(`${before}${label} `);
+    setDraftMentions((prev) => [...prev, { label, type: "agent", target_id: c.agent_id }]);
     composerRef.current?.focus();
   }
 
@@ -289,7 +298,7 @@ export function MessagePane({
                 className="chat-composer-highlight-mirror"
                 aria-hidden="true"
               >
-                {buildMirrorNodes(draft, conversation.participants)}
+                {buildMirrorNodes(draft)}
               </div>
               <textarea
                 ref={composerRef}
