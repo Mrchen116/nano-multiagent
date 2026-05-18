@@ -761,14 +761,33 @@ def _append_llm_message(messages: list[LLMMessage], msg: LLMMessage) -> None:
 
 
 def _accumulate_usage(current: TokenUsage | None, update: TokenUsage | None) -> TokenUsage | None:
+    """Merge per-roundtrip LLM usage into a running turn-level summary.
+
+    Semantics within a single turn that contains tool calls (≥2 roundtrips):
+
+    - ``prompt_tokens`` is **replaced** by the latest value, not summed.  Each
+      roundtrip sends the same growing context window to the LLM; summing would
+      count that context N times and produce a physically meaningless number.
+      The last roundtrip's prompt_tokens reflects the true context footprint at
+      turn end and maps 1-to-1 to ``TokenUsage.context_used`` / the "已用上下文"
+      chip in the UI.
+
+    - ``completion_tokens`` is **summed**.  Every roundtrip generates distinct
+      new output tokens, so accumulation is correct.
+
+    - ``total_tokens`` is recomputed as ``update.prompt_tokens + accumulated
+      completion_tokens`` to stay in sync: total = context_used + output.
+    """
     if update is None:
         return current
     if current is None:
         return update
+    accumulated_completion = current.completion_tokens + update.completion_tokens
     return TokenUsage(
-        prompt_tokens=current.prompt_tokens + update.prompt_tokens,
-        completion_tokens=current.completion_tokens + update.completion_tokens,
-        total_tokens=current.total_tokens + update.total_tokens,
+        # Take the latest prompt snapshot, not a running sum — see docstring.
+        prompt_tokens=update.prompt_tokens,
+        completion_tokens=accumulated_completion,
+        total_tokens=update.prompt_tokens + accumulated_completion,
     )
 
 
