@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import re
 import sqlite3
 from uuid import uuid4
 
@@ -81,8 +82,12 @@ class RelayService:
 
         created_at = _utc_now()
         relay_task_id = uuid4().hex
-        mentioned_agent_ids = self._resolve_mention_to_agent_ids(
-            self._extract_mentioned_agent_ids(message.content)
+        participant_agent_ids_for_filter = self._resolve_participant_agent_ids(
+            conversation_id=message.conversation_id,
+        )
+        mentioned_agent_ids = self._resolve_mentioned_agent_ids_from_tags(
+            content=message.content,
+            participant_agent_ids=participant_agent_ids_for_filter,
         )
         agent_snapshot = self._resolve_agent_snapshot(
             conversation_id=message.conversation_id,
@@ -260,8 +265,12 @@ class RelayService:
         content: str,
     ) -> str | None:
         """Resolve the bound node for the concrete target agent of a message."""
-        mentioned_agent_ids = self._resolve_mention_to_agent_ids(
-            self._extract_mentioned_agent_ids(content)
+        participant_agent_ids_for_filter = self._resolve_participant_agent_ids(
+            conversation_id=conversation_id,
+        )
+        mentioned_agent_ids = self._resolve_mentioned_agent_ids_from_tags(
+            content=content,
+            participant_agent_ids=participant_agent_ids_for_filter,
         )
         agent_snapshot = self._resolve_agent_snapshot(
             conversation_id=conversation_id,
@@ -277,54 +286,39 @@ class RelayService:
             return None
         return str(row["node_id"])
 
+    # bugfix-358: 替换旧的 @text 扫描 + display_name fallback 查表。
+    # wire 层只认 <mention type="agent" target_id="X"/> 标签；不再扫 @token、不再按 display_name 查表。
+    _MENTION_TAG_RE = re.compile(
+        r"""<mention\s+type="agent"\s+target_id="([^"]+)"\s*/>""", re.IGNORECASE
+    )
+
     @classmethod
-    def _extract_mentioned_agent_ids(cls, content: str) -> list[str]:
-        mentioned: set[str] = set()
-        for token in content.split():
-            if not token.startswith("@") or len(token) <= 1:
-                continue
-            candidate = cls._normalize_mentioned_agent_id(token[1:])
-            if candidate:
-                mentioned.add(candidate)
-        return sorted(mentioned)
+    def _resolve_mentioned_agent_ids_from_tags(
+        cls,
+        *,
+        content: str,
+        participant_agent_ids: list[str],
+    ) -> list[str]:
+        """扫 content 中 <mention type="agent" target_id="X"/> 标签，过滤为当前会话 participants 中的 agent_id。
 
-    @staticmethod
-    def _normalize_mentioned_agent_id(token: str) -> str | None:
-        candidate = token.strip().strip(".,!?:;)]}\"'”’")
-        if not candidate:
-            return None
-        if candidate.startswith("agent:"):
-            candidate = candidate[len("agent:") :].strip()
-        return candidate or None
+        Args:
+            content: 消息文本，可能含 inline mention 标签。
+            participant_agent_ids: 当前会话合法 agent_id 集合（用于过滤 out-of-participants 的 target_id）。
 
-    def _resolve_mention_to_agent_ids(self, raw_mentions: list[str]) -> list[str]:
-        """把原始 @mention token 解析成真实 agent_id。
+        Returns:
+            去重、排序后的 agent_id 列表；target_id 不在 participants 中的标签被丢弃。
 
-        用户在 picker 里选择 display_name（如"架构"），发出的文本是 @架构，
-        但 Gateway 的 mentioned_agent_ids 需要存真实 agent_id（如"Arch"）。
-        先按 agent_id 精确匹配，找不到再按 display_name 查表。
+        Notes:
+            不查数据库做 display_name fallback——wire 层只认标签，
+            旧式 @<display_name> 文本不进路由（字面渲染，自然降级）。
         """
-        if not raw_mentions:
-            return []
-        resolved: list[str] = []
-        for raw in raw_mentions:
-            # 先检查是否直接就是合法的 agent_id
-            exact = self._connection.execute(
-                "SELECT agent_id FROM agent_profiles WHERE agent_id = ?", (raw,)
-            ).fetchone()
-            if exact is not None:
-                resolved.append(raw)
-                continue
-            # 按 display_name 模糊查（大小写不敏感）
-            by_name = self._connection.execute(
-                "SELECT agent_id FROM agent_profiles WHERE lower(display_name) = lower(?)", (raw,)
-            ).fetchone()
-            if by_name is not None:
-                resolved.append(str(by_name["agent_id"]))
-                continue
-            # 保留原始值作为兜底（上游可能已经是 agent_id）
-            resolved.append(raw)
-        return resolved
+        participant_set = set(participant_agent_ids)
+        found: set[str] = set()
+        for m in cls._MENTION_TAG_RE.finditer(content):
+            target_id = m.group(1)
+            if target_id in participant_set:
+                found.add(target_id)
+        return sorted(found)
 
     def _resolve_agent_snapshot(self, *, conversation_id: str, mentioned_agent_ids: list[str]) -> _RelayAgentSnapshot:
         conversation_row = self._connection.execute(
@@ -472,47 +466,52 @@ class RelayService:
         return agent_ids
 
     def _resolve_sender_info(self, *, sender_user_id: str) -> dict[str, str]:
-        """Return ``{id, display_name, type}`` for one sender.
+        """Return actor-first sender dict for one sender.
 
         Args:
             sender_user_id: Raw user UUID from the relay request.
 
         Returns:
-            Dict with ``id``, ``display_name`` (fallback to id when unknown), and
-            ``type`` (``"user"`` or ``"agent"``).
+            For agent senders: ``{type, agent_id, display_name}``.
+            For user senders:  ``{type, user_id, display_name}``.
+            No ``id`` field — wire ID is explicit per actor type (bugfix-358).
 
         Notes:
             Resolves against the users table first; if the user's username begins with
-            ``agent:`` the sender is typed as an agent.  Fallback to ``id`` when the
-            user row cannot be found.
+            ``agent:`` the sender is typed as an agent and ``agent_id`` is extracted
+            from the username suffix.  Falls back to ``user_id`` = sender_user_id when
+            the user row cannot be found.
         """
         row = self._connection.execute(
             "SELECT id, username, display_name FROM users WHERE id = ?",
             (sender_user_id,),
         ).fetchone()
         if row is None:
-            return {"id": sender_user_id, "display_name": sender_user_id, "type": "user"}
+            return {"type": "user", "user_id": sender_user_id, "display_name": sender_user_id}
         username = str(row["username"])
-        sender_type = "agent" if username.startswith("agent:") else "user"
         display_name = str(row["display_name"]) or sender_user_id
-        return {"id": sender_user_id, "display_name": display_name, "type": sender_type}
+        if username.startswith("agent:"):
+            agent_id = username[len("agent:"):].strip() or sender_user_id
+            return {"type": "agent", "agent_id": agent_id, "display_name": display_name}
+        return {"type": "user", "user_id": sender_user_id, "display_name": display_name}
 
     def _resolve_all_participants(self, *, conversation_id: str) -> list[dict[str, str]]:
-        """Return ``[{id, display_name, type}]`` for all conversation participants.
+        """Return actor-first participant dicts for all conversation members.
 
         Args:
             conversation_id: Conversation to inspect.
 
         Returns:
-            Ordered list of participant dicts in insertion order.  Each dict has
-            ``id`` (user UUID), ``display_name`` (from users or agent_profiles),
-            and ``type`` (``"user"`` or ``"agent"``).
+            Ordered list of participant dicts in insertion order.
+            Agent entries: ``{type, agent_id, display_name}``.
+            User entries:  ``{type, user_id, display_name}``.
+            No ``id`` field — wire ID is explicit per actor type (bugfix-358).
 
         Notes:
-            For agent participants (``agent:`` username prefix), ``display_name`` is
-            resolved from ``agent_profiles.display_name`` when available, otherwise
-            from ``users.display_name``.  Human user display names come from
-            ``users.display_name``.
+            For agent participants (``agent:`` username prefix), ``agent_id`` is
+            extracted from the username suffix and ``display_name`` is resolved from
+            ``agent_profiles.display_name`` (canonical) or ``users.display_name``
+            as fallback.  Human user display names come from ``users.display_name``.
         """
         rows = self._connection.execute(
             """
@@ -530,13 +529,13 @@ class RelayService:
             username = str(row["username"])
             user_display_name = str(row["display_name"]) or user_id
             if username.startswith("agent:"):
-                # Resolve agent display_name from agent_profiles (canonical title).
+                # agent_id is the stable wire ID; display_name from agent_profiles is canonical.
                 agent_id = username[len("agent:"):].strip()
-                profile = self._agent_display_name_row(agent_id=agent_id) if agent_id else None
-                display_name = profile if profile else user_display_name
-                result.append({"id": user_id, "display_name": display_name, "type": "agent"})
+                profile_display = self._agent_display_name_row(agent_id=agent_id) if agent_id else None
+                display_name = profile_display if profile_display else user_display_name
+                result.append({"type": "agent", "agent_id": agent_id, "display_name": display_name})
             else:
-                result.append({"id": user_id, "display_name": user_display_name, "type": "user"})
+                result.append({"type": "user", "user_id": user_id, "display_name": user_display_name})
         return result
 
     def _agent_display_name_row(self, *, agent_id: str) -> str | None:

@@ -6,6 +6,7 @@ import { AttachmentDropzone } from "../../attachments/attachment-dropzone";
 import { uploadOneAttachment } from "../../attachments/use-attachment-upload";
 import {
   classifyConversationKind,
+  type Actor,
   type Attachment,
   type Conversation,
   type MentionCandidate,
@@ -13,6 +14,7 @@ import {
 } from "../chat-types";
 import { Avatar } from "./avatar";
 import { KindBadge } from "./kind-badge";
+import { parseMentions } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { NodeChip } from "./node-chip";
 import { PermissionCard } from "./permission-card";
@@ -43,21 +45,55 @@ export interface MessagePaneProps {
 }
 
 const MENTION_RE = /@([^@\s]*)$/;
-// Matches any @word (completed mention) in the full draft text.
-const MENTION_HIGHLIGHT_RE = /@[\w一-龥][^\s@]*/g;
 
-function buildMirrorNodes(text: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  MENTION_HIGHLIGHT_RE.lastIndex = 0;
-  while ((m = MENTION_HIGHLIGHT_RE.exec(text)) !== null) {
-    if (m.index > last) nodes.push(text.slice(last, m.index));
-    nodes.push(<mark key={m.index} className="chat-composer-mention-highlight">{m[0]}</mark>);
-    last = m.index + m[0].length;
+/**
+ * Build the overlay mirror nodes for the composer textarea.
+ *
+ * bugfix-358: inline <mention type="agent" target_id="X"/> tags are rendered
+ * as highlighted mark chips in the mirror layer so users see display labels
+ * instead of raw XML.  Old-style @word patterns are still highlighted for the
+ * transient case during picker activation (before the tag is inserted).
+ */
+function buildMirrorNodes(text: string, participants?: Actor[]): React.ReactNode[] {
+  const participantMap = new Map<string, string>();
+  if (participants) {
+    for (const p of participants) {
+      participantMap.set(p.id, p.display_name ?? p.id);
+    }
   }
-  if (last < text.length) nodes.push(text.slice(last));
-  // Mirror needs a trailing newline token so the last line has correct height.
+
+  const segments = parseMentions(text);
+  const hasMentionTags = segments.some((s) => s.kind === "mention");
+
+  const nodes: React.ReactNode[] = [];
+
+  if (hasMentionTags) {
+    // Use parseMentions segments to render mention chips in the mirror.
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      if (seg.kind === "mention") {
+        const label = participantMap.get(seg.target_id) ?? seg.target_id;
+        nodes.push(
+          <mark key={i} className="chat-composer-mention-highlight">@{label}</mark>
+        );
+      } else {
+        nodes.push(seg.text);
+      }
+    }
+  } else {
+    // No inline tags: fall back to @word highlight for picker-active state.
+    const MENTION_HIGHLIGHT_RE = /@[\w一-龥][^\s@]*/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = MENTION_HIGHLIGHT_RE.exec(text)) !== null) {
+      if (m.index > last) nodes.push(text.slice(last, m.index));
+      nodes.push(<mark key={m.index} className="chat-composer-mention-highlight">{m[0]}</mark>);
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) nodes.push(text.slice(last));
+  }
+
+  // Mirror needs a trailing zero-width space so the last line has correct height.
   nodes.push("​");
   return nodes;
 }
@@ -134,8 +170,10 @@ export function MessagePane({
 
   function handleMentionSelect(c: MentionCandidate) {
     if (!mentionMatch) return;
+    // bugfix-358: insert inline tag (wire ID) instead of @display_name.
+    // display_name is a readable label only; target_id is the stable routing key.
     const before = draft.slice(0, draft.length - mentionMatch[0].length);
-    setDraft(`${before}@${c.display_name} `);
+    setDraft(`${before}<mention type="agent" target_id="${c.agent_id}"/> `);
     composerRef.current?.focus();
   }
 
@@ -212,7 +250,14 @@ export function MessagePane({
             <p className="chat-pane-empty-sub">{t("chat.messagePane.emptySubtitle")}</p>
           </div>
         ) : (
-          messages.map((m) => <MessageBubble key={m.id} message={m} isMobile={isMobile} />)
+          messages.map((m) => (
+            <MessageBubble
+              key={m.id}
+              message={m}
+              isMobile={isMobile}
+              participants={conversation.participants}
+            />
+          ))
         )}
       </div>
 
@@ -244,7 +289,7 @@ export function MessagePane({
                 className="chat-composer-highlight-mirror"
                 aria-hidden="true"
               >
-                {buildMirrorNodes(draft)}
+                {buildMirrorNodes(draft, conversation.participants)}
               </div>
               <textarea
                 ref={composerRef}
@@ -281,7 +326,15 @@ export function MessagePane({
   );
 }
 
-function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boolean }) {
+function MessageBubble({
+  message,
+  isMobile,
+  participants,
+}: {
+  message: Message;
+  isMobile?: boolean;
+  participants?: Actor[];
+}) {
   const { t } = useTranslation();
   const isSystem = message.sender.type === "system";
   const isUser = message.sender.type === "user";
@@ -326,8 +379,8 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
         <div data-testid={`message-bubble-${message.id}`} className="chat-bubble-card">
           {message.content && (
             isUser
-              ? <div className="chat-bubble-content">{message.content}</div>
-              : <MarkdownContent content={message.content} />
+              ? <div className="chat-bubble-content">{renderInlineContent(message.content, participants)}</div>
+              : <MarkdownContent content={message.content} participants={participants} />
           )}
           {message.attachments && message.attachments.length > 0 && (
             <div className="chat-bubble-attachments">
@@ -368,7 +421,13 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
   );
 }
 
-function MarkdownContent({ content }: { content: string }) {
+function MarkdownContent({
+  content,
+  participants,
+}: {
+  content: string;
+  participants?: Actor[];
+}) {
   const blocks = content.split(/\n{2,}/);
   return (
     <div className="im-md">
@@ -379,16 +438,74 @@ function MarkdownContent({ content }: { content: string }) {
         }
         if (/^\s*[-*]\s+/m.test(block)) {
           const items = block.split("\n").filter(Boolean).map((line) => line.replace(/^\s*[-*]\s+/, ""));
-          return <ul key={idx}>{items.map((item, itemIdx) => <li key={itemIdx}>{renderInlineMarkdown(item)}</li>)}</ul>;
+          return (
+            <ul key={idx}>
+              {items.map((item, itemIdx) => (
+                <li key={itemIdx}>{renderInlineContent(item, participants)}</li>
+              ))}
+            </ul>
+          );
         }
         if (/^\s*\d+\.\s+/m.test(block)) {
           const items = block.split("\n").filter(Boolean).map((line) => line.replace(/^\s*\d+\.\s+/, ""));
-          return <ol key={idx}>{items.map((item, itemIdx) => <li key={itemIdx}>{renderInlineMarkdown(item)}</li>)}</ol>;
+          return (
+            <ol key={idx}>
+              {items.map((item, itemIdx) => (
+                <li key={itemIdx}>{renderInlineContent(item, participants)}</li>
+              ))}
+            </ol>
+          );
         }
-        return <p key={idx}>{renderInlineMarkdown(block)}</p>;
+        return <p key={idx}>{renderInlineContent(block, participants)}</p>;
       })}
     </div>
   );
+}
+
+/**
+ * Render a text segment that may contain inline mention tags and markdown emphasis.
+ * bugfix-358: <mention type="agent"|"user" target_id="X"/> tags are rendered as
+ * chip elements showing the current display_name from the participants dictionary.
+ */
+function renderInlineContent(
+  text: string,
+  participants?: Actor[],
+): React.ReactNode {
+  // Build a lookup map from wire ID to display_name for mention chip resolution.
+  const participantMap = new Map<string, string>();
+  if (participants) {
+    for (const p of participants) {
+      const displayName = p.display_name ?? p.id;
+      participantMap.set(p.id, displayName);
+    }
+  }
+
+  const segments = parseMentions(text);
+  // Fast path: no mention segments — fall back to markdown-only rendering.
+  if (segments.every((s) => s.kind === "text")) {
+    return renderInlineMarkdown(text);
+  }
+
+  return segments.map((seg, idx) => {
+    if (seg.kind === "mention") {
+      const displayName = participantMap.get(seg.target_id);
+      if (displayName) {
+        return (
+          <span key={idx} className="chat-mention-chip" data-target-id={seg.target_id}>
+            @{displayName}
+          </span>
+        );
+      }
+      // Unknown target_id: silent degradation — no raw tag shown
+      return (
+        <span key={idx} className="chat-mention-chip chat-mention-chip--unknown">
+          @unknown
+        </span>
+      );
+    }
+    // Text segment: apply inline markdown within it
+    return <React.Fragment key={idx}>{renderInlineMarkdown(seg.text)}</React.Fragment>;
+  });
 }
 
 function renderInlineMarkdown(text: string) {
