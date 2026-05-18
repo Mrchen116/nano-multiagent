@@ -238,7 +238,8 @@ describe("MessagePane", () => {
     expect(screen.queryByRole("button", { name: /Planner/i })).not.toBeInTheDocument();
   });
 
-  it("inserts @AgentName when a mention candidate is clicked", async () => {
+  // bugfix-358: handleMentionSelect 改写入 inline tag 而非 @display_name
+  it("inserts <mention/> inline tag (not @display_name) when a mention candidate is clicked", async () => {
     const user = userEvent.setup();
     render(
       <MessagePane
@@ -251,7 +252,9 @@ describe("MessagePane", () => {
     const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
     await user.type(composer, "ping @P");
     await user.click(await screen.findByRole("button", { name: /Planner/ }));
-    expect(composer.value).toBe("ping @Planner ");
+    // Must contain inline tag with target_id = agent_id, not @display_name
+    expect(composer.value).toContain('target_id="a-planner"');
+    expect(composer.value).not.toContain("@Planner");
   });
 
   // R4 C1: PermissionCard mount point — renders inline card when message has permission_request

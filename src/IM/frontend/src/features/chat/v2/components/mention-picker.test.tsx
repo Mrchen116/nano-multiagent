@@ -41,4 +41,40 @@ describe("MentionPicker", () => {
     await user.click(screen.getByRole("button", { name: /Coder/ }));
     expect(onSelect).toHaveBeenCalledWith(CANDIDATES[1]);
   });
+
+  // bugfix-358: handle column shown only when display_name duplicates exist in the list
+  describe("handle column conditional display (bugfix-358)", () => {
+    const UNIQUE_NAMES: MentionCandidate[] = [
+      { agent_id: "a-alpha", display_name: "Alpha", initials: "AL", status: "online" },
+      { agent_id: "a-beta", display_name: "Beta", initials: "BE", status: "online" },
+    ];
+
+    const DUPLICATE_NAMES: MentionCandidate[] = [
+      { agent_id: "a-assistant-1", display_name: "助手", initials: "AS", status: "online" },
+      { agent_id: "a-assistant-2", display_name: "助手", initials: "AS", status: "online" },
+      { agent_id: "a-unique", display_name: "Unique", initials: "UN", status: "online" },
+    ];
+
+    it("does not show handle column when all display_names are unique", () => {
+      render(<MentionPicker candidates={UNIQUE_NAMES} query="" onSelect={() => {}} onClose={() => {}} />);
+      // handle column items should not be visible
+      const handles = document.querySelectorAll(".chat-mention-picker-handle");
+      // All handle elements should be hidden or absent for unique-name candidates
+      const visibleHandles = Array.from(handles).filter(
+        (el) => (el as HTMLElement).style.display !== "none" && !el.classList.contains("hidden")
+      );
+      expect(visibleHandles).toHaveLength(0);
+    });
+
+    it("shows handle column for duplicate display_name candidates", () => {
+      render(<MentionPicker candidates={DUPLICATE_NAMES} query="" onSelect={() => {}} onClose={() => {}} />);
+      // The two "助手" rows must show their handles for disambiguation
+      const handles = document.querySelectorAll(".chat-mention-picker-handle");
+      const visibleHandles = Array.from(handles).filter(
+        (el) => (el as HTMLElement).style.display !== "none" && !el.classList.contains("hidden")
+      );
+      // At least the duplicate-name rows must show a handle
+      expect(visibleHandles.length).toBeGreaterThanOrEqual(2);
+    });
+  });
 });
