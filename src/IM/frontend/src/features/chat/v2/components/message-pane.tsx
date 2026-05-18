@@ -134,8 +134,10 @@ export function MessagePane({
 
   function handleMentionSelect(c: MentionCandidate) {
     if (!mentionMatch) return;
+    // bugfix-358: insert inline tag (wire ID) instead of @display_name.
+    // display_name is a readable label only; target_id is the stable routing key.
     const before = draft.slice(0, draft.length - mentionMatch[0].length);
-    setDraft(`${before}@${c.display_name} `);
+    setDraft(`${before}<mention type="agent" target_id="${c.agent_id}"/> `);
     composerRef.current?.focus();
   }
 
