@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 
 import httpx
@@ -128,7 +129,17 @@ def _wait_for_health(url: str, *, timeout: float = 10.0) -> None:
 
 
 def _terminate_background_pid(pid: int, *, timeout: float = 10.0) -> None:
-    os.kill(pid, signal.SIGTERM)
+    # bugfix-359: Gateway 后台启动时 start_new_session=True,它和它的 kernel uvicorn
+    # 子进程共享同一个 pgid (= Gateway pid)。只 kill 单 pid 会让 kernel 子进程逃过 SIGTERM,
+    # 留下僵尸。统一走 killpg 把整个进程组带走。
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        return
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
     deadline = time.monotonic() + timeout
     while time.monotonic() <= deadline:
         try:
@@ -136,7 +147,8 @@ def _terminate_background_pid(pid: int, *, timeout: float = 10.0) -> None:
         except ProcessLookupError:
             return
         time.sleep(0.05)
-    os.kill(pid, signal.SIGKILL)
+    with suppress(ProcessLookupError):
+        os.killpg(pgid, signal.SIGKILL)
 
 
 class _PwdToolLLM:

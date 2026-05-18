@@ -1125,6 +1125,9 @@ def stop_gateway(
         except ProcessLookupError:
             _remove_gateway_pid(config)
             return f"STALE pid={pid} pid_file={_gateway_pid_path(config)}"
+        # bugfix-359: 顺手 killpg 把 kernel uvicorn 子进程一起带走;leader 进程已收过 SIGTERM,
+        # 多发一次无副作用,pgid 拿不到时静默吞掉。
+        _kill_process_tree(pid, signal.SIGTERM)
         deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
         while time.monotonic() <= deadline:
             if not _pid_is_running(pid):
@@ -1132,6 +1135,7 @@ def stop_gateway(
                 return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)}"
             time.sleep(config.kernel.health_poll_interval_seconds)
         os.kill(pid, signal.SIGKILL)
+        _kill_process_tree(pid, signal.SIGKILL)
         _remove_gateway_pid(config)
         return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)} forced=true"
     if not _pid_is_running(state.pid):
@@ -1148,6 +1152,8 @@ def stop_gateway(
         if _healthcheck_reports_healthy(state.health_url):
             return f"STALE pid={state.pid} state={state_path} health_url={state.health_url} still_healthy=true"
         return f"STALE pid={state.pid} state={state_path}"
+    # bugfix-359: 顺手 killpg 把 kernel uvicorn 子进程一起带走。
+    _kill_process_tree(state.pid, signal.SIGTERM)
     deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
     while time.monotonic() <= deadline:
         if not _pid_is_running(state.pid):
@@ -1165,6 +1171,7 @@ def stop_gateway(
             )
         time.sleep(config.kernel.health_poll_interval_seconds)
     os.kill(state.pid, signal.SIGKILL)
+    _kill_process_tree(state.pid, signal.SIGKILL)
     _remove_gateway_state(state_path)
     _remove_gateway_pid(config)
     forced = f"STOPPED pid={state.pid} state={state_path} forced=true"
@@ -2234,12 +2241,34 @@ def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) ->
     if process.poll() is not None:
         return
     process.terminate()
+    # bugfix-359: Gateway 启动用 start_new_session=True,kernel uvicorn 子进程在同一个 pgid 下。
+    # process.terminate() 只发给 Gateway pid,kernel 接不到。补一发 killpg 把整个会话带走;
+    # fake/mock ProcessLike 的 pid 拿不到 pgid 时 _kill_process_tree 静默吞掉。
+    _kill_process_tree(process.pid, signal.SIGTERM)
     try:
         process.wait(timeout=timeout_seconds)
     except (TimeoutError, subprocess.TimeoutExpired):
         process.kill()
+        _kill_process_tree(process.pid, signal.SIGKILL)
         with suppress(TimeoutError, subprocess.TimeoutExpired):
             process.wait(timeout=timeout_seconds)
+
+
+def _kill_process_tree(pid: int, sig: int) -> None:
+    """Send ``sig`` to the entire process group led by ``pid``; falls back to single pid.
+
+    Gateway 后台启动时 ``start_new_session=True``,kernel uvicorn 子进程在同一个 pgid 下。
+    killpg 是唯一能一次性把 Gateway + kernel + 任何其它 Gateway 派生的孙进程都带走的方式。
+    pgid 拿不到(进程刚消失)时静默吞掉,让上层走 wait 路径决定下一步。
+    """
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        return
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return
 
 
 def _install_default_signal_handlers(runtime: GatewayRuntimeLike) -> SignalHandlerInstaller:
