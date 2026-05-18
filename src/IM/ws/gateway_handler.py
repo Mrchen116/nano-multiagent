@@ -763,7 +763,13 @@ class GatewayHandler:
             peer_agent_ids.append(agent_id)
         if not peer_agent_ids:
             return
-        context_text = f"{sender_display_name}: {detail.strip()}"
+
+        # bugfix-358: IM 在此处只做哑路由——给每个 peer agent 各扇出一份 group relay。
+        # 是否触发回复(MENTION gate)的判断完全交给 Gateway:Gateway 看 enqueue_message_relay
+        # 内部从 content 里 <mention type="agent" target_id="X"/> 标签解出的 mentioned_agent_ids,
+        # 自己 in 列表 → 触发;否则 buffer 进 group_context_store 当背景上下文(inbound_pipeline §3.1)。
+        # content 不在 IM 端预加 sender 前缀:Gateway pipeline 会按 _format_sender_text(sender_label, text)
+        # 自己拼 [sender] 前缀;IM 再加一遍会 double-prefix。
         synthetic_message = Message(
             id=task.message_id,
             conversation_id=task.conversation_id,
@@ -775,7 +781,7 @@ class GatewayHandler:
                 display_name=sender_display_name,
                 user_id=sender_user_id,
             ),
-            content=context_text,
+            content=detail.strip(),
             attachments=[],
             delivery_status="completed",
             created_at=task.updated_at,
@@ -791,11 +797,10 @@ class GatewayHandler:
             result = self._relay_service.enqueue_message_relay(
                 message=synthetic_message,
                 target_node_id=target_node_id,
-                idempotency_key=f"peer-context:{task.relay_task_id}:{peer_agent_id}",
+                idempotency_key=f"agent-reply:{task.relay_task_id}:{peer_agent_id}",
                 sender_user_id=sender_user_id,
                 conversation_type="group",
                 extra_metadata={
-                    "background_context_only": True,
                     "source_agent_id": source_agent_id,
                     "sender_display_name": sender_display_name,
                 },

@@ -260,16 +260,20 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(tmp_
         )
     )
 
+    # bugfix-358: agent reply fanout is now dumb routing — one group relay per peer,
+    # idempotency_key=agent-reply:<source>:<peer>, content is bare reply text (no sender prefix
+    # because Gateway adds [sender] itself), no background_context_only flag (Gateway decides
+    # trigger vs buffer purely from mentioned_agent_ids + group_reply_policy).
     peer_tasks = connection.execute(
         "SELECT relay_task_id, payload_json, status FROM relay_tasks WHERE idempotency_key = ?",
-        (f"peer-context:{original.relay_task_id}:Q",),
+        (f"agent-reply:{original.relay_task_id}:Q",),
     ).fetchall()
     assert response["type"] == "ack"
     assert len(peer_tasks) == 1
     assert peer_tasks[0]["status"] == "dispatched"
-    assert '"background_context_only":true' in peer_tasks[0]["payload_json"]
+    assert "background_context_only" not in peer_tasks[0]["payload_json"]
     assert '"agent_id":"Q"' in peer_tasks[0]["payload_json"]
-    assert '"content":"A: A reply"' in peer_tasks[0]["payload_json"]
+    assert '"content":"A reply"' in peer_tasks[0]["payload_json"]
     relay_frames = [item for item in websocket.sent_json if item.get("type") == "relay.message"]
     assert len(relay_frames) == 1
     assert relay_frames[0]["payload"]["agent_id"] == "Q"

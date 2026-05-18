@@ -1397,6 +1397,18 @@ body {
   text-decoration: none;
 }
 
+/* bugfix-358: 已发送消息里的 mention chip 与 composer 高亮同色,
+   视觉上"发送前 / 发送后"保持一致。 */
+.chat-mention-chip {
+  color: oklch(0.50 0.18 255);
+  font-weight: 500;
+}
+
+.chat-mention-chip--unknown {
+  color: oklch(0.55 0.01 240);
+  font-style: italic;
+}
+
 .chat-pane-composer-input {
   border: 1px solid var(--im-border);
   border-radius: 0.6rem;

@@ -670,7 +670,9 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                 detail="gateway-reply:@agent-a first mention",
                 extra_frames=peer_context_frames,
             )
-            assert peer_context_frames and peer_context_frames[0]["payload"]["metadata"]["background_context_only"] is True
+            # bugfix-358: peer relay no longer carries background_context_only;
+            # Gateway decides trigger vs buffer from mentioned_agent_ids alone.
+            assert peer_context_frames, "expected at least one peer agent-reply relay frame"
 
             current = client.get("/im/v1/agents/agent-a/config")
             assert current.status_code == 200

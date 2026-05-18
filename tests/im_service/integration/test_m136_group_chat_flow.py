@@ -100,11 +100,11 @@ def _send_delivery_receipt(
         frame = websocket.receive_json()
         if frame.get("type") == "ack":
             return frame
-        # Group completion may enqueue peer background-context relay frames. They are
-        # legitimate side effects for other agents, but this helper only waits for the
-        # receipt ack corresponding to the relay under test.
+        # Group completion enqueues a relay per peer agent (bugfix-358: dumb fanout,
+        # no background_context_only flag; Gateway decides trigger vs buffer from
+        # mentioned_agent_ids). This helper just consumes such frames while waiting
+        # for the receipt ack corresponding to the relay under test.
         assert frame.get("type") == "relay.message"
-        assert frame.get("payload", {}).get("metadata", {}).get("background_context_only") is True
         continue
 
 
