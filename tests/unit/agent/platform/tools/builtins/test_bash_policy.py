@@ -166,7 +166,7 @@ class TestCheckCommandPolicyDenied:
     """check_command_policy 对硬 deny 命令返回 status='denied'。"""
 
     @pytest.mark.parametrize("cmd", [
-        "mkfs.ext4 /dev/sda",
+        "mkfs /dev/sda",
         "reboot",
         "shutdown -h now",
         "halt",
