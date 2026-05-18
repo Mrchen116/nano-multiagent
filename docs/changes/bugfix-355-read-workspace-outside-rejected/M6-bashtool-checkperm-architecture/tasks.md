@@ -41,4 +41,4 @@ BashTool 实现 check_permissions 自持权限判定；auto_mode_gate.py step 6 
 | R2 | 新建 bash_runner.py + BashTool 改用 bash_runner（执行层迁移） | DONE |
 | R3 | BashTool.check_permissions 实现 + auto_mode_gate step 6 删除 | DONE |
 | R4 | ToolSafety 退化（删 bash_* 字段 + 三方法 + helpers）+ shell_runner 清理 | DONE |
-| R5 | 集成测试：端到端 hook → check_permissions 调用链覆盖 | TODO |
+| R5 | 集成测试：端到端 hook → check_permissions 调用链覆盖 | DONE |

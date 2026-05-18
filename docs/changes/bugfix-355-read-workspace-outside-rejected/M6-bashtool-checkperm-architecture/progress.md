@@ -73,6 +73,22 @@ BashTool.check_permissions 自持权限判定；auto_mode_gate step 6 删除；S
   - E2E/Regression: N/A — R5 覆盖
   - Visual/Interaction: N/A
 - Rollback: C1 = 9730c5b2，C2 = 54a998d5
-- Commits: C1=9730c5b2, C2=54a998d5, C3=TBD
+- Commits: C1=9730c5b2, C2=54a998d5, C3=d9c1292e
 - Next: R5 — 集成测试 + tasks.md 全 DONE
+
+### R5 — 集成测试：端到端 hook → check_permissions 调用链
+
+- Context: exit 标准要求"真实入口验证"：git status 不触发 classifier；python3 file.py 触发 classifier（fail-closed 当无 model_caller）；tool_registry 注入链完整
+- Decision: 新建 tests/integration/test_bash_check_permissions_integration.py，4 个测试：git status hook 通过（不 block）、python3 --version 执行（D9 version flag）、python3 script fail-closed（无 model_caller 被 block）、直接调用 check_command_policy 验证 allowed/review 分类
+- Rationale: 端到端覆盖 D10 链路（ToolRegistry.execute → tool_registry 注入 → auto_mode_gate step 1/5 → BashTool.check_permissions → bash_policy）；test_hook_builtin_bash_risk_gate.py 已覆盖 ls/rm 路径，本文件补 git/python3 语义
+- Evidence:
+  - Tests: 4 integration tests passed；全量 1560 unit+integration tests passed（31 pre-existing failures 与 M6 无关，已在 unit branch baseline 确认）
+  - Entry: ToolRegistry.execute 端到端：git status → hook 通过执行（exit 128 = no git repo 是 shell 层错误，非 hook 拒绝）；python3 --version 执行成功；python3 /tmp/run.py 被 hook block（fail-closed）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: tests/integration/test_bash_check_permissions_integration.py（4 tests）
+  - Visual/Interaction: N/A
+- Rollback: C1+C2 = b347b08a
+- Commits: C1+C2=b347b08a, C3=TBD
+- Next: 集成到 unit 分支
 
