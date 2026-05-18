@@ -51,6 +51,28 @@ BashTool.check_permissions 自持权限判定；auto_mode_gate step 6 删除；S
   - E2E/Regression: N/A — R5 覆盖
   - Visual/Interaction: N/A
 - Rollback: C1 = b4c1f194，C2 = 69456f44
-- Commits: C1=b4c1f194, C2=69456f44, C3=TBD
+- Commits: C1=b4c1f194, C2=69456f44, C3=6aba4aa4
 - Next: R4 — ToolSafety 退化（删 bash_* 字段 + 三方法 + helpers）
+
+### R4 — ToolSafety 退化 + safety_types.py 清理 + tool_registry 注入
+
+- Context: ToolSafetyConfig 仍有 bash_* 字段（bash_allowed_prefixes 等）、ToolSafety 仍有 check_command_policy、enforce_command_policy、run_command、run_command_stream、start_command_background 五方法，与 D7 拆分原则冲突。同时 ToolRegistry.execute 未注入 tool_registry，导致 auto_mode_gate step 1 拿不到 BashTool.check_permissions，bash 命令走到 classifier 却无 model_caller 被误 block。
+- Decision:
+  1. safety.py: ToolSafetyConfig 只保留 read_max_lines + read_max_bytes；删除所有 bash_* 字段（~625→145 行）
+  2. safety.py: ToolSafety 删除五 bash 方法 + 所有私有 helpers（_ensure_command_parseable 等）
+  3. safety.py: 保留 CommandExecution dataclass（BashTool.run 返回值），shim 重出 CommandPolicyDecision
+  4. safety_types.py: ToolSafetyLike 删除 bash 方法签名 + BackgroundCommandHandle/CommandExecution 协议
+  5. registry.py: ToolRegistry.execute 将 self 注入 active_hook_context.metadata["tool_registry"]（caller 未注入时才注入，避免覆盖 agent loop 自有注入），使 D10 端到端打通
+  6. 更新四个测试文件：test_tool_safety_policy.py 改调 bash_policy、test_safety_background.py 改为 tombstone、test_bash_runner.py 修正 patch 目标、test_tools_builtins.py 改 BashRunnerConfig、test_platform_tools_location.py 更新 CommandPolicyDecision 模块断言
+- Rationale: 架构完整性——M6 D7 要求 bash 逻辑全部离开 ToolSafety。registry.py 注入是 D10 端到端必要步骤：tool_registry 不在 metadata 时，auto_mode_gate step 1 无法找到 BashTool，step 5 永远不触发。
+- Evidence:
+  - Tests: test_safety.py 14 tests（TestToolSafetyConfigM6Cleanup + TestToolSafetyM6MethodCleanup）全绿；test_hook_builtin_bash_risk_gate.py 3 tests 全绿（端到端 ls -la 通过/blocked_fragment 拒绝/无 model_caller 阻拦）；145 unit tests covering R4 scope 全绿；全量 pre-existing failures 数不变（31 个与 M6 无关）
+  - Entry: test_hook_builtin_bash_risk_gate.py 通过真实 ToolRegistry.execute + HookRunner + BashTool 端到端验证 "ls -la /tmp" 被 allow（check_permissions→allow→step 5 return None）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A — R5 覆盖
+  - Visual/Interaction: N/A
+- Rollback: C1 = 9730c5b2，C2 = 54a998d5
+- Commits: C1=9730c5b2, C2=54a998d5, C3=TBD
+- Next: R5 — 集成测试 + tasks.md 全 DONE
 
