@@ -379,7 +379,7 @@ function MessageBubble({
         <div data-testid={`message-bubble-${message.id}`} className="chat-bubble-card">
           {message.content && (
             isUser
-              ? <div className="chat-bubble-content">{message.content}</div>
+              ? <div className="chat-bubble-content">{renderInlineContent(message.content, participants)}</div>
               : <MarkdownContent content={message.content} participants={participants} />
           )}
           {message.attachments && message.attachments.length > 0 && (
