@@ -7,6 +7,7 @@
 ## Changelog
 
 <!-- 按时间倒序追加。格式:YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
+- 2026-05-18 (design 增量): 增 D7 (BashTool 架构归位) + D8 (策略+执行 模块拆分) + D9 (allow-prefix 裁剪) + D10 (policy 单点) 关键决策;增锚点 P-T;新增 M6 milestone (BashTool.check_permissions + bash_policy/bash_runner 抽离 + S3 allow-prefix 对齐 CC isReadOnly)
 - 2026-05-16 (M5): fix R2-#1 auto_mode_gate 传 ctx=None 给 check_permissions 导致 AttributeError 被静默吞 + Anchor O Corrigendum 路径修正为 kernel CWD — 详见 M5-fix-checkperm-ctx/progress.md
 
 ## 现状分析
@@ -29,6 +30,12 @@
 | `src/agent/platform/tools/builtins/edit.py` | EditTool,无工具级权限检查 | 加 `check_permissions` 调 `check_dangerous_path`(D5 决) |
 | `src/agent/platform/permissions/broker.py` | `PermissionDecision` 等数据结构 | 扩展 `PermissionResult` 含 `decision_reason` 字段(接口与数据流段) |
 | `src/agent/platform/config/auto_mode.py` | `AutoModeConfig` | 新增 `web_fetch` 子段(`preapproved_hosts_extra` / `deny_hosts` / `ask_hosts` / `allow_hosts`)|
+| **M6** `src/agent/platform/tools/safety.py:30-49, 329-435, 575-605` | `ToolSafetyConfig.bash_*` 字段 + `check_command_policy` / `enforce_command_policy` / `run_command_stream`(全 bash 专属) | **M6 整体搬出**:bash 配置 / 策略 / 执行 三段全迁到 `platform/tools/builtins/` 下新模块;`ToolSafety` 退到 `resolve_path` / `normalize_path` / `is_path_in_workspace` + 通用 IO budget(只读相关) |
+| **M6 新增** `src/agent/platform/tools/builtins/bash_policy.py` | 不存在 | 持 `BASH_ALLOWED_PREFIXES`(按 CC isReadOnly 重审)/ `BASH_BLOCKED_COMMANDS` / `BASH_BLOCKED_FRAGMENTS` 常量 + `check_command_policy` / `enforce_command_policy` + `_split_and_segments` / `_extract_base_command` / `_matches_any_allowed_prefix` / `_ensure_command_parseable` helpers(对应 D7 + D8 + D9) |
+| **M6 新增** `src/agent/platform/tools/builtins/bash_runner.py` | 不存在 | 持 `BashRunner` 类(或顶层函数族)= 原 `run_command_stream` 的 subprocess 执行机制(selector / signal / timeout / 流式回调)。BashTool 持有 / 注入 BashRunner;`shell_runner.py` 改 import 自此(对应 D7 + D8) |
+| **M6 改** `src/agent/platform/tools/builtins/bash.py` | BashTool 无 `check_permissions`;`run` 路径(`_run_legacy_sync` / `_run_foreground` / `_run_background`)走 `ctx.safety.run_command_stream` | **加 `check_permissions`** 调 `bash_policy.check_command_policy` 返 `allow` / `deny` / `passthrough`;**删 run 路径里 policy 二次校验**(走 D10);run_command_stream 改调 bash_runner |
+| **M6 改** `src/agent/platform/hooks/builtins/auto_mode_gate.py:761-780 step 6` | 硬编码 `if tool_name == "bash":` 调 `ToolSafety.check_command_policy`,返 `allow_unlisted` 标记 | **整段删**;bash 走通用 step 1 / step 5 的 `tool.check_permissions` dispatch;`allow_unlisted` 标记从所有 hook 返值移除(对应 D7) |
+| **M6 改** `src/agent/platform/background_tasks/shell_runner.py:48` | 调 `safety.enforce_command_policy` 做 policy 二次校验 | 删除该校验(走 D10:policy 单点,run / shell_runner 信任 hook);改用 bash_runner 提供的 subprocess 能力 |
 
 ### 既有约束
 
@@ -109,6 +116,7 @@ tool body 执行
 - **dangerously 真 bypass**(R1+W1):dangerously 下 tool 内部不再硬 raise(read 也跟着不 raise);但危险目录的 write/edit 仍要 ask(W1 `safety_check`)
 - **classifier 输入 pure**(W2):不再加 OUTSIDE NOTE,classifier 凭 system prompt 自判
 - **safe-allowlist 精简**(S1/S2):web_fetch / web_search 移到各自 check_permissions
+- **M6 BashTool 架构归位**(D7-D10):bash 也走通用 step 1+5 通道——BashTool 自持 `check_permissions` 调 `bash_policy.check_command_policy`;**step 6 整段消失**;`auto_mode_gate` 不再有 `if tool_name == "bash"` 硬编码;bash 配置 / 策略 / 执行三段从 ToolSafety 整体迁出到 `platform/tools/builtins/bash_policy.py` + `bash_runner.py`;ToolSafety 退到纯通用类(`resolve_path` / `normalize_path` + read IO budget)
 
 ## 关键决策
 
@@ -221,6 +229,74 @@ tool body 执行
   - B(只加 Changelog 不动正文)— 扫读正文的人会被误导
   - C(重写正文)— 失去错判历史,silent rewrite 不可审计
 - **风险**: 无
+
+### 决策 D7: BashTool 架构归位 — bash 专属逻辑收回工具自身(M6)
+
+- **选择**: 把 `ToolSafety` / `ToolSafetyConfig` 里的 bash 专属配置 / 策略 / 执行 **三段全部搬到 `platform/tools/builtins/` 下新模块**;BashTool 实现 `check_permissions` 自持权限判定;`auto_mode_gate.py` step 6 的 `if tool_name == "bash"` 硬编码整段删除,bash 走通用 D1 dispatch 通道。
+- **理由**:
+  - 现状错位严重:`ToolSafetyConfig` 9 个字段里 7 个带 `bash_*` 前缀,`ToolSafety` 三个方法是 bash 专属(`check_command_policy` / `enforce_command_policy` / `run_command_stream`)——这个类名叫 ToolSafety,事实是 BashSafety 伪装。读类的人第一反应必然困惑
+  - `run_command_stream` 签名看似通用(`command: str` / `cwd` / `timeout`),内部全是 bash 硬编码(`["bash", "-c", command]`、bash 退出码语义、bash signal 处理、tree-of-processes 收割),是个**伪装成 ToolSafety 方法的 BashRunner**。留在公共类是错位,不是合理"通用能力"
+  - 本 PR 已经引入 `tool.check_permissions` 协议(D1)+ WriteTool / EditTool / WebFetchTool 实现样板(D5 / D4);BashTool 是唯一一个权限判定还硬编码在 hook 里的工具——**架构上 D1 框架对 bash 不闭合**,M6 收口
+  - 长期可演进性:未来 BashTool 按 CC 风格拆细(bashSecurity / bashRunner / pathValidation / readOnlyValidation)的起点;ToolSafety 演进方向是"路径 + 通用 IO budget 的轻量服务",每留一个 bash 字段都是反向阻力
+  - 对照 CC:`runShellCommand` 在 BashTool 实现层,不在公共安全类;CC 没有"全局 ToolSafety"装 bash subprocess 的结构
+- **拒绝**:
+  - A(纯架构归位,allow-prefix 列表不动)— 架构对齐但 Q2 语义错位保留,后续单独修一次同区域代码,语义连贯性差
+  - B(只裁剪 allow-prefix 不动架构)— `auto_mode_gate` 仍硬编码 bash,D1 框架对 bash 不闭合
+  - C(策略 + 执行 分两批,M6 只搬策略,执行下 unit)— 留 `run_command_stream` 在 ToolSafety 等于留个错位伪装,而且 `enforce_command_policy` 是 thin wrapper(`check + raise`),跟策略一组,分开搬割裂语义;未来再迁移成本更高
+- **风险**:
+  - blast radius 较大:touches `ToolSafety` / `BashTool` / `auto_mode_gate` / `shell_runner` / 测试组织 / `policy.toml` 加载。**M6 退出标准要求**集成测试覆盖三个调用点(hook 入口、tool.run、background shell_runner)真实贯通,避免漏改
+  - 现有 `ToolSafety` 配置外部用户在 `.nano/policy.toml` 配的 bash_* 字段需要保持兼容——见锚点 R(配置兼容路径)
+
+### 决策 D8: bash 模块的拆分粒度(M6 内部)
+
+- **选择**: 拆成 **两个文件**:
+  - `src/agent/platform/tools/builtins/bash_policy.py` — 策略层(常量 + `check_command_policy` + `enforce_command_policy` + 全部 helper 函数)
+  - `src/agent/platform/tools/builtins/bash_runner.py` — 执行层(`BashRunner` 类或顶层函数族,持 subprocess 封装)
+- **理由**:
+  - 两层语义独立:策略层是"决定能不能跑",执行层是"怎么跑";读者从文件名就能定位
+  - 与 CC `bashPermissions.ts` + `runShellCommand` 的分层一致
+  - 为未来 M6 之后再拆细(bashSecurity / readOnlyValidation / pathValidation)留 join point——届时 `bash_policy.py` 内部可再拆,而 `bash_runner.py` 内部可注入不同 sandbox 后端
+  - **不拆**到子包(如 `tools/builtins/bash/`)——本 PR `tools/builtins/` 内文件已经 flat 结构(`read.py` / `write.py` / `edit.py` / `bash.py` / `web_fetch.py`),M6 引入子包会破坏一致性
+- **拒绝**:
+  - A(合一个 `bash_internals.py`)— 策略和执行混在一文件,可读性差
+  - B(直接全塞 `bash.py`)— 现有 `bash.py` 已 532 行,加入会超 1000 行,违反单文件可读性常识
+  - C(`bash/__init__.py` 子包)— 与 `tools/builtins/` 现有 flat 风格不一致
+- **风险**: 两个文件互相 import 时小心循环;策略层不依赖执行层(单向 `bash.py → bash_policy.py` + `bash.py → bash_runner.py`),设计期就钉死
+
+### 决策 D9: `bash_allowed_prefixes` 列表按 CC isReadOnly 语义裁剪(S3)
+
+- **选择**: 走 **prefix 级精度裁剪**(选项 A),沿用现有 `_matches_any_allowed_prefix` 机制,不引入 flag-level validator;裁剪后清单:
+
+  **保留(真只读)**: `cat` / `command -v` / `echo` / `false` / `head` / `ls` / `pwd` / `rg` / `tail` / `true` / `wc`
+
+  **删除(非只读光秃秃前缀)**: `bash`(执行任意脚本)、`pytest`(任意 fixture 副作用)、`sed`(`-i` 改文件)、`sleep`(非检索,纯阻塞)、`python` / `python3`(执行任意脚本)
+
+  **改为子命令级 prefix**:
+  - `git` → `git status` / `git log` / `git diff` / `git show` / `git branch` / `git config` / `git rev-parse` / `git ls-files` / `git blame` / `git tag` / `git describe` / `git remote` / `git stash list`(对照 CC `GIT_READ_ONLY_COMMANDS`)
+  - `python` / `python3` → `python --version` / `python -V` / `python3 --version` / `python3 -V`(对照 CC `readOnlyValidation.ts:1537-1540` 的 anchored regex)
+- **理由**:
+  - CC `isReadOnly` 是 flag 级精度(1900+ 行 `readOnlyValidation.ts` + 5500+ 行配套 `validateFlags` + shellQuote parser),完整对齐超出 M6 主旨——这是单独 unit 的工作量
+  - prefix 级精度在本仓现有 `_matches_any_allowed_prefix` 机制(已支持 multi-token prefix)上**零新机制**就能拿到 80% CC 安全收益:`git push` / `bash script.sh` / `python3 file.py` / `sed -i` / `pytest -x` 都会落入 classifier 判定
+  - 剩下 20%(flag 级精度,如 `git log --output=/tmp/x`)留作已知 gap,在 `bash_policy.py` 模块 docstring 显式标注"未来 unit 引入 flag validator 时填补"——比硬塞 Hybrid 半成品干净
+- **拒绝**:
+  - B(完整对齐 CC flag validator)— 2000+ 行迁移,超出 M6 范围
+  - C(Hybrid:prefix + 简单 flag 黑名单)— 既不简单也不严谨,长期变成历史包袱
+- **风险**:
+  - 现有 dev 流(用户惯用 `python3 file.py` / `pytest tests/...`)首次执行会进 classifier,有 1-3 秒额外延迟。可接受——一次性教学成本,后续可由用户 explicit 加入 `auto_mode.always_allow_tools` 或 session-level allowlist
+  - classifier 对 `python3 file.py` 的判定要稳定 allow——`auto_mode_gate.py` 现有 yolo classifier system prompt 已包含 `Running common development tools (node, python, ruby, ...) for compilation and execution of project code` 的 ALLOW 例子(feat-333 design.md:481),无 prompt 改动需求
+
+### 决策 D10: bash policy 校验只在 BashTool.check_permissions 一处做(单点原则)
+
+- **选择**: Policy 仅在 hook 调 `BashTool.check_permissions` 时检查一次。`BashTool.run`(`_run_legacy_sync` / `_run_foreground` / `_run_background`)+ `background_tasks/shell_runner.py` 不再做 policy 二次/三次校验。`auto_mode_gate` 返回值中的 `allow_unlisted` 标记一并移除(语义随 policy 单点化而消失)。
+- **理由**:
+  - 对齐 CC:CC `BashTool.tsx:call()` 内**不**重做 policy,信任 `canUseTool`(hook 等价物)的决策
+  - 现状的 2-3 重校验本是"hook 替 tool 查过了"语义的 workaround(`allow_unlisted` 标记)——架构上是个绕(hook 出去再返回),搬完之后 policy 表就在 BashTool 自己手里,语义自然简化为"自查一次"
+  - 维护一致性:多处 policy 检查必须永远同步,任何一处漂移都是隐藏 bug;单点原则消除这个失败模式
+  - `ToolRegistry.execute()` 是 BashTool 唯一入口,hook 永远会跑——不存在"hook 被绕过 → tool.run 失去 policy 保护"的真实场景。测试代码直接 instantiate BashTool 调 run 时,本来就是受控环境,不需要 policy
+- **拒绝**:
+  - B(保留 defense-in-depth,run / shell_runner 仍调 bash_policy)— `allow_unlisted` 跨进程标记的传递更复杂(后台 task 经 wiring 跨进程);更怕的失败模式是"双检不一致"(策略表升级时一处忘改),比"少一重检"更难调试。CC 不做这种 belt-and-suspenders
+  - C(只删 run 重检,留 shell_runner 重检)— 在跨进程边界做 safety net 听上去合理,但 shell_runner 接到的 command 已经 BashTool.run 传过来,不存在改写;留着只增加维护点
+- **风险**: 极低——`ToolRegistry.execute()` 的中介性确保 hook 永远先跑;若未来真有"绕开 ToolRegistry 直接调 tool.run"的入口出现(不应该,违反内核分层),应在那个入口加 hook 而不是回填 policy 重检
 
 ## 接口与数据流
 
@@ -360,6 +436,143 @@ auto_mode:
     deny_hosts: []                # 用户配置的 hostname deny 规则(精确匹配)
     ask_hosts: []                 # 用户配置的 hostname ask 规则
     allow_hosts: []               # 用户配置的 hostname allow 规则
+```
+
+### `bash_policy.py` 模块接口(`platform/tools/builtins/bash_policy.py`,新建,M6)
+
+```python
+# 配置常量(从 ToolSafetyConfig 搬来,按 D9 裁剪 allow 列表)
+BASH_ALLOWED_PREFIXES: tuple[str, ...] = (
+    "cat", "command -v", "echo", "false", "head", "ls", "pwd", "rg",
+    "tail", "true", "wc",
+    # git 子命令级(对照 CC GIT_READ_ONLY_COMMANDS)
+    "git status", "git log", "git diff", "git show", "git branch", "git config",
+    "git rev-parse", "git ls-files", "git blame", "git tag", "git describe",
+    "git remote", "git stash list",
+    # 解释器仅放行 anchored --version / -V
+    "python --version", "python -V", "python3 --version", "python3 -V",
+)
+
+BASH_BLOCKED_COMMANDS: tuple[str, ...] = (
+    "mkfs", "reboot", "shutdown", "halt", "poweroff",
+    "zmodload", "emulate", "ztcp", "zsocket", "zpty",
+    "sysopen", "sysread", "syswrite", "sysseek",
+    "zf_rm", "zf_mv", "zf_ln", "zf_chmod", "zf_chown", "zf_mkdir", "zf_rmdir", "zf_chgrp",
+    "mapfile",
+)
+
+BASH_BLOCKED_FRAGMENTS: tuple[str, ...] = (":(){",)
+
+
+@dataclass(frozen=True, slots=True)
+class CommandPolicyDecision:
+    status: Literal["allowed", "denied", "review"]
+    details: Mapping[str, Any]
+
+
+def check_command_policy(command: str) -> CommandPolicyDecision:
+    """Classify command as allow/deny/review using BASH_* constants.
+
+    跟搬迁前 ToolSafety.check_command_policy 函数体一致,
+    去掉 ``tool_name`` 参数(语义无意义,见 Q2 讨论)。
+    """
+    ...
+
+
+def enforce_command_policy(command: str) -> None:
+    """Raise ToolError if check_command_policy returns 'denied' / 'review'.
+
+    保留作为后台 / 测试场景的便捷包装,但 M6 之后 BashTool.run / shell_runner
+    都不再调它(D10 单点原则)。
+    """
+    ...
+
+
+# helpers — 全部从 safety.py 私有函数搬来:
+# _split_and_segments, _extract_base_command, _matches_any_allowed_prefix,
+# _combined_allow_prefixes, _ensure_command_parseable
+```
+
+### `bash_runner.py` 模块接口(`platform/tools/builtins/bash_runner.py`,新建,M6)
+
+```python
+class BashRunner:
+    """Subprocess executor extracted from ToolSafety.run_command_stream.
+
+    内部实现照搬现有 run_command_stream(selector + signal + Timer + 流式回调),
+    去除对 ToolSafetyConfig 字段的耦合,改读 BashRunnerConfig(独立配置)。
+    """
+
+    def __init__(self, config: BashRunnerConfig) -> None: ...
+
+    def run_stream(
+        self,
+        *,
+        command: str,
+        cwd: Path,
+        timeout: float | None,
+        tool_name: str,                          # 仅用于错误归属
+        allow_unlisted: bool = False,            # 保留参数兼容,但 M6 后调用方都不传
+        on_event: Callable[[Mapping[str, Any]], None] | None,
+        heartbeat_interval: float,
+    ) -> CommandExecution: ...
+
+
+@dataclass(frozen=True, slots=True)
+class BashRunnerConfig:
+    """Bash 执行机制的独立配置(从 ToolSafetyConfig 抽离)。"""
+    bash_max_output_lines: int = DEFAULT_MAX_LINES
+    bash_max_output_bytes: int = DEFAULT_MAX_BYTES
+    bash_default_timeout: float = 30.0
+```
+
+### `BashTool.check_permissions` 决策链(`builtins/bash.py`,改,M6)
+
+```python
+def check_permissions(self, tool_input, ctx) -> PermissionResult:
+    command = str(tool_input.get("command", "")).strip()
+    if not command:
+        return PermissionResult(behavior="passthrough")  # 让 schema validation 接手
+
+    decision = bash_policy.check_command_policy(command)
+    if decision.status == "allowed":
+        return PermissionResult(
+            behavior="allow",
+            decision_reason={"type": "command_policy", "matched": "allowed"},
+        )
+    if decision.status == "denied":
+        return PermissionResult(
+            behavior="deny",
+            reason=f"bash policy denied: {decision.details}",
+            decision_reason={"type": "command_policy", "matched": "denied", **decision.details},
+        )
+    # decision.status == "review" — passthrough 让 classifier 接手
+    return PermissionResult(
+        behavior="passthrough",
+        decision_reason={"type": "command_policy", "matched": "review", **decision.details},
+    )
+```
+
+### `auto_mode_gate.on_tool_call` step 6 整段删除(M6)
+
+```
+现状(auto_mode_gate.py:761-780):
+  Step 6: Bash: check_command_policy first
+    if tool_name == "bash":
+        command = tool_input.get("command", "")
+        ...
+        safety = ToolSafety(repo_root=..., config=load_tool_safety_config(...))
+        policy = safety.check_command_policy(command, tool_name="bash")
+        if policy.status == "denied": return {"block": True, ...}
+        if policy.status == "allowed": return None
+        # review → fall through to classifier
+
+M6 改后:
+  整段删除。bash 走 step 1 / step 5 的通用 tool.check_permissions dispatch:
+    - allow → 直接 allow
+    - deny → 直接 deny
+    - passthrough(review)→ 继续 classifier
+  `allow_unlisted` 返值标记一并移除。
 ```
 
 ## 实施细节锚点
@@ -674,6 +887,82 @@ auto_mode:
       - example.org
 ```
 
+### 锚点 P: ToolSafety 退到纯通用类后的形态(对应 M6 / D7)
+
+`ToolSafety` 搬完后保留:
+
+- `resolve_path(path, *, cwd, tool_name) -> Path` — 写工具用的工作区沙箱
+- `normalize_path(path, *, cwd) -> Path` — 不抛错,只 normalize(read 工具用)
+- `is_path_in_workspace(path, *, cwd) -> bool` — 测试/反向断言
+- `read_max_bytes: int` — 读 IO budget
+
+`ToolSafetyConfig` 退到只剩 `read_max_bytes` 一个字段(或可考虑改名 `IOBudgetConfig`,但本期不强制改名)。
+
+`run_command_stream` / `enforce_command_policy` / `check_command_policy` 三个方法 + 所有 `bash_*` 配置字段 + helper 函数全部删除。
+
+### 锚点 Q: BashTool 内 BashRunner 持有/注入方式(对应 M6 / D7-D10)
+
+两种合理路径,worker 实施时择一:
+
+1. **类持有(推荐)**: `BashTool.__init__` 接收可选 `runner: BashRunner | None`,无注入时 lazy 构造默认;`run` 路径调 `self._runner.run_stream(...)`
+2. **ctx 注入**: 通过 `ctx.bash_runner` 由 `AgentRuntime` 装配;BashTool 不持引用
+
+选项 1 与现有 wiring(`bind_wiring`)风格一致,作为默认。选项 2 更"无状态",但需要 ctx 字段扩展——本期不强制,worker 探到现有装配再定。
+
+### 锚点 R: `.nano/policy.toml` 配置兼容路径(对应 D7 / D9)
+
+现状:`load_tool_safety_config` 读 `.nano/policy.toml` 的 `[tool_safety.bash_policy]` 段(详见 `safety.py:122-170`),用户可覆盖 `allow_prefixes` / `blocked_commands` / `blocked_fragments` / `default_timeout` 等。
+
+M6 改后:
+
+- 配置读取入口**保持向后兼容**:用户 TOML 里写的 `[tool_safety.bash_policy]` 段继续被 parse,但读取后转发到新的 `bash_policy.load_overrides(...)` API
+- `load_tool_safety_config` 函数本身职责退化到只 parse "通用安全配置"(目前剩 `read_max_bytes`);bash 字段 parse 移到 `bash_policy.py` 新增的 `load_bash_policy_overrides(repo_root: Path) -> BashPolicyOverrides`
+- 字段名 / TOML 路径不变,用户无感知;只是后端从 `ToolSafetyConfig.bash_*` 字段挪到了 `BashPolicyOverrides`
+
+worker 在迁移时把 `safety.py:122-170` 的解析逻辑也搬到 `bash_policy.py`,保留单测覆盖现有 TOML 文件兼容。
+
+### 锚点 S: shell_runner.py:48 的改造方式(对应 D10)
+
+现状:
+
+```python
+enforce = getattr(self._safety, "enforce_command_policy", None)
+if enforce:
+    enforce(command, tool_name=self._tool_name)
+```
+
+M6 改后:**整段删除**(走 D10 单点原则)。`shell_runner` 接收的 command 来自 BashTool._run_background,后者经过 hook 的 `check_permissions` 已做 policy 检查;后台 runner 信任该决策。
+
+如果 worker 在实施时发现这是后台 task 唯一 policy 兜底(例如有"非 BashTool 派生的 shell_runner 调用"),需在 progress.md 记录边界 case 后再决定是否保留——但调研已知 `shell_runner` 仅被 `BashTool._run_background` 调用,无其他入口。
+
+### 锚点 T: 测试组织(对应 M6)
+
+bash policy 相关单测从 `tests/unit/agent/platform/tools/test_safety.py` 拆出到新文件:
+
+| 新模块 | 单测文件 |
+|---|---|
+| `platform/tools/builtins/bash_policy.py` | `tests/unit/agent/platform/tools/builtins/test_bash_policy.py` |
+| `platform/tools/builtins/bash_runner.py` | `tests/unit/agent/platform/tools/builtins/test_bash_runner.py` |
+| `BashTool.check_permissions` 新增 | `tests/unit/agent/platform/tools/builtins/test_bash.py`(在现有文件追加) |
+| `auto_mode_gate` step 6 删除回归 | `tests/unit/agent/platform/hooks/test_auto_mode_gate.py`(现有,补集成断言) |
+
+`test_safety.py` 退到只测剩余的 `resolve_path` / `normalize_path` / `is_path_in_workspace` / `read_max_bytes`。
+
+S3 裁剪的核心单测覆盖(必须新加):
+
+- `python3 file.py` → policy.status == "review"(进 classifier)
+- `bash script.sh` → "review"
+- `pytest tests/...` → "review"
+- `sed -i 's/x/y/' f` → "review"
+- `git status` / `git log` / `git diff` → "allowed"
+- `git push` / `git commit` / `git reset --hard` → "review"
+- `python3 --version` / `python3 -V` → "allowed";`python3 file.py` → "review"
+
+集成测试(M6 退出标准要求):
+
+- 真实 `AgentRuntime` 装配 + hook ctx 注入,验证 `python3 file.py` 触发 yolo classifier LLM 调用(可用 mock LLM 验证 transcript 包含该 tool_use)
+- 同上,验证 `git status` **不**触发 LLM 调用
+
 ## 风险与回退
 
 | 风险 | 应对 |
@@ -685,12 +974,17 @@ auto_mode:
 | W1 危险目录清单维护(`.nanocode` / `.nano-assistant`)随本仓配置目录变化漂移 | 在 dangerous_paths.py 顶部加 docstring 提示"清单跟随 AGENTS.md 自家配置目录演进,新增配置目录时同步";不引入额外机制 |
 | HostnameRuleEngine 的 exact match 匹配规则在用户期望 wildcard 时失效 | docstring + config 注释明确写"本期 exact match;wildcard / subdomain 后续 unit 扩展" |
 | refactor-353 文档 corrigendum 修改原 unit 文档,可能被审计为"动了 merged unit" | docs/changes 修订本来就是允许的(只要走 PR 流程);Changelog 行 + corrigendum 提供完整审计链 |
+| **M6** bash_policy / bash_runner 抽离后,现有 `.nano/policy.toml` 用户配置失效(blast radius 直达终端用户) | 配置 parse 逻辑搬迁但 TOML 路径 / 字段名保持不变(锚点 R);worker 单测覆盖"用户 TOML 仍生效"反向回归 |
+| **M6** S3 裁剪后,`python3 file.py` / `bash script.sh` 首次触发 classifier 增加 1-3 秒延迟,可能影响 dev 体验 | yolo classifier system prompt 已有 "Running common development tools" 的 ALLOW 例子(feat-333 design.md:481),classifier 应稳定 allow;首次延迟一次后用户可加入 session-level allowlist;reviewer 旅程包含"`python3 -c 'print(1)'` allow 路径"验证 classifier 稳定性 |
+| **M6** Policy 单点(D10)后,`BashTool.run` / `shell_runner` 失去 policy 兜底,若未来出现"绕开 ToolRegistry 直接调 tool.run"的入口将失守 | 在 `bash_policy.py` 顶部 docstring 标注"policy 单点由 hook 入口持有;任何绕开 ToolRegistry 的 bash 调用必须自行调 `check_command_policy`";`shell_runner` 文件顶部加同样说明 |
+| **M6** ToolSafety 退化后,`is_path_in_workspace` 等方法变成只有测试用 | docstring 标注"测试用;工具迁移完成后可删";不引入额外机制 |
 
 **回退方案**:
 
 - M1 出问题 → revert M1 即可,Tool 协议无 check_permissions 字段恢复,auto_mode_gate 旧 dispatch 恢复;Read 工作区外硬错回退,等于 refactor-353 现状
 - M2 出问题 → revert M2,WriteTool/EditTool 不再有 check_permissions;dangerously 下危险写入回到"沉默放行"(回退到现状);M1 不受影响
 - M3 出问题 → revert M3,WebFetch 回到 SAFE_TOOL_ALLOWLIST 直接 allow(需要把 M1 移除的那行加回去);M1/M2 不受影响
+- **M6** 出问题 → revert M6,bash_policy / bash_runner 文件删除;ToolSafety 恢复 bash_* 字段 + check_command_policy + run_command_stream;auto_mode_gate step 6 恢复 if tool_name == "bash" 硬编码;BashTool.check_permissions 删除;allow-prefix 列表回到旧 18 项。前序 M1-M5 不受影响
 
 ## Runbook for Reviewer
 
@@ -706,15 +1000,26 @@ auto_mode:
 - **M1**:在 IM 让 agent 读 `/tmp/sandbox-alpha/README.md`(预设有内容)— 应该返回真实内容,不再 `path is outside repo sandbox`
 - **M2**:在 dangerously 模式下让 agent 写 `~/.bashrc.test.bak` / `.git/test_config` — 应该弹卡片;让 agent 写 `/tmp/test_normal.txt` — 应该直接放行。**dangerously 模式配置**:`auto_mode_gate` 实际读取 `<kernel_repo_root>/.nanocode/config.yaml`，其中 `<kernel_repo_root>` = `NANO_MULTIAGENT_REPO_ROOT` 或 kernel 进程 CWD。personal_assistant 以主仓目录启动时，有效路径是主仓根目录的 `.nanocode/config.yaml`（见锚点 O 的 M5 Corrigendum）。在该文件写入：`auto_mode:\n  dangerously_skip_permissions: true`。若目录不存在，先 `mkdir -p <kernel_repo_root>/.nanocode`。
 - **M3**:在 auto 模式下让 agent `web_fetch https://docs.python.org/3/tutorial/`(preapproved)— 直接返回;让 agent `web_fetch https://evil.example.com`(无 rule)— 弹卡片
+- **M6**:
+  - 在 auto 模式下让 agent 跑 `git status` / `ls` / `cat <file>` / `rg <pattern>` — 直接执行无 classifier round-trip(可在 LLM proxy 日志验证无新 LLM 请求)
+  - 让 agent 跑 `python3 /tmp/hello.py`(预写 print 脚本)— **看到 classifier 走一遍**(LLM proxy 日志可见 yolo classifier 请求),最终 allow 并执行
+  - 让 agent 跑 `bash /tmp/script.sh` / `pytest tests/...` / `sed -i 's/x/y/' /tmp/f.txt` — 同样进 classifier
+  - 让 agent 跑 `git push origin main` — 进 classifier(预期 classifier 倾向 deny / ask,跟 yolo system prompt 一致)
+  - 让 agent 跑 `mkfs.ext4 /dev/sdz` / `:(){ :|:& };:` — 直接 deny 不走 classifier(blocked_commands / blocked_fragments 兜底)
+  - dangerously mode 下,以上 `python3 file.py` 不再卡 classifier 而是直接 allow(走 dangerously bypass 短路)
 
 ## Milestones
 
-按 D7 决定:3 milestones,M2 / M3 在 M1 完成后可并行(并行组 B)。
+按 D7 + D7-架构归位(M6) 决定:6 milestones。M2 / M3 在 M1 完成后可并行(并行组 B);M4 是 round-1 fix(组 C);M5 是 round-2 fix(组 D);M6 是 verdict pass 后追加的 BashTool 架构归位(组 E,依赖 M1 引入的 check_permissions 协议)。
 
 ```mermaid
 graph LR
   M1[M1 foundation-and-small-gaps] --> M2[M2 dangerous-path-safety-check]
   M1 --> M3[M3 webfetch-hostname-rule]
+  M2 --> M4[M4 fix-tool-registry-injection]
+  M3 --> M4
+  M4 --> M5[M5 fix-checkperm-ctx]
+  M1 --> M6[M6 bashtool-checkperm-architecture]
 ```
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
@@ -724,3 +1029,4 @@ graph LR
 | bugfix-355-M5 | fix-checkperm-ctx (post-acceptance fix, round 2) | M4 | D | `src/agent/platform/hooks/builtins/auto_mode_gate.py`(check_permissions 调用处传真实 ctx 而非 None)<br>`docs/changes/bugfix-355-read-workspace-outside-rejected/design.md`(Anchor O Corrigendum 修正为 kernel CWD 实际路径)<br>对应集成测试(确保 WriteTool.check_permissions 在端到端走通,不被 hook runner 静默吞 AttributeError) | `[reviewer]` R2-#1 / R2-#2 在 round 3 复验通过(`~/.bashrc.test.bak` 弹卡片不再被吞 AttributeError;Anchor O 路径与 kernel 实际读取一致)<br>`[worker]` 新增/扩展集成测试:WriteTool.check_permissions 在 hook ctx 注入完整路径下被调用时,不抛 AttributeError、能真正命中 `ask` 分支;反向断言 hook runner 不会静默吞工具权限检查异常(若再出 ctx 不全可立刻红) |
 | bugfix-355-M4 | fix-tool-registry-injection (post-acceptance fix, round 1) | M2, M3 | C | `src/agent/platform/runtime/app.py` 或 loop/hook ctx 构建处(把 `tool_registry` 注入 HookContext metadata,对应 Anchor C)<br>`src/agent/platform/tools/dangerous_paths.py`(DANGEROUS_FILES 匹配规则:basename startswith 命中如 `.bashrc.test.bak`)<br>`docs/changes/bugfix-355-read-workspace-outside-rejected/design.md`(Runbook 路径修正:dangerously 配置实写位置)<br>对应单测/集成测试 | `[reviewer]` regression.md round 1 三个 issue(blocking #1 / major #2 / minor #3)在 round 2 复验通过<br>`[worker]` 新增**集成测试**(走真实 HookContext + AgentRuntime 装配),验证 WriteTool/EditTool/WebFetchTool 的 check_permissions 真的被 auto_mode_gate 调用(覆盖反向回归)<br>`[worker]` `check_dangerous_path` 对 `.bashrc.test.bak` / `.zshrc.bak.20260101` 等 dotfile-prefix 备份文件命中,单测覆盖;原有 segment / `.claude/worktrees` 例外等 case 不回归<br>`[worker]` design.md Runbook for Reviewer 段的 dangerously 配置路径修正为 `auto_mode_gate` 实际读取的位置 |
 | bugfix-355-M3 | webfetch-hostname-rule | M1 | B | `src/agent/platform/permissions/hostname_rules.py`(新建,`HostnameRuleEngine`)<br>`src/agent/platform/tools/builtins/webfetch_preapproved.py`(新建,89 项 PREAPPROVED_HOSTS frozenset)<br>`src/agent/platform/tools/builtins/web_fetch.py`(加 `check_permissions`)<br>`src/agent/platform/config/auto_mode.py`(扩展 `web_fetch` 配置字段)<br>对应单测文件 | `[reviewer]` 在 auto 模式下,agent 调 `web_fetch https://docs.python.org/3/tutorial/`(preapproved)直接返回内容,无卡片<br>`[reviewer]` 在 auto 模式下,agent 调 `web_fetch https://evil.example.com`(无 rule,非 preapproved)弹卡片要求用户确认<br>`[reviewer]` 用户在 workspace `auto_mode.web_fetch.allow_hosts` 加 `example.org` 后,agent 调 `web_fetch https://example.org/x` 直接放行;deny / ask 列表语义对称生效<br>`[worker]` `PREAPPROVED_HOSTS` 与 CC `preapproved.ts:14-131` 逐项一致(**89 项**),单测全量比对;`is_preapproved_host(hostname, pathname)` 复刻 CC `preapproved.ts:154-165` 的 HOSTNAME_ONLY + PATH_PREFIXES 分裂逻辑,含 segment boundary 保护<br>`[worker]` `HostnameRuleEngine.evaluate` 单测覆盖 deny → ask → allow 优先级、exact match 语义、空 rule 返回 passthrough<br>`[worker]` `WebFetchTool.check_permissions` 决策链(D3 / 接口与数据流段)5 个分支单测全绿;`auto_mode_gate.SAFE_TOOL_ALLOWLIST` 已不含 `web_fetch` 的回归单测<br>`[worker]` `AutoModeConfig.web_fetch` 字段:`preapproved_hosts_extra` / `deny_hosts` / `ask_hosts` / `allow_hosts` 四个 list 字段 YAML 加载 / merge 单测全绿 |
+| bugfix-355-M6 | bashtool-checkperm-architecture | M1 | E | **新建** `src/agent/platform/tools/builtins/bash_policy.py`(策略层:BASH_ALLOWED_PREFIXES 按 D9 裁剪 + BASH_BLOCKED_COMMANDS + BASH_BLOCKED_FRAGMENTS + `check_command_policy` + `enforce_command_policy` + helpers)<br>**新建** `src/agent/platform/tools/builtins/bash_runner.py`(执行层:`BashRunner` 类 + `BashRunnerConfig`,迁移自 `run_command_stream`)<br>**改** `src/agent/platform/tools/builtins/bash.py`(加 `check_permissions` 调 bash_policy;run 路径改调 BashRunner;删除 run 内 policy 二次校验)<br>**改** `src/agent/platform/tools/safety.py`(删除全部 `bash_*` 字段 + `check_command_policy` + `enforce_command_policy` + `run_command_stream` + 相关 helpers;`ToolSafetyConfig` 退到 `read_max_bytes`)<br>**改** `src/agent/platform/hooks/builtins/auto_mode_gate.py`(删除 step 6 整段 `if tool_name == "bash"` 硬编码;移除 hook 返值中的 `allow_unlisted` 标记)<br>**改** `src/agent/platform/background_tasks/shell_runner.py:48`(删除 `enforce_command_policy` 调用;改用 BashRunner 提供 subprocess 能力)<br>**改** `.nano/policy.toml` 解析路径迁到 `bash_policy.load_bash_policy_overrides`(锚点 R,字段名 / TOML path 保持向后兼容)<br>**改** `tests/unit/agent/platform/tools/test_safety.py`(移除 bash policy 测试)<br>**新建** `tests/unit/agent/platform/tools/builtins/test_bash_policy.py`<br>**新建** `tests/unit/agent/platform/tools/builtins/test_bash_runner.py`<br>**扩展** `tests/unit/agent/platform/tools/builtins/test_bash.py`(BashTool.check_permissions)<br>**扩展** `tests/unit/agent/platform/hooks/test_auto_mode_gate.py`(step 6 删除回归 + bash 走 step 5 通用 dispatch)<br>**新建** 集成测试覆盖三个调用点(hook 入口 / tool.run / background shell_runner) | `[reviewer]` `python3 /tmp/hello.py` / `bash /tmp/script.sh` / `pytest tests/...` 在 auto 模式触发 yolo classifier(LLM proxy 日志可见 classifier 请求);最终 allow 后执行<br>`[reviewer]` `git status` / `ls` / `cat <file>` / `rg <pattern>` 直接执行,无 classifier round-trip(LLM proxy 日志无新请求)<br>`[reviewer]` `git push` 进 classifier 判定;`mkfs.ext4 /dev/sdz` 直接 deny 不进 classifier<br>`[reviewer]` dangerously mode 下,`python3 file.py` 不卡 classifier,直接 allow(走 dangerously bypass)<br>`[reviewer]` 用户原 `.nano/policy.toml` 里 `[tool_safety.bash_policy]` 段的覆盖配置仍生效(向后兼容)<br>`[worker]` `BashTool.check_permissions` 返回值:`allowed → behavior='allow'`,`denied → behavior='deny'`,`review → behavior='passthrough'`,单测覆盖<br>`[worker]` `bash_policy.BASH_ALLOWED_PREFIXES` 按 D9 清单逐字一致;`python3 file.py` / `bash script.sh` / `pytest` / `sed -i` / `sleep` / `python file.py` 全部判 review(进 classifier),单测覆盖<br>`[worker]` `git status` / `git log` / `git diff` 等 13 个 git 只读子命令判 allowed;`git push` / `git commit` / `git reset` 判 review,单测覆盖<br>`[worker]` `auto_mode_gate.py` step 6 硬编码已删除;`if tool_name == "bash"` 在 hook 文件中不再出现(grep 反向断言)<br>`[worker]` `BashTool.run` / `_run_legacy_sync` / `_run_foreground` / `_run_background` 不再调用 `enforce_command_policy` / `check_command_policy`(反向 grep 断言)<br>`[worker]` `shell_runner.py` 不再调用 `enforce_command_policy`(反向 grep 断言)<br>`[worker]` `ToolSafetyConfig` 不再包含 `bash_*` 字段(反向 grep 断言);剩余字段只有 `read_max_bytes`<br>`[worker]` 集成测试:走真实 `AgentRuntime` + hook,`python3 file.py` tool call 触发 yolo classifier LLM 请求(可用 mock LLM transcript 断言);`git status` 不触发<br>`[worker]` 配置兼容:`.nano/policy.toml` 用户覆盖 `[tool_safety.bash_policy.allow_prefixes]` 在迁移后仍能加进 `BASH_ALLOWED_PREFIXES`,单测覆盖<br>`[worker]` `pytest tests/unit/agent/platform/tools/` 全绿;`pytest tests/unit/agent/platform/hooks/test_auto_mode_gate.py` 全绿;`pytest tests/integration/...` 新增集成测试全绿 |
