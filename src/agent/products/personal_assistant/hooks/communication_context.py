@@ -62,12 +62,16 @@ def _build_communication_context_block(
             # Fallback for pre-M247 sessions that only carry agent ID lists.
             ids_repr = ", ".join(participant_agent_ids) if participant_agent_ids else "(none)"
             lines.append(f"- group_participants: {ids_repr}")
-        # M247: message_format updated to reference display_name for readability.
-        # @mention still uses id for routing precision.
+        # bugfix-358: message_format 改为教 inline mention 标签，不再教 @agent_id 形式。
+        # target_id 严格取自上方 group_participants 对应条目的 agent_id / user_id。
         lines.append(
-            "- message_format: 历史消息中每条以 [display_name] 标识发言人；"
-            "你的回复无需加前缀。群聊中如需 @mention Agent，使用其 agent_id（如 @agent_id）；"
-            "在当前会话中回应时直接输出文本，不要调用 send_message；"
+            "- message_format: 历史消息中每条以 [display_name] 标识发言人；你的回复无需加前缀。"
+            ' 在群聊中引用某人时，直接在回复中写 <mention type="agent" target_id="<id>"/> 或'
+            ' <mention type="user" target_id="<id>"/>，'
+            " <id> 严格取自上方 group_participants 对应条目的 agent_id / user_id。"
+            ' 例：<mention type="agent" target_id="ArchA"/> 你说呢？'
+            ' / <mention type="user" target_id="user-uuid"/> 我同意。'
+            " 在当前会话中回应时直接输出文本，不要调用 send_message；"
             "仅当目标不在当前会话（私聊用户/触达其他 agent/发送到其他群）时，使用 send_message(to=user_id|agent_id|conversation_id)。"
         )
     return "\n".join(lines)
