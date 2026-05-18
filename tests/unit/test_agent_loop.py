@@ -253,8 +253,8 @@ async def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
     # prompt_tokens = last round-trip only (80), NOT accumulated sum (100+80=180)
     assert result.usage.prompt_tokens == 80
     assert result.usage.completion_tokens == 22
-    # total = last prompt + all completions
-    assert result.usage.total_tokens == 92
+    # total = last_prompt(80) + sum_completion(10+12=22) = 102, NOT raw total sum (110+92=202)
+    assert result.usage.total_tokens == 102
 
 
 async def test_loop_prompt_tokens_tracks_last_roundtrip_not_sum() -> None:
