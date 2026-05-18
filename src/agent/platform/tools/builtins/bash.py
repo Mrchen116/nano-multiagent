@@ -10,6 +10,11 @@ from agent.core.background_tasks.ids import generate_bash_task_id
 from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
+from agent.platform.tools.builtins.bash_policy import (
+    check_command_policy,
+)
+from agent.platform.tools.builtins.bash_runner import BashRunner, BashRunnerConfig
+from agent.platform.permissions.broker import PermissionDecision
 
 # Foreground budget before auto-backgrounding (seconds)
 _DEFAULT_FOREGROUND_BUDGET = 120.0
@@ -71,10 +76,58 @@ class BashTool:
 
     def __init__(self, *, wiring: Any | None = None) -> None:
         self._wiring = wiring
+        # Lazy-constructed BashRunner for the legacy sync path.
+        # The wiring's bash_runner handles async/background paths separately.
+        self._bash_runner: BashRunner | None = None
 
     def bind_wiring(self, wiring: Any | None) -> None:
         """Bind background task wiring after bootstrap."""
         self._wiring = wiring
+
+    def check_permissions(
+        self,
+        tool_input: Mapping[str, Any],
+        ctx: "ToolContext",
+    ) -> "PermissionDecision":
+        """Classify the bash command via bash_policy and return a permission decision.
+
+        Called by auto_mode_gate (step 1 + step 5 dispatch) before the classifier.
+        Policy is applied exactly once here (D10 single-point principle).
+        BashTool.run / shell_runner do NOT re-check.
+
+        Returns:
+            PermissionDecision with behavior:
+              - 'allow'       if command matches BASH_ALLOWED_PREFIXES
+              - 'deny'        if command matches BASH_BLOCKED_COMMANDS or BASH_BLOCKED_FRAGMENTS
+              - 'passthrough' if command is unlisted (review → classifier decides)
+        """
+        command = str(tool_input.get("command", "")).strip()
+        if not command:
+            # Empty command: let schema validation handle it.
+            return PermissionDecision(behavior="passthrough")
+
+        try:
+            decision = check_command_policy(command)
+        except Exception:
+            # Unparseable command — fail open; let tool body raise ToolError.
+            return PermissionDecision(behavior="passthrough")
+
+        if decision.status == "allowed":
+            return PermissionDecision(
+                behavior="allow",
+                decision_reason={"type": "command_policy", "matched": "allowed"},
+            )
+        if decision.status == "denied":
+            return PermissionDecision(
+                behavior="deny",
+                reason=f"bash policy denied: {decision.details.get('blocked_command', decision.details.get('blocked_fragment', ''))}",
+                decision_reason={"type": "command_policy", "matched": "denied", **dict(decision.details)},
+            )
+        # status == "review" — pass through to classifier
+        return PermissionDecision(
+            behavior="passthrough",
+            decision_reason={"type": "command_policy", "matched": "review", **dict(decision.details)},
+        )
 
     def is_concurrency_safe(self, args: Mapping[str, Any]) -> bool:
         """Dynamic safety: read-only commands are safe; anything with side-effects is not."""
@@ -307,6 +360,12 @@ class BashTool:
     # Legacy synchronous path (used when wiring is not available)
     # ------------------------------------------------------------------
 
+    def _get_bash_runner(self) -> BashRunner:
+        """Return (or lazy-construct) the BashRunner for the legacy sync path."""
+        if self._bash_runner is None:
+            self._bash_runner = BashRunner(config=BashRunnerConfig())
+        return self._bash_runner
+
     def _run_legacy_sync(
         self,
         *,
@@ -320,12 +379,12 @@ class BashTool:
             ctx.emit_execution_event(event_payload)
 
         try:
-            execution = ctx.safety.run_command_stream(
+            runner = self._get_bash_runner()
+            execution = runner.run_stream(
                 command=command,
                 cwd=ctx.cwd,
                 timeout=timeout_value,
                 tool_name=self.name,
-                allow_unlisted=bool(ctx.safety_overrides.get("bash_allow_unlisted")),
                 on_event=_on_execution_event,
                 heartbeat_interval=0.1,
             )

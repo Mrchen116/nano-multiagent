@@ -105,17 +105,14 @@ class TestBashToolUsesRunnerNotSafety:
     def test_legacy_sync_calls_bash_runner(self, tmp_path):
         """_run_legacy_sync should use BashRunner, not ctx.safety.run_command_stream."""
         from agent.platform.tools.builtins.bash import BashTool
-        from agent.core.tools.base import ToolContext
+        from agent.core.tools.base import ToolContext, set_tool_safety_factory, set_tool_safety_config_factory
         from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
-        # Set up ToolContext
-        from agent.core import tools as base_module
-        from agent.platform.tools import safety as safety_module_ref
-
-        base_module.set_tool_safety_factory(
+        # Set up ToolContext with platform factories
+        set_tool_safety_factory(
             lambda *, repo_root, config: ToolSafety(repo_root=repo_root, config=config)
         )
-        base_module.set_tool_safety_config_factory(ToolSafetyConfig)
+        set_tool_safety_config_factory(ToolSafetyConfig)
 
         ctx = ToolContext.create(repo_root=tmp_path)
         tool = BashTool()

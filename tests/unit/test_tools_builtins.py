@@ -320,11 +320,30 @@ def test_bash_handles_timeout(tmp_path: Path) -> None:
     assert isinstance(exc_info.value.details["content"], str)
 
 
-def test_bash_rejects_disallowed_command(tmp_path: Path) -> None:
-    ctx = _context(tmp_path)
+def test_bash_rejects_disallowed_command_via_check_permissions(tmp_path: Path) -> None:
+    """After M6 (D10 single-point principle), policy is checked in check_permissions,
+    not in BashTool.run. This test validates check_permissions returns 'deny' for
+    blocked commands and 'passthrough' for review-class commands.
 
-    with pytest.raises(ToolError, match="not allowed"):
-        BashTool().run({"command": "rm -rf /tmp/forbidden"}, ctx)
+    BashTool.run no longer raises ToolError for unlisted commands; that decision
+    is now made by the auto_mode_gate hook which calls check_permissions first.
+    """
+    from agent.platform.permissions.broker import PermissionDecision
+    ctx = _context(tmp_path)
+    tool = BashTool()
+
+    # Blocked command → deny from check_permissions
+    result = tool.check_permissions({"command": "reboot"}, ctx)
+    assert isinstance(result, PermissionDecision)
+    assert result.behavior == "deny"
+
+    # Fork-bomb → deny
+    result = tool.check_permissions({"command": ":(){:|:&};:"}, ctx)
+    assert result.behavior == "deny"
+
+    # Review command (rm -rf) → passthrough (classifier decides)
+    result = tool.check_permissions({"command": "rm -rf /tmp/forbidden"}, ctx)
+    assert result.behavior == "passthrough"
 
 
 def test_bash_file_mode_no_truncation_for_small_output(tmp_path: Path) -> None:
@@ -355,9 +374,13 @@ def test_bash_file_mode_1mb_hard_limit(tmp_path: Path) -> None:
 
 
 def test_bash_without_timeout_does_not_inject_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """After M6, BashTool uses BashRunner.run_stream, not ctx.safety.run_command_stream.
+    Patch BashRunner.run_stream to verify timeout=None is passed through.
+    """
+    from agent.platform.tools.builtins.bash_runner import BashRunner
     captured: dict[str, object] = {}
 
-    def fake_run_command_stream(  # noqa: ANN202
+    def fake_run_stream(  # noqa: ANN202
         self,  # noqa: ANN001
         *,
         command: str,
@@ -372,7 +395,7 @@ def test_bash_without_timeout_does_not_inject_default(monkeypatch: pytest.Monkey
         captured["timeout"] = timeout
         return CommandExecution(exit_code=0, text="ok", truncated=False)
 
-    monkeypatch.setattr(ToolSafety, "run_command_stream", fake_run_command_stream)
+    monkeypatch.setattr(BashRunner, "run_stream", fake_run_stream)
     ctx = _context(tmp_path)
 
     result = BashTool().run({"command": "python -c \"print('ok')\""}, ctx)
@@ -405,13 +428,15 @@ def test_bash_success_merges_stdout_and_stderr_into_stdout(tmp_path: Path) -> No
 
 
 def test_bash_aborted_contract_message_and_details(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """After M6, BashTool uses BashRunner; patch BashRunner.run_stream to simulate abort."""
+    from agent.platform.tools.builtins.bash_runner import BashRunner
     ctx = _context(tmp_path)
 
-    def fake_run_command_stream(**kwargs):  # noqa: ANN003
-        del kwargs
+    def fake_run_stream(self, **kwargs):  # noqa: ANN001, ANN003
+        del self, kwargs
         raise ToolError("keyboard interrupt", tool_name="bash", details={"aborted": True})
 
-    monkeypatch.setattr(ctx.safety, "run_command_stream", fake_run_command_stream)
+    monkeypatch.setattr(BashRunner, "run_stream", fake_run_stream)
 
     with pytest.raises(ToolError, match="Command aborted") as exc_info:
         BashTool().run({"command": "python -c \"print('ignored')\""}, ctx)
