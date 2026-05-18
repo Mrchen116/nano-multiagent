@@ -222,6 +222,9 @@ async def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
 
 
 async def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
+    # prompt_tokens should be the LAST round-trip value (context snapshot), not a sum.
+    # completion_tokens are summed because each round-trip produces distinct new tokens.
+    # total_tokens must equal last_prompt_tokens + sum_completion_tokens.
     client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(
@@ -247,9 +250,59 @@ async def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
     result = await _run_loop(loop, _base_state())
 
     assert result.usage is not None
-    assert result.usage.prompt_tokens == 180
+    # prompt_tokens = last round-trip only (80), NOT accumulated sum (100+80=180)
+    assert result.usage.prompt_tokens == 80
     assert result.usage.completion_tokens == 22
-    assert result.usage.total_tokens == 202
+    # total = last_prompt(80) + sum_completion(10+12=22) = 102, NOT raw total sum (110+92=202)
+    assert result.usage.total_tokens == 102
+
+
+async def test_loop_prompt_tokens_tracks_last_roundtrip_not_sum() -> None:
+    # Regression: multi-roundtrip turns with tool calls must NOT accumulate prompt_tokens.
+    # The prompt represents the context snapshot sent to LLM; summing repeated sends of
+    # the same context across N roundtrips produces a physically meaningless value N×context.
+    # Three roundtrips: first two use tool calls, third is final response.
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id="c1", name="echo", arguments={"text": "a"}),),
+                ),
+                finish_reason="tool_calls",
+                usage=TokenUsage(prompt_tokens=200, completion_tokens=5, total_tokens=205),
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id="c2", name="echo", arguments={"text": "b"}),),
+                ),
+                finish_reason="tool_calls",
+                usage=TokenUsage(prompt_tokens=210, completion_tokens=6, total_tokens=216),
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="finished"),
+                finish_reason="stop",
+                usage=TokenUsage(prompt_tokens=220, completion_tokens=8, total_tokens=228),
+            ),
+        )
+    )
+    loop = AgentLoop(llm_client=client, model="model-x", tool_registry=FakeToolRegistry())
+
+    result = await _run_loop(loop, _base_state())
+
+    assert result.usage is not None
+    # prompt_tokens must equal LAST roundtrip value (220), not accumulated 200+210+220=630
+    assert result.usage.prompt_tokens == 220
+    # completion_tokens must be accumulated sum: 5+6+8=19
+    assert result.usage.completion_tokens == 19
+    # total = last_prompt + sum_completion
+    assert result.usage.total_tokens == 239
 
 
 async def test_loop_propagates_session_event_publisher_to_tool_hook_context() -> None:
