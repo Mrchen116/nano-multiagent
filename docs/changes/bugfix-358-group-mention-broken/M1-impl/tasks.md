@@ -46,10 +46,10 @@ UI 状态矩阵：
 
 | ID | 标题 | 状态 | 范围 |
 |---|---|---|---|
-| R1 | IM relay payload schema 修正 + 测试 | TODO | relay_service.py: _resolve_all_participants, _resolve_sender_info |
-| R2 | IM mention 解析改为 inline tag | TODO | relay_service.py: _resolve_mention_to_agent_ids, _extract_mentioned_agent_ids |
-| R3 | Agent prompt + hook 更新 | TODO | prompts.py, communication_context.py |
-| R4 | 前端 parseMentions 工具函数 + 单测 | TODO | chat-types.ts or 新 mention-parser.ts, message-pane.tsx |
-| R5 | 前端 picker 写入标签 + handle 条件显示 | TODO | message-pane.tsx handleMentionSelect, mention-picker.tsx |
-| R6 | 前端 MessageBubble MentionChip 渲染 | TODO | message-pane.tsx MessageBubble/MarkdownContent |
-| R7 | 集成测试 + 全局验证 | TODO | tests/integration/test_group_mention_routing.py, npm run build |
+| R1 | IM relay payload schema 修正 + 测试 | DONE | relay_service.py: _resolve_all_participants, _resolve_sender_info |
+| R2 | IM mention 解析改为 inline tag | DONE | relay_service.py: _resolve_mention_to_agent_ids, _extract_mentioned_agent_ids |
+| R3 | Agent prompt + hook 更新 | DONE | prompts.py, communication_context.py |
+| R4 | 前端 parseMentions 工具函数 + 单测 | DONE | chat-types.ts or 新 mention-parser.ts, message-pane.tsx |
+| R5 | 前端 picker 写入标签 + handle 条件显示 | DONE | message-pane.tsx handleMentionSelect, mention-picker.tsx |
+| R6 | 前端 MessageBubble MentionChip 渲染 | DONE | message-pane.tsx MessageBubble/MarkdownContent |
+| R7 | 集成测试 + 全局验证 | DONE | tests/integration/test_group_mention_routing.py, npm run build |
