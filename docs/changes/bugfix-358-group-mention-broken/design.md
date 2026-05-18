@@ -6,6 +6,7 @@
 ## Changelog
 
 - 2026-05-18 (post-impl): 决策 5 修订 — picker handle 列改为**常态显示**。原"仅重名时显示"实测 UX 不佳：用户选中候选后无法对所选目标的 agent_id 做二次回看，wire 层信息从视觉上完全消失。常态显示信息密度可接受（agent_id 列字号小、颜色淡），重名场景下 handle 自然成为区分依据无须额外切换逻辑。
+- 2026-05-18 (post-impl): 新增决策 8 — agent 回复进 IM 后的 peer fanout 路径修正。原 `_broadcast_group_reply_context` 在 IM 端给所有 peer 一刀切打 `background_context_only=True` flag，越界帮 Gateway 做了"是否触发回复"的决策，导致 agent→agent @ 路径永远不触发被 @ 的 peer 回复（spec 验收 #2 实测失败）。修订为：IM 哑路由扇出（一份 group relay per peer），Gateway 单一决策（按 `mentioned_agent_ids` 自决）。`background_context_only` flag 从 IM 生产端 + Gateway 消费端整体删除。
 
 ## 现状分析
 
@@ -199,6 +200,41 @@
 **理由**: 这是直接根因修复，且与 Gateway `_normalize_group_participants` (M247) 期望的 actor-first 字段完全对齐——IM 改完字段后 Gateway 解析自动跑对路径。
 
 **拒绝**: 引入新字段（如 `wire_id`）当通用别名——会与既有 `agent_id` / `user_id` 含义重复，污染契约。
+
+### 决策 8: agent 回复进 IM 后的 peer fanout —— IM 哑路由，Gateway 单一决策
+
+**问题** (post-impl 发现): 当 agent A 在群里发回复后，IM 走 `delivery_receipt → _broadcast_group_reply_context` 这条路径给每个 peer agent 扇出一份 relay。原实现给所有 peer 的 relay payload 都打 `extra_metadata.background_context_only=True` flag，Gateway `_should_process` 看到这个 flag 直接早返回 False、把消息 buffer 进 `group_context_store` 不触发回复。**这一刀切实际上是 IM 在越界帮 Gateway 做"是否回复"的决策，且做错了**：完全无视 reply text 里的 inline mention 标签。结果 agent→agent @ 路径永远不触发被 @ 的 peer（spec 验收 #2 形同虚设——integration test 走的是 user POST /messages 扇出路径，没覆盖这条 delivery_receipt fanout 路径，所以 worker C2 没暴露此 gap）。
+
+**选择**:
+
+- IM 端：`_broadcast_group_reply_context` 不再生产 `background_context_only` flag、不再预加 `<sender_display_name>: ` 前缀；只做哑路由——给每个 peer agent enqueue 一份正常 group relay：
+  - `content = detail.strip()` （原文，让 Gateway pipeline 自己按 `_format_sender_text(sender_label, text)` 拼 `[sender]` 前缀，避免 IM 重复前缀导致 double-prefix）
+  - `mentioned_agent_ids` 由 `enqueue_message_relay` 内部从 content 里的 `<mention type="agent" target_id="X"/>` 标签解出（已有逻辑），对每个 peer 都是同一份完整列表
+  - `extra_metadata` 只留 `source_agent_id` / `sender_display_name` 用于下游显示
+- Gateway 端：`inbound_pipeline._should_process` 删除对 `background_context_only` flag 的早返回检查；统一走 `mentioned_agent_ids` + `group_reply_policy` 单一判定路径（已有逻辑）：
+  - MENTION 政策 + 自己 in `mentioned_agent_ids` → 触发回复
+  - MENTION 政策 + 自己 NOT in `mentioned_agent_ids` → 返回 False → 进 group_context_store buffer（pipeline §3.1 已实现的"非触发即背景"行为）
+  - ALWAYS 政策 → 永远触发
+- `background_context_only` flag 是错位的过度耦合，**从 IM 生产端 + Gateway 消费端 + 相关测试整体删除**。
+
+**理由**:
+
+- **职责单一**：IM = 哑路由；Gateway = 决策。`background_context_only` flag 让 IM 越界帮 Gateway 做"是否回复"决策，是 design 第 1-3 条"wire 与 display 分层"精神在控制层的对应——决策与传输分层。
+- **对称性**：agent 回复进 IM 后的扇出语义 = user POST /messages 进 IM 后的扇出语义。两个入口产物相同（group relay per peer），下游 Gateway 决策路径相同。任何"agent 扇出 special-case"都是回归。
+- **天然实现 background context**: peer 未被 mention 时 Gateway `_should_process` 返回 False，pipeline L153-163 已经把消息 append 进 `group_buf_key`，下一次该 peer 被触发时作为前缀展开。这是已有机制，根本不需要 IM 端额外标记。
+- **死代码消除**: 删 flag 后 Gateway 端那段早返回是死代码；不留是为了避免后续误以为 flag 还有用。
+
+**拒绝**:
+
+- 保留 flag 仅在 `_broadcast_group_reply_context` 路径不设置：留个 inert flag 在 Gateway 是代码异味；后续维护者看不出意图，反而增加心智负担。
+- IM 端按 inline mention 标签把 peer 分两组、分别走"触发型 relay" / "背景型 relay" 两条扇出循环（曾经考虑的中间方案）：IM 仍然在做决策，仍然越界，只是分得更细而已；同时引入两套 idempotency_key 命名 + 两条 enqueue 循环，复杂度翻倍。
+
+**风险**:
+
+- agent→agent ping-pong 死循环：A @ B → B 回复 @ A → A 回复 @ B → ... 理论可能。等同于 user @ A 后 A 自激发的风险路径，靠 agent 自我约束 + `group_reply_policy`。本 unit **不加循环保护**，先看实际运行行为；如确需护栏（同 peer 短时间内 N 次往返限制），单独立 unit 处理。
+- 同时多 peer 触发：A 的回复 mention 了 N 个 peer，会同时下发 N 个触发 relay，N 个 peer 并行回复并互相 @。当前架构允许并行，不强制串行。
+
+**回退**: 仅本 unit 范围；回退影响面是删除的 4 个测试断言要恢复 + 两段代码恢复。
 
 ## 接口与数据流
 
