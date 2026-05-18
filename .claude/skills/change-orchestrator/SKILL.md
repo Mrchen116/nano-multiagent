@@ -24,6 +24,7 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 11. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
 12. **PR 提完即退出**。不等 merge、不等 CI——交棒给人。
 13. **派发必须后台运行**。Agent 工具派发 worker / reviewer 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
+14. **必须开 team 派发**。启动时先 `TeamCreate` 建一个 unit 专属 team(名字用 `unit-<unit_id>`),之后所有 Agent 派发都带 `team_name`。否则子 agent 结束后实例销毁,失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.4)就无法 `SendMessage` 续跑,只能新开实例丢上下文。unit 完成(§7.4 退出前)`TeamDelete` 清理。
 
 ---
 
