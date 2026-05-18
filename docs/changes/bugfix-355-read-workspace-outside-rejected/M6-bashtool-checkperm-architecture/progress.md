@@ -38,3 +38,19 @@ BashTool.check_permissions 自持权限判定；auto_mode_gate step 6 删除；S
 - Commits: C1=f0030374, C2=7f15aeab, C3=TBD
 - Next: R3 — auto_mode_gate step 6 删除 + bash 走通用 check_permissions dispatch
 
+### R3 — auto_mode_gate step 6 删除 + bash 走通用 dispatch
+
+- Context: auto_mode_gate.py 有硬编码的 step 6 `if tool_name == "bash"` 块，违反 D1 框架（bash 不走通用 check_permissions dispatch）；_handle_ask 和 step 2/3/5 也有 `if tool_name == "bash": return {"allow_unlisted": True}` 散落
+- Decision: 删除 step 6 整段；删除所有 `allow_unlisted` 返值和 `if tool_name == "bash"` hardcode；shell_runner.py 的 enforce_command_policy 调用删除；现有 bash 测试更新为注入 tool_registry with BashTool 使 check_permissions 被调用
+- Rationale: D7（bash 架构归位）+ D10（policy 单点）：bash 的权限判定在 BashTool.check_permissions，hook 不再特判工具名
+- Evidence:
+  - Tests: 341 passed（test_auto_mode_gate.py 58 passed，含 M6 新增回归测试）
+  - Entry: grep 验证 enforce_command_policy / allow_unlisted / Step 6: Bash 均不再出现于 hook 文件
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A — R5 覆盖
+  - Visual/Interaction: N/A
+- Rollback: C1 = b4c1f194，C2 = 69456f44
+- Commits: C1=b4c1f194, C2=69456f44, C3=TBD
+- Next: R4 — ToolSafety 退化（删 bash_* 字段 + 三方法 + helpers）
+
