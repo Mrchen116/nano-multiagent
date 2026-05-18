@@ -355,7 +355,7 @@ acceptance / regression 模板都有"上层文档同步"段。逐项核对:
 cd "$(git rev-parse --show-toplevel)"
 git checkout "unit/<unit_id>"
 git add docs/changes/<unit_dir>/<acceptance|regression>.md
-git commit -m "docs(acceptance): <unit_id> round <N> — verdict <pass|fail|pass-with-issues>"
+git commit -m "docs(<unit_id>): round <N> acceptance — verdict <pass|fail|pass-with-issues>"
 git push origin "unit/<unit_id>"
 ```
 

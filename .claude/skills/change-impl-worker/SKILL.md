@@ -305,13 +305,13 @@ docs/changes/<unit_dir>/<milestone_dir>/tasks.md
 
 | 步骤 | 做什么 | 提交 |
 |---|---|---|
-| Verify/Red | 写测试、状态矩阵、验收清单或截图对照说明,明确当前缺失能力 | `C1: test\|verify(R<n>): <描述>` |
+| Verify/Red | 写测试、状态矩阵、验收清单或截图对照说明,明确当前缺失能力 | `test\|verify(<unit>/<milestone>/R<n>): <描述>` |
 | Green | 最小实现让测试/状态/路径通过 | — |
 | Browser QA | 前端任务必须真实浏览器验收;后端/API 任务必须真实入口验收 | — |
 | Refactor | 行为不变的重构;改行为先补测试/状态/验收清单 | — |
 | 门禁 | `<test_command>` 以及本 roadpoint 相关浏览器/E2E/组件检查按 `tasks.md` 规划通过 | — |
-| Commit | 提交实现 | `C2: feat\|fix\|refactor(R<n>): <描述>` |
-| 文档 | 更新 tasks.md(状态→DONE)+ progress.md(补齐证据) | `C3: docs(R<n>): <描述>` |
+| Commit | 提交实现 | `feat\|fix\|refactor(<unit>/<milestone>/R<n>): <描述>` |
+| 文档 | 更新 tasks.md(状态→DONE)+ progress.md(补齐证据) | `docs(<unit>/<milestone>/R<n>): <描述>` |
 | Push | `git push` 保存现场 | — |
 
 冒号后描述用中文,简短具体。

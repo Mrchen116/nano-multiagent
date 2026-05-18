@@ -165,6 +165,7 @@ agent 内核三层：`core`（纯逻辑）→ `platform`（接环境）→ `prod
 
 - **注释规范**：见 COMMENTING_GUIDE.md。public API 必须写 Google 风格 docstring；注释写"为什么/约束"而非"做什么"。
 - **TODO/FIXME 格式**：`TODO(<issue-id>): <改进> — <删除条件>` / `FIXME(<issue-id>): <缺陷> — <影响/风险>`
+- **Commit message 格式**：`<type>(<unit>/<milestone>/<roadpoint>): <desc>`，scope 用 unit 实际目录下的 id（如 `bugfix-355/M5/R1`）。milestone 级 commit 省 roadpoint（`bugfix-355/M5`），unit 级省 milestone（`bugfix-355`）。phase 通过 type 体现：C1 红测=`test`、C2 实现=`feat`/`fix`/`refactor`、C3 文档=`docs`。
 - **模块边界**：CLI 只能通过 `ServerClient` 访问 API；不要在 `commands.py` 里重新导出内部实现。
 - **单测优先**：修改后先跑最窄的单元测试，再跑集成/contract。
 - **前端产物**：`src/IM/frontend/dist/` 是构建产物，不提交；需要时在前端目录执行 `npm run build`。

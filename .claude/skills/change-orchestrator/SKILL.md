@@ -343,7 +343,7 @@ AFTER=$(git -C <repo> rev-parse "unit/<unit_id>")
 NEW_COMMITS=$(git -C <repo> log --oneline "$BEFORE..$AFTER")
 ```
 
-预期:`NEW_COMMITS` 只有 reviewer 的报告 commit(信息含 `docs(acceptance)` 或 `docs(regression)`)。出现任何其它 commit → 走 §6.6 处置。
+预期:`NEW_COMMITS` 只有 reviewer 的报告 commit(message scope = `docs(<unit_id>): round <N> acceptance — verdict ...`,详见 AGENTS.md commit message 格式)。出现任何其它 commit → 走 §6.6 处置。
 
 ---
 
