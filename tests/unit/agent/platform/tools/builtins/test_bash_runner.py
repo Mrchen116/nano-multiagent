@@ -103,10 +103,21 @@ class TestBashToolUsesRunnerNotSafety:
     """BashTool._run_legacy_sync 不再调用 ctx.safety.run_command_stream。"""
 
     def test_legacy_sync_calls_bash_runner(self, tmp_path):
-        """_run_legacy_sync should use BashRunner, not ctx.safety.run_command_stream."""
+        """_run_legacy_sync uses BashRunner.run_stream, not ctx.safety (M6 D10).
+
+        After M6, ToolSafety has no run_command_stream. This test verifies:
+        1. ToolSafety no longer has run_command_stream
+        2. BashTool.run succeeds (uses BashRunner internally)
+        """
         from agent.platform.tools.builtins.bash import BashTool
         from agent.core.tools.base import ToolContext, set_tool_safety_factory, set_tool_safety_config_factory
         from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+        from agent.platform.tools.builtins.bash_runner import BashRunner
+
+        # ToolSafety must NOT have run_command_stream after M6
+        assert not hasattr(ToolSafety, "run_command_stream"), (
+            "ToolSafety.run_command_stream must be deleted in M6; BashRunner owns execution"
+        )
 
         # Set up ToolContext with platform factories
         set_tool_safety_factory(
@@ -117,13 +128,9 @@ class TestBashToolUsesRunnerNotSafety:
         ctx = ToolContext.create(repo_root=tmp_path)
         tool = BashTool()
 
-        # Verify that ctx.safety does NOT have run_command_stream called
-        # by checking BashTool.run can execute without it (or that it calls BashRunner)
-        with patch.object(type(ctx.safety), "run_command_stream", side_effect=AssertionError("run_command_stream must not be called after M6")) as mock_rcs:
-            # Should NOT raise AssertionError (should use BashRunner instead)
-            try:
-                result = tool.run({"command": "echo test_m6"}, ctx)
-                # If we get here without AssertionError, BashRunner is being used
-                mock_rcs.assert_not_called()
-            except AssertionError:
-                pytest.fail("BashTool._run_legacy_sync still calls ctx.safety.run_command_stream after M6")
+        # Verify BashRunner.run_stream is invoked by patching it
+        with patch.object(BashRunner, "run_stream") as mock_run_stream:
+            from agent.platform.tools.safety import CommandExecution as CE
+            mock_run_stream.return_value = CE(exit_code=0, text="test_m6\n", truncated=False)
+            result = tool.run({"command": "echo test_m6"}, ctx)
+            mock_run_stream.assert_called_once()

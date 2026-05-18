@@ -128,12 +128,16 @@ def test_builtin_tool_parameter_descriptions_align_with_tool_design_doc() -> Non
 
 
 def test_tool_safety_default_limits_follow_shared_tool_constants() -> None:
-    config = ToolSafetyConfig()
+    # After M6: ToolSafetyConfig only holds read budget; bash budget moved to BashRunnerConfig.
+    from agent.platform.tools.builtins.bash_runner import BashRunnerConfig
 
-    assert config.read_max_lines == DEFAULT_MAX_LINES
-    assert config.bash_max_output_lines == DEFAULT_MAX_LINES
-    assert config.read_max_bytes == DEFAULT_MAX_BYTES
-    assert config.bash_max_output_bytes == DEFAULT_MAX_BYTES
+    read_config = ToolSafetyConfig()
+    assert read_config.read_max_lines == DEFAULT_MAX_LINES
+    assert read_config.read_max_bytes == DEFAULT_MAX_BYTES
+
+    bash_config = BashRunnerConfig()
+    assert bash_config.bash_max_output_lines == DEFAULT_MAX_LINES
+    assert bash_config.bash_max_output_bytes == DEFAULT_MAX_BYTES
 
 
 def test_read_supports_segmented_reads(tmp_path: Path) -> None:

@@ -31,10 +31,16 @@ def test_platform_tools_loader_is_canonical_home() -> None:
 
 
 def test_platform_tools_safety_is_canonical_home() -> None:
-    """Platform tool safety types must originate from platform modules."""
+    """Platform tool safety types must originate from platform modules.
+
+    After M6 (bugfix-355): CommandPolicyDecision moved to bash_policy.py.
+    safety.py retains a shim re-export for backward compat, but the canonical
+    home is agent.platform.tools.builtins.bash_policy.
+    """
     assert ToolSafety.__module__ == "agent.platform.tools.safety"
     assert ToolSafetyConfig.__module__ == "agent.platform.tools.safety"
-    assert CommandPolicyDecision.__module__ == "agent.platform.tools.safety"
+    # CommandPolicyDecision moved to bash_policy in M6; shim re-exported from safety.
+    assert CommandPolicyDecision.__module__ == "agent.platform.tools.builtins.bash_policy"
     assert CommandExecution.__module__ == "agent.platform.tools.safety"
     assert load_tool_safety_config.__module__ == "agent.platform.tools.safety"
 
