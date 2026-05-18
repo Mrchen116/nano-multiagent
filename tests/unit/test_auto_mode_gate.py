@@ -547,3 +547,122 @@ class TestGateHookLogic:
         result = await handler({"name": "write", "args": {"file_path": "/tmp/f", "content": "x"}}, ctx)
         # Deny limit exceeded → ask → user allowed → should pass
         assert result is None or result.get("block") is not True
+
+
+# ---------------------------------------------------------------------------
+# M6: Regression tests — step 6 deleted, bash via tool.check_permissions dispatch
+# ---------------------------------------------------------------------------
+
+class TestM6BashViaCheckPermissions:
+    """M6: bash no longer has hardcoded step 6 in auto_mode_gate.
+
+    After M6, bash walks through the generic tool.check_permissions dispatch
+    (step 1 / step 5). The hook file must NOT contain 'if tool_name == "bash"'
+    outside of allow_unlisted backward-compat returns (which are also deleted).
+    """
+
+    def _get_handler(self, config=None):
+        if config is None:
+            config = AutoModeConfig()
+        handlers = []
+
+        class MockHooks:
+            def on(self, event, handler, **kwargs):
+                handlers.append(handler)
+
+        gate_setup(MockHooks())
+        return handlers[0], config
+
+    def _make_ctx_with_bash_tool(self, config=None, *, call_model_result=None, tool_registry=None):
+        """Make HookContext with BashTool in tool_registry so check_permissions is dispatched."""
+        from unittest.mock import MagicMock, AsyncMock
+        if config is None:
+            config = AutoModeConfig()
+        ctx = MagicMock()
+        ctx.session_id = "sess-m6"
+        ctx.repo_root = None
+        ctx.metadata = {
+            "run_origin": "user",
+            "_auto_mode_config_loader": lambda: config,
+        }
+        if tool_registry is not None:
+            ctx.metadata["tool_registry"] = tool_registry
+
+        if call_model_result is not None:
+            async def _call_model(**kwargs):
+                return call_model_result
+            ctx.call_model = _call_model
+        else:
+            ctx.call_model = AsyncMock(return_value=MagicMock(content="<block>no</block>"))
+        return ctx
+
+    def _make_bash_registry(self):
+        """Return a fake tool_registry with BashTool registered."""
+        from agent.platform.tools.builtins.bash import BashTool
+        bash_tool = BashTool()
+
+        class FakeRegistry:
+            def get(self, name):
+                return bash_tool if name == "bash" else None
+
+        return FakeRegistry()
+
+    def test_step6_not_in_auto_mode_gate_source(self):
+        """Regression: auto_mode_gate.py must NOT contain 'if tool_name == .bash.' hardcoded block.
+
+        This is the canonical M6 architectural assertion.
+        """
+        import inspect
+        from agent.platform.hooks.builtins import auto_mode_gate
+        source = inspect.getsource(auto_mode_gate)
+        # "Step 6: Bash" comment must be gone
+        assert "Step 6: Bash" not in source, (
+            "auto_mode_gate.py still has step 6 'Step 6: Bash' — M6 migration incomplete"
+        )
+
+    @pytest.mark.asyncio
+    async def test_bash_allowed_prefix_via_check_permissions(self):
+        """ls -la via BashTool.check_permissions → allow, no classifier round-trip."""
+        handler, config = self._get_handler()
+        registry = self._make_bash_registry()
+        ctx = self._make_ctx_with_bash_tool(config, tool_registry=registry)
+        ctx.call_model = AsyncMock()  # should NOT be called
+
+        result = await handler({"name": "bash", "args": {"command": "ls -la"}}, ctx)
+        assert result is None or result.get("block") is not True
+        ctx.call_model.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bash_blocked_via_check_permissions_denies(self):
+        """reboot via BashTool.check_permissions → deny, no classifier."""
+        handler, config = self._get_handler()
+        registry = self._make_bash_registry()
+        ctx = self._make_ctx_with_bash_tool(config, tool_registry=registry)
+
+        result = await handler({"name": "bash", "args": {"command": "reboot"}}, ctx)
+        assert result is not None
+        assert result.get("block") is True
+
+    @pytest.mark.asyncio
+    async def test_bash_review_goes_to_classifier(self):
+        """python3 script.py (review) via BashTool.check_permissions → passthrough → classifier."""
+        allow_result = MagicMock()
+        allow_result.content = "<block>no</block>"
+        handler, config = self._get_handler()
+        registry = self._make_bash_registry()
+        ctx = self._make_ctx_with_bash_tool(config, call_model_result=allow_result, tool_registry=registry)
+
+        result = await handler({"name": "bash", "args": {"command": "python3 script.py"}}, ctx)
+        # Classifier allowed → pass
+        assert result is None or result.get("block") is not True
+        # call_model was called (classifier ran)
+        ctx.call_model.assert_called()
+
+    def test_allow_unlisted_not_in_gate_source(self):
+        """M6: allow_unlisted marker should not appear in auto_mode_gate.py after step 6 removal."""
+        import inspect
+        from agent.platform.hooks.builtins import auto_mode_gate
+        source = inspect.getsource(auto_mode_gate)
+        assert "allow_unlisted" not in source, (
+            "auto_mode_gate.py still references allow_unlisted — M6 migration incomplete"
+        )
