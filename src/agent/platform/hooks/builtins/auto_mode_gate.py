@@ -1,14 +1,19 @@
 """auto_mode_gate: unified tool-call permission gate replacing bash_risk_gate.
 
 Implements Claude Code Auto Mode semantics:
-1. dangerously_skip_permissions bypass
-2. Session-allowlist fast path (allow_session decisions)
-3. Safe-tool allowlist (read, web_fetch, task_*, etc.)
-4. Bash: check_command_policy (allowed → pass, denied → deny, review → classifier)
-5. Non-bash tools → classifier
+1. tool.check_permissions (D1/W1) — tool self-declares allow/deny/ask/passthrough
+2. dangerously_skip_permissions bypass (safety_check asks remain bypass-immune)
+3. Session-allowlist fast path (allow_session decisions)
+4. Safe-tool allowlist (read, task_*, agent, send_message)
+5. Dispatch tool.check_permissions result — allow/deny/ask/passthrough
 6. deny-limit escalation to ask
-7. Fail-closed: classifier parse failure / timeout → ask
-8. Unattended origin short-circuit (heartbeat → unattended_fallback, no ask)
+7. yolo classifier — allow/deny/ask
+8. Fail-closed: classifier parse failure / timeout → ask
+9. Unattended origin short-circuit (heartbeat → unattended_fallback, no ask)
+
+Bash (M6 D7-D10): no longer has a hardcoded step. BashTool.check_permissions
+in bash.py handles command policy; bash walks through steps 1+5 like all other
+tools. policy.toml user overrides are loaded by bash_policy.load_bash_policy_overrides.
 
 System prompt, transcript, two-stage XML: pixel-perfect replication of
 Claude Code's yoloClassifier.ts + buildYoloSystemPrompt.
@@ -40,7 +45,8 @@ from agent.platform.permissions.broker import (
     PermissionResponse,
     _default_options_for_tool,
 )
-from agent.platform.tools.safety import ToolSafety, load_tool_safety_config
+# ToolSafety / load_tool_safety_config removed in M6 (D7): bash policy now
+# lives in bash_policy.py and is dispatched via BashTool.check_permissions.
 
 # ---------------------------------------------------------------------------
 # System prompt constants — pixel-perfect CC replication
@@ -602,8 +608,6 @@ async def _handle_ask(
     if decision == "allow_once":
         if broker and run_id:
             broker.reset_deny_count(run_id, tool_name)
-        if tool_name == "bash":
-            return {"allow_unlisted": True}
         return {"block": False}
 
     if decision == "allow_session":
@@ -611,8 +615,6 @@ async def _handle_ask(
             broker.add_session_allowlist(session_id, tool_name)
             if run_id:
                 broker.reset_deny_count(run_id, tool_name)
-        if tool_name == "bash":
-            return {"allow_unlisted": True}
         return {"block": False}
 
     if decision == "allow_always":
@@ -620,8 +622,6 @@ async def _handle_ask(
         # Here we just grant and reset.
         if broker and run_id:
             broker.reset_deny_count(run_id, tool_name)
-        if tool_name == "bash":
-            return {"allow_unlisted": True}
         return {"block": False}
 
     # deny
@@ -718,14 +718,10 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                     tool_result.reason if tool_result else "Safety check required",
                     run_id, session_id, config, broker,
                 )
-            if tool_name == "bash":
-                return {"allow_unlisted": True}
-            return None  # true bypass
+            return None  # true bypass (bash included — D10: policy was already checked in step 1)
 
         # Step 3: Session allowlist fast path
         if broker and broker.is_session_allowed(session_id, tool_name):
-            if tool_name == "bash":
-                return {"allow_unlisted": True}
             return None
 
         # Step 4: Safe-tool allowlist bypass
@@ -734,13 +730,12 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
             return None  # pass through without classifier
 
         # Step 5: Dispatch tool.check_permissions result (already computed in step 1)
+        # Bash: BashTool.check_permissions handles command policy (D7/D10 — no step 6 hardcode).
         if tool_result is not None:
             tool_behavior = getattr(tool_result, "behavior", "passthrough")
             if tool_behavior == "allow":
                 if broker and run_id:
                     broker.reset_deny_count(run_id, tool_name)
-                if tool_name == "bash":
-                    return {"allow_unlisted": True}
                 return None
             if tool_behavior == "deny":
                 return {"block": True, "reason": getattr(tool_result, "reason", "denied by tool")}
@@ -756,30 +751,9 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                     getattr(tool_result, "reason", f"permission required for {tool_name}"),
                     run_id, session_id, config, broker,
                 )
-            # behavior == "passthrough" → fall through to bash policy / classifier
+            # behavior == "passthrough" → fall through to classifier
 
-        # Step 6: Bash: check_command_policy first
-        if tool_name == "bash":
-            command = tool_input.get("command", "")
-            if not isinstance(command, str) or not command.strip():
-                return None  # empty command, let tool handle
-
-            repo_root_path: Path = getattr(ctx, "repo_root", None) or Path.cwd()
-            safety = ToolSafety(
-                repo_root=repo_root_path,
-                config=load_tool_safety_config(repo_root=repo_root_path),
-            )
-            policy = safety.check_command_policy(command, tool_name="bash")
-
-            if policy.status == "denied":
-                return {"block": True, "reason": f"command policy denied: {command}"}
-
-            if policy.status == "allowed":
-                return None  # no further check needed
-
-            # policy.status == "review" → fall through to classifier below
-
-        # Step 7: Deny-limit check before classifier (escalate immediately if already exceeded)
+        # Step 6: Deny-limit check before classifier (escalate immediately if already exceeded)
         if broker and run_id and broker.is_deny_limit_exceeded(run_id, tool_name, deny_limit=config.deny_limit):
             # Already exceeded limit → ask directly, skip classifier
             is_unattended = run_origin in _UNATTENDED_ORIGINS
@@ -808,8 +782,6 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         if decision.behavior == "allow":
             if broker and run_id:
                 broker.reset_deny_count(run_id, tool_name)
-            if tool_name == "bash":
-                return {"allow_unlisted": True}
             return None
 
         if decision.behavior == "deny":

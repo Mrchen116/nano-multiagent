@@ -418,14 +418,31 @@ class TestGateHookLogic:
         assert result is None or result.get("block") is not True
         ctx.call_model.assert_not_called()
 
+    def _make_bash_tool_registry(self):
+        """Return a fake tool_registry with BashTool for M6 dispatch tests."""
+        from agent.platform.tools.builtins.bash import BashTool
+        bash_tool = BashTool()
+
+        class FakeRegistry:
+            def get(self, name):
+                return bash_tool if name == "bash" else None
+
+        return FakeRegistry()
+
     @pytest.mark.asyncio
     async def test_bash_allowed_prefix_passes(self):
-        """bash commands matching allowed prefixes pass without classifier."""
+        """bash commands matching allowed prefixes pass without classifier.
+
+        After M6, requires tool_registry with BashTool so check_permissions is dispatched.
+        """
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config)
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = self._make_bash_tool_registry()
         ctx.call_model = AsyncMock()  # should NOT be called
         result = await handler({"name": "bash", "args": {"command": "ls -la"}}, ctx)
         assert result is None or result.get("block") is not True
+        ctx.call_model.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_bash_blocked_fragment_denies(self):
@@ -435,9 +452,13 @@ class TestGateHookLogic:
         classifier (CC Auto Mode parity — workspace destruction belongs in the
         ask flow, not a silent kill). Fork-bomb syntax has no base command so
         it remains in the fragment denylist as the canonical example.
+
+        After M6, requires tool_registry with BashTool.
         """
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config)
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = self._make_bash_tool_registry()
         result = await handler({"name": "bash", "args": {"command": ":(){:|:&};:"}}, ctx)
         assert result is not None
         assert result.get("block") is True
@@ -446,12 +467,12 @@ class TestGateHookLogic:
     async def test_bash_blocked_command_denies(self):
         """``reboot`` is a base-command hard-deny (token match, not substring).
 
-        Verifies the M6 ``bash_blocked_commands`` path: token-level match on
-        the segment's base command, so ``reboot`` is denied but a script named
-        ``reboot-tool.sh`` would not be (covered by safety unit tests).
+        After M6, requires tool_registry with BashTool.
         """
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config)
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = self._make_bash_tool_registry()
         result = await handler({"name": "bash", "args": {"command": "reboot"}}, ctx)
         assert result is not None
         assert result.get("block") is True
@@ -650,13 +671,16 @@ class TestM6BashViaCheckPermissions:
         allow_result.content = "<block>no</block>"
         handler, config = self._get_handler()
         registry = self._make_bash_registry()
-        ctx = self._make_ctx_with_bash_tool(config, call_model_result=allow_result, tool_registry=registry)
+        # Use AsyncMock so we can assert_called()
+        call_model_mock = AsyncMock(return_value=allow_result)
+        ctx = self._make_ctx_with_bash_tool(config, tool_registry=registry)
+        ctx.call_model = call_model_mock
 
         result = await handler({"name": "bash", "args": {"command": "python3 script.py"}}, ctx)
         # Classifier allowed → pass
         assert result is None or result.get("block") is not True
         # call_model was called (classifier ran)
-        ctx.call_model.assert_called()
+        call_model_mock.assert_called()
 
     def test_allow_unlisted_not_in_gate_source(self):
         """M6: allow_unlisted marker should not appear in auto_mode_gate.py after step 6 removal."""
