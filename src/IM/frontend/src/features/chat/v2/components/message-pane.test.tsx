@@ -547,4 +547,79 @@ describe("MessagePane", () => {
       expect(screen.queryByTestId(`message-token-chip-${TS_USER.id}`)).not.toBeInTheDocument();
     });
   });
+
+  // bugfix-358 R6: MessageBubble renders <mention/> inline tags as MentionChip nodes
+  describe("MessageBubble MentionChip rendering (bugfix-358)", () => {
+    const GROUP_CONV_WITH_PARTICIPANTS: Conversation = {
+      ...GROUP_CONV,
+      id: "c-group-mention",
+      participants: [
+        { type: "user", id: "u1", display_name: "You" },
+        { type: "agent", id: "a-planner", display_name: "Planner" },
+        { type: "agent", id: "a-coder", display_name: "Coder" },
+      ],
+    };
+
+    const AGENT_MSG_WITH_MENTION: Message = {
+      id: "m-mention",
+      conversation_id: "c-group-mention",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "a-planner",
+      sender_type: "agent",
+      content: '<mention type="agent" target_id="a-coder"/> 你怎么看？',
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:00Z",
+    };
+
+    it("renders mention tag as chip showing current display_name (not raw tag text)", () => {
+      render(
+        <MessagePane
+          conversation={GROUP_CONV_WITH_PARTICIPANTS}
+          messages={[AGENT_MSG_WITH_MENTION]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      // Should not show raw XML tag
+      expect(screen.queryByText(/<mention/)).not.toBeInTheDocument();
+      // Should show the display_name chip for the mentioned agent
+      expect(screen.getByText("@Coder")).toBeInTheDocument();
+    });
+
+    it("renders unknown target_id as fallback @unknown text", () => {
+      const msg: Message = {
+        ...AGENT_MSG_WITH_MENTION,
+        id: "m-unknown",
+        content: '<mention type="agent" target_id="nonexistent-agent"/> hello',
+      };
+      render(
+        <MessagePane
+          conversation={GROUP_CONV_WITH_PARTICIPANTS}
+          messages={[msg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      // Unknown target: should degrade gracefully (not throw, not show raw tag)
+      expect(screen.queryByText(/<mention/)).not.toBeInTheDocument();
+    });
+
+    it("renders plain text content unchanged when no mention tags present", () => {
+      const msg: Message = {
+        ...AGENT_MSG_WITH_MENTION,
+        id: "m-plain",
+        content: "regular message without any mention",
+      };
+      render(
+        <MessagePane
+          conversation={GROUP_CONV_WITH_PARTICIPANTS}
+          messages={[msg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.getByText("regular message without any mention")).toBeInTheDocument();
+    });
+  });
 });
