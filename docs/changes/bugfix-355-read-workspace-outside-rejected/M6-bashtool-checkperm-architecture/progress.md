@@ -19,6 +19,22 @@ BashTool.check_permissions 自持权限判定；auto_mode_gate step 6 删除；S
   - E2E/Regression: N/A — R5 会覆盖端到端集成测试
   - Visual/Interaction: N/A
 - Rollback: C1 = d73a4c0d，C2 = bf91559b
-- Commits: C1=d73a4c0d, C2=bf91559b, C3=TBD
+- Commits: C1=d73a4c0d, C2=bf91559b, C3=e8073d33
 - Next: R2 — 新建 bash_runner.py + BashTool 执行层迁移
+
+### R2 — 新建 bash_runner.py + BashTool 执行层迁移
+
+- Context: ToolSafety.run_command_stream 是 BashTool 唯一的前台同步执行路径，需要搬到 builtins/bash_runner.py；同时在 BashTool 上实现 check_permissions（调 bash_policy）
+- Decision: 新建 BashRunner + BashRunnerConfig dataclass；BashTool._run_legacy_sync 改调 BashRunner.run_stream；BashTool.check_permissions 实现返回 allow/deny/passthrough；测试文件中 monkeypatch ctx.safety.run_command_stream 的 3 个 test 更新为 patch BashRunner.run_stream
+- Rationale: D10 单点原则——policy 只在 check_permissions 一处做；run 路径不再做二次 policy 检查；BashRunner 从 ToolSafety 解耦，subprocess 机制独立维护
+- Evidence:
+  - Tests: 336 passed（包含 test_bash_runner.py 9 tests、test_bash_policy.py 75 tests、test_tools_builtins.py 64 tests、test_auto_mode_gate.py 全绿）
+  - Entry: BashRunner.run_stream 实际执行 echo/false 命令验证
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A — R5 覆盖端到端
+  - Visual/Interaction: N/A
+- Rollback: C1 = f0030374，C2 = 7f15aeab
+- Commits: C1=f0030374, C2=7f15aeab, C3=TBD
+- Next: R3 — auto_mode_gate step 6 删除 + bash 走通用 check_permissions dispatch
 
