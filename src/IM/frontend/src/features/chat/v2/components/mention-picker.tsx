@@ -18,9 +18,10 @@ export interface MentionPickerProps {
  * Keyboard navigation (ArrowUp/ArrowDown/Enter) is supported so the user can
  * select without leaving the keyboard.
  *
- * bugfix-358: handle column is shown only when the candidate list contains
- * duplicate display_names so the user can distinguish same-name agents.
- * In the common case (all unique names), the handle column is hidden.
+ * bugfix-358: handle column (@agent_id) is always shown on every row so the
+ * user can verify the wire ID of the candidate they are about to select.
+ * Disambiguation under duplicate display_names is then a natural consequence
+ * of two distinct agent_ids being visible.
  */
 export function MentionPicker({ candidates, query, onSelect, onClose }: MentionPickerProps) {
   const { t } = useTranslation();
@@ -29,17 +30,6 @@ export function MentionPicker({ candidates, query, onSelect, onClose }: MentionP
     ? candidates.filter((c) => c.display_name.toLowerCase().startsWith(q))
     : candidates;
   const [highlighted, setHighlighted] = useState(0);
-
-  // Detect duplicate display_names in the full (unfiltered) candidates list.
-  // When duplicates exist, show the handle column for disambiguation.
-  const hasDuplicateNames = (() => {
-    const seen = new Set<string>();
-    for (const c of candidates) {
-      if (seen.has(c.display_name)) return true;
-      seen.add(c.display_name);
-    }
-    return false;
-  })();
 
   // Reset highlight when filtered list changes
   useEffect(() => {
@@ -98,9 +88,7 @@ export function MentionPicker({ candidates, query, onSelect, onClose }: MentionP
         >
           <Avatar initials={c.initials} size={26} />
           <span className="chat-mention-picker-name">{c.display_name}</span>
-          {hasDuplicateNames && (
-            <span className="chat-mention-picker-handle">@{c.agent_id.replace(/^agent[_-]/, "")}</span>
-          )}
+          <span className="chat-mention-picker-handle">@{c.agent_id.replace(/^agent[_-]/, "")}</span>
         </button>
       ))}
     </div>

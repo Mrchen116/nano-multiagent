@@ -42,8 +42,10 @@ describe("MentionPicker", () => {
     expect(onSelect).toHaveBeenCalledWith(CANDIDATES[1]);
   });
 
-  // bugfix-358: handle column shown only when display_name duplicates exist in the list
-  describe("handle column conditional display (bugfix-358)", () => {
+  // bugfix-358: handle column (@agent_id) is always shown so the user can verify
+  // the wire ID before sending; duplicate display_names are naturally disambiguated
+  // by two visible distinct handles.
+  describe("handle column always visible (bugfix-358)", () => {
     const UNIQUE_NAMES: MentionCandidate[] = [
       { agent_id: "a-alpha", display_name: "Alpha", initials: "AL", status: "online" },
       { agent_id: "a-beta", display_name: "Beta", initials: "BE", status: "online" },
@@ -55,26 +57,35 @@ describe("MentionPicker", () => {
       { agent_id: "a-unique", display_name: "Unique", initials: "UN", status: "online" },
     ];
 
-    it("does not show handle column when all display_names are unique", () => {
+    it("renders a handle row for every candidate, even when display_names are unique", () => {
       render(<MentionPicker candidates={UNIQUE_NAMES} query="" onSelect={() => {}} onClose={() => {}} />);
-      // handle column items should not be visible
       const handles = document.querySelectorAll(".chat-mention-picker-handle");
-      // All handle elements should be hidden or absent for unique-name candidates
-      const visibleHandles = Array.from(handles).filter(
-        (el) => (el as HTMLElement).style.display !== "none" && !el.classList.contains("hidden")
-      );
-      expect(visibleHandles).toHaveLength(0);
+      expect(handles).toHaveLength(UNIQUE_NAMES.length);
+      expect(handles[0].textContent).toBe("@a-alpha");
+      expect(handles[1].textContent).toBe("@a-beta");
     });
 
-    it("shows handle column for duplicate display_name candidates", () => {
+    it("renders a handle row for every candidate when duplicates exist, surfacing distinct agent_ids", () => {
       render(<MentionPicker candidates={DUPLICATE_NAMES} query="" onSelect={() => {}} onClose={() => {}} />);
-      // The two "助手" rows must show their handles for disambiguation
       const handles = document.querySelectorAll(".chat-mention-picker-handle");
-      const visibleHandles = Array.from(handles).filter(
-        (el) => (el as HTMLElement).style.display !== "none" && !el.classList.contains("hidden")
+      expect(handles).toHaveLength(DUPLICATE_NAMES.length);
+      const texts = Array.from(handles).map((el) => el.textContent);
+      expect(texts).toContain("@a-assistant-1");
+      expect(texts).toContain("@a-assistant-2");
+      expect(texts).toContain("@a-unique");
+    });
+
+    it("strips agent_ or agent- prefix from agent_id when rendering handle", () => {
+      const PREFIXED: MentionCandidate[] = [
+        { agent_id: "agent_legacy", display_name: "Legacy", initials: "LG", status: "online" },
+        { agent_id: "agent-modern", display_name: "Modern", initials: "MD", status: "online" },
+      ];
+      render(<MentionPicker candidates={PREFIXED} query="" onSelect={() => {}} onClose={() => {}} />);
+      const handles = Array.from(document.querySelectorAll(".chat-mention-picker-handle")).map(
+        (el) => el.textContent
       );
-      // At least the duplicate-name rows must show a handle
-      expect(visibleHandles.length).toBeGreaterThanOrEqual(2);
+      expect(handles).toContain("@legacy");
+      expect(handles).toContain("@modern");
     });
   });
 });

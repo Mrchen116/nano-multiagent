@@ -5,6 +5,8 @@
 
 ## Changelog
 
+- 2026-05-18 (post-impl): 决策 5 修订 — picker handle 列改为**常态显示**。原"仅重名时显示"实测 UX 不佳：用户选中候选后无法对所选目标的 agent_id 做二次回看，wire 层信息从视觉上完全消失。常态显示信息密度可接受（agent_id 列字号小、颜色淡），重名场景下 handle 自然成为区分依据无须额外切换逻辑。
+
 ## 现状分析
 
 ### 涉及范围
@@ -15,7 +17,7 @@
   - `_resolve_sender_info:474` — 对 agent 发送者也以 `id=user_id` 暴露，与上同源。
 - `src/agent/products/personal_assistant/prompts.py:62` — 硬编码"prefer stable IDs (`user_id` / `agent_id`) when mentioning participants"。把 user_id 和 agent_id 当成可互换"稳定 ID"，是 RCA 设计层根因的措辞证据。
 - `src/agent/products/personal_assistant/hooks/communication_context.py` — `_build_communication_context_block` 在 M247 已铺好 actor-first 分支；`message_format` 文案要扩展并改为教 agent 输出 inline 标签。
-- `src/IM/frontend/src/features/chat/v2/components/mention-picker.tsx` — 候选 `MentionCandidate { agent_id, display_name, initials, status }` 已带 wire ID；handle 列改条件显示。
+- `src/IM/frontend/src/features/chat/v2/components/mention-picker.tsx` — 候选 `MentionCandidate { agent_id, display_name, initials, status }` 已带 wire ID；handle 列常态显示供用户回看 agent_id（见 Changelog 2026-05-18 决策 5 修订）。
 - `src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`
   - `handleMentionSelect:135` 当前写入 `@${c.display_name}` —— 必须改为写入 `<mention type="..." target_id="..."/>` 标签。
   - `MENTION_HIGHLIGHT_RE:47 + buildMirrorNodes:49` 当前只用正则 `<mark>` 高亮 — 要扩展成识别 inline 标签并渲染成 chip mask。
@@ -159,17 +161,17 @@
 - **MessageBubble**: `MarkdownContent` 在渲染段落前先解析 inline 标签，把命中区段替换为 `<MentionChip target_id="X" type="..."/>` React 节点，节点内部从 `conversation.participants` 字典查当前 display_name 渲染。
 - **不存在的 target_id**: 渲染为灰色字面 `@<unknown>`（或保留原 `<mention/>` 不替换）；用户视觉上是失效引用。worker 阶段定具体降级样式。
 
-### 决策 5: picker 选中后写入标签 + handle 列条件显示
+### 决策 5: picker 选中后写入标签 + handle 列常态显示
 
 **选择**:
 
 - `handleMentionSelect` 改为 `setDraft(before + '<mention type="agent" target_id="ArchA"/> ')`（实际类型 / target_id 取自 candidate）。
-- mention-picker.tsx 行内 handle 列**仅在该群存在 display_name 重名时显示**：picker 渲染前先对候选按 display_name 分组计数，count > 1 的行渲染 handle 列，其他行省略。
+- mention-picker.tsx 行内 handle 列**每条候选都显示**：右侧固定列显示 `@<agent_id>`（去掉 `agent[_-]` 前缀后），字号小、颜色淡。
 
-**理由**: 常态干净；重名时 surface handle；同名 agent ≥3 个时 handle（agent_id PK）也能区分。
+**理由**: 选中前后用户都能看到所选 agent 的 wire ID（agent_id），是 wire / display 两层架构在 UI 层的对应——左 display_name 是给"读"，右 agent_id 是给"对"。重名时 handle 自动成为区分依据，无须额外切换逻辑。
 
 **拒绝**:
-- handle 永远显示：为最少数场景买永久视觉位。
+- 仅重名时显示 handle：表面"常态干净"，实测代价是用户每次选中后丧失对 wire ID 的回看；重名是发生时刻无预警的，UI 不能等到那一刻才开始展示。
 - 拼接 display 文案 `"助手 · ArchA"`：把两个独立字段混成字符串，后续搜索 / 过滤逻辑得拆回去。
 
 ### 决策 6: IM 删除 `_resolve_mention_to_agent_ids` 的 display_name fallback
@@ -292,5 +294,5 @@ reviewer 走旅程前按下表无脑重启清单内服务（避免 stale-binary�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| bugfix-358-M1 | impl | — | A | `src/IM/application/relay_service.py`<br>`src/agent/products/personal_assistant/prompts.py`<br>`src/agent/products/personal_assistant/hooks/communication_context.py`<br>`src/IM/frontend/src/features/chat/v2/components/mention-picker.tsx`<br>`src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`<br>对应单测 + 集成测试 | `[reviewer]` 群聊中 user 通过 picker 选中一个 agent 发送 mention 后，该 agent 收到该消息并触发响应；前端把该 mention 渲染成 chip，显示目标 agent 的当前 display_name<br>`[reviewer]` 群聊中一个 agent 在自己回复里 @ 另一个 agent，被 @ 的 agent 收到并响应；该 mention 在前端渲染为 chip，显示当前 display_name，不出现 UUID / agent_id 等内部字符作为字面文本<br>`[reviewer]` user 把某 agent 的 display_name 改名后，本次修复生效之后产生的新消息中针对该 agent 的 chip 自动按新 display_name 渲染<br>`[reviewer]` 系统允许多个 agent 使用相同 display_name；群里出现重名时，picker 让用户能区分并独立选中其中任一；被选中的 agent 被 @ 后，只有它响应<br>`[reviewer]` 当 IM 中存在残留 / 离线节点上的孤儿 agent，user 或 agent 在群里发出针对该名字的 mention 后，目标 agent 仍正确被触发<br>`[reviewer]` agent→user mention（agent 在群里 @ 当前 user）渲染成对应 display_name chip，被 @ 的用户收到通知<br>`[worker]` `pytest -xvs tests/unit/im/test_relay_service.py` 全绿；新增测试覆盖：agent 项 payload 含 `agent_id` 且不含 synth user UUID；mention 解析只认 `<mention/>` 标签；display_name fallback 分支已删除<br>`[worker]` `pytest -xvs tests/integration/test_group_mention_routing.py`（新增）覆盖 agent→agent / user→agent / agent→user 三向 mention 路由 + 同名 agent 消歧路由<br>`[worker]` `cd src/IM/frontend && npm run test` 全绿；新增测试覆盖：`handleMentionSelect` 写入 `<mention/>` 标签；composer mirror + MessageBubble 共用 `parseMentions` 解析；chip 按 `conversation.participants` 查当前 display_name；picker handle 列条件显示<br>`[worker]` `cd src/IM/frontend && npm run build` 通过<br>`[worker]` `pytest -m "not e2e"` 全绿 |
+| bugfix-358-M1 | impl | — | A | `src/IM/application/relay_service.py`<br>`src/agent/products/personal_assistant/prompts.py`<br>`src/agent/products/personal_assistant/hooks/communication_context.py`<br>`src/IM/frontend/src/features/chat/v2/components/mention-picker.tsx`<br>`src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`<br>对应单测 + 集成测试 | `[reviewer]` 群聊中 user 通过 picker 选中一个 agent 发送 mention 后，该 agent 收到该消息并触发响应；前端把该 mention 渲染成 chip，显示目标 agent 的当前 display_name<br>`[reviewer]` 群聊中一个 agent 在自己回复里 @ 另一个 agent，被 @ 的 agent 收到并响应；该 mention 在前端渲染为 chip，显示当前 display_name，不出现 UUID / agent_id 等内部字符作为字面文本<br>`[reviewer]` user 把某 agent 的 display_name 改名后，本次修复生效之后产生的新消息中针对该 agent 的 chip 自动按新 display_name 渲染<br>`[reviewer]` 系统允许多个 agent 使用相同 display_name；群里出现重名时，picker 让用户能区分并独立选中其中任一；被选中的 agent 被 @ 后，只有它响应<br>`[reviewer]` 当 IM 中存在残留 / 离线节点上的孤儿 agent，user 或 agent 在群里发出针对该名字的 mention 后，目标 agent 仍正确被触发<br>`[reviewer]` agent→user mention（agent 在群里 @ 当前 user）渲染成对应 display_name chip，被 @ 的用户收到通知<br>`[worker]` `pytest -xvs tests/unit/im/test_relay_service.py` 全绿；新增测试覆盖：agent 项 payload 含 `agent_id` 且不含 synth user UUID；mention 解析只认 `<mention/>` 标签；display_name fallback 分支已删除<br>`[worker]` `pytest -xvs tests/integration/test_group_mention_routing.py`（新增）覆盖 agent→agent / user→agent / agent→user 三向 mention 路由 + 同名 agent 消歧路由<br>`[worker]` `cd src/IM/frontend && npm run test` 全绿；新增测试覆盖：`handleMentionSelect` 写入 `<mention/>` 标签；composer mirror + MessageBubble 共用 `parseMentions` 解析；chip 按 `conversation.participants` 查当前 display_name；picker handle 列常态显示<br>`[worker]` `cd src/IM/frontend && npm run build` 通过<br>`[worker]` `pytest -m "not e2e"` 全绿 |
 
