@@ -44,10 +44,10 @@ class ShellRunner(BackgroundBashRunner):
         on_complete: TaskCompletionCallback,
         on_fail: TaskFailureCallback,
     ) -> BackgroundTaskStopper:
-        if self._safety is not None:
-            enforce = getattr(self._safety, "enforce_command_policy", None)
-            if callable(enforce):
-                enforce(command, tool_name="bash", allow_unlisted=False)
+        # M6 D10: Policy single-point — already checked in BashTool.check_permissions
+        # via the auto_mode_gate hook. shell_runner trusts that decision.
+        # Any caller bypassing ToolRegistry must call bash_policy.check_command_policy
+        # directly (see bash_policy.py module docstring for the contract).
 
         process = subprocess.Popen(
             ["bash", "-c", command],

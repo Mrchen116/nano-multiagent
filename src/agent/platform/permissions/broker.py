@@ -54,11 +54,20 @@ class PermissionResponse:
 
 @dataclass(frozen=True)
 class PermissionDecision:
-    """Internal gate decision output."""
+    """Internal gate decision output.
 
-    behavior: Literal["allow", "deny", "ask"]
+    Extended in bugfix-355 to support tool-level check_permissions results.
+    - behavior: now includes 'passthrough' (tool defers to hook layer)
+    - decision_reason: structured reason dict (type='safety_check'|'preapproved'|'rule'|...)
+      supersedes rule_source for new code; rule_source retained for backward compat
+    - updated_input: optional tool input override (reserved for future use)
+    """
+
+    behavior: Literal["allow", "deny", "ask", "passthrough"]
     reason: str = ""
-    rule_source: str = ""
+    rule_source: str = ""  # Deprecated: use decision_reason instead; retained for callers using rule_source
+    decision_reason: dict | None = None  # Structured reason: {"type": "safety_check"|"preapproved"|..., ...}
+    updated_input: dict | None = None  # Reserved: tool may rewrite its own input (not used in M1)
 
 
 # Default options per tool category
