@@ -45,7 +45,6 @@ src/agent/
 | `core/agent/compaction/` | 上下文压缩子系统（见 §5） |
 | `core/session/manager.py` | 创建 / 加载 / 切换 / 归档会话 |
 | `core/session/entries.py` | 会话事件定义（含 `CompactionEntry`） |
-| `core/session/store.py` | `SessionStore` 持久化抽象接口 |
 | `core/tools/base.py` | `Tool` 接口：`name` + `schema` + `run(args, ctx)` |
 | `core/tools/registry.py` | 注册 / 分发 / 执行工具，参数校验 |
 | `core/hooks/types.py` | `HookEvent`、`HookHandler`、`HookResult` |
@@ -68,8 +67,7 @@ src/agent/
 | `platform/http_api/` | HTTP routes、SSE、Bearer auth、deps、错误映射 |
 | `platform/llm/providers/openai_compat/` | OpenAI 兼容协议实现 |
 | `platform/llm/providers/anthropic/` | Anthropic 协议实现 |
-| `platform/persistence/session/sqlite_store.py` | 生产默认 session store |
-| `platform/persistence/session/jsonl_store.py` | 调试与回放友好 store |
+| `core/session/jsonl_store.py` | JSONL-based session store（生产默认，workspace-local `.nano/sessions/`） |
 | `platform/tools/loader.py` | 从产品配置目录扫描加载自定义工具 |
 | `platform/tools/safety.py` | 路径沙箱、命令白黑名单、超时、输出截断 |
 | `platform/tools/builtins/` | 5 个内置工具实现：`read` `write` `edit` `bash` `task` |
@@ -343,11 +341,8 @@ Skill 定义（SKILL.md）分布在多个位置：
 | 模块 | 职责 |
 |---|---|
 | `SessionManager` | 创建 / 加载 / 切换 / 归档会话 |
-| `SessionStore`（接口） | 保存事件、加载会话、追加轮次 |
-| `SQLiteSessionStore` | 生产默认（可靠、可查询） |
-| `JSONLSessionStore` | 调试与回放友好 |
+| `JsonlSessionStore` | 生产默认，workspace-local `.nano/sessions/` 下 JSONL 追加 + 快照 |
 | `entries.py` | 会话事件定义（含 `CompactionEntry`） |
-| `serializers.py` | 版本化序列化，支持迁移 |
 
 - Event-sourced：每次状态变更产生事件并持久化
 - Session 可由事件重放重建
