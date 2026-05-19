@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from agent.core.hooks.registry import HookRegistry
-    from agent.core.session.store import SessionStore
+    from agent.core.session.jsonl_store import JsonlSessionStore
     from agent.platform.config.resolver import ConfigResolver
     from agent.platform.tools.registry import ToolRegistry
 
@@ -101,7 +101,7 @@ class ResolvedProductConfig:
     resolved_system_prompt: str
     tool_registry: "ToolRegistry | None"
     hook_registry: "HookRegistry | None"
-    session_store: "SessionStore | None"
+    session_store: "JsonlSessionStore | None"
     config_resolver: "ConfigResolver | None" = None
     skill_registry: object | None = None
     # Tool ids exposed to the LLM by default (before per-session allowlists are

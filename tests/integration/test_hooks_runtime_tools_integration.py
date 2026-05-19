@@ -8,32 +8,10 @@ from agent.core.hooks.context import HookContext
 from agent.platform.hooks.loader import load_hooks_from_directories
 from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.core.session.store import LoadedSession, SessionStore
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.registry import ToolRegistry
-
-
-class InMemorySessionStore(SessionStore):
-    def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-        self.snapshots: dict[str, dict[str, object]] = {}
-
-    def append_event(self, session_id: str, entry: object) -> None:
-        self.events.append((session_id, entry))
-
-    def load_session(self, session_id: str) -> LoadedSession | None:
-        session_events = tuple(entry for sid, entry in self.events if sid == session_id)
-        if not session_events and session_id not in self.snapshots:
-            return None
-        return LoadedSession(
-            session_id=session_id,
-            events=session_events,
-            snapshot=self.snapshots.get(session_id),
-        )
-
-    def save_snapshot(self, session_id: str, snapshot: dict[str, object]) -> None:
-        self.snapshots[session_id] = snapshot
 
 
 class EchoLLMClient:
@@ -100,8 +78,7 @@ def setup(hooks):
     )
     assert len(loaded) == 2
 
-    store = InMemorySessionStore()
-    manager = SessionManager(store=store)
+    manager = SessionManager(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     session = manager.create_session(workspace_root=tmp_path)
     llm = EchoLLMClient()
     runtime = AgentRuntime(
