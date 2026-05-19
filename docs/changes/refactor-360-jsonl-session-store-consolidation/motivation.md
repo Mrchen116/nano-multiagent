@@ -45,6 +45,12 @@
   A(原话): 对
   Agent 解读: 采纳推荐 —— 删 (c) 前必须确认其"原本想验的行为"在生产路径上有等价测试覆盖;没有就先补 integration 测试再删。design 阶段做测试分类清单时每条 (c) 项要附"等价覆盖来源"栏,空着的视为"先补"。
 
+## 范围扩张记录
+
+- 2026-05-19 (M4 实施期, 用户授权): 迁移 e2e 测试时发现 4 处产品 bug,都是 mock 掀掉之后暴露的真路径问题(async overflow recovery 漏 / bash foreground 通知误发 / subagent session parent-aware loading 缺失等),扩入范围一并修。详见 design.md Changelog。
+
+- 2026-05-19 (M3 实施期, 用户授权): 迁移 compaction/runtime integration 测试时发现 F-330 还留下两处同质半成品(docstring 承诺 / dead config field),与本 unit 同源,扩入范围一并修。详见 design.md Changelog。
+
 ## 现状痛点
 
 `feat-330` (commit `a33e63d9`, 2026-04-23) 的 commit message 自报"Replace SQLite with append-only JSONL session store",但 replace 只做了一半:

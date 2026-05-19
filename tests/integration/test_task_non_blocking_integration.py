@@ -4,24 +4,21 @@ from pathlib import Path
 
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.context import HookContext
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
 from agent.core.types import Message, TurnResult
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.persistence.session.service import SessionService
 
 
 class _RecordingLLMClient:
     def __init__(self) -> None:
         self.requests: list[LLMGenerateRequest] = []
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
         self.requests.append(request)
-        return LLMGenerateResponse(
-            model=request.model,
-            message=LLMMessage(role="assistant", content="subagent-ok"),
-            finish_reason="stop",
-        )
+        yield LLMMessage(role="assistant", content="subagent-ok")
+        yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,17 +75,17 @@ def _wait_for(predicate, *, timeout_seconds: float = 0.6) -> None:  # noqa: ANN0
     raise AssertionError("condition not met before timeout")
 
 
-def test_task_blocking_passes_parent_session_id_to_subagent_llm(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "task-pass-through.sqlite3")
+async def test_task_blocking_passes_parent_session_id_to_subagent_llm(tmp_path: Path) -> None:
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     llm_client = _RecordingLLMClient()
     runtime = AgentRuntime(
-        session_manager=SessionManager(store=store),
+        session_manager=service.manager,
         llm_client=llm_client,
         model="mock-model",
     )
-    app = create_app(runtime=runtime, session_store=store, repo_root=tmp_path)
+    app = create_app(runtime=runtime, session_store=service.manager.store, repo_root=tmp_path)
 
-    result = app.state.tool_registry.execute(
+    result = await app.state.tool_registry.execute(
         "task",
         {
             "run_in_background": False,
@@ -110,16 +107,19 @@ def test_task_non_blocking_executes_on_same_node_and_returns_receipt(tmp_path: P
     runtime = _RuntimeStub()
     app = create_app(runtime=runtime, repo_root=tmp_path)
 
-    result = app.state.tool_registry.execute(
-        "task",
-        {
-            "run_in_background": True,
-            "load_skills": [],
-            "description": "delegate task",
-            "prompt": "run async",
-            "subagent_type": "oracle",
-        },
-        hook_context=HookContext(session_id="sess_main_non_blocking", repo_root=tmp_path),
+    import asyncio
+    result = asyncio.get_event_loop().run_until_complete(
+        app.state.tool_registry.execute(
+            "task",
+            {
+                "run_in_background": True,
+                "load_skills": [],
+                "description": "delegate task",
+                "prompt": "run async",
+                "subagent_type": "oracle",
+            },
+            hook_context=HookContext(session_id="sess_main_non_blocking", repo_root=tmp_path),
+        )
     )
 
     assert result["result"].startswith("Background task launched.")

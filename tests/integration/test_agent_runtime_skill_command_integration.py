@@ -3,8 +3,8 @@ from pathlib import Path
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from agent.core.session.entries import SessionEntryKind
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.platform.persistence.session.service import SessionService
 from collections.abc import AsyncIterator
 
 
@@ -16,11 +16,10 @@ class EchoLLMClient:
         self.requests.append(request)
         yield LLMMessage(role="assistant", content=f"ack:{request.messages[-1].content}")
         yield LLMMessage(role="assistant", content="", finish_reason="stop")
-def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(tmp_path: Path) -> None:
-    db_path = tmp_path / "skill-command-runtime.sqlite3"
-    store = SQLiteSessionStore(db_path=db_path)
-    manager = SessionManager(store=store)
-    session = manager.create_session()
+async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(tmp_path: Path) -> None:
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -28,7 +27,7 @@ def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(tmp_path: Pa
         model="mock-model",
     )
 
-    result = runtime.run(
+    result = await runtime.run(
         session.session_id,
         [{"type": "text", "text": "/skill:doc polish this paragraph"}],
         stream=False,
@@ -38,9 +37,7 @@ def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(tmp_path: Pa
     assert llm.requests[-1].messages[-1].content == rewritten
     assert result.messages[0].content == f"ack:{rewritten}"
 
-    loaded = store.load_session(session.session_id)
-    assert loaded is not None
-    turn_events = [event for event in loaded.events if event.kind is SessionEntryKind.TURN_APPENDED]
+    turn_events = [event for event in manager.list_entries(session.session_id) if event.kind is SessionEntryKind.TURN_APPENDED]
     assert len(turn_events) == 2
     assert turn_events[0].data["role"] == "user"
     assert turn_events[0].data["content"] == rewritten

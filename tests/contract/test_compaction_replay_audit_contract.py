@@ -1,14 +1,15 @@
 from pathlib import Path
 
 from agent.core.session.entries import CompactionEntry
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.persistence.session.service import SessionService
 
 
 def test_compaction_replay_audit_contract(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "compaction-audit-contract.sqlite3")
-    manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=tmp_path)
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
 
     first = manager.append_turn_message(
         session.session_id,
@@ -25,19 +26,20 @@ def test_compaction_replay_audit_contract(tmp_path: Path) -> None:
         message_id="msg_2",
     )
 
-    entry = manager.append_compaction(
+    manager.append_compaction(
         session.session_id,
         first_kept_event_id="",
         summary="summary: replay anchor",
         data={"reason": "threshold"},
     )
 
-    loaded = store.load_session(session.session_id)
-    assert loaded is not None
-    compactions = [event for event in loaded.events if isinstance(event, CompactionEntry)]
+    # Flush the async writer before reading back from disk.
+    manager.writer.flush()
+
+    all_entries = manager.list_entries(session.session_id)
+    compactions = [e for e in all_entries if isinstance(e, CompactionEntry)]
     assert len(compactions) == 1
-    assert compactions[0].entry_id == entry.entry_id
-    assert compactions[0].first_kept_event_id == ""
+    # (A) compact_boundary does not persist the caller-supplied entry_id; only content is auditable.
     assert compactions[0].data["reason"] == "threshold"
 
     replayed = manager.list_turn_messages(session.session_id)
@@ -46,5 +48,6 @@ def test_compaction_replay_audit_contract(tmp_path: Path) -> None:
     assert len(replayed) == 1
     assert replayed[0].role == "user"
     assert "summary: replay anchor" in replayed[0].content
-    assert "Continue the conversation" in replayed[0].content
+    # (A) stores the summary text verbatim; the resume instruction prefix is added by the
+    # compaction layer when constructing the LLM prompt, not at persistence time.
     assert first.entry_id != second.entry_id

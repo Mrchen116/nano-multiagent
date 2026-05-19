@@ -6,9 +6,10 @@ from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
 from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.persistence.session.service import SessionService
 
 
 class _LLMStub:
@@ -22,7 +23,6 @@ class _LLMStub:
 
 def _auth_headers(request_id: str) -> dict[str, str]:
     return {
-        "Authorization": "Bearer test-token",
         "X-Request-Id": request_id,
     }
 
@@ -44,15 +44,16 @@ def _build_client(tmp_path: Path) -> TestClient:
         timeout_ms=800,
     )
 
-    store = SQLiteSessionStore(db_path=tmp_path / "hooks-query-contract.sqlite3")
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    service = SessionService(store=store)
     runtime = AgentRuntime(
-        session_manager=SessionManager(store=store),
+        session_manager=service.manager,
         llm_client=_LLMStub(),
         model="mock-model",
         hook_runner=HookRunner(registry=registry),
         repo_root=tmp_path,
     )
-    app = create_app(session_store=store, runtime=runtime, auth_token="test-token")
+    app = create_app(session_store=store, runtime=runtime)
     return TestClient(app)
 
 
