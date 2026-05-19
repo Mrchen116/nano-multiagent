@@ -53,18 +53,29 @@
 
 ---
 
-### R3 — 删 core/session/store.py + 最终验证 + issue 关闭
+### R3 — 删 core/session/store.py + 5 处剩余引用迁移 + 最终验证 + issue 关闭
 
-- Context: 确认 SessionStore ABC 无生产代码引用后删除；跑最终退出标准检查
-- Decision: git rm store.py + 跑全套 grep 退出标准 + 关闭 issue #25
+- Context: R1 扫描发现 5 处 SessionStore ABC 引用未迁,R3 统一处理后删 store.py。
+- Decision: 5 处全部从 `agent.core.session.store.SessionStore` 迁至 `agent.core.session.jsonl_store.JsonlSessionStore`(项目唯一活的 store)。
+- Rationale: F-330 后 (A) JsonlSessionStore 是 SessionManager 唯一吃的 store 类型,ABC 没有第二实现,留着抽象基类只剩误导价值。
 - Evidence:
-  - Tests: `pytest tests/ -q --tb=no --ignore=tests/acceptance` → 待填
-  - Exit criteria grep: 待填
-  - Issue #25: 待关闭
+  - 5 处迁移:
+    1. `src/agent/products/base.py:104` — `session_store: SessionStore | None` 类型注解改 `JsonlSessionStore | None`
+    2. `src/agent/core/session/__init__.py` — 移除 `SessionStore` export
+    3. `tests/contract/test_hook_integration_contract.py:51` — `SessionManager(store=...)` 改用 (A)
+    4. `tests/integration/test_cli_http_flow_integration.py:323/662/711/753` — 4 处 store 实例化改用 (A)
+    5. `tests/integration/test_hooks_runtime_tools_integration.py:81` — 同上
+    6. `tests/integration/test_m8_agent_tool_hook_r81_integration.py:50` — 同上
+  - `git rm src/agent/core/session/store.py` — SessionStore ABC 文件删除
+  - Tests (4 触及文件): 37 failed,完全等同 unit 分支 baseline 37 failed (零回归)
+  - Tests (全套 `pytest tests/ --ignore=acceptance --ignore=test_m170_rerun_acceptance.py`): 159 failed = baseline 159 failed (failure set 完全相同,diff 空)
+  - Exit criteria grep: `grep -rn "SQLiteSessionStore|from agent.platform.persistence.session import |from .sqlite_store|from .base import SessionStore" src/ tests/` → 0 行
+  - Exit criteria 包结构: `ls src/agent/platform/persistence/session/` → `__init__.py + service.py` (+ __pycache__)
+  - Exit criteria store.py: `ls src/agent/core/session/store.py` → No such file or directory ✓
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: N/A
+  - E2E/Regression: N/A — 由 unit reviewer 走 motivation 不变性
   - Visual/Interaction: N/A
-- Rollback: R2 commit
-- Commits: C2=<待填>, C3=<待填>
-- Next: 集成到 unit 分支
+- Rollback: 92c44b19 (R3 commit) 之前 (0ad380a9 R2)
+- Commits: C2=92c44b19
+- Next: 合 unit + 清 worktree + 关 issue #25
