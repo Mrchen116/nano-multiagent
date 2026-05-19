@@ -131,8 +131,8 @@ def test_message_route_recovers_from_overflow_via_compaction(tmp_path: Path) -> 
     assert isinstance(compactions[-1].first_kept_event_id, str)
 
     main_calls = [request for request in llm_client.calls if request.model == "main-model"]
-    # 1st turn + 2nd turn (overflow) + compaction summary + retry = 4
-    assert len(main_calls) == 4
+    # 1st turn + 2nd turn (overflow) + retry = 3 (compaction summary uses summary-model)
+    assert len(main_calls) == 3
 
 
 def test_message_route_recovers_even_if_summary_model_fails(tmp_path: Path) -> None:
