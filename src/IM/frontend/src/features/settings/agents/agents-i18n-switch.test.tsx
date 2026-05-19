@@ -78,7 +78,7 @@ describe("agents pages i18n zh switch", () => {
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
-      if (url === "/im/v1/agents/agent-zh-1/config") {
+      if (url === "/im/v1/agents/agent-zh-1/config?source=mirror") {
         return new Response(
           JSON.stringify({
             agent_id: "agent-zh-1",

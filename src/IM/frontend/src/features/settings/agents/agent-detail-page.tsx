@@ -233,15 +233,21 @@ export function AgentDetailPage() {
       setSaved(true);
       setHasAttemptedSave(false);
       if (updated && capabilities) {
-        setDraft(updated);
+        const nextConfig = {
+          ...updated,
+          node_id: updated.node_id ?? owningNode?.node_id ?? capabilities.node_id,
+          node_name: owningNode?.node_name ?? updated.node_name ?? null,
+          node_status: owningNode?.status ?? updated.node_status ?? capabilities.node_status ?? null
+        };
+        setDraft(nextConfig);
         queryClient.setQueryData(["settings", "agents", agentId, "detail-state"], {
-          config: updated,
+          config: nextConfig,
           capabilities,
           owningNode
         });
       }
-      await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
-      await queryClient.invalidateQueries({ queryKey: ["settings", "agents", agentId, "detail-state"] });
+      void queryClient.invalidateQueries({ queryKey: ["settings", "agents"], exact: true });
+      void queryClient.invalidateQueries({ queryKey: ["settings", "agents", "summary"], exact: true });
       setTimeout(() => setSaved(false), 1800);
     },
     onError: (error) => {

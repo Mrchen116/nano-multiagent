@@ -392,6 +392,36 @@ async def test_provider_client_contract_streaming_supported(provider_case: Provi
     assert hasattr(result, "__aiter__")
 
 
+async def test_anthropic_client_accepts_data_field_without_space() -> None:
+    """Anthropic SSE parsing accepts both `data: {...}` and `data:{...}` forms."""
+
+    chunks = [
+        b'event:message_start\ndata:{"type":"message_start","message":{"role":"assistant","content":[]}}\n\n',
+        b'event:content_block_start\ndata:{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
+        b'event:content_block_delta\ndata:{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"pong"}}\n\n',
+        b'event:content_block_stop\ndata:{"type":"content_block_stop","index":0}\n\n',
+        b'event:message_delta\ndata:{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":1,"output_tokens":1}}\n\n',
+        b'event:message_stop\ndata:{"type":"message_stop"}\n\n',
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(chunks)))
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:4000",
+        model="kimiCoding:K2.6",
+        api_key="test-anthropic-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    messages = await _consume_generate(client, _build_request())
+
+    assert messages[0].role == "assistant"
+    assert messages[0].content == "pong"
+    assert messages[-1].finish_reason == "end_turn"
+
+
 def test_provider_clients_bypass_env_proxy_for_local_base_url() -> None:
     assert openai_should_trust_env("http://127.0.0.1:4000") is False
     assert anthropic_should_trust_env("http://localhost:4000") is False

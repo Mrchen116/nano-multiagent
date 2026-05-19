@@ -142,10 +142,9 @@ class AnthropicClient(LLMClient):
 async def _iter_sse_events(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
     """Iterate over SSE data lines and yield parsed JSON events."""
 
-    buffer = ""
     async for line in response.aiter_lines():
-        if line.startswith("data: "):
-            data = line.removeprefix("data: ").strip()
+        if line.startswith("data:"):
+            data = line.removeprefix("data:").lstrip(" ")
             if data == "[DONE]":
                 continue
             try:
