@@ -90,17 +90,21 @@ def test_conversation_participant_is_stale_exposed(tmp_path: Path) -> None:
         with client.websocket_connect("/im/ws/gateway") as ws:
             _register_node(ws, node_id="node-1", agents=["agent-a", "agent-x"])
 
-        # Create a group conversation with X as participant
+        # Seed the agent user rows so conversation participants can resolve them.
+        # ws register writes agent_profiles but not users; we seed users manually.
+        agent_x_user_id = seed_user_under_owner(
+            client, username="agent:agent-x", display_name="Agent X", owner_id=user.owner_id
+        )
+
+        # Create a group conversation with X as participant (using user_id reference)
         conv_resp = client.post("/im/v1/conversations", json={
             "title": "group",
-            "participants": [
-                {"type": "agent", "id": "agent-x"},
-            ],
+            "participant_ids": [agent_x_user_id],
         })
         assert conv_resp.status_code == 201
         conv_id = conv_resp.json()["id"]
 
-        # Mark agent-x stale
+        # Mark agent-x stale via re-register without X
         with client.websocket_connect("/im/ws/gateway") as ws:
             _register_node(ws, node_id="node-1", agents=["agent-a"])
 

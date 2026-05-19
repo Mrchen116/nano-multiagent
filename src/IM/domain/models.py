@@ -58,6 +58,7 @@ class Actor:
     id: str
     display_name: str | None = None
     user_id: str | None = None
+    is_stale: bool | None = None
 
     def __post_init__(self) -> None:
         if self.type not in {"user", "agent", "system"}:
@@ -116,6 +117,7 @@ class AgentProfile:
     default_model: str | None = None
     workspace_root: str | None = None
     profile_version: int = 1
+    is_stale: bool = False
 
 
 @dataclass(frozen=True, slots=True)
