@@ -114,6 +114,7 @@ class BackgroundTaskRegistry:
         usage: Mapping[str, Any] | None = None,
         duration_ms: int | None = None,
         tool_use_count: int | None = None,
+        notified: bool = False,
     ) -> BackgroundTaskRecord:
         with self._lock:
             old = self._records[task_id]
@@ -127,6 +128,7 @@ class BackgroundTaskRegistry:
                 usage=usage,
                 duration_ms=duration_ms,
                 tool_use_count=tool_use_count,
+                notified=notified,
             )
             self._records[task_id] = new
         self._persist(new)

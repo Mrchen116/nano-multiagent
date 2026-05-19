@@ -139,12 +139,17 @@ def _deliver_notification(
             return
 
     # Parent idle: start a new run.
-    runs_registry.submit(
-        session_id=parent,
-        parts=[{"type": "text", "text": notification_xml}],
-        origin=RunOrigin.BACKGROUND_TASK,
-        source_task_id=record.task_id,
-    )
+    # ValueError means the session (e.g. a subagent) is not registered in the
+    # top-level runs_registry — skip silently so completed_event.set() is not blocked.
+    try:
+        runs_registry.submit(
+            session_id=parent,
+            parts=[{"type": "text", "text": notification_xml}],
+            origin=RunOrigin.BACKGROUND_TASK,
+            source_task_id=record.task_id,
+        )
+    except ValueError:
+        pass
 
 
 class _SystemClock:

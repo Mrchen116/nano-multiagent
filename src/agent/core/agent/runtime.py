@@ -370,9 +370,52 @@ class AgentRuntime:
                 else:
                     self._session_manager.writer.enqueue(path, entry)
             await self._session_manager.writer.flush_async()
-        except ModelError:
+        except ModelError as exc:
             await self._session_manager.writer.flush_async()
-            raise
+            if not (
+                self._compaction_settings.enabled
+                and _is_context_overflow_error(exc)
+            ):
+                raise
+            compact_result = await self._compact_session(
+                session_id=session_id, reason=CompactionReason.OVERFLOW
+            )
+            if compact_result is None:
+                raise
+            # Retry after compaction: exclude the user message we just wrote.
+            retry_history = self._history_without_message(
+                session_id=session_id, message_id=user_message_id
+            )
+            all_messages = [user_msg]
+            async for msg in self._execute_loop(
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_count=turn_count,
+                history=retry_history,
+                input_parts=effective_input_parts,
+                user_text=effective_user_text,
+                user_message_id=user_msg.message_id,
+                hook_ctx=hook_ctx,
+                system_prompt_override=system_prompt_override,
+                llm_session_id=llm_session_id,
+                session_created_at=session_created_at,
+                current_working_directory_override=session_workspace_root,
+                available_skills_override=() if use_frozen_system_prompt else session_available_skills,
+                available_tools_override=session_available_tools,
+                controller=controller,
+            ):
+                if msg.role == "turn_meta":
+                    all_messages.append(msg)
+                    continue
+                history.append(msg)
+                all_messages.append(msg)
+                entry = _message_to_entry(msg, session_id)
+                if msg.role == "tool":
+                    self._session_manager.writer.enqueue(path, entry)
+                    await self._session_manager.writer.flush_async()
+                else:
+                    self._session_manager.writer.enqueue(path, entry)
+            await self._session_manager.writer.flush_async()
 
         turn_result = build_turn_result(session_id, turn_id, all_messages)
 

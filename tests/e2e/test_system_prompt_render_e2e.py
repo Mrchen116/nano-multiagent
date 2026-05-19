@@ -1,26 +1,25 @@
+import time
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.core.agent.runtime import AgentRuntime
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.persistence.session.service import SessionService
 
 
 class CapturePromptLLM:
     def __init__(self) -> None:
         self.requests: list[LLMGenerateRequest] = []
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:  # type: ignore[override]
         self.requests.append(request)
-        return LLMGenerateResponse(
-            model=request.model,
-            message=LLMMessage(role="assistant", content="ok"),
-            finish_reason="stop",
-        )
+        yield LLMMessage(role="assistant", content="ok")
+        yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
 def _auth_headers(request_id: str) -> dict[str, str]:
@@ -30,35 +29,51 @@ def _auth_headers(request_id: str) -> dict[str, str]:
     }
 
 
+def _wait_for_completed_run(client: TestClient, run_id: str, *, timeout_seconds: float = 2.0) -> dict:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        response = client.get(f"/v1/runs/{run_id}", headers=_auth_headers("req-system-prompt-run-get"))
+        assert response.status_code == 200
+        payload = response.json()
+        if payload["status"] in {"completed", "failed", "cancelled"}:
+            return payload
+        time.sleep(0.01)
+    raise AssertionError("run did not reach terminal status before timeout")
+
+
 def test_message_sync_e2e_renders_runtime_system_prompt(tmp_path: Path) -> None:
     llm = CapturePromptLLM()
-    store = SQLiteSessionStore(db_path=tmp_path / "prompt-e2e.sqlite3")
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     # CODING_SYSTEM_PROMPT injected so "Guidelines:" and placeholders are present.
     runtime = AgentRuntime(
-        session_manager=SessionManager(store=store),
+        session_manager=service.manager,
         llm_client=llm,
         model="mock-model",
         repo_root=tmp_path,
         system_prompt=CODING_SYSTEM_PROMPT,
     )
-    app = create_app(session_store=store, runtime=runtime, auth_token="test-token")
+    app = create_app(session_store=service.manager._store, runtime=runtime)
     client = TestClient(app)
 
-    created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-system-prompt-create"))
+    created = client.post("/v1/sessions", json={"workspace_root": str(tmp_path)}, headers=_auth_headers("req-system-prompt-create"))
     assert created.status_code == 201
     session_id = created.json()["session_id"]
 
-    response = client.post(
+    submitted = client.post(
         f"/v1/sessions/{session_id}/messages",
-        json={"parts": [{"type": "text", "text": "ping"}], "stream": False},
+        json={"parts": [{"type": "text", "text": "ping"}]},
         headers=_auth_headers("req-system-prompt-message"),
     )
-    assert response.status_code == 200
-    assert response.json()["message"]["content"] == "ok"
+    assert submitted.status_code == 200
+    run_id = submitted.json()["run_id"]
 
+    terminal = _wait_for_completed_run(client, run_id)
+    assert terminal["status"] == "completed"
+    assert terminal["output_text"] == "ok"
+
+    assert llm.requests, "no LLM requests captured"
     system_prompt = llm.requests[-1].messages[0].content
     assert "Guidelines:" in system_prompt
     assert "Current date and time:" in system_prompt
     assert f"Current working directory: {tmp_path}" in system_prompt
     assert "<RUNTIME_FILL:" not in system_prompt
-

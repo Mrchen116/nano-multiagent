@@ -155,56 +155,60 @@ def _terminate_background_pid(pid: int, *, timeout: float = 10.0) -> None:
 
 
 class _PwdToolLLM:
-    def __init__(self) -> None:
-        self.calls = 0
+    async def generate(self, request):  # noqa: ANN001, ANN201
+        from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 
-    def generate(self, request):  # noqa: ANN001, ANN201
-        from agent.core.llm.interfaces import LLMGenerateResponse, LLMMessage, LLMToolCall
-
-        self.calls += 1
-        if self.calls == 1:
-            return LLMGenerateResponse(
-                model=request.model,
-                message=LLMMessage(
-                    role="assistant",
-                    content="",
-                    tool_calls=(
-                        LLMToolCall(call_id="call_pwd", name="bash", arguments={"command": "pwd"}),
-                    ),
+        last_message = request.messages[-1]
+        if last_message.role == "user" and "<task-notification>" not in last_message.content:
+            yield LLMMessage(
+                role="assistant",
+                content="",
+                tool_calls=(
+                    LLMToolCall(call_id="call_pwd", name="bash", arguments={"command": "pwd"}),
                 ),
-                finish_reason="tool_calls",
             )
-        tool_payload = json.loads(request.messages[-1].content)
-        output = tool_payload.get("output", {}) if isinstance(tool_payload, dict) else {}
-        return LLMGenerateResponse(
-            model=request.model,
-            message=LLMMessage(role="assistant", content=str(output.get("content", "")).strip()),
-            finish_reason="stop",
-        )
+            yield LLMMessage(role="assistant", content="", finish_reason="tool_calls")
+            return
+        if last_message.role == "tool" and last_message.tool_call_id == "call_pwd":
+            # bash serialize_result returns raw stdout string, not JSON
+            yield LLMMessage(role="assistant", content=str(last_message.content).strip(), finish_reason="stop")
+            return
+        # task-notification or other unexpected message — just acknowledge and stop
+        yield LLMMessage(role="assistant", content="done", finish_reason="stop")
+
+
+def _wait_for_completed_run(client, run_id: str, *, timeout_seconds: float = 10.0) -> dict:  # noqa: ANN001
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        resp = client.get(f"/v1/runs/{run_id}", headers={"Authorization": "Bearer test-token", "X-Request-Id": "req-poll"})
+        assert resp.status_code == 200
+        payload = resp.json()
+        if payload["status"] in {"completed", "failed", "cancelled"}:
+            return payload
+        time.sleep(0.01)
+    raise AssertionError("run did not reach terminal status before timeout")
 
 
 def _runtime_pwd_for_workspace(*, tmp_path: Path, workspace_root: Path) -> str:
     from fastapi.testclient import TestClient
 
     from agent.core.agent.runtime import AgentRuntime
-    from agent.core.session.manager import SessionManager
+    from agent.core.session.jsonl_store import JsonlSessionStore
     from agent.platform.http_api.app import create_app
-    from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+    from agent.platform.persistence.session.service import SessionService
     from agent.platform.tools.loader import build_tool_registry
 
     workspace_root.mkdir(parents=True, exist_ok=True)
     llm = _PwdToolLLM()
-    store = SQLiteSessionStore(db_path=tmp_path / "pwd-runtime.sqlite3")
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     runtime = AgentRuntime(
-        session_manager=SessionManager(store=store),
+        session_manager=service.manager,
         llm_client=llm,
         model="mock-model",
         repo_root=REPO_ROOT,
     )
     tool_registry = build_tool_registry(repo_root=REPO_ROOT, runtime=runtime)
-    # auth_token 参数已从 create_app 签名移除(kernel app 不再做 token 校验)。
-    # Authorization header 保留作为 contract 一致性的装饰,但 server 端不验。
-    app = create_app(session_store=store, runtime=runtime, tool_registry=tool_registry)
+    app = create_app(session_store=service.manager._store, runtime=runtime, tool_registry=tool_registry)
     client = TestClient(app)
     created = client.post(
         "/v1/sessions",
@@ -213,35 +217,24 @@ def _runtime_pwd_for_workspace(*, tmp_path: Path, workspace_root: Path) -> str:
     )
     assert created.status_code == 201
     session_id = created.json()["session_id"]
-    response = client.post(
+    submitted = client.post(
         f"/v1/sessions/{session_id}/messages",
-        json={"parts": [{"type": "text", "text": "show pwd"}], "stream": False},
+        json={"parts": [{"type": "text", "text": "show pwd"}]},
         headers={"Authorization": "Bearer test-token", "X-Request-Id": "req-workspace-message"},
     )
-    assert response.status_code == 200
-    return str(response.json()["message"]["content"]).strip()
+    assert submitted.status_code == 200
+    run_id = submitted.json()["run_id"]
+    terminal = _wait_for_completed_run(client, run_id)
+    assert terminal["status"] == "completed"
+    return str(terminal["output_text"]).strip()
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Captures real prod bug: SessionManager.create_session calls store.create() "
-        "which is not implemented on SQLiteSessionStore. See issue #25."
-    ),
-)
 def test_kernel_session_workspace_root_controls_runtime_pwd(tmp_path: Path) -> None:
-    workspace_root = tmp_path / "fuck"
+    workspace_root = tmp_path / "workspace"
 
     assert _runtime_pwd_for_workspace(tmp_path=tmp_path, workspace_root=workspace_root) == str(workspace_root.resolve())
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Captures real prod bug: SessionManager.create_session calls store.create() "
-        "which is not implemented on SQLiteSessionStore. See issue #25."
-    ),
-)
 def test_new_kernel_session_uses_its_own_workspace_root_after_workspace_change(tmp_path: Path) -> None:
     first_workspace = tmp_path / "workspace-a"
     second_workspace = tmp_path / "workspace-b"
