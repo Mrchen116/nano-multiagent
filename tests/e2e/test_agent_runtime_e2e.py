@@ -5,8 +5,9 @@ import pytest
 
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.llm.factory import create_llm_client
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.persistence.session.service import SessionService
 
 
 def _llm_proxy_available() -> bool:
@@ -25,12 +26,11 @@ def test_runtime_can_complete_text_only_turn_with_real_proxy(tmp_path) -> None:
     if not _llm_proxy_available():
         pytest.skip("LLM_PROXY is unavailable on http://127.0.0.1:4000")
 
-    store = SQLiteSessionStore(db_path=tmp_path / "runtime-e2e.sqlite3")
-    manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=tmp_path)
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    session = service.create_session(workspace_root=tmp_path)
 
     with create_llm_client() as llm_client:
-        runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="")
+        runtime = AgentRuntime(session_manager=service.manager, llm_client=llm_client, model="")
         result = runtime.run(
             session.session_id,
             [{"type": "text", "text": "reply one word: pong"}],

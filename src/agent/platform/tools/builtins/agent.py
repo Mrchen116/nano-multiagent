@@ -412,15 +412,17 @@ class AgentTool:
         import asyncio
 
         load_skills = _normalize_skill_names(args.get("load_skills"), tool_name=self.name)
+        effective_workspace = ctx.cwd
         metadata: dict[str, Any] = {
             "kind": "subagent",
             "agent_id": agent_id,
             "agent_type": agent_type,
             "description": description,
+            "workspace_root": str(effective_workspace.resolve()) if effective_workspace else None,
         }
         session = asyncio.run(
             runtime.create_session(
-                workspace_root=ctx.cwd,
+                workspace_root=effective_workspace,
                 skills=load_skills if load_skills else None,
                 metadata=metadata,
                 parent_session_id=ctx.session_id,
