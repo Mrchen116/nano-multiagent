@@ -543,6 +543,10 @@ class GatewayHandler:
                     "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
                     (node_id, agent_id),
                 )
+            profile_repository.mark_stale_for_node(
+                node_id=node_id,
+                advertised_agent_ids=list(agents),
+            )
             self._node_repository._connection.commit()
             prior_status = prior_node.status if prior_node is not None else None
             if prior_status != node.status:
