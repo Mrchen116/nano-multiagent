@@ -97,8 +97,8 @@ describe("agent create page (three-card)", () => {
           { name: "read", description: "Read files" },
           { name: "bash", description: "Run shell commands" }
         ],
-        model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
-        platform_default_model: "codex_oauth:gpt-5.4",
+        model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+        platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: "You are the personal_assistant default template."
       }
     });
@@ -111,7 +111,7 @@ describe("agent create page (three-card)", () => {
       skills: ["plan"],
       tool_allowlist: ["read"],
       group_reply_policy: "MENTION",
-      default_model: "moonshotAnthropic:kimi-k2.5",
+      default_model: "kimiCoding:K2.6",
       workspace_root: "/tmp/agent-new-workspace",
       workspace_is_default: false,
       profile_version: 1,
@@ -149,7 +149,7 @@ describe("agent create page (three-card)", () => {
     fireEvent.change(screen.getByLabelText(/^System Prompt/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /plan/i }));
     await user.click(screen.getByRole("button", { name: /read/i }));
-    await user.selectOptions(screen.getByLabelText("Default Model"), "moonshotAnthropic:kimi-k2.5");
+    await user.selectOptions(screen.getByLabelText("Default Model"), "kimiCoding:K2.6");
 
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
@@ -163,7 +163,7 @@ describe("agent create page (three-card)", () => {
         skills: ["plan"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
-        default_model: "moonshotAnthropic:kimi-k2.5",
+        default_model: "kimiCoding:K2.6",
         workspace_root: null
       });
     });
@@ -201,8 +201,8 @@ describe("agent create page (three-card)", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codex_oauth:gpt-5.4"],
-        platform_default_model: "codex_oauth:gpt-5.4",
+        model_options: ["codex_oauth:gpt-5.5"],
+        platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: ""
       }
     });
@@ -242,8 +242,8 @@ describe("agent create page (three-card)", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codex_oauth:gpt-5.4"],
-        platform_default_model: "codex_oauth:gpt-5.4",
+        model_options: ["codex_oauth:gpt-5.5"],
+        platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: ""
       }
     });
@@ -282,8 +282,8 @@ describe("agent create page (three-card)", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codex_oauth:gpt-5.4"],
-        platform_default_model: "codex_oauth:gpt-5.4",
+        model_options: ["codex_oauth:gpt-5.5"],
+        platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: ""
       }
     });

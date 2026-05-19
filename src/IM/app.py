@@ -22,6 +22,7 @@ from IM.application.auth_service import AuthService, resolve_jwt_secret
 from IM.application.event_service import EventService
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
+from IM.application.relay_watchdog import run_relay_watchdog
 from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories import ConversationRepository, EventRepository, MessageRepository, NodeRepository, UsageMetricsRepository, UserRepository
@@ -291,10 +292,23 @@ def create_app(
             )
         )
         app_instance.state.offline_guard_task = offline_guard_task
+
+        # bugfix-361: reap orphan `running` placeholders if Gateway never emits a terminal event.
+        relay_watchdog_interval = int(os.getenv("IM_RELAY_WATCHDOG_INTERVAL_SECONDS", "30"))
+        relay_watchdog_timeout = int(os.getenv("IM_RELAY_WATCHDOG_TIMEOUT_SECONDS", "300"))
+        relay_watchdog_task = asyncio.create_task(
+            run_relay_watchdog(
+                connection=connection,
+                event_repository=event_repository,
+                interval_seconds=relay_watchdog_interval,
+                timeout_seconds=relay_watchdog_timeout,
+            )
+        )
+        app_instance.state.relay_watchdog_task = relay_watchdog_task
         try:
             yield
         finally:
-            for task in (pump_task, offline_guard_task):
+            for task in (pump_task, offline_guard_task, relay_watchdog_task):
                 task.cancel()
                 try:
                     await task

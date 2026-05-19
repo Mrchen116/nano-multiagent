@@ -25,6 +25,7 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 12. **PR 提完即退出**。不等 merge、不等 CI——交棒给人。
 13. **派发必须后台运行**。Agent 工具派发 worker / reviewer 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
 14. **必须开 team 派发**。启动时先 `TeamCreate` 建一个 unit 专属 team(名字用 `unit-<unit_id>`),之后所有 Agent 派发都带 `team_name`。否则子 agent 结束后实例销毁,失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.4)就无法 `SendMessage` 续跑,只能新开实例丢上下文。unit 完成(§7.4 退出前)`TeamDelete` 清理。
+15. **主仓 HEAD 不动**。整个 unit 生命周期内,所有针对 `unit/<unit_id>` 分支的 checkout / pull / merge / push / rebase / PR 一律在专属 `unit_worktree_dir`(§2.3)里跑,**严禁**在主仓 `git checkout unit/<id>`——多 orchestrator 并发时主仓 HEAD 会被互相踩翻,用户也可能正在主仓做别的事。Sync Gate(§2.2)操作的是主仓的 main,不在此限。
 
 ---
 
@@ -116,22 +117,22 @@ fi
 
 分叉的情况**直接停下**——这是 stale-base 问题的根源,不能强制 reset 蒙混。报告问题让人决定。
 
-### §2.3 创建 unit 集成分支
+### §2.3 创建 unit worktree + 集成分支
 
-design.md 顶部声明的 `unit/<unit-id>` 还不存在(design-author 不建分支)。orchestrator 接手时建:
-
-```bash
-git checkout main
-git checkout -b "unit/<unit-id>"
-git push -u origin "unit/<unit-id>"
-```
-
-如果分支已存在(续跑场景):
+design.md 顶部声明的 `unit/<unit-id>` 还不存在(design-author 不建分支)。orchestrator 接手时在 unit 专属 worktree 内建,**绝不在主仓 checkout**(§0.15):
 
 ```bash
-git checkout "unit/<unit-id>"
-git pull --ff-only origin "unit/<unit-id>"
+unit_worktree="<repo_root>/.worktrees/unit-<unit_id>"
+
+if [[ -d "$unit_worktree" ]]; then
+  git -C "$unit_worktree" pull --ff-only origin "unit/<unit-id>"   # 续跑
+else
+  git worktree add "$unit_worktree" -b "unit/<unit-id>" main       # 首次
+  git -C "$unit_worktree" push -u origin "unit/<unit-id>"
+fi
 ```
+
+后续所有针对 unit 分支的操作(派发包字段、rebase、merge、push、PR、teardown)一律以 `$unit_worktree` 为工作目录,主仓 HEAD 不动。
 
 ### §2.4 worktree 路径规划
 
@@ -143,7 +144,7 @@ worktree_dir = <repo_root>/.worktrees/<milestone_id>
 
 例:`/Users/czj/Repos/nano-multiagent/.worktrees/feat-104-M1`。
 
-reviewer 不需要 worktree(直接在主仓 checkout unit 分支)。
+reviewer 在 §2.3 的 `unit_worktree` 内工作(不另开 worktree,也不进主仓)。
 
 ---
 
@@ -198,6 +199,7 @@ prompt 含完整派发包:
   milestone_id: <unit_id>-M<N>
   milestone_dir: M<N>-<title>
   worktree_dir: <repo_root>/.worktrees/<milestone_id>
+  unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>
   branch: milestone/<milestone_id>
   mode: full | lite
 
@@ -214,9 +216,9 @@ lite 模式额外提示 worker:"完成代码后回填 docs/changes/<unit_dir>/fi
 
 ### §3.1.1 回应开工报信
 
-worker / reviewer 启动后会先给你报一个信(见 worker §2.5 / reviewer §2.6):
+worker / reviewer **读完上下文 / 跑完基线后**会先给你报一个信(见 worker §2.5 / reviewer §2.6)。如果第一信是 "收到,正在读 design.md" 之类的未完成态,说明它没遵守时序——回一句 "请按 §2.5 在读完上下文后再报信" 让它退回去。
 
-- **报 "开始干了"**:确认收到,不打扰。
+- **报 "已读懂,范围 = X,开始实施"**:确认收到,不打扰。
 - **报澄清问题**:你是这个 unit 的技术领导者,手里有全局——首文档的用户意图、design.md 的整体拆分、milestone 之间的依赖、reviewer 会怎么验。**用这个全局视角思考,给出最合理的答案**,而不是机械摘抄某段原文。歧义往往恰恰是单看一段文档看不出来的,需要你把 unit 的意图串起来判断。
 
   边界不是 "只能引用原文",而是:**别新造一个 design 决策、别去改 design.md**。区分:
@@ -248,7 +250,7 @@ cat docs/changes/<unit>/<mid>/progress.md
 | > 10 分钟无产物 + 多次 ping 无回应 | 判定死亡,走 §3.4 处理 |
 | worker 主动回报 HANDOFF | 走 §3.4 换人续跑 |
 | worker 主动回报 [Design 修订] | 走 §6.4 处理 |
-| worker / reviewer 回报开工报信(开始干了 / 澄清问题) | 走 §3.1.1 回应 |
+| worker / reviewer 报上下文就绪信(已读懂 / 澄清问题) | 走 §3.1.1 回应 |
 
 ### §3.3 验收 worker 完成
 
@@ -311,6 +313,7 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   unit_id: <unit_id>
   unit_dir: <unit_dir>
   branch: unit/<unit_id>
+  unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>
   review_round: <N>
   prior_acceptance_paths: [docs/changes/<unit_dir>/<acceptance|regression>.md]   # 第 2 轮起
   mode: full
@@ -337,11 +340,11 @@ reviewer 回报后,基于 `highest_required_action` 决定下一步,见 §6。�
 
 ```bash
 # 派发前记下基线
-BEFORE=$(git -C <repo> rev-parse "unit/<unit_id>")
+BEFORE=$(git -C "$unit_worktree" rev-parse HEAD)
 
 # 回报后比对
-AFTER=$(git -C <repo> rev-parse "unit/<unit_id>")
-NEW_COMMITS=$(git -C <repo> log --oneline "$BEFORE..$AFTER")
+AFTER=$(git -C "$unit_worktree" rev-parse HEAD)
+NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 ```
 
 预期:`NEW_COMMITS` 只有 reviewer 的报告 commit(message scope = `docs(<unit_id>): round <N> acceptance — verdict ...`,详见 AGENTS.md commit message 格式)。出现任何其它 commit → 走 §6.6 处置。
@@ -463,11 +466,10 @@ Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 §5.2 校验发现 reviewer 在 unit 分支上多写了非报告 commit(改了源码/测试/配置)时:
 
 1. **立即作废本轮 verdict**——不管它是 pass 还是 fail。reviewer 既写又验,证据链不可信。
-2. **revert 越界 commit**:
+2. **revert 越界 commit**(在 unit worktree 内,不进主仓):
    ```bash
-   git checkout "unit/<unit_id>"
-   git reset --hard <BEFORE>          # §5.2 记下的派发前基线
-   git push --force-with-lease origin "unit/<unit_id>"
+   git -C "$unit_worktree" reset --hard <BEFORE>          # §5.2 记下的派发前基线
+   git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
    ```
    保留 reviewer 写的 `acceptance.md` / `regression.md`(那是它的合法产物)——但只保留报告内容,不保留代码改动。如果报告和代码在同一 commit 里,先 `git revert` 或手动捡出报告内容重提一次。
 3. **把 reviewer 报告里识别出的 issues + 它顺手写的"修法"当成线索**(不是当成实现),按 §6.2 重新打包成 fix milestone 派**独立 worker** 实施。worker 不能复用 reviewer 越界写出来的代码——必须重新审视、重新实施、重新写测试。
@@ -486,11 +488,10 @@ unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acce
 ### §7.1 sync gate 重跑
 
 ```bash
-git fetch origin
-git checkout "unit/<unit_id>"
-git rebase origin/main                               # 期间 main 可能被别人推进了
+git -C "$unit_worktree" fetch origin
+git -C "$unit_worktree" rebase origin/main           # 期间 main 可能被别人推进了
 # 冲突 → 暂停,通知人介入(不强行解)
-git push --force-with-lease origin "unit/<unit_id>"
+git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
 ```
 
 ### §7.2 组装 PR body
@@ -577,6 +578,12 @@ Unit <unit-id> 实施完成,PR 已提交:<url>
 - 本地 unit 分支可以下次 orchestrator 启动时由 sync gate 顺手清
 
 orchestrator 退出。
+```
+
+退出前清理 unit worktree(merge 后由人在主仓侧或下次 sync gate 处理本地 unit 分支):
+
+```bash
+git worktree remove "$unit_worktree"
 ```
 
 orchestrator **不等 CI、不等 merge**,退出。等 merge 是浪费上下文。

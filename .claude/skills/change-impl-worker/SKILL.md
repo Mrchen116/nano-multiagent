@@ -66,6 +66,7 @@ unit_dir: <type>-<id>[-<short-desc>]         # 例: feat-104-chat-mention-picker
 milestone_id: <unit_id>-M<N>                 # 例: feat-104-M1
 milestone_dir: M<N>-<title>                  # 例: M1-domain-model(在 unit_dir 下)
 worktree_dir: <repo_root>/.worktrees/<milestone_id>
+unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>   # 集成 merge 在此进行,不进主仓
 branch: milestone/<milestone_id>
 mode: full | lite                            # lite 时还需写 fix.md 修复/验证两段
 ```
@@ -128,11 +129,11 @@ repo_root=$(git rev-parse --show-toplevel)
 
 基线必须全绿。已经有失败 → **先停下报告**,让 orchestrator / 用户决定是不是先修主线再开干。不要在红色基线上加新测试,会被淹没。
 
-### §2.5 开工报信
+### §2.5 读完上下文后报信(不准提前发)
 
-读完上下文、基线绿之后,**开工前先给 orchestrator 报一个信**——无论有没有疑问:
+**必须在 §2.3 / §2.4 完成之后**才发这个信。在此之前发(例如刚收到派发就回 "开工,正在读 design.md")视为违规,orchestrator 会要求你回到 §2.3 重来。
 
-- **没疑问**:一句话报 "已读懂 M<N>,范围 = <design.md 范围列摘要>,开始实施"。让 orchestrator 知道你正常启动了。
+- **没疑问**:一句话报 "已读懂 M<N>,范围 = <design.md 范围列摘要>,影响文件 = <X>,开始实施"。⚠️ 反例:`"开工,正在读 design.md"` / `"收到,即将开始"` —— 未完成态,不算报信。
 - **有疑问**:把对 milestone **意图 / 范围 / 退出标准**的不确定列出来(只问意图,不问 "怎么写"——实现是你的活),`SendMessage` 给 orchestrator。最多来回 **3 轮**;3 轮内没问清楚,就按当前最合理的理解开工,在 progress.md 记一句 "澄清未完全收敛,按 <X> 理解推进"。
 
 澄清问答都记进 progress.md——换人续跑的 worker 要看得到。
@@ -365,9 +366,9 @@ git rebase "origin/unit/<unit-id>"           # 冲突处理见 §7.1
 # 取 unit 锁(unit 内多 worker 互斥)
 mkdir "$repo_root/data/locks/unit-<unit-id>.lock" || retry_with_backoff
 
-# Merge(worktree 不能 checkout 别的分支,回主仓)
-cd "$repo_root"
-git checkout "unit/<unit-id>" && git pull --ff-only origin "unit/<unit-id>"
+# Merge 在 unit worktree 内做,主仓 HEAD 不动(orchestrator §0.15)
+cd "$unit_worktree_dir"
+git pull --ff-only origin "unit/<unit-id>"
 git merge --no-ff "$branch"
 git push origin "unit/<unit-id>"
 

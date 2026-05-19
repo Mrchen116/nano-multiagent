@@ -40,7 +40,7 @@ describe("agent edit page", () => {
       skills: ["tdd-execution-worker", "playwright"],
       tool_allowlist: ["bash", "read_file"],
       group_reply_policy: "MENTION",
-      default_model: "codex_oauth:gpt-5.4",
+      default_model: "codex_oauth:gpt-5.5",
       workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
       workspace_is_default: true,
       profile_version: 12,
@@ -85,8 +85,8 @@ describe("agent edit page", () => {
               { name: "read_file", description: "Read files" },
               { name: "task", description: "Dispatch a subtask" }
             ],
-            model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
-            platform_default_model: "codex_oauth:gpt-5.4",
+            model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+            platform_default_model: "codex_oauth:gpt-5.5",
             default_system_prompt: "You are the personal_assistant default template."
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -121,7 +121,7 @@ describe("agent edit page", () => {
         });
       }
 
-      if (url === "/im/v1/agents/agent-core-1/config") {
+      if (url === "/im/v1/agents/agent-core-1/config?source=mirror") {
         return new Response(JSON.stringify(currentConfig), {
           status: 200,
           headers: { "Content-Type": "application/json" }
@@ -182,6 +182,10 @@ describe("agent edit page", () => {
     });
 
     await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => url === "/im/v1/agents/agent-core-1/config?source=mirror")).toBe(true);
+    });
+
+    await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/im/v1/agents/agent-core-1/config",
         expect.objectContaining({
@@ -194,12 +198,103 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "plan"],
             tool_allowlist: ["read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.4"
+            default_model: "codex_oauth:gpt-5.5"
           })
         })
       );
     });
   }, 10_000);
+
+  it("keeps the settings form usable when live capabilities are unavailable", async () => {
+    const user = userEvent.setup();
+
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url === "/im/v1/nodes") {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (url === "/im/v1/agents") {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (url === "/im/v1/agents/agent-core-1/capabilities") {
+        return new Response(JSON.stringify({ detail: "target_node_id is not connected" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      if (url === "/im/v1/agents/agent-core-1/config" && init?.method === "PATCH") {
+        const payload = JSON.parse(String(init.body)) as { display_name: string; default_model: string | null };
+        return new Response(
+          JSON.stringify({
+            agent_id: "agent-core-1",
+            owner_id: "owner-1",
+            display_name: payload.display_name,
+            description: "",
+            system_prompt: "You are the planning core for IM and SDK tasks.",
+            skills: [],
+            tool_allowlist: [],
+            group_reply_policy: "MENTION",
+            default_model: payload.default_model,
+            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
+            workspace_is_default: true,
+            profile_version: 13,
+            node_id: "node-1",
+            updated_at: "2026-03-13T10:01:00Z"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (url === "/im/v1/agents/agent-core-1/config?source=mirror") {
+        return new Response(
+          JSON.stringify({
+            agent_id: "agent-core-1",
+            owner_id: "owner-1",
+            display_name: "Core Planner",
+            description: "",
+            system_prompt: "You are the planning core for IM and SDK tasks.",
+            skills: [],
+            tool_allowlist: [],
+            group_reply_policy: "MENTION",
+            default_model: "codex_oauth:gpt-5.5",
+            workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
+            workspace_is_default: true,
+            profile_version: 12,
+            node_id: "node-1",
+            updated_at: "2026-03-13T10:00:00Z"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      return new Response(null, { status: 404 });
+    });
+
+    renderRouter({
+      routes: appRoutes,
+      initialEntries: ["/settings/agents/agent-core-1"]
+    });
+
+    const input = await screen.findByLabelText("Display Name");
+    expect(screen.queryByText(/target_node_id is not connected/i)).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "Core Planner X" } });
+    await user.click(screen.getByRole("button", { name: /^Save Agent$/ }));
+
+    expect((await screen.findAllByText("✓ Saved")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "Core Planner X" })).toBeInTheDocument();
+    expect((screen.getByLabelText("Profile Version") as HTMLInputElement).value).toBe("v13");
+  });
 
   it("blocks save when required fields are empty", async () => {
     const user = userEvent.setup();
@@ -226,8 +321,8 @@ describe("agent edit page", () => {
           JSON.stringify({
             skills: [],
             tools: [],
-            model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
-            platform_default_model: "codex_oauth:gpt-5.4"
+            model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+            platform_default_model: "codex_oauth:gpt-5.5"
           }),
           {
             status: 200,
@@ -236,7 +331,7 @@ describe("agent edit page", () => {
         );
       }
 
-      if (url === "/im/v1/agents/agent-core-1/config") {
+      if (url === "/im/v1/agents/agent-core-1/config?source=mirror") {
         return new Response(
           JSON.stringify({
             agent_id: "agent-core-1",
@@ -247,7 +342,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.4",
+            default_model: "codex_oauth:gpt-5.5",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             profile_version: 12,
@@ -295,8 +390,8 @@ describe("agent edit page", () => {
           JSON.stringify({
             skills: [],
             tools: [],
-            model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
-            platform_default_model: "codex_oauth:gpt-5.4"
+            model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+            platform_default_model: "codex_oauth:gpt-5.5"
           }),
           {
             status: 200,
@@ -312,7 +407,7 @@ describe("agent edit page", () => {
         });
       }
 
-      if (url === "/im/v1/agents/agent-core-1/config") {
+      if (url === "/im/v1/agents/agent-core-1/config?source=mirror") {
         return new Response(
           JSON.stringify({
             agent_id: "agent-core-1",
@@ -323,7 +418,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.4",
+            default_model: "codex_oauth:gpt-5.5",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             profile_version: 12,

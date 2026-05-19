@@ -18,7 +18,7 @@ def test_factory_openai_compat_generation_wires_translator_and_header() -> None:
             json={
                 "id": "chatcmpl_test",
                 "object": "chat.completion",
-                "model": "codex_oauth:gpt-5.4",
+                "model": "codex_oauth:gpt-5.5",
                 "choices": [
                     {
                         "index": 0,
@@ -32,7 +32,7 @@ def test_factory_openai_compat_generation_wires_translator_and_header() -> None:
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="openai_compat",
-            model="codex_oauth:gpt-5.4",
+            model="codex_oauth:gpt-5.5",
             base_url="http://127.0.0.1:4000",
         ),
         transport=httpx.MockTransport(handler),
@@ -41,7 +41,7 @@ def test_factory_openai_compat_generation_wires_translator_and_header() -> None:
     result = client.generate(
         LLMGenerateRequest(
             session_id="sess_integration",
-            model="codex_oauth:gpt-5.4",
+            model="codex_oauth:gpt-5.5",
             messages=(LLMMessage(role="user", content="reply with one word: pong"),),
         )
     )
@@ -49,4 +49,4 @@ def test_factory_openai_compat_generation_wires_translator_and_header() -> None:
     assert result.message.content == "pong"
     assert observed["path"] == "/v1/chat/completions"
     assert observed["headers"]["x-session-id"] == "sess_integration"
-    assert '"model":"codex_oauth:gpt-5.4"' in observed["body"]
+    assert '"model":"codex_oauth:gpt-5.5"' in observed["body"]

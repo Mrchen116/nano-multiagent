@@ -21,9 +21,9 @@ class ModelMetadata:
 
 _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
     "openai_compat": {
-        "codex_oauth:gpt-5.4": ModelMetadata(
+        "codex_oauth:gpt-5.5": ModelMetadata(
             provider="openai_compat",
-            model="codex_oauth:gpt-5.4",
+            model="codex_oauth:gpt-5.5",
             default_base_url="http://127.0.0.1:4000",
             supports_text=True,
             supports_image=False,
@@ -32,9 +32,9 @@ _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
         ),
     },
     "anthropic": {
-        "moonshotAnthropic:kimi-k2.5": ModelMetadata(
+        "kimiCoding:K2.6": ModelMetadata(
             provider="anthropic",
-            model="moonshotAnthropic:kimi-k2.5",
+            model="kimiCoding:K2.6",
             default_base_url="http://127.0.0.1:4000",
             supports_text=True,
             supports_image=False,
@@ -54,8 +54,8 @@ _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
 }
 
 _PROVIDER_DEFAULT_MODEL: dict[str, str] = {
-    "openai_compat": "codex_oauth:gpt-5.4",
-    "anthropic": "volcanoArk:doubao-seed-2-0-code-preview-260215",
+    "openai_compat": "codex_oauth:gpt-5.5",
+    "anthropic": "kimiCoding:K2.6",
 }
 
 

@@ -59,7 +59,7 @@ def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
             title="Agent A",
             skills=("plan", "playwright"),
             tool_allowlist=("read", "bash"),
-            default_model="codex_oauth:gpt-5.4",
+            default_model="codex_oauth:gpt-5.5",
         ),
     )
 

@@ -75,7 +75,7 @@ def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.Mo
 
     async def _fake_node_capabilities(self, *, target_node_id: str, timeout_seconds: float = 15.0):  # noqa: ARG002
         return {
-            "models": ["codex_oauth:gpt-5.4"],
+            "models": ["codex_oauth:gpt-5.5"],
             "skills": ["plan"],
             "tools": ["read"],
             "platform_default_model": None,
@@ -97,7 +97,7 @@ def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.Mo
         "node_id": "node-1",
         "skills": [{"name": "plan", "description": ""}],
         "tools": [{"name": "read", "description": ""}],
-        "models": ["codex_oauth:gpt-5.4"],
+        "models": ["codex_oauth:gpt-5.5"],
         "platform_default_model": None,
         "default_system_prompt": "",
     }

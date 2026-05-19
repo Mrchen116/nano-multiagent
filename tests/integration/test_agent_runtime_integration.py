@@ -84,8 +84,7 @@ async def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -
 
     def handler(request: httpx.Request) -> httpx.Response:
         observed_bodies.append(json.loads(request.read().decode("utf-8")))
-        return _sse_response("codex_oauth:gpt-5.4", "ack")
-
+        return _sse_response("codex_oauth:gpt-5.5", "ack")
     service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     manager = service.manager
     session = service.create_session(workspace_root=tmp_path)
@@ -93,12 +92,12 @@ async def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="openai_compat",
-            model="codex_oauth:gpt-5.4",
+            model="codex_oauth:gpt-5.5",
             base_url="http://127.0.0.1:4000",
         ),
         transport=httpx.MockTransport(handler),
     )
-    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="codex_oauth:gpt-5.4")
+    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="codex_oauth:gpt-5.5")
 
     await runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
     await runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
@@ -123,8 +122,7 @@ async def test_runtime_keeps_same_prompt_timestamp_within_one_session(
 
     def handler(request: httpx.Request) -> httpx.Response:
         observed_bodies.append(json.loads(request.read().decode("utf-8")))
-        return _sse_response("codex_oauth:gpt-5.4", "ack")
-
+        return _sse_response("codex_oauth:gpt-5.5", "ack")
     service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     manager = service.manager
     session = service.create_session(workspace_root=tmp_path)
@@ -132,7 +130,7 @@ async def test_runtime_keeps_same_prompt_timestamp_within_one_session(
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="openai_compat",
-            model="codex_oauth:gpt-5.4",
+            model="codex_oauth:gpt-5.5",
             base_url="http://127.0.0.1:4000",
         ),
         transport=httpx.MockTransport(handler),
@@ -141,7 +139,7 @@ async def test_runtime_keeps_same_prompt_timestamp_within_one_session(
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=client,
-        model="codex_oauth:gpt-5.4",
+        model="codex_oauth:gpt-5.5",
         system_prompt=CODING_SYSTEM_PROMPT,
     )
 
@@ -163,8 +161,7 @@ async def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
 
     def handler(request: httpx.Request) -> httpx.Response:
         observed_bodies.append(json.loads(request.read().decode("utf-8")))
-        return _sse_response("codex_oauth:gpt-5.4", "ack")
-
+        return _sse_response("codex_oauth:gpt-5.5", "ack")
     service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     manager = service.manager
     first_session = service.create_session(workspace_root=tmp_path)
@@ -173,7 +170,7 @@ async def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="openai_compat",
-            model="codex_oauth:gpt-5.4",
+            model="codex_oauth:gpt-5.5",
             base_url="http://127.0.0.1:4000",
         ),
         transport=httpx.MockTransport(handler),
@@ -182,7 +179,7 @@ async def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=client,
-        model="codex_oauth:gpt-5.4",
+        model="codex_oauth:gpt-5.5",
         system_prompt=CODING_SYSTEM_PROMPT,
     )
 
@@ -204,7 +201,6 @@ async def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path
     def handler(request: httpx.Request) -> httpx.Response:
         observed_bodies.append(json.loads(request.read().decode("utf-8")))
         return _anthropic_sse_response("ack")
-
     service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     manager = service.manager
     session = service.create_session(workspace_root=tmp_path)
@@ -212,12 +208,12 @@ async def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="anthropic",
-            model="moonshotAnthropic:kimi-k2.5",
+            model="kimiCoding:K2.6",
             base_url="http://127.0.0.1:4000",
         ),
         transport=httpx.MockTransport(handler),
     )
-    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="moonshotAnthropic:kimi-k2.5")
+    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="kimiCoding:K2.6")
 
     await runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
     await runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)

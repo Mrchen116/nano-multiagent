@@ -365,6 +365,13 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
                 (managed_workspace_root(str(row["agent_id"])), str(row["agent_id"])),
             )
 
+    # bugfix-362: soft-stale columns for ghost-agent reconcile
+    agent_column_names = {row["name"] for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()}
+    if agent_column_names and "is_stale" not in agent_column_names:
+        connection.execute("ALTER TABLE agent_profiles ADD COLUMN is_stale INTEGER NOT NULL DEFAULT 0")
+    if agent_column_names and "staled_at" not in agent_column_names:
+        connection.execute("ALTER TABLE agent_profiles ADD COLUMN staled_at TEXT")
+
     node_rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
     node_column_names = {row["name"] for row in node_rows}
     if node_rows and "owner_id" not in node_column_names:
@@ -577,7 +584,7 @@ def _reconcile_conversation_summary_previews(connection: sqlite3.Connection) -> 
 
 DEFAULT_SETTINGS_POLICIES = {
     "singleton_key": "default",
-    "default_model": "codex_oauth:gpt-5.4",
+    "default_model": "codex_oauth:gpt-5.5",
     "max_turn_per_run": 14,
     "max_attachment_size_mb": 15,
     "retention_days": 30,

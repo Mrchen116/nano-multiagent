@@ -264,7 +264,7 @@ export async function listAgentSummaries() {
 }
 
 export async function getAgentConfig(agentId: string) {
-  return requestJson<AgentConfig>(`/im/v1/agents/${agentId}/config`);
+  return requestJson<AgentConfig>(`/im/v1/agents/${agentId}/config?source=mirror`);
 }
 
 export async function getAgentCapabilities(agentId: string) {
@@ -287,7 +287,20 @@ export async function createNodeAgent(nodeId: string, next: NodeAgentCreateReque
 }
 
 export async function getAgentDetailState(agentId: string): Promise<AgentDetailState> {
-  const [config, capabilities, nodes] = await Promise.all([getAgentConfig(agentId), getAgentCapabilities(agentId), listNodes()]);
+  const config = await getAgentConfig(agentId);
+  const [capabilitiesResult, nodesResult] = await Promise.allSettled([getAgentCapabilities(agentId), listNodes()]);
+  const nodes = nodesResult.status === "fulfilled" ? nodesResult.value : [];
+  const fallbackNodeId = config.node_id ?? "";
+  const fallbackCapabilities: AgentCapabilitiesWire = {
+    agent_id: config.agent_id,
+    node_id: fallbackNodeId,
+    models: config.default_model ? [config.default_model] : [],
+    skills: config.skills,
+    tools: config.tool_allowlist,
+    platform_default_model: null,
+    default_system_prompt: ""
+  };
+  const capabilities = capabilitiesResult.status === "fulfilled" ? capabilitiesResult.value : fallbackCapabilities;
   const owningNodeId = config.node_id ?? capabilities.node_id;
   const owningNode = owningNodeId ? nodes.find((node) => node.node_id === owningNodeId) ?? null : null;
   const enrichedConfig: AgentConfig = {
