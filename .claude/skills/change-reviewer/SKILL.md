@@ -36,12 +36,13 @@ orchestrator 派发的 prompt 含:
 unit_id: <type>-<id>                          # 例: feat-104
 unit_dir: <type>-<id>[-<short-desc>]          # 例: feat-104-chat-mention-picker
 branch: unit/<unit_id>                        # 验收对象——unit 集成分支
+unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>   # 你的工作目录,不进主仓
 review_round: 1 | 2 | 3 | ...                 # 第几轮验收
 prior_acceptance_paths: [docs/changes/<unit_dir>/acceptance.md]   # 第 2 轮起,之前的报告
 mode: full | lite                             # lite 不应该派 reviewer,详见 §1.1
 ```
 
-reviewer 不需要 worktree——直接在主仓 checkout `unit/<unit_id>` 即可。
+所有 git 与文件操作都在 `unit_worktree_dir` 内进行——**严禁**在主仓 `git checkout unit/<id>`(orchestrator §0.15),多 orchestrator / 用户并发时主仓 HEAD 会被互相踩翻。
 
 `review_round = 1` 时**严禁**给 `revise-design`(三道闸第一道)。
 
@@ -54,8 +55,8 @@ orchestrator 对两种 unit 不该派 reviewer(判据见 orchestrator §5):**bug
 ## §2 启动:checkout unit 分支,读上下文
 
 ```bash
+cd "$unit_worktree_dir"
 git fetch origin
-git checkout "unit/<unit_id>"
 git pull --ff-only origin "unit/<unit_id>"
 ```
 
@@ -352,8 +353,7 @@ acceptance / regression 模板都有"上层文档同步"段。逐项核对:
 ### §8.1 写完报告 + commit
 
 ```bash
-cd "$(git rev-parse --show-toplevel)"
-git checkout "unit/<unit_id>"
+cd "$unit_worktree_dir"
 git add docs/changes/<unit_dir>/<acceptance|regression>.md
 git commit -m "docs(<unit_id>): round <N> acceptance — verdict <pass|fail|pass-with-issues>"
 git push origin "unit/<unit_id>"

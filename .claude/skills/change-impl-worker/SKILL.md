@@ -66,6 +66,7 @@ unit_dir: <type>-<id>[-<short-desc>]         # 例: feat-104-chat-mention-picker
 milestone_id: <unit_id>-M<N>                 # 例: feat-104-M1
 milestone_dir: M<N>-<title>                  # 例: M1-domain-model(在 unit_dir 下)
 worktree_dir: <repo_root>/.worktrees/<milestone_id>
+unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>   # 集成 merge 在此进行,不进主仓
 branch: milestone/<milestone_id>
 mode: full | lite                            # lite 时还需写 fix.md 修复/验证两段
 ```
@@ -365,9 +366,9 @@ git rebase "origin/unit/<unit-id>"           # 冲突处理见 §7.1
 # 取 unit 锁(unit 内多 worker 互斥)
 mkdir "$repo_root/data/locks/unit-<unit-id>.lock" || retry_with_backoff
 
-# Merge(worktree 不能 checkout 别的分支,回主仓)
-cd "$repo_root"
-git checkout "unit/<unit-id>" && git pull --ff-only origin "unit/<unit-id>"
+# Merge 在 unit worktree 内做,主仓 HEAD 不动(orchestrator §0.15)
+cd "$unit_worktree_dir"
+git pull --ff-only origin "unit/<unit-id>"
 git merge --no-ff "$branch"
 git push origin "unit/<unit-id>"
 
