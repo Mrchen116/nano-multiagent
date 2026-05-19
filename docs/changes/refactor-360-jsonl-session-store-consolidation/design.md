@@ -7,6 +7,14 @@
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-19 (M4 实施期, orchestrator 用户授权扩范围): M4 worker 在迁移 e2e 测试到真实路径时发现 4 处产品 bug,同属 mock-removed-exposes-real-bug 范畴(motivation #2 的最深层暴露):
+  1. `src/agent/core/agent/runtime.py` async 路径补完 overflow recovery — M3 只补了 sync,async 漏掉,e2e 跑不通就是因为这个
+  2. `src/agent/core/background_tasks/registry.py::complete()` + `src/agent/platform/tools/builtins/bash.py` 新增 `notified` 参数 — 修 bash foreground 完成时误发 background-task notification 导致 LLM 陷入循环
+  3. `src/agent/platform/background_tasks/wiring.py::_deliver_notification` 捕获 ValueError — subagent session 不在 runs_registry 时静默跳过,防 `completed_event.set()` 阻断
+  4. `src/agent/core/session/manager.py::list_sessions` + `src/agent/core/session/jsonl_store.py::list_session_ids_with_parents()` 新增 + `src/agent/platform/tools/builtins/agent.py::_create_subagent_session` 将 `workspace_root` 写 subagent session metadata — subagent session 的 parent-aware loading 缺失(F-330 era 子 session 设计漏洞)
+  
+  按"真正解决问题"原则:这 4 处都是 e2e 跑真路径才暴露的产品 bug,留着就是给生产用户的雷,顺手收尾。worker 在 M4 progress.md 写清扩范围证据(触发/判断/改动/测试覆盖/风险)。
+
 - 2026-05-19 (M3 实施期, orchestrator 用户授权扩范围): M3 worker 在迁移 compaction/runtime integration 测试到真实路径时发现两处产品 dead code/half-implementation,同属 F-330 半截 replace 雷区:
   1. `src/agent/core/agent/runtime.py:169` docstring 承诺 "ModelError: If provider call fails and overflow recovery cannot recover",但实际是 bare `raise`。worker 实现了 ~60 行 overflow recovery 逻辑(catch ModelError → compact OVERFLOW → 重跑一次)。
   2. `CompactionSettings.summary_model: str | None` 字段(`src/agent/core/agent/compaction/types.py:25`)已存在但全代码 0 引用(dead field)。worker 在 `AgentRuntime.__init__` 里接到 `CompactionSummarizer` 的 fork,允许 summarizer 用独立模型。

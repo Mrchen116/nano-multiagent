@@ -47,6 +47,8 @@
 
 ## 范围扩张记录
 
+- 2026-05-19 (M4 实施期, 用户授权): 迁移 e2e 测试时发现 4 处产品 bug,都是 mock 掀掉之后暴露的真路径问题(async overflow recovery 漏 / bash foreground 通知误发 / subagent session parent-aware loading 缺失等),扩入范围一并修。详见 design.md Changelog。
+
 - 2026-05-19 (M3 实施期, 用户授权): 迁移 compaction/runtime integration 测试时发现 F-330 还留下两处同质半成品(docstring 承诺 / dead config field),与本 unit 同源,扩入范围一并修。详见 design.md Changelog。
 
 ## 现状痛点
