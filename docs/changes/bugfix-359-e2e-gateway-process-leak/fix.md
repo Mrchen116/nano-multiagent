@@ -66,8 +66,31 @@ czj  67811 ... personal_assistant.main --config /private/var/folders/.../pytest-
 
 ## 修复
 
-<!-- 实施后补 -->
+R1 — killpg 化 (`fix(bugfix-359/M1/R1)` 7b1b3758):
+
+- 抽 `src/personal_assistant/main.py::_kill_process_tree(pid, sig)` —— 走 `os.getpgid` + `os.killpg`,pgid 拿不到时静默吞掉(单元测试 fake ProcessLike 路径不受影响)
+- `_stop_background_process` (startup-failure 清理) 在 `process.terminate()` 后补一发 `_kill_process_tree(pid, SIGTERM)`,SIGKILL fallback 同理
+- `stop_gateway` 两条路径(PID-file-only / state-file)在 `os.kill` 后各补一发 `_kill_process_tree`,这样 `stop` 子命令也能带走 kernel uvicorn 子进程
+- `tests/e2e/test_personal_assistant_main_e2e.py::_terminate_background_pid` 改走 `os.killpg(pgid, SIG)`,test 路径不再漏 kernel
+
+R2 — conftest 兜底 (`fix(bugfix-359/M1/R2)` 71e60ceb):
+
+- 新增 `tests/e2e/conftest.py`:autouse session fixture,teardown 时 `ps -eo pid=,command=` 扫一遍,cmdline 命中 `pytest-of-<user>/pytest-NN/` + `personal_assistant.main`/`kernel_app` 关键词的进程 SIGKILL(先 killpg,失败回退 kill)
+- 每个被强杀的进程输出 `WARN: pytest finalizer killed leaked process: pid=<pid> cmdline=<...>` 到 stderr。预期修完后 0 告警,有告警就是测试本身回收路径有新 bug
+- 新增 `tests/unit/test_e2e_conftest_finalizer.py`:7 个直接对函数的单测(扫描正/反例 + 排除项 + 真杀进程 + WARN stderr 输出)
+- 顺手修了 `_parse_started_pid` 的预先 drift(`STARTED pid=` → 现在 runtime 打 `Gateway started  (pid=N)`),否则 e2e 大半挂在这条,无法验证本 unit
+
+`os.setsid` / `start_new_session=True` 已经在 `_spawn_background_gateway_process` (line 2204) 在位,无需新加。
 
 ## 验证
 
-<!-- 实施后补 -->
+| 检查 | 命令 | 结果 |
+|---|---|---|
+| 主仓单元测试不回归 | `pytest tests/unit/personal_assistant/test_main.py` | 55/55 PASS |
+| R2 单元测试 | `pytest tests/unit/test_e2e_conftest_finalizer.py -v` | 7/7 PASS |
+| e2e happy path | `pytest tests/e2e/test_personal_assistant_main_e2e.py` (扣 2 个预先 API drift 测试) | 11/11 PASS |
+| ps 扫描兜底 | 跑完 e2e 后 `ps -eo pid,command \| grep pytest-of-czj/` | 0 残留 |
+
+异常路径(Q1 要求):
+- 单元测试 `test_kill_leaked_processes_actually_kills` 显式模拟"测试漏了进程,session finalizer 兜底"的场景,验证真的能杀掉 + 输出 WARN(等价于异常路径的 ps 后置检查)
+- 跑 e2e 期间观察:之前 `test_main_default_command_returns_after_background_start` 在 `_parse_started_pid` 失败时丢下了 pid=29552 的 Gateway;conftest finalizer 在 session teardown 时把它清理掉了 — `ps -p 29552` 已不存在,验证了真实异常路径的兜底有效
