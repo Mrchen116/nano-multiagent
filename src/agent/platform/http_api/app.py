@@ -23,7 +23,7 @@ from agent.platform.http_api.sse import EventStreamHub
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.permissions.broker import PermissionBroker
 from agent.platform.background_tasks.wiring import wire_background_tasks
-from agent.platform.persistence.session.base import SessionStore
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.loader import build_tool_registry
 from agent.platform.tools.registry import ToolRegistry
@@ -43,7 +43,7 @@ from .routes.tool import router as tool_router
 
 def create_app(
     *,
-    session_store: SessionStore | None = None,
+    session_store: JsonlSessionStore | None = None,
     runtime: AgentRuntime | None = None,
     tool_registry: ToolRegistry | None = None,
     hook_registry: HookRegistry | None = None,
