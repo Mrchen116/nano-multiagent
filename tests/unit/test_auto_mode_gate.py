@@ -263,6 +263,12 @@ class TestSafeToolAllowlist:
     def test_send_message_safe(self):
         assert is_safe_tool("send_message", AutoModeConfig()) is True
 
+    def test_memory_safe(self):
+        # bugfix-368: memory tool must fast-path allow in auto mode.
+        # Without this entry, PA self-improvement loops on `tool blocked by hook`
+        # because the classifier judges memory (a write/persistence tool) as deny.
+        assert is_safe_tool("memory", AutoModeConfig()) is True
+
     def test_bash_not_safe(self):
         assert is_safe_tool("bash", AutoModeConfig()) is False
 
