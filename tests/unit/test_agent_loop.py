@@ -46,9 +46,13 @@ class FakeLLMClient:
 
 
 class FakeToolRegistry:
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, hook_runner=None) -> None:  # noqa: ANN001
         self.calls: list[tuple[str, dict[str, object], str | None]] = []
         self._fail = fail
+        # bugfix-367: tool_call observe hook 现在由 registry.execute 触发(以前由
+        # loop.py 触发,会在 auto_mode_gate park 前就把 tool_start SSE 发出去)。
+        # Fake registry 同步该责任,使涉及 hook 的测试反映新链路。
+        self._hook_runner = hook_runner
 
     def list_specs(self) -> tuple[ToolSpec, ...]:
         return (
@@ -74,6 +78,19 @@ class FakeToolRegistry:
         tool_call_id = None
         if hook_context is not None:
             tool_call_id = hook_context.metadata.get("tool_call_id")
+        if self._hook_runner is not None and hook_context is not None:
+            await self._hook_runner.dispatch_intercept(
+                "tool_call",
+                {
+                    "name": name,
+                    "args": dict(args),
+                    "arguments": dict(args),
+                    "call_id": tool_call_id,
+                    "block": False,
+                    "reason": None,
+                },
+                hook_context,
+            )
         self.calls.append((name, dict(args), tool_call_id))
         if self._fail:
             raise RuntimeError("tool boom")
@@ -336,12 +353,13 @@ async def test_loop_propagates_session_event_publisher_to_tool_hook_context() ->
         )
 
     hooks.on("tool_call", on_tool_call)
+    hook_runner = HookRunner(registry=hooks)
     loop = AgentLoop(
         llm_client=client,
         model="model-x",
         policies=AgentPolicies(max_turns=3),
-        tool_registry=FakeToolRegistry(),
-        hook_runner=HookRunner(registry=hooks),
+        tool_registry=FakeToolRegistry(hook_runner=hook_runner),
+        hook_runner=hook_runner,
     )
 
     result = await _run_loop(

@@ -299,7 +299,11 @@ class AgentLoop:
                                 )
                                 if executor is not None:
                                     executor.add_tool(tc, hook_context=tool_hook_ctx)
-                                await self._dispatch_tool_call_hook(tc, active_hook_ctx, run_id)
+                                # bugfix-367: observe "tool_call" 不再由 loop 触发。realtime_stream
+                                # 的 on_tool_call 现在通过 registry.execute 的 intercept dispatch
+                                # 在 auto_mode_gate 通过之后才触发；loop 在 gate park 时就发会
+                                # 让前端误显示 "运行中"。gate 拒绝时整条 dispatch 链 break，
+                                # tool_start 也不发，前端只在 tool_result 阶段渲染 ✕。
 
                             # Yield completed results non-blocking
                             if executor is not None:
@@ -433,35 +437,6 @@ class AgentLoop:
                 run_id=run_id,
             ),
             hook_ctx,
-        )
-
-    async def _dispatch_tool_call_hook(
-        self,
-        tool_call: ToolCall,
-        hook_ctx: HookContext,
-        run_id: str | None,
-    ) -> None:
-        tool_hook_ctx = HookContext(
-            session_id=hook_ctx.session_id,
-            turn_id=hook_ctx.turn_id,
-            repo_root=hook_ctx.repo_root,
-            metadata={**dict(hook_ctx.metadata), "tool_call_id": tool_call.call_id},
-            model_caller=hook_ctx.model_caller,
-            session_event_publisher=hook_ctx.session_event_publisher,
-        )
-        await self._dispatch_observe_async(
-            "tool_call",
-            _with_optional_run_id(
-                {
-                    "session_id": hook_ctx.session_id,
-                    "turn_id": hook_ctx.turn_id,
-                    "call_id": tool_call.call_id,
-                    "name": tool_call.name,
-                    "arguments": dict(tool_call.arguments),
-                },
-                run_id=run_id,
-            ),
-            tool_hook_ctx,
         )
 
     async def _dispatch_tool_result_hook(
