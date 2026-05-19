@@ -11,7 +11,7 @@ from agent.core.errors import ModelError
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 from agent.core.types import TokenUsage
 
-_DEFAULT_MAX_TOKENS = 1024
+_DEFAULT_MAX_TOKENS = 1024 * 32
 
 
 class AnthropicMapper:
@@ -57,6 +57,8 @@ class AnthropicMapper:
                 }
                 for spec in request.tools
             ]
+        if request.extra_body:
+            payload.update(request.extra_body)
         return payload
 
     def map_generate_response(self, payload: Mapping[str, Any]) -> LLMGenerateResponse:

@@ -988,8 +988,19 @@ def _load_runtime_config(
     if not isinstance(im_service_url_override, str) or not im_service_url_override.strip():
         return config
     override_url = im_service_url_override.strip()
-    override_token = config.im_service.token if config.im_service is not None else None
-    return replace(config, im_service=IMServiceConfig(url=override_url, token=override_token))
+    old_im = config.im_service
+    if old_im is None:
+        return replace(config, im_service=IMServiceConfig(url=override_url))
+    return replace(
+        config,
+        im_service=IMServiceConfig(
+            url=override_url,
+            token=old_im.token,
+            refresh_token=old_im.refresh_token,
+            username=old_im.username,
+            password=old_im.password,
+        ),
+    )
 
 
 def run_gateway(

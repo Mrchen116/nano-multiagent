@@ -13,6 +13,7 @@ import httpx
 
 from agent.core.errors import ModelError
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
+from agent.core.llm.model_registry import resolve_model_metadata
 from agent.core.types import TokenUsage
 from agent.platform.llm.providers.translator import LLMTranslator
 
@@ -50,6 +51,13 @@ class AnthropicClient(LLMClient):
         active_request = request
         if not active_request.model:
             active_request = replace(active_request, model=self._default_model)
+
+        metadata = resolve_model_metadata("anthropic", active_request.model)
+        if metadata.extra_request_body:
+            merged_extra = dict(metadata.extra_request_body)
+            if active_request.extra_body:
+                merged_extra.update(active_request.extra_body)
+            active_request = replace(active_request, extra_body=merged_extra)
 
         provider_request = self._translator.to_provider_request(active_request)
         headers = dict(provider_request.headers)
@@ -110,7 +118,7 @@ class AnthropicClient(LLMClient):
             elif event_type == "content_block_stop":
                 idx = event.get("index", 0)
                 block = content_blocks.pop(idx, None)
-                if block is not None:
+                if block is not None and block.get("type") not in {"thinking", "redacted_thinking"}:
                     yield _anthropic_block_to_llm_message(block)
 
             elif event_type == "message_delta":
@@ -159,6 +167,8 @@ def _apply_anthropic_delta(block: dict[str, Any], delta: dict[str, Any]) -> None
     delta_type = delta.get("type")
     if delta_type == "text_delta":
         block["text"] = block.get("text", "") + delta.get("text", "")
+    elif delta_type == "thinking_delta":
+        block["thinking"] = block.get("thinking", "") + delta.get("thinking", "")
     elif delta_type == "input_json_delta":
         existing = block.get("input", "")
         if isinstance(existing, dict):

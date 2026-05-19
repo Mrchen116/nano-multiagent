@@ -32,13 +32,28 @@ def test_map_generate_request_joins_system_and_applies_default_max_tokens() -> N
     )
 
     assert payload["system"] == "S1\n\nS2"
-    assert payload["max_tokens"] == 1024
+    assert payload["max_tokens"] == 32768
     assert payload["messages"] == [
         {
             "role": "user",
             "content": [{"type": "text", "text": "hello"}],
         }
     ]
+
+
+def test_map_generate_request_merges_extra_body() -> None:
+    mapper = AnthropicMapper()
+
+    payload = mapper.map_generate_request(
+        LLMGenerateRequest(
+            session_id="sess_anthropic_mapper",
+            model="kimiCoding:K2.6",
+            messages=(LLMMessage(role="user", content="hello"),),
+            extra_body={"thinking": {"type": "adaptive"}},
+        )
+    )
+
+    assert payload["thinking"] == {"type": "adaptive"}
 
 
 def test_map_generate_request_requires_non_system_messages() -> None:
