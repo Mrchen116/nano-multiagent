@@ -53,6 +53,7 @@ def scan_and_fail_stuck_running_messages(
         return 0
 
     flipped = 0
+    detail_text = f"relay timed out after {timeout_seconds}s with no completion event"
     for row in rows:
         message_id = str(row["id"])
         conversation_id = str(row["conversation_id"])
@@ -73,6 +74,17 @@ def scan_and_fail_stuck_running_messages(
             event_repository.update_message_delivery_status(
                 message_id=message_id,
                 delivery_status="failed",
+            )
+            # bugfix-365: backfill the failure detail into the real message row so
+            # the failed bubble carries readable text. Without this, the bubble is
+            # blank (agent never streamed any token before the stall) and we had
+            # to render a separate synthetic "Agent" bubble — which then duplicated
+            # the row in the UI. Append after partial content to preserve any text
+            # the agent did manage to stream before the relay died.
+            _backfill_failure_detail_into_message_content(
+                connection=connection,
+                message_id=message_id,
+                detail_text=detail_text,
             )
         except Exception:  # noqa: BLE001 — one bad row should not poison the whole sweep
             logger.exception("relay_watchdog: failed to reap message %s", message_id)
@@ -115,19 +127,93 @@ def _build_failed_payload(
         """,
         (message_id,),
     ).fetchone()
-    if row is None:
-        return base
-    try:
-        prior = json.loads(row["payload_json"])
-    except (TypeError, json.JSONDecodeError):
-        return base
-    if not isinstance(prior, dict):
-        return base
-    # Inherit relay_task_id / agent_id / node_id / run_id so synthetic_message_id matches.
-    for key in ("relay_task_id", "agent_id", "node_id", "run_id", "sender_display_name", "display_name", "agent_display_name"):
-        if key in prior and key not in base:
-            base[key] = prior[key]
+    if row is not None:
+        try:
+            prior = json.loads(row["payload_json"])
+        except (TypeError, json.JSONDecodeError):
+            prior = None
+        if isinstance(prior, dict):
+            # Inherit relay_task_id / agent_id / node_id / run_id / display_name so the
+            # frontend can attribute the failure to the same agent identity.
+            for key in (
+                "relay_task_id",
+                "agent_id",
+                "node_id",
+                "run_id",
+                "sender_display_name",
+                "display_name",
+                "agent_display_name",
+            ):
+                if key in prior and key not in base:
+                    base[key] = prior[key]
+    # bugfix-365: when gateway crashed before emitting `relay.processing`, the
+    # event-history fallback above yields nothing — the failed payload then had no
+    # `agent_id` / `sender_display_name`, and the downstream synthetic mapper fell
+    # back to the literal "Agent" sender label. Recover identity from the messages
+    # table so the failure is correctly attributed even on this edge path.
+    if "agent_id" not in base or "sender_display_name" not in base:
+        identity = _agent_identity_from_message_row(connection=connection, message_id=message_id)
+        if identity is not None:
+            agent_id, display_name = identity
+            base.setdefault("agent_id", agent_id)
+            if display_name is not None:
+                base.setdefault("sender_display_name", display_name)
     return base
+
+
+def _agent_identity_from_message_row(
+    *,
+    connection: sqlite3.Connection,
+    message_id: str,
+) -> tuple[str, str | None] | None:
+    """Recover (agent_id, display_name) from a message row whose sender is an agent user."""
+    row = connection.execute(
+        """
+        SELECT users.username AS username, users.display_name AS display_name
+        FROM messages
+        LEFT JOIN users ON users.id = messages.sender_user_id
+        WHERE messages.id = ?
+        """,
+        (message_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    username = row["username"]
+    if username is None or not str(username).startswith("agent:"):
+        return None
+    agent_id = str(username)[len("agent:") :].strip()
+    if not agent_id:
+        return None
+    display_name = row["display_name"]
+    return agent_id, (str(display_name) if display_name is not None else None)
+
+
+def _backfill_failure_detail_into_message_content(
+    *,
+    connection: sqlite3.Connection,
+    message_id: str,
+    detail_text: str,
+) -> None:
+    """Write the failure detail into the message content so the failed bubble renders it."""
+    row = connection.execute(
+        "SELECT content FROM messages WHERE id = ?",
+        (message_id,),
+    ).fetchone()
+    if row is None:
+        return
+    existing = row["content"] if row["content"] is not None else ""
+    existing_stripped = existing.strip()
+    if not existing_stripped:
+        new_content = detail_text
+    elif f"[error] {detail_text}" in existing:
+        return
+    else:
+        new_content = f"{existing}\n\n[error] {detail_text}"
+    with connection:
+        connection.execute(
+            "UPDATE messages SET content = ? WHERE id = ?",
+            (new_content, message_id),
+        )
 
 
 async def run_relay_watchdog(
