@@ -35,7 +35,13 @@ tests/im_service/integration/test_ghost_agent_reconcile.py  3 passed
 tests/im_service/unit/test_owner_scoped_repositories.py  5 passed
 ```
 
+## Evidence
+
+前端视觉自测：在 "Stale Agent Demo Group" 群组中，Gateway 重新注册时只上报 `Arch` 而不上报 `ArchA`，触发 `mark_stale_for_node`。前端 header 参与者区域显示 `架构 · Q`，其中 `Q`（ArchA）以 `opacity-40` 渲染（明显偏淡），hover 显示 tooltip "Offline — agent no longer advertised by its Gateway"。
+
+截图：`ACCEPTANCE/bugfix-362/r0-stale-grayout-1440.png`（1440px 视口，header 区域裁切）
+
 ## Commits
 - C1 `test`: 红测（mark_stale_for_node / stale 过滤 / 对账事务 / ActorPayload.is_stale）
 - C2 `fix`: 完整实现（db 迁移 + repository + handler + API + 前端）
-- C3 `docs`: 本文档
+- C3 `docs`: 本文档 + tasks.md + 视觉自测截图
