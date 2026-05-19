@@ -10,8 +10,35 @@ from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.llm.factory import LLMFactoryConfig, create_llm_client
 from agent.core.session.entries import SessionEntryKind
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.platform.persistence.session.service import SessionService
+
+
+def _sse_response(model: str, content: str) -> httpx.Response:
+    """Return an OpenAI-compatible SSE mock response."""
+    sse_body = (
+        f'data: {{"id":"chatcmpl_mock","object":"chat.completion.chunk","model":"{model}",'
+        f'"choices":[{{"index":0,"delta":{{"content":"{content}"}},"finish_reason":null}}]}}\n\n'
+        f'data: {{"id":"chatcmpl_mock","object":"chat.completion.chunk","model":"{model}",'
+        f'"choices":[{{"index":0,"delta":{{}},"finish_reason":"stop"}}],'
+        f'"usage":{{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    return httpx.Response(200, text=sse_body)
+
+
+def _anthropic_sse_response(content: str) -> httpx.Response:
+    """Return an Anthropic-formatted SSE mock response."""
+    import json as _json
+    events = [
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": content}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 1}},
+        {"type": "message_stop"},
+    ]
+    sse_body = "".join(f"data: {_json.dumps(e)}\n\n" for e in events)
+    return httpx.Response(200, text=sse_body)
 
 
 def _extract_prompt_timestamp(prompt: str) -> str:
@@ -57,26 +84,10 @@ async def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -
 
     def handler(request: httpx.Request) -> httpx.Response:
         observed_bodies.append(json.loads(request.read().decode("utf-8")))
-        return httpx.Response(
-            200,
-            json={
-                "id": "chatcmpl_runtime",
-                "object": "chat.completion",
-                "model": "codex_oauth:gpt-5.5",
-                "choices": [
-                    {
-                        "index": 0,
-                        "finish_reason": "stop",
-                        "message": {"role": "assistant", "content": "ack"},
-                    }
-                ],
-            },
-        )
-
-    db_path = tmp_path / "runtime.sqlite3"
-    store = SQLiteSessionStore(db_path=db_path)
-    manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=tmp_path)
+        return _sse_response("codex_oauth:gpt-5.5", "ack")
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
 
     client = create_llm_client(
         config=LLMFactoryConfig(
@@ -91,9 +102,7 @@ async def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -
     await runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
     await runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
 
-    loaded = store.load_session(session.session_id)
-    assert loaded is not None
-    turn_events = [event for event in loaded.events if event.kind is SessionEntryKind.TURN_APPENDED]
+    turn_events = [event for event in manager.list_entries(session.session_id) if event.kind is SessionEntryKind.TURN_APPENDED]
     assert len(turn_events) == 4
     assert turn_events[0].data["content"] == "Q1"
     assert turn_events[1].data["content"] == "ack"
@@ -113,26 +122,10 @@ async def test_runtime_keeps_same_prompt_timestamp_within_one_session(
 
     def handler(request: httpx.Request) -> httpx.Response:
         observed_bodies.append(json.loads(request.read().decode("utf-8")))
-        return httpx.Response(
-            200,
-            json={
-                "id": "chatcmpl_runtime",
-                "object": "chat.completion",
-                "model": "codex_oauth:gpt-5.5",
-                "choices": [
-                    {
-                        "index": 0,
-                        "finish_reason": "stop",
-                        "message": {"role": "assistant", "content": "ack"},
-                    }
-                ],
-            },
-        )
-
-    db_path = tmp_path / "runtime_same_session_timestamp.sqlite3"
-    store = SQLiteSessionStore(db_path=db_path)
-    manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=tmp_path)
+        return _sse_response("codex_oauth:gpt-5.5", "ack")
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
 
     client = create_llm_client(
         config=LLMFactoryConfig(
@@ -168,27 +161,11 @@ async def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
 
     def handler(request: httpx.Request) -> httpx.Response:
         observed_bodies.append(json.loads(request.read().decode("utf-8")))
-        return httpx.Response(
-            200,
-            json={
-                "id": "chatcmpl_runtime",
-                "object": "chat.completion",
-                "model": "codex_oauth:gpt-5.5",
-                "choices": [
-                    {
-                        "index": 0,
-                        "finish_reason": "stop",
-                        "message": {"role": "assistant", "content": "ack"},
-                    }
-                ],
-            },
-        )
-
-    db_path = tmp_path / "runtime_cross_session_timestamp.sqlite3"
-    store = SQLiteSessionStore(db_path=db_path)
-    manager = SessionManager(store=store)
-    first_session = manager.create_session(workspace_root=tmp_path)
-    second_session = manager.create_session(workspace_root=tmp_path)
+        return _sse_response("codex_oauth:gpt-5.5", "ack")
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    first_session = service.create_session(workspace_root=tmp_path)
+    second_session = service.create_session(workspace_root=tmp_path)
 
     client = create_llm_client(
         config=LLMFactoryConfig(
@@ -223,22 +200,10 @@ async def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path
 
     def handler(request: httpx.Request) -> httpx.Response:
         observed_bodies.append(json.loads(request.read().decode("utf-8")))
-        return httpx.Response(
-            200,
-            json={
-                "id": "msg_runtime",
-                "type": "message",
-                "role": "assistant",
-                "model": "kimiCoding:K2.6",
-                "stop_reason": "end_turn",
-                "content": [{"type": "text", "text": "ack"}],
-            },
-        )
-
-    db_path = tmp_path / "runtime_anthropic.sqlite3"
-    store = SQLiteSessionStore(db_path=db_path)
-    manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=tmp_path)
+        return _anthropic_sse_response("ack")
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
 
     client = create_llm_client(
         config=LLMFactoryConfig(
@@ -253,9 +218,7 @@ async def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path
     await runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
     await runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
 
-    loaded = store.load_session(session.session_id)
-    assert loaded is not None
-    turn_events = [event for event in loaded.events if event.kind is SessionEntryKind.TURN_APPENDED]
+    turn_events = [event for event in manager.list_entries(session.session_id) if event.kind is SessionEntryKind.TURN_APPENDED]
     assert len(turn_events) == 4
     assert turn_events[0].data["content"] == "Q1"
     assert turn_events[1].data["content"] == "ack"

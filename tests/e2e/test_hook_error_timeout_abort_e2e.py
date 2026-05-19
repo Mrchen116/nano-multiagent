@@ -1,4 +1,5 @@
 import time
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -6,16 +7,17 @@ from fastapi.testclient import TestClient
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
-from agent.core.llm.interfaces import LLMGenerateRequest
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.persistence.session.service import SessionService
 
 
 class _TimeoutLLM:
-    def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:  # type: ignore[override]
         del request
         raise TimeoutError("upstream timeout")
+        yield  # noqa: unreachable — satisfies async generator protocol
 
 
 def _auth_headers(request_id: str) -> dict[str, str]:
@@ -47,16 +49,16 @@ def test_async_timeout_e2e_exposes_run_timeout_hook_and_contract(tmp_path: Path)
 
     hooks.on("run_timeout", on_run_timeout)
 
-    store = SQLiteSessionStore(db_path=tmp_path / "hook-timeout-e2e.sqlite3")
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     runtime = AgentRuntime(
-        session_manager=SessionManager(store=store),
+        session_manager=service.manager,
         llm_client=_TimeoutLLM(),
         model="mock-model",
         hook_runner=HookRunner(registry=hooks),
         repo_root=Path.cwd(),
     )
 
-    with TestClient(create_app(session_store=store, runtime=runtime, auth_token="test-token")) as client:
+    with TestClient(create_app(session_store=service.manager._store, runtime=runtime)) as client:
         events_response = client.get(
             "/v1/hooks/events",
             headers=_auth_headers("req-hook-timeout-e2e-events"),
@@ -71,11 +73,11 @@ def test_async_timeout_e2e_exposes_run_timeout_hook_and_contract(tmp_path: Path)
         session_id = created.json()["session_id"]
 
         submitted = client.post(
-            f"/v1/sessions/{session_id}/messages:async",
+            f"/v1/sessions/{session_id}/messages",
             json={"parts": [{"type": "text", "text": "ping"}]},
             headers=_auth_headers("req-hook-timeout-e2e-submit"),
         )
-        assert submitted.status_code == 202
+        assert submitted.status_code == 200
         run_id = submitted.json()["run_id"]
 
         terminal = _wait_for_terminal_run(client, run_id)

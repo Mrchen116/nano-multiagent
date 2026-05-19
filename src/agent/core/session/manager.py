@@ -102,13 +102,15 @@ class SessionManager:
         if offset < 0:
             raise ValueError("offset must be greater than or equal to 0")
 
-        session_ids = self._store.list_session_ids(limit=limit + 1, offset=offset)
-        has_more = len(session_ids) > limit
+        pairs = self._store.list_session_ids_with_parents(limit=limit + 1, offset=offset)
+        has_more = len(pairs) > limit
         sessions: list[Session] = []
-        for sid in session_ids[:limit]:
-            session = self.get_session(sid)
-            if session is not None:
-                sessions.append(session)
+        for sid, parent_id in pairs[:limit]:
+            try:
+                result = self._store.load(sid, parent_session_id=parent_id)
+                sessions.append(_session_from_config(result.config))
+            except SessionNotFoundError:
+                pass
         return tuple(sessions), has_more
 
     # ------------------------------------------------------------------
@@ -277,7 +279,7 @@ class SessionManager:
                     summary_text = turn_by_uuid[summary_uuid].get("content", "")
                 entries.append(new_compaction_entry(
                     session_id=raw.get("session_id", session_id),
-                    first_kept_event_id=summary_uuid or "",
+                    first_kept_event_id="",
                     summary=summary_text,
                     data=raw.get("data", {}),
                     created_at=raw.get("timestamp", _utc_now_iso()),

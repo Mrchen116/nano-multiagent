@@ -6,19 +6,14 @@ from fastapi.testclient import TestClient
 
 from agent.platform.http_api.app import create_app
 from agent.core.types import Message, TurnResult
-from agent.core.session.entries import SessionEntryKind
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
 
 
 class _BlockingRuntime:
     def __init__(self) -> None:
         self.release = Event()
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
-        del session_id
-        del parts
-        del stream
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
+        del session_id, parts, stream, origin
         self.release.wait(timeout=1.0)
         return TurnResult(
             session_id="sess_cancel_integration",
@@ -47,22 +42,32 @@ def _wait_for_running(client: TestClient, run_id: str, *, timeout_seconds: float
     raise AssertionError("run did not enter running status")
 
 
-def test_cancelled_run_status_is_persisted_to_store(tmp_path: Path) -> None:
-    db_path = tmp_path / "run-cancel-integration.sqlite3"
-    store = SQLiteSessionStore(db_path=db_path)
+def _wait_for_terminal_run(client: TestClient, run_id: str, *, timeout_seconds: float = 2.0) -> dict:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        response = client.get(f"/v1/runs/{run_id}", headers=_auth_headers("req-cancel-integration-get"))
+        assert response.status_code == 200
+        payload = response.json()
+        if payload["status"] in {"completed", "failed", "cancelled"}:
+            return payload
+        time.sleep(0.01)
+    raise AssertionError("run did not reach terminal status before timeout")
+
+
+def test_cancelled_run_status_is_reflected_in_api(tmp_path: Path) -> None:
     runtime = _BlockingRuntime()
-    client = TestClient(create_app(session_store=store, runtime=runtime))
+    client = TestClient(create_app(runtime=runtime))
 
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-cancel-integration-create"))
     assert created.status_code == 201
     session_id = created.json()["session_id"]
 
     submitted = client.post(
-        f"/v1/sessions/{session_id}/messages:async",
+        f"/v1/sessions/{session_id}/messages",
         json={"parts": [{"type": "text", "text": "cancel"}]},
         headers=_auth_headers("req-cancel-integration-submit"),
     )
-    assert submitted.status_code == 202
+    assert submitted.status_code == 200
     run_id = submitted.json()["run_id"]
 
     _wait_for_running(client, run_id)
@@ -76,11 +81,5 @@ def test_cancelled_run_status_is_persisted_to_store(tmp_path: Path) -> None:
 
     runtime.release.set()
 
-    reloaded_manager = SessionManager(store=SQLiteSessionStore(db_path=db_path))
-    entries = reloaded_manager.list_entries(session_id)
-    run_statuses = [
-        event.data["status"]
-        for event in entries
-        if event.kind is SessionEntryKind.RUN_STATUS and event.data.get("run_id") == run_id
-    ]
-    assert run_statuses[-1] == "cancelled"
+    terminal = _wait_for_terminal_run(client, run_id)
+    assert terminal["status"] == "cancelled"

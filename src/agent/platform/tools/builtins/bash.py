@@ -268,12 +268,18 @@ class BashTool:
         result_holder: dict[str, Any] = {}
 
         def on_complete(*, task_id: str, result_text: str | None, usage: Mapping[str, Any] | None, duration_ms: int, tool_use_count: int) -> None:
+            # For foreground tasks, suppress the background notification: the result is
+            # delivered synchronously via completed_event rather than via notification.
+            # For auto-backgrounded tasks (foreground budget exceeded), is_foreground is False
+            # so notification is not suppressed.
+            is_foreground = not result_holder.get("backgrounded", False)
             registry.complete(
                 task_id,
                 result_text=result_text,
                 usage=usage,
                 duration_ms=duration_ms,
                 tool_use_count=tool_use_count,
+                notified=is_foreground,
             )
             result_holder["status"] = "completed"
             completed_event.set()
@@ -308,7 +314,8 @@ class BashTool:
         completed = completed_event.wait(timeout=_DEFAULT_FOREGROUND_BUDGET)
 
         if not completed:
-            # Auto-background: process keeps running, monitor thread will update registry.
+            # Auto-background: allow notification when monitor thread calls on_complete.
+            result_holder["backgrounded"] = True
             return {
                 "status": "async_launched",
                 "task_id": task_id,

@@ -226,6 +226,24 @@ class JsonlSessionStore:
         )
         return tuple(p.stem for p in all_files[offset : offset + limit])
 
+    def list_session_ids_with_parents(
+        self, *, limit: int, offset: int
+    ) -> tuple[tuple[str, str | None], ...]:
+        """List (session_id, parent_session_id) pairs by most recent mtime."""
+
+        main_files = self._data_dir.glob("sessions/*.jsonl")
+        subagent_files = self._data_dir.glob("sessions/*/subagents/*.jsonl")
+        all_files = sorted(
+            (*main_files, *subagent_files),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        result = []
+        for p in all_files[offset : offset + limit]:
+            parent = self._infer_parent_from_path(p)
+            result.append((p.stem, parent))
+        return tuple(result)
+
     @property
     def writer(self) -> JsonlWriter:
         return self._writer

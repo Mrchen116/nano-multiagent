@@ -1,4 +1,4 @@
-"""Canonical shared session models, events, manager, and store contract."""
+"""Canonical shared session models, events, and manager."""
 
 from .entries import (
     CompactionEntry,
@@ -12,17 +12,14 @@ from .entries import (
 )
 from .manager import SessionManager
 from .models import Session
-from .store import LoadedSession, SessionStore
 
 __all__ = [
     "CompactionEntry",
-    "LoadedSession",
     "Session",
     "SessionEntry",
     "SessionEntryKind",
     "SessionEventEntry",
     "SessionManager",
-    "SessionStore",
     "new_compaction_entry",
     "new_run_status_entry",
     "new_session_created_entry",

@@ -19,8 +19,8 @@ from agent.platform.hooks.loader import build_hook_registry
 from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
 from agent.platform.http_api.app import create_app
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.core.session.store import LoadedSession, SessionStore
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.registry import ToolRegistry
@@ -92,28 +92,6 @@ class _SlowFirstTurnRuntime(_RuntimeStub):
         if self._turn_count == 1:
             time.sleep(0.2)
         return super().run(session_id=session_id, parts=parts, stream=stream, run_id=run_id)
-
-
-class _InMemorySessionStore(SessionStore):
-    def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-        self.snapshots: dict[str, dict[str, object]] = {}
-
-    def append_event(self, session_id: str, entry: object) -> None:
-        self.events.append((session_id, entry))
-
-    def load_session(self, session_id: str) -> LoadedSession | None:
-        session_events = tuple(entry for sid, entry in self.events if sid == session_id)
-        if not session_events and session_id not in self.snapshots:
-            return None
-        return LoadedSession(
-            session_id=session_id,
-            events=session_events,
-            snapshot=self.snapshots.get(session_id),
-        )
-
-    def save_snapshot(self, session_id: str, snapshot: dict[str, object]) -> None:
-        self.snapshots[session_id] = snapshot
 
 
 class _ToolCallingLLMClient:
@@ -341,16 +319,16 @@ def test_cli_send_message_command_keeps_single_json_stdout_contract_with_async_c
     assert payload["message"]["content"] == "cli:ping"
 
 
-def test_cli_http_flow_executes_tool_call_loop_before_returning_final_answer() -> None:
-    store = _InMemorySessionStore()
+def test_cli_http_flow_executes_tool_call_loop_before_returning_final_answer(tmp_path: Path) -> None:
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     llm = _ToolCallingLLMClient()
     runtime = AgentRuntime(
         session_manager=SessionManager(store=store),
         llm_client=llm,
         model="mock-model",
-        repo_root=Path.cwd(),
+        repo_root=tmp_path,
     )
-    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=tmp_path))
     echo_tool = _EchoTool()
     tool_registry.register(echo_tool)
 
@@ -680,16 +658,16 @@ def test_cli_repl_session_transitions_render_active_copy_without_json() -> None:
     assert '"session_id":' not in text
 
 
-def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
-    store = _InMemorySessionStore()
+def test_cli_repl_streams_async_run_tool_and_text_events(tmp_path: Path) -> None:
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     llm = _ToolCallingLLMClient()
     runtime = AgentRuntime(
         session_manager=SessionManager(store=store),
         llm_client=llm,
         model="mock-model",
-        repo_root=Path.cwd(),
+        repo_root=tmp_path,
     )
-    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=tmp_path))
     echo_tool = _EchoTool()
     tool_registry.register(echo_tool)
 
@@ -729,16 +707,16 @@ def test_cli_repl_streams_async_run_tool_and_text_events() -> None:
     assert "final:echo:ping" in text
 
 
-def test_cli_repl_non_tty_async_output_avoids_terminal_control_sequences() -> None:
-    store = _InMemorySessionStore()
+def test_cli_repl_non_tty_async_output_avoids_terminal_control_sequences(tmp_path: Path) -> None:
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     llm = _ToolCallingLLMClient()
     runtime = AgentRuntime(
         session_manager=SessionManager(store=store),
         llm_client=llm,
         model="mock-model",
-        repo_root=Path.cwd(),
+        repo_root=tmp_path,
     )
-    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=tmp_path))
     tool_registry.register(_EchoTool())
 
     app = create_app(
@@ -771,19 +749,19 @@ def test_cli_repl_non_tty_async_output_avoids_terminal_control_sequences() -> No
     assert "\x1b[" not in text
 
 
-def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool() -> None:
-    store = _InMemorySessionStore()
+def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool(tmp_path: Path) -> None:
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     llm = _BashToolCallingLLMClient()
-    hook_runner = HookRunner(registry=build_hook_registry(repo_root=Path.cwd()))
+    hook_runner = HookRunner(registry=build_hook_registry(repo_root=tmp_path))
     runtime = AgentRuntime(
         session_manager=SessionManager(store=store),
         llm_client=llm,
         model="mock-model",
         hook_runner=hook_runner,
-        repo_root=Path.cwd(),
+        repo_root=tmp_path,
     )
     tool_registry = ToolRegistry(
-        context=ToolContext.create(repo_root=Path.cwd()),
+        context=ToolContext.create(repo_root=tmp_path),
         hook_runner=hook_runner,
     )
     tool_registry.register(BashTool())
@@ -824,16 +802,16 @@ def test_cli_repl_streams_started_running_chunk_and_exit_for_bash_tool() -> None
     assert "final:bash-finished" in text
 
 
-def test_cli_repl_prints_compact_sections_in_async_turn_output() -> None:
-    store = _InMemorySessionStore()
+def test_cli_repl_prints_compact_sections_in_async_turn_output(tmp_path: Path) -> None:
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     llm = _ToolCallingLLMClient()
     runtime = AgentRuntime(
         session_manager=SessionManager(store=store),
         llm_client=llm,
         model="mock-model",
-        repo_root=Path.cwd(),
+        repo_root=tmp_path,
     )
-    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
+    tool_registry = ToolRegistry(context=ToolContext.create(repo_root=tmp_path))
     echo_tool = _EchoTool()
     tool_registry.register(echo_tool)
 
