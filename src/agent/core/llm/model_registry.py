@@ -1,6 +1,7 @@
 """Registry for supported providers, models, and capability metadata."""
 
 from dataclasses import dataclass
+from typing import Any
 
 
 DEFAULT_PROVIDER = "anthropic"
@@ -17,6 +18,7 @@ class ModelMetadata:
     supports_image: bool
     supports_tools: bool
     supports_streaming: bool
+    extra_request_body: dict[str, Any] | None = None
 
 
 _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
@@ -40,6 +42,7 @@ _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
             supports_image=False,
             supports_tools=False,
             supports_streaming=False,
+            extra_request_body={"thinking": {"type": "adaptive"}},
         ),
         "volcanoArk:doubao-seed-2-0-code-preview-260215": ModelMetadata(
             provider="anthropic",
@@ -49,6 +52,7 @@ _PROVIDER_MODELS: dict[str, dict[str, ModelMetadata]] = {
             supports_image=False,
             supports_tools=True,
             supports_streaming=True,
+            extra_request_body={"thinking": {"type": "adaptive"}},
         ),
     },
 }
@@ -125,6 +129,7 @@ def resolve_model_metadata(provider: str, model: str | None) -> ModelMetadata:
         supports_image=default.supports_image,
         supports_tools=default.supports_tools,
         supports_streaming=default.supports_streaming,
+        extra_request_body=default.extra_request_body,
     )
 
 

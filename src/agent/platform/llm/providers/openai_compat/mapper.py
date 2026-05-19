@@ -31,6 +31,8 @@ class OpenAICompatMapper:
         if request.tools:
             payload["tools"] = [self._map_tool_spec(spec) for spec in request.tools]
             payload["tool_choice"] = "auto"
+        if request.extra_body:
+            payload.update(request.extra_body)
         return payload
 
     def map_generate_response(self, payload: Mapping[str, Any]) -> LLMGenerateResponse:

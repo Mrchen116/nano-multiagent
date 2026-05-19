@@ -41,6 +41,7 @@ class LLMGenerateRequest:
     stop_sequences: tuple[str, ...] = ()
     tools: tuple[ToolSpec, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    extra_body: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
