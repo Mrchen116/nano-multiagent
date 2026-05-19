@@ -185,6 +185,10 @@ SAFE_TOOL_ALLOWLIST: frozenset[str] = frozenset({
     # Agent coordination — kept (D2 decision: CC external build behavior is allow-by-default)
     "agent",
     "send_message",
+    # Agent self-management (bugfix-368): writes only to .nano/memory/, no user-code
+    # or system impact; semantically equivalent to task_*. Without this entry the
+    # classifier judges memory as deny → PA self-improvement loop dies on every call.
+    "memory",
 })
 
 # ---------------------------------------------------------------------------

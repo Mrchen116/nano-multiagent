@@ -91,8 +91,30 @@
 
 ## 修复
 
-<!-- M1 完成后补：改了哪几行 / commits / 是否补了"新增 tool 必须登记 gate 白名单"的约束（测试或 lint） -->
+选型：**方案 A（加入 `SAFE_TOOL_ALLOWLIST`）**。理由对照 issue 给的 rationale + 本仓既定模式——已在 allowlist 的 `read` / `task_*` / `agent` / `send_message` 一致都是"无条件 safe、不实现 `check_permissions`"；CC 上游 `SAFE_YOLO_ALLOWLISTED_TOOLS` 也是列名表。让 memory 单独写 `check_permissions` 只能返回 `allow`，无逻辑、反而破坏一致性。
+
+实施：
+
+1. `src/agent/platform/hooks/builtins/auto_mode_gate.py:188` 的 `SAFE_TOOL_ALLOWLIST` 追加 `"memory"`，附 inline 注释引用 bugfix-368 + 解释为什么 safe。
+2. `tests/unit/test_auto_mode_gate.py::TestSafeToolAllowlist::test_memory_safe` 新增——直接回归 issue #31：`is_safe_tool("memory", AutoModeConfig()) is True`。
+3. `tests/contract/test_tool_gate_coverage.py` 新增——强约束回归：扫 `agent.platform.tools.builtins` 包内每个含 `name` 字段的 Tool 类，要求都显式落到 `EXPECTED_GATE_POSITION` 表(allowlist / check / classifier 三选一)且与实际 SAFE_TOOL_ALLOWLIST / `check_permissions` 现状一致。新增 tool 时**两边都要改**才能通过 CI——堵掉"新增 tool 漏接 gate"这种漏单(issue #31 的根因模式)。
+4. 顺手把 `skill_manage` 这条同类隐患**显式登记**为 `classifier`(写用户 skill 文件，per-call 判更稳)，让契约表把现状钉死，避免未来误改默认归属。
+
+Commits（unit/bugfix-368 分支）：
+
+- `c0ba189a` docs(bugfix-368): spec lite — memory 工具被 auto_mode_gate 全拦死,PA self-improvement 死循环
+- `fix(bugfix-368/M1): memory → SAFE_TOOL_ALLOWLIST + builtin gate coverage 契约测试`（本提交）
 
 ## 验证
 
-<!-- M1 完成后补：复现脚本 / proxy logs 对照 / PA self-improvement 在 auto mode 下能正常写入 memory -->
+修前现象（issue 引用 session `2026-05-18_20-03-53_640_sess_5c8151448cd2e07b`）：14 次 `memory` 调用全部返回 `tool blocked by hook`。
+
+修后验证：
+
+- **单测层**：`pytest tests/unit/test_auto_mode_gate.py tests/unit/test_auto_mode_gate_dispatch.py tests/unit/test_memory_tool.py tests/contract/test_tool_gate_coverage.py` → 99 passed in 0.20s。覆盖：
+  - `test_memory_safe` 断言 `is_safe_tool("memory")` 走 fast-path（直接对应 issue #31 根因 step 4）。
+  - `TestSafeToolAllowlist` 既有 12 条 + `test_safe_tool_allowlist_frozenset` 全绿，证明白名单结构未破坏。
+  - `test_every_builtin_tool_has_an_expected_gate_position` / `test_each_builtin_tool_matches_its_declared_gate_position` 全绿，证明 9 个 builtin tool 全部有显式 gate 归属(read/agent/task_stop/memory=allowlist；bash/edit/write/web_fetch=check；skill_manage=classifier)。
+  - 试验性删掉 `"memory"` 后再跑：`test_memory_safe` 红、`test_each_builtin_tool_matches_its_declared_gate_position` 红——回归测试真的会炸。
+- **回归约束层**：试验性在 `builtins/__init__.py` 多 import 一个虚构 `FooTool`(name="foo") → `test_every_builtin_tool_has_an_expected_gate_position` 立刻红，提示 "New builtin tool(s) discovered without a gate position declaration: ['foo']"。证明"新增 tool 漏接 gate"这类漏单会在 CI 阶段直接被拦。
+- **产品层手验**(本 unit 范围外，PR review 后用户可在 PA 跑一次 self-improvement 即可对照 proxy logs；hook 决策路径已被单测覆盖)：PA 启动 auto mode → 触发 memory curation 周期 → 期望 `memory` 工具调用不再出现 `tool blocked by hook`，`.nano/memory/` 实际更新。
