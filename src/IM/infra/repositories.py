@@ -609,10 +609,14 @@ class ConversationRepository:
         """Convert one conversation row into a domain model with participants."""
         participant_rows = self._connection.execute(
             """
-            SELECT users.id, users.username, users.display_name
+            SELECT users.id, users.username, users.display_name,
+                   COALESCE(ap.is_stale, 0) AS is_stale
             FROM conversation_participants
             JOIN users ON users.id = conversation_participants.user_id
-            WHERE conversation_id = ?
+            LEFT JOIN agent_profiles ap
+                   ON ap.agent_id = SUBSTR(users.username, LENGTH('agent:') + 1)
+                  AND users.username LIKE 'agent:%'
+            WHERE conversation_participants.conversation_id = ?
             ORDER BY conversation_participants.rowid
             """,
             (row["id"],),
@@ -683,9 +687,11 @@ class ConversationRepository:
         user_id = str(row["id"])
         username = str(row["username"])
         display_name = str(row["display_name"]) if row["display_name"] is not None else None
+        keys = row.keys()
         if username.startswith("agent:"):
             agent_id = username[len("agent:") :].strip() or user_id
-            return Actor(type="agent", id=agent_id, display_name=display_name, user_id=user_id)
+            is_stale = bool(row["is_stale"]) if "is_stale" in keys else None
+            return Actor(type="agent", id=agent_id, display_name=display_name, user_id=user_id, is_stale=is_stale)
         return Actor(type="user", id=user_id, display_name=display_name, user_id=user_id)
 
     def _resolve_config_profile_version(self, *, owner_id: str, participant_ids: list[str]) -> int | None:
@@ -1368,7 +1374,8 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
-                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version
+                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
+                   is_stale
             FROM agent_profiles
             ORDER BY created_at, rowid
             """
@@ -1387,11 +1394,13 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
-                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version
+                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
+                   ap.is_stale
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
               AND ap.node_id != ''
+              AND ap.is_stale = 0
               AND (
                     (COALESCE(n.owner_id, '') = '' AND ap.owner_id = '')
                  OR (COALESCE(n.owner_id, '') != '' AND (ap.owner_id = '' OR ap.owner_id = n.owner_id))
@@ -1414,11 +1423,13 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
-                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version
+                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
+                   ap.is_stale
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
               AND ap.node_id != ''
+              AND ap.is_stale = 0
               AND (
                     (ap.owner_id = ? AND COALESCE(n.owner_id, '') IN ('', ?))
                  OR (ap.owner_id = '' AND COALESCE(n.owner_id, '') = '')
@@ -1454,7 +1465,8 @@ class AgentProfileRepository:
         row = self._connection.execute(
             """
             SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
-                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version
+                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
+                   is_stale
             FROM agent_profiles
             WHERE agent_id = ?
             """,
@@ -1502,7 +1514,9 @@ class AgentProfileRepository:
                     group_reply_policy = excluded.group_reply_policy,
                     default_model = excluded.default_model,
                     workspace_root = excluded.workspace_root,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    is_stale = 0,
+                    staled_at = NULL
                 """,
                 (
                     agent_id,
@@ -1524,6 +1538,44 @@ class AgentProfileRepository:
         profile = self.get_profile(agent_id=agent_id)
         assert profile is not None
         return profile
+
+    def mark_stale_for_node(
+        self,
+        *,
+        node_id: str,
+        advertised_agent_ids: list[str],
+    ) -> int:
+        """Mark as stale any agent profile for this node not in the current advertise list.
+
+        Returns the count of rows newly marked stale. Safe to call repeatedly; rows
+        already stale are excluded from the count (is_stale=0 guard).
+        Empty advertised_agent_ids marks all profiles for this node as stale.
+        """
+        now = _utc_now()
+        if advertised_agent_ids:
+            placeholders = ",".join("?" * len(advertised_agent_ids))
+            params: list[object] = [now, node_id] + list(advertised_agent_ids)
+            cursor = self._connection.execute(
+                f"""
+                UPDATE agent_profiles
+                SET is_stale = 1, staled_at = ?
+                WHERE node_id = ?
+                  AND is_stale = 0
+                  AND agent_id NOT IN ({placeholders})
+                """,
+                params,
+            )
+        else:
+            cursor = self._connection.execute(
+                """
+                UPDATE agent_profiles
+                SET is_stale = 1, staled_at = ?
+                WHERE node_id = ?
+                  AND is_stale = 0
+                """,
+                (now, node_id),
+            )
+        return cursor.rowcount
 
     def update_profile(
         self,
@@ -1591,6 +1643,8 @@ class AgentProfileRepository:
 
     def _row_to_profile(self, row: sqlite3.Row) -> AgentProfile:
         """Convert one storage row to a domain agent profile."""
+        keys = row.keys()
+        is_stale = bool(row["is_stale"]) if "is_stale" in keys else False
         return AgentProfile(
             agent_id=row["agent_id"],
             owner_id=row["owner_id"],
@@ -1604,6 +1658,7 @@ class AgentProfileRepository:
             default_model=row["default_model"],
             workspace_root=row["workspace_root"],
             profile_version=int(row["profile_version"]),
+            is_stale=is_stale,
         )
 
 

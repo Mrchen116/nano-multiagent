@@ -127,13 +127,13 @@ function initialsFrom(name: string): string {
 }
 
 export async function listMentionCandidates(opts: {
-  conversation: { participants: { type: string; id: string }[] };
+  conversation: { participants: { type: string; id: string; is_stale?: boolean | null }[] };
 }): Promise<MentionCandidate[]> {
   const res = await authFetch("/im/v1/agents");
   const rows = await jsonOrThrow<AgentRow[]>(res, "listMentionCandidates");
   const allowed = new Set(
     opts.conversation.participants
-      .filter((p) => p.type === "agent")
+      .filter((p) => p.type === "agent" && !p.is_stale)
       .map((p) => p.id.replace(/^agent:/, ""))
   );
   return rows

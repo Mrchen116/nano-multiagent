@@ -40,6 +40,7 @@ interface ImActorRef {
   type: ImActorType;
   id: string;
   display_name?: string;
+  is_stale?: boolean;
 }
 
 function isAgentUsername(username: string) {
@@ -83,10 +84,12 @@ function parseActorRef(value: unknown): ImActorRef | null {
     return null;
   }
   const displayName = typeof payload.display_name === "string" ? payload.display_name.trim() : "";
+  const isStale = type === "agent" && payload.is_stale === true ? true : undefined;
   return {
     type,
     id,
-    display_name: displayName || undefined
+    display_name: displayName || undefined,
+    is_stale: isStale
   };
 }
 
@@ -157,6 +160,7 @@ function toMentionCandidates(input: {
   })
     .filter((participant) => participant.type === "agent" || participant.type === "user")
     .filter((participant) => !(participant.type === "user" && participant.id === input.selfUserId))
+    .filter((participant) => !participant.is_stale)
     .map((participant) => ({
       agentId: participant.id,
       label: toMentionCandidateLabel(participant)

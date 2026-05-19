@@ -19,6 +19,7 @@ export interface Actor {
   type: "user" | "agent" | "system";
   id: string;
   display_name?: string | null;
+  is_stale?: boolean | null;
 }
 
 export interface Attachment {

@@ -226,7 +226,16 @@ export function MessagePane({
           <div className="chat-pane-header-meta">
             {!isMobile && (
               <span className="chat-pane-participants">
-                {conversation.participants.map((p) => p.display_name ?? p.id).join(" · ")}
+                {conversation.participants.map((p, i) => (
+                  <span
+                    key={p.id}
+                    className={p.is_stale ? "opacity-40" : undefined}
+                    title={p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
+                  >
+                    {p.display_name ?? p.id}
+                    {i < conversation.participants.length - 1 ? " · " : ""}
+                  </span>
+                ))}
               </span>
             )}
             {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} />}
