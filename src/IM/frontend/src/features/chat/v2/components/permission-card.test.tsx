@@ -1,21 +1,19 @@
 /**
- * R4 C1 tests for PermissionCard component.
+ * PermissionCard tests.
  *
- * These tests verify:
- * 1. PermissionCard renders in pending state with tool name, question, options
- * 2. PermissionCard transitions to submitting after user clicks an option
- * 3. PermissionCard transitions to resolved (allow) state
- * 4. PermissionCard transitions to resolved (deny) state
- * 5. PermissionCard renders error state on POST failure
- * 6. message-pane renders PermissionCard when message has permission_request
- * 7. (M4) PermissionCard default fetchFn uses authFetch to inject Authorization header
+ * bugfix-367: resolved 状态由 prop (request.status === "resolved") 派生,组件
+ * 不再用本地 useState 缓存"已解决",所以"点击后立刻看到 resolved"那条断言
+ * 改成"onResolved callback 被调用,且后续传入 status='resolved' prop 时渲染
+ * resolved 标签"。此外新增三组断言覆盖 §A:
+ *  - tool_input 直接渲染到 chat-permission-cmd
+ *  - tool_input.description (bash/task/agent 才有) 渲染成 chat-permission-desc
+ *  - 删除 useState 派生 prop 反模式: 新 pending request 进来时不会卡在
+ *    旧 resolved 上
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// M4: authFetch module mock — must be declared before component import so the
-// module system resolves the mock before PermissionCard captures authFetch.
 vi.mock("../../../../features/auth/auth-fetch", () => ({
   authFetch: vi.fn(),
 }));
@@ -50,7 +48,6 @@ describe("PermissionCard — pending state", () => {
         onResolved={() => {}}
       />
     );
-    // Use getAllByText and check at least one element contains the tool name
     const elements = screen.getAllByText(/bash/i);
     expect(elements.length).toBeGreaterThan(0);
   });
@@ -80,6 +77,60 @@ describe("PermissionCard — pending state", () => {
     expect(screen.getByRole("button", { name: /deny/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /allow for session/i })).toBeInTheDocument();
   });
+
+  // bugfix-367 §A: tool_input 必须直接渲染到卡内 —— 用户不再需要去点开
+  // 上方"工具调用详情"才能看到要授权的命令/参数。
+  it("renders tool_input as JSON inside the card (raw input block)", () => {
+    render(
+      <PermissionCard
+        request={SAMPLE_REQUEST}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+      />
+    );
+    const block = screen.getByTestId("permission-tool-input");
+    expect(block.textContent).toContain("rm -rf /tmp/old");
+  });
+
+  // bugfix-367 §A: bash / task / agent 工具的 input_schema 提供了 `description`
+  // 字段供 LLM 写人类可读摘要,卡内单独突出渲染该行;raw input 区不重复显示。
+  it("renders tool_input.description as a separate summary line, stripped from raw block", () => {
+    const req: PermissionRequest = {
+      ...SAMPLE_REQUEST,
+      tool_input: { command: "rm hello.py", description: "删除 hello.py", timeout: 5 },
+    };
+    render(
+      <PermissionCard
+        request={req}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+      />
+    );
+    expect(screen.getByTestId("permission-description").textContent).toBe("删除 hello.py");
+    // description 应该不再出现在 raw input 区里
+    const raw = screen.getByTestId("permission-tool-input").textContent ?? "";
+    expect(raw).toContain("rm hello.py");
+    expect(raw).toContain("timeout");
+    expect(raw).not.toContain("description");
+  });
+
+  it("does not render description line for tools without that field", () => {
+    const req: PermissionRequest = {
+      ...SAMPLE_REQUEST,
+      tool_input: { file_path: "/tmp/foo.py", content: "print('x')" },
+    };
+    render(
+      <PermissionCard
+        request={req}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+      />
+    );
+    expect(screen.queryByTestId("permission-description")).not.toBeInTheDocument();
+  });
 });
 
 describe("PermissionCard — submitting state", () => {
@@ -102,21 +153,21 @@ describe("PermissionCard — submitting state", () => {
       />
     );
 
-    const allowBtn = screen.getByRole("button", { name: /allow once/i });
-    await user.click(allowBtn);
+    await user.click(screen.getByRole("button", { name: /allow once/i }));
 
-    // All buttons should be disabled while submitting
     const buttons = screen.getAllByRole("button");
     for (const btn of buttons) {
       expect(btn).toBeDisabled();
     }
-    // Resolve the pending POST to avoid hanging
     resolvePost(new Response(JSON.stringify({ ok: true }), { status: 200 }));
   });
 });
 
-describe("PermissionCard — resolved state", () => {
-  it("shows resolved-allow label after allow_once decision", async () => {
+// bugfix-367: 决策结果不再用本地 useState 缓存。点击后 onResolved 被回调,
+// 真正的视觉"resolved"由 reducer 接到 permission.resolved WS 事件后改 prop
+// 触发。所以测试拆成 (a) callback 被调 (b) 传入 status="resolved" prop 时渲染。
+describe("PermissionCard — POST success → onResolved callback", () => {
+  it("invokes onResolved with the chosen decision after successful POST (no local resolved state)", async () => {
     const user = userEvent.setup();
     const mockFetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), { status: 200 })
@@ -135,41 +186,40 @@ describe("PermissionCard — resolved state", () => {
 
     await user.click(screen.getByRole("button", { name: /allow once/i }));
     await waitFor(() => {
-      // After successful POST, card should show resolved state
-      expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
+      expect(onResolved).toHaveBeenCalledWith("allow_once");
     });
-    // Should show a resolved indicator
-    const resolved = screen.getByTestId("permission-resolved");
-    expect(resolved).toBeInTheDocument();
-    expect(resolved.textContent).toMatch(/allow/i);
-    // onResolved callback should have been called
-    expect(onResolved).toHaveBeenCalledWith("allow_once");
+    // 卡片仍然是 pending 形态(因为 prop 没变),决策后的"已允许"小条由父组件
+    // 收到 WS event 改 prop 后再渲染。
+    expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
   });
+});
 
-  it("shows resolved-deny label after deny decision", async () => {
-    const user = userEvent.setup();
-    const mockFetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), { status: 200 })
-    );
-    const onResolved = vi.fn();
-
+describe("PermissionCard — prop-derived resolved state", () => {
+  it("renders resolved-allow label when status='resolved' decision='allow_once'", () => {
     render(
       <PermissionCard
-        request={SAMPLE_REQUEST}
+        request={{ ...SAMPLE_REQUEST, status: "resolved", decision: "allow_once" }}
         conversationId="conv-1"
         messageId="msg-1"
-        onResolved={onResolved}
-        fetchFn={mockFetch as unknown as typeof fetch}
+        onResolved={() => {}}
       />
     );
+    const resolved = screen.getByTestId("permission-resolved");
+    expect(resolved.textContent).toMatch(/allow/i);
+    expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: /^deny$/i }));
-    await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /^deny$/i })).not.toBeInTheDocument();
-    });
+  it("renders resolved-deny label when status='resolved' decision='deny'", () => {
+    render(
+      <PermissionCard
+        request={{ ...SAMPLE_REQUEST, status: "resolved", decision: "deny" }}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+      />
+    );
     const resolved = screen.getByTestId("permission-resolved");
     expect(resolved.textContent).toMatch(/den/i);
-    expect(onResolved).toHaveBeenCalledWith("deny");
   });
 });
 
@@ -190,38 +240,12 @@ describe("PermissionCard — error state", () => {
 
     await user.click(screen.getByRole("button", { name: /allow once/i }));
     await waitFor(() => {
-      // Should show an error message, buttons re-enabled
       expect(screen.getByRole("button", { name: /allow once/i })).toBeEnabled();
     });
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 });
 
-describe("PermissionCard — pre-resolved from WS event", () => {
-  it("renders in resolved state when request.status === 'resolved'", () => {
-    const resolvedRequest: PermissionRequest = {
-      ...SAMPLE_REQUEST,
-      status: "resolved",
-      decision: "allow_once",
-    };
-
-    render(
-      <PermissionCard
-        request={resolvedRequest}
-        conversationId="conv-1"
-        messageId="msg-1"
-        onResolved={() => {}}
-      />
-    );
-
-    expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
-  });
-});
-
-// M4 Issue 4: verify that when no explicit fetchFn prop is passed, the component
-// delegates to authFetch (which injects the Authorization header) rather than
-// calling bare window.fetch directly.  The seam (fetchFn prop) is not affected.
 describe("PermissionCard — M4 auth header (default fetchFn → authFetch)", () => {
   beforeEach(() => {
     vi.mocked(authFetchModule.authFetch).mockReset();
@@ -233,30 +257,59 @@ describe("PermissionCard — M4 auth header (default fetchFn → authFetch)", ()
 
   it("calls authFetch (not bare fetch) when no fetchFn prop is supplied", async () => {
     const user = userEvent.setup();
-    // authFetch mock returns 200 so the card resolves cleanly
     vi.mocked(authFetchModule.authFetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ status: "forwarded" }), { status: 200 })
     );
+    const onResolved = vi.fn();
 
     render(
       <PermissionCard
         request={SAMPLE_REQUEST}
         conversationId="conv-default-auth"
         messageId="msg-1"
-        onResolved={() => {}}
-        // No fetchFn prop — must use authFetch internally
+        onResolved={onResolved}
       />
     );
 
     await user.click(screen.getByRole("button", { name: /allow once/i }));
     await waitFor(() => {
-      expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
+      expect(onResolved).toHaveBeenCalledWith("allow_once");
     });
 
-    // authFetch must have been called with the correct URL and POST body
     expect(authFetchModule.authFetch).toHaveBeenCalledOnce();
     const [url, init] = vi.mocked(authFetchModule.authFetch).mock.calls[0];
     expect(url).toContain("/im/v1/conversations/conv-default-auth/permissions/req-abc");
     expect((init as RequestInit).method).toBe("POST");
+  });
+});
+
+// bugfix-367 核心场景: 同一组件实例(同 message,同 React key=request_id)
+// 上,prop 从 resolved 切换到一个新的 pending request 时,组件不能再卡在
+// 旧 resolved 上(根因 3: 删除 useState 派生 prop 反模式后这条自动满足,
+// 但仍写一条断言锁定该行为防回归)。
+describe("PermissionCard — prop change reactivity", () => {
+  it("re-renders as pending when prop switches from resolved to a fresh pending request", () => {
+    const { rerender } = render(
+      <PermissionCard
+        request={{ ...SAMPLE_REQUEST, request_id: "req-old", status: "resolved", decision: "allow_once" }}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+      />
+    );
+    expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
+
+    // 注意: 实际生产链路下,新 ask 会被 message-pane 用 key={request_id} 强制
+    // remount —— 但即便没有 key 切换,这里也必须能正确反映 prop。
+    rerender(
+      <PermissionCard
+        request={{ ...SAMPLE_REQUEST, request_id: "req-new", status: "pending" }}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+      />
+    );
+    expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /allow once/i })).toBeEnabled();
   });
 });

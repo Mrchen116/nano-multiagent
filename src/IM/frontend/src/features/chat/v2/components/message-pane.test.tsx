@@ -329,10 +329,10 @@ describe("MessagePane", () => {
       attachments: [],
       delivery_status: "running",
       created_at: "2026-01-01T00:00:00Z",
-      permission_request: PERM_REQUEST,
+      permission_requests: [PERM_REQUEST],
     };
 
-    it("renders PermissionCard inline when agent message has permission_request", () => {
+    it("renders PermissionCard inline when agent message has a permission_requests entry", () => {
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -341,21 +341,19 @@ describe("MessagePane", () => {
           onSend={() => {}}
         />
       );
-      // PermissionCard should render with the question text
       expect(screen.getByText(/Allow bash to run this command/i)).toBeInTheDocument();
-      // Option buttons should be present
       expect(screen.getByRole("button", { name: /allow once/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /deny/i })).toBeInTheDocument();
     });
 
-    it("does not render PermissionCard when message has no permission_request", () => {
+    it("does not render PermissionCard when message has empty permission_requests list", () => {
       render(
         <MessagePane
           conversation={DIRECT_CONV}
           messages={[{
             ...AGENT_MSG_WITH_PERM,
             id: "m-no-perm",
-            permission_request: null,
+            permission_requests: [],
             content: "Regular reply",
           }]}
           mentionCandidates={[]}
@@ -366,11 +364,11 @@ describe("MessagePane", () => {
       expect(screen.getByText("Regular reply")).toBeInTheDocument();
     });
 
-    it("renders resolved PermissionCard (no buttons) when status=resolved", () => {
+    it("renders resolved PermissionCard (no buttons) when entry status=resolved", () => {
       const resolvedMsg: Message = {
         ...AGENT_MSG_WITH_PERM,
         id: "m-resolved",
-        permission_request: { ...PERM_REQUEST, status: "resolved", decision: "allow_once" },
+        permission_requests: [{ ...PERM_REQUEST, status: "resolved", decision: "allow_once" }],
       };
       render(
         <MessagePane
@@ -382,6 +380,31 @@ describe("MessagePane", () => {
       );
       expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
+    });
+
+    // bugfix-367: 同 message 多次 ask, 历史 resolved 卡保留, 同时新 pending 卡出现
+    it("renders both a resolved history card and a new pending card stacked under the same bubble", () => {
+      const msg: Message = {
+        ...AGENT_MSG_WITH_PERM,
+        id: "m-two-asks",
+        permission_requests: [
+          { ...PERM_REQUEST, request_id: "req-1", question: "Allow bash command #1?", status: "resolved", decision: "allow_once" },
+          { ...PERM_REQUEST, request_id: "req-2", tool_name: "write", question: "Allow write call #2?", status: "pending" },
+        ],
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[msg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      // 历史已允许小条仍可见
+      expect(screen.getAllByTestId("permission-resolved")).toHaveLength(1);
+      // 当前 pending 的按钮组也可见
+      expect(screen.getByText(/Allow write call #2/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /allow once/i })).toBeInTheDocument();
     });
   });
 

@@ -1,21 +1,18 @@
 /**
  * PermissionCard: inline permission request card rendered inside agent message bubbles.
  *
- * Design: decisions 7 & 8 of feat-333 design.md.
- * State machine: pending → submitting → resolved (or pending → error → pending).
+ * bugfix-367 修复点:
+ *  - 删除 useState(() => initialState(request)) 反模式: resolved 分支直接由
+ *    `request.status === "resolved"` 派生, prop 变化时组件自然 re-render
+ *    到正确状态(同 message 多次 ask 时也无需依赖 React key 强行 remount)。
+ *  - 卡内直接渲染 tool_input + description(若 bash/task/agent 工具的入参里有
+ *    `description` 字段则作为人类可读摘要)。用户不再需要去点开"上面的工具
+ *    调用详情"才能看到要授权什么命令/参数。
+ *  - 仅 submitting / error 是真正的临时态, 保留在 useState 中。
  *
- * The card POSTs the user's decision to
- *   POST /im/v1/conversations/{conversationId}/permissions/{requestId}
- * which the IM backend forwards to PA → agent inbound to unpark the hook.
- *
- * The default fetchFn uses authFetch (which injects the Authorization: Bearer header
- * from the auth store) so the IM backend's JWT guard does not reject the request.
- * Tests can override fetchFn to inject a mock without touching the auth store.
- *
- * Visual: 方案 B 深色卡，对齐 chat-tool-calls-* 体系。All styles live in global.css
- * under the chat-permission-* prefix — no inline Tailwind utilities.
+ * 视觉与 chat-permission-* 系列对齐(global.css 已备好的 dark mono 体系)。
  */
-import React, { useState } from "react";
+import { useState } from "react";
 
 import { authFetch } from "../../../auth/auth-fetch";
 import { useTranslation } from "../../../../i18n";
@@ -32,17 +29,36 @@ export interface PermissionCardProps {
   fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
-type CardState =
-  | { kind: "pending" }
+type TransientState =
+  | { kind: "idle" }
   | { kind: "submitting"; chosenId: string }
-  | { kind: "resolved"; decision: string }
   | { kind: "error"; chosenId: string; message: string };
 
-function initialState(request: PermissionRequest): CardState {
-  if (request.status === "resolved") {
-    return { kind: "resolved", decision: request.decision ?? "" };
-  }
-  return { kind: "pending" };
+function readDescription(input: Record<string, unknown> | null | undefined): string | null {
+  // bugfix-367: bash / task / agent 工具的 input_schema 给 LLM 留了 `description`
+  // 字段(参见 src/agent/platform/tools/builtins/{bash,task,agent}.py)。LLM 会
+  // 填一句人类可读摘要, 授权卡显示这条比单看 raw JSON 更易判断。其他工具
+  // 没有该字段, 跳过渲染描述行。
+  if (!input || typeof input !== "object") return null;
+  const value = (input as Record<string, unknown>).description;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function stripDescription(input: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  // 原始参数块去掉 description, 避免与上方摘要行重复。
+  if (!input || typeof input !== "object") return {};
+  const { description: _description, ...rest } = input as Record<string, unknown>;
+  void _description;
+  return rest;
+}
+
+function formatToolInput(input: Record<string, unknown> | null | undefined): string {
+  // bugfix-367: 与 tool-calls-panel.tsx 的 INPUT 区一致 ——
+  // JSON.stringify(rest, null, 2), 所有工具一视同仁, 多参全展示。
+  const rest = stripDescription(input);
+  return JSON.stringify(rest, null, 2);
 }
 
 /**
@@ -54,16 +70,13 @@ export function PermissionCard({
   conversationId,
   messageId,
   onResolved,
-  // authFetch is the default so that the IM backend's JWT guard sees the
-  // Authorization header.  Tests inject a mock via this prop to avoid
-  // touching the auth store in jsdom.
   fetchFn = authFetch,
 }: PermissionCardProps) {
   const { t } = useTranslation();
-  const [cardState, setCardState] = useState<CardState>(() => initialState(request));
+  const [transient, setTransient] = useState<TransientState>({ kind: "idle" });
 
   async function handleChoice(option: PermissionOption) {
-    setCardState({ kind: "submitting", chosenId: option.id });
+    setTransient({ kind: "submitting", chosenId: option.id });
     try {
       const resp = await fetchFn(
         `/im/v1/conversations/${conversationId}/permissions/${request.request_id}`,
@@ -77,16 +90,18 @@ export function PermissionCard({
         const text = await resp.text().catch(() => "Unknown error");
         throw new Error(text || `HTTP ${resp.status}`);
       }
-      setCardState({ kind: "resolved", decision: option.id });
+      // 不再写本地 resolved state —— 服务端的 permission.resolved WS 事件会通过
+      // reducer 把 request.status 更新为 "resolved", 组件自然重渲染。
       onResolved(option.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : t("chat.permission.submitError");
-      setCardState({ kind: "error", chosenId: option.id, message });
+      setTransient({ kind: "error", chosenId: option.id, message });
     }
   }
 
-  if (cardState.kind === "resolved") {
-    const isDeny = cardState.decision === "deny";
+  // bugfix-367: resolved 分支直接由 prop 派生, 不再用 useState 派生 prop。
+  if (request.status === "resolved") {
+    const isDeny = request.decision === "deny";
     return (
       <div className="chat-permission-card chat-permission-card--resolved">
         <span
@@ -101,8 +116,11 @@ export function PermissionCard({
     );
   }
 
-  const isSubmitting = cardState.kind === "submitting";
-  const errorMessage = cardState.kind === "error" ? cardState.message : null;
+  const isSubmitting = transient.kind === "submitting";
+  const errorMessage = transient.kind === "error" ? transient.message : null;
+
+  const description = readDescription(request.tool_input);
+  const formattedInput = formatToolInput(request.tool_input);
 
   return (
     <div
@@ -115,6 +133,16 @@ export function PermissionCard({
         <span className="chat-permission-tool-name">{request.tool_name}</span>
         <span className="chat-permission-hint">{t("chat.permission.hint")}</span>
       </div>
+      {/* bugfix-367 §A: tool_input.description (bash/task/agent 工具有此字段) */}
+      {description && (
+        <p data-testid="permission-description" className="chat-permission-desc">
+          {description}
+        </p>
+      )}
+      {/* bugfix-367 §A: 原始 tool_input 区, 多参一视同仁全展示 */}
+      <pre data-testid="permission-tool-input" className="chat-permission-cmd">
+        {formattedInput}
+      </pre>
       <p className="chat-permission-question">{request.question}</p>
       {errorMessage && (
         <div role="alert" className="chat-permission-error">
@@ -123,8 +151,7 @@ export function PermissionCard({
       )}
       <div className="chat-permission-options" role="group" aria-label={t("chat.permission.ariaOptions")}>
         {request.options.map((opt) => {
-          const isChosen = isSubmitting && (cardState as { chosenId: string }).chosenId === opt.id;
-          // Determine button variant: allow_once → primary, deny → danger, others → default
+          const isChosen = isSubmitting && (transient as { chosenId: string }).chosenId === opt.id;
           const variant =
             opt.id === "allow_once" ? " chat-permission-btn--primary"
             : opt.id === "deny" ? " chat-permission-btn--danger"

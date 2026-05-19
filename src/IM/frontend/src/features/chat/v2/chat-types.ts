@@ -57,8 +57,12 @@ export interface Message {
   created_at: string;
   tool_calls?: ToolCall[];
   token_usage?: TokenUsage | null;
-  /** Embedded permission request; present when the agent is awaiting a user decision. */
-  permission_request?: PermissionRequest | null;
+  /**
+   * bugfix-367: 同一 message 上所有 ask 按时间顺序保留 (允许 / 拒绝 / 当前 pending)。
+   * 渲染时按 `request_id` 做 React key,新请求自然 mount 成新卡,旧 resolved 卡
+   * 保留在原位 —— 用户能回看"按了多少次同意"。
+   */
+  permission_requests: PermissionRequest[];
 }
 
 export interface Conversation {
@@ -147,7 +151,7 @@ export interface PermissionRequest {
   decision?: string;
 }
 
-/** The Message type extended with an optional embedded permission request. */
+/** The Message type extended with the list of embedded permission requests. */
 export interface MessagePermissionData {
-  permission_request?: PermissionRequest | null;
+  permission_requests: PermissionRequest[];
 }

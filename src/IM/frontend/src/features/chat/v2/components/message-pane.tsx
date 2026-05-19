@@ -414,14 +414,18 @@ function MessageBubble({
             <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
           )}
         </div>
-        {isAgent && message.permission_request && (
+        {isAgent && (message.permission_requests ?? []).map((req) => (
+          // bugfix-367: 用 request_id 当 key —— 新 ask(不同 request_id)mount 成
+          // 新组件实例,内部 state 重新走 pending;旧 resolved 卡保留在原位。
+          // 历史"按了多少次同意"按时间顺序全可见。
           <PermissionCard
-            request={message.permission_request}
+            key={req.request_id}
+            request={req}
             conversationId={message.conversation_id}
             messageId={message.id}
             onResolved={() => {/* WS event will update the message status */}}
           />
-        )}
+        ))}
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {deliveryStatus === "running" && (

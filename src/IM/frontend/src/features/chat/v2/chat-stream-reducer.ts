@@ -82,7 +82,8 @@ export function applyWsEvent(
         delivery_status: ev.delivery_status,
         created_at: ev.created_at,
         tool_calls: ev.tool_calls,
-        token_usage: ev.token_usage
+        token_usage: ev.token_usage,
+        permission_requests: []
       };
       return { ...state, messages: [...state.messages, created] };
     }
@@ -101,25 +102,32 @@ export function applyWsEvent(
     case "tool_call.completed": {
       return patchMessage(state, ev.message_id, (m) => upsertToolCall(m, ev.tool_call));
     }
-    // feat-333-M3/R1: permission ask flow — fill message.permission_request so
-    // PermissionCard renders inline without a full page reload.
+    // bugfix-367: 同一 message 上多次 ask 现按 list 累积。同 request_id 二次
+    // 写入视为 idempotent 替换;新 request_id 追加。resolved 按 request_id 在
+    // list 中定位、就地改 status/decision —— 不再覆盖整列(覆盖会丢失同泡其他
+    // 历史 ask)。
     case "permission.request": {
-      return patchMessage(state, ev.message_id, (m) => ({
-        ...m,
-        permission_request: ev.permission_request
-      }));
+      return patchMessage(state, ev.message_id, (m) => {
+        const current = m.permission_requests ?? [];
+        const idx = current.findIndex((r) => r.request_id === ev.permission_request.request_id);
+        const next = idx >= 0
+          ? current.map((r, i) => (i === idx ? ev.permission_request : r))
+          : [...current, ev.permission_request];
+        return { ...m, permission_requests: next };
+      });
     }
     case "permission.resolved": {
       return patchMessage(state, ev.message_id, (m) => {
-        if (!m.permission_request) return m;
-        return {
-          ...m,
-          permission_request: {
-            ...m.permission_request,
-            status: "resolved" as const,
-            decision: ev.decision
-          }
+        const current = m.permission_requests ?? [];
+        const idx = current.findIndex((r) => r.request_id === ev.request_id);
+        if (idx < 0) return m;
+        const updated = {
+          ...current[idx]!,
+          status: "resolved" as const,
+          decision: ev.decision
         };
+        const next = current.map((r, i) => (i === idx ? updated : r));
+        return { ...m, permission_requests: next };
       });
     }
     default:
