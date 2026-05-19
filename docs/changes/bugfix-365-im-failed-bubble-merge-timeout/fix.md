@@ -64,8 +64,24 @@
 
 ## 修复
 
-<!-- worker 回填：改了什么 + commits。 -->
+三处改动（commits `f5a9100a` 红测 / `cf7af8d0` 实现）：
+
+1. **后端合成行去重**（`src/IM/infra/repositories.py` `_message_from_visible_event_row`）：把 `relay.completed` / `relay.failed` 事件翻译成合成消息前，先查 `messages` 表里是否已存在 `id == payload.message_id` 的真实行。当真实行的 `sender_type='agent'` 且 `delivery_status ∈ {failed, completed}` 时直接返回 None，跳过合成。`sender_type='agent'` 的限定是关键：保留了"一条用户消息扇出多条 agent 合成回复"这条遗留路径(用户消息 row 是 `sender_type='user'`，不触发去重)。
+
+2. **失败 bubble 内容回填**（`src/IM/application/relay_watchdog.py` `_backfill_failure_detail_into_message_content`）：watchdog 在翻转消息为 `failed` 后，把 `detail` 文本写到 `messages.content`。空 content 直接写入；已有部分流式 content 时，追加一个空行 + `[error] <detail>` 后缀，保留 agent 在崩溃前已吐出的文字。
+
+3. **watchdog 兜底身份补全**（`src/IM/application/relay_watchdog.py` `_build_failed_payload`）：当 `relay.processing` 事件缺失时，回退查 `messages.sender_user_id` → `users.username = agent:<id>` 链路，把 `agent_id` 和 `sender_display_name` 写回 `relay.failed` payload。即使未来去重逻辑漏了，匿名 "Agent" 兜底也不会再出现。
 
 ## 验证
 
-<!-- worker 回填：修前能复现 → 修后不能；相关功能回归正常。 -->
+**单元测试**（`pytest tests/im_service/unit/test_relay_watchdog.py tests/im_service/unit/test_repositories.py`，24 passed）：
+
+- `test_list_messages_dedups_relay_failed_when_real_terminal_row_exists`：真实 failed agent row 存在时 `relay.failed` 合成行被抑制，最终只有一条 failed bubble。
+- `test_scan_writes_detail_into_empty_message_content`：watchdog 翻转空 content 消息后，content 变为 "relay timed out after 300s with no completion event"。
+- `test_scan_appends_error_note_to_partial_streamed_content`：watchdog 保留 partial content 且追加 `[error] ...` 后缀。
+- `test_scan_recovers_agent_identity_when_relay_processing_missing`：无 `relay.processing` 时仍能从 `messages` 表补全 `agent_id` + `sender_display_name`。
+- 原 4 个 watchdog 行为测试 + 既有 17 个 repositories 测试全部继续通过，无回归。
+
+**关联 IM 套件回归**：`pytest tests/im_service/ tests/unit/IM/ -m "not e2e"` —— 修改前后失败列表对照(28 个失败均与本次无关：401 auth / 既有 broadcast / conversation_rename 等，与本 unit 涉及文件无交集)，引入零回归。
+
+**生产数据现状**：会话 `bd4b7e7f9d49471db63bdf28898bf4a1` 的 message `327efabb...` 历史上的 `relay.failed` 事件保留在 DB 不动；前端读路径修复后该事件不再生成合成行，幽灵 "Agent" bubble 自动消失。真实 "Q 失败" bubble 的 content 仍是空（旧 watchdog 没回填）—— 开发态，按 Q2 的决定不做数据迁移，新一次失败会带 detail 文本。
