@@ -98,10 +98,9 @@ class MessageResponse(BaseModel):
     created_at: str
     tool_calls: list[ToolCallPayload] = []
     token_usage: TokenUsagePayload | None = None
-    # feat-333-M3/R3: expose embedded permission request so page-reload restores
-    # pending permission cards from REST history (without this field, the card
-    # disappears on refresh even though permission_request_json is persisted in DB).
-    permission_request: dict | None = None
+    # bugfix-367: list-shaped 以保留同一 message 上所有 ask 的历史(允许 / 拒绝 /
+    # 当前 pending)。REST 历史回放因此能完整还原"按了多少个同意"。
+    permission_requests: list[dict] = []
 
 
 class ListMessagesResponse(BaseModel):
@@ -159,9 +158,9 @@ def to_message_response(message: Message) -> MessageResponse:
             context_window=message.token_usage.context_window,
             total=message.token_usage.total,
         ) if message.token_usage is not None else None,
-        # feat-333-M3/R3: pass through permission_request so REST history load can
-        # restore pending permission card state after page refresh.
-        permission_request=message.permission_request,
+        # bugfix-367: pass-through list 形态。前端 reducer / 渲染按 request_id
+        # 索引每张卡,key 用 request_id remount,刷新后历史小条全部还原。
+        permission_requests=list(message.permission_requests),
     )
 
 

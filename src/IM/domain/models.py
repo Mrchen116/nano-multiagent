@@ -228,9 +228,11 @@ class Message:
     created_at: str = ""
     tool_calls: list[ToolCall] | None = None
     token_usage: TokenUsage | None = None
-    # feat-333-M2: embedded permission request (pending/resolved) alongside tool_calls.
-    # Dict shape: {request_id, tool_name, tool_input, question, options, status, decision?}
-    permission_request: dict[str, Any] | None = None
+    # bugfix-367: 同一 message 上的所有 permission ask 按时间顺序保留(list 而非 single
+    # dict)。同泡内 ask 不再覆盖前一次的 resolved 记录,UI 可以渲染历史"已允许 / 已拒绝"
+    # 小条 + 当前 pending 卡。每个元素 shape:
+    # {request_id, tool_name, tool_input, question, options, status, decision?}
+    permission_requests: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.sender is None:

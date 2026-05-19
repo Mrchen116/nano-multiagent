@@ -1154,38 +1154,106 @@ class MessageRepository:
             merged = _upsert_message(merged, synthetic_message)
         return merged
 
-    def update_permission_request(
+    def append_permission_request(
         self,
         *,
         message_id: str,
         permission_data: dict[str, object],
     ) -> str:
-        """Persist one permission_request dict onto the message row.
+        """Append one permission_request dict to the message's list, dedup by request_id.
 
-        Upserts (overwrite) the ``permission_request_json`` column.  The caller is
-        responsible for embedding ``status`` and ``decision`` fields into
-        ``permission_data`` before calling this method.
+        bugfix-367: 同一 message 上多次 ask 不再相互覆盖。同 request_id 的二次写入
+        视为 idempotent 替换(网络重传等);新 request_id 追加到 list 尾,以便 UI
+        按时间顺序渲染历史小条 + 当前 pending 卡。
 
         Args:
             message_id: Target message; must exist.
-            permission_data: Full permission request dict to persist as JSON.
+            permission_data: Full permission request dict to append/replace. Caller
+                supplies ``status="pending"`` (and ``request_id``).
 
         Returns:
-            The conversation_id of the target message (needed by the bridge to emit events).
+            The conversation_id of the target message (needed by the bridge).
 
         Raises:
-            ValueError: When ``message_id`` does not exist.
+            ValueError: When ``message_id`` does not exist or ``permission_data``
+                lacks ``request_id``.
         """
+        request_id = permission_data.get("request_id")
+        if not isinstance(request_id, str) or not request_id:
+            raise ValueError("permission_data must include a non-empty request_id")
+
         row = self._connection.execute(
-            "SELECT conversation_id FROM messages WHERE id = ?",
+            "SELECT conversation_id, permission_request_json FROM messages WHERE id = ?",
             (message_id,),
         ).fetchone()
         if row is None:
             raise ValueError(f"message_id not found: {message_id}")
+        existing = _load_permission_requests(row["permission_request_json"])
+        replaced = False
+        for index, entry in enumerate(existing):
+            if entry.get("request_id") == request_id:
+                existing[index] = dict(permission_data)
+                replaced = True
+                break
+        if not replaced:
+            existing.append(dict(permission_data))
         with self._connection:
             self._connection.execute(
                 "UPDATE messages SET permission_request_json = ? WHERE id = ?",
-                (json.dumps(permission_data), message_id),
+                (json.dumps(existing), message_id),
+            )
+        return str(row["conversation_id"])
+
+    def update_permission_resolution(
+        self,
+        *,
+        message_id: str,
+        request_id: str,
+        decision: str,
+    ) -> str:
+        """Mark one specific permission_request entry as resolved within the list.
+
+        bugfix-367: list 化后 resolved 写入必须按 request_id 定位 —— 不再覆盖整列
+        (那会丢掉同泡内其他历史 ask)。未匹配到 request_id 时 raise,防止前端
+        reducer 状态机被静默放空。
+
+        Args:
+            message_id: Target message; must exist.
+            request_id: Stable identifier matching a pending request.
+            decision: User-chosen option id (e.g. ``"allow_once"``, ``"deny"``).
+
+        Returns:
+            The conversation_id of the target message.
+
+        Raises:
+            ValueError: When ``message_id`` does not exist or ``request_id`` is not
+                found in the message's permission_requests list.
+        """
+        row = self._connection.execute(
+            "SELECT conversation_id, permission_request_json FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"message_id not found: {message_id}")
+        existing = _load_permission_requests(row["permission_request_json"])
+        target_index: int | None = None
+        for index, entry in enumerate(existing):
+            if entry.get("request_id") == request_id:
+                target_index = index
+                break
+        if target_index is None:
+            raise ValueError(
+                f"request_id {request_id!r} not found in permission_requests of message {message_id}"
+            )
+        existing[target_index] = {
+            **existing[target_index],
+            "status": "resolved",
+            "decision": decision,
+        }
+        with self._connection:
+            self._connection.execute(
+                "UPDATE messages SET permission_request_json = ? WHERE id = ?",
+                (json.dumps(existing), message_id),
             )
         return str(row["conversation_id"])
 
@@ -1194,12 +1262,7 @@ class MessageRepository:
         tool_calls_value = row["tool_calls_json"] if "tool_calls_json" in row.keys() else None
         token_usage_value = row["token_usage_json"] if "token_usage_json" in row.keys() else None
         permission_request_value = row["permission_request_json"] if "permission_request_json" in row.keys() else None
-        permission_request: dict | None = None
-        if permission_request_value is not None:
-            try:
-                permission_request = json.loads(permission_request_value)
-            except (json.JSONDecodeError, TypeError):
-                permission_request = None
+        permission_requests = _load_permission_requests(permission_request_value)
         return Message(
             id=row["id"],
             conversation_id=row["conversation_id"],
@@ -1219,7 +1282,7 @@ class MessageRepository:
             created_at=row["created_at"],
             tool_calls=_decode_tool_calls(tool_calls_value),
             token_usage=_decode_token_usage(token_usage_value),
-            permission_request=permission_request,
+            permission_requests=permission_requests,
         )
 
     def _message_from_visible_event_row(self, row: sqlite3.Row) -> Message | None:
@@ -2366,6 +2429,26 @@ def _tool_call_to_dict(tool_call: ToolCall) -> dict[str, object]:
 
 def _encode_tool_calls(tool_calls: list[ToolCall]) -> str:
     return json.dumps([_tool_call_to_dict(tc) for tc in tool_calls], ensure_ascii=True, separators=(",", ":"))
+
+
+def _load_permission_requests(raw_value: object) -> list[dict]:
+    """Parse permission_request_json (always list-shaped, bugfix-367).
+
+    开发态实现:列里必须存 list。坏数据(非 list / 解析失败)直接返回空 list,
+    呼叫方可以从干净基线开始重试。不做旧 dict 形态的兼容(参见 fix.md "修复"段
+    第二节:开发态,不做数据兼容)。
+    """
+    if raw_value is None:
+        return []
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return []
+    try:
+        parsed = json.loads(raw_value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [dict(item) for item in parsed if isinstance(item, dict)]
 
 
 def _decode_tool_calls(value: object) -> list[ToolCall] | None:

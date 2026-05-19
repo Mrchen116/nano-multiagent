@@ -205,8 +205,10 @@ class EventBridge:
         Raises:
             ValueError: When ``message_id`` does not exist.
         """
+        # bugfix-367: append 而不是覆盖 —— 同一 message 上多次 ask 全部按时间顺序保留。
+        # 同 request_id 重复写入 idempotent(repository 内 dedup 替换)。
         data = {**permission_request, "status": "pending"}
-        conversation_id = self.message_repository.update_permission_request(
+        conversation_id = self.message_repository.append_permission_request(
             message_id=message_id,
             permission_data=data,
         )
@@ -244,26 +246,12 @@ class EventBridge:
         Raises:
             ValueError: When ``message_id`` does not exist.
         """
-        # Fetch existing permission data to merge resolution without losing other fields.
-        row = self.message_repository._connection.execute(  # noqa: SLF001
-            "SELECT conversation_id, permission_request_json FROM messages WHERE id = ?",
-            (message_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError(f"message_id not found: {message_id}")
-        import json as _json
-
-        existing: dict[str, object] = {}
-        if row["permission_request_json"]:
-            try:
-                existing = _json.loads(row["permission_request_json"])
-            except (ValueError, TypeError):
-                existing = {}
-        conversation_id = str(row["conversation_id"])
-        data = {**existing, "status": "resolved", "decision": decision}
-        self.message_repository.update_permission_request(
+        # bugfix-367: 按 request_id 在 list 中定位、就地改 status/decision,
+        # 不再覆盖整条 permission_request_json(那会丢同泡其他历史 ask)。
+        conversation_id = self.message_repository.update_permission_resolution(
             message_id=message_id,
-            permission_data=data,
+            request_id=request_id,
+            decision=decision,
         )
         self._emit(
             conversation_id=conversation_id,
