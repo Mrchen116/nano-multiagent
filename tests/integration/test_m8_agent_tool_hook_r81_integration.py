@@ -8,32 +8,10 @@ from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.core.session.store import LoadedSession, SessionStore
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.registry import ToolRegistry
-
-
-class InMemorySessionStore(SessionStore):
-    def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-        self.snapshots: dict[str, dict[str, object]] = {}
-
-    def append_event(self, session_id: str, entry: object) -> None:
-        self.events.append((session_id, entry))
-
-    def load_session(self, session_id: str) -> LoadedSession | None:
-        session_events = tuple(entry for sid, entry in self.events if sid == session_id)
-        if not session_events and session_id not in self.snapshots:
-            return None
-        return LoadedSession(
-            session_id=session_id,
-            events=session_events,
-            snapshot=self.snapshots.get(session_id),
-        )
-
-    def save_snapshot(self, session_id: str, snapshot: dict[str, object]) -> None:
-        self.snapshots[session_id] = snapshot
 
 
 class EchoLLMClient:
@@ -68,17 +46,16 @@ class EchoTool:
         return {"text": args["text"]}
 
 
-def _runtime_with_hooks(registry: HookRegistry) -> tuple[AgentRuntime, EchoLLMClient, SessionManager, str]:
-    store = InMemorySessionStore()
-    manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=Path.cwd())
+def _runtime_with_hooks(registry: HookRegistry, tmp_path: Path) -> tuple[AgentRuntime, EchoLLMClient, SessionManager, str]:
+    manager = SessionManager(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    session = manager.create_session(workspace_root=tmp_path)
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=llm,
         model="mock-model",
         hook_runner=HookRunner(registry=registry),
-        repo_root=Path.cwd(),
+        repo_root=tmp_path,
     )
     return runtime, llm, manager, session.session_id
 
@@ -93,7 +70,7 @@ def _tool_registry_with_hooks(registry: HookRegistry) -> tuple[ToolRegistry, Ech
     return tool_registry, tool
 
 
-def test_runtime_input_transform_and_handled_are_effective() -> None:
+def test_runtime_input_transform_and_handled_are_effective(tmp_path: Path) -> None:
     registry = HookRegistry()
 
     async def transform_input(event, ctx):
@@ -112,7 +89,7 @@ def test_runtime_input_transform_and_handled_are_effective() -> None:
     registry.on("input", handled_input, priority=20)
     registry.on("before_agent_start", before_agent_start, priority=10)
 
-    runtime, llm, manager, session_id = _runtime_with_hooks(registry)
+    runtime, llm, manager, session_id = _runtime_with_hooks(registry, tmp_path)
 
     result = runtime.run(session_id, [{"type": "text", "text": "ping"}], stream=False)
 
@@ -196,7 +173,7 @@ def test_tool_result_rewrite_list_content_is_passthrough() -> None:
     }
 
 
-def test_hook_exceptions_are_isolated_and_fail_open_for_runtime_and_tools() -> None:
+def test_hook_exceptions_are_isolated_and_fail_open_for_runtime_and_tools(tmp_path: Path) -> None:
     runtime_registry = HookRegistry()
 
     async def runtime_exploding(event, ctx):
@@ -204,7 +181,7 @@ def test_hook_exceptions_are_isolated_and_fail_open_for_runtime_and_tools() -> N
         raise RuntimeError("runtime boom")
 
     runtime_registry.on("input", runtime_exploding, priority=10)
-    runtime, llm, _, session_id = _runtime_with_hooks(runtime_registry)
+    runtime, llm, _, session_id = _runtime_with_hooks(runtime_registry, tmp_path)
     runtime_result = runtime.run(session_id, [{"type": "text", "text": "ping"}], stream=False)
 
     assert runtime_result.messages[0].content == "ack:ping"
