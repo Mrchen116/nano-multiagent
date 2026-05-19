@@ -420,11 +420,14 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
 - [ ] `§Runbook for Reviewer` 段已填(列出本 unit 涉及的常驻服务 + 停止/启动/健康检查命令,或显式"无常驻服务")
 - [ ] Milestone 表完整(每行字段都填),数量 = mkdir 出的子目录数
 - [ ] 子目录全空(没有预填 tasks.md / progress.md)
+- [ ] 已 commit 到 `main`(`docs/changes/<unit_dir>/` 含 design.md 与 milestone 空目录)
 
-通过后告诉用户:
+通过后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(勿建 `unit/*` 分支)。
 
-> Design 定稿,门禁 2 通过。可以启动 `change-orchestrator` 进入实施。
-> Orchestrator 会做 sync gate、创建 unit 分支 `unit/<unit-id>`、按 Milestone 表派发 worker。
+然后告诉用户:
+
+> Design 定稿,门禁 2 通过。可以按照 `change-orchestrator` skill实施。
+> 按照 Orchestrator skill 会做 sync gate、创建 unit 分支 `unit/<unit-id>`、按 Milestone 表派发 worker。
 
 ---
 
@@ -436,7 +439,7 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
 - **不要为了"拆得显得专业"拆 milestone**。多 milestone 是工具不是奖牌。默认单 M1,拆要举证。
 - **不要预填 tasks.md / progress.md**。worker 会推翻,纯浪费。
 - **不要在 design.md 写实现伪代码**。"长什么样、谁调谁"够了,行级细节是 worker 的事。
-- **不要在 design 阶段动 git**。任何 `git checkout / branch / push` 都是 orchestrator 的事。
+- **不要建 unit 分支**。定稿 commit 到 `main` 见 §6; `unit/<unit-id>` 由 orchestrator 创建。
 - **风险段不要写空话**。"需要小心兼容性"是空话;"现有 X 调用方有 47 个,迁移需要分 3 批 + 一个兼容层"才是风险。
 - **不要跳过 §5 整体自检**。逐段对齐时局部视野看不到的矛盾,自检阶段才暴露。跳过 = 把锅留给 worker。
 
