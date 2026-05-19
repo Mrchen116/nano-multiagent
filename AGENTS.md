@@ -177,7 +177,7 @@ read IM_PORT VITE_PORT < <(scripts/free-ports.sh 2)
 
 | 服务 | 指定端口/URL 方式 | 关键 env |
 |---|---|---|
-| IM (uvicorn) | `--port <N>`(uvicorn 原生) | `IM_JWT_SECRET=<unit 专属随机串>` 必须设,否则 token 跨重启失效 |
+| IM (uvicorn) | `--port <N>`(uvicorn 原生) | `IM_JWT_SECRET=<unit 专属随机串>` 必须设,否则 token 跨重启失效;`IM_DB_PATH` 已支持,默认 `data/im_service.sqlite3`(cwd-relative),worktree 内起服务时天然隔离,无需显式传 |
 | Gateway | 不监听端口;指 IM 用 `--im-service-url http://127.0.0.1:<IM_PORT>`(CLI override 已支持,见 `personal_assistant/main.py`) | — |
 | Vite | `npm run dev -- --port <N> --strictPort` | — |
 | Coding CLI managed API | `--base-url http://127.0.0.1:<N>`(managed 模式 host/port 都从 base-url 解析) | — |
@@ -199,8 +199,7 @@ done
 
 ### 已知未参数化的点(接受现状)
 
-- **IM DB 路径**:当前未走 env,跨 unit 共享 `<repo>/im.sqlite`,验收测试数据会串。遇到具体痛点再加 `IM_DB_PATH`。
-- **Gateway `workspace_root`**:`~/.nano-assistant/config.yaml` 里硬写,跨 unit 共享。同上。
+- **Gateway `workspace_root`**:`~/.nano-assistant/config.yaml` 里硬写,跨 unit 共享(`personal_assistant/main.py` 只从 config 文件读,无 env override)。遇到具体痛点再加 env 覆盖。
 
 ## 开发约定
 

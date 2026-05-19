@@ -26,6 +26,7 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 13. **派发必须后台运行**。Agent 工具派发 worker / reviewer 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
 14. **必须开 team 派发**。启动时先 `TeamCreate` 建一个 unit 专属 team(名字用 `unit-<unit_id>`),之后所有 Agent 派发都带 `team_name`。否则子 agent 结束后实例销毁,失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.4)就无法 `SendMessage` 续跑,只能新开实例丢上下文。unit 完成(§7.4 退出前)`TeamDelete` 清理。
 15. **主仓 HEAD 不动**。整个 unit 生命周期内,所有针对 `unit/<unit_id>` 分支的 checkout / pull / merge / push / rebase / PR 一律在专属 `unit_worktree_dir`(§2.3)里跑,**严禁**在主仓 `git checkout unit/<id>`——多 orchestrator 并发时主仓 HEAD 会被互相踩翻,用户也可能正在主仓做别的事。Sync Gate(§2.2)操作的是主仓的 main,不在此限。
+16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.4 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见项目 AGENTS.md;§7.4 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
 
 ---
 
@@ -451,7 +452,8 @@ Recommended next action: 启动 change-design-author 修订 design.md(必须 Cha
 Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 ```
 
-4. orchestrator **退出**。等人完成 design 修订并主动重启。
+4. **sweep 服务 PID**(§0.16,见 AGENTS.md snippet),保留 worktree 与日志 / DB。
+5. orchestrator **退出**。等人完成 design 修订并主动重启。
 
 ### §6.5 `out-of-unit`(reviewer 已立 issue)
 
@@ -580,11 +582,16 @@ Unit <unit-id> 实施完成,PR 已提交:<url>
 orchestrator 退出。
 ```
 
-退出前清理 unit worktree(merge 后由人在主仓侧或下次 sync gate 处理本地 unit 分支):
+退出前清理(merge 后由人在主仓侧或下次 sync gate 处理本地 unit 分支):
 
 ```bash
+(cd "$unit_worktree" && for f in .im.pid .gateway.pid .vite.pid .coding-cli.pid; do
+  [[ -f $f ]] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"
+done)
 git worktree remove "$unit_worktree"
 ```
+
+PID sweep 兜底(§0.16):reviewer / worker 自 kill 通常已干净,但崩溃残留必须 orchestrator 这一步收掉,否则用户会把孤儿进程当主仓服务。
 
 orchestrator **不等 CI、不等 merge**,退出。等 merge 是浪费上下文。
 
