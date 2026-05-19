@@ -189,3 +189,101 @@ def test_scan_inherits_prior_relay_processing_payload_for_id_continuity(tmp_path
     assert payload["agent_id"] == "agent-A"
     assert payload["node_id"] == "node-1"
     assert payload["run_id"] == "run-xyz"
+
+
+def test_scan_writes_detail_into_empty_message_content(tmp_path: Path) -> None:
+    """bugfix-365: when watchdog reaps a stuck running message whose content is empty
+    (agent never emitted any streamed token), the timeout `detail` must be written
+    into `messages.content` so the failed bubble renders it as bubble text instead
+    of leaving an empty bubble + a separate anonymous "Agent" ghost bubble.
+    """
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    stale_at = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=600))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-empty",
+        conversation_id="conv-1",
+        created_at=stale_at,
+    )
+
+    repo = EventRepository(connection, notify=lambda _ev: None)
+    scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=300,
+    )
+    row = connection.execute(
+        "SELECT content, delivery_status FROM messages WHERE id = ?",
+        ("msg-empty",),
+    ).fetchone()
+    assert row["delivery_status"] == "failed"
+    assert row["content"] == "relay timed out after 300s with no completion event"
+
+
+def test_scan_appends_error_note_to_partial_streamed_content(tmp_path: Path) -> None:
+    """bugfix-365: when the stuck running message already has partial streamed
+    content (agent emitted some tokens before the relay stalled), watchdog must
+    preserve the streamed text and append `[error] <detail>` after a blank line,
+    so users can still see what the agent produced before the timeout.
+    """
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    stale_at = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=600))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-partial",
+        conversation_id="conv-1",
+        created_at=stale_at,
+    )
+    connection.execute(
+        "UPDATE messages SET content = ? WHERE id = ?",
+        ("half a sentence...", "msg-partial"),
+    )
+    connection.commit()
+
+    repo = EventRepository(connection, notify=lambda _ev: None)
+    scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=300,
+    )
+    row = connection.execute(
+        "SELECT content FROM messages WHERE id = ?", ("msg-partial",)
+    ).fetchone()
+    assert "half a sentence..." in row["content"]
+    assert "[error] relay timed out after 300s with no completion event" in row["content"]
+
+
+def test_scan_recovers_agent_identity_when_relay_processing_missing(tmp_path: Path) -> None:
+    """bugfix-365: when no prior `relay.processing` exists (gateway crashed before
+    emitting it), watchdog must still recover `agent_id` and `sender_display_name`
+    from the `messages.sender_user_id` -> `users.username = agent:<id>` chain.
+    Without this, the synthetic `relay.failed` event payload was missing identity
+    fields and the frontend fell back to "Agent" for the sender label.
+    """
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    stale_at = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=600))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-noproc",
+        conversation_id="conv-1",
+        created_at=stale_at,
+    )
+
+    captured: list[ConversationEvent] = []
+    repo = EventRepository(connection, notify=captured.append)
+    scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=300,
+    )
+    relay_failed = [ev for ev in captured if ev.event_type == "relay.failed"]
+    assert len(relay_failed) == 1
+    payload = json.loads(relay_failed[0].payload_json)
+    assert payload.get("agent_id") == "agent-A"
+    assert payload.get("sender_display_name") == "Agent A"

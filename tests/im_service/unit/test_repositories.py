@@ -730,3 +730,61 @@ def test_list_messages_keeps_relay_mirror_when_no_real_agent_message(tmp_path: P
     assert any(":relay:" in mid for mid in listed_ids), (
         f"Expected relay synthetic preserved when no real agent message; got {listed_ids}"
     )
+
+
+def test_list_messages_dedups_relay_failed_when_real_terminal_row_exists(tmp_path: Path) -> None:
+    """bugfix-365: a `relay.failed` event must not produce a second bubble when the
+    real `messages` row with same `message_id` is already in `failed` terminal state.
+
+    Pre-fix observed in production: watchdog wrote `relay.failed` after flipping the
+    real message row to `failed`, and `_message_from_visible_event_row` rendered a
+    second synthetic bubble (with anonymous `Agent` sender because payload lacked
+    agent_id). Frontend showed two failed bubbles for one logical message.
+    """
+    users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
+    events = EventRepository(messages._connection)
+    owner = users.create_user(username="owner", display_name="Owner")
+    agent_user = users.create_user(username="agent:archA", display_name="Q")
+    conversation = conversations.create_conversation(
+        title="g",
+        participant_ids=[owner.id, agent_user.id],
+    )
+    user_msg = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        content="hi",
+        auto_complete_delivery=False,
+    )
+    real_agent_msg = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=agent_user.id,
+        sender_type="agent",
+        content="",
+        allow_empty=True,
+        auto_complete_delivery=False,
+    )
+    events.update_message_delivery_status(
+        message_id=real_agent_msg.id,
+        delivery_status="failed",
+    )
+    events.append_event(
+        conversation_id=conversation.id,
+        message_id=real_agent_msg.id,
+        event_type="relay.failed",
+        delivery_status="failed",
+        payload={
+            "conversation_id": conversation.id,
+            "message_id": real_agent_msg.id,
+            "progress_state": "failed",
+            "semantic": "relay_watchdog_timeout",
+            "detail": "relay timed out after 300s with no completion event",
+            "reason": "watchdog_timeout",
+        },
+    )
+
+    listed = messages.list_messages(conversation_id=conversation.id)
+    failed_rows = [m for m in listed if m.delivery_status == "failed"]
+    assert len(failed_rows) == 1, (
+        f"Expected exactly one failed bubble; got {[(m.id, m.sender_type) for m in failed_rows]}"
+    )
+    assert failed_rows[0].id == real_agent_msg.id, "The kept failed bubble must be the real message row, not a synthetic"
