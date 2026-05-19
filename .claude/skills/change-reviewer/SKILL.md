@@ -85,9 +85,10 @@ git pull --ff-only origin "unit/<unit_id>"
 1. **读 design.md `§Runbook for Reviewer` 段**,拿到服务清单 + 启动命令 + 非入仓产物的重建命令(前端 dist / 生成代码 / proto 等)。
    - 如果 design.md 没有这一段(或缺产物重建命令) → 立即 `SendMessage` 给 orchestrator,要求回 `change-design-author` 补全后再派 reviewer。**不要**自己去读源码猜该启动 / build 什么。
 2. **清单内每个服务**:
-   a. 有 PID 跑则 kill(含 worker 留下的进程)。
-   b. **重建 runbook 列出的非入仓产物**(典型:`cd src/IM/frontend && npm run build`)。worker 在 worktree 内 build 的产物随 worktree 一起删除,主仓 dist 多半是其他分支的旧版本,必须在主仓 unit 分支上重 build 一次。
-   c. 按 runbook 命令启动,然后**产物指纹核验**:从服务取首页拿到产物 hash(如 `index-<hash>.js`),`grep` 验证本 unit 关键 marker(testid / 字符串)在该产物里命中。命不中 → 重建链路有问题,直接在报告里记 blocking,不要继续走旅程。
+   a. 有 PID 跑则 kill(含 worker 残留、本 worktree PID 文件)。
+   b. **重建 runbook 列出的非入仓产物**(典型:`cd src/IM/frontend && npm run build`)。worktree 内 build 的产物随 worktree 删除,unit worktree 上必须重 build。
+   c. **并发隔离**:监听端口的服务一律分配空闲端口起(默认端口留给主实例),per-unit secret 本轮生成。具体参数化方式见项目 AGENTS.md;缺则报告 flag。
+   d. 启动后**产物指纹核验**:从服务取首页产物 hash(如 `index-<hash>.js`),`grep` 验证本 unit 关键 marker 命中。不中 → 报告记 blocking,停止走旅程。
 3. **清单外的服务**(数据库 / 消息队列 / 第三方依赖等)**不要碰**——它们不在本 unit 范围,误重启可能破坏其他人的环境。
 
 完成 §2.5 后先走 §2.6 开工报信,再进入 §3 走旅程。
@@ -358,6 +359,8 @@ git add docs/changes/<unit_dir>/<acceptance|regression>.md
 git commit -m "docs(<unit_id>): round <N> acceptance — verdict <pass|fail|pass-with-issues>"
 git push origin "unit/<unit_id>"
 ```
+
+随后 **kill 本轮自己起的服务**——自己起的自己关。残留进程会让人误把分支代码当主仓在跑。
 
 ### §8.2 回报 orchestrator
 

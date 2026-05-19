@@ -161,6 +161,47 @@ src/
 agent 内核三层：`core`（纯逻辑）→ `platform`（接环境）→ `products`（装配方案）。
 依赖方向：`platform → products + core`，禁止反向。`core` 不依赖 `platform` / `products`。
 
+## 运行时服务并行启动
+
+**在 worktree 内起任何监听端口的服务,都必须分配空闲端口,并 kill 自己起的进程**——主仓默认端口(8011 / 8000 / 5173)保留给用户手起的"主"实例,worktree 走 ephemeral 高位口,这样 `lsof -i :8011` 看到的永远是主实例,不会误把分支代码当成主仓。
+
+### 端口分配
+
+```bash
+read IM_PORT VITE_PORT < <(scripts/free-ports.sh 2)
+```
+
+`scripts/free-ports.sh N` 一次性返回 N 个互不重复的空闲端口。
+
+### 每个服务怎么指定端口/URL
+
+| 服务 | 指定端口/URL 方式 | 关键 env |
+|---|---|---|
+| IM (uvicorn) | `--port <N>`(uvicorn 原生) | `IM_JWT_SECRET=<unit 专属随机串>` 必须设,否则 token 跨重启失效 |
+| Gateway | 不监听端口;指 IM 用 `--im-service-url http://127.0.0.1:<IM_PORT>`(CLI override 已支持,见 `personal_assistant/main.py`) | — |
+| Vite | `npm run dev -- --port <N> --strictPort` | — |
+| Coding CLI managed API | `--base-url http://127.0.0.1:<N>`(managed 模式 host/port 都从 base-url 解析) | — |
+
+### PID 文件 + 退出清理
+
+worktree 内约定 PID 文件路径:`.im.pid` / `.gateway.pid` / `.vite.pid` / `.coding-cli.pid`。起服务标准范式:
+
+```bash
+PYTHONPATH=src python -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
+  > .im.log 2>&1 & echo $! > .im.pid
+```
+
+```bash
+for f in .im.pid .gateway.pid .vite.pid .coding-cli.pid; do
+  [[ -f $f ]] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"
+done
+```
+
+### 已知未参数化的点(接受现状)
+
+- **IM DB 路径**:当前未走 env,跨 unit 共享 `<repo>/im.sqlite`,验收测试数据会串。遇到具体痛点再加 `IM_DB_PATH`。
+- **Gateway `workspace_root`**:`~/.nano-assistant/config.yaml` 里硬写,跨 unit 共享。同上。
+
 ## 开发约定
 
 - **注释规范**：见 COMMENTING_GUIDE.md。public API 必须写 Google 风格 docstring；注释写"为什么/约束"而非"做什么"。
