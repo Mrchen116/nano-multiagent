@@ -422,6 +422,38 @@ async def test_anthropic_client_accepts_data_field_without_space() -> None:
     assert messages[-1].finish_reason == "end_turn"
 
 
+async def test_anthropic_client_filters_thinking_blocks_from_stream() -> None:
+    """thinking / redacted_thinking 块不应 yield 到上层消息流。"""
+
+    chunks = [
+        b'event:content_block_start\ndata:{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}\n\n',
+        b'event:content_block_delta\ndata:{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"secret"}}\n\n',
+        b'event:content_block_stop\ndata:{"type":"content_block_stop","index":0}\n\n',
+        b'event:content_block_start\ndata:{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}\n\n',
+        b'event:content_block_delta\ndata:{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"visible"}}\n\n',
+        b'event:content_block_stop\ndata:{"type":"content_block_stop","index":1}\n\n',
+        b'event:message_delta\ndata:{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":1,"output_tokens":1}}\n\n',
+        b'event:message_stop\ndata:{"type":"message_stop"}\n\n',
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(200, stream=httpx.ByteStream(b"".join(chunks)))
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:4000",
+        model="kimiCoding:K2.6",
+        api_key="test-anthropic-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    messages = await _consume_generate(client, _build_request())
+
+    text_messages = [msg for msg in messages if msg.content]
+    assert len(text_messages) == 1
+    assert text_messages[0].content == "visible"
+
+
 def test_provider_clients_bypass_env_proxy_for_local_base_url() -> None:
     assert openai_should_trust_env("http://127.0.0.1:4000") is False
     assert anthropic_should_trust_env("http://localhost:4000") is False

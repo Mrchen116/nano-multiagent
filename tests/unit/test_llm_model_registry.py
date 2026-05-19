@@ -29,3 +29,11 @@ def test_resolve_anthropic_metadata_has_text_capability() -> None:
     assert metadata.model == "kimiCoding:K2.6"
     assert metadata.supports_text is True
     assert metadata.supports_streaming is False
+    assert metadata.extra_request_body == {"thinking": {"type": "adaptive"}}
+
+
+def test_resolve_unknown_anthropic_model_inherits_extra_request_body() -> None:
+    metadata = resolve_model_metadata("anthropic", "custom:unknown-model")
+
+    assert metadata.model == "custom:unknown-model"
+    assert metadata.extra_request_body == {"thinking": {"type": "adaptive"}}

@@ -1212,6 +1212,36 @@ def test_launch_gateway_in_background_passes_im_service_override_to_child_and_ru
     assert loaded_config.im_service.url == "http://im.remote:9011"
 
 
+def test_load_runtime_config_preserves_im_credentials_when_overriding_url(tmp_path: Path) -> None:
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-local"),
+        agents=(),
+        channels=(),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=IMServiceConfig(
+            url="http://im.old:8011",
+            token="access-token",
+            refresh_token="refresh-token",
+            username="nano",
+            password="nano1234",
+        ),
+        source_path=tmp_path / "node-config.yaml",
+    )
+
+    loaded = main_module._load_runtime_config(
+        config.source_path,
+        load_config=lambda _path: config,
+        im_service_url_override="http://im.remote:9011",
+    )
+
+    assert loaded.im_service is not None
+    assert loaded.im_service.url == "http://im.remote:9011"
+    assert loaded.im_service.token == "access-token"
+    assert loaded.im_service.refresh_token == "refresh-token"
+    assert loaded.im_service.username == "nano"
+    assert loaded.im_service.password == "nano1234"
+
 
 def test_launch_gateway_in_background_stops_child_when_ready_wait_fails(tmp_path: Path) -> None:
     config = _build_config(tmp_path)
