@@ -114,9 +114,11 @@ export type WsEvent =
   | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null }
   | { type: "tool_call.upserted"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
   | { type: "tool_call.completed"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
-  // feat-333-M3/R1: permission ask flow. Backend emits these when auto_mode_gate triggers
-  // an `ask` decision; the frontend uses them to fill message.permission_request so
-  // PermissionCard renders inline. Mirrors IM/api/ws/event_types.py constants.
+  // bugfix-367 (updated from feat-333-M3/R1): permission ask flow. Backend emits
+  // these when auto_mode_gate triggers an `ask` decision; the frontend reducer
+  // appends `permission_request` to `message.permission_requests`(按 request_id
+  // dedup);`permission.resolved` 按 request_id 在 list 中定位、就地改 status。
+  // 每次 WS event 仍只承载一条,载荷形状不变。
   | { type: "permission.request"; seq?: number; conversation_id: string; message_id: string; permission_request: PermissionRequest }
   | { type: "permission.resolved"; seq?: number; conversation_id: string; message_id: string; request_id: string; decision: string };
 
