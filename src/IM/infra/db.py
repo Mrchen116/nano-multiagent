@@ -584,7 +584,7 @@ def _reconcile_conversation_summary_previews(connection: sqlite3.Connection) -> 
 
 DEFAULT_SETTINGS_POLICIES = {
     "singleton_key": "default",
-    "default_model": "codex_oauth:gpt-5.4",
+    "default_model": "codex_oauth:gpt-5.5",
     "max_turn_per_run": 14,
     "max_attachment_size_mb": 15,
     "retention_days": 30,

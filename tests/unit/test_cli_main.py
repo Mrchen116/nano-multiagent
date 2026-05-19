@@ -138,7 +138,7 @@ class _StubClient:
         self.calls.append(("get_llm_config", None))
         return {
             "provider": "openai_compat",
-            "model": "codex_oauth:gpt-5.4",
+            "model": "codex_oauth:gpt-5.5",
             "base_url": "http://127.0.0.1:4000",
             "api_key_configured": False,
             "timeout_seconds": 30.0,
@@ -170,7 +170,7 @@ class _StubClient:
         resolved_api_key = None if clear_api_key else api_key
         return {
             "provider": provider or "openai_compat",
-            "model": model or "codex_oauth:gpt-5.4",
+            "model": model or "codex_oauth:gpt-5.5",
             "base_url": base_url or "http://127.0.0.1:4000",
             "api_key_configured": bool(resolved_api_key),
             "timeout_seconds": timeout_seconds or 30.0,
@@ -2402,7 +2402,7 @@ def test_run_cli_llm_config_set_applies_requested_fields() -> None:
             "--provider",
             "anthropic",
             "--model",
-            "moonshotAnthropic:kimi-k2.5",
+            "kimiCoding:K2.6",
             "--base-url",
             "http://127.0.0.1:4100",
             "--api-key",
@@ -2421,7 +2421,7 @@ def test_run_cli_llm_config_set_applies_requested_fields() -> None:
             "set_llm_config",
             {
                 "provider": "anthropic",
-                "model": "moonshotAnthropic:kimi-k2.5",
+                "model": "kimiCoding:K2.6",
                 "base_url": "http://127.0.0.1:4100",
                 "api_key": "sk-cli",
                 "timeout_seconds": 55.0,
@@ -2487,7 +2487,7 @@ def test_run_cli_managed_mode_forwards_llm_startup_options_to_managed_server() -
             "--provider",
             "anthropic",
             "--model",
-            "moonshotAnthropic:kimi-k2.5",
+            "kimiCoding:K2.6",
             "--llm-base-url",
             "http://127.0.0.1:4100",
             "--api-key",
@@ -2503,7 +2503,7 @@ def test_run_cli_managed_mode_forwards_llm_startup_options_to_managed_server() -
     assert exit_code == 0
     assert manager.config_base_url == "http://127.0.0.1:8115"
     assert manager.llm_provider == "anthropic"
-    assert manager.llm_model == "moonshotAnthropic:kimi-k2.5"
+    assert manager.llm_model == "kimiCoding:K2.6"
     assert manager.llm_base_url == "http://127.0.0.1:4100"
     assert manager.llm_api_key == "sk-managed"
     assert manager.llm_timeout_seconds == 75.0

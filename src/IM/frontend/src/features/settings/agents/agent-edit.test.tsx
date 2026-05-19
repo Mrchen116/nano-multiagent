@@ -40,7 +40,7 @@ describe("agent edit page", () => {
       skills: ["tdd-execution-worker", "playwright"],
       tool_allowlist: ["bash", "read_file"],
       group_reply_policy: "MENTION",
-      default_model: "codex_oauth:gpt-5.4",
+      default_model: "codex_oauth:gpt-5.5",
       workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
       workspace_is_default: true,
       profile_version: 12,
@@ -85,8 +85,8 @@ describe("agent edit page", () => {
               { name: "read_file", description: "Read files" },
               { name: "task", description: "Dispatch a subtask" }
             ],
-            model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
-            platform_default_model: "codex_oauth:gpt-5.4",
+            model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+            platform_default_model: "codex_oauth:gpt-5.5",
             default_system_prompt: "You are the personal_assistant default template."
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -194,7 +194,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "plan"],
             tool_allowlist: ["read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.4"
+            default_model: "codex_oauth:gpt-5.5"
           })
         })
       );
@@ -226,8 +226,8 @@ describe("agent edit page", () => {
           JSON.stringify({
             skills: [],
             tools: [],
-            model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
-            platform_default_model: "codex_oauth:gpt-5.4"
+            model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+            platform_default_model: "codex_oauth:gpt-5.5"
           }),
           {
             status: 200,
@@ -247,7 +247,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.4",
+            default_model: "codex_oauth:gpt-5.5",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             profile_version: 12,
@@ -295,8 +295,8 @@ describe("agent edit page", () => {
           JSON.stringify({
             skills: [],
             tools: [],
-            model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
-            platform_default_model: "codex_oauth:gpt-5.4"
+            model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+            platform_default_model: "codex_oauth:gpt-5.5"
           }),
           {
             status: 200,
@@ -323,7 +323,7 @@ describe("agent edit page", () => {
             skills: ["tdd-execution-worker", "playwright"],
             tool_allowlist: ["bash", "read_file"],
             group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.4",
+            default_model: "codex_oauth:gpt-5.5",
             workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
             workspace_is_default: true,
             profile_version: 12,

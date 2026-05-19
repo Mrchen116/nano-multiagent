@@ -88,7 +88,7 @@ describe("agent detail page", () => {
         skills: ["tdd-execution-worker"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
-        default_model: "codex_oauth:gpt-5.4",
+        default_model: "codex_oauth:gpt-5.5",
         workspace_root: "/tmp/agent-core-1",
         workspace_is_default: false,
         profile_version: 12,
@@ -105,8 +105,8 @@ describe("agent detail page", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [{ name: "tdd-execution-worker", description: "Execute TDD tasks" }],
         tools: [{ name: "read", description: "Read files" }],
-        model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
-        platform_default_model: "codex_oauth:gpt-5.4",
+        model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+        platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: "You are the personal_assistant default template."
       },
       owningNode: {

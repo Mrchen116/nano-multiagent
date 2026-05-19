@@ -17,7 +17,7 @@ describe("policies page", () => {
   it("loads and saves policies through IM APIs", async () => {
     const user = userEvent.setup();
     let policies = {
-      default_model: "codex_oauth:gpt-5.4",
+      default_model: "codex_oauth:gpt-5.5",
       max_turn_per_run: 14,
       max_attachment_size_mb: 15,
       retention_days: 30,

@@ -62,7 +62,7 @@ async def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -
             json={
                 "id": "chatcmpl_runtime",
                 "object": "chat.completion",
-                "model": "codex_oauth:gpt-5.4",
+                "model": "codex_oauth:gpt-5.5",
                 "choices": [
                     {
                         "index": 0,
@@ -81,12 +81,12 @@ async def test_runtime_persists_turn_events_and_reuses_history(tmp_path: Path) -
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="openai_compat",
-            model="codex_oauth:gpt-5.4",
+            model="codex_oauth:gpt-5.5",
             base_url="http://127.0.0.1:4000",
         ),
         transport=httpx.MockTransport(handler),
     )
-    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="codex_oauth:gpt-5.4")
+    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="codex_oauth:gpt-5.5")
 
     await runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
     await runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)
@@ -118,7 +118,7 @@ async def test_runtime_keeps_same_prompt_timestamp_within_one_session(
             json={
                 "id": "chatcmpl_runtime",
                 "object": "chat.completion",
-                "model": "codex_oauth:gpt-5.4",
+                "model": "codex_oauth:gpt-5.5",
                 "choices": [
                     {
                         "index": 0,
@@ -137,7 +137,7 @@ async def test_runtime_keeps_same_prompt_timestamp_within_one_session(
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="openai_compat",
-            model="codex_oauth:gpt-5.4",
+            model="codex_oauth:gpt-5.5",
             base_url="http://127.0.0.1:4000",
         ),
         transport=httpx.MockTransport(handler),
@@ -146,7 +146,7 @@ async def test_runtime_keeps_same_prompt_timestamp_within_one_session(
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=client,
-        model="codex_oauth:gpt-5.4",
+        model="codex_oauth:gpt-5.5",
         system_prompt=CODING_SYSTEM_PROMPT,
     )
 
@@ -173,7 +173,7 @@ async def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
             json={
                 "id": "chatcmpl_runtime",
                 "object": "chat.completion",
-                "model": "codex_oauth:gpt-5.4",
+                "model": "codex_oauth:gpt-5.5",
                 "choices": [
                     {
                         "index": 0,
@@ -193,7 +193,7 @@ async def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="openai_compat",
-            model="codex_oauth:gpt-5.4",
+            model="codex_oauth:gpt-5.5",
             base_url="http://127.0.0.1:4000",
         ),
         transport=httpx.MockTransport(handler),
@@ -202,7 +202,7 @@ async def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=client,
-        model="codex_oauth:gpt-5.4",
+        model="codex_oauth:gpt-5.5",
         system_prompt=CODING_SYSTEM_PROMPT,
     )
 
@@ -229,7 +229,7 @@ async def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path
                 "id": "msg_runtime",
                 "type": "message",
                 "role": "assistant",
-                "model": "moonshotAnthropic:kimi-k2.5",
+                "model": "kimiCoding:K2.6",
                 "stop_reason": "end_turn",
                 "content": [{"type": "text", "text": "ack"}],
             },
@@ -243,12 +243,12 @@ async def test_runtime_persists_turn_events_with_anthropic_client(tmp_path: Path
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="anthropic",
-            model="moonshotAnthropic:kimi-k2.5",
+            model="kimiCoding:K2.6",
             base_url="http://127.0.0.1:4000",
         ),
         transport=httpx.MockTransport(handler),
     )
-    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="moonshotAnthropic:kimi-k2.5")
+    runtime = AgentRuntime(session_manager=manager, llm_client=client, model="kimiCoding:K2.6")
 
     await runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
     await runtime.run(session.session_id, [{"type": "text", "text": "Q2"}], stream=False)

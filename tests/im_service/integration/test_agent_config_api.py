@@ -528,7 +528,7 @@ def test_node_capabilities_return_current_selectable_items(tmp_path: Path, monke
         return {
             "skills": ["plan", "playwright"],
             "tools": ["read", "bash"],
-            "models": ["moonshotAnthropic:kimi-k2.5", "codex_oauth:gpt-5.4"],
+            "models": ["kimiCoding:K2.6", "codex_oauth:gpt-5.5"],
         }
 
     from IM.ws.gateway_handler import GatewayHandler
@@ -546,4 +546,4 @@ def test_node_capabilities_return_current_selectable_items(tmp_path: Path, monke
     assert response.status_code == 200
     assert [item["name"] for item in response.json()["skills"]] == ["plan", "playwright"]
     assert [item["name"] for item in response.json()["tools"]] == ["read", "bash"]
-    assert response.json()["models"] == ["moonshotAnthropic:kimi-k2.5", "codex_oauth:gpt-5.4"]
+    assert response.json()["models"] == ["kimiCoding:K2.6", "codex_oauth:gpt-5.5"]

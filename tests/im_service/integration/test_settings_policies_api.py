@@ -14,7 +14,7 @@ def test_policies_defaults_and_roundtrip_persistence(tmp_path: Path) -> None:
         initial = client.get("/im/v1/policies")
         assert initial.status_code == 200
         assert initial.json() == {
-            "default_model": "codex_oauth:gpt-5.4",
+            "default_model": "codex_oauth:gpt-5.5",
             "max_turn_per_run": 14,
             "max_attachment_size_mb": 15,
             "retention_days": 30,
@@ -59,7 +59,7 @@ def test_policies_reseed_missing_singleton_row(tmp_path: Path) -> None:
         reseeded = client.get("/im/v1/policies")
         assert reseeded.status_code == 200
         assert reseeded.json() == {
-            "default_model": "codex_oauth:gpt-5.4",
+            "default_model": "codex_oauth:gpt-5.5",
             "max_turn_per_run": 14,
             "max_attachment_size_mb": 15,
             "retention_days": 30,
@@ -70,7 +70,7 @@ def test_policies_reseed_missing_singleton_row(tmp_path: Path) -> None:
         updated = client.patch(
             "/im/v1/policies",
             json={
-                "default_model": "gpt-5.4-settings-final",
+                "default_model": "gpt-5.5-settings-final",
                 "max_turn_per_run": 23,
                 "max_attachment_size_mb": 36,
                 "retention_days": 52,
@@ -80,7 +80,7 @@ def test_policies_reseed_missing_singleton_row(tmp_path: Path) -> None:
         )
         assert updated.status_code == 200
         assert updated.json() == {
-            "default_model": "gpt-5.4-settings-final",
+            "default_model": "gpt-5.5-settings-final",
             "max_turn_per_run": 23,
             "max_attachment_size_mb": 36,
             "retention_days": 52,
@@ -91,7 +91,7 @@ def test_policies_reseed_missing_singleton_row(tmp_path: Path) -> None:
         persisted = client.get("/im/v1/policies")
         assert persisted.status_code == 200
         assert persisted.json() == {
-            "default_model": "gpt-5.4-settings-final",
+            "default_model": "gpt-5.5-settings-final",
             "max_turn_per_run": 23,
             "max_attachment_size_mb": 36,
             "retention_days": 52,

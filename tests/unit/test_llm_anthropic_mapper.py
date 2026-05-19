@@ -10,7 +10,7 @@ from agent.platform.llm.providers.anthropic.mapper import AnthropicMapper
 def _request(*, messages: tuple[LLMMessage, ...], max_tokens: int | None = None) -> LLMGenerateRequest:
     return LLMGenerateRequest(
         session_id="sess_anthropic_mapper",
-        model="moonshotAnthropic:kimi-k2.5",
+        model="kimiCoding:K2.6",
         messages=messages,
         temperature=0.2,
         max_tokens=max_tokens,
@@ -63,7 +63,7 @@ def test_map_generate_response_coerces_non_string_text_chunks() -> None:
             "id": "msg_1",
             "type": "message",
             "role": "assistant",
-            "model": "moonshotAnthropic:kimi-k2.5",
+            "model": "kimiCoding:K2.6",
             "stop_reason": "end_turn",
             "content": [{"type": "text", "text": 123}],
         }
@@ -80,7 +80,7 @@ def test_map_generate_response_normalizes_usage_to_canonical_fields() -> None:
             "id": "msg_1",
             "type": "message",
             "role": "assistant",
-            "model": "moonshotAnthropic:kimi-k2.5",
+            "model": "kimiCoding:K2.6",
             "stop_reason": "end_turn",
             "usage": {
                 "input_tokens": 100,
@@ -102,4 +102,4 @@ def test_map_generate_response_requires_content_blocks() -> None:
     mapper = AnthropicMapper()
 
     with pytest.raises(ModelError, match="missing content blocks"):
-        mapper.map_generate_response({"model": "moonshotAnthropic:kimi-k2.5"})
+        mapper.map_generate_response({"model": "kimiCoding:K2.6"})
