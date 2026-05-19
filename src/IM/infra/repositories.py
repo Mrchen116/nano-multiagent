@@ -1233,6 +1233,26 @@ class MessageRepository:
             return None
         if not isinstance(payload, dict):
             return None
+        # bugfix-365: when the real `messages` row for this event is already an
+        # agent row in a terminal state (failed/completed), the synthetic mirror
+        # would just paint a second bubble for the same logical message — the
+        # watchdog path is the canonical case (writes `relay.failed` after flipping
+        # the real row to `failed`). Suppress the synthetic; the real row carries
+        # the detail text via the watchdog's content backfill in `relay_watchdog`.
+        # Scoping to `sender_type='agent'` preserves the legacy pattern where one
+        # *user* message_id fans out into multiple synthetic agent reply rows.
+        real_message_id = _optional_text(payload.get("message_id"))
+        if real_message_id is not None:
+            real_row = self._connection.execute(
+                "SELECT delivery_status, sender_type FROM messages WHERE id = ?",
+                (real_message_id,),
+            ).fetchone()
+            if (
+                real_row is not None
+                and str(real_row["sender_type"]) == "agent"
+                and str(real_row["delivery_status"]) in {"failed", "completed"}
+            ):
+                return None
         synthetic_message_id = _synthetic_message_id_from_event_payload(payload)
         if synthetic_message_id is None:
             return None
