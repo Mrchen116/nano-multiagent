@@ -108,7 +108,9 @@ def _main_command(config_path: Path, *extra_args: str) -> list[str]:
 
 
 def _parse_started_pid(stdout: str) -> int:
-    match = re.search(r"STARTED pid=(\d+)", stdout)
+    # 兼容老格式 ``STARTED pid=N`` 和现在 ``Gateway started  (pid=N)``。
+    # bugfix-359 之外的预先 drift — 正则一直没跟上输出措辞,e2e 大半挂在这。
+    match = re.search(r"pid=(\d+)", stdout)
     if match is None:
         raise AssertionError(f"missing background startup line: {stdout}")
     return int(match.group(1))
