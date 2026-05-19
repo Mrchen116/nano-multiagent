@@ -7,6 +7,8 @@
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-19 (M1 实施期, orchestrator 用户授权澄清): 澄清决策 6「拒绝浅迁」解读 — 测 runtime / hook / compaction / skill 行为的测试若直造 SessionManager,即便核心断言不涉及 SessionService 元数据,**仍归 (a) 类**,改走 `SessionService.create_session` 真实路径。理由:motivation 现状痛点 #2「测试假装在跑」是本 unit 核心问题,(b) 平替不足以兑现。仅当测试核心断言就是 store IO 本身(append / load 字节流)才允许归 (b);这种场景几乎一定也是 (c)。M1 plan 已按此重做。
+
 - 2026-05-19 (启动前): 澄清 spec Q1 第 2 条 — "包整体不再存在"放宽为"包内只剩 service.py + __init__.py";原表达是 spec 阶段实现层污染,SessionService 挪位置无价值。motivation.md Q1 解读同步更新。
 
 ## 现状分析
