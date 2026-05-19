@@ -5,19 +5,17 @@ from fastapi.testclient import TestClient
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.persistence.session.service import SessionService
+from collections.abc import AsyncIterator
 
 
 class _EchoLLM:
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
-        return LLMGenerateResponse(
-            model=request.model,
-            message=LLMMessage(role="assistant", content=f"ack:{request.messages[-1].content}"),
-            finish_reason="stop",
-        )
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+        yield LLMMessage(role="assistant", content=f"ack:{request.messages[-1].content}")
+        yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
 def _auth_headers(request_id: str) -> dict[str, str]:
@@ -57,15 +55,15 @@ def test_hook_query_integration_orders_and_reports_registered_hooks(tmp_path: Pa
         file_path=tmp_path / "builtin" / "hook.py",
     )
 
-    store = SQLiteSessionStore(db_path=tmp_path / "hooks-query-integration.sqlite3")
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     runtime = AgentRuntime(
-        session_manager=SessionManager(store=store),
+        session_manager=service.manager,
         llm_client=_EchoLLM(),
         model="mock-model",
         hook_runner=HookRunner(registry=registry),
         repo_root=tmp_path,
     )
-    client = TestClient(create_app(session_store=store, runtime=runtime, auth_token="test-token"))
+    client = TestClient(create_app(session_store=service.manager.store, runtime=runtime))
 
     response = client.get("/v1/hooks", headers=_auth_headers("req-hooks-integration"))
 
