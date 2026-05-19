@@ -19,8 +19,8 @@
 - Q1: 这次大修的"成功状态"长什么样,以哪种最严判据为准?
   A(原话): ok
   Agent 解读: 采纳推荐 —— 四条最严判据:
-  1. `grep -rn "SQLiteSessionStore\|from agent.platform.persistence.session" src/ tests/` 返回零
-  2. `src/agent/platform/persistence/session/` 包整体不再存在
+  1. `grep -rn "SQLiteSessionStore\|from agent.platform.persistence.session import \|from .sqlite_store\|from .base import SessionStore" src/ tests/` 返回零
+  2. `src/agent/platform/persistence/session/` 包内不再有死代码,只剩生产用的 `service.py + __init__.py`(2026-05-19 经 design 阶段澄清:"包整体不再存在"原是实现层污染,正确表达是"无死代码";SessionService 挪位置是 scope creep,无价值,见 design 决策 2)
   3. `pytest tests/` 全过(含原 xfail 的两个 workspace_root 测试自动转 pass)
   4. IM 对话 / Coding CLI / Gateway 冒烟通过
 
