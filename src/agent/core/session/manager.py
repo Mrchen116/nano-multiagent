@@ -277,7 +277,7 @@ class SessionManager:
                     summary_text = turn_by_uuid[summary_uuid].get("content", "")
                 entries.append(new_compaction_entry(
                     session_id=raw.get("session_id", session_id),
-                    first_kept_event_id=summary_uuid or "",
+                    first_kept_event_id="",
                     summary=summary_text,
                     data=raw.get("data", {}),
                     created_at=raw.get("timestamp", _utc_now_iso()),

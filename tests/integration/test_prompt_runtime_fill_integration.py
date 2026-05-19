@@ -2,9 +2,9 @@ from pathlib import Path
 
 from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.core.agent.runtime import AgentRuntime
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.platform.persistence.session.service import SessionService
 from collections.abc import AsyncIterator
 
 
@@ -16,10 +16,12 @@ class CapturePromptLLM:
         self.requests.append(request)
         yield LLMMessage(role="assistant", content="ok")
         yield LLMMessage(role="assistant", content="", finish_reason="stop")
-def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "prompt-runtime-fill.sqlite3")
-    manager = SessionManager(store=store)
-    session = manager.create_session()
+
+
+async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path: Path) -> None:
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
     llm = CapturePromptLLM()
     # CODING_SYSTEM_PROMPT must be injected explicitly; AgentRuntime default is now "".
     runtime = AgentRuntime(
@@ -30,7 +32,7 @@ def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path: Path
         system_prompt=CODING_SYSTEM_PROMPT,
     )
 
-    runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
+    await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
 
     system_prompt = llm.requests[-1].messages[0].content
     assert "Current date and time:" in system_prompt

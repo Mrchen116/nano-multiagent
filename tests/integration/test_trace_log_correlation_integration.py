@@ -8,15 +8,16 @@ from agent.core.hooks.runner import HookRunner
 from agent.core.observability.logger import capture_logs
 from agent.core.observability.tracing import bind_correlation
 from agent.core.runs.registry import RunsRegistry
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.base import ToolContext
+from agent.platform.tools.loader import build_tool_registry
 from agent.platform.tools.registry import ToolRegistry
 
 
 class _RuntimeStub:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
-        del parts, stream
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
+        del parts, stream, origin
         return TurnResult(
             session_id=session_id,
             turn_id="turn_obs_integration",
@@ -41,10 +42,10 @@ class _EchoTool:
         return {"text": args["text"]}
 
 
-def test_run_tool_hook_logs_share_correlation_fields(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "obs-integration.sqlite3")
-    manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=tmp_path)
+async def test_run_tool_hook_logs_share_correlation_fields(tmp_path: Path) -> None:
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
 
     runs = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
 
@@ -55,10 +56,7 @@ def test_run_tool_hook_logs_share_correlation_fields(tmp_path: Path) -> None:
         raise RuntimeError("boom")
 
     hooks.on("tool_execution_start", break_on_tool_start, source="runtime")
-    tools = ToolRegistry(
-        context=ToolContext.create(repo_root=tmp_path),
-        hook_runner=HookRunner(registry=hooks),
-    )
+    tools = build_tool_registry(repo_root=tmp_path, hook_runner=HookRunner(registry=hooks))
     tools.register(_EchoTool())
 
     with capture_logs() as records:
@@ -75,16 +73,16 @@ def test_run_tool_hook_logs_share_correlation_fields(tmp_path: Path) -> None:
                     break
                 time.sleep(0.01)
 
-            tools.execute(
-                "echo",
-                {"text": "hi"},
-                hook_context=HookContext(
-                    session_id=session.session_id,
-                    turn_id="turn_obs_integration",
-                    repo_root=Path.cwd(),
-                    metadata={"tool_call_id": "call_obs_integration"},
-                ),
-            )
+            await tools.execute(
+                    "echo",
+                    {"text": "hi"},
+                    hook_context=HookContext(
+                        session_id=session.session_id,
+                        turn_id="turn_obs_integration",
+                        repo_root=Path.cwd(),
+                        metadata={"tool_call_id": "call_obs_integration"},
+                    ),
+                )
 
     by_message = {item["message"] for item in records}
     assert "run_submitted" in by_message
