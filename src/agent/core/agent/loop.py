@@ -226,6 +226,7 @@ class AgentLoop:
                         tool_execution_allowlist=tool_execution_allowlist,
                     ) if self._tool_registry is not None else None
                     iteration_tool_calls: list[ToolCall] = []
+                    early_tool_results: list[ToolResult] = []
                     finish_reason: str | None = None
                     latest_usage: TokenUsage | None = None
 
@@ -303,20 +304,28 @@ class AgentLoop:
                                     executor.add_tool(tc, hook_context=tool_hook_ctx)
                                 await self._dispatch_tool_call_hook(tc, active_hook_ctx, run_id)
 
-                            # Yield completed results non-blocking
+                            # Collect early-completed results for UI but defer LLM
+                            # history appending until after the stream ends.
+                            # Appending tool_result messages mid-stream would split
+                            # parallel tool_use blocks across multiple assistant
+                            # messages, causing tool_call_id mismatches upstream
+                            # (bugfix-375 Issue #43).
                             if executor is not None:
                                 for result in executor.get_completed_results():
                                     all_tool_results.append(result)
                                     tool_msg = self._build_tool_result_message(result, parent_message_id=last_assistant_msg_id, group_id=last_assistant_msg_id)
                                     last_parent_id = tool_msg.message_id
                                     yield tool_msg
-                                    _append_llm_message(
-                                        llm_messages,
-                                        self._build_llm_tool_result_message(result),
-                                    )
+                                    early_tool_results.append(result)
                                     await self._dispatch_tool_result_hook(result, active_hook_ctx, run_id)
 
-                    # After stream ends, wait for remaining tools and yield
+                    # After stream ends, flush early results into LLM history in
+                    # order, then wait for any remaining tools.
+                    for result in early_tool_results:
+                        _append_llm_message(
+                            llm_messages,
+                            self._build_llm_tool_result_message(result),
+                        )
                     if executor is not None:
                         async for result in executor.get_remaining_results():
                             all_tool_results.append(result)
