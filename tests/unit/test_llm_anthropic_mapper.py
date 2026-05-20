@@ -118,3 +118,51 @@ def test_map_generate_response_requires_content_blocks() -> None:
 
     with pytest.raises(ModelError, match="missing content blocks"):
         mapper.map_generate_response({"model": "kimiCoding:K2.6"})
+
+
+def test_map_message_assistant_tool_call_round_trips_thinking_block() -> None:
+    """带 reasoning_content 的 assistant tool-call 消息出站时必须回写 thinking 块。
+
+    kimi K2.6 在 thinking 开启时要求历史里每条带 tool_call 的 assistant 消息携带它当时
+    的 reasoning_content，否则 follow-up 请求被拒（bugfix-373）。thinking 块还必须排在
+    其它内容块之前。
+    """
+    from agent.core.llm.interfaces import LLMToolCall
+
+    mapper = AnthropicMapper()
+
+    payload = mapper.map_generate_request(
+        _request(
+            messages=(
+                LLMMessage(role="user", content="run pwd"),
+                LLMMessage(
+                    role="assistant",
+                    content="",
+                    reasoning_content="我需要使用 bash 工具",
+                    tool_calls=(LLMToolCall(call_id="tool_1", name="bash", arguments={"command": "pwd"}),),
+                ),
+                LLMMessage(role="tool", content="/repo", tool_call_id="tool_1"),
+            ),
+        )
+    )
+
+    assistant_msg = payload["messages"][1]
+    blocks = assistant_msg["content"]
+    assert blocks[0] == {"type": "thinking", "thinking": "我需要使用 bash 工具", "signature": ""}
+    assert any(b.get("type") == "tool_use" and b.get("id") == "tool_1" for b in blocks)
+
+
+def test_map_message_assistant_without_reasoning_omits_thinking_block() -> None:
+    mapper = AnthropicMapper()
+
+    payload = mapper.map_generate_request(
+        _request(
+            messages=(
+                LLMMessage(role="user", content="hi"),
+                LLMMessage(role="assistant", content="hello"),
+            ),
+        )
+    )
+
+    assistant_msg = payload["messages"][1]
+    assert all(b.get("type") != "thinking" for b in assistant_msg["content"])
