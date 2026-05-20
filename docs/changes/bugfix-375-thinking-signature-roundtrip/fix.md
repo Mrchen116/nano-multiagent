@@ -233,3 +233,36 @@ co-root-cause B（`911d1bab`）修复后，同一轮会话 `2026-05-20_21-25-52_
 | agent 最终答案 | 连贯 bug 报告（2125 字），含 root cause + fix 建议 |
 
 **Heartbeat/background 路径残留**：会话第 170 轮由 gateway heartbeat 进程在主任务收敛后触发，仍出现 `invalid_request_error: tool_call_ids did not have response messages: read:10`。这证明 Issue #43 在 **heartbeat/background 路径尚未完全修复**——`911d1bab` 只修了主交互路径（`StreamingToolExecutor` 的 defer 逻辑），heartbeat fork 走的是另一条执行路径。PR Refs #43（不 Closes），bugfix-376 负责收口 heartbeat 路径残留。
+
+---
+
+### Permission ask → approve → resume thinking 路径
+
+**会话**：`2026-05-20_22-02-12_463_sess_ce88159dc3e47c86`，IM `http://127.0.0.1:54217`，对话 `a52669838fba4b13bd6674e16171460e`
+
+**触发步骤**：向 agent 发送任务"将注释写入 `~/.bashrc`"。`~/.bashrc` 在 `DANGEROUS_FILES` 名单中，`WriteTool.check_permissions` 返回 `behavior="ask", type="safety_check"`，auto_mode_gate Step 2 直接发出 permission ask，**不经过** classifier（safety_check 类型绕不过）。
+
+**Permission request**（消息 id `5f4aed11174249d0b863c58a933f440c`）：
+```json
+{
+  "request_id": "b32be46d-85a6-4e0e-8f13-7f6035eaf511",
+  "tool_name": "write",
+  "tool_input": {"path": "~/.bashrc", "content": "# test by kimi-agent\n"},
+  "question": "Allow write? Writing to ~/.bashrc requires explicit confirmation (sensitive system file or directory)",
+  "status": "pending"
+}
+```
+
+**批准**：`POST /im/v1/conversations/.../permissions/b32be46d-85a6-4e0e-8f13-7f6035eaf511` `{"decision": "allow_once"}` → `{"status":"forwarded"}`
+
+**恢复后验证**（proxy req `2026-05-20_22-15-58_086-req-anthropic_messages.json`）：
+
+| 指标 | 结果 |
+|------|------|
+| permission ask 前的 thinking sig_len（msg[23]） | **4340**（非空） |
+| permission ask 前的 thinking sig_len（msg[25]） | **4340**（非空） |
+| 批准后新请求 `invalid_request_error` | **0** |
+| 批准后 stop_reason | **`end_turn`** |
+| agent 最终答案 | "Done — `~/.bashrc` didn't exist, so I created it with `# test by kimi-agent` at the end." |
+
+**结论**：permission ask → 批准 → resume 全链路正确——恢复后请求历史中 thinking 块 signature 完整保留，**0 个 invalid_request_error**，agent 正常收敛到 end_turn。
