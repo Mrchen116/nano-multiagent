@@ -34,7 +34,7 @@
 |---|---|---|
 | R1 | 修漂移：create_app/run_cancel/task_tool/app_factory | DONE |
 | R2 | 删一次性快照：test_rerun + test_m170_runtime | DONE |
-| R3 | 去流水号重命名：test_m236 / test_refactor353 | TODO |
+| R3 | 去流水号重命名：test_m236 / test_refactor353 | DONE |
 | R4 | 拆 test_tools_builtins (923→≤400) | TODO |
 | R5 | 拆 test_background_hook_fork (843→≤400) | TODO |
 | R6 | 拆 test_agent_loop (723→≤400) | TODO |

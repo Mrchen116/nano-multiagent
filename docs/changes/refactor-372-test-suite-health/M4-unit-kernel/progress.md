@@ -43,4 +43,25 @@
   - Visual/Interaction: N/A
 - Rollback: `git revert c699e6ab`
 - Commits: C1+C2=c699e6ab, C3=（本 docs commit）
-- Next: R3 去流水号重命名
+- Commits: C1+C2=c699e6ab, C3=64b38544
+- Next: R3 去流水号
+
+---
+
+### R3 — 去流水号重命名：m236 / refactor353
+
+- Context: 两个文件用 milestone 编号命名，违反 TESTING_GUIDE §3
+- Decision:
+  - `test_m236_session_metadata_hookcontext.py` → `test_session_metadata_hookcontext.py`（模块注释去掉 "M236:" 前缀）
+  - `test_refactor353_corrigendum.py` → `test_path_sandbox_corrigendum_docs.py`（描述测试的文档契约）
+- Rationale: 语义名让文件内容一目了然，不依赖读者记住 milestone 历史
+- Evidence:
+  - Tests: 11 passed for renamed files
+  - Entry: N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: `git revert cbf7b866`
+- Commits: C1+C2=cbf7b866
+- Next: R4 拆 test_tools_builtins
