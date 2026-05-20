@@ -7,6 +7,8 @@
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-20 (M2 定稿): M1 triage 报告（regression.md）人审通过，按决策 6 细化"执行清理"范围。基线 145 failed = 过期预期 128 / 真回归 1（已立 #37）/ 一次性快照 3 / 环境干扰 1。原单个 `M2 execute-cleanup` 拆为 **4 个文件不交集的并行 milestone**（M2 contract-integration / M3 unit-cli / M4 unit-kernel / M5 pa-im），举证见 Milestones 段。拆分轴=测试子树（全仓仅 2 个 conftest，`contract`/`integration`/`unit` 无共享 app/auth fixture，按目录天然文件不交集；唯一共享 fixture 的 `tests/im_service/integration/conftest.py` 归 M5）。TESTING_GUIDE 的 xfail 例外明文化归 M2。
+
 ## 现状分析
 
 ### 涉及范围
@@ -159,14 +161,25 @@ reviewer 的验收方式不是走产品旅程，而是跑测试套件：
 
 ## Milestones
 
-> 拆 M1/M2 的举证（§4.2 "必须分阶段验证"）：M2 的范围/动作/可并行性完全取决于 M1 的 triage 分类结果，M1 报告未经人审前 M2 无法确定范围。故 M1（分层+测量+报告，人审为闸）必须先合 unit 分支，M2 才能开干。
+> **拆分举证（§4.2）**：
+> - M1↔执行层 = "必须分阶段验证"：执行清理的范围/动作完全取决于 M1 triage 分类结果，M1 报告未经人审前无法确定。故 M1（分层+测量+报告，人审为闸）先合 unit 分支，执行层才开干。
+> - 执行层拆 M2/M3/M4/M5 = "工作量超出单 worker 窗口" + "跨独立模块可真并行"：145 失败 + 17 个 >400 行文件待拆 + 9 个流水号重命名，远超单 worker 阈值（>800 行/>10 文件）。拆分轴=**文件不交集的测试子树**（非横切分层）——全仓仅 2 个 conftest，`contract`/`integration`/`unit` 顶层无共享 app/auth fixture（`create_app(auth_token)` 等均内联在各测试文件），按目录子树拆天然文件不交集；唯一共享 fixture 的 `tests/im_service/integration/conftest.py` 整体归 M5。同一处系统性漂移（如去 `auth_token`）在不同子树各自机械修复，编辑不同文件，无并行冲突。每个 milestone 交付"该子树绿 + 合规"，可独立 `pytest <子树>` 验证；全局 `pytest -m "not e2e"` 绿由 unit-level reviewer 在四者合并后验。
+> - tests/unit 拆 M3（cli）/ M4（kernel）两个：避免单 worker 同时扛 `test_cli_main.py`(2754) + `test_tools_builtins.py`(923) + `test_background_hook_fork.py`(843) + `test_agent_loop.py`(723) + `test_auto_mode_gate.py`(698) 等多个巨拆，context 窗口风险实打实。两簇按文件名不交集（`test_cli_*`/`test_sdk_client`/`*managed_server`/`refactor_boundaries` vs 其余），tests/unit 无 conftest，无共享 fixture。M3/M4 并行期各自验收命令用 `-k` 互斥过滤（M3 选 cli 簇、M4 排除 cli 簇），互不被对方未完成的文件干扰；全局绿仍由 unit-level reviewer 在合并后验。
+>
+> **`tests/e2e/` 子树结构清理（m112 等流水号重命名、e2e 巨型文件拆分）不在本 unit 范围**：本 unit 的可验证闸门是 `pytest -m "not e2e"` 绿，而 e2e 测试需真实进程/服务（本 unit Runbook 明示"无常驻服务"），其绿无法在本 unit 验证；e2e 文件也不影响 not-e2e 基线。强行重命名/拆分 e2e 文件得不到验证背书、且与"不起常驻服务"的验收方式冲突，故显式延后（triage 报告 S1/S2 已标 e2e 文件"单独处理"）。本 unit 只保证 `tests/e2e/` 全部带 marker（M1 已达成），不动其命名与体量。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | refactor-372-M1 | triage-and-layer | — | A | `tests/e2e/conftest.py`（或新建 `tests/conftest.py`）、`pyproject.toml`（dev 加 pytest-cov）、`docs/changes/refactor-372-test-suite-health/regression.md`（新建） | `[worker]` 加 e2e 路径自动 marker 后 `pytest -m "not e2e" --co` 不再收集任何 `tests/e2e/` 用例；`[worker]` pytest-cov 装好、覆盖率可跑出；`[worker]` 对【标记后残余】的 not-e2e 失败逐个分类入 regression.md（四类 + 每条证据 + M2 动作 + 真回归 issue#），并盘点流水号命名/>400 行/一次性快照/跨层重复；`[reviewer]` 人审 regression.md 可读、分类有据、可据此决定 M2（M1 不动 `tests/` 内容、不删测试） |
-| refactor-372-M2 | execute-cleanup | M1 | A | 由 M1 triage 报告确定（届时回写本表 + Changelog）；框架范围：`tests/` 下需修/删/移/重命名/拆分的文件 + 必要的 TESTING_GUIDE 规则补充（xfail 例外明文化） | `[reviewer]` `pytest -m "not e2e"` 退出 0（xfail 计预期失败，真回归均有 issue 链接）；`[reviewer]` 产品行为不变（本 unit 不改 `src/`，真回归走独立 bugfix issue）；`[worker]` 删除/合并的测试经覆盖率确认不掉唯一覆盖；`[worker]` 套件符合 TESTING_GUIDE：无 milestone 流水号命名测试、`tests/e2e/` 全部带 marker、无 >400 行测试文件（或在报告列明豁免理由）、一次性快照移出套件 |
+| refactor-372-M2 | contract-integration | M1 | B | `tests/contract/`、`tests/integration/`（含 `test_session_flow_integration.py`、`test_cli_http_flow_integration.py`、`tests/acceptance/`）；`docs/TESTING_GUIDE.md`（xfail 例外明文化） | `[reviewer]` `pytest tests/contract tests/integration -m "not e2e"` 退出 0；`[worker]` 修过期预期对齐现码（`create_app` 去 `auth_token`、`messages:async`→`messages`、契约字段 Message/ToolSpec/LLMGenerateRequest、tools/task 工具集断言改 subset、`core_no_platform_imports` 只扫 import 行）；`[worker]` 真回归 `test_append_message_persists_history_once_per_idempotency_key` 打 `@pytest.mark.xfail(reason 含 #37, strict=True)`；`[worker]` 删 `tests/acceptance/test_im_gateway_real_acceptance.py`（一次性快照，覆盖率确认无唯一覆盖损失）；`[worker]` 拆 `test_cli_http_flow_integration.py`(1178) 按行为，拆前后用例数/通过数一致；`[worker]` 去流水号命名（m85/m86）；`[worker]` TESTING_GUIDE 加"xfail 仅限带 issue 链接 + strict 的已知产品回归"明文规则；`[worker]` 该子树无 >400 行文件（或报告列明豁免） |
+| refactor-372-M3 | unit-cli | M1 | B | `tests/unit/test_cli_*.py`、`tests/unit/test_sdk_client.py`、`tests/unit/test_cli_managed_server.py`、`tests/unit/test_cli_refactor_boundaries.py` | `[reviewer]` `pytest tests/unit -k "cli or sdk_client or managed_server" -m "not e2e"` 退出 0；`[worker]` 修漂移（`send_message`→`submit_message`、`ManagedServerConfig`/`build_release_playbook_report` 去 `token`、CLI 命令裁剪为 `health`/`llm-config` 子集、`supported_commands` 期望更新）；`[worker]` 拆 `test_cli_main.py`(2754) 按行为聚类，拆前后用例数/通过数一致；`[worker]` 该子树无 >400 行文件（或报告列明豁免） |
+| refactor-372-M4 | unit-kernel | M1 | B | `tests/unit/` 其余非 cli 文件（`test_agent_loop`、`test_tools_builtins`、`test_auto_mode_gate`、`test_background_hook_fork`、`test_run_cancel`、`test_core_*`、`test_app_factory_with_profile`、`test_server_global_routes`、`test_m170_runtime`、`test_m236_*`、`test_refactor353_corrigendum`、`test_rerun_acceptance_runtime_helpers`），不含 `personal_assistant/`、`IM/` 子目录，也不含 M3 的 cli 文件 | `[reviewer]` `pytest tests/unit -m "not e2e" --ignore=tests/unit/personal_assistant --ignore=tests/unit/IM -k "not (cli or sdk_client or managed_server or refactor_boundaries)"`（排除 M3 的 cli 文件，避免并行期互相干扰）退出 0；`[worker]` 修漂移（`ToolSafetyConfig`/`BashRunnerConfig` 签名、`RunsRegistry`/`RunController.run(origin=)` mock 对齐、契约字段、工具集断言改 subset、`tool_safety_config_factory` setup）；`[worker]` 删 `test_rerun_acceptance_runtime_helpers.py`(659，importlib-exec 反模式快照，确认 ACCEPTANCE 助手逻辑如有回归价值提进 `src/`)；`[worker]` 去流水号（m170/m236/refactor353_corrigendum 重命名为行为名）；`[worker]` 拆 `test_tools_builtins`(923)/`test_background_hook_fork`(843)/`test_agent_loop`(723)/`test_auto_mode_gate`(698) 按行为，拆前后用例数/通过数一致；`[worker]` 该子树无 >400 行文件（或报告列明豁免） |
+| refactor-372-M5 | pa-im | M1 | B | `tests/unit/personal_assistant/`、`tests/unit/IM/`、`tests/im_service/`（含其 `integration/conftest.py`） | `[reviewer]` `pytest tests/unit/personal_assistant tests/unit/IM tests/im_service -m "not e2e"` 退出 0；`[worker]` 修漂移（`_FakeKernelClient.send_message_async`→`submit_message`、`sender["id"]`→`sender["user_id"]`、IM conversations/messages 测试补 JWT auth、ws token usage 字段、工具集断言改 subset、SOCKS 代理 env 在 conftest 清除或 socksio 进 dev）；`[worker]` 去流水号 + m102/m103 跨层重复去重（覆盖率确认不掉唯一覆盖后合并）；`[worker]` 拆 `test_main`(2120)/`test_gateway_pipeline`(1676)/`test_m103`(1419)/`test_m102`(866)/`test_repositories`(790)/`test_m136`(697)/`test_relay_service`(627) 按行为，拆前后用例数/通过数一致；`[worker]` 该子树无 >400 行文件（或报告列明豁免） |
 
 ```mermaid
 graph LR
-  M1[M1 triage-and-layer] --> M2[M2 execute-cleanup]
+  M1[M1 triage-and-layer] --> M2[M2 contract-integration]
+  M1 --> M3[M3 unit-cli]
+  M1 --> M4[M4 unit-kernel]
+  M1 --> M5[M5 pa-im]
 ```
