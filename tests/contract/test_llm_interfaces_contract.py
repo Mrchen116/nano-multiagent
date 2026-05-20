@@ -39,6 +39,7 @@ def test_llm_generate_request_contract() -> None:
         "stop_sequences",
         "tools",
         "metadata",
+        "extra_body",
     ]
 
 
