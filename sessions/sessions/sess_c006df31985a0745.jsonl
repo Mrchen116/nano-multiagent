@@ -1,0 +1,3 @@
+{"type": "session_created", "session_id": "sess_c006df31985a0745", "created_at": "2026-05-20T06:32:58.415067+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent/.worktrees/refactor-372-M4", "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY."}
+{"type": "turn", "uuid": "msg_98930d6250963777", "parent_uuid": null, "session_id": "sess_c006df31985a0745", "role": "user", "content": "ping", "timestamp": "2026-05-20T06:32:58.415321+00:00"}
+{"type": "turn", "uuid": "msg_4a2320383cbdd57b", "parent_uuid": "msg_98930d6250963777", "session_id": "sess_c006df31985a0745", "role": "assistant", "content": "ack:ping", "timestamp": "2026-05-20T06:32:58.415530+00:00", "group_id": "msg_4a2320383cbdd57b"}
