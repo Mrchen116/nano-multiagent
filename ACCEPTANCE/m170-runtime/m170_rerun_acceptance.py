@@ -8,8 +8,15 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from playwright.async_api import async_playwright
+
+# playwright 仅用于真实浏览器跑批(见 run_browser_acceptance)。纯逻辑函数(本脚本的
+# 大部分)被 tests/unit 复用,不需要浏览器——所以这里容错 import:缺 playwright 时仍能
+# 加载本模块,只是无法跑浏览器那条路径。async_playwright 在用到它的函数内惰性 import。
+try:
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+except ImportError:  # playwright 未安装(可选依赖)
+    class PlaywrightTimeoutError(Exception):  # type: ignore[no-redef]
+        """playwright 缺席时的占位异常,仅用于让纯逻辑路径可导入/可断言。"""
 
 RUNTIME_ROOT = Path('/Users/czj/Repos/nano-multiagent/ACCEPTANCE/m170-runtime')
 DB_PATH = RUNTIME_ROOT / 'im_service.sqlite3'
@@ -388,6 +395,8 @@ async def main():
         'runtime_db': str(DB_PATH),
         'screenshots': [],
     }
+
+    from playwright.async_api import async_playwright  # 惰性:只有真跑浏览器才需要
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
