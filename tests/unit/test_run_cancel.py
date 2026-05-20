@@ -138,8 +138,9 @@ def test_interrupt_signals_active_run_to_abort(tmp_path: Path) -> None:
         run_id = registry.interrupt(session.session_id)
         assert run_id == submitted.run_id
 
+        # aborted runs are marked CANCELLED (stop_reason="aborted"), not FAILED/COMPLETED
         _wait_for(
-            lambda: registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED},
+            lambda: registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED, RunStatus.CANCELLED},
             timeout_seconds=2.0,
         )
 
