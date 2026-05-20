@@ -1360,6 +1360,10 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
         entry["tool_error"] = meta["tool_error"]
     if meta.get("tool_output") is not None:
         entry["tool_output"] = meta["tool_output"]
+    if msg.reasoning_content is not None:
+        entry["reasoning_content"] = msg.reasoning_content
+    if msg.reasoning_signature is not None:
+        entry["reasoning_signature"] = msg.reasoning_signature
     return entry
 
 

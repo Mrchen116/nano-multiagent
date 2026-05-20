@@ -411,6 +411,8 @@ def _to_message(entry: dict[str, Any]) -> Message:
         group_id=entry.get("group_id"),
         tool_call_id=entry.get("tool_call_id"),
         metadata=_extract_message_metadata(entry),
+        reasoning_content=entry.get("reasoning_content") or None,
+        reasoning_signature=entry.get("reasoning_signature") or None,
     )
 
 

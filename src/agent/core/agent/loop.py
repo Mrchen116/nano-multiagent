@@ -263,6 +263,8 @@ class AgentLoop:
                             content=llm_msg.content or "",
                             group_id=assistant_msg_id,
                             metadata=_assistant_metadata_from_tool_calls(normalized_calls),
+                            reasoning_content=llm_msg.reasoning_content,
+                            reasoning_signature=llm_msg.reasoning_signature,
                         )
                         last_assistant_msg_id = assistant_msg.message_id
                         last_parent_id = assistant_msg.message_id

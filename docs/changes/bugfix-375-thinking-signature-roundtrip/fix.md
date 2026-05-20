@@ -220,6 +220,36 @@ pytest tests/unit/test_llm_anthropic_client_streaming.py \
 
 ---
 
+### 持久化保真（bugfix-376 折叠，co-root-cause C）
+
+**问题（RCA from bugfix-376）**：heartbeat/background session 重建历史时，`reasoning_content`/`reasoning_signature` 和并行 `tool_use↔tool_result` 配对的错误根源在**持久化层**——
+
+1. `Message` dataclass 没有 `reasoning_content`/`reasoning_signature` first-class 字段，loop.py 构造 `assistant_msg` 时只能丢弃。
+2. `_message_to_entry`（runtime.py）不把 reasoning 写进 JSONL，JSONL 里永远没有这两个字段。
+3. `jsonl_store._to_message` 读 JSONL 时不还原 reasoning，`build_chat_messages` 构造 `LLMMessage` 时没有传 reasoning 字段——任何跨 restart 的 session resume（heartbeat 新 session 也包含）都会遭遇 `reasoning_content is missing`。
+
+**修复（commits see below）**：
+
+| 文件 | 改动 |
+|------|------|
+| `src/agent/core/types.py` | `Message` 添加 `reasoning_content: str \| None = None` 和 `reasoning_signature: str \| None = None` 两个 first-class 字段 |
+| `src/agent/core/agent/loop.py` | 构造 `assistant_msg` 时从 `llm_msg.reasoning_content/reasoning_signature` 注入 |
+| `src/agent/core/agent/runtime.py` | `_message_to_entry` 写出 `reasoning_content`/`reasoning_signature` 到 JSONL 顶层字段 |
+| `src/agent/core/session/jsonl_store.py` | `_to_message` 从 JSONL 顶层还原两个字段到 `Message` |
+| `src/agent/core/session/entries.py` | `message_from_turn_entry` 还原 `tool_call_id`/`group_id`/reasoning 字段（之前只还原 message_id/role/content） |
+| `src/agent/core/session/manager.py` | `_build_turn_metadata` 把 `reasoning_content`/`reasoning_signature` 包入 metadata（供 `list_entries` 路径使用） |
+| `src/agent/core/agent/prompting.py` | `build_chat_messages` 从 `Message.reasoning_content/reasoning_signature` 传给 `LLMMessage` |
+
+**新增测试**：
+
+- `tests/unit/test_session_persistence_fidelity.py`（10 个单测）
+  - `TestReasoningPersistence`：`_message_to_entry` 写出字段；`Message` first-class 字段存在；`_roundtrip` 后 `Message.reasoning_*` 完整；`build_chat_messages` 传出 reasoning；无 reasoning 时入口/出口均为 None。
+  - `TestToolResultPairingFidelity`：`tool_call_id` 写出到 JSONL；restore 后 `Message.tool_call_id` 正确；并行 tool_results 两个 `call_id` 均出现在 `build_chat_messages`；`tool_calls` metadata 经 roundtrip 后 `LLMMessage.tool_calls` 非空且 `call_id` 匹配。
+
+- `tests/unit/test_jsonl_store_dag_recovery.py`（+2 个真实文件 roundtrip 测）
+  - `test_reasoning_fields_survive_jsonl_roundtrip`：写入带 `reasoning_content`/`reasoning_signature` 的 JSONL 行，`store.load()` 后断言两字段完整还原。
+  - `test_tool_call_id_survives_jsonl_roundtrip`：写入两条并行 tool_result，`store.load()` 后断言两个 `tool_call_id` 均存在。
+
 ### Permission ask → approve → resume thinking 路径
 
 **会话**：`2026-05-20_22-02-12_463_sess_ce88159dc3e47c86`，IM `http://127.0.0.1:54217`，对话 `a52669838fba4b13bd6674e16171460e`
