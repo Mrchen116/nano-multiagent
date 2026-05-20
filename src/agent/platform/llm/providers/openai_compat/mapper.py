@@ -82,6 +82,10 @@ class OpenAICompatMapper:
         if message.role == "assistant" and message.tool_calls:
             mapped["content"] = message.content or ""
             mapped["tool_calls"] = [self._map_tool_call(call) for call in message.tool_calls]
+            # Round-trip reasoning_content so providers like kimi K2.6 don't reject the request
+            # with "reasoning_content is missing in assistant tool call message".
+            if message.reasoning_content:
+                mapped["reasoning_content"] = message.reasoning_content
         elif message.role == "tool":
             mapped["content"] = _map_tool_content(message.content)
             if message.tool_call_id is None:

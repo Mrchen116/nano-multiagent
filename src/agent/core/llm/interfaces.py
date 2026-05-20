@@ -27,6 +27,10 @@ class LLMMessage:
     tool_calls: tuple[LLMToolCall, ...] = ()
     finish_reason: str | None = None
     usage: TokenUsage | None = None
+    # Preserved for round-trip: providers with thinking enabled (e.g. kimi K2.6) require
+    # every assistant+tool_calls message to carry back its original reasoning_content,
+    # otherwise the follow-up request is rejected with "reasoning_content is missing".
+    reasoning_content: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

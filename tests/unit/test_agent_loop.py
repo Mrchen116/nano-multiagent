@@ -721,3 +721,51 @@ async def test_loop_under_limit_no_compression() -> None:
         tr = result.tool_results[0]
         assert tr.content == "x" * 50
         assert PERSISTED_OUTPUT_TAG not in tr.content
+
+
+async def test_loop_preserves_reasoning_content_in_tool_call_roundtrip() -> None:
+    """开 thinking 后 assistant tool-call 轮的 reasoning_content 必须 round-trip 回传。
+
+    kimi K2.6 等带 thinking 的模型要求：历史里每条带 tool_call 的 assistant 消息
+    必须携带 reasoning_content，否则第二轮请求被拒。
+    """
+    thinking_text = "Let me think about this step by step..."
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="kimi-k2",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id="call_r1", name="echo", arguments={"text": "hi"}),),
+                    reasoning_content=thinking_text,
+                ),
+                finish_reason="tool_calls",
+            ),
+            LLMGenerateResponse(
+                model="kimi-k2",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    registry = FakeToolRegistry()
+    loop = AgentLoop(
+        llm_client=client,
+        model="kimi-k2",
+        policies=AgentPolicies(max_turns=3),
+        tool_registry=registry,
+    )
+
+    await _run_loop(loop, _base_state())
+
+    assert len(client.requests) == 2
+    second_round_messages = client.requests[1].messages
+    # messages: [system, user, assistant(tool_call), tool(result)]
+    assistant_msg = second_round_messages[2]
+    assert assistant_msg.role == "assistant"
+    assert assistant_msg.tool_calls, "assistant 消息必须有 tool_calls"
+    # reasoning_content 必须 round-trip 回传
+    assert assistant_msg.reasoning_content == thinking_text, (
+        f"reasoning_content 丢失: 期望 {thinking_text!r}, 实际 {assistant_msg.reasoning_content!r}"
+    )

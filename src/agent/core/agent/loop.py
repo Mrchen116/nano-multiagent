@@ -275,6 +275,7 @@ class AgentLoop:
                                 role=llm_msg.role,
                                 content=llm_msg.content,
                                 tool_calls=_as_llm_tool_calls(normalized_calls),
+                                reasoning_content=llm_msg.reasoning_content,
                             ),
                         )
 
@@ -751,10 +752,14 @@ def _append_llm_message(messages: list[LLMMessage], msg: LLMMessage) -> None:
         prev = messages[-1]
         merged_content = (prev.content or "") + (msg.content or "")
         merged_tool_calls = list(prev.tool_calls) + list(msg.tool_calls)
+        # Preserve reasoning_content from whichever side has it (prev takes precedence
+        # since it was produced in the same streaming chunk as the tool_calls).
+        merged_reasoning = prev.reasoning_content or msg.reasoning_content
         messages[-1] = LLMMessage(
             role="assistant",
             content=merged_content,
             tool_calls=tuple(merged_tool_calls),
+            reasoning_content=merged_reasoning,
         )
     else:
         messages.append(msg)
