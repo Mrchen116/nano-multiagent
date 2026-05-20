@@ -163,6 +163,8 @@ docs/changes/<unit_dir>/<milestone_dir>/tasks.md
 
 ### §3.1 Tests Plan(核心:测试必须证明产品能用)
 
+> **先读 `docs/TESTING_GUIDE.md`**——它是测试规范的唯一真源:测什么/不测什么的停止条件、"先定位再新建"、命名禁流水号、目录即分层 + e2e marker、可选依赖 importorskip、临时验收证据 ≠ 永久回归测试、单文件行数上限。本节只讲 milestone 内的规划动作,规则细节不在这里重复。
+
 按以下顺序思考:
 
 **第一步:确定"怎么证明这个功能对用户真的能用"**

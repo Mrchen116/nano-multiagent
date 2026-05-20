@@ -6,6 +6,8 @@
 
 开发规范：COMMENTING_GUIDE.md
 
+测试规范：docs/TESTING_GUIDE.md
+
 LLM交互日志：/Users/czj/Repos/LLM_PROXY/logs/<session_id>/
 
 参考项目代码：
@@ -214,6 +216,7 @@ done
 
 | 文档 | 路径 | 内容 |
 |---|---|---|
+| 测试规范 | docs/TESTING_GUIDE.md | 测什么/不测什么、命名落层、临时验收 vs 回归、tasks.md 测试策略必填 |
 | 架构总览 | SPEC.md | 四个包职责、依赖方向、部署图 |
 | 内核设计 | docs/内核设计SPEC.md | agent 三层架构、模块归属、HTTP API、工具/Hook/Skill/Session 契约 |
 | Coding CLI | docs/CodingCLI-SPEC.md | CLI 运行模式、REPL 交互、模块结构、硬约束 |
