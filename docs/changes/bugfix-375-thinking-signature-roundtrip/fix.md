@@ -198,6 +198,28 @@ pytest tests/unit/test_llm_anthropic_client_streaming.py \
 - `test_map_message_assistant_tool_call_round_trips_thinking_block` — 出站块 `signature` == 真实入站值（不再为空串）
 - `test_map_message_assistant_tool_call_uses_empty_signature_when_none` — `reasoning_signature=None` 时出站降级为 `""`
 
+### C1 E2E（RC1 FIFO 修复验证：并行 tool_result 配对不再乱序）
+
+**验证目标**：`StreamingToolExecutor.get_completed_results()` FIFO break 修复（commit `fbad279d`→`f7d685db`）确保同一轮 3 个并行 tool_uses 的 tool_results 不再被错位、上游不再返回 `tool_call_ids did not have response messages`。
+
+**设置**：API 进程端口 62964，session `sess_e9ac1dba9f0168e4`，模型 `kimiCoding:K2.6`（thinking: adaptive），任务"Please read these 3 files simultaneously using multiple read tool calls at once"。
+
+**raw upstream-req**：`2026-05-21_00-52-35_164-upstream-req-anthropic_messages.json`
+
+| 消息 | 内容 | 关键字段 |
+|------|------|----------|
+| msg[0] user | 用户指令（text） | — |
+| msg[1] assistant | thinking + 3 × tool_use | `tool_LeZw48TRHrKz1zYDMi2KavCV`, `tool_oddWGx1kA2yKskMJUtkUkj9j`, `tool_HCPOBuMXRwOYJ2jQWHkWJPZV` |
+| msg[2] user | tool_result | `tool_use_id=tool_LeZw48TRHrKz1zYDMi2KavCV`（配对 ✓） |
+| msg[3] user | tool_result | `tool_use_id=tool_oddWGx1kA2yKskMJUtkUkj9j`（配对 ✓） |
+| msg[4] user | tool_result | `tool_use_id=tool_HCPOBuMXRwOYJ2jQWHkWJPZV`（配对 ✓） |
+
+`invalid_request_error`：**0**。Run `stop_reason=end_turn`，agent 正确描述了所有 3 个文件的内容。
+
+**结论**：3 个并行 tool_use 的每个 tool_call_id 均有对应 tool_result 配对，上游接受请求并正常返回，`tool_call_ids did not have response messages` 不再出现。注：bugfix-375 e2e 中曾出现的 `read:N/bash:N` 形式 tool_call_id 错误（`sess_8d077ecc` read:7 等）均归 RC1 乱序问题，本修复后消除。
+
+---
+
 ### E2E（真实多轮 agentic 任务）
 
 完整 deep-bug-finding prompt（原文无修改）发给 kimi K2.6（`thinking: adaptive`）agent，目标仓库 `https://github.com/Mrchen116/nano-multiagent`，本地有 `gh` CLI。两处 co-fix（`455d1456` signature chain + `911d1bab` defer parallel tool_result）均已生效。
