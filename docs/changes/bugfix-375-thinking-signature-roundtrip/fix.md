@@ -250,6 +250,38 @@ pytest tests/unit/test_llm_anthropic_client_streaming.py \
   - `test_reasoning_fields_survive_jsonl_roundtrip`：写入带 `reasoning_content`/`reasoning_signature` 的 JSONL 行，`store.load()` 后断言两字段完整还原。
   - `test_tool_call_id_survives_jsonl_roundtrip`：写入两条并行 tool_result，`store.load()` 后断言两个 `tool_call_id` 均存在。
 
+**E2E（跨持久化边界，process restart）**：
+
+session `sess_ca5befc8a84d1750`，模型 `kimiCoding:K2.6`（thinking: adaptive）。
+
+**第一次 run**（API 进程 pid 97778，端口 60449）：
+- 发送"Run bash: echo hello world"
+- agent 用 `bash` 工具调用并收敛到 `end_turn`
+- JSONL（`.nano/sessions/sess_ca5befc8a84d1750.jsonl`）中 assistant 消息带 `reasoning_content` 和 `reasoning_signature`（两条都有）
+
+**进程重启**：kill pid 97778，在新端口 61164 起新 API 进程（pid 1221），session JSONL 保留。
+
+**第二次 run**（新进程）：
+- 发送"Now run bash: echo session_restored_ok"
+- LLM proxy raw req `2026-05-21_00-40-15_788-upstream-req-anthropic_messages.json`
+
+恢复历史验证（5 条消息）：
+
+| 消息 | 内容 | 关键字段 |
+|------|------|----------|
+| msg[0] user | "Run bash: echo hello world..." | — |
+| msg[1] assistant | THINKING + tool_use bash | sig_len=**4340**（非空），tool_use_id=`tool_j5XzvHPe0ssl0qkLkIVM4d6O` |
+| msg[2] user | tool_result | tool_use_id=`tool_j5XzvHPe0ssl0qkLkIVM4d6O`（**配对完整**） |
+| msg[3] assistant | THINKING + text | sig_len=**4340**（非空） |
+| msg[4] user | "Now run bash: echo session_restored_ok" | 新 user 消息 |
+
+`invalid_request_error`：**0**。第二次 run `stop_reason=end_turn`，输出：`"Confirmed. The command ran and output: session_restored_ok"`。
+
+**结论**：跨进程重启后，恢复的历史里：
+1. 所有 assistant thinking 块均带真实 signature（sig_len=4340，非空串）——**`reasoning_content is missing` 不再出现**。
+2. tool_use↔tool_result 配对完整——**`tool_call_ids did not have response messages` 不再出现**。
+3. 会话继续正常收敛到 `end_turn`。
+
 ### Permission ask → approve → resume thinking 路径
 
 **会话**：`2026-05-20_22-02-12_463_sess_ce88159dc3e47c86`，IM `http://127.0.0.1:54217`，对话 `a52669838fba4b13bd6674e16171460e`
