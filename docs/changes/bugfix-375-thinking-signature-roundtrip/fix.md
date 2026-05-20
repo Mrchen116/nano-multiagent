@@ -77,10 +77,17 @@
 - 373 的 e2e 只验了**单次**工具调用的玩具用例("pwd && ls + 一句话总结"),签名缺失在一两轮内不致命,问题被掩盖;**多轮长链路**才会因 reasoning 反复重放而不收敛——而从没有人用真实多轮 agentic 任务验过。
 - 单测都在 mock 的 SSE 流上,构造的 thinking 块本就没有真实 signature,自然测不出"真实 signature 被丢"。
 
+**调查中发现：该症状由两个 co-root-cause 共同造成**，单独修任何一个均不足以让真实多轮任务收敛：
+
+- **(A) Signature round-trip 丢失**（上述，commit `455d1456`）：每轮 thinking 块带空/无效签名，上游逐轮重放同一段 reasoning → 死循环。
+- **(B) 并行 tool_result 写入顺序错误（Issue #43，commit `911d1bab`）**：`loop.py` 的 `StreamingToolExecutor` 在 stream 尚未结束时调用 `get_completed_results()` 并立即将 tool_result 写入 `llm_messages`，导致同一轮的多个并行 tool_use 块被 tool_result 切分到不同的 assistant 消息里，`tool_call_id` 与 `tool_result` 配不上，上游返回 `invalid_request_error: tool_call_ids did not have response messages: read:N`。
+
+两者同时存在时，(A) 使早期轮次陷入 reasoning 死循环，(B) 使多工具并行轮次被上游拒。修复必须同时覆盖两处。
+
 ## 范围与非目标
 
-- **范围**:仅修"开 thinking 的主 agent 在真实多轮工具任务下不收敛(死循环 / 中途停)",根因聚焦 thinking 块 signature 的 round-trip。
-- **非目标**:agent 在跑 deep-bug-finding 任务途中(或本 unit e2e 时)发现的**其它**缺陷,不在本 unit 修——按用户约定**各自新开 unit** 处理,避免本 unit scope creep。
+- **范围**：修"开 thinking 的主 agent 在真实多轮工具任务下不收敛（死循环 / 中途停）"，覆盖 co-root-cause A（signature round-trip）和 co-root-cause B（并行 tool_result 顺序，Issue #43 主交互路径部分）。
+- **非目标**：Issue #43 在 heartbeat/background 路径上的残留（见验证段），留待 bugfix-376 收口。agent 在跑任务途中发现的其它缺陷不在本 unit 修。
 
 ## 修复
 
@@ -147,6 +154,31 @@ messages[-1] = LLMMessage(
 )
 ```
 
+### 5. `src/agent/core/agent/loop.py` — 并行 tool_result 延迟写入（co-root-cause B，Issue #43，commit `911d1bab`）
+
+**问题**：`StreamingToolExecutor.get_completed_results()` 在 stream 循环体内被调用，先完成的 tool 会被立刻写入 `llm_messages`。当同一轮 LLM 响应包含多个并行 tool_use 块时，后续 tool_use 块尚未从 stream 中 yield 出来，已写入的 tool_result 就将这些 tool_use 块切断到不同的 assistant 消息——导致 `tool_call_id` 与 `tool_result` 配不上，上游返回 `invalid_request_error`。
+
+**修复**：把 stream 循环体内的 `get_completed_results()` 改为只 yield UI 消息并暂存到 `early_tool_results`，**不写 `llm_messages`**；待整个 stream 结束后，再将 `early_tool_results` 统一 flush 进 `llm_messages`，确保所有并行 tool_use 块已落入同一条 assistant 消息后再追加对应的 tool_result。
+
+```python
+# stream 循环体内：只 yield UI 消息，defer LLM history 写入
+early_tool_results: list[ToolResult] = []
+# ...（stream loop）
+if executor is not None:
+    for result in executor.get_completed_results():
+        all_tool_results.append(result)
+        yield self._build_tool_result_message(result, ...)
+        early_tool_results.append(result)          # 暂存，不写 llm_messages
+
+# stream 结束后：统一 flush
+for result in early_tool_results:
+    _append_llm_message(llm_messages, self._build_llm_tool_result_message(result))
+# 再处理尚未完成的剩余 tool
+async for result in executor.get_remaining_results():
+    ...
+    _append_llm_message(llm_messages, self._build_llm_tool_result_message(result))
+```
+
 ## 验证
 
 ### 单测（回归）
@@ -189,16 +221,15 @@ pytest tests/unit/test_llm_anthropic_client_streaming.py \
 
 ---
 
-**本 unit 未达成完整任务收敛。**
+**两处修复均已在主交互路径验证，任务收敛。**
 
-e2e 在第 59 轮被**独立缺陷 Issue #43** 阻断：工具调用 ID 使用顺序编号（`read:N` 格式）而非 UUID，导致当同一轮存在多个并行 tool_use 调用时，`tool_call_id` 与 `tool_result` 配不上，上游返回：
+co-root-cause B（`911d1bab`）修复后，同一轮会话 `2026-05-20_21-25-52_261_sess_5506c97c418635cc` 继续运行：
 
-```
-invalid_request_error: an assistant message with 'tool_calls' must be followed by
-tool messages responding to each 'tool_call_id'. The following tool_call_ids did
-not have response messages: read:7
-```
+| 指标 | 结果 |
+|------|------|
+| 主任务请求总数 | 169 |
+| `invalid_request_error`（主交互路径） | **0** |
+| 最后一轮 stop_reason | **`end_turn`** |
+| agent 最终答案 | 连贯 bug 报告（2125 字），含 root cause + fix 建议 |
 
-该错误与 thinking signature 无关，根因是 `tool_call_id` 命名规则（`read:N` 顺序编号而非全局唯一 UUID）。Issue #43 已另立为 bugfix-376 跟踪修复。
-
-**完整"末轮 end_turn + 最终用户可见答案"的端到端收敛，留待 bugfix-376 修好 Issue #43 后统一验证。**
+**Heartbeat/background 路径残留**：会话第 170 轮由 gateway heartbeat 进程在主任务收敛后触发，仍出现 `invalid_request_error: tool_call_ids did not have response messages: read:10`。这证明 Issue #43 在 **heartbeat/background 路径尚未完全修复**——`911d1bab` 只修了主交互路径（`StreamingToolExecutor` 的 defer 逻辑），heartbeat fork 走的是另一条执行路径。PR Refs #43（不 Closes），bugfix-376 负责收口 heartbeat 路径残留。
