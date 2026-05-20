@@ -105,7 +105,11 @@ class AnthropicClient(LLMClient):
         # the loop later splits them into separate assistant messages, each of which
         # kimi K2.6 requires to carry the turn's reasoning_content — so attach it to
         # every tool_use/text block in this stream, not just the first (bugfix-373).
+        # The thinking block also carries a cryptographic signature that must round-trip
+        # back unchanged; an empty signature causes the upstream to replay the same
+        # reasoning every turn and the agent loops forever (bugfix-375).
         turn_reasoning: str | None = None
+        turn_signature: str | None = None
 
         async for event in _iter_sse_events(response):
             event_type = event.get("type")
@@ -131,8 +135,13 @@ class AnthropicClient(LLMClient):
                     thinking_text = block.get("thinking", "")
                     if thinking_text:
                         turn_reasoning = (turn_reasoning or "") + thinking_text
+                    sig = block.get("signature", "")
+                    if sig:
+                        turn_signature = sig
                     continue
-                yield _anthropic_block_to_llm_message(block, reasoning_content=turn_reasoning)
+                yield _anthropic_block_to_llm_message(
+                    block, reasoning_content=turn_reasoning, reasoning_signature=turn_signature
+                )
 
             elif event_type == "message_delta":
                 delta = event.get("delta", {})
@@ -182,6 +191,10 @@ def _apply_anthropic_delta(block: dict[str, Any], delta: dict[str, Any]) -> None
         block["text"] = block.get("text", "") + delta.get("text", "")
     elif delta_type == "thinking_delta":
         block["thinking"] = block.get("thinking", "") + delta.get("thinking", "")
+    elif delta_type == "signature_delta":
+        # Accumulate the thinking block's cryptographic signature; must round-trip
+        # unchanged so the upstream recognises it as sealed history (bugfix-375).
+        block["signature"] = block.get("signature", "") + delta.get("signature", "")
     elif delta_type == "input_json_delta":
         existing = block.get("input", "")
         if isinstance(existing, dict):
@@ -190,7 +203,10 @@ def _apply_anthropic_delta(block: dict[str, Any], delta: dict[str, Any]) -> None
 
 
 def _anthropic_block_to_llm_message(
-    block: dict[str, Any], *, reasoning_content: str | None = None
+    block: dict[str, Any],
+    *,
+    reasoning_content: str | None = None,
+    reasoning_signature: str | None = None,
 ) -> LLMMessage:
     """Convert one completed Anthropic content block into an LLMMessage."""
 
@@ -200,6 +216,7 @@ def _anthropic_block_to_llm_message(
             role="assistant",
             content=block.get("text", ""),
             reasoning_content=reasoning_content,
+            reasoning_signature=reasoning_signature,
         )
     if block_type == "tool_use":
         raw_input = block.get("input", "")
@@ -223,8 +240,14 @@ def _anthropic_block_to_llm_message(
                 ),
             ),
             reasoning_content=reasoning_content,
+            reasoning_signature=reasoning_signature,
         )
-    return LLMMessage(role="assistant", content="", reasoning_content=reasoning_content)
+    return LLMMessage(
+        role="assistant",
+        content="",
+        reasoning_content=reasoning_content,
+        reasoning_signature=reasoning_signature,
+    )
 
 
 def _parse_anthropic_usage(payload: dict[str, Any] | None) -> TokenUsage | None:
