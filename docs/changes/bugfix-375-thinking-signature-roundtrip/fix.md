@@ -200,39 +200,23 @@ pytest tests/unit/test_llm_anthropic_client_streaming.py \
 
 ### E2E（真实多轮 agentic 任务）
 
-**Signature round-trip 链路已验证修好。**
+完整 deep-bug-finding prompt（原文无修改）发给 kimi K2.6（`thinking: adaptive`）agent，目标仓库 `https://github.com/Mrchen116/nano-multiagent`，本地有 `gh` CLI。两处 co-fix（`455d1456` signature chain + `911d1bab` defer parallel tool_result）均已生效。
 
-完整 deep-bug-finding prompt（原文无修改）发给 kimi K2.6（`thinking: adaptive`）agent，目标仓库 `https://github.com/Mrchen116/nano-multiagent`，本地有 `gh` CLI。
-
-**LLM Proxy 日志会话**：`2026-05-20_20-33-57_475_sess_ae6700e3fedba556`
-（路径：`/Users/czj/Repos/LLM_PROXY/logs/session/2026-05-20_20-33-57_475_sess_ae6700e3fedba556/`）
-
-| 指标 | 结果 |
-|------|------|
-| 请求总数 | 59 |
-| `invalid_request_error`（signature/reasoning 类） | **0** |
-| 唯一真实 signature 数 | **14 个不同值**（无空串） |
-| reasoning 逐字节重复 | **无**（每轮 thinking 内容不同） |
-
-14 个真实 signature（前 20 字符）：
-`0ULXcAT2Af0bbjBG7O/j`、`1q4QCe0/I7CEpZzkroS/`、`2TERSKjt5E/GiVjTpji2`、`3Nje+KwjJyuYlM4JSZJw`、`3UZdjQlwPI75fuTOHPI8`、`6RqTGQjwtTq995CC3+H9`（共 14 个）
-
-**代码链路验证**：每轮请求的 assistant 历史消息中 thinking 块 `signature` 字段均为真实值（非空串），证明 `client.py` → `LLMMessage.reasoning_signature` → `loop.py` merge → `mapper.py` 出站的完整 round-trip 链路正确工作。
-
----
-
-**两处修复均已在主交互路径验证，任务收敛。**
-
-co-root-cause B（`911d1bab`）修复后，同一轮会话 `2026-05-20_21-25-52_261_sess_5506c97c418635cc` 继续运行：
+**主证据**：`2026-05-20_21-25-52_261_sess_5506c97c418635cc`
 
 | 指标 | 结果 |
 |------|------|
 | 主任务请求总数 | 169 |
 | `invalid_request_error`（主交互路径） | **0** |
+| 唯一真实 signature 数 | **28 个不同值**（无空串） |
 | 最后一轮 stop_reason | **`end_turn`** |
 | agent 最终答案 | 连贯 bug 报告（2125 字），含 root cause + fix 建议 |
 
-**Heartbeat/background 路径残留**：会话第 170 轮由 gateway heartbeat 进程在主任务收敛后触发，仍出现 `invalid_request_error: tool_call_ids did not have response messages: read:10`。这证明 Issue #43 在 **heartbeat/background 路径尚未完全修复**——`911d1bab` 只修了主交互路径（`StreamingToolExecutor` 的 defer 逻辑），heartbeat fork 走的是另一条执行路径。PR Refs #43（不 Closes），bugfix-376 负责收口 heartbeat 路径残留。
+两处 co-fix 同时生效后，169 轮主任务全程 0 个 `invalid_request_error`，多轮 thinking + 工具调用收敛到 end_turn + 连贯最终答案。
+
+**辅证（signature round-trip 链路独立验证）**：`2026-05-20_20-33-57_475_sess_ae6700e3fedba556`（59 req，14 个唯一 signature，0 error）——更早的短链路验证，单独证明 `client.py` → `LLMMessage.reasoning_signature` → `loop.py` merge → `mapper.py` 出站的完整 round-trip 链路正确工作，每轮请求的 assistant 历史消息中 thinking 块 `signature` 字段均为真实值（非空串）。
+
+**Heartbeat/background 路径残留**：`sess_5506c97c` 第 170 轮由 gateway heartbeat 进程在主任务收敛后触发，出现 `invalid_request_error: tool_call_ids did not have response messages: read:10`（主交互路径 0 个，仅此 1 个）。`911d1bab` 只修了主交互路径（`StreamingToolExecutor` defer 逻辑），heartbeat fork 走另一条路径，Issue #43 残留未完全收口。PR Refs #43（不 Closes），bugfix-376 负责收口 heartbeat 路径残留。
 
 ---
 
