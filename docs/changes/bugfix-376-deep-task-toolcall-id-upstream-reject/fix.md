@@ -1,5 +1,7 @@
 # bugfix-376: deep agentic 任务在工具调用深度增加后被 kimi 以 tool_call_id 未配对拒绝、会话中断
 
+> **SUPERSEDED / 已折叠**：本 unit 经复现 + RCA 后，结论是该 `read:N` 错误是 RC1（`get_completed_results` 对 safe executing 工具不 break 导致并行 tool_result 乱序）的内存层缺陷，与历史重建无关。修复（RC1 + reasoning 跨持久化保真）已**折叠进 bugfix-375 / PR #44**，不单独走。本文件保留作为复现与 RCA 的考古记录。详见 `docs/changes/bugfix-375-thinking-signature-roundtrip/fix.md`。
+
 ## Relations
 
 - Refs: #43
