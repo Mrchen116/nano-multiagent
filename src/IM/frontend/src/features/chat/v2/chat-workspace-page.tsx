@@ -20,7 +20,7 @@ import {
   type ConversationState
 } from "./chat-stream-reducer";
 import { authFetch } from "../../auth/auth-fetch";
-import type { Attachment, Conversation, Message, WsEvent } from "./chat-types";
+import type { Attachment, Conversation, Message, PermissionRequest, WsEvent } from "./chat-types";
 import { ConversationSidebar } from "./components/conversation-sidebar";
 import { MessagePane } from "./components/message-pane";
 import { NewGroupModal } from "./components/new-group-modal";
@@ -39,12 +39,27 @@ function streamReducer(
       ? new Map(state.messages.map((m) => [m.id, m]))
       : new Map();
     const merged = action.messages.map((m) => {
-      if (m.token_usage) return m;
       const existing = existingById.get(m.id);
-      if (existing?.token_usage) {
-        return { ...m, token_usage: existing.token_usage, delivery_status: existing.delivery_status };
+      let out = m;
+      if (!m.token_usage && existing?.token_usage) {
+        out = {
+          ...out,
+          token_usage: existing.token_usage,
+          delivery_status: existing.delivery_status
+        };
       }
-      return m;
+      const permission_requests = mergePermissionRequests(
+        m.permission_requests,
+        existing?.permission_requests
+      );
+      if (
+        permission_requests.length > 0
+        || (m.permission_requests?.length ?? 0) > 0
+        || (existing?.permission_requests?.length ?? 0) > 0
+      ) {
+        out = { ...out, permission_requests };
+      }
+      return out;
     });
     return { conversation_id: action.conversationId, messages: merged };
   }
@@ -76,6 +91,48 @@ async function fetchNodes(): Promise<NodeRow[]> {
   const res = await authFetch("/im/v1/nodes");
   if (!res.ok) throw new Error(`listNodes failed: ${res.status}`);
   return (await res.json()) as NodeRow[];
+}
+
+/**
+ * REST 历史与 WS 流式状态合并 permission_requests（对齐 token_usage 保留策略）。
+ *
+ * bugfix-367: 同泡多次 ask 后若 refetchOnWindowFocus 命中 React Query 缓存,
+ * 服务端列表可能短暂落后于 WS reducer；合并时按 request_id 取并集,
+ * resolved 优先于 pending, 避免 pending 卡被 reset 抹掉。
+ */
+function mergePermissionRequests(
+  fromServer: PermissionRequest[] | undefined,
+  fromStream: PermissionRequest[] | undefined,
+): PermissionRequest[] {
+  const server = fromServer ?? [];
+  const stream = fromStream ?? [];
+  if (stream.length === 0) return server;
+  if (server.length === 0) return stream;
+
+  const byId = new Map<string, PermissionRequest>();
+  for (const req of server) byId.set(req.request_id, req);
+  for (const req of stream) {
+    const prev = byId.get(req.request_id);
+    if (!prev) {
+      byId.set(req.request_id, req);
+      continue;
+    }
+    if (prev.status === "pending" && req.status === "resolved") {
+      byId.set(req.request_id, req);
+    } else if (prev.status === "resolved" && req.status === "pending") {
+      continue;
+    } else {
+      byId.set(req.request_id, req);
+    }
+  }
+  const order: string[] = [];
+  for (const req of server) {
+    if (!order.includes(req.request_id)) order.push(req.request_id);
+  }
+  for (const req of stream) {
+    if (!order.includes(req.request_id)) order.push(req.request_id);
+  }
+  return order.map((id) => byId.get(id)!);
 }
 
 /**
