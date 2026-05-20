@@ -28,9 +28,9 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | 加 e2e 路径自动 marker（conftest） | TODO |
-| R2 | 加 pytest-cov 进 [dev] | TODO |
-| R3 | 跑带 marker 后的 not-e2e 基线，收集残余失败列表 | TODO |
-| R4 | 逐条分类残余失败（四类 + 证据 + M2 动作） | TODO |
-| R5 | 盘点结构问题（流水号/巨型文件/快照/跨层重复） | TODO |
-| R6 | 产出 regression.md + 真回归立 issue | TODO |
+| R1 | 加 e2e 路径自动 marker（conftest） | DONE |
+| R2 | 加 pytest-cov 进 [dev] | DONE |
+| R3 | 跑带 marker 后的 not-e2e 基线，收集残余失败列表 | DONE |
+| R4 | 逐条分类残余失败（四类 + 证据 + M2 动作） | DONE |
+| R5 | 盘点结构问题（流水号/巨型文件/快照/跨层重复） | DONE |
+| R6 | 产出 regression.md + 真回归立 issue | DONE |
