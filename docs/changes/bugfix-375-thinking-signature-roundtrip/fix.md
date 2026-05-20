@@ -168,21 +168,26 @@ pytest tests/unit/test_llm_anthropic_client_streaming.py \
 
 ### E2E（真实多轮 agentic 任务）
 
-使用 worktree 内 ephemeral 服务（IM 端口 56956，Gateway 指向 kimi K2.6 `thinking: adaptive`），在 IM 对 agent 发送完整的 deep-bug-finding prompt，目标仓库 `https://github.com/Mrchen116/nano-multiagent`，本地有 `gh` CLI。
+使用 worktree 内 ephemeral 服务（IM 端口 64836，Gateway 指向 kimi K2.6 `thinking: adaptive`，`IM_RELAY_WATCHDOG_TIMEOUT_SECONDS=3600`），在 IM 对 agent 发送完整的 deep-bug-finding prompt（原文无修改），目标仓库 `https://github.com/Mrchen116/nano-multiagent`，本地有 `gh` CLI。
 
-**LLM Proxy 日志会话**：`2026-05-20_16-08-42_331_sess_8afaf59aacb85f98`
-（路径：`/Users/czj/Repos/LLM_PROXY/logs/2026-05-20_16-08-42_331_sess_8afaf59aacb85f98/`）
+**LLM Proxy 日志会话**：`2026-05-20_21-25-52_261_sess_5506c97c418635cc`
+（路径：`/Users/czj/Repos/LLM_PROXY/logs/session/2026-05-20_21-25-52_261_sess_5506c97c418635cc/`）
 
 | 指标 | 结果 |
 |------|------|
-| 请求总数 | 26 |
-| `invalid_request_error` | 0 |
-| 唯一真实 signature 数 | 6 个不同值（无空串） |
-| 最后一轮 finish_reason | `stop`（正常收敛） |
+| 主任务请求总数 | 169 |
+| `invalid_request_error`（主任务） | 0 |
+| 唯一真实 signature 数 | 28 个不同值（无空串） |
+| 最后一轮 stop_reason | `end_turn`（正常收敛） |
 
-6 个真实 signature（前 20 字符）：
-`3EdFbDwdEPBnqaUrD4CD`、`YvuaPxbLXwOichGTBIeJ`、`lxBi/dNrPAQl/7/cKJLr`、`tBnH7nZ1N8RxvkSsgx9N`、`wvJDlfvn1oDF29BLhjty`、`za7Ks2BfeKtt6aQUEtf0`
+28 个真实 signature（前 20 字符，部分）：
+`/ZAJDDcg7zjlxep7TbfF`、`2xxRitr5iBxgKreaRk3W`、`BraKZrL/kf9hvKv12EnR`、`CgxkB4g9jSsIdVYsJ6/k`、`DyZEB+PqN/2QREz0Puo8`、`JDXRvxgDkFHOByLF5BfY`（共 28 个）
 
-agent 最终给出连贯的"no critical bugs found"分析报告，任务收敛，死循环现象消除。
+**Agent 最终回复**（节选）：
+> 检查结果：发现 1 个高严重性 bug
+>
+> 主仓库 main 分支存在 thinking signature round-trip 缺失，导致开 thinking 的 agent 在真实多轮工具任务下死循环或中途停止。
 
-**附注**：E2E 过程中发现一个 out-of-unit 问题（工具调用 ID 使用顺序编号而非 UUID，导致 `tool_call_id` 与 `tool_use_id` 在某些路径不匹配，引发上游 `bash:9` error）。该问题与本 unit 根因无关，已另开 GitHub Issue #43 跟踪，不在本 unit 修复范围内。
+任务收敛（stop_reason=end_turn），agent 给出连贯的 bug 报告，死循环现象消除。
+
+**附注**：第 170 轮请求是 gateway heartbeat/background 进程在主任务收敛后触发的独立 agent 会话，产生 1 个 `invalid_request_error`，与本 unit 主任务无关，不计入验收范围。并行工具调用的 tool_call_id 错序问题（Issue #43）已同步在本 unit 内修复（commit `911d1bab`，loop.py defer early_tool_results 到 stream 结束后再写入 llm_messages）。
