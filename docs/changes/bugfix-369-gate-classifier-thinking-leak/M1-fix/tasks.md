@@ -21,6 +21,6 @@ auto_mode_gate 的 stage-1 / stage-2 call_model 调用显式关闭 thinking，�
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | C1 红测：验证 extra_body 不传时 parse 失败的 regression + 验证传 disabled 后 parse 成功 | TODO |
-| R2 | C2 实现：打通 HookModelCall → call_model → runtime → classify_action extra_body 链路 | TODO |
-| R3 | C3 文档：tasks/progress 补全 + fix.md 回填 | TODO |
+| R1 | C1 红测：验证 extra_body 不传时 parse 失败的 regression + 验证传 disabled 后 parse 成功 | DONE |
+| R2 | C2 实现：打通 HookModelCall → call_model → runtime → classify_action extra_body 链路 | DONE |
+| R3 | C3 文档：tasks/progress 补全 + fix.md 回填 | DONE |
