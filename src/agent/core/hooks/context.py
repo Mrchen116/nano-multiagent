@@ -34,6 +34,9 @@ class HookModelCall:
     temperature: float | None = None
     stop_sequences: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    # Caller-level override for provider request body (e.g. disable thinking for gate classifier).
+    # Values here take precedence over model metadata extra_request_body in the provider client.
+    extra_body: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +185,7 @@ class HookContext:
         temperature: float | None = None,
         stop_sequences: tuple[str, ...] | list[str] = (),
         metadata: Mapping[str, Any] | None = None,
+        extra_body: Mapping[str, Any] | None = None,
     ) -> HookModelResult:
         """Call the runtime model with enforced session-id consistency.
 
@@ -202,6 +206,7 @@ class HookContext:
                 temperature=temperature,
                 stop_sequences=tuple(stop_sequences),
                 metadata=dict(metadata or {}),
+                extra_body=dict(extra_body) if extra_body is not None else None,
             )
         )
         if hasattr(result, "__await__"):

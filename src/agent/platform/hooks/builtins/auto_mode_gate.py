@@ -434,6 +434,12 @@ async def _classify_action(ctx: Any, system_prompt: str, user_prompt: str) -> Pe
     Returns:
         PermissionDecision with behavior in {"allow", "deny", "ask"}.
     """
+    # Classifier calls must never inherit the main agent's thinking budget.
+    # Model-level thinking (e.g. kimiCoding:K2.6 adaptive) would consume the
+    # 64-token stage-1 budget entirely on reasoning, leaving content empty and
+    # causing a fail-closed ask. Explicitly disable here at the call site.
+    _no_thinking: dict[str, Any] = {"thinking": {"type": "disabled"}}
+
     try:
         stage1_result = await asyncio.wait_for(
             ctx.call_model(
@@ -442,6 +448,7 @@ async def _classify_action(ctx: Any, system_prompt: str, user_prompt: str) -> Pe
                 max_tokens=64,
                 stop_sequences=["</block>"],
                 temperature=0,
+                extra_body=_no_thinking,
             ),
             timeout=30.0,
         )
@@ -485,6 +492,7 @@ async def _classify_action(ctx: Any, system_prompt: str, user_prompt: str) -> Pe
                 user_prompt=user_prompt + XML_S2_SUFFIX,
                 max_tokens=4096,
                 temperature=0,
+                extra_body=_no_thinking,
             ),
             timeout=60.0,
         )
