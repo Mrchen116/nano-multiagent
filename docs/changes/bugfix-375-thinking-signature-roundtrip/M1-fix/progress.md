@@ -18,4 +18,12 @@
 
 ## R3 — e2e 验证 + fix.md 回填
 
-_TODO_
+- Context: 需要用真实多轮 agentic 任务确认 signature round-trip 修复有效，同时回填 fix.md 修复/验证两节。
+- Decision: 在 worktree 内起 ephemeral IM（端口 56956）+ Gateway（kimi K2.6，`thinking: adaptive`），发 deep-bug-finding prompt 给 agent，目标仓库 `Mrchen116/nano-multiagent`，监控 LLM proxy 日志。
+- Evidence:
+  - LLM proxy 会话：`2026-05-20_16-08-42_331_sess_8afaf59aacb85f98`
+  - 26 轮请求，0 个 `invalid_request_error`
+  - 6 个唯一真实 signature（`3EdFbDwdEPBnqaUrD4CD`、`YvuaPxbLXwOichGTBIeJ`、`lxBi/dNrPAQl/7/cKJLr`、`tBnH7nZ1N8RxvkSsgx9N`、`wvJDlfvn1oDF29BLhjty`、`za7Ks2BfeKtt6aQUEtf0`），无空串
+  - 最终 finish_reason = `stop`（正常收敛），agent 给出连贯分析报告
+  - 附注：E2E 途中发现 out-of-unit 问题（tool_call_id 顺序编号而非 UUID），与本 unit 无关，已开 Issue #43
+- Commits: C3=见当前提交

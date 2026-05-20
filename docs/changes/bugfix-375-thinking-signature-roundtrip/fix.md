@@ -84,8 +84,105 @@
 
 ## 修复
 
-<!-- worker 回填 -->
+改动涉及 4 个文件，commit `455d1456`：
+
+### 1. `src/agent/core/llm/interfaces.py` — 新增 `reasoning_signature` 字段
+
+在 `LLMMessage` dataclass 里紧跟 `reasoning_content` 之后加：
+
+```python
+# Preserved for round-trip: Anthropic thinking blocks carry a cryptographic signature
+# issued by the model ("I sealed this reasoning"). Returning an empty signature causes
+# the upstream to replay the same reasoning segment every turn → infinite loop (bugfix-375).
+reasoning_signature: str | None = None
+```
+
+### 2. `src/agent/platform/llm/providers/anthropic/client.py` — 收集 `signature_delta`
+
+`_apply_anthropic_delta` 原本只处理三种 delta 类型，补第四种：
+
+```python
+elif delta_type == "signature_delta":
+    # Accumulate the thinking block's cryptographic signature; must round-trip
+    # unchanged so the upstream recognises it as sealed history (bugfix-375).
+    block["signature"] = block.get("signature", "") + delta.get("signature", "")
+```
+
+在 `content_block_stop` 处理 thinking 块时提取并传给 `_anthropic_block_to_llm_message`：
+
+```python
+sig = block.get("signature", "")
+if sig:
+    turn_signature = sig
+# ...
+yield _anthropic_block_to_llm_message(
+    block, reasoning_content=turn_reasoning, reasoning_signature=turn_signature
+)
+```
+
+### 3. `src/agent/platform/llm/providers/anthropic/mapper.py` — 出站用真实 signature
+
+将硬编码的空串替换为实际值：
+
+```python
+content.append({
+    "type": "thinking",
+    "thinking": message.reasoning_content,
+    "signature": message.reasoning_signature or "",
+})
+```
+
+### 4. `src/agent/core/agent/loop.py` — merge 时保留 signature
+
+`_append_llm_message` 合并多个流式片段时对 `reasoning_signature` 做 or-merge（与 `reasoning_content` 的 concat merge 对称）：
+
+```python
+merged_signature = prev.reasoning_signature or msg.reasoning_signature
+messages[-1] = LLMMessage(
+    role="assistant",
+    content=merged_content,
+    tool_calls=tuple(merged_tool_calls),
+    reasoning_content=merged_reasoning,
+    reasoning_signature=merged_signature,
+)
+```
 
 ## 验证
 
-<!-- worker 回填 -->
+### 单测（回归）
+
+```
+pytest tests/unit/test_llm_anthropic_client_streaming.py \
+       tests/unit/test_llm_anthropic_mapper.py \
+       tests/contract/test_llm_interfaces_contract.py -xvs
+```
+
+全绿（commits `41d4aea4` C1 红测 → `455d1456` C2 实现后转绿）。
+
+新增测试覆盖点：
+- `test_stream_response_omits_reasoning_when_no_thinking_block` — 无 thinking 时 `reasoning_signature is None`
+- `test_stream_response_carries_signature_into_tool_call` — SSE 含真实 `signature_delta`，断言 `reasoning_signature == "3EdFbDwdEPBnqaUrD4CD..."`
+- `test_stream_response_shares_signature_across_parallel_tool_calls` — 多 tool_use 块共享同一 signature
+- `test_map_message_assistant_tool_call_round_trips_thinking_block` — 出站块 `signature` == 真实入站值（不再为空串）
+- `test_map_message_assistant_tool_call_uses_empty_signature_when_none` — `reasoning_signature=None` 时出站降级为 `""`
+
+### E2E（真实多轮 agentic 任务）
+
+使用 worktree 内 ephemeral 服务（IM 端口 56956，Gateway 指向 kimi K2.6 `thinking: adaptive`），在 IM 对 agent 发送完整的 deep-bug-finding prompt，目标仓库 `https://github.com/Mrchen116/nano-multiagent`，本地有 `gh` CLI。
+
+**LLM Proxy 日志会话**：`2026-05-20_16-08-42_331_sess_8afaf59aacb85f98`
+（路径：`/Users/czj/Repos/LLM_PROXY/logs/2026-05-20_16-08-42_331_sess_8afaf59aacb85f98/`）
+
+| 指标 | 结果 |
+|------|------|
+| 请求总数 | 26 |
+| `invalid_request_error` | 0 |
+| 唯一真实 signature 数 | 6 个不同值（无空串） |
+| 最后一轮 finish_reason | `stop`（正常收敛） |
+
+6 个真实 signature（前 20 字符）：
+`3EdFbDwdEPBnqaUrD4CD`、`YvuaPxbLXwOichGTBIeJ`、`lxBi/dNrPAQl/7/cKJLr`、`tBnH7nZ1N8RxvkSsgx9N`、`wvJDlfvn1oDF29BLhjty`、`za7Ks2BfeKtt6aQUEtf0`
+
+agent 最终给出连贯的"no critical bugs found"分析报告，任务收敛，死循环现象消除。
+
+**附注**：E2E 过程中发现一个 out-of-unit 问题（工具调用 ID 使用顺序编号而非 UUID，导致 `tool_call_id` 与 `tool_use_id` 在某些路径不匹配，引发上游 `bash:9` error）。该问题与本 unit 根因无关，已另开 GitHub Issue #43 跟踪，不在本 unit 修复范围内。
