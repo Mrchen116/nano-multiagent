@@ -1,8 +1,10 @@
-"""AnthropicClient streaming 单元测试，验证 thinking 块 reasoning_content round-trip。
+"""AnthropicClient streaming 单元测试，验证 thinking 块 reasoning_content + signature round-trip。
 
 kimi K2.6 走 anthropic provider（model_registry: provider="anthropic"）。thinking
-模式下上游返回独立的 thinking 内容块，必须把它的文本挂到同一轮的 tool_use 消息上，
-否则 loop 回传历史时丢失 reasoning_content，follow-up 请求被上游拒（bugfix-373）。
+模式下上游返回独立的 thinking 内容块（含 signature），必须把文本和真实 signature
+都挂到同一轮的 tool_use 消息上，否则回传历史时：
+- 丢失 reasoning_content → follow-up 请求被上游拒（bugfix-373）
+- signature 为空 → 上游每轮重放同一段 reasoning，多轮死循环（bugfix-375）
 """
 
 from __future__ import annotations
@@ -158,3 +160,105 @@ async def test_stream_response_omits_reasoning_when_no_thinking_block() -> None:
     text_msg = next((m for m in messages if m.content), None)
     assert text_msg is not None
     assert text_msg.reasoning_content is None
+    assert text_msg.reasoning_signature is None
+
+
+async def test_stream_response_carries_signature_into_tool_call() -> None:
+    """thinking 块的 signature 必须通过 signature_delta 解析后 round-trip 到 tool_call 消息。
+
+    Anthropic 要求 thinking 块的 signature 为原始值：空签名表示"未封存的历史推理"，
+    上游每轮把同一段 reasoning 重新翻出来重放 → 多轮死循环（bugfix-375）。
+    """
+    thinking_text = "我需要检查仓库的最近提交"
+    real_signature = "EqoBCkgIARgCIkDxyz_real_signature_token_abc123"
+    events = [
+        {"type": "message_start", "message": {"role": "assistant", "content": []}},
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": thinking_text}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": real_signature}},
+        {"type": "content_block_stop", "index": 0},
+        {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {"type": "tool_use", "id": "tool_1", "name": "bash", "input": {}},
+        },
+        {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"command":"gh log --oneline -10"}'}},
+        {"type": "content_block_stop", "index": 1},
+        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"input_tokens": 15, "output_tokens": 8}},
+        {"type": "message_stop"},
+    ]
+    body = _make_anthropic_sse(events)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+
+    messages = await _collect(
+        client,
+        LLMGenerateRequest(
+            session_id="sess_anthropic_signature",
+            model="kimiCoding:K2.6",
+            messages=(LLMMessage(role="user", content="检查最近的提交"),),
+        ),
+    )
+
+    tool_call_msg = next((m for m in messages if m.tool_calls), None)
+    assert tool_call_msg is not None, "应该有 tool_call 消息"
+    assert tool_call_msg.reasoning_content == thinking_text, (
+        f"thinking 文本未 round-trip: {tool_call_msg.reasoning_content!r}"
+    )
+    assert tool_call_msg.reasoning_signature == real_signature, (
+        f"thinking signature 未 round-trip，实际: {tool_call_msg.reasoning_signature!r}"
+    )
+
+
+async def test_stream_response_shares_signature_across_parallel_tool_calls() -> None:
+    """多个 tool_use 共享同一 thinking 块时，每个都要带上 reasoning_signature。"""
+    thinking_text = "我需要并行检查两个命令"
+    real_signature = "EqoBCkgIARgCIkD_parallel_sig_token_xyz789"
+    events = [
+        {"type": "message_start", "message": {"role": "assistant", "content": []}},
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": thinking_text}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": real_signature}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "tool_1", "name": "bash", "input": {}}},
+        {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"command":"pwd"}'}},
+        {"type": "content_block_stop", "index": 1},
+        {"type": "content_block_start", "index": 2, "content_block": {"type": "tool_use", "id": "tool_2", "name": "bash", "input": {}}},
+        {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": '{"command":"ls -la"}'}},
+        {"type": "content_block_stop", "index": 2},
+        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"input_tokens": 10, "output_tokens": 10}},
+        {"type": "message_stop"},
+    ]
+    body = _make_anthropic_sse(events)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+
+    messages = await _collect(
+        client,
+        LLMGenerateRequest(
+            session_id="sess_anthropic_parallel_sig",
+            model="kimiCoding:K2.6",
+            messages=(LLMMessage(role="user", content="请并行运行两个命令"),),
+        ),
+    )
+
+    tool_call_msgs = [m for m in messages if m.tool_calls]
+    assert len(tool_call_msgs) == 2, "应该有两条 tool_call 消息"
+    for msg in tool_call_msgs:
+        assert msg.reasoning_signature == real_signature, (
+            f"tool_call {msg.tool_calls[0].name} 缺 reasoning_signature: {msg.reasoning_signature!r}"
+        )
