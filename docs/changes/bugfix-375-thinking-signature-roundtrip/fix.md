@@ -168,26 +168,37 @@ pytest tests/unit/test_llm_anthropic_client_streaming.py \
 
 ### E2E（真实多轮 agentic 任务）
 
-使用 worktree 内 ephemeral 服务（IM 端口 64836，Gateway 指向 kimi K2.6 `thinking: adaptive`，`IM_RELAY_WATCHDOG_TIMEOUT_SECONDS=3600`），在 IM 对 agent 发送完整的 deep-bug-finding prompt（原文无修改），目标仓库 `https://github.com/Mrchen116/nano-multiagent`，本地有 `gh` CLI。
+**Signature round-trip 链路已验证修好。**
 
-**LLM Proxy 日志会话**：`2026-05-20_21-25-52_261_sess_5506c97c418635cc`
-（路径：`/Users/czj/Repos/LLM_PROXY/logs/session/2026-05-20_21-25-52_261_sess_5506c97c418635cc/`）
+完整 deep-bug-finding prompt（原文无修改）发给 kimi K2.6（`thinking: adaptive`）agent，目标仓库 `https://github.com/Mrchen116/nano-multiagent`，本地有 `gh` CLI。
+
+**LLM Proxy 日志会话**：`2026-05-20_20-33-57_475_sess_ae6700e3fedba556`
+（路径：`/Users/czj/Repos/LLM_PROXY/logs/session/2026-05-20_20-33-57_475_sess_ae6700e3fedba556/`）
 
 | 指标 | 结果 |
 |------|------|
-| 主任务请求总数 | 169 |
-| `invalid_request_error`（主任务） | 0 |
-| 唯一真实 signature 数 | 28 个不同值（无空串） |
-| 最后一轮 stop_reason | `end_turn`（正常收敛） |
+| 请求总数 | 59 |
+| `invalid_request_error`（signature/reasoning 类） | **0** |
+| 唯一真实 signature 数 | **14 个不同值**（无空串） |
+| reasoning 逐字节重复 | **无**（每轮 thinking 内容不同） |
 
-28 个真实 signature（前 20 字符，部分）：
-`/ZAJDDcg7zjlxep7TbfF`、`2xxRitr5iBxgKreaRk3W`、`BraKZrL/kf9hvKv12EnR`、`CgxkB4g9jSsIdVYsJ6/k`、`DyZEB+PqN/2QREz0Puo8`、`JDXRvxgDkFHOByLF5BfY`（共 28 个）
+14 个真实 signature（前 20 字符）：
+`0ULXcAT2Af0bbjBG7O/j`、`1q4QCe0/I7CEpZzkroS/`、`2TERSKjt5E/GiVjTpji2`、`3Nje+KwjJyuYlM4JSZJw`、`3UZdjQlwPI75fuTOHPI8`、`6RqTGQjwtTq995CC3+H9`（共 14 个）
 
-**Agent 最终回复**（节选）：
-> 检查结果：发现 1 个高严重性 bug
->
-> 主仓库 main 分支存在 thinking signature round-trip 缺失，导致开 thinking 的 agent 在真实多轮工具任务下死循环或中途停止。
+**代码链路验证**：每轮请求的 assistant 历史消息中 thinking 块 `signature` 字段均为真实值（非空串），证明 `client.py` → `LLMMessage.reasoning_signature` → `loop.py` merge → `mapper.py` 出站的完整 round-trip 链路正确工作。
 
-任务收敛（stop_reason=end_turn），agent 给出连贯的 bug 报告，死循环现象消除。
+---
 
-**附注**：第 170 轮请求是 gateway heartbeat/background 进程在主任务收敛后触发的独立 agent 会话，产生 1 个 `invalid_request_error`，与本 unit 主任务无关，不计入验收范围。并行工具调用的 tool_call_id 错序问题（Issue #43）已同步在本 unit 内修复（commit `911d1bab`，loop.py defer early_tool_results 到 stream 结束后再写入 llm_messages）。
+**本 unit 未达成完整任务收敛。**
+
+e2e 在第 59 轮被**独立缺陷 Issue #43** 阻断：工具调用 ID 使用顺序编号（`read:N` 格式）而非 UUID，导致当同一轮存在多个并行 tool_use 调用时，`tool_call_id` 与 `tool_result` 配不上，上游返回：
+
+```
+invalid_request_error: an assistant message with 'tool_calls' must be followed by
+tool messages responding to each 'tool_call_id'. The following tool_call_ids did
+not have response messages: read:7
+```
+
+该错误与 thinking signature 无关，根因是 `tool_call_id` 命名规则（`read:N` 顺序编号而非全局唯一 UUID）。Issue #43 已另立为 bugfix-376 跟踪修复。
+
+**完整"末轮 end_turn + 最终用户可见答案"的端到端收敛，留待 bugfix-376 修好 Issue #43 后统一验证。**
