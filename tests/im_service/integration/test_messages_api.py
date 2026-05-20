@@ -73,15 +73,23 @@ def test_list_messages_mark_as_read_clears_conversation_unread_counter(tmp_path:
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         user_id = _create_user(client, "alice")
-        conversation_id = _create_conversation(client, user_id, "chat")
+        # bob sends both messages so they count as unread (owner's own messages are excluded).
+        bob_id = _create_user(client, "bob")
+        # Include bob in the conversation so his messages pass participant validation.
+        resp = client.post(
+            "/im/v1/conversations",
+            json={"title": "chat", "participant_ids": [user_id, bob_id]},
+        )
+        assert resp.status_code == 201, resp.text
+        conversation_id = resp.json()["id"]
 
         first = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": user_id, "content": "hello"},
+            json={"sender_user_id": bob_id, "content": "hello"},
         )
         second = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": user_id, "content": "world"},
+            json={"sender_user_id": bob_id, "content": "world"},
         )
         assert first.status_code == 201
         assert second.status_code == 201
@@ -191,7 +199,8 @@ def test_messages_support_sender_type_attachments_and_pagination(tmp_path: Path)
 
         conversation = client.get(f"/im/v1/conversations/{conversation_id}")
         assert conversation.status_code == 200
-        assert conversation.json()["unread_count"] == 3
+        # All 3 messages were sent by alice (conversation owner), so no unread accumulates.
+        assert conversation.json()["unread_count"] == 0
         assert conversation.json()["last_message_at"] == system_message.json()["created_at"]
 
 
