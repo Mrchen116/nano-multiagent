@@ -37,6 +37,7 @@
 | 起真进程 / 真浏览器 / 真 LLM / 重外部依赖 | `tests/e2e/` | `@pytest.mark.e2e` |
 
 - 浏览器(playwright)、真实 LLM、真实长驻进程的测试 **MUST 放 `tests/e2e/` 且打 `@pytest.mark.e2e`**。放错目录会让 `pytest -m "not e2e"` 误跑它。
+- **目录与 marker 必须一致**:放进 `tests/e2e/` 就 MUST 打 `@pytest.mark.e2e`。只放目录不打 marker 会让 `pytest -m "not e2e"` 照跑它，而它需要真实进程/浏览器 → 失败。(用 `tests/conftest.py` 给 e2e 目录自动打 marker 也可，但每个文件显式写更稳。)
 
 ## 4) 跨层不重复
 
@@ -61,6 +62,8 @@ TDD 过程里产生两种东西，去向不同：
 - **永久回归测试**(以后每次改动都该跑、有长期回归价值的断言)：才进 `tests/` 套件。
 
 判据:问自己"半年后这个测试还该每次 CI 都跑吗?"——否 → 它是验收证据，不是回归测试。
+
+**被测逻辑 MUST 住在 `src/`，不靠 `importlib` exec 一次性脚本取用。** 反模式:把有回归价值的纯逻辑(DB 读取、解析、状态判定)留在 `ACCEPTANCE/*.py` 这类一次性验收脚本里，测试用 `importlib.util.spec_from_file_location` 把整个脚本 exec 进来取函数。后果:① 脚本的顶层依赖(playwright 等)会连坐进收集，缺依赖就炸；② 被测逻辑不在产品代码里，等于没真正落地。正确做法:有长期价值的逻辑提进 `src/`，测试直接 `import`；一次性脚本不作为被测对象。
 
 ## 7) 结构与上限
 
