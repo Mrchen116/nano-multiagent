@@ -216,8 +216,10 @@ class StreamingToolExecutor:
             if item.status == "completed":
                 item.status = "yielded"
                 results.append(item.result)
-            elif item.status == "executing" and not item.is_safe:
-                # Non-safe tool executing: subsequent results must wait.
+            elif item.status == "executing":
+                # Any executing tool (safe or not) blocks later results: the
+                # caller must see results in enqueue order so that tool_results
+                # sent to the LLM line up with the assistant's tool_use order.
                 break
         return results
 

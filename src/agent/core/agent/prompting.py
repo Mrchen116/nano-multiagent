@@ -342,6 +342,10 @@ def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:
                 content=merged_content,
                 tool_calls=merged_tool_calls,
                 tool_call_id=prev.tool_call_id,
+                # Preserve thinking block from the first message so providers that
+                # require reasoning round-trip (e.g. kimi K2.6) don't reject the turn.
+                reasoning_content=prev.reasoning_content or msg.reasoning_content,
+                reasoning_signature=prev.reasoning_signature or msg.reasoning_signature,
             )
         else:
             result.append(msg)
