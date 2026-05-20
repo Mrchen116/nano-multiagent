@@ -56,8 +56,49 @@ bugfix-366 给主 agent 开 thinking 时,只在**出站请求**加了 `thinking:
 
 ## 修复
 
-<!-- worker 回填 -->
+三处改动，构成完整 round-trip 链路：
+
+**1. `src/agent/core/llm/interfaces.py`（47baf396）**
+
+`LLMMessage` 新增 `reasoning_content: str | None = None` 字段，使整个数据模型能承载 thinking 块文本。
+
+**2. `src/agent/core/agent/loop.py`（47baf396）**
+
+- `_append_llm_message` 追加/合并时保留 `reasoning_content`（取 `prev.reasoning_content or msg.reasoning_content`）
+- 调用处把 `llm_msg.reasoning_content` 传进新建的 `LLMMessage`
+
+**3. `src/agent/platform/llm/providers/openai_compat/mapper.py`（11a80d71）**
+
+`_map_message` 在序列化 `assistant+tool_calls` 消息时，若 `message.reasoning_content` 非空则写入出站 JSON 的 `reasoning_content` 字段。
+
+**4. `src/agent/platform/llm/providers/openai_compat/client.py`（e885a6d9）**
+
+`_stream_response` 新增 `reasoning_buffer`，收集 `delta.reasoning_content`；flush 时通过 `_finalize_tool_calls(reasoning_content=...)` 挂到生成的第一个 tool_call LLMMessage 上。
+
+**同步更新 contract**（c9ad75f2）：`tests/contract/test_llm_interfaces_contract.py` 更新 `LLMMessage` 字段列表 + `LLMGenerateRequest.extra_body`（已有字段但 contract 未更新）。
 
 ## 验证
 
-<!-- worker 回填 -->
+**自动化测试（全部新增，全绿）：**
+
+```
+tests/unit/test_agent_loop.py::test_loop_preserves_reasoning_content_in_tool_call_roundtrip
+  → 验证开 thinking 后 loop 第二轮请求中 assistant 消息携带 reasoning_content
+
+tests/unit/test_llm_openai_compat_mapper.py::test_map_message_assistant_with_tool_calls_and_reasoning_content
+  → 验证 mapper 出站时把 reasoning_content 放回 assistant+tool_calls 消息
+
+tests/unit/test_llm_openai_compat_mapper.py::test_map_message_assistant_without_reasoning_content_omits_field
+  → 验证不带 thinking 时出站不多余地加 reasoning_content
+
+tests/unit/test_openai_compat_client_streaming.py::test_stream_response_parses_reasoning_content
+  → 用 httpx.MockTransport 构造 SSE 流验证 delta.reasoning_content 被解析到 LLMMessage.reasoning_content
+```
+
+**覆盖的必现路径：** "开 thinking + 一次工具调用 + 工具结果回传" —— 这正是 fix.md 现象段描述的必现链路，修前 loop 第二轮被拒，修后完整 round-trip 通过。
+
+**命令：**
+```bash
+pytest tests/unit/test_agent_loop.py tests/unit/test_llm_openai_compat_mapper.py tests/unit/test_openai_compat_client_streaming.py tests/contract/test_llm_interfaces_contract.py tests/contract/test_llm_provider_contract.py -q
+# 结果：全部 PASSED（37+ tests）
+```

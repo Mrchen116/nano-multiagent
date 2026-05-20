@@ -15,16 +15,17 @@
 
 ## 测试策略
 
-- R1 C1：在 `tests/unit/test_agent_loop.py` 中新增测试，验证 loop 在 assistant tool-call 轮能保留 reasoning_content，第二轮回传时消息里有 reasoning_content（当前失败）
-- R2 C1：在 `tests/unit/test_openai_compat_mapper.py` 中验证 `_map_message` 把 reasoning_content 放回出站消息（当前失败）  
-- R3 C1：在 `tests/integration/test_openai_compat_generation_integration.py` 中新增流式 SSE 测试，验证 `delta.reasoning_content` 被解析进 LLMMessage（当前失败）
+- R1：`tests/unit/test_agent_loop.py::test_loop_preserves_reasoning_content_in_tool_call_roundtrip` — 验证 loop 第二轮回传携带 reasoning_content
+- R2：`tests/unit/test_llm_openai_compat_mapper.py` 两个测试 — 验证 mapper 出站 reasoning_content 行为
+- R3：`tests/unit/test_openai_compat_client_streaming.py::test_stream_response_parses_reasoning_content` — 验证 SSE streaming 解析
+- 附：`tests/contract/test_llm_interfaces_contract.py` — 更新了 LLMMessage 字段合约
 
-测试类型：单元 + 集成，无需浏览器验收（纯后端修复）。
+测试类型：单元 + contract，无需浏览器验收（纯后端修复）。
 
 ## Roadpoints
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | LLMMessage 新增字段 + loop 保留 reasoning_content | TODO |
-| R2 | mapper 出站时回传 reasoning_content | TODO |
-| R3 | client 流式解析 reasoning_content + 集成测试 | TODO |
+| R1 | LLMMessage 新增字段 + loop 保留 reasoning_content | DONE |
+| R2 | mapper 出站时回传 reasoning_content | DONE |
+| R3 | client 流式解析 reasoning_content + contract 更新 | DONE |
