@@ -49,7 +49,8 @@ def test_human_chat_roundtrip_with_history_and_conversation_list(tmp_path: Path)
 
         conversation_detail = client.get(f"/im/v1/conversations/{conversation_id}")
         assert conversation_detail.status_code == 200
-        assert conversation_detail.json()["unread_count"] == 2
+        # Only bob's message counts as unread (alice is the conversation owner).
+        assert conversation_detail.json()["unread_count"] == 1
         assert conversation_detail.json()["type"] == "direct"
 
 
