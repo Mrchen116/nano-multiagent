@@ -1,4 +1,4 @@
-"""M236: Session metadata fields must be present in HookContext.metadata at runtime."""
+"""Session metadata fields must be present in HookContext.metadata at runtime."""
 
 from __future__ import annotations
 
