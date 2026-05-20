@@ -244,6 +244,10 @@ class AgentLoop:
                     )
 
                     last_assistant_msg_id: str | None = None
+                    # Shared group_id for all assistant streaming chunks in this LLM
+                    # call; all chunks belong to the same logical turn so their
+                    # tool_use blocks must restore as one unit after JSONL reload.
+                    turn_assistant_group_id: str | None = None
                     async for llm_msg in stream:
                         # Terminal metadata message: empty content with finish_reason
                         if llm_msg.content == "" and llm_msg.finish_reason is not None:
@@ -256,12 +260,14 @@ class AgentLoop:
                         )
 
                         assistant_msg_id = make_message_id()
+                        if turn_assistant_group_id is None:
+                            turn_assistant_group_id = assistant_msg_id
                         assistant_msg = Message(
                             message_id=assistant_msg_id,
                             parent_message_id=last_parent_id,
                             role="assistant",
                             content=llm_msg.content or "",
-                            group_id=assistant_msg_id,
+                            group_id=turn_assistant_group_id,
                             metadata=_assistant_metadata_from_tool_calls(normalized_calls),
                             reasoning_content=llm_msg.reasoning_content,
                             reasoning_signature=llm_msg.reasoning_signature,

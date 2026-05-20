@@ -90,6 +90,13 @@ def build_chat_messages(
     Returns:
         Ordered message tuple: history, then current user. No system message.
     """
+    # Coalesce assistant Message rows that share a group_id before converting.
+    # When parallel tool_use blocks stream in as separate LLM chunks, each chunk
+    # is persisted as its own JSONL row but all share the same group_id (set by
+    # loop.py). Without coalescing, build_chat_messages would emit separate
+    # assistant LLMMessages whose tool_use↔tool_result pairing breaks on reload.
+    history_messages = _coalesce_assistant_group(history_messages)
+
     messages: list[LLMMessage] = []
     for message in history_messages:
         metadata = dict(message.metadata)
@@ -327,6 +334,53 @@ def _estimate_text_tokens(text: str) -> int:
     if not normalized:
         return 1
     return max(1, (len(normalized) + 7) // 8)
+
+
+def _coalesce_assistant_group(messages: tuple[Message, ...]) -> tuple[Message, ...]:
+    """Merge assistant Message rows that share a group_id into one row.
+
+    Parallel tool_use blocks from a single LLM response stream as separate
+    Message rows but all carry the same group_id (set in loop.py). Without
+    coalescing, build_chat_messages emits separate assistant LLMMessages whose
+    tool_use↔tool_result pairing breaks when history is reloaded from JSONL.
+    """
+    if not messages:
+        return messages
+
+    from agent.core.types import ToolCall
+
+    result: list[Message] = []
+    # Map group_id → index in result for fast lookup of the canonical row.
+    assistant_group_index: dict[str, int] = {}
+
+    for msg in messages:
+        if msg.role == "assistant" and msg.group_id:
+            existing_idx = assistant_group_index.get(msg.group_id)
+            if existing_idx is not None:
+                prev = result[existing_idx]
+                # Merge tool_calls from both rows.
+                prev_calls = list(prev.metadata.get("tool_calls", []))
+                new_calls = list(msg.metadata.get("tool_calls", []))
+                merged_meta = {**dict(prev.metadata), "tool_calls": prev_calls + new_calls}
+                result[existing_idx] = Message(
+                    message_id=prev.message_id,
+                    role=prev.role,
+                    content=(prev.content or "") + (msg.content or ""),
+                    name=prev.name,
+                    tool_call_id=prev.tool_call_id,
+                    parent_message_id=prev.parent_message_id,
+                    group_id=prev.group_id,
+                    metadata=merged_meta,
+                    reasoning_content=prev.reasoning_content or msg.reasoning_content,
+                    reasoning_signature=prev.reasoning_signature or msg.reasoning_signature,
+                )
+            else:
+                assistant_group_index[msg.group_id] = len(result)
+                result.append(msg)
+        else:
+            result.append(msg)
+
+    return tuple(result)
 
 
 def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:
