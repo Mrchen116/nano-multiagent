@@ -86,8 +86,8 @@
 
 ## 范围与非目标
 
-- **范围**：修"开 thinking 的主 agent 在真实多轮工具任务下不收敛（死循环 / 中途停）"，覆盖 co-root-cause A（signature round-trip）和 co-root-cause B（并行 tool_result 顺序，Issue #43 主交互路径部分）。
-- **非目标**：Issue #43 在 heartbeat/background 路径上的残留（见验证段），留待 bugfix-376 收口。agent 在跑任务途中发现的其它缺陷不在本 unit 修。
+- **范围**：修"开 thinking 的主 agent 在真实多轮工具任务下不收敛（死循环 / 中途停）"，覆盖 co-root-cause A（signature round-trip）、co-root-cause B（并行 tool_result 顺序乱序 = Issue #43 的 read:N/bash:N，含 heartbeat 路径；bugfix-376 已折叠进本 unit）、co-root-cause C（reasoning 跨持久化恢复保真）。
+- **非目标**：agent 在跑任务途中发现的其它无关缺陷不在本 unit 修。
 
 ## 修复
 
@@ -238,7 +238,7 @@ pytest tests/unit/test_llm_anthropic_client_streaming.py \
 
 **辅证（signature round-trip 链路独立验证）**：`2026-05-20_20-33-57_475_sess_ae6700e3fedba556`（59 req，14 个唯一 signature，0 error）——更早的短链路验证，单独证明 `client.py` → `LLMMessage.reasoning_signature` → `loop.py` merge → `mapper.py` 出站的完整 round-trip 链路正确工作，每轮请求的 assistant 历史消息中 thinking 块 `signature` 字段均为真实值（非空串）。
 
-**Heartbeat/background 路径残留**：`sess_5506c97c` 第 170 轮由 gateway heartbeat 进程在主任务收敛后触发，出现 `invalid_request_error: tool_call_ids did not have response messages: read:10`（主交互路径 0 个，仅此 1 个）。`911d1bab` 只修了主交互路径（`StreamingToolExecutor` defer 逻辑），heartbeat fork 走另一条路径，Issue #43 残留未完全收口。PR Refs #43（不 Closes），bugfix-376 负责收口 heartbeat 路径残留。
+**Heartbeat read:10 归因（RCA 修正，bugfix-376 折叠）**：`sess_5506c97c` 第 170 轮 heartbeat 触发的 `tool_call_ids did not have response messages: read:10`，经 raw upstream-req 逐条坐实，根因是 **RC1**（`get_completed_results` 对 safe 且 executing 的工具不 break，导致并行 tool_result 写入 llm_messages 乱序、被切到不同 assistant 消息）。heartbeat 走普通 `AgentLoop.run()` 内存累积、**不走** context_fork 或单独消息构建路径，与前台代码路径一致。`911d1bab` 只 defer、不保证顺序；**RC1 的 FIFO break（本 PR 已自折叠的 bugfix-376 cherry-pick 进来）才彻底解决，并直接覆盖 heartbeat**。C1 e2e（raw `2026-05-21_00-52-35`）实证：一条 assistant 3 个并行 tool_use 全部正确配对、0 error、收敛。PR 仍 Refs #43（不 Closes）——已修主交互 + heartbeat 的 read:N 乱序，保守保留 issue 由人确认是否还有其它面向。
 
 ---
 
