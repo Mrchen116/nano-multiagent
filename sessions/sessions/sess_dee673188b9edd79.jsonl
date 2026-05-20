@@ -1,3 +1,0 @@
-{"type": "session_created", "session_id": "sess_dee673188b9edd79", "created_at": "2026-05-20T06:22:37.446726+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent/.worktrees/refactor-372-M4"}
-{"type": "turn", "uuid": "msg_2e7a8a99c32c9103", "parent_uuid": null, "session_id": "sess_dee673188b9edd79", "role": "user", "content": "ping", "timestamp": "2026-05-20T06:22:37.447033+00:00"}
-{"type": "turn", "uuid": "msg_38e6fa1fa5f6abc1", "parent_uuid": "msg_2e7a8a99c32c9103", "session_id": "sess_dee673188b9edd79", "role": "assistant", "content": "ack:ping", "timestamp": "2026-05-20T06:22:37.447262+00:00", "group_id": "msg_38e6fa1fa5f6abc1"}

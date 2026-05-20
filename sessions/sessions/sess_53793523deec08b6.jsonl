@@ -1,5 +1,0 @@
-{"type": "session_created", "session_id": "sess_53793523deec08b6", "created_at": "2026-05-20T06:22:37.450424+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent/.worktrees/refactor-372-M4", "system_prompt": "You are the prompt frozen for this chat."}
-{"type": "turn", "uuid": "msg_948de00cb5789b90", "parent_uuid": null, "session_id": "sess_53793523deec08b6", "role": "user", "content": "ping", "timestamp": "2026-05-20T06:22:37.450655+00:00"}
-{"type": "turn", "uuid": "msg_73cb56149359bcc1", "parent_uuid": "msg_948de00cb5789b90", "session_id": "sess_53793523deec08b6", "role": "assistant", "content": "ack:ping", "timestamp": "2026-05-20T06:22:37.450843+00:00", "group_id": "msg_73cb56149359bcc1"}
-{"type": "turn", "uuid": "msg_c0298c0dc88f79a6", "parent_uuid": "msg_73cb56149359bcc1", "session_id": "sess_53793523deec08b6", "role": "user", "content": "pong", "timestamp": "2026-05-20T06:22:37.451041+00:00"}
-{"type": "turn", "uuid": "msg_47625c6265c8c8a9", "parent_uuid": "msg_c0298c0dc88f79a6", "session_id": "sess_53793523deec08b6", "role": "assistant", "content": "ack:pong", "timestamp": "2026-05-20T06:22:37.451186+00:00", "group_id": "msg_47625c6265c8c8a9"}
