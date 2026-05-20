@@ -117,8 +117,34 @@ feat-333 实现 gate 时复刻了 CC"无 thinking 64-token 快路"的假设，�
 
 ## 修复
 
-<!-- worker 回填 -->
+**根本原因**：`auto_mode_gate._classify_action` 调用 `ctx.call_model` 时没有 `extra_body` 参数，无法覆盖模型元数据中的 thinking 设置。
+
+**修复链路**（三层打通）：
+
+1. **`src/agent/core/hooks/context.py`**：`HookModelCall` 新增 `extra_body: Mapping[str, Any] | None = None` 字段；`HookContext.call_model()` 新增同名关键字参数并透传。
+2. **`src/agent/core/agent/runtime.py`**：`_call_hook_model` 构造 `LLMGenerateRequest` 时透传 `call.extra_body`（该字段在 `LLMGenerateRequest` 中已有，`AnthropicClient.generate()` 中也已有 call 端覆盖逻辑）。
+3. **`src/agent/platform/hooks/builtins/auto_mode_gate.py`**：`_classify_action` stage-1 和 stage-2 两处 `call_model` 调用均传入 `extra_body={"thinking": {"type": "disabled"}}`，确保即使主 agent 用带 thinking 的模型，门禁分类调用也不会继承 thinking 预算。
+
+**Commits**：
+- C1 红测：`6a67920e` — `test(bugfix-369/M1/R1): 红测 — 门禁 call_model 必须传 extra_body 关 thinking + 空 content fail-closed`
+- C2 实现：`00f94d77` — `fix(bugfix-369/M1/R1): 门禁 call_model 传 extra_body 显式关 thinking，打通 HookModelCall→runtime→LLMGenerateRequest 链路`
 
 ## 验证
 
-<!-- worker 回填 -->
+**复现步骤（修复前）**：
+
+使用带 thinking 的模型（`kimiCoding:K2.6`，`extra_request_body={"thinking": {"type": "adaptive"}}`），触发 `bash` 工具调用进入门禁 `_classify_action`。stage-1 `max_tokens=64` 被 reasoning 吃空 → `content=""` → `parse_xml_block` → `None` → fail-closed → ask → 整轮卡住。
+
+**修复后验证**：
+
+```
+pytest tests/unit/test_auto_mode_gate.py -q
+# 62 passed（含 3 个新 regression case）
+```
+
+新增的三个 regression case：
+1. `test_stage1_call_model_passes_thinking_disabled_extra_body` — 断言 stage-1 `call_model` 携带 `{"thinking": {"type": "disabled"}}`
+2. `test_stage2_call_model_passes_thinking_disabled_extra_body` — 断言 stage-2 同样携带 disabled
+3. `test_stage1_empty_content_fails_closed_ask` — 验证空 content 时 fail-closed → ask（regression 保护）
+
+主 agent 循环的 thinking 路径不变：`_call_hook_model` 只在有 `extra_body` 时才传（`None` 时不传），`AnthropicClient.generate()` 继续从 model metadata 取 `{"thinking": {"type": "adaptive"}}`，不受影响。
