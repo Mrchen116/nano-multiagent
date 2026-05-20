@@ -160,6 +160,16 @@ messages[-1] = LLMMessage(
 
 **修复**：把 stream 循环体内的 `get_completed_results()` 改为只 yield UI 消息并暂存到 `early_tool_results`，**不写 `llm_messages`**；待整个 stream 结束后，再将 `early_tool_results` 统一 flush 进 `llm_messages`，确保所有并行 tool_use 块已落入同一条 assistant 消息后再追加对应的 tool_result。
 
+### 6. co-root-cause C（持久化层并行 tool_use group 丢失，commit `5f13a039`）
+
+**问题（event replay 后新发现）**：RC1+RC2 修复后，内存层（`llm_messages`）的 tool_use 配对正确，但 JSONL 持久化层仍有问题：同一轮 stream 里每个流式 assistant chunk 产生独立 `Message`，且 `group_id = message_id`（各自不同）。JSONL reload 时 `build_chat_messages` 无法把这些 Message 正确重组——`_merge_adjacent_assistant` 只合并连续相邻，tool_result 行夹在中间就断开了，导致恢复后上游仍报 `tool_call_ids did not have response messages`。
+
+**双向修复**：
+
+**6a. `loop.py` — 共享 `turn_assistant_group_id`**：stream 循环开始时分配一个 `turn_assistant_group_id`，同一轮所有 assistant_msg 共享该 group_id（而非每条自己的 message_id），JSONL 里同轮所有 assistant 行都携带相同 group_id。
+
+**6b. `prompting.py` — `_coalesce_assistant_group`**：`build_chat_messages` 在转换 history_messages 为 LLMMessage 之前，先调 `_coalesce_assistant_group`：按 group_id 把同组 assistant Message 行合并为一行（累积 tool_calls，保留 reasoning_content/signature），再走 `_merge_adjacent_assistant`。恢复后所有并行 tool_use 正确还原为单条 assistant LLMMessage，tool_result 配对完整。
+
 ```python
 # stream 循环体内：只 yield UI 消息，defer LLM history 写入
 early_tool_results: list[ToolResult] = []
@@ -198,25 +208,52 @@ pytest tests/unit/test_llm_anthropic_client_streaming.py \
 - `test_map_message_assistant_tool_call_round_trips_thinking_block` — 出站块 `signature` == 真实入站值（不再为空串）
 - `test_map_message_assistant_tool_call_uses_empty_signature_when_none` — `reasoning_signature=None` 时出站降级为 `""`
 
-### C1 E2E（RC1 FIFO 修复验证：并行 tool_result 配对不再乱序）
+### C1 E2E（RC1 FIFO 验证：live streaming 并行 tool_use 正确配对）
 
-**验证目标**：`StreamingToolExecutor.get_completed_results()` FIFO break 修复（commit `fbad279d`→`f7d685db`）确保同一轮 3 个并行 tool_uses 的 tool_results 不再被错位、上游不再返回 `tool_call_ids did not have response messages`。
+**设置**：API 进程端口 49186（PID 28642），session `sess_b54061b526c22fe3`，模型 `kimiCoding:K2.6`（thinking: adaptive），任务"并行 read 3 文件"。
 
-**设置**：API 进程端口 62964，session `sess_e9ac1dba9f0168e4`，模型 `kimiCoding:K2.6`（thinking: adaptive），任务"Please read these 3 files simultaneously using multiple read tool calls at once"。
-
-**raw upstream-req**：`2026-05-21_00-52-35_164-upstream-req-anthropic_messages.json`
+**raw upstream-req**：`2026-05-21_01-01-50_400-upstream-req-anthropic_messages.json`
 
 | 消息 | 内容 | 关键字段 |
 |------|------|----------|
-| msg[0] user | 用户指令（text） | — |
-| msg[1] assistant | thinking + 3 × tool_use | `tool_LeZw48TRHrKz1zYDMi2KavCV`, `tool_oddWGx1kA2yKskMJUtkUkj9j`, `tool_HCPOBuMXRwOYJ2jQWHkWJPZV` |
-| msg[2] user | tool_result | `tool_use_id=tool_LeZw48TRHrKz1zYDMi2KavCV`（配对 ✓） |
-| msg[3] user | tool_result | `tool_use_id=tool_oddWGx1kA2yKskMJUtkUkj9j`（配对 ✓） |
-| msg[4] user | tool_result | `tool_use_id=tool_HCPOBuMXRwOYJ2jQWHkWJPZV`（配对 ✓） |
+| msg[0] user | 并行 read 指令 | — |
+| msg[1] assistant | thinking（sig_len=4340）+ 3 × tool_use | `tool_Gyo3Zk...`, `tool_1qoo9g...`, `tool_mxQyQh...` |
+| msg[2] user | tool_result | `tool_Gyo3Zk...` ✓ |
+| msg[3] user | tool_result | `tool_1qoo9g...` ✓ |
+| msg[4] user | tool_result | `tool_mxQyQh...` ✓ |
 
-`invalid_request_error`：**0**。Run `stop_reason=end_turn`，agent 正确描述了所有 3 个文件的内容。
+`invalid_request_error`：**0**。`stop_reason=end_turn`。
 
-**结论**：3 个并行 tool_use 的每个 tool_call_id 均有对应 tool_result 配对，上游接受请求并正常返回，`tool_call_ids did not have response messages` 不再出现。注：bugfix-375 e2e 中曾出现的 `read:N/bash:N` 形式 tool_call_id 错误（`sess_8d077ecc` read:7 等）均归 RC1 乱序问题，本修复后消除。
+**历史 `read:N/bash:N` 形式错误归 RC1 乱序**，RC1 fix（`f7d685db`）后消除。
+
+---
+
+### C2 E2E（RC3 验证：跨进程重启后 3 个并行 tool_use 正确恢复）
+
+**第一次 run**（进程 PID 28642，端口 49186，session `sess_b54061b526c22fe3`）：并行 read 3 文件完成，JSONL 写入 3 条 assistant 行全部共享同一 `group_id=msg_d77c3f9f93a39ce8`（RC3 fix 生效），reasoning_signature sig_len=4340（非空）。
+
+**kill 进程 → 新进程**（PID 28642→新 PID，端口 49344）恢复 session。
+
+**raw upstream-req**：`2026-05-21_01-11-32_642-upstream-req-anthropic_messages.json`
+
+| 消息 | 内容 | 关键字段 |
+|------|------|----------|
+| msg[0] user | 原始并行 read 指令 | — |
+| msg[1] assistant | thinking（sig_len=4340）+ **3 × tool_use**（正确合并） | `tool_Gyo3Zk...`, `tool_1qoo9g...`, `tool_mxQyQh...` |
+| msg[2] user | tool_result | `tool_Gyo3Zk...` ✓ |
+| msg[3] user | tool_result | `tool_1qoo9g...` ✓ |
+| msg[4] user | tool_result | `tool_mxQyQh...` ✓ |
+| msg[5] assistant | thinking（sig_len=4340）+ text（总结） | — |
+| msg[6] user | 旧第二轮 user（来自历史） | — |
+| msg[7] assistant | thinking + tool_use bash | — |
+| msg[8] user | tool_result bash | — |
+
+`invalid_request_error`：**0**（RC3 前此处出现 `read:1` 错误，RC3 后清零）。`stop_reason=end_turn`。
+
+**结论**：
+1. 3 个并行 tool_use 恢复后正确合并进同一条 assistant 消息（`_coalesce_assistant_group` 按 group_id 合并）——**tool_call_ids 配对完整**。
+2. 所有 assistant thinking 块 sig_len=4340（非空）——**`reasoning_content is missing` 不再出现**。
+3. 跨进程重启后会话继续收敛到 end_turn。
 
 ---
 
