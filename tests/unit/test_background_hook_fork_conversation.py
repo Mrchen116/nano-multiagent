@@ -215,6 +215,7 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
             self.tool_calls = calls
             self.finish_reason = None
             self.usage = None
+            self.reasoning_content = None
 
     class _LLMTerminal:
         role = "assistant"
@@ -222,6 +223,7 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
         tool_calls = []
         finish_reason = "stop"
         usage = None
+        reasoning_content = None
 
     class _LLMFinalText:
         role = "assistant"
@@ -229,6 +231,7 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
         tool_calls = []
         finish_reason = None
         usage = None
+        reasoning_content = None
 
     class FakeLLMClient:
         def __init__(self):

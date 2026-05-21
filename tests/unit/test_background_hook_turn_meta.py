@@ -56,6 +56,7 @@ async def test_agent_loop_turn_meta_includes_tool_iterations():
             self.tool_calls = []
             self.finish_reason = "stop"
             self.usage = None
+            self.reasoning_content = None
 
     class FakeLLMTerminal:
         def __init__(self):
@@ -64,6 +65,7 @@ async def test_agent_loop_turn_meta_includes_tool_iterations():
             self.tool_calls = []
             self.finish_reason = "stop"
             self.usage = None
+            self.reasoning_content = None
 
     class FakeLLMClient:
         def generate(self, request):
@@ -129,6 +131,7 @@ async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
         tool_calls = []
         finish_reason = None
         usage = None
+        reasoning_content = None
 
     class FakeLLMTerminal:
         role = "assistant"
@@ -136,6 +139,7 @@ async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
         tool_calls = []
         finish_reason = "stop"
         usage = None
+        reasoning_content = None
 
     class FakeLLMClient:
         def generate(self, request):
