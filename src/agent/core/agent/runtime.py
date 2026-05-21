@@ -999,6 +999,7 @@ class AgentRuntime:
                 max_tokens=call.max_tokens,
                 stop_sequences=call.stop_sequences,
                 metadata=dict(call.metadata),
+                extra_body=dict(call.extra_body) if call.extra_body is not None else None,
             )
         )
 

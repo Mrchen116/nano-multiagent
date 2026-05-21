@@ -85,6 +85,7 @@ class OpenAICompatClient(LLMClient):
         """Parse OpenAI-compatible SSE stream and yield LLMMessage."""
 
         text_buffer = ""
+        reasoning_buffer = ""
         tool_calls_buffer: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage: dict[str, Any] | None = None
@@ -103,6 +104,13 @@ class OpenAICompatClient(LLMClient):
                 if content:
                     text_buffer += str(content)
 
+            # Collect reasoning_content from providers like kimi K2.6 in thinking mode.
+            # This must be round-tripped back in subsequent requests or the upstream
+            # rejects with "reasoning_content is missing in assistant tool call message".
+            reasoning = delta.get("reasoning_content")
+            if reasoning:
+                reasoning_buffer += str(reasoning)
+
             if "tool_calls" in delta and isinstance(delta["tool_calls"], list):
                 for tc in delta["tool_calls"]:
                     if isinstance(tc, dict):
@@ -115,7 +123,9 @@ class OpenAICompatClient(LLMClient):
                 if text_buffer:
                     yield LLMMessage(role="assistant", content=text_buffer)
                     text_buffer = ""
-                for tc in _finalize_tool_calls(tool_calls_buffer):
+                accumulated_reasoning = reasoning_buffer or None
+                reasoning_buffer = ""
+                for tc in _finalize_tool_calls(tool_calls_buffer, reasoning_content=accumulated_reasoning):
                     yield tc
                 tool_calls_buffer.clear()
                 # Terminal metadata message
@@ -181,11 +191,15 @@ def _accumulate_openai_tool_call(buffer: dict[int, dict[str, Any]], delta: dict[
         existing["type"] = delta["type"]
 
 
-def _finalize_tool_calls(buffer: dict[int, dict[str, Any]]) -> list[LLMMessage]:
+def _finalize_tool_calls(
+    buffer: dict[int, dict[str, Any]],
+    reasoning_content: str | None = None,
+) -> list[LLMMessage]:
     """Convert accumulated tool_call buffers into LLMMessage instances."""
 
     messages: list[LLMMessage] = []
-    for idx in sorted(buffer.keys()):
+    sorted_keys = sorted(buffer.keys())
+    for pos, idx in enumerate(sorted_keys):
         tc = buffer[idx]
         raw_arguments = tc.get("arguments", "")
         if isinstance(raw_arguments, str):
@@ -197,6 +211,9 @@ def _finalize_tool_calls(buffer: dict[int, dict[str, Any]]) -> list[LLMMessage]:
             parsed_arguments = dict(raw_arguments)
         else:
             parsed_arguments = {}
+        # Attach reasoning_content only to the first message; loop merges adjacent
+        # assistant messages and will preserve it via _append_llm_message.
+        msg_reasoning = reasoning_content if pos == 0 else None
         messages.append(
             LLMMessage(
                 role="assistant",
@@ -208,6 +225,7 @@ def _finalize_tool_calls(buffer: dict[int, dict[str, Any]]) -> list[LLMMessage]:
                         arguments=parsed_arguments,
                     ),
                 ),
+                reasoning_content=msg_reasoning,
             )
         )
     return messages

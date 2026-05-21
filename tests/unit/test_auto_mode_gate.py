@@ -224,3 +224,79 @@ class TestXmlParsing:
     def test_parse_reason_strips_thinking(self):
         text = "<thinking><reason>fake</reason></thinking><reason>real reason</reason>"
         assert parse_xml_reason(text) == "real reason"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-369: 门禁分类器不得继承主 agent thinking
+# ---------------------------------------------------------------------------
+
+class TestClassifyActionThinkingDisabled:
+    """_classify_action 的 call_model 调用必须显式关闭 thinking。
+
+    根因：model_registry 将 thinking: adaptive 挂在模型元数据上，client.generate
+    对所有调用无差别 merge，导致门禁 stage-1 64-token 被 reasoning 吃空。
+    修复方向：门禁调用显式传 extra_body={"thinking": {"type": "disabled"}}。
+    """
+
+    def _make_ctx(self, stage1_content: str = "<block>no</block>") -> MagicMock:
+        ctx = MagicMock()
+        ctx.session_id = "test-session"
+        ctx.call_model = AsyncMock(
+            return_value=MagicMock(content=stage1_content)
+        )
+        return ctx
+
+    @pytest.mark.asyncio
+    async def test_stage1_call_model_passes_thinking_disabled_extra_body(self):
+        """stage-1 call_model 必须携带 extra_body 显式关闭 thinking（bugfix-369 不变性）。"""
+        from agent.platform.hooks.builtins.auto_mode_gate import _classify_action
+
+        ctx = self._make_ctx(stage1_content="<block>no</block>")
+        await _classify_action(ctx, "sys", "user")
+
+        call_kwargs = ctx.call_model.call_args_list[0]
+        extra_body = call_kwargs.kwargs.get("extra_body")
+        assert extra_body is not None, (
+            "stage-1 call_model 没有传 extra_body，thinking 未被显式关闭"
+        )
+        thinking = extra_body.get("thinking", {})
+        assert thinking.get("type") == "disabled", (
+            f"stage-1 extra_body.thinking.type 应为 'disabled'，实际为 {thinking!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_stage2_call_model_passes_thinking_disabled_extra_body(self):
+        """stage-2 call_model 也必须携带 extra_body 关闭 thinking。"""
+        from agent.platform.hooks.builtins.auto_mode_gate import _classify_action
+
+        ctx = self._make_ctx()
+        # stage-1 返回 yes → 触发 stage-2
+        ctx.call_model = AsyncMock(
+            return_value=MagicMock(content="<block>yes</block>")
+        )
+        await _classify_action(ctx, "sys", "user")
+
+        assert ctx.call_model.call_count == 2, "stage-1 block 应触发 stage-2"
+        for i, call in enumerate(ctx.call_model.call_args_list):
+            extra_body = call.kwargs.get("extra_body")
+            assert extra_body is not None, (
+                f"stage-{i + 1} call_model 没有传 extra_body"
+            )
+            thinking = extra_body.get("thinking", {})
+            assert thinking.get("type") == "disabled", (
+                f"stage-{i + 1} extra_body.thinking.type 应为 'disabled'，实际 {thinking!r}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_stage1_empty_content_fails_closed_ask(self):
+        """stage-1 content 为空（thinking 吃光 token 时的现象）→ fail-closed → ask。
+
+        这是 bugfix-369 的 regression 测试：确保空 content 不会绕过门禁。
+        """
+        from agent.platform.hooks.builtins.auto_mode_gate import _classify_action
+
+        ctx = self._make_ctx(stage1_content="")
+        decision = await _classify_action(ctx, "sys", "user")
+        assert decision.behavior == "ask", (
+            "stage-1 content 为空应 fail-closed → ask，但实际返回了 allow/deny"
+        )

@@ -25,6 +25,7 @@ def test_llm_message_contract() -> None:
         "tool_calls",
         "finish_reason",
         "usage",
+        "reasoning_content",
     ]
 
 
