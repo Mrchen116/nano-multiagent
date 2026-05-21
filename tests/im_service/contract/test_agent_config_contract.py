@@ -103,6 +103,67 @@ def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.Mo
     }
 
 
+def test_agent_prompt_preview_proxy_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """IM proxy route POST /im/v1/agents/{id}/prompt-preview forwards to Gateway.
+
+    feat-379-M2 R5: IM must forward the request to Gateway via
+    request_prompt_preview and return the assembled prompt to the caller.
+    """
+
+    async def _fake_request_prompt_preview(
+        self,  # noqa: ARG001
+        *,
+        target_node_id: str,  # noqa: ARG001
+        agent_id: str,  # noqa: ARG001
+        workspace_root: str,  # noqa: ARG001
+        features: dict,  # noqa: ARG001
+        custom_prompt,  # noqa: ARG001
+        tool_ids: list,  # noqa: ARG001
+        scenario: str,  # noqa: ARG001
+        timeout_seconds: float = 10.0,  # noqa: ARG001
+    ) -> dict:
+        return {"prompt": "You are a helpful assistant.", "section_count": 2}
+
+    monkeypatch.setattr(GatewayHandler, "request_prompt_preview", _fake_request_prompt_preview)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        profiles = AgentProfileRepository(app.state.connection)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(node_id="node-1", node_name="MacBook")
+        profiles.upsert_profile(
+            agent_id="agent-prev",
+            owner_id=owner.owner_id,
+            display_name="Preview Agent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="always",
+            default_model=None,
+            workspace_root=None,
+            node_id="node-1",
+        )
+        response = client.post(
+            "/im/v1/agents/agent-prev/prompt-preview",
+            json={
+                "features": {"memory_curation": True},
+                "custom_prompt": "Be concise.",
+                "tool_ids": ["read"],
+                "scenario": "direct",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "prompt" in body
+    assert "section_count" in body
+    assert body["prompt"] == "You are a helpful assistant."
+    assert body["section_count"] == 2
+
+
 def test_agent_capabilities_features_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Agent capabilities response must include features list forwarded from Gateway.
 
