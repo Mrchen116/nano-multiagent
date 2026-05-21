@@ -218,8 +218,9 @@ function BehaviorCard({
                     onChange={(e) => { if (!disabled) onFeatureToggle(feat.key, e.target.checked); }}
                   />
                   <div className="min-w-0">
-                    <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">{feat.label_i18n}</p>
-                    <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">{feat.help_i18n}</p>
+                    {/* label_i18n / help_i18n are i18n keys provided by the backend registry */}
+                    <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">{t(feat.label_i18n)}</p>
+                    <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">{t(feat.help_i18n)}</p>
                   </div>
                 </label>
               );
