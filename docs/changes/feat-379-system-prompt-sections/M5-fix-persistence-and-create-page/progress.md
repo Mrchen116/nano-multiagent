@@ -55,3 +55,49 @@
 **决定**:清空为空字符串(segments 体系接管 prompt 组装; R5 后前端不再使用该字段预填)。
 **修复**:`src/personal_assistant/reporter/upstream_reporter.py`: `default_system_prompt=""` + 说明注释。
 新增测试 `test_build_runtime_capabilities_default_system_prompt_has_no_runtime_fill_placeholders` 验证。
+
+## 真实服务自测 (ephemeral 端口: IM=57339, Vite=57340, Gateway=8000)
+
+### AC2/AC4 — PATCH 持久化 + IM 重启后 GET 不丢字段
+
+```
+# Before PATCH
+GET /im/v1/agents/agent-m5test/config → features={}, custom_prompt=null
+
+# PATCH
+{"features": {"memory_curation": false}, "custom_prompt": "You are a helpful chef assistant."}
+
+# After PATCH (same session)
+features={'memory_curation': False}, custom_prompt=You are a helpful chef assistant.
+
+# After IM restart (uvicorn killed + restarted, SQLite persisted)
+features={'memory_curation': False}, custom_prompt=You are a helpful chef assistant.
+```
+
+**结论**: features + custom_prompt 正确写入 SQLite, IM 重启后 GET 不丢。
+
+### AC1 — agent-create-page Behavior card
+
+截图: `ACCEPTANCE/m5-permission-card/m5-ac1-create-full.png`
+
+- Behavior 卡显示 **Custom Instructions** textarea (placeholder: "You are my personal legal advisor...")
+- **无** old "System Prompt" label
+- Group Reply Policy select 正常渲染
+- "Preview full system prompt" 链接可见
+
+### AC2 — agent-detail features 字段展示
+
+截图: `ACCEPTANCE/m5-permission-card/m5-ac2-detail-features.png`
+
+- agent-m5test @ wt-test-node (online 绿点)
+- Behavior 卡显示 **Custom Instructions** + **Features** 区块
+- Memory Curation (unchecked, = memory_curation: false) + Skill Creation 可见
+
+### AC3 — features gate 影响 preview
+
+截图: `ACCEPTANCE/m5-permission-card/m5-ac3-preview-expanded.png`
+
+- "Preview full system prompt" 展开后显示组装后 prompt
+- 内容: `# Nano Personal Assistant`, `## Runtime`, `# System` 段
+- 底部注: "Group chat and memory runtime segments are excluded from this preview."
+- memory_curation=false → 无 memory_guidance 段, 无 `<RUNTIME_FILL:` 占位符
