@@ -269,3 +269,83 @@ class TestHookRunnerTimeoutNone:
 
         reg = registry.on("tool_call", noop, timeout_ms=None)
         assert reg.timeout_ms is None
+
+
+def test_dispatch_observe_skips_intercept_mode_handlers() -> None:
+    """An INTERCEPT-mode handler must NOT execute during dispatch_observe.
+
+    Regression (bugfix-377): the auto_mode_gate classifier is dispatched for
+    "tool_call". "tool_call" is dispatched twice per tool — once as intercept
+    (where the block decision is honored, with the populated tool transcript)
+    and once as observe (for stream/metrics observers). Because handlers_for
+    ignored mode, the gate ALSO ran in the observe pass: it burned a model call
+    on a ctx with no message_history (empty <transcript> -> blind classify,
+    escalating to a second stage) and its result was discarded. Observe dispatch
+    must run only observe-mode handlers.
+    """
+    from agent.core.hooks.types import HookEventMode
+
+    registry = HookRegistry()
+    ran: list[str] = []
+
+    def observer(event, ctx):
+        del event, ctx
+        ran.append("observe")
+
+    def gate(event, ctx):
+        del event, ctx
+        ran.append("intercept")
+        return {"block": False}
+
+    registry.on("tool_call", observer, mode=HookEventMode.OBSERVE)
+    registry.on("tool_call", gate, mode=HookEventMode.INTERCEPT)
+    runner = HookRunner(registry=registry)
+
+    asyncio.run(runner.dispatch_observe("tool_call", {"name": "bash"}, _context("s-obs")))
+    assert ran == ["observe"], f"intercept handler must not run in observe dispatch, got {ran}"
+
+    # And the intercept handler DOES run during dispatch_intercept.
+    ran.clear()
+    asyncio.run(runner.dispatch_intercept("tool_call", {"name": "bash", "block": False}, _context("s-int")))
+    assert "intercept" in ran, "intercept handler must run in intercept dispatch"
+
+
+def test_strip_fork_conversation_preserves_message_history_and_permission_requester() -> None:
+    """_strip_fork_conversation must null ONLY fork_conversation, keeping every
+    other field — notably message_history and permission_requester.
+
+    Regression (bugfix-377): the manual rebuild in _strip_fork_conversation
+    copied a hand-listed subset of fields and silently dropped message_history
+    and permission_requester (added to HookContext later, on 2026-05-15, without
+    updating this rebuild). Result: any observe/intercept dispatch whose ctx
+    carried a fork_conversation reached the auto_mode_gate classifier with an
+    EMPTY transcript — the classifier ran blind and over-blocked — and lost the
+    PermissionBroker so request_permission fail-closed to deny.
+    """
+    from agent.core.hooks.runner import _strip_fork_conversation
+
+    sentinel_history = ("user-msg", "assistant-tool_use")
+
+    async def requester(req):
+        return None
+
+    async def make_fork(review_prompt, *, tool_allowlist, max_turns):
+        return None
+
+    ctx = HookContext(
+        session_id="sess-strip",
+        turn_id="turn-1",
+        message_history=sentinel_history,
+        permission_requester=requester,
+        fork_conversation=make_fork,
+    )
+
+    stripped = _strip_fork_conversation(ctx)
+
+    assert stripped.fork_conversation is None
+    assert stripped.message_history == sentinel_history, (
+        "message_history must survive fork_conversation stripping"
+    )
+    assert stripped.permission_requester is requester, (
+        "permission_requester must survive fork_conversation stripping"
+    )
