@@ -13,7 +13,7 @@
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
 - Rollback: R1 C1 之前
-- Commits: C1=TBD, C2=TBD, C3=TBD
+- Commits: C1=d1f4d8d1, C2=4168fa05, C3=N/A
 - Next: R2
 
 ## R2 — personal_assistant/main.py: 透传 + 持久化
@@ -29,7 +29,7 @@
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
 - Rollback: R2 C1 之前
-- Commits: C1=TBD, C2=TBD, C3=TBD
+- Commits: C1=a6277dec, C2=476f528c, C3=N/A
 - Next: R3
 
 ## R3 — IM db + repositories: features_json + custom_prompt 字段
@@ -45,7 +45,7 @@
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
 - Rollback: R3 C1 之前
-- Commits: C1=TBD, C2=TBD, C3=TBD
+- Commits: C1=f8568417, C2=ff8c1282, C3=N/A
 - Next: R4
 
 ## R4 — IM capabilities.features 投影 + agent routes
@@ -61,7 +61,7 @@
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
 - Rollback: R4 C1 之前
-- Commits: C1=TBD, C2=TBD, C3=TBD
+- Commits: C1=65563093, C2=cc35c13f, C3=N/A
 - Next: R5
 
 ## R5 — 预览接口: agent POST /v1/prompt-preview + IM 代理路由
@@ -77,7 +77,7 @@
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
 - Rollback: R5 C1 之前
-- Commits: C1=TBD, C2=TBD, C3=TBD
+- Commits: C1=c4396e2d, C2=410228fe, C3=N/A
 - Next: R6
 
 ## R6 — session 创建 metadata 接线
@@ -93,5 +93,5 @@
   - E2E/Regression: N/A
   - Visual/Interaction: N/A
 - Rollback: R6 C1 之前
-- Commits: C1=TBD, C2=TBD, C3=TBD
+- Commits: C1=95e3f6d2, C2=425fd7cb+ee9c7b4d, C3=N/A
 - Next: milestone DONE
