@@ -387,3 +387,175 @@ describe("agent detail page", () => {
     expect(reviewBtn?.getAttribute("aria-pressed")).toBe("false");
   });
 });
+
+// feat-379-M3: Behavior card 重构 — features checkbox + custom_prompt + 折叠预览
+describe("feat-379-M3 Behavior card", () => {
+  function makeDetailState(
+    overrides: {
+      features?: Array<{ key: string; label_i18n: string; help_i18n: string; default_on: boolean; available: boolean; requires_tool?: string | null }>;
+      configFeatures?: Record<string, boolean>;
+      customPrompt?: string;
+    } = {}
+  ) {
+    return {
+      config: {
+        agent_id: "agent-core-1",
+        owner_id: "owner-1",
+        display_name: "Core Planner",
+        description: "",
+        system_prompt: "legacy prompt",
+        custom_prompt: overrides.customPrompt ?? "",
+        features: overrides.configFeatures ?? {},
+        skills: [],
+        tool_allowlist: overrides.features?.filter((f) => f.requires_tool).map((f) => f.requires_tool as string) ?? [],
+        group_reply_policy: "MENTION" as const,
+        default_model: null,
+        workspace_root: "/tmp",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        updated_at: "2026-03-13T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [{ name: "memory", description: "Memory tool" }],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: "",
+        features: overrides.features ?? [
+          { key: "memory_curation", label_i18n: "记忆自进化", help_i18n: "让 agent 主动把偏好/事实写入长期记忆", default_on: true, available: true, requires_tool: "memory" },
+          { key: "skill_creation", label_i18n: "技能自进化", help_i18n: "复杂任务后自动沉淀/修补 skill", default_on: true, available: false, requires_tool: "skill_manage" }
+        ]
+      },
+      owningNode: null
+    };
+  }
+
+  beforeEach(() => {
+    apiMocks.listAgentSummariesMock.mockResolvedValue([
+      { agent_id: "agent-core-1", display_name: "Core Planner", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
+    ]);
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+  });
+
+  it("M3-R1: 不再显示 system_prompt textarea，改为 custom_prompt 和 features 区块", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    // 旧的 system_prompt textarea 不应存在
+    expect(screen.queryByLabelText("System Prompt")).toBeNull();
+    expect(screen.queryByLabelText(/System Prompt \*/)).toBeNull();
+
+    // 新的 custom_prompt textarea 应存在
+    expect(screen.getByLabelText(/Custom Instructions/i)).toBeInTheDocument();
+
+    // features 区块标题
+    expect(screen.getByText(/Features/i)).toBeInTheDocument();
+  });
+
+  it("M3-R1: features checkbox 按 capabilities.features 渲染，含三态(勾/不勾/disabled)", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    // memory_curation: available=true, default_on=true → 勾选可用
+    const memoryCheckbox = document.querySelector<HTMLInputElement>('[data-feature-key="memory_curation"]');
+    expect(memoryCheckbox, "memory_curation checkbox 应存在").not.toBeNull();
+    expect(memoryCheckbox?.disabled).toBe(false);
+
+    // skill_creation: available=false → disabled
+    const skillCheckbox = document.querySelector<HTMLInputElement>('[data-feature-key="skill_creation"]');
+    expect(skillCheckbox, "skill_creation checkbox 应存在").not.toBeNull();
+    expect(skillCheckbox?.disabled).toBe(true);
+  });
+
+  it("M3-R1: 空 features 列表时不渲染 Features 区块", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState({ features: [] }));
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    // features 区块不应出现（无可用特性）
+    expect(document.querySelector("[data-testid='features-section']")).toBeNull();
+  });
+
+  it("M3-R1: custom_prompt 编辑后保存时 PATCH payload 包含 features 和 custom_prompt", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(
+      makeDetailState({ configFeatures: { memory_curation: true, skill_creation: true } })
+    );
+    apiMocks.updateAgentConfigMock.mockResolvedValue({
+      agent_id: "agent-core-1",
+      owner_id: "owner-1",
+      display_name: "Core Planner",
+      description: "",
+      system_prompt: "",
+      custom_prompt: "我是法律顾问",
+      features: { memory_curation: true, skill_creation: true },
+      skills: [],
+      tool_allowlist: ["memory", "skill_manage"],
+      group_reply_policy: "MENTION",
+      default_model: null,
+      workspace_root: "/tmp",
+      workspace_is_default: false,
+      profile_version: 2,
+      node_id: "node-1",
+      node_name: "MacBook",
+      node_status: "online",
+      updated_at: "2026-03-13T10:01:00Z"
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    const customTextarea = screen.getByLabelText(/Custom Instructions/i);
+    await user.clear(customTextarea);
+    await user.type(customTextarea, "我是法律顾问");
+
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
+        "agent-core-1",
+        expect.objectContaining({
+          custom_prompt: "我是法律顾问",
+          features: expect.any(Object)
+        })
+      );
+    });
+  });
+
+  it("M3-R1: 折叠预览区块初始收起，点击展开后 aria-expanded=true", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    // 折叠按钮应存在，初始 aria-expanded=false
+    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
+    expect(previewToggle).toBeInTheDocument();
+    expect(previewToggle.getAttribute("aria-expanded")).toBe("false");
+
+    await userEvent.click(previewToggle);
+
+    expect(previewToggle.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("M3-R1: group_reply_policy select 保留在 Behavior card 中", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    expect(screen.getByLabelText(/Group Reply Policy/i)).toBeInTheDocument();
+  });
+});

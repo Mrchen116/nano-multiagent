@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
@@ -10,7 +10,15 @@ import { createDirectChatByAgentUserId, listAgents } from "../../chat/chat-api";
 import { Avatar } from "../../chat/v2/components/avatar";
 import { PillSelector } from "./pill-selector";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
-import { AgentConfig, AgentSummary, getAgentDetailState, listAgentSummaries, updateAgentConfig } from "./im-agent-config-api";
+import {
+  AgentConfig,
+  AgentFeature,
+  AgentSummary,
+  getAgentDetailState,
+  listAgentSummaries,
+  promptPreview,
+  updateAgentConfig
+} from "./im-agent-config-api";
 
 type AgentConfigFormState = AgentConfig;
 
@@ -27,7 +35,9 @@ function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormStat
     ...config,
     display_name: normalizeText(config.display_name),
     description: normalizeText(config.description),
+    // feat-379-M3: system_prompt preserved for API compat but no longer user-editable
     system_prompt: config.system_prompt.trim(),
+    custom_prompt: (config.custom_prompt ?? "").trim(),
     skills: normalizeAllowlist(config.skills),
     tool_allowlist: normalizeAllowlist(config.tool_allowlist),
     default_model: normalizeText(config.default_model ?? "") || null
@@ -35,10 +45,23 @@ function normalizeAgentConfig(config: AgentConfigFormState): AgentConfigFormStat
 }
 
 function validateDraft(draft: AgentConfigFormState) {
-  const errors: Partial<Record<"display_name" | "system_prompt", string>> = {};
+  // feat-379-M3: system_prompt required validation removed — segment system replaces it
+  const errors: Partial<Record<"display_name", string>> = {};
   if (!draft.display_name) errors.display_name = "Display name is required.";
-  if (!draft.system_prompt) errors.system_prompt = "System prompt is required.";
   return errors;
+}
+
+// feat-379-M3: resolve effective feature values from draft + capabilities defaults.
+// Draft features take precedence; fall back to capability default_on when key absent.
+function resolveEffectiveFeatures(
+  draftFeatures: Record<string, boolean> | undefined,
+  capabilityFeatures: AgentFeature[]
+): Record<string, boolean> {
+  const result: Record<string, boolean> = {};
+  for (const feat of capabilityFeatures) {
+    result[feat.key] = draftFeatures?.[feat.key] ?? feat.default_on;
+  }
+  return result;
 }
 
 function initialsOf(displayName: string): string {
@@ -68,6 +91,231 @@ function resolveModelOptions(modelOptions: string[] | undefined, currentModel: s
 function formatUpdatedAt(value?: string | null) {
   if (!value) return "—";
   return new Date(value).toLocaleString();
+}
+
+// feat-379-M3: Behavior card — features checkbox group + custom_prompt textarea + collapsible preview.
+// Uses the same checkbox idiom as allowlist-selector.tsx (appearance:none + :checked → --im-accent)
+// and the same collapsible pattern as tool-calls-panel.tsx (aria-expanded + ▸/▾ + class toggle).
+interface BehaviorCardProps {
+  agentId: string;
+  draft: AgentConfigFormState;
+  capabilityFeatures: AgentFeature[];
+  onCustomPromptChange: (value: string) => void;
+  onFeatureToggle: (key: string, value: boolean) => void;
+  onPolicyChange: (value: string) => void;
+}
+
+function BehaviorCard({
+  agentId,
+  draft,
+  capabilityFeatures,
+  onCustomPromptChange,
+  onFeatureToggle,
+  onPolicyChange
+}: BehaviorCardProps) {
+  const { t } = useTranslation();
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewText, setPreviewText] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  // Debounce handle for preview re-fetch on change
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const effectiveFeatures = useMemo(
+    () => resolveEffectiveFeatures(draft.features, capabilityFeatures),
+    [draft.features, capabilityFeatures]
+  );
+
+  // Fetch preview when opened or when draft changes while open
+  const fetchPreview = useCallback(async () => {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const text = await promptPreview(agentId, {
+        features: effectiveFeatures,
+        custom_prompt: draft.custom_prompt ?? ""
+      });
+      setPreviewText(text);
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "Preview failed");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [agentId, effectiveFeatures, draft.custom_prompt]);
+
+  // Debounce preview re-fetch when draft changes while preview is open
+  useEffect(() => {
+    if (!previewOpen) return;
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
+    return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewOpen, draft.custom_prompt, draft.features]);
+
+  function handlePreviewToggle() {
+    if (!previewOpen) {
+      setPreviewOpen(true);
+      void fetchPreview();
+    } else {
+      setPreviewOpen(false);
+    }
+  }
+
+  return (
+    <section className="im-agent-card">
+      <div>
+        <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
+        <p className="im-agent-card-sub">{t("agents.form.behavior.sub")}</p>
+      </div>
+
+      {/* Custom Instructions — optional textarea replacing legacy system_prompt */}
+      <div className="im-agent-field">
+        <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
+        <textarea
+          id="custom-instructions"
+          className="im-agent-textarea"
+          value={draft.custom_prompt ?? ""}
+          placeholder={t("agents.form.behavior.customInstructionsPlaceholder")}
+          aria-describedby="custom-instructions-help"
+          rows={4}
+          onChange={(e) => onCustomPromptChange(e.target.value)}
+        />
+        <p id="custom-instructions-help" className="im-agent-field-help">
+          {t("agents.form.behavior.customInstructionsHelp")}
+        </p>
+      </div>
+
+      {/* Features section — rendered only when capabilities list is non-empty */}
+      {capabilityFeatures.length > 0 && (
+        <div data-testid="features-section" className="im-agent-field">
+          <span className="text-[13px] font-semibold text-slate-900">{t("agents.form.behavior.features")}</span>
+          <p className="im-agent-field-help" style={{ marginTop: 2 }}>{t("agents.form.behavior.featuresHelp")}</p>
+          <div className="grid gap-[6px] mt-2">
+            {capabilityFeatures.map((feat) => {
+              const checked = effectiveFeatures[feat.key] ?? feat.default_on;
+              const disabled = !feat.available;
+              const tooltipText = disabled && feat.requires_tool
+                ? t("agents.form.behavior.featureDisabledTooltip", { tool: feat.requires_tool })
+                : undefined;
+              return (
+                <label
+                  key={feat.key}
+                  title={tooltipText}
+                  className={`flex items-start gap-3 rounded-xl border px-3 py-[10px] transition-colors ${
+                    disabled
+                      ? "border-[var(--im-border)] bg-white/60 opacity-55 cursor-not-allowed"
+                      : checked
+                        ? "border-teal-300 bg-teal-50/60 cursor-pointer"
+                        : "border-[var(--im-border)] bg-white/90 cursor-pointer hover:border-slate-300"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    data-feature-key={feat.key}
+                    checked={checked}
+                    disabled={disabled}
+                    className="im-feature-checkbox mt-[2px] shrink-0"
+                    onChange={(e) => { if (!disabled) onFeatureToggle(feat.key, e.target.checked); }}
+                  />
+                  <div className="min-w-0">
+                    <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">{feat.label_i18n}</p>
+                    <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">{feat.help_i18n}</p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Group reply policy — scene-mandatory, not a toggle */}
+      <div className="im-agent-field">
+        <Label.Root htmlFor="group-reply-policy">{t("agents.form.behavior.policy")}</Label.Root>
+        <select
+          id="group-reply-policy"
+          className="im-input"
+          aria-describedby="group-policy-help"
+          value={draft.group_reply_policy}
+          onChange={(e) => onPolicyChange(e.target.value)}
+        >
+          <option value="MENTION">{t("agents.form.behavior.policyOptionMention")}</option>
+          <option value="ALWAYS">{t("agents.form.behavior.policyOptionAlways")}</option>
+          <option value="NO_REPLY">{t("agents.form.behavior.policyOptionNoReply")}</option>
+        </select>
+        <p id="group-policy-help" className="im-agent-field-help">
+          {t("agents.form.behavior.policyHelp")}
+        </p>
+      </div>
+
+      {/* Collapsible preview — mirrors tool-calls-panel aria-expanded + ▸/▾ pattern */}
+      <div>
+        <button
+          type="button"
+          className={`im-behavior-preview-toggle ${previewOpen ? "im-behavior-preview-toggle--open" : ""}`}
+          onClick={handlePreviewToggle}
+          aria-expanded={previewOpen}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            background: "none",
+            border: "none",
+            padding: "6px 0",
+            cursor: "pointer",
+            fontSize: "0.8rem",
+            fontWeight: 600,
+            color: "var(--im-accent, oklch(0.55 0.18 180))"
+          }}
+        >
+          <span aria-hidden="true">{previewOpen ? "▾" : "▸"}</span>
+          <span>{t("agents.form.behavior.previewToggle")}</span>
+        </button>
+
+        {previewOpen && (
+          <div className="im-behavior-preview-panel im-behavior-preview-panel--open" style={{ marginTop: 8 }}>
+            {previewLoading && (
+              <p className="text-[11px] text-slate-500">{t("agents.form.behavior.previewLoading")}</p>
+            )}
+            {previewError && (
+              <p className="text-[11px] text-rose-600">{t("agents.form.behavior.previewError")}</p>
+            )}
+            {!previewLoading && !previewError && previewText !== null && (
+              <>
+                <pre
+                  style={{
+                    fontSize: "0.72rem",
+                    lineHeight: 1.5,
+                    color: "var(--im-muted, oklch(0.50 0.01 240))",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    background: "oklch(0.96 0.004 240)",
+                    border: "1px solid var(--im-border)",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    maxHeight: 360,
+                    overflowY: "auto",
+                    margin: 0
+                  }}
+                >
+                  {previewText}
+                </pre>
+                <p
+                  style={{
+                    fontSize: "0.70rem",
+                    color: "var(--im-muted, oklch(0.55 0.01 240))",
+                    marginTop: 4,
+                    marginBottom: 0
+                  }}
+                >
+                  {t("agents.form.behavior.previewHelp")}
+                </p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
 }
 
 // M20/R12-bis-1: desktop split layout — left 240px dark agent rail.
@@ -297,11 +545,11 @@ export function AgentDetailPage() {
     }
   });
 
-  function markTouched(field: "display_name" | "system_prompt") {
+  function markTouched(field: "display_name") {
     setTouched((current) => ({ ...current, [field]: true }));
   }
 
-  function shouldShowError(field: "display_name" | "system_prompt") {
+  function shouldShowError(field: "display_name") {
     return (hasAttemptedSave || touched[field]) && validationErrors[field];
   }
 
@@ -505,55 +753,27 @@ export function AgentDetailPage() {
           </div>
         </section>
 
-        <section className="im-agent-card">
-          <div>
-            <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
-            <p className="im-agent-card-sub">{t("agents.form.behavior.sub")}</p>
-          </div>
-          <div className="im-agent-field">
-            <Label.Root htmlFor="system-prompt">{t("agents.form.behavior.systemPrompt")}</Label.Root>
-            <textarea
-              id="system-prompt"
-              className="im-agent-textarea"
-              value={draft.system_prompt}
-              aria-invalid={Boolean(shouldShowError("system_prompt"))}
-              aria-describedby="system-prompt-help"
-              onBlur={() => markTouched("system_prompt")}
-              onChange={(event) => {
-                setSaved(false);
-                setErrorMessage(null);
-                setDraft({ ...draft, system_prompt: event.target.value });
-              }}
-            />
-            <p id="system-prompt-help" className="im-agent-field-help">
-              {t("agents.form.behavior.systemPromptHelp")}
-            </p>
-            {shouldShowError("system_prompt") ? (
-              <p className="im-agent-field-error">{validationErrors.system_prompt}</p>
-            ) : null}
-          </div>
-          <div className="im-agent-field">
-            <Label.Root htmlFor="group-reply-policy">{t("agents.form.behavior.policy")}</Label.Root>
-            <select
-              id="group-reply-policy"
-              className="im-input"
-              aria-describedby="group-policy-help"
-              value={draft.group_reply_policy}
-              onChange={(event) => {
-                setSaved(false);
-                setErrorMessage(null);
-                setDraft({ ...draft, group_reply_policy: event.target.value as AgentConfig["group_reply_policy"] });
-              }}
-            >
-              <option value="MENTION">{t("agents.form.behavior.policyOptionMention")}</option>
-              <option value="ALWAYS">{t("agents.form.behavior.policyOptionAlways")}</option>
-              <option value="NO_REPLY">{t("agents.form.behavior.policyOptionNoReply")}</option>
-            </select>
-            <p id="group-policy-help" className="im-agent-field-help">
-              {t("agents.form.behavior.policyHelp")}
-            </p>
-          </div>
-        </section>
+        {/* feat-379-M3: Behavior card replaced with BehaviorCard component */}
+        <BehaviorCard
+          agentId={agentId}
+          draft={draft}
+          capabilityFeatures={capabilities.features ?? []}
+          onCustomPromptChange={(value) => {
+            setSaved(false);
+            setErrorMessage(null);
+            setDraft({ ...draft, custom_prompt: value });
+          }}
+          onFeatureToggle={(key, value) => {
+            setSaved(false);
+            setErrorMessage(null);
+            setDraft({ ...draft, features: { ...(draft.features ?? {}), [key]: value } });
+          }}
+          onPolicyChange={(value) => {
+            setSaved(false);
+            setErrorMessage(null);
+            setDraft({ ...draft, group_reply_policy: value as AgentConfig["group_reply_policy"] });
+          }}
+        />
 
         <section className="im-agent-card">
           <div>
