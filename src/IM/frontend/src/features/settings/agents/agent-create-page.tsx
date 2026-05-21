@@ -1,12 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { PillSelector } from "./pill-selector";
-import { AgentSummary, createNodeAgent, getNodeCreateState, listNodes, NodeAgentCreateRequest } from "./im-agent-config-api";
+import {
+  AgentFeature,
+  AgentSummary,
+  createNodeAgent,
+  getNodeCreateState,
+  listNodes,
+  NodeAgentCreateRequest,
+  promptPreview
+} from "./im-agent-config-api";
 
 type CreateAgentFormState = NodeAgentCreateRequest;
 
@@ -24,9 +32,11 @@ function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
     agent_id: normalizeText(draft.agent_id),
     display_name: normalizeText(draft.display_name),
     description: normalizeText(draft.description),
-    // feat-379-M3: system_prompt preserved for API compat but no longer required
-    system_prompt: draft.system_prompt.trim(),
+    // feat-379-M5 (ISSUE-1): system_prompt no longer exposed in create form;
+    // keep blank in payload for API compat — sections assembler owns the content.
+    system_prompt: "",
     custom_prompt: (draft.custom_prompt ?? "").trim(),
+    features: draft.features ?? {},
     skills: normalizeAllowlist(draft.skills),
     tool_allowlist: normalizeAllowlist(draft.tool_allowlist),
     default_model: normalizeText(draft.default_model ?? "") || null,
@@ -35,7 +45,6 @@ function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
 }
 
 function validateDraft(draft: CreateAgentFormState) {
-  // feat-379-M3: system_prompt no longer required; segment system provides defaults
   const errors: Partial<Record<"agent_id" | "display_name", string>> = {};
   if (!draft.agent_id) {
     errors.agent_id = "Agent ID is required.";
@@ -46,18 +55,248 @@ function validateDraft(draft: CreateAgentFormState) {
   return errors;
 }
 
+// Draft features take precedence; fall back to capability default_on when key absent.
+function resolveEffectiveFeatures(
+  draftFeatures: Record<string, boolean> | undefined,
+  capabilityFeatures: AgentFeature[]
+): Record<string, boolean> {
+  const result: Record<string, boolean> = {};
+  for (const feat of capabilityFeatures) {
+    result[feat.key] = draftFeatures?.[feat.key] ?? feat.default_on;
+  }
+  return result;
+}
+
 const EMPTY_DRAFT: CreateAgentFormState = {
   agent_id: "",
   owner_id: "",
   display_name: "",
   description: "",
   system_prompt: "",
+  custom_prompt: "",
+  features: {},
   skills: [],
   tool_allowlist: [],
   group_reply_policy: "MENTION",
   default_model: null,
   workspace_root: null
 };
+
+// feat-379-M5 (ISSUE-1): Behavior card for agent creation — same design as agent-detail-page.tsx
+// BehaviorCard component. Custom Instructions (custom_prompt) + Features toggles + Group Reply
+// Policy + collapsible Preview panel.
+interface CreateBehaviorCardProps {
+  draft: CreateAgentFormState;
+  capabilityFeatures: AgentFeature[];
+  selectedNodeId: string;
+  onCustomPromptChange: (value: string) => void;
+  onFeatureToggle: (key: string, value: boolean) => void;
+  onPolicyChange: (value: string) => void;
+}
+
+function CreateBehaviorCard({
+  draft,
+  capabilityFeatures,
+  selectedNodeId,
+  onCustomPromptChange,
+  onFeatureToggle,
+  onPolicyChange
+}: CreateBehaviorCardProps) {
+  const { t } = useTranslation();
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewText, setPreviewText] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const effectiveFeatures = useMemo(
+    () => resolveEffectiveFeatures(draft.features, capabilityFeatures),
+    [draft.features, capabilityFeatures]
+  );
+
+  // Preview for create page: no agent_id yet, use node-level preview endpoint instead.
+  // We reuse the promptPreview helper with a synthetic agent-id sentinel; if the agent
+  // doesn't exist the endpoint 404s gracefully and we show a fallback message.
+  const fetchPreview = useCallback(async () => {
+    if (!selectedNodeId) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      // sentinel agent-id so the preview endpoint can locate the node's sections;
+      // real agent not yet created — preview shows structural shape only.
+      const text = await promptPreview("__preview__", {
+        features: effectiveFeatures,
+        custom_prompt: draft.custom_prompt ?? ""
+      });
+      setPreviewText(text);
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "Preview failed");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [selectedNodeId, effectiveFeatures, draft.custom_prompt]);
+
+  useEffect(() => {
+    if (!previewOpen) return;
+    if (previewTimer.current) clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
+    return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewOpen, draft.custom_prompt, draft.features]);
+
+  function handlePreviewToggle() {
+    if (!previewOpen) {
+      setPreviewOpen(true);
+      void fetchPreview();
+    } else {
+      setPreviewOpen(false);
+    }
+  }
+
+  return (
+    <section className="im-agent-card">
+      <div>
+        <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
+        <p className="im-agent-card-sub">{t("agents.form.behavior.sub")}</p>
+      </div>
+
+      {/* Custom Instructions — optional textarea; empty is valid */}
+      <div className="im-agent-field">
+        <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
+        <textarea
+          id="custom-instructions"
+          className="im-agent-textarea"
+          value={draft.custom_prompt ?? ""}
+          placeholder={t("agents.form.behavior.customInstructionsPlaceholder")}
+          aria-describedby="custom-instructions-help"
+          rows={4}
+          onChange={(e) => onCustomPromptChange(e.target.value)}
+        />
+        <p id="custom-instructions-help" className="im-agent-field-help">
+          {t("agents.form.behavior.customInstructionsHelp")}
+        </p>
+      </div>
+
+      {/* Features section — rendered only when capabilities list is non-empty */}
+      {capabilityFeatures.length > 0 && (
+        <div data-testid="features-section" className="im-agent-field">
+          <span className="text-[13px] font-semibold text-slate-900">{t("agents.form.behavior.features")}</span>
+          <p className="im-agent-field-help" style={{ marginTop: 2 }}>{t("agents.form.behavior.featuresHelp")}</p>
+          <div className="grid gap-[6px] mt-2">
+            {capabilityFeatures.map((feat) => {
+              const checked = effectiveFeatures[feat.key] ?? feat.default_on;
+              const disabled = !feat.available;
+              const tooltipText = disabled && feat.requires_tool
+                ? t("agents.form.behavior.featureDisabledTooltip", { tool: feat.requires_tool })
+                : undefined;
+              return (
+                <label
+                  key={feat.key}
+                  title={tooltipText}
+                  className={`flex items-start gap-3 rounded-xl border px-3 py-[10px] transition-colors ${
+                    disabled
+                      ? "border-[var(--im-border)] bg-white/60 opacity-55 cursor-not-allowed"
+                      : checked
+                        ? "border-teal-300 bg-teal-50/60 cursor-pointer"
+                        : "border-[var(--im-border)] bg-white/90 cursor-pointer hover:border-slate-300"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    data-feature-key={feat.key}
+                    checked={checked}
+                    disabled={disabled}
+                    className="im-feature-checkbox mt-[2px] shrink-0"
+                    onChange={(e) => { if (!disabled) onFeatureToggle(feat.key, e.target.checked); }}
+                  />
+                  <div className="min-w-0">
+                    <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">{t(feat.label_i18n)}</p>
+                    <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">{t(feat.help_i18n)}</p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Group reply policy */}
+      <div className="im-agent-field">
+        <Label.Root htmlFor="group-reply-policy">{t("agents.form.behavior.policy")}</Label.Root>
+        <select
+          id="group-reply-policy"
+          className="im-input"
+          aria-describedby="group-policy-help"
+          value={draft.group_reply_policy}
+          onChange={(e) => onPolicyChange(e.target.value)}
+        >
+          <option value="MENTION">{t("agents.form.behavior.policyOptionMention")}</option>
+          <option value="ALWAYS">{t("agents.form.behavior.policyOptionAlways")}</option>
+          <option value="NO_REPLY">{t("agents.form.behavior.policyOptionNoReply")}</option>
+        </select>
+        <p id="group-policy-help" className="im-agent-field-help">
+          {t("agents.form.behavior.policyHelp")}
+        </p>
+      </div>
+
+      {/* Collapsible preview — mirrors tool-calls-panel aria-expanded + ▸/▾ pattern */}
+      <div>
+        <button
+          type="button"
+          className={`im-behavior-preview-toggle ${previewOpen ? "im-behavior-preview-toggle--open" : ""}`}
+          onClick={handlePreviewToggle}
+          aria-expanded={previewOpen}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            background: "none",
+            border: "none",
+            padding: "6px 0",
+            cursor: "pointer",
+            fontSize: "0.8rem",
+            fontWeight: 600,
+            color: "var(--im-accent, oklch(0.55 0.18 180))"
+          }}
+        >
+          <span aria-hidden="true">{previewOpen ? "▾" : "▸"}</span>
+          <span>{t("agents.form.behavior.previewToggle")}</span>
+        </button>
+
+        {previewOpen && (
+          <div className="im-behavior-preview-panel im-behavior-preview-panel--open" style={{ marginTop: 8 }}>
+            {previewLoading && (
+              <p className="text-[11px] text-slate-500">{t("agents.form.behavior.previewLoading")}</p>
+            )}
+            {previewError && (
+              <p className="text-[11px] text-rose-600">{t("agents.form.behavior.previewError")}</p>
+            )}
+            {!previewLoading && !previewError && previewText !== null && (
+              <pre
+                style={{
+                  fontSize: "0.72rem",
+                  lineHeight: 1.5,
+                  color: "var(--im-muted, oklch(0.50 0.01 240))",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  background: "oklch(0.96 0.004 240)",
+                  border: "1px solid var(--im-border)",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  maxHeight: 360,
+                  overflowY: "auto",
+                  margin: 0
+                }}
+              >
+                {previewText}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 export function AgentCreatePage() {
   const { nodeId = "" } = useParams();
@@ -89,15 +328,6 @@ export function AgentCreatePage() {
     enabled: selectedNodeId.length > 0,
     staleTime: 30_000
   });
-
-  useEffect(() => {
-    const defaultSystemPrompt = createStateQuery.data?.capabilities.default_system_prompt?.trim() ?? "";
-    if (!defaultSystemPrompt) return;
-    setDraft((current) => {
-      if (current.system_prompt.trim().length > 0) return current;
-      return { ...current, system_prompt: defaultSystemPrompt };
-    });
-  }, [createStateQuery.data?.capabilities.default_system_prompt]);
 
   const normalizedDraft = useMemo(() => normalizeDraft(draft), [draft]);
   const validationErrors = useMemo(() => validateDraft(normalizedDraft), [normalizedDraft]);
@@ -349,51 +579,24 @@ export function AgentCreatePage() {
           </div>
         </section>
 
-        <section className="im-agent-card">
-          <div>
-            <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
-            <p className="im-agent-card-sub">{t("agents.form.behavior.sub")}</p>
-          </div>
-          <div className="im-agent-field">
-            <Label.Root htmlFor="system-prompt">{t("agents.form.behavior.systemPromptRequired")}</Label.Root>
-            <textarea
-              id="system-prompt"
-              className="im-agent-textarea"
-              value={draft.system_prompt}
-              aria-describedby="system-prompt-help"
-              placeholder={t("agents.form.behavior.systemPromptPlaceholder")}
-              rows={isMobile ? 5 : 7}
-              onChange={(event) => {
-                setErrorMessage(null);
-                setDraft({ ...draft, system_prompt: event.target.value });
-              }}
-            />
-            <p id="system-prompt-help" className="im-agent-field-help">
-              {t("agents.form.behavior.systemPromptHelp")}
-            </p>
-            {/* feat-379-M3: system_prompt no longer required, no error shown */}
-          </div>
-          <div className="im-agent-field">
-            <Label.Root htmlFor="group-reply-policy">{t("agents.form.behavior.policy")}</Label.Root>
-            <select
-              id="group-reply-policy"
-              className="im-input"
-              aria-describedby="group-reply-policy-help"
-              value={draft.group_reply_policy}
-              onChange={(event) => {
-                setErrorMessage(null);
-                setDraft({ ...draft, group_reply_policy: event.target.value });
-              }}
-            >
-              <option value="MENTION">{t("agents.form.behavior.policyOptionMention")}</option>
-              <option value="ALWAYS">{t("agents.form.behavior.policyOptionAlways")}</option>
-              <option value="NO_REPLY">{t("agents.form.behavior.policyOptionNoReply")}</option>
-            </select>
-            <p id="group-reply-policy-help" className="im-agent-field-help">
-              {t("agents.form.behavior.policyHelp")}
-            </p>
-          </div>
-        </section>
+        {/* feat-379-M5 (ISSUE-1): Behavior card — Custom Instructions + Features + Preview */}
+        <CreateBehaviorCard
+          draft={draft}
+          capabilityFeatures={capabilities.features ?? []}
+          selectedNodeId={selectedNodeId}
+          onCustomPromptChange={(value) => {
+            setErrorMessage(null);
+            setDraft({ ...draft, custom_prompt: value });
+          }}
+          onFeatureToggle={(key, value) => {
+            setErrorMessage(null);
+            setDraft({ ...draft, features: { ...(draft.features ?? {}), [key]: value } });
+          }}
+          onPolicyChange={(value) => {
+            setErrorMessage(null);
+            setDraft({ ...draft, group_reply_policy: value });
+          }}
+        />
 
         <section className="im-agent-card">
           <div>
