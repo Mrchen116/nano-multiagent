@@ -50,3 +50,20 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(tmp_path
         "node.report",
         "node.delivery_receipt",
     ]
+
+
+def test_build_runtime_capabilities_default_system_prompt_has_no_runtime_fill_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """default_system_prompt exposed via node.capabilities must not contain RUNTIME_FILL
+    placeholders (feat-379-M5 ISSUE-4).
+
+    The sections-based prompt assembler replaced RUNTIME_FILL tokens; sending the raw
+    template to the IM frontend causes garbage text in the agent-create system_prompt
+    prefill.  The field must be either a clean rendered string or empty.
+    """
+    caps = build_runtime_capabilities()
+    assert "<RUNTIME_FILL:" not in caps.default_system_prompt, (
+        "default_system_prompt must not contain <RUNTIME_FILL:*> placeholders — "
+        "use empty string or a pre-rendered template (feat-379-M5 ISSUE-4)"
+    )
