@@ -295,3 +295,136 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(tmp_path: Pa
     assert agent.system_prompt == "You are synced."
     assert agent.group_reply_policy == "mention_only"
     assert agent.default_model == "claude-sonnet-4-6"
+
+
+# ---------------------------------------------------------------------------
+# feat-379-M2/R2: features + custom_prompt passthrough in sync/create/current
+# ---------------------------------------------------------------------------
+
+def _make_local_config(tmp_path: Path, workspace_root: Path) -> "LocalConfig":
+    config_path = tmp_path / "config.yaml"
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-r2"),
+        agents=(AgentWorkspaceConfig(agent_id="seed", workspace_root=(tmp_path / "seed")),),
+        channels=(),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=config_path,
+    )
+    return local_config
+
+
+class _NullPipeline:
+    registered: list["AgentWorkspaceConfig"] = []
+
+    def register_agent(self, agent: "AgentWorkspaceConfig") -> None:
+        self.registered.append(agent)
+
+    def drop_agent_sessions(self, agent_id: str) -> None:
+        pass
+
+
+def test_sync_agent_passes_through_features(tmp_path: Path) -> None:
+    """sync_agent must write features from IM payload into AgentWorkspaceConfig."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "agent_id": "alpha",
+            "display_name": "Alpha",
+            "profile_version": 1,
+            "workspace_root": str(workspace_root),
+            "features": {"memory_curation": False},
+            "custom_prompt": "You are a legal advisor.",
+        })
+
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    sync.sync_agent(agent_id="alpha", profile_version=1)
+
+    registered = next(a for a in pipeline.registered if a.agent_id == "alpha")
+    # features must be passed through from IM payload
+    assert registered.features.get("memory_curation") is False
+    assert registered.custom_prompt == "You are a legal advisor."
+
+
+def test_handle_agent_create_passes_through_features(tmp_path: Path) -> None:
+    """handle_agent_create must include features + custom_prompt in the created AgentWorkspaceConfig."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})), base_url="http://im.local", trust_env=False),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    result = sync.handle_agent_create({
+        "agent_id": "beta",
+        "workspace_root": str(workspace_root),
+        "features": {"skill_creation": False},
+        "custom_prompt": "You are a chef.",
+    })
+
+    # Return payload must include features + custom_prompt
+    assert result["features"] == {"skill_creation": False}
+    assert result["custom_prompt"] == "You are a chef."
+    # Persisted agent config must include features + custom_prompt
+    registered = next(a for a in pipeline.registered if a.agent_id == "beta")
+    assert registered.features.get("skill_creation") is False
+    assert registered.custom_prompt == "You are a chef."
+
+
+def test_current_agent_payload_includes_features(tmp_path: Path) -> None:
+    """current_agent_payload must expose features + custom_prompt for capabilities reporting."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-r2"),
+        agents=(AgentWorkspaceConfig(
+            agent_id="gamma",
+            workspace_root=workspace_root,
+            features={"memory_curation": True},
+            custom_prompt="You are a tutor.",
+        ),),
+        channels=(),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        source_path=config_path,
+    )
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=_NullPipeline(),
+        local_config=local_config,
+        client=httpx.Client(transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})), base_url="http://im.local", trust_env=False),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    payload = sync.current_agent_payload(agent_id="gamma")
+    assert payload is not None
+    assert payload["features"] == {"memory_curation": True}
+    assert payload["custom_prompt"] == "You are a tutor."
