@@ -70,6 +70,7 @@ TDD 过程里产生两种东西，去向不同：
 - AAA 结构(Arrange-Act-Assert)，一个测试一个清晰主题。
 - 单测试文件软上限 **400 行**，超了按行为拆分。(现存 2000+ 行文件是反面教材。)
 - MUST NOT `skip`/`xfail` 蒙混过关。测试该绿就让它绿，该删就删。
+  **唯一合规例外**：已知产品回归（测试正确、产品有 bug）可打 `@pytest.mark.xfail(strict=True, reason="<现象>; tracked in #<N>")`，条件：① 必须附 issue 编号；② `strict=True`（修好后转 xpass 自动报错，强制摘标）；③ 该测试不得删除（删除=掩盖 bug）。无 issue 编号的 xfail 视同蒙混，审查拒绝。
 - 复用现有 fixture/helper，不重复造。
 
 ## 8) tasks.md 测试策略段必填

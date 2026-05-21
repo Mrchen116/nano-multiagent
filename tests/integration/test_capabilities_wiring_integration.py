@@ -37,7 +37,7 @@ def test_capabilities_reflects_injected_tool_registry(tmp_path: Path) -> None:
         create_app(
             repo_root=tmp_path,
             tool_registry=registry,
-            auth_token="test-token",
+           
         )
     )
 

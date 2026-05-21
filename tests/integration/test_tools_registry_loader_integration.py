@@ -1,11 +1,17 @@
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from agent.core.errors import ToolError
+from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.loader import discover_tool_files, load_tools_from_directory
 from agent.platform.tools.registry import ToolRegistry
+from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+
+set_tool_safety_factory(ToolSafety)
+set_tool_safety_config_factory(ToolSafetyConfig)
 
 
 class EchoTool:
@@ -26,13 +32,13 @@ def test_registry_dispatches_and_validates_arguments(tmp_path: Path) -> None:
     registry = ToolRegistry(context=ToolContext.create(repo_root=tmp_path))
     registry.register(EchoTool())
 
-    result = registry.execute("echo", {"text": "hi"})
+    result = asyncio.run(registry.execute("echo", {"text": "hi"}))
 
     assert result["echo"] == "hi"
     with pytest.raises(ToolError, match="missing required"):
-        registry.execute("echo", {})
+        asyncio.run(registry.execute("echo", {}))
     with pytest.raises(ToolError, match="unknown tool"):
-        registry.execute("missing", {})
+        asyncio.run(registry.execute("missing", {}))
 
 
 def test_loader_discovers_and_registers_directory_tools(tmp_path: Path) -> None:
@@ -66,5 +72,4 @@ TOOL = ReverseTool()
     assert len(files) == 1
     assert files[0].name == "reverse_tool.py"
     assert "reverse" in loaded_names
-    assert registry.execute("reverse", {"text": "abc"})["text"] == "cba"
-
+    assert asyncio.run(registry.execute("reverse", {"text": "abc"}))["text"] == "cba"

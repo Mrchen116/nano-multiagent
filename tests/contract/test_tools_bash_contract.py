@@ -7,6 +7,7 @@ from agent.core.errors import ToolError
 from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
+from agent.platform.tools.builtins.bash_runner import BashRunner, BashRunnerConfig
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 set_tool_safety_factory(ToolSafety)
@@ -18,12 +19,15 @@ def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolC
 
 
 def test_bash_truncation_contract_exposes_full_output_path(tmp_path: Path) -> None:
-    result = BashTool().run(
+    # BashRunnerConfig carries bash-specific execution limits (replaced ToolSafetyConfig
+    # after M6 refactor); inject via _bash_runner to test truncation contract.
+    tool = BashTool()
+    tool._bash_runner = BashRunner(
+        config=BashRunnerConfig(bash_max_output_lines=2, bash_max_output_bytes=200)
+    )
+    result = tool.run(
         {"command": "python -c \"[print(f'line-{i}') for i in range(8)]\""},
-        _context(
-            tmp_path,
-            config=ToolSafetyConfig(bash_max_output_lines=2, bash_max_output_bytes=200),
-        ),
+        _context(tmp_path),
     )
 
     assert set(result.keys()) == {

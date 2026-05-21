@@ -8,9 +8,10 @@ from agent.platform.http_api.app import create_app
 
 
 class _RuntimeStub:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
         del parts
         del stream
+        del origin
         return TurnResult(
             session_id=session_id,
             turn_id="turn_contract_async",
@@ -68,16 +69,15 @@ def test_messages_async_contract_submit_and_get_run() -> None:
     session_id = created.json()["session_id"]
 
     submitted = client.post(
-        f"/v1/sessions/{session_id}/messages:async",
+        f"/v1/sessions/{session_id}/messages",
         json={"parts": [{"type": "text", "text": "ping"}]},
         headers=_auth_headers("req-runs-submit"),
     )
-    assert submitted.status_code == 202
+    assert submitted.status_code == 200
     assert submitted.headers["x-request-id"] == "req-runs-submit"
 
     payload = submitted.json()
-    assert set(payload.keys()) == {"run_id", "session_id", "status"}
-    assert payload["session_id"] == session_id
+    assert set(payload.keys()) == {"run_id", "anchor_sequence", "injected", "status"}
     assert payload["status"] in {"queued", "running"}
 
     terminal = _wait_for_terminal_run(client, payload["run_id"])
@@ -118,36 +118,32 @@ def test_get_run_not_found_uses_unified_error_shape() -> None:
     assert response.headers["x-request-id"] == "req-runs-missing"
 
 
-def test_session_sse_run_status_contract_includes_retry_progress_fields(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "agent.core.runs.registry._wait_with_cancel",
-        lambda _event, _seconds: False,
-    )
-    client = TestClient(create_app(runtime=_RetryThenSuccessRuntime(fail_times=2)))
+def test_session_sse_events_include_run_status_on_completion() -> None:
+    # Verify that `run_status` SSE events are published to the session event stream
+    # after a run completes.  Retry-progress fields (attempt/next_delay/cooldown)
+    # are no longer produced at the RunsRegistry layer; transient retry is handled
+    # inside AgentLoop, so those fields are omitted here.
+    client = TestClient(create_app(runtime=_RuntimeStub()))
 
-    created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-runs-retry-create"))
+    created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-runs-sse-create"))
     assert created.status_code == 201
     session_id = created.json()["session_id"]
 
     submitted = client.post(
-        f"/v1/sessions/{session_id}/messages:async",
+        f"/v1/sessions/{session_id}/messages",
         json={"parts": [{"type": "text", "text": "ping"}]},
-        headers=_auth_headers("req-runs-retry-submit"),
+        headers=_auth_headers("req-runs-sse-submit"),
     )
-    assert submitted.status_code == 202
+    assert submitted.status_code == 200
     run_id = submitted.json()["run_id"]
 
-    terminal = _wait_for_terminal_run(client, run_id)
-    assert terminal["status"] == "completed"
+    _wait_for_terminal_run(client, run_id)
 
     response = client.get(
-        f"/v1/sessions/{session_id}/events?max_events=30&timeout_seconds=0.1",
-        headers=_auth_headers("req-runs-retry-events"),
+        f"/v1/events?after_sequence=0&max_events=30&timeout_seconds=0.1",
+        headers=_auth_headers("req-runs-sse-events"),
     )
     assert response.status_code == 200
     body = response.text
     assert "event: run_status" in body
-    assert '"attempt":1' in body
-    assert '"next_delay":0.5' in body
-    assert '"cooldown":0.0' in body
-    assert '"last_error":{"code":"model_error","message":"upstream flaky #1","retryable":true}' in body
+    assert '"status":"completed"' in body

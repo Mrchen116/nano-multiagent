@@ -60,16 +60,16 @@ def test_commands_delegates_error_layer_and_suggestion_mapping_to_apps_module() 
 def test_run_repl_passes_supported_commands_to_apps_input_reader(monkeypatch) -> None:
     captured: dict[str, tuple[str, ...]] = {}
 
-    def _fake_build_reader(*, out, input_fn, repl_input_reader_factory, command_suggestions):
+    def _fake_build_reader(*, out, input_fn, repl_input_reader_factory, command_suggestions, **_kwargs):
         del out, input_fn, repl_input_reader_factory
         captured["command_suggestions"] = tuple(command_suggestions)
-        return lambda prompt, history: "/exit"
+        return lambda prompt, history, **kw: "/exit"
 
     monkeypatch.setattr(repl_input, "build_repl_input_reader", _fake_build_reader)
     output = io.StringIO()
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--token", "test-token"],
+        ["--base-url", "http://127.0.0.1:8000"],
         stdout=output,
         client_factory=lambda _: _ExitOnlyStubClient(),
     )
@@ -134,7 +134,7 @@ def test_cli_release_playbook_is_thin_compat_shim() -> None:
 
     assert build_release_playbook_report is apps_build_release_playbook_report
 
-    report = build_release_playbook_report(base_url="http://127.0.0.1:8003", token="test-token", execute=False)
+    report = build_release_playbook_report(base_url="http://127.0.0.1:8003", execute=False)
     assert report["execute"] is False
     acceptance_steps = report["acceptance_steps"]
     rollback_steps = report["rollback_steps"]
@@ -159,7 +159,6 @@ def test_cli_release_playbook_execute_runs_steps_and_collects_status() -> None:
 
     report = build_release_playbook_report(
         base_url="http://127.0.0.1:8003",
-        token="test-token",
         execute=True,
         runner=_fake_runner,
     )

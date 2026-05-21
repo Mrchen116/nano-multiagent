@@ -1,15 +1,10 @@
-"""Tests for background hook fork infrastructure (feat-349-M1).
+"""Tests for background hook infrastructure: HookEventMode enum and dispatch_background.
 
 Covers:
 - HookEventMode.BACKGROUND enumeration value
 - HookRegistration.mode field
 - HookRegistry.on() with mode="background"
 - HookRunner.dispatch_background() fire-and-forget (no await, no timeout)
-- HookContext.fork_conversation callable injection
-- fork_conversation inherits parent rendered_system_prompt byte-for-byte (prefix cache)
-- tool_allowlist execution-layer interception in fork
-- Anti-recursion: fork context has fork_conversation=None
-- loop.py turn_meta exposes tool_iterations
 """
 
 import asyncio

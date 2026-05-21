@@ -11,7 +11,7 @@ def _auth_headers(request_id: str) -> dict[str, str]:
 
 
 def test_tools_contract_returns_name_description_and_schema() -> None:
-    client = TestClient(create_app(auth_token="test-token"))
+    client = TestClient(create_app())
 
     response = client.get("/v1/tools", headers=_auth_headers("req-tools-contract"))
 
@@ -34,7 +34,7 @@ def test_tools_contract_returns_name_description_and_schema() -> None:
 
 
 def test_tools_contract_descriptions_do_not_expose_placeholders() -> None:
-    client = TestClient(create_app(auth_token="test-token"))
+    client = TestClient(create_app())
 
     response = client.get("/v1/tools", headers=_auth_headers("req-tools-no-placeholder"))
 
