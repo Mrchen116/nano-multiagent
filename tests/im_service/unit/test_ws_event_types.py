@@ -116,10 +116,12 @@ def test_build_message_completed_payload_with_token_usage() -> None:
         conversation_id="c1", message_id="m1", content="full text", token_usage=usage
     )
     assert payload["content"] == "full text"
+    # M17/R8-3: total field added; falls back to context_used + output when not stored.
     assert payload["token_usage"] == {
         "output": 42,
         "context_used": 1000,
         "context_window": 200000,
+        "total": 1042,
     }
 
 

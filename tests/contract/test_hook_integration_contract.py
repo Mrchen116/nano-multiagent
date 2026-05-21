@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -58,7 +59,9 @@ def test_runtime_input_handled_short_circuit_contract(tmp_path: Path) -> None:
         repo_root=Path.cwd(),
     )
 
-    result = runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = asyncio.run(
+        runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    )
 
     assert result.completed is True
     assert result.stop_reason == "handled_by_hook"
@@ -81,10 +84,12 @@ def test_tool_call_block_error_contract() -> None:
     tool_registry.register(EchoTool())
 
     with pytest.raises(ToolError) as exc_info:
-        tool_registry.execute(
-            "echo",
-            {"text": "ping"},
-            hook_context=HookContext(session_id="sess_contract", repo_root=Path.cwd()),
+        asyncio.run(
+            tool_registry.execute(
+                "echo",
+                {"text": "ping"},
+                hook_context=HookContext(session_id="sess_contract", repo_root=Path.cwd()),
+            )
         )
 
     assert exc_info.value.details == {
@@ -109,10 +114,12 @@ def test_tool_result_rewrite_contract() -> None:
     )
     tool_registry.register(EchoTool())
 
-    result = tool_registry.execute(
-        "echo",
-        {"text": "ping"},
-        hook_context=HookContext(session_id="sess_contract", repo_root=Path.cwd()),
+    result = asyncio.run(
+        tool_registry.execute(
+            "echo",
+            {"text": "ping"},
+            hook_context=HookContext(session_id="sess_contract", repo_root=Path.cwd()),
+        )
     )
 
     assert result == {"text": "rewritten-by-hook"}
@@ -133,10 +140,12 @@ def test_tool_result_rewrite_list_content_contract() -> None:
     )
     tool_registry.register(EchoTool())
 
-    result = tool_registry.execute(
-        "echo",
-        {"text": "ping"},
-        hook_context=HookContext(session_id="sess_contract", repo_root=Path.cwd()),
+    result = asyncio.run(
+        tool_registry.execute(
+            "echo",
+            {"text": "ping"},
+            hook_context=HookContext(session_id="sess_contract", repo_root=Path.cwd()),
+        )
     )
 
     assert result == {

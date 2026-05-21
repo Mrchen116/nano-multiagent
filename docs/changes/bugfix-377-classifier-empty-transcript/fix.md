@@ -53,8 +53,22 @@ auto_mode_gate 的 `tool_call` handler 用**默认 OBSERVE 模式**注册（`hoo
 
 ## 修复
 
-<!-- worker 回填：改了什么 + commits。已在 unit/bugfix-375 验证可行（bedfc844 strip / bdafca8d observe-dispatch），本 unit 从 main 重新落地。 -->
+根因 A（observe 重复盲跑）：
+- `src/agent/platform/hooks/builtins/auto_mode_gate.py`：门的 `tool_call` handler 注册改为 `mode="intercept"`（其 block/allow 仅在 intercept dispatch 有意义）。
+- `src/agent/core/hooks/runner.py`：`dispatch_observe` 跳过 `mode==INTERCEPT` 的 handler。`dispatch_intercept` 保持运行全部 handler，向后兼容 chat_history（input 改写）/ communication_context（before_agent_start 注入）等 observe 注册但靠 intercept 采纳返回值的处理器。
+
+根因 B（strip 漏拷字段）：
+- `src/agent/core/hooks/runner.py`：`_strip_fork_conversation` 由手写逐字段重建改为 `dataclasses.replace(ctx, fork_conversation=None)`——只置空 `fork_conversation`，保全其余全部字段，未来新增字段不会再被静默丢弃。
+
+测试：
+- `tests/unit/test_hooks_runner.py::test_dispatch_observe_skips_intercept_mode_handlers`（锁定根因 A：intercept handler 不在 observe dispatch 执行）。
+- `tests/unit/test_hooks_runner.py::test_strip_fork_conversation_preserves_message_history_and_permission_requester`（锁定根因 B：strip 只置空 fork_conversation、其余字段守恒）。
 
 ## 验证
 
-<!-- worker 回填：修前能复现空 transcript → 修后不能；真观察者（realtime_stream 等）仍走 observe 不受影响。 -->
+- **确定性复现（隔离）**：真 `HookRegistry` 注册 auto_mode_gate，对同一 `tool_call`——
+  - 修前：`dispatch_observe("tool_call")` 触发 **1 次**空 transcript 分类器模型调用（盲判、升级 stage-2）。
+  - 修后：`dispatch_observe` **0 次**；`dispatch_intercept` 仍 **1 次**且 transcript 非空（带 `message_history`）。
+- **根因 B 红测**：修前 strip 后 `message_history` 变 `()`（红）；修后守恒（绿）。
+- **回归**：`test_hooks_runner` / `test_auto_mode_gate` / `test_auto_mode_gate_dispatch` / `test_hook_event_coverage` / `test_hook_lifecycle_event_coverage` 全绿（95 passed）。真观察者（realtime_stream 等 observe 注册）仍走 observe，不受影响。
+- **用户侧净效果**：每个非 safe 工具只分类一次（带完整 transcript、按用户意图判定），砍掉一半以上分类器模型调用；fork/background 路径不再丢 `message_history` 与 `permission_requester`（ask 流程不再 fail-closed 自动 deny）。

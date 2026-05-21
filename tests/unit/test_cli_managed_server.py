@@ -37,7 +37,7 @@ class _ExitedProcess(_FakeProcess):
 
 def test_managed_server_rejects_non_local_base_url() -> None:
     manager = ManagedServerProcess(
-        config=ManagedServerConfig(base_url="http://api.example.com:9000", token="test-token"),
+        config=ManagedServerConfig(base_url="http://api.example.com:9000"),
     )
 
     with pytest.raises(ManagedServerError, match="managed mode requires a local --base-url"):
@@ -55,7 +55,7 @@ def test_managed_server_reports_port_conflict(monkeypatch: pytest.MonkeyPatch) -
         return _FakeProcess()
 
     manager = ManagedServerProcess(
-        config=ManagedServerConfig(base_url="http://127.0.0.1:8122", token="test-token"),
+        config=ManagedServerConfig(base_url="http://127.0.0.1:8122"),
         popen_factory=_popen,
     )
 
@@ -69,7 +69,7 @@ def test_managed_server_start_and_stop_lifecycle(monkeypatch: pytest.MonkeyPatch
     process = _FakeProcess()
 
     manager = ManagedServerProcess(
-        config=ManagedServerConfig(base_url="http://127.0.0.1:8123", token="test-token"),
+        config=ManagedServerConfig(base_url="http://127.0.0.1:8123"),
         popen_factory=lambda *args, **kwargs: process,
         health_probe=lambda _: True,
     )
@@ -92,7 +92,7 @@ def test_managed_server_uses_platform_http_api_entrypoint(monkeypatch: pytest.Mo
         return process
 
     manager = ManagedServerProcess(
-        config=ManagedServerConfig(base_url="http://127.0.0.1:8127", token="test-token"),
+        config=ManagedServerConfig(base_url="http://127.0.0.1:8127"),
         popen_factory=_popen,
         health_probe=lambda _: True,
     )
@@ -111,7 +111,6 @@ def test_managed_server_reports_startup_timeout_with_suggestion(monkeypatch: pyt
     manager = ManagedServerProcess(
         config=ManagedServerConfig(
             base_url="http://127.0.0.1:8124",
-            token="test-token",
             startup_timeout_seconds=0.1,
             poll_interval_seconds=0.01,
         ),
@@ -133,7 +132,7 @@ def test_managed_server_reports_startup_exit_with_suggestion(monkeypatch: pytest
     process = _ExitedProcess()
 
     manager = ManagedServerProcess(
-        config=ManagedServerConfig(base_url="http://127.0.0.1:8125", token="test-token"),
+        config=ManagedServerConfig(base_url="http://127.0.0.1:8125"),
         popen_factory=lambda *args, **kwargs: process,
         health_probe=lambda _: False,
     )
@@ -159,7 +158,6 @@ def test_managed_server_injects_llm_env_into_managed_process(monkeypatch: pytest
     manager = ManagedServerProcess(
         config=ManagedServerConfig(
             base_url="http://127.0.0.1:8126",
-            token="test-token",
             llm_provider="anthropic",
             llm_model="kimiCoding:K2.6",
             llm_base_url="http://127.0.0.1:4100",
@@ -173,7 +171,6 @@ def test_managed_server_injects_llm_env_into_managed_process(monkeypatch: pytest
     manager.start()
     manager.stop()
 
-    assert captured_env["NANO_MULTIAGENT_API_TOKEN"] == "test-token"
     assert captured_env["NANO_MULTIAGENT_LLM_PROVIDER"] == "anthropic"
     assert captured_env["NANO_MULTIAGENT_LLM_MODEL"] == "kimiCoding:K2.6"
     assert captured_env["NANO_MULTIAGENT_LLM_BASE_URL"] == "http://127.0.0.1:4100"

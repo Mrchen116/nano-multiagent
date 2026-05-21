@@ -13,7 +13,7 @@ def _auth_headers(request_id: str) -> dict[str, str]:
 
 
 def test_builtin_hook_modules_are_visible_in_hooks_query_contract(tmp_path: Path) -> None:
-    client = TestClient(create_app(repo_root=tmp_path, auth_token="test-token"))
+    client = TestClient(create_app(repo_root=tmp_path))
 
     response = client.get("/v1/hooks", headers=_auth_headers("req-hooks-builtin-contract"))
 
