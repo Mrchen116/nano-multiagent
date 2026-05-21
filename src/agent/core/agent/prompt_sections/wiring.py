@@ -10,7 +10,7 @@ Design (feat-379 decision 4):
   segments (e.g. pa.communication_context enabled_when=group) without the
   runtime or loop needing to know about individual segment names.
 
-No imports from agent.platform or agent.products.
+Pure core module: no imports from the platform or products layers.
 """
 from __future__ import annotations
 
