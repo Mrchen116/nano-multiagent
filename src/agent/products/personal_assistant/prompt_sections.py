@@ -181,22 +181,84 @@ def _communication_context_enabled(ctx: PromptContext) -> bool:
     return ctx.scenario.get("conversation_type") == "group"
 
 
-def _render_communication_context(ctx: PromptContext) -> str | None:
-    """Render the [Communication Context] block for group chat turns.
+def _build_communication_context_block(
+    *,
+    conversation_type: str,
+    agent_id: str | None,
+    participant_agent_ids: list[str] | None,
+    participants: list[dict[str, str]] | None = None,
+) -> str:
+    """Build the [Communication Context] block injected into the system prompt.
 
-    Delegates to the existing _build_communication_context_block helper
-    which carries the bugfix-358 mention-tag format verbatim. This ensures
-    the exact text tested by test_pa_golden_group_chat_mention_text_verbatim
-    is preserved without duplication.
+    Provenance: verbatim copy of the helper that lived in hooks/communication_context.py
+    before feat-379-M1.  Moved here (out of hooks/) so the hook directory only
+    contains actual hook modules.  Text is character-for-character identical to
+    the original — golden regression tests (test_pa_golden_group_chat_mention_text_verbatim)
+    and bugfix-358 mention-tag format tests rely on this exact wording.
+
+    Args:
+        conversation_type: Conversation kind (``"group"`` or ``"direct"``).
+        agent_id: This agent's own ID, injected as ``your_agent_id``.
+        participant_agent_ids: Fallback list of agent IDs when structured
+            ``participants`` data is unavailable (pre-M247 sessions).
+        participants: Structured participant list with actor-first identity fields.
+            User entries should carry ``user_id`` and agent entries should carry
+            ``agent_id``. Legacy ``id`` is still accepted as fallback.
+            When provided, takes priority over ``participant_agent_ids``.
+
+    Returns:
+        Multi-line context block string ready for system prompt injection.
     """
+    lines = ["[Communication Context]", f"- session_type: {conversation_type}"]
+    if agent_id:
+        lines.append(f"- your_agent_id: {agent_id}")
+    if conversation_type == "group":
+        if participants is not None:
+            # Structured participant list with actor-first IDs.
+            if participants:
+                entries = []
+                for p in participants:
+                    p_type = p.get("type", "user")
+                    if p_type == "agent":
+                        identity_key = "agent_id"
+                        p_identity = p.get("agent_id") or p.get("id", "")
+                    elif p_type == "user":
+                        identity_key = "user_id"
+                        p_identity = p.get("user_id") or p.get("id", "")
+                    else:
+                        identity_key = "id"
+                        p_identity = p.get("id", "")
+                    p_display = p.get("display_name") or p_identity or "unknown"
+                    if p_identity:
+                        entries.append(f"{p_display} ({p_type}, {identity_key}: {p_identity})")
+                    else:
+                        entries.append(f"{p_display} ({p_type})")
+                lines.append(f"- group_participants: {'; '.join(entries)}")
+            else:
+                lines.append("- group_participants: (none)")
+        elif participant_agent_ids is not None:
+            # Fallback for pre-M247 sessions that only carry agent ID lists.
+            ids_repr = ", ".join(participant_agent_ids) if participant_agent_ids else "(none)"
+            lines.append(f"- group_participants: {ids_repr}")
+        # bugfix-358: message_format 改为教 inline mention 标签，不再教 @agent_id 形式。
+        # target_id 严格取自上方 group_participants 对应条目的 agent_id / user_id。
+        lines.append(
+            "- message_format: 历史消息中每条以 [display_name] 标识发言人；你的回复无需加前缀。"
+            ' 在群聊中引用某人时，直接在回复中写 <mention type="agent" target_id="<id>"/> 或'
+            ' <mention type="user" target_id="<id>"/>，'
+            " <id> 严格取自上方 group_participants 对应条目的 agent_id / user_id。"
+            ' 例：<mention type="agent" target_id="ArchA"/> 你说呢？'
+            ' / <mention type="user" target_id="user-uuid"/> 我同意。'
+            " 在当前会话中回应时直接输出文本，不要调用 send_message；"
+            "仅当目标不在当前会话（私聊用户/触达其他 agent/发送到其他群）时，使用 send_message(to=user_id|agent_id|conversation_id)。"
+        )
+    return "\n".join(lines)
+
+
+def _render_communication_context(ctx: PromptContext) -> str | None:
+    """Render the [Communication Context] block for group chat turns."""
     if ctx.scenario.get("conversation_type") != "group":
         return None
-
-    # Import the builder from communication_context (still live in M1;
-    # the hook's prompt-injection branch is retired, the builder is reused).
-    from agent.products.personal_assistant.hooks.communication_context import (  # noqa: PLC0415
-        _build_communication_context_block,
-    )
 
     # Extract scenario fields, providing sensible defaults.
     agent_id: str | None = ctx.scenario.get("agent_id")  # type: ignore[assignment]

@@ -95,50 +95,22 @@ def test_build_prompt_context_empty_metadata():
 # communication_context hook: prompt injection retired
 # ---------------------------------------------------------------------------
 
-def test_communication_context_hook_no_longer_injects_system_prompt():
-    """The before_agent_start handler must return None (no system_prompt override).
+def test_communication_context_hook_module_removed_after_m1():
+    """The communication_context hook module is fully removed after feat-379-M1.
 
-    In M1, communication_context moves to a segment; the hook's prompt-injection
-    branch is removed.  The hook setup function itself remains (not deleted) but
-    only non-prompt side-effects (if any) are preserved.
+    The [Communication Context] block is now assembled by the pa.communication_context
+    segment (prompt_sections.py, order=900). No hook registration is needed, so
+    hooks/communication_context.py is deleted. This test guards against accidental
+    re-introduction.
     """
-    from unittest.mock import MagicMock
-    from agent.products.personal_assistant.hooks.communication_context import setup
+    import importlib
+    import importlib.util
 
-    # Simulate hook registration.
-    hook_registry: dict[str, list] = {}
-    registered_handlers: list = []
-
-    class FakeHooks:
-        def on(self, event, handler, **kwargs):
-            registered_handlers.append((event, handler))
-
-    setup(FakeHooks())
-
-    # Find the before_agent_start handler.
-    before_start_handlers = [h for ev, h in registered_handlers if ev == "before_agent_start"]
-    if not before_start_handlers:
-        # If setup no longer registers before_agent_start at all, that's also acceptable.
-        return
-
-    handler = before_start_handlers[0]
-
-    # Build a fake context with group conversation_type.
-    class FakeCtx:
-        metadata = {
-            "conversation_type": "group",
-            "agent_id": "agent-1",
-            "participants": [],
-        }
-
-    payload = {"message": "hello", "system_prompt": None}
-    result = handler(payload, FakeCtx())
-
-    # After M1, the hook must NOT return a system_prompt key.
-    if result is None:
-        pass  # Ideal: hook returns None entirely.
-    else:
-        assert "system_prompt" not in result or result["system_prompt"] is None, (
-            "communication_context hook must not inject system_prompt after M1 — "
-            "group context is now handled by the pa.communication_context segment"
-        )
+    spec = importlib.util.find_spec(
+        "agent.products.personal_assistant.hooks.communication_context"
+    )
+    assert spec is None, (
+        "hooks/communication_context.py was re-introduced — "
+        "group context is now handled by the pa.communication_context segment, "
+        "this hook file must not exist"
+    )
