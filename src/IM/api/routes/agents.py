@@ -73,6 +73,21 @@ class AllowlistOptionResponse(BaseModel):
     description: str = ""
 
 
+class FeatureCapabilityResponse(BaseModel):
+    """One feature toggle descriptor as seen by the IM frontend.
+
+    Matches the FEATURE_REGISTRY projection returned by the Gateway
+    capabilities handler (feat-379 decision 7): IM forwards it verbatim.
+    """
+
+    key: str
+    label_i18n: str
+    help_i18n: str
+    default_on: bool
+    available: bool
+    requires_tool: str | None = None
+
+
 class AgentCapabilitiesResponse(BaseModel):
     """Node-backed runtime capability data for one agent workspace."""
 
@@ -84,6 +99,8 @@ class AgentCapabilitiesResponse(BaseModel):
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
     default_system_prompt: str = ""
+    # feat-379-M2: feature toggle projection from FEATURE_REGISTRY (decision 7)
+    features: list[FeatureCapabilityResponse] = Field(default_factory=list)
 
 
 def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -> AgentConfigResponse:
@@ -236,6 +253,8 @@ async def get_agent_capabilities(
     platform_default: str | None = raw_platform.strip() if isinstance(raw_platform, str) and raw_platform.strip() else None
     raw_prompt = payload.get("default_system_prompt")
     default_system_prompt = raw_prompt if isinstance(raw_prompt, str) else ""
+    # feat-379-M2: forward FEATURE_REGISTRY projection from Gateway verbatim
+    features = _coerce_feature_list(payload.get("features"))
     return AgentCapabilitiesResponse(
         agent_id=agent_id,
         node_id=profile.node_id,
@@ -245,6 +264,7 @@ async def get_agent_capabilities(
         tools=coerce_allowlist_options(payload.get("tools")),
         platform_default_model=platform_default,
         default_system_prompt=default_system_prompt,
+        features=features,
     )
 
 
@@ -284,6 +304,40 @@ def _coerce_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _coerce_feature_list(value: object) -> list[FeatureCapabilityResponse]:
+    """Coerce raw Gateway features projection list into typed responses.
+
+    Gateway returns list[dict] built from FEATURE_REGISTRY; IM forwards it
+    verbatim after validation.  Missing or malformed items are silently dropped
+    so old Gateway versions without feat-379-M2 still work.
+    """
+    if not isinstance(value, list):
+        return []
+    result: list[FeatureCapabilityResponse] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        key = item.get("key")
+        if not isinstance(key, str) or not key:
+            continue
+        label = item.get("label_i18n", "")
+        help_text = item.get("help_i18n", "")
+        default_on = bool(item.get("default_on", False))
+        available = bool(item.get("available", True))
+        requires_tool = item.get("requires_tool")
+        result.append(
+            FeatureCapabilityResponse(
+                key=key,
+                label_i18n=label if isinstance(label, str) else "",
+                help_i18n=help_text if isinstance(help_text, str) else "",
+                default_on=default_on,
+                available=available,
+                requires_tool=requires_tool if isinstance(requires_tool, str) else None,
+            )
+        )
+    return result
 
 
 def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:

@@ -1332,8 +1332,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             heartbeat_runner=heartbeat_runner,
             sync_client=ConfigSyncClient(fetcher=im_config_sync_client.sync_agent),
             agent_config_provider=lambda agent_id: im_config_sync_client.current_agent_payload(agent_id=agent_id),
-            agent_capabilities_provider=lambda _agent_id, workspace_root: build_agent_capabilities_payload(
-                workspace_root=workspace_root
+            agent_capabilities_provider=lambda agent_id, workspace_root: build_agent_capabilities_payload(
+                workspace_root=workspace_root,
+                tool_allowlist=_resolve_agent_tool_allowlist(im_config_sync_client, agent_id),
             ),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
@@ -2203,6 +2204,31 @@ def _pid_is_running(pid: int) -> bool:
     except ProcessLookupError:
         return False
     return True
+
+
+def _resolve_agent_tool_allowlist(
+    sync_client: "_IMConfigSyncClient",
+    agent_id: str,
+) -> tuple[str, ...]:
+    """Return the tool_allowlist for an agent from the live local config snapshot.
+
+    Used when building the agent capabilities payload so feature toggle availability
+    can be evaluated against the current tool allowlist (feat-379 decision 7).
+
+    Args:
+        sync_client: The config sync client that holds the current LocalConfig.
+        agent_id: Agent whose tool_allowlist to look up.
+
+    Returns:
+        Tuple of allowed tool names; empty tuple when agent is not found.
+    """
+    payload = sync_client.current_agent_payload(agent_id=agent_id)
+    if payload is None:
+        return ()
+    raw = payload.get("tool_allowlist")
+    if not isinstance(raw, list):
+        return ()
+    return tuple(item for item in raw if isinstance(item, str))
 
 
 def _im_http_headers(token: str | None) -> dict[str, str]:
