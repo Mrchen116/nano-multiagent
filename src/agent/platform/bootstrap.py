@@ -24,6 +24,7 @@ from agent.platform.tools.builtins.skill_manage import SkillManageTool
 from agent.platform.tools.loader import build_tool_registry
 from agent.platform.tools.registry import ToolRegistry
 
+from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
 from agent.products.base import ProductProfile, ResolvedProductConfig
 
 _logger = logging.getLogger(__name__)
@@ -152,6 +153,13 @@ def bootstrap_product(
         else:
             default_session_metadata["self_evolution"] = dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
 
+    # Merge core segments with product-specific segments so /v1/prompt-preview
+    # assembles the full stable prefix (identity, runtime, guidelines, etc.) plus
+    # any product-defined segments (memory, heartbeat, routing, user_custom, ...).
+    # Empty profile.prompt_sections → only core segments, which is correct for
+    # products still on the legacy string-based prompt path.
+    merged_prompt_sections = list(CORE_SECTIONS) + list(profile.prompt_sections)
+
     return ResolvedProductConfig(
         product_id=profile.product_id,
         resolved_system_prompt=resolved_system_prompt,
@@ -162,6 +170,7 @@ def bootstrap_product(
         skill_registry=skill_registry,
         default_tool_ids=list(profile.default_tool_ids) if profile.default_tool_ids is not None else None,
         default_session_metadata=default_session_metadata,
+        prompt_sections=merged_prompt_sections,
     )
 
 
