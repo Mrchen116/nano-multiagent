@@ -211,3 +211,67 @@ class TestCoreToneStyleM4:
         s = _get_section("core.tone_style")
         text = s.render(_ctx())
         assert "colon" in text.lower() or "tool call" in text.lower()
+
+
+# ---------------------------------------------------------------------------
+# core.memory_guidance — feat-379-M5 (ISSUE-3): features gate
+#
+# The section must be active when both conditions hold:
+#   1. memory tool is in available_tools
+#   2. memory_curation feature is on (default True when absent)
+# When memory_curation=False the section must be suppressed even if the tool
+# is present.  This gate lives in _memory_guidance_enabled() in core_sections.py.
+# ---------------------------------------------------------------------------
+
+_MEMORY_TOOL = type("T", (), {"name": "memory", "description": "Manage memory."})()
+
+
+class TestMemoryGuidanceFeatureGate:
+    """feat-379-M5 (ISSUE-3): memory_curation flag gates core.memory_guidance."""
+
+    def _section_enabled(self, ctx) -> bool:
+        s = _get_section("core.memory_guidance")
+        return s.enabled_when(ctx)
+
+    def test_enabled_when_memory_tool_present_and_flag_default(self):
+        """memory tool present, no flag override → enabled (default_on=True)."""
+        ctx = _ctx(available_tools=(_MEMORY_TOOL,))
+        assert self._section_enabled(ctx) is True
+
+    def test_enabled_when_memory_tool_present_and_flag_true(self):
+        """memory tool present, memory_curation=True → enabled."""
+        ctx = _ctx(available_tools=(_MEMORY_TOOL,), flags={"memory_curation": True})
+        assert self._section_enabled(ctx) is True
+
+    def test_disabled_when_memory_curation_false(self):
+        """memory tool present but memory_curation=False → section suppressed (ISSUE-3)."""
+        ctx = _ctx(available_tools=(_MEMORY_TOOL,), flags={"memory_curation": False})
+        assert self._section_enabled(ctx) is False
+
+    def test_disabled_when_no_memory_tool_flag_true(self):
+        """No memory tool → disabled regardless of flag."""
+        ctx = _ctx(available_tools=(), flags={"memory_curation": True})
+        assert self._section_enabled(ctx) is False
+
+    def test_assemble_excludes_memory_section_when_curation_off(self):
+        """assemble_system_prompt must not include memory_guidance text when flag=False."""
+        from agent.core.agent.prompt_sections.base import assemble_system_prompt
+        from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
+
+        ctx_off = _ctx(available_tools=(_MEMORY_TOOL,), flags={"memory_curation": False})
+        result_off = assemble_system_prompt(CORE_SECTIONS, ctx_off)
+        # Use the unique opening phrase of _render_memory_guidance, not the tool description.
+        assert "You have persistent memory across sessions" not in result_off, (
+            "memory_curation=False: core.memory_guidance must not appear in assembled prompt"
+        )
+
+    def test_assemble_includes_memory_section_when_curation_on(self):
+        """assemble_system_prompt must include memory_guidance text when flag=True."""
+        from agent.core.agent.prompt_sections.base import assemble_system_prompt
+        from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
+
+        ctx_on = _ctx(available_tools=(_MEMORY_TOOL,), flags={"memory_curation": True})
+        result_on = assemble_system_prompt(CORE_SECTIONS, ctx_on)
+        assert "You have persistent memory across sessions" in result_on, (
+            "memory_curation=True: core.memory_guidance must appear in assembled prompt"
+        )
