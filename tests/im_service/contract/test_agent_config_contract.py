@@ -34,6 +34,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
 
         response = client.get("/im/v1/agents/agent-1/config")
         assert response.status_code == 200
+        # feat-379-M5: features + custom_prompt must now appear in config response
         assert set(response.json()) == {
             "agent_id",
             "owner_id",
@@ -49,9 +50,65 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "workspace_is_default",
             "profile_version",
             "updated_at",
+            "features",
+            "custom_prompt",
         }
         assert response.json()["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
         assert response.json()["workspace_is_default"] is True
+
+
+def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) -> None:
+    """PATCH /im/v1/agents/{id}/config must accept and persist features + custom_prompt.
+
+    feat-379-M5 (ISSUE-2): the route was previously ignoring these two fields;
+    GET after PATCH must reflect the written values.
+    """
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner2", display_name="Owner2")
+        authorize(client, owner)
+        profiles = AgentProfileRepository(app.state.connection)
+        profiles.upsert_profile(
+            agent_id="agent-persist",
+            owner_id=owner.owner_id,
+            display_name="Persist Agent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=["memory"],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+
+        # PATCH with features + custom_prompt
+        patch_resp = client.patch(
+            "/im/v1/agents/agent-persist/config",
+            json={
+                "profile_version": 1,
+                "display_name": "Persist Agent",
+                "description": "",
+                "system_prompt": "",
+                "skills": [],
+                "tool_allowlist": ["memory"],
+                "group_reply_policy": "manual",
+                "default_model": None,
+                "features": {"memory_curation": False},
+                "custom_prompt": "You are a helpful chef.",
+            },
+        )
+        assert patch_resp.status_code == 200, patch_resp.text
+        body = patch_resp.json()
+        # Response must echo back the written features + custom_prompt
+        assert body["features"] == {"memory_curation": False}, f"features not persisted: {body}"
+        assert body["custom_prompt"] == "You are a helpful chef.", f"custom_prompt not persisted: {body}"
+
+        # GET must return the same values (proves DB write, not just response echo)
+        get_resp = client.get("/im/v1/agents/agent-persist/config?source=mirror")
+        assert get_resp.status_code == 200
+        get_body = get_resp.json()
+        assert get_body["features"] == {"memory_curation": False}
+        assert get_body["custom_prompt"] == "You are a helpful chef."
 
         conflict = client.patch(
             "/im/v1/agents/agent-1/config",
