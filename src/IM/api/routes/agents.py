@@ -31,6 +31,9 @@ class AgentConfigResponse(BaseModel):
     workspace_is_default: bool
     profile_version: int
     updated_at: str | None = None
+    # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
+    features: dict[str, bool] = Field(default_factory=dict)
+    custom_prompt: str | None = None
 
 
 class UpdateAgentConfigRequest(BaseModel):
@@ -44,6 +47,9 @@ class UpdateAgentConfigRequest(BaseModel):
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
+    # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
+    features: dict[str, bool] = Field(default_factory=dict)
+    custom_prompt: str | None = None
 
 
 class AgentSummaryResponse(BaseModel):
@@ -105,6 +111,8 @@ class AgentCapabilitiesResponse(BaseModel):
 
 def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -> AgentConfigResponse:
     """Convert a domain profile to the config response model."""
+    # feat-379-M5 (ISSUE-2): features/custom_prompt must be round-tripped so the
+    # frontend can restore toggle state and custom text on page load.
     return AgentConfigResponse(
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
@@ -120,6 +128,8 @@ def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -
         workspace_is_default=service.workspace_is_default_for_profile(profile),
         profile_version=profile.profile_version,
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
+        features=dict(profile.features) if profile.features else {},
+        custom_prompt=profile.custom_prompt,
     )
 
 
@@ -279,6 +289,8 @@ def update_agent_config(
     if service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
     try:
+        # feat-379-M5 (ISSUE-2): pass features + custom_prompt through so they
+        # are written to the DB and returned in the response.
         updated = service.update_profile(
             agent_id=agent_id,
             profile_version=payload.profile_version,
@@ -290,6 +302,8 @@ def update_agent_config(
             group_reply_policy=payload.group_reply_policy,
             default_model=payload.default_model,
             workspace_root=None,
+            features=payload.features if payload.features else None,
+            custom_prompt=payload.custom_prompt,
         )
     except AgentProfileVersionConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
