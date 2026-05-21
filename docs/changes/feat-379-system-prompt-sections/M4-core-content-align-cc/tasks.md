@@ -5,16 +5,16 @@
 把 `core_sections.py` 中的 core 段内容对齐 CC 真实通用规范（`prompts.ts` 逐字核实）：
 - 新增 `core.actions_care`（风险操作先确认，现为 render→None stub）
 - 新增 `core.tone_style`（file_path:line_number / owner/repo#123 / emoji 按需 / tool 前不加冒号，现为 stub）
-- 补全 `core.system`（prompt-injection flag / 被拒工具调用处理 / system-reminder 说明 / 自动压缩说明 / hooks 说明）
+- 补全 `core.system`（prompt-injection flag / 被拒工具调用处理 / system-reminder 说明 / 自动压缩说明）
 - 修 `core.tool_rules`（专用工具优先 + 并行调用；纠正现状 render→None stub）
 
 范围：仅 `src/agent/core/agent/prompt_sections/core_sections.py`，不动 `feature_registry.py`（M2 范围）。
 
 ## 退出标准
 
-- `[worker]` 新增/改写段单测通过（test_core_sections_m4.py）
-- `[worker]` 每个新增/改写段带 `Provenance: CC-adapted` 注释，含 CC 源 `<file:symbol>` + 改了什么
-- `[worker]` core 段文案与 CC 对应通用段语义一致（去除 coding/CC 产品专属），逐段 review 记录在 progress.md
+- `[worker]` 新增/改写段单测通过（test_core_sections_m4.py）✓
+- `[worker]` 每个新增/改写段带 `Provenance: CC-adapted` 注释，含 CC 源 `<file:symbol>` + 改了什么 ✓
+- `[worker]` core 段文案与 CC 对应通用段语义一致（去除 coding/CC 产品专属），逐段 review 记录在 progress.md ✓
 - `[reviewer]` agent 在不可逆/影响他人操作前先确认
 - `[reviewer]` 引用代码用 `file_path:line_number`，引用 issue 用 `owner/repo#123`，非请求不滥用 emoji
 
