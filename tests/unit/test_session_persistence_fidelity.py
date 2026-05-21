@@ -266,3 +266,57 @@ class TestToolResultPairingFidelity:
         asst = asst_msgs[0]
         assert asst.tool_calls, "assistant LLMMessage must have tool_calls after roundtrip"
         assert asst.tool_calls[0].call_id == call_id
+
+
+# ---------------------------------------------------------------------------
+# Guard (bugfix-375/M2): Message↔JSONL round-trip field-conservation.
+# Forces any newly-added Message field to be classified as persisted (and
+# handled in _message_to_entry/_to_message) or explicitly not-persisted — so a
+# future field can't silently vanish on persist→restore the way reasoning_*
+# once did.
+# ---------------------------------------------------------------------------
+
+def test_message_jsonl_roundtrip_field_conservation_guard():
+    import dataclasses
+    from agent.core.session.jsonl_store import _to_message
+
+    # Top-level scalar fields that MUST survive Message -> entry -> Message.
+    PERSISTED = {
+        "message_id",
+        "role",
+        "content",
+        "parent_message_id",
+        "group_id",
+        "tool_call_id",
+        "reasoning_content",
+        "reasoning_signature",
+    }
+    # Fields intentionally NOT round-tripped at top level:
+    #  - name: unused by the persistence path (tool identity travels via
+    #    tool_call_id + metadata.tool_name)
+    #  - metadata: selectively projected (only specific keys persist), covered
+    #    by the dedicated metadata tests, not this scalar guard
+    NOT_PERSISTED = {"name", "metadata"}
+
+    all_fields = {f.name for f in dataclasses.fields(Message)}
+    assert all_fields == PERSISTED | NOT_PERSISTED, (
+        "Message gained/lost a field. Classify each field: add it to PERSISTED "
+        "(and handle it in _message_to_entry + _to_message) or to NOT_PERSISTED "
+        "with a reason — never let a new field silently skip JSONL round-trip."
+    )
+
+    msg = Message(
+        message_id="m-guard",
+        role="assistant",
+        content="body",
+        parent_message_id="p-0",
+        group_id="g-1",
+        tool_call_id="tc-1",
+        reasoning_content="chain of thought",
+        reasoning_signature="sig-xyz-4340",
+    )
+    restored = _to_message(_message_to_entry(msg, "sess-guard"))
+    for fname in PERSISTED:
+        assert getattr(restored, fname) == getattr(msg, fname), (
+            f"field '{fname}' dropped in Message↔JSONL round-trip"
+        )

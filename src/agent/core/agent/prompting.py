@@ -1,4 +1,5 @@
 """Prompt assembly utilities for runtime/system/tool context injection."""
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -362,14 +363,12 @@ def _coalesce_assistant_group(messages: tuple[Message, ...]) -> tuple[Message, .
                 prev_calls = list(prev.metadata.get("tool_calls", []))
                 new_calls = list(msg.metadata.get("tool_calls", []))
                 merged_meta = {**dict(prev.metadata), "tool_calls": prev_calls + new_calls}
-                result[existing_idx] = Message(
-                    message_id=prev.message_id,
-                    role=prev.role,
+                # replace() preserves prev's identity/structure fields and only
+                # overrides the merged ones; any field added to Message later is
+                # carried automatically instead of being silently dropped here.
+                result[existing_idx] = replace(
+                    prev,
                     content=(prev.content or "") + (msg.content or ""),
-                    name=prev.name,
-                    tool_call_id=prev.tool_call_id,
-                    parent_message_id=prev.parent_message_id,
-                    group_id=prev.group_id,
                     metadata=merged_meta,
                     reasoning_content=prev.reasoning_content or msg.reasoning_content,
                     reasoning_signature=prev.reasoning_signature or msg.reasoning_signature,

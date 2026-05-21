@@ -30,11 +30,16 @@ logger = logging.getLogger(__name__)
 
 _SKILL_REVIEW_PROMPT = (
     "You are in a background self-improvement session.\n\n"
-    "Review the skills you have accumulated so far. "
-    "Identify any that are redundant, outdated, or could be improved. "
-    "Use the skill_manage tool to create new skills, update existing ones, "
-    "or delete skills that are no longer useful. "
-    "Focus on skills that would make you more effective for the user's typical tasks.\n\n"
+    "Work entirely through the skill_manage tool — that is the only way to inspect "
+    "and change skills here (general file tools like read/bash are not available in "
+    "this context).\n"
+    "1. Call skill_manage action=list to see the skills you have accumulated.\n"
+    "2. Call skill_manage action=view on any skill you might change, to read its "
+    "current content before deciding.\n"
+    "3. Then use skill_manage action=create / edit / patch to add, improve, or "
+    "remove skills.\n\n"
+    "Identify skills that are redundant, outdated, or could be improved, focusing on "
+    "what would make you more effective for the user's typical tasks. "
     "Be concise and only act when you see a clear improvement opportunity."
 )
 
@@ -52,8 +57,10 @@ _COMBINED_REVIEW_PROMPT = (
     "Review both your memory notes and your accumulated skills.\n\n"
     "For memory: identify facts or context that should be updated, consolidated, "
     "or removed because they are stale or redundant.\n\n"
-    "For skills: identify any that are redundant, outdated, or could be improved. "
-    "Create, update, or delete skills where you see a clear improvement.\n\n"
+    "For skills: first call skill_manage action=list to see existing skills and "
+    "action=view to read any you might change; then use action=create / edit / "
+    "patch to add, improve, or remove skills (skill_manage is the only way to "
+    "inspect/change skills here — general file tools are unavailable).\n\n"
     "Use the memory and skill_manage tools as needed. "
     "Be concise and only act when you see a clear improvement opportunity."
 )

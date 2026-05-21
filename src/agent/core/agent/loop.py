@@ -3,6 +3,7 @@
 import json
 import time
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
@@ -294,18 +295,14 @@ class AgentLoop:
                                 iteration_tool_calls.append(tc)
                                 all_tool_calls.append(tc)
                                 call_id_to_arguments[tc.call_id] = dict(tc.arguments)
-                                tool_hook_ctx = HookContext(
-                                    session_id=active_hook_ctx.session_id,
-                                    turn_id=active_hook_ctx.turn_id,
-                                    repo_root=active_hook_ctx.repo_root,
+                                # replace() derives from active_hook_ctx, preserving every
+                                # field (model_caller / permission_requester / …) and only
+                                # overriding what this tool dispatch changes. message_history
+                                # feeds the auto_mode_gate classifier the running conversation
+                                # so it can see the user's actual request text.
+                                tool_hook_ctx = replace(
+                                    active_hook_ctx,
                                     metadata={**dict(active_hook_ctx.metadata), "tool_call_id": tc.call_id},
-                                    model_caller=active_hook_ctx.model_caller,
-                                    session_event_publisher=active_hook_ctx.session_event_publisher,
-                                    permission_requester=active_hook_ctx.permission_requester,
-                                    # auto_mode_gate classifier needs the running conversation so it
-                                    # can see the user's actual request text — without this, the
-                                    # transcript only contains the current tool action and the
-                                    # "explicit user request" rule can never be satisfied.
                                     message_history=tuple(llm_messages),
                                 )
                                 if executor is not None:
@@ -460,13 +457,9 @@ class AgentLoop:
         hook_ctx: HookContext,
         run_id: str | None,
     ) -> None:
-        tool_hook_ctx = HookContext(
-            session_id=hook_ctx.session_id,
-            turn_id=hook_ctx.turn_id,
-            repo_root=hook_ctx.repo_root,
+        tool_hook_ctx = replace(
+            hook_ctx,
             metadata={**dict(hook_ctx.metadata), "tool_call_id": tool_call.call_id},
-            model_caller=hook_ctx.model_caller,
-            session_event_publisher=hook_ctx.session_event_publisher,
         )
         await self._dispatch_observe_async(
             "tool_call",
@@ -489,13 +482,9 @@ class AgentLoop:
         hook_ctx: HookContext,
         run_id: str | None,
     ) -> None:
-        tool_hook_ctx = HookContext(
-            session_id=hook_ctx.session_id,
-            turn_id=hook_ctx.turn_id,
-            repo_root=hook_ctx.repo_root,
+        tool_hook_ctx = replace(
+            hook_ctx,
             metadata={**dict(hook_ctx.metadata), "tool_call_id": result.call_id},
-            model_caller=hook_ctx.model_caller,
-            session_event_publisher=hook_ctx.session_event_publisher,
         )
         await self._dispatch_observe_async(
             "tool_result",

@@ -503,17 +503,16 @@ class AgentRuntime:
                     messages_snapshot=messages_snapshot,
                     session_id=session_id,
                     tool_allowlist=(),  # caller (background hook) specifies allowlist
+                    # Inherit the turn's execution context (model_caller /
+                    # permission_requester) so hooks work inside the fork.
+                    parent_hook_ctx=hook_ctx,
                 )
 
-                background_hook_ctx = HookContext(
-                    session_id=hook_ctx.session_id,
-                    turn_id=hook_ctx.turn_id,
-                    repo_root=hook_ctx.repo_root,
-                    metadata=dict(hook_ctx.metadata),
-                    model_caller=hook_ctx.model_caller,
-                    session_event_publisher=hook_ctx.session_event_publisher,
-                    fork_conversation=fork_fn,
-                )
+                # replace() derives from the turn's hook_ctx, preserving every field
+                # (model_caller / permission_requester / message_history) and only
+                # attaching fork_conversation. The hand-listed rebuild had been
+                # dropping permission_requester + message_history.
+                background_hook_ctx = replace(hook_ctx, fork_conversation=fork_fn)
                 self._hook_runner.dispatch_background("agent_end", agent_end_payload, background_hook_ctx)
 
         return turn_result
