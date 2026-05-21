@@ -81,7 +81,9 @@ def test_personal_assistant_package_exports_default_modules() -> None:
     assert {"read", "write", "edit", "bash", "agent", "web_fetch", "web_search"} <= set(personal_assistant_toolsets.DEFAULT_TOOL_IDS)
     assert set(personal_assistant_toolsets.OPTIONAL_TOOL_IDS) == {"send_message"}
     assert set(PERSONAL_ASSISTANT_PROFILE.optional_tool_ids) == {"send_message"}
-    assert "communication_context" in personal_assistant_hooks.DEFAULT_HOOK_MODULES
+    # feat-379-M1: communication_context is no longer a hook module — group context
+    # is assembled by the pa.communication_context segment (prompt_sections.py).
+    assert "communication_context" not in personal_assistant_hooks.DEFAULT_HOOK_MODULES
     assert "default_status" in personal_assistant_hooks.DEFAULT_HOOK_MODULES
 
 

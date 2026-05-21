@@ -14,7 +14,7 @@ These tests verify:
 from __future__ import annotations
 
 from agent.core.hooks.context import HookContext
-from agent.products.personal_assistant.hooks import _build_communication_context_block
+from agent.products.personal_assistant.prompt_sections import _build_communication_context_block
 
 
 def _make_ctx(*, conversation_type: str | None = None, participant_agent_ids: list[str] | None = None, agent_id: str | None = None) -> HookContext:

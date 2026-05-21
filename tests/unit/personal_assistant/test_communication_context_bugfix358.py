@@ -17,7 +17,7 @@ def _build_block(
     participant_agent_ids: list[str] | None = None,
     participants: list[dict] | None = None,
 ) -> str:
-    from agent.products.personal_assistant.hooks.communication_context import (
+    from agent.products.personal_assistant.prompt_sections import (
         _build_communication_context_block,
     )
 
