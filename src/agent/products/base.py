@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from agent.core.session.jsonl_store import JsonlSessionStore
     from agent.platform.config.resolver import ConfigResolver
     from agent.platform.tools.registry import ToolRegistry
+    from agent.core.agent.prompt_sections.base import PromptSection
 
 
 @dataclass
@@ -53,6 +54,11 @@ class ProductProfile:
             product supports workspace-local overrides.
         session_db_filename: SQLite filename stored under ``global_config_home``.
         compat_skill_roots: Legacy skill directories appended at lowest priority.
+        prompt_sections: Ordered segment definitions contributed by this product.
+            Bootstrap merges these with core segments into a single ordered list
+            stored in ``ResolvedProductConfig.prompt_sections``.  Empty tuple
+            means "no product-specific segments" (e.g. for products that still
+            use the legacy string-based prompt path during migration).
     """
 
     product_id: str
@@ -60,6 +66,9 @@ class ProductProfile:
     config_namespace: str
 
     default_system_prompt: str | None = None
+    # feat-379: segment-based prompt assembly — product contributes its pa.*/lc.*
+    # segments here; bootstrap merges with core segments at startup.
+    prompt_sections: "tuple[PromptSection, ...]" = field(default_factory=tuple)
 
     # None means "keep platform default behavior"; lists make product defaults explicit.
     default_tool_ids: list[str] | None = None
@@ -112,6 +121,10 @@ class ResolvedProductConfig:
     # product.  Populated from the workspace config file (e.g. .nanocode/config.yaml)
     # by bootstrap; empty when no file exists.
     default_session_metadata: dict = field(default_factory=dict)
+    # feat-379: merged ordered list of core + product segments, assembled by
+    # bootstrap from CORE_SECTIONS + ProductProfile.prompt_sections.
+    # Empty list means legacy string-based prompt path is in effect.
+    prompt_sections: "list[PromptSection]" = field(default_factory=list)
 
 
 __all__ = ["ProductProfile", "ResolvedProductConfig"]

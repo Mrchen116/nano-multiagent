@@ -13,6 +13,7 @@ from .defaults import (
 )
 from .hooks import DEFAULT_HOOK_MODULES
 from .prompts import LOCAL_CODING_SYSTEM_PROMPT
+from .prompt_sections import LC_SECTIONS
 from .toolsets import DEFAULT_TOOL_IDS, OPTIONAL_TOOL_IDS
 
 LOCAL_CODING_PROFILE = ProductProfile(
@@ -20,6 +21,7 @@ LOCAL_CODING_PROFILE = ProductProfile(
     display_name="Nano Coding CLI",
     config_namespace=CONFIG_NAMESPACE,
     default_system_prompt=LOCAL_CODING_SYSTEM_PROMPT,
+    prompt_sections=LC_SECTIONS,
     default_tool_ids=list(DEFAULT_TOOL_IDS),
     optional_tool_ids=list(OPTIONAL_TOOL_IDS),
     default_hook_modules=list(DEFAULT_HOOK_MODULES),
