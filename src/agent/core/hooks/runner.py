@@ -4,14 +4,14 @@ import asyncio
 import inspect
 import logging
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Mapping
 
 from agent.core.observability.tracing import span
 
 from .context import HookContext
 from .registry import HookRegistry
-from .types import HookEventMode, HookRegistration, HookStatus, ensure_known_hook_event
+from .types import HookRegistration, HookStatus, ensure_known_hook_event
 
 _log = logging.getLogger("agent.core.hooks.runner")
 
@@ -66,14 +66,6 @@ class HookRunner:
             observe_ctx = _strip_fork_conversation(ctx)
             diagnostics: list[HookExecution] = []
             for registration in self._registry.handlers_for(normalized_event):
-                # Intercept-mode handlers run only in dispatch_intercept, where
-                # their return value is honored against the populated payload/ctx.
-                # Running them here would re-invoke them on an observe ctx (e.g.
-                # the auto_mode_gate classifier on a ctx without message_history)
-                # and discard the result — wasted work, and for the gate a wasted
-                # model call producing a blind, empty-transcript classification.
-                if registration.mode == HookEventMode.INTERCEPT:
-                    continue
                 _, record = await self._execute_handler(
                     registration=registration,
                     payload=payload,
@@ -271,9 +263,13 @@ def _strip_fork_conversation(ctx: HookContext) -> HookContext:
     """
     if ctx.fork_conversation is None:
         return ctx  # already stripped, avoid allocation
-    # Null ONLY fork_conversation; replace() preserves every other field so
-    # later-added ones (message_history, permission_requester) cannot be
-    # silently dropped — the manual rebuild had been dropping both, which left
-    # the classifier transcript empty and fail-closed the permission ask path
-    # on any fork_conversation-bearing dispatch.
-    return replace(ctx, fork_conversation=None)
+    return HookContext(
+        session_id=ctx.session_id,
+        turn_id=ctx.turn_id,
+        repo_root=ctx.repo_root,
+        metadata=ctx.metadata,
+        logger=ctx.logger,
+        model_caller=ctx.model_caller,
+        session_event_publisher=ctx.session_event_publisher,
+        fork_conversation=None,
+    )
