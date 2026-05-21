@@ -4,7 +4,7 @@ import asyncio
 import inspect
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
 from agent.core.observability.tracing import span
@@ -263,13 +263,9 @@ def _strip_fork_conversation(ctx: HookContext) -> HookContext:
     """
     if ctx.fork_conversation is None:
         return ctx  # already stripped, avoid allocation
-    return HookContext(
-        session_id=ctx.session_id,
-        turn_id=ctx.turn_id,
-        repo_root=ctx.repo_root,
-        metadata=ctx.metadata,
-        logger=ctx.logger,
-        model_caller=ctx.model_caller,
-        session_event_publisher=ctx.session_event_publisher,
-        fork_conversation=None,
-    )
+    # Null ONLY fork_conversation; replace() preserves every other field so
+    # later-added ones (message_history, permission_requester) cannot be
+    # silently dropped — the manual rebuild had been dropping both, which left
+    # the classifier transcript empty and fail-closed the permission ask path
+    # on any fork_conversation-bearing dispatch.
+    return replace(ctx, fork_conversation=None)

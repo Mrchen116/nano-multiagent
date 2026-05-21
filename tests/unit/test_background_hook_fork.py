@@ -264,6 +264,49 @@ async def test_fork_conversation_none_in_fork_context():
     assert fork_ctx_fork_conversation_values == [None]
 
 
+def test_strip_fork_conversation_preserves_message_history_and_permission_requester():
+    """_strip_fork_conversation must null ONLY fork_conversation, keeping every
+    other field — notably message_history and permission_requester.
+
+    Regression: the manual rebuild in _strip_fork_conversation copied a
+    hand-listed subset of fields and silently dropped message_history and
+    permission_requester (added to HookContext later, on 2026-05-15, without
+    updating this rebuild). Result: any
+    observe/intercept dispatch whose ctx carried a fork_conversation (i.e. the
+    fork/background path) reached the auto_mode_gate classifier with an EMPTY
+    transcript — the classifier ran blind and over-blocked — and lost the
+    PermissionBroker so request_permission fail-closed to deny.
+    """
+    from agent.core.hooks.context import HookContext
+    from agent.core.hooks.runner import _strip_fork_conversation
+
+    sentinel_history = ("user-msg", "assistant-tool_use")
+
+    async def requester(req):
+        return None
+
+    async def make_fork(review_prompt, *, tool_allowlist, max_turns):
+        return None
+
+    ctx = HookContext(
+        session_id="sess-strip",
+        turn_id="turn-1",
+        message_history=sentinel_history,
+        permission_requester=requester,
+        fork_conversation=make_fork,
+    )
+
+    stripped = _strip_fork_conversation(ctx)
+
+    assert stripped.fork_conversation is None
+    assert stripped.message_history == sentinel_history, (
+        "message_history must survive fork_conversation stripping"
+    )
+    assert stripped.permission_requester is requester, (
+        "permission_requester must survive fork_conversation stripping"
+    )
+
+
 # ---------------------------------------------------------------------------
 # R3: ForkConversation inherits parent system_prompt bytes
 # ---------------------------------------------------------------------------
@@ -416,6 +459,8 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
             self.tool_calls = calls
             self.finish_reason = None
             self.usage = None
+            self.reasoning_content = None
+            self.reasoning_signature = None
 
     class _LLMTerminal:
         role = "assistant"
@@ -430,6 +475,8 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
         tool_calls = []
         finish_reason = None
         usage = None
+        reasoning_content = None
+        reasoning_signature = None
 
     class FakeLLMClient:
         def __init__(self):
@@ -526,6 +573,8 @@ async def test_agent_loop_turn_meta_includes_tool_iterations():
             self.tool_calls = []
             self.finish_reason = "stop"
             self.usage = None
+            self.reasoning_content = None
+            self.reasoning_signature = None
 
     class FakeLLMTerminal:
         def __init__(self):
@@ -599,6 +648,8 @@ async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
         tool_calls = []
         finish_reason = None
         usage = None
+        reasoning_content = None
+        reasoning_signature = None
 
     class FakeLLMTerminal:
         role = "assistant"
