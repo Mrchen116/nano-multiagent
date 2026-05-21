@@ -372,6 +372,13 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
     if agent_column_names and "staled_at" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN staled_at TEXT")
 
+    # feat-379-M2: per-agent feature flags and custom prompt supplement
+    agent_column_names = {row["name"] for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()}
+    if agent_column_names and "features_json" not in agent_column_names:
+        connection.execute("ALTER TABLE agent_profiles ADD COLUMN features_json TEXT NOT NULL DEFAULT '{}'")
+    if agent_column_names and "custom_prompt" not in agent_column_names:
+        connection.execute("ALTER TABLE agent_profiles ADD COLUMN custom_prompt TEXT")
+
     node_rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
     node_column_names = {row["name"] for row in node_rows}
     if node_rows and "owner_id" not in node_column_names:

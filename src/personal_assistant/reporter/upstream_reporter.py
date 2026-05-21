@@ -127,8 +127,20 @@ def build_runtime_capabilities() -> ReporterCapabilities:
     )
 
 
-def build_agent_capabilities_payload(*, workspace_root: str) -> dict[str, object]:
-    """按 Agent 工作区根路径解析可选技能（含描述），供 agent.capabilities.resolve 响应。"""
+def build_agent_capabilities_payload(
+    *,
+    workspace_root: str,
+    tool_allowlist: tuple[str, ...] = (),
+) -> dict[str, object]:
+    """按 Agent 工作区根路径解析可选技能（含描述），供 agent.capabilities.resolve 响应。
+
+    Args:
+        workspace_root: Agent workspace root path for per-workspace skill discovery.
+        tool_allowlist: Tool names enabled for this agent.  Used to determine
+            whether feature-gated tools are available (feat-379 decision 7).
+    """
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY  # noqa: PLC0415
+
     root = Path(workspace_root).expanduser().resolve()
     config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=root)
     registry = SkillRegistry(
@@ -143,6 +155,23 @@ def build_agent_capabilities_payload(*, workspace_root: str) -> dict[str, object
     ]
     base = build_runtime_capabilities().as_payload()
     base["skills"] = skills
+
+    # feat-379-M2: build feature toggles projection for the IM frontend
+    # (decision 7: registry is the single event source; frontend renders dynamically)
+    allowlist_set = set(tool_allowlist)
+    features_projection: list[dict[str, object]] = [
+        {
+            "key": key,
+            "label_i18n": entry["label_i18n"],
+            "help_i18n": entry["help_i18n"],
+            "default_on": entry["default_on"],
+            # available=False means the required tool is not in the agent's allowlist
+            "available": entry["requires_tool"] is None or entry["requires_tool"] in allowlist_set,
+            "requires_tool": entry["requires_tool"],
+        }
+        for key, entry in FEATURE_REGISTRY.items()
+    ]
+    base["features"] = features_projection
     return base
 
 

@@ -115,6 +115,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "system_prompt": "You are Agent A v1.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         },
         {
@@ -128,6 +129,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "system_prompt": "You are Agent A v2.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         },
         {
@@ -141,6 +143,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "system_prompt": "You are Agent A v2.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         },
     ]
@@ -240,6 +243,7 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
                 "participant_agent_ids": ["agent-a"],
                 "external_chat_id": "conv-group-1",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         },
         {
@@ -255,6 +259,7 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
                 "participant_agent_ids": ["agent-a"],
                 "external_chat_id": "conv-group-1",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         },
     ]

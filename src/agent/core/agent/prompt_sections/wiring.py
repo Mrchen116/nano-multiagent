@@ -10,6 +10,11 @@ Design (feat-379 decision 4):
   segments (e.g. pa.communication_context enabled_when=group) without the
   runtime or loop needing to know about individual segment names.
 
+Design (feat-379-M2 decision 3):
+  resolve_flags_from_metadata merges per-agent agent_features overrides with
+  FEATURE_REGISTRY default_on values.  Unknown keys are silently dropped so
+  legacy/future sessions with stale flag sets don't break production.
+
 Pure core module: no imports from the platform or products layers.
 """
 from __future__ import annotations
@@ -70,6 +75,42 @@ def build_prompt_context_from_metadata(
         scenario=scenario,
         vars=dict(vars) if vars else {},
     )
+
+
+def resolve_flags_from_metadata(
+    *,
+    metadata: Mapping[str, Any],
+) -> dict[str, bool]:
+    """Merge per-agent agent_features overrides with FEATURE_REGISTRY default_on values.
+
+    Args:
+        metadata: Session metadata dict that may contain ``agent_features``
+            (dict[str, bool] set by Gateway for the owning agent).
+
+    Returns:
+        Merged flags dict: FEATURE_REGISTRY default_on values as baseline,
+        with per-agent overrides applied on top.  Unknown keys (not in
+        FEATURE_REGISTRY) in agent_features are silently dropped so stale
+        or forward-compat flag sets never break production.
+
+    Notes:
+        Pure function (no side effects, no IO) — safe to call from any layer.
+        Imported lazily from FEATURE_REGISTRY to keep this module pure core.
+    """
+    # Lazy import to avoid import-time overhead on every module load.
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY  # noqa: PLC0415
+
+    # Start with registry defaults.
+    flags: dict[str, bool] = {key: entry["default_on"] for key, entry in FEATURE_REGISTRY.items()}
+
+    # Apply per-agent overrides; unknown keys are dropped (future-proof).
+    raw_overrides = metadata.get("agent_features")
+    if isinstance(raw_overrides, dict):
+        for key, value in raw_overrides.items():
+            if key in flags and isinstance(value, bool):
+                flags[key] = value
+
+    return flags
 
 
 def _copy_if_present(src: Mapping[str, Any], dst: dict[str, Any], key: str) -> None:

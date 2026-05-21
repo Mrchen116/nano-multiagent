@@ -101,3 +101,150 @@ def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.Mo
         "platform_default_model": None,
         "default_system_prompt": "",
     }
+
+
+def test_agent_prompt_preview_proxy_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """IM proxy route POST /im/v1/agents/{id}/prompt-preview forwards to Gateway.
+
+    feat-379-M2 R5: IM must forward the request to Gateway via
+    request_prompt_preview and return the assembled prompt to the caller.
+    """
+
+    async def _fake_request_prompt_preview(
+        self,  # noqa: ARG001
+        *,
+        target_node_id: str,  # noqa: ARG001
+        agent_id: str,  # noqa: ARG001
+        workspace_root: str,  # noqa: ARG001
+        features: dict,  # noqa: ARG001
+        custom_prompt,  # noqa: ARG001
+        tool_ids: list,  # noqa: ARG001
+        scenario: str,  # noqa: ARG001
+        timeout_seconds: float = 10.0,  # noqa: ARG001
+    ) -> dict:
+        return {"prompt": "You are a helpful assistant.", "section_count": 2}
+
+    monkeypatch.setattr(GatewayHandler, "request_prompt_preview", _fake_request_prompt_preview)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        profiles = AgentProfileRepository(app.state.connection)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(node_id="node-1", node_name="MacBook")
+        profiles.upsert_profile(
+            agent_id="agent-prev",
+            owner_id=owner.owner_id,
+            display_name="Preview Agent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="always",
+            default_model=None,
+            workspace_root=None,
+            node_id="node-1",
+        )
+        response = client.post(
+            "/im/v1/agents/agent-prev/prompt-preview",
+            json={
+                "features": {"memory_curation": True},
+                "custom_prompt": "Be concise.",
+                "tool_ids": ["read"],
+                "scenario": "direct",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "prompt" in body
+    assert "section_count" in body
+    assert body["prompt"] == "You are a helpful assistant."
+    assert body["section_count"] == 2
+
+
+def test_agent_capabilities_features_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agent capabilities response must include features list forwarded from Gateway.
+
+    feat-379-M2 (decision 7): IM forwards the FEATURE_REGISTRY projection
+    from the Gateway verbatim; each item must carry the five required fields.
+    """
+    _GATEWAY_FEATURES = [
+        {
+            "key": "web_search",
+            "label_i18n": "Web Search",
+            "help_i18n": "Enable web search tool",
+            "default_on": False,
+            "available": True,
+            "requires_tool": "web_search",
+        },
+        {
+            "key": "memory",
+            "label_i18n": "Memory",
+            "help_i18n": "Enable long-term memory",
+            "default_on": True,
+            "available": False,
+            "requires_tool": None,
+        },
+    ]
+
+    async def _fake_agent_capabilities(
+        self,  # noqa: ARG001
+        *,
+        target_node_id: str,  # noqa: ARG001
+        agent_id: str,  # noqa: ARG001
+        workspace_root: str,  # noqa: ARG001
+        timeout_seconds: float = 5.0,  # noqa: ARG001
+    ) -> dict[str, object]:
+        return {
+            "models": ["model-x"],
+            "skills": [],
+            "tools": [],
+            "platform_default_model": None,
+            "default_system_prompt": "",
+            # feat-379-M2: features projection from FEATURE_REGISTRY
+            "features": _GATEWAY_FEATURES,
+        }
+
+    monkeypatch.setattr(GatewayHandler, "request_agent_capabilities", _fake_agent_capabilities)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        profiles = AgentProfileRepository(app.state.connection)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(node_id="node-1", node_name="MacBook")
+        profiles.upsert_profile(
+            agent_id="agent-cap",
+            owner_id=owner.owner_id,
+            display_name="Cap Agent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="always",
+            default_model=None,
+            workspace_root=None,
+            node_id="node-1",
+        )
+        response = client.get("/im/v1/agents/agent-cap/capabilities")
+
+    assert response.status_code == 200
+    body = response.json()
+    # capabilities response must include features key
+    assert "features" in body
+    features = body["features"]
+    assert isinstance(features, list)
+    assert len(features) == 2
+    # each feature item must carry required fields
+    required_feature_fields = {"key", "label_i18n", "help_i18n", "default_on", "available"}
+    for feat in features:
+        assert required_feature_fields.issubset(set(feat)), f"missing fields in {feat}"
+    # spot-check first feature values round-tripped correctly
+    assert features[0]["key"] == "web_search"
+    assert features[0]["available"] is True
+    assert features[1]["key"] == "memory"
+    assert features[1]["available"] is False
+    assert features[1]["requires_tool"] is None

@@ -118,6 +118,10 @@ class AgentProfile:
     workspace_root: str | None = None
     profile_version: int = 1
     is_stale: bool = False
+    # feat-379-M2: per-agent feature-flag overrides (keyed by FEATURE_REGISTRY key)
+    # and optional custom prompt supplement.  Absent keys inherit gateway defaults.
+    features: dict[str, bool] = field(default_factory=dict)
+    custom_prompt: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
