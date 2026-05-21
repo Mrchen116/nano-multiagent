@@ -5,6 +5,7 @@
 ## Changelog
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
+- 2026-05-21 (M2): 决策 C 扩展 — 不只补 review prompt 引导，发现 feat-349 把 Hermes 富技能模型（目录 + support files）静默简化成单文件 SKILL.md（调研 hermes-reference §4 记全了、design L270 砍了、无理由）。owner 决定在本 unit 补回：`skill_manage` 加 `write_file`/`remove_file`（references/templates/scripts/assets，路径白名单），review prompt 忠实移植 Hermes §3 三件套（含 support-file 偏好阶梯）。Closes #49。
 
 ## 现状分析
 

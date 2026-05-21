@@ -30,6 +30,12 @@ _MAX_NAME_LENGTH = 64
 _MAX_SKILL_CONTENT_CHARS = 100_000
 _MAX_DESCRIPTION_CHARS = 1024
 
+# Support-file subdirectories a skill may carry alongside SKILL.md (align with
+# hermes ALLOWED_SUBDIRS). A skill is a directory; support files turn it into a
+# class-level "umbrella" with bundled detail/templates/scripts rather than a
+# single flat SKILL.md.
+_ALLOWED_SUBDIRS = frozenset({"references", "templates", "scripts", "assets"})
+
 
 class SkillWriter:
     """Write-side operations for user skills backed by a filesystem root.
@@ -136,6 +142,70 @@ class SkillWriter:
         self._registry.invalidate_cache()
         return skill_file
 
+    def write_file(self, name: str, file_path: str, file_content: str) -> Path:
+        """Write a support file under an existing skill's directory.
+
+        Support files turn a skill into a class-level umbrella: ``references/``
+        for session detail / condensed knowledge banks, ``templates/`` for
+        copy-and-modify starters, ``scripts/`` for re-runnable actions, ``assets/``
+        for other bundled files.
+
+        Args:
+            name: Existing skill name.
+            file_path: Relative path under the skill dir; first segment must be an
+                allowed subdir, at least two segments, no ``..`` traversal.
+            file_content: File body.
+
+        Returns:
+            Absolute path to the written support file.
+
+        Raises:
+            ValueError: On unknown skill, invalid path, or size violation.
+        """
+        skill_dir = self._require_skill_dir(name)
+        rel = _validate_support_file_path(file_path)
+        _validate_content_size(file_content)
+        target = skill_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(target, file_content)
+        self._registry.invalidate_cache()
+        return target
+
+    def remove_file(self, name: str, file_path: str) -> Path:
+        """Remove a support file from an existing skill's directory.
+
+        Args:
+            name: Existing skill name.
+            file_path: Relative support-file path (same validation as write_file).
+
+        Returns:
+            Absolute path of the removed file.
+
+        Raises:
+            ValueError: On unknown skill, invalid path, or missing file.
+        """
+        skill_dir = self._require_skill_dir(name)
+        rel = _validate_support_file_path(file_path)
+        target = skill_dir / rel
+        if not target.is_file():
+            raise ValueError(f"Support file '{file_path}' not found in skill '{name}'")
+        target.unlink()
+        self._registry.invalidate_cache()
+        return target
+
+    def list_support_files(self, name: str) -> list[str]:
+        """Return the skill's support-file paths (relative, sorted), excluding SKILL.md."""
+        skill_dir = self._require_skill_dir(name)
+        out: list[str] = []
+        for sub in sorted(_ALLOWED_SUBDIRS):
+            subdir = skill_dir / sub
+            if not subdir.is_dir():
+                continue
+            for f in sorted(subdir.rglob("*")):
+                if f.is_file():
+                    out.append(str(f.relative_to(skill_dir)))
+        return out
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -146,6 +216,14 @@ class SkillWriter:
         if not skill_file.exists():
             raise ValueError(f"Skill '{name}' not found at {skill_file}")
         return skill_file
+
+    def _require_skill_dir(self, name: str) -> Path:
+        """Return an existing skill's directory; raises ValueError if missing."""
+        _validate_name(name)
+        skill_dir = self._root / name
+        if not (skill_dir / "SKILL.md").exists():
+            raise ValueError(f"Skill '{name}' not found at {skill_dir}")
+        return skill_dir
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +242,33 @@ def _validate_name(name: str) -> None:
             f"Invalid skill name '{name}'; must match ^[a-z0-9][a-z0-9._-]*$ "
             "(lowercase letters, digits, dots, dashes, underscores; first char alphanumeric)"
         )
+
+
+def _validate_support_file_path(file_path: str) -> Path:
+    """Validate a support-file relative path; return the normalized Path.
+
+    Mirrors hermes _validate_file_path: reject ``..`` traversal and absolute
+    paths, require at least two segments (subdir + filename), and require the
+    first segment to be an allowed subdir. This keeps writes confined to the
+    skill's own ``references/`` / ``templates/`` / ``scripts/`` / ``assets/``.
+    """
+    if not file_path or not file_path.strip():
+        raise ValueError("write_file requires a non-empty 'file_path'")
+    rel = Path(file_path)
+    if rel.is_absolute():
+        raise ValueError(f"Support file path must be relative, got '{file_path}'")
+    parts = rel.parts
+    if any(p == ".." for p in parts):
+        raise ValueError(f"Support file path must not contain '..': '{file_path}'")
+    if len(parts) < 2:
+        raise ValueError(
+            f"Support file path must be '<subdir>/<file>' with at least two segments: '{file_path}'"
+        )
+    if parts[0] not in _ALLOWED_SUBDIRS:
+        raise ValueError(
+            f"Support file must live under {sorted(_ALLOWED_SUBDIRS)}; got first segment '{parts[0]}'"
+        )
+    return rel
 
 
 def _validate_frontmatter(content: str) -> None:
