@@ -373,3 +373,46 @@ session `sess_ca5befc8a84d1750`，模型 `kimiCoding:K2.6`（thinking: adaptive�
 | agent 最终答案 | "Done — `~/.bashrc` didn't exist, so I created it with `# test by kimi-agent` at the end." |
 
 **结论**：permission ask → 批准 → resume 全链路正确——恢复后请求历史中 thinking 块 signature 完整保留，**0 个 invalid_request_error**，agent 正常收敛到 end_turn。
+
+---
+
+## 本 unit 最终交付清单
+
+本 unit 从"开 thinking 的 agent 多轮工具任务不收敛"起步，收尾的真 e2e 接连暴露同源/同族缺陷，最终在本 unit 内一并收口（owner 决定不散开成多个 unit）。
+
+### A. thinking round-trip 主线（原始范围）
+- **co-root-cause A** signature round-trip 缺失（`455d1456`）：anthropic client 收集 `signature_delta`，出站用真实 signature → 上游不再逐轮重放 reasoning。
+- **co-root-cause B** 并行 tool_result 顺序（Issue #43，`911d1bab` / RC1 `get_completed_results` FIFO）。
+- **co-root-cause C** 持久化层并行 tool_use group 丢失（`5f13a039` RC3）。
+- **co-root-cause D** `_fork_locked` 手写重建漏 `reasoning_*`（fork 路径，e2e 中 agent 自己挖出，`replace` 修）。
+
+### B. 架构根缺陷收口（M2，见 `design.md`）
+- **根缺陷1 — 不可变 dataclass 手写逐字段重建漏字段**：`_strip_fork_conversation`(#46)、`_fork_locked`、`loop.py` tool_hook_ctx ×3、`runtime.py` background_hook_ctx、`prompting.py` merge —— 全改 `dataclasses.replace(src, 只写要改的)`；守卫测试 `test_message_jsonl_roundtrip_field_conservation_guard`（用 `dataclasses.fields` 强制新增字段被分类，杜绝再生）。
+- **根缺陷2 — fork 不继承父执行上下文**：`context_fork.execute` 收 `hook_ctx` 透传 `loop.run`；`make_fork_conversation` 用 `replace` 派生父 ctx（继承 model_caller/permission_requester，override `fork_conversation=None` + `run_origin=BACKGROUND_TASK`）。gate 在 fork 不再 fail-close；ask 走 unattended_fallback；`tool_execution_allowlist` 仍是硬边界。锁定测试 `test_fork_inherits_parent_execution_context`。
+- **根缺陷3（同族）— hook 在契约不成立的 dispatch 跑**：#46 已用 mode 过滤修 observe 一例（gate 注册 `mode="intercept"` + `dispatch_observe` 跳过 intercept handler）。
+
+### C. self-evolution 自进化可用性（issue #49 并入）
+- `skill_manage` 补回 support files：`write_file`/`remove_file`/`list_support_files`，子目录白名单 `{references,templates,scripts,assets}` + 路径校验（feat-349 把 Hermes 富技能模型静默简化成单文件，本 unit 补回）。
+- 三段 review prompt **忠实移植** Hermes `background_review.py §3`（此前是单薄意译，丢了 active 倾向 / 偏好阶梯 / 命名纪律 / do-not-capture 护栏 / 偏好嵌入）。
+- 配合根缺陷2，self-evolution review fork 现在能 list→view→patch/edit/write_file 全链路工作（此前"处处碰壁"）。
+
+### 关联
+Closes #45（安全门空 transcript，根因同 #46）、#49（support files）。Refs #43。bugfix-376/377 折叠或拆分见各自 fix.md。
+
+---
+
+## 经验教训
+
+1. **单测全绿 ≠ 产品可用，深度 e2e 是唯一裁判。** signature round-trip 的玩具级单测（单次 `pwd && ls`）早就"绿"了，但真实多轮 thinking 任务才暴露死循环。本 unit 每一处确认都靠真 e2e（live kimi K2.6 + 翻 LLM proxy raw upstream-req）才坐实。**凡声称"修好"，必须有真任务跑通 + 原始字节为证。**
+
+2. **手写逐字段重建 frozen dataclass 是反模式，必出"漏字段"。** 同一个坑在本 unit 出现了至少四处（strip / `_fork_locked` / background_ctx / merge）。点修是打地鼠；根治是**统一 `dataclasses.replace` + 守卫测试**——让"字段守恒"成机制而非靠人记。新增 dataclass 字段时，所有手写复制点会一起静默丢，这是设计层风险不是个例 bug。
+
+3. **派生上下文 = 复制父 + 只覆盖差异。** fork/子 agent 用裸默认 ctx 会让依赖 model_caller/permission_requester 的 hook 在 fork 里集体残废（gate fail-close → 自进化处处碰壁）。CC（`{...parent, override}`）/ Hermes（review fork "uses the same auth"）都印证：**子上下文必须继承父执行能力，只 override 该变的。**
+
+4. **任何 bug 先问"是不是架构缺陷"。** 空 transcript / fork 残废 / 自进化碰壁，表面是三个独立 bug，根上是两条架构缺陷（复制无纪律 + 上下文不继承）的反复发作。逐个点修会无穷无尽；从契约层收口才止血。（owner 在过程中明确纠偏："不要头痛医头脚痛医脚"。）
+
+5. **复刻参考实现必须回原文亲验，不能照二手笔记意译。** 本 unit 内此坑踩了**两次**：① 原 self_improvement review prompt 照 hermes-reference（自带"未逐字亲验"警告）意译，丢了 inspect 引导；② 修复时**我自己又意译了一版**，丢了 active 倾向/偏好阶梯/护栏，被 owner 当场抓出"你忠实复刻了吗"。教训：`hermes-reference.md §X` 这种二手摘要只能定位，**动手前必读原文**（对应 memory `feedback-verify-reference-source-not-notes`）。
+
+6. **调研到的能力，别在 design 阶段无理由静默简化。** feat-349 调研把 Hermes 富技能模型（目录 + support files + write_file）记全了，design.md L270 却缩成单文件 5 action，**没写任何"为何砍"的理由**。结果是埋了个能力缺口（issue #49），到自进化 e2e 才暴露。简化是合法决策，但**必须显式 + 给理由**，否则就是调研与落地之间的静默落差。
+
+7. **真深度任务能让 agent 自己挖出同类潜伏 bug。** `_fork_locked`（co-root-cause D）是 deep bug-finding e2e 跑通后 agent 自己报出来、再经人核实属实的——深度 agentic 任务本身就是一种高价值的回归探针。
