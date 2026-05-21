@@ -12,8 +12,8 @@ M1 note: Segments with Provenance [new·CC] or [纠偏·CC] are stubs here — t
 content is updated in M4 (core-content-align-cc). M1 only implements the structural
 skeleton that makes golden tests pass; M4 fills in the CC-aligned text.
 
-Important: this module must NOT import from agent.platform or agent.products.
-(contract: tests/contract/test_core_no_platform_imports.py)
+Important: this module is pure core — no imports from the platform or products
+layers (contract: tests/contract/test_core_no_platform_imports.py).
 """
 from __future__ import annotations
 

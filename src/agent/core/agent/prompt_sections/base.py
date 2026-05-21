@@ -10,8 +10,8 @@ Design decisions captured here:
 - Decision 9: resolve_effective_prompt is the single resolution point: override
   direct-pass (internal / sub-agent fork) beats section assembly.
 
-No imports from agent.platform or agent.products — core must not depend on higher
-layers (contract: tests/contract/test_core_no_platform_imports.py).
+This module is pure core: no imports from the platform or products layers —
+core must not depend on higher layers (contract: test_core_no_platform_imports.py).
 """
 from __future__ import annotations
 
