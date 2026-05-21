@@ -1336,6 +1336,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 workspace_root=workspace_root,
                 tool_allowlist=_resolve_agent_tool_allowlist(im_config_sync_client, agent_id),
             ),
+            # feat-379-M2 R5: prompt_preview_provider calls agent HTTP /v1/prompt-preview
+            # so the IM frontend can display a preview of the assembled system prompt.
+            prompt_preview_provider=lambda agent_id, workspace_root, features, custom_prompt, tool_ids, scenario: (  # noqa: ARG005
+                kernel_client.prompt_preview(
+                    features=features,
+                    custom_prompt=custom_prompt,
+                    tool_ids=tool_ids,
+                    scenario=scenario,
+                )
+            ),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
             permission_response_handler=_permission_response_handler,
@@ -1564,6 +1574,7 @@ def _build_im_connection_manager(
     sync_client: ConfigSyncClient | None = None,
     agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
+    prompt_preview_provider: Callable[..., Any] | None = None,
     agent_create_handler: AgentCreateHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
     permission_response_handler: Callable[[Mapping[str, object]], None] | None = None,
@@ -1579,6 +1590,7 @@ def _build_im_connection_manager(
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
         agent_config_provider=agent_config_provider,
         agent_capabilities_provider=agent_capabilities_provider,
+        prompt_preview_provider=prompt_preview_provider,
         agent_create_handler=agent_create_handler,
         token_getter=token_getter,
         connect=_connect_websocket,

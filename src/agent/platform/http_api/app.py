@@ -93,6 +93,10 @@ def create_app(
     resolved_config_resolver = None
     resolved_default_tool_ids: list[str] | None = None
     resolved_default_metadata: dict | None = None
+    # feat-379-M2 R5: prompt sections for preview endpoint; populated from
+    # resolved_product.prompt_sections when a product_profile is supplied.
+    # Empty list until bootstrap wires CORE_SECTIONS + product sections (M3/M4).
+    resolved_prompt_sections: list = []
     if product_profile is not None:
         from agent.platform.bootstrap import bootstrap_product
 
@@ -120,6 +124,7 @@ def create_app(
         # bootstrap field is dead and self-evolution falls back to hard-coded
         # defaults regardless of user config.
         resolved_default_metadata = resolved_product.default_session_metadata
+        resolved_prompt_sections = list(resolved_product.prompt_sections)
     session_service = SessionService(
         store=session_store,
         profile=product_profile,
@@ -175,6 +180,9 @@ def create_app(
         active_hook_runner = runtime_hook_runner or HookRunner(registry=active_hook_registry)
 
     app.state.agent_runtime = active_runtime
+    # feat-379-M2 R5: makes sections accessible to /v1/prompt-preview without
+    # re-bootstrapping the product; empty list until M3/M4 wires CORE + product.
+    app.state.prompt_sections = resolved_prompt_sections
     app.state.hook_registry = active_hook_registry
     app.state.hook_runner = active_hook_runner
     app.state.event_stream_hub = EventStreamHub()

@@ -78,6 +78,15 @@ def get_permission_broker(request: Request) -> PermissionBroker:
     return broker  # type: ignore[no-any-return]
 
 
+def get_prompt_sections(request: Request) -> list:
+    """Return prompt sections stored on app state for the preview endpoint.
+
+    Returns an empty list when no product profile was supplied at app creation;
+    CORE_SECTIONS + product sections are populated by bootstrap (M3/M4).
+    """
+    return getattr(request.app.state, "prompt_sections", [])  # type: ignore[no-any-return]
+
+
 def get_trace_id(request: Request) -> str:
     """Read request trace id propagated by middleware.
 

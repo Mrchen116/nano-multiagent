@@ -359,3 +359,70 @@ def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
             desc = raw_desc.strip() if isinstance(raw_desc, str) else ""
             result.append(AllowlistOptionResponse(name=raw_name.strip(), description=desc))
     return result
+
+
+# ---------------------------------------------------------------------------
+# Prompt preview proxy (feat-379-M2 R5)
+# ---------------------------------------------------------------------------
+
+
+class PromptPreviewRequest(BaseModel):
+    """Request body forwarded to agent Gateway /v1/prompt-preview.
+
+    Args:
+        features: Per-agent feature flags (key → bool) to preview with.
+        custom_prompt: Optional user-supplied text supplement.
+        tool_ids: Tool names to treat as active for the preview turn.
+        scenario: Conversation type hint; defaults to ``direct``.
+    """
+
+    features: dict[str, bool] = Field(default_factory=dict)
+    custom_prompt: str | None = None
+    tool_ids: list[str] = Field(default_factory=list)
+    scenario: str = "direct"
+
+
+class PromptPreviewResponse(BaseModel):
+    """Assembled prompt preview returned from the Gateway."""
+
+    prompt: str
+    section_count: int
+
+
+@router.post("/im/v1/agents/{agent_id}/prompt-preview", response_model=PromptPreviewResponse)
+async def agent_prompt_preview(
+    agent_id: str,
+    payload: PromptPreviewRequest,
+    user: User = Depends(current_user),
+    service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+) -> PromptPreviewResponse:
+    """Proxy a prompt-preview request to the owning Gateway node (owner-scoped).
+
+    feat-379-M2 R5: IM acts as a pass-through; Gateway calls agent HTTP
+    /v1/prompt-preview and returns the assembled system-prompt preview.
+    The IM route exists so the frontend can call a single authenticated
+    IM endpoint instead of calling the agent HTTP API directly.
+    """
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+    if profile.node_id is None or not profile.node_id.strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id is not bound to a node")
+    workspace_root = service.workspace_root_for_profile(profile)
+    result = await gateway_handler.request_prompt_preview(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        workspace_root=workspace_root,
+        features=payload.features,
+        custom_prompt=payload.custom_prompt,
+        tool_ids=payload.tool_ids,
+        scenario=payload.scenario,
+    )
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")
+    raw_prompt = result.get("prompt")
+    prompt = raw_prompt if isinstance(raw_prompt, str) else ""
+    raw_count = result.get("section_count")
+    section_count = int(raw_count) if isinstance(raw_count, int) else 0
+    return PromptPreviewResponse(prompt=prompt, section_count=section_count)
