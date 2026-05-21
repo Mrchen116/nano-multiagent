@@ -325,5 +325,15 @@
       "ariaOptions": "权限选项",
       "submitError": "提交失败，请重试"
     }
+  },
+  "feature": {
+    "memory_curation": {
+      "label": "记忆整理",
+      "help": "跨会话维护持久化 MEMORY.md，让 agent 能跨对话记忆重要信息。"
+    },
+    "skill_creation": {
+      "label": "技能创建",
+      "help": "允许 agent 在其工作区创建和管理 skill。"
+    }
   }
 }
