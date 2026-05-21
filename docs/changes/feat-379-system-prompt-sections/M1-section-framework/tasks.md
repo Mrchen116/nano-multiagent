@@ -44,7 +44,7 @@ UI 状态矩阵：N/A（纯后端）
 
 - 步骤: 创建 `agent/core/agent/prompt_sections/` 包，实现 `base.py`（PromptContext、PromptSection、assemble_system_prompt、resolve_effective_prompt）和 `__init__.py`
 - 验证: 段单测全绿（assemble 排序、门控、None 过滤、join；cache_safe 不变量；resolve override 直通）
-- 状态: TODO
+- 状态: DONE
 
 ### R2 — 特性注册表骨架
 
