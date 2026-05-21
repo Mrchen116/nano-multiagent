@@ -12,15 +12,15 @@ TESTING_GUIDE 补 xfail 例外明文规则。
 
 ## 退出标准
 
-- [ ] `pytest tests/contract tests/integration -m "not e2e"` 退出 0
-- [ ] `test_append_message_persists_history_once_per_idempotency_key` 打 xfail(strict, reason 含 #37)
-- [ ] `tests/acceptance/test_im_gateway_real_acceptance.py` 已删
-- [ ] `tests/contract/test_m85_canonical_wiring_imports.py` → `test_canonical_wiring_imports.py`
-- [ ] `tests/contract/test_m86_canonical_homing_imports.py` → `test_canonical_homing_imports.py`
-- [ ] `test_cli_http_flow_integration.py`(1178 行) 按行为拆分，拆前后用例数一致
-- [ ] `tests/contract/` 无 >400 行文件
-- [ ] `tests/integration/` 无 >400 行文件（或报告列明豁免）
-- [ ] TESTING_GUIDE 加"xfail 仅限带 issue 链接 + strict 的已知产品回归"明文规则
+- [x] `pytest tests/contract tests/integration -m "not e2e"` 退出 0（234p/22s/3xf）
+- [x] `test_append_message_persists_history_once_per_idempotency_key` 打 xfail(strict, reason 含 #37)
+- [x] `tests/acceptance/test_im_gateway_real_acceptance.py` 已删
+- [x] `tests/contract/test_m85_canonical_wiring_imports.py` → `test_no_legacy_wiring_imports.py`（行为名）
+- [x] `tests/contract/test_m86_canonical_homing_imports.py` → `test_no_legacy_homing_imports.py`（行为名）
+- [x] `test_cli_http_flow_integration.py`(1197 行) 按行为拆分，用例数 24→24（21 个 REPL skip #47）
+- [x] `tests/contract/` 无 >400 行文件
+- [x] `tests/integration/` 无 >400 行文件（新建/修改文件最大 384 行；豁免：test_tool_registry_injection_integration.py=511行，非本 milestone 修改范围）
+- [x] TESTING_GUIDE 加"xfail 仅限带 issue 链接 + strict 的已知产品回归"明文规则
 
 ## 测试策略
 
