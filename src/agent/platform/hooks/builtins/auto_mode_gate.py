@@ -827,4 +827,9 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
             run_id, session_id, config, broker,
         )
 
-    hooks.on("tool_call", on_tool_call, priority=20, timeout_ms=None)
+    # mode="intercept": the gate's decision (block/allow) is only meaningful in
+    # dispatch_intercept, which carries the populated tool transcript (ctx with
+    # message_history) and honors the return value. Registering as intercept keeps
+    # it OUT of dispatch_observe, where it would otherwise re-run blind on a ctx
+    # without message_history (empty <transcript>) and burn a discarded model call.
+    hooks.on("tool_call", on_tool_call, priority=20, timeout_ms=None, mode="intercept")

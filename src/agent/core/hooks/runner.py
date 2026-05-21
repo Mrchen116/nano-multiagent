@@ -11,7 +11,7 @@ from agent.core.observability.tracing import span
 
 from .context import HookContext
 from .registry import HookRegistry
-from .types import HookRegistration, HookStatus, ensure_known_hook_event
+from .types import HookEventMode, HookRegistration, HookStatus, ensure_known_hook_event
 
 _log = logging.getLogger("agent.core.hooks.runner")
 
@@ -66,6 +66,14 @@ class HookRunner:
             observe_ctx = _strip_fork_conversation(ctx)
             diagnostics: list[HookExecution] = []
             for registration in self._registry.handlers_for(normalized_event):
+                # Intercept-mode handlers run only in dispatch_intercept, where
+                # their return value is honored against the populated payload/ctx.
+                # Running them here would re-invoke them on an observe ctx (e.g.
+                # the auto_mode_gate classifier on a ctx without message_history)
+                # and discard the result — wasted work, and for the gate a wasted
+                # model call producing a blind, empty-transcript classification.
+                if registration.mode == HookEventMode.INTERCEPT:
+                    continue
                 _, record = await self._execute_handler(
                     registration=registration,
                     payload=payload,
