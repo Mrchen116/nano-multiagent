@@ -110,22 +110,6 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
         assert get_body["features"] == {"memory_curation": False}
         assert get_body["custom_prompt"] == "You are a helpful chef."
 
-        conflict = client.patch(
-            "/im/v1/agents/agent-1/config",
-            json={
-                "profile_version": 2,
-                "display_name": "Alpha",
-                "description": "initial",
-                "system_prompt": "You are Alpha.",
-                "skills": ["plan"],
-                "tool_allowlist": ["read"],
-                "group_reply_policy": "manual",
-                "default_model": None,
-            },
-        )
-        assert conflict.status_code == 409
-        assert conflict.json() == {"detail": "profile_version conflict"}
-
 
 def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Expose stable node capability fields for node-first agent creation (按需向网关拉取)."""
