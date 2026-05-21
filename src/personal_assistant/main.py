@@ -284,6 +284,19 @@ class _IMConfigSyncClient:
                 else:
                     workspace_root = self._workspace_root_factory(agent_id)
                 workspace_root = ensure_workspace_defaults(workspace_root)
+                # feat-379-M2: parse per-agent features/custom_prompt from IM mirror payload
+                raw_features = payload.get("features")
+                synced_features = (
+                    {k: v for k, v in raw_features.items() if isinstance(k, str) and isinstance(v, bool)}
+                    if isinstance(raw_features, dict)
+                    else {}
+                )
+                synced_custom_prompt_val = payload.get("custom_prompt")
+                synced_custom_prompt = (
+                    synced_custom_prompt_val.strip()
+                    if isinstance(synced_custom_prompt_val, str) and synced_custom_prompt_val.strip()
+                    else None
+                )
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,
                     workspace_root=workspace_root,
@@ -313,6 +326,8 @@ class _IMConfigSyncClient:
                         if isinstance(payload.get("default_model"), str) and payload.get("default_model").strip()
                         else None
                     ),
+                    features=synced_features,
+                    custom_prompt=synced_custom_prompt,
                 )
                 self._pipeline.register_agent(agent_config)
                 self._persist_agent_config(agent_config)
@@ -364,6 +379,15 @@ class _IMConfigSyncClient:
         group_reply_policy = grp.strip() if isinstance(grp, str) and grp.strip() else "MENTION"
         dm = agent_payload.get("default_model")
         default_model = dm.strip() if isinstance(dm, str) and dm.strip() else None
+        # feat-379-M2: per-agent features and custom_prompt from IM push payload
+        raw_features = agent_payload.get("features")
+        features = (
+            {k: v for k, v in raw_features.items() if isinstance(k, str) and isinstance(v, bool)}
+            if isinstance(raw_features, dict)
+            else {}
+        )
+        cp_val = agent_payload.get("custom_prompt")
+        custom_prompt = cp_val.strip() if isinstance(cp_val, str) and cp_val.strip() else None
         agent_config = AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
@@ -373,6 +397,8 @@ class _IMConfigSyncClient:
             system_prompt=system_prompt,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
+            features=features,
+            custom_prompt=custom_prompt,
         )
         self._pipeline.register_agent(agent_config)
         self._persist_agent_config(agent_config)
@@ -388,6 +414,8 @@ class _IMConfigSyncClient:
             "group_reply_policy": group_reply_policy,
             "default_model": default_model,
             "workspace_root": str(workspace_root),
+            "features": features,
+            "custom_prompt": custom_prompt,
         }
 
     def close(self) -> None:
@@ -428,6 +456,9 @@ class _IMConfigSyncClient:
                 "group_reply_policy": agent.group_reply_policy or "manual",
                 "default_model": agent.default_model,
                 "workspace_root": str(agent.workspace_root),
+                # feat-379-M2: expose per-agent features/custom_prompt for capabilities reporting
+                "features": dict(agent.features),
+                "custom_prompt": agent.custom_prompt,
             }
             return payload
         return None
