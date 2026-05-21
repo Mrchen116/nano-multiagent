@@ -357,4 +357,8 @@ def _build_turn_metadata(raw: dict[str, Any]) -> dict[str, Any]:
         meta["tool_call_id"] = raw["tool_call_id"]
     if "parts" in raw:
         meta["parts"] = raw["parts"]
+    if "reasoning_content" in raw:
+        meta["reasoning_content"] = raw["reasoning_content"]
+    if "reasoning_signature" in raw:
+        meta["reasoning_signature"] = raw["reasoning_signature"]
     return meta

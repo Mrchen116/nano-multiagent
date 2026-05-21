@@ -248,3 +248,91 @@ async def test_load_with_compact_boundary_skips_pre_boundary_orphans(tmp_path: P
     # Only post-boundary messages should appear
     assert [m.role for m in messages] == ["user", "assistant"]
     assert {m.message_id for m in messages} == {"u_new", "a_new"}
+
+
+async def test_reasoning_fields_survive_jsonl_roundtrip(tmp_path: Path) -> None:
+    """reasoning_content + reasoning_signature written to JSONL and restored as Message fields."""
+    store = JsonlSessionStore(data_dir=tmp_path / "data")
+    path = store.resolve_path("sess_rc")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    _write_turn(path, type="session_created", session_id="sess_rc", created_at="2026-01-01T00:00:00+00:00")
+    _write_turn(path, type="turn", uuid="u1", role="user", content="hello", timestamp="2026-01-01T00:01:00+00:00")
+    _write_turn(
+        path,
+        type="turn",
+        uuid="a1",
+        parent_uuid="u1",
+        group_id="a1",
+        role="assistant",
+        content="sure",
+        reasoning_content="inner monologue: let me think",
+        reasoning_signature="sig-deadbeef",
+        timestamp="2026-01-01T00:01:01+00:00",
+    )
+
+    result = store.load("sess_rc")
+    messages = result.messages
+    asst = next(m for m in messages if m.role == "assistant")
+
+    assert asst.reasoning_content == "inner monologue: let me think", (
+        "reasoning_content must survive JSONL roundtrip"
+    )
+    assert asst.reasoning_signature == "sig-deadbeef", (
+        "reasoning_signature must survive JSONL roundtrip"
+    )
+
+
+async def test_tool_call_id_survives_jsonl_roundtrip(tmp_path: Path) -> None:
+    """tool_call_id on tool messages is written and restored via jsonl_store.load()."""
+    store = JsonlSessionStore(data_dir=tmp_path / "data")
+    path = store.resolve_path("sess_tc")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    _write_turn(path, type="session_created", session_id="sess_tc", created_at="2026-01-01T00:00:00+00:00")
+    _write_turn(path, type="turn", uuid="u1", role="user", content="read a file", timestamp="2026-01-01T00:01:00+00:00")
+    _write_turn(
+        path,
+        type="turn",
+        uuid="a1",
+        parent_uuid="u1",
+        group_id="a1",
+        role="assistant",
+        content="",
+        tool_calls=[
+            {"call_id": "call-X", "name": "read", "arguments": {"path": "x.py"}},
+            {"call_id": "call-Y", "name": "read", "arguments": {"path": "y.py"}},
+        ],
+        timestamp="2026-01-01T00:01:01+00:00",
+    )
+    _write_turn(
+        path,
+        type="turn",
+        uuid="t1",
+        parent_uuid="a1",
+        group_id="a1",
+        role="tool",
+        content="x content",
+        tool_call_id="call-X",
+        timestamp="2026-01-01T00:01:02+00:00",
+    )
+    _write_turn(
+        path,
+        type="turn",
+        uuid="t2",
+        parent_uuid="a1",
+        group_id="a1",
+        role="tool",
+        content="y content",
+        tool_call_id="call-Y",
+        timestamp="2026-01-01T00:01:03+00:00",
+    )
+
+    result = store.load("sess_tc")
+    messages = result.messages
+    tool_msgs = [m for m in messages if m.role == "tool"]
+
+    assert len(tool_msgs) == 2
+    call_ids = {m.tool_call_id for m in tool_msgs}
+    assert "call-X" in call_ids, "call-X must survive JSONL roundtrip"
+    assert "call-Y" in call_ids, "call-Y must survive JSONL roundtrip"

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
@@ -502,17 +503,16 @@ class AgentRuntime:
                     messages_snapshot=messages_snapshot,
                     session_id=session_id,
                     tool_allowlist=(),  # caller (background hook) specifies allowlist
+                    # Inherit the turn's execution context (model_caller /
+                    # permission_requester) so hooks work inside the fork.
+                    parent_hook_ctx=hook_ctx,
                 )
 
-                background_hook_ctx = HookContext(
-                    session_id=hook_ctx.session_id,
-                    turn_id=hook_ctx.turn_id,
-                    repo_root=hook_ctx.repo_root,
-                    metadata=dict(hook_ctx.metadata),
-                    model_caller=hook_ctx.model_caller,
-                    session_event_publisher=hook_ctx.session_event_publisher,
-                    fork_conversation=fork_fn,
-                )
+                # replace() derives from the turn's hook_ctx, preserving every field
+                # (model_caller / permission_requester / message_history) and only
+                # attaching fork_conversation. The hand-listed rebuild had been
+                # dropping permission_requester + message_history.
+                background_hook_ctx = replace(hook_ctx, fork_conversation=fork_fn)
                 self._hook_runner.dispatch_background("agent_end", agent_end_payload, background_hook_ctx)
 
         return turn_result
@@ -760,13 +760,18 @@ class AgentRuntime:
                 old_parent = msg.parent_message_id
                 new_parent = old_to_new_uuid.get(old_parent) if old_parent else None
 
-                new_msg = Message(
+                # replace() re-stamps only the fork-specific fields (new ids /
+                # parent chain / metadata) and preserves every other field —
+                # notably reasoning_content / reasoning_signature. A hand-listed
+                # Message(...) rebuild had been dropping the reasoning fields, so a
+                # forked thinking-enabled session lost its <thinking> blocks and the
+                # next turn was rejected upstream with "reasoning_content is missing"
+                # (same brittle pattern fixed in _strip_fork_conversation).
+                new_msg = replace(
+                    msg,
                     message_id=new_uuid,
-                    role=msg.role,
-                    content=msg.content,
                     parent_message_id=new_parent,
                     group_id=old_to_new_uuid.get(msg.group_id) if msg.group_id else None,
-                    tool_call_id=msg.tool_call_id,
                     metadata=dict(msg.metadata),
                 )
                 new_history.append(new_msg)
@@ -1360,6 +1365,10 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
         entry["tool_error"] = meta["tool_error"]
     if meta.get("tool_output") is not None:
         entry["tool_output"] = meta["tool_output"]
+    if msg.reasoning_content is not None:
+        entry["reasoning_content"] = msg.reasoning_content
+    if msg.reasoning_signature is not None:
+        entry["reasoning_signature"] = msg.reasoning_signature
     return entry
 
 

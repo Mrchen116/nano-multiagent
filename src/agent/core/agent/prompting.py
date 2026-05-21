@@ -1,4 +1,5 @@
 """Prompt assembly utilities for runtime/system/tool context injection."""
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -90,6 +91,13 @@ def build_chat_messages(
     Returns:
         Ordered message tuple: history, then current user. No system message.
     """
+    # Coalesce assistant Message rows that share a group_id before converting.
+    # When parallel tool_use blocks stream in as separate LLM chunks, each chunk
+    # is persisted as its own JSONL row but all share the same group_id (set by
+    # loop.py). Without coalescing, build_chat_messages would emit separate
+    # assistant LLMMessages whose tool_use↔tool_result pairing breaks on reload.
+    history_messages = _coalesce_assistant_group(history_messages)
+
     messages: list[LLMMessage] = []
     for message in history_messages:
         metadata = dict(message.metadata)
@@ -100,6 +108,8 @@ def build_chat_messages(
                 name=message.name,
                 tool_call_id=message.tool_call_id or _extract_tool_call_id(metadata),
                 tool_calls=_extract_tool_calls(metadata),
+                reasoning_content=message.reasoning_content,
+                reasoning_signature=message.reasoning_signature,
             )
         )
     messages = _merge_adjacent_assistant(messages)
@@ -327,6 +337,51 @@ def _estimate_text_tokens(text: str) -> int:
     return max(1, (len(normalized) + 7) // 8)
 
 
+def _coalesce_assistant_group(messages: tuple[Message, ...]) -> tuple[Message, ...]:
+    """Merge assistant Message rows that share a group_id into one row.
+
+    Parallel tool_use blocks from a single LLM response stream as separate
+    Message rows but all carry the same group_id (set in loop.py). Without
+    coalescing, build_chat_messages emits separate assistant LLMMessages whose
+    tool_use↔tool_result pairing breaks when history is reloaded from JSONL.
+    """
+    if not messages:
+        return messages
+
+    from agent.core.types import ToolCall
+
+    result: list[Message] = []
+    # Map group_id → index in result for fast lookup of the canonical row.
+    assistant_group_index: dict[str, int] = {}
+
+    for msg in messages:
+        if msg.role == "assistant" and msg.group_id:
+            existing_idx = assistant_group_index.get(msg.group_id)
+            if existing_idx is not None:
+                prev = result[existing_idx]
+                # Merge tool_calls from both rows.
+                prev_calls = list(prev.metadata.get("tool_calls", []))
+                new_calls = list(msg.metadata.get("tool_calls", []))
+                merged_meta = {**dict(prev.metadata), "tool_calls": prev_calls + new_calls}
+                # replace() preserves prev's identity/structure fields and only
+                # overrides the merged ones; any field added to Message later is
+                # carried automatically instead of being silently dropped here.
+                result[existing_idx] = replace(
+                    prev,
+                    content=(prev.content or "") + (msg.content or ""),
+                    metadata=merged_meta,
+                    reasoning_content=prev.reasoning_content or msg.reasoning_content,
+                    reasoning_signature=prev.reasoning_signature or msg.reasoning_signature,
+                )
+            else:
+                assistant_group_index[msg.group_id] = len(result)
+                result.append(msg)
+        else:
+            result.append(msg)
+
+    return tuple(result)
+
+
 def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:
     """Merge adjacent assistant role messages into one (multi-content-blocks)."""
     result: list[LLMMessage] = []
@@ -340,6 +395,10 @@ def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:
                 content=merged_content,
                 tool_calls=merged_tool_calls,
                 tool_call_id=prev.tool_call_id,
+                # Preserve thinking block from the first message so providers that
+                # require reasoning round-trip (e.g. kimi K2.6) don't reject the turn.
+                reasoning_content=prev.reasoning_content or msg.reasoning_content,
+                reasoning_signature=prev.reasoning_signature or msg.reasoning_signature,
             )
         else:
             result.append(msg)

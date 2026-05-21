@@ -26,6 +26,7 @@ def test_llm_message_contract() -> None:
         "finish_reason",
         "usage",
         "reasoning_content",
+        "reasoning_signature",
     ]
 
 

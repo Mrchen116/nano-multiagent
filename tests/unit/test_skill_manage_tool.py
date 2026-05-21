@@ -232,3 +232,42 @@ def test_unknown_action_returns_error(tool: SkillManageTool, workspace: Path) ->
     result = tool.run({"action": "delete", "name": "x"}, ctx)
     # delete is not in the supported actions for this project
     assert result.get("success") is False
+
+
+# ---------------------------------------------------------------------------
+# bugfix-375/M2 (issue #49): write_file / remove_file via the tool
+# ---------------------------------------------------------------------------
+
+_FM = "---\nname: umb\ndescription: d\n---\n\n# Body\n"
+
+
+def test_tool_write_file_then_view_lists_it(tool: SkillManageTool) -> None:
+    assert tool.run({"action": "create", "name": "umb", "content": _FM}, ctx=None)["success"]
+    r = tool.run(
+        {"action": "write_file", "name": "umb", "file_path": "references/n.md", "file_content": "x"},
+        ctx=None,
+    )
+    assert r["success"], r
+    v = tool.run({"action": "view", "name": "umb"}, ctx=None)
+    assert "references/n.md" in v.get("support_files", [])
+
+
+def test_tool_write_file_rejects_bad_path(tool: SkillManageTool) -> None:
+    tool.run({"action": "create", "name": "umb", "content": _FM}, ctx=None)
+    r = tool.run(
+        {"action": "write_file", "name": "umb", "file_path": "secrets/k", "file_content": "x"},
+        ctx=None,
+    )
+    assert not r["success"]
+
+
+def test_tool_remove_file(tool: SkillManageTool) -> None:
+    tool.run({"action": "create", "name": "umb", "content": _FM}, ctx=None)
+    tool.run(
+        {"action": "write_file", "name": "umb", "file_path": "scripts/p.sh", "file_content": "x"},
+        ctx=None,
+    )
+    r = tool.run({"action": "remove_file", "name": "umb", "file_path": "scripts/p.sh"}, ctx=None)
+    assert r["success"], r
+    v = tool.run({"action": "view", "name": "umb"}, ctx=None)
+    assert "scripts/p.sh" not in v.get("support_files", [])
