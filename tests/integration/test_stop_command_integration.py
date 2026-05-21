@@ -1,7 +1,7 @@
 """Integration test: session interrupt API with blocking runtime."""
 
+import asyncio
 import time
-from threading import Event
 
 from fastapi.testclient import TestClient
 
@@ -11,11 +11,14 @@ from agent.core.types import Message, TurnResult
 
 class _BlockingRuntime:
     def __init__(self) -> None:
-        self.release = Event()
+        self.release = asyncio.Event()
 
-    def run(self, session_id, parts, *, stream=True, run_id=None, controller=None):  # noqa: ANN001, ANN201
-        del session_id, parts, stream, run_id, controller
-        self.release.wait(timeout=1.0)
+    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None, origin=None):  # noqa: ANN001, ANN201
+        del session_id, parts, stream, run_id, controller, origin
+        try:
+            await asyncio.wait_for(self.release.wait(), timeout=1.0)
+        except TimeoutError:
+            pass
         return TurnResult(
             session_id="sess_stop_integration",
             turn_id="turn_stop_integration",
@@ -52,11 +55,11 @@ def test_interrupted_run_returns_interrupted_true_and_run_id() -> None:
     session_id = created.json()["session_id"]
 
     submitted = client.post(
-        f"/v1/sessions/{session_id}/messages:async",
+        f"/v1/sessions/{session_id}/messages",
         json={"parts": [{"type": "text", "text": "stop me"}]},
         headers=_auth_headers("req-stop-integration-submit"),
     )
-    assert submitted.status_code == 202
+    assert submitted.status_code == 200
     run_id = submitted.json()["run_id"]
 
     _wait_for_running(client, run_id)

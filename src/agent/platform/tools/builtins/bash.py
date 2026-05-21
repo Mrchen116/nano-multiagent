@@ -421,11 +421,28 @@ class BashTool:
             raise
 
         stdout = ""
+        line_truncated = False
         if execution.output_file_path:
             file_path = Path(execution.output_file_path)
             if file_path.exists():
-                stdout = file_path.read_text(encoding="utf-8")
-                file_path.unlink(missing_ok=True)
+                raw = file_path.read_text(encoding="utf-8")
+                runner = self._get_bash_runner()
+                cfg = runner._config
+                lines = raw.splitlines()
+                if len(lines) > cfg.bash_max_output_lines:
+                    # Keep last N lines (tail) to preserve most relevant recent output.
+                    lines = lines[-cfg.bash_max_output_lines:]
+                    line_truncated = True
+                stdout = "\n".join(lines)
+                # Re-check byte ceiling after line truncation.
+                encoded = stdout.encode("utf-8")
+                if len(encoded) > cfg.bash_max_output_bytes:
+                    stdout = encoded[-cfg.bash_max_output_bytes:].decode("utf-8", errors="replace")
+                    line_truncated = True
+                # Only unlink when not truncated — fullOutputPath should be accessible
+                # by the caller when the full output exceeds the display budget.
+                if not line_truncated:
+                    file_path.unlink(missing_ok=True)
         elif execution.text:
             stdout = execution.text
 
@@ -472,11 +489,12 @@ class BashTool:
                 details=details,
             )
 
+        truncated = execution.truncated or line_truncated
         result: dict[str, Any] = {
             "stdout": stdout,
             "stderr": "",
             "exitCode": execution.exit_code,
-            "truncated": execution.truncated,
+            "truncated": truncated,
         }
         if execution.output_file_path:
             result["fullOutputPath"] = execution.output_file_path
