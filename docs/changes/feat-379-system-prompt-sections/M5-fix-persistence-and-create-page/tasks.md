@@ -45,7 +45,7 @@
 |---|---|---|
 | R1 | IM PATCH/GET — UpdateAgentConfigRequest 加 features+custom_prompt 字段 | DONE |
 | R2 | AgentConfigResponse 加 features+custom_prompt + to_agent_config_response 更新 | DONE |
-| R3 | 验证 Gateway sync_agent features 写回 config.yaml 链路 | TODO |
-| R4 | ISSUE-3: 验证 features 门控真正影响 assemble_system_prompt | TODO |
-| R5 | ISSUE-1: agent-create-page Behavior card 重构(Custom Instructions + Features + Preview) | TODO |
-| R6 | ISSUE-4: capabilities default_system_prompt 废弃/更新 | TODO |
+| R3 | 验证 Gateway sync_agent features 写回 config.yaml 链路 | DONE |
+| R4 | ISSUE-3: 验证 features 门控真正影响 assemble_system_prompt | DONE |
+| R5 | ISSUE-1: agent-create-page Behavior card 重构(Custom Instructions + Features + Preview) | DONE |
+| R6 | ISSUE-4: capabilities default_system_prompt 废弃/更新 | DONE |
