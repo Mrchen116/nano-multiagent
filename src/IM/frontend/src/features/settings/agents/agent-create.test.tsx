@@ -160,6 +160,8 @@ describe("agent create page (three-card)", () => {
         display_name: "Agent New",
         description: "runtime-created helper",
         system_prompt: "You are Agent New.",
+        // feat-379-M3: custom_prompt is always included (empty string when not filled)
+        custom_prompt: "",
         skills: ["plan"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
@@ -210,13 +212,12 @@ describe("agent create page (three-card)", () => {
     renderCreatePage();
 
     await screen.findByRole("heading", { name: /New agent/i });
-    const promptInput = screen.getByLabelText(/^System Prompt/);
-    fireEvent.change(promptInput, { target: { value: "" } });
+    // feat-379-M3: system_prompt is no longer required; submit with all fields blank
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/Agent ID is required/i)).toBeInTheDocument();
     expect(screen.getByText(/Display name is required/i)).toBeInTheDocument();
-    expect(screen.getByText(/System prompt is required/i)).toBeInTheDocument();
+    // system_prompt required check removed — segment system provides defaults (feat-379-M3)
     expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
   });

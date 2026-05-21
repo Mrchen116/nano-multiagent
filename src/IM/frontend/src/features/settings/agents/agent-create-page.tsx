@@ -24,7 +24,9 @@ function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
     agent_id: normalizeText(draft.agent_id),
     display_name: normalizeText(draft.display_name),
     description: normalizeText(draft.description),
+    // feat-379-M3: system_prompt preserved for API compat but no longer required
     system_prompt: draft.system_prompt.trim(),
+    custom_prompt: (draft.custom_prompt ?? "").trim(),
     skills: normalizeAllowlist(draft.skills),
     tool_allowlist: normalizeAllowlist(draft.tool_allowlist),
     default_model: normalizeText(draft.default_model ?? "") || null,
@@ -33,14 +35,14 @@ function normalizeDraft(draft: CreateAgentFormState): CreateAgentFormState {
 }
 
 function validateDraft(draft: CreateAgentFormState) {
-  const errors: Partial<Record<"agent_id" | "display_name" | "system_prompt", string>> = {};
+  // feat-379-M3: system_prompt no longer required; segment system provides defaults
+  const errors: Partial<Record<"agent_id" | "display_name", string>> = {};
   if (!draft.agent_id) {
     errors.agent_id = "Agent ID is required.";
   } else if (!/^[a-z0-9_-]+$/.test(draft.agent_id)) {
     errors.agent_id = "Lowercase letters, numbers, _ and - only.";
   }
   if (!draft.display_name) errors.display_name = "Display name is required.";
-  if (!draft.system_prompt) errors.system_prompt = "System prompt is required.";
   return errors;
 }
 
@@ -134,11 +136,11 @@ export function AgentCreatePage() {
     }
   });
 
-  function markTouched(field: "agent_id" | "display_name" | "system_prompt") {
+  function markTouched(field: "agent_id" | "display_name") {
     setTouched((current) => ({ ...current, [field]: true }));
   }
 
-  function shouldShowError(field: "agent_id" | "display_name" | "system_prompt") {
+  function shouldShowError(field: "agent_id" | "display_name") {
     return (hasSubmitted || touched[field]) && validationErrors[field];
   }
 
@@ -358,11 +360,9 @@ export function AgentCreatePage() {
               id="system-prompt"
               className="im-agent-textarea"
               value={draft.system_prompt}
-              aria-invalid={Boolean(shouldShowError("system_prompt"))}
               aria-describedby="system-prompt-help"
               placeholder={t("agents.form.behavior.systemPromptPlaceholder")}
               rows={isMobile ? 5 : 7}
-              onBlur={() => markTouched("system_prompt")}
               onChange={(event) => {
                 setErrorMessage(null);
                 setDraft({ ...draft, system_prompt: event.target.value });
@@ -371,9 +371,7 @@ export function AgentCreatePage() {
             <p id="system-prompt-help" className="im-agent-field-help">
               {t("agents.form.behavior.systemPromptHelp")}
             </p>
-            {shouldShowError("system_prompt") ? (
-              <p className="im-agent-field-error">{validationErrors.system_prompt}</p>
-            ) : null}
+            {/* feat-379-M3: system_prompt no longer required, no error shown */}
           </div>
           <div className="im-agent-field">
             <Label.Root htmlFor="group-reply-policy">{t("agents.form.behavior.policy")}</Label.Root>
