@@ -50,34 +50,34 @@ UI 状态矩阵：N/A（纯后端）
 
 - 步骤: 实现 `feature_registry.py`（FEATURE_REGISTRY 常量骨架，含 memory_curation、skill_creation 两条记录，不填充实现细节，留 M2 填充）
 - 验证: import 不报错，单测骨架字段结构
-- 状态: TODO
+- 状态: DONE
 
 ### R3 — core 段迁移（core_sections.py）
 
 - 步骤: 实现 `core_sections.py`，迁移 core.*（system 现有文案、tool_rules 现状、runtime_tools、skills_listing、memory_guidance、skills_guidance、background_tasks 改为 Agent 工具门控、runtime_footer）；M4 的新增/改写段留存文件占位注释但不实现内容变更
 - 验证: 段单测 + LC golden 部分通过
-- 状态: TODO
+- 状态: DONE
 
 ### R4 — PA 产品段迁移（personal_assistant/prompt_sections.py）
 
 - 步骤: 实现 PA 段集合（pa.identity/runtime/memory_intro/heartbeat/platform_policy/guidelines/routing/user_custom/communication_context），从现有 `prompts.py` 逐字搬迁，更新 PA profile 注册 prompt_sections
 - 验证: PA golden 等价测试全绿（bugfix-358 文案逐字验证）
-- 状态: TODO
+- 状态: DONE
 
 ### R5 — LC 产品段迁移（local_coding/prompt_sections.py）
 
 - 步骤: 实现 LC 段集合（lc.identity/guidelines），从 `prompts.py` 逐字搬迁，更新 LC profile
 - 验证: LC golden 等价测试全绿
-- 状态: TODO
+- 状态: DONE
 
 ### R6 — ProductProfile.prompt_sections 字段 + bootstrap 装配
 
 - 步骤: `products/base.py` 新增 `prompt_sections` 字段；`bootstrap.py` 把 core 段 + 产品段合并 → `ResolvedProductConfig` 暴露 `prompt_sections` + `resolved_prompt_sections` 列表
 - 验证: contract 测试不破；产品 profile 能正确注册段
-- 状态: TODO
+- 状态: DONE
 
 ### R7 — runtime/loop scenario 接线 + communication_context hook 退役
 
 - 步骤: `runtime._run_locked` 把 hook_metadata 里的 scenario 字段打包成 PromptContext；loop.run 改为传 PromptContext 到 assemble_system_prompt；communication_context.py 中 before_agent_start 的 prompt 改写逻辑删除（hook setup 保留但 prompt 改写分支移除）；文档化退役注释
 - 验证: 全套 golden 测试（含群聊场景）通过；pytest -m "not e2e" 全绿
-- 状态: TODO
+- 状态: DONE
