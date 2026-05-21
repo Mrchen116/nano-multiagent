@@ -118,3 +118,22 @@ def _e2e_session_process_leak_finalizer() -> Iterable[None]:
         return
     killed = _kill_leaked_processes(leaked)
     _emit_warnings(killed)
+
+
+# refactor-372-M1: 按路径自动给 tests/e2e/ 下的所有 item 打 e2e marker。
+# 用 hook 而非逐文件手写 pytestmark，保证新增文件天然被覆盖不会再漏标。
+# TESTING_GUIDE §3 已认可此法；design.md 决策 1 选定此方案。
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Auto-apply ``e2e`` marker to every item whose path is inside ``tests/e2e/``.
+
+    Prevents ``pytest -m "not e2e"`` from accidentally collecting tests that
+    need real processes or network services.  Previously only 4 of 29 e2e
+    files carried the marker explicitly; the other 25 leaked into the baseline
+    run and caused spurious failures.
+    """
+    e2e_marker = pytest.mark.e2e
+    for item in items:
+        if "tests/e2e/" in str(item.path):
+            item.add_marker(e2e_marker, append=False)

@@ -47,8 +47,9 @@ class _RuntimeStub:
         skills: tuple[str, ...] | None = None,
         tool_allowlist: tuple[str, ...] | None = None,
         metadata=None,
+        parent_session_id: str | None = None,
     ) -> _Session:
-        del workspace_root, title, system_prompt, skills, tool_allowlist, metadata
+        del workspace_root, title, system_prompt, skills, tool_allowlist, metadata, parent_session_id
         self.created += 1
         return _Session(session_id=f"sess_task_with_resolver_{self.created}")
 

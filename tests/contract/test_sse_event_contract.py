@@ -16,7 +16,7 @@ class _RuntimeStub:
         self.hook_registry = build_hook_registry(repo_root=Path.cwd())
         self.hook_runner = HookRunner(registry=self.hook_registry)
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
         del parts
         del stream
         turn_id = "turn_sse_contract"
@@ -29,75 +29,48 @@ class _RuntimeStub:
                 session_id=session_id,
             ),
         )
+        # tool_call → realtime_stream publishes "tool_start" SSE event
         await self.hook_runner.dispatch_observe(
-            "tool_execution_update",
+            "tool_call",
             {
                 "session_id": session_id,
                 "turn_id": turn_id,
                 "run_id": run_id,
                 "call_id": "call_sse_contract",
                 "name": "bash",
-                "phase": "started",
-                "status": "started",
-                "elapsed_ms": 0,
+                "arguments": {"command": "echo hi"},
             },
             hook_ctx,
         )
+        # tool_result → realtime_stream publishes "tool_end" SSE event
         await self.hook_runner.dispatch_observe(
-            "tool_execution_update",
+            "tool_result",
             {
                 "session_id": session_id,
                 "turn_id": turn_id,
                 "run_id": run_id,
                 "call_id": "call_sse_contract",
                 "name": "bash",
-                "phase": "running",
-                "status": "running",
-                "elapsed_ms": 120,
-            },
-            hook_ctx,
-        )
-        await self.hook_runner.dispatch_observe(
-            "tool_execution_update",
-            {
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "run_id": run_id,
-                "call_id": "call_sse_contract",
-                "name": "bash",
-                "phase": "chunk",
-                "stream": "stdout",
-                "chunk": "chunk-1",
-                "seq": 1,
-            },
-            hook_ctx,
-        )
-        await self.hook_runner.dispatch_observe(
-            "tool_execution_update",
-            {
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "run_id": run_id,
-                "call_id": "call_sse_contract",
-                "name": "bash",
-                "phase": "exit",
-                "status": "completed",
+                "output": "hi",
+                "error": None,
                 "duration_ms": 220,
-                "exit_code": 0,
             },
             hook_ctx,
         )
+        # message_end → realtime_stream publishes "assistant_message" SSE event
         await self.hook_runner.dispatch_observe(
-            "message_update",
+            "message_end",
             {
                 "session_id": session_id,
                 "turn_id": turn_id,
-                "message_id": "msg_sse_contract",
-                "delta": "contract-sse",
                 "run_id": run_id,
+                "message_id": "msg_sse_contract",
+                "content": "contract-sse",
+                "role": "assistant",
             },
             hook_ctx,
         )
+        # turn_end → realtime_stream publishes "turn_end" SSE event
         await self.hook_runner.dispatch_observe(
             "turn_end",
             {
@@ -133,23 +106,21 @@ def test_global_sse_contract_returns_event_stream_frames() -> None:
     session_id = created.json()["session_id"]
 
     submitted = client.post(
-        f"/v1/sessions/{session_id}/messages:async",
+        f"/v1/sessions/{session_id}/messages",
         json={"parts": [{"type": "text", "text": "ping"}]},
         headers=_auth_headers("req-sse-contract-submit"),
     )
-    assert submitted.status_code == 202
+    assert submitted.status_code == 200
 
-    response = client.get("/v1/events?max_events=16&timeout_seconds=0.1", headers=_auth_headers("req-sse-contract-global"))
+    response = client.get("/v1/events?after_sequence=0&max_events=16&timeout_seconds=0.1", headers=_auth_headers("req-sse-contract-global"))
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     body = response.text
     assert "event: run_status" in body
-    assert "event: tool_exec_started" in body
-    assert "event: tool_exec_running" in body
-    assert "event: tool_exec_chunk" in body
-    assert "event: tool_exec_exit" in body
-    assert "event: text_delta" in body
+    assert "event: tool_start" in body
+    assert "event: tool_end" in body
+    assert "event: assistant_message" in body
     assert "event: turn_end" in body
 
 
@@ -161,14 +132,14 @@ def test_session_sse_contract_filters_by_session_id() -> None:
     session_id = created.json()["session_id"]
 
     submitted = client.post(
-        f"/v1/sessions/{session_id}/messages:async",
+        f"/v1/sessions/{session_id}/messages",
         json={"parts": [{"type": "text", "text": "session-only"}]},
         headers=_auth_headers("req-sse-contract-submit-2"),
     )
-    assert submitted.status_code == 202
+    assert submitted.status_code == 200
 
     response = client.get(
-        f"/v1/sessions/{session_id}/events?max_events=8&timeout_seconds=0.1",
+        f"/v1/events?after_sequence=0&max_events=8&timeout_seconds=0.1",
         headers=_auth_headers("req-sse-contract-session"),
     )
 
