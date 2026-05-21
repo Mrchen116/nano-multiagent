@@ -756,6 +756,8 @@ def test_save_custom_prompt_round_trip(tmp_path: Path) -> None:
 
 def test_save_omits_empty_features(tmp_path: Path) -> None:
     """Empty features dict must not be written to YAML output."""
+    import yaml as _yaml
+
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
     config_path = tmp_path / "config.yaml"
@@ -778,6 +780,8 @@ def test_save_omits_empty_features(tmp_path: Path) -> None:
 
 def test_save_omits_none_custom_prompt(tmp_path: Path) -> None:
     """None custom_prompt must not appear in serialized YAML."""
+    import yaml as _yaml
+
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
     config_path = tmp_path / "config.yaml"
