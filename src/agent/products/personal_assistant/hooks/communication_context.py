@@ -1,4 +1,16 @@
-"""Group/direct communication context injection for personal_assistant."""
+"""Communication context helpers for personal_assistant.
+
+The before_agent_start hook that used to inject a system_prompt override with
+the [Communication Context] block has been retired in feat-379-M1.  Group-chat
+context is now handled by the pa.communication_context segment (order=900,
+cache_safe=False) which is assembled by assemble_system_prompt each turn and
+reads scenario data from PromptContext.scenario — no hook side-channel needed.
+
+_build_communication_context_block is kept here (not deleted) because:
+  1. It carries the bugfix-358 mention-tag format verbatim.
+  2. prompt_sections.py::_render_communication_context imports it to avoid
+     duplicating the exact text that regression tests verify character-for-character.
+"""
 
 from __future__ import annotations
 
@@ -78,44 +90,11 @@ def _build_communication_context_block(
 
 
 def setup(hooks: Any) -> None:  # noqa: ANN401
-    def _before_agent_start(payload: Mapping[str, Any], ctx: Any) -> dict[str, Any] | None:
-        metadata: Mapping[str, Any] = getattr(ctx, "metadata", {}) or {}
-        conversation_type = metadata.get("conversation_type")
-        if not isinstance(conversation_type, str) or not conversation_type:
-            return None
-
-        agent_id = metadata.get("agent_id")
-        if not isinstance(agent_id, str):
-            agent_id = None
-
-        # M247: prefer structured participants list over flat agent-id list.
-        raw_participants = metadata.get("participants")
-        participants: list[dict[str, str]] | None = None
-        if isinstance(raw_participants, list):
-            participants = [dict(p) for p in raw_participants if isinstance(p, dict)]
-
-        raw_agent_ids = metadata.get("participant_agent_ids")
-        participant_agent_ids: list[str] | None = None
-        if isinstance(raw_agent_ids, list):
-            participant_agent_ids = [str(p) for p in raw_agent_ids if isinstance(p, str)]
-
-        context_block = _build_communication_context_block(
-            conversation_type=conversation_type,
-            agent_id=agent_id,
-            participant_agent_ids=participant_agent_ids,
-            participants=participants,
-        )
-
-        base_prompt = payload.get("system_prompt")
-        if not isinstance(base_prompt, str) or not base_prompt.strip():
-            session_prompt = metadata.get("system_prompt")
-            if isinstance(session_prompt, str) and session_prompt.strip():
-                base_prompt = session_prompt
-        if isinstance(base_prompt, str) and base_prompt.strip():
-            enriched = base_prompt.rstrip() + "\n\n" + context_block
-        else:
-            enriched = context_block
-
-        return {"system_prompt": enriched}
-
-    hooks.on("before_agent_start", _before_agent_start, priority=200, timeout_ms=500)
+    # feat-379-M1: before_agent_start prompt injection retired.
+    # Previously this handler built a [Communication Context] block and appended
+    # it to the system prompt via the hook side-channel. That mechanism is
+    # superseded by the pa.communication_context segment (order=900) which is
+    # assembled by assemble_system_prompt from PromptContext.scenario each turn.
+    # The hook registration is intentionally removed; other hooks that listen on
+    # before_agent_start (e.g. auto_mode_gate, default_status) are unaffected.
+    pass
