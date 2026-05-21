@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
@@ -760,13 +761,18 @@ class AgentRuntime:
                 old_parent = msg.parent_message_id
                 new_parent = old_to_new_uuid.get(old_parent) if old_parent else None
 
-                new_msg = Message(
+                # replace() re-stamps only the fork-specific fields (new ids /
+                # parent chain / metadata) and preserves every other field —
+                # notably reasoning_content / reasoning_signature. A hand-listed
+                # Message(...) rebuild had been dropping the reasoning fields, so a
+                # forked thinking-enabled session lost its <thinking> blocks and the
+                # next turn was rejected upstream with "reasoning_content is missing"
+                # (same brittle pattern fixed in _strip_fork_conversation).
+                new_msg = replace(
+                    msg,
                     message_id=new_uuid,
-                    role=msg.role,
-                    content=msg.content,
                     parent_message_id=new_parent,
                     group_id=old_to_new_uuid.get(msg.group_id) if msg.group_id else None,
-                    tool_call_id=msg.tool_call_id,
                     metadata=dict(msg.metadata),
                 )
                 new_history.append(new_msg)

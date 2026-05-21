@@ -91,6 +91,8 @@
 
 ## 修复
 
+> **追加（co-root-cause D，thinking 相关）**：本 unit 收尾的真 e2e（deep bug-finding，跨重启续跑）中，agent 自己挖出并经核实属实的一处同类缺陷——`runtime.py` 的 `_fork_locked`（session fork 路径）用手写逐字段 `Message(...)` 重建，**漏拷 `reasoning_content` / `reasoning_signature`**：fork 一个开 thinking 的 session 后，所有 assistant 的 thinking 块被丢，fork 的下一轮被上游以 `reasoning_content is missing` 拒、会话不可用。与 bugfix-377 修的 `_strip_fork_conversation` 同一"手写重建漏字段"反模式，按用户要求并入本 thinking unit。修法：改用 `dataclasses.replace(msg, …)` 只重新打戳 fork 专属字段、保全其余全部字段；红测 `tests/unit/test_fork_session.py::test_fork_preserves_reasoning_content_and_signature`（改前 red：fork 后 reasoning 为空 / 改后 green）。
+
 改动涉及 4 个文件，commit `455d1456`：
 
 ### 1. `src/agent/core/llm/interfaces.py` — 新增 `reasoning_signature` 字段
