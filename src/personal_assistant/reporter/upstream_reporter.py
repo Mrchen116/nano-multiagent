@@ -123,7 +123,11 @@ def build_runtime_capabilities() -> ReporterCapabilities:
         skills=_build_skill_capability_entries(),
         tools=_build_tool_names(),
         platform_default_model=get_default_model(DEFAULT_PROVIDER),
-        default_system_prompt=PERSONAL_ASSISTANT_PROFILE.default_system_prompt,
+        # feat-379-M5 (ISSUE-4): do NOT expose the raw RUNTIME_FILL template; the
+        # sections assembler owns prompt construction at runtime.  Consumers (IM
+        # agent-create page) that relied on this field for a system_prompt prefill
+        # are migrated to custom_prompt (R5) — empty string is the safe neutral value.
+        default_system_prompt="",
     )
 
 
