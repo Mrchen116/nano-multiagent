@@ -58,4 +58,67 @@ Round 3 验收报告确认 3 个 issue 连续 fail 根因在 Gateway 集成层�
 ### R4 — live chain 验证
 
 - Context: 起完整 live chain 验证上述 3 个修复都真实通过。
-- Evidence: 见下文「Live Chain 证据」
+- Evidence:
+
+---
+
+## Live Chain 证据（Round 3）
+
+服务：IM port 63868 (PID 9357, JWT secret=feat-379-m7-live-chain, DB=.im-m7.sqlite3)、Gateway node=wt-feat-379-m7 (M7 kernel port 65237)、用户 nano，token JWT sub=cb2674b51eb242cea7fc27f07d4b9c28
+
+### ISSUE-1: node.capabilities 携带 features 投影
+
+修复：`upstream_reporter.py` 新增 `build_node_capabilities_payload()`，在 `im_connection.py` 的 `node.capabilities.resolve` handler 中替换 `build_runtime_capabilities().as_payload()`；前端 `NodeCapabilitiesWire` 接口补 `features?: AgentFeature[]` 字段。
+
+证据：
+```
+curl GET http://127.0.0.1:63868/im/v1/nodes/wt-feat-379-m7/capabilities
+→ "features": [
+    {"key": "memory_curation", "available": true, "default_on": true, ...},
+    {"key": "skill_creation",  "available": true, "default_on": true, ...}
+  ]
+```
+返回 2 项 features，均 available=true。PASS。
+
+### ISSUE-2: PATCH features+custom_prompt → IM 重启后不丢失
+
+修复三处：
+1. `routes/agents.py` PATCH route：`payload.features if payload.features else None` → `payload.features if payload.features is not None else None`（Python falsy 误判）
+2. `repositories.py` upsert_profile：ON CONFLICT CASE WHEN 保留 features（M6 已修，本 Round 确认生效）
+3. `routes/agents.py` `_merge_live_agent_profile`：补 `features=profile.features, custom_prompt=profile.custom_prompt`（**本 Round 发现的新根因**：live-merge path 覆盖 IM-owned 字段）
+
+证据：
+```
+BEFORE PATCH:
+  GET /config → features={}, custom_prompt=null
+
+PATCH {"features": {"memory_curation": false}, "custom_prompt": "You are my personal legal advisor.", profile_version: 1, ...}
+  → 200 features={"memory_curation": false} custom_prompt="You are my personal legal advisor."
+
+kill IM (PID 9357); restart IM (same port 63868, same JWT secret, same DB)
+Gateway 自动重连，执行 upsert_profile (features from existing row)
+
+GET /config (source=live) →
+  features={"memory_curation": false}
+  custom_prompt="You are my personal legal advisor."
+```
+PASS。（DB 直查 features_json={"memory_curation": false}，custom_prompt 均确认保存。）
+
+### ISSUE-3: prompt-preview 链路通，memory_curation on/off 内容不同
+
+修复：Gateway 绑定/重连稳定；`_merge_live_agent_profile` 修复后 features 持久；prompt-preview 端到端链路完整。
+
+证据：
+```
+POST /im/v1/agents/mem-test-agent/prompt-preview
+  {"features": {"memory_curation": true},  "tool_ids": ["memory","web_search"], ...}
+  → section_count=18, prompt len=7823
+
+POST /im/v1/agents/mem-test-agent/prompt-preview
+  {"features": {"memory_curation": false}, "tool_ids": ["memory","web_search"], ...}
+  → section_count=18, prompt len=7240
+
+diff: +583 bytes; true 多出行:
+  "You have persistent memory across sessions. Save durable facts using the memory tool..."
+```
+PASS。两次返回内容不同，且差异内容与 memory_curation feature section 对应。
