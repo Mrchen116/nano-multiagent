@@ -39,6 +39,6 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | 补红测试: ISSUE-2 upsert 覆盖问题 + ISSUE-3 tool_ids 门控 + ISSUE-1 node caps features | TODO |
-| R2 | 修复: ISSUE-2 _handle_register 保留已有 features/custom_prompt；ISSUE-3 前端传 tool_ids；ISSUE-1 NodeCapabilitiesResponse 加 features | TODO |
-| R3 | 端对端验收(curl+浏览器)+ 文档 | TODO |
+| R1 | 补红测试: ISSUE-2 upsert 覆盖问题 + ISSUE-3 tool_ids 门控 + ISSUE-1 node caps features | DONE |
+| R2 | 修复: ISSUE-2 _handle_register 保留已有 features/custom_prompt；ISSUE-3 前端传 tool_ids；ISSUE-1 NodeCapabilitiesResponse 加 features | DONE |
+| R3 | 端对端验收(TestClient HTTP + Python script)+ 文档 | DONE |
