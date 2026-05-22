@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from personal_assistant.config.local_store import NodeConfig
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_runtime_capabilities
+from personal_assistant.reporter.upstream_reporter import (
+    UpstreamReporter,
+    build_node_capabilities_payload,
+    build_runtime_capabilities,
+)
 
 from ._im_connection_helpers import _agents, _write_skill
 
@@ -67,3 +71,40 @@ def test_build_runtime_capabilities_default_system_prompt_has_no_runtime_fill_pl
         "default_system_prompt must not contain <RUNTIME_FILL:*> placeholders — "
         "use empty string or a pre-rendered template (feat-379-M5 ISSUE-4)"
     )
+
+
+# ---------------------------------------------------------------------------
+# feat-379-M7 ISSUE-1: node-level capabilities must carry FEATURE_REGISTRY projection
+# ---------------------------------------------------------------------------
+
+
+def test_build_node_capabilities_payload_includes_features() -> None:
+    """node.capabilities.resolve must return a non-empty features list.
+
+    ISSUE-1 root cause: the handler called build_runtime_capabilities().as_payload()
+    which has no 'features' key.  We now call build_node_capabilities_payload() which
+    injects a FEATURE_REGISTRY projection with available=True for all entries (node
+    level has no per-agent tool_allowlist to constrain availability).
+    """
+    payload = build_node_capabilities_payload()
+    assert "features" in payload, "node capabilities payload must carry 'features' key"
+    features = payload["features"]
+    assert isinstance(features, list) and len(features) > 0, (
+        "features must be a non-empty list — FEATURE_REGISTRY has at least memory_curation"
+    )
+    for item in features:
+        assert isinstance(item, dict)
+        assert "key" in item
+        assert "default_on" in item
+        # Node-level: no per-agent allowlist → every feature is available
+        assert item.get("available") is True, (
+            f"node-level feature '{item.get('key')}' must have available=True "
+            "(no tool_allowlist constrains node caps)"
+        )
+
+
+def test_build_node_capabilities_payload_has_required_keys() -> None:
+    """node capabilities payload must carry models, skills, tools, features."""
+    payload = build_node_capabilities_payload()
+    for key in ("models", "skills", "tools", "features", "platform_default_model"):
+        assert key in payload, f"node capabilities payload missing '{key}'"
