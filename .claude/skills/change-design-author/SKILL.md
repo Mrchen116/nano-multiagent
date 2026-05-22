@@ -306,14 +306,14 @@ design.md 的核心段落:**架构总览、关键决策、接口与数据流、�
 
 design.md 是**实现层验收标准的家**。退出标准列分两轨,每条**标注 verifier**:
 
-- `[reviewer]` —— **用户可观察**的能力变化 / 不变性。来自首文档的【用户场景】+【验收标准】。reviewer 走旅程验。
+- `[reviewer]` —— **用户可观察**的能力变化 / 不变性。来自首文档的【用户场景】+【验收标准】(Requirement / Scenario 结构);可直接引用具体 Scenario(例:`Req-群聊@成员候选 / Scenario-群里无匹配成员`),让退出标准和 reviewer 覆盖表对齐。reviewer 走旅程验。
 - `[worker]` —— **实现层**验收标准:单测通过、构建产物正确、性能指标达标、"复刻 X 实现"的保真点等。来自技术决策本身,以及 spec-author 交接过来的实现保真要求 / 实现约束(§1.1)。worker 在 milestone 内用单测 / 构建验。
 
 两轨都要写实、可验,不要空喊"实现 X 功能"。`[worker]` 轨的条目还会被 `change-orchestrator` 抽进 PR body,作为人(架构师)review PR 时的清单。
 
 示例(两轨混合):
 
-- `[reviewer]` 用户在 X 操作后,200ms 内看到 Y
+- `[reviewer]` 用户在 X 操作后,200ms 内看到 Y(覆盖 Scenario:<场景名>)
 - `[worker]` `<最窄相关测试命令>` 全绿
 - `[worker]` <某模块> 与参考实现逐字一致(单测覆盖)
 
@@ -351,7 +351,7 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
 
 **spec ↔ design 对齐**:
 
-- [ ] spec 每条验收标准都能在 design + Milestone 表里找到对应实现路径——任何"无人认领"的验收标准是漏
+- [ ] spec 每个验收 Scenario 都能在 design + Milestone 表里找到对应实现路径——任何"无人认领"的 Scenario 是漏
 - [ ] design 的关键决策都有对应的 spec 用户场景驱动——找不到驱动的决策可能是过度设计
 - [ ] 范围与非目标:design 没有偷偷扩到 spec 写的"非目标"里去
 
