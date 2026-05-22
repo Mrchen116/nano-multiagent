@@ -262,6 +262,31 @@ class KernelApiClient:
             require_auth=True,
         )
 
+    def prompt_preview(
+        self,
+        *,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+        tool_ids: list[str],
+        scenario: str,
+    ) -> dict[str, Any]:
+        """Call agent HTTP /v1/prompt-preview and return the assembled prompt.
+
+        feat-379-M2 R5: used by Gateway to assemble a stable-prefix prompt
+        preview on behalf of IM frontend (via WS agent.prompt.preview.request).
+        """
+        return self._request(
+            "POST",
+            "/v1/prompt-preview",
+            json={
+                "features": features,
+                "custom_prompt": custom_prompt,
+                "tool_ids": tool_ids,
+                "scenario": scenario,
+            },
+            require_auth=True,
+        )
+
     def _request(
         self,
         method: str,

@@ -62,6 +62,7 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(tmp_pat
                 "agent_id": "agent-a",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         }
     ]
@@ -123,6 +124,7 @@ def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_
                 "system_prompt": "Local Agent B prompt.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         }
     ]
@@ -169,6 +171,7 @@ def test_inbound_pipeline_recreates_bound_session_when_workspace_mismatches(tmp_
                 "agent_id": "agent-a",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         }
     ]
@@ -619,6 +622,7 @@ def test_inbound_pipeline_freezes_group_agent_id_even_without_additional_snapsho
                 "participant_agent_ids": ["agent-b"],
                 "external_chat_id": "conv-2",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         }
     ]
@@ -796,6 +800,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "system_prompt": "You are Agent A v1.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         },
         {
@@ -809,6 +814,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "system_prompt": "You are Agent A v2.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         },
         {
@@ -822,6 +828,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "system_prompt": "You are Agent A v2.",
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             },
         },
     ]

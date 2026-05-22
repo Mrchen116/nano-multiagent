@@ -234,6 +234,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             "config_profile_version": 1,
             "conversation_type": "group",
             "participant_agent_ids": ["agent-a", "agent-b"],
@@ -247,6 +248,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
         {
             "agent_id": "agent-b",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
             "config_profile_version": 1,
             "conversation_type": "group",
             "participant_agent_ids": ["agent-a", "agent-b"],

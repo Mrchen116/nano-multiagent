@@ -111,17 +111,22 @@ async def test_runtime_keys_not_overwritten_by_session_metadata() -> None:
     assert ctx_meta.get("conversation_type") == "direct"
 
 
-async def test_before_agent_start_reads_conversation_type_end_to_end() -> None:
-    """End-to-end: group session metadata flows through runtime to LLM system prompt."""
-    from agent.products.personal_assistant.hooks import setup
+async def test_group_session_metadata_visible_in_hook_context() -> None:
+    """Group session metadata flows through runtime into HookContext.metadata.
+
+    feat-379-M1: The communication_context hook no longer injects a system_prompt
+    override — the [Communication Context] block is now assembled by the
+    pa.communication_context segment.  This test verifies the metadata pipeline
+    (session config → hook_metadata → HookContext) still works correctly so that
+    the wiring helper (build_prompt_context_from_metadata) can read it.
+    """
+    captured_contexts: list = []
+
+    def _capture(payload: Any, ctx: Any) -> None:
+        captured_contexts.append(ctx)
 
     registry = HookRegistry()
-
-    class _FakeHookAPI:
-        def on(self, event: str, handler: Any, **kwargs: Any) -> None:
-            registry.on(event, handler, **kwargs)
-
-    setup(_FakeHookAPI())
+    registry.on("before_agent_start", _capture, priority=100, timeout_ms=500, mode="observe")
 
     store = JsonlSessionStore(data_dir=Path("/tmp") / "sessions")
     manager = SessionManager(store=store)
@@ -143,14 +148,11 @@ async def test_before_agent_start_reads_conversation_type_end_to_end() -> None:
     )
     await runtime.run(session.session_id, [{"type": "text", "text": "hello group"}], stream=False)
 
-    assert len(llm.requests) == 1
-    system_message = llm.requests[0].messages[0]
-    assert system_message.role == "system"
-    # The hook must have injected the communication context block
-    assert "[Communication Context]" in system_message.content
-    assert "session_type: group" in system_message.content
-    assert "agent-alpha" in system_message.content
-    assert "agent-beta" in system_message.content
+    assert len(captured_contexts) == 1
+    meta = captured_contexts[0].metadata
+    assert meta.get("conversation_type") == "group"
+    assert "agent-alpha" in meta.get("participant_agent_ids", [])
+    assert "agent-beta" in meta.get("participant_agent_ids", [])
 
 
 async def test_before_agent_start_noop_when_no_conversation_type() -> None:

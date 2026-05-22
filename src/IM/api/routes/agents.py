@@ -31,6 +31,9 @@ class AgentConfigResponse(BaseModel):
     workspace_is_default: bool
     profile_version: int
     updated_at: str | None = None
+    # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
+    features: dict[str, bool] = Field(default_factory=dict)
+    custom_prompt: str | None = None
 
 
 class UpdateAgentConfigRequest(BaseModel):
@@ -44,6 +47,9 @@ class UpdateAgentConfigRequest(BaseModel):
     tool_allowlist: list[str] = Field(default_factory=list)
     group_reply_policy: str = Field(min_length=1)
     default_model: str | None = None
+    # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
+    features: dict[str, bool] = Field(default_factory=dict)
+    custom_prompt: str | None = None
 
 
 class AgentSummaryResponse(BaseModel):
@@ -73,6 +79,21 @@ class AllowlistOptionResponse(BaseModel):
     description: str = ""
 
 
+class FeatureCapabilityResponse(BaseModel):
+    """One feature toggle descriptor as seen by the IM frontend.
+
+    Matches the FEATURE_REGISTRY projection returned by the Gateway
+    capabilities handler (feat-379 decision 7): IM forwards it verbatim.
+    """
+
+    key: str
+    label_i18n: str
+    help_i18n: str
+    default_on: bool
+    available: bool
+    requires_tool: str | None = None
+
+
 class AgentCapabilitiesResponse(BaseModel):
     """Node-backed runtime capability data for one agent workspace."""
 
@@ -84,10 +105,14 @@ class AgentCapabilitiesResponse(BaseModel):
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
     default_system_prompt: str = ""
+    # feat-379-M2: feature toggle projection from FEATURE_REGISTRY (decision 7)
+    features: list[FeatureCapabilityResponse] = Field(default_factory=list)
 
 
 def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -> AgentConfigResponse:
     """Convert a domain profile to the config response model."""
+    # feat-379-M5 (ISSUE-2): features/custom_prompt must be round-tripped so the
+    # frontend can restore toggle state and custom text on page load.
     return AgentConfigResponse(
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
@@ -103,6 +128,8 @@ def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -
         workspace_is_default=service.workspace_is_default_for_profile(profile),
         profile_version=profile.profile_version,
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
+        features=dict(profile.features) if profile.features else {},
+        custom_prompt=profile.custom_prompt,
     )
 
 
@@ -130,6 +157,12 @@ def _merge_live_agent_profile(profile: AgentProfile, payload: dict[str, object])
         default_model=default_model if isinstance(default_model, str) or default_model is None else profile.default_model,
         workspace_root=workspace_root if isinstance(workspace_root, str) and workspace_root.strip() else profile.workspace_root,
         profile_version=profile.profile_version,
+        # feat-379-M7 (ISSUE-2): live gateway snapshots do not carry features/custom_prompt
+        # (those are IM-owned fields set via PATCH, not reported back by the node).
+        # Always inherit from the persisted profile so a live-merge never silently clears
+        # user-configured feature overrides or custom_prompt.
+        features=profile.features,
+        custom_prompt=profile.custom_prompt,
     )
 
 
@@ -236,6 +269,8 @@ async def get_agent_capabilities(
     platform_default: str | None = raw_platform.strip() if isinstance(raw_platform, str) and raw_platform.strip() else None
     raw_prompt = payload.get("default_system_prompt")
     default_system_prompt = raw_prompt if isinstance(raw_prompt, str) else ""
+    # feat-379-M2: forward FEATURE_REGISTRY projection from Gateway verbatim
+    features = _coerce_feature_list(payload.get("features"))
     return AgentCapabilitiesResponse(
         agent_id=agent_id,
         node_id=profile.node_id,
@@ -245,6 +280,7 @@ async def get_agent_capabilities(
         tools=coerce_allowlist_options(payload.get("tools")),
         platform_default_model=platform_default,
         default_system_prompt=default_system_prompt,
+        features=features,
     )
 
 
@@ -259,6 +295,13 @@ def update_agent_config(
     if service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
     try:
+        # feat-379-M5 (ISSUE-2): pass features + custom_prompt through so they
+        # are written to the DB and returned in the response.
+        # feat-379-M7 (ISSUE-2): use `is not None` instead of falsy check.
+        # An empty dict `{}` is falsy in Python but is a valid payload meaning
+        # "the user cleared all feature overrides" — the old `if payload.features`
+        # turned it into None, causing update_profile to fall back to the stored
+        # value and silently drop the intentional update.
         updated = service.update_profile(
             agent_id=agent_id,
             profile_version=payload.profile_version,
@@ -270,6 +313,8 @@ def update_agent_config(
             group_reply_policy=payload.group_reply_policy,
             default_model=payload.default_model,
             workspace_root=None,
+            features=payload.features if payload.features is not None else None,
+            custom_prompt=payload.custom_prompt,
         )
     except AgentProfileVersionConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -284,6 +329,40 @@ def _coerce_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _coerce_feature_list(value: object) -> list[FeatureCapabilityResponse]:
+    """Coerce raw Gateway features projection list into typed responses.
+
+    Gateway returns list[dict] built from FEATURE_REGISTRY; IM forwards it
+    verbatim after validation.  Missing or malformed items are silently dropped
+    so old Gateway versions without feat-379-M2 still work.
+    """
+    if not isinstance(value, list):
+        return []
+    result: list[FeatureCapabilityResponse] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        key = item.get("key")
+        if not isinstance(key, str) or not key:
+            continue
+        label = item.get("label_i18n", "")
+        help_text = item.get("help_i18n", "")
+        default_on = bool(item.get("default_on", False))
+        available = bool(item.get("available", True))
+        requires_tool = item.get("requires_tool")
+        result.append(
+            FeatureCapabilityResponse(
+                key=key,
+                label_i18n=label if isinstance(label, str) else "",
+                help_i18n=help_text if isinstance(help_text, str) else "",
+                default_on=default_on,
+                available=available,
+                requires_tool=requires_tool if isinstance(requires_tool, str) else None,
+            )
+        )
+    return result
 
 
 def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
@@ -305,3 +384,70 @@ def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
             desc = raw_desc.strip() if isinstance(raw_desc, str) else ""
             result.append(AllowlistOptionResponse(name=raw_name.strip(), description=desc))
     return result
+
+
+# ---------------------------------------------------------------------------
+# Prompt preview proxy (feat-379-M2 R5)
+# ---------------------------------------------------------------------------
+
+
+class PromptPreviewRequest(BaseModel):
+    """Request body forwarded to agent Gateway /v1/prompt-preview.
+
+    Args:
+        features: Per-agent feature flags (key → bool) to preview with.
+        custom_prompt: Optional user-supplied text supplement.
+        tool_ids: Tool names to treat as active for the preview turn.
+        scenario: Conversation type hint; defaults to ``direct``.
+    """
+
+    features: dict[str, bool] = Field(default_factory=dict)
+    custom_prompt: str | None = None
+    tool_ids: list[str] = Field(default_factory=list)
+    scenario: str = "direct"
+
+
+class PromptPreviewResponse(BaseModel):
+    """Assembled prompt preview returned from the Gateway."""
+
+    prompt: str
+    section_count: int
+
+
+@router.post("/im/v1/agents/{agent_id}/prompt-preview", response_model=PromptPreviewResponse)
+async def agent_prompt_preview(
+    agent_id: str,
+    payload: PromptPreviewRequest,
+    user: User = Depends(current_user),
+    service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+) -> PromptPreviewResponse:
+    """Proxy a prompt-preview request to the owning Gateway node (owner-scoped).
+
+    feat-379-M2 R5: IM acts as a pass-through; Gateway calls agent HTTP
+    /v1/prompt-preview and returns the assembled system-prompt preview.
+    The IM route exists so the frontend can call a single authenticated
+    IM endpoint instead of calling the agent HTTP API directly.
+    """
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+    if profile.node_id is None or not profile.node_id.strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id is not bound to a node")
+    workspace_root = service.workspace_root_for_profile(profile)
+    result = await gateway_handler.request_prompt_preview(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        workspace_root=workspace_root,
+        features=payload.features,
+        custom_prompt=payload.custom_prompt,
+        tool_ids=payload.tool_ids,
+        scenario=payload.scenario,
+    )
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")
+    raw_prompt = result.get("prompt")
+    prompt = raw_prompt if isinstance(raw_prompt, str) else ""
+    raw_count = result.get("section_count")
+    section_count = int(raw_count) if isinstance(raw_count, int) else 0
+    return PromptPreviewResponse(prompt=prompt, section_count=section_count)

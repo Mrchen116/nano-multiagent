@@ -8,6 +8,7 @@ const apiMocks = vi.hoisted(() => ({
   getNodeCreateStateMock: vi.fn(),
   createNodeAgentMock: vi.fn(),
   listNodesMock: vi.fn(),
+  promptPreviewMock: vi.fn(),
   navigateMock: vi.fn()
 }));
 
@@ -23,7 +24,8 @@ vi.mock("react-router-dom", async () => {
 vi.mock("./im-agent-config-api", () => ({
   getNodeCreateState: apiMocks.getNodeCreateStateMock,
   createNodeAgent: apiMocks.createNodeAgentMock,
-  listNodes: apiMocks.listNodesMock
+  listNodes: apiMocks.listNodesMock,
+  promptPreview: apiMocks.promptPreviewMock
 }));
 
 import { AgentCreatePage } from "./agent-create-page";
@@ -51,6 +53,7 @@ afterEach(() => {
   apiMocks.getNodeCreateStateMock.mockReset();
   apiMocks.createNodeAgentMock.mockReset();
   apiMocks.listNodesMock.mockReset();
+  apiMocks.promptPreviewMock.mockReset();
   apiMocks.navigateMock.mockReset();
 });
 
@@ -139,14 +142,14 @@ describe("agent create page (three-card)", () => {
     expect(screen.queryByText(/Workspace preview/i)).not.toBeInTheDocument();
 
     expect(screen.getByLabelText(/Owning Node/i)).toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.getByLabelText(/^System Prompt/)).toHaveValue("You are the personal_assistant default template.");
-    });
+    // feat-379-M5 (ISSUE-1): system_prompt no longer shown; Custom Instructions replaces it
+    expect(screen.queryByLabelText(/^System Prompt/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Custom Instructions/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "runtime-created helper" } });
-    fireEvent.change(screen.getByLabelText(/^System Prompt/), { target: { value: "You are Agent New." } });
+    fireEvent.change(screen.getByLabelText(/^Custom Instructions/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /plan/i }));
     await user.click(screen.getByRole("button", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Default Model"), "kimiCoding:K2.6");
@@ -159,7 +162,10 @@ describe("agent create page (three-card)", () => {
         owner_id: "",
         display_name: "Agent New",
         description: "runtime-created helper",
-        system_prompt: "You are Agent New.",
+        // feat-379-M5 (ISSUE-1): system_prompt always blank; sections assembler owns it
+        system_prompt: "",
+        custom_prompt: "You are Agent New.",
+        features: {},
         skills: ["plan"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
@@ -210,13 +216,12 @@ describe("agent create page (three-card)", () => {
     renderCreatePage();
 
     await screen.findByRole("heading", { name: /New agent/i });
-    const promptInput = screen.getByLabelText(/^System Prompt/);
-    fireEvent.change(promptInput, { target: { value: "" } });
+    // feat-379-M3: system_prompt is no longer required; submit with all fields blank
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/Agent ID is required/i)).toBeInTheDocument();
     expect(screen.getByText(/Display name is required/i)).toBeInTheDocument();
-    expect(screen.getByText(/System prompt is required/i)).toBeInTheDocument();
+    // system_prompt required check removed — segment system provides defaults (feat-379-M3)
     expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
   });
@@ -255,7 +260,8 @@ describe("agent create page (three-card)", () => {
 
     fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
-    fireEvent.change(screen.getByLabelText(/^System Prompt/), { target: { value: "You are Agent New." } });
+    // feat-379-M5 (ISSUE-1): Custom Instructions replaces System Prompt textarea
+    fireEvent.change(screen.getByLabelText(/^Custom Instructions/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/409.*agent already exists/i)).toBeInTheDocument();

@@ -91,6 +91,7 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
             "metadata": {
                 "agent_id": "agent-a",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "agent_features": {},
                 "config_profile_version": 1,
                 "system_prompt": "You are agent-a.",
                 "conversation_type": "direct",

@@ -203,13 +203,23 @@
       },
       "behavior": {
         "title": "行为",
-        "sub": "系统提示词是行为的主要契约。",
+        "sub": "调整该 agent 的说话方式与能力。",
         "systemPrompt": "系统提示词",
         "systemPromptRequired": "系统提示词 *",
         "systemPromptHelp": "定义角色、语气与约束。",
         "systemPromptPlaceholder": "你是一个有帮助的助手。你的工作是...\n\n保持简洁,必要时主动澄清。",
+        "customInstructions": "自定义补充指令",
+        "customInstructionsHelp": "叠加在标准提示词之上；留空即用标准提示词。",
+        "customInstructionsPlaceholder": "你是我的私人法律顾问,回答时优先引用条款…",
+        "features": "特性开关",
+        "featuresHelp": "开启或关闭可选的 agent 能力。",
+        "featureDisabledTooltip": "需先在工具允许列表中启用 {{tool}}",
+        "previewToggle": "展开完整系统提示词预览",
+        "previewHelp": "群聊和记忆等运行时段不在此预览内。",
+        "previewLoading": "加载预览中…",
+        "previewError": "无法加载预览。",
         "policy": "群聊回复策略",
-        "policyHelp": "在群聊中何时回复。",
+        "policyHelp": "在群聊中何时回复（始终在场,不可关闭）。",
         "policyOptionMention": "MENTION — 仅当被 @ 时回复",
         "policyOptionAlways": "ALWAYS — 每条群消息都回复",
         "policyOptionNoReply": "NO_REPLY — 在群里保持沉默"
@@ -314,6 +324,16 @@
       "ariaCard": "权限请求：{{toolName}}",
       "ariaOptions": "权限选项",
       "submitError": "提交失败，请重试"
+    }
+  },
+  "feature": {
+    "memory_curation": {
+      "label": "记忆整理",
+      "help": "跨会话维护持久化 MEMORY.md，让 agent 能跨对话记忆重要信息。"
+    },
+    "skill_creation": {
+      "label": "技能创建",
+      "help": "允许 agent 在其工作区创建和管理 skill。"
     }
   }
 }

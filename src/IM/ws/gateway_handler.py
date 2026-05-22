@@ -103,6 +103,10 @@ class GatewayHandler:
         self._agent_create_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
         self._agent_capabilities_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
         self._node_capabilities_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        # feat-379-M2 R5: prompt-preview request→response futures
+        self._prompt_preview_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        # feat-379-M9 (決策 11): node-level prompt-preview — no per-agent workspace needed
+        self._node_prompt_preview_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
         self._ensure_agent_message_dispatch_table()
 
     async def serve(self, websocket: WebSocket) -> None:
@@ -154,6 +158,10 @@ class GatewayHandler:
             return await self._handle_agent_capabilities(payload=payload)
         if message_type == "node.capabilities":
             return await self._handle_node_capabilities(payload=payload)
+        if message_type == "agent.prompt.preview":
+            return await self._handle_prompt_preview(payload=payload)
+        if message_type == "node.prompt.preview":
+            return await self._handle_node_prompt_preview(payload=payload)
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
         if message_type == "node.streaming_delta":
@@ -353,6 +361,99 @@ class GatewayHandler:
             async with self._lock:
                 self._node_capabilities_waiters.pop(request_id, None)
 
+    async def request_prompt_preview(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+        tool_ids: list[str],
+        scenario: str,
+        timeout_seconds: float = 10.0,
+    ) -> dict[str, object] | None:
+        """Send an agent.prompt.preview.request frame and await the assembled result.
+
+        feat-379-M2 R5: IM proxy path — IM sends this request to the Gateway
+        which calls agent HTTP /v1/prompt-preview and returns the result.
+
+        Returns:
+            Preview payload dict or None when the node is not connected or times out.
+        """
+        request_id = f"prompt-preview-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._prompt_preview_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="agent.prompt.preview.request",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                    "features": features,
+                    "custom_prompt": custom_prompt,
+                    "tool_ids": tool_ids,
+                    "scenario": scenario,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._prompt_preview_waiters.pop(request_id, None)
+
+    async def request_node_prompt_preview(
+        self,
+        *,
+        target_node_id: str,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+        tool_ids: list[str],
+        scenario: str,
+        timeout_seconds: float = 10.0,
+    ) -> dict[str, object] | None:
+        """Send a node.prompt.preview.request frame and await the assembled result.
+
+        feat-379-M9 (決策 11): node-level preview path used by the agent-create page
+        before an agent exists.  Unlike request_prompt_preview, there is no agent_id
+        or workspace_root — the Gateway uses its default kernel to assemble the prompt.
+
+        Returns:
+            Preview payload dict or None when the node is not connected or times out.
+        """
+        request_id = f"node-prompt-preview-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._node_prompt_preview_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.prompt.preview.request",
+                payload={
+                    "request_id": request_id,
+                    "features": features,
+                    "custom_prompt": custom_prompt,
+                    "tool_ids": tool_ids,
+                    "scenario": scenario,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._node_prompt_preview_waiters.pop(request_id, None)
+
     async def disconnect(self, *, node_id: str) -> None:
         """Remove one node from the active connection map and broadcast offline if needed."""
         async with self._lock:
@@ -527,6 +628,11 @@ class GatewayHandler:
                     runtime_workspace_root = existing.workspace_root or managed_workspace_root(agent_id)
                 if runtime_display_name == agent_id and agent_id.startswith("agent-"):
                     runtime_display_name = agent_id.replace("agent-", "", 1).replace("-", " ").title()
+                # feat-379-M6 (ISSUE-2): preserve features/custom_prompt from the existing
+                # DB row when re-registering. node.register only carries agent_ids, not
+                # per-agent config, so passing None would overwrite user edits with defaults.
+                runtime_features = existing.features if existing is not None else None
+                runtime_custom_prompt = existing.custom_prompt if existing is not None else None
                 profile_repository.upsert_profile(
                     agent_id=agent_id,
                     owner_id=owner_id,
@@ -538,6 +644,8 @@ class GatewayHandler:
                     group_reply_policy=runtime_group_reply_policy,
                     default_model=runtime_default_model,
                     workspace_root=runtime_workspace_root,
+                    features=runtime_features,
+                    custom_prompt=runtime_custom_prompt,
                 )
                 self._node_repository._connection.execute(
                     "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
@@ -897,6 +1005,54 @@ class GatewayHandler:
             "type": "ack",
             "payload": {
                 "message_type": "node.capabilities",
+                "request_id": request_id,
+                "node_id": node_id,
+            },
+        }
+
+    async def _handle_prompt_preview(self, *, payload: dict[str, object]) -> dict[str, object]:
+        """Resolve prompt-preview waiter when Gateway returns assembled preview text.
+
+        feat-379-M2 R5: Gateway calls agent HTTP /v1/prompt-preview and sends
+        ``agent.prompt.preview`` back with {request_id, node_id, preview}.
+        """
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        preview = payload.get("preview")
+        if not isinstance(preview, dict):
+            preview = {}
+        async with self._lock:
+            waiter = self._prompt_preview_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(dict(preview))
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "agent.prompt.preview",
+                "request_id": request_id,
+                "node_id": node_id,
+            },
+        }
+
+    async def _handle_node_prompt_preview(self, *, payload: dict[str, object]) -> dict[str, object]:
+        """Resolve node-level prompt-preview waiter when Gateway returns assembled preview.
+
+        feat-379-M9 (決策 11): Gateway sends ``node.prompt.preview`` in response to
+        ``node.prompt.preview.request``.  No per-agent context is required.
+        """
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        preview = payload.get("preview")
+        if not isinstance(preview, dict):
+            preview = {}
+        async with self._lock:
+            waiter = self._node_prompt_preview_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(dict(preview))
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.prompt.preview",
                 "request_id": request_id,
                 "node_id": node_id,
             },

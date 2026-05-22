@@ -9,7 +9,6 @@ from agent.core.llm.model_registry import DEFAULT_PROVIDER, get_default_model, l
 from agent.core.skills.discovery import default_skill_search_roots
 from agent.core.skills.registry import SkillRegistry
 from agent.platform.config.resolver import ConfigResolver
-from agent.platform.tools.loader import build_tool_registry
 from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
 
@@ -96,17 +95,13 @@ def _build_skill_capability_entries() -> tuple[dict[str, str], ...]:
 
 
 def _build_tool_names() -> tuple[str, ...]:
-    config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=None)
-    registry = build_tool_registry(
-        repo_root=_repo_root(),
-        hook_runner=None,
-        runtime=None,
-        config_resolver=config_resolver,
-        product_tool_dir=_product_root() / "tools",
-    )
+    # feat-379-M9 (決策 13): advertise-phase only needs the declared tool names;
+    # build_tool_registry(runtime=None) omits memory/skill_manage because those tools
+    # require bootstrap path injection before they appear in list_specs().  Taking names
+    # directly from the profile guarantees the full declared surface is advertised,
+    # regardless of whether a live runtime is present.
     allowed_ids = [*PERSONAL_ASSISTANT_PROFILE.default_tool_ids, *PERSONAL_ASSISTANT_PROFILE.optional_tool_ids]
-    allowed_set = set(allowed_ids)
-    return tuple(spec.name for spec in registry.list_specs() if spec.name in allowed_set)
+    return _dedupe_preserve_order(allowed_ids)
 
 
 def _build_model_names() -> tuple[str, ...]:
@@ -123,12 +118,61 @@ def build_runtime_capabilities() -> ReporterCapabilities:
         skills=_build_skill_capability_entries(),
         tools=_build_tool_names(),
         platform_default_model=get_default_model(DEFAULT_PROVIDER),
-        default_system_prompt=PERSONAL_ASSISTANT_PROFILE.default_system_prompt,
+        # feat-379-M5 (ISSUE-4): do NOT expose the raw RUNTIME_FILL template; the
+        # sections assembler owns prompt construction at runtime.  Consumers (IM
+        # agent-create page) that relied on this field for a system_prompt prefill
+        # are migrated to custom_prompt (R5) — empty string is the safe neutral value.
+        default_system_prompt="",
     )
 
 
-def build_agent_capabilities_payload(*, workspace_root: str) -> dict[str, object]:
-    """按 Agent 工作区根路径解析可选技能（含描述），供 agent.capabilities.resolve 响应。"""
+def build_node_capabilities_payload() -> dict[str, object]:
+    """Build node-level capability payload including FEATURE_REGISTRY projection.
+
+    feat-379-M7 (ISSUE-1): node.capabilities.resolve was returning
+    build_runtime_capabilities().as_payload() which has no 'features' key.
+    The agent-create page queries GET /im/v1/nodes/{id}/capabilities (no per-agent
+    context yet), so we inject a node-level features projection where all features
+    are available=True (no tool_allowlist exists at this point to constrain them).
+
+    Returns:
+        Capability dict suitable for node.capabilities response frames.
+    """
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY  # noqa: PLC0415
+
+    base = build_runtime_capabilities().as_payload()
+    # Node-level: no per-agent tool_allowlist → every feature is available.
+    # The agent-create page uses default_on to pre-fill toggles; available=True
+    # lets all toggles render as enabled (not greyed out).
+    node_features_projection: list[dict[str, object]] = [
+        {
+            "key": key,
+            "label_i18n": entry["label_i18n"],
+            "help_i18n": entry["help_i18n"],
+            "default_on": entry["default_on"],
+            "available": True,
+            "requires_tool": entry["requires_tool"],
+        }
+        for key, entry in FEATURE_REGISTRY.items()
+    ]
+    base["features"] = node_features_projection
+    return base
+
+
+def build_agent_capabilities_payload(
+    *,
+    workspace_root: str,
+    tool_allowlist: tuple[str, ...] = (),
+) -> dict[str, object]:
+    """按 Agent 工作区根路径解析可选技能（含描述），供 agent.capabilities.resolve 响应。
+
+    Args:
+        workspace_root: Agent workspace root path for per-workspace skill discovery.
+        tool_allowlist: Tool names enabled for this agent.  Used to determine
+            whether feature-gated tools are available (feat-379 decision 7).
+    """
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY  # noqa: PLC0415
+
     root = Path(workspace_root).expanduser().resolve()
     config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=root)
     registry = SkillRegistry(
@@ -143,6 +187,23 @@ def build_agent_capabilities_payload(*, workspace_root: str) -> dict[str, object
     ]
     base = build_runtime_capabilities().as_payload()
     base["skills"] = skills
+
+    # feat-379-M2: build feature toggles projection for the IM frontend
+    # (decision 7: registry is the single event source; frontend renders dynamically)
+    allowlist_set = set(tool_allowlist)
+    features_projection: list[dict[str, object]] = [
+        {
+            "key": key,
+            "label_i18n": entry["label_i18n"],
+            "help_i18n": entry["help_i18n"],
+            "default_on": entry["default_on"],
+            # available=False means the required tool is not in the agent's allowlist
+            "available": entry["requires_tool"] is None or entry["requires_tool"] in allowlist_set,
+            "requires_tool": entry["requires_tool"],
+        }
+        for key, entry in FEATURE_REGISTRY.items()
+    ]
+    base["features"] = features_projection
     return base
 
 

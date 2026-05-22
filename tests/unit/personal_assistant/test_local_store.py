@@ -617,3 +617,186 @@ def test_save_local_config_omits_none_fields(tmp_path: Path) -> None:
     # Empty tuples should also be absent
     assert "skills" not in agent_raw
     assert "tool_allowlist" not in agent_raw
+
+
+# ---------------------------------------------------------------------------
+# feat-379-M2/R1: features + custom_prompt per-agent fields
+# ---------------------------------------------------------------------------
+
+def test_agent_workspace_config_has_features_field(tmp_path: Path) -> None:
+    """AgentWorkspaceConfig must expose a features mapping (feat-379 decision 3)."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+        ]),
+        encoding="utf-8",
+    )
+    config = load_local_config(config_path)
+    # features must exist and default to empty mapping
+    assert hasattr(config.agents[0], "features")
+    assert dict(config.agents[0].features) == {}
+
+
+def test_agent_workspace_config_has_custom_prompt_field(tmp_path: Path) -> None:
+    """AgentWorkspaceConfig must expose custom_prompt (feat-379 decision 5)."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+        ]),
+        encoding="utf-8",
+    )
+    config = load_local_config(config_path)
+    assert hasattr(config.agents[0], "custom_prompt")
+    assert config.agents[0].custom_prompt is None
+
+
+def test_load_features_from_yaml(tmp_path: Path) -> None:
+    """YAML features dict must be parsed into AgentWorkspaceConfig.features."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+            "    features:",
+            "      memory_curation: false",
+            "      skill_creation: true",
+        ]),
+        encoding="utf-8",
+    )
+    config = load_local_config(config_path)
+    assert config.agents[0].features["memory_curation"] is False
+    assert config.agents[0].features["skill_creation"] is True
+
+
+def test_load_custom_prompt_from_yaml(tmp_path: Path) -> None:
+    """YAML custom_prompt string must be parsed into AgentWorkspaceConfig.custom_prompt."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+            "    custom_prompt: 你是我的私人法律顾问",
+        ]),
+        encoding="utf-8",
+    )
+    config = load_local_config(config_path)
+    assert config.agents[0].custom_prompt == "你是我的私人法律顾问"
+
+
+def test_save_features_round_trip(tmp_path: Path) -> None:
+    """features must survive load → save → load round-trip."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+            "    features:",
+            "      memory_curation: false",
+        ]),
+        encoding="utf-8",
+    )
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved.yaml"
+    save_local_config(original, saved_path)
+    reloaded = load_local_config(saved_path)
+    assert reloaded.agents[0].features["memory_curation"] is False
+
+
+def test_save_custom_prompt_round_trip(tmp_path: Path) -> None:
+    """custom_prompt must survive load → save → load round-trip."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+            "    custom_prompt: 你是我的私人法律顾问",
+        ]),
+        encoding="utf-8",
+    )
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved.yaml"
+    save_local_config(original, saved_path)
+    reloaded = load_local_config(saved_path)
+    assert reloaded.agents[0].custom_prompt == "你是我的私人法律顾问"
+
+
+def test_save_omits_empty_features(tmp_path: Path) -> None:
+    """Empty features dict must not be written to YAML output."""
+    import yaml as _yaml
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+        ]),
+        encoding="utf-8",
+    )
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved.yaml"
+    save_local_config(original, saved_path)
+    raw = _yaml.safe_load(saved_path.read_text(encoding="utf-8"))
+    assert "features" not in raw["agents"][0]
+
+
+def test_save_omits_none_custom_prompt(tmp_path: Path) -> None:
+    """None custom_prompt must not appear in serialized YAML."""
+    import yaml as _yaml
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+        ]),
+        encoding="utf-8",
+    )
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved.yaml"
+    save_local_config(original, saved_path)
+    raw = _yaml.safe_load(saved_path.read_text(encoding="utf-8"))
+    assert "custom_prompt" not in raw["agents"][0]

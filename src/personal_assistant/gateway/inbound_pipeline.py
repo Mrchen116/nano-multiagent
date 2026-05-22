@@ -403,6 +403,13 @@ class InboundPipeline:
             session_metadata["skills"] = list(agent.skills)
         if agent.tool_allowlist:
             session_metadata["tool_allowlist"] = list(agent.tool_allowlist)
+        # feat-379-M2 R6: inject per-agent feature flags and custom prompt supplement
+        # into session metadata so the runtime can populate PromptContext.flags/vars.
+        # agent.features may be empty dict (no overrides); always inject so runtime
+        # can merge with FEATURE_REGISTRY default_on values.
+        session_metadata["agent_features"] = dict(agent.features)
+        if agent.custom_prompt:
+            session_metadata["agent_custom_prompt"] = agent.custom_prompt
         # SPEC §7: inject group chat routing context into session metadata so the
         # before_agent_start hook can append a communication context block.
         if message.is_group:

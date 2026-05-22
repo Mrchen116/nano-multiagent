@@ -284,6 +284,19 @@ class _IMConfigSyncClient:
                 else:
                     workspace_root = self._workspace_root_factory(agent_id)
                 workspace_root = ensure_workspace_defaults(workspace_root)
+                # feat-379-M2: parse per-agent features/custom_prompt from IM mirror payload
+                raw_features = payload.get("features")
+                synced_features = (
+                    {k: v for k, v in raw_features.items() if isinstance(k, str) and isinstance(v, bool)}
+                    if isinstance(raw_features, dict)
+                    else {}
+                )
+                synced_custom_prompt_val = payload.get("custom_prompt")
+                synced_custom_prompt = (
+                    synced_custom_prompt_val.strip()
+                    if isinstance(synced_custom_prompt_val, str) and synced_custom_prompt_val.strip()
+                    else None
+                )
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,
                     workspace_root=workspace_root,
@@ -313,6 +326,8 @@ class _IMConfigSyncClient:
                         if isinstance(payload.get("default_model"), str) and payload.get("default_model").strip()
                         else None
                     ),
+                    features=synced_features,
+                    custom_prompt=synced_custom_prompt,
                 )
                 self._pipeline.register_agent(agent_config)
                 self._persist_agent_config(agent_config)
@@ -364,6 +379,15 @@ class _IMConfigSyncClient:
         group_reply_policy = grp.strip() if isinstance(grp, str) and grp.strip() else "MENTION"
         dm = agent_payload.get("default_model")
         default_model = dm.strip() if isinstance(dm, str) and dm.strip() else None
+        # feat-379-M2: per-agent features and custom_prompt from IM push payload
+        raw_features = agent_payload.get("features")
+        features = (
+            {k: v for k, v in raw_features.items() if isinstance(k, str) and isinstance(v, bool)}
+            if isinstance(raw_features, dict)
+            else {}
+        )
+        cp_val = agent_payload.get("custom_prompt")
+        custom_prompt = cp_val.strip() if isinstance(cp_val, str) and cp_val.strip() else None
         agent_config = AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
@@ -373,6 +397,8 @@ class _IMConfigSyncClient:
             system_prompt=system_prompt,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
+            features=features,
+            custom_prompt=custom_prompt,
         )
         self._pipeline.register_agent(agent_config)
         self._persist_agent_config(agent_config)
@@ -388,6 +414,8 @@ class _IMConfigSyncClient:
             "group_reply_policy": group_reply_policy,
             "default_model": default_model,
             "workspace_root": str(workspace_root),
+            "features": features,
+            "custom_prompt": custom_prompt,
         }
 
     def close(self) -> None:
@@ -428,6 +456,9 @@ class _IMConfigSyncClient:
                 "group_reply_policy": agent.group_reply_policy or "manual",
                 "default_model": agent.default_model,
                 "workspace_root": str(agent.workspace_root),
+                # feat-379-M2: expose per-agent features/custom_prompt for capabilities reporting
+                "features": dict(agent.features),
+                "custom_prompt": agent.custom_prompt,
             }
             return payload
         return None
@@ -1301,8 +1332,19 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             heartbeat_runner=heartbeat_runner,
             sync_client=ConfigSyncClient(fetcher=im_config_sync_client.sync_agent),
             agent_config_provider=lambda agent_id: im_config_sync_client.current_agent_payload(agent_id=agent_id),
-            agent_capabilities_provider=lambda _agent_id, workspace_root: build_agent_capabilities_payload(
-                workspace_root=workspace_root
+            agent_capabilities_provider=lambda agent_id, workspace_root: build_agent_capabilities_payload(
+                workspace_root=workspace_root,
+                tool_allowlist=_resolve_agent_tool_allowlist(im_config_sync_client, agent_id),
+            ),
+            # feat-379-M2 R5: prompt_preview_provider calls agent HTTP /v1/prompt-preview
+            # so the IM frontend can display a preview of the assembled system prompt.
+            prompt_preview_provider=lambda agent_id, workspace_root, features, custom_prompt, tool_ids, scenario: (  # noqa: ARG005
+                kernel_client.prompt_preview(
+                    features=features,
+                    custom_prompt=custom_prompt,
+                    tool_ids=tool_ids,
+                    scenario=scenario,
+                )
             ),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
@@ -1532,6 +1574,7 @@ def _build_im_connection_manager(
     sync_client: ConfigSyncClient | None = None,
     agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
+    prompt_preview_provider: Callable[..., Any] | None = None,
     agent_create_handler: AgentCreateHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
     permission_response_handler: Callable[[Mapping[str, object]], None] | None = None,
@@ -1547,6 +1590,7 @@ def _build_im_connection_manager(
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
         agent_config_provider=agent_config_provider,
         agent_capabilities_provider=agent_capabilities_provider,
+        prompt_preview_provider=prompt_preview_provider,
         agent_create_handler=agent_create_handler,
         token_getter=token_getter,
         connect=_connect_websocket,
@@ -2172,6 +2216,31 @@ def _pid_is_running(pid: int) -> bool:
     except ProcessLookupError:
         return False
     return True
+
+
+def _resolve_agent_tool_allowlist(
+    sync_client: "_IMConfigSyncClient",
+    agent_id: str,
+) -> tuple[str, ...]:
+    """Return the tool_allowlist for an agent from the live local config snapshot.
+
+    Used when building the agent capabilities payload so feature toggle availability
+    can be evaluated against the current tool allowlist (feat-379 decision 7).
+
+    Args:
+        sync_client: The config sync client that holds the current LocalConfig.
+        agent_id: Agent whose tool_allowlist to look up.
+
+    Returns:
+        Tuple of allowed tool names; empty tuple when agent is not found.
+    """
+    payload = sync_client.current_agent_payload(agent_id=agent_id)
+    if payload is None:
+        return ()
+    raw = payload.get("tool_allowlist")
+    if not isinstance(raw, list):
+        return ()
+    return tuple(item for item in raw if isinstance(item, str))
 
 
 def _im_http_headers(token: str | None) -> dict[str, str]:
