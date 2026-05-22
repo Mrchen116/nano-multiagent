@@ -743,3 +743,46 @@ ISSUE-1 和 ISSUE-2 已修复关闭。**ISSUE-3 剩余子问题**（前端 previ
 - ISSUE-4（minor）：R2 已关闭
 
 **Verdict: pass。建议 orchestrator 提 unit→main PR。**
+
+---
+
+## Post-acceptance 复盘 — 手动 dogfood 发现的 3 个缺陷（orchestrator 记录，2026-05-22）
+
+> 来源：round 5 pass、PR #51 提交后，用户在主仓 `unit/feat-379` 起 IM+Gateway+kernel 真实体验配置页时发现。以下为 orchestrator 读代码 + IM 访问日志 + curl 核实的**确定事实**（非推测）。结论：**PR #51 不应按现状 merge**——段式内核（M1–M4）扎实，但面向用户的特性配置层有结构性漏洞。
+
+### 缺陷 A（blocking）— 特性所需工具不在 allowlist UI 中，特性无法被用户启用
+
+- `memory_curation` 特性 `requires_tool="memory"`，`skill_creation` 特性 `requires_tool="skill_manage"`（`feature_registry.py`）。
+- 这两个工具**确实存在**（`platform/tools/builtins/memory.py`、`skill_manage.py`），但节点通告工具列表 `_build_tool_names()`（`reporter/upstream_reporter.py`）只收 `profile.default_tool_ids + optional_tool_ids`，**memory/skill_manage 不在其中**（self-evolution 工具在 bootstrap 时按需单独注册）。
+- 结果：前端「工具允许列表」里**根本没有** memory/skill_manage，用户无法将其加入 agent → 特性 `requires_tool` 门控永远无法通过正常配置满足。
+- 即特性在 UI 上显示可勾、甚至默认勾上，但**勾了也不真生效 = 摆设**。
+
+### 缺陷 B（blocking）— 新建 agent 页预览恒 404，预览根本不加载
+
+- `agent-create-page.tsx:139` 用合成占位 id `promptPreview("__preview__", …)` 调预览。
+- IM 预览路由 `POST /im/v1/agents/{id}/prompt-preview` 要求真实、绑定在线节点的 agent（要 proxy 到 Gateway）；`__preview__` 不存在 → `get_profile_for_owner` 返 None → **404**。
+- IM 访问日志实证：`POST /im/v1/agents/__preview__/prompt-preview HTTP/1.1 404 Not Found`（多次）；对照真实 agent `POST /im/v1/agents/Arch/prompt-preview HTTP/1.1 200 OK`。
+- 即新建页的「展开完整系统提示词预览」**从来无法加载**（红字"无法加载预览"）。
+
+### 缺陷 C — 预览与运行时工具集脱节，掩盖了缺陷 A
+
+- M8 的 `effectiveToolIds`（`agent-detail-page.tsx`）把"所有 available 特性的 `requires_tool`"自动注入预览请求的 `tool_ids`，**与 agent 真实工具集无关**。
+- 加上 node-caps（M7）在 node 级把所有特性报为 `available=true`，detail 页预览总能拿到 `tool_ids=[memory]` → 门控触发 → 记忆段显示。
+- 故 detail 页预览"看起来对"，但这是注入的结果，不反映"agent 真有 memory 工具时运行时才会出现该段"。这正是缺陷 A 在 5 轮验收中被掩盖的机制。
+- 待确认项：运行时（真实对话）的段门控是否也据此注入、还是据 agent 真实激活工具集——决定缺陷 A 是"仅预览误导"还是"功能彻底不通"。
+
+### 为什么 5 轮 review 全没抓到（流程根因）
+
+1. **AC 缺"可达性"条款**：spec AC3 预设"**带 memory 工具的** agent"，只验"有工具时门控对不对"，从无一条验"普通用户从默认 agent 出发，仅通过 UI 能否让某特性真正生效"。
+2. **预览验收只落在 detail 页 + 已带工具的预置 agent**；新建页只验了"Features 开关可见"，**未验"新建页预览能否加载"**（缺陷 B 因此漏网）。
+3. **缺陷 C 的注入逻辑让 detail 页预览"看起来对"**，进一步掩盖工具加不上的事实。
+4. orchestrator 派发 round 5 时把"带 memory 工具的 agent"当既定前提写进派发包，等于替 reviewer 跳过了发现入口（orchestrator 自承失误）。
+
+### 整改建议（需回 design 修订，非 fix-implementation 能收口）
+
+1. 重新理顺**特性 / 工具 / 预览**三者关系。候选方向（用户倾向）：**特性驱动**——勾特性自动激活其 `requires_tool`（self-evolution 工具按需注册的本意），移除工具自动取消特性；取代当前"工具须预先在 allowlist、否则特性置灰"的单向门控（而那些工具又压根加不进 allowlist）。
+2. 新建页预览改用不依赖既有 agent 的机制（node 级 / 无 agent 的 assemble 预览端点），或建后再预览。
+3. spec 增补 AC：**可达性**（用户从默认状态仅经 UI 能让特性端到端生效）+ **新建页预览可加载**。
+4. reviewer 流程：搭前置条件**必须走真实用户路径**，走不通即 issue，禁止后门搭前置。
+
+> 处置：本 unit 暂不 merge PR #51；上述回 `change-design-author` 修订 design（连同特性↔工具双向联动），再派 fix + 重验。
