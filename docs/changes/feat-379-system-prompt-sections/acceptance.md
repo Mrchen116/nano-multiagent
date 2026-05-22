@@ -786,3 +786,23 @@ ISSUE-1 和 ISSUE-2 已修复关闭。**ISSUE-3 剩余子问题**（前端 previ
 4. reviewer 流程：搭前置条件**必须走真实用户路径**，走不通即 issue，禁止后门搭前置。
 
 > 处置：本 unit 暂不 merge PR #51；上述回 `change-design-author` 修订 design（连同特性↔工具双向联动），再派 fix + 重验。
+
+---
+
+## Round 6 — M9 post-acceptance fix（orchestrator 调度记录，2026-05-22）
+
+M9（决策 11-14）已合入 unit 分支，针对 round 5 后手动 dogfood 暴露的 3 缺陷：
+
+- **缺陷 A（决策 13）**：`_build_tool_names()` 从 profile allowed_ids 取名，`capabilities.tools` 现含 memory/skill_manage（实跑确认）。
+- **缺陷 B（决策 11）**：新增 node 级预览 `POST /im/v1/nodes/{node_id}/prompt-preview`，新建页预览不再依赖既有 agent，不再 404。
+- **缺陷 C + 联动（决策 12/14）**：删 effectiveToolIds 注入；前端即时联动（勾特性→加工具、移工具→取消特性、取消特性留工具）；移除特性开关禁用态。
+
+**验收方式（如实记录）**：
+- worker 真实浏览器（Playwright）自测 5 场景全 PASS，截图见 `ACCEPTANCE/feat-379-M9/`，证据写入 M9 progress.md。
+- orchestrator 逐条核实代码级退出标准（实跑 `_build_tool_names`、node 端点全链路、联动 helper、删 hack）。
+- **正式 reviewer 轮（round 6）经用户决定跳过**：用户在标准端口亲自 dogfood M9 后拍板提 PR，人工验收即终审。
+
+**已知 follow-up（用户决定本 PR 不修）**：
+- agent 详情页保存/刷新时，per-agent capabilities（工具/skill 选项列表）偶发返回空 → PillSelector 只渲染选中项，未选项"消失"（应显示加载/灰色态而非塌缩），再刷新即恢复。**非 M9 引入**（capabilities resolve 链路与 PillSelector 空数据处理 M9 未改动），系既有 Gateway 时序健壮性缺口（与 M5-M8 同源）。建议另立 bugfix 跟踪。
+
+> Verdict（人工）：PASS — 用户亲自验收通过，提 PR。
