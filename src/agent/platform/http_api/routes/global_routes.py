@@ -306,9 +306,11 @@ def prompt_preview(
         PromptPreviewResponse with the assembled prompt and section count.
     """
     # Build minimal tool stubs so has_tool() works for gate checks.
+    # feat-379-M6 (ISSUE-3): include description="" so render functions that format
+    # tool listings (core.runtime_tools) can access t.description without AttributeError.
     from types import SimpleNamespace  # noqa: PLC0415 — local import for stub creation
 
-    tool_stubs = tuple(SimpleNamespace(name=tid) for tid in payload.tool_ids)
+    tool_stubs = tuple(SimpleNamespace(name=tid, description="") for tid in payload.tool_ids)
 
     ctx = PromptContext(
         available_tools=tool_stubs,

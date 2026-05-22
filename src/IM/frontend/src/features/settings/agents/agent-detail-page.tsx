@@ -126,14 +126,18 @@ function BehaviorCard({
     [draft.features, capabilityFeatures]
   );
 
-  // Fetch preview when opened or when draft changes while open
+  // Fetch preview when opened or when draft changes while open.
+  // feat-379-M6 (ISSUE-3): pass tool_allowlist as tool_ids so the assembler's
+  // has_tool() gate is active — without it, feature gates that require a tool
+  // (e.g. memory_curation requires "memory") never fire.
   const fetchPreview = useCallback(async () => {
     setPreviewLoading(true);
     setPreviewError(null);
     try {
       const text = await promptPreview(agentId, {
         features: effectiveFeatures,
-        custom_prompt: draft.custom_prompt ?? ""
+        custom_prompt: draft.custom_prompt ?? "",
+        tool_ids: draft.tool_allowlist ?? []
       });
       setPreviewText(text);
     } catch (err) {
@@ -141,7 +145,7 @@ function BehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [agentId, effectiveFeatures, draft.custom_prompt]);
+  }, [agentId, effectiveFeatures, draft.custom_prompt, draft.tool_allowlist]);
 
   // Debounce preview re-fetch when draft changes while preview is open
   useEffect(() => {
@@ -150,7 +154,7 @@ function BehaviorCard({
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOpen, draft.custom_prompt, draft.features]);
+  }, [previewOpen, draft.custom_prompt, draft.features, draft.tool_allowlist]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {

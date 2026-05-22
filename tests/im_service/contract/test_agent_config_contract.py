@@ -134,14 +134,17 @@ def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.Mo
         response = client.get("/im/v1/nodes/node-1/capabilities")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "node_id": "node-1",
-        "skills": [{"name": "plan", "description": ""}],
-        "tools": [{"name": "read", "description": ""}],
-        "models": ["codex_oauth:gpt-5.5"],
-        "platform_default_model": None,
-        "default_system_prompt": "",
-    }
+    body = response.json()
+    # feat-379-M6 (ISSUE-1): features list added; other fields unchanged
+    assert body["node_id"] == "node-1"
+    assert body["skills"] == [{"name": "plan", "description": ""}]
+    assert body["tools"] == [{"name": "read", "description": ""}]
+    assert body["models"] == ["codex_oauth:gpt-5.5"]
+    assert body["platform_default_model"] is None
+    assert body["default_system_prompt"] == ""
+    assert "features" in body
+    # Gateway payload has no features field → IM returns empty list (graceful degradation)
+    assert body["features"] == []
 
 
 # feat-379-M6 (ISSUE-1): node capabilities must expose features list so create page
