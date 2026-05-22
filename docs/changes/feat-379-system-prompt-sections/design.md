@@ -6,6 +6,11 @@
 ## Changelog
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
+- 2026-05-22 (设计修订, 新增决策 11-14 + M9): spec 增补「特性↔工具双向联动 + 从零可达 + 新建页预览可加载」后回 design。亲自核实(非笔记)3 缺陷根因：**A** `_build_tool_names()`(`upstream_reporter.py:98`)用 `runtime=None`/`hook_runner=None` 建 registry→memory/skill_manage 需 bootstrap 注入路径才进 `list_specs()`→即便在 `DEFAULT_TOOL_IDS` 也被交集滤掉(实跑确认输出无二者)→`capabilities.tools` 永缺→allowlist UI 无此项可选；**B** IM 仅 `POST /im/v1/agents/{id}/prompt-preview` 一条按-agent 路由,新建页传 `__preview__` 占位 id→profile 查不到→必 404,无 node 级路由；**C** `agent-detail-page.tsx:136` 的 `effectiveToolIds` 把 available features 的 requires_tool 注入预览 tool_ids,掩盖 A。决策：**11** 预览改 node 级、丢 agent_id(组装只需前端配置 features/custom_prompt/tool_ids/scenario + node 段集,与 agent 无关；agent_id 原仅用于路由)；**12** 特性↔工具前端即时联动 + 移除特性 checkbox 的 `disabled=!available`(从零可达)；**13** 修 `_build_tool_names` 让 memory/skill_manage 进列表；**14** 删 effectiveToolIds 注入,预览 tool_ids 直接用 draft.tool_allowlist。落 M9 统一修复。详见 M9-fix-feature-tool-coupling/。
+- 2026-05-22 (M8, post-acceptance fix round 4): round 4 ISSUE-1/2 PASS(node-caps features + 真实重启持久化均通过),仅剩 ISSUE-3(降 major)。根因:detail 页 preview 请求虽写了 `tool_ids: draft.tool_allowlist ?? []`(line 140),但真实 UI 请求里 tool_ids=[] 空→门控(需 memory 工具在位)永远失败→切 memory_curation 预览不变。需查 draft.tool_allowlist 为何在 preview 触发时为空(timing/数据形状),令真实 UI 切开关时 preview 内容真变。详见 M8-fix-preview-tool-ids/。
+- 2026-05-22 (M7, post-acceptance fix round 3): 连续 3 轮 fail,共性=失败全在 Gateway 多服务链路接合点,组件单测过但真实链路坏。orchestrator 钉到文件级根因:ISSUE-1 `ws/im_connection.py` 的 `node.capabilities.resolve` handler 调裸 `build_runtime_capabilities().as_payload()` 不含 features 投影(features 投影在按 agent allowlist 算的 per-agent builder 里,create 页查 node-caps 拿不到)；ISSUE-2 重启 `node.register` 只发 `register_flags_payload`(无 per-agent features/custom_prompt),M6 的 upsert CASE 未覆盖 re-register 覆盖路径；ISSUE-3 gating 代码正确(orchestrator 直接验证 on/off 段进出),reviewer 503 是其环境 Gateway WS 未连上,需真实链路复验。**M7 强制要求经真实 live chain(curl HTTP + 真实重启 + IM-proxy→Gateway→agent)复现每个修复,非单测。** 详见 M7-fix-gateway-integration/。
+- 2026-05-22 (M6, post-acceptance fix round 2): M5 的修复打在错误的层,reviewer round 2 复验 3 个 issue 仍 fail。根因定位(orchestrator)：ISSUE-2 IM durable 写读正确(同会话 GET 能读回),但重启时 Gateway re-sync 覆盖回空——M5 把 Gateway config.yaml 写回 hand-wave 成"无需新代码"是错的；ISSUE-3 预览端点已传 flags 进 PromptContext,门控仍不生效→前端预览请求未带 tool_ids(memory) 或 gate 未读 flag；ISSUE-1 create 页有 Features 逻辑但列表来自 per-agent capabilities,新建时 agent 不存在→列表空→渲染不出。详见 M6-fix-persistence-gating-create/。
+- 2026-05-22 (M5, post-acceptance fix round 1): reviewer 端到端旅程发现 features/custom_prompt 持久化缺口(IM `/config` PATCH/GET + Gateway config.yaml 写回未接通,M2 单测只覆盖了 AgentWorkspaceConfig round-trip 与 capabilities 投影)、agent-create 页未迁移到新 Behavior card、features 门控未真正影响组装输出、capabilities `default_system_prompt` 仍旧 f-string 格式。详见 M5-fix-persistence-and-create-page/。
 
 ## 现状分析
 
@@ -153,6 +158,7 @@
 ### 决策 7: 用"特性注册表"作 flag↔段↔默认值↔依赖工具的单一事实源
 
 - **选择**: 建一张特性注册表（结构化常量），每条：`feature_key → {sections: [段名], default_on: bool, requires_tool: str|None, layer: core|product, label/help i18n key}`。组装器据此对"用户可勾"段做门控：`flags.get(key, default_on) and (requires_tool is None or tool 在位)`。IM 前端据此渲染开关列表（label/help/默认值/是否因缺工具而禁用）。
+  - **【决策 12 修订】** `requires_tool` 在前端的用途由"据此禁用开关"改为"勾选时联动把该工具加进 tool_allowlist"——开关不再因缺工具而禁用（详见决策 12）。
 - **理由**: flag 名、默认值、段映射、依赖工具集中一处，避免后端门控逻辑与前端开关列表各写一份漂移；spec Q6"每个特性有默认值"在此落地。
 - **拒绝**: 在各段 `enabled_when` 里硬编码 flag 名 + 在前端再硬编码一份开关清单——双份易漂移。
 - **风险**: 注册表需被 core（门控）与 IM 前端（渲染）共享，但二者跨包不能 import；解决：注册表的"用户可见部分"经 agent capabilities HTTP 接口下发给前端（与 skills/tools allowlist 同路），core 侧持完整表。
@@ -189,6 +195,41 @@
 #   examples that assume a coding workflow. See feat-379 design 决策 6/M4.
 CORE_ACTIONS_CARE = PromptSection(name="core.actions_care", order=210, ...)
 ```
+
+> 以下决策 11-14 为 post-acceptance 设计修订（2026-05-22），对应 spec Q9–Q12 / 场景 5-6 / 新增 4 条 AC，统一由 M9 实施。
+
+### 决策 11: prompt 预览改 node 级、丢弃 agent_id
+
+- **选择**: 新增 node 级预览链路 `POST /im/v1/nodes/{node_id}/prompt-preview`，入参 `{features, custom_prompt, tool_ids, scenario:"direct"}`，**不带 agent_id**。detail 页传 agent 的 owning node_id、create 页传所选 node_id，两页对称走同一条链路。IM → 该 node 的 Gateway WS（仿 `node.capabilities.resolve` 的 node 级 round-trip）→ Gateway `prompt_preview_provider`（`agent_id`/`workspace_root` 变可选，缺省用 node 默认 workspace，仅 cwd 显示用，不影响段组装）→ agent kernel `/v1/prompt-preview`（本就不读 agent 身份）。废弃按-agent 的 `POST /im/v1/agents/{id}/prompt-preview`（或保留为薄 wrapper 解析 agent→node 后转调，二选一由 worker 定，但前端两页都改用 node 级）。
+- **理由**: 组装一份 system prompt 的全部输入 = 前端配置（features/custom_prompt/tool_ids/scenario）+ 该 node 的段集合（bootstrap 时 app 级合并），**与具体 agent 无关**。原实现里 agent_id 仅用于路由，却因此让"新建时 agent 尚不存在"成了死结。改 node 级后，新建页预览天然可加载（缺陷 B 根治），两页对称也消除了缺陷 C 那个 hack 的存在理由。
+- **拒绝**: 让按-agent 路由容忍 `__preview__` 哨兵——仍是 agent 语义打补丁，两套心智；给新建页单独造一条不同 schema 的端点——两页预览不对称，回到分裂。
+- **风险**: node 级预览的 cwd/datetime 取 node 默认（非真实 agent workspace），预览顶部已注明"基线/单聊视角"，差异可接受；node 级 WS round-trip 需新增一个 message 类型，照搬 `node.capabilities.resolve` 既有模式，风险低。
+
+### 决策 12: 特性↔工具前端即时联动，移除特性开关的"缺工具禁用"
+
+- **选择**: 联动为纯前端 draft 状态逻辑（spec Q10：即时），抽成两页共用 helper：
+  - 勾选特性 `key` → 把 `FEATURE_REGISTRY[key].requires_tool`（经 capabilityFeatures 已知）并进 `draft.tool_allowlist`（spec Q9-a）；
+  - 取消特性 → **不动** `tool_allowlist`（spec Q9-c：工具是更底层能力，可为别的用途保留）；
+  - 从 `tool_allowlist` 移除某工具 → 若它是某特性的 `requires_tool`，**取消该特性勾选**（spec Q9-b）。
+  - **移除特性 checkbox 的 `disabled = !feat.available`**（`agent-detail-page.tsx:213`）：特性永远可勾，勾了就联动加工具——这是"从零可达"（spec 场景 5 / 可达性 AC）的实现关键。`available`/`requires_tool` 字段仍保留供前端联动取 tool 名，但不再据此禁用控件。
+  - 后端 `PATCH /config` 落库前做一次一致性兜底：保证"特性开 ⇒ 其 requires_tool 在 tool_allowlist"，防止异常路径写入矛盾态。
+- **理由**: 前端 `capabilityFeatures` 已带 `requires_tool`，足够本地完成双向联动，零新增后端往返；spec Q10 要"立刻变"，即时 draft 联动正中诉求。禁用态正是缺陷 A 暴露给用户的样子（开关灰着点不动），与"从零可达"直接冲突，必须去掉。
+- **拒绝**: 保留禁用态、要求用户先手动加工具——违反场景 5"不必先想着加工具"；后端联动（保存时才校正）——用户先看到矛盾态再被纠正，违反 Q10。
+- **风险**: 联动逻辑两页各写一份易漂移——抽 helper 单一实现；contract 上"特性开⇒工具在"的不变量由后端兜底测试守住。
+
+### 决策 13: 修 `_build_tool_names`，让 memory/skill_manage 进 advertise 工具列表
+
+- **选择**: `_build_tool_names()` 改为不依赖 runtime 实例的工具规格来源——advertise 阶段只需工具 `name + description`（静态可得），应从 `PERSONAL_ASSISTANT_PROFILE` 的 `default_tool_ids + optional_tool_ids` 直接取名、配以工具模块自带的静态 description，而非"runtime=None 建的 registry 的 `list_specs()` ∩ allowed_set"（后者把需路径注入的 memory/skill_manage 漏掉）。最终 `capabilities.tools` 含 memory/skill_manage。
+- **理由**: 工具能否被 advertise（让用户在 allowlist 里选）与该工具运行时是否需要路径注入是两回事——前者只要名字和描述。联动（决策 12）要让 memory 工具在 allowlist 区"变绿"，前提就是它得是个可选项。这是缺陷 A 的根治。
+- **拒绝**: 在 advertise 时强行用真实路径建全量 registry——advertise 上下文无 workspace，且为列个名字而构造运行时实例不划算；只在前端硬塞两项——绕过单一事实源（决策 7），易漂移。
+- **风险**: 工具的静态 description 来源需核实（工具模块常量 vs registry spec）——worker 落地时确认；contract 测试断言 `capabilities.tools` 含 `FEATURE_REGISTRY` 所有 `requires_tool`。
+
+### 决策 14: 删除 effectiveToolIds 注入，预览 tool_ids 直接取 draft.tool_allowlist
+
+- **选择**: 删掉 `agent-detail-page.tsx` / `agent-create-page.tsx` 里 `effectiveToolIds`（把 available features 的 requires_tool 并进预览 tool_ids 的 M8 hack），预览请求的 `tool_ids` 直接用 `draft.tool_allowlist`。
+- **理由**: 决策 12 让 `draft.tool_allowlist` 真实反映"特性开⇒工具在"，预览不再需要旁路补偿；该 hack 正是缺陷 C——它让预览无视真实工具集恒显示段，掩盖了 A。决策 11/12/13 落地后它既无必要也有害。
+- **拒绝**: 保留 hack 作"双保险"——会继续掩盖真实工具集与预览的偏差，违背"预览即所见即所得"。
+- **风险**: 删除后若某路径 `draft.tool_allowlist` 注水不及时（M8 当初想修的 timing 问题），预览 tool_ids 可能短暂为空——决策 12 的联动保证勾特性即写入 allowlist，draft 是组件本地 state 同步可得，timing 问题随之消失；M9 worker 须用真实浏览器验证切开关后预览即变。
 
 ## 接口与数据流
 
@@ -240,7 +281,7 @@ IM 前端 Behavior card (toggle + textarea)
 
 ### capabilities 下发（前端渲染开关列表）
 
-`GET /im/v1/agents/{id}/capabilities` 现回 `skills/tools/model_options/default_system_prompt`。新增 `features`（注册表的用户可见投影：key/label/help/default_on/available 是否因缺工具禁用），前端据此渲染特性开关组，与现有 PillSelector 取 allowlist 同路。
+`GET /im/v1/agents/{id}/capabilities` 现回 `skills/tools/model_options/default_system_prompt`。新增 `features`（注册表的用户可见投影：key/label/help/default_on/requires_tool/available），前端据此渲染特性开关组，与现有 PillSelector 取 allowlist 同路。**【决策 12 修订】** `requires_tool` 供前端联动（勾特性→把该工具加进 tool_allowlist），`available` 不再用于禁用开关；开关恒可勾。`tools` 列表须含 memory/skill_manage（决策 13）联动才有"变绿"落点。
 
 ### 段顺序总表（最终段集合，order 步进 10）
 
@@ -309,7 +350,7 @@ local_coding 产品提供 `lc.*` 段（identity/guidelines 等），无群聊/he
 │ │ ☐  技能自进化                                      │   │ ← 未勾
 │ │     复杂任务后自动沉淀/修补 skill                   │   │
 │ ├───────────────────────────────────────────────────┤   │
-│ │ ☐  技能自进化   ⊘ 需先启用 skill_manage 工具  灰   │   │ ← 缺依赖工具：禁用 + 提示
+│ │ ☐  技能自进化                                      │   │ ← 决策12后：可勾,勾上即联动把 skill_manage 加进 allowlist
 │ └───────────────────────────────────────────────────┘   │
 │                                                           │
 │ Group reply policy   [ Mention ▾ ]                        │ ← 保留(场景必加段的内容,非开关)
@@ -320,12 +361,13 @@ local_coding 产品提供 `lc.*` 段（identity/guidelines 等），无群聊/he
 ```
 
 - **特性控件**：复用产品 checkbox idiom（`appearance:none` + `:checked`→`--im-accent`），一行 = 左侧 checkbox、右侧 label(13px semibold)+help(11px muted)，套 `im-agent-field` 版式；行结构参照 `allowlist-selector` 的选项行。不新建 Switch。
-- **三态**：勾 / 不勾 / **禁用**（`available=false`，即依赖工具不在该 agent allowlist）——checkbox `disabled` + 置灰 + tooltip「需先启用 `<tool>` 工具」，避免"开了但无工具→段不出现"的矛盾态（决策 7 的 `requires_tool` 在前端的呈现）。
+- **二态（决策 12 修订，原三态废弃）**：勾 / 不勾，**不再有禁用态**。原设计的"禁用（`available=false`，依赖工具不在 allowlist）"正是缺陷 A 暴露给用户的死结（开关灰着点不动），与"从零可达"冲突。改为：特性永远可勾，勾上即联动把 `requires_tool` 加进 `tool_allowlist`（在工具区"变绿"），从而保证"特性开⇒工具在"而无需用户预先准备工具。`available`/`requires_tool` 字段仍由注册表下发，但仅供前端联动取 tool 名，不再据此 disable 控件。详见决策 12。
 - **折叠预览**：复用 `tool-calls-panel` 的 `<button aria-expanded>` + `▸/▾` 箭头 + `--open` class 模式（新增 `im-agent-*` 命名的对应类），不引入 `<details>`/Accordion。
 - **数据**：开关状态 = `draft.features[key]`（缺省取 `capabilities.features[key].default_on`）；保存走现有 `updateAgentConfig` PATCH，body 加 `features` + `custom_prompt`。
 - **校验**：移除现有「System Prompt 必填」校验（整串废弃）；Custom Instructions 可空。
 - **预览**（折叠，**必做**，spec Q8）：只读展示"固定段 + 已开特性段 + custom 段"拼出的完整 prompt（单聊基线视角；群聊 `pa.communication_context`、`core.memory_block` 等运行时易变段不在预览内，预览底部一行注明"群聊/记忆等运行时段不在此预览"）。切换开关 / 改 custom 文本 → 重新拉取预览（debounce）。固定段灰显、特性/自定义段正常色，让"哪些可改"一目了然。
   - **后端预览接口**（M2 落地）：组装在 agent core，跨包链路 frontend → IM → Gateway(personal_assistant) → agent HTTP API。新增 `POST /v1/prompt-preview`（agent 平台）：入参 `{tool_ids, features, custom_prompt, scenario:"direct"}` → 返回 `assemble_system_prompt` 的结果串（复用决策 2/9 的组装器，scenario 固定单聊、不含易变段）。IM 侧加一条代理路由 `POST /im/v1/agents/{id}/prompt-preview` 经节点转发。
+    - **【决策 11 修订，M9】** IM 侧代理改为 **node 级** `POST /im/v1/nodes/{node_id}/prompt-preview`（不带 agent_id），detail 页与 create 页对称共用；按-agent 路由废弃或降为薄 wrapper。agent kernel `/v1/prompt-preview` 不变（本就不读 agent 身份）。详见决策 11。
 
 ## 风险与回退
 
@@ -365,3 +407,8 @@ graph LR
 | feat-379-M2 | per-agent-features-config | feat-379-M1 | A | `personal_assistant/config/local_store.py`(AgentWorkspaceConfig +features/+custom_prompt)、`personal_assistant/main.py`(透传+持久化)、`IM/infra/db.py`+`repositories.py`+agent config 路由(字段+capabilities.features 投影)、特性注册表**填充**(core `prompt_sections/feature_registry.py`，骨架已在 M1)、session 创建 metadata 接线、**预览接口**(agent `POST /v1/prompt-preview` + IM 代理 `POST /im/v1/agents/{id}/prompt-preview`) | `[worker]` 改 `config.yaml` 某 agent 的 `features`/`custom_prompt`→该 agent 组装出的 prompt 段相应增减（集成测试）；`[worker]` 特性开关写后重启 Gateway 仍保持（持久化测试）；`[worker]` `GET /agents/{id}/capabilities` 返回 features 投影且与注册表 key 一致(contract)；`[worker]` 预览接口按给定 features/custom 返回组装串、单聊场景不含易变段(单测) |
 | feat-379-M3 | im-frontend-feature-toggles | feat-379-M2 | A | `IM/frontend/src/features/settings/agents/agent-detail-page.tsx`+`agent-create-page.tsx`+`im-agent-config-api.ts`、特性 checkbox 行(复用 checkbox idiom,非新建 Switch)、`aria-expanded` 折叠预览(复用 tool-calls-panel 模式)、i18n、Behavior card 重构、预览面板接 `POST /im/v1/agents/{id}/prompt-preview` | `[reviewer]` Settings→Agents 每个用户可勾特性有开关并按默认值呈现；`[reviewer]` 切开关保存→重启 IM+Gateway→状态保持；`[reviewer]` 关 memory/skills 自进化→对话行为消失,开→恢复；`[reviewer]` 填自定义补充→该 agent 表现该人设,其它 agent 不受影响；`[reviewer]` 群聊 agent 始终守回复策略(开关无可关项)；`[reviewer]` 展开「完整系统提示词预览」看到当前特性+自定义拼出的提示词，切开关/改文本后预览更新；`[worker]` `npm run test`(vitest)+`npm run build` 通过 |
 | feat-379-M4 | core-content-align-cc | feat-379-M1 | B | `agent/core/agent/prompt_sections/core_sections.py`(core 段 render 文案，**不含 `feature_registry.py`**，与 M2 文件不交集)：新增 `core.actions_care`、`core.tone_style`；补全 `core.system`(prompt-injection flag/被拒工具调用处理/system-reminder 说明/自动压缩说明)；修 `core.tool_rules`(专用工具优先+并行调用，纠正"用 bash grep")；按需补 PA `# Communicating` 文案。**不**改 coding 专属/CC 产品专属/特性门控段 | `[reviewer]` agent 在不可逆/影响他人的操作(发消息、删文件、push 等)前先确认；`[reviewer]` 引用代码用 `file_path:line_number`、引用 issue 用 `owner/repo#123`、非请求不滥用 emoji；`[worker]` 新增/改写段单测通过；`[worker]` core 段文案与 CC 对应通用段语义一致(去除 coding/CC 产品专属)，逐段 review 记录在 progress.md；`[worker]` 每个新增/改写段带 `Provenance:` 注释（决策 10，标 `CC-verbatim`/`CC-adapted` + CC 源 `<file:symbol>` + 改了什么） |
+| feat-379-M5 | fix-persistence-and-create-page (post-acceptance fix, round 1) | feat-379-M2, feat-379-M3 | A | `IM/infra/db.py`+`repositories.py`+agent `/config` PATCH/GET 路由(读写 `features`/`custom_prompt`)、`personal_assistant/main.py`(收 IM agent-update 后把 features/custom_prompt 写回 config.yaml 对应条目)、features 门控真正接进组装器(memory/skill_manage 工具在位时 on/off 影响段进出)、`IM/frontend/src/features/settings/agents/agent-create-page.tsx`(迁到新 Behavior card：Custom Instructions + Features 开关组按 capabilities.features default_on 渲染 + Preview)、capabilities `default_system_prompt` 字段更新或废弃(消除旧 `<RUNTIME_FILL:*>` 串) | `[reviewer]` 切特性/填 custom_prompt 保存→重启 IM+Gateway→状态保持(AC2/AC4)；`[reviewer]` 关 memory/skills 自进化→对话/预览中对应段消失,开→恢复(AC3)；`[reviewer]` 新建 agent 页 Behavior card 与 detail 一致,特性按默认值呈现(AC1 create 半);`[worker]` IM `/config` PATCH→GET round-trip 含 features/custom_prompt(集成测试)；`[worker]` Gateway 写回 config.yaml 含两字段(持久化测试)；`[worker]` 带 memory 工具的 agent,preview `features.memory_curation` true/false 时 section 数/内容有差异(单测)；`[worker]` `npm run test`+`npm run build` 通过 |
+| feat-379-M6 | fix-persistence-gating-create (post-acceptance fix, round 2 — M5 修在错误的层) | feat-379-M5 | A | **ISSUE-2 持久化(重启路径)**：定位并修复"IM 重启后 features/custom_prompt 归零"——durable 写读已正确(同会话 GET 能读回),根因在重启时 Gateway re-sync 覆盖,查 `personal_assistant/main.py` 启动同步路径 + `config/local_store.py` 的 config.yaml 存取,确保 ① config.yaml 真持久化这两字段且 Gateway 重启后能读回 ② 启动时 Gateway→IM 注册/同步 payload 携带这两字段、IM 注册 upsert 保留而非重置为空(`IM/infra/repositories.py` 的节点注册/sync 路径)。**ISSUE-3 门控**：preview 端点已传 `flags=payload.features`(`agent/.../global_routes.py`),查为何 memory 工具 agent on/off 仍同——前端预览请求是否带 `tool_ids`(含 memory)、gate 函数是否真读 `ctx.flags`,补端到端测试(经 HTTP 端点而非仅 gate 函数)。**ISSUE-1 create 页 Features**：`agent-create-page.tsx` 有 CreateBehaviorCard 但 features 列表来自 per-agent capabilities,新建时 agent 不存在→空→不渲染,改用建前可用的特性来源(全局/默认 FEATURE_REGISTRY 投影或 owning node 的 capabilities) | `[reviewer]` 编辑 features+custom_prompt→保存→重启 IM+Gateway→重新打开配置页状态保持(AC2/AC4,真实旅程)；`[reviewer]` 带 memory 工具 agent memory_curation on/off→preview 的 core.memory_guidance 段进/出(AC3)；`[reviewer]` 新建 agent 页 Features 开关组可见且按默认值呈现(AC1 create 半)；`[worker]` 经真实 HTTP 端点(curl/集成)复现"重启后字段保持""on/off preview 差异",非仅 gate 单测；`[worker]` 全量与 main diff 0 新增失败；`[worker]` `npm run test`+`npm run build` 通过 |
+| feat-379-M7 | fix-gateway-integration (post-acceptance fix, round 3 — M6 仍停在组件层) | feat-379-M6 | A | **三个 issue 全在 Gateway 多服务链路接合点,必须经真实 live chain 复现+修复。ISSUE-1**：`personal_assistant/ws/im_connection.py` 的 `node.capabilities.resolve` handler 调裸 `build_runtime_capabilities().as_payload()`→无 features 投影;改为返回含 FEATURE_REGISTRY 投影的 payload(node 级 `available` 按默认/全工具集算,无 per-agent allowlist),并确保 `as_payload()`→IM `node.capabilities` 接收→IM HTTP `NodeCapabilitiesResponse`→前端 create 页 整条链路 features 不被丢。**ISSUE-2**：重启 re-sync 覆盖——查 `node.register`/`config.sync` 重连路径(`ws/im_connection.py`+`reporter/upstream_reporter.py`+IM `repositories.py` 节点注册 upsert),确保 Gateway 重连/注册时 IM 不把已持久化的 features/custom_prompt 重置为空(register 不带这俩字段时 IM 须保留 DB 现值,而非覆盖)。**ISSUE-3**：gating 内核已对,修通 IM-proxy→Gateway WS `agent.prompt.preview.request`→agent 的真实链路(确认 Gateway WS 连接稳定、tool_ids 透传到 agent /v1/prompt-preview),使 UI 切 features→preview 真变 | `[reviewer]` 真实旅程:编辑保存→重启→状态保持(AC2/4)、UI 切 memory_curation→preview 段进出(AC3)、create 页 Features 开关组可见按默认呈现(AC1)；`[worker]` **必须**贴真实 live chain 证据(curl `GET /im/v1/nodes/{id}/capabilities` 返回非空 features、PATCH+真重启 IM&Gateway 后 GET 仍含两字段、POST `/im/v1/agents/{id}/prompt-preview` on/off 返回不同串),非仅单测;`[worker]` 全量与 main diff 0 新增失败;`[worker]` `npm run test`+`npm run build` 通过 |
+| feat-379-M8 | fix-preview-tool-ids (post-acceptance fix, round 4) | feat-379-M7 | A | `IM/frontend/src/features/settings/agents/agent-detail-page.tsx`(+`agent-create-page.tsx` 若同样问题):查 preview 请求 `tool_ids` 在真实 UI 中为空的原因(draft.tool_allowlist 在 preview useEffect 触发时未注水/数据形状不符),令请求真正携带 agent 的 tool_allowlist | `[reviewer]` 真实 UI:带 memory 工具的 agent 切 memory_curation on/off→preview 的 core.memory_guidance 段进/出(AC3);`[worker]` **真实浏览器**验证(非 curl 手填 tool_ids):切开关后浏览器 Network 里 preview 请求 body `tool_ids` 非空且含 memory、preview 内容随之变(贴截图/请求体);`[worker]` `npm run test`+`npm run build` 通过;`[worker]` 全量与 main diff 0 新增失败 |
+| feat-379-M9 | fix-feature-tool-coupling (post-acceptance 设计修订, 决策 11-14) | feat-379-M8 | A | **缺陷 A（决策 13）**：`personal_assistant/reporter/upstream_reporter.py` `_build_tool_names()` 改为从 `PERSONAL_ASSISTANT_PROFILE.default_tool_ids+optional_tool_ids` 取名（不依赖 runtime registry 的 list_specs），使 `capabilities.tools` 含 memory/skill_manage。**缺陷 B（决策 11）**：新增 node 级预览链路——IM `POST /im/v1/nodes/{node_id}/prompt-preview`（`IM/api/routes/agents.py`+`ws/gateway_handler.py` node 级 WS round-trip，仿 `node.capabilities.resolve`）、`personal_assistant/ws/im_connection.py`+`main.py` 的 `prompt_preview_provider` 的 `agent_id`/`workspace_root` 变可选、`IM/frontend/.../im-agent-config-api.ts` 加 node 级 preview 调用；按-agent 路由废弃或降薄 wrapper。**联动+缺陷 C（决策 12/14）**：`agent-detail-page.tsx`+`agent-create-page.tsx`+共用 helper——勾特性→加 requires_tool 进 tool_allowlist、移工具→取消对应特性、取消特性不动工具；移除特性 checkbox 的 `disabled=!available`；删 `effectiveToolIds` 注入，预览 tool_ids=draft.tool_allowlist；两页预览都改调 node 级。**后端兜底**：`IM` agent `/config` PATCH 落库前保证"特性开⇒requires_tool 在 tool_allowlist" | `[reviewer]` 从**全新建** agent 出发：打开记忆自进化开关→memory 工具在 allowlist 区即时变绿→保存→对话中该特性行为生效（AC 可达性 / 场景 5）；`[reviewer]` 从 allowlist 移除 memory 工具→记忆自进化开关即时取消勾选；取消记忆自进化→memory 工具仍在（AC 联动）；`[reviewer]` 特性开关不再有"灰着点不动"的禁用态；`[reviewer]` **新建 agent 页**（agent 尚未创建）展开「完整系统提示词预览」能加载、按当前勾选拼出提示词、不报 404/无法加载（AC 新建页预览 / 场景 6）；`[reviewer]` detail 页与 create 页预览表现一致；`[worker]` 实跑确认 `capabilities.tools` 含 memory/skill_manage（contract：含 FEATURE_REGISTRY 所有 requires_tool）；`[worker]` node 级预览端点 curl 可达、不依赖既有 agent 返回组装串；`[worker]` 联动 helper 单测（勾/取消/移工具三向）；`[worker]` 后端 PATCH 一致性兜底测试；`[worker]` **真实浏览器**验证联动 + 两页预览加载（贴截图/请求体）；`[worker]` `npm run test`+`npm run build` 通过；`[worker]` 全量与 main diff 0 新增失败 |
