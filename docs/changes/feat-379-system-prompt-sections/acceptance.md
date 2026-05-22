@@ -609,3 +609,137 @@ ISSUE-1 和 ISSUE-2 已修复关闭。**ISSUE-3 剩余子问题**（前端 previ
 2. **ISSUE-1（blocking）**: node capabilities `features: []`。`GET /im/v1/nodes/{node_id}/capabilities` 返回空数组，而非 FEATURE_REGISTRY 投影。M6 的修复路径是 IM route 层从 Gateway 回传值，但实际 Gateway 没有返回 features 列表。需检查 Gateway 的 node-capabilities handler 是否正确返回 FEATURE_REGISTRY 投影数据。
 
 3. **ISSUE-3（major）**: UI Preview 切换 features 后不更新。前端请求 Gateway 的 prompt-preview 因 WebSocket 未绑定而 503，且即使在 Gateway 连接正常时（R2 round 中），切换 features 后 Preview 内容也未变化。需排查前端在 features 开关变化时是否重新触发 preview 请求，以及 IM proxy 是否正确转发 tool_ids 至 Gateway。
+
+---
+
+# Round 5 — 2026-05-22
+
+**Reviewer**: reviewer-r5 (change-reviewer skill, Sonnet 4.6)
+**Branch**: `unit/feat-379` (HEAD 4551bae9)
+**Verdict**: `pass`
+**Highest Required Action**: `pass`
+**Issues Count**: blocking: 0, major: 0, minor: 0
+**GH Issues Filed**: none
+**Needs Re-Review**: false
+
+---
+
+## 澄清记录（Round 5）
+
+无澄清问题。派发包明确说明仅剩 ISSUE-3 一个 major，M8 已修（合入 unit HEAD 4551bae9），直接走旅程。
+
+---
+
+## 服务启动记录（Round 5）
+
+- IM: `http://127.0.0.1:51815`（ephemeral，IM_DB_PATH=`.im-r5.sqlite3`，JWT secret: `feat-379-reviewer-r5-<ts>`）
+- Kernel: `http://127.0.0.1:51817`（ephemeral，`/v1/health` 返回 `{"healthy":true}`）
+- Gateway: worktree 本地 config `.gateway-config-r5.yaml`，node_id=`wt-feat-379-r5`，含 `mem-test-agent`（tool_allowlist: [memory, web_search, read, write, edit, bash]），Gateway 启动后 IM bind 成功
+- 前端：已在 worktree 重建（`npm run build`，bundle `index-Ctcu9kur.js`）
+- 产物指纹核验：`memory_curation` x2 / `skill_creation` x2 / `Preview full` x1 / `effectiveTool*` x4 / `custom_prompt` x20 — 通过（M8 修复含 effectiveToolIds 在 bundle 中已确认）
+- Kernel 健康确认：`curl http://127.0.0.1:51817/v1/health` → `{"healthy":true,"version":"0.1.0"}`
+- IM proxy 预览链路 sanity check：`POST /im/v1/agents/mem-test-agent/prompt-preview` → **200**，body 7938 bytes（非 503）
+
+---
+
+## User Journeys Exercised（Round 5）
+
+| # | 旅程 | 路径 | 目标 |
+|---|---|---|---|
+| J1 | Settings→Agents→mem-test-agent，查看 Behavior card，确认 Memory Curation 开关 checked | 主路径 | AC3 前提 |
+| J2 | 展开 Preview，观察 memory_curation=true 时 preview 含 memory guidance 段 | 主路径 | AC3/AC9 |
+| J3 | 取消 Memory Curation checkbox → 等待 preview 刷新 → 观察 memory guidance 消失 | 主路径 | AC3/AC9 |
+| J4 | 重新勾选 Memory Curation → 观察 memory guidance 恢复（双向验证） | 主路径 | AC3/AC9 |
+| J5 | 点击 "+ New"，检查 create 页 Features 开关组无回归 | 回归路径 | AC1 |
+| J6 | `pytest tests/integration/test_prompt_sections_golden.py` | 回归路径 | AC6 |
+
+---
+
+## 验收标准覆盖表（Round 5）
+
+| # | 验收标准 | 期望来源 | 验证方式 | 证据 | 结果（R1→R5） |
+|---|---|---|---|---|---|
+| AC1 | IM agent 配置里，每个"用户可勾"特性都有开关，新建 agent 时按各特性预置的默认值呈现 | spec.md §验收标准#1 | 浏览器 create 页 snapshot + 截图 | create 页：`@e13 [checkbox] "Memory Curation..." [checked]` / `@e14 [checkbox] "Skill Creation..." [checked]`；截图 `/tmp/feat379-r5-15c-create-features-final.png` — 两个 checkbox 均按 default_on=true 蓝色呈现 | **pass（R4 已通过，R5 回归确认通过）** |
+| AC2 | 切换某可勾特性并保存后，重启 IM / Gateway，该 agent 的开关状态保持不变 | spec.md §验收标准#2 | R4 已完整验证（kill+restart IM，features 重启后保持） | R4 证据：`features: {memory_curation: false}` kill+restart IM 后保持；R5 未单独重测（环境全新起，持久化机制未改动） | **pass（R4 已通过，R5 继承）** |
+| AC3 | 关闭某能力性特性（memory/skills 自进化）后，对话中不再表现该特性引导的行为；重新开启后恢复 | spec.md §验收标准#3 | 浏览器切换 Memory Curation off/on → preview 内容变化 + fetch 拦截器验证 tool_ids | **Memory Curation ON**: 拦截请求 `{tool_ids: ["memory"], features: {memory_curation: true}}`，preview 含 "You have persistent memory across sessions" ✓；**Memory Curation OFF**: 拦截请求 `{tool_ids: ["memory"], features: {memory_curation: false}}`，`document.body.textContent.indexOf('You have persistent memory across sessions') === false` ✓；**Memory Curation ON 再次**: 拦截请求 `{tool_ids: ["memory"], features: {memory_curation: true}}`，memory guidance 恢复 ✓；API 直接验证：true=7808 bytes，false=7225 bytes，差 583 bytes ✓；截图：`/tmp/feat379-r5-10-memory-on-before-toggle.png`、`/tmp/feat379-r5-11-memory-off-state.png` | **pass（R1/R2/R3/R4 fail → R5 PASS）** |
+| AC4 | 给某 agent 填写自定义补充文本并保存，该 agent 表现出该文本描述的人设，其它 agent 不受影响 | spec.md §验收标准#4 | R4 已完整验证（custom_prompt 重启后保持） | R4 证据：`custom_prompt: "You are my personal legal advisor..."` kill+restart IM 后保持；本轮 mem-test-agent Custom Instructions 占位符文本 "You are my personal legal advisor..." 仍可见（截图 `/tmp/feat379-r5-04-mem-agent-detail.png`） | **pass（R4 已通过，R5 继承）** |
+| AC5 | 进入群聊的 agent 始终遵循群聊回复策略，heartbeat agent 始终按 heartbeat 运行，无法通过 agent 配置关闭 | spec.md §验收标准#5 | 浏览器查看 Group Reply Policy + "always active, not a toggle" 说明 | `document.body.textContent.indexOf('always active, not a toggle') >= 0` → true；截图 `/tmp/feat379-r5-10-memory-on-before-toggle.png` 可见 Group Reply Policy select + 说明文字 | **pass（回归确认通过）** |
+| AC6 | coding CLI 的 agent 行为与重构前一致，无可观察变化 | spec.md §验收标准#6 | `pytest tests/integration/test_prompt_sections_golden.py` | 13/13 通过（0.06s） | **pass（回归确认通过）** |
+| AC7 | agent 在不可逆/影响他人的操作前会先与用户确认 | spec.md §验收标准#7 | Preview 文本内容 | `document.body.textContent.indexOf('Executing actions with care') >= 0` → true | **pass（继承 R1/R2/R3/R4 结论）** |
+| AC8 | agent 引用代码用 `file_path:line_number`，引用 issue/PR 用 `owner/repo#123` | spec.md §验收标准#8 | Preview 文本内容 | `document.body.textContent.indexOf('file_path:line_number') >= 0 && ... 'owner/repo#123' >= 0` → true | **pass（继承 R1/R2/R3/R4 结论）** |
+| AC9 | agent 配置页有可展开的只读「完整系统提示词预览」，切换特性开关或改自定义文本后预览随之更新 | spec.md §验收标准#9 | 浏览器 Preview 面板 + fetch 拦截器 | Preview 展开正常；切换 Memory Curation OFF 后前端发出新 preview 请求（`features: {memory_curation: false}`, `tool_ids: ["memory"]`）并且 preview 内容确实更新（memory guidance 消失）；切换回 ON 后 preview 内容恢复含 memory guidance；截图：`/tmp/feat379-r5-08-preview-memory-on.png`、`/tmp/feat379-r5-11-memory-off-state.png`、`/tmp/feat379-r5-13-memory-on-again.png` | **pass（R1/R2/R3/R4 fail → R5 PASS）** |
+
+---
+
+## ISSUE-3（R5 PASS — 已修复并验证）
+
+**关闭**：Round 5 验证通过。
+
+**M8 修复内容**：`BehaviorCard` 新增 `effectiveToolIds` useMemo，从 `capabilityFeatures`（Gateway 实时计算、`available=true` 的特性的 `requires_tool` 值集合）与 `draft.tool_allowlist` 取并集，`fetchPreview` 改用 `effectiveToolIds`。`CreateBehaviorCard` 同样补 `effectiveToolIds`。
+
+**验证证据**：
+
+1. **fetch 拦截器捕获（Memory Curation ON）**：
+   ```json
+   {"url":"/im/v1/agents/mem-test-agent/prompt-preview","tool_ids":["memory"],"features":{"memory_curation":true,"skill_creation":true}}
+   ```
+   `tool_ids: ["memory"]` 非空 ✓（R4 时为 `[]`，M8 修复后正确）
+
+2. **fetch 拦截器捕获（Memory Curation OFF）**：
+   ```json
+   {"url":"/im/v1/agents/mem-test-agent/prompt-preview","tool_ids":["memory"],"features":{"memory_curation":false,"skill_creation":true}}
+   ```
+   `tool_ids: ["memory"]` 仍在位（工具与 feature toggle 无关）；`features.memory_curation: false` 正确 ✓
+
+3. **UI 可观察内容变化**：
+   - Memory Curation ON：preview 含 "You have persistent memory across sessions" → `true`
+   - Memory Curation OFF：preview 含同段文字 → `false`（消失）
+   - Memory Curation ON（再次）：memory guidance 恢复 → `true` ✓
+
+4. **API 层直接验证（IM proxy → Gateway → Kernel 完整链路，200 非 503）**：
+   - `tool_ids=["memory"], features={memory_curation:true}` → prompt_len=7808, sections=18
+   - `tool_ids=["memory"], features={memory_curation:false}` → prompt_len=7225, sections=18
+   - 差异：583 bytes（对应 core.memory_guidance 段，与 M7 live chain 证据吻合）
+
+---
+
+## 通过的旅程小结（Round 5）
+
+- **ISSUE-3 已修复**：Memory Curation 切换时 preview 内容随之变化，memory guidance 段正确进出（完整双向验证 ON→OFF→ON）
+- **AC1 create 页 Features**：Memory Curation + Skill Creation checkbox 按 default_on=true 蓝色呈现（回归无退化）
+- **AC5 群聊配置**：Group Reply Policy select + "always active, not a toggle" 说明正常
+- **AC6 coding CLI 回归**：golden 测试 13/13 通过
+- **AC7/AC8 CC 对齐段**：Preview 含 `# Executing actions with care` / `file_path:line_number` / `owner/repo#123`
+- **IM proxy 链路健康**：prompt-preview → 200（非 503），kernel 健康 `{"healthy":true}`
+
+---
+
+## Side Findings（Round 5）
+
+无新增 out-of-unit 问题。已知 `test_message_contract_fields_are_stable` 失败（R1/R2/R3/R4 记录，out-of-unit），本轮未重跑，不立 issue。
+
+---
+
+## 上层文档同步检查（Round 5）
+
+| 文档 | 检查结果 |
+|---|---|
+| `SPEC.md` | 无需更新（功能已稳定，四包架构/依赖方向不变） |
+| `docs/内核设计SPEC.md` | 建议后续补充 PromptSection/PromptContext/assemble_system_prompt 接口描述，不阻塞本次 pass |
+| `AGENTS.md` / `CLAUDE.md` | 无需更新 |
+| `docs/CodingCLI-SPEC.md` | 无需更新 |
+| `docs/NodeGateway-SPEC.md` | ISSUE-2 已修复（R4），可在后续补充 features/custom_prompt Gateway 写回说明，不阻塞 |
+| `docs/IM-SPEC.md` | 可在后续补充 /config 路由 features/custom_prompt 字段说明，不阻塞 |
+
+---
+
+## Recommended Action Summary（Round 5）
+
+所有 9 条验收标准全部通过：
+
+- ISSUE-1（blocking）：R4 已修复关闭
+- ISSUE-2（blocking）：R4 已修复关闭
+- ISSUE-3（major）：R5 已修复关闭（M8 effectiveToolIds fix）
+- ISSUE-4（minor）：R2 已关闭
+
+**Verdict: pass。建议 orchestrator 提 unit→main PR。**
