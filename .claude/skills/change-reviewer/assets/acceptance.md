@@ -28,18 +28,22 @@
 ## 验收标准覆盖
 
 <!--
-逐条复制首文档的验收标准。结果只能是 pass / fail / inconclusive / not-applicable。
-第 2 轮起必须继承上一轮所有 fail / inconclusive 项,直到有证据关闭。
-任一必验项 fail 或 inconclusive 时,Verdict 不能是 pass。
-若验收项引用原型/设计稿/reference/screenshot/视觉一致性,期望来源必须写对应路径或名称,证据必须包含真实产品截图/录屏/对照结论。
-- refactor / perf:验收标准是"不变性",验证方式写"走既有行为,与变更前比对"。
-- 若某条验收标准不是用户可观察的(协议/参数/内部函数等实现层条目),标 not-applicable,
-  备注"疑似实现层标准,应属 design.md",不要试图验证(详见 SKILL §3.1)。
+粒度 = Scenario:首文档验收标准是 Requirement / Scenario 结构,这里逐个 #### Scenario 一行(不是每个 Requirement 一行)。
+Requirement 作分组表头,组内所有 Scenario 全 pass,该 Requirement 才算过。结果只能是 pass / fail / inconclusive / not-applicable。
+必须逐 Scenario 有结论,不允许"挑主要的验"。
+第 2 轮起必须继承上一轮所有 fail / inconclusive 行,直到有证据关闭。
+任一必验 Scenario fail 或 inconclusive 时,Verdict 不能是 pass。
+若 Scenario 引用原型/设计稿/reference/screenshot/视觉一致性,期望来源必须写对应路径或名称,证据必须包含真实产品截图/录屏/对照结论。
+- refactor / perf:Scenario 的 THEN 是"不变性",验证方式写"走既有行为,与变更前比对"。
+- 若某 Scenario 不是用户可观察的(协议/参数/内部函数等实现层),标 not-applicable,
+  备注"疑似实现层 Scenario,应属 design.md",不要试图验证(详见 SKILL §3.1)。
 -->
 
-| ID | 验收项 | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
-|---|---|---|---|---|---|---|
-| A1 | <从 spec.md 复制验收标准> | <spec/design/reference 路径或 N/A> | <真实入口/操作步骤/替代验证理由> | <截图/日志/输出/报告位置> | pass / fail / inconclusive / not-applicable |  |
+### Requirement: <从 spec.md 复制 Requirement 名> — 组内结论:pass / fail
+
+| Scenario | 期望来源 | 验证方式(覆盖它的旅程) | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| <Scenario 名> | <spec/design/reference 路径或 N/A> | <真实入口/操作步骤/替代验证理由> | <截图/日志/输出/报告位置> | pass / fail / inconclusive / not-applicable |  |
 
 ## 上层文档同步
 

@@ -62,7 +62,7 @@ git pull --ff-only origin "unit/<unit_id>"
 
 按顺序读(只读):
 
-1. **`docs/changes/<unit_dir>/<首文档>.md`** —— 用户场景、验收标准(这是你的真值)
+1. **`docs/changes/<unit_dir>/<首文档>.md`** —— 用户场景、验收标准(这是你的真值)。验收标准是 **Requirement / Scenario 结构**(`### Requirement` 下挂 `#### Scenario`,每个 scenario 有 WHEN/THEN)——每个 **Scenario** 就是你覆盖表的一行,也是旅程脚本(见 §3.1)
 2. **`docs/changes/<unit_dir>/design.md`** —— 大概架构(只看 §架构总览 + §关键决策),为可能的 revise-design 引用准备
 3. **`README.md` / `docs/operator-runbook.md`** —— 怎么启动、怎么用
 4. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定,怎么跑产品
@@ -106,21 +106,32 @@ git pull --ff-only origin "unit/<unit_id>"
 
 ## §3 走用户旅程(核心动作)
 
-### §3.1 制定旅程清单
+### §3.1 建覆盖表 + 制定旅程清单
 
-从首文档的"用户场景"+"验收标准"反推 2-5 条旅程:
+验收标准是 **Requirement / Scenario 结构**。这一步分两件事——**覆盖表**(逐 Scenario,要全)和**旅程**(少量,串起多个 Scenario 走)。两者是不同东西,别混。
 
-- **主路径**:成功完成功能的最常见用户行为
-- **边界路径**:输入异常、网络断、并发、空状态、权限不足
+#### §3.1.1 验收标准覆盖表(逐 Scenario,全覆盖)
+
+把首文档验收标准里的**每一个 `#### Scenario` 列成覆盖表的一行**(不是每个 Requirement 一行——粒度是 Scenario)。`### Requirement` 作为分组表头:**组内所有 Scenario 全 pass,该 Requirement 才算过**。
+
+每行标记 `pass / fail / inconclusive / not-applicable`,记录:期望来源、验证方式、证据、结果、备注。
+
+- **必须逐条有结论**——不允许"挑几个主要的验"。Scenario 拆得多正是为了不漏边界 / 空 / 失败态,跳过等于把拆分的意义丢掉。
+- 第 2 轮起必须继承上一轮所有 `fail` 和 `inconclusive` 行,直到被明确关闭。后续 fix round 可聚焦修复项,但**最终给 pass 前,每个必验 Scenario 都要有有效结论**。
+
+**遇到非用户可观察的 Scenario**(WHEN/THEN 写的是协议字段 / 参数取值 / 内部函数 / 接口形态 / 日志字符串等实现层):**不要试图验证,也不要 debug-by-reading 去翻源码**。该行标 `not-applicable`,备注"疑似实现层 Scenario,非 reviewer 验收范围,应属 design.md",报告里 flag 一句。(区别于 §0.2:§0.2 是用户面**该出现的结果没出现** → fail;这里是**这条 Scenario 本身就不是用户面的** → not-applicable。)orchestrator 看到 flag 会回 spec-author 收口。
+
+#### §3.1.2 旅程清单(2-5 条,每条串多个 Scenario)
+
+旅程不是从叙事**反推**——直接用 Scenario 的 **WHEN(触发)→ THEN(期望)映射**出来。规划 2-5 条旅程,**每条旅程串起一组相关 Scenario** 走完(别让 N 个 Scenario 变成 N 次独立启动产品):
+
+- **主路径**:把同一 Requirement 下的正常态 Scenario 串成一次连贯操作
+- **边界路径**:走失败 / 边界 / 空态 Scenario(输入异常、网络断、并发、空状态、权限不足)
 - **跨功能影响**:本 unit 的改动是否影响了相邻功能的可用性
 
-**refactor / perf unit 的镜头不同**:首文档的"用户场景"是**回归基线**(既有行为快照)、"验收标准"是**不变性**。你的旅程就是走这些既有行为,判据是"与变更前一致",不是"新行为好不好"——既有行为本身的瑕疵不要当本 unit 的 issue(归 Side Findings 或 out-of-unit),只判它在本次变更后有没有退化。
+每条旅程覆盖了哪些 Scenario,在覆盖表对应行的"验证方式"里回填。旅程清单写到报告"User Journeys Exercised"段。
 
-旅程清单写到报告"User Journeys Exercised"段。
-
-同时建立一张**验收标准覆盖表**:把首文档里的每条验收标准逐条列出来,每条标记为 `pass / fail / inconclusive / not-applicable`。第 2 轮起必须继承上一轮所有 `fail` 和 `inconclusive` 项,直到它们被明确关闭。后续 fix round 可以聚焦修复项,但**最终给 pass 前必须确认所有必验项都有有效结论**。
-
-**遇到非用户可观察的验收标准条目**:如果首文档的验收标准里有一条你作为用户根本无法观察(协议字段 / 参数取值 / 内部函数 / 接口形态 / 日志字符串等实现层条目),**不要试图验证它,也不要 debug-by-reading 去翻源码**。在覆盖表里把该条标 `not-applicable`,备注"疑似实现层标准,非 reviewer 验收范围,应属 design.md",并在报告里 flag 一句。这类条目归 worker 单测 + 架构师 PR review,不归你。(区别于 §0.2:§0.2 是用户面**该出现的结果没出现** → fail;这里是**这条标准本身就不是用户面的** → not-applicable。)orchestrator 看到 flag 会回 spec-author 收口。
+**refactor / perf unit 的镜头不同**:首文档的"用户场景"是**回归基线**(既有行为快照)、Scenario 的 THEN 写的是**不变性**(与变更前一致)。你的旅程就是走这些既有行为,判据是"与变更前一致",不是"新行为好不好"——既有行为本身的瑕疵不要当本 unit 的 issue(归 Side Findings 或 out-of-unit),只判它在本次变更后有没有退化。
 
 如果首文档、design.md 或验收标准引用原型、设计稿、reference screenshot、截图、视觉一致、像素级、响应式、布局/样式等要求,这些 reference artifact 是验收真值的一部分。必须读取/打开对应 reference,并把它们写进覆盖表的"期望来源"。
 
@@ -221,7 +232,7 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
 
 - **Highest Required Action**: `fix-implementation | revise-design | out-of-unit | pass`
 - **Verdict**: `pass | fail | pass-with-issues`
-- **验收标准覆盖**:逐条列出首文档验收标准,记录期望来源、验证方式、证据、结果(`pass / fail / inconclusive / not-applicable`)和备注。涉及 reference 的项必须写 reference 路径/名称
+- **验收标准覆盖**:**逐 Scenario** 列出(`### Requirement` 分组表头 + 组下每个 `#### Scenario` 一行),记录期望来源、验证方式、证据、结果(`pass / fail / inconclusive / not-applicable`)和备注。组内全 pass 该 Requirement 才算过。涉及 reference 的项必须写 reference 路径/名称
 - **Issues** 段每条:
   - `Severity`: blocking | major | minor
   - **`Recommended Action`**: fix-implementation | revise-design | out-of-unit
@@ -234,13 +245,13 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
 | 条件 | Verdict |
 |---|---|
 | 任意 blocking issue 存在 | `fail` |
-| 任意必验项为 `fail` 或 `inconclusive` | `fail` |
-| 必验项要求 reference 对齐但缺少真实截图/录屏/对照结论 | `fail` |
+| 任意必验 Scenario 为 `fail` 或 `inconclusive` | `fail` |
+| 必验 Scenario 要求 reference 对齐但缺少真实截图/录屏/对照结论 | `fail` |
 | 无 blocking,有 major issue | `pass-with-issues` 或 `fail`(看 caller 的 acceptance bar,默认 `fail`) |
 | 只有 minor issue | `pass` |
 | 完全无 issue | `pass` |
 
-第 1 轮验收的 acceptance bar 默认严格(major 也算 fail);第 3 轮起 caller 可放宽到 `pass-with-issues`。但只要首文档的必验项仍是 `fail` 或 `inconclusive`,就不能给 `pass`;必须继续 fix / 复验,或把该项明确标成 `not-applicable` 并写清理由。
+第 1 轮验收的 acceptance bar 默认严格(major 也算 fail);第 3 轮起 caller 可放宽到 `pass-with-issues`。但只要任一必验 **Scenario** 仍是 `fail` 或 `inconclusive`,就不能给 `pass`;必须继续 fix / 复验,或把该 Scenario 明确标成 `not-applicable` 并写清理由。
 
 ---
 
