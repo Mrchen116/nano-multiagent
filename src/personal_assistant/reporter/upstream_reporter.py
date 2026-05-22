@@ -9,7 +9,6 @@ from agent.core.llm.model_registry import DEFAULT_PROVIDER, get_default_model, l
 from agent.core.skills.discovery import default_skill_search_roots
 from agent.core.skills.registry import SkillRegistry
 from agent.platform.config.resolver import ConfigResolver
-from agent.platform.tools.loader import build_tool_registry
 from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
 
@@ -96,17 +95,13 @@ def _build_skill_capability_entries() -> tuple[dict[str, str], ...]:
 
 
 def _build_tool_names() -> tuple[str, ...]:
-    config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=None)
-    registry = build_tool_registry(
-        repo_root=_repo_root(),
-        hook_runner=None,
-        runtime=None,
-        config_resolver=config_resolver,
-        product_tool_dir=_product_root() / "tools",
-    )
+    # feat-379-M9 (決策 13): advertise-phase only needs the declared tool names;
+    # build_tool_registry(runtime=None) omits memory/skill_manage because those tools
+    # require bootstrap path injection before they appear in list_specs().  Taking names
+    # directly from the profile guarantees the full declared surface is advertised,
+    # regardless of whether a live runtime is present.
     allowed_ids = [*PERSONAL_ASSISTANT_PROFILE.default_tool_ids, *PERSONAL_ASSISTANT_PROFILE.optional_tool_ids]
-    allowed_set = set(allowed_ids)
-    return tuple(spec.name for spec in registry.list_specs() if spec.name in allowed_set)
+    return _dedupe_preserve_order(allowed_ids)
 
 
 def _build_model_names() -> tuple[str, ...]:

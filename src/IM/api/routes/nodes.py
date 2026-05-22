@@ -8,6 +8,8 @@ from IM.api.routes.agents import (
     AgentConfigResponse,
     AllowlistOptionResponse,
     FeatureCapabilityResponse,
+    PromptPreviewRequest,
+    PromptPreviewResponse,
     _coerce_feature_list,
     coerce_allowlist_options,
     to_agent_config_response,
@@ -133,6 +135,38 @@ async def get_node_capabilities(
         # can render the Features section without a per-agent capabilities call.
         features=_coerce_feature_list(live.get("features")),
     )
+
+
+@router.post("/im/v1/nodes/{node_id}/prompt-preview", response_model=PromptPreviewResponse)
+async def node_prompt_preview(
+    node_id: str,
+    payload: PromptPreviewRequest,
+    user: User = Depends(current_user),
+    service: NodeService = Depends(get_node_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+) -> PromptPreviewResponse:
+    """Proxy a node-level prompt-preview request to the Gateway node (owner-scoped).
+
+    feat-379-M9 (決策 11): Used by the agent-create page before an agent exists.
+    Unlike the per-agent endpoint, no agent_id or workspace_root is required — the
+    Gateway assembles the preview using its default kernel client.
+    """
+    if service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found")
+    result = await gateway_handler.request_node_prompt_preview(
+        target_node_id=node_id,
+        features=payload.features,
+        custom_prompt=payload.custom_prompt,
+        tool_ids=payload.tool_ids,
+        scenario=payload.scenario,
+    )
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")
+    raw_prompt = result.get("prompt")
+    prompt = raw_prompt if isinstance(raw_prompt, str) else ""
+    raw_count = result.get("section_count")
+    section_count = int(raw_count) if isinstance(raw_count, int) else 0
+    return PromptPreviewResponse(prompt=prompt, section_count=section_count)
 
 
 @router.post("/im/v1/nodes/{node_id}/agents", response_model=AgentConfigResponse, status_code=status.HTTP_201_CREATED)

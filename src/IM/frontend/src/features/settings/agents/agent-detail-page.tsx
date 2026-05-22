@@ -126,21 +126,10 @@ function BehaviorCard({
     [draft.features, capabilityFeatures]
   );
 
-  // feat-379-M8 (ISSUE-3 fix): derive effective tool_ids for preview from two sources:
-  //   1. capabilityFeatures where available=true and requires_tool is set — Gateway computes
-  //      "available" from its *local* config, which is the ground truth for tool_allowlist.
-  //      This covers the case where IM mirror's tool_allowlist is stale/empty because
-  //      node.register only carries agent_ids, not per-agent tool lists.
-  //   2. draft.tool_allowlist — explicit tools the user has selected in the current session.
-  // Union of both ensures preview gates fire correctly regardless of IM mirror state.
-  const effectiveToolIds = useMemo(() => {
-    const fromCapabilities = capabilityFeatures
-      .filter((f) => f.available && f.requires_tool != null)
-      .map((f) => f.requires_tool as string);
-    return Array.from(new Set([...fromCapabilities, ...(draft.tool_allowlist ?? [])]));
-  }, [capabilityFeatures, draft.tool_allowlist]);
-
   // Fetch preview when opened or when draft changes while open.
+  // feat-379-M9 (決策 14): tool_ids comes directly from draft.tool_allowlist; the old
+  // effectiveToolIds hack that injected capability-inferred tools is removed because
+  // _build_tool_names() now correctly includes all tools (R1 fix).
   const fetchPreview = useCallback(async () => {
     setPreviewLoading(true);
     setPreviewError(null);
@@ -148,7 +137,7 @@ function BehaviorCard({
       const text = await promptPreview(agentId, {
         features: effectiveFeatures,
         custom_prompt: draft.custom_prompt ?? "",
-        tool_ids: effectiveToolIds
+        tool_ids: draft.tool_allowlist ?? []
       });
       setPreviewText(text);
     } catch (err) {
@@ -156,18 +145,16 @@ function BehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [agentId, effectiveFeatures, draft.custom_prompt, effectiveToolIds]);
+  }, [agentId, effectiveFeatures, draft.custom_prompt, draft.tool_allowlist]);
 
   // Debounce preview re-fetch when draft changes while preview is open.
-  // effectiveToolIds already merges draft.tool_allowlist + capability-inferred tools,
-  // so tracking it here covers both sources without double-listing.
   useEffect(() => {
     if (!previewOpen) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOpen, draft.custom_prompt, draft.features, effectiveToolIds]);
+  }, [previewOpen, draft.custom_prompt, draft.features, draft.tool_allowlist]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {
@@ -209,30 +196,24 @@ function BehaviorCard({
           <p className="im-agent-field-help" style={{ marginTop: 2 }}>{t("agents.form.behavior.featuresHelp")}</p>
           <div className="grid gap-[6px] mt-2">
             {capabilityFeatures.map((feat) => {
+              // feat-379-M9 (決策 12): features are always enabled — disabled state removed.
+              // tool_allowlist is the linkage authority; features follow tools, not vice versa.
               const checked = effectiveFeatures[feat.key] ?? feat.default_on;
-              const disabled = !feat.available;
-              const tooltipText = disabled && feat.requires_tool
-                ? t("agents.form.behavior.featureDisabledTooltip", { tool: feat.requires_tool })
-                : undefined;
               return (
                 <label
                   key={feat.key}
-                  title={tooltipText}
                   className={`flex items-start gap-3 rounded-xl border px-3 py-[10px] transition-colors ${
-                    disabled
-                      ? "border-[var(--im-border)] bg-white/60 opacity-55 cursor-not-allowed"
-                      : checked
-                        ? "border-teal-300 bg-teal-50/60 cursor-pointer"
-                        : "border-[var(--im-border)] bg-white/90 cursor-pointer hover:border-slate-300"
+                    checked
+                      ? "border-teal-300 bg-teal-50/60 cursor-pointer"
+                      : "border-[var(--im-border)] bg-white/90 cursor-pointer hover:border-slate-300"
                   }`}
                 >
                   <input
                     type="checkbox"
                     data-feature-key={feat.key}
                     checked={checked}
-                    disabled={disabled}
                     className="im-feature-checkbox mt-[2px] shrink-0"
-                    onChange={(e) => { if (!disabled) onFeatureToggle(feat.key, e.target.checked); }}
+                    onChange={(e) => onFeatureToggle(feat.key, e.target.checked)}
                   />
                   <div className="min-w-0">
                     {/* label_i18n / help_i18n are i18n keys provided by the backend registry */}
@@ -784,7 +765,14 @@ export function AgentDetailPage() {
           onFeatureToggle={(key, value) => {
             setSaved(false);
             setErrorMessage(null);
-            setDraft({ ...draft, features: { ...(draft.features ?? {}), [key]: value } });
+            // feat-379-M9 (決策 12): tick → add requires_tool to allowlist; untick → keep tool.
+            const capFeats = capabilities?.features ?? [];
+            const requiresTool = capFeats.find((f) => f.key === key)?.requires_tool ?? null;
+            const nextAllowlist =
+              value && requiresTool && !draft.tool_allowlist.includes(requiresTool)
+                ? [...draft.tool_allowlist, requiresTool]
+                : draft.tool_allowlist;
+            setDraft({ ...draft, features: { ...(draft.features ?? {}), [key]: value }, tool_allowlist: nextAllowlist });
           }}
           onPolicyChange={(value) => {
             setSaved(false);
@@ -824,7 +812,16 @@ export function AgentDetailPage() {
               onChange={(toolAllowlist) => {
                 setSaved(false);
                 setErrorMessage(null);
-                setDraft({ ...draft, tool_allowlist: toolAllowlist });
+                // feat-379-M9 (決策 12): removed tool → uncheck any feature that requires it.
+                const capFeats = capabilities?.features ?? [];
+                const removed = draft.tool_allowlist.filter((t) => !toolAllowlist.includes(t));
+                const nextFeatures = { ...(draft.features ?? {}) };
+                for (const tool of removed) {
+                  for (const feat of capFeats) {
+                    if (feat.requires_tool === tool) nextFeatures[feat.key] = false;
+                  }
+                }
+                setDraft({ ...draft, tool_allowlist: toolAllowlist, features: nextFeatures });
               }}
             />
           </div>

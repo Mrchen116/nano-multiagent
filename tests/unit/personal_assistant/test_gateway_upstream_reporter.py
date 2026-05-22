@@ -108,3 +108,45 @@ def test_build_node_capabilities_payload_has_required_keys() -> None:
     payload = build_node_capabilities_payload()
     for key in ("models", "skills", "tools", "features", "platform_default_model"):
         assert key in payload, f"node capabilities payload missing '{key}'"
+
+
+# ---------------------------------------------------------------------------
+# feat-379-M9 R1 (决策 13): _build_tool_names 必须含 memory / skill_manage
+# ---------------------------------------------------------------------------
+
+
+def test_build_tool_names_includes_memory_and_skill_manage() -> None:
+    """capabilities.tools 必须含 memory 和 skill_manage。
+
+    缺陷 A 根因：_build_tool_names() 以 runtime=None/hook_runner=None 建 registry，
+    memory/skill_manage 需路径注入才进 list_specs() 的返回集合，导致即使它们在
+    default_tool_ids 中也被过滤掉。修复后改为直接取 PERSONAL_ASSISTANT_PROFILE 的
+    default_tool_ids + optional_tool_ids，确保工具名静态可达。
+    """
+    from personal_assistant.reporter.upstream_reporter import _build_tool_names
+
+    names = _build_tool_names()
+    assert "memory" in names, (
+        "memory 必须在 capabilities.tools 中 — 否则前端联动无法把 memory 工具变绿 (feat-379-M9 决策13)"
+    )
+    assert "skill_manage" in names, (
+        "skill_manage 必须在 capabilities.tools 中 — 否则前端联动无法把 skill_manage 变绿 (feat-379-M9 决策13)"
+    )
+
+
+def test_build_tool_names_contains_all_feature_registry_requires_tool() -> None:
+    """capabilities.tools 必须含 FEATURE_REGISTRY 中所有 requires_tool 工具。
+
+    联动逻辑（决策 12）依赖前端从 capabilities.tools 取工具名——若工具不在列表，
+    勾特性时找不到落点，联动失效。
+    """
+    from personal_assistant.reporter.upstream_reporter import _build_tool_names
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
+
+    names_set = set(_build_tool_names())
+    for entry in FEATURE_REGISTRY.values():
+        rt = entry.get("requires_tool")
+        if rt is not None:
+            assert rt in names_set, (
+                f"FEATURE_REGISTRY 要求工具 '{rt}' 必须在 capabilities.tools 中 (feat-379-M9 决策13)"
+            )

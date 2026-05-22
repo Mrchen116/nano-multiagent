@@ -464,7 +464,8 @@ describe("feat-379-M3 Behavior card", () => {
     expect(screen.getByText(/Features/i)).toBeInTheDocument();
   });
 
-  it("M3-R1: features checkbox 按 capabilities.features 渲染，含三态(勾/不勾/disabled)", async () => {
+  it("M3-R1: features checkbox 按 capabilities.features 渲染，所有特性可勾选（feat-379-M9 决策12 删除 disabled）", async () => {
+    // feat-379-M9 (決策 12): disabled 态已删除 — 所有特性均可勾选，tool 联动是权威。
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
 
     renderDetailPage();
@@ -475,10 +476,10 @@ describe("feat-379-M3 Behavior card", () => {
     expect(memoryCheckbox, "memory_curation checkbox 应存在").not.toBeNull();
     expect(memoryCheckbox?.disabled).toBe(false);
 
-    // skill_creation: available=false → disabled
+    // skill_creation: available=false, 但 M9 后 disabled 已删除 → 同样可勾选
     const skillCheckbox = document.querySelector<HTMLInputElement>('[data-feature-key="skill_creation"]');
     expect(skillCheckbox, "skill_creation checkbox 应存在").not.toBeNull();
-    expect(skillCheckbox?.disabled).toBe(true);
+    expect(skillCheckbox?.disabled).toBe(false);
   });
 
   it("M3-R1: 空 features 列表时不渲染 Features 区块", async () => {
@@ -563,24 +564,21 @@ describe("feat-379-M3 Behavior card", () => {
   });
 });
 
-// feat-379-M8: regression — preview tool_ids 必须包含 capabilityFeatures 推断出的工具
-// 根因：Gateway node.register 不携带 tool_allowlist，IM 首次创建 profile 时 tool_allowlist=[]，
-// draft.tool_allowlist 因此为空，preview 请求 tool_ids=[]，memory_curation gate 永远失败。
-// 修复：effectiveToolIds = union(capabilityFeatures.available.requires_tool, draft.tool_allowlist)
-describe("feat-379-M8 preview tool_ids regression", () => {
+// feat-379-M9: preview tool_ids 来自 draft.tool_allowlist（決策 14 删除 effectiveToolIds hack）
+// 根因回顾：M8 用 effectiveToolIds = union(capabilityFeatures.available.requires_tool, draft.tool_allowlist)
+// 绕过了 M8 缺陷；M9 R1 修复了 _build_tool_names()，capabilities.tools 现在含 memory，
+// 联动逻辑（决策 12）确保勾特性时工具自动进 allowlist，故直接用 draft.tool_allowlist 即正确。
+describe("feat-379-M9 preview tool_ids regression", () => {
   const memoryCapFeature = {
     key: "memory_curation",
     label_i18n: "agents.features.memory_curation.label",
     help_i18n: "agents.features.memory_curation.help",
     default_on: true,
-    // available=true 说明 requires_tool="memory" 在 Gateway 本地 tool_allowlist 里
     available: true,
     requires_tool: "memory"
   };
 
-  function makeStateWithEmptyToolAllowlist() {
-    // 模拟 Gateway 首次 node.register 后 IM 里 tool_allowlist=[] 的情况：
-    // config.tool_allowlist=[]（来自 mirror），但 capabilities.features[0].available=true
+  function makeStateWithMemoryInAllowlist() {
     return {
       config: {
         agent_id: "agent-core-1",
@@ -591,8 +589,8 @@ describe("feat-379-M8 preview tool_ids regression", () => {
         custom_prompt: "",
         features: {},
         skills: [],
-        // IM mirror 里 tool_allowlist 为空（Gateway 首次注册未同步）
-        tool_allowlist: [] as string[],
+        // M9 後 tool_allowlist 含 memory（由联动逻辑加入）
+        tool_allowlist: ["memory"] as string[],
         group_reply_policy: "MENTION" as const,
         default_model: null,
         workspace_root: "/tmp",
@@ -626,29 +624,25 @@ describe("feat-379-M8 preview tool_ids regression", () => {
     apiMocks.listAgentsMock.mockResolvedValue([]);
   });
 
-  it("M8: preview 请求 tool_ids 包含 capabilityFeatures 推断的工具（即使 draft.tool_allowlist 为空）", async () => {
+  it("M9: preview 请求 tool_ids 直接来自 draft.tool_allowlist（決策 14 删除 effectiveToolIds）", async () => {
     const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeStateWithEmptyToolAllowlist());
-    // promptPreview 返回假文本，让 BehaviorCard 能正常渲染
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeStateWithMemoryInAllowlist());
     apiMocks.promptPreviewMock.mockResolvedValue("## Preview\n\nMemory guidance here.");
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Mem Agent" });
 
-    // 点击展开 Preview 面板
     const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
     await user.click(previewToggle);
 
-    // 等待 promptPreview 被调用
     await waitFor(() => {
       expect(apiMocks.promptPreviewMock).toHaveBeenCalled();
     });
 
-    // 验证 tool_ids 包含 "memory"（从 capabilityFeatures.available=true + requires_tool="memory" 推断）
     const calls = apiMocks.promptPreviewMock.mock.calls;
     const lastCall = calls[calls.length - 1];
-    // promptPreview(agentId, body) — 第二个参数含 tool_ids
     const body = lastCall[1] as { tool_ids?: string[] };
-    expect(body.tool_ids, "tool_ids 应包含从 capabilityFeatures 推断的 'memory' 工具").toContain("memory");
+    // tool_ids 来自 draft.tool_allowlist=["memory"]，不再从 capabilityFeatures 推断
+    expect(body.tool_ids, "tool_ids 应来自 draft.tool_allowlist").toContain("memory");
   });
 });
