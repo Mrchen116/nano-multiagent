@@ -407,6 +407,37 @@ class IMConnectionManager:
                 },
             )
             return
+        if message_type == "node.prompt.preview.request":
+            # feat-379-M9 (決策 11): node-level preview — no agent_id/workspace_root needed.
+            # Uses the default kernel_client so the create page can preview before saving.
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            features = body.get("features") or {}
+            if not isinstance(features, dict):
+                features = {}
+            custom_prompt_raw = body.get("custom_prompt")
+            custom_prompt = custom_prompt_raw if isinstance(custom_prompt_raw, str) else None
+            tool_ids_raw = body.get("tool_ids") or []
+            tool_ids = [t for t in tool_ids_raw if isinstance(t, str)] if isinstance(tool_ids_raw, list) else []
+            scenario_raw = body.get("scenario")
+            scenario = scenario_raw if isinstance(scenario_raw, str) else "direct"
+            node_preview_result: dict[str, object] = {}
+            if self._prompt_preview_provider is not None:
+                # Pass empty strings for agent_id/workspace_root; the provider lambda
+                # in main.py ignores them and calls kernel_client.prompt_preview directly.
+                result = await _maybe_await(
+                    self._prompt_preview_provider("", "", features, custom_prompt, tool_ids, scenario)
+                )
+                if isinstance(result, Mapping):
+                    node_preview_result = dict(result)
+            await self.send_json(
+                "node.prompt.preview",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "preview": node_preview_result,
+                },
+            )
+            return
         if message_type == "node.streaming_delta":
             # IM → PA direction: currently only permission_response kind is routed here.
             # Other kinds (turn_start, message_delta, …) are PA→IM only and would be
