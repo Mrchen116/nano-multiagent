@@ -44,5 +44,5 @@
 | R | 标题 | 状态 |
 |---|---|---|
 | R1 | 修 _build_tool_names（决策 13）—— capabilities.tools 含 memory/skill_manage | ✓ DONE |
-| R2 | 新增 node 级预览链路（决策 11）—— IM POST /nodes/{id}/prompt-preview + Gateway WS + 前端调用 | DONE |
-| R3 | 前端联动 helper + 移除 disabled + 删 effectiveToolIds（决策 12/14）+ 后端 PATCH 兜底 | DONE |
+| R2 | 新增 node 级预览链路（决策 11）—— IM POST /nodes/{id}/prompt-preview + Gateway WS + 前端调用 | ✓ DONE |
+| R3 | 前端联动 helper + 移除 disabled + 删 effectiveToolIds（决策 12/14）+ 后端 PATCH 兜底 | ✓ DONE |
