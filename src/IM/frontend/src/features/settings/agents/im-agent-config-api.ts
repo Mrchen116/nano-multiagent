@@ -372,13 +372,15 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
 // feat-379-M3: preview assembled system prompt for an agent with given feature flags and custom text.
 // Calls POST /im/v1/agents/{id}/prompt-preview (IM proxies to Gateway → agent core assembler).
 // scenario is fixed to "direct" — group/heartbeat runtime segments are excluded from previews.
+// feat-379-M6 (ISSUE-3): tool_ids must be forwarded so the assembler's has_tool() gate works.
+// Without tool_ids, features like memory_curation that require a tool are never active.
 export async function promptPreview(
   agentId: string,
-  body: { features: Record<string, boolean>; custom_prompt: string }
+  body: { features: Record<string, boolean>; custom_prompt: string; tool_ids?: string[] }
 ): Promise<string> {
   const result = await requestJson<{ prompt: string }>(`/im/v1/agents/${agentId}/prompt-preview`, {
     method: "POST",
-    body: JSON.stringify({ ...body, scenario: "direct" })
+    body: JSON.stringify({ ...body, scenario: "direct", tool_ids: body.tool_ids ?? [] })
   });
   return result.prompt;
 }

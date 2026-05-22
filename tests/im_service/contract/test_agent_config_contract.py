@@ -134,14 +134,66 @@ def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.Mo
         response = client.get("/im/v1/nodes/node-1/capabilities")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "node_id": "node-1",
-        "skills": [{"name": "plan", "description": ""}],
-        "tools": [{"name": "read", "description": ""}],
-        "models": ["codex_oauth:gpt-5.5"],
-        "platform_default_model": None,
-        "default_system_prompt": "",
-    }
+    body = response.json()
+    # feat-379-M6 (ISSUE-1): features list added; other fields unchanged
+    assert body["node_id"] == "node-1"
+    assert body["skills"] == [{"name": "plan", "description": ""}]
+    assert body["tools"] == [{"name": "read", "description": ""}]
+    assert body["models"] == ["codex_oauth:gpt-5.5"]
+    assert body["platform_default_model"] is None
+    assert body["default_system_prompt"] == ""
+    assert "features" in body
+    # Gateway payload has no features field → IM returns empty list (graceful degradation)
+    assert body["features"] == []
+
+
+# feat-379-M6 (ISSUE-1): node capabilities must expose features list so create page
+# can render the Features toggles without a per-agent capabilities call.
+def test_node_capabilities_includes_features_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET /im/v1/nodes/{id}/capabilities must include a features list from Gateway.
+
+    The agent-create page calls getNodeCapabilities (not getAgentCapabilities) because
+    the agent doesn't exist yet.  Without features in the node capabilities response
+    the frontend capabilityFeatures array is empty and the Features section is hidden.
+    """
+
+    async def _fake_node_capabilities_with_features(self, *, target_node_id: str, timeout_seconds: float = 15.0):  # noqa: ARG002
+        return {
+            "models": ["gpt-4"],
+            "skills": [],
+            "tools": [],
+            "platform_default_model": None,
+            "default_system_prompt": "",
+            "features": [
+                {
+                    "key": "memory_curation",
+                    "label_i18n": "agents.features.memoryCuration.label",
+                    "help_i18n": "agents.features.memoryCuration.help",
+                    "default_on": True,
+                    "available": True,
+                    "requires_tool": "memory",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(GatewayHandler, "request_node_capabilities", _fake_node_capabilities_with_features)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(node_id="node-1", node_name="MacBook")
+        response = client.get("/im/v1/nodes/node-1/capabilities")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "features" in body, "node capabilities must contain a features list (ISSUE-1 regression)"
+    assert isinstance(body["features"], list)
+    assert len(body["features"]) >= 1
+    feat = body["features"][0]
+    assert feat["key"] == "memory_curation"
+    assert feat["default_on"] is True
 
 
 def test_agent_prompt_preview_proxy_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

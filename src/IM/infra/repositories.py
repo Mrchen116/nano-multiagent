@@ -1517,8 +1517,12 @@ class AgentProfileRepository:
         created_at = _utc_now()
         skills_json = _encode_json_list(skills)
         tool_allowlist_json = _encode_json_list(tool_allowlist)
-        # feat-379-M2: persist per-agent feature flags and custom prompt
-        features_json = json.dumps(features or {}, ensure_ascii=False)
+        # feat-379-M2: persist per-agent feature flags and custom prompt.
+        # feat-379-M6 (ISSUE-2): when features/custom_prompt are None (omitted by caller),
+        # keep whatever is already in the DB so Gateway re-registration on restart does not
+        # wipe user edits.  The ON CONFLICT clause uses COALESCE to fall back to the
+        # existing row value when the incoming JSON is the empty-object sentinel '{}' / NULL.
+        features_json = json.dumps(features, ensure_ascii=False) if features is not None else None
         with self._connection:
             self._connection.execute(
                 """
@@ -1527,7 +1531,7 @@ class AgentProfileRepository:
                     skills_json, tool_allowlist_json, group_reply_policy,
                     default_model, workspace_root, profile_version, created_at, updated_at,
                     features_json, custom_prompt
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     node_id = excluded.node_id,
@@ -1542,8 +1546,16 @@ class AgentProfileRepository:
                     updated_at = excluded.updated_at,
                     is_stale = 0,
                     staled_at = NULL,
-                    features_json = excluded.features_json,
-                    custom_prompt = excluded.custom_prompt
+                    features_json = CASE
+                        WHEN excluded.features_json IS NOT NULL AND excluded.features_json != '{}'
+                        THEN excluded.features_json
+                        ELSE agent_profiles.features_json
+                    END,
+                    custom_prompt = CASE
+                        WHEN excluded.custom_prompt IS NOT NULL
+                        THEN excluded.custom_prompt
+                        ELSE agent_profiles.custom_prompt
+                    END
                 """,
                 (
                     agent_id,

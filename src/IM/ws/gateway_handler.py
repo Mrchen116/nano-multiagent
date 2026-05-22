@@ -579,6 +579,11 @@ class GatewayHandler:
                     runtime_workspace_root = existing.workspace_root or managed_workspace_root(agent_id)
                 if runtime_display_name == agent_id and agent_id.startswith("agent-"):
                     runtime_display_name = agent_id.replace("agent-", "", 1).replace("-", " ").title()
+                # feat-379-M6 (ISSUE-2): preserve features/custom_prompt from the existing
+                # DB row when re-registering. node.register only carries agent_ids, not
+                # per-agent config, so passing None would overwrite user edits with defaults.
+                runtime_features = existing.features if existing is not None else None
+                runtime_custom_prompt = existing.custom_prompt if existing is not None else None
                 profile_repository.upsert_profile(
                     agent_id=agent_id,
                     owner_id=owner_id,
@@ -590,6 +595,8 @@ class GatewayHandler:
                     group_reply_policy=runtime_group_reply_policy,
                     default_model=runtime_default_model,
                     workspace_root=runtime_workspace_root,
+                    features=runtime_features,
+                    custom_prompt=runtime_custom_prompt,
                 )
                 self._node_repository._connection.execute(
                     "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",

@@ -223,3 +223,63 @@ def test_update_profile_stores_features_and_custom_prompt(tmp_path: Path) -> Non
 
     assert updated.features == {"skill_creation": True}
     assert updated.custom_prompt == "You are a tutor."
+
+
+# feat-379-M6 (ISSUE-2): upsert_profile must preserve existing features/custom_prompt
+# when called again without those fields — regression from Gateway re-register on restart.
+def test_upsert_profile_preserves_features_on_re_register(tmp_path: Path) -> None:
+    """Re-registering an existing profile without features must not clear them.
+
+    This is the regression path: Gateway sends node.register → _handle_register calls
+    upsert_profile for each agent_id WITHOUT features/custom_prompt (because register
+    payload only carries agent_ids, not per-agent config). The upsert must detect the
+    existing row and leave features_json/custom_prompt untouched.
+    """
+    _, _, _, profiles, _, _ = _build_repositories(tmp_path)
+    from IM.repositories import UserRepository
+
+    connection = profiles._connection
+    users = UserRepository(connection)
+    owner = users.create_user(username="owner5", display_name="Owner5")
+
+    # First upsert: sets features + custom_prompt via explicit edit (simulates PATCH /config).
+    profiles.upsert_profile(
+        agent_id="agent-persist",
+        owner_id=owner.owner_id,
+        display_name="Persist Agent",
+        description="",
+        system_prompt="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="MENTION",
+        default_model=None,
+        workspace_root=None,
+        features={"memory_curation": False},
+        custom_prompt="You are a chef.",
+    )
+
+    # Second upsert: simulates Gateway re-register without features/custom_prompt.
+    # This must NOT overwrite the previously saved values.
+    profiles.upsert_profile(
+        agent_id="agent-persist",
+        owner_id=owner.owner_id,
+        display_name="Persist Agent",
+        description="",
+        system_prompt="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="MENTION",
+        default_model=None,
+        workspace_root=None,
+        # features and custom_prompt intentionally omitted — simulates Gateway re-register
+    )
+
+    reloaded = profiles.get_profile(agent_id="agent-persist")
+    assert reloaded is not None
+    # Must still have the values from the first upsert, not overwritten with defaults.
+    assert reloaded.features == {"memory_curation": False}, (
+        "upsert_profile must preserve existing features when called without them"
+    )
+    assert reloaded.custom_prompt == "You are a chef.", (
+        "upsert_profile must preserve existing custom_prompt when called without it"
+    )

@@ -7,6 +7,8 @@ from IM.api.deps import current_user, get_config_service, get_gateway_handler, g
 from IM.api.routes.agents import (
     AgentConfigResponse,
     AllowlistOptionResponse,
+    FeatureCapabilityResponse,
+    _coerce_feature_list,
     coerce_allowlist_options,
     to_agent_config_response,
 )
@@ -66,6 +68,9 @@ class NodeCapabilitiesResponse(BaseModel):
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
     default_system_prompt: str = ""
+    # feat-379-M6 (ISSUE-1): expose feature toggles so agent-create page can render
+    # the Features section without a per-agent capabilities call (agent not yet created).
+    features: list[FeatureCapabilityResponse] = Field(default_factory=list)
 
 
 def to_node_response(node: NodeStatus) -> NodeResponse:
@@ -124,6 +129,9 @@ async def get_node_capabilities(
         tools=coerce_allowlist_options(live.get("tools")),
         platform_default_model=_coerce_optional_text(live.get("platform_default_model"), fallback=None),
         default_system_prompt=_coerce_text(live.get("default_system_prompt"), fallback=""),
+        # feat-379-M6 (ISSUE-1): forward features from Gateway so agent-create page
+        # can render the Features section without a per-agent capabilities call.
+        features=_coerce_feature_list(live.get("features")),
     )
 
 
