@@ -41,3 +41,69 @@ advertise 阶段只需工具名，无需实例化 registry。
 - 测试更新：M3-R1 改为验证 disabled=false；M8 测试改为 M9 行为（tool_ids 来自 allowlist）
 
 **提交**: `c555d890` — 4 files, 93 insertions / 91 deletions
+
+## Evidence — 真实浏览器验证（2026-05-22）
+
+服务环境：Playwright headless Chromium；IM port 54238、Vite port 54239；Gateway node `wt-m9-verify`（ephemeral worktree 隔离实例）。
+
+### 场景 a — 新建页 preview 加载，无 404
+
+- 路由：`/settings/agents/new`
+- 操作：展开「Preview full system prompt」
+- 结果：按钮变为 `[expanded]`，preview 区显示完整 system prompt（含 `# Nano Personal Assistant`、`## Runtime`、`# System` 等各段），无报错
+- 截图：`ACCEPTANCE/feat-379-M9/create-page-preview-expanded.png`
+- Network：`POST /im/v1/nodes/wt-m9-verify/prompt-preview` → 200 OK
+
+**请求体（request #88）**：
+```json
+{"features":{"memory_curation":true,"skill_creation":true},"custom_prompt":"","tool_ids":[],"scenario":"direct"}
+```
+
+### 场景 b — 勾「记忆自进化」→ memory 工具即时变绿
+
+- 操作：在 create 页勾 Memory Curation checkbox（已默认 checked，先 uncheck 再 check）
+- 结果：重新勾选后，Tool Allowlist 中 `memory` 按钮状态变为 `[pressed]`（绿色），即时生效
+- 截图：`ACCEPTANCE/feat-379-M9/create-memory-checked-allowlist-green.png`
+- Network：`POST /im/v1/nodes/wt-m9-verify/prompt-preview` → 200 OK
+
+**请求体（request #91，勾选后触发）**：
+```json
+{"features":{"memory_curation":true,"skill_creation":true},"custom_prompt":"","tool_ids":["memory"],"scenario":"direct"}
+```
+`tool_ids` 包含 `"memory"`，确认联动正确。
+
+### 场景 c — 从 allowlist 移除 memory → 「记忆自进化」即时取消勾选；取消特性 → 工具保留
+
+**移除工具方向**：点击 Tool Allowlist 中 `memory` 按钮（取消 pressed）→ Memory Curation checkbox 即时失去 `[checked]` 状态
+
+**取消特性方向**：重新把 memory 加入 allowlist，再 uncheck Memory Curation → `memory` 按钮仍为 `[pressed]`（工具保留，決策 14 单向删除规则）
+
+- 截图：`ACCEPTANCE/feat-379-M9/create-memory-removed-feature-unchecked.png`
+
+### 场景 d — 所有 feature checkbox 无 disabled/灰态
+
+- 快照中 Memory Curation 和 Skill Creation 两个 checkbox 均无 `[disabled]` 标注，`cursor=pointer` 可点击
+- 截图：`ACCEPTANCE/feat-379-M9/create-page-initial.png`
+
+### 场景 e — agent detail 页 preview 表现一致
+
+- 路由：`/settings/agents/test-m9-agent`（allowlist 含 read/write/edit/bash/memory/skill_manage）
+- 操作：展开「Preview full system prompt」
+- 结果：`[expanded]` + 完整 system prompt，`## Available Tools` 段包含 memory 和 skill_manage
+- 截图：`ACCEPTANCE/feat-379-M9/detail-page-preview-expanded.png`
+- Network：`POST /im/v1/agents/test-m9-agent/prompt-preview` → 200 OK
+
+**请求体（request #91）**：
+```json
+{"features":{},"custom_prompt":"","tool_ids":["read","write","edit","bash","memory","skill_manage"],"scenario":"direct"}
+```
+
+### 汇总
+
+| 场景 | 结论 |
+|---|---|
+| a. 新建页 preview 加载 | PASS — 200 OK，无 404 |
+| b. 勾特性 → memory 即时变绿 | PASS — `[pressed]`，request body 含 memory |
+| c. 移工具 → 特性取消；取消特性 → 工具保留 | PASS — 双向联动均正确 |
+| d. 无 disabled 灰态 | PASS — 所有 checkbox 无 `[disabled]` |
+| e. detail 页 preview 一致 | PASS — 200 OK，工具列表匹配 allowlist |
