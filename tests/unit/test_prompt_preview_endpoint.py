@@ -133,6 +133,46 @@ def test_prompt_preview_passes_features_to_context() -> None:
     assert not ctx.has_tool("nonexistent_tool")
 
 
+# feat-379-M6 (ISSUE-3): memory_curation gate must respond to tool_ids in preview request.
+# Previous impl: promptPreview frontend call omitted tool_ids, so has_tool("memory") was always
+# False and memory_curation on/off produced identical output.
+def test_prompt_preview_memory_curation_gate_requires_tool_id() -> None:
+    """memory_curation=False must exclude core.memory_guidance when memory tool is listed.
+
+    When tool_ids includes "memory", the feature gate should be active and
+    memory_curation=False must exclude the guidance section.  This verifies the
+    end-to-end gate path: tool_ids → has_tool("memory") → enabled_when() → section in/out.
+    """
+    from agent.core.agent.prompt_sections.core_sections import CORE_PROMPT_SECTIONS
+
+    app = create_app()
+    app.state.prompt_sections = list(CORE_PROMPT_SECTIONS)
+    with TestClient(app) as client:
+        # memory tool in tool_ids + memory_curation=True: guidance must appear
+        resp_on = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {"memory_curation": True}, "tool_ids": ["memory"], "scenario": "direct"},
+        )
+        assert resp_on.status_code == 200
+        prompt_on = resp_on.json()["prompt"]
+
+        # memory tool in tool_ids + memory_curation=False: guidance must be absent
+        resp_off = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {"memory_curation": False}, "tool_ids": ["memory"], "scenario": "direct"},
+        )
+        assert resp_off.status_code == 200
+        prompt_off = resp_off.json()["prompt"]
+
+    # The memory guidance text appears only when feature is on
+    assert "persistent memory" in prompt_on, "memory guidance must appear when memory_curation=True"
+    assert "persistent memory" not in prompt_off, (
+        "memory guidance must be absent when memory_curation=False (ISSUE-3 regression)"
+    )
+
+
 def test_prompt_preview_endpoint_is_behind_bearer_auth_dependency() -> None:
     """Preview endpoint must declare require_bearer_auth as a dependency.
 
