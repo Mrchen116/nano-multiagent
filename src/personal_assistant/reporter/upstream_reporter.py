@@ -131,6 +131,39 @@ def build_runtime_capabilities() -> ReporterCapabilities:
     )
 
 
+def build_node_capabilities_payload() -> dict[str, object]:
+    """Build node-level capability payload including FEATURE_REGISTRY projection.
+
+    feat-379-M7 (ISSUE-1): node.capabilities.resolve was returning
+    build_runtime_capabilities().as_payload() which has no 'features' key.
+    The agent-create page queries GET /im/v1/nodes/{id}/capabilities (no per-agent
+    context yet), so we inject a node-level features projection where all features
+    are available=True (no tool_allowlist exists at this point to constrain them).
+
+    Returns:
+        Capability dict suitable for node.capabilities response frames.
+    """
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY  # noqa: PLC0415
+
+    base = build_runtime_capabilities().as_payload()
+    # Node-level: no per-agent tool_allowlist → every feature is available.
+    # The agent-create page uses default_on to pre-fill toggles; available=True
+    # lets all toggles render as enabled (not greyed out).
+    node_features_projection: list[dict[str, object]] = [
+        {
+            "key": key,
+            "label_i18n": entry["label_i18n"],
+            "help_i18n": entry["help_i18n"],
+            "default_on": entry["default_on"],
+            "available": True,
+            "requires_tool": entry["requires_tool"],
+        }
+        for key, entry in FEATURE_REGISTRY.items()
+    ]
+    base["features"] = node_features_projection
+    return base
+
+
 def build_agent_capabilities_payload(
     *,
     workspace_root: str,

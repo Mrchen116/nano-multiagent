@@ -157,6 +157,12 @@ def _merge_live_agent_profile(profile: AgentProfile, payload: dict[str, object])
         default_model=default_model if isinstance(default_model, str) or default_model is None else profile.default_model,
         workspace_root=workspace_root if isinstance(workspace_root, str) and workspace_root.strip() else profile.workspace_root,
         profile_version=profile.profile_version,
+        # feat-379-M7 (ISSUE-2): live gateway snapshots do not carry features/custom_prompt
+        # (those are IM-owned fields set via PATCH, not reported back by the node).
+        # Always inherit from the persisted profile so a live-merge never silently clears
+        # user-configured feature overrides or custom_prompt.
+        features=profile.features,
+        custom_prompt=profile.custom_prompt,
     )
 
 
@@ -291,6 +297,11 @@ def update_agent_config(
     try:
         # feat-379-M5 (ISSUE-2): pass features + custom_prompt through so they
         # are written to the DB and returned in the response.
+        # feat-379-M7 (ISSUE-2): use `is not None` instead of falsy check.
+        # An empty dict `{}` is falsy in Python but is a valid payload meaning
+        # "the user cleared all feature overrides" — the old `if payload.features`
+        # turned it into None, causing update_profile to fall back to the stored
+        # value and silently drop the intentional update.
         updated = service.update_profile(
             agent_id=agent_id,
             profile_version=payload.profile_version,
@@ -302,7 +313,7 @@ def update_agent_config(
             group_reply_policy=payload.group_reply_policy,
             default_model=payload.default_model,
             workspace_root=None,
-            features=payload.features if payload.features else None,
+            features=payload.features if payload.features is not None else None,
             custom_prompt=payload.custom_prompt,
         )
     except AgentProfileVersionConflictError as exc:

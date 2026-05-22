@@ -196,6 +196,64 @@ def test_node_capabilities_includes_features_list(tmp_path: Path, monkeypatch: p
     assert feat["default_on"] is True
 
 
+# ---------------------------------------------------------------------------
+# feat-379-M7 ISSUE-2: live-merge must not clobber features/custom_prompt
+# ---------------------------------------------------------------------------
+
+
+def test_get_agent_config_live_merge_preserves_features_and_custom_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /im/v1/agents/{id}/config?source=live must not overwrite features/custom_prompt.
+
+    ISSUE-2 root cause: _merge_live_agent_profile built a new AgentProfile without
+    passing features/custom_prompt, so those fields reverted to their dataclass defaults
+    ({} and None) whenever the gateway was online and source=live was used.
+    """
+
+    async def _fake_agent_config(self, *, target_node_id: str, agent_id: str):  # noqa: ARG001, ARG002
+        # Live snapshot from Gateway — intentionally omits features/custom_prompt,
+        # which is the real-world case (Gateway doesn't carry IM-owned config fields).
+        return {"display_name": "Live Agent", "system_prompt": "Live prompt", "skills": [], "tool_allowlist": ["memory"]}
+
+    monkeypatch.setattr(GatewayHandler, "request_agent_config", _fake_agent_config)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner_live", display_name="OwnerLive")
+        authorize(client, owner)
+        profiles = AgentProfileRepository(app.state.connection)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(node_id="node-live", node_name="LiveNode")
+        profiles.upsert_profile(
+            agent_id="agent-live",
+            owner_id=owner.owner_id,
+            node_id="node-live",
+            display_name="Live Agent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=["memory"],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+            features={"memory_curation": False},
+            custom_prompt="You are my legal advisor.",
+        )
+
+        # source=live will call _fake_agent_config and then _merge_live_agent_profile
+        resp = client.get("/im/v1/agents/agent-live/config?source=live")
+        assert resp.status_code == 200
+        body = resp.json()
+        # After merge, IM-owned fields must survive even though the live snapshot omits them
+        assert body["features"] == {"memory_curation": False}, (
+            "_merge_live_agent_profile must preserve features from the persisted profile (ISSUE-2)"
+        )
+        assert body["custom_prompt"] == "You are my legal advisor.", (
+            "_merge_live_agent_profile must preserve custom_prompt from the persisted profile (ISSUE-2)"
+        )
+
+
 def test_agent_prompt_preview_proxy_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """IM proxy route POST /im/v1/agents/{id}/prompt-preview forwards to Gateway.
 
