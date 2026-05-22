@@ -126,10 +126,21 @@ function BehaviorCard({
     [draft.features, capabilityFeatures]
   );
 
+  // feat-379-M8 (ISSUE-3 fix): derive effective tool_ids for preview from two sources:
+  //   1. capabilityFeatures where available=true and requires_tool is set — Gateway computes
+  //      "available" from its *local* config, which is the ground truth for tool_allowlist.
+  //      This covers the case where IM mirror's tool_allowlist is stale/empty because
+  //      node.register only carries agent_ids, not per-agent tool lists.
+  //   2. draft.tool_allowlist — explicit tools the user has selected in the current session.
+  // Union of both ensures preview gates fire correctly regardless of IM mirror state.
+  const effectiveToolIds = useMemo(() => {
+    const fromCapabilities = capabilityFeatures
+      .filter((f) => f.available && f.requires_tool != null)
+      .map((f) => f.requires_tool as string);
+    return Array.from(new Set([...fromCapabilities, ...(draft.tool_allowlist ?? [])]));
+  }, [capabilityFeatures, draft.tool_allowlist]);
+
   // Fetch preview when opened or when draft changes while open.
-  // feat-379-M6 (ISSUE-3): pass tool_allowlist as tool_ids so the assembler's
-  // has_tool() gate is active — without it, feature gates that require a tool
-  // (e.g. memory_curation requires "memory") never fire.
   const fetchPreview = useCallback(async () => {
     setPreviewLoading(true);
     setPreviewError(null);
@@ -137,7 +148,7 @@ function BehaviorCard({
       const text = await promptPreview(agentId, {
         features: effectiveFeatures,
         custom_prompt: draft.custom_prompt ?? "",
-        tool_ids: draft.tool_allowlist ?? []
+        tool_ids: effectiveToolIds
       });
       setPreviewText(text);
     } catch (err) {
@@ -145,16 +156,18 @@ function BehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [agentId, effectiveFeatures, draft.custom_prompt, draft.tool_allowlist]);
+  }, [agentId, effectiveFeatures, draft.custom_prompt, effectiveToolIds]);
 
-  // Debounce preview re-fetch when draft changes while preview is open
+  // Debounce preview re-fetch when draft changes while preview is open.
+  // effectiveToolIds already merges draft.tool_allowlist + capability-inferred tools,
+  // so tracking it here covers both sources without double-listing.
   useEffect(() => {
     if (!previewOpen) return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOpen, draft.custom_prompt, draft.features, draft.tool_allowlist]);
+  }, [previewOpen, draft.custom_prompt, draft.features, effectiveToolIds]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {

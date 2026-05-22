@@ -114,6 +114,16 @@ function CreateBehaviorCard({
     [draft.features, capabilityFeatures]
   );
 
+  // feat-379-M8 (ISSUE-3 fix): derive effective tool_ids for preview. On the create page,
+  // node-level capabilities have available=true for all features (no per-agent tool_allowlist
+  // constraint yet), so capabilityFeatures-inferred tools plus draft.tool_allowlist are unioned.
+  const effectiveToolIds = useMemo(() => {
+    const fromCapabilities = capabilityFeatures
+      .filter((f) => f.available && f.requires_tool != null)
+      .map((f) => f.requires_tool as string);
+    return Array.from(new Set([...fromCapabilities, ...(draft.tool_allowlist ?? [])]));
+  }, [capabilityFeatures, draft.tool_allowlist]);
+
   // Preview for create page: no agent_id yet, use node-level preview endpoint instead.
   // We reuse the promptPreview helper with a synthetic agent-id sentinel; if the agent
   // doesn't exist the endpoint 404s gracefully and we show a fallback message.
@@ -124,9 +134,12 @@ function CreateBehaviorCard({
     try {
       // sentinel agent-id so the preview endpoint can locate the node's sections;
       // real agent not yet created — preview shows structural shape only.
+      // feat-379-M8: pass effectiveToolIds so feature gates (e.g. memory_curation) fire
+      // even before the agent exists; at node level all features are available=true.
       const text = await promptPreview("__preview__", {
         features: effectiveFeatures,
-        custom_prompt: draft.custom_prompt ?? ""
+        custom_prompt: draft.custom_prompt ?? "",
+        tool_ids: effectiveToolIds
       });
       setPreviewText(text);
     } catch (err) {
@@ -134,7 +147,7 @@ function CreateBehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [selectedNodeId, effectiveFeatures, draft.custom_prompt]);
+  }, [selectedNodeId, effectiveFeatures, draft.custom_prompt, effectiveToolIds]);
 
   useEffect(() => {
     if (!previewOpen) return;
@@ -142,7 +155,7 @@ function CreateBehaviorCard({
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOpen, draft.custom_prompt, draft.features]);
+  }, [previewOpen, draft.custom_prompt, draft.features, effectiveToolIds]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {
