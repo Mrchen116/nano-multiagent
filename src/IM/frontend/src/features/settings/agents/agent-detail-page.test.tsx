@@ -11,7 +11,8 @@ const apiMocks = vi.hoisted(() => ({
   createDirectChatByAgentUserIdMock: vi.fn(),
   listAgentsMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
-  navigateMock: vi.fn()
+  navigateMock: vi.fn(),
+  promptPreviewMock: vi.fn()
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -36,7 +37,8 @@ vi.mock("../../../hooks/use-is-mobile", () => ({
 vi.mock("./im-agent-config-api", () => ({
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
   updateAgentConfig: apiMocks.updateAgentConfigMock,
-  listAgentSummaries: apiMocks.listAgentSummariesMock
+  listAgentSummaries: apiMocks.listAgentSummariesMock,
+  promptPreview: apiMocks.promptPreviewMock
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
@@ -65,6 +67,7 @@ afterEach(() => {
   apiMocks.listAgentsMock.mockReset();
   apiMocks.listAgentSummariesMock.mockReset();
   apiMocks.navigateMock.mockReset();
+  apiMocks.promptPreviewMock.mockReset();
 });
 
 // Default listAgentSummaries so the desktop rail (R12-bis-1) doesn't break tests.
@@ -557,5 +560,95 @@ describe("feat-379-M3 Behavior card", () => {
     await screen.findByRole("heading", { name: "Core Planner" });
 
     expect(screen.getByLabelText(/Group Reply Policy/i)).toBeInTheDocument();
+  });
+});
+
+// feat-379-M8: regression — preview tool_ids 必须包含 capabilityFeatures 推断出的工具
+// 根因：Gateway node.register 不携带 tool_allowlist，IM 首次创建 profile 时 tool_allowlist=[]，
+// draft.tool_allowlist 因此为空，preview 请求 tool_ids=[]，memory_curation gate 永远失败。
+// 修复：effectiveToolIds = union(capabilityFeatures.available.requires_tool, draft.tool_allowlist)
+describe("feat-379-M8 preview tool_ids regression", () => {
+  const memoryCapFeature = {
+    key: "memory_curation",
+    label_i18n: "agents.features.memory_curation.label",
+    help_i18n: "agents.features.memory_curation.help",
+    default_on: true,
+    // available=true 说明 requires_tool="memory" 在 Gateway 本地 tool_allowlist 里
+    available: true,
+    requires_tool: "memory"
+  };
+
+  function makeStateWithEmptyToolAllowlist() {
+    // 模拟 Gateway 首次 node.register 后 IM 里 tool_allowlist=[] 的情况：
+    // config.tool_allowlist=[]（来自 mirror），但 capabilities.features[0].available=true
+    return {
+      config: {
+        agent_id: "agent-core-1",
+        owner_id: "owner-1",
+        display_name: "Mem Agent",
+        description: "",
+        system_prompt: "",
+        custom_prompt: "",
+        features: {},
+        skills: [],
+        // IM mirror 里 tool_allowlist 为空（Gateway 首次注册未同步）
+        tool_allowlist: [] as string[],
+        group_reply_policy: "MENTION" as const,
+        default_model: null,
+        workspace_root: "/tmp",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        updated_at: "2026-03-13T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [{ name: "memory", description: "Memory tool" }],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: "",
+        features: [memoryCapFeature]
+      },
+      owningNode: null
+    };
+  }
+
+  beforeEach(() => {
+    apiMocks.listAgentSummariesMock.mockResolvedValue([
+      { agent_id: "agent-core-1", display_name: "Mem Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
+    ]);
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+  });
+
+  it("M8: preview 请求 tool_ids 包含 capabilityFeatures 推断的工具（即使 draft.tool_allowlist 为空）", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeStateWithEmptyToolAllowlist());
+    // promptPreview 返回假文本，让 BehaviorCard 能正常渲染
+    apiMocks.promptPreviewMock.mockResolvedValue("## Preview\n\nMemory guidance here.");
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    // 点击展开 Preview 面板
+    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
+    await user.click(previewToggle);
+
+    // 等待 promptPreview 被调用
+    await waitFor(() => {
+      expect(apiMocks.promptPreviewMock).toHaveBeenCalled();
+    });
+
+    // 验证 tool_ids 包含 "memory"（从 capabilityFeatures.available=true + requires_tool="memory" 推断）
+    const calls = apiMocks.promptPreviewMock.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    // promptPreview(agentId, body) — 第二个参数含 tool_ids
+    const body = lastCall[1] as { tool_ids?: string[] };
+    expect(body.tool_ids, "tool_ids 应包含从 capabilityFeatures 推断的 'memory' 工具").toContain("memory");
   });
 });
