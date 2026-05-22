@@ -444,6 +444,162 @@
 
 ---
 
+# Round 4 — 2026-05-22
+
+**Reviewer**: reviewer-r4 (change-reviewer skill, Sonnet 4.6)
+**Branch**: `unit/feat-379` (HEAD 89bd00ae)
+**Verdict**: `fail`
+**Highest Required Action**: `fix-implementation`
+**Issues Count**: blocking: 0, major: 1, minor: 0
+**GH Issues Filed**: none (all in-unit)
+**Needs Re-Review**: true
+
+---
+
+## 澄清记录（Round 4）
+
+无澄清问题，直接走旅程。
+
+---
+
+## 服务启动记录（Round 4）
+
+- IM: `http://127.0.0.1:50788`（ephemeral，IM_DB_PATH=`.im-r4.sqlite3`，JWT secret: `feat-379-reviewer-r4`）
+- Gateway: worktree 本地 config `.gateway-config-r4.yaml`，node_id=`wt-feat-379-r4`，含 `mem-test-agent`（tool_allowlist: [memory, web_search]）
+- 前端：已在 worktree 重建（`npm run build`，bundle `index-UAW1qVEE.js` 539kB）
+- 产物指纹核验：`memory_curation` x2 / `custom_prompt` x1 / `Preview full` x1 / `skill_creation` x2 / `Behavior` x1 — 通过
+- Gateway 完成 IM bind 绑定（POST /bind → 201 Created，WS /im/ws/gateway accepted）
+
+---
+
+## User Journeys Exercised（Round 4）
+
+| # | 旅程 | 路径 | 目标 Issue |
+|---|---|---|---|
+| J1 | Settings→Agents，查看 mem-test-agent detail 页 Behavior card，确认 Features 开关 | 主路径 | 基线确认 |
+| J2 | 点击 `+ New`，进入 agent-create 页面，检查 Features 开关组 snapshot | 主路径 | ISSUE-1 |
+| J3 | GET /nodes/wt-feat-379-r4/capabilities，验证 features 字段非空 | API 路径 | ISSUE-1 |
+| J4 | 填写 Custom Instructions + 取消 Memory Curation → 点击 Save Agent → 立即 GET /config 读取 | 主路径 | ISSUE-2 持久化 |
+| J5 | 真实重启 IM → GET /config 验证 features/custom_prompt 重启后保持 | 持久化路径 | ISSUE-2 重启 |
+| J6 | 重启后前端重新打开配置页，确认 UI 显示持久化状态 | 主路径 | ISSUE-2/AC4 |
+| J7 | 切换 Memory Curation on/off，观察 Preview 内容变化 + 拦截 preview 请求 body | 主路径 | ISSUE-3 |
+| J8 | golden 测试（coding CLI 回归） | 测试路径 | AC6 |
+
+---
+
+## 验收标准覆盖表（Round 4）
+
+| # | 验收标准 | 期望来源 | 验证方式 | 证据 | 结果（R1→R2→R3→R4） |
+|---|---|---|---|---|---|
+| AC1 | IM agent 配置里，每个"用户可勾"特性都有开关，新建 agent 时按各特性预置的默认值呈现 | spec.md §验收标准#1 | snapshot -i 全页交互元素检查 + 截图 | create 页 snapshot：`@e13 [checkbox] "Memory Curation..." [checked]` / `@e14 [checkbox] "Skill Creation..." [checked]`（create 时无 tool_allowlist 约束，两者均按 default_on=true 呈现）；截图 `/tmp/feat379-r4-09-create-features-visible.png` | **pass（R1/R2/R3 fail → R4 PASS）** |
+| AC2 | 切换某可勾特性并保存后，重启 IM / Gateway，该 agent 的开关状态保持不变 | spec.md §验收标准#2 | 前端 Save Agent → 立即 GET /config → 真实 kill+restart IM → GET /config | 保存后立即 GET：`features: {memory_curation: false}`；kill IM PID 29922 → restart 新 PID 35045 → GET /config：`features: {memory_curation: false}, profile_version: 2` — 重启后保持 | **pass（R1/R2/R3 fail → R4 PASS）** |
+| AC3 | 关闭某能力性特性后，对话中不再表现该特性引导的行为；重新开启后恢复 | spec.md §验收标准#3 | UI 切换 Memory Curation on/off → Preview 内容变化观察 + 请求拦截 | 切换开关后前端确实重新触发 preview 请求（network 监测：`POST /prompt-preview → 200`）；但 preview 请求 body 中 `tool_ids: []`（空数组），导致 memory 工具被视为不在位，memory_curation gate 无论 on/off 都不出现 memory guidance；截图 `/tmp/feat379-r4-18-memory-on-preview.png` | **fail（ISSUE-3 部分修复：请求触发，但 tool_ids 未传）** |
+| AC4 | 给某 agent 填写自定义补充文本并保存，该 agent 表现出该文本描述的人设，其它 agent 不受影响 | spec.md §验收标准#4 | 前端填写 → Save Agent → IM 重启 → GET /config + 前端配置页 | 保存后 GET /config：`custom_prompt: "You are my personal legal advisor, answer with relevant clauses."`；IM 重启后仍保持；前端重新打开配置页显示相同内容（截图 `/tmp/feat379-r4-13-after-restart-detail.png`）；Preview 含 `# Custom Agent Instructions` 段 | **pass（R1/R2/R3 fail → R4 PASS）** |
+| AC5 | 进入群聊的 agent 始终遵循群聊回复策略，heartbeat agent 始终按 heartbeat 运行，无法通过 agent 配置关闭 | spec.md §验收标准#5 | 浏览器配置页查看 Group Reply Policy 区块 | Group Reply Policy select 存在，说明文字"always active, not a toggle"（截图 `/tmp/feat379-r4-06-features-checkboxes.png`）；Preview 含 pa.communication_context 段标记 | **pass（回归确认通过）** |
+| AC6 | coding CLI 的 agent 行为与重构前一致，无可观察变化 | spec.md §验收标准#6 | `pytest tests/integration/test_prompt_sections_golden.py` | 13/13 通过 | **pass（回归确认通过）** |
+| AC7 | agent 在不可逆/影响他人的操作前会先与用户确认 | spec.md §验收标准#7 | Preview 文本内容 | Preview 含 `# Executing actions with care` 段，含 reversibility/blast radius 框架 | **pass（继承 R1/R2/R3 结论）** |
+| AC8 | agent 引用代码用 `file_path:line_number`，引用 issue/PR 用 `owner/repo#123` | spec.md §验收标准#8 | Preview 文本内容 | Preview 含 `file_path:line_number` / `owner/repo#123` | **pass（继承 R1/R2/R3 结论）** |
+| AC9 | agent 配置页有可展开的只读「完整系统提示词预览」，切换特性开关或改自定义文本后预览随之更新 | spec.md §验收标准#9 | 浏览器 Preview 面板 + 网络请求监测 | Preview 面板展开正常；**切换 features 后前端确实重新触发 preview 请求（network 监测：POST /prompt-preview → 200）**；但 preview 内容不更新（tool_ids 为空导致门控段不出现），用户可观察到开关切换不影响 preview 显示内容 | **fail（请求已触发，但内容不更新，ISSUE-3 遗留）** |
+
+---
+
+## Issues（Round 4）
+
+### ISSUE-1（R4 PASS — 已修复并验证）
+
+**关闭**：Round 4 验证通过。
+
+**验证证据**：
+- `GET /im/v1/nodes/wt-feat-379-r4/capabilities` 返回：
+  ```
+  features: [
+    {key: "memory_curation", available: true, default_on: true, requires_tool: "memory"},
+    {key: "skill_creation",  available: true, default_on: true, requires_tool: "skill_manage"}
+  ]
+  ```
+- create 页 snapshot：`@e13 [checkbox] "Memory Curation..." [checked]` / `@e14 [checkbox] "Skill Creation..." [checked]`
+- 截图：`/tmp/feat379-r4-09-create-features-visible.png`
+
+---
+
+### ISSUE-2（R4 PASS — 已修复并验证）
+
+**关闭**：Round 4 真实多服务链路验证通过。
+
+**验证证据（真实 kill+restart IM）**：
+```
+1. 前端 Save Agent → 立即 GET /config：
+   features: {memory_curation: false}
+   custom_prompt: "You are my personal legal advisor, answer with relevant clauses."
+   profile_version: 2
+
+2. kill IM (PID 29922) → restart IM (PID 35045, 同 DB、同 JWT secret)
+
+3. GET /config（重启后）：
+   features: {memory_curation: false}  ← 保持
+   custom_prompt: "You are my personal legal advisor, answer with relevant clauses."  ← 保持
+   profile_version: 2  ← 未重置
+   source: live (Gateway 重连后 source=live 路径不再覆盖)
+```
+- 前端 UI（重启后重新打开）显示持久化状态（截图：`/tmp/feat379-r4-13-after-restart-detail.png` / `/tmp/feat379-r4-14-after-restart-features.png`）
+
+---
+
+### ISSUE-3（R4 确认仍 fail — 部分修复，剩余问题：tool_ids 未传入）
+
+**Severity**: major
+**Recommended Action**: fix-implementation
+**Action Rationale**: 前端切换 features 后确实触发了 preview 请求（`POST /prompt-preview → 200`），说明 useEffect 依赖已修复（ISSUE-3 的一个子问题已解决）。但 preview 请求 body 中 `tool_ids: []`（空数组），导致 memory_curation gate 的 `requires_tool="memory"` 检查失败（memory 工具被视为不在位），memory guidance 段无论 memory_curation=true 还是 false 都不出现。用户可观察症状：Memory Curation 勾选/取消后 preview 内容始终不变。
+
+**证据**：
+- 拦截前端 preview 请求 body：`{"features":{"memory_curation":true,"skill_creation":true},"custom_prompt":"...","tool_ids":[],"scenario":"direct"}`
+- Preview 文本 7315 字节，切换 Memory Curation 前后内容相同
+- 单测层：`tests/unit/test_prompt_preview_endpoint.py` 6/6 通过（端点层门控逻辑正确，传入 tool_ids=["memory"] 时 on/off 确实不同）
+- IM proxy 层：browser 的 preview 请求成功（200），但因 tool_ids=[] 门控未生效
+
+**期望**：前端 detail 页发 preview 请求时，应将当前 agent 的 tool_allowlist（`["memory", "web_search"]`）传入 tool_ids 字段，使 requires_tool 门控能正确判断工具在位。
+
+---
+
+## 通过的旅程小结（Round 4）
+
+- **ISSUE-1 已修复**：node capabilities 含 FEATURE_REGISTRY 投影，create 页 Features 开关组按 default_on 呈现（截图：`/tmp/feat379-r4-09-create-features-visible.png`）
+- **ISSUE-2 已修复**：真实 kill+restart IM 后 features/custom_prompt 持久化保持（API 证据 + UI 截图）
+- **AC5 群聊配置**：Group Reply Policy select + "always active, not a toggle" 正常
+- **AC6 coding CLI 回归**：golden 测试 13/13 通过
+- **AC7/AC8 CC 对齐段**：Preview 含 `# Executing actions with care` / `file_path:line_number` / `owner/repo#123`
+- **AC4 custom_prompt 持久化**：重启后 UI 正确显示 "You are my personal legal advisor..."
+
+---
+
+## Side Findings（Round 4）
+
+- Gateway 绑定 URL 尾部有多余文本（`token=xxx to finish binding this node.` 而非仅 `token=xxx`），导致手动构建 bind URL 时容易出错。此为 ephemeral 验收环境问题，out-of-unit minor，不立 issue。
+- `test_message_contract_fields_are_stable` 已知失败（R1/R2/R3 记录），本轮未重跑，不立 issue。
+
+---
+
+## 上层文档同步检查（Round 4）
+
+| 文档 | 检查结果 |
+|---|---|
+| `SPEC.md` | 无需更新 |
+| `docs/内核设计SPEC.md` | 待 ISSUE-3 修复后补充 PromptContext.flags / tool_ids 传入路径说明 |
+| `AGENTS.md` / `CLAUDE.md` | 无需更新 |
+| `docs/CodingCLI-SPEC.md` | 无需更新 |
+| `docs/NodeGateway-SPEC.md` | ISSUE-2 已修复，可以补充 features/custom_prompt Gateway 写回说明（不阻塞本次验收） |
+| `docs/IM-SPEC.md` | ISSUE-2 已修复，可以补充 /config 路由字段说明（不阻塞本次验收） |
+
+---
+
+## Recommended Action Summary（Round 4）
+
+ISSUE-1 和 ISSUE-2 已修复关闭。**ISSUE-3 剩余子问题**（前端 preview 请求未传 tool_ids）仍为 major，需修复：
+
+**ISSUE-3 修复目标**：前端 detail 页（`agent-detail-page.tsx` / `CreateBehaviorCard`）在构建 prompt-preview 请求时，应从 agent capabilities 或 agent config 取到当前 tool_allowlist，并填入请求的 `tool_ids` 字段。修复后，勾选/取消 Memory Curation 时 preview 中 memory guidance 段应随之进出（len 差约 +583 bytes，对应 M7 live chain 证据）。
+
+---
+
 ## Recommended Action Summary（Round 3）
 
 仍有 2 blocking + 1 major issue，需再派 fix-implementation milestone（M7）：
