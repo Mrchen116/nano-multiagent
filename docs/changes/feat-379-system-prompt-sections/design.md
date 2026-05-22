@@ -158,6 +158,7 @@
 ### 决策 7: 用"特性注册表"作 flag↔段↔默认值↔依赖工具的单一事实源
 
 - **选择**: 建一张特性注册表（结构化常量），每条：`feature_key → {sections: [段名], default_on: bool, requires_tool: str|None, layer: core|product, label/help i18n key}`。组装器据此对"用户可勾"段做门控：`flags.get(key, default_on) and (requires_tool is None or tool 在位)`。IM 前端据此渲染开关列表（label/help/默认值/是否因缺工具而禁用）。
+  - **【决策 12 修订】** `requires_tool` 在前端的用途由"据此禁用开关"改为"勾选时联动把该工具加进 tool_allowlist"——开关不再因缺工具而禁用（详见决策 12）。
 - **理由**: flag 名、默认值、段映射、依赖工具集中一处，避免后端门控逻辑与前端开关列表各写一份漂移；spec Q6"每个特性有默认值"在此落地。
 - **拒绝**: 在各段 `enabled_when` 里硬编码 flag 名 + 在前端再硬编码一份开关清单——双份易漂移。
 - **风险**: 注册表需被 core（门控）与 IM 前端（渲染）共享，但二者跨包不能 import；解决：注册表的"用户可见部分"经 agent capabilities HTTP 接口下发给前端（与 skills/tools allowlist 同路），core 侧持完整表。
@@ -280,7 +281,7 @@ IM 前端 Behavior card (toggle + textarea)
 
 ### capabilities 下发（前端渲染开关列表）
 
-`GET /im/v1/agents/{id}/capabilities` 现回 `skills/tools/model_options/default_system_prompt`。新增 `features`（注册表的用户可见投影：key/label/help/default_on/available 是否因缺工具禁用），前端据此渲染特性开关组，与现有 PillSelector 取 allowlist 同路。
+`GET /im/v1/agents/{id}/capabilities` 现回 `skills/tools/model_options/default_system_prompt`。新增 `features`（注册表的用户可见投影：key/label/help/default_on/requires_tool/available），前端据此渲染特性开关组，与现有 PillSelector 取 allowlist 同路。**【决策 12 修订】** `requires_tool` 供前端联动（勾特性→把该工具加进 tool_allowlist），`available` 不再用于禁用开关；开关恒可勾。`tools` 列表须含 memory/skill_manage（决策 13）联动才有"变绿"落点。
 
 ### 段顺序总表（最终段集合，order 步进 10）
 
