@@ -157,6 +157,12 @@ def _merge_live_agent_profile(profile: AgentProfile, payload: dict[str, object])
         default_model=default_model if isinstance(default_model, str) or default_model is None else profile.default_model,
         workspace_root=workspace_root if isinstance(workspace_root, str) and workspace_root.strip() else profile.workspace_root,
         profile_version=profile.profile_version,
+        # feat-379-M7 (ISSUE-2): live gateway snapshots do not carry features/custom_prompt
+        # (those are IM-owned fields set via PATCH, not reported back by the node).
+        # Always inherit from the persisted profile so a live-merge never silently clears
+        # user-configured feature overrides or custom_prompt.
+        features=profile.features,
+        custom_prompt=profile.custom_prompt,
     )
 
 
