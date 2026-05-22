@@ -387,3 +387,16 @@ export async function promptPreview(
   });
   return result.prompt;
 }
+
+// feat-379-M9 (決策 11): node-level prompt-preview — used by agent-create page before
+// the agent exists.  No agent_id needed; Gateway uses its default kernel to assemble.
+export async function nodePromptPreview(
+  nodeId: string,
+  body: { features: Record<string, boolean>; custom_prompt: string; tool_ids?: string[] }
+): Promise<string> {
+  const result = await requestJson<{ prompt: string }>(`/im/v1/nodes/${nodeId}/prompt-preview`, {
+    method: "POST",
+    body: JSON.stringify({ ...body, scenario: "direct", tool_ids: body.tool_ids ?? [] })
+  });
+  return result.prompt;
+}
