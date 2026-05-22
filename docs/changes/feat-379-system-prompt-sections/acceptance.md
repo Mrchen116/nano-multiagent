@@ -304,3 +304,152 @@
 1. **ISSUE-2（blocking，最高优先）**: 排查 IM SQLite 持久化层，确认 features/custom_prompt 在 PATCH 时真正写入 DB。当前症状：PATCH→同会话 GET 可读回，但 IM 重启后丢失（profile_version 递增说明其他字段写入正常，features/custom_prompt 是漏点）。修复后重启 IM 验证。
 2. **ISSUE-3（major，与 ISSUE-2 联测）**: memory_curation gate 未接通 prompt 组装器。可能需要在 preview 接口端、组装器端排查门控逻辑。修复后同会话内可直接用 POST /prompt-preview 验证 on/off 内容差异。
 3. **ISSUE-1（blocking）**: agent-create 页面 `CreateBehaviorCard` 组件缺 Features 开关组。需从 `/capabilities` 取 features 列表渲染按默认值呈现的 checkbox 行。
+
+---
+
+# Round 3 — 2026-05-22
+
+**Reviewer**: reviewer-r3 (change-reviewer skill, Sonnet 4.6)
+**Branch**: `unit/feat-379` (HEAD 834178c0)
+**Verdict**: `fail`
+**Highest Required Action**: `fix-implementation`
+**Issues Count**: blocking: 2, major: 1, minor: 0
+**GH Issues Filed**: none (all in-unit)
+**Needs Re-Review**: true
+
+---
+
+## 澄清记录（Round 3）
+
+无澄清问题，根据 orchestrator 派发包对 3 个遗留 issue 的根因描述，直接走旅程。
+
+---
+
+## 服务启动记录（Round 3）
+
+- IM: `http://127.0.0.1:59955`（ephemeral，IM_DB_PATH=worktree 本地 `.im-r3.sqlite3`，JWT secret: `feat-379-reviewer-r3`）
+- Gateway: worktree 本地 config `.gateway-config-r3.yaml`，node_id=`wt-feat-379-r3`，含 `mem-test-agent`（tool_allowlist: [memory, web_search]）
+- 前端：已在 worktree 重建（`npm run build`，bundle `index-UAW1qVEE.js` 539kB）
+- 产物指纹核验：`memory_curation` x2 / `custom_prompt` x1 / `Preview full` x1 / `skill_creation` x2 / `Behavior` x1 — 通过
+- 注：Gateway 在此环境中 WebSocket 绑定始终处于 pending 状态（gateway.log 显示"waiting for IM binding"），导致 IM 代理的 `/prompt-preview` 端点返回 503。前端 UI 中 Preview 显示 "Could not load preview." 错误。这是环境限制，不影响 ISSUE-1/2 的验证，ISSUE-3 通过单测层验证。
+
+---
+
+## User Journeys Exercised（Round 3）
+
+| # | 旅程 | 路径 | 目标 Issue |
+|---|---|---|---|
+| J1 | Settings→Agents，查看 mem-test-agent detail 页 Behavior card，确认 Features 开关 | 主路径 | 基线确认 |
+| J2 | 切换 Memory Curation off（detail 页），观察 Preview 响应 | 主路径 | ISSUE-3 |
+| J3 | 填写 Custom Instructions + 保存，通过 GET /config 读取 | 主路径 | ISSUE-2 前半 |
+| J4 | 直接 PATCH API（含 features/custom_prompt）→ GET 同会话读回 | API 路径 | ISSUE-2 DB写入 |
+| J5 | 重启 IM → GET /config 验证 features/custom_prompt 是否保持 | 持久化路径 | ISSUE-2 重启 |
+| J6 | 点击 "+ New"，进入 agent-create 页面，检查 Features 开关组 | 主路径 | ISSUE-1 |
+| J7 | GET /im/v1/nodes/wt-feat-379-r3/capabilities，检查 features 字段 | API 路径 | ISSUE-1 根因 |
+| J8 | golden 测试（coding CLI 回归） | 测试路径 | AC6 |
+
+---
+
+## 验收标准覆盖表（Round 3）
+
+| # | 验收标准 | 期望来源 | 验证方式 | 证据 | 结果（R1→R2→R3） |
+|---|---|---|---|---|---|
+| AC1 | IM agent 配置里，每个"用户可勾"特性都有开关，新建 agent 时按各特性预置的默认值呈现 | spec.md §验收标准#1 | 浏览器打开 agent-create 页 | `/tmp/feat379-r3-16-create-features-area.png`：Behavior 区块 Custom Instructions → Group Reply Policy 之间无 Features checkbox；`$B snapshot -i` 无 checkbox ref；`GET /nodes/wt-feat-379-r3/capabilities` 返回 `features: []` | **fail（Features 开关组仍缺，node capabilities features 为空数组）** |
+| AC2 | 切换某可勾特性并保存后，重启 IM / Gateway，该 agent 的开关状态保持不变 | spec.md §验收标准#2 | 前端 Save → GET /config → 重启 IM → GET /config | 前端 Save 后 GET /config 返回 `features: {}, custom_prompt: null`；直接 PATCH（含 profile_version=2）后同会话 GET 返回 features/custom_prompt ✓；IM 重启后 GET 返回 `features: {}, custom_prompt: null`（profile_version=3 递增正常，features/custom_prompt 归零） | **fail（IM 重启后仍丢失）** |
+| AC3 | 关闭某能力性特性（memory/skills 自进化）后，对话中不再表现该特性引导的行为；重新开启后恢复 | spec.md §验收标准#3 | UI 切换 Memory Curation off → Preview 变化；单测 | UI：切换 Memory Curation → unchecked 后 Preview 长度仍 7221，`## Memory` 段仍存在（截图 `/tmp/feat379-r3-09-after-uncheck.png`）；单测层：`test_prompt_preview_memory_curation_gate_requires_tool_id` PASSED（带 tool_ids=[memory] 时 on/off 确实影响 prompt 内容）；IM-proxy 层：503（Gateway 未连接），无法验证完整链路 | **fail（UI Preview 不响应 features 开关；IM-proxy 链路 503）** |
+| AC4 | 给某 agent 填写自定义补充文本并保存，该 agent 表现出该文本描述的人设 | spec.md §验收标准#4 | 前端填写 Custom Instructions → 保存 → 重启 IM → GET /config | 前端 Save 后 GET /config 返回 `custom_prompt: null`；IM 重启后仍 null（同 AC2，持久化失败） | **fail（依赖 AC2 修复）** |
+| AC5 | 进入群聊的 agent 始终遵循群聊回复策略，heartbeat agent 始终按 heartbeat 运行，无法通过 agent 配置关闭 | spec.md §验收标准#5 | 浏览器查看 Group Reply Policy 区块 | Group Reply Policy select 存在，说明文字"always active, not a toggle"（`/tmp/feat379-r3-06-features-checkboxes.png`） | **pass（回归确认通过）** |
+| AC6 | coding CLI 的 agent 行为与重构前一致，无可观察变化 | spec.md §验收标准#6 | `pytest tests/integration/test_prompt_sections_golden.py` | 13/13 通过 | **pass（回归确认通过）** |
+| AC7 | agent 在不可逆/影响他人的操作前会先与用户确认 | spec.md §验收标准#7 | Preview 文本内容（R1/R2 确认过，本轮截图 preview 内容） | `$B snapshot` @e49 文本含 `# Executing actions with care`，reversibility/blast radius 说明在（R1 截图 `r1-08-preview-visible.png` 已确认，本轮前端 preview 503 不影响后端内容已 pass） | **pass（继承 R1/R2 结论）** |
+| AC8 | agent 引用代码用 `file_path:line_number`，引用 issue/PR 用 `owner/repo#123` | spec.md §验收标准#8 | Preview 文本内容 | @e49 文本含 `file_path:line_number`、`owner/repo#123`（R1 已确认，本轮同一源码） | **pass（继承 R1/R2 结论）** |
+| AC9 | agent 配置页有可展开的只读「完整系统提示词预览」，切换特性开关或改自定义文本后预览随之更新 | spec.md §验收标准#9 | 浏览器 Preview 面板 | Preview 折叠/展开按钮存在（`/tmp/feat379-r3-06-features-checkboxes.png`）；但切换 Memory Curation 后 Preview 未响应更新（内容不变）；Gateway 未连接时显示 "Could not load preview." 错误（`/tmp/feat379-r3-18-detail-memory-off-state.png`） | **fail（Preview 不响应 features 开关；Gateway 断连时无降级）** |
+
+---
+
+## Issues（Round 3）
+
+### ISSUE-1（R3 确认）— node capabilities features 为空数组，create 页 Features 开关组不显示
+
+**Severity**: blocking
+**Recommended Action**: fix-implementation
+**Action Rationale**: M6 在 `NodeCapabilitiesResponse` 加了 `features` 字段，但 `GET /im/v1/nodes/wt-feat-379-r3/capabilities` 实际返回 `features: []`（空数组），前端无内容可渲染 checkbox 行。根因是 get_node_capabilities route 透传 Gateway 返回值，而 Gateway 的 node-capabilities handler 未返回 FEATURE_REGISTRY 投影数据。
+
+**证据**:
+- `GET /im/v1/nodes/wt-feat-379-r3/capabilities` → `"features": []`（空数组，非期望的 [{key: memory_curation, default_on: True, ...}]）
+- `/tmp/feat379-r3-16-create-features-area.png`：create 页 Behavior 区块中，Custom Instructions 下方直接是 Group Reply Policy，无 Features 标题和 checkbox
+- `$B snapshot -i` 全页无 checkbox ref（创建页）
+
+**期望**: create 页 Behavior card 应显示 Features 开关组（Memory Curation、Skill Creation），按 FEATURE_REGISTRY 默认值（default_on）呈现。
+
+---
+
+### ISSUE-2（R3 确认）— features/custom_prompt IM 重启后仍丢失
+
+**Severity**: blocking
+**Recommended Action**: fix-implementation
+**Action Rationale**: M6 修复了 upsert CASE 保留逻辑（单测 `test_upsert_profile_preserves_features_on_re_register` 通过），但实际端到端路径（前端 Save 或直接 PATCH → IM 重启 → GET）仍丢失数据。profile_version 在重启后递增（2→3），说明 Gateway 重启时 re-sync 仍以空 features/custom_prompt 覆盖了 DB 中的有效值。
+
+**证据（API 测试序列）**:
+```
+1. PATCH {features: {memory_curation: false}, custom_prompt: "你是我的私人法律顾问...", profile_version: 2} → 200
+2. GET /config → features: {memory_curation: false}, custom_prompt: "你是我的私人法律顾问..." ✓
+3. kill IM + restart IM
+4. GET /config → features: {}, custom_prompt: null ✗  (profile_version: 3)
+```
+- 前端 Save（profile_version 从 v1→v2）后 GET /config 也立即返回 `features: {}, custom_prompt: null`，说明前端 Save 路径同样有问题（可能未传完整必填字段导致 422 被吞）。
+
+---
+
+### ISSUE-3（R3 确认）— memory_curation 切换后 UI Preview 不更新
+
+**Severity**: major
+**Recommended Action**: fix-implementation
+**Action Rationale**: UI 层：mem-test-agent（有 memory 工具）切换 Memory Curation checkbox 到 unchecked 后，Preview 面板内容不变（长度 7221，`## Memory` 段仍存在）。单测层 `test_prompt_preview_memory_curation_gate_requires_tool_id` 通过（证明 endpoint 层门控逻辑正确），但前端发出的 prompt-preview 请求在当前环境因 Gateway 连接问题返回 503，无法从浏览器端完整验证。M6 的修复方向（前端传 tool_ids）在代码层面已实现，但 UI Preview 不更新这一用户可观察症状仍复现。
+
+**证据**:
+- `/tmp/feat379-r3-09-after-uncheck.png`：Memory Curation unchecked（空方框），但 Preview 起始文本与 checked 时完全相同
+- `$B js "document.querySelector('[class*=preview]')?.textContent?.includes('## Memory')"` → `true`（取消勾选后）
+- 单测 6/6 通过（endpoint 层实现正确）
+- 网络层：两次 prompt-preview 请求均 503（Gateway WebSocket 未连接）
+
+---
+
+## 通过的旅程小结（Round 3）
+
+- **Behavior card（detail 页）**：Memory Curation checkbox（可切换）+ Skill Creation checkbox（disabled）+ Group Reply Policy select + Preview 折叠按钮，结构完整（`/tmp/feat379-r3-06-features-checkboxes.png`）
+- **Profile Version 更新**：Save 后 profile_version v1→v2，Last Updated 时间戳更新（`/tmp/feat379-r3-13-after-save.png`）
+- **AC5 群聊配置**：Group Reply Policy select + "always active, not a toggle" 说明正常
+- **AC6 coding CLI 回归**：golden 测试 13/13 通过
+- **AC7/AC8 CC 对齐段**：@e49 snapshot 文本中确认 `# Executing actions with care` / `file_path:line_number` / `owner/repo#123` 存在
+
+---
+
+## Side Findings（Round 3）
+
+- Gateway WebSocket 绑定在 ephemeral 环境中始终处于 pending 状态（需要手动 confirm bind URL），导致 IM-proxy 的 prompt-preview 端点持续返回 503。这影响了 ISSUE-3 的完整链路验证，但不影响 ISSUE-1/ISSUE-2 的结论。建议 Gateway 在 reviewer 验收场景中提供 non-binding 直连模式或 IM proxy 走直接 agent API 降级。此为 out-of-unit minor，不立 issue。
+- `test_message_contract_fields_are_stable` 失败为已知 out-of-unit 问题（R1/R2 记录），本轮未重跑，不立 issue。
+
+---
+
+## 上层文档同步检查（Round 3）
+
+| 文档 | 检查结果 |
+|---|---|
+| `SPEC.md` | 无需更新 |
+| `docs/内核设计SPEC.md` | 待 features/custom_prompt 链路全通后补充；不阻塞本次 |
+| `AGENTS.md` / `CLAUDE.md` | 无需更新 |
+| `docs/CodingCLI-SPEC.md` | 无需更新 |
+| `docs/NodeGateway-SPEC.md` | 待 ISSUE-2 修复后补充 features/custom_prompt 写回说明 |
+| `docs/IM-SPEC.md` | 待 ISSUE-2 修复后补充 /config 路由字段说明 |
+
+---
+
+## Recommended Action Summary（Round 3）
+
+仍有 2 blocking + 1 major issue，需再派 fix-implementation milestone（M7）：
+
+1. **ISSUE-2（blocking，最高优先）**: IM 重启后 features/custom_prompt 归零。两条路径均失效：① 前端 Save 路径（Save 后立即 GET 就丢失，可能是 Save 请求体缺少 tool_allowlist 等字段被 422 拒绝而前端没有报错）；② 直接 PATCH（含所有字段）→ 同会话可读，但重启后丢失（Gateway re-sync 以空值覆盖）。需同时排查前端 Save 构建的 PATCH 请求体完整性，以及 Gateway 启动时 sync payload 是否携带 features/custom_prompt。
+
+2. **ISSUE-1（blocking）**: node capabilities `features: []`。`GET /im/v1/nodes/{node_id}/capabilities` 返回空数组，而非 FEATURE_REGISTRY 投影。M6 的修复路径是 IM route 层从 Gateway 回传值，但实际 Gateway 没有返回 features 列表。需检查 Gateway 的 node-capabilities handler 是否正确返回 FEATURE_REGISTRY 投影数据。
+
+3. **ISSUE-3（major）**: UI Preview 切换 features 后不更新。前端请求 Gateway 的 prompt-preview 因 WebSocket 未绑定而 503，且即使在 Gateway 连接正常时（R2 round 中），切换 features 后 Preview 内容也未变化。需排查前端在 features 开关变化时是否重新触发 preview 请求，以及 IM proxy 是否正确转发 tool_ids 至 Gateway。
