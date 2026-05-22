@@ -46,7 +46,8 @@ reviewer 的覆盖表逐个 Scenario 验收。Scenario 只能写用户可观察�
 
 <!-- 上面叙事的"可勾投影"。结构：按 ### Requirement 分组，每组挂 ≥1 个 #### Scenario。
      - 硬规则：每个 Requirement 至少一个 Scenario（缺则视为未收口）。
-     - Scenario 用 WHEN / THEN（可选 AND）写，且只写用户可观察的（用户在产品上看到 / 听到 / 操作到）。
+     - Scenario 用（可选 GIVEN 前置状态）+ WHEN / THEN（可选 AND）写，只写用户可观察的（用户在产品上看到 / 听到 / 操作到）。
+       GIVEN 写"进入这个场景前环境是什么样"（例：群里有 50 个成员），需要前置态才说得清时才加，否则省略。
      - 同一能力的正常路径、失败 / 边界 / 空态分别各列一个 Scenario——漏边界态时这里会留出明显空位。
      - 每条 Scenario 都要能追溯到【用户场景】里的某段叙事。
      - 不写实现 / 协议 / 接口 / 内部状态——那些归 design.md。
@@ -56,6 +57,7 @@ reviewer 的覆盖表逐个 Scenario 验收。Scenario 只能写用户可观察�
 ### Requirement: <一句话能力描述>
 
 #### Scenario: <场景名，例：群里有匹配成员>
+- **GIVEN** <前置状态，可选，例：群里有 50 个成员>
 - **WHEN** <触发条件>
 - **THEN** <用户可观察的期望结果>
 - **AND** <附加结果，可选>

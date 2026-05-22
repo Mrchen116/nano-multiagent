@@ -123,7 +123,7 @@ git pull --ff-only origin "unit/<unit_id>"
 
 #### §3.1.2 旅程清单(2-5 条,每条串多个 Scenario)
 
-旅程不是从叙事**反推**——直接用 Scenario 的 **WHEN(触发)→ THEN(期望)映射**出来。规划 2-5 条旅程,**每条旅程串起一组相关 Scenario** 走完(别让 N 个 Scenario 变成 N 次独立启动产品):
+旅程不是从叙事**反推**——直接用 Scenario 的 **WHEN(触发)→ THEN(期望)映射**出来。Scenario 若带 `**GIVEN**`,那就是**走这条旅程前要把环境布置成的样子**(例:`GIVEN 群里有 50 个成员` → 你得先造一个 50 人的群再走 WHEN)。规划 2-5 条旅程,**每条旅程串起一组相关 Scenario** 走完(别让 N 个 Scenario 变成 N 次独立启动产品):
 
 - **主路径**:把同一 Requirement 下的正常态 Scenario 串成一次连贯操作
 - **边界路径**:走失败 / 边界 / 空态 Scenario(输入异常、网络断、并发、空状态、权限不足)
