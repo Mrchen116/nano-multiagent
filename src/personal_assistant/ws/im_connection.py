@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_runtime_capabilities
+from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_node_capabilities_payload, build_runtime_capabilities
 
 
 @dataclass(slots=True)
@@ -345,13 +345,16 @@ class IMConnectionManager:
             )
             return
         if message_type == "node.capabilities.resolve":
+            # feat-379-M7 (ISSUE-1): use build_node_capabilities_payload() which injects
+            # the FEATURE_REGISTRY projection so the agent-create page can render feature
+            # toggles (no per-agent context yet → all features available=True at node level).
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             await self.send_json(
                 "node.capabilities",
                 {
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,
-                    "capabilities": build_runtime_capabilities().as_payload(),
+                    "capabilities": build_node_capabilities_payload(),
                 },
             )
             return

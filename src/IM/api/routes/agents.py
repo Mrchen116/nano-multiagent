@@ -291,6 +291,11 @@ def update_agent_config(
     try:
         # feat-379-M5 (ISSUE-2): pass features + custom_prompt through so they
         # are written to the DB and returned in the response.
+        # feat-379-M7 (ISSUE-2): use `is not None` instead of falsy check.
+        # An empty dict `{}` is falsy in Python but is a valid payload meaning
+        # "the user cleared all feature overrides" — the old `if payload.features`
+        # turned it into None, causing update_profile to fall back to the stored
+        # value and silently drop the intentional update.
         updated = service.update_profile(
             agent_id=agent_id,
             profile_version=payload.profile_version,
@@ -302,7 +307,7 @@ def update_agent_config(
             group_reply_policy=payload.group_reply_policy,
             default_model=payload.default_model,
             workspace_root=None,
-            features=payload.features if payload.features else None,
+            features=payload.features if payload.features is not None else None,
             custom_prompt=payload.custom_prompt,
         )
     except AgentProfileVersionConflictError as exc:

@@ -165,6 +165,9 @@ interface NodeCapabilitiesWire {
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
   default_system_prompt?: string;
+  // feat-379-M7 (ISSUE-1): node capabilities now carry FEATURE_REGISTRY projection
+  // so the agent-create page can render feature toggles without a per-agent context.
+  features?: AgentFeature[];
 }
 
 function normalizeAllowlistOptions(values: Array<string | AgentAllowlistOption> | undefined): AgentAllowlistOption[] {
