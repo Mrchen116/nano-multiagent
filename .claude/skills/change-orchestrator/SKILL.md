@@ -1,6 +1,6 @@
 ---
 name: change-orchestrator
-description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶段——目标：统筹高质量完成该需求。创建 unit 集成分支、派发 worker 在 worktree 内并行/串行实施 milestone、调度 reviewer 验收、处理 fix-implementation 循环、最终给 main 提 PR 后退出。触发条件:用户说"开干 / 跑这个 unit / 启动 orchestrator / 把 feat-X 做完 / 把这个 bugfix 跑完";或 `change-design-author` 完成时给出"门禁 2 通过"提示后用户推进。不要用于:写需求(那是 change-spec-author)、写架构(那是 change-design-author)、写代码(那是 worker)、做产品验收(那是 reviewer)。
+description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶段——目标：统筹高质量完成该需求。创建 unit 集成分支、派发 worker 在 worktree 内并行/串行实施 milestone、调度 reviewer 验收、处理 fix-implementation 循环、最终给 main 提 PR 后退出。触发条件:用户说"开干 / 跑这个 unit / 启动 orchestrator / 把 feat-X 做完 / 把这个 bugfix 跑完";或 `change-design-author` 完成时给出"门禁 2 通过"提示后用户推进。不要用于:写代码(那是 worker)
 ---
 
 # Project Lead Orchestrator
@@ -19,11 +19,11 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 6. **默认并行**。无依赖、无文件冲突的 milestone 必须并行派发;不并行才需要理由。
 7. **轮次上限**。同 issue 5 轮 / 同 unit 7 轮验收没 pass → 强制全停,通知人。
 8. **revise-design 三道闸**。reviewer 给的 `revise-design` 不合规(首轮 / 没引用 design.md 段落 / fix-implementation < 2 轮)直接降级回 fix-implementation,详见 §6.3。
-9. **reviewer 越界硬处置**。reviewer 角色严禁写源码/测试/提 commit(详见 change-reviewer §0)。若 reviewer 回报 DONE 时 unit 分支多了非报告类 commit,**强制 revert** 这些 commit(`git reset` 到 reviewer 派发前的 HEAD,`push --force-with-lease`)后,把该轮 reviewer 的 verdict **作废**,issues 重新打包派 fix worker 实施(参见 §6.6)。不要"接受 reviewer 顺手修的代码"——既验又改不可信。
+9. **reviewer / verifier 越界硬处置**。这两个验收角色都严禁写源码/测试/提 commit(详见 change-reviewer §0 / change-verifier §0)。若回报时 unit 分支多了非报告类 commit,**强制 revert** 这些 commit(`git reset` 到该 agent 派发前的 HEAD,`push --force-with-lease`)后,把该轮该 agent 的 verdict **作废**,issues 重新打包派 fix worker 实施(参见 §6.6)。不要"接受验收 agent 顺手修的代码"——既验又改不可信。
 10. **退出标准必须逐条严格核对**。worker 回报 DONE 时,orchestrator **必须**对 design.md 该 milestone 行"退出标准"列里的每一条,在 progress.md 找到对应证据并判定是否真的达标(详见 §3.3)。这一步**不许跳过、不许走过场、不许只看证据存不存在**。任一项不达标 → 不算 DONE,退回 worker 补齐。
 11. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
 12. **PR 提完即退出**。不等 merge、不等 CI——交棒给人。
-13. **派发必须后台运行**。Agent 工具派发 worker / reviewer 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
+13. **派发必须后台运行**。Agent 工具派发 worker / reviewer / verifier 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
 14. **必须开 team 派发**。启动时先 `TeamCreate` 建一个 unit 专属 team(名字用 `unit-<unit_id>`),之后所有 Agent 派发都带 `team_name`。否则子 agent 结束后实例销毁,失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.4)就无法 `SendMessage` 续跑,只能新开实例丢上下文。unit 完成(§7.4 退出前)`TeamDelete` 清理。
 15. **主仓 HEAD 不动**。整个 unit 生命周期内,所有针对 `unit/<unit_id>` 分支的 checkout / pull / merge / push / rebase / PR 一律在专属 `unit_worktree_dir`(§2.3)里跑,**严禁**在主仓 `git checkout unit/<id>`——多 orchestrator 并发时主仓 HEAD 会被互相踩翻,用户也可能正在主仓做别的事。Sync Gate(§2.2)操作的是主仓的 main,不在此限。
 16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.4 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见项目 AGENTS.md;§7.4 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
@@ -147,6 +147,12 @@ worktree_dir = <repo_root>/.worktrees/<milestone_id>
 
 reviewer 在 §2.3 的 `unit_worktree` 内工作(不另开 worktree,也不进主仓)。
 
+verifier 需要**单独的 worktree**(读代码核对,和 reviewer 物理隔开,不抢 `unit_worktree`)。同 milestone worktree 一样,orchestrator **只规划路径、不创建**——verifier 启动时自建、报告 push 后自删:
+
+```
+verify_worktree_dir = <repo_root>/.worktrees/verify-<unit_id>
+```
+
 ---
 
 ## §3 派发循环(主体)
@@ -166,16 +172,16 @@ def main_loop(unit_id):
         verify_completed()                     # §3.3
         handle_failures()                      # §3.4
 
-    # 所有实现型 milestone done → 派 reviewer
+    # 所有实现型 milestone done → 并行派 verifier + reviewer
     review_round = 1
     while review_round <= 7:
-        report = dispatch_reviewer(review_round)
-        if report.verdict == "pass":
+        v_report, r_report = dispatch_verify_and_review(review_round)  # §5,两个后台 agent 并行
+        if both_pass(v_report, r_report):     # verifier verdict=pass 且 reviewer verdict 允许
             submit_pr_and_exit()              # §7
             return
-        action = decide_action(report)         # §6
+        action = decide_action(v_report, r_report)   # §6,合并两份报告路由
         if action == "fix":
-            create_fix_milestone(report)       # 回到外层 while
+            create_fix_milestone(v_report, r_report)  # 两份 issues 打包成一个 fix milestone
         elif action == "escalate":
             notify_human_and_exit()
             return
@@ -298,33 +304,48 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
 
 ---
 
-## §5 派发 reviewer
+## §5 派发验收阶段(verifier + reviewer,并行)
 
-**仅 full 模式,且 unit 有用户可观察的验收项**。两种情况跳过 reviewer,直接走 §7 提 PR:
+所有实现型 milestone DONE 后,**并行**派两个独立验收 agent,各跑各的、各出一份报告:
 
-- **lite 模式**:worker 自填 fix.md 的"验证"段即验收形式。
-- **零用户面 unit**:首文档【用户场景】/【验收标准】明确写"无用户可观察变化"(纯内部改动,验证全在 design.md 的 `[worker]` 轨实现层标准 + 测试套件)——没有 reviewer 可走的旅程。这种 unit 的实现层验收标准照 §7.2 进 PR body 由架构师把关。
+- **verifier** —— 读代码核对实现是否匹配 spec / design / tasks(Completeness / Correctness / Coherence 三维)。`change-verifier` skill。
+- **reviewer** —— 跑产品走旅程,验用户可观察。`change-reviewer` skill。
 
-其余 full 模式 unit,所有实现型 milestone 都 DONE 后,派 reviewer:
+两者只读、互不依赖,默认**同时后台派发**(`run_in_background: true`、model sonnet、带 `team_name`)。它们物理隔离(verifier 用 `verify_worktree_dir` 读代码,reviewer 用 `unit_worktree_dir` 跑产品),不抢资源。
 
+**派 verifier 的情形**:full 模式,或零用户面 unit(spec 无 requirement 但有 design 可核对)。**仅 lite 模式跳过 verifier**(无 spec/design)。
+
+**派 reviewer 的情形**:full 模式且有用户可观察验收项。两种跳过 reviewer:**lite 模式**(worker 自填 fix.md "验证"段)、**零用户面 unit**(无可走旅程——但 verifier 仍派)。
+
+所以:full 普通 unit → 两个都派;零用户面 unit → 只派 verifier;lite → 都不派,直接 §7。
+
+**派发包 — verifier**:
+```
+请使用 skill: change-verifier
+派发包:
+  unit_id / unit_dir / branch: unit/<unit_id>
+  verify_worktree_dir: <repo_root>/.worktrees/verify-<unit_id>   # §2.4 规划路径,verifier 自建自删
+  review_round: <N>
+  prior_verification_path: docs/changes/<unit_dir>/verification.md   # 第 2 轮起
+  mode: full
+```
+
+**派发包 — reviewer**:
 ```
 请使用 skill: change-reviewer
-
 派发包:
-  unit_id: <unit_id>
-  unit_dir: <unit_dir>
-  branch: unit/<unit_id>
+  unit_id / unit_dir / branch: unit/<unit_id>
   unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>
   review_round: <N>
   prior_acceptance_paths: [docs/changes/<unit_dir>/<acceptance|regression>.md]   # 第 2 轮起
   mode: full
 ```
 
-reviewer 同样用 Agent 工具派发,`run_in_background: true`、model 选 sonnet(§0.13)。reviewer 不需要 worktree(只读 + 跑产品),它在 unit 集成分支上 checkout、走旅程、写报告。reviewer 启动后也会先报开工信、走旅程前可能来 ≤3 轮验收口径澄清,按 §3.1.1 回应。
+两个 agent 启动后都会先报开工信、可能来 ≤3 轮口径澄清,按 §3.1.1 回应。等**两份报告都回**再进 §5.2 / §6 路由(其中一个先回就先收着,等齐再决策)。
 
 ### §5.1 派发口径净化(防 reviewer 滑进 engineer 模式)
 
-orchestrator 在派发包**只透传上面的字段**。**严禁**自己手写以下内容塞进 reviewer prompt:
+orchestrator 在 reviewer 派发包**只透传上面的字段**。**严禁**自己手写以下内容塞进 reviewer prompt:
 
 - ❌ "WS 必须有 `message.delta` / `tool_call.started` 等帧" — 协议级
 - ❌ "API `/foo` 必须返回 `bar` 字段" — 接口级
@@ -335,30 +356,44 @@ reviewer 的真值是首文档(spec / motivation / incident)里**用户可观察
 
 需要协议级验证的是 worker 写单测时的事,不是 reviewer 的事。reviewer 一旦拿到协议级标准,就会去抓帧 / 读 handler / 加 debug log,**整轮验收作废**。
 
-### §5.2 续接
+### §5.2 续接 + 越界校验(两个 agent 都查)
 
-reviewer 回报后,基于 `highest_required_action` 决定下一步,见 §6。回报前必须**校验 reviewer 越界**(§0.9):
+两份报告都回后,合并路由见 §6。路由前必须**校验 verifier / reviewer 越界**(§0.9)——两者都是零写入,unit 分支上只该多出各自的报告 commit:
 
 ```bash
-# 派发前记下基线
+# 派发前记下基线(派 verifier+reviewer 之前)
 BEFORE=$(git -C "$unit_worktree" rev-parse HEAD)
 
-# 回报后比对
+# 两份报告都回、都 push 后比对
 AFTER=$(git -C "$unit_worktree" rev-parse HEAD)
 NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 ```
 
-预期:`NEW_COMMITS` 只有 reviewer 的报告 commit(message scope = `docs(<unit_id>): round <N> acceptance — verdict ...`,详见 AGENTS.md commit message 格式)。出现任何其它 commit → 走 §6.6 处置。
+预期:`NEW_COMMITS` **只有两个报告 commit**——reviewer 的 `docs(<unit_id>): round <N> acceptance — verdict ...` 和 verifier 的 `docs(<unit_id>): round <N> verification — verdict ...`(commit message 格式详见 AGENTS.md)。出现任何改了源码/测试/配置的 commit → 走 §6.6 处置(verifier 越界同 reviewer:作废本轮该 agent 的 verdict、revert 越界 commit、issues 转 fix worker 重做)。
 
 ---
 
 ## §6 失败循环路由
 
-reviewer 报告里的 `Highest Required Action` 决定动作:
+### §6.0 合并两份报告
+
+两个 agent 性质不同:**reviewer** 回报 `Highest Required Action`(fix-implementation / revise-design / out-of-unit / pass);**verifier** 回报 `verdict`(pass/fail)+ 严重度计数(critical / warning / suggestion),无 Required Action 字段。合并规则:
+
+- **两份都 pass**(reviewer pass 且 verifier verdict=pass / 无 critical)→ §6.1(各做完整性检查)→ §7 提 PR。
+- **verifier 有 CRITICAL,或 reviewer 给 fix-implementation** → §6.2:**把 verifier 的 CRITICAL/WARNING issues + reviewer 的 fix issues 合并打包进同一个 fix milestone**,一个 fix worker 改完,下一轮**两个 agent 一起复验**。verifier 报"缺测试"(WARNING)的,worker 必须补上对应测试。
+- **reviewer 给 `revise-design`** → §6.3 三道闸。(verifier 不给 revise-design;它若把某 design 决策违背报成 WARNING,默认走 fix-implementation 让实现去对齐 design;真要改 design 仍由 reviewer 的 revise-design 三道闸驱动。)
+- **reviewer 给 `out-of-unit`** → §6.5。
+
+两份报告里**同一个底层问题**(verifier 说"requirement X 缺实现"、reviewer 说"走 X 旅程没结果")合并去重成一条,别打包成两个 fix。
+
+`review_round` 对两个 agent **同步递增**(同一轮派出去的算同一轮)。
 
 ### §6.1 `pass`
 
-先做 reviewer 报告完整性检查:
+两份都 pass 时,各做报告完整性检查:
+
+**verifier 报告**:记分卡三维齐全、Correctness 逐 requirement/scenario 有结论、CRITICAL 计数为 0。
+**reviewer 报告**:
 
 - acceptance/regression 报告必须有验收标准覆盖表,且没有明显只列 focus fix、漏掉首文档必验项。
 - 第 2 轮起,上一轮所有 `fail` / `inconclusive` 必须继续出现,直到有证据关闭。
@@ -368,7 +403,7 @@ reviewer 报告里的 `Highest Required Action` 决定动作:
 
 ### §6.2 `fix-implementation`
 
-把 reviewer 报告里所有 `Recommended Action: fix-implementation` 的 issues 打包成**一个**新 fix milestone(沿用 design-author 的反向门槛——除非 issues 跨独立模块且能并行,否则一个就够):
+把两份报告的修复项合并去重后,打包成**一个**新 fix milestone——**verifier** 的 CRITICAL / WARNING issues + **reviewer** 的 `Recommended Action: fix-implementation` issues(沿用 design-author 的反向门槛——除非 issues 跨独立模块且能并行,否则一个就够):
 
 ```
 milestone_id = <unit_id>-M<next>
@@ -379,7 +414,7 @@ milestone_dir = M<next>-fix-<short-desc>      # 例: M4-fix-picker-keyboard
 1. 在 design.md Milestone 表追加新行,标注 `(post-acceptance fix, round <N>)`
 2. mkdir 新 milestone 空目录:`docs/changes/<unit_dir>/M<next>-fix-<short-desc>/`
 3. **维护 issue 指纹表**(orchestrator 内存中):为这一批 issues 生成指纹(Type + 主关键词哈希),记录是第几轮出现。同一指纹累计 ≥ 5 轮没消除 → 强制升级 escalate
-4. 派 worker(prompt 里把 reviewer 的 issues 列表 + 该 unit design.md `§Runbook for Reviewer` 段附上;worker 改完代码必须按 runbook 重启相关服务后再回报 DONE,确保 unit 分支上的代码真的"跑了起来")
+4. 派 worker(prompt 里把**合并后的 issues 列表**——verifier 的 missing/diverged/缺测试 + reviewer 的用户面 issues——+ 该 unit design.md `§Runbook for Reviewer` 段附上;worker 改完代码必须按 runbook 重启相关服务后再回报 DONE,确保 unit 分支上的代码真的"跑了起来"。verifier 报的"缺测试"项,worker 必须补上对应测试)
 5. 回到 §3 派发循环
 
 worker 完成后,回到 §5 派下一轮 reviewer。
@@ -463,22 +498,22 @@ Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 | major | 不暂停,继续 §6.2 fix-implementation 处理 in-unit issues。out-of-unit issue 在 PR body 里 `Refs #<num>`(不 `Closes`) |
 | minor | reviewer 没立 issue,只在 Side Findings,不处理 |
 
-### §6.6 reviewer 越界处置(§0.9 配套)
+### §6.6 reviewer / verifier 越界处置(§0.9 配套)
 
-§5.2 校验发现 reviewer 在 unit 分支上多写了非报告 commit(改了源码/测试/配置)时:
+§5.2 校验发现验收 agent(reviewer 或 verifier)在 unit 分支上多写了非报告 commit(改了源码/测试/配置)时:
 
-1. **立即作废本轮 verdict**——不管它是 pass 还是 fail。reviewer 既写又验,证据链不可信。
+1. **立即作废本轮该 agent 的 verdict**——不管它是 pass 还是 fail。既写又验,证据链不可信。
 2. **revert 越界 commit**(在 unit worktree 内,不进主仓):
    ```bash
    git -C "$unit_worktree" reset --hard <BEFORE>          # §5.2 记下的派发前基线
    git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
    ```
-   保留 reviewer 写的 `acceptance.md` / `regression.md`(那是它的合法产物)——但只保留报告内容,不保留代码改动。如果报告和代码在同一 commit 里,先 `git revert` 或手动捡出报告内容重提一次。
-3. **把 reviewer 报告里识别出的 issues + 它顺手写的"修法"当成线索**(不是当成实现),按 §6.2 重新打包成 fix milestone 派**独立 worker** 实施。worker 不能复用 reviewer 越界写出来的代码——必须重新审视、重新实施、重新写测试。
-4. **review_round 不递增**——本轮没有有效验收。fix worker 完成后回到 §5 派新 reviewer(新 agent 实例)从 round=N 重跑。
-5. 在 reviewer 报告底部追加 orchestrator 注记:
+   保留它写的合法报告(reviewer 的 `acceptance.md` / `regression.md`、verifier 的 `verification.md`)——但只保留报告内容,不保留代码改动。如果报告和代码在同一 commit 里,先 `git revert` 或手动捡出报告内容重提一次。
+3. **把它报告里识别出的 issues + 顺手写的"修法"当成线索**(不是当成实现),按 §6.2 重新打包成 fix milestone 派**独立 worker** 实施。worker 不能复用越界写出来的代码——必须重新审视、重新实施、重新写测试。
+4. **review_round 不递增**——本轮没有有效验收。fix worker 完成后回到 §5 重派该 agent(新实例)从 round=N 重跑。
+5. 在该 agent 报告底部追加 orchestrator 注记:
    ```markdown
-   > Orchestrator note: reviewer 越界写代码(commits <hash..hash>),本轮 verdict 作废,代码 revert,issues 转 fix worker 重做。
+   > Orchestrator note: <reviewer|verifier> 越界写代码(commits <hash..hash>),本轮 verdict 作废,代码 revert,issues 转 fix worker 重做。
    ```
 
 ---
@@ -514,7 +549,8 @@ Refs #<n>              # Relations Refs 字段 + reviewer 立的 out-of-unit maj
 
 - [<首文档>](docs/changes/<unit_dir>/<首文档>.md)
 - [design.md](docs/changes/<unit_dir>/design.md) — milestone 拆分见此
-- [acceptance.md / regression.md](docs/changes/<unit_dir>/<file>.md) — Verdict: <pass | pass-with-issues>
+- [acceptance.md / regression.md](docs/changes/<unit_dir>/<file>.md) — reviewer Verdict: <pass | pass-with-issues>
+- [verification.md](docs/changes/<unit_dir>/verification.md) — verifier Verdict: <pass>;Completeness / Correctness / Coherence 三维通过
 
 ## Milestones
 
