@@ -143,10 +143,10 @@ def test_prompt_preview_memory_curation_gate_requires_tool_id() -> None:
     memory_curation=False must exclude the guidance section.  This verifies the
     end-to-end gate path: tool_ids → has_tool("memory") → enabled_when() → section in/out.
     """
-    from agent.core.agent.prompt_sections.core_sections import CORE_PROMPT_SECTIONS
+    from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
 
     app = create_app()
-    app.state.prompt_sections = list(CORE_PROMPT_SECTIONS)
+    app.state.prompt_sections = list(CORE_SECTIONS)
     with TestClient(app) as client:
         # memory tool in tool_ids + memory_curation=True: guidance must appear
         resp_on = client.post(
