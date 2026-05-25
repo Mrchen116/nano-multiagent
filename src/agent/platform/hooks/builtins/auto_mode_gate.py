@@ -434,6 +434,12 @@ async def _classify_action(ctx: Any, system_prompt: str, user_prompt: str) -> Pe
     Returns:
         PermissionDecision with behavior in {"allow", "deny", "ask"}.
     """
+    # Classifier calls must never inherit the main agent's thinking budget.
+    # Model-level thinking (e.g. kimiCoding:K2.6 adaptive) would consume the
+    # 64-token stage-1 budget entirely on reasoning, leaving content empty and
+    # causing a fail-closed ask. Explicitly disable here at the call site.
+    _no_thinking: dict[str, Any] = {"thinking": {"type": "disabled"}}
+
     try:
         stage1_result = await asyncio.wait_for(
             ctx.call_model(
@@ -442,6 +448,7 @@ async def _classify_action(ctx: Any, system_prompt: str, user_prompt: str) -> Pe
                 max_tokens=64,
                 stop_sequences=["</block>"],
                 temperature=0,
+                extra_body=_no_thinking,
             ),
             timeout=30.0,
         )
@@ -485,6 +492,7 @@ async def _classify_action(ctx: Any, system_prompt: str, user_prompt: str) -> Pe
                 user_prompt=user_prompt + XML_S2_SUFFIX,
                 max_tokens=4096,
                 temperature=0,
+                extra_body=_no_thinking,
             ),
             timeout=60.0,
         )
@@ -819,4 +827,9 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
             run_id, session_id, config, broker,
         )
 
-    hooks.on("tool_call", on_tool_call, priority=20, timeout_ms=None)
+    # mode="intercept": the gate's decision (block/allow) is only meaningful in
+    # dispatch_intercept, which carries the populated tool transcript (ctx with
+    # message_history) and honors the return value. Registering as intercept keeps
+    # it OUT of dispatch_observe, where it would otherwise re-run blind on a ctx
+    # without message_history (empty <transcript>) and burn a discarded model call.
+    hooks.on("tool_call", on_tool_call, priority=20, timeout_ms=None, mode="intercept")

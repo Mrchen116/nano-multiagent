@@ -25,6 +25,8 @@ def test_llm_message_contract() -> None:
         "tool_calls",
         "finish_reason",
         "usage",
+        "reasoning_content",
+        "reasoning_signature",
     ]
 
 
@@ -39,6 +41,7 @@ def test_llm_generate_request_contract() -> None:
         "stop_sequences",
         "tools",
         "metadata",
+        "extra_body",
     ]
 
 

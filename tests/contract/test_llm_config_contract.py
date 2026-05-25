@@ -11,7 +11,7 @@ def _auth_headers(request_id: str) -> dict[str, str]:
 
 
 def test_llm_config_get_contract_shape() -> None:
-    client = TestClient(create_app(auth_token="test-token"))
+    client = TestClient(create_app())
 
     response = client.get("/v1/llm-config", headers=_auth_headers("req-llm-config-get-contract"))
 
@@ -28,7 +28,7 @@ def test_llm_config_get_contract_shape() -> None:
 
 
 def test_llm_config_patch_contract_shape_and_runtime_effect() -> None:
-    client = TestClient(create_app(auth_token="test-token"))
+    client = TestClient(create_app())
 
     response = client.patch(
         "/v1/llm-config",
@@ -55,7 +55,7 @@ def test_llm_config_patch_contract_shape_and_runtime_effect() -> None:
 
 
 def test_llm_config_patch_error_contract_shape() -> None:
-    client = TestClient(create_app(auth_token="test-token"))
+    client = TestClient(create_app())
 
     response = client.patch("/v1/llm-config", headers=_auth_headers("req-llm-config-patch-error"), json={})
 

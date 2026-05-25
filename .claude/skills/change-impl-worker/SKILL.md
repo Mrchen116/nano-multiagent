@@ -1,6 +1,6 @@
 ---
 name: change-impl-worker
-description: 用于作为 subagent 执行单个 milestone 的编码实现,或处理 reviewer 反馈循环里的小修快车道(此时可能复用 worktree、不绑定 milestone)。触发条件:被 `change-orchestrator` 派发一个含 unit_id / milestone_id / worktree_dir / branch 的派发包,或派发包指示"按 Reviewer 反馈循环的小修快车道处理"。不要用于:调度多个 milestone(那是 orchestrator)、写架构方案(那是 change-design-author)、产品验收(那是 change-reviewer)、不属于本 unit / 非 reviewer 反馈循环里的简单文档/配置修改。
+description: 用于作为 subagent 执行单个 milestone 的编码实现,或处理 reviewer 反馈循环里的小修快车道(此时可能复用 worktree、不绑定 milestone)。触发条件:被 `change-orchestrator` 派发一个含 unit_id / milestone_id / worktree_dir / branch 的派发包,或派发包指示"按 Reviewer 反馈循环的小修快车道处理"。不要用于:写架构方案(那是 change-design-author)、不属于本 unit / 非 reviewer 反馈循环里的简单文档/配置修改。
 ---
 
 # Implementation Worker: 后端 TDD,前端状态驱动 + 浏览器验收
@@ -13,7 +13,7 @@ description: 用于作为 subagent 执行单个 milestone 的编码实现,或处
 
 1. **遵循 design 和现有架构**。先读 `docs/changes/<unit>/design.md`(尤其 Milestone 表对应行 + 关键决策 + 接口与数据流) + 现有代码结构,在既有架构内实现。**不要"哪能跑就在哪写"**;不要为了最小改动把代码放错位置。正确的做法是最符合架构意图的做法,不是改动行数最少的做法。
 2. **禁止兜底/降级/防御性编程**。不要写假装稳定的代码——`try/except` 吞错、神秘 fallback、临时常量、heuristic 修补——它们让数据静默错误而你毫不知情。错误应该大声失败(raise/assert),不要静默吞掉。
-3. **测试/验收必须证明产品能用,不只是代码能跑**。新功能必须**至少一个真实入口验证**(浏览器 / CLI / HTTP endpoint),证明用户真能用。后端/API 通常沉淀为自动化入口测试;前端 UI 按 §3.1 风险分级选择 regression 保护,并记录真实浏览器验收证据。"全是 mock 的单元测试全绿"不是完成依据——历史上多次单测全绿但产品根本不能用。
+3. **测试/验收必须证明产品能用,不只是代码能跑**。新功能、以及**修复用户报告的运行时缺陷**,都必须**至少一个真实入口验证**(浏览器 / CLI / HTTP endpoint)——新功能证明用户真能用,bug 修复证明用户报的那个症状真的消失。后端/API 通常沉淀为自动化入口测试;前端 UI 按 §3.1 风险分级选择 regression 保护,并记录真实浏览器验收证据。"全是 mock 的单元测试全绿"不是完成依据——历史上多次单测全绿但产品根本不能用 / bug 仍在(单测复现的是你写的那段代码,不是用户报的那个现象)。
 4. **强制三提交不合并**。每个 roadpoint:C1(测试/验收清单/状态矩阵,Red 或 Verify)→ C2(实现,Green)→ C3(文档,progress.md 补齐)。不得跳过、合并、或乱序。
 5. **测试门禁**。C2 提交前 `<test_command>` 必须全绿。
 6. **Pause-on-design-issue**。实现期发现 design 偏差,立即停手,走 §4 的修订流程,**禁止悄悄绕过**。
@@ -162,6 +162,8 @@ docs/changes/<unit_dir>/<milestone_dir>/tasks.md
 提交一次"plan" commit + `git push -u origin <branch>`。
 
 ### §3.1 Tests Plan(核心:测试必须证明产品能用)
+
+> **先读 `docs/TESTING_GUIDE.md`**——它是测试规范的唯一真源:测什么/不测什么的停止条件、"先定位再新建"、命名禁流水号、目录即分层 + e2e marker、可选依赖 importorskip、临时验收证据 ≠ 永久回归测试、单文件行数上限。本节只讲 milestone 内的规划动作,规则细节不在这里重复。
 
 按以下顺序思考:
 
@@ -350,7 +352,7 @@ docs/changes/<unit_dir>/<milestone_dir>/tasks.md
 如果 `mode: lite`,在合并前必须把 fix.md 后两段写完:
 
 - **修复**:改了什么 + commit hash 列表
-- **验证**:修前能复现的步骤 → 修后跑同一步骤不能复现,给证据
+- **验证**:**按 fix.md【现象 / 复现】里写的那个用户原始症状**,在真实入口(浏览器 / CLI / HTTP endpoint)走一遍——修前能复现、修后同一路径不再复现,给出真实运行证据(日志 / 截图 / 命令输出)。单测红转绿可作为补充,但**不能替代**这一步:单测复现的是你写的那段代码,证明不了用户报的那个现象消失了。
 
 写完 fix.md commit 一次:`docs(fix): <unit-id> 回填修复 + 验证段`。然后再走 §6.1 集成。
 

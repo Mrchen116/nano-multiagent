@@ -171,3 +171,44 @@ async def test_fork_session_persists_to_jsonl(tmp_path: Path) -> None:
     assert result.messages[0].role == "user"
     assert result.messages[0].content == "persist me"
     assert result.messages[0].message_id != "msg_user_persist"  # re-stamped
+
+
+async def test_fork_preserves_reasoning_content_and_signature(tmp_path: Path) -> None:
+    """Forking must carry reasoning_content / reasoning_signature on assistant messages.
+
+    Regression (bugfix-375): _fork_locked rebuilt each Message from a hand-listed
+    subset of fields and dropped reasoning_content / reasoning_signature. A forked
+    thinking-enabled session (e.g. kimi K2.6) lost its <thinking> blocks, so the
+    fork's next turn was rejected upstream with "reasoning_content is missing" and
+    the forked session became unusable. Same brittle "manual field-by-field
+    reconstruction" anti-pattern fixed in _strip_fork_conversation; this is the
+    fork-path instance.
+    """
+    from agent.core.ids import make_message_id
+
+    runtime = _make_runtime(tmp_path)
+    source = runtime._session_manager.create_session(workspace_root=tmp_path)
+    sid = source.session_id
+
+    # One turn to populate configs/paths/history the way fork_session expects.
+    await runtime.run(sid, [{"type": "text", "text": "hi"}], stream=False)
+
+    # Inject an assistant message carrying thinking reasoning + signature.
+    hist = runtime._session_histories[sid]
+    reasoning_msg = Message(
+        message_id=make_message_id(),
+        role="assistant",
+        content="answer",
+        parent_message_id=hist[-1].message_id,
+        reasoning_content="step-by-step chain of thought",
+        reasoning_signature="sig-deadbeef-4340",
+    )
+    hist.append(reasoning_msg)
+
+    forked = await runtime.fork_session(sid)
+    fork_history = runtime._session_histories[forked.session_id]
+
+    carried = [m for m in fork_history if m.reasoning_content is not None]
+    assert len(carried) == 1, "forked history must retain the reasoning-bearing message"
+    assert carried[0].reasoning_content == "step-by-step chain of thought"
+    assert carried[0].reasoning_signature == "sig-deadbeef-4340"

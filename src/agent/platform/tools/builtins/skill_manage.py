@@ -19,7 +19,9 @@ from agent.core.skills.registry import SkillRegistry
 from agent.core.skills.writer import SkillWriter
 
 # Actions supported by this tool (design §4 interface)
-_SUPPORTED_ACTIONS = frozenset({"create", "edit", "patch", "view", "list"})
+_SUPPORTED_ACTIONS = frozenset(
+    {"create", "edit", "patch", "view", "list", "write_file", "remove_file"}
+)
 
 
 class SkillManageTool:
@@ -46,8 +48,13 @@ class SkillManageTool:
         "- create: Create a new skill (name + content with YAML frontmatter).\n"
         "- edit: Fully replace an existing skill's SKILL.md content.\n"
         "- patch: Apply a find-and-replace to an existing skill (old_string → new_string).\n"
-        "- view: Read an existing skill's SKILL.md content by name.\n"
-        "- list: List all available skill names and descriptions.\n\n"
+        "- view: Read an existing skill's SKILL.md content + its support files by name.\n"
+        "- list: List all available skill names and descriptions.\n"
+        "- write_file: Add/overwrite a support file under a skill, turning it into a "
+        "class-level umbrella. file_path must start with references/ (session detail, "
+        "condensed knowledge banks), templates/ (copy-and-modify starters), scripts/ "
+        "(re-runnable actions), or assets/.\n"
+        "- remove_file: Delete a support file from a skill by file_path.\n\n"
         "WHEN TO USE:\n"
         "After completing a complex task (5+ tool calls), fixing a tricky error, or "
         "discovering a non-trivial workflow, save the approach as a skill so you can "
@@ -64,12 +71,12 @@ class SkillManageTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["create", "edit", "patch", "view", "list"],
+                "enum": ["create", "edit", "patch", "view", "list", "write_file", "remove_file"],
                 "description": "The action to perform.",
             },
             "name": {
                 "type": "string",
-                "description": "Skill name (required for create/edit/patch/view).",
+                "description": "Skill name (required for create/edit/patch/view/write_file/remove_file).",
             },
             "content": {
                 "type": "string",
@@ -82,6 +89,17 @@ class SkillManageTool:
             "new_string": {
                 "type": "string",
                 "description": "Replacement string for patch action (may be empty to delete).",
+            },
+            "file_path": {
+                "type": "string",
+                "description": (
+                    "Support-file path relative to the skill dir for write_file/remove_file; "
+                    "must start with references/, templates/, scripts/, or assets/."
+                ),
+            },
+            "file_content": {
+                "type": "string",
+                "description": "Support-file body for write_file.",
             },
         },
         "required": ["action"],
@@ -136,7 +154,34 @@ class SkillManageTool:
             return self._view(args)
         if action == "list":
             return self._list()
+        if action == "write_file":
+            return self._write_file(args)
+        if action == "remove_file":
+            return self._remove_file(args)
         raise ValueError(f"Unhandled action '{action}'")  # unreachable
+
+    def _write_file(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
+        name = args.get("name")
+        file_path = args.get("file_path")
+        file_content = args.get("file_content")
+        if not name:
+            return {"success": False, "error": "write_file action requires 'name'"}
+        if not file_path:
+            return {"success": False, "error": "write_file action requires 'file_path'"}
+        if file_content is None:
+            return {"success": False, "error": "write_file action requires 'file_content'"}
+        path = self._writer.write_file(str(name), str(file_path), str(file_content))
+        return {"success": True, "message": f"wrote support file '{file_path}' to skill '{name}' at {path}"}
+
+    def _remove_file(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
+        name = args.get("name")
+        file_path = args.get("file_path")
+        if not name:
+            return {"success": False, "error": "remove_file action requires 'name'"}
+        if not file_path:
+            return {"success": False, "error": "remove_file action requires 'file_path'"}
+        self._writer.remove_file(str(name), str(file_path))
+        return {"success": True, "message": f"removed support file '{file_path}' from skill '{name}'"}
 
     def _create(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
         name = args.get("name")
@@ -181,7 +226,19 @@ class SkillManageTool:
         if skill is None:
             return {"success": False, "error": f"Skill '{name}' not found"}
         content = skill.location.read_text(encoding="utf-8")
-        return {"success": True, "name": str(name), "content": content, "location": str(skill.location)}
+        # Surface the skill's support files so the agent can see what's bundled
+        # (and patch/extend it) without a generic filesystem read tool.
+        try:
+            support_files = self._writer.list_support_files(str(name))
+        except ValueError:
+            support_files = []
+        return {
+            "success": True,
+            "name": str(name),
+            "content": content,
+            "location": str(skill.location),
+            "support_files": support_files,
+        }
 
     def _list(self) -> Mapping[str, Any]:
         skills = self._registry.list_skills()

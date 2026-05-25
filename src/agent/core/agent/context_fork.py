@@ -1,13 +1,15 @@
 """Fork agent context for isolated side-chain execution."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
 
 from agent.core.agent.loop import AgentLoop, ToolRegistryLike
 from agent.core.agent.policies import AgentPolicies
 from agent.core.agent.state import AgentState
+from agent.core.hooks.context import HookContext
 from agent.core.llm.interfaces import LLMClient
+from agent.core.runs.origin import RunOrigin
 from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.session_file_state import SessionFileState
 from agent.core.types import Message, ToolSpec, TurnResult
@@ -82,6 +84,7 @@ class AgentContextFork:
         available_skills_override: tuple[SkillMetadata, ...] | None = None,
         available_tools_override: tuple[ToolSpec, ...] | None = None,
         tool_execution_allowlist: tuple[str, ...] | None = None,
+        hook_ctx: HookContext | None = None,
     ) -> TurnResult:
         """Fork the agent context and execute with isolated side effects.
 
@@ -104,6 +107,7 @@ class AgentContextFork:
         messages: list = []
         async for msg in self._loop.run(
             state,
+            hook_ctx=hook_ctx,
             max_turns=max_turns,
             session_file_state=session_file_state or SessionFileState(),
             system_prompt_override=system_prompt_override,
@@ -124,6 +128,7 @@ def make_fork_conversation(
     messages_snapshot: list[Any],
     session_id: str,
     tool_allowlist: tuple[str, ...],
+    parent_hook_ctx: HookContext | None = None,
 ) -> Callable:
     """Build a fork_conversation callable for injection into background HookContext.
 
@@ -194,8 +199,31 @@ def make_fork_conversation(
             user_text=review_prompt,
         )
 
+        # Derive the fork's hook context from the parent so hooks behave the same
+        # inside the fork as in the main turn — most importantly the auto_mode_gate
+        # classifier gets a real model_caller (otherwise it fail-closes and the
+        # self-improvement agent can't use even its allowlisted tools). replace()
+        # carries every parent capability; we only override:
+        #  - fork_conversation=None: anti-recursion (a review fork can't spawn one)
+        #  - run_origin=BACKGROUND_TASK: the fork is unattended, so a gate `ask`
+        #    resolves via unattended_fallback instead of parking on a non-existent
+        #    human. The tool_execution_allowlist remains the hard safety boundary.
+        fork_hook_ctx: HookContext | None = None
+        if parent_hook_ctx is not None:
+            fork_metadata = {
+                **dict(parent_hook_ctx.metadata),
+                "run_origin": RunOrigin.BACKGROUND_TASK.value,
+            }
+            fork_metadata.pop("tool_call_id", None)
+            fork_hook_ctx = replace(
+                parent_hook_ctx,
+                fork_conversation=None,
+                metadata=fork_metadata,
+            )
+
         turn_result = await context_fork.execute(
             state=fork_state,
+            hook_ctx=fork_hook_ctx,
             max_turns=max_turns,
             session_file_state=SessionFileState(),
             # Pass parent system prompt + tools byte-for-byte — must NOT rebuild

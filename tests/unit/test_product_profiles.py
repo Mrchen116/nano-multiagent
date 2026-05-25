@@ -81,12 +81,18 @@ def test_personal_assistant_package_exports_default_modules() -> None:
     assert {"read", "write", "edit", "bash", "agent", "web_fetch", "web_search"} <= set(personal_assistant_toolsets.DEFAULT_TOOL_IDS)
     assert set(personal_assistant_toolsets.OPTIONAL_TOOL_IDS) == {"send_message"}
     assert set(PERSONAL_ASSISTANT_PROFILE.optional_tool_ids) == {"send_message"}
-    assert "communication_context" in personal_assistant_hooks.DEFAULT_HOOK_MODULES
+    # feat-379-M1: communication_context is no longer a hook module — group context
+    # is assembled by the pa.communication_context segment (prompt_sections.py).
+    assert "communication_context" not in personal_assistant_hooks.DEFAULT_HOOK_MODULES
     assert "default_status" in personal_assistant_hooks.DEFAULT_HOOK_MODULES
 
 
 
 def test_personal_assistant_bootstrap_loads_communication_context_hook(tmp_path: Path) -> None:
+    # feat-379-M1: communication_context.setup() no longer registers a
+    # before_agent_start prompt-injection handler.  The hook file is still
+    # loaded (module stem present in module_stems) because the module itself
+    # exists, but it registers no handlers for before_agent_start.
     resolved = bootstrap_product(profile=PERSONAL_ASSISTANT_PROFILE, repo_root=tmp_path)
 
     module_stems = {
@@ -95,37 +101,51 @@ def test_personal_assistant_bootstrap_loads_communication_context_hook(tmp_path:
         if handler.file_path is not None
     }
 
-    assert "communication_context" in module_stems
+    # The communication_context module no longer registers hooks in M1 (setup=pass),
+    # so its stem is absent from module_stems. default_status remains.
     assert "default_status" in module_stems
-
-
-
-def test_personal_assistant_hook_uses_session_system_prompt_as_base() -> None:
-    registry = HookRegistry()
-    personal_assistant_hooks.setup(
-        HookAPI(registry, source="product", module_name="pa_hooks", file_path=None)
+    # Verify the prompt injection was not added as before_agent_start.
+    before_start_handlers = [
+        h for h in resolved.hook_registry.all_handlers()
+        if h.event == "before_agent_start"
+        and h.file_path is not None
+        and Path(h.file_path).stem == "communication_context"
+    ]
+    assert not before_start_handlers, (
+        "feat-379-M1: communication_context must not register before_agent_start "
+        "prompt injection — group context is now via pa.communication_context segment"
     )
 
-    handlers = registry.handlers_for("before_agent_start")
-    assert handlers
 
-    result = handlers[0].handler(
-        {"message": "hello", "system_prompt": None},
-        HookContext(
-            session_id="sess-test",
-            metadata={
-                "conversation_type": "group",
-                "agent_id": "agent-a",
-                "participant_agent_ids": ["agent-a", "agent-b"],
-                "system_prompt": "You are agent-a.",
-            },
-        ),
+def test_personal_assistant_hook_group_context_now_via_segment(tmp_path: Path) -> None:
+    """feat-379-M1: group chat context comes from segment assembly, not hook.
+
+    Replaces the retired test_personal_assistant_hook_uses_session_system_prompt_as_base.
+    Verifies that the pa.communication_context segment correctly renders
+    [Communication Context] for group scenarios.
+    """
+    from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
+    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
+    from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
+
+    ctx = PromptContext(
+        available_tools=(),
+        available_skills=(),
+        current_datetime="2026-01-01T00:00:00",
+        cwd="/workspace",
+        memory_block=None,
+        flags={},
+        scenario={
+            "conversation_type": "group",
+            "agent_id": "agent-a",
+            "participant_agent_ids": ["agent-a", "agent-b"],
+        },
+        vars={},
     )
-
-    assert result is not None
-    assert result["system_prompt"].startswith("You are agent-a.")
-    assert "[Communication Context]" in result["system_prompt"]
-    assert "group_participants: agent-a, agent-b" in result["system_prompt"]
+    result = assemble_system_prompt(list(CORE_SECTIONS) + list(PA_SECTIONS), ctx)
+    assert "[Communication Context]" in result
+    assert "session_type: group" in result
+    assert "your_agent_id: agent-a" in result
 
 
 

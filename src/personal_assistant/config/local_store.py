@@ -117,6 +117,12 @@ class AgentWorkspaceConfig:
         system_prompt: Custom system prompt override for the agent.
         group_reply_policy: Reply policy in group conversations (e.g. "always", "mention_only").
         default_model: Default LLM model identifier for this agent.
+        features: Per-agent feature-flag overrides keyed by FEATURE_REGISTRY key.
+            Absent keys inherit the registry default_on value at session creation time.
+            See feat-379 decision 3 and FEATURE_REGISTRY in prompt_sections/feature_registry.py.
+        custom_prompt: Optional user-written text appended as the pa.user_custom segment
+            (order=800).  None or empty string means the segment is omitted entirely.
+            See feat-379 decision 5/6.
     """
 
     agent_id: str
@@ -127,6 +133,9 @@ class AgentWorkspaceConfig:
     system_prompt: str | None = None
     group_reply_policy: str | None = None
     default_model: str | None = None
+    # feat-379-M2: per-agent feature flags and custom prompt supplement
+    features: dict[str, bool] = field(default_factory=dict)
+    custom_prompt: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,6 +323,11 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             agent_dict["group_reply_policy"] = agent.group_reply_policy
         if agent.default_model is not None:
             agent_dict["default_model"] = agent.default_model
+        # feat-379-M2: only emit when non-empty to keep config.yaml readable
+        if agent.features:
+            agent_dict["features"] = dict(agent.features)
+        if agent.custom_prompt is not None:
+            agent_dict["custom_prompt"] = agent.custom_prompt
         agents_list.append(agent_dict)
     data["agents"] = agents_list
 
@@ -427,6 +441,8 @@ def _parse_agents(payload: Any) -> tuple[AgentWorkspaceConfig, ...]:
         system_prompt = _optional_string(item.get("system_prompt"), field_name=f"agents[{index}].system_prompt")
         group_reply_policy = _optional_string(item.get("group_reply_policy"), field_name=f"agents[{index}].group_reply_policy")
         default_model = _optional_string(item.get("default_model"), field_name=f"agents[{index}].default_model")
+        features = _parse_features(item.get("features"), field_name=f"agents[{index}].features")
+        custom_prompt = _optional_string(item.get("custom_prompt"), field_name=f"agents[{index}].custom_prompt")
         agents.append(
             AgentWorkspaceConfig(
                 agent_id=agent_id,
@@ -437,6 +453,8 @@ def _parse_agents(payload: Any) -> tuple[AgentWorkspaceConfig, ...]:
                 system_prompt=system_prompt,
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,
+                features=features,
+                custom_prompt=custom_prompt,
             )
         )
     return tuple(agents)
@@ -602,3 +620,34 @@ def _parse_string_list(value: Any, *, field_name: str) -> tuple[str, ...]:
             raise ValueError(f"{field_name}[{i}] must be a non-empty string")
         result.append(entry.strip())
     return tuple(result)
+
+
+def _parse_features(value: Any, *, field_name: str) -> dict[str, bool]:
+    """Parse an optional YAML feature-flag mapping into a dict[str, bool].
+
+    Only bool values are accepted — YAML ``true``/``false`` map cleanly.  Any
+    non-bool value causes a hard error so misconfigured flags fail loudly
+    (feat-379 decision 3: no silent fallback for user-written config).
+
+    Args:
+        value: Raw YAML value (None, dict, or invalid).
+        field_name: Diagnostic label for error messages.
+
+    Returns:
+        Dict of feature key → bool, or empty dict when value is None.
+
+    Raises:
+        ValueError: When value is not a mapping or contains non-bool values.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{field_name} must be a mapping")
+    result: dict[str, bool] = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or not k.strip():
+            raise ValueError(f"{field_name}: key must be a non-empty string, got {k!r}")
+        if not isinstance(v, bool):
+            raise ValueError(f"{field_name}.{k} must be a bool (true/false), got {v!r}")
+        result[k.strip()] = v
+    return result

@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from agent import __version__
+from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
 from agent.core.errors import ModelError
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.model_registry import (
@@ -17,7 +18,7 @@ from agent.core.llm.model_registry import (
 from agent.platform.tools.registry import ToolRegistry
 
 from ..auth import require_bearer_auth
-from ..deps import APIError, get_agent_runtime, get_tool_registry
+from ..deps import APIError, get_agent_runtime, get_prompt_sections, get_tool_registry
 
 router = APIRouter()
 
@@ -248,3 +249,81 @@ def _ensure_patch_request_is_valid(
             message="'api_key' cannot be set when 'clear_api_key' is true",
             retryable=False,
         )
+
+
+# ---------------------------------------------------------------------------
+# Prompt preview (feat-379-M2 R5)
+# ---------------------------------------------------------------------------
+
+
+class PromptPreviewRequest(BaseModel):
+    """Request body for the prompt preview endpoint.
+
+    Args:
+        features: Per-agent feature flags (key → bool).  Absent key defaults
+            to the FEATURE_REGISTRY default_on value.  Passed to PromptContext.flags.
+        custom_prompt: Optional user-supplied text appended as a supplement
+            segment.  Passed to PromptContext.vars["custom_prompt"].
+        tool_ids: Tool names to mark as active for this preview turn (determines
+            which tool-gated sections are included).  Simulated via has_tool().
+        scenario: Conversation type hint ("direct" or "group").  Defaults to
+            "direct" so previews omit group-only segments.
+    """
+
+    features: dict[str, bool] = Field(default_factory=dict)
+    custom_prompt: str | None = None
+    tool_ids: list[str] = Field(default_factory=list)
+    scenario: str = "direct"
+
+
+class PromptPreviewResponse(BaseModel):
+    """Assembled system-prompt preview string (cache-stable segments only)."""
+
+    prompt: str
+    section_count: int
+
+
+@router.post(
+    "/v1/prompt-preview",
+    response_model=PromptPreviewResponse,
+    dependencies=[Depends(require_bearer_auth)],
+)
+def prompt_preview(
+    payload: PromptPreviewRequest,
+    sections: list = Depends(get_prompt_sections),
+) -> PromptPreviewResponse:
+    """Assemble a system-prompt preview for the given per-agent feature configuration.
+
+    Filters to cache_safe=True segments only so the preview is stable and free
+    from volatile turn data (memory block, live participant list).  This matches
+    what the IM settings page needs to show: the static portion of the prompt.
+
+    Args:
+        payload: Feature flags, custom_prompt, active tool ids and scenario hint.
+        sections: PromptSection list from app.state (populated by bootstrap).
+
+    Returns:
+        PromptPreviewResponse with the assembled prompt and section count.
+    """
+    # Build minimal tool stubs so has_tool() works for gate checks.
+    # feat-379-M6 (ISSUE-3): include description="" so render functions that format
+    # tool listings (core.runtime_tools) can access t.description without AttributeError.
+    from types import SimpleNamespace  # noqa: PLC0415 — local import for stub creation
+
+    tool_stubs = tuple(SimpleNamespace(name=tid, description="") for tid in payload.tool_ids)
+
+    ctx = PromptContext(
+        available_tools=tool_stubs,
+        available_skills=(),
+        current_datetime="",
+        cwd="",
+        memory_block=None,  # volatile — excluded from preview
+        flags=payload.features,
+        scenario={"conversation_type": payload.scenario},
+        vars={"custom_prompt": payload.custom_prompt} if payload.custom_prompt else {},
+    )
+    # Preview shows only the cache-stable prefix; volatile segments (memory_block,
+    # communication_context) are excluded so the preview doesn't depend on runtime state.
+    stable_sections = [s for s in sections if getattr(s, "cache_safe", True)]
+    assembled = assemble_system_prompt(stable_sections, ctx)
+    return PromptPreviewResponse(prompt=assembled, section_count=len(stable_sections))

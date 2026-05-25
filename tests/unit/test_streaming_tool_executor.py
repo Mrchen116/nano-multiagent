@@ -361,3 +361,81 @@ async def test_get_completed_results_non_blocking(registry: _FakeRegistry) -> No
     # Calling again yields nothing new (r1 already yielded)
     results2 = executor.get_completed_results()
     assert len(results2) == 0
+
+
+# ---------------------------------------------------------------------------
+# RC1 regression: get_completed_results must not skip executing safe tools
+# (bugfix-376: parallel safe tools could produce out-of-order tool_results)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_completed_results_does_not_return_b_while_a_executing(
+    registry: _FakeRegistry,
+) -> None:
+    """[A(executing,safe), B(completed,safe)] → get_completed_results must return nothing.
+
+    Bug: the old break condition `not item.is_safe` evaluates to False for safe
+    tools, so the loop skips over executing-A and returns completed-B.  That puts
+    B's tool_result ahead of A's in llm_messages, which causes the upstream
+    (kimi K2.6) to see a tool_result before its paired tool_use and reject with
+    "tool_call_ids did not have response messages".
+    """
+    registry.register(_FakeTool(name="r1", is_concurrency_safe=True, delay=0.15))
+    registry.register(_FakeTool(name="r2", is_concurrency_safe=True, delay=0.0))
+    executor = StreamingToolExecutor(registry)
+
+    executor.add_tool(_call("r1"))
+    executor.add_tool(_call("r2"))
+
+    # Give r2 time to finish but r1 is still executing (delay=0.15).
+    await asyncio.sleep(0.05)
+
+    # r2 is done, r1 is still executing.
+    # get_completed_results() must return nothing because r1 (index 0) is still executing.
+    results = executor.get_completed_results()
+    assert results == [], (
+        f"expected no results while earlier safe tool is executing, got {[r.name for r in results]}"
+    )
+    assert executor.has_unfinished()
+
+    # Drain remaining — order must be r1 then r2.
+    items = []
+    async for r in executor.get_remaining_results():
+        items.append(r)
+    assert [r.name for r in items] == ["r1", "r2"]
+
+
+@pytest.mark.asyncio
+async def test_parallel_safe_tool_results_in_enqueue_order(
+    registry: _FakeRegistry,
+) -> None:
+    """Full round-trip: parallel safe tools must yield results in enqueue order.
+
+    Scenario mirrors the bugfix-376 upstream-req at 21-43-10:
+      - Two parallel read calls (A slower, B faster)
+      - Mid-stream get_completed_results() must not return B alone
+      - Combined results from get_completed_results() + get_remaining_results()
+        must be [A, B], matching the assistant's tool_use order
+    """
+    registry.register(_FakeTool(name="r1", is_concurrency_safe=True, delay=0.12))
+    registry.register(_FakeTool(name="r2", is_concurrency_safe=True, delay=0.02))
+    executor = StreamingToolExecutor(registry)
+
+    executor.add_tool(_call("r1"))
+    executor.add_tool(_call("r2"))
+
+    early: list = []
+    # Simulate mid-stream polling: r2 should have finished but r1 hasn't yet.
+    await asyncio.sleep(0.06)
+    early.extend(executor.get_completed_results())
+
+    # Wait for the rest.
+    remaining: list = []
+    async for r in executor.get_remaining_results():
+        remaining.append(r)
+
+    all_results = early + remaining
+    assert [r.name for r in all_results] == ["r1", "r2"], (
+        f"expected [r1, r2] in enqueue order, got {[r.name for r in all_results]}"
+    )

@@ -1458,7 +1458,7 @@ class AgentProfileRepository:
             """
             SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
-                   is_stale
+                   is_stale, features_json, custom_prompt
             FROM agent_profiles
             ORDER BY created_at, rowid
             """
@@ -1478,7 +1478,7 @@ class AgentProfileRepository:
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
-                   ap.is_stale
+                   ap.is_stale, ap.features_json, ap.custom_prompt
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
@@ -1507,7 +1507,7 @@ class AgentProfileRepository:
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
-                   ap.is_stale
+                   ap.is_stale, ap.features_json, ap.custom_prompt
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
@@ -1549,7 +1549,7 @@ class AgentProfileRepository:
             """
             SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
-                   is_stale
+                   is_stale, features_json, custom_prompt
             FROM agent_profiles
             WHERE agent_id = ?
             """,
@@ -1573,19 +1573,28 @@ class AgentProfileRepository:
         default_model: str | None,
         workspace_root: str | None,
         node_id: str | None = None,
-    ) -> AgentProfile:
+        features: dict[str, bool] | None = None,
+        custom_prompt: str | None = None,
+    ) -> "AgentProfile":
         """Create or replace one seed profile without optimistic locking."""
         created_at = _utc_now()
         skills_json = _encode_json_list(skills)
         tool_allowlist_json = _encode_json_list(tool_allowlist)
+        # feat-379-M2: persist per-agent feature flags and custom prompt.
+        # feat-379-M6 (ISSUE-2): when features/custom_prompt are None (omitted by caller),
+        # keep whatever is already in the DB so Gateway re-registration on restart does not
+        # wipe user edits.  The ON CONFLICT clause uses COALESCE to fall back to the
+        # existing row value when the incoming JSON is the empty-object sentinel '{}' / NULL.
+        features_json = json.dumps(features, ensure_ascii=False) if features is not None else None
         with self._connection:
             self._connection.execute(
                 """
                 INSERT INTO agent_profiles(
                     agent_id, owner_id, node_id, display_name, description, system_prompt,
                     skills_json, tool_allowlist_json, group_reply_policy,
-                    default_model, workspace_root, profile_version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    default_model, workspace_root, profile_version, created_at, updated_at,
+                    features_json, custom_prompt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     node_id = excluded.node_id,
@@ -1599,7 +1608,17 @@ class AgentProfileRepository:
                     workspace_root = excluded.workspace_root,
                     updated_at = excluded.updated_at,
                     is_stale = 0,
-                    staled_at = NULL
+                    staled_at = NULL,
+                    features_json = CASE
+                        WHEN excluded.features_json IS NOT NULL AND excluded.features_json != '{}'
+                        THEN excluded.features_json
+                        ELSE agent_profiles.features_json
+                    END,
+                    custom_prompt = CASE
+                        WHEN excluded.custom_prompt IS NOT NULL
+                        THEN excluded.custom_prompt
+                        ELSE agent_profiles.custom_prompt
+                    END
                 """,
                 (
                     agent_id,
@@ -1616,6 +1635,8 @@ class AgentProfileRepository:
                     1,
                     created_at,
                     created_at,
+                    features_json,
+                    custom_prompt,
                 ),
             )
         profile = self.get_profile(agent_id=agent_id)
@@ -1673,7 +1694,9 @@ class AgentProfileRepository:
         group_reply_policy: str,
         default_model: str | None,
         workspace_root: str | None,
-    ) -> AgentProfile:
+        features: dict[str, bool] | None = None,
+        custom_prompt: str | None = None,
+    ) -> "AgentProfile":
         """Update a profile with optimistic locking on profile_version."""
         current = self.get_profile(agent_id=agent_id)
         if current is None:
@@ -1682,6 +1705,9 @@ class AgentProfileRepository:
             raise AgentProfileVersionConflictError("profile_version conflict")
         updated_at = _utc_now()
         next_version = current.profile_version + 1
+        # feat-379-M2: persist per-agent feature flags and custom prompt
+        features_json = json.dumps(features if features is not None else dict(current.features), ensure_ascii=False)
+        resolved_custom_prompt = custom_prompt if custom_prompt is not None else current.custom_prompt
         with self._connection:
             self._connection.execute(
                 """
@@ -1695,7 +1721,9 @@ class AgentProfileRepository:
                     default_model = ?,
                     workspace_root = ?,
                     profile_version = ?,
-                    updated_at = ?
+                    updated_at = ?,
+                    features_json = ?,
+                    custom_prompt = ?
                 WHERE agent_id = ?
                 """,
                 (
@@ -1709,6 +1737,8 @@ class AgentProfileRepository:
                     workspace_root,
                     next_version,
                     updated_at,
+                    features_json,
+                    resolved_custom_prompt,
                     agent_id,
                 ),
             )
@@ -1724,10 +1754,22 @@ class AgentProfileRepository:
                 (owner_id, node_id),
             )
 
-    def _row_to_profile(self, row: sqlite3.Row) -> AgentProfile:
+    def _row_to_profile(self, row: sqlite3.Row) -> "AgentProfile":
         """Convert one storage row to a domain agent profile."""
         keys = row.keys()
         is_stale = bool(row["is_stale"]) if "is_stale" in keys else False
+        # feat-379-M2: decode per-agent feature flags (stored as JSON object)
+        raw_features = row["features_json"] if "features_json" in keys else None
+        if raw_features:
+            try:
+                decoded_features = json.loads(raw_features)
+                features = {k: bool(v) for k, v in decoded_features.items() if isinstance(k, str)} if isinstance(decoded_features, dict) else {}
+            except (ValueError, TypeError):
+                features = {}
+        else:
+            features = {}
+        custom_prompt_raw = row["custom_prompt"] if "custom_prompt" in keys else None
+        custom_prompt = custom_prompt_raw if isinstance(custom_prompt_raw, str) and custom_prompt_raw.strip() else None
         return AgentProfile(
             agent_id=row["agent_id"],
             owner_id=row["owner_id"],
@@ -1742,6 +1784,8 @@ class AgentProfileRepository:
             workspace_root=row["workspace_root"],
             profile_version=int(row["profile_version"]),
             is_stale=is_stale,
+            features=features,
+            custom_prompt=custom_prompt,
         )
 
 

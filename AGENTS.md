@@ -6,6 +6,8 @@
 
 开发规范：COMMENTING_GUIDE.md
 
+测试规范：docs/TESTING_GUIDE.md
+
 LLM交互日志：/Users/czj/Repos/LLM_PROXY/logs/<session_id>/
 
 参考项目代码：
@@ -178,7 +180,7 @@ read IM_PORT VITE_PORT < <(scripts/free-ports.sh 2)
 | 服务 | 指定端口/URL 方式 | 关键 env |
 |---|---|---|
 | IM (uvicorn) | `--port <N>`(uvicorn 原生) | `IM_JWT_SECRET=<unit 专属随机串>` 必须设,否则 token 跨重启失效;`IM_DB_PATH` 已支持,默认 `data/im_service.sqlite3`(cwd-relative),worktree 内起服务时天然隔离,无需显式传 |
-| Gateway | 不监听端口;指 IM 用 `--im-service-url http://127.0.0.1:<IM_PORT>`(CLI override 已支持,见 `personal_assistant/main.py`) | — |
+| Gateway | 不监听端口;指 IM 用 `--im-service-url http://127.0.0.1:<IM_PORT>`;**config 必须用 worktree 本地副本** `--config <worktree>/.gateway-config.yaml`(默认 `~/.nano-assistant/config.yaml` 是主仓持久化文件,worktree Gateway 一建/同步 agent 就写回它→污染主仓;详见下方「Gateway config 隔离」) | — |
 | Vite | `npm run dev -- --port <N> --strictPort` | — |
 | Coding CLI managed API | `--base-url http://127.0.0.1:<N>`(managed 模式 host/port 都从 base-url 解析) | — |
 
@@ -197,9 +199,31 @@ for f in .im.pid .gateway.pid .vite.pid .coding-cli.pid; do
 done
 ```
 
-### 已知未参数化的点(接受现状)
+### Gateway config 隔离
 
-- **Gateway `workspace_root`**:`~/.nano-assistant/config.yaml` 里硬写,跨 unit 共享(`personal_assistant/main.py` 只从 config 文件读,无 env override)。遇到具体痛点再加 env 覆盖。
+Gateway 的 config 路径无 env override,只能靠 `--config` 显式传(默认落到主仓持久化文件 `~/.nano-assistant/config.yaml`)。worktree 内起 Gateway **必须**先从主 config 拷一份本地副本并改写易污染主仓的字段,再用 `--config` 启动:
+
+```bash
+# WT_ROOT = 本 worktree 的绝对根目录(派发包里的 worktree_dir,不能用 $PWD —— Bash 的
+# cwd 仍是主仓,$PWD 会把副本写进主仓反而破坏隔离)
+WT_ROOT=<派发包给的 worktree_dir>
+
+# 从主 config 派生 worktree 本地副本(需 yq;无 yq 则手改对应字段)
+MAIN_CFG=~/.nano-assistant/config.yaml
+WT_CFG="$WT_ROOT/.gateway-config.yaml"
+cp "$MAIN_CFG" "$WT_CFG"
+yq -i "
+  .node.node_id = \"wt-$(basename "$WT_ROOT")\" |
+  .im_service.url = \"http://127.0.0.1:$IM_PORT\" |
+  .agents[].workspace_root = \"$WT_ROOT/.gateway-workspace/\" + .agents[].agent_id
+" "$WT_CFG"
+
+PYTHONPATH=src python -m personal_assistant.main \
+  --config "$WT_CFG" --im-service-url "http://127.0.0.1:$IM_PORT" \
+  > "$WT_ROOT/.gateway.log" 2>&1 & echo $! > "$WT_ROOT/.gateway.pid"
+```
+
+改写三处的原因:`node_id` 唯一→IM 节点不撞主仓;`im_service.url`→指向 worktree 自己的 ephemeral IM;`workspace_root`→agent 工作区落在 worktree 内,Gateway 写回(新建 agent / 刷新 token)只动副本,主仓 config 和工作区零影响。`$WT_ROOT` 下的 `.gateway-config.yaml` / `.gateway-workspace/` 随 worktree 一起清理即可。
 
 ## 开发约定
 
@@ -214,6 +238,7 @@ done
 
 | 文档 | 路径 | 内容 |
 |---|---|---|
+| 测试规范 | docs/TESTING_GUIDE.md | 测什么/不测什么、命名落层、临时验收 vs 回归、tasks.md 测试策略必填 |
 | 架构总览 | SPEC.md | 四个包职责、依赖方向、部署图 |
 | 内核设计 | docs/内核设计SPEC.md | agent 三层架构、模块归属、HTTP API、工具/Hook/Skill/Session 契约 |
 | Coding CLI | docs/CodingCLI-SPEC.md | CLI 运行模式、REPL 交互、模块结构、硬约束 |

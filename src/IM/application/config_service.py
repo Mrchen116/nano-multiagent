@@ -154,8 +154,15 @@ class ConfigService:
         group_reply_policy: str,
         default_model: str | None,
         workspace_root: str | None,
+        features: dict[str, bool] | None = None,
+        custom_prompt: str | None = None,
     ) -> AgentProfile:
-        """Update one agent profile using profile_version optimistic locking."""
+        """Update one agent profile using profile_version optimistic locking.
+
+        feat-379-M5 (ISSUE-2): features + custom_prompt are now accepted so
+        the IM mirror stores them and subsequent GET /config calls return the
+        persisted values; Gateway picks them up on next config.sync.
+        """
         if self._profiles.get_profile(agent_id=agent_id) is None:
             raise LookupError("agent_id not found")
         updated = self._profiles.update_profile(
@@ -169,6 +176,8 @@ class ConfigService:
             group_reply_policy=group_reply_policy,
             default_model=default_model,
             workspace_root=self.normalize_workspace_root(agent_id=agent_id, workspace_root=workspace_root),
+            features=features,
+            custom_prompt=custom_prompt,
         )
         self._notify_config_sync(agent_id=agent_id, profile_version=updated.profile_version)
         return updated

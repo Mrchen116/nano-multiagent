@@ -216,3 +216,52 @@ def test_create_produces_complete_file(writer: SkillWriter, skill_root: Path) ->
     assert file_path.exists()
     content = file_path.read_text(encoding="utf-8")
     assert content.startswith("---")
+
+
+# ---------------------------------------------------------------------------
+# bugfix-375/M2 (issue #49): support files (references/templates/scripts/assets)
+# ---------------------------------------------------------------------------
+
+
+def test_write_file_creates_support_file(writer: SkillWriter, skill_root: Path) -> None:
+    writer.create("umbrella", _VALID_FRONTMATTER.replace("test-skill", "umbrella"))
+    path = writer.write_file("umbrella", "references/notes.md", "# Notes\nrepro recipe")
+    assert path == skill_root / "umbrella" / "references" / "notes.md"
+    assert path.read_text(encoding="utf-8") == "# Notes\nrepro recipe"
+
+
+def test_write_file_lists_in_view_and_list_support_files(writer: SkillWriter) -> None:
+    writer.create("umbrella", _VALID_FRONTMATTER.replace("test-skill", "umbrella"))
+    writer.write_file("umbrella", "references/a.md", "a")
+    writer.write_file("umbrella", "scripts/probe.sh", "echo hi")
+    assert writer.list_support_files("umbrella") == ["references/a.md", "scripts/probe.sh"]
+
+
+def test_remove_file_deletes_support_file(writer: SkillWriter, skill_root: Path) -> None:
+    writer.create("umbrella", _VALID_FRONTMATTER.replace("test-skill", "umbrella"))
+    writer.write_file("umbrella", "templates/base.yaml", "k: v")
+    writer.remove_file("umbrella", "templates/base.yaml")
+    assert not (skill_root / "umbrella" / "templates" / "base.yaml").exists()
+
+
+def test_write_file_rejects_path_traversal(writer: SkillWriter) -> None:
+    writer.create("umbrella", _VALID_FRONTMATTER.replace("test-skill", "umbrella"))
+    with pytest.raises(ValueError, match="\\.\\."):
+        writer.write_file("umbrella", "references/../../escape.md", "x")
+
+
+def test_write_file_rejects_disallowed_subdir(writer: SkillWriter) -> None:
+    writer.create("umbrella", _VALID_FRONTMATTER.replace("test-skill", "umbrella"))
+    with pytest.raises(ValueError, match="references|templates|scripts|assets"):
+        writer.write_file("umbrella", "secrets/key.txt", "x")
+
+
+def test_write_file_rejects_single_segment(writer: SkillWriter) -> None:
+    writer.create("umbrella", _VALID_FRONTMATTER.replace("test-skill", "umbrella"))
+    with pytest.raises(ValueError, match="two segments"):
+        writer.write_file("umbrella", "references", "x")
+
+
+def test_write_file_unknown_skill_raises(writer: SkillWriter) -> None:
+    with pytest.raises(ValueError, match="not found"):
+        writer.write_file("nope", "references/x.md", "x")

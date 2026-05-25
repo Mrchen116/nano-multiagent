@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 
 import json
 from dataclasses import replace
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -99,6 +100,16 @@ class AnthropicClient(LLMClient):
         content_blocks: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage: dict[str, Any] | None = None
+        # Thinking blocks arrive before tool_use blocks in the same assistant turn.
+        # One turn may carry several tool_use blocks sharing a single thinking block;
+        # the loop later splits them into separate assistant messages, each of which
+        # kimi K2.6 requires to carry the turn's reasoning_content — so attach it to
+        # every tool_use/text block in this stream, not just the first (bugfix-373).
+        # The thinking block also carries a cryptographic signature that must round-trip
+        # back unchanged; an empty signature causes the upstream to replay the same
+        # reasoning every turn and the agent loops forever (bugfix-375).
+        turn_reasoning: str | None = None
+        turn_signature: str | None = None
 
         async for event in _iter_sse_events(response):
             event_type = event.get("type")
@@ -118,8 +129,19 @@ class AnthropicClient(LLMClient):
             elif event_type == "content_block_stop":
                 idx = event.get("index", 0)
                 block = content_blocks.pop(idx, None)
-                if block is not None and block.get("type") not in {"thinking", "redacted_thinking"}:
-                    yield _anthropic_block_to_llm_message(block)
+                if block is None:
+                    continue
+                if block.get("type") in {"thinking", "redacted_thinking"}:
+                    thinking_text = block.get("thinking", "")
+                    if thinking_text:
+                        turn_reasoning = (turn_reasoning or "") + thinking_text
+                    sig = block.get("signature", "")
+                    if sig:
+                        turn_signature = sig
+                    continue
+                yield _anthropic_block_to_llm_message(
+                    block, reasoning_content=turn_reasoning, reasoning_signature=turn_signature
+                )
 
             elif event_type == "message_delta":
                 delta = event.get("delta", {})
@@ -169,6 +191,10 @@ def _apply_anthropic_delta(block: dict[str, Any], delta: dict[str, Any]) -> None
         block["text"] = block.get("text", "") + delta.get("text", "")
     elif delta_type == "thinking_delta":
         block["thinking"] = block.get("thinking", "") + delta.get("thinking", "")
+    elif delta_type == "signature_delta":
+        # Accumulate the thinking block's cryptographic signature; must round-trip
+        # unchanged so the upstream recognises it as sealed history (bugfix-375).
+        block["signature"] = block.get("signature", "") + delta.get("signature", "")
     elif delta_type == "input_json_delta":
         existing = block.get("input", "")
         if isinstance(existing, dict):
@@ -176,7 +202,12 @@ def _apply_anthropic_delta(block: dict[str, Any], delta: dict[str, Any]) -> None
         block["input"] = existing + delta.get("partial_json", "")
 
 
-def _anthropic_block_to_llm_message(block: dict[str, Any]) -> LLMMessage:
+def _anthropic_block_to_llm_message(
+    block: dict[str, Any],
+    *,
+    reasoning_content: str | None = None,
+    reasoning_signature: str | None = None,
+) -> LLMMessage:
     """Convert one completed Anthropic content block into an LLMMessage."""
 
     block_type = block.get("type")
@@ -184,6 +215,8 @@ def _anthropic_block_to_llm_message(block: dict[str, Any]) -> LLMMessage:
         return LLMMessage(
             role="assistant",
             content=block.get("text", ""),
+            reasoning_content=reasoning_content,
+            reasoning_signature=reasoning_signature,
         )
     if block_type == "tool_use":
         raw_input = block.get("input", "")
@@ -206,8 +239,15 @@ def _anthropic_block_to_llm_message(block: dict[str, Any]) -> LLMMessage:
                     arguments=parsed_input,
                 ),
             ),
+            reasoning_content=reasoning_content,
+            reasoning_signature=reasoning_signature,
         )
-    return LLMMessage(role="assistant", content="")
+    return LLMMessage(
+        role="assistant",
+        content="",
+        reasoning_content=reasoning_content,
+        reasoning_signature=reasoning_signature,
+    )
 
 
 def _parse_anthropic_usage(payload: dict[str, Any] | None) -> TokenUsage | None:

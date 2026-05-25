@@ -51,6 +51,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             },
         )
         assert created.status_code == 201
+        # feat-379-M5: features + custom_prompt are now part of AgentConfigResponse
         assert set(created.json()) == {
             "agent_id",
             "owner_id",
@@ -66,6 +67,8 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             "workspace_is_default",
             "profile_version",
             "updated_at",
+            "features",
+            "custom_prompt",
         }
         assert created.json()["node_id"] == "node-1"
         assert created.json()["workspace_root"] == "/srv/agents/agent-1"

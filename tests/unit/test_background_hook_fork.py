@@ -1,15 +1,10 @@
-"""Tests for background hook fork infrastructure (feat-349-M1).
+"""Tests for background hook infrastructure: HookEventMode enum and dispatch_background.
 
 Covers:
 - HookEventMode.BACKGROUND enumeration value
 - HookRegistration.mode field
 - HookRegistry.on() with mode="background"
 - HookRunner.dispatch_background() fire-and-forget (no await, no timeout)
-- HookContext.fork_conversation callable injection
-- fork_conversation inherits parent rendered_system_prompt byte-for-byte (prefix cache)
-- tool_allowlist execution-layer interception in fork
-- Anti-recursion: fork context has fork_conversation=None
-- loop.py turn_meta exposes tool_iterations
 """
 
 import asyncio
@@ -277,7 +272,8 @@ class _CapturingContextFork:
 
     async def execute(self, *, state, max_turns=None, session_file_state=None,
                       system_prompt_override=None, available_skills_override=None,
-                      available_tools_override=None, tool_execution_allowlist=None):
+                      available_tools_override=None, tool_execution_allowlist=None,
+                      hook_ctx=None):
         self.captured = {
             "state": state,
             "max_turns": max_turns,
@@ -285,6 +281,7 @@ class _CapturingContextFork:
             "available_skills_override": available_skills_override,
             "available_tools_override": available_tools_override,
             "tool_execution_allowlist": tool_execution_allowlist,
+            "hook_ctx": hook_ctx,
         }
         fake_result = MagicMock()
         fake_result.messages = ()
@@ -416,6 +413,8 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
             self.tool_calls = calls
             self.finish_reason = None
             self.usage = None
+            self.reasoning_content = None
+            self.reasoning_signature = None
 
     class _LLMTerminal:
         role = "assistant"
@@ -423,6 +422,8 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
         tool_calls = []
         finish_reason = "stop"
         usage = None
+        reasoning_content = None
+        reasoning_signature = None
 
     class _LLMFinalText:
         role = "assistant"
@@ -430,6 +431,8 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
         tool_calls = []
         finish_reason = None
         usage = None
+        reasoning_content = None
+        reasoning_signature = None
 
     class FakeLLMClient:
         def __init__(self):
@@ -526,6 +529,8 @@ async def test_agent_loop_turn_meta_includes_tool_iterations():
             self.tool_calls = []
             self.finish_reason = "stop"
             self.usage = None
+            self.reasoning_content = None
+            self.reasoning_signature = None
 
     class FakeLLMTerminal:
         def __init__(self):
@@ -534,6 +539,8 @@ async def test_agent_loop_turn_meta_includes_tool_iterations():
             self.tool_calls = []
             self.finish_reason = "stop"
             self.usage = None
+            self.reasoning_content = None
+            self.reasoning_signature = None
 
     class FakeLLMClient:
         def generate(self, request):
@@ -599,6 +606,8 @@ async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
         tool_calls = []
         finish_reason = None
         usage = None
+        reasoning_content = None
+        reasoning_signature = None
 
     class FakeLLMTerminal:
         role = "assistant"
@@ -606,6 +615,8 @@ async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
         tool_calls = []
         finish_reason = "stop"
         usage = None
+        reasoning_content = None
+        reasoning_signature = None
 
     class FakeLLMClient:
         def generate(self, request):
@@ -841,3 +852,64 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
     assert result.stop_reason != "tool_registry_unavailable", (
         "fork loop must not exit with tool_registry_unavailable after bind_tool_registry was called"
     )
+
+
+@pytest.mark.asyncio
+async def test_fork_inherits_parent_execution_context():
+    """The fork's hook_ctx must inherit the parent's execution capabilities.
+
+    bugfix-375/M2 (root cause 2): forks ran AgentLoop.run with no hook_ctx → a
+    bare default HookContext with model_caller=None, so auto_mode_gate fail-closed
+    inside the fork and the self-improvement agent could not use even its
+    allowlisted tools. The fork must inherit model_caller / permission_requester
+    from the parent (replace-derived), null fork_conversation (anti-recursion),
+    and run as an unattended background task (so a gate `ask` resolves via
+    unattended_fallback instead of parking on a non-existent human).
+    """
+    from agent.core.agent.context_fork import make_fork_conversation
+    from agent.core.hooks.context import HookContext
+    from agent.core.runs.origin import RunOrigin
+
+    def parent_model_caller(call):
+        return None
+
+    async def parent_requester(req):
+        return None
+
+    async def parent_fork(*a, **k):
+        return None
+
+    parent_ctx = HookContext(
+        session_id="sess-parent",
+        turn_id="turn-parent",
+        metadata={"run_origin": "user", "tool_call_id": "stale-tc"},
+        model_caller=parent_model_caller,
+        permission_requester=parent_requester,
+        fork_conversation=parent_fork,
+    )
+
+    fake_fork = _CapturingContextFork()
+    fork_fn = make_fork_conversation(
+        context_fork=fake_fork,
+        rendered_system_prompt="SYS",
+        active_tools=(),
+        messages_snapshot=[],
+        session_id="sess-parent",
+        tool_allowlist=("skill_manage",),
+        parent_hook_ctx=parent_ctx,
+    )
+    await fork_fn("review prompt", tool_allowlist=("skill_manage",), max_turns=4)
+
+    fork_ctx = fake_fork.captured["hook_ctx"]
+    assert fork_ctx is not None, "fork must receive an inherited hook_ctx"
+    assert fork_ctx.model_caller is parent_model_caller, (
+        "fork must inherit parent model_caller (else gate fail-closes inside fork)"
+    )
+    assert fork_ctx.permission_requester is parent_requester, (
+        "fork must inherit parent permission_requester"
+    )
+    assert fork_ctx.fork_conversation is None, "anti-recursion: fork ctx must null fork_conversation"
+    assert fork_ctx.metadata.get("run_origin") == RunOrigin.BACKGROUND_TASK.value, (
+        "fork must run as unattended background task so gate ask uses fallback"
+    )
+    assert "tool_call_id" not in fork_ctx.metadata, "stale parent tool_call_id must not leak into fork"

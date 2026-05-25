@@ -94,6 +94,19 @@ class AnthropicMapper:
     def _map_message(self, message: LLMMessage) -> Mapping[str, Any]:
         if message.role == "assistant":
             content: list[dict[str, Any]] = []
+            # Round-trip the thinking block first: Anthropic requires thinking blocks
+            # to precede other content, and kimi K2.6 rejects a follow-up whose
+            # assistant tool-call message dropped its reasoning_content (bugfix-373).
+            # The signature must be the original value from the model; an empty signature
+            # causes the upstream to replay the same reasoning every turn (bugfix-375).
+            if message.reasoning_content:
+                content.append(
+                    {
+                        "type": "thinking",
+                        "thinking": message.reasoning_content,
+                        "signature": message.reasoning_signature or "",
+                    }
+                )
             if message.content:
                 content.append({"type": "text", "text": message.content})
             for tool_call in message.tool_calls:

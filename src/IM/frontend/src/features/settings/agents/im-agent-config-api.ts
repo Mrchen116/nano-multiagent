@@ -22,6 +22,10 @@ export interface AgentConfig {
   display_name: string;
   description: string;
   system_prompt: string;
+  // feat-379-M3: per-agent feature flags (key → bool); absent in old IM responses → treat as {}
+  features?: Record<string, boolean>;
+  // feat-379-M3: user custom instructions appended as pa.user_custom segment
+  custom_prompt?: string;
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -40,6 +44,18 @@ export interface AgentAllowlistOption {
   description: string;
 }
 
+// feat-379-M3: feature toggle descriptor from FEATURE_REGISTRY (decision 7).
+// Projection served by GET /im/v1/agents/{id}/capabilities.features.
+// available=false when requires_tool is not in the agent's tool_allowlist.
+export interface AgentFeature {
+  key: string;
+  label_i18n: string;
+  help_i18n: string;
+  default_on: boolean;
+  available: boolean;
+  requires_tool: string | null;
+}
+
 export interface CapabilitySnapshot {
   node_id: string;
   node_name: string;
@@ -50,6 +66,8 @@ export interface CapabilitySnapshot {
   model_options: string[];
   platform_default_model: string | null;
   default_system_prompt: string;
+  // feat-379-M3: feature toggle list; absent from older Gateway versions → treat as []
+  features?: AgentFeature[];
 }
 
 export interface NodeCapabilities extends CapabilitySnapshot {}
@@ -85,6 +103,9 @@ export interface NodeAgentCreateRequest {
   display_name: string;
   description: string;
   system_prompt: string;
+  // feat-379-M3: per-agent feature flags for new agents
+  features?: Record<string, boolean>;
+  custom_prompt?: string;
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -101,6 +122,9 @@ export interface UpdateAgentConfigRequest {
   display_name: string;
   description: string;
   system_prompt: string;
+  // feat-379-M3: per-agent feature flags; omitted → server keeps existing
+  features?: Record<string, boolean>;
+  custom_prompt?: string;
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -126,6 +150,8 @@ interface AgentCapabilitiesWire {
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
   default_system_prompt?: string;
+  // feat-379-M3: feature toggle projection from FEATURE_REGISTRY
+  features?: AgentFeature[];
 }
 
 interface NodeCapabilitiesWire {
@@ -139,6 +165,9 @@ interface NodeCapabilitiesWire {
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
   default_system_prompt?: string;
+  // feat-379-M7 (ISSUE-1): node capabilities now carry FEATURE_REGISTRY projection
+  // so the agent-create page can render feature toggles without a per-agent context.
+  features?: AgentFeature[];
 }
 
 function normalizeAllowlistOptions(values: Array<string | AgentAllowlistOption> | undefined): AgentAllowlistOption[] {
@@ -183,7 +212,9 @@ function toCapabilitySnapshot(
     tools: normalizeAllowlistOptions(raw.tools),
     model_options: normalizeModelOptions(raw),
     platform_default_model: raw.platform_default_model ?? null,
-    default_system_prompt: raw.default_system_prompt ?? ""
+    default_system_prompt: raw.default_system_prompt ?? "",
+    // feat-379-M3: carry through feature toggles; NodeCapabilitiesWire has no features field → []
+    features: "features" in raw && Array.isArray(raw.features) ? raw.features : []
   };
 }
 
@@ -330,10 +361,42 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       display_name: next.display_name,
       description: next.description,
       system_prompt: next.system_prompt,
+      // feat-379-M3: pass features and custom_prompt when present
+      ...(next.features !== undefined ? { features: next.features } : {}),
+      ...(next.custom_prompt !== undefined ? { custom_prompt: next.custom_prompt } : {}),
       skills: next.skills,
       tool_allowlist: next.tool_allowlist,
       group_reply_policy: next.group_reply_policy,
       default_model: next.default_model
     })
   });
+}
+
+// feat-379-M3: preview assembled system prompt for an agent with given feature flags and custom text.
+// Calls POST /im/v1/agents/{id}/prompt-preview (IM proxies to Gateway → agent core assembler).
+// scenario is fixed to "direct" — group/heartbeat runtime segments are excluded from previews.
+// feat-379-M6 (ISSUE-3): tool_ids must be forwarded so the assembler's has_tool() gate works.
+// Without tool_ids, features like memory_curation that require a tool are never active.
+export async function promptPreview(
+  agentId: string,
+  body: { features: Record<string, boolean>; custom_prompt: string; tool_ids?: string[] }
+): Promise<string> {
+  const result = await requestJson<{ prompt: string }>(`/im/v1/agents/${agentId}/prompt-preview`, {
+    method: "POST",
+    body: JSON.stringify({ ...body, scenario: "direct", tool_ids: body.tool_ids ?? [] })
+  });
+  return result.prompt;
+}
+
+// feat-379-M9 (決策 11): node-level prompt-preview — used by agent-create page before
+// the agent exists.  No agent_id needed; Gateway uses its default kernel to assemble.
+export async function nodePromptPreview(
+  nodeId: string,
+  body: { features: Record<string, boolean>; custom_prompt: string; tool_ids?: string[] }
+): Promise<string> {
+  const result = await requestJson<{ prompt: string }>(`/im/v1/nodes/${nodeId}/prompt-preview`, {
+    method: "POST",
+    body: JSON.stringify({ ...body, scenario: "direct", tool_ids: body.tool_ids ?? [] })
+  });
+  return result.prompt;
 }
