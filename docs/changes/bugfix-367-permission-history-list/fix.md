@@ -108,68 +108,92 @@ await self._dispatch_tool_call_hook(tc)   # 主线立刻 fire observe → realti
 
 ### 一、kernel：observe `tool_call` 迁到 intercept gate 通过之后（对应根因 1）
 
-- `src/agent/core/tools/registry.py` `execute()`：在 `_dispatch_intercept("tool_call", ...)`（line 130）拿到结果后：
-  - 通过 → `dispatch_observe_async("tool_call", {...})` 发出（payload 与现在 loop.py 等效）→ 继续执行
-  - block → 合成 `ToolResult(error="permission denied: <reason>", ...)` → 走正常的 `dispatch_observe_async("tool_result", ...)` 路径（→ `realtime_stream.on_tool_result` → `tool_end(status="failed")` SSE → 前端按现有路径渲染 ✕ 行 + OUTPUT 区，零特殊路径）→ return 不实际执行
-- `src/agent/core/agent/loop.py:302` 删除 `await self._dispatch_tool_call_hook(tc, active_hook_ctx, run_id)`；`_dispatch_tool_call_hook` 私有方法如不再被其他调用则一并清除
-- 现有 `tool_call` hook 消费者只有 `auto_mode_gate`（intercept）和 `realtime_stream`（observe），无其他模块依赖（已 grep 确认），迁移安全
+`agent/core/hooks/runner.py` 中 `dispatch_intercept` 已经把同一事件上的所有 handler（不论 mode=observe 还是 intercept）按 priority 顺序串行 await。原 bug 是 `loop.py:302` 额外又触发了一次 `dispatch_observe`，让 observe handler 在 intercept gate park 之前抢跑。修法：
 
-### 二、IM 持久化协议改 list 语义（对应根因 4，无兼容）
+- `src/agent/core/agent/loop.py`：删除 `await self._dispatch_tool_call_hook(tc, active_hook_ctx, run_id)`（原 line 302）以及该私有方法本身。observe handler 现在唯一的触发点是 `registry.execute` 内部的 intercept dispatch，gate 通过后才轮到 `realtime_stream.on_tool_call`。
+- `src/agent/core/tools/registry.py`：`_dispatch_intercept("tool_call", ...)` 的 payload 补上 `call_id` / `arguments` / `run_id` 别名（之前是 loop.py 触发时塞进去的字段，realtime_stream 依赖它们生成 SSE）。
+- deny 路径：gate 返回 `{"block": True}` → intercept 链 break → realtime_stream 不会被 fire → 不发 tool_start SSE → 同时 registry 抛 ToolError → executor 转换为 `ToolResult(error="tool blocked by hook: <reason>")` → loop `_dispatch_tool_result_hook` 路径走完 → realtime_stream emit `tool_end(status="failed")` → 前端 reducer upsert tool_call(已是 error 状态)→ 渲染 ✕ 行 + OUTPUT 区。零特殊路径，与已有失败路径同口径。
+- 现有 `tool_call` hook 消费者已确认只有 `auto_mode_gate`（intercept）和 `realtime_stream`（observe），无其他模块依赖（grep 全仓 + tests/contract 通过），迁移安全。
+- `FakeToolRegistry`（test_agent_loop.py）同步增 `hook_runner` kw，模拟新链路下"execute 内 dispatch intercept"的责任迁移，原 `test_loop_propagates_session_event_publisher_to_tool_hook_context` 用例继续 pass。
+
+### 二、IM 持久化协议改 list 语义（对应根因 4，开发态无兼容）
 
 - `src/IM/infra/repositories.py`：
-  - 删 `update_permission_request`，改为 `append_permission_request(message_id, permission_data)`：读 list → 按 `request_id` 去重 append；列里**只存 list**，不接受 dict
-  - 新增 `update_permission_resolution(message_id, request_id, decision)`：list 内按 `request_id` 定位改 status/decision
-  - `_message_from_row`：直接解析为 list，dict 形态视为坏数据
-- `src/IM/domain/models.py` `Message.permission_request: dict | None` → `permission_requests: list[dict]`（默认 `[]`）
-- `src/IM/api/routes/messages.py` 同步改字段名
-- `src/IM/application/event_bridge.py` 两个方法 call 新仓库 API；WS 事件 payload 形状不变（仍是单条），由前端 reducer 负责追加/查找
+  - 删 `update_permission_request`，改为 `append_permission_request(message_id, permission_data)`：读 list → 按 `request_id` dedup append（idempotent）；列里**只存 list**。
+  - 新增 `update_permission_resolution(message_id, request_id, decision)`：list 内按 `request_id` 定位、就地改 status/decision；未匹配 raise（防止 reducer 状态机被静默放空）。
+  - `_message_from_row` 通过新模块级 helper `_load_permission_requests` 解析；坏数据（非 list）直接返回空 list，不静默兼容旧 dict 形态。
+- `src/IM/domain/models.py` `Message.permission_request: dict | None` → `permission_requests: list[dict]`（默认 `[]`）。
+- `src/IM/api/routes/messages.py` `MessageResponse.permission_request: dict | None` → `permission_requests: list[dict]`；`to_message_response` 同步映射。
+- `src/IM/application/event_bridge.py`：`on_permission_request` 改 `append_permission_request`；`on_permission_resolved` 改 `update_permission_resolution`。WS 事件 payload 形状不变（仍每次单条），由前端 reducer 负责追加 / 查找。
 
-### 三、前端
+### 三、前端（对应根因 2 + 3 + 4）
 
-#### 类型与状态（对应根因 4）
+#### 类型与状态（根因 4）
 
-- `src/IM/frontend/src/features/chat/v2/chat-types.ts`：`permission_request?` → `permission_requests: PermissionRequest[]`
+- `src/IM/frontend/src/features/chat/v2/chat-types.ts`：`Message.permission_request?` → `permission_requests: PermissionRequest[]`；`MessagePermissionData` 同步。WS event payload 字段不变。
 - `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.ts`：
-  - `permission.request`：从覆盖改为按 `request_id` 去重 append
-  - `permission.resolved`：按 `request_id` 在 list 中定位、改 status/decision
+  - `permission.request`：按 `request_id` dedup append（idempotent 替换）。
+  - `permission.resolved`：按 `request_id` 在 list 中 findIndex 后就地改 status / decision，不动其他条目。
+  - `message.created` 默认初始化 `permission_requests: []`。
 
-#### 渲染（对应根因 2 + 3 + 4，对齐 demo.html 三处 § A/§ B/§ C）
+#### 渲染（根因 2 + 3）
 
-- `src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`：
-  - 由单卡渲染改为 `message.permission_requests.map(req => <PermissionCard key={req.request_id} request={req} ... />)`
+- `src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`：单卡渲染改为 `(message.permission_requests ?? []).map(req => <PermissionCard key={req.request_id} request={req} ... />)`。`request_id` 作为 React key 让新 ask mount 成新组件实例。
 - `src/IM/frontend/src/features/chat/v2/components/permission-card.tsx`：
-  - § A pending 分支新增 description 行（仅 `tool_input.description` 存在时；bash/task/agent 有此字段）+ `<pre class="chat-permission-cmd">{JSON.stringify(stripDescription(tool_input), null, 2)}</pre>`（复用既有 CSS）
-  - 去掉 `useState(() => initialState(request))` 反模式：resolved 分支由 `request.status === "resolved"` 直接派生；只保留 submitting / error 真正的临时态
+  - § A：pending 分支新增 description 行（仅 `tool_input.description` 存在时；通过 `readDescription()` 提取，bash / task / agent 工具有此字段）+ `<pre class="chat-permission-cmd">{JSON.stringify(stripDescription(tool_input), null, 2)}</pre>`。raw input 区与 `tool-calls-panel.tsx` 的 INPUT 区口径一致（多参全展示）。
+  - § C 根因 3：删除 `useState(() => initialState(request))` 派生 prop 反模式。resolved 分支直接由 `request.status === "resolved"` 派生；本地 state 只保留 submitting / error 两种真正的临时态。新增 prop reactivity 回归测试锁住这条。
+- `src/IM/frontend/src/styles/global.css`：新增 `.chat-permission-desc` 样式（黄左 border 摘要条，与既有 chat-permission-* 体系同色系）。`.chat-permission-cmd` 加 `max-height: 200px; overflow: auto` 让长 content / 多参 JSON 可滚动。
 
-> § B（tool_call 决策后才显示 running / 拒绝直接 ✕ + denied output）由"一、kernel"自然满足，前端 `tool-calls-panel.tsx` 不需要任何改动。
+> § B（tool_call 决策后才显示 running / 拒绝直接 ✕ + denied output）由"一、kernel"自然满足，前端 `tool-calls-panel.tsx` 0 改动。
 
-### 提交粒度
+### 提交链（unit/bugfix-367 分支）
 
-按 M1 单 milestone（lite 路径），建议三个 commit：
+按 lite 单 M1 拆 3 个 commit：
 
-- `test(bugfix-367/M1): 红测覆盖 kernel observe 时序 + IM list 存储 + 前端多卡堆叠`
-- `fix(bugfix-367/M1): observe tool_call 迁入 registry + permission_requests 列表化 + 卡内 input 渲染`
-- `docs(bugfix-367/M1): 回填修复 / 验证`
+1. `ca9785b3 fix(bugfix-367/M1/R1): kernel observe "tool_call" 迁至 registry.execute gate 后`
+2. `14b0f839 fix(bugfix-367/M1/R2): IM permission_request 列存改为 list 形态`
+3. `824f80dc fix(bugfix-367/M1/R3): 前端 permission_requests 列表化 + 卡内 input 渲染 + 删 useState 反模式`
+4. `13adeb70 docs(bugfix-367/M1/R3): 更新 chat-types.ts WS event 注释为 list 语义`
 
 ## 验证
 
-### 自动化
+### 自动化（unit/bugfix-367 分支实测）
 
-- `tests/agent/unit/test_tool_executor.py`：
-  - 用例 A：gate 通过 → observe `tool_call` 在 registry execute 内、对应 `realtime_stream` 看到 `tool_start` SSE 仅一次且在执行真正开始时
-  - 用例 B：gate deny → 不发 `tool_start`，但发出 `tool_result(error="permission denied: ...")`，前端 SSE 收到 `tool_end(status="failed")`
-- `tests/im_service/unit/test_repositories.py`：append 去重、resolution 按 id 更新、读取永远是 list
-- `tests/im_service/unit/test_event_bridge.py`：连续两次 ask + 一次 resolve，list 内两条都留存且状态正确
-- `src/IM/frontend/src/features/chat/v2/components/permission-card.test.tsx`：
-  - description 行只在有 `tool_input.description` 时出现
-  - raw input 区显示完整 `JSON.stringify` 多参
-  - 多次新请求时新卡显示 pending（删除 stale-state 反例测试，添加按 key remount 行为测试）
-- `chat-stream-reducer.test.ts`：覆盖 → 追加语义切换，按 `request_id` 去重；resolved 不改其它条目
-- `message-pane.test.tsx`：同 message 渲染多张卡，顺序与 `permission_requests` 一致
+**kernel 侧** —— `tests/unit/test_bugfix_367_tool_call_observe_timing.py`（新增 3 用例）：
+
+- `test_observe_tool_call_runs_after_intercept_gate_pass`：gate 通过分支，sequence 必须是 `[gate, observe:<call_id>:<tool>]`，observe handler 的 payload 含 call_id + name + arguments。
+- `test_observe_tool_call_skipped_when_intercept_gate_blocks`：gate 返回 `{"block": True}` → registry 抛 ToolError → observe handler 完全不被调用，前端因此不会看到"运行中"。
+- `test_loop_no_longer_dispatches_tool_call_observe`：`AgentLoop._dispatch_tool_call_hook` 已删除（防回归断言）。
+
+同时 `tests/unit/test_agent_loop.py::test_loop_propagates_session_event_publisher_to_tool_hook_context` 继续 pass（FakeToolRegistry 接管 hook 触发责任，反映新链路）。
+
+**IM 侧** —— `tests/unit/IM/test_permission_streaming.py`（重写为 list 语义，13 用例全 pass）：
+
+- `test_on_permission_request_persists_as_list_with_one_entry`：单次 ask 后 DB 列里是 `[{...}]` 而非裸 dict。
+- `test_two_asks_on_same_message_accumulate_in_list`：两次 ask + 一次 resolve 后，list 内两条都留存（第一条 resolved、第二条 pending），按时间顺序。
+- `test_same_request_id_idempotent_replace`：同 request_id 重复 append 视为替换，list 长度仍为 1。
+- `test_on_permission_resolved_updates_only_target_entry`：resolve `req-b` 时 `req-a` 状态不变。
+- `test_on_permission_resolved_raises_when_request_id_missing`：未匹配的 request_id 抛 ValueError。
+- `TestMessageResponsePermissionRequests`：REST `MessageResponse.permission_requests` list 形态保真。
+
+**前端侧**：
+
+- `chat-stream-reducer.test.ts` 增 5 用例覆盖 append / idempotent / resolved 按 id 定位 / 不动同列其他条目 / unknown message no-op（13 用例全 pass）。
+- `permission-card.test.tsx` 重写 13 用例：tool_input + description 渲染断言；prop-derived resolved 取代 local state；prop reactivity 回归（resolved → 新 pending request 切换时组件正确响应）。
+- `message-pane.test.tsx` 新增多卡堆叠场景：同 message 上一张 resolved 历史卡 + 一张 pending 卡同时显示（29 用例全 pass）。
+
+**回归基线**：
+
+| 测试套 | 改前 pass / fail | 改后 pass / fail | 净增 |
+|---|---|---|---|
+| 后端 unit | 1588 / 25 | 1594 / 25 | +6 新通过, 0 回归 |
+| 前端 vitest | 326 / 2 | 333 / 2 | +7 新通过, 0 回归 |
+
+25 个后端失败 + 2 个前端失败均为修改前已存在的预存在失败（playwright 缺失、网络相关测试、token-chip 格式化），与本 unit 无关。
 
 ### 手动（修前能复现 / 修后通过）
 
-1. 启动 IM + Gateway + 注册 nano 账号 → 新建 agent
-2. 发"删了 hello.py 再 write 进去一次"诱导多轮工具调用且有 ask 的链路
-3. 修前确认：pending 卡里看不到命令、上方面板显示"运行中"、第二次 ask 不自动出现、刷新只剩最新一次
-4. 修后确认：pending 卡内直接显示命令 + 参数；决策前面板不显示 running；决策后 allow → running → completed，deny → 立即 ✕ 行 + "permission denied — tool was not executed" OUTPUT；同泡多次 ask 历史小条全部保留
+1. 启动 IM + Gateway + 注册 nano 账号 → 新建 agent。
+2. 发"删了 hello.py 再 write 进去一次"诱导多轮工具调用且有 ask 的链路。
+3. **修前**：pending 卡里看不到命令、上方面板显示"运行中"、第二次 ask 不自动出现、刷新只剩最新一次。
+4. **修后**：pending 卡内直接显示 description（如果有）+ 完整 tool_input JSON；决策前面板不显示 running；决策后 allow → running → completed，deny → 立即 ✕ 行 + `tool blocked by hook: <reason>` OUTPUT；同泡多次 ask 历史小条全部保留。

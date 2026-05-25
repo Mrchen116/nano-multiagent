@@ -127,9 +127,22 @@ class ToolRegistry:
             turn_id=active_hook_context.turn_id,
             tool_call_id=tool_call_id,
         ):
+            # bugfix-367: payload 同时携带 `call_id` 与 `arguments` 别名，以便
+            # observe handler（realtime_stream.on_tool_call）拿到与原 loop.py 触发时
+            # 相同的字段。registry 是 tool_call hook 唯一的触发点，gate 通过后
+            # observe handler 才会运行，前端因此只在真正开始执行时看到 "运行中"。
+            _run_id_meta = active_hook_context.metadata.get("run_id") if isinstance(active_hook_context.metadata, Mapping) else None
             tool_call_payload, _ = await self._dispatch_intercept(
                 "tool_call",
-                {"name": name, "args": dict(args), "block": False, "reason": None},
+                {
+                    "name": name,
+                    "args": dict(args),
+                    "arguments": dict(args),
+                    "call_id": tool_call_id,
+                    "run_id": _run_id_meta if isinstance(_run_id_meta, str) and _run_id_meta else None,
+                    "block": False,
+                    "reason": None,
+                },
                 active_hook_context,
             )
             if bool(tool_call_payload.get("block")):

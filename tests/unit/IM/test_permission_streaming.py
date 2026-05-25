@@ -1,15 +1,15 @@
 """Tests for permission_request / permission_resolved streaming_delta kinds.
 
-R1: gateway_handler handles new permission kinds via EventBridge.
-R2: REST endpoint converts user decision to Gateway WS permission_response.
+bugfix-367: permission_request_json 列改为 list 形态(append-by-request_id),
+EventBridge.on_permission_request 改用 append_permission_request,
+on_permission_resolved 改用 update_permission_resolution。MessageResponse 暴露
+permission_requests list 以让 REST 历史回放完整还原"按了多少次同意"。
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Callable
-from dataclasses import dataclass, field
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -59,11 +59,11 @@ def _insert_message(conn: sqlite3.Connection, msg_id: str, cid: str, sender_user
 
 
 # ---------------------------------------------------------------------------
-# EventBridge — permission_request upsert
+# EventBridge — permission_request append (list semantics, bugfix-367)
 # ---------------------------------------------------------------------------
 
 class TestEventBridgePermissionRequest:
-    """EventBridge.on_permission_request upserts embedded JSON and emits WS event."""
+    """EventBridge.on_permission_request appends to list and emits WS event."""
 
     def _make_bridge(self, conn: sqlite3.Connection) -> tuple[EventBridge, list]:
         emitted: list = []
@@ -80,7 +80,7 @@ class TestEventBridgePermissionRequest:
         )
         return bridge, emitted
 
-    def test_on_permission_request_upserts_and_emits(self) -> None:
+    def test_on_permission_request_persists_as_list_with_one_entry(self) -> None:
         conn = _make_db()
         _insert_user(conn, "u1", "agent:alpha")
         _insert_conversation(conn, "conv-1")
@@ -103,25 +103,25 @@ class TestEventBridgePermissionRequest:
             permission_request=permission_data,
         )
 
-        # Should emit a permission.request WS event
         assert len(emitted) == 1
         event = emitted[0]
         payload = json.loads(event.payload_json)
         assert payload["event_type"] == EVENT_PERMISSION_REQUEST
         assert payload["permission_request"]["request_id"] == "req-abc"
-        assert payload["permission_request"]["tool_name"] == "bash"
         assert payload["message_id"] == "msg-1"
 
-        # Should persist permission_request_json on the message
+        # bugfix-367: 持久化为 list 形态
         row = conn.execute(
             "SELECT permission_request_json FROM messages WHERE id = 'msg-1'"
         ).fetchone()
-        assert row is not None
         persisted = json.loads(row["permission_request_json"])
-        assert persisted["request_id"] == "req-abc"
-        assert persisted["status"] == "pending"
+        assert isinstance(persisted, list)
+        assert len(persisted) == 1
+        assert persisted[0]["request_id"] == "req-abc"
+        assert persisted[0]["status"] == "pending"
 
-    def test_on_permission_resolved_updates_status_and_emits(self) -> None:
+    def test_two_asks_on_same_message_accumulate_in_list(self) -> None:
+        """bugfix-367 核心: 同一 message 上两次 ask 都保留, 不覆盖."""
         conn = _make_db()
         _insert_user(conn, "u1", "agent:alpha")
         _insert_conversation(conn, "conv-1")
@@ -129,43 +129,113 @@ class TestEventBridgePermissionRequest:
 
         bridge, emitted = self._make_bridge(conn)
 
-        # First upsert a pending permission
-        permission_data = {
-            "request_id": "req-xyz",
-            "tool_name": "write",
-            "tool_input": {"file_path": "/tmp/test.py"},
-            "question": "Allow write?",
-            "options": [],
-        }
-        bridge.on_permission_request(message_id="msg-1", permission_request=permission_data)
-        emitted.clear()
-
-        # Now resolve it
-        bridge.on_permission_resolved(
+        bridge.on_permission_request(
             message_id="msg-1",
-            request_id="req-xyz",
-            decision="allow_once",
+            permission_request={"request_id": "req-1", "tool_name": "bash"},
         )
-
-        assert len(emitted) == 1
-        event = emitted[0]
-        payload = json.loads(event.payload_json)
-        assert payload["event_type"] == EVENT_PERMISSION_RESOLVED
-        assert payload["request_id"] == "req-xyz"
-        assert payload["decision"] == "allow_once"
+        bridge.on_permission_resolved(
+            message_id="msg-1", request_id="req-1", decision="allow_once"
+        )
+        bridge.on_permission_request(
+            message_id="msg-1",
+            permission_request={"request_id": "req-2", "tool_name": "write"},
+        )
 
         row = conn.execute(
             "SELECT permission_request_json FROM messages WHERE id = 'msg-1'"
         ).fetchone()
         persisted = json.loads(row["permission_request_json"])
-        assert persisted["status"] == "resolved"
-        assert persisted["decision"] == "allow_once"
+        assert isinstance(persisted, list)
+        assert len(persisted) == 2, "两次 ask 都必须保留, 不能覆盖"
+        # 第一条 resolved, 第二条 pending —— 按时间顺序
+        assert persisted[0]["request_id"] == "req-1"
+        assert persisted[0]["status"] == "resolved"
+        assert persisted[0]["decision"] == "allow_once"
+        assert persisted[1]["request_id"] == "req-2"
+        assert persisted[1]["status"] == "pending"
+
+    def test_same_request_id_idempotent_replace(self) -> None:
+        """同 request_id 重复 append 视为 idempotent 替换(网络重传等)."""
+        conn = _make_db()
+        _insert_user(conn, "u1", "agent:alpha")
+        _insert_conversation(conn, "conv-1")
+        _insert_message(conn, "msg-1", "conv-1", "u1")
+
+        bridge, _ = self._make_bridge(conn)
+
+        bridge.on_permission_request(
+            message_id="msg-1",
+            permission_request={"request_id": "req-1", "tool_name": "bash", "question": "v1"},
+        )
+        bridge.on_permission_request(
+            message_id="msg-1",
+            permission_request={"request_id": "req-1", "tool_name": "bash", "question": "v2"},
+        )
+
+        row = conn.execute(
+            "SELECT permission_request_json FROM messages WHERE id = 'msg-1'"
+        ).fetchone()
+        persisted = json.loads(row["permission_request_json"])
+        assert len(persisted) == 1
+        assert persisted[0]["question"] == "v2"
+
+    def test_on_permission_resolved_updates_only_target_entry(self) -> None:
+        """update_permission_resolution 按 request_id 定位, 不动 list 中其他条目."""
+        conn = _make_db()
+        _insert_user(conn, "u1", "agent:alpha")
+        _insert_conversation(conn, "conv-1")
+        _insert_message(conn, "msg-1", "conv-1", "u1")
+
+        bridge, emitted = self._make_bridge(conn)
+
+        bridge.on_permission_request(
+            message_id="msg-1",
+            permission_request={"request_id": "req-a", "tool_name": "bash"},
+        )
+        bridge.on_permission_request(
+            message_id="msg-1",
+            permission_request={"request_id": "req-b", "tool_name": "write"},
+        )
+        emitted.clear()
+
+        bridge.on_permission_resolved(
+            message_id="msg-1", request_id="req-b", decision="deny"
+        )
+
+        assert len(emitted) == 1
+        payload = json.loads(emitted[0].payload_json)
+        assert payload["event_type"] == EVENT_PERMISSION_RESOLVED
+        assert payload["request_id"] == "req-b"
+        assert payload["decision"] == "deny"
+
+        row = conn.execute(
+            "SELECT permission_request_json FROM messages WHERE id = 'msg-1'"
+        ).fetchone()
+        persisted = json.loads(row["permission_request_json"])
+        assert len(persisted) == 2
+        assert persisted[0]["request_id"] == "req-a"
+        assert persisted[0]["status"] == "pending", "未指定 request_id 的条目状态不应被改"
+        assert persisted[1]["request_id"] == "req-b"
+        assert persisted[1]["status"] == "resolved"
+        assert persisted[1]["decision"] == "deny"
+
+    def test_on_permission_resolved_raises_when_request_id_missing(self) -> None:
+        """resolve 未匹配到的 request_id 必须 raise, 防止 reducer 状态机被静默放空."""
+        conn = _make_db()
+        _insert_user(conn, "u1", "agent:alpha")
+        _insert_conversation(conn, "conv-1")
+        _insert_message(conn, "msg-1", "conv-1", "u1")
+
+        bridge, _ = self._make_bridge(conn)
+        with pytest.raises(ValueError, match="not found in permission_requests"):
+            bridge.on_permission_resolved(
+                message_id="msg-1", request_id="never-existed", decision="allow_once"
+            )
 
     def test_on_permission_request_no_message_raises(self) -> None:
         conn = _make_db()
         _insert_user(conn, "u1", "agent:alpha")
         _insert_conversation(conn, "conv-1")
-        # Do NOT insert message
 
         bridge, _ = self._make_bridge(conn)
         with pytest.raises(ValueError, match="message_id not found"):
@@ -183,7 +253,6 @@ class TestGatewayHandlerPermissionKinds:
     """gateway_handler._handle_streaming_delta routes new permission kinds to EventBridge."""
 
     def _make_handler_with_mock_bridge(self):
-        """Build a minimal GatewayHandler with a mocked EventBridge."""
         from IM.ws.gateway_handler import GatewayHandler
         from IM.application.relay_service import RelayService
 
@@ -236,19 +305,14 @@ class TestGatewayHandlerPermissionKinds:
 
     @pytest.mark.asyncio
     async def test_permission_response_kind_forwarded_to_pa(self) -> None:
-        """permission_response kind (IM→PA direction) is a no-op in GatewayHandler streaming delta.
-
-        The actual forwarding to PA happens through the pending WS connection,
-        not through streaming_delta. This kind is routed differently.
-        """
-        handler, mock_bridge = self._make_handler_with_mock_bridge()
+        """permission_response kind (IM→PA direction) is a no-op in GatewayHandler streaming delta."""
+        handler, _ = self._make_handler_with_mock_bridge()
 
         payload = {
             "kind": "permission_response",
             "request_id": "req-1",
             "decision": "allow_once",
         }
-        # Should not raise and return ack
         result = await handler._handle_streaming_delta(payload=payload)
         assert result["type"] == "ack"
 
@@ -262,21 +326,15 @@ class TestPermissionRestEndpoint:
     """POST /im/v1/conversations/{cid}/permissions/{request_id} forwards to gateway WS."""
 
     def _make_app(self, tmp_path) -> tuple[object, dict]:
-        """Create a minimal IM app with pre-seeded data for permission endpoint tests.
-
-        Uses register + login via HTTP to get a valid JWT token so auth is
-        exercised via the same path as production, not bypassed.
-        """
         from IM.app import create_app
         from IM.infra.db import connect, initialize_schema
-        from IM.infra.repositories import AgentProfileRepository, ConversationRepository, MessageRepository, UserRepository
+        from IM.infra.repositories import AgentProfileRepository, MessageRepository, UserRepository
         from fastapi.testclient import TestClient
 
         db_path = tmp_path / "im.db"
         conn = connect(db_path)
         initialize_schema(conn)
 
-        # agent user pre-created directly (agents don't register via HTTP)
         users = UserRepository(conn)
         agent_user = users.create_user(username="agent:beta", display_name="Beta")
         conn.close()
@@ -284,7 +342,6 @@ class TestPermissionRestEndpoint:
         app = create_app(db_path=db_path, upload_dir=tmp_path / "uploads")
 
         with TestClient(app) as client:
-            # Register and login as alice
             reg = client.post(
                 "/im/v1/auth/register",
                 json={"username": "alice", "password": "pw12345678", "display_name": "Alice"},
@@ -293,7 +350,6 @@ class TestPermissionRestEndpoint:
             token = reg.json()["access_token"]
             owner_id = reg.json()["user"]["id"]
 
-            # Create conversation
             conv_resp = client.post(
                 "/im/v1/conversations",
                 json={
@@ -305,7 +361,6 @@ class TestPermissionRestEndpoint:
             assert conv_resp.status_code in (200, 201), f"create conv failed: {conv_resp.text}"
             conv_id = conv_resp.json()["id"]
 
-        # Re-open DB to insert agent profile + message
         conn2 = connect(db_path)
         profiles = AgentProfileRepository(conn2)
         profiles.upsert_profile(
@@ -335,8 +390,6 @@ class TestPermissionRestEndpoint:
         return app, {"owner_id": owner_id, "conv_id": conv_id, "msg_id": msg.id, "agent_id": "beta", "token": token}
 
     def test_submit_decision_forwards_permission_response_to_gateway(self, tmp_path) -> None:
-        """POST /im/v1/conversations/{cid}/permissions/{request_id} pushes to connected node."""
-        from unittest.mock import AsyncMock
         from fastapi.testclient import TestClient
 
         app, ctx = self._make_app(tmp_path)
@@ -361,7 +414,6 @@ class TestPermissionRestEndpoint:
         assert call_kwargs["message_id"] == ctx["msg_id"]
 
     def test_submit_decision_not_found_conversation(self, tmp_path) -> None:
-        """POST with nonexistent conversation_id returns 404."""
         from fastapi.testclient import TestClient
 
         app, ctx = self._make_app(tmp_path)
@@ -377,16 +429,15 @@ class TestPermissionRestEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# feat-333-M3/R3: MessageResponse must expose permission_request so REST
-# history reload can restore pending permission cards after page refresh.
+# bugfix-367: MessageResponse must expose permission_requests list so REST
+# history reload can render all historical ask cards (not just the latest).
 # ---------------------------------------------------------------------------
 
 
-class TestMessageResponsePermissionRequest:
-    """to_message_response() must map Message.permission_request to MessageResponse."""
+class TestMessageResponsePermissionRequests:
+    """to_message_response() maps Message.permission_requests (list) to MessageResponse."""
 
-    def _make_message(self, permission_request=None) -> "Message":
-        """Create a minimal domain Message with optional permission_request."""
+    def _make_message(self, permission_requests=None) -> "Message":
         from IM.domain.models import Message, Actor
 
         return Message(
@@ -399,36 +450,45 @@ class TestMessageResponsePermissionRequest:
             attachments=[],
             delivery_status="running",
             created_at="2026-01-01T00:00:00",
-            permission_request=permission_request,
+            permission_requests=permission_requests or [],
         )
 
-    def test_to_message_response_includes_permission_request_when_present(self) -> None:
-        """MessageResponse must carry permission_request when the domain message has one."""
+    def test_to_message_response_carries_all_entries_in_list(self) -> None:
         from IM.api.routes.messages import to_message_response
 
-        perm = {
-            "request_id": "req-restore-1",
-            "tool_name": "bash",
-            "tool_input": {"command": "rm -rf /tmp"},
-            "question": "Allow bash?",
-            "options": [{"id": "allow_once", "label": "Allow once", "description": ""}],
-            "status": "pending",
-        }
-        msg = self._make_message(permission_request=perm)
-        response = to_message_response(msg)
-
-        assert response.permission_request is not None, (
-            "Expected permission_request to be present in MessageResponse — "
-            "page refresh should restore pending permission cards from REST history"
+        msg = self._make_message(
+            permission_requests=[
+                {
+                    "request_id": "req-1",
+                    "tool_name": "bash",
+                    "tool_input": {"command": "rm a"},
+                    "question": "Allow bash?",
+                    "options": [],
+                    "status": "resolved",
+                    "decision": "allow_once",
+                },
+                {
+                    "request_id": "req-2",
+                    "tool_name": "write",
+                    "tool_input": {"file_path": "/tmp/x.py"},
+                    "question": "Allow write?",
+                    "options": [],
+                    "status": "pending",
+                },
+            ]
         )
-        assert response.permission_request["request_id"] == "req-restore-1"
-        assert response.permission_request["status"] == "pending"
-
-    def test_to_message_response_permission_request_is_none_when_absent(self) -> None:
-        """MessageResponse.permission_request must be None when message has no pending request."""
-        from IM.api.routes.messages import to_message_response
-
-        msg = self._make_message(permission_request=None)
         response = to_message_response(msg)
 
-        assert response.permission_request is None
+        assert isinstance(response.permission_requests, list)
+        assert len(response.permission_requests) == 2
+        assert response.permission_requests[0]["request_id"] == "req-1"
+        assert response.permission_requests[0]["status"] == "resolved"
+        assert response.permission_requests[1]["request_id"] == "req-2"
+        assert response.permission_requests[1]["status"] == "pending"
+
+    def test_to_message_response_empty_list_when_no_asks(self) -> None:
+        from IM.api.routes.messages import to_message_response
+
+        msg = self._make_message(permission_requests=[])
+        response = to_message_response(msg)
+        assert response.permission_requests == []
