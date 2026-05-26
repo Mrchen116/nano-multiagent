@@ -13,6 +13,8 @@ def test_message_contract_fields_are_stable() -> None:
         "parent_message_id",
         "group_id",
         "metadata",
+        "reasoning_content",
+        "reasoning_signature",
     ]
 
 
