@@ -89,8 +89,21 @@ class OpenAICompatClient(LLMClient):
         tool_calls_buffer: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage: dict[str, Any] | None = None
+        # Track whether a finish_reason frame was received (bugfix-380).
+        got_terminal_event = False
 
         async for event in _iter_sse_events(response):
+            # bugfix-380: top-level {"error":{...}} frame — surface as ModelError.
+            if "error" in event and "choices" not in event:
+                error_obj = event["error"] if isinstance(event["error"], dict) else {}
+                error_msg = error_obj.get("message") or str(event["error"]) or "upstream error"
+                error_type = error_obj.get("type") or "error"
+                raise ModelError(
+                    f"openai_compat: {error_msg}",
+                    details={"error_type": error_type, "raw": error_obj},
+                    retryable=False,
+                )
+
             choice = _first_choice(event)
             if choice is None:
                 continue
@@ -117,6 +130,7 @@ class OpenAICompatClient(LLMClient):
                         _accumulate_openai_tool_call(tool_calls_buffer, tc)
 
             if choice.get("finish_reason") is not None:
+                got_terminal_event = True
                 finish_reason = choice["finish_reason"]
                 usage = event.get("usage")
                 # Flush all accumulated content blocks
@@ -135,6 +149,15 @@ class OpenAICompatClient(LLMClient):
                     finish_reason=finish_reason,
                     usage=_parse_openai_usage(usage),
                 )
+
+        # bugfix-380: stream ended without finish_reason and without any content —
+        # provider truncated the response.
+        if not got_terminal_event and not text_buffer and not tool_calls_buffer:
+            raise ModelError(
+                "openai_compat: stream ended without terminal event",
+                details={"finish_reason": finish_reason},
+                retryable=True,
+            )
 
     async def close(self) -> None:
         """Close underlying HTTP resources."""

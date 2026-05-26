@@ -110,9 +110,24 @@ class AnthropicClient(LLMClient):
         # reasoning every turn and the agent loops forever (bugfix-375).
         turn_reasoning: str | None = None
         turn_signature: str | None = None
+        # Track whether the stream reached a proper terminal event or yielded content;
+        # used to detect truncated streams (bugfix-380).
+        got_terminal_event = False
+        yielded_content = False
 
         async for event in _iter_sse_events(response):
             event_type = event.get("type")
+
+            # bugfix-380: upstream error event — surface as ModelError immediately.
+            if event_type == "error":
+                error_obj = event.get("error") or {}
+                error_msg = error_obj.get("message") or str(error_obj) or "upstream error"
+                error_type = error_obj.get("type") or "error"
+                raise ModelError(
+                    f"anthropic: {error_msg}",
+                    details={"error_type": error_type, "raw": error_obj},
+                    retryable=False,
+                )
 
             if event_type == "content_block_start":
                 idx = event.get("index", 0)
@@ -139,6 +154,7 @@ class AnthropicClient(LLMClient):
                     if sig:
                         turn_signature = sig
                     continue
+                yielded_content = True
                 yield _anthropic_block_to_llm_message(
                     block, reasoning_content=turn_reasoning, reasoning_signature=turn_signature
                 )
@@ -150,12 +166,22 @@ class AnthropicClient(LLMClient):
                 usage = event.get("usage")
 
             elif event_type == "message_stop":
+                got_terminal_event = True
                 yield LLMMessage(
                     role="assistant",
                     content="",
                     finish_reason=finish_reason,
                     usage=_parse_anthropic_usage(usage),
                 )
+
+        # bugfix-380: stream ended without message_stop and without yielded content —
+        # provider truncated the response (network drop, quota abort mid-stream, etc.).
+        if not got_terminal_event and not yielded_content:
+            raise ModelError(
+                "anthropic: stream ended without terminal event",
+                details={"finish_reason": finish_reason},
+                retryable=True,
+            )
 
     async def close(self) -> None:
         """Close underlying HTTP resources."""
