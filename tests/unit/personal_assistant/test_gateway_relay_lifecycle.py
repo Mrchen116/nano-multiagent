@@ -31,6 +31,7 @@ from personal_assistant.main import (
 )
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 
+from agent.core.llm.model_registry import _reset_for_tests
 from ._main_helpers import _FakeIMManager, build_config
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
@@ -253,6 +254,7 @@ def test_build_relay_lifecycle_callback_keeps_completed_updates_when_im_is_recon
 
 
 def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
+    _reset_for_tests()  # run_gateway calls init_model_registry; must start from clean state
     config = build_config(tmp_path)
     seen: dict[str, object] = {}
 

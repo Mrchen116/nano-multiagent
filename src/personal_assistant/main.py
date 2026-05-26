@@ -1091,10 +1091,7 @@ def run_gateway(
         load_config=resolved_factories.load_config,
         im_service_url_override=im_service_url_override,
     )
-    try:
-        init_model_registry(config.llm)
-    except RuntimeError:
-        pass  # already initialized (test environment with autouse fixture)
+    init_model_registry(config.llm)
     builder = resolved_factories.build_runtime or build_runtime
     runtime = builder(config)
     restore_signal_handlers = resolved_factories.install_signal_handlers or _install_default_signal_handlers(runtime)

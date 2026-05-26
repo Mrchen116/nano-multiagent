@@ -25,6 +25,7 @@ from personal_assistant.main import (
 
 import personal_assistant.main as main_module
 
+from agent.core.llm.model_registry import _reset_for_tests
 from ._main_helpers import _FakeProcess, build_config
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
@@ -150,6 +151,7 @@ def test_run_gateway_writes_pid_file_before_start_and_removes_on_exit(
     """run_gateway must write gateway.pid before the runtime starts and remove it on clean exit."""
     from personal_assistant.main import run_gateway, _gateway_pid_path
 
+    _reset_for_tests()  # run_gateway calls init_model_registry; must start from clean state
     config = build_config(tmp_path)
     pid_path = _gateway_pid_path(config)
     pid_observed_during_run: list[bool] = []
@@ -178,6 +180,7 @@ def test_run_gateway_removes_pid_file_even_when_runtime_raises(
     """run_gateway must remove gateway.pid even when the runtime raises an exception."""
     from personal_assistant.main import run_gateway, _gateway_pid_path
 
+    _reset_for_tests()  # run_gateway calls init_model_registry; must start from clean state
     config = build_config(tmp_path)
     pid_path = _gateway_pid_path(config)
 
