@@ -85,6 +85,37 @@
 
 ---
 
+---
+
+## Fast-lane Round 3 (verifier 反馈循环 — 事件顺序竞态)
+
+- 省略 §2.3 全量阅读 + §2.4 基线重跑，理由：fast-lane 模式，单文件定点修复。
+
+### 问题
+
+ModelError 发生时，`loop.py` `finally` 块在 `runtime.py` 合成错误消息 + dispatch `message_end` 之前已经执行并发出 `turn_end(completed=True)`。Gateway observer 在 `turn_end` 触发时调用 `message_completed` 锁定气泡，此时 `message_delta` 尚未到达，导致 IM 气泡内容为空。
+
+### 修法
+
+1. **loop.py**: 在 `try` 块前增加 `_loop_succeeded = False` flag；两处正常 `break` 前置 `True`；`finally` 块包裹在 `if _loop_succeeded:` 条件下，失败路径不发 `turn_end`。
+2. **runtime.py**: `except ModelError` else 分支在 `_dispatch_observe("message_end", ...)` 之后、`raise` 之前补发 `turn_end(completed=False)`，保证 Gateway observer 先看到内容再锁气泡。
+3. **main.py**: `_build_kernel_event_observer` 的 `turn_end` 分支首行检测 `event.get("completed") is False` 则 `return None`，跳过 `message_completed`，避免锁空气泡。
+
+### 验证
+
+- C1 红测先跑（`_loop_succeeded` 改动前）：`test_provider_error_hook_event_order_message_end_before_turn_end` 失败，顺序 `['turn_end', 'message_end']`，确认 bug 真实存在。
+- C2 实现后：两条新测试全绿：
+  - `test_provider_error_hook_event_order_message_end_before_turn_end` PASSED
+  - `test_gateway_observer_does_not_lock_bubble_on_provider_error` PASSED
+- 全套：pytest -q -m "not e2e" → 2348 passed，7 个预存在 regression（比 Round 2 多 1 条，该条与本 unit 无关），无新失败。
+
+### Commits
+
+- C1: 301b06f7 (test)
+- C2: 561dcf51 (fix)
+
+---
+
 ## 预存在 Regression 说明
 
 运行 `pytest -q -m "not e2e"` 有 6 个失败，经 git stash 验证这些失败在 main 分支基线上也存在（与本 unit 无关）：
