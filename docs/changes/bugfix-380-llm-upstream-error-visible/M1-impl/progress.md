@@ -153,3 +153,25 @@ ModelError 发生时，`loop.py` `finally` 块在 `runtime.py` 合成错误消�
 - 全套: pytest -q -m "not e2e" → 2347 passed，6 个预存在 regression 与本 unit 无关
 - Commits: d4b344ca
 
+
+---
+
+## Fast-lane Round 3 Revision 2 (reviewer 精确根因校正)
+
+Reviewer 提供了实际 SSE 流抓包，精确根因：
+
+1. `runtime.py` 的 `message_end` payload **缺 `run_id`** → `realtime_stream.py` 的 `on_message_end` 在 `_extract_run_id` 返回 `None` 后立即 `return`，`assistant_message` SSE 事件根本未发出，Gateway 永远看不到内容
+2. `inbound_pipeline._await_terminal_run_async` 看到 `run_status=failed` 时立即 `raise RuntimeError`，`async for` 退出，即使内容在流里也会丢失
+
+修法：
+
+1. `runtime.py`: `message_end` payload 补 `run_id`（从 `hook_ctx.metadata` 取，与 `turn_end_payload` 同源）
+2. `inbound_pipeline.py`: non-completed run_status 由立即 `raise` 改为 `break`，循环外再 `raise`，先消费完 buffer 里的 `assistant_message`
+
+端到端验证证据（IM + Gateway + Kernel + SSE fixture server）：
+- agent 消息 `content`: `'⚠️ 模型调用失败:LLM generate exceeded 20 retries: ...'`（非空，证明 assistant_message 事件被 Gateway 消费）
+- `delivery_status: running`（RetryingLLMClient 重试竞态，delivery_receipt 时序独立问题）
+
+### Commits
+
+- C2b: eeaced90 (fix: run_id 补全 + Gateway break)
