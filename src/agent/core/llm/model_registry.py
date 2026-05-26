@@ -15,7 +15,7 @@ class ModelMetadata:
 
     provider: str
     model: str
-    default_base_url: str
+    default_base_url: str | None
     extra_request_body: dict[str, Any] | None = None
 
 
@@ -54,7 +54,7 @@ def init_model_registry(payload: "LLMConfigPayload") -> None:
 
     for provider_payload in payload.providers:
         pname = provider_payload.name
-        base_url = provider_payload.base_url or ""
+        base_url = provider_payload.base_url
         provider_models: dict[str, ModelMetadata] = {}
         for model_payload in provider_payload.models:
             provider_models[model_payload.name] = ModelMetadata(
@@ -139,8 +139,8 @@ def list_provider_models(provider: str) -> tuple[ModelMetadata, ...]:
     return tuple(provider_models[m] for m in sorted(provider_models.keys()))
 
 
-def get_default_base_url(provider: str) -> str:
-    """Return the default base URL for a provider."""
+def get_default_base_url(provider: str) -> str | None:
+    """Return the default base URL for a provider, or None if not configured."""
     metadata = resolve_model_metadata(provider, None)
     return metadata.default_base_url
 

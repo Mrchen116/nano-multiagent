@@ -122,3 +122,48 @@ def test_double_init_raises() -> None:
     init_model_registry(payload)
     with pytest.raises(RuntimeError, match="already initialized"):
         init_model_registry(payload)
+
+
+def test_get_default_base_url_returns_none_when_not_configured() -> None:
+    """get_default_base_url must return None when provider.base_url is None — not empty string."""
+    from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+
+    _reset_for_tests()
+    payload = LLMConfigPayload(
+        default_model="test:model",
+        providers=(
+            LLMProviderPayload(
+                name="anthropic",
+                base_url=None,
+                models=(LLMModelPayload(name="test:model"),),
+            ),
+        ),
+    )
+    init_model_registry(payload)
+    result = get_default_base_url("anthropic")
+    assert result is None, "base_url=None in config must propagate as None, not ''"
+
+
+def test_from_env_raises_when_no_base_url_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LLMFactoryConfig.from_env() must raise ValueError when env and config both lack base_url."""
+    import os
+    from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+    from agent.core.llm.factory import LLMFactoryConfig
+
+    _reset_for_tests()
+    payload = LLMConfigPayload(
+        default_model="test:model",
+        providers=(
+            LLMProviderPayload(
+                name="anthropic",
+                base_url=None,
+                models=(LLMModelPayload(name="test:model"),),
+            ),
+        ),
+    )
+    init_model_registry(payload)
+
+    monkeypatch.delenv("NANO_MULTIAGENT_LLM_BASE_URL", raising=False)
+
+    with pytest.raises(ValueError, match="base_url unset for provider"):
+        LLMFactoryConfig.from_env()
