@@ -217,6 +217,110 @@ async def test_stream_response_carries_signature_into_tool_call() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# bugfix-380: SSE error 事件、流提前结束、非法 JSON 必须抛 ModelError
+# ---------------------------------------------------------------------------
+
+import pytest
+from agent.core.errors import ModelError
+
+
+async def test_stream_response_sse_error_event_raises_model_error() -> None:
+    """Anthropic SSE {"type":"error",...} 帧必须抛 ModelError,不静默吞掉。"""
+    events = [
+        {"type": "message_start", "message": {"role": "assistant", "content": []}},
+        {
+            "type": "error",
+            "error": {
+                "type": "permission_error",
+                "message": "You've reached your usage limit for this billing cycle.",
+            },
+        },
+    ]
+    body = _make_anthropic_sse(events)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelError) as exc_info:
+        await _collect(
+            client,
+            LLMGenerateRequest(
+                session_id="sess_sse_error",
+                model="kimiCoding:K2.6",
+                messages=(LLMMessage(role="user", content="hi"),),
+            ),
+        )
+    err_str = str(exc_info.value)
+    assert "usage limit" in err_str or "permission_error" in err_str or "permission" in err_str.lower()
+
+
+async def test_stream_response_incomplete_stream_raises_model_error() -> None:
+    """流提前结束(无 message_stop 且无 content block yield)必须抛 ModelError。"""
+    events = [
+        {"type": "message_start", "message": {"role": "assistant", "content": []}},
+    ]
+    body = _make_anthropic_sse(events)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelError):
+        await _collect(
+            client,
+            LLMGenerateRequest(
+                session_id="sess_incomplete",
+                model="kimiCoding:K2.6",
+                messages=(LLMMessage(role="user", content="hi"),),
+            ),
+        )
+
+
+async def test_stream_response_happy_path_not_affected_by_bugfix380() -> None:
+    """happy path(正常完整流)必须不受 bugfix-380 影响,仍正常 yield 消息。"""
+    events = [
+        {"type": "message_start", "message": {"role": "assistant", "content": []}},
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hello"}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 3, "output_tokens": 1}},
+        {"type": "message_stop"},
+    ]
+    body = _make_anthropic_sse(events)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+
+    messages = await _collect(
+        client,
+        LLMGenerateRequest(
+            session_id="sess_happy_380",
+            model="kimiCoding:K2.6",
+            messages=(LLMMessage(role="user", content="hi"),),
+        ),
+    )
+    text_msg = next((m for m in messages if m.content == "hello"), None)
+    assert text_msg is not None, "happy path 仍应正常 yield 文本消息"
+
+
 async def test_stream_response_shares_signature_across_parallel_tool_calls() -> None:
     """多个 tool_use 共享同一 thinking 块时，每个都要带上 reasoning_signature。"""
     thinking_text = "我需要并行检查两个命令"

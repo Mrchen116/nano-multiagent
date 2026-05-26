@@ -102,3 +102,112 @@ async def test_stream_response_parses_reasoning_content() -> None:
     assert tool_call_msg.reasoning_content == thinking_text, (
         f"reasoning_content 丢失: 期望 {thinking_text!r}, 实际 {tool_call_msg.reasoning_content!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-380: top-level {"error":{...}} 帧、流提前结束必须抛 ModelError
+# ---------------------------------------------------------------------------
+
+import pytest
+from agent.core.errors import ModelError
+
+
+async def test_stream_response_top_level_error_raises_model_error() -> None:
+    """OpenAI compat 顶层 {"error":{...}} 帧必须抛 ModelError。"""
+    chunks = [
+        {
+            "error": {
+                "message": "Rate limit exceeded. Please try again later.",
+                "type": "rate_limit_error",
+                "code": 429,
+            }
+        }
+    ]
+    body = _make_sse_body(chunks)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client = OpenAICompatClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimi-k2",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelError) as exc_info:
+        await _collect_messages(
+            client,
+            LLMGenerateRequest(
+                session_id="sess_top_level_error",
+                model="kimi-k2",
+                messages=(LLMMessage(role="user", content="hi"),),
+            ),
+        )
+    err_str = str(exc_info.value)
+    assert "rate limit" in err_str.lower() or "rate_limit" in err_str.lower() or "429" in err_str
+
+
+async def test_stream_response_incomplete_stream_raises_model_error() -> None:
+    """OpenAI compat 流提前结束(无 finish_reason 且空内容)必须抛 ModelError。"""
+    chunks = [
+        {
+            "id": "chatcmpl-1",
+            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+        }
+    ]
+    body = _make_sse_body(chunks)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client = OpenAICompatClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimi-k2",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelError):
+        await _collect_messages(
+            client,
+            LLMGenerateRequest(
+                session_id="sess_compat_incomplete",
+                model="kimi-k2",
+                messages=(LLMMessage(role="user", content="hi"),),
+            ),
+        )
+
+
+async def test_stream_response_happy_path_not_affected_by_bugfix380() -> None:
+    """happy path 正常流必须不受 bugfix-380 影响。"""
+    chunks = [
+        {
+            "id": "chatcmpl-2",
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": "hello"}, "finish_reason": None}],
+        },
+        {
+            "id": "chatcmpl-2",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
+        },
+    ]
+    body = _make_sse_body(chunks)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client = OpenAICompatClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimi-k2",
+        transport=httpx.MockTransport(handler),
+    )
+
+    messages = await _collect_messages(
+        client,
+        LLMGenerateRequest(
+            session_id="sess_compat_happy_380",
+            model="kimi-k2",
+            messages=(LLMMessage(role="user", content="hi"),),
+        ),
+    )
+    text_msg = next((m for m in messages if m.content == "hello"), None)
+    assert text_msg is not None, "happy path 仍应正常 yield 文本消息"
