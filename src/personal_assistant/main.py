@@ -18,7 +18,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import websockets
@@ -571,6 +571,39 @@ class _IMBootstrapClient:
             ) from exc
         payload = response.json()
         bind_url = _require_text(payload.get("bind_url"), field_name="bind_url")
+
+        # refactor-381: when NANO_MULTIAGENT_AUTO_BIND=1 (or --auto-bind via CLI),
+        # confirm the binding programmatically instead of asking the operator to
+        # click a URL. Removes the worktree-e2e blocker where automation cannot
+        # complete the interactive bind step.
+        if os.environ.get("NANO_MULTIAGENT_AUTO_BIND") == "1":
+            bind_token = _extract_bind_token(bind_url)
+            if not bind_token:
+                raise GatewayStartupError(
+                    summary=f"node {node_id} auto-bind failed: bind_url missing token",
+                    next_step=f"Inspect {bind_url} or unset NANO_MULTIAGENT_AUTO_BIND.",
+                )
+            try:
+                confirm_resp = client.post(
+                    "/im/v1/bind",
+                    json={"action": "confirm", "bind_token": bind_token},
+                )
+                confirm_resp.raise_for_status()
+            except Exception as exc:  # noqa: BLE001
+                raise GatewayStartupError(
+                    summary=f"node {node_id} auto-bind confirm failed",
+                    next_step=(
+                        f"POST {resolved_base_url}/im/v1/bind with action=confirm + bind_token failed. "
+                        "Verify the IM Bearer token has confirm permission, then rerun."
+                    ),
+                ) from exc
+            self._feedback_sink(
+                "INFO",
+                f"node {node_id} auto-bound to IM",
+                f"NANO_MULTIAGENT_AUTO_BIND=1 confirmed bind for {resolved_base_url}.",
+            )
+            return None
+
         self._browser_opener(bind_url, new=2, autoraise=True)
         self._feedback_sink(
             "ACTION",
@@ -1409,6 +1442,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Keep the gateway attached to the current terminal for debugging and smoke tests",
     )
+    parser.add_argument(
+        "--auto-bind",
+        action="store_true",
+        help=(
+            "Automatically confirm the IM node binding instead of opening a browser URL. "
+            "Equivalent to setting NANO_MULTIAGENT_AUTO_BIND=1. "
+            "Intended for worktree e2e scripts where no human can click the bind URL."
+        ),
+    )
     subparsers = parser.add_subparsers(dest="command")
     stop_parser = subparsers.add_parser("stop", help="Stop the current background gateway for one config")
     stop_parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
@@ -1419,6 +1461,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     command = args.command or "start"
     resolved_config_path = str(Path(args.config).expanduser()) if args.config else str(default_local_config_path())
+    if getattr(args, "auto_bind", False):
+        os.environ["NANO_MULTIAGENT_AUTO_BIND"] = "1"
     try:
         if command == "stop":
             print(stop_gateway(config_path=resolved_config_path))
@@ -2141,6 +2185,19 @@ def _default_heartbeat_state_path(config: LocalConfig) -> Path:
 
 def _default_gateway_log_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "gateway.log"
+
+
+def _extract_bind_token(bind_url: str) -> str | None:
+    """Pull the ``token`` query parameter out of an IM bind URL.
+
+    refactor-381: used by ``_IMBootstrapClient.ensure_node_binding`` when
+    NANO_MULTIAGENT_AUTO_BIND=1 to programmatically confirm the binding.
+    """
+
+    parsed = urlparse(bind_url)
+    qs = parse_qs(parsed.query)
+    tokens = qs.get("token") or qs.get("bind_token") or []
+    return tokens[0] if tokens else None
 
 
 def _gateway_pid_path(config: LocalConfig) -> Path:

@@ -167,6 +167,17 @@ agent 内核三层：`core`（纯逻辑）→ `platform`（接环境）→ `prod
 
 **在 worktree 内起任何监听端口的服务,都必须分配空闲端口,并 kill 自己起的进程**——主仓默认端口(8011 / 8000 / 5173)保留给用户手起的"主"实例,worktree 走 ephemeral 高位口,这样 `lsof -i :8011` 看到的永远是主实例,不会误把分支代码当成主仓。
 
+### 推荐:一键起停
+
+```bash
+./scripts/e2e-up.sh        # 起 IM + Kernel API + Gateway,自动分配端口、改 config、auto-bind
+source .e2e-ports.env      # 拿到 $IM_URL / $API_URL / $NODE_ID
+# ...做你的事...
+./scripts/e2e-down.sh      # 干净停掉
+```
+
+`e2e-up.sh` 把下面"端口分配 / config 隔离 / PID 管理 / 节点绑定"四件套全打包了。手起的散文流程保留在下面作为参考,工程化路径优先用脚本。
+
 ### 端口分配
 
 ```bash
@@ -180,24 +191,64 @@ read IM_PORT VITE_PORT < <(scripts/free-ports.sh 2)
 | 服务 | 指定端口/URL 方式 | 关键 env |
 |---|---|---|
 | IM (uvicorn) | `--port <N>`(uvicorn 原生) | `IM_JWT_SECRET=<unit 专属随机串>` 必须设,否则 token 跨重启失效;`IM_DB_PATH` 已支持,默认 `data/im_service.sqlite3`(cwd-relative),worktree 内起服务时天然隔离,无需显式传 |
-| Gateway | 不监听端口;指 IM 用 `--im-service-url http://127.0.0.1:<IM_PORT>`;**config 必须用 worktree 本地副本** `--config <worktree>/.gateway-config.yaml`(默认 `~/.nano-assistant/config.yaml` 是主仓持久化文件,worktree Gateway 一建/同步 agent 就写回它→污染主仓;详见下方「Gateway config 隔离」) | — |
+| Kernel API (uvicorn) | `--port <N>` | `NANO_MULTIAGENT_LLM_BASE_URL` 指向 LLM provider(本地代理或 fixture);**注意是这个名字,不是 LLM_BASE_URL**——bugfix-380 fix-worker-r2 一度被此卡 30 分钟,见 retro |
+| Gateway | 不监听端口(只连出);**config 必须用 worktree 本地副本** `--config <worktree>/.gateway-config.yaml`;指 IM 用 `--im-service-url http://127.0.0.1:<IM_PORT>` | `NANO_MULTIAGENT_AUTO_BIND=1` 或 `--auto-bind` 在 worktree e2e **必传**(否则会停在交互式 binding URL) |
 | Vite | `npm run dev -- --port <N> --strictPort` | — |
 | Coding CLI managed API | `--base-url http://127.0.0.1:<N>`(managed 模式 host/port 都从 base-url 解析) | — |
 
-### PID 文件 + 退出清理
+### 启动 / 关闭范式(两种,**不要混用**)
 
-worktree 内约定 PID 文件路径:`.im.pid` / `.gateway.pid` / `.vite.pid` / `.coding-cli.pid`。起服务标准范式:
+服务分两类,生死管理范式不一样:
+
+**A. 裸 ASGI 服务**(IM、Kernel API、Vite,本质就是 uvicorn + ASGI app):
+通用 `& echo $! > .pid` 范式,外部脚本完全说了算。
 
 ```bash
 PYTHONPATH=src python -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
   > .im.log 2>&1 & echo $! > .im.pid
+
+# 关:
+kill "$(cat .im.pid)" 2>/dev/null; rm -f .im.pid
 ```
 
+**B. wrapper 启动器**(Gateway, `python -m personal_assistant.main`):
+它**不是** ASGI app —— 是个 supervisor,自己 spawn 多个 worker(channel relay / kernel uvicorn / heartbeat / run_queue 等),**自带内部 PID 单例锁**(写在 `<config 同目录>/gateway.pid`,**不带点**)+ `stop` / `restart` 子命令。
+
+> **不要套用 A 类范式杀它**(`kill $(cat .gateway.pid)` 杀的是 shell job pid,启动器内部 pid 文件还在,下次 restart 撞单例锁报 `gateway is already running pid=...`,循环若干次才能逃出来,bugfix-380 fix-worker-r3 撞 4-5 次)。
+
+worktree 内用 `--foreground` 模式 + 外部 pid 文件,让外部脚本主导生死:
+
 ```bash
-for f in .im.pid .gateway.pid .vite.pid .coding-cli.pid; do
+PYTHONPATH=src python -m personal_assistant.main \
+  --config "$WT_CFG" \
+  --im-service-url "http://127.0.0.1:$IM_PORT" \
+  --foreground \
+  --auto-bind \
+  > .gateway.log 2>&1 & echo $! > .gateway.pid
+
+# 关(因为 --foreground 不写启动器内部 pid 文件,可以走通用范式):
+kill "$(cat .gateway.pid)" 2>/dev/null; rm -f .gateway.pid
+```
+
+主仓用户手起的 Gateway(非 worktree e2e)继续用启动器自己的命令更顺手:
+
+```bash
+PYTHONPATH=src python -m personal_assistant.main           # 起(默认后台)
+PYTHONPATH=src python -m personal_assistant.main stop      # 关
+PYTHONPATH=src python -m personal_assistant.main restart   # 重启
+```
+
+### 通用清理
+
+worktree 退出 / unit 完成时一律:
+
+```bash
+for f in .im.pid .api.pid .gateway.pid .vite.pid .coding-cli.pid; do
   [[ -f $f ]] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"
 done
 ```
+
+对 Gateway 来说前提是它用 `--foreground` 起的(范式 B),否则要用 `python -m personal_assistant.main --config "$WT_CFG" stop`。
 
 ### Gateway config 隔离
 
@@ -218,12 +269,19 @@ yq -i "
   .agents[].workspace_root = \"$WT_ROOT/.gateway-workspace/\" + .agents[].agent_id
 " "$WT_CFG"
 
-PYTHONPATH=src python -m personal_assistant.main \
-  --config "$WT_CFG" --im-service-url "http://127.0.0.1:$IM_PORT" \
-  > "$WT_ROOT/.gateway.log" 2>&1 & echo $! > "$WT_ROOT/.gateway.pid"
+# 每个 agent 的 workspace_root 必须 pre-mkdir,Gateway 拒绝启动否则:
+python3 -c "import yaml,os; cfg=yaml.safe_load(open('$WT_CFG')); [os.makedirs(a['workspace_root'], exist_ok=True) for a in cfg['agents']]"
 ```
 
 改写三处的原因:`node_id` 唯一→IM 节点不撞主仓;`im_service.url`→指向 worktree 自己的 ephemeral IM;`workspace_root`→agent 工作区落在 worktree 内,Gateway 写回(新建 agent / 刷新 token)只动副本,主仓 config 和工作区零影响。`$WT_ROOT` 下的 `.gateway-config.yaml` / `.gateway-workspace/` 随 worktree 一起清理即可。
+
+### IM Node binding(worktree e2e 必传 `--auto-bind`)
+
+Gateway 第一次连一个新 IM 实例时,IM 要求确认绑定 owner,默认会打印一个 URL 等用户在浏览器点确认 —— **自动化场景下这是死锁**。
+
+`--auto-bind` flag(或 `NANO_MULTIAGENT_AUTO_BIND=1` env var)让 Gateway 启动时**自动**调 `POST /im/v1/bind {action:confirm, bind_token}` 完成绑定,不开浏览器。worktree e2e、CI 脚本、`scripts/e2e-up.sh` 都用这个。
+
+> 测 LLM 上游故障路径时,`scripts/fixtures/` 有 ready-made HTTP 桩。详见该目录 README。
 
 ## 开发约定
 
