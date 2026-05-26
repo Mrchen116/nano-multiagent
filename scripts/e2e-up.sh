@@ -134,6 +134,12 @@ curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/register" \
 # Use personal_assistant.kernel_app which reads NANO_MULTIAGENT_LLM_CONFIG_JSON
 # and calls init_model_registry() before create_app().
 
+if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
+  echo "ERROR: '$WT_CFG' is missing the 'llm:' section." >&2
+  echo "Add the llm: block to ~/.nano-assistant/config.yaml first (see AGENTS.md 'minimum config example')." >&2
+  exit 1
+fi
+
 LLM_CONFIG_JSON=$(PYTHONPATH=src python3 -c "
 import sys, yaml
 sys.path.insert(0, 'src')
