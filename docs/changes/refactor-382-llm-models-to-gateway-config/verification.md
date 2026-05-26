@@ -6,9 +6,34 @@
 |---|---|
 | Completeness | 7/7 tasks done; 3 requirements covered |
 | Correctness | 8/8 scenarios covered |
-| Coherence | 6/8 decisions followed; 2 minor deviations (WARNING) |
+| Coherence | 8/8 decisions followed (post-r1 fixes 消除全部偏离) |
 
-No critical issues. 2 warning(s) to consider. Ready for PR (with noted improvements).
+No critical issues. No warnings. **verdict: pass**
+
+---
+
+## Round 2 复验（post-r1 fix 验证）
+
+两个 fix commit 经代码阅读 + 测试运行验证：
+
+**WARNING-1 → 已消除（commit 5a3be228）**
+
+- `main.py:1094`：`try/except RuntimeError` 已去掉，现为直接 `init_model_registry(config.llm)`
+- 三个调用 `run_gateway` 的测试（`test_gateway_pid_lifecycle.py:151,180`、`test_gateway_relay_lifecycle.py:257`）各自在调用前加了 `_reset_for_tests()`
+- 测试套件全部通过，生产路径守卫完整
+
+**WARNING-2 → 已消除（commit 860ad691）**
+
+- `model_registry.py:18`：`default_base_url: str | None`（不再 `or ""`）
+- `model_registry.py:57`：`base_url = provider_payload.base_url`（None 透传）
+- `factory.py:37-47`：env 无 + config None → `raise ValueError("base_url unset for provider ...")`
+- 两条新测试覆盖（`test_get_default_base_url_returns_none_when_not_configured`、`test_from_env_raises_when_no_base_url_configured`）
+
+**测试结果（round 2）**
+
+- `pytest tests/unit/personal_assistant/test_gateway_pid_lifecycle.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/test_llm_model_registry.py`：32 passed
+- `pytest -m "not e2e"`：2382 passed, 1 failed（`test_dispatch_handler_build_aiohttp_handler_returns_callable` — worktree venv 缺 `aiohttp`，在主仓通过，非 refactor-382 引入的回归）
+- `pytest tests/contract/`：102 passed
 
 ---
 
@@ -22,7 +47,7 @@ No critical issues. 2 warning(s) to consider. Ready for PR (with noted improveme
 - Requirement "Gateway 在 LLM 配置错误时立即报错" — 实现存在，硬失败路径在 `_parse_llm` 和 `_parse_agents`
 
 **退出标准核查：**
-- `pytest -m "not e2e"` 全绿（2381 passed）
+- `pytest -m "not e2e"` 全绿（2382 passed，1 failed 属于 worktree venv 环境缺包，非 unit 回归）
 - `pytest tests/contract/` 全绿（102 passed）
 - `ModelMetadata` 不含 `supports_text/image/tools/streaming`（grep 零残留）
 - `DEFAULT_PROVIDER` 常量零残留（grep 验证）
@@ -50,9 +75,9 @@ No critical issues. 2 warning(s) to consider. Ready for PR (with noted improveme
 | design 决策 | 遵守? | 代码证据（file:line） |
 |---|---|---|
 | D1: LLMConfigPayload 放 agent.core.llm.config | 是 | `src/agent/core/llm/config.py`（新文件） |
-| D2: model_registry.py 工厂化（单例 + 显式 init + 未 init 硬失败） | 部分（见 WARNING-1） | `model_registry.py:32-88`；但 `main.py:1094-1097` 静默吞重复 init |
+| D2: model_registry.py 工厂化（单例 + 显式 init + 未 init 硬失败） | 是（post-r1 fix） | `model_registry.py:32-88`；`main.py:1094` 直接调用，无 try/except |
 | D3: Gateway→Kernel 通过 env NANO_MULTIAGENT_LLM_CONFIG_JSON 传 payload | 是 | `main.py:1298-1303`；`kernel_app.py:17-23` |
-| D4: base_url 解析顺序 env > config > error（无值时抛 ValueError） | 部分（见 WARNING-2） | `factory.py:40`（env > registry default）；但 None base_url 被 `model_registry.py:57` 静默变为空字符串，无错误路径 |
+| D4: base_url 解析顺序 env > config > error（无值时抛 ValueError） | 是（post-r1 fix） | `factory.py:37-47`（env 无 + config None → ValueError）；`model_registry.py:57`（None 透传） |
 | D5: default_model 显式必填；default_provider 由 default_model 推导 | 是 | `local_store.py:454`（_require_non_empty_string）；`model_registry.py:73-81` |
 | D6: capabilities 死字段顺手清除 | 是 | `model_registry.py:12-19`（ModelMetadata 无四字段）；`global_routes.py`（无 supports_* 输出）；前端 wire 类型已清 |
 | D7: agent.default_model 解析期硬失败 | 是 | `local_store.py:488-527`（_parse_agents 接收 llm 参数，校验 known_models） |
@@ -66,26 +91,9 @@ No critical issues. 2 warning(s) to consider. Ready for PR (with noted improveme
 
 无。
 
-### WARNING（应该修）
+### WARNING
 
-**WARNING-1: Gateway 侧 `init_model_registry` 静默吞掉 RuntimeError，绕过 D2 的"重复 init 抛错"守卫**
-
-- `src/personal_assistant/main.py:1094-1097`：
-  ```python
-  try:
-      init_model_registry(config.llm)
-  except RuntimeError:
-      pass  # already initialized (test environment with autouse fixture)
-  ```
-- 问题：注释说"test environment with autouse fixture"，但在生产进程中 Gateway 也会走这条路径，任何真实的双重初始化错误都会被静默吞掉，违反 D2"未 init 时抛 RuntimeError"的守卫精神。
-- 修复方向：把对测试环境的兼容移到 conftest，而不是在生产代码里打补丁。生产代码应该直接 `init_model_registry(config.llm)`（不 try/except）；测试 fixture 在调用 `run_gateway_foreground` 前先 `_reset_for_tests()`，或者通过 `factories` 注入跳过 init 的版本。具体方案：在 `tests/conftest.py` 的 autouse fixture 里 yield 前后确保 reset，生产路径不需要 try/except。
-
-**WARNING-2: `base_url=None` 时静默降级为空字符串，未实现 D4 的"都没有 → 抛 ValueError"路径**
-
-- `src/agent/core/llm/model_registry.py:57`：`base_url = provider_payload.base_url or ""`
-- 问题：当 provider 在 config 中未填 `base_url`（为 None），且 `NANO_MULTIAGENT_LLM_BASE_URL` 环境变量也未设置时，`factory.py:40` 的 `os.getenv("NANO_MULTIAGENT_LLM_BASE_URL", get_default_base_url(provider))` 会返回空字符串 `""`，然后把它当 URL 传给 AnthropicClient，产生的是连接错误而非明确的配置错误。
-- design.md D4 明确要求：`都没有 → 抛 ValueError("base_url unset for provider X")`。
-- 修复方向：在 `factory.py:from_env()` 中加检查：`if not base_url: raise ValueError(f"base_url unset for provider '{provider}' — set NANO_MULTIAGENT_LLM_BASE_URL or add base_url to llm.providers config")`。或者在 `model_registry.py:57` 保留 `None`（不强转 `""`），让调用方（factory）在 `base_url is None or base_url == ""` 时报错。
+无（round 1 两个 WARNING 均已消除）。
 
 ### SUGGESTION（可以修）
 
