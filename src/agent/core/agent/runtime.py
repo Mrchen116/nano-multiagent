@@ -467,6 +467,18 @@ class AgentRuntime:
                     },
                     hook_ctx,
                 )
+                # bugfix-380 R3: dispatch turn_end(completed=False) AFTER message_end so
+                # Gateway observer locks the bubble only after seeing the error content.
+                # loop.py's finally skips turn_end on the failure path; runtime owns it here.
+                turn_end_run_id = hook_ctx.metadata.get("run_id") if hook_ctx else None
+                turn_end_payload: dict[str, Any] = {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "completed": False,
+                }
+                if isinstance(turn_end_run_id, str) and turn_end_run_id.strip():
+                    turn_end_payload["run_id"] = turn_end_run_id.strip()
+                await self._dispatch_observe("turn_end", turn_end_payload, hook_ctx)
                 raise
 
         turn_result = build_turn_result(session_id, turn_id, all_messages)

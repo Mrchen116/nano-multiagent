@@ -1910,6 +1910,15 @@ def _build_kernel_event_observer(
                 return _turn_start_then_delta()
 
         elif event_name == "turn_end":
+            # bugfix-380 R3: completed=False means this is a failed turn (ModelError path).
+            # In that case skip message_completed — the error content was already sent via
+            # message_delta from the assistant_message event. Locking the bubble here would
+            # overwrite an empty placeholder before the delta arrives (race condition).
+            # The subsequent run_status=failed event triggers delivery_receipt(failed) which
+            # sets the bubble status correctly without needing message_completed.
+            if event.get("completed") is False:
+                return None
+
             # Finalize message with token_usage if present.
             usage_raw = event.get("usage")
             token_usage_payload: dict[str, object] | None = None

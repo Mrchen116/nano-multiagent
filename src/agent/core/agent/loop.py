@@ -172,6 +172,11 @@ class AgentLoop:
             state.history_messages[-1].message_id if state.history_messages else None
         )
 
+        # bugfix-380 R3: track whether the loop exited cleanly so the finally block
+        # only dispatches turn_end on the success path. ModelError causes an early exit
+        # without setting this flag; runtime.py then dispatches turn_end(completed=False)
+        # after the error assistant_message so Gateway observer sees content before close.
+        _loop_succeeded = False
         try:
             with span("AgentLoop.run", session_id=state.session_id, turn_id=state.turn_id):
                 api_round_count = 0
@@ -366,6 +371,7 @@ class AgentLoop:
                                 "tool_iterations": api_round_count,
                             },
                         )
+                        _loop_succeeded = True
                         break
 
                     if self._tool_registry is None:
@@ -381,32 +387,37 @@ class AgentLoop:
                                 "tool_iterations": api_round_count,
                             },
                         )
+                        _loop_succeeded = True
                         break
 
                     self._policies.ensure_tool_calls_allowed(tool_call_count=len(all_tool_calls))
         finally:
-            turn_end_payload: dict[str, Any] = {
-                "session_id": state.session_id,
-                "turn_id": state.turn_id,
-                "completed": True,
-            }
-            if run_id is not None:
-                turn_end_payload["run_id"] = run_id
-            if turn_usage is not None:
-                turn_end_payload["usage"] = {
-                    "prompt_tokens": turn_usage.prompt_tokens,
-                    "completion_tokens": turn_usage.completion_tokens,
-                    "total_tokens": turn_usage.total_tokens,
+            # Only dispatch turn_end on success. On ModelError the runtime.py except block
+            # dispatches turn_end(completed=False) after message_end so Gateway observer
+            # sees the error content before the bubble is locked (bugfix-380 R3).
+            if _loop_succeeded:
+                turn_end_payload: dict[str, Any] = {
+                    "session_id": state.session_id,
+                    "turn_id": state.turn_id,
+                    "completed": True,
                 }
-            if active_hook_ctx is not None:
-                cw = active_hook_ctx.metadata.get("context_window")
-                if isinstance(cw, int) and cw > 0:
-                    turn_end_payload["context_window"] = cw
-            await self._dispatch_observe_async(
-                "turn_end",
-                turn_end_payload,
-                active_hook_ctx,
-            )
+                if run_id is not None:
+                    turn_end_payload["run_id"] = run_id
+                if turn_usage is not None:
+                    turn_end_payload["usage"] = {
+                        "prompt_tokens": turn_usage.prompt_tokens,
+                        "completion_tokens": turn_usage.completion_tokens,
+                        "total_tokens": turn_usage.total_tokens,
+                    }
+                if active_hook_ctx is not None:
+                    cw = active_hook_ctx.metadata.get("context_window")
+                    if isinstance(cw, int) and cw > 0:
+                        turn_end_payload["context_window"] = cw
+                await self._dispatch_observe_async(
+                    "turn_end",
+                    turn_end_payload,
+                    active_hook_ctx,
+                )
 
     async def _dispatch_message_hooks(
         self,
