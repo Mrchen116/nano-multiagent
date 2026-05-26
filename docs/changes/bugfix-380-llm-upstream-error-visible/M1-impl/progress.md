@@ -101,3 +101,24 @@
 - [x] pytest -q -m "not e2e" → 2333 passed，6 个预存在 regression 与本 unit 无关
 - [x] 老的 anthropic/openai_compat 单测中"流不完整 = 静默成功"假设的用例已重写（新测试验证了这些路径现在抛 ModelError）
 
+---
+
+## Fast-lane Round 2 (verifier 反馈循环)
+
+- 省略 §2.3 全量阅读 + §2.4 基线重跑，理由：分支已跑过基线，只读 fix 涉及文件。
+
+### FIX 1: kernel_api_client AsyncClient trust_env 缺失
+
+- 现象：第 207 行 AsyncClient 无 trust_env，代理 env 被继承，venv 缺 socksio 时抛 ImportError。
+- 修法：补 `trust_env=_should_trust_env(self._config.base_url)`，与第 52 行同步 Client 一致。
+- 测试：新增 `tests/unit/test_kernel_api_client_trust_env.py`（4 条），全绿。
+- Commits: C1=bf3bac39, C2=00b0238c
+
+### FIX 2+3: HTTP 4xx/5xx + 传输层错误专项测试
+
+- 现象：verifier WARNING，代码路径正确但单测无专门覆盖。
+- 修法：在两个 provider streaming 测试文件各补 3 条 HTTP 状态码测试 + 2 条传输层测试，共 10 条。
+- Tests: pytest -q tests/unit/test_llm_anthropic_client_streaming.py tests/unit/test_openai_compat_client_streaming.py → 22 passed
+- 全套: pytest -q -m "not e2e" → 2347 passed，6 个预存在 regression 与本 unit 无关
+- Commits: d4b344ca
+
