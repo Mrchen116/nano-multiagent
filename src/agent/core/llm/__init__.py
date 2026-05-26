@@ -4,7 +4,6 @@ from importlib import import_module
 from typing import Any
 
 __all__ = [
-    "DEFAULT_PROVIDER",
     "LLMClient",
     "LLMFactoryConfig",
     "LLMGenerateRequest",
@@ -15,6 +14,7 @@ __all__ = [
     "create_llm_client",
     "get_default_base_url",
     "get_default_model",
+    "get_default_provider",
     "list_provider_models",
     "list_supported_providers",
     "resolve_model_metadata",
@@ -30,10 +30,10 @@ _INTERFACE_EXPORTS = {
     "LLMToolCall",
 }
 _MODEL_REGISTRY_EXPORTS = {
-    "DEFAULT_PROVIDER",
     "ModelMetadata",
     "get_default_base_url",
     "get_default_model",
+    "get_default_provider",
     "list_provider_models",
     "list_supported_providers",
     "resolve_model_metadata",

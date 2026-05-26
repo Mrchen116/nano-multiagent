@@ -5,6 +5,25 @@ import pytest
 from personal_assistant.config.local_store import DEFAULT_LOCAL_KERNEL_TOKEN, default_local_config_path, load_local_config, save_local_config
 
 
+# Minimal llm: section required by all Gateway configs after refactor-382.
+_LLM_YAML = """\
+llm:
+  default_model: kimiCoding:K2.6
+  providers:
+    - name: anthropic
+      base_url: http://127.0.0.1:4000
+      models:
+        - name: kimiCoding:K2.6
+          extra_request_body:
+            thinking:
+              type: adaptive
+    - name: openai_compat
+      base_url: http://127.0.0.1:4000
+      models:
+        - name: codex_oauth:gpt-5.5
+"""
+
+
 def test_load_local_config_defaults_workspace_root_to_user_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home_dir = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home_dir))
@@ -17,7 +36,7 @@ def test_load_local_config_defaults_workspace_root_to_user_workspace(tmp_path: P
                 "agents:",
                 "  - agent_id: assistant-a",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -46,7 +65,7 @@ def test_load_local_config_backfills_default_workspace_files_for_explicit_root(t
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -77,7 +96,7 @@ def test_load_local_config_does_not_overwrite_existing_workspace_files(tmp_path:
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -99,7 +118,7 @@ def test_load_local_config_keeps_explicit_workspace_root_requirement(tmp_path: P
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {explicit_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -124,7 +143,7 @@ def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> No
                 "kernel:",
                 "  base_url: http://127.0.0.1:8100",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -158,7 +177,7 @@ def test_load_local_config_preserves_multiple_seed_agents_in_order(tmp_path: Pat
                 f"    workspace_root: {beta_root}",
                 "    title: Beta",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -184,7 +203,7 @@ def test_load_local_config_uses_internal_kernel_base_url_default(tmp_path: Path)
                 "kernel:",
                 "  command: python -m agent.platform.http_api.app",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -208,7 +227,7 @@ def test_load_local_config_defaults_kernel_command_to_real_http_app_entrypoint(t
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -233,7 +252,7 @@ def test_load_local_config_defaults_kernel_token_for_local_gateway(tmp_path: Pat
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -257,7 +276,7 @@ def test_load_local_config_derives_kernel_base_url_from_local_command_port(tmp_p
                 "kernel:",
                 "  command: python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port 8123",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -277,7 +296,7 @@ def test_load_local_config_rejects_missing_agents(tmp_path: Path) -> None:
                 "  node_id: node-local",
                 "agents: []",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -297,7 +316,7 @@ def test_load_local_config_rejects_missing_workspace_root(tmp_path: Path) -> Non
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {missing_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -319,7 +338,7 @@ def test_parse_agents_defaults_new_fields_to_none(tmp_path: Path) -> None:
                 "  - agent_id: agent-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -355,9 +374,9 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
                 "      - Read",
                 "      - Write",
                 "    group_reply_policy: always",
-                "    default_model: gpt-4",
+                "    default_model: codex_oauth:gpt-5.5",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -368,7 +387,7 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
     assert agent.skills == ("web_search", "code_review")
     assert agent.tool_allowlist == ("Read", "Write")
     assert agent.group_reply_policy == "always"
-    assert agent.default_model == "gpt-4"
+    assert agent.default_model == "codex_oauth:gpt-5.5"
 
 
 def test_save_local_config_round_trip(tmp_path: Path) -> None:
@@ -392,7 +411,7 @@ def test_save_local_config_round_trip(tmp_path: Path) -> None:
                 "    tool_allowlist:",
                 "      - Read",
                 "    group_reply_policy: always",
-                "    default_model: gpt-4",
+                "    default_model: codex_oauth:gpt-5.5",
                 "channels:",
                 "  - name: web_relay",
                 "    enabled: true",
@@ -402,7 +421,7 @@ def test_save_local_config_round_trip(tmp_path: Path) -> None:
                 "  url: wss://im.example.com",
                 "  token: secret-token",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -448,7 +467,7 @@ def test_save_local_config_creates_missing_parent_directories(tmp_path: Path) ->
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
     original = load_local_config(config_path)
@@ -486,7 +505,7 @@ def test_im_service_config_refresh_token_and_credentials_round_trip(tmp_path: Pa
                 "  username: nano",
                 "  password: nano1234",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -525,7 +544,7 @@ def test_im_service_config_optional_fields_default_to_none(tmp_path: Path) -> No
                 "  url: http://localhost:8011",
                 "  token: access-abc",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -599,7 +618,7 @@ def test_save_local_config_omits_none_fields(tmp_path: Path) -> None:
                 "  - agent_id: agent-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -635,7 +654,7 @@ def test_agent_workspace_config_has_features_field(tmp_path: Path) -> None:
             "agents:",
             f"  - agent_id: alpha",
             f"    workspace_root: {workspace_root}",
-        ]),
+        ]) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
     config = load_local_config(config_path)
@@ -656,7 +675,7 @@ def test_agent_workspace_config_has_custom_prompt_field(tmp_path: Path) -> None:
             "agents:",
             f"  - agent_id: alpha",
             f"    workspace_root: {workspace_root}",
-        ]),
+        ]) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
     config = load_local_config(config_path)
@@ -679,7 +698,7 @@ def test_load_features_from_yaml(tmp_path: Path) -> None:
             "    features:",
             "      memory_curation: false",
             "      skill_creation: true",
-        ]),
+        ]) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
     config = load_local_config(config_path)
@@ -700,7 +719,7 @@ def test_load_custom_prompt_from_yaml(tmp_path: Path) -> None:
             f"  - agent_id: alpha",
             f"    workspace_root: {workspace_root}",
             "    custom_prompt: 你是我的私人法律顾问",
-        ]),
+        ]) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
     config = load_local_config(config_path)
@@ -721,7 +740,7 @@ def test_save_features_round_trip(tmp_path: Path) -> None:
             f"    workspace_root: {workspace_root}",
             "    features:",
             "      memory_curation: false",
-        ]),
+        ]) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
     original = load_local_config(config_path)
@@ -744,7 +763,7 @@ def test_save_custom_prompt_round_trip(tmp_path: Path) -> None:
             f"  - agent_id: alpha",
             f"    workspace_root: {workspace_root}",
             "    custom_prompt: 你是我的私人法律顾问",
-        ]),
+        ]) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
     original = load_local_config(config_path)
@@ -768,7 +787,7 @@ def test_save_omits_empty_features(tmp_path: Path) -> None:
             "agents:",
             f"  - agent_id: alpha",
             f"    workspace_root: {workspace_root}",
-        ]),
+        ]) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
     original = load_local_config(config_path)
@@ -792,7 +811,7 @@ def test_save_omits_none_custom_prompt(tmp_path: Path) -> None:
             "agents:",
             f"  - agent_id: alpha",
             f"    workspace_root: {workspace_root}",
-        ]),
+        ]) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
     original = load_local_config(config_path)

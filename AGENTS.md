@@ -124,7 +124,27 @@ im_service:
   url: http://127.0.0.1:8011
   username: nano      # Gateway 启动时自动登录，无需手动填 token
   password: nano1234
+llm:
+  default_model: kimiCoding:K2.6
+  providers:
+    - name: anthropic
+      base_url: http://127.0.0.1:4000
+      models:
+        - name: kimiCoding:K2.6
+          extra_request_body:
+            thinking:
+              type: adaptive
+        - name: volcanoArk:doubao-seed-2-0-code-preview-260215
+          extra_request_body:
+            thinking:
+              type: adaptive
+    - name: openai_compat
+      base_url: http://127.0.0.1:4000
+      models:
+        - name: codex_oauth:gpt-5.5
 ```
+
+> **注意（refactor-382）**：`llm:` 段为必填。Gateway 启动时若缺失则拒绝启动并报错。`e2e-up.sh` 复制 `~/.nano-assistant/config.yaml` 作为 worktree 隔离副本，请确保主 config 已包含 `llm:` 段。
 
 `username` + `password` 方式：Gateway 启动时自动调 `POST /im/v1/auth/login` 获取 token，断线后自动重连，IM 重启后自动恢复，全程无需人工干预。
 

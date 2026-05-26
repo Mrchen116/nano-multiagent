@@ -12,6 +12,21 @@ from personal_assistant.main import build_runtime
 
 from ._main_helpers import make_minimal_config
 
+from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+
+_DEFAULT_TEST_LLM = LLMConfigPayload(
+    default_model="kimiCoding:K2.6",
+    providers=(
+        LLMProviderPayload(
+            name="anthropic",
+            base_url="http://127.0.0.1:4000",
+            models=(
+                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+            ),
+        ),
+    ),
+)
+
 
 def test_build_runtime_uses_persistent_session_binding_store(
     tmp_path: Path,
@@ -124,6 +139,7 @@ async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> Non
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=im_service,
+        llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
 
@@ -180,6 +196,7 @@ async def test_make_token_getter_falls_back_to_login_when_refresh_fails(tmp_path
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=im_service,
+        llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
 
@@ -229,6 +246,7 @@ async def test_make_token_getter_returns_static_token_when_no_refresh_or_credent
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=im_service,
+        llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
 

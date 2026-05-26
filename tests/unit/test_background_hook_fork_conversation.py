@@ -75,11 +75,13 @@ class _CapturingContextFork:
         self.captured = {}
 
     async def execute(self, *, state, max_turns=None, session_file_state=None,
-                      system_prompt_override=None, available_skills_override=None,
+                      hook_ctx=None, system_prompt_override=None,
+                      available_skills_override=None,
                       available_tools_override=None, tool_execution_allowlist=None):
         self.captured = {
             "state": state,
             "max_turns": max_turns,
+            "hook_ctx": hook_ctx,
             "system_prompt_override": system_prompt_override,
             "available_skills_override": available_skills_override,
             "available_tools_override": available_tools_override,
@@ -216,6 +218,7 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
             self.finish_reason = None
             self.usage = None
             self.reasoning_content = None
+            self.reasoning_signature = None
 
     class _LLMTerminal:
         role = "assistant"
@@ -224,6 +227,7 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
         finish_reason = "stop"
         usage = None
         reasoning_content = None
+        reasoning_signature = None
 
     class _LLMFinalText:
         role = "assistant"
@@ -232,6 +236,7 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
         finish_reason = None
         usage = None
         reasoning_content = None
+        reasoning_signature = None
 
     class FakeLLMClient:
         def __init__(self):
