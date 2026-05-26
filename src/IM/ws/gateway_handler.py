@@ -754,10 +754,13 @@ class GatewayHandler:
             message_id = _require_text(payload.get("message_id"), field_name="message_id")
             final_content = _optional_text(payload.get("final_content"))
             token_usage = _parse_token_usage(payload.get("token_usage"))
+            raw_ds = _optional_text(payload.get("delivery_status"))
+            ds = raw_ds if raw_ds in {"completed", "failed"} else "completed"
             self._event_bridge.on_message_completed(
                 message_id=message_id,
                 final_content=final_content,
                 token_usage=token_usage,
+                delivery_status=ds,
             )
 
         elif kind == "tool_call_upserted":

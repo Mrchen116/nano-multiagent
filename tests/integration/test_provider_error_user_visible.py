@@ -256,11 +256,12 @@ async def test_provider_error_hook_event_order_message_end_before_turn_end(tmp_p
 
 
 async def test_gateway_observer_does_not_lock_bubble_on_provider_error(tmp_path: Path) -> None:
-    """turn_end(completed=False) 时 Gateway observer 不应发送 message_completed。
+    """turn_end(completed=False) 时 Gateway observer 应发 message_completed(delivery_status=failed)。
 
     这个测试模拟 _build_kernel_event_observer 的行为：
-    - 当 turn_end.completed=True 时应发 message_completed（正常路径）
-    - 当 turn_end.completed=False 时不应发 message_completed（错误路径，由后续 message_delta 填充）
+    - 当 turn_end.completed=True 时应发 message_completed(delivery_status=completed)
+    - 当 turn_end.completed=False 时应发 message_completed(delivery_status=failed)，
+      以把 agent 气泡终态标为 failed（不传 final_content，保留 message_delta 累积的错误内容）
     """
     from personal_assistant.main import _build_kernel_event_observer
 
@@ -304,7 +305,7 @@ async def test_gateway_observer_does_not_lock_bubble_on_provider_error(tmp_path:
         m for m in sent_messages if m.get("payload", {}).get("kind") == "message_completed"
     ]
 
-    # 错误路径：turn_end(completed=False) 不应发 message_completed
+    # 错误路径：turn_end(completed=False) 应发 message_completed(delivery_status=failed)
     sent_messages.clear()
     coro = observer({
         "event": "turn_end",
@@ -318,6 +319,10 @@ async def test_gateway_observer_does_not_lock_bubble_on_provider_error(tmp_path:
     completed_msgs_after = [
         m for m in sent_messages if m.get("payload", {}).get("kind") == "message_completed"
     ]
-    assert not completed_msgs_after, (
-        f"turn_end(completed=False) 不应触发 message_completed，实际发送了: {completed_msgs_after}"
+    assert len(completed_msgs_after) == 1, (
+        f"turn_end(completed=False) 应触发 1 条 message_completed，实际: {completed_msgs_after}"
     )
+    ds = completed_msgs_after[0]["payload"].get("delivery_status")
+    assert ds == "failed", f"delivery_status 应为 failed，实际: {ds}"
+    fc = completed_msgs_after[0]["payload"].get("final_content")
+    assert fc is None, f"final_content 应为 None（保留 message_delta 内容），实际: {fc}"
