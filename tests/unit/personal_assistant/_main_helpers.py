@@ -5,12 +5,26 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     HeartbeatConfig,
     KernelConfig,
     LocalConfig,
     NodeConfig,
+)
+
+_DEFAULT_TEST_LLM = LLMConfigPayload(
+    default_model="kimiCoding:K2.6",
+    providers=(
+        LLMProviderPayload(
+            name="anthropic",
+            base_url="http://127.0.0.1:4000",
+            models=(
+                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+            ),
+        ),
+    ),
 )
 
 
@@ -174,6 +188,7 @@ def build_config(tmp_path: Path) -> LocalConfig:
         ),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
     )
 
@@ -195,5 +210,6 @@ def make_minimal_config(tmp_path: Path) -> LocalConfig:
         ),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
     )

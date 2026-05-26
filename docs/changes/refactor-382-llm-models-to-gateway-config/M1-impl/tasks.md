@@ -36,9 +36,9 @@ N/A（无前端 UI 行为变更，只清 wire 类型死字段）
 | ID | 标题 | 状态 |
 |---|---|---|
 | R0 | 基线修复（预存在的 test mock 缺 reasoning_signature） | DONE |
-| R1 | 新 agent.core.llm.config 模块 + 测试 | TODO |
-| R2 | model_registry.py 工厂化 + conftest autouse fixture + 测试 | TODO |
-| R3 | factory.py 适配 + global_routes 死字段清理 + anthropic client 字段适配 + 前端 wire 类型 | TODO |
+| R1 | 新 agent.core.llm.config 模块 + 测试 | DONE |
+| R2 | model_registry.py 工厂化 + conftest autouse fixture + 测试 | DONE |
+| R3 | factory.py 适配 + global_routes 死字段清理 + anthropic client 字段适配 + 前端 wire 类型 | DONE |
 | R4 | local_store.py 加 LLMConfigPayload 解析与校验 + 测试 | TODO |
 | R5 | main.py spawn env 注入 + kernel_app.py 启动期 init + upstream_reporter 适配 | TODO |
 | R6 | AGENTS.md 配置样例 + scripts/e2e-up.sh 同步 | TODO |

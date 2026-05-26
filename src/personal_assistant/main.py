@@ -440,6 +440,7 @@ class _IMConfigSyncClient:
             kernel=self._local_config.kernel,
             heartbeat=self._local_config.heartbeat,
             im_service=self._local_config.im_service,
+            llm=self._local_config.llm,
             source_path=persist_path,
         )
         save_local_config(self._local_config, persist_path)

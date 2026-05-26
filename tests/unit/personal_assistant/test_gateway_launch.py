@@ -24,6 +24,21 @@ import personal_assistant.main as main_module
 
 from ._main_helpers import _FakeProcess, build_config
 
+from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+
+_DEFAULT_TEST_LLM = LLMConfigPayload(
+    default_model="kimiCoding:K2.6",
+    providers=(
+        LLMProviderPayload(
+            name="anthropic",
+            base_url="http://127.0.0.1:4000",
+            models=(
+                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+            ),
+        ),
+    ),
+)
+
 
 def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_ready(tmp_path: Path) -> None:
     config = build_config(tmp_path)
@@ -116,6 +131,7 @@ def test_load_runtime_config_preserves_im_credentials_when_overriding_url(tmp_pa
             username="nano",
             password="nano1234",
         ),
+        llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
     )
 

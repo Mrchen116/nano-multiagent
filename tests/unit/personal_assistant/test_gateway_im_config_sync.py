@@ -18,6 +18,22 @@ from personal_assistant.config.local_store import (
 from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.main import _IMConfigSyncClient
 
+from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+
+_DEFAULT_TEST_LLM = LLMConfigPayload(
+    default_model="kimiCoding:K2.6",
+    providers=(
+        LLMProviderPayload(
+            name="anthropic",
+            base_url="http://127.0.0.1:4000",
+            models=(
+                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+                LLMModelPayload(name="claude-sonnet-4-6"),
+            ),
+        ),
+    ),
+)
+
 
 def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_version(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace-from-im"
@@ -75,6 +91,7 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
     sync = _IMConfigSyncClient(
@@ -147,6 +164,7 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
     sync = _IMConfigSyncClient(
@@ -208,6 +226,7 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(tmp_p
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
     sync = _IMConfigSyncClient(
@@ -268,6 +287,7 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(tmp_path: Pa
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
     sync = _IMConfigSyncClient(
@@ -310,6 +330,7 @@ def _make_local_config(tmp_path: Path, workspace_root: Path) -> "LocalConfig":
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
     return local_config
@@ -412,6 +433,7 @@ def test_current_agent_payload_includes_features(tmp_path: Path) -> None:
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
     sync = _IMConfigSyncClient(
