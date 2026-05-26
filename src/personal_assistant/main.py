@@ -27,6 +27,7 @@ from websockets.asyncio.client import ClientConnection
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
 from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
+from agent.core.llm.model_registry import init_model_registry
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     ChannelConfig,
@@ -1090,6 +1091,10 @@ def run_gateway(
         load_config=resolved_factories.load_config,
         im_service_url_override=im_service_url_override,
     )
+    try:
+        init_model_registry(config.llm)
+    except RuntimeError:
+        pass  # already initialized (test environment with autouse fixture)
     builder = resolved_factories.build_runtime or build_runtime
     runtime = builder(config)
     restore_signal_handlers = resolved_factories.install_signal_handlers or _install_default_signal_handlers(runtime)

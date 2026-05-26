@@ -42,4 +42,4 @@ N/A（无前端 UI 行为变更，只清 wire 类型死字段）
 | R4 | local_store.py 加 LLMConfigPayload 解析与校验 + 测试 | DONE |
 | R5 | main.py spawn env 注入 + kernel_app.py 启动期 init + upstream_reporter 适配 | DONE |
 | R6 | AGENTS.md 配置样例 + scripts/e2e-up.sh 同步 | DONE |
-| R7 | e2e 验证（心跳 + chat send） | TODO |
+| R7 | e2e 验证（心跳 + chat send） | DONE |

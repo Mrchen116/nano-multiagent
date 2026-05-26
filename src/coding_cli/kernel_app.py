@@ -11,9 +11,9 @@ import os
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 from agent.core.llm.model_registry import init_model_registry
-from agent.platform.http_api.app import create_app
-from agent.products.local_coding import LOCAL_CODING_PROFILE
 
+# Initialize registry BEFORE importing create_app — app.py runs create_app() at
+# module level, which calls get_default_provider() via LLMFactoryConfig.from_env().
 _raw_llm_config = os.environ.get("NANO_MULTIAGENT_LLM_CONFIG_JSON")
 if _raw_llm_config is not None:
     # Gateway-style: full config JSON injected by parent process
@@ -34,5 +34,8 @@ else:
         ),
     )
 init_model_registry(_llm_payload)
+
+from agent.platform.http_api.app import create_app  # noqa: E402
+from agent.products.local_coding import LOCAL_CODING_PROFILE  # noqa: E402
 
 app = create_app(product_profile=LOCAL_CODING_PROFILE)
