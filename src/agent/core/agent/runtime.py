@@ -456,21 +456,27 @@ class AgentRuntime:
                 history.append(error_msg)
                 self._session_manager.writer.enqueue(path, _message_to_entry(error_msg, session_id))
                 await self._session_manager.writer.flush_async()
+                # bugfix-380: run_id must be in message_end payload so realtime_stream hook
+                # can publish assistant_message SSE before run_status=failed arrives.
+                _error_run_id = hook_ctx.metadata.get("run_id") if hook_ctx else None
+                message_end_payload: dict[str, Any] = {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "message_id": error_msg.message_id,
+                    "content": error_msg.content,
+                    "role": "assistant",
+                }
+                if isinstance(_error_run_id, str) and _error_run_id.strip():
+                    message_end_payload["run_id"] = _error_run_id.strip()
                 await self._dispatch_observe(
                     "message_end",
-                    {
-                        "session_id": session_id,
-                        "turn_id": turn_id,
-                        "message_id": error_msg.message_id,
-                        "content": error_msg.content,
-                        "role": "assistant",
-                    },
+                    message_end_payload,
                     hook_ctx,
                 )
                 # bugfix-380 R3: dispatch turn_end(completed=False) AFTER message_end so
                 # Gateway observer locks the bubble only after seeing the error content.
                 # loop.py's finally skips turn_end on the failure path; runtime owns it here.
-                turn_end_run_id = hook_ctx.metadata.get("run_id") if hook_ctx else None
+                turn_end_run_id = _error_run_id
                 turn_end_payload: dict[str, Any] = {
                     "session_id": session_id,
                     "turn_id": turn_id,
