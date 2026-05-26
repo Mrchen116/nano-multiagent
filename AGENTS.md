@@ -281,18 +281,7 @@ Gateway 第一次连一个新 IM 实例时,IM 要求确认绑定 owner,默认会
 
 `--auto-bind` flag(或 `NANO_MULTIAGENT_AUTO_BIND=1` env var)让 Gateway 启动时**自动**调 `POST /im/v1/bind {action:confirm, bind_token}` 完成绑定,不开浏览器。worktree e2e、CI 脚本、`scripts/e2e-up.sh` 都用这个。
 
-### LLM 上游故障注入(fixtures)
-
-`scripts/fixtures/` 提供一组 ready-made HTTP 桩,触发 `ModelError` 的各种变体:
-
-| 桩 | 触发 |
-|---|---|
-| `anthropic_sse_error.py <port>` | Anthropic SSE `event: error\ndata: {...}` 帧 → `retryable=False` |
-| `openai_compat_error.py <port>` | OpenAI-format top-level `{"error":...}` 帧 → `retryable=False` |
-| `http_error.py <port> <code>` | HTTP 401/403/429/500/502/503 |
-| `slow_stream.py <port> truncate\|hang` | 流提前结束 / 卡住 → `retryable=True` |
-
-详见 `scripts/fixtures/README.md`。配合 `NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:<port>` 把 kernel 指过去即可。
+> 测 LLM 上游故障路径时,`scripts/fixtures/` 有 ready-made HTTP 桩。详见该目录 README。
 
 ## 开发约定
 
