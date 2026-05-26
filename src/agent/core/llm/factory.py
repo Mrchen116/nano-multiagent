@@ -8,9 +8,9 @@ import httpx
 from .interfaces import LLMClient
 from .retry import RetryingLLMClient
 from .model_registry import (
-    DEFAULT_PROVIDER,
     get_default_base_url,
     get_default_model,
+    get_default_provider,
     resolve_model_metadata,
 )
 from agent.platform.llm.providers.openai_compat.client import OpenAICompatClient
@@ -21,7 +21,7 @@ from agent.platform.llm.providers.anthropic.client import AnthropicClient
 class LLMFactoryConfig:
     """Collect provider configuration needed to build an LLM client."""
 
-    provider: str = DEFAULT_PROVIDER
+    provider: str = "anthropic"
     model: str = "codex_oauth:gpt-5.5"
     base_url: str = "http://127.0.0.1:4000"
     api_key: str | None = None
@@ -35,7 +35,7 @@ class LLMFactoryConfig:
             Parsed configuration with provider defaults applied.
         """
 
-        provider = os.getenv("NANO_MULTIAGENT_LLM_PROVIDER", DEFAULT_PROVIDER)
+        provider = os.getenv("NANO_MULTIAGENT_LLM_PROVIDER", get_default_provider())
         model = os.getenv("NANO_MULTIAGENT_LLM_MODEL", get_default_model(provider))
         base_url = os.getenv("NANO_MULTIAGENT_LLM_BASE_URL", get_default_base_url(provider))
         timeout_seconds = float(os.getenv("NANO_MULTIAGENT_LLM_TIMEOUT_SECONDS", "30"))

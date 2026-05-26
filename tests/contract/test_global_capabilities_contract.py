@@ -39,10 +39,6 @@ def test_capabilities_contract_shape() -> None:
     assert set(model.keys()) == {
         "model",
         "default_base_url",
-        "supports_text",
-        "supports_image",
-        "supports_tools",
-        "supports_streaming",
     }
 
     assert isinstance(payload["tools"], list)

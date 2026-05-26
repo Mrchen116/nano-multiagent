@@ -152,10 +152,6 @@ def build_capabilities_payload(
             {
                 "model": metadata.model,
                 "default_base_url": metadata.default_base_url,
-                "supports_text": metadata.supports_text,
-                "supports_image": metadata.supports_image,
-                "supports_tools": metadata.supports_tools,
-                "supports_streaming": metadata.supports_streaming,
             }
             for metadata in list_provider_models(provider)
         ]

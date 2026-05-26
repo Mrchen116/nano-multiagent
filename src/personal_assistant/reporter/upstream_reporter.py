@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from agent.core.llm.model_registry import DEFAULT_PROVIDER, get_default_model, list_provider_models, list_supported_providers
+from agent.core.llm.model_registry import get_default_model, get_default_provider, list_provider_models, list_supported_providers
 from agent.core.skills.discovery import default_skill_search_roots
 from agent.core.skills.registry import SkillRegistry
 from agent.platform.config.resolver import ConfigResolver
@@ -117,7 +117,7 @@ def build_runtime_capabilities() -> ReporterCapabilities:
         models=_build_model_names(),
         skills=_build_skill_capability_entries(),
         tools=_build_tool_names(),
-        platform_default_model=get_default_model(DEFAULT_PROVIDER),
+        platform_default_model=get_default_model(get_default_provider()),
         # feat-379-M5 (ISSUE-4): do NOT expose the raw RUNTIME_FILL template; the
         # sections assembler owns prompt construction at runtime.  Consumers (IM
         # agent-create page) that relied on this field for a system_prompt prefill
