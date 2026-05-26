@@ -169,3 +169,70 @@
 ## 澄清记录
 
 无需澄清，验收标准清晰。Issue #1 是 fix-implementation 范围内的代码 bug，不需要 spec/design 层确认。
+
+---
+
+# Round 2 — 2026-05-26
+
+## Meta
+
+| 字段 | 值 |
+|---|---|
+| unit_id | bugfix-380 |
+| review_round | 2 |
+| reviewer | reviewer-r1 |
+| verdict | **fail** |
+| Highest Required Action | **fix-implementation** |
+| Fast-lane commits reviewed | 8d1c31c7 (trust_env fix), 2c60253e (unit tests) |
+
+## 复验范围
+
+基于 round 1 根因定位，验证 fast-lane fix 1（`trust_env`）是否解决了端到端路径的 `completed + empty` 问题。
+
+## 复验结果
+
+### trust_env fix 有效性
+
+`trust_env` fix（8d1c31c7）正确：`kernel_api_client.py` 第 207 行 `AsyncClient` 补传 `trust_env=_should_trust_env(self._config.base_url)`，localhost 不再继承系统代理。这修复了 round 1 报告的 Issue #1（SOCKS proxy ImportError 导致 Gateway→Kernel 通信失败）。
+
+### 端到端路径复验
+
+环境：新端口（IM=59196, API=59197），未 unset 系统代理，Gateway 启动后 trust_env 自动忽略 localhost 代理。
+
+**测试结果**：agent 消息仍然 `delivery_status=completed, content=''`（与 round 1 相同）。
+
+**直接证据**（kernel SSE 流逐帧捕获）：
+
+```
+1. run_status=running
+2. turn_end        ← loop.py finally 块，LLM 20次重试尚未完成时就发出
+3. run_status=failed ← LLM 超时
+```
+
+**`assistant_message` 事件完全缺失**：`runtime.py` except ModelError 块合成的错误消息通过 `message_end` hook 触发的 `assistant_message` 事件，在 `run_status=failed` 之后才发出，但 Gateway 的 `_await_terminal_run_async` 在 `run_status=failed` 时已经 `raise RuntimeError`，退出了 `async for` 循环，错误消息事件永远不会被接收。
+
+**根因确认**：`trust_env` fix 只解决了代理干扰问题，未解决"事件顺序错误"的核心 bug：
+
+1. `loop.py` 的 `finally` 块在 LLM 重试完成之前就发送 `turn_end`（等等——这不对，`turn_end` 在 `finally` 里，但 LLM 重试 20 次是在 `_execute_loop` 的 try 块里，所以 `turn_end` 是在 `_execute_loop` 退出 finally 时发的，此时 ModelError 已经抛出）
+2. `runtime.py` except 块合成 error message 并触发 `message_end` hook（`assistant_message` 事件）在 `run_status=failed` 之后发出
+3. Gateway 在 `run_status=failed` 时已退出 SSE 监听循环，无法接收后续 `assistant_message`
+
+**修复方向**（供 worker 参考）：
+
+选一（推荐）：`runtime.py` except ModelError 块中，在 `raise` 之前先等待 `message_end` hook 完成，**然后**发出 `run_status=failed`，确保 Gateway 在退出 SSE 循环前能接收到 `assistant_message` 事件。这需要 kernel registry 的 `run_status=failed` 在 `runtime.py` 的 `raise` 之后异步触发。
+
+选二：Gateway `_await_terminal_run_async` 在收到 `run_status=failed` 时，不立即 raise，而是继续读几帧 SSE 直到 `assistant_message` 事件到达或超时，然后再 raise。
+
+选三（Gateway observer）：`kernel_event_observer` 在收到 `run_status=failed` 时，检查 `run_context_store` 里的 error content（需要 kernel 在 `run_status=failed` 事件中携带 error_content 字段），发送 `message_completed(content=error_content, delivery_status=failed)`。
+
+## 验收标准覆盖（增量）
+
+| Scenario | Round 1 | Round 2 | 备注 |
+|---|---|---|---|
+| 直聊 + SSE error（Gateway→IM 路径） | fail | **fail** | trust_env fix 不解决事件顺序 bug |
+| 核心链路（集成测试） | pass | pass | 不受影响 |
+| delivery_status=failed（用户消息） | pass | pass | `_relay_lifecycle_callback` 路径正常 |
+
+## 结论
+
+Fast-lane fix 1（trust_env）正确且必要，但不足以解决 round 1 发现的根本 bug。需要 round 3 实施"事件顺序修复"后再做 round 3 复验。
