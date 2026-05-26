@@ -236,3 +236,97 @@
 ## 结论
 
 Fast-lane fix 1（trust_env）正确且必要，但不足以解决 round 1 发现的根本 bug。需要 round 3 实施"事件顺序修复"后再做 round 3 复验。
+
+---
+
+# Round 3 — 2026-05-26
+
+## Meta
+
+| 字段 | 值 |
+|---|---|
+| unit_id | bugfix-380 |
+| review_round | 3 |
+| reviewer | reviewer-r1 |
+| verdict | **fail** |
+| Highest Required Action | **fix-implementation** |
+| Fast-lane commits reviewed | 561dcf51 (loop + runtime + observer round 3 fix) |
+
+## 复验范围
+
+验证 round 3 fix（commit 561dcf51）是否解决了 round 1/2 报告的"事件顺序"bug：  
+1. `assistant_message` 事件是否出现在 SSE 流中（不再被 `turn_end` 抢先）  
+2. IM agent 气泡内容是否包含 `⚠️ 模型调用失败:` + provider 原文  
+3. IM agent 气泡 `delivery_status` 是否为 `failed`  
+4. IM agent 气泡是否挂在正确 agent 名下
+
+## 测试环境
+
+- IM: port 52296, Kernel API: port 52297, Fixture SSE error server: port 52399  
+- Fixture server 返回 `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded: provider is unavailable"}}`（`retryable=False` 路径）  
+- Gateway: worktree venv（`.venv/bin/python3`），config 指向 worktree local，无 SOCKS 代理  
+- Kernel SSE 流直接捕获（curl）
+
+## Kernel SSE 流捕获（直接发消息到 kernel API）
+
+```
+id: 7
+event: assistant_message
+data: {"event":"assistant_message","run_id":"run_51204b8097e130c0","turn_id":"turn_efae19417af664f2","message_id":"msg_b6d51c5d541efda2","content":"⚠️ 模型调用失败:anthropic: Overloaded: provider is unavailable","metadata":{},"session_id":"sess_43fd2da841b65349"}
+
+id: 8
+event: turn_end
+data: {"event":"turn_end","run_id":"run_51204b8097e130c0","turn_id":"turn_efae19417af664f2","completed":false,"stop_reason":null,"session_id":"sess_43fd2da841b65349"}
+
+id: 9
+event: run_status
+data: {"event":"run_status","run_id":"run_51204b8097e130c0","status":"failed",...}
+```
+
+**事件顺序修复完整**：`assistant_message` → `turn_end(completed=False)` → `run_status=failed`，与 round 1/2 的顺序（turn_end → run_status=failed，无 assistant_message）相比有根本改善。
+
+## IM relay 端到端测试结果
+
+| 断言 | 期望 | 实测 | 结果 |
+|---|---|---|---|
+| (a) agent 气泡内容包含 `⚠️ 模型调用失败:` + provider 原文 | `⚠️ 模型调用失败:anthropic: ...` | `⚠️ 模型调用失败:anthropic: Overloaded: provider is unavailable` | **PASS** |
+| (b) agent 气泡 `delivery_status=failed` | `failed` | `running` | **FAIL** |
+| (c) agent 气泡挂在 agent 名下 | `sender.type=agent, sender.id=default-agent` | `sender.type=agent, sender.id=default-agent` | **PASS** |
+
+## 根因分析（Round 3 残余 bug）
+
+Round 3 fix 解决了事件顺序问题，但引入了新的 bug：
+
+**症状**：IM agent 气泡的 `delivery_status` 卡在 `running`，而非 `failed`。
+
+**原因**：
+
+1. `turn_end(completed=False)` 被 Gateway `kernel_event_observer` 处理时，跳过了 `message_completed`（round 3 fix 的设计意图，防止空内容覆盖）
+2. 但 IM agent 气泡的 `delivery_status` 从 `running` 变为 `failed` 依赖于两个路径之一：
+   - `message_completed` → `on_message_completed` → `delivery_status=completed`（round 3 跳过了）  
+   - 或 IM 端直接通过某个 `delivery_status=failed` 机制更新 agent 气泡
+3. `_relay_lifecycle_callback(phase=failed)` 发送的 `node.delivery_receipt(failed)` 更新的是**用户消息**（relay_task_id 对应用户消息），不更新 agent 气泡
+4. 结果：agent 气泡永远停在 `running`，没有最终化
+
+**修复方向**（供 fix-worker 参考）：
+
+选一（最小改动）：在 `turn_end(completed=False)` 路径下，发送 `message_completed` 但不带 `final_content`，仅用于触发 agent 气泡状态最终化。IM 端 `on_message_completed` 需要接受可选的 `delivery_status` 参数（`failed`），或者 Gateway 在 `turn_end(completed=False)` 后单独发一个 `delivery_status=failed` 的 update frame。
+
+选二：在 `_relay_lifecycle_callback(phase=failed)` 时，同时发送一个 `node.streaming_delta(kind=message_completed, delivery_status=failed, message_id=<agent_msg_id>)`，需要 run_context_store 里保留 agent message_id 以供查询。
+
+选三（IM 端）：IM 的 relay watchdog 对所有 `delivery_status=running` 的 agent 消息超时后自动标记为 `failed`（已有 watchdog，但超时可能太长）。
+
+## 验收标准覆盖（增量）
+
+| Scenario | Round 1 | Round 2 | Round 3 | 备注 |
+|---|---|---|---|---|
+| 直聊 + SSE error，气泡内容 | fail | fail | **pass** | `⚠️ 模型调用失败:` + provider 原文正确 |
+| 直聊 + SSE error，delivery_status=failed | fail | fail | **fail** | agent 气泡卡在 running |
+| 直聊 + SSE error，挂在 agent 名下 | pass | pass | **pass** | sender.type=agent 正确 |
+| 事件顺序（assistant_message 在 turn_end 之前） | fail | fail | **pass** | 顺序修复 |
+| 核心链路（集成测试） | pass | pass | pass | 不受影响 |
+| delivery_status=failed（用户消息） | pass | pass | pass | _relay_lifecycle_callback 路径正常 |
+
+## 结论
+
+Round 3 fix 解决了事件顺序问题（Scenario a 和 c 通过），但 agent 气泡 `delivery_status` 仍卡在 `running` 而非 `failed`（Scenario b fail）。需要 round 4 fast-lane 修复后复验。
