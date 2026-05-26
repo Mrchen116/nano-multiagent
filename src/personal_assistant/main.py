@@ -1290,7 +1290,22 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             timeout_seconds=config.kernel.timeout_seconds,
         )
     )
-    process_manager = GatewayProcessManager(config=config.kernel, kernel_client=kernel_client)
+    _llm_config_json = config.llm.to_json()
+
+    def _spawn_kernel_with_llm_env(command: str) -> ProcessLike:
+        import copy
+        env = copy.copy(os.environ.copy())
+        env["NANO_MULTIAGENT_LLM_CONFIG_JSON"] = _llm_config_json
+        _kernel_log = Path("~/.nano-assistant/kernel.log").expanduser()
+        _kernel_log.parent.mkdir(parents=True, exist_ok=True)
+        _log_file = _kernel_log.open("ab")
+        return subprocess.Popen(shlex.split(command), stdout=_log_file, stderr=_log_file, env=env)
+
+    process_manager = GatewayProcessManager(
+        config=config.kernel,
+        kernel_client=kernel_client,
+        process_factory=_spawn_kernel_with_llm_env,
+    )
     runtime_dir = config.source_path.parent
     channel_registry = _build_channel_registry(
         config.channels,
