@@ -22,6 +22,8 @@ import pytest
 
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.errors import ModelError
+from agent.core.hooks.registry import HookRegistry
+from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
@@ -183,3 +185,139 @@ async def test_provider_error_message_truncated_at_1kb(tmp_path: Path) -> None:
     content = error_msgs[0].content
     assert len(content) < 2100, f"错误消息被截断后不应超过 2100 字符，实际: {len(content)}"
     assert "truncated" in content or "…" in content, "截断的消息应包含截断标记"
+
+
+# --- bugfix-380 fast-lane round 3: 事件顺序测试 ---
+
+
+async def test_provider_error_hook_event_order_message_end_before_turn_end(tmp_path: Path) -> None:
+    """ModelError 路径下 message_end 必须在 turn_end 之前；turn_end 必须携带 completed=False。
+
+    这个测试验证 Gateway observer 能正确渲染错误气泡（先收到 assistant 内容，再收到 turn_end）。
+    修复前：loop finally 块无条件发 turn_end(completed=True)，再由 runtime 发 message_end——顺序颠倒。
+    修复后：loop 失败路径不发 turn_end；runtime except ModelError 块在 message_end 之后补发 turn_end(completed=False)。
+    """
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    session = manager.create_session(workspace_root=workspace.resolve())
+
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    hooks = HookRegistry()
+
+    async def capture_message_end(payload: dict[str, Any], ctx: Any) -> None:
+        events.append(("message_end", dict(payload)))
+
+    async def capture_turn_end(payload: dict[str, Any], ctx: Any) -> None:
+        events.append(("turn_end", dict(payload)))
+
+    hooks.on("message_end", capture_message_end)
+    hooks.on("turn_end", capture_turn_end)
+    runner = HookRunner(registry=hooks)
+
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=SseErrorLLMClient("quota exceeded"),
+        model="mock-model",
+        hook_runner=runner,
+    )
+
+    with pytest.raises(ModelError):
+        await runtime.run(session.session_id, [{"type": "text", "text": "hi"}])
+
+    event_names = [e[0] for e in events]
+
+    # message_end (assistant error content) 必须在 turn_end 之前
+    assert "message_end" in event_names, "应有 message_end 事件"
+    assert "turn_end" in event_names, "应有 turn_end 事件"
+
+    msg_end_idx = event_names.index("message_end")
+    turn_end_idx = event_names.index("turn_end")
+    assert msg_end_idx < turn_end_idx, (
+        f"message_end 必须在 turn_end 之前，实际顺序: {event_names}"
+    )
+
+    # turn_end 必须携带 completed=False（告诉下游这是失败收尾）
+    turn_end_payload = events[turn_end_idx][1]
+    assert turn_end_payload.get("completed") is False, (
+        f"turn_end 的 completed 必须是 False，实际: {turn_end_payload.get('completed')!r}"
+    )
+
+    # message_end 的 content 必须包含错误文案
+    msg_end_payload = events[msg_end_idx][1]
+    assert "模型调用失败" in (msg_end_payload.get("content") or ""), (
+        f"message_end 的 content 应包含错误文案，实际: {msg_end_payload.get('content')!r}"
+    )
+    assert msg_end_payload.get("role") == "assistant", (
+        f"message_end 应是 assistant role，实际: {msg_end_payload.get('role')!r}"
+    )
+
+
+async def test_gateway_observer_does_not_lock_bubble_on_provider_error(tmp_path: Path) -> None:
+    """turn_end(completed=False) 时 Gateway observer 不应发送 message_completed。
+
+    这个测试模拟 _build_kernel_event_observer 的行为：
+    - 当 turn_end.completed=True 时应发 message_completed（正常路径）
+    - 当 turn_end.completed=False 时不应发 message_completed（错误路径，由后续 message_delta 填充）
+    """
+    from personal_assistant.main import _build_kernel_event_observer
+
+    sent_messages: list[dict[str, Any]] = []
+
+    class FakeManager:
+        connected = True
+
+        async def send_json(self, msg_type: str, payload: dict[str, Any]) -> None:
+            sent_messages.append({"type": msg_type, "payload": payload})
+
+    manager_instance = FakeManager()
+
+    def manager_factory() -> Any:
+        return manager_instance
+
+    run_context_store: dict[str, dict[str, str]] = {
+        "test-run-1": {
+            "conversation_id": "conv-123",
+            "message_id": "msg-456",
+            "agent_id": "agent-789",
+        }
+    }
+
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=manager_factory,
+        run_context_store=run_context_store,
+    )
+
+    # 正常路径：turn_end(completed=True) 应发 message_completed
+    coro = observer({
+        "event": "turn_end",
+        "run_id": "test-run-1",
+        "completed": True,
+    })
+    if coro is not None:
+        await coro
+    await asyncio.sleep(0.01)  # 等 create_task 完成
+
+    completed_msgs_before = [
+        m for m in sent_messages if m.get("payload", {}).get("kind") == "message_completed"
+    ]
+
+    # 错误路径：turn_end(completed=False) 不应发 message_completed
+    sent_messages.clear()
+    coro = observer({
+        "event": "turn_end",
+        "run_id": "test-run-1",
+        "completed": False,
+    })
+    if coro is not None:
+        await coro
+    await asyncio.sleep(0.01)
+
+    completed_msgs_after = [
+        m for m in sent_messages if m.get("payload", {}).get("kind") == "message_completed"
+    ]
+    assert not completed_msgs_after, (
+        f"turn_end(completed=False) 不应触发 message_completed，实际发送了: {completed_msgs_after}"
+    )
