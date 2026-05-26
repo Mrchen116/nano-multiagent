@@ -91,6 +91,12 @@ def build_chat_messages(
     Returns:
         Ordered message tuple: history, then current user. No system message.
     """
+    # bugfix-380: filter out provider error messages before sending to LLM.
+    # These are synthetic assistant messages (is_provider_error=True) that were
+    # persisted for IM/CLI display but must not pollute the LLM's context window
+    # (mirrors CC isSyntheticApiErrorMessage / normalizeMessagesForAPI pattern).
+    history_messages = tuple(m for m in history_messages if not _is_provider_error(m))
+
     # Coalesce assistant Message rows that share a group_id before converting.
     # When parallel tool_use blocks stream in as separate LLM chunks, each chunk
     # is persisted as its own JSONL row but all share the same group_id (set by
@@ -403,3 +409,12 @@ def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:
         else:
             result.append(msg)
     return result
+
+
+def _is_provider_error(msg: Message) -> bool:
+    """Return True if the message was synthesized by the runtime to surface a provider error.
+
+    Such messages are persisted for IM/CLI display (bugfix-380) but must be stripped
+    from the LLM history to avoid polluting the model's context window.
+    """
+    return bool(msg.metadata.get("is_provider_error"))

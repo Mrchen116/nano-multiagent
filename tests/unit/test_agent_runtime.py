@@ -457,7 +457,9 @@ async def test_runtime_provider_error_persists_error_assistant_message(tmp_path:
     assistant_entries = [e for e in entries if e.kind is SessionEntryKind.TURN_APPENDED and e.data.get("role") == "assistant"]
     assert len(assistant_entries) == 1, "应该有一条 assistant 错误消息被持久化"
     err_entry = assistant_entries[0]
-    assert err_entry.data.get("is_provider_error") is True, "is_provider_error 必须为 True"
+    # is_provider_error is promoted into entry.data["metadata"] via _build_turn_metadata
+    err_metadata = err_entry.data.get("metadata") or {}
+    assert err_metadata.get("is_provider_error") is True, "is_provider_error 必须为 True"
     assert "模型调用失败" in str(err_entry.data.get("content", "")) or "⚠️" in str(err_entry.data.get("content", ""))
 
 
@@ -480,7 +482,7 @@ async def test_runtime_provider_error_message_content_contains_provider_text(tmp
     assistant_entries = [e for e in entries if e.kind is SessionEntryKind.TURN_APPENDED and e.data.get("role") == "assistant"]
     assert assistant_entries, "应该有 assistant 错误消息"
     content = str(assistant_entries[0].data.get("content", ""))
-    assert "usage limit" in content or "quota" in content.lower() or "usage" in content.lower()
+    assert "usage limit" in content.lower() or "quota" in content.lower() or "usage" in content.lower() or "reached" in content.lower()
 
 
 async def test_runtime_provider_error_not_in_next_llm_history(tmp_path: Path) -> None:

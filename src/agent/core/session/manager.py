@@ -350,7 +350,7 @@ def _build_turn_metadata(raw: dict[str, Any]) -> dict[str, Any]:
     """Rebuild metadata dict from flattened JSONL turn fields."""
 
     meta: dict[str, Any] = {}
-    for key in ("is_meta", "is_compact_summary", "entrypoint", "tool_calls", "tool_name", "tool_error", "tool_output"):
+    for key in ("is_meta", "is_compact_summary", "is_provider_error", "entrypoint", "tool_calls", "tool_name", "tool_error", "tool_output"):
         if key in raw:
             meta[key] = raw[key]
     if "tool_call_id" in raw:
