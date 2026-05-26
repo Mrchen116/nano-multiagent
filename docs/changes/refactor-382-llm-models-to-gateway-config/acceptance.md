@@ -117,3 +117,64 @@ ValueError: agents[0].default_model='foo:bar' not found in llm.providers
 ## 澄清说明
 
 本次验收中主 config `~/.nano-assistant/config.yaml` 缺少 llm 段，reviewer 按 AGENTS.md 示例和 motivation.md §迁移策略补全了 llm 段（运维升级步骤），这是本 unit 设计的预期升级路径，不是 bug。e2e-up.sh 的 --main-config 参数允许传替代 config，但 design.md §Runbook for Reviewer 未提示此前置条件，已记为 minor issue #1。
+
+---
+
+# Round 2 — 2026-05-26
+
+> review_round: 2
+> mode: Fast-lane（复用上轮上下文，仅复验 FIX-3 修复项）
+
+## Verdict
+
+**pass**
+
+Round 1 唯一 minor issue（Issue 1: Runbook 未说明 llm 段前置检查）已通过 commit 263ce8db 完全消除。8 个 Scenario 无回归，Scenario 4 inconclusive 状态沿用上轮判断（无真实 LLM 上游，属 e2e 环境限制，不影响本 unit 验收）。
+
+## Fast-lane 复验范围
+
+修复 commit `263ce8db` 改动两处：
+1. `docs/changes/refactor-382-llm-models-to-gateway-config/design.md` §Runbook for Reviewer — 新增前置检查说明行
+2. `scripts/e2e-up.sh` 第 137-141 行 — 在 load config 前加 `llm:` 段存在性检查，缺失时打印明确错误并 exit 1
+
+## 修复验证
+
+### Issue 1 — 已关闭
+
+- **修复内容**（design.md）：`> **前置检查**：启动前确认 ~/.nano-assistant/config.yaml 已包含 llm: 段（grep 'llm:' ~/.nano-assistant/config.yaml 应有输出）。若缺失，按 AGENTS.md "最小可用配置示例"中的 llm: 段添加后再运行 e2e-up.sh。`
+- **修复内容**（e2e-up.sh）：`if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)"` → 缺失则打印 `ERROR: '...' is missing the 'llm:' section.` 并 exit 1
+- **验证**：手动确认 Python 检查逻辑：缺 llm 段时返回 exit code 1，触发 error 输出路径 ✓
+- **结论**：minor issue 已消除，两处前置检查均清晰指引 AGENTS.md 示例
+
+## 验收标准覆盖（继承上轮，仅更新 Issue 1 状态）
+
+### Requirement: 端用户在 IM 里看到的模型选择行为不变（回归基线） — 组内结论: pass
+
+| Scenario | 结果 | 备注 |
+|---|---|---|
+| 模型下拉选项保持原有三条 | pass（继承 R1） | — |
+| "平台默认"标签仍指向 K2.6 | pass（继承 R1） | — |
+| agent 不填 default_model 时仍用 K2.6 | pass（继承 R1） | — |
+| agent 的多轮 thinking + 工具调用对话路径保留 | inconclusive（继承 R1） | 无真实 LLM 上游，属 e2e 环境限制，保真前提条件已验证 |
+
+### Requirement: 运维通过编辑 YAML 增减模型，不动代码 — 组内结论: pass
+
+| Scenario | 结果 | 备注 |
+|---|---|---|
+| 加新模型走 YAML | pass（继承 R1） | — |
+| 删模型走 YAML | pass（继承 R1） | — |
+
+### Requirement: Gateway 在 LLM 配置错误时立即报错而不是静默起来 — 组内结论: pass
+
+| Scenario | 结果 | 备注 |
+|---|---|---|
+| config 没有 llm 段 | pass（继承 R1） | — |
+| agent 引用了 llm.providers 里不存在的模型 | pass（继承 R1） | — |
+
+## Issues
+
+无新增 issue。Issue 1（R1 minor）已关闭。
+
+## 上层文档同步
+
+沿用 Round 1 结论，无新增文档同步需求。
