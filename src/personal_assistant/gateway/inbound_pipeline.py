@@ -653,12 +653,17 @@ class InboundPipeline:
                 status = event.get("status")
                 if status in _TERMINAL_RUN_STATUSES:
                     run_state = event
-                    if status != "completed":
-                        raise RuntimeError(self._extract_run_error(event, fallback_status=status))
+                    # bugfix-380: break instead of raising immediately so any
+                    # assistant_message event already in the SSE buffer gets consumed
+                    # before we exit. The raise happens below after the loop.
                     break
 
         if run_state is None:
             raise RuntimeError("stream ended without terminal run_status")
+
+        status = run_state.get("status")
+        if status != "completed":
+            raise RuntimeError(self._extract_run_error(run_state, fallback_status=str(status or "")))
 
         return run_state, reply_text
 

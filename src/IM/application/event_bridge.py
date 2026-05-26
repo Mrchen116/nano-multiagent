@@ -165,19 +165,20 @@ class EventBridge:
         message_id: str,
         final_content: str | None = None,
         token_usage: TokenUsage | None = None,
+        delivery_status: str = "completed",
     ) -> None:
         """Close the agent message with terminal content + optional token usage."""
         updated = self.message_repository.update_runtime_state(
             message_id=message_id,
             content_replace=final_content,
             token_usage=token_usage,
-            delivery_status="completed",
+            delivery_status=delivery_status,
         )
         self._emit(
             conversation_id=updated.conversation_id,
             message_id=message_id,
             event_type=EVENT_MESSAGE_COMPLETED,
-            delivery_status="completed",
+            delivery_status=delivery_status,
             payload=build_message_completed_payload(
                 conversation_id=updated.conversation_id,
                 message_id=message_id,

@@ -545,6 +545,11 @@ def _send_message_via_sse(
         usage = terminal_run_status.get("usage") or usage
 
     if status != "completed":
+        # bugfix-380: surface the provider error text from the assistant_message so
+        # CLI users see the actual error instead of the opaque "run failed" message.
+        error_detail = assistant_text.strip() if assistant_text else ""
+        if error_detail:
+            raise RuntimeError(f"run_id={run_id} run failed: {error_detail}")
         raise RuntimeError(f"run_id={run_id} run failed")
 
     # Build _repl_view for non-TTY summary rendering (backward-compat with old test assertions).

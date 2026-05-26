@@ -207,6 +207,7 @@ class KernelApiClient:
         async with httpx.AsyncClient(
             base_url=self._config.base_url,
             transport=self._async_transport,
+            trust_env=_should_trust_env(self._config.base_url),
         ) as client:
             async with client.stream(
                 "GET",

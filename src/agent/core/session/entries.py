@@ -132,6 +132,9 @@ def message_from_turn_entry(entry: SessionEntry) -> Message:
     the loop -> runtime import cycle.
     """
     metadata = dict(entry.data.get("metadata") or {})
+    # bugfix-380: is_provider_error comes through _build_turn_metadata into
+    # entry.data["metadata"] already; nothing extra needed here.
+    # Old JSONL files that lack this field default to False via dict.get().
     return Message(
         message_id=str(entry.data.get("message_id", "")),
         role=str(entry.data.get("role", "")),

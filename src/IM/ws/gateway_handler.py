@@ -754,10 +754,25 @@ class GatewayHandler:
             message_id = _require_text(payload.get("message_id"), field_name="message_id")
             final_content = _optional_text(payload.get("final_content"))
             token_usage = _parse_token_usage(payload.get("token_usage"))
+            raw_ds = _optional_text(payload.get("delivery_status"))
+            # bugfix-380: delivery_status is optional (back-compat: absent → "completed");
+            # if provided it must be a known terminal value. Silent fallback was a
+            # regression trap — any new failure semantic added upstream (e.g. "cancelled"
+            # / "timeout") that wasn't whitelisted here would degrade back to the
+            # bugfix-380 pre-fix bug: empty bubble silently marked "completed".
+            if raw_ds is None:
+                ds = "completed"
+            elif raw_ds in {"completed", "failed"}:
+                ds = raw_ds
+            else:
+                raise ValueError(
+                    f"delivery_status must be 'completed' or 'failed' when provided, got {raw_ds!r}"
+                )
             self._event_bridge.on_message_completed(
                 message_id=message_id,
                 final_content=final_content,
                 token_usage=token_usage,
+                delivery_status=ds,
             )
 
         elif kind == "tool_call_upserted":

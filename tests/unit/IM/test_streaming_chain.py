@@ -181,6 +181,55 @@ class TestNodeStreamingDeltaHandling:
         assert token_usage.output == 5
 
     @pytest.mark.asyncio
+    async def test_streaming_delta_message_completed_failed_status(self):
+        """delivery_status='failed' is accepted and passed through to event_bridge.
+
+        Confirms the bugfix-380 round-3-rev3 path: when observer dispatches
+        message_completed(delivery_status='failed') for a ModelError turn, IM
+        must forward that terminal state instead of overwriting with 'completed'.
+        """
+        bridge = MagicMock(spec=EventBridge)
+        handler = _make_minimal_handler(event_bridge=bridge)
+        ws = AsyncMock()
+        payload = {
+            "kind": "message_completed",
+            "message_id": "msg-fail",
+            "final_content": None,
+            "delivery_status": "failed",
+            "owner_id": "owner-A",
+        }
+        await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
+        assert bridge.on_message_completed.called
+        kwargs = bridge.on_message_completed.call_args[1]
+        assert kwargs["delivery_status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_streaming_delta_message_completed_rejects_unknown_status(self):
+        """Unknown delivery_status (e.g. 'running' / typo) must raise, not silently
+        fall back to 'completed'.
+
+        The silent fallback this replaces was a regression trap — any new failure
+        semantic added upstream that wasn't whitelisted here would silently
+        downgrade to the bugfix-380 pre-fix bug (empty bubble marked 'completed').
+        """
+        bridge = MagicMock(spec=EventBridge)
+        handler = _make_minimal_handler(event_bridge=bridge)
+        ws = AsyncMock()
+        payload = {
+            "kind": "message_completed",
+            "message_id": "msg-bad",
+            "final_content": None,
+            "delivery_status": "running",  # not a terminal state
+            "owner_id": "owner-A",
+        }
+        with pytest.raises(ValueError, match="delivery_status must be"):
+            await handler.handle_message(
+                websocket=ws, message_type="node.streaming_delta", payload=payload
+            )
+        # bridge must NOT have been called — frame is rejected before reaching IM
+        assert not bridge.on_message_completed.called
+
+    @pytest.mark.asyncio
     async def test_streaming_delta_without_bridge_returns_ack(self):
         """Without EventBridge (no repos wired), node.streaming_delta returns ack without crash."""
         # Build a handler with no conversation/event repos so event_bridge auto-creation is skipped.

@@ -445,6 +445,46 @@ class AgentRuntime:
                 else:
                     raise
             else:
+                # bugfix-380: synthesize a user-visible error assistant message before re-raising.
+                # This surfaces the upstream error in IM/CLI without changing the existing
+                # run_status=failed telemetry path (registry._mark_failed_async is triggered
+                # by the re-raised ModelError as before).
+                error_msg = _build_provider_error_message(
+                    exc,
+                    parent_message_id=user_msg.message_id,
+                )
+                history.append(error_msg)
+                self._session_manager.writer.enqueue(path, _message_to_entry(error_msg, session_id))
+                await self._session_manager.writer.flush_async()
+                # bugfix-380: run_id must be in message_end payload so realtime_stream hook
+                # can publish assistant_message SSE before run_status=failed arrives.
+                _error_run_id = hook_ctx.metadata.get("run_id") if hook_ctx else None
+                message_end_payload: dict[str, Any] = {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "message_id": error_msg.message_id,
+                    "content": error_msg.content,
+                    "role": "assistant",
+                }
+                if isinstance(_error_run_id, str) and _error_run_id.strip():
+                    message_end_payload["run_id"] = _error_run_id.strip()
+                await self._dispatch_observe(
+                    "message_end",
+                    message_end_payload,
+                    hook_ctx,
+                )
+                # bugfix-380 R3: dispatch turn_end(completed=False) AFTER message_end so
+                # Gateway observer locks the bubble only after seeing the error content.
+                # loop.py's finally skips turn_end on the failure path; runtime owns it here.
+                turn_end_run_id = _error_run_id
+                turn_end_payload: dict[str, Any] = {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "completed": False,
+                }
+                if isinstance(turn_end_run_id, str) and turn_end_run_id.strip():
+                    turn_end_payload["run_id"] = turn_end_run_id.strip()
+                await self._dispatch_observe("turn_end", turn_end_payload, hook_ctx)
                 raise
 
         turn_result = build_turn_result(session_id, turn_id, all_messages)
@@ -1355,6 +1395,8 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
         entry["is_meta"] = True
     if meta.get("is_compact_summary"):
         entry["is_compact_summary"] = True
+    if meta.get("is_provider_error"):
+        entry["is_provider_error"] = True
     if meta.get("entrypoint"):
         entry["entrypoint"] = meta["entrypoint"]
     if meta.get("tool_calls"):
@@ -1374,6 +1416,33 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+# bugfix-380: maximum length for provider error text embedded in the assistant message content.
+_PROVIDER_ERROR_MAX_CHARS = 1024
+
+
+def _build_provider_error_message(
+    exc: ModelError,
+    *,
+    parent_message_id: str | None = None,
+) -> Message:
+    """Build a synthetic assistant Message that surfaces a provider error to the user.
+
+    The message is persisted with is_provider_error=True so build_chat_messages can
+    filter it out of the next LLM history (CC isSyntheticApiErrorMessage pattern).
+    """
+    raw_text = str(exc)
+    if len(raw_text) > _PROVIDER_ERROR_MAX_CHARS:
+        raw_text = raw_text[:_PROVIDER_ERROR_MAX_CHARS] + "…(truncated)"
+    content = f"⚠️ 模型调用失败:{raw_text}"
+    return Message(
+        message_id=make_message_id(),
+        parent_message_id=parent_message_id,
+        role="assistant",
+        content=content,
+        metadata={"is_provider_error": True},
+    )
 
 
 # _message_from_turn_entry and _read_file_slice migrated to break loop->runtime cycle.
