@@ -418,3 +418,97 @@ async def test_multiple_parts_become_independent_user_messages_in_llm_history(tm
     assert user_messages[2].content == "[charlie] @agent go"
     # Must NOT be joined
     assert not any(m.content == "[alice] hello\n[bob] world\n[charlie] @agent go" for m in user_messages)
+
+
+# ---------------------------------------------------------------------------
+# bugfix-380: provider error → 合成 is_provider_error assistant 消息
+# ---------------------------------------------------------------------------
+
+from agent.core.errors import ModelError
+
+
+class ErrorLLMClient:
+    """LLM client that raises ModelError on generate."""
+
+    def __init__(self, error_message: str = "upstream quota exceeded") -> None:
+        self._error_message = error_message
+
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+        raise ModelError(self._error_message, retryable=False)
+        yield  # make this an async generator
+
+
+async def test_runtime_provider_error_persists_error_assistant_message(tmp_path: Path) -> None:
+    """ModelError 必须被合成为带 is_provider_error=True 的 assistant 消息并持久化。"""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=ErrorLLMClient("anthropic: upstream quota exceeded"),
+        model="mock-model",
+    )
+
+    with pytest.raises(ModelError):
+        await runtime.run(session.session_id, [{"type": "text", "text": "hi"}], stream=False)
+
+    manager.writer.flush()
+    entries = manager.list_entries(session.session_id)
+    assistant_entries = [e for e in entries if e.kind is SessionEntryKind.TURN_APPENDED and e.data.get("role") == "assistant"]
+    assert len(assistant_entries) == 1, "应该有一条 assistant 错误消息被持久化"
+    err_entry = assistant_entries[0]
+    assert err_entry.data.get("is_provider_error") is True, "is_provider_error 必须为 True"
+    assert "模型调用失败" in str(err_entry.data.get("content", "")) or "⚠️" in str(err_entry.data.get("content", ""))
+
+
+async def test_runtime_provider_error_message_content_contains_provider_text(tmp_path: Path) -> None:
+    """错误消息正文必须含有 provider 原始文案。"""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=ErrorLLMClient("You've reached your usage limit"),
+        model="mock-model",
+    )
+
+    with pytest.raises(ModelError):
+        await runtime.run(session.session_id, [{"type": "text", "text": "hi"}], stream=False)
+
+    manager.writer.flush()
+    entries = manager.list_entries(session.session_id)
+    assistant_entries = [e for e in entries if e.kind is SessionEntryKind.TURN_APPENDED and e.data.get("role") == "assistant"]
+    assert assistant_entries, "应该有 assistant 错误消息"
+    content = str(assistant_entries[0].data.get("content", ""))
+    assert "usage limit" in content or "quota" in content.lower() or "usage" in content.lower()
+
+
+async def test_runtime_provider_error_not_in_next_llm_history(tmp_path: Path) -> None:
+    """is_provider_error=True 的 assistant 消息不应出现在下一轮 LLM history 中。"""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+
+    # 第一轮：LLM 抛错
+    runtime_err = AgentRuntime(
+        session_manager=manager,
+        llm_client=ErrorLLMClient("quota exceeded"),
+        model="mock-model",
+    )
+    with pytest.raises(ModelError):
+        await runtime_err.run(session.session_id, [{"type": "text", "text": "first"}], stream=False)
+    manager.writer.flush()
+
+    # 第二轮：LLM 正常，检查 history 里没有错误消息
+    tracking_client = FakeLLMClient()
+    runtime2 = AgentRuntime(
+        session_manager=manager,
+        llm_client=tracking_client,
+        model="mock-model",
+    )
+    await runtime2.run(session.session_id, [{"type": "text", "text": "second"}], stream=False)
+
+    messages_sent = tracking_client.requests[-1].messages
+    # history 中不应有包含 "⚠️" 的 assistant 消息
+    error_msgs = [m for m in messages_sent if m.role == "assistant" and "⚠️" in (m.content or "")]
+    assert not error_msgs, f"is_provider_error 消息泄漏到 LLM history: {error_msgs}"
