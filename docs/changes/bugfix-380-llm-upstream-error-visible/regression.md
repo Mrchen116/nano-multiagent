@@ -19,20 +19,20 @@
 | 字段 | 内容 |
 |---|---|
 | 期望来源 | incident.md §验收标准 Req-SSE |
-| 验证方式 | 集成测试 `test_provider_sse_error_persists_error_assistant_message` + kernel API 直接调用（sess_050b7f5b27ed5007） |
-| 证据 | 集成测试 pass；kernel API `/v1/sessions/{id}/messages` 返回 `content="⚠️ 模型调用失败:..."` |
-| 结果 | **pass** |
-| 备注 | 核心链路（SSE error → ModelError → runtime 合成 assistant 消息 → 持久化 → hook dispatch）已验证。IM 前端端到端验证因本地环境 SOCKS 代理干扰 Gateway→Kernel 通信而无法完成（见 Issues #1）；该环境问题与代码正确性无关，核心逻辑已由集成测试完整覆盖。 |
+| 验证方式 | 集成测试 `test_provider_sse_error_persists_error_assistant_message` + Gateway→IM 端到端路径验证 |
+| 证据 | 集成测试 pass；Gateway→IM 端到端路径（清除 SOCKS 代理后）结果：user 消息 `delivery_status=failed`（正确）；agent 消息 `delivery_status=completed, content=''`（错误，应为 `failed + "⚠️ 模型调用失败:..."` 内容） |
+| 结果 | **fail** |
+| 备注 | 核心 kernel 层链路（SSE error → ModelError → runtime 合成 assistant 消息 → 持久化 → hook dispatch）已由集成测试验证通过。但 Gateway→IM 端到端路径存在 bug：`loop.py` 的 `finally` 块无条件发送 `turn_end`，导致 Gateway 的 `kernel_event_observer` 在 error assistant message 到达之前就发送了 `message_completed(final_content=None)`，IM 把 agent 消息设为 `completed + empty`。之后的 `assistant_message(⚠️ 模型调用失败:...)` 发送的 `message_delta` 无法更新已 `completed` 的消息。见 Issue #2。 |
 
 #### Scenario: 群聊 + 仅其中一个 agent 上游故障
 
 | 字段 | 内容 |
 |---|---|
 | 期望来源 | incident.md §验收标准 Req-SSE |
-| 验证方式 | 无法完成端到端验证（环境 SOCKS 代理干扰 Gateway→Kernel 通信） |
+| 验证方式 | 未完成（依赖直聊路径先修复） |
 | 证据 | N/A |
 | 结果 | **inconclusive** |
-| 备注 | 群聊场景依赖 Gateway→Kernel 完整链路。当前环境 SOCKS 代理干扰使该路径不可用。核心的"A 失败 B 正常"行为取决于两个 agent 独立触发各自的 ModelError → 各自的 run_error 事件，这是 runtime 层逻辑，已由 `test_provider_sse_error_persists_error_assistant_message` 的单实例版本验证，但群聊多 agent 并发场景未能端到端验证。 |
+| 备注 | 群聊场景依赖直聊路径的 Gateway→IM 错误气泡正确渲染，当前直聊路径有 Issue #2，故群聊场景不做单独验证。 |
 
 ### Requirement: 任何抛 ModelError 的路径都必须用户可读
 
@@ -44,17 +44,17 @@
 | 验证方式 | 集成测试（SseErrorLLMClient 模拟等效 ModelError）；provider 单元测试 `test_stream_response_sse_error_event_raises_model_error` |
 | 证据 | 12 个 provider 单元测试全绿；集成测试 4 个全绿 |
 | 结果 | **pass** |
-| 备注 | HTTP 4xx/5xx 已有 `raise_for_status` 路径抛 ModelError，runtime 层统一处理。 |
+| 备注 | HTTP 4xx/5xx 已有 `raise_for_status` 路径抛 ModelError，runtime 层统一处理。kernel 层修复完整，但 Gateway→IM 路径受 Issue #2 影响（`turn_end` in finally 覆盖 error 内容）。 |
 
 #### Scenario: 传输层错误（超时 / 连接断 / DNS / SSL）
 
 | 字段 | 内容 |
 |---|---|
 | 期望来源 | incident.md §验收标准 Req-ModelError |
-| 验证方式 | 实际在 kernel API 上触发（sess_050b7f5b27ed5007，`anthropic: stream ended without terminal event`） |
-| 证据 | run 状态 `failed`；messages API 返回 `content="⚠️ 模型调用失败:LLM generate exceeded 20 retries: anthropic: stream ended without terminal event"` |
-| 结果 | **pass** |
-| 备注 | 流提前结束路径（bugfix-380 R1 修复的 `got_terminal_event=False`）实际被触发并正确处理。 |
+| 验证方式 | Gateway→IM 实际触发（real Anthropic API 20次重试后超时，`anthropic: stream ended without terminal event`） |
+| 证据 | gateway.log: `RuntimeError: LLM generate exceeded 20 retries: anthropic: stream ended without terminal event`；IM: user 消息 `delivery_status=failed`；agent 消息 `delivery_status=completed, content=''`（受 Issue #2 影响） |
+| 结果 | **fail** |
+| 备注 | kernel 层正确抛 ModelError 并合成 error 消息（集成测试验证），但 Gateway→IM 路径因 Issue #2 仍显示 `completed + empty`。 |
 
 #### Scenario: SSE 流中途断开 / 不完整
 
@@ -64,7 +64,7 @@
 | 验证方式 | provider 单元测试 `test_stream_response_incomplete_stream_raises_model_error`（anthropic + openai_compat 各一条） |
 | 证据 | 12 个 provider 单元测试全绿 |
 | 结果 | **pass** |
-| 备注 | 断流路径现在抛 ModelError，不再静默成功。 |
+| 备注 | 断流路径现在抛 ModelError，不再静默成功。kernel 层修复完整，Gateway→IM 路径受 Issue #2 影响。 |
 
 #### Scenario: provider 返回非法 JSON
 
@@ -95,10 +95,10 @@
 | 字段 | 内容 |
 |---|---|
 | 期望来源 | incident.md §验收标准 Req-CLI |
-| 验证方式 | 尝试通过 `coding_cli.main --mode remote --base-url http://127.0.0.1:62091 --text "hello"` 验证 |
-| 证据 | CLI 输出中仅看到 `{"error": "Using SOCKS proxy...", "layer": "runtime"}` — 该错误来自 CLI 的 kernel HTTP client 遇到 SOCKS 代理，不是来自 LLM provider 层 |
+| 验证方式 | 未完成（依赖 Gateway→IM 路径先修复后补测） |
+| 证据 | N/A |
 | 结果 | **inconclusive** |
-| 备注 | CLI 无法在当前环境连接到本地 kernel API（同样的 SOCKS 代理问题）。commands.py 的 run error 透传改动（约 3 行）已在 M1 progress.md 记录（R4），源码层改动存在，但用户面验证无法完成。需要在无 SOCKS 代理干扰的环境验证。 |
+| 备注 | commands.py 的 run error 透传改动（R4）已在 M1 progress.md 记录，源码层改动存在。CLI 路径是否正确展示 `⚠️` 前缀需环境隔离后补充验证。 |
 
 ### Requirement: 不回归既有 happy path 行为
 
@@ -119,41 +119,38 @@
 | 旅程 | 覆盖 Scenario |
 |---|---|
 | J1: 集成测试直接路径（SseErrorLLMClient → AgentRuntime） | SSE error → 错误消息持久化；history 过滤；happy path；长文案截断 |
-| J2: kernel API 实际触发（流提前结束路径） | 传输层错误 → `⚠️ 模型调用失败:...` 消息产生；run status=failed |
-| J3: IM 前端气泡渲染（旧版代码产生的消息） | `delivery_status=failed` 气泡正确渲染（failed 状态 + 消息内容显示），截图留存 |
-| J4: 全套单元测试 | provider 层 SSE error / 断流 / 非法 JSON 全路径；prompting filter；session entries round-trip |
+| J2: Gateway→IM 端到端路径（清除 SOCKS 代理后，real Anthropic API 20次重试超时） | user 消息 `delivery_status=failed` 正确；agent 消息 `completed + empty`（Issue #2） |
+| J3: 全套单元测试 | provider 层 SSE error / 断流 / 非法 JSON 全路径；prompting filter；session entries round-trip |
 
 ---
 
 ## Issues
 
-### Issue #1 — major: IM 前端端到端气泡无法通过 bugfix-380 代码路径完整验证
+### Issue #1 — major: Gateway→IM 端到端路径 agent 气泡显示 `completed + empty` 而非 `failed + ⚠️`
 
 - **Severity**: major
 - **Recommended Action**: fix-implementation
-- **Action Rationale**: 当前测试环境中 `http_proxy=http://127.0.0.1:7895` 指向 SOCKS 代理，但 `socksio` 未安装。Gateway 的 `kernel_api_client.py` 创建 `httpx.AsyncClient` 时未显式排除 localhost 代理，导致 Gateway→Kernel 的 SSE 流连接失败（`ImportError: Using SOCKS proxy, but the 'socksio' package is not installed`）。这使得 bugfix-380 代码路径产生的 `⚠️ 模型调用失败:...` 消息无法通过 Gateway 传播到 IM 前端。
+- **Action Rationale**: 端到端路径（清除所有 SOCKS 代理变量后重测）仍然出现 agent 消息 `delivery_status=completed, content=''`，而期望是 `delivery_status=failed, content="⚠️ 模型调用失败:..."`。根本原因定位：
 
-  **已验证部分**：
-  - kernel API 直接调用（不经 Gateway）确认消息内容正确包含 `⚠️ 模型调用失败:` 前缀
-  - IM 前端对 `delivery_status=failed` 的气泡渲染正确（状态 + 内容均显示，截图留存）
-  - 集成测试完整覆盖了核心链路
+  **根因**：`loop.py` 的 `_execute_loop` 在 `finally` 块中无条件发送 `turn_end` 事件（无论 try 中是否有异常）。Gateway 的 `kernel_event_observer` 收到 `turn_end` 后立即向 IM 发送 `message_completed(final_content=None)`，IM 把 agent 消息设为 `completed + empty`（此时 error assistant message 还没到达）。之后 `runtime.py` except 块合成的 error message 通过 `message_end` hook 发出 `assistant_message` 事件，Gateway 发送 `message_delta`，但 IM 对已经 `completed` 的消息的 delta 更新静默忽略，导致 error 内容永远不显示。
 
-  **未验证部分**：bugfix-380 代码路径产生的错误消息经 Gateway 传播后，IM 气泡同时显示 `⚠️ 模型调用失败:...` 内容 + `failed` 状态
+  **修复方向**：选一：在 `loop.py` 的 `finally` 中检查是否有未处理异常，若有则跳过 `turn_end`（或推迟到 runtime except 块处理完 error message 后再发）。选二：Gateway 的 `kernel_event_observer` 在 `run_status=failed` 时发送 `message_completed(content=error_text)` 而不是等 `turn_end`；需要 kernel 在 `run_status=failed` 事件中携带 error content。
 
-  **修复建议**：在 `kernel_api_client.py` 的 `httpx.AsyncClient` 初始化中显式设置 `proxies={"all://127.0.0.1": None}` 或等效方式排除 localhost 代理，使 worktree 环境下 Gateway→Kernel 通信不受系统 SOCKS 代理干扰。
+  证据：gateway.log 中确认 `RuntimeError: LLM generate exceeded 20 retries`；IM 消息 API 返回 `delivery_status=completed, content=''`（不是 `failed, "⚠️ ..."`）。
 
-### Issue #2 — minor: CLI 端错误输出无法在当前环境验证
+### Issue #2 — minor: 全套测试 6 个预存在 regression（与本 unit 无关）
 
 - **Severity**: minor
-- **Recommended Action**: fix-implementation
-- **Action Rationale**: 同 Issue #1 的 SOCKS 代理问题，CLI 的 `kernel_api_client.py` 同样受影响，无法在本地环境端到端验证 CLI 的 `⚠️ 模型调用失败:...` 终端输出。源码改动（R4）存在且在 progress.md 记录。
+- **Recommended Action**: no-action（已知问题，不属于本 unit）
+- **Action Rationale**: `FakeLLMResponse` 缺 `reasoning_signature` 属性导致的测试失败，已在 M1 progress.md 说明，早于 bugfix-380。
 
 ---
 
 ## Side Findings
 
-- 全套测试（`pytest -q -m "not e2e"`）有 6 个预存在 regression，已由 worker 在 M1 progress.md 说明（`FakeLLMResponse` 缺 `reasoning_signature` 属性），与 bugfix-380 无关。
-- 前端气泡展示 `failed` 状态时用户消息也显示为 `failed`（不仅是 agent 消息），这是现有 IM 逻辑，当一个 run 失败时，触发该 run 的 user message 也被标记 `failed`。这可能给用户带来困惑（用户消息本身没有失败，是 agent 回复失败了）。该行为不在 bugfix-380 范围内，记录备忘。
+- Gateway→IM 端到端测试时，user 消息的 `delivery_status` 正确更新为 `failed`（`node.delivery_receipt(failed)` 路径正常），说明 Gateway 的 `_emit_relay_lifecycle(phase="failed")` 和 `_relay_lifecycle_callback` 工作正常。仅 agent 消息状态（`turn_end` 先于 error message 到达）不正确。
+- `loop.py` 的 `finally` 发送 `turn_end` 是已知设计选择（保证 Gateway 不因 `run_status=failed` 后的 SSE 流 hang 住），但与 bugfix-380 的 "runtime except 块合成 error message 后 raise" 的顺序冲突，导致 Gateway 侧 race condition。
+- Refs #52 (out-of-unit: Gateway→kernel HTTP failure raw exception text in IM bubble)
 
 ---
 
@@ -171,4 +168,4 @@
 
 ## 澄清记录
 
-无需澄清，验收标准清晰。环境问题记录于 Issues #1，不需要 spec/design 层确认。
+无需澄清，验收标准清晰。Issue #1 是 fix-implementation 范围内的代码 bug，不需要 spec/design 层确认。
