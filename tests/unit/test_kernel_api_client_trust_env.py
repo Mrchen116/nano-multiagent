@@ -103,19 +103,30 @@ async def test_async_client_uses_trust_env_false_for_localhost() -> None:
 
 
 async def test_async_client_uses_trust_env_true_for_external_url() -> None:
-    """外部 URL 下 AsyncClient 应传 trust_env=True（与同步 Client 保持一致）。"""
+    """外部 URL 下 AsyncClient 应传 trust_env=True（与同步 Client 保持一致）。
+
+    必须把 *_proxy 环境变量清掉再跑：KernelApiClient.__init__ 还构造一个未被 mock 的
+    sync httpx.Client，若 shell 继承了 socks5://... 之类的代理且 venv 缺 socksio，
+    sync Client 构造期就 ImportError，测试与本断言无关地失败。
+    """
+    proxy_vars = (
+        "ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "SOCKS_PROXY",
+        "all_proxy", "https_proxy", "http_proxy", "socks_proxy",
+    )
+    clean_env = {k: v for k, v in os.environ.items() if k not in proxy_vars}
     mock_instance = _make_mock_async_client()
 
-    with patch(_ASYNC_CLIENT_PATH, return_value=mock_instance) as mock_async_cls:
-        client = KernelApiClient(config=_EXTERNAL_CFG)
-        try:
-            async for _ in client.stream_session(session_id="test-session"):
+    with patch.dict(os.environ, clean_env, clear=True):
+        with patch(_ASYNC_CLIENT_PATH, return_value=mock_instance) as mock_async_cls:
+            client = KernelApiClient(config=_EXTERNAL_CFG)
+            try:
+                async for _ in client.stream_session(session_id="test-session"):
+                    pass
+            except Exception:
                 pass
-        except Exception:
-            pass
 
-        assert mock_async_cls.called, "stream_session 应该调用了 httpx.AsyncClient"
-        call_kwargs = mock_async_cls.call_args.kwargs
-        assert call_kwargs.get("trust_env") is True, (
-            f"外部 URL 下 AsyncClient 应传 trust_env=True，实际: {call_kwargs.get('trust_env')!r}"
-        )
+            assert mock_async_cls.called, "stream_session 应该调用了 httpx.AsyncClient"
+            call_kwargs = mock_async_cls.call_args.kwargs
+            assert call_kwargs.get("trust_env") is True, (
+                f"外部 URL 下 AsyncClient 应传 trust_env=True，实际: {call_kwargs.get('trust_env')!r}"
+            )
