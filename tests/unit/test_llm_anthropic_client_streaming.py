@@ -366,3 +366,148 @@ async def test_stream_response_shares_signature_across_parallel_tool_calls() -> 
         assert msg.reasoning_signature == real_signature, (
             f"tool_call {msg.tool_calls[0].name} 缺 reasoning_signature: {msg.reasoning_signature!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# FIX 2: HTTP 4xx/5xx 专项测试 — raise_for_status() → ModelError
+# ---------------------------------------------------------------------------
+
+
+async def test_http_401_raises_model_error() -> None:
+    """HTTP 401 鉴权失败必须 raise ModelError，状态码体现在 error details。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text="Unauthorized", headers={"content-type": "application/json"})
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelError) as exc_info:
+        await _collect(
+            client,
+            LLMGenerateRequest(
+                session_id="sess_401",
+                model="kimiCoding:K2.6",
+                messages=(LLMMessage(role="user", content="hi"),),
+            ),
+        )
+    err = exc_info.value
+    assert err.details.get("status_code") == 401 or "401" in str(err), (
+        f"ModelError 应包含 401 状态码，实际: {err!r}"
+    )
+
+
+async def test_http_429_raises_model_error() -> None:
+    """HTTP 429 限流必须 raise ModelError。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text="Too Many Requests", headers={"content-type": "application/json"})
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelError) as exc_info:
+        await _collect(
+            client,
+            LLMGenerateRequest(
+                session_id="sess_429",
+                model="kimiCoding:K2.6",
+                messages=(LLMMessage(role="user", content="hi"),),
+            ),
+        )
+    err = exc_info.value
+    assert err.details.get("status_code") == 429 or "429" in str(err), (
+        f"ModelError 应包含 429 状态码，实际: {err!r}"
+    )
+
+
+async def test_http_500_raises_model_error() -> None:
+    """HTTP 500 服务端错误必须 raise ModelError。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="Internal Server Error", headers={"content-type": "application/json"})
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelError) as exc_info:
+        await _collect(
+            client,
+            LLMGenerateRequest(
+                session_id="sess_500",
+                model="kimiCoding:K2.6",
+                messages=(LLMMessage(role="user", content="hi"),),
+            ),
+        )
+    err = exc_info.value
+    assert err.details.get("status_code") == 500 or "500" in str(err), (
+        f"ModelError 应包含 500 状态码，实际: {err!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# FIX 3: 传输层错误专项测试 — httpx.HTTPError → ModelError
+# ---------------------------------------------------------------------------
+
+
+async def test_connect_timeout_raises_model_error() -> None:
+    """连接超时(ConnectTimeout)必须 raise ModelError。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("connection timed out", request=request)
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelError) as exc_info:
+        await _collect(
+            client,
+            LLMGenerateRequest(
+                session_id="sess_connect_timeout",
+                model="kimiCoding:K2.6",
+                messages=(LLMMessage(role="user", content="hi"),),
+            ),
+        )
+    err = exc_info.value
+    assert "transport" in str(err).lower() or "timeout" in str(err).lower() or err.details.get("error"), (
+        f"ModelError 应反映传输层超时，实际: {err!r}"
+    )
+
+
+async def test_connect_error_raises_model_error() -> None:
+    """连接被拒(ConnectError)必须 raise ModelError。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelError) as exc_info:
+        await _collect(
+            client,
+            LLMGenerateRequest(
+                session_id="sess_connect_error",
+                model="kimiCoding:K2.6",
+                messages=(LLMMessage(role="user", content="hi"),),
+            ),
+        )
+    err = exc_info.value
+    assert "transport" in str(err).lower() or "connect" in str(err).lower() or err.details.get("error"), (
+        f"ModelError 应反映连接被拒，实际: {err!r}"
+    )
