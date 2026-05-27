@@ -31,7 +31,23 @@ from personal_assistant.main import (
 )
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 
+from agent.core.llm.model_registry import _reset_for_tests
 from ._main_helpers import _FakeIMManager, build_config
+
+from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+
+_DEFAULT_TEST_LLM = LLMConfigPayload(
+    default_model="kimiCoding:K2.6",
+    providers=(
+        LLMProviderPayload(
+            name="anthropic",
+            base_url="http://127.0.0.1:4000",
+            models=(
+                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+            ),
+        ),
+    ),
+)
 
 
 def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> None:
@@ -238,6 +254,7 @@ def test_build_relay_lifecycle_callback_keeps_completed_updates_when_im_is_recon
 
 
 def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
+    _reset_for_tests()  # run_gateway calls init_model_registry; must start from clean state
     config = build_config(tmp_path)
     seen: dict[str, object] = {}
 
@@ -277,6 +294,7 @@ def test_build_runtime_defaults_local_kernel_token_when_config_omits_it(tmp_path
         ),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
     )
     seen: dict[str, object] = {}
@@ -327,6 +345,7 @@ def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(tmp_path: Path,
         ),
         heartbeat=HeartbeatConfig(),
         im_service=IMServiceConfig(url="http://im.local"),
+        llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
     )
 

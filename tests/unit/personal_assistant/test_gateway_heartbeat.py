@@ -18,10 +18,24 @@ from personal_assistant.main import (
     GatewayStartupError,
 )
 
+from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 from ._main_helpers import (
     _FakeHeartbeatRunner,
     _FakeIMManager,
     _FakeProcessManager,
+)
+
+_DEFAULT_TEST_LLM = LLMConfigPayload(
+    default_model="kimiCoding:K2.6",
+    providers=(
+        LLMProviderPayload(
+            name="anthropic",
+            base_url="http://127.0.0.1:4000",
+            models=(
+                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+            ),
+        ),
+    ),
 )
 
 
@@ -65,6 +79,7 @@ def test_gateway_runtime_publishes_heartbeat_product_reports_to_im(tmp_path: Pat
         kernel=KernelConfig(command="python -m agent.platform.http_api.app"),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
     )
     events: list[str] = []
@@ -115,6 +130,7 @@ def test_gateway_runtime_reports_actionable_bootstrap_failure_to_im(tmp_path: Pa
         kernel=KernelConfig(command="python -m agent.platform.http_api.app"),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
     )
     events: list[str] = []

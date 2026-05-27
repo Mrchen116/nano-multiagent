@@ -25,7 +25,23 @@ from personal_assistant.main import (
 
 import personal_assistant.main as main_module
 
+from agent.core.llm.model_registry import _reset_for_tests
 from ._main_helpers import _FakeProcess, build_config
+
+from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+
+_DEFAULT_TEST_LLM = LLMConfigPayload(
+    default_model="kimiCoding:K2.6",
+    providers=(
+        LLMProviderPayload(
+            name="anthropic",
+            base_url="http://127.0.0.1:4000",
+            models=(
+                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+            ),
+        ),
+    ),
+)
 
 
 def test_launch_gateway_in_background_writes_runtime_state_file(tmp_path: Path) -> None:
@@ -90,6 +106,7 @@ def test_stop_gateway_only_reports_stopped_after_health_url_goes_down(
         ),
         heartbeat=HeartbeatConfig(),
         im_service=None,
+        llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
     )
     state_path = tmp_path / ".gateway-state.json"
@@ -134,6 +151,7 @@ def test_run_gateway_writes_pid_file_before_start_and_removes_on_exit(
     """run_gateway must write gateway.pid before the runtime starts and remove it on clean exit."""
     from personal_assistant.main import run_gateway, _gateway_pid_path
 
+    _reset_for_tests()  # run_gateway calls init_model_registry; must start from clean state
     config = build_config(tmp_path)
     pid_path = _gateway_pid_path(config)
     pid_observed_during_run: list[bool] = []
@@ -162,6 +180,7 @@ def test_run_gateway_removes_pid_file_even_when_runtime_raises(
     """run_gateway must remove gateway.pid even when the runtime raises an exception."""
     from personal_assistant.main import run_gateway, _gateway_pid_path
 
+    _reset_for_tests()  # run_gateway calls init_model_registry; must start from clean state
     config = build_config(tmp_path)
     pid_path = _gateway_pid_path(config)
 

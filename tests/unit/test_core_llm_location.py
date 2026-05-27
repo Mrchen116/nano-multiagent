@@ -3,7 +3,6 @@
 from importlib.util import find_spec
 
 from agent.core.llm import (
-    DEFAULT_PROVIDER,
     LLMClient,
     LLMFactoryConfig,
     LLMGenerateRequest,
@@ -14,6 +13,7 @@ from agent.core.llm import (
     create_llm_client,
     get_default_base_url,
     get_default_model,
+    get_default_provider,
     list_provider_models,
     list_supported_providers,
     resolve_model_metadata,
@@ -25,10 +25,10 @@ from agent.core.llm.interfaces import LLMGenerateRequest as CoreLLMGenerateReque
 from agent.core.llm.interfaces import LLMGenerateResponse as CoreLLMGenerateResponse
 from agent.core.llm.interfaces import LLMMessage as CoreLLMMessage
 from agent.core.llm.interfaces import LLMToolCall as CoreLLMToolCall
-from agent.core.llm.model_registry import DEFAULT_PROVIDER as CoreDefaultProvider
 from agent.core.llm.model_registry import ModelMetadata as CoreModelMetadata
 from agent.core.llm.model_registry import get_default_base_url as CoreGetDefaultBaseUrl
 from agent.core.llm.model_registry import get_default_model as CoreGetDefaultModel
+from agent.core.llm.model_registry import get_default_provider as CoreGetDefaultProvider
 from agent.core.llm.model_registry import list_provider_models as CoreListProviderModels
 from agent.core.llm.model_registry import list_supported_providers as CoreListSupportedProviders
 from agent.core.llm.model_registry import resolve_model_metadata as CoreResolveModelMetadata
@@ -50,7 +50,7 @@ def test_core_llm_is_canonical_home() -> None:
     assert list_supported_providers is CoreListSupportedProviders
     assert list_provider_models is CoreListProviderModels
     assert resolve_model_metadata is CoreResolveModelMetadata
-    assert DEFAULT_PROVIDER == CoreDefaultProvider
+    assert get_default_provider is CoreGetDefaultProvider
 
     assert LLMClient.__module__ == "agent.core.llm.interfaces"
     assert LLMGenerateRequest.__module__ == "agent.core.llm.interfaces"

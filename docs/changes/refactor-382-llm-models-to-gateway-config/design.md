@@ -313,6 +313,8 @@ llm:
 
 reviewer 跑用户旅程前**必须**按上面顺序无脑停-起。worktree e2e 内的 config 是从主 config 派生的副本（脚本会处理），主仓 `~/.nano-assistant/config.yaml` 不会被污染。
 
+> **前置检查**：启动前确认 `~/.nano-assistant/config.yaml` 已包含 `llm:` 段（`grep 'llm:' ~/.nano-assistant/config.yaml` 应有输出）。若缺失，按 `AGENTS.md` "最小可用配置示例"中的 `llm:` 段添加后再运行 `e2e-up.sh`。
+
 走旅程时使用 `http://127.0.0.1:$IM_PORT/`，登录 `nano` / `nano1234`，进 agent 设置页验证模型下拉。
 
 ## Milestones

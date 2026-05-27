@@ -124,9 +124,32 @@ if ! curl -sf "http://127.0.0.1:$IM_PORT/openapi.json" >/dev/null 2>&1; then
   exit 1
 fi
 
-# ─── start Kernel API (bare uvicorn) ─────────────────────────────────────────
+# Register nano user in the ephemeral IM (fresh DB, no users yet).
+curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"nano","password":"nano1234","display_name":"Test User"}' \
+  >/dev/null 2>&1 || true  # ignore if already registered
 
-PYTHONPATH=src python -m uvicorn agent.platform.http_api.app:app \
+# ─── start Kernel API (bare uvicorn) ─────────────────────────────────────────
+# Use personal_assistant.kernel_app which reads NANO_MULTIAGENT_LLM_CONFIG_JSON
+# and calls init_model_registry() before create_app().
+
+if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
+  echo "ERROR: '$WT_CFG' is missing the 'llm:' section." >&2
+  echo "Add the llm: block to ~/.nano-assistant/config.yaml first (see AGENTS.md 'minimum config example')." >&2
+  exit 1
+fi
+
+LLM_CONFIG_JSON=$(PYTHONPATH=src python3 -c "
+import sys, yaml
+sys.path.insert(0, 'src')
+from personal_assistant.config.local_store import load_local_config
+cfg = load_local_config('$WT_CFG')
+print(cfg.llm.to_json())
+")
+
+NANO_MULTIAGENT_LLM_CONFIG_JSON="$LLM_CONFIG_JSON" \
+PYTHONPATH=src python -m uvicorn personal_assistant.kernel_app:app \
   --host 127.0.0.1 --port "$API_PORT" \
   > "$WT_ROOT/.api.log" 2>&1 &
 echo $! > "$WT_ROOT/.api.pid"
