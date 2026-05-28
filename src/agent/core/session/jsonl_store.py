@@ -511,7 +511,16 @@ def _merge_config(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any
 
 def _to_session_config(session_id: str, config: dict[str, Any]) -> SessionConfig:
     raw_root = config.get("workspace_root")
-    workspace_root = Path(str(raw_root)) if isinstance(raw_root, str) and raw_root.strip() else Path.cwd()
+    if not (isinstance(raw_root, str) and raw_root.strip()):
+        # 静默回落 cwd 是 bugfix-348 的同族 bug — 旧文件少字段时,后续 append 会
+        # 沿 cwd 派生路径,把同一 session 劈成"旧消息在原 workspace / 新消息在 cwd"
+        # 两半.不做后向兼容,缺字段的 JSONL 直接拒绝加载,让调用方早发现.
+        raise SessionNotFoundError(
+            f"session {session_id} jsonl is missing required 'workspace_root' "
+            f"field in session_created entry — refusing to silently fall back to "
+            f"cwd; the file is malformed or pre-dates bugfix-348"
+        )
+    workspace_root = Path(raw_root)
 
     raw_sp = config.get("system_prompt")
     system_prompt = raw_sp if isinstance(raw_sp, str) and raw_sp.strip() else None

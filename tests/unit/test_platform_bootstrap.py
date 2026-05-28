@@ -295,6 +295,36 @@ def test_stateless_store_raises_without_workspace_root_and_without_data_dir(tmp_
         store.resolve_path("sess_whatever")
 
 
+def test_stateless_store_raises_when_jsonl_missing_workspace_root_field(tmp_path: Path) -> None:
+    """A JSONL whose session_created entry omits workspace_root must raise loudly.
+
+    Same-family bug as bugfix-348: silently filling the missing field with
+    Path.cwd() splits a session across two physical files on the next append
+    (old messages stay in the original workspace, new messages land under cwd).
+    No backward compatibility — malformed files are rejected at load time.
+    """
+    import json
+    from agent.core.session.jsonl_store import SessionNotFoundError
+
+    workspace_root = tmp_path / "ws"
+    sessions_dir = workspace_root / ".nano" / "sessions"
+    sessions_dir.mkdir(parents=True)
+    jsonl_path = sessions_dir / "sess_legacy.jsonl"
+    # Simulate a pre-bugfix-348 file: session_created entry without workspace_root.
+    jsonl_path.write_text(
+        json.dumps({
+            "type": "session_created",
+            "session_id": "sess_legacy",
+            "created_at": "2026-01-01T00:00:00+00:00",
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    store = JsonlSessionStore(data_dir=None)
+    with pytest.raises(SessionNotFoundError, match="missing required 'workspace_root'"):
+        store.load("sess_legacy", workspace_root=workspace_root)
+
+
 def test_stateless_store_list_sessions_scoped_to_workspace_root(tmp_path: Path) -> None:
     """list_session_ids is scoped to the workspace_root the caller passes."""
     from agent.core.session.manager import SessionManager
